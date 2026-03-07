@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -e bash -lc \"cd ~/picodroid/picodroid-rs && cargo build 2>&1\")"
+    ]
+  }
+}

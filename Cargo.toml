@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
+freertos-rust = { path = "../FreeRTOS-rust/freertos-rust" }
 
 defmt = "1"
 defmt-rtt = "1"
@@ -22,6 +23,11 @@ rp-pico = "0.9"
 # If you're not going to use a Board Support Package you'll need these:
 # rp2040-hal = { version="0.10", features=["rt", "critical-section-impl"] }
 # rp2040-boot2 = "0.3"
+
+[build-dependencies]
+# Used to compile FreeRTOS-Kernel C source directly
+cc = "1.0"
+freertos-cargo-build = { path = "../FreeRTOS-rust/freertos-cargo-build" }
 
 # cargo build/run
 [profile.dev]

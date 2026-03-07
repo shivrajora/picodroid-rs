@@ -5,10 +5,17 @@
 #![no_main]
 
 use bsp::entry;
+use cortex_m::asm;
+use cortex_m_rt::{exception, ExceptionFrame};
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::OutputPin;
 use panic_probe as _;
+use freertos_rust::*;
+
+
+#[global_allocator]
+static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -24,6 +31,17 @@ use bsp::hal::{
 
 #[entry]
 fn main() -> ! {
+    Task::new()
+        .name("default")
+        .stack_size(1000)
+        .start(move |_| {
+            app_main();
+        })
+        .unwrap();
+    FreeRtosUtils::start_scheduler();
+}
+
+fn app_main() -> ! {
     info!("Program start");
     let mut pac = pac::Peripherals::take().unwrap();
     let core = pac::CorePeripherals::take().unwrap();
@@ -67,11 +85,43 @@ fn main() -> ! {
     loop {
         info!("on!");
         led_pin.set_high().unwrap();
-        delay.delay_ms(500);
+        CurrentTask::delay(Duration::ms(1000));
         info!("off!");
         led_pin.set_low().unwrap();
-        delay.delay_ms(500);
+        CurrentTask::delay(Duration::ms(1000));
     }
+}
+
+#[allow(non_snake_case)]
+#[exception]
+unsafe fn DefaultHandler(_irqn: i16) {
+    // custom default handler
+    // irqn is negative for Cortex-M exceptions
+    // irqn is positive for device specific (line IRQ)
+    // set_led(true);(true);
+    // panic!("Exception: {}", irqn);
+    asm::bkpt();
+    loop {}
+}
+
+#[allow(non_snake_case)]
+#[exception]
+unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
+    asm::bkpt();
+    loop {}
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+fn vApplicationMallocFailedHook() {
+    asm::bkpt();
+    loop {}
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+fn vApplicationStackOverflowHook(_pxTask: FreeRtosTaskHandle, _pcTaskName: FreeRtosCharPtr) {
+    asm::bkpt();
 }
 
 // End of file

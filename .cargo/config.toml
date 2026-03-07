@@ -23,3 +23,5 @@ target = "thumbv6m-none-eabi"
 
 [env]
 DEFMT_LOG = "debug"
+# Cross-compiler used by freertos-cargo-build (cc crate) to compile FreeRTOS C source
+CC_thumbv6m-none-eabi = "arm-none-eabi-gcc"
