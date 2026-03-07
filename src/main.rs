@@ -10,9 +10,8 @@ use cortex_m_rt::{exception, ExceptionFrame};
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::OutputPin;
-use panic_probe as _;
 use freertos_rust::*;
-
+use panic_probe as _;
 
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;

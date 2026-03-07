@@ -27,14 +27,14 @@ fn main() {
 
     // Path to FreeRTOS kernel or set ENV "FREERTOS_SRC" instead
     b.freertos("third_party/FreeRTOS-Kernel");
-    b.freertos_config("src");       // Location of `FreeRTOSConfig.h`
+    b.freertos_config("src"); // Location of `FreeRTOSConfig.h`
     b.freertos_port("GCC/ARM_CM0"); // Port dir relativ to 'FreeRTOS-Kernel/portable'
-    b.heap("heap_4.c");             // Set the heap_?.c allocator to use from
-                                    // 'FreeRTOS-Kernel/portable/MemMang' (Default: heap_4.c)
+    b.heap("heap_4.c"); // Set the heap_?.c allocator to use from
+                        // 'FreeRTOS-Kernel/portable/MemMang' (Default: heap_4.c)
 
     // b.get_cc().file("More.c");   // Optional additional C-Code to be compiled
 
-    b.compile().unwrap_or_else(|e| { panic!("{}", e.to_string()) });
+    b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 
     // By default, Cargo will re-run a build script whenever
     // any file in the project changes. By specifying `memory.x`
