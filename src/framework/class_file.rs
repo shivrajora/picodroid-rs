@@ -325,4 +325,26 @@ impl ClassFile {
             &self.data[m.code_offset..m.code_offset + m.code_len]
         }
     }
+
+    /// Resolves a CONSTANT_Class CP entry to its class name Utf8 bytes.
+    pub fn cp_class_name(&self, index: u16) -> Option<&'static [u8]> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_CLASS) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let utf8_idx = u16::from_be_bytes([self.data[off], self.data[off + 1]]);
+        self.cp_utf8(utf8_idx)
+    }
+
+    /// Resolves a CONSTANT_Integer CP entry to an i32.
+    pub fn cp_integer(&self, index: u16) -> Option<i32> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&3u8) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let bytes = [self.data[off], self.data[off+1], self.data[off+2], self.data[off+3]];
+        Some(i32::from_be_bytes(bytes))
+    }
 }
