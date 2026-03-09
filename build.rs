@@ -9,9 +9,9 @@
 //! new memory settings.
 
 use std::env;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // Put `memory.x` in our output directory and ensure it's
@@ -43,6 +43,8 @@ fn main() {
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=src/FreeRTOSConfig.h");
 
+    compile_java(out);
+
     // This FreeRTOS-Kernel port (Development Branch) uses CMSIS-style handler
     // names (SVC_Handler, PendSV_Handler, SysTick_Handler).  cortex-m-rt's
     // linker script uses PROVIDE(SVCall = DefaultHandler) etc.  A strong
@@ -60,4 +62,93 @@ fn main() {
     )
     .unwrap();
     println!("cargo:rustc-link-arg=-T{}", vectors_ld.display());
+}
+
+fn compile_java(out: &Path) {
+    let classes_dir = out.join("classes");
+    fs::create_dir_all(&classes_dir).unwrap();
+
+    // Collect all .java files under java/
+    let mut java_files: Vec<PathBuf> = Vec::new();
+    collect_java_files(Path::new("java"), &mut java_files);
+
+    if java_files.is_empty() {
+        return;
+    }
+
+    let result = std::process::Command::new("javac")
+        .args(["--release", "8", "-cp", "java", "-d"])
+        .arg(&classes_dir)
+        .args(&java_files)
+        .status();
+
+    let status = match result {
+        Ok(s) => s,
+        Err(e) => panic!(
+            "Failed to run javac: {e}\n\
+             Install a JDK and ensure javac is on PATH.\n\
+             On macOS: brew install openjdk && brew link openjdk --force\n\
+             Then add to your shell profile:\n\
+               export PATH=\"$(brew --prefix openjdk)/bin:$PATH\""
+        ),
+    };
+
+    if !status.success() {
+        panic!(
+            "javac compilation failed (exit code: {:?}).\n\
+             Make sure a JDK (not just JRE) is installed.\n\
+             On macOS: brew install openjdk && brew link openjdk --force",
+            status.code()
+        );
+    }
+
+    println!("cargo:rerun-if-changed=java/");
+
+    // Generate java_classes.rs embedding each .class as a &[u8] constant
+    let mut generated = String::new();
+    let mut class_files: Vec<PathBuf> = Vec::new();
+    collect_class_files(&classes_dir, &mut class_files);
+
+    for class_path in &class_files {
+        let rel = class_path.strip_prefix(&classes_dir).unwrap();
+        let const_name = rel
+            .to_string_lossy()
+            .replace(['/', '\\', '.', '-'], "_")
+            .to_uppercase();
+        // Remove trailing _CLASS suffix from the extension replacement, then re-add
+        let const_name = const_name.trim_end_matches("_CLASS").to_string() + "_CLASS";
+        generated.push_str(&format!(
+            "pub static {const_name}: &[u8] = include_bytes!({path:?});\n",
+            const_name = const_name,
+            path = class_path.display().to_string(),
+        ));
+    }
+
+    fs::write(out.join("java_classes.rs"), generated).unwrap();
+}
+
+fn collect_java_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_java_files(&path, out);
+            } else if path.extension().map_or(false, |e| e == "java") {
+                out.push(path);
+            }
+        }
+    }
+}
+
+fn collect_class_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_class_files(&path, out);
+            } else if path.extension().map_or(false, |e| e == "class") {
+                out.push(path);
+            }
+        }
+    }
 }
