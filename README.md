@@ -139,38 +139,16 @@ Native implementations are in `src/system/picodroid/util/log.rs`.
 
 ```
 picodroid-rs/
-├── java/                          # Java source root
-│   ├── apps/                      # Your Java apps go here
-│   │   └── HelloWorld.java
-│   └── picodroid/
-│       └── util/
-│           └── Log.java           # Android-compatible API stub (native)
+├── java/               # Java source root
+│   ├── apps/           # Your Java apps go here
+│   └── picodroid/      # Android-compatible Java API stubs
 │
 ├── src/
-│   ├── main.rs                    # FreeRTOS entry point — creates JVM task
-│   ├── FreeRTOSConfig.h           # FreeRTOS kernel config (128 KB heap, 1 kHz tick)
-│   │
-│   ├── framework/                 # JVM interpreter
-│   │   ├── mod.rs                 # Jvm struct, run_jvm()
-│   │   ├── class_file.rs          # .class binary parser
-│   │   ├── interpreter.rs         # Bytecode execution loop
-│   │   ├── frame.rs               # Call frames and operand stack
-│   │   ├── heap.rs                # String table (zero-copy from Flash)
-│   │   ├── native.rs              # Native method dispatch
-│   │   └── types.rs               # Value, JvmError
-│   │
-│   └── system/
-│       └── picodroid/
-│           └── util/
-│               └── log.rs         # Rust impl of picodroid.util.Log → defmt
+│   ├── framework/      # JVM interpreter (Rust)
+│   └── system/         # Native implementations of Java API methods
 │
-├── third_party/
-│   └── FreeRTOS-Kernel/           # Git submodule
-│
-├── build.rs                       # Compiles FreeRTOS C + javac + embeds .class files
-├── Cargo.toml
-├── memory.x                       # RP2040 linker memory layout
-└── Embed.toml                     # probe-rs / cargo-embed config
+├── third_party/        # Git submodules (FreeRTOS-Kernel)
+└── build.rs            # Compiles FreeRTOS C + Java sources, embeds .class into firmware
 ```
 
 ## Debugging
@@ -189,4 +167,4 @@ Project scaffolding based on [rp2040-project-template](https://github.com/rp-rs/
 
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0
