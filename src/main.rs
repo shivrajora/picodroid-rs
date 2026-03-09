@@ -18,8 +18,29 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 
 use rp_pico as bsp;
 
+use bsp::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+
+fn clock_init() {
+    let mut pac = pac::Peripherals::take().unwrap();
+    let _sio = Sio::new(pac.SIO);
+    let mut watchdog = Watchdog::new(pac.WATCHDOG);
+    let _clocks = init_clocks_and_plls(
+        12_000_000u32,
+        pac.XOSC,
+        pac.CLOCKS,
+        pac.PLL_SYS,
+        pac.PLL_USB,
+        &mut pac.RESETS,
+        &mut watchdog,
+    )
+    .ok()
+    .unwrap();
+}
+
 #[entry]
 fn main() -> ! {
+    clock_init();
+
     Task::new()
         .name("jvm")
         .stack_size(2048)
