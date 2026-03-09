@@ -59,7 +59,14 @@ impl Jvm {
             })
             .ok_or(JvmError::MethodNotFound)?;
 
-        interpreter::execute(&self.classes, &mut self.strings, &mut self.objects, ci, mi, &[])?;
+        interpreter::execute(
+            &self.classes,
+            &mut self.strings,
+            &mut self.objects,
+            ci,
+            mi,
+            &[],
+        )?;
         Ok(())
     }
 }
@@ -69,7 +76,8 @@ pub fn run_jvm() -> ! {
 
     jvm.load_class(BLINKY_LEDBLINK_CLASS).unwrap();
     jvm.load_class(PICODROID_PIO_GPIO_CLASS).unwrap();
-    jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS).unwrap();
+    jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+        .unwrap();
     jvm.load_class(PICODROID_OS_SYSTEMCLOCK_CLASS).unwrap();
     jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
 

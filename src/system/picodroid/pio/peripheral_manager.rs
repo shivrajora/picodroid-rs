@@ -21,7 +21,9 @@ pub fn open_gpio(
         Some(Value::Reference(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
-    let name = strings.resolve(name_ref).ok_or(JvmError::InvalidReference)?;
+    let name = strings
+        .resolve(name_ref)
+        .ok_or(JvmError::InvalidReference)?;
 
     // Parse "GPxx" → pin number
     let pin_str = name.strip_prefix("GP").ok_or(JvmError::InvalidReference)?;

@@ -344,7 +344,12 @@ impl ClassFile {
             return None;
         }
         let off = self.cp_offsets[i];
-        let bytes = [self.data[off], self.data[off+1], self.data[off+2], self.data[off+3]];
+        let bytes = [
+            self.data[off],
+            self.data[off + 1],
+            self.data[off + 2],
+            self.data[off + 3],
+        ];
         Some(i32::from_be_bytes(bytes))
     }
 }

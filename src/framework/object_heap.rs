@@ -1,5 +1,5 @@
-use heapless::Vec;
 use crate::framework::types::Value;
+use heapless::Vec;
 
 pub struct JvmObject {
     pub class_name: &'static str,
@@ -12,14 +12,19 @@ pub struct ObjectHeap {
 
 impl ObjectHeap {
     pub const fn new() -> Self {
-        Self { objects: Vec::new() }
+        Self {
+            objects: Vec::new(),
+        }
     }
 
     /// Allocate a new object of the given class, returning its heap index.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
         let idx = self.objects.len() as u16;
         self.objects
-            .push(JvmObject { class_name, fields: Vec::new() })
+            .push(JvmObject {
+                class_name,
+                fields: Vec::new(),
+            })
             .ok()?;
         Some(idx)
     }

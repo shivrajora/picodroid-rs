@@ -3,7 +3,10 @@ use crate::framework::{
     types::{JvmError, Value},
 };
 
-pub fn set_direction_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+pub fn set_direction_native(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
     let pin = extract_pin(args, objects)?;
     let direction = match args.get(1) {
         Some(Value::Int(d)) => *d,

@@ -93,16 +93,40 @@ pub fn execute(
             }
 
             // iload_<n>
-            0x1a => { let v = frame.load_local(0)?; frame.push(v)?; }
-            0x1b => { let v = frame.load_local(1)?; frame.push(v)?; }
-            0x1c => { let v = frame.load_local(2)?; frame.push(v)?; }
-            0x1d => { let v = frame.load_local(3)?; frame.push(v)?; }
+            0x1a => {
+                let v = frame.load_local(0)?;
+                frame.push(v)?;
+            }
+            0x1b => {
+                let v = frame.load_local(1)?;
+                frame.push(v)?;
+            }
+            0x1c => {
+                let v = frame.load_local(2)?;
+                frame.push(v)?;
+            }
+            0x1d => {
+                let v = frame.load_local(3)?;
+                frame.push(v)?;
+            }
 
             // aload_<n>
-            0x2a => { let v = frame.load_local(0)?; frame.push(v)?; }
-            0x2b => { let v = frame.load_local(1)?; frame.push(v)?; }
-            0x2c => { let v = frame.load_local(2)?; frame.push(v)?; }
-            0x2d => { let v = frame.load_local(3)?; frame.push(v)?; }
+            0x2a => {
+                let v = frame.load_local(0)?;
+                frame.push(v)?;
+            }
+            0x2b => {
+                let v = frame.load_local(1)?;
+                frame.push(v)?;
+            }
+            0x2c => {
+                let v = frame.load_local(2)?;
+                frame.push(v)?;
+            }
+            0x2d => {
+                let v = frame.load_local(3)?;
+                frame.push(v)?;
+            }
 
             // istore (index u8)
             0x36 => {
@@ -121,22 +145,51 @@ pub fn execute(
             }
 
             // istore_<n>
-            0x3b => { let v = frame.pop()?; frame.store_local(0, v)?; }
-            0x3c => { let v = frame.pop()?; frame.store_local(1, v)?; }
-            0x3d => { let v = frame.pop()?; frame.store_local(2, v)?; }
-            0x3e => { let v = frame.pop()?; frame.store_local(3, v)?; }
+            0x3b => {
+                let v = frame.pop()?;
+                frame.store_local(0, v)?;
+            }
+            0x3c => {
+                let v = frame.pop()?;
+                frame.store_local(1, v)?;
+            }
+            0x3d => {
+                let v = frame.pop()?;
+                frame.store_local(2, v)?;
+            }
+            0x3e => {
+                let v = frame.pop()?;
+                frame.store_local(3, v)?;
+            }
 
             // astore_<n>
-            0x4b => { let v = frame.pop()?; frame.store_local(0, v)?; }
-            0x4c => { let v = frame.pop()?; frame.store_local(1, v)?; }
-            0x4d => { let v = frame.pop()?; frame.store_local(2, v)?; }
-            0x4e => { let v = frame.pop()?; frame.store_local(3, v)?; }
+            0x4b => {
+                let v = frame.pop()?;
+                frame.store_local(0, v)?;
+            }
+            0x4c => {
+                let v = frame.pop()?;
+                frame.store_local(1, v)?;
+            }
+            0x4d => {
+                let v = frame.pop()?;
+                frame.store_local(2, v)?;
+            }
+            0x4e => {
+                let v = frame.pop()?;
+                frame.store_local(3, v)?;
+            }
 
             // pop
-            0x57 => { frame.pop()?; }
+            0x57 => {
+                frame.pop()?;
+            }
 
             // pop2
-            0x58 => { frame.pop()?; frame.pop()?; }
+            0x58 => {
+                frame.pop()?;
+                frame.pop()?;
+            }
 
             // dup
             0x59 => {
@@ -202,7 +255,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let Value::Int(n) = frame.pop()? {
-                    if n < 0 { frame.pc = branch_target(frame.pc, offset); }
+                    if n < 0 {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -211,7 +266,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let Value::Int(n) = frame.pop()? {
-                    if n >= 0 { frame.pc = branch_target(frame.pc, offset); }
+                    if n >= 0 {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -220,7 +277,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let Value::Int(n) = frame.pop()? {
-                    if n > 0 { frame.pc = branch_target(frame.pc, offset); }
+                    if n > 0 {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -229,7 +288,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let Value::Int(n) = frame.pop()? {
-                    if n <= 0 { frame.pc = branch_target(frame.pc, offset); }
+                    if n <= 0 {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -239,7 +300,9 @@ pub fn execute(
                 frame.pc += 2;
                 let b = frame.pop()?;
                 let a = frame.pop()?;
-                if a == b { frame.pc = branch_target(frame.pc, offset); }
+                if a == b {
+                    frame.pc = branch_target(frame.pc, offset);
+                }
             }
 
             // if_icmpne
@@ -248,7 +311,9 @@ pub fn execute(
                 frame.pc += 2;
                 let b = frame.pop()?;
                 let a = frame.pop()?;
-                if a != b { frame.pc = branch_target(frame.pc, offset); }
+                if a != b {
+                    frame.pc = branch_target(frame.pc, offset);
+                }
             }
 
             // if_icmplt: branch if a < b (a=below TOS, b=TOS)
@@ -256,7 +321,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let (Value::Int(b), Value::Int(a)) = (frame.pop()?, frame.pop()?) {
-                    if a < b { frame.pc = branch_target(frame.pc, offset); }
+                    if a < b {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -265,7 +332,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let (Value::Int(b), Value::Int(a)) = (frame.pop()?, frame.pop()?) {
-                    if a >= b { frame.pc = branch_target(frame.pc, offset); }
+                    if a >= b {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -274,7 +343,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let (Value::Int(b), Value::Int(a)) = (frame.pop()?, frame.pop()?) {
-                    if a > b { frame.pc = branch_target(frame.pc, offset); }
+                    if a > b {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -283,7 +354,9 @@ pub fn execute(
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 if let (Value::Int(b), Value::Int(a)) = (frame.pop()?, frame.pop()?) {
-                    if a <= b { frame.pc = branch_target(frame.pc, offset); }
+                    if a <= b {
+                        frame.pc = branch_target(frame.pc, offset);
+                    }
                 }
             }
 
@@ -337,7 +410,9 @@ pub fn execute(
                 let obj_ref = frame.pop()?;
                 match obj_ref {
                     Value::ObjectRef(idx) => {
-                        objects.set_field(idx, 0, value).ok_or(JvmError::InvalidReference)?;
+                        objects
+                            .set_field(idx, 0, value)
+                            .ok_or(JvmError::InvalidReference)?;
                     }
                     _ => return Err(JvmError::InvalidReference),
                 }
@@ -349,12 +424,26 @@ pub fn execute(
                 frame.pc += 2;
                 let (class_bytes, name_bytes, desc_bytes) =
                     cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                let class_str = core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let name_str  = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let desc_str  = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let class_str =
+                    core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let name_str =
+                    core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let desc_str =
+                    core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
                 let arg_count = 1 + count_args(desc_str); // +1 for `this`
-                let result = invoke_method(classes, strings, objects, class_str, name_str, desc_str, &mut frame.stack, arg_count)?;
-                if let Some(v) = result { frame.push(v)?; }
+                let result = invoke_method(
+                    classes,
+                    strings,
+                    objects,
+                    class_str,
+                    name_str,
+                    desc_str,
+                    &mut frame.stack,
+                    arg_count,
+                )?;
+                if let Some(v) = result {
+                    frame.push(v)?;
+                }
             }
 
             // invokespecial (constructor / private)
@@ -363,12 +452,26 @@ pub fn execute(
                 frame.pc += 2;
                 let (class_bytes, name_bytes, desc_bytes) =
                     cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                let class_str = core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let name_str  = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let desc_str  = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let class_str =
+                    core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let name_str =
+                    core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let desc_str =
+                    core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
                 let arg_count = 1 + count_args(desc_str); // +1 for `this`
-                let result = invoke_method(classes, strings, objects, class_str, name_str, desc_str, &mut frame.stack, arg_count)?;
-                if let Some(v) = result { frame.push(v)?; }
+                let result = invoke_method(
+                    classes,
+                    strings,
+                    objects,
+                    class_str,
+                    name_str,
+                    desc_str,
+                    &mut frame.stack,
+                    arg_count,
+                )?;
+                if let Some(v) = result {
+                    frame.push(v)?;
+                }
             }
 
             // invokestatic
@@ -377,12 +480,26 @@ pub fn execute(
                 frame.pc += 2;
                 let (class_bytes, name_bytes, desc_bytes) =
                     cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                let class_str = core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let name_str  = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-                let desc_str  = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let class_str =
+                    core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let name_str =
+                    core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+                let desc_str =
+                    core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
                 let arg_count = count_args(desc_str);
-                let result = invoke_method(classes, strings, objects, class_str, name_str, desc_str, &mut frame.stack, arg_count)?;
-                if let Some(v) = result { frame.push(v)?; }
+                let result = invoke_method(
+                    classes,
+                    strings,
+                    objects,
+                    class_str,
+                    name_str,
+                    desc_str,
+                    &mut frame.stack,
+                    arg_count,
+                )?;
+                if let Some(v) = result {
+                    frame.push(v)?;
+                }
             }
 
             // new — allocate object, push objectref
@@ -399,7 +516,9 @@ pub fn execute(
             }
 
             // checkcast — no-op for M2
-            0xc0 => { frame.pc += 2; }
+            0xc0 => {
+                frame.pc += 2;
+            }
 
             op => return Err(JvmError::UnsupportedOpcode(op)),
         }
@@ -461,7 +580,9 @@ fn find_method(
 ) -> Option<(usize, usize)> {
     for (ci, cf) in classes.iter().enumerate() {
         let cn = cf.class_name()?;
-        if cn != class_name.as_bytes() { continue; }
+        if cn != class_name.as_bytes() {
+            continue;
+        }
         for (mi, m) in cf.methods.iter().enumerate() {
             let mn = cf.cp_utf8(m.name_index)?;
             let md = cf.cp_utf8(m.descriptor_index)?;
@@ -482,7 +603,14 @@ fn count_args(descriptor: &str) -> usize {
     let mut chars = inner.chars();
     while let Some(c) = chars.next() {
         match c {
-            'L' => { for c2 in chars.by_ref() { if c2 == ';' { break; } } count += 1; }
+            'L' => {
+                for c2 in chars.by_ref() {
+                    if c2 == ';' {
+                        break;
+                    }
+                }
+                count += 1;
+            }
             '[' => {}
             'J' | 'D' => count += 2,
             _ => count += 1,
@@ -501,10 +629,10 @@ fn branch_target(pc_after_offset: usize, offset: i16) -> usize {
 
 fn class_name_to_static(name: &str) -> &'static str {
     match name {
-        "picodroid/pio/Gpio"              => "picodroid/pio/Gpio",
+        "picodroid/pio/Gpio" => "picodroid/pio/Gpio",
         "picodroid/pio/PeripheralManager" => "picodroid/pio/PeripheralManager",
-        "picodroid/os/SystemClock"        => "picodroid/os/SystemClock",
-        "picodroid/util/Log"              => "picodroid/util/Log",
-        _                                 => "unknown",
+        "picodroid/os/SystemClock" => "picodroid/os/SystemClock",
+        "picodroid/util/Log" => "picodroid/util/Log",
+        _ => "unknown",
     }
 }

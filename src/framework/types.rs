@@ -1,8 +1,8 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     Int(i32),
-    Reference(u16),  // index into StringTable
-    ObjectRef(u16),  // index into ObjectHeap
+    Reference(u16), // index into StringTable
+    ObjectRef(u16), // index into ObjectHeap
     Null,
 }
 
