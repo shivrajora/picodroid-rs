@@ -38,6 +38,14 @@ fn set_direction(pin: u8, direction: i32) {
     // SAFETY: We are the OS — we own all hardware.
     let p = unsafe { pac::Peripherals::steal() };
 
+    // IO_BANK0 and PADS_BANK0 are held in reset after boot unless explicitly released.
+    // Unreset them now (idempotent — safe to call even if already done).
+    p.RESETS
+        .reset()
+        .modify(|_, w| w.io_bank0().clear_bit().pads_bank0().clear_bit());
+    while p.RESETS.reset_done().read().io_bank0().bit_is_clear() {}
+    while p.RESETS.reset_done().read().pads_bank0().bit_is_clear() {}
+
     // Set GPIO function to SIO (function select 5)
     p.IO_BANK0
         .gpio(pin as usize)

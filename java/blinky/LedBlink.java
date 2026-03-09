@@ -7,6 +7,8 @@ import picodroid.util.Log;
 
 public class LedBlink {
     public static void main(String[] args) {
+        Log.i("HelloWorld", "Hello, World!");
+
         PeripheralManager manager = PeripheralManager.getInstance();
         Gpio led = manager.openGpio("GP25");
         led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
