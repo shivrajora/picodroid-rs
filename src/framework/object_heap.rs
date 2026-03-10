@@ -1,6 +1,7 @@
 use crate::framework::types::Value;
 use heapless::Vec;
 
+#[allow(dead_code)]
 pub struct JvmObject {
     pub class_name: &'static str,
     pub fields: Vec<Value, 8>,
@@ -42,6 +43,7 @@ impl ObjectHeap {
         Some(())
     }
 
+    #[allow(dead_code)]
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
         Some(self.objects.get(idx as usize)?.class_name)
     }

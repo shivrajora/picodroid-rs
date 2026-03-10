@@ -11,6 +11,7 @@ const TAG_METHODREF: u8 = 10;
 const TAG_NAME_AND_TYPE: u8 = 12;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct MethodInfo {
     pub name_index: u16,
     pub descriptor_index: u16,

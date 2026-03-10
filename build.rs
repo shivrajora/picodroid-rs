@@ -118,7 +118,7 @@ fn compile_java(out: &Path) {
         // Remove trailing _CLASS suffix from the extension replacement, then re-add
         let const_name = const_name.trim_end_matches("_CLASS").to_string() + "_CLASS";
         generated.push_str(&format!(
-            "pub static {const_name}: &[u8] = include_bytes!({path:?});\n",
+            "#[allow(dead_code)]\npub static {const_name}: &[u8] = include_bytes!({path:?});\n",
             const_name = const_name,
             path = class_path.display().to_string(),
         ));
@@ -133,7 +133,7 @@ fn collect_java_files(dir: &Path, out: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_java_files(&path, out);
-            } else if path.extension().map_or(false, |e| e == "java") {
+            } else if path.extension().is_some_and(|e| e == "java") {
                 out.push(path);
             }
         }
@@ -146,7 +146,7 @@ fn collect_class_files(dir: &Path, out: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_class_files(&path, out);
-            } else if path.extension().map_or(false, |e| e == "class") {
+            } else if path.extension().is_some_and(|e| e == "class") {
                 out.push(path);
             }
         }

@@ -27,7 +27,7 @@ pub fn set_value_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
 }
 
 fn extract_pin(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::ObjectRef(idx)) => match objects.get_field(*idx, 0) {
             Some(Value::Int(pin)) => Ok(pin as u8),
             _ => Err(JvmError::InvalidReference),

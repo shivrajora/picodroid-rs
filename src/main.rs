@@ -55,6 +55,7 @@ fn main() -> ! {
 #[exception]
 unsafe fn DefaultHandler(_irqn: i16) {
     asm::bkpt();
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
@@ -62,6 +63,7 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[exception]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     asm::bkpt();
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
@@ -69,6 +71,7 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
 #[no_mangle]
 fn vApplicationMallocFailedHook() {
     asm::bkpt();
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 

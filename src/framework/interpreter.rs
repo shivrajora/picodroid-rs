@@ -527,6 +527,7 @@ pub fn execute(
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn invoke_method(
     classes: &[ClassFile],
     strings: &mut StringTable,
