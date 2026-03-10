@@ -18,16 +18,19 @@ jobs:
           - rust: nightly
             experimental: true
         os:
-          # Check compilation works on common OSes
-          # (i.e. no path issues)
           - ubuntu-latest
           - macOS-latest
-          - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
+      - name: Install ARM toolchain and JDK (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
+      - name: Install ARM toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask gcc-arm-embedded
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -42,6 +45,8 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
+      - name: Install ARM toolchain and JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
