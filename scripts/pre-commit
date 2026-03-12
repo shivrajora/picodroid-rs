@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -e
+
+echo "==> Checking formatting (cargo fmt)..."
+if ! cargo fmt -- --check; then
+  echo ""
+  echo "ERROR: Formatting check failed. Run 'cargo fmt' to fix, then re-stage your changes."
+  exit 1
+fi
+
+echo "==> Running build job via act..."
+if ! act -j building --matrix rust:stable --matrix os:ubuntu-latest; then
+  echo ""
+  echo "ERROR: Build job failed. Fix the errors above before committing."
+  exit 1
+fi
+
+echo "==> All checks passed."

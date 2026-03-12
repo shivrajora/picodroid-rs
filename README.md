@@ -65,6 +65,13 @@ brew install act
 # Ubuntu/Debian — see https://github.com/nektos/act#installation
 ```
 
+Install the hook after cloning:
+
+```bash
+cp scripts/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
 Docker must be running when you commit. To skip the hook in exceptional cases: `git commit --no-verify`.
 
 ### Java Development Kit (JDK 8+)
