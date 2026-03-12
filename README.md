@@ -54,6 +54,19 @@ cargo install flip-link
 cargo install probe-rs-tools --locked   # installs probe-rs
 ```
 
+### Local CI (pre-commit hook)
+
+The pre-commit hook runs `cargo fmt -- --check` and the `building` CI job locally via [act](https://github.com/nektos/act) before each commit. This requires `act` and Docker.
+
+```bash
+# macOS
+brew install act
+
+# Ubuntu/Debian — see https://github.com/nektos/act#installation
+```
+
+Docker must be running when you commit. To skip the hook in exceptional cases: `git commit --no-verify`.
+
 ### Java Development Kit (JDK 8+)
 
 The build compiles Java sources automatically using `javac`.
