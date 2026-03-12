@@ -2,7 +2,7 @@ use crate::framework::{
     class_file::ClassFile,
     frame::Frame,
     heap::StringTable,
-    native,
+    native::NativeMethodHandler,
     object_heap::ObjectHeap,
     types::{JvmError, Value},
 };
@@ -11,6 +11,7 @@ pub fn execute(
     classes: &[ClassFile],
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
+    handler: &mut impl NativeMethodHandler,
     class_idx: usize,
     method_idx: usize,
     args: &[Value],
@@ -435,6 +436,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    handler,
                     class_str,
                     name_str,
                     desc_str,
@@ -463,6 +465,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    handler,
                     class_str,
                     name_str,
                     desc_str,
@@ -491,6 +494,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    handler,
                     class_str,
                     name_str,
                     desc_str,
@@ -532,6 +536,7 @@ fn invoke_method(
     classes: &[ClassFile],
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
+    handler: &mut impl NativeMethodHandler,
     class_str: &str,
     name_str: &str,
     desc_str: &str,
@@ -553,12 +558,12 @@ fn invoke_method(
     if let Some((ci, mi)) = find_method(classes, class_str, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;
         if is_native {
-            native::dispatch_native(class_str, name_str, desc_str, args_ref, strings, objects)
+            handler.dispatch(class_str, name_str, desc_str, args_ref, strings, objects)
         } else {
-            execute(classes, strings, objects, ci, mi, args_ref)
+            execute(classes, strings, objects, handler, ci, mi, args_ref)
         }
     } else {
-        native::dispatch_native(class_str, name_str, desc_str, args_ref, strings, objects)
+        handler.dispatch(class_str, name_str, desc_str, args_ref, strings, objects)
     }
 }
 

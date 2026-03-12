@@ -12,6 +12,7 @@ use alloc::boxed::Box;
 use class_file::ClassFile;
 use heap::StringTable;
 use heapless::Vec;
+pub use native::NativeMethodHandler;
 use object_heap::ObjectHeap;
 use types::JvmError;
 
@@ -38,7 +39,12 @@ impl Jvm {
         self.classes.push(cf).map_err(|_| JvmError::ClassNotFound)
     }
 
-    pub fn invoke_static(&mut self, class_name: &str, method_name: &str) -> Result<(), JvmError> {
+    pub fn invoke_static(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        handler: &mut impl NativeMethodHandler,
+    ) -> Result<(), JvmError> {
         let (ci, mi) = self
             .classes
             .iter()
@@ -63,6 +69,7 @@ impl Jvm {
             &self.classes,
             &mut self.strings,
             &mut self.objects,
+            handler,
             ci,
             mi,
             &[],
@@ -73,6 +80,7 @@ impl Jvm {
 
 pub fn run_jvm() -> ! {
     let mut jvm = Box::new(Jvm::new());
+    let mut handler = crate::system::native_handler::PicodroidNativeHandler;
 
     jvm.load_class(BLINKY_LEDBLINK_CLASS).unwrap();
     jvm.load_class(PICODROID_PIO_GPIO_CLASS).unwrap();
@@ -81,7 +89,8 @@ pub fn run_jvm() -> ! {
     jvm.load_class(PICODROID_OS_SYSTEMCLOCK_CLASS).unwrap();
     jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
 
-    jvm.invoke_static("blinky/LedBlink", "main").unwrap();
+    jvm.invoke_static("blinky/LedBlink", "main", &mut handler)
+        .unwrap();
 
     loop {
         freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
