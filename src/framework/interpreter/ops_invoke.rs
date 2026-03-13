@@ -14,6 +14,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     ) -> Result<(), JvmError> {
         let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
         frame.pc += 2;
+        // invokeinterface has 2 extra bytes: count (arg count hint) and a reserved 0 byte
+        if opcode == 0xb9 {
+            frame.pc += 2;
+        }
 
         let cf = &self.classes[frame.class_idx];
         let (class_bytes, name_bytes, desc_bytes) =
@@ -23,16 +27,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let desc_str = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
 
         let arg_count = match opcode {
-            // invokevirtual / invokespecial: +1 for `this`
-            0xb6 | 0xb7 => 1 + helpers::count_args(desc_str),
+            // invokevirtual / invokespecial / invokeinterface: +1 for `this`
+            0xb6 | 0xb7 | 0xb9 => 1 + helpers::count_args(desc_str),
             // invokestatic: no `this`
             0xb8 => helpers::count_args(desc_str),
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         };
 
-        // invokevirtual (0xb6): dispatch from the runtime class of `this`
+        // invokevirtual (0xb6) / invokeinterface (0xb9): dispatch from the runtime class of `this`
         // invokespecial (0xb7) / invokestatic (0xb8): dispatch to the compile-time class
-        let result = if opcode == 0xb6 {
+        let result = if opcode == 0xb6 || opcode == 0xb9 {
             // Peek `this` — it's at stack[len - arg_count]
             let stack_len = frame.stack.len();
             let dispatch_class = if stack_len >= arg_count {
@@ -83,6 +87,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .cp_class_name(cp_idx)
             .and_then(|b| core::str::from_utf8(b).ok())
             .ok_or(JvmError::InvalidBytecode)?;
+        // Refuse to instantiate abstract classes or interfaces
+        if let Some(target_cf) = self
+            .classes
+            .iter()
+            .find(|c| c.class_name().is_some_and(|n| n == class_name.as_bytes()))
+        {
+            if target_cf.is_interface() || target_cf.is_abstract() {
+                return Err(JvmError::AbstractMethodError);
+            }
+        }
         let static_name = helpers::class_name_to_static_in(self.classes, class_name);
         let obj_idx = self
             .objects

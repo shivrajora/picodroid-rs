@@ -83,7 +83,7 @@ pub fn execute<H: NativeMethodHandler>(
             }
             0xb1 => return Ok(None),
             0xb2 | 0xb4 | 0xb5 => ex.op_fields(opcode, code, &mut frame)?,
-            0xb6..=0xb8 => ex.op_invoke(opcode, code, &mut frame)?,
+            0xb6..=0xb9 => ex.op_invoke(opcode, code, &mut frame)?,
             0xbb => ex.op_new(code, &mut frame)?,
             0xbc..=0xbe => ex.op_array_alloc(opcode, code, &mut frame)?,
             op => return Err(JvmError::UnsupportedOpcode(op)),

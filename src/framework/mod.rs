@@ -96,10 +96,11 @@ pub fn run_jvm() -> ! {
         feature = "blinky",
         feature = "uart",
         feature = "arraydemo",
-        feature = "inherit"
+        feature = "inherit",
+        feature = "interfacedemo"
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, or inherit."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, or interfacedemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -131,6 +132,21 @@ pub fn run_jvm() -> ! {
 
     #[cfg(all(feature = "arraydemo", feature = "inherit"))]
     compile_error!("Features 'arraydemo' and 'inherit' are mutually exclusive.");
+
+    #[cfg(all(feature = "helloworld", feature = "interfacedemo"))]
+    compile_error!("Features 'helloworld' and 'interfacedemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "interfacedemo"))]
+    compile_error!("Features 'blinky' and 'interfacedemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "interfacedemo"))]
+    compile_error!("Features 'uart' and 'interfacedemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "interfacedemo"))]
+    compile_error!("Features 'arraydemo' and 'interfacedemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "interfacedemo"))]
+    compile_error!("Features 'inherit' and 'interfacedemo' are mutually exclusive.");
 
     #[cfg(feature = "helloworld")]
     {
@@ -182,6 +198,19 @@ pub fn run_jvm() -> ! {
         jvm.load_class(INHERIT_INHERITDEMO_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("inherit/InheritDemo", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "interfacedemo")]
+    {
+        // Load interface and abstract base before concrete subclasses
+        jvm.load_class(INTERFACEDEMO_SPEAKABLE_CLASS).unwrap();
+        jvm.load_class(INTERFACEDEMO_ANIMAL_CLASS).unwrap();
+        jvm.load_class(INTERFACEDEMO_DOG_CLASS).unwrap();
+        jvm.load_class(INTERFACEDEMO_CAT_CLASS).unwrap();
+        jvm.load_class(INTERFACEDEMO_INTERFACEDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("interfacedemo/InterfaceDemo", "main", &mut handler)
             .unwrap();
     }
 

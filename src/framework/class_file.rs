@@ -45,6 +45,9 @@ pub struct ClassFile {
     pub class_name_index: u16,       // Utf8 entry for this class's name
     pub super_class_name_index: u16, // Utf8 entry for super class name; 0 = java/lang/Object
     pub fields: Vec<FieldInfo, 8>,   // Instance field declarations (non-static)
+    pub access_flags: u16,           // ACC_INTERFACE=0x0200, ACC_ABSTRACT=0x0400, etc.
+    #[allow(dead_code)]
+    pub interfaces: Vec<u16, 4>, // Utf8 indices for each implemented interface name
 }
 
 struct Cursor<'a> {
@@ -166,7 +169,7 @@ impl ClassFile {
         }
 
         // Access flags, this_class, super_class
-        let _access_flags = c.u16().ok_or("truncated")?;
+        let access_flags = c.u16().ok_or("truncated")?;
         let this_class_idx = c.u16().ok_or("truncated")?;
         let super_class_cp = c.u16().ok_or("truncated")?;
 
@@ -205,9 +208,18 @@ impl ClassFile {
             }
         };
 
-        // Skip interfaces
+        // Parse interface list
         let iface_count = c.u16().ok_or("truncated")? as usize;
-        c.skip(iface_count * 2).ok_or("truncated")?;
+        let mut interfaces: Vec<u16, 4> = Vec::new();
+        for _ in 0..iface_count {
+            let iface_cp_idx = c.u16().ok_or("truncated")?;
+            let ci = iface_cp_idx as usize;
+            if cp_tags.get(ci) == Some(&TAG_CLASS) {
+                let off = cp_offsets[ci];
+                let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
+                interfaces.push(utf8_idx).ok(); // silently drop if > 4 interfaces
+            }
+        }
 
         // Parse instance fields
         let field_count = c.u16().ok_or("truncated")? as usize;
@@ -301,6 +313,8 @@ impl ClassFile {
             class_name_index: class_name_utf8_idx,
             super_class_name_index,
             fields,
+            access_flags,
+            interfaces,
         })
     }
 
@@ -331,13 +345,15 @@ impl ClassFile {
         self.cp_utf8(utf8_idx)
     }
 
-    /// Resolves a CONSTANT_Methodref to (class_name_utf8, method_name_utf8, descriptor_utf8).
+    /// Resolves a CONSTANT_Methodref or CONSTANT_InterfaceMethodref to
+    /// (class_name_utf8, method_name_utf8, descriptor_utf8).
+    /// Both tags (10 and 11) have the same binary layout.
     pub fn cp_methodref(
         &self,
         index: u16,
     ) -> Option<(&'static [u8], &'static [u8], &'static [u8])> {
         let i = index as usize;
-        if self.cp_tags.get(i) != Some(&TAG_METHODREF) {
+        if self.cp_tags.get(i) != Some(&TAG_METHODREF) && self.cp_tags.get(i) != Some(&11u8) {
             return None;
         }
         let off = self.cp_offsets[i];
@@ -435,6 +451,22 @@ impl ClassFile {
             self.cp_utf8(field_name_idx)?,
             self.cp_utf8(descriptor_idx)?,
         ))
+    }
+
+    /// Returns true if this class file declares an interface (ACC_INTERFACE).
+    pub fn is_interface(&self) -> bool {
+        self.access_flags & 0x0200 != 0
+    }
+
+    /// Returns true if this class file is abstract (ACC_ABSTRACT).
+    pub fn is_abstract(&self) -> bool {
+        self.access_flags & 0x0400 != 0
+    }
+
+    /// Returns the Utf8 name bytes for the Nth implemented interface (0-based).
+    #[allow(dead_code)]
+    pub fn interface_name(&self, pos: usize) -> Option<&'static [u8]> {
+        self.cp_utf8(*self.interfaces.get(pos)?)
     }
 
     /// Resolves a CONSTANT_Integer CP entry to an i32.
@@ -673,5 +705,115 @@ mod tests {
     fn field_count_zero_for_minimal_class() {
         let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
         assert_eq!(cf.fields.len(), 0);
+    }
+
+    // MINIMAL_CLASS with access_flags=0x0200 (ACC_INTERFACE).
+    // Identical to MINIMAL_CLASS but bytes [59..61] = 0x02, 0x00.
+    static CLASS_INTERFACE_FLAG: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x02, b'T', b'C', 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l',
+        b'a', b'n', b'g', b'/', b'O', b'b', b'j', b'e', b'c', b't', 0x01, 0x00, 0x03, b'r', b'u',
+        b'n', 0x01, 0x00, 0x03, b'(', b')', b'V', 0x01, 0x00, 0x04, b'C', b'o', b'd', b'e',
+        // access_flags = ACC_INTERFACE (0x0200)
+        0x02, 0x00, 0x00, 0x01, // this_class = #1
+        0x00, 0x03, // super_class = #3
+        0x00, 0x00, // interfaces_count = 0
+        0x00, 0x00, // fields_count = 0
+        0x00, 0x01, // methods_count = 1
+        0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x0D, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0xB1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // MINIMAL_CLASS with access_flags=0x0400 (ACC_ABSTRACT).
+    static CLASS_ABSTRACT_FLAG: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x02, b'T', b'C', 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l',
+        b'a', b'n', b'g', b'/', b'O', b'b', b'j', b'e', b'c', b't', 0x01, 0x00, 0x03, b'r', b'u',
+        b'n', 0x01, 0x00, 0x03, b'(', b')', b'V', 0x01, 0x00, 0x04, b'C', b'o', b'd', b'e',
+        // access_flags = ACC_ABSTRACT (0x0400)
+        0x04, 0x00, 0x00, 0x01, // this_class = #1
+        0x00, 0x03, // super_class = #3
+        0x00, 0x00, // interfaces_count = 0
+        0x00, 0x00, // fields_count = 0
+        0x00, 0x01, // methods_count = 1
+        0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x0D, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0xB1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // Class "TC" implementing interface "Runnable".
+    // CP (cp_count=10, entries #1..#9):
+    //   #1: Class -> #2  (TC)
+    //   #2: Utf8 "TC"
+    //   #3: Class -> #4  (java/lang/Object)
+    //   #4: Utf8 "java/lang/Object"
+    //   #5: Utf8 "run"
+    //   #6: Utf8 "()V"
+    //   #7: Utf8 "Code"
+    //   #8: Class -> #9  (Runnable)
+    //   #9: Utf8 "Runnable"
+    // interfaces_count=1, interface[0]=#8
+    static CLASS_WITH_IFACE: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0A, // cp_count=10
+        0x07, 0x00, 0x02, // #1 Class -> #2
+        0x01, 0x00, 0x02, b'T', b'C', // #2 Utf8 "TC"
+        0x07, 0x00, 0x04, // #3 Class -> #4
+        0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b',
+        b'j', b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+        0x01, 0x00, 0x03, b'r', b'u', b'n', // #5 Utf8 "run"
+        0x01, 0x00, 0x03, b'(', b')', b'V', // #6 Utf8 "()V"
+        0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+        0x07, 0x00, 0x09, // #8 Class -> #9
+        0x01, 0x00, 0x08, b'R', b'u', b'n', b'n', b'a', b'b', b'l',
+        b'e', // #9 Utf8 "Runnable"
+        0x00, 0x01, // access_flags = 0x0001
+        0x00, 0x01, // this_class = #1
+        0x00, 0x03, // super_class = #3
+        0x00, 0x01, // interfaces_count = 1
+        0x00, 0x08, // interface[0] = #8
+        0x00, 0x00, // fields_count = 0
+        0x00, 0x01, // methods_count = 1
+        0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // method: public, name=#5, desc=#6
+        0x00, 0x07, 0x00, 0x00, 0x00, 0x0D, // Code attr: name=#7, attr_len=13
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, // max_stack=1, max_locals=1, code_len=1
+        0xB1, // return
+        0x00, 0x00, // exc_table_len=0
+        0x00, 0x00, // code_attrs=0
+        0x00, 0x00, // class_attrs_count=0
+    ];
+
+    #[test]
+    fn is_interface_returns_true_for_acc_interface() {
+        let cf = ClassFile::parse(CLASS_INTERFACE_FLAG).unwrap();
+        assert!(cf.is_interface());
+        assert!(!cf.is_abstract());
+    }
+
+    #[test]
+    fn is_abstract_returns_true_for_acc_abstract() {
+        let cf = ClassFile::parse(CLASS_ABSTRACT_FLAG).unwrap();
+        assert!(cf.is_abstract());
+        assert!(!cf.is_interface());
+    }
+
+    #[test]
+    fn normal_class_is_neither_interface_nor_abstract() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        assert!(!cf.is_interface());
+        assert!(!cf.is_abstract());
+    }
+
+    #[test]
+    fn interface_name_resolves_for_class_with_one_interface() {
+        let cf = ClassFile::parse(CLASS_WITH_IFACE).unwrap();
+        assert_eq!(cf.interfaces.len(), 1);
+        assert_eq!(cf.interface_name(0), Some(b"Runnable" as &[u8]));
+        assert_eq!(cf.interface_name(1), None);
+    }
+
+    #[test]
+    fn no_interfaces_for_minimal_class() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        assert_eq!(cf.interfaces.len(), 0);
     }
 }

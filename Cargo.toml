@@ -11,6 +11,7 @@ blinky = []
 uart = []
 arraydemo = []
 inherit = []
+interfacedemo = []
 
 [dependencies]
 heapless = "0.8"

@@ -1306,3 +1306,107 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
     );
     assert_eq!(result.unwrap(), Some(Value::Int(1)));
 }
+
+// ── invokeinterface tests ─────────────────────────────────────────────────
+
+// Class "Caller" with STATIC m(LBase;)I that calls speak() via invokeinterface.
+//
+// Identical to CLASS_CALLER_INVOKEVIRTUAL except:
+//   - CP entry #8 tag: 0x0B (InterfaceMethodref) instead of 0x0A (Methodref)
+//   - bytecode: invokeinterface (0xB9) with count=1 and 0x00 padding bytes
+//   - code_len: 7 (was 5)  →  attr_len: 19 (was 17)
+//
+// CP (cp_count=14, entries #1..#13):
+//   #1: Class -> #2 (Caller)           #8: InterfaceMethodref -> #9, #10
+//   #2: Utf8 "Caller"                  #9: Class -> #11
+//   #3: Class -> #4                    #10: NameAndType -> #12, #13
+//   #4: Utf8 "java/lang/Object"        #11: Utf8 "Base"
+//   #5: Utf8 "m"                       #12: Utf8 "speak"
+//   #6: Utf8 "(LBase;)I"              #13: Utf8 "()I"
+//   #7: Utf8 "Code"
+static CLASS_CALLER_INVOKEINTERFACE: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, // cp_count=14
+    0x07, 0x00, 0x02, // #1 Class -> #2
+    0x01, 0x00, 0x06, b'C', b'a', b'l', b'l', b'e', b'r', // #2 Utf8 "Caller"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x01, b'm', // #5 Utf8 "m"
+    0x01, 0x00, 0x09, b'(', b'L', b'B', b'a', b's', b'e', b';', b')', b'I', // #6 "(LBase;)I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x0B, 0x00, 0x09, 0x00, 0x0A, // #8 InterfaceMethodref -> #9, #10
+    0x07, 0x00, 0x0B, // #9 Class -> #11
+    0x0C, 0x00, 0x0C, 0x00, 0x0D, // #10 NameAndType -> #12, #13
+    0x01, 0x00, 0x04, b'B', b'a', b's', b'e', // #11 Utf8 "Base"
+    0x01, 0x00, 0x05, b's', b'p', b'e', b'a', b'k', // #12 Utf8 "speak"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #13 Utf8 "()I"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: static (0x0008), name=#5, desc=#6, 1 Code attr
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+    // Code attr: name=#7, attr_len=19 (code_len=7)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x13, // max_stack=2, max_locals=1, code_len=7
+    0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07,
+    // aload_0, invokeinterface #8 count=1 0x00, ireturn
+    0x2A, 0xB9, 0x00, 0x08, 0x01, 0x00, 0xAC, 0x00, 0x00, // exc_table_len=0
+    0x00, 0x00, // code_attrs=0
+    0x00, 0x00, // class_attrs=0
+];
+
+#[test]
+fn invokeinterface_dispatches_to_runtime_class_override() {
+    // Caller.m(LBase;)I calls speak() via invokeinterface on a Child object.
+    // Child overrides speak() to return 2 → should return Int(2).
+    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
+    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse CHILD failed");
+    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
+    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
+    classes.push(cf_base).ok().unwrap();
+    classes.push(cf_child).ok().unwrap();
+    classes.push(cf_caller).ok().unwrap();
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut handler = NoopHandler;
+    let obj = alloc_object(&mut objects, "Child");
+    // Run Caller.m (class index 2, method index 0)
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut handler,
+        2,
+        0,
+        &[obj],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(2)));
+}
+
+#[test]
+fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
+    // ChildNS has no speak() → invokeinterface must walk to Base.speak() → returns 1.
+    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
+    let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
+    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
+    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
+    classes.push(cf_base).ok().unwrap();
+    classes.push(cf_child_ns).ok().unwrap();
+    classes.push(cf_caller).ok().unwrap();
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut handler = NoopHandler;
+    let obj = alloc_object(&mut objects, "ChildNS");
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut handler,
+        2,
+        0,
+        &[obj],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(1)));
+}

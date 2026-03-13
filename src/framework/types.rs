@@ -20,4 +20,5 @@ pub enum JvmError {
     UnsupportedOpcode(u8),
     ArrayIndexOutOfBounds,
     NegativeArraySize,
+    AbstractMethodError,
 }
