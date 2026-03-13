@@ -8,10 +8,10 @@ if ! cargo fmt -- --check; then
   exit 1
 fi
 
-echo "==> Running build job via act..."
-if ! act -j building --matrix rust:stable --matrix os:ubuntu-latest; then
+echo "==> Building..."
+if ! cargo clean && cargo build; then
   echo ""
-  echo "ERROR: Build job failed. Fix the errors above before committing."
+  echo "ERROR: Build failed. Fix the errors above before committing."
   exit 1
 fi
 
