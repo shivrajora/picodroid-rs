@@ -10,6 +10,10 @@
           },
           {
             "type": "command",
+            "command": "jq -r '.tool_input.file_path' | grep '\\.java$' | xargs -I{} ./scripts/format_java.sh format {}"
+          },
+          {
+            "type": "command",
             "command": "jq -r '.tool_input.file_path' | grep -q '\\.rs$' && cargo clippy --no-default-features --features helloworld -- --deny=warnings && cargo clippy --no-default-features --features blinky -- --deny=warnings && cargo clippy --no-default-features --features uart -- --deny=warnings"
           }
         ]
