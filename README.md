@@ -96,13 +96,15 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 
 ## Examples
 
-Three examples are included under `java/examples/`:
+Five examples are included under `java/examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
 | `blinky` | `blinky.LedBlink` | Blinks the onboard LED on GP25 every 500 ms |
 | `uart` | `uart.UartEcho` | Configures UART0 at 115200 baud and echoes received bytes |
 | `helloworld` | `helloworld.HelloWorld` | Prints "Hello, World!" via `Log.i()` |
+| `arraydemo` | `arraydemo.ArrayDemo` | Demonstrates byte array allocation, `.length`, and iteration via UART |
+| `inherit` | `inherit.InheritDemo` | Demonstrates class inheritance, field inheritance, method overriding, and `super()` |
 
 ## Getting Started
 
@@ -126,9 +128,13 @@ Pass `--app <name>` to select which example to build or flash:
 ./scripts/build.sh --app blinky       # default
 ./scripts/build.sh --app uart
 ./scripts/build.sh --app helloworld
+./scripts/build.sh --app arraydemo
+./scripts/build.sh --app inherit
 
 ./scripts/flash.sh --app uart
 ./scripts/flash.sh --app helloworld --release
+./scripts/flash.sh --app arraydemo
+./scripts/flash.sh --app inherit
 ```
 
 The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup.
@@ -181,9 +187,16 @@ myapp = []       # add this
 
 The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash. The constant name for a class is derived from its path: `java/examples/myapp/java/myapp/MyApp.class` → `MYAPP_MYAPP_CLASS`.
 
+### Supported language features
+
+| Feature | Example |
+|---------|---------|
+| Arrays | `byte[] buf = new byte[16];` — allocation, `.length`, index read/write |
+| Inheritance | `class Dog extends Animal` — field inheritance, `@Override`, `super()` constructor chaining, virtual dispatch |
+
 ## Java System API
 
-Java system APIs live under `java/framework/java/picodroid/` and mirror the Android API surface.
+Java system APIs live under `java/framework/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
 
 ### `picodroid.util.Log`
 
@@ -193,7 +206,46 @@ import picodroid.util.Log;
 Log.i("TAG", "message");   // info log → defmt::info! over RTT
 ```
 
-Native implementations are in `src/system/picodroid/util/log.rs`.
+### `picodroid.os.SystemClock`
+
+```java
+import picodroid.os.SystemClock;
+
+SystemClock.sleep(500);   // sleep for 500 ms
+```
+
+### `picodroid.pio.PeripheralManager`
+
+Singleton for opening hardware peripherals.
+
+```java
+import picodroid.pio.PeripheralManager;
+
+PeripheralManager pm = PeripheralManager.getInstance();
+Gpio gpio = pm.openGpio("BCM25");
+UartDevice uart = pm.openUartDevice("UART0");
+```
+
+### `picodroid.pio.Gpio`
+
+```java
+import picodroid.pio.Gpio;
+
+gpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
+gpio.setValue(true);    // drive high
+gpio.setValue(false);   // drive low
+```
+
+### `picodroid.pio.UartDevice`
+
+```java
+import picodroid.pio.UartDevice;
+
+uart.setBaudrate(115200);
+byte[] buf = new byte[1];
+uart.read(buf, 1);      // blocking read
+uart.write(buf, 1);     // write byte
+```
 
 ## Project Structure
 
@@ -201,7 +253,7 @@ Native implementations are in `src/system/picodroid/util/log.rs`.
 picodroid-rs/
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld)
+│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit)
 │
 ├── src/
 │   ├── framework/      # JVM interpreter (Rust)
