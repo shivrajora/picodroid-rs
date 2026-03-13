@@ -38,6 +38,19 @@ jobs:
       - run: cargo install flip-link
       - run: cargo build --all
       - run: cargo build --all --release
+  testing:
+    name: Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Install ARM toolchain and JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: thumbv6m-none-eabi
+      - run: cargo test --target "$(rustc -vV | awk '/^host:/ { print $2 }')"
   linting:
     name: Linting
     runs-on: ubuntu-latest
