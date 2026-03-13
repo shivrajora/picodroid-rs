@@ -4,6 +4,9 @@
 Cargo.lock
 target/
 
+# Downloaded tooling (google-java-format JAR, etc.)
+tools/
+
 # editor files
 .vscode/*
 !.vscode/*.md

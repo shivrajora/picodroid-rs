@@ -64,3 +64,12 @@ jobs:
           components: rustfmt
           target: thumbv6m-none-eabi
       - run: cargo fmt -- --check
+  java-formatting:
+    name: Java Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-jdk-headless
+      - name: Check Java formatting
+        run: bash scripts/format_java.sh check

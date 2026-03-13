@@ -56,7 +56,7 @@ cargo install probe-rs-tools --locked   # installs probe-rs
 
 ### Local CI (pre-commit hook)
 
-The pre-commit hook runs `cargo fmt -- --check` and `cargo clean && cargo build` before each commit.
+The pre-commit hook runs Java formatting check, `cargo fmt -- --check`, and `cargo clean && cargo build` before each commit.
 
 Install the hook after cloning:
 
@@ -67,9 +67,9 @@ chmod +x .git/hooks/pre-commit
 
 To skip the hook in exceptional cases: `git commit --no-verify`.
 
-### Java Development Kit (JDK 8+)
+### Java Development Kit (JDK 11+)
 
-The build compiles Java sources automatically using `javac`.
+The build compiles Java sources automatically using `javac`. JDK 11 or later is required to run the Java formatter (the formatter tool itself needs JDK 11+, even though app code targets Java 8).
 
 ```bash
 # macOS
@@ -81,6 +81,18 @@ sudo apt install default-jdk
 ```
 
 Verify: `javac --version`
+
+### Java formatting (google-java-format)
+
+Java source files must follow [Google Java Style](https://google.github.io/styleguide/javaguide.html). No separate installation needed — the formatter JAR is downloaded automatically on first use.
+
+```bash
+# Reformat all Java files in-place
+./scripts/format_java.sh format
+
+# Check formatting without modifying files (runs in pre-commit hook and CI)
+./scripts/format_java.sh check
+```
 
 ## Getting Started
 

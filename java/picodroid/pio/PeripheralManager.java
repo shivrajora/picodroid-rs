@@ -1,10 +1,11 @@
 package picodroid.pio;
 
 public class PeripheralManager {
-    private PeripheralManager() {}
+  private PeripheralManager() {}
 
-    public static native PeripheralManager getInstance();
+  public static native PeripheralManager getInstance();
 
-    public native Gpio openGpio(String name);
-    public native UartDevice openUartDevice(String name);
+  public native Gpio openGpio(String name);
+
+  public native UartDevice openUartDevice(String name);
 }

@@ -1,6 +1,11 @@
 #!/usr/bin/env sh
 set -e
 
+echo "==> Checking Java formatting..."
+if ! bash "$(dirname "$0")/../scripts/format_java.sh" check; then
+  exit 1
+fi
+
 echo "==> Checking formatting (cargo fmt)..."
 if ! cargo fmt -- --check; then
   echo ""
