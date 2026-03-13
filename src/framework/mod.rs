@@ -97,10 +97,11 @@ pub fn run_jvm() -> ! {
         feature = "uart",
         feature = "arraydemo",
         feature = "inherit",
-        feature = "interfacedemo"
+        feature = "interfacedemo",
+        feature = "floatdemo"
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, or interfacedemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, or floatdemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -147,6 +148,24 @@ pub fn run_jvm() -> ! {
 
     #[cfg(all(feature = "inherit", feature = "interfacedemo"))]
     compile_error!("Features 'inherit' and 'interfacedemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "helloworld", feature = "floatdemo"))]
+    compile_error!("Features 'helloworld' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "floatdemo"))]
+    compile_error!("Features 'blinky' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "floatdemo"))]
+    compile_error!("Features 'uart' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "floatdemo"))]
+    compile_error!("Features 'arraydemo' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "floatdemo"))]
+    compile_error!("Features 'inherit' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "interfacedemo", feature = "floatdemo"))]
+    compile_error!("Features 'interfacedemo' and 'floatdemo' are mutually exclusive.");
 
     #[cfg(feature = "helloworld")]
     {
@@ -211,6 +230,14 @@ pub fn run_jvm() -> ! {
         jvm.load_class(INTERFACEDEMO_INTERFACEDEMO_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("interfacedemo/InterfaceDemo", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "floatdemo")]
+    {
+        jvm.load_class(FLOATDEMO_FLOATDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("floatdemo/FloatDemo", "main", &mut handler)
             .unwrap();
     }
 

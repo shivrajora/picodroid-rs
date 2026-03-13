@@ -28,6 +28,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x07 => frame.push(Value::Int(4))?,
             0x08 => frame.push(Value::Int(5))?,
 
+            // fconst_<n>: 0.0, 1.0, 2.0
+            0x0b => frame.push(Value::Float(0.0))?,
+            0x0c => frame.push(Value::Float(1.0))?,
+            0x0d => frame.push(Value::Float(2.0))?,
+
             // bipush
             0x10 => {
                 let b = code[frame.pc] as i8;

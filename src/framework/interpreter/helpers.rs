@@ -60,6 +60,9 @@ pub(super) fn resolve_ldc(
     if let Some(n) = cf.cp_integer(cp_idx) {
         return Ok(Value::Int(n));
     }
+    if let Some(f) = cf.cp_float(cp_idx) {
+        return Ok(Value::Float(f));
+    }
     Err(JvmError::InvalidBytecode)
 }
 

@@ -140,6 +140,67 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // fadd
+            0x62 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => frame.push(Value::Float(a + b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // fsub
+            0x66 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => frame.push(Value::Float(a - b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // fmul
+            0x6a => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => frame.push(Value::Float(a * b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // fdiv
+            0x6e => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => frame.push(Value::Float(a / b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // frem
+            0x72 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => {
+                        frame.push(Value::Float(libm::fmodf(a, b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // fneg
+            0x76 => {
+                let v = frame.pop()?;
+                match v {
+                    Value::Float(f) => frame.push(Value::Float(-f))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
             // iinc: local[index] += const
             0x84 => {
                 let idx = code[frame.pc];

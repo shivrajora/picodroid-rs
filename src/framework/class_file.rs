@@ -484,6 +484,22 @@ impl ClassFile {
         ];
         Some(i32::from_be_bytes(bytes))
     }
+
+    /// Resolves a CONSTANT_Float CP entry to an f32.
+    pub fn cp_float(&self, index: u16) -> Option<f32> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&4u8) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let bits = u32::from_be_bytes([
+            self.data[off],
+            self.data[off + 1],
+            self.data[off + 2],
+            self.data[off + 3],
+        ]);
+        Some(f32::from_bits(bits))
+    }
 }
 
 #[cfg(test)]

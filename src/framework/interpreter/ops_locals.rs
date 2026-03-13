@@ -17,6 +17,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.push(v)?;
             }
 
+            // fload (index u8)
+            0x17 => {
+                let idx = code[frame.pc];
+                frame.pc += 1;
+                let v = frame.load_local(idx)?;
+                frame.push(v)?;
+            }
+
             // aload (index u8)
             0x19 => {
                 let idx = code[frame.pc];
@@ -39,6 +47,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.push(v)?;
             }
             0x1d => {
+                let v = frame.load_local(3)?;
+                frame.push(v)?;
+            }
+
+            // fload_<n>
+            0x22 => {
+                let v = frame.load_local(0)?;
+                frame.push(v)?;
+            }
+            0x23 => {
+                let v = frame.load_local(1)?;
+                frame.push(v)?;
+            }
+            0x24 => {
+                let v = frame.load_local(2)?;
+                frame.push(v)?;
+            }
+            0x25 => {
                 let v = frame.load_local(3)?;
                 frame.push(v)?;
             }
@@ -81,6 +107,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.store_local(idx, v)?;
             }
 
+            // fstore (index u8)
+            0x38 => {
+                let idx = code[frame.pc];
+                frame.pc += 1;
+                let v = frame.pop()?;
+                frame.store_local(idx, v)?;
+            }
+
             // astore (index u8)
             0x3a => {
                 let idx = code[frame.pc];
@@ -103,6 +137,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.store_local(2, v)?;
             }
             0x3e => {
+                let v = frame.pop()?;
+                frame.store_local(3, v)?;
+            }
+
+            // fstore_<n>
+            0x43 => {
+                let v = frame.pop()?;
+                frame.store_local(0, v)?;
+            }
+            0x44 => {
+                let v = frame.pop()?;
+                frame.store_local(1, v)?;
+            }
+            0x45 => {
+                let v = frame.pop()?;
+                frame.store_local(2, v)?;
+            }
+            0x46 => {
                 let v = frame.pop()?;
                 frame.store_local(3, v)?;
             }

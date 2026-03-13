@@ -38,6 +38,67 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // i2f — int to float
+            0x86 => {
+                let v = frame.pop()?;
+                if let Value::Int(n) = v {
+                    frame.push(Value::Float(n as f32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // f2i — float to int (truncate toward zero, JVM spec)
+            0x8b => {
+                let v = frame.pop()?;
+                if let Value::Float(f) = v {
+                    frame.push(Value::Int(f as i32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // fcmpl — float compare, NaN → -1
+            0x95 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => {
+                        // a < b and NaN both map to -1 (JVM spec)
+                        let result = if a > b {
+                            1
+                        } else if a == b {
+                            0
+                        } else {
+                            -1
+                        };
+                        frame.push(Value::Int(result))?;
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // fcmpg — float compare, NaN → +1
+            0x96 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Float(a), Value::Float(b)) => {
+                        let result = if a > b {
+                            1
+                        } else if a == b {
+                            0
+                        } else if a < b {
+                            -1
+                        } else {
+                            1 // NaN
+                        };
+                        frame.push(Value::Int(result))?;
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         }
         Ok(())

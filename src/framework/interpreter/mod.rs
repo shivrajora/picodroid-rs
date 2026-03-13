@@ -64,20 +64,20 @@ pub fn execute<H: NativeMethodHandler>(
 
         match opcode {
             0x00..=0x13 => ex.op_constants(opcode, code, &mut frame)?,
-            0x15 | 0x19 | 0x1a..=0x1d | 0x2a..=0x2d => {
+            0x15 | 0x17 | 0x19 | 0x1a..=0x1d | 0x22..=0x25 | 0x2a..=0x2d => {
                 ex.op_locals_load(opcode, code, &mut frame)?
             }
             0x2e | 0x32..=0x35 => ex.op_array_load(opcode, &mut frame)?,
-            0x36 | 0x3a | 0x3b..=0x3e | 0x4b..=0x4e => {
+            0x36 | 0x38 | 0x3a | 0x3b..=0x3e | 0x43..=0x46 | 0x4b..=0x4e => {
                 ex.op_locals_store(opcode, code, &mut frame)?
             }
             0x4f | 0x53..=0x56 => ex.op_array_store(opcode, &mut frame)?,
             0x57..=0x59 => ex.op_stack(opcode, &mut frame)?,
             0x60..=0x84 => ex.op_math(opcode, code, &mut frame)?,
-            0x91..=0x93 => ex.op_convert(opcode, &mut frame)?,
+            0x86 | 0x8b | 0x91..=0x93 | 0x95..=0x96 => ex.op_convert(opcode, &mut frame)?,
             0x99..=0xa7 | 0xc0 | 0xc1 => ex.op_control(opcode, code, &mut frame)?,
             // Returns handled inline — these need to return from execute()
-            0xac | 0xb0 => {
+            0xac | 0xae | 0xb0 => {
                 let v = frame.pop()?;
                 return Ok(Some(v));
             }

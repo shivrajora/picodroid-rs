@@ -12,9 +12,11 @@ uart = []
 arraydemo = []
 inherit = []
 interfacedemo = []
+floatdemo = []
 
 [dependencies]
 heapless = "0.8"
+libm = { version = "0.2", default-features = false }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
