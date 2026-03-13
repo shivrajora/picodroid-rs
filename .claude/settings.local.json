@@ -18,7 +18,11 @@
       "Bash(cargo clippy --no-default-features --features uart -- --deny=warnings)",
       "Bash(stty -f /dev/cu.usbmodem102 115200 cs8 -cstopb -parenb)",
       "Bash(./scripts/flash.sh --app uart --release)",
-      "Bash(pkill -f \"probe-rs\")"
+      "Bash(pkill -f \"probe-rs\")",
+      "Bash(cargo test)",
+      "Bash(cargo test --lib)",
+      "Bash(cargo test --target x86_64-apple-darwin)",
+      "Bash(cargo test --target aarch64-apple-darwin)"
     ]
   }
 }

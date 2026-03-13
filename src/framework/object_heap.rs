@@ -178,4 +178,80 @@ mod tests {
         let heap = ObjectHeap::new();
         assert_eq!(heap.get_field(99, 0), None);
     }
+
+    #[test]
+    fn string_builder_reuses_slot() {
+        let mut heap = ObjectHeap::new();
+        let idx1 = heap.alloc("java/lang/StringBuilder");
+        let idx2 = heap.alloc("java/lang/StringBuilder");
+        assert!(idx1.is_some());
+        assert_eq!(idx1, idx2);
+    }
+
+    #[test]
+    fn sb_append_bytes_and_contents() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_bytes(b"hello");
+        let (ptr, len) = heap.sb_contents();
+        assert_eq!(len, 5);
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(slice, b"hello");
+    }
+
+    #[test]
+    fn sb_clear_resets_length() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_bytes(b"hello");
+        heap.sb_clear();
+        let (_, len) = heap.sb_contents();
+        assert_eq!(len, 0);
+    }
+
+    #[test]
+    fn sb_append_int_zero() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_int(0);
+        let (ptr, len) = heap.sb_contents();
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(slice, b"0");
+    }
+
+    #[test]
+    fn sb_append_int_positive() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_int(12345);
+        let (ptr, len) = heap.sb_contents();
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(slice, b"12345");
+    }
+
+    #[test]
+    fn sb_append_int_negative() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_int(-42);
+        let (ptr, len) = heap.sb_contents();
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(slice, b"-42");
+    }
+
+    #[test]
+    fn sb_append_truncates_at_capacity() {
+        let mut heap = ObjectHeap::new();
+        let long_str = [b'x'; 70];
+        heap.sb_append_bytes(&long_str);
+        let (_, len) = heap.sb_contents();
+        assert_eq!(len, 64);
+    }
+
+    #[test]
+    fn sb_append_multiple_then_clear() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_bytes(b"foo");
+        heap.sb_append_int(7);
+        heap.sb_clear();
+        heap.sb_append_bytes(b"bar");
+        let (ptr, len) = heap.sb_contents();
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(slice, b"bar");
+    }
 }
