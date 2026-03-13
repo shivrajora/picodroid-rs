@@ -1,25 +1,36 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
+#[cfg(not(test))]
 extern crate alloc;
 
 mod framework;
 mod system;
 
+#[cfg(not(test))]
 use bsp::entry;
+#[cfg(not(test))]
 use cortex_m::asm;
+#[cfg(not(test))]
 use cortex_m_rt::{exception, ExceptionFrame};
+#[cfg(not(test))]
 use defmt_rtt as _;
+#[cfg(not(test))]
 use freertos_rust::*;
+#[cfg(not(test))]
 use panic_probe as _;
 
+#[cfg(not(test))]
+use rp_pico as bsp;
+
+#[cfg(not(test))]
+use bsp::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+
+#[cfg(not(test))]
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 
-use rp_pico as bsp;
-
-use bsp::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
-
+#[cfg(not(test))]
 fn clock_init() {
     let mut pac = pac::Peripherals::take().unwrap();
     let _sio = Sio::new(pac.SIO);
@@ -37,6 +48,7 @@ fn clock_init() {
     .unwrap();
 }
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     clock_init();
@@ -51,6 +63,7 @@ fn main() -> ! {
     FreeRtosUtils::start_scheduler();
 }
 
+#[cfg(not(test))]
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn DefaultHandler(_irqn: i16) {
@@ -59,6 +72,7 @@ unsafe fn DefaultHandler(_irqn: i16) {
     loop {}
 }
 
+#[cfg(not(test))]
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
@@ -67,6 +81,7 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     loop {}
 }
 
+#[cfg(not(test))]
 #[allow(non_snake_case)]
 #[no_mangle]
 fn vApplicationMallocFailedHook() {
@@ -75,6 +90,7 @@ fn vApplicationMallocFailedHook() {
     loop {}
 }
 
+#[cfg(not(test))]
 #[allow(non_snake_case)]
 #[no_mangle]
 fn vApplicationStackOverflowHook(_pxTask: FreeRtosTaskHandle, _pcTaskName: FreeRtosCharPtr) {

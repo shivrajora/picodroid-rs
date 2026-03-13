@@ -10,13 +10,13 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
 freertos-rust = { git = "https://github.com/shivrajora/FreeRTOS-rust.git", branch = "master" }
-
 defmt = "1"
+
+# Hardware-specific deps only needed when targeting the RP2040
+[target.'cfg(target_arch = "arm")'.dependencies]
+rp-pico = "0.9"
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
-
-# We're using a Pico by default on this template
-rp-pico = "0.9"
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.8"

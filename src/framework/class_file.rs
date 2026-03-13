@@ -25,6 +25,7 @@ pub struct MethodInfo {
 }
 
 /// A parsed class file backed by a `&'static [u8]` slice in Flash.
+#[derive(Debug)]
 pub struct ClassFile {
     data: &'static [u8],
     /// Byte offset of each CP entry's *data* (after the tag byte) within `data`.
@@ -352,5 +353,119 @@ impl ClassFile {
             self.data[off + 3],
         ];
         Some(i32::from_be_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Minimal valid .class file:
+    //   class "TC" extends java/lang/Object
+    //   one method: public void run() { return; }
+    //
+    // Constant pool (8 entries, cp_count=8 means indices 1..7):
+    //   #1: Class        -> #2
+    //   #2: Utf8         "TC"
+    //   #3: Class        -> #4
+    //   #4: Utf8         "java/lang/Object"
+    //   #5: Utf8         "run"
+    //   #6: Utf8         "()V"
+    //   #7: Utf8         "Code"
+    static MINIMAL_CLASS: &[u8] = &[
+        // Magic
+        0xCA, 0xFE, 0xBA, 0xBE, // Minor version = 0, Major version = 52 (Java 8)
+        0x00, 0x00, 0x00, 0x34, // cp_count = 8  (valid entries are indices 1..7)
+        0x00, 0x08, // #1: Class -> #2
+        0x07, 0x00, 0x02, // #2: Utf8 "TC"  (length=2)
+        0x01, 0x00, 0x02, b'T', b'C', // #3: Class -> #4
+        0x07, 0x00, 0x04, // #4: Utf8 "java/lang/Object"  (length=16)
+        0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b',
+        b'j', b'e', b'c', b't', // #5: Utf8 "run"  (length=3)
+        0x01, 0x00, 0x03, b'r', b'u', b'n', // #6: Utf8 "()V"  (length=3)
+        0x01, 0x00, 0x03, b'(', b')', b'V', // #7: Utf8 "Code"  (length=4)
+        0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // access_flags = ACC_PUBLIC (0x0001)
+        0x00, 0x01, // this_class = #1
+        0x00, 0x01, // super_class = #3
+        0x00, 0x03, // interfaces_count = 0
+        0x00, 0x00, // fields_count = 0
+        0x00, 0x00, // methods_count = 1
+        0x00, 0x01,
+        // Method: access_flags=0x0001, name_index=#5 ("run"), descriptor_index=#6 ("()V")
+        0x00, 0x01, // access_flags
+        0x00, 0x05, // name_index = #5
+        0x00, 0x06, // descriptor_index = #6
+        0x00, 0x01, // attributes_count = 1
+        // Code attribute: attr_name_index=#7 ("Code")
+        0x00, 0x07, // attr_name_index = #7
+        // attr_length = 2(max_stack) + 2(max_locals) + 4(code_length) + 1(bytecode) + 2(exception_table_len) + 2(inner_attributes_count)
+        //             = 13
+        0x00, 0x00, 0x00, 0x0D, // attr_length = 13
+        0x00, 0x01, // max_stack = 1
+        0x00, 0x01, // max_locals = 1
+        0x00, 0x00, 0x00, 0x01, // code_length = 1
+        0xB1, // bytecode: return
+        0x00, 0x00, // exception_table_length = 0
+        0x00, 0x00, // Code inner attributes_count = 0
+        // class attributes_count = 0
+        0x00, 0x00,
+    ];
+
+    // Wrong magic bytes — should trigger "bad magic" error.
+    static BAD_MAGIC: &[u8] = &[0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x34];
+
+    // Only the magic — version/cp bytes are missing, should trigger "truncated".
+    static TRUNCATED: &[u8] = &[0xCA, 0xFE, 0xBA, 0xBE];
+
+    #[test]
+    fn parse_minimal_class_succeeds() {
+        let result = ClassFile::parse(MINIMAL_CLASS);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result.err());
+    }
+
+    #[test]
+    fn class_name_is_tc() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        // class_name_index resolves to CP #2, the Utf8 entry for "TC"
+        assert_eq!(cf.class_name(), Some(b"TC" as &[u8]));
+    }
+
+    #[test]
+    fn one_method_parsed() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        assert_eq!(cf.methods.len(), 1);
+    }
+
+    #[test]
+    fn method_name_is_run() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        // methods[0].name_index = #5 ("run")
+        assert_eq!(cf.cp_utf8(cf.methods[0].name_index), Some(b"run" as &[u8]));
+    }
+
+    #[test]
+    fn method_code_is_return() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        // The only bytecode instruction is 0xB1 (return)
+        assert_eq!(cf.method_code(&cf.methods[0]), &[0xB1u8]);
+    }
+
+    #[test]
+    fn bad_magic_returns_error() {
+        let result = ClassFile::parse(BAD_MAGIC);
+        assert_eq!(result.unwrap_err(), "bad magic");
+    }
+
+    #[test]
+    fn truncated_returns_error() {
+        let result = ClassFile::parse(TRUNCATED);
+        assert!(result.is_err(), "expected Err for truncated input");
+    }
+
+    #[test]
+    fn cp_utf8_wrong_tag_returns_none() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        // CP #1 is a Class entry (tag=7), not a Utf8 entry — must return None
+        assert_eq!(cf.cp_utf8(1), None);
     }
 }

@@ -6,7 +6,7 @@ pub enum Value {
     Null,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[allow(dead_code)]
 pub enum JvmError {
     ClassNotFound,
