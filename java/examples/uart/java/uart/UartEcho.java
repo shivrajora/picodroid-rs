@@ -24,7 +24,7 @@ public class UartEcho {
     while (true) {
       int b = uart.readByte();
       if (b != -1) {
-        Log.i("UART", "Received: " + b);
+        Log.i("UART", "Received: " + (char) b);
         uart.writeByte(b);
       }
     }

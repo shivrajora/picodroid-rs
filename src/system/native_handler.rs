@@ -12,7 +12,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         &mut self,
         class_name: &str,
         method_name: &str,
-        _descriptor: &str,
+        descriptor: &str,
         args: &[Value],
         strings: &mut StringTable,
         objects: &mut ObjectHeap,
@@ -74,7 +74,13 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                         objects.sb_append_bytes(s.as_bytes());
                     }
                     Some(Value::Int(n)) => {
-                        objects.sb_append_int(*n);
+                        if descriptor.starts_with("(C)") {
+                            // append(char): emit the character, not its decimal value
+                            let ch = (*n as u8).max(0x20); // replace non-printable with space
+                            objects.sb_append_bytes(&[ch]);
+                        } else {
+                            objects.sb_append_int(*n);
+                        }
                     }
                     _ => {}
                 }
