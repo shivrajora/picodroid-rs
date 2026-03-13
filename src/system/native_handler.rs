@@ -62,6 +62,25 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/os/SystemClock", "sleep") => {
                 crate::system::picodroid::os::system_clock::sleep(args)
             }
+            ("java/lang/String", "length") => {
+                if let Some(Value::Reference(idx)) = args.first() {
+                    let s = strings.resolve(*idx).unwrap_or("");
+                    Ok(Some(Value::Int(s.len() as i32)))
+                } else {
+                    Err(JvmError::InvalidReference)
+                }
+            }
+            ("java/lang/String", "charAt") => {
+                if let (Some(Value::Reference(idx)), Some(Value::Int(i))) =
+                    (args.first(), args.get(1))
+                {
+                    let s = strings.resolve(*idx).unwrap_or("");
+                    let ch = s.as_bytes().get(*i as usize).copied().unwrap_or(0);
+                    Ok(Some(Value::Int(ch as i32)))
+                } else {
+                    Err(JvmError::InvalidReference)
+                }
+            }
             _ => Err(JvmError::NoSuchMethod),
         }
     }
