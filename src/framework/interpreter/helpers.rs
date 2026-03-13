@@ -118,7 +118,161 @@ pub(super) fn branch_target(pc_after_offset: usize, offset: i16) -> usize {
     ((pc_after_offset as i32) - 3 + offset as i32) as usize
 }
 
-pub(super) fn class_name_to_static(name: &str) -> &'static str {
+/// Computes the runtime field slot for a named field, walking from the root of the hierarchy down.
+/// Super-class fields come first (slot 0), then subclass fields.
+/// Returns None if the field is not found or the hierarchy is too deep (>8 levels).
+pub(super) fn field_slot(
+    classes: &[ClassFile],
+    class_name: &str,
+    field_name: &str,
+) -> Option<usize> {
+    // Build a chain of class indices from root to leaf (root first)
+    let mut chain: heapless::Vec<usize, 8> = heapless::Vec::new();
+    let mut current: &str = class_name;
+    loop {
+        let ci = classes
+            .iter()
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))?;
+        chain.push(ci).ok()?; // returns None if depth > 8
+        match classes[ci].super_class_name() {
+            None => break, // reached java/lang/Object
+            Some(super_bytes) => {
+                let super_str: &'static str = core::str::from_utf8(super_bytes).ok()?;
+                current = super_str;
+            }
+        }
+    }
+    chain.reverse(); // root first
+
+    let mut slot = 0usize;
+    for ci in chain.iter() {
+        let cf = &classes[*ci];
+        for fi in 0..cf.fields.len() {
+            if cf.field_name(fi)? == field_name.as_bytes() {
+                return Some(slot);
+            }
+            slot += 1;
+        }
+    }
+    None
+}
+
+/// Returns true if `runtime_class` is the same as or a subclass of `target_class`.
+pub(super) fn is_instance_of(
+    classes: &[ClassFile],
+    runtime_class: &str,
+    target_class: &str,
+) -> bool {
+    let mut current: &str = runtime_class;
+    loop {
+        if current == target_class {
+            return true;
+        }
+        let ci = match classes
+            .iter()
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
+        {
+            Some(i) => i,
+            None => return false,
+        };
+        match classes[ci].super_class_name() {
+            None => return false,
+            Some(super_bytes) => match core::str::from_utf8(super_bytes) {
+                Ok(s) => current = s,
+                Err(_) => return false,
+            },
+        }
+    }
+}
+
+/// Virtual dispatch: find a method starting from `runtime_class`, walking up the hierarchy.
+pub(super) fn find_method_virtual(
+    classes: &[ClassFile],
+    runtime_class: &str,
+    method_name: &str,
+    descriptor: &str,
+) -> Option<(usize, usize)> {
+    let mut current: &str = runtime_class;
+    loop {
+        if let Some(result) = find_method(classes, current, method_name, descriptor) {
+            return Some(result);
+        }
+        let ci = classes
+            .iter()
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))?;
+        let super_bytes = classes[ci].super_class_name()?;
+        let super_str: &'static str = core::str::from_utf8(super_bytes).ok()?;
+        current = super_str;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
+    classes: &[ClassFile],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+    handler: &mut H,
+    runtime_class: &str,
+    name_str: &str,
+    desc_str: &str,
+    stack: &mut heapless::Vec<Value, 16>,
+    arg_count: usize,
+) -> Result<Option<Value>, JvmError> {
+    let stack_len = stack.len();
+    if stack_len < arg_count {
+        return Err(JvmError::StackUnderflow);
+    }
+    let mut args_buf = [Value::Null; 8];
+    let start = stack_len - arg_count;
+    args_buf[..arg_count].copy_from_slice(&stack[start..]);
+    for _ in 0..arg_count {
+        stack.pop();
+    }
+    let args_ref = &args_buf[..arg_count];
+
+    if let Some((ci, mi)) = find_method_virtual(classes, runtime_class, name_str, desc_str) {
+        let is_native = classes[ci].methods[mi].code_offset == 0;
+        if is_native {
+            handler.dispatch(
+                runtime_class,
+                name_str,
+                desc_str,
+                args_ref,
+                strings,
+                objects,
+                arrays,
+            )
+        } else {
+            super::execute(classes, strings, objects, arrays, handler, ci, mi, args_ref)
+        }
+    } else {
+        handler.dispatch(
+            runtime_class,
+            name_str,
+            desc_str,
+            args_ref,
+            strings,
+            objects,
+            arrays,
+        )
+    }
+}
+
+/// Returns a &'static str for a class name. For user-defined classes (loaded into `classes`),
+/// returns the Flash-backed name directly. Falls back to a hardcoded list for native classes.
+pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'static str {
+    // Check loaded user classes first — their names are Flash-backed (&'static [u8])
+    for cf in classes.iter() {
+        if let Some(cn) = cf.class_name() {
+            if cn == name.as_bytes() {
+                if let Ok(s) = core::str::from_utf8(cn) {
+                    return s;
+                }
+            }
+        }
+    }
+    // Fallback for native/framework classes
     match name {
         "picodroid/pio/Gpio" => "picodroid/pio/Gpio",
         "picodroid/pio/PeripheralManager" => "picodroid/pio/PeripheralManager",

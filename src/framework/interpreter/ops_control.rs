@@ -150,9 +150,45 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.pc = ((frame.pc as i32) - 1 + offset as i32) as usize;
             }
 
-            // checkcast — no-op for M2
+            // checkcast — peek TOS; error if the object is not an instance of the target class
             0xc0 => {
+                let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
+                if let Some(Value::ObjectRef(idx)) = frame.stack.last().copied() {
+                    let cf = &self.classes[frame.class_idx];
+                    if let Some(target_bytes) = cf.cp_class_name(cp_idx) {
+                        if let Ok(target) = core::str::from_utf8(target_bytes) {
+                            let runtime_class = self.objects.class_name(idx).unwrap_or("");
+                            if !helpers::is_instance_of(self.classes, runtime_class, target) {
+                                return Err(JvmError::InvalidReference);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // instanceof — pop objectref; push 1 if instance of target class, else 0
+            0xc1 => {
+                let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let obj = frame.pop()?;
+                let result = match obj {
+                    Value::Null => Value::Int(0),
+                    Value::ObjectRef(idx) => {
+                        let cf = &self.classes[frame.class_idx];
+                        let is_instance = cf
+                            .cp_class_name(cp_idx)
+                            .and_then(|b| core::str::from_utf8(b).ok())
+                            .map(|target| {
+                                let runtime_class = self.objects.class_name(idx).unwrap_or("");
+                                helpers::is_instance_of(self.classes, runtime_class, target)
+                            })
+                            .unwrap_or(false);
+                        Value::Int(if is_instance { 1 } else { 0 })
+                    }
+                    _ => Value::Int(0),
+                };
+                frame.push(result)?;
             }
 
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),

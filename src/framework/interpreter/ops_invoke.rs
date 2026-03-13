@@ -30,18 +30,45 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         };
 
-        let result = helpers::invoke_method(
-            self.classes,
-            self.strings,
-            self.objects,
-            self.arrays,
-            self.handler,
-            class_str,
-            name_str,
-            desc_str,
-            &mut frame.stack,
-            arg_count,
-        )?;
+        // invokevirtual (0xb6): dispatch from the runtime class of `this`
+        // invokespecial (0xb7) / invokestatic (0xb8): dispatch to the compile-time class
+        let result = if opcode == 0xb6 {
+            // Peek `this` — it's at stack[len - arg_count]
+            let stack_len = frame.stack.len();
+            let dispatch_class = if stack_len >= arg_count {
+                match frame.stack[stack_len - arg_count] {
+                    Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
+                    _ => class_str,
+                }
+            } else {
+                class_str
+            };
+            helpers::invoke_method_virtual(
+                self.classes,
+                self.strings,
+                self.objects,
+                self.arrays,
+                self.handler,
+                dispatch_class,
+                name_str,
+                desc_str,
+                &mut frame.stack,
+                arg_count,
+            )?
+        } else {
+            helpers::invoke_method(
+                self.classes,
+                self.strings,
+                self.objects,
+                self.arrays,
+                self.handler,
+                class_str,
+                name_str,
+                desc_str,
+                &mut frame.stack,
+                arg_count,
+            )?
+        };
         if let Some(v) = result {
             frame.push(v)?;
         }
@@ -56,7 +83,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .cp_class_name(cp_idx)
             .and_then(|b| core::str::from_utf8(b).ok())
             .ok_or(JvmError::InvalidBytecode)?;
-        let static_name = helpers::class_name_to_static(class_name);
+        let static_name = helpers::class_name_to_static_in(self.classes, class_name);
         let obj_idx = self
             .objects
             .alloc(static_name)

@@ -7,6 +7,7 @@ use heapless::Vec;
 const TAG_UTF8: u8 = 1;
 const TAG_CLASS: u8 = 7;
 const TAG_STRING: u8 = 8;
+const TAG_FIELDREF: u8 = 9;
 const TAG_METHODREF: u8 = 10;
 const TAG_NAME_AND_TYPE: u8 = 12;
 
@@ -24,6 +25,13 @@ pub struct MethodInfo {
     pub access_flags: u16,
 }
 
+#[derive(Debug)]
+pub struct FieldInfo {
+    pub name_index: u16,
+    #[allow(dead_code)]
+    pub descriptor_index: u16,
+}
+
 /// A parsed class file backed by a `&'static [u8]` slice in Flash.
 #[derive(Debug)]
 pub struct ClassFile {
@@ -34,7 +42,9 @@ pub struct ClassFile {
     /// Tag of each CP entry (same indexing as cp_offsets).
     cp_tags: Vec<u8, 96>,
     pub methods: Vec<MethodInfo, 16>,
-    pub class_name_index: u16, // index of the Utf8 entry for this class's name
+    pub class_name_index: u16,       // Utf8 entry for this class's name
+    pub super_class_name_index: u16, // Utf8 entry for super class name; 0 = java/lang/Object
+    pub fields: Vec<FieldInfo, 8>,   // Instance field declarations (non-static)
 }
 
 struct Cursor<'a> {
@@ -158,7 +168,7 @@ impl ClassFile {
         // Access flags, this_class, super_class
         let _access_flags = c.u16().ok_or("truncated")?;
         let this_class_idx = c.u16().ok_or("truncated")?;
-        let _super_class = c.u16().ok_or("truncated")?;
+        let super_class_cp = c.u16().ok_or("truncated")?;
 
         // Resolve class name: this_class_idx → Class CP entry → Utf8 index
         let class_name_utf8_idx = {
@@ -170,19 +180,56 @@ impl ClassFile {
             u16::from_be_bytes([data[off], data[off + 1]])
         };
 
+        // Resolve super class name Utf8 index; 0 means java/lang/Object (not tracked)
+        let super_class_name_index: u16 = if super_class_cp == 0 {
+            0
+        } else {
+            let ci = super_class_cp as usize;
+            if cp_tags.get(ci) != Some(&TAG_CLASS) {
+                return Err("bad super_class");
+            }
+            let off = cp_offsets[ci];
+            let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
+            // Check if it's java/lang/Object — if so, treat as no superclass
+            let ui = utf8_idx as usize;
+            if cp_tags.get(ui) == Some(&TAG_UTF8) {
+                let uoff = cp_offsets[ui];
+                let ulen = u16::from_be_bytes([data[uoff], data[uoff + 1]]) as usize;
+                if data.get(uoff + 2..uoff + 2 + ulen) == Some(b"java/lang/Object") {
+                    0
+                } else {
+                    utf8_idx
+                }
+            } else {
+                0
+            }
+        };
+
         // Skip interfaces
         let iface_count = c.u16().ok_or("truncated")? as usize;
         c.skip(iface_count * 2).ok_or("truncated")?;
 
-        // Skip fields
+        // Parse instance fields
         let field_count = c.u16().ok_or("truncated")? as usize;
+        let mut fields: Vec<FieldInfo, 8> = Vec::new();
         for _ in 0..field_count {
-            c.skip(6).ok_or("truncated")?; // access_flags, name_idx, descriptor_idx
+            let access_flags = c.u16().ok_or("truncated")?;
+            let name_idx = c.u16().ok_or("truncated")?;
+            let descriptor_idx = c.u16().ok_or("truncated")?;
             let attr_count = c.u16().ok_or("truncated")? as usize;
             for _ in 0..attr_count {
                 c.skip(2).ok_or("truncated")?; // attr name index
                 let len = c.u32().ok_or("truncated")? as usize;
                 c.skip(len).ok_or("truncated")?;
+            }
+            // Store non-static instance fields only (ACC_STATIC = 0x0008)
+            if access_flags & 0x0008 == 0 {
+                fields
+                    .push(FieldInfo {
+                        name_index: name_idx,
+                        descriptor_index: descriptor_idx,
+                    })
+                    .ok();
             }
         }
 
@@ -252,6 +299,8 @@ impl ClassFile {
             cp_tags,
             methods,
             class_name_index: class_name_utf8_idx,
+            super_class_name_index,
+            fields,
         })
     }
 
@@ -337,6 +386,55 @@ impl ClassFile {
         let off = self.cp_offsets[i];
         let utf8_idx = u16::from_be_bytes([self.data[off], self.data[off + 1]]);
         self.cp_utf8(utf8_idx)
+    }
+
+    /// Returns the Utf8 bytes for this class's super class name (e.g. b"apps/Animal").
+    /// Returns None if this class directly extends java/lang/Object.
+    pub fn super_class_name(&self) -> Option<&'static [u8]> {
+        if self.super_class_name_index == 0 {
+            return None;
+        }
+        self.cp_utf8(self.super_class_name_index)
+    }
+
+    /// Returns the field name bytes for the field at position `pos` in this class's own
+    /// field table (0-based, does not include inherited fields).
+    pub fn field_name(&self, pos: usize) -> Option<&'static [u8]> {
+        let fi = self.fields.get(pos)?;
+        self.cp_utf8(fi.name_index)
+    }
+
+    /// Resolves a CONSTANT_Fieldref CP entry to (class_name_utf8, field_name_utf8, descriptor_utf8).
+    pub fn cp_fieldref(&self, index: u16) -> Option<(&'static [u8], &'static [u8], &'static [u8])> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_FIELDREF) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let class_idx = u16::from_be_bytes([self.data[off], self.data[off + 1]]);
+        let nat_idx = u16::from_be_bytes([self.data[off + 2], self.data[off + 3]]);
+
+        let ci = class_idx as usize;
+        if self.cp_tags.get(ci) != Some(&TAG_CLASS) {
+            return None;
+        }
+        let class_off = self.cp_offsets[ci];
+        let class_name_utf8 = u16::from_be_bytes([self.data[class_off], self.data[class_off + 1]]);
+        let class_name = self.cp_utf8(class_name_utf8)?;
+
+        let ni = nat_idx as usize;
+        if self.cp_tags.get(ni) != Some(&TAG_NAME_AND_TYPE) {
+            return None;
+        }
+        let nat_off = self.cp_offsets[ni];
+        let field_name_idx = u16::from_be_bytes([self.data[nat_off], self.data[nat_off + 1]]);
+        let descriptor_idx = u16::from_be_bytes([self.data[nat_off + 2], self.data[nat_off + 3]]);
+
+        Some((
+            class_name,
+            self.cp_utf8(field_name_idx)?,
+            self.cp_utf8(descriptor_idx)?,
+        ))
     }
 
     /// Resolves a CONSTANT_Integer CP entry to an i32.

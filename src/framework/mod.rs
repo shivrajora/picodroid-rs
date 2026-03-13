@@ -25,7 +25,7 @@ use types::JvmError;
 include!(concat!(env!("OUT_DIR"), "/java_classes.rs"));
 
 pub struct Jvm {
-    classes: Vec<ClassFile, 8>,
+    classes: Vec<ClassFile, 12>,
     pub strings: StringTable,
     pub objects: ObjectHeap,
     pub arrays: ArrayHeap,
@@ -95,10 +95,11 @@ pub fn run_jvm() -> ! {
         feature = "helloworld",
         feature = "blinky",
         feature = "uart",
-        feature = "arraydemo"
+        feature = "arraydemo",
+        feature = "inherit"
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, or arraydemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, or inherit."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -118,6 +119,18 @@ pub fn run_jvm() -> ! {
 
     #[cfg(all(feature = "uart", feature = "arraydemo"))]
     compile_error!("Features 'uart' and 'arraydemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "helloworld", feature = "inherit"))]
+    compile_error!("Features 'helloworld' and 'inherit' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "inherit"))]
+    compile_error!("Features 'blinky' and 'inherit' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "inherit"))]
+    compile_error!("Features 'uart' and 'inherit' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "inherit"))]
+    compile_error!("Features 'arraydemo' and 'inherit' are mutually exclusive.");
 
     #[cfg(feature = "helloworld")]
     {
@@ -158,6 +171,17 @@ pub fn run_jvm() -> ! {
         jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("arraydemo/ArrayDemo", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "inherit")]
+    {
+        // Load Animal before Dog so field_slot() can walk the hierarchy
+        jvm.load_class(INHERIT_ANIMAL_CLASS).unwrap();
+        jvm.load_class(INHERIT_DOG_CLASS).unwrap();
+        jvm.load_class(INHERIT_INHERITDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("inherit/InheritDemo", "main", &mut handler)
             .unwrap();
     }
 

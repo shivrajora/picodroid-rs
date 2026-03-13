@@ -75,7 +75,7 @@ pub fn execute<H: NativeMethodHandler>(
             0x57..=0x59 => ex.op_stack(opcode, &mut frame)?,
             0x60..=0x84 => ex.op_math(opcode, code, &mut frame)?,
             0x91..=0x93 => ex.op_convert(opcode, &mut frame)?,
-            0x99..=0xa7 | 0xc0 => ex.op_control(opcode, code, &mut frame)?,
+            0x99..=0xa7 | 0xc0 | 0xc1 => ex.op_control(opcode, code, &mut frame)?,
             // Returns handled inline — these need to return from execute()
             0xac | 0xb0 => {
                 let v = frame.pop()?;

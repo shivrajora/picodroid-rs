@@ -4,7 +4,7 @@ use heapless::Vec;
 #[allow(dead_code)]
 pub struct JvmObject {
     pub class_name: &'static str,
-    pub fields: Vec<Value, 8>,
+    pub fields: Vec<Value, 16>,
 }
 
 pub struct ObjectHeap {

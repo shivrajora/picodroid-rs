@@ -10,6 +10,7 @@ helloworld = []
 blinky = []
 uart = []
 arraydemo = []
+inherit = []
 
 [dependencies]
 heapless = "0.8"
