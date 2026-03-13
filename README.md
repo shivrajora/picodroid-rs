@@ -89,8 +89,8 @@ Verify: `javac --version`
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
-# Build firmware (also compiles Java sources)
-cargo build
+# Build firmware (also compiles Java sources) and print memory usage stats
+./scripts/build.sh
 
 # Flash to Pico and view RTT log output
 cargo run
@@ -129,7 +129,7 @@ jvm.invoke_static("apps/MyApp", "main").unwrap();
 3. Rebuild and flash:
 
 ```bash
-cargo run
+./scripts/build.sh && cargo run
 ```
 
 The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash.
