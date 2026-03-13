@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 set -e
 
-cargo build "$@"
-
+CARGO_ARGS=()
 PROFILE="debug"
-for arg in "$@"; do
-  [[ "$arg" == "--release" ]] && PROFILE="release"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app)
+      CARGO_ARGS+=("--no-default-features" "--features" "$2")
+      shift 2
+      ;;
+    --release)
+      PROFILE="release"
+      CARGO_ARGS+=("--release")
+      shift
+      ;;
+    *)
+      CARGO_ARGS+=("$1")
+      shift
+      ;;
+  esac
 done
+
+cargo build "${CARGO_ARGS[@]}"
 
 ELF="target/thumbv6m-none-eabi/${PROFILE}/picodroid"
 

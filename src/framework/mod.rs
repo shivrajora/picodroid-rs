@@ -86,16 +86,48 @@ pub fn run_jvm() -> ! {
     let mut jvm = Box::new(Jvm::new());
     let mut handler = crate::system::native_handler::PicodroidNativeHandler;
 
-    jvm.load_class(BLINKY_LEDBLINK_CLASS).unwrap();
-    jvm.load_class(PICODROID_PIO_GPIO_CLASS).unwrap();
-    jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
-        .unwrap();
-    jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
-    jvm.load_class(PICODROID_OS_SYSTEMCLOCK_CLASS).unwrap();
-    jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+    #[cfg(not(any(feature = "helloworld", feature = "blinky", feature = "uart")))]
+    compile_error!("No example feature selected. Use --app helloworld, blinky, or uart.");
 
-    jvm.invoke_static("blinky/LedBlink", "main", &mut handler)
-        .unwrap();
+    #[cfg(all(feature = "helloworld", feature = "blinky"))]
+    compile_error!("Features 'helloworld' and 'blinky' are mutually exclusive.");
+
+    #[cfg(all(feature = "helloworld", feature = "uart"))]
+    compile_error!("Features 'helloworld' and 'uart' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "uart"))]
+    compile_error!("Features 'blinky' and 'uart' are mutually exclusive.");
+
+    #[cfg(feature = "helloworld")]
+    {
+        jvm.load_class(HELLOWORLD_HELLOWORLD_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("helloworld/HelloWorld", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "blinky")]
+    {
+        jvm.load_class(BLINKY_LEDBLINK_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_GPIO_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+            .unwrap();
+        jvm.load_class(PICODROID_OS_SYSTEMCLOCK_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("blinky/LedBlink", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "uart")]
+    {
+        jvm.load_class(UART_UARTECHO_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+            .unwrap();
+        jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("uart/UartEcho", "main", &mut handler)
+            .unwrap();
+    }
 
     loop {
         freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
