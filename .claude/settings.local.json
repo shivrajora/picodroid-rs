@@ -15,7 +15,10 @@
       "Bash(cargo clippy --all-features -- --deny=warnings)",
       "Bash(cargo clippy --no-default-features --features helloworld -- --deny=warnings)",
       "Bash(cargo clippy --no-default-features --features blinky -- --deny=warnings)",
-      "Bash(cargo clippy --no-default-features --features uart -- --deny=warnings)"
+      "Bash(cargo clippy --no-default-features --features uart -- --deny=warnings)",
+      "Bash(stty -f /dev/cu.usbmodem102 115200 cs8 -cstopb -parenb)",
+      "Bash(./scripts/flash.sh --app uart --release)",
+      "Bash(pkill -f \"probe-rs\")"
     ]
   }
 }
