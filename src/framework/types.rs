@@ -3,6 +3,7 @@ pub enum Value {
     Int(i32),
     Reference(u16), // index into StringTable
     ObjectRef(u16), // index into ObjectHeap
+    ArrayRef(u16),  // index into ArrayHeap
     Null,
 }
 
@@ -17,4 +18,6 @@ pub enum JvmError {
     StackUnderflow,
     InvalidReference,
     UnsupportedOpcode(u8),
+    ArrayIndexOutOfBounds,
+    NegativeArraySize,
 }

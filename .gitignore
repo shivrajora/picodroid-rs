@@ -7,6 +7,9 @@ target/
 # Downloaded tooling (google-java-format JAR, etc.)
 tools/
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # editor files
 .vscode/*
 !.vscode/*.md

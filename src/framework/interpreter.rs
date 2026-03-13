@@ -1,4 +1,5 @@
 use crate::framework::{
+    array_heap::ArrayHeap,
     class_file::ClassFile,
     frame::Frame,
     heap::StringTable,
@@ -11,6 +12,7 @@ pub fn execute(
     classes: &[ClassFile],
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
     handler: &mut impl NativeMethodHandler,
     class_idx: usize,
     method_idx: usize,
@@ -215,6 +217,113 @@ pub fn execute(
                 let a = frame.pop()?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_sub(b)))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // imul
+            0x68 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_mul(b)))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // idiv
+            0x6c => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(_), Value::Int(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_div(b)))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // irem
+            0x70 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(_), Value::Int(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_rem(b)))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ineg
+            0x74 => {
+                let v = frame.pop()?;
+                match v {
+                    Value::Int(n) => frame.push(Value::Int(n.wrapping_neg()))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ishl
+            0x78 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => {
+                        frame.push(Value::Int(a.wrapping_shl((b & 0x1f) as u32)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ishr
+            0x7a => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => {
+                        frame.push(Value::Int(a.wrapping_shr((b & 0x1f) as u32)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // iushr
+            0x7c => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(
+                        ((a as u32).wrapping_shr((b & 0x1f) as u32)) as i32,
+                    ))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // iand
+            0x7e => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a & b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ior
+            0x80 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a | b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ixor
+            0x82 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a ^ b))?,
                     _ => return Err(JvmError::InvalidBytecode),
                 }
             }
@@ -436,6 +545,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    arrays,
                     handler,
                     class_str,
                     name_str,
@@ -465,6 +575,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    arrays,
                     handler,
                     class_str,
                     name_str,
@@ -494,6 +605,7 @@ pub fn execute(
                     classes,
                     strings,
                     objects,
+                    arrays,
                     handler,
                     class_str,
                     name_str,
@@ -549,6 +661,272 @@ pub fn execute(
                 }
             }
 
+            // aaload — load reference from reference array
+            0x32 => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                let v = if raw == 0 {
+                    Value::Null
+                } else {
+                    Value::ObjectRef(raw as u16)
+                };
+                frame.push(v)?;
+            }
+
+            // iaload — load int from int array
+            0x2e => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let v = arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                frame.push(Value::Int(v))?;
+            }
+
+            // baload — load byte/boolean from array (sign-extend)
+            0x33 => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                frame.push(Value::Int(raw as i8 as i32))?;
+            }
+
+            // caload — load char from array (zero-extend)
+            0x34 => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                frame.push(Value::Int(raw as u16 as i32))?;
+            }
+
+            // saload — load short from array (sign-extend)
+            0x35 => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                frame.push(Value::Int(raw as i16 as i32))?;
+            }
+
+            // aastore — store reference into reference array
+            0x53 => {
+                let value = frame.pop()?;
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = match value {
+                    Value::Null => 0i32,
+                    Value::ObjectRef(i) => i as i32,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                arrays
+                    .store(arr_idx, index as usize, raw)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // bastore — store byte/boolean into array (truncate to 8 bits)
+            0x54 => {
+                let value = match frame.pop()? {
+                    Value::Int(v) => v,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                arrays
+                    .store(arr_idx, index as usize, value as i8 as i32)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // castore — store char into array (truncate to 16 bits)
+            0x55 => {
+                let value = match frame.pop()? {
+                    Value::Int(v) => v,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                arrays
+                    .store(arr_idx, index as usize, value as u16 as i32)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // sastore — store short into array (truncate to 16 bits, sign-extended)
+            0x56 => {
+                let value = match frame.pop()? {
+                    Value::Int(v) => v,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                arrays
+                    .store(arr_idx, index as usize, value as i16 as i32)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // iastore — store int into int array
+            0x4f => {
+                let value = match frame.pop()? {
+                    Value::Int(v) => v,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                arrays
+                    .store(arr_idx, index as usize, value)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // newarray — create new primitive array
+            0xbc => {
+                let atype = code[frame.pc];
+                frame.pc += 1;
+                let count = match frame.pop()? {
+                    Value::Int(n) => n,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if count < 0 {
+                    return Err(JvmError::NegativeArraySize);
+                }
+                let arr_idx = arrays
+                    .alloc(atype, count as u8)
+                    .ok_or(JvmError::StackOverflow)?;
+                frame.push(Value::ArrayRef(arr_idx))?;
+            }
+
+            // anewarray — create new reference array (class cp_idx consumed but ignored)
+            0xbd => {
+                frame.pc += 2; // skip cp_idx
+                let count = match frame.pop()? {
+                    Value::Int(n) => n,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if count < 0 {
+                    return Err(JvmError::NegativeArraySize);
+                }
+                let arr_idx = arrays
+                    .alloc(crate::framework::array_heap::ATYPE_REF, count as u8)
+                    .ok_or(JvmError::StackOverflow)?;
+                frame.push(Value::ArrayRef(arr_idx))?;
+            }
+
+            // arraylength — get length of array
+            0xbe => {
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let len = arrays.length(arr_idx).ok_or(JvmError::InvalidReference)?;
+                frame.push(Value::Int(len as i32))?;
+            }
+
             // checkcast — no-op for M2
             0xc0 => {
                 frame.pc += 2;
@@ -566,6 +944,7 @@ fn invoke_method(
     classes: &[ClassFile],
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
     handler: &mut impl NativeMethodHandler,
     class_str: &str,
     name_str: &str,
@@ -588,12 +967,16 @@ fn invoke_method(
     if let Some((ci, mi)) = find_method(classes, class_str, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;
         if is_native {
-            handler.dispatch(class_str, name_str, desc_str, args_ref, strings, objects)
+            handler.dispatch(
+                class_str, name_str, desc_str, args_ref, strings, objects, arrays,
+            )
         } else {
-            execute(classes, strings, objects, handler, ci, mi, args_ref)
+            execute(classes, strings, objects, arrays, handler, ci, mi, args_ref)
         }
     } else {
-        handler.dispatch(class_str, name_str, desc_str, args_ref, strings, objects)
+        handler.dispatch(
+            class_str, name_str, desc_str, args_ref, strings, objects, arrays,
+        )
     }
 }
 
@@ -695,6 +1078,7 @@ mod tests {
             _args: &[Value],
             _strings: &mut StringTable,
             _objects: &mut ObjectHeap,
+            _arrays: &mut crate::framework::array_heap::ArrayHeap,
         ) -> Result<Option<Value>, JvmError> {
             Ok(None)
         }
@@ -1164,11 +1548,13 @@ mod tests {
         classes.push(cf).ok().expect("push failed");
         let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
+        let mut arrays = crate::framework::array_heap::ArrayHeap::new();
         let mut handler = NoopHandler;
         execute(
             &classes,
             &mut strings,
             &mut objects,
+            &mut arrays,
             &mut handler,
             0,
             0,
@@ -1316,5 +1702,176 @@ mod tests {
     #[test]
     fn i2c_zero_extends_to_char() {
         assert_eq!(run(CLASS_I2C).unwrap(), Some(Value::Int(65535)));
+    }
+
+    // ── Array opcode tests ────────────────────────────────────────────────────
+    // Common 5-line header (lines 1-5 identical across all ()I test classes):
+    //   0xCA,0xFE,0xBA,0xBE, minor=0, major=52, cp_count=8
+    //   #1=Class->#2, #2=Utf8"T", #3=Class->#4, #4=Utf8"java/lang/Object"
+    //   #5=Utf8"m", #6=Utf8"()I", #7=Utf8"Code"
+    //   access=1, this=#1, super=#3, no ifaces/fields, 1 method
+    //   method: flags=1, name=#5, desc=#6, 1 Code attr
+    // Line 6: 0x01,0x00,0x07, 0x00,0x00,0x00,{attr_len}, 0x00,0x01,0x00,0x02, 0x00,0x00,0x00,{code_len}
+    // Tail (after bytecode): 0x00,0x00, 0x00,0x00, 0x00,0x00
+
+    // bipush 5, newarray 10, arraylength, ireturn  — N=6, attr_len=18=0x12
+    static CLASS_NEWARRAY_ARRAYLENGTH: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x06,
+        // bipush 5, newarray int(10), arraylength, ireturn
+        0x10, 0x05, 0xBC, 0x0A, 0xBE, 0xAC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // bipush 4, newarray 10, astore_1, aload_1, iconst_2, bipush 99, iastore,
+    // aload_1, iconst_2, iaload, ireturn  — N=14, attr_len=26=0x1A
+    static CLASS_IASTORE_IALOAD: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x1A, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0E,
+        0x10, 0x04, // bipush 4
+        0xBC, 0x0A, // newarray int
+        0x4C, // astore_1
+        0x2B, // aload_1
+        0x05, // iconst_2
+        0x10, 0x63, // bipush 99
+        0x4F, // iastore
+        0x2B, // aload_1
+        0x05, // iconst_2
+        0x2E, // iaload
+        0xAC, // ireturn
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // bipush 1, newarray 8, astore_1, aload_1, iconst_0, sipush 300, bastore,
+    // aload_1, iconst_0, baload, ireturn  — N=15, attr_len=27=0x1B
+    // (byte)300 = 44; sign-extend as i8 → 44 (< 128, stays positive)
+    static CLASS_BASTORE_BALOAD: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x1B, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0F,
+        0x10, 0x01, // bipush 1
+        0xBC, 0x08, // newarray byte
+        0x4C, // astore_1
+        0x2B, // aload_1
+        0x03, // iconst_0
+        0x11, 0x01, 0x2C, // sipush 300
+        0x54, // bastore  → stores (byte)300 = 44
+        0x2B, // aload_1
+        0x03, // iconst_0
+        0x33, // baload   → sign-extends: 44 as i8 = 44
+        0xAC, // ireturn
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // bipush 1, newarray 5, astore_1, aload_1, iconst_0, iconst_m1, castore,
+    // aload_1, iconst_0, caload, ireturn  — N=13, attr_len=25=0x19
+    // (char)-1 = 0xFFFF; zero-extend → 65535
+    static CLASS_CALOAD_ZERO_EXTENDS: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x19, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0D,
+        0x10, 0x01, // bipush 1
+        0xBC, 0x05, // newarray char
+        0x4C, // astore_1
+        0x2B, // aload_1
+        0x03, // iconst_0
+        0x02, // iconst_m1  (-1)
+        0x55, // castore    → stores (char)(-1) = 0xFFFF
+        0x2B, // aload_1
+        0x03, // iconst_0
+        0x34, // caload     → zero-extends 0xFFFF → 65535
+        0xAC, // ireturn
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // iconst_m1, newarray 10, ireturn  — N=4, attr_len=16=0x10
+    // should return Err(NegativeArraySize)
+    static CLASS_NEGATIVE_ARRAY_SIZE: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04,
+        0x02, // iconst_m1
+        0xBC, 0x0A, // newarray int
+        0xAC, // ireturn (not reached)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // bipush 3, newarray 10, astore_1, aload_1, bipush 5, iaload, ireturn
+    // N=10, attr_len=22=0x16  — index 5 >= length 3 → ArrayIndexOutOfBounds
+    static CLASS_IALOAD_OUT_OF_BOUNDS: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00, 0x02, 0x01, 0x00,
+        0x01, 0x54, 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61,
+        0x6E, 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74, 0x01, 0x00, 0x01, 0x6D, 0x01, 0x00,
+        0x03, 0x28, 0x29, 0x49, 0x01, 0x00, 0x04, 0x43, 0x6F, 0x64, 0x65, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+        0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x16, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0A,
+        0x10, 0x03, // bipush 3
+        0xBC, 0x0A, // newarray int
+        0x4C, // astore_1
+        0x2B, // aload_1
+        0x10, 0x05, // bipush 5 (index out of bounds)
+        0x2E, // iaload → ArrayIndexOutOfBounds
+        0xAC, // ireturn (not reached)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    #[test]
+    fn newarray_and_arraylength() {
+        assert_eq!(
+            run(CLASS_NEWARRAY_ARRAYLENGTH).unwrap(),
+            Some(Value::Int(5))
+        );
+    }
+
+    #[test]
+    fn iastore_iaload_roundtrip() {
+        assert_eq!(run(CLASS_IASTORE_IALOAD).unwrap(), Some(Value::Int(99)));
+    }
+
+    #[test]
+    fn bastore_truncates_and_sign_extends() {
+        // (byte)300 = 44, sign-extend as i8 → 44
+        assert_eq!(run(CLASS_BASTORE_BALOAD).unwrap(), Some(Value::Int(44)));
+    }
+
+    #[test]
+    fn caload_zero_extends() {
+        // (char)-1 = 0xFFFF, zero-extend → 65535
+        assert_eq!(
+            run(CLASS_CALOAD_ZERO_EXTENDS).unwrap(),
+            Some(Value::Int(65535))
+        );
+    }
+
+    #[test]
+    fn negative_array_size_returns_error() {
+        assert_eq!(
+            run(CLASS_NEGATIVE_ARRAY_SIZE).unwrap_err(),
+            JvmError::NegativeArraySize
+        );
+    }
+
+    #[test]
+    fn iaload_out_of_bounds_returns_error() {
+        assert_eq!(
+            run(CLASS_IALOAD_OUT_OF_BOUNDS).unwrap_err(),
+            JvmError::ArrayIndexOutOfBounds
+        );
     }
 }

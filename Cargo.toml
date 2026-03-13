@@ -9,6 +9,7 @@ default = ["blinky"]
 helloworld = []
 blinky = []
 uart = []
+arraydemo = []
 
 [dependencies]
 heapless = "0.8"

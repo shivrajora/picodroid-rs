@@ -1,6 +1,7 @@
 #[cfg(not(test))]
 extern crate alloc;
 
+pub mod array_heap;
 pub mod class_file;
 pub mod frame;
 pub mod heap;
@@ -11,6 +12,7 @@ pub mod types;
 
 #[cfg(not(test))]
 use alloc::boxed::Box;
+use array_heap::ArrayHeap;
 use class_file::ClassFile;
 use heap::StringTable;
 use heapless::Vec;
@@ -26,6 +28,7 @@ pub struct Jvm {
     classes: Vec<ClassFile, 8>,
     pub strings: StringTable,
     pub objects: ObjectHeap,
+    pub arrays: ArrayHeap,
 }
 
 impl Jvm {
@@ -34,6 +37,7 @@ impl Jvm {
             classes: Vec::new(),
             strings: StringTable::new(),
             objects: ObjectHeap::new(),
+            arrays: ArrayHeap::new(),
         }
     }
 
@@ -72,6 +76,7 @@ impl Jvm {
             &self.classes,
             &mut self.strings,
             &mut self.objects,
+            &mut self.arrays,
             handler,
             ci,
             mi,
@@ -86,8 +91,15 @@ pub fn run_jvm() -> ! {
     let mut jvm = Box::new(Jvm::new());
     let mut handler = crate::system::native_handler::PicodroidNativeHandler;
 
-    #[cfg(not(any(feature = "helloworld", feature = "blinky", feature = "uart")))]
-    compile_error!("No example feature selected. Use --app helloworld, blinky, or uart.");
+    #[cfg(not(any(
+        feature = "helloworld",
+        feature = "blinky",
+        feature = "uart",
+        feature = "arraydemo"
+    )))]
+    compile_error!(
+        "No example feature selected. Use --app helloworld, blinky, uart, or arraydemo."
+    );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
     compile_error!("Features 'helloworld' and 'blinky' are mutually exclusive.");
@@ -95,8 +107,17 @@ pub fn run_jvm() -> ! {
     #[cfg(all(feature = "helloworld", feature = "uart"))]
     compile_error!("Features 'helloworld' and 'uart' are mutually exclusive.");
 
+    #[cfg(all(feature = "helloworld", feature = "arraydemo"))]
+    compile_error!("Features 'helloworld' and 'arraydemo' are mutually exclusive.");
+
     #[cfg(all(feature = "blinky", feature = "uart"))]
     compile_error!("Features 'blinky' and 'uart' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "arraydemo"))]
+    compile_error!("Features 'blinky' and 'arraydemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "arraydemo"))]
+    compile_error!("Features 'uart' and 'arraydemo' are mutually exclusive.");
 
     #[cfg(feature = "helloworld")]
     {
@@ -126,6 +147,17 @@ pub fn run_jvm() -> ! {
         jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("uart/UartEcho", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "arraydemo")]
+    {
+        jvm.load_class(ARRAYDEMO_ARRAYDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+            .unwrap();
+        jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("arraydemo/ArrayDemo", "main", &mut handler)
             .unwrap();
     }
 

@@ -1,4 +1,5 @@
 use crate::framework::{
+    array_heap::ArrayHeap,
     heap::StringTable,
     object_heap::ObjectHeap,
     types::{JvmError, Value},
@@ -16,6 +17,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         args: &[Value],
         strings: &mut StringTable,
         objects: &mut ObjectHeap,
+        _arrays: &mut ArrayHeap,
     ) -> Result<Option<Value>, JvmError> {
         match (class_name, method_name) {
             ("picodroid/util/Log", "i") => {
