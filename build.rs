@@ -80,7 +80,7 @@ fn compile_java(out: &Path) {
     }
 
     let result = std::process::Command::new("javac")
-        .args(["--release", "8", "-cp", "java", "-d"])
+        .args(["--release", "8", "-cp", "java/framework/java", "-d"])
         .arg(&classes_dir)
         .args(&java_files)
         .status();
