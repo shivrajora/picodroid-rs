@@ -15,4 +15,11 @@ if ! cargo clean && cargo build; then
   exit 1
 fi
 
+echo "==> Running tests..."
+if ! cargo test --target aarch64-apple-darwin; then
+  echo ""
+  echo "ERROR: Tests failed. Fix the failures above before committing."
+  exit 1
+fi
+
 echo "==> All checks passed."
