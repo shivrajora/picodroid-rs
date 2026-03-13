@@ -51,7 +51,9 @@ jobs:
         with:
           components: clippy
           target: thumbv6m-none-eabi
-      - run: cargo clippy --all-features -- --deny=warnings
+      - run: cargo clippy --no-default-features --features helloworld -- --deny=warnings
+      - run: cargo clippy --no-default-features --features blinky -- --deny=warnings
+      - run: cargo clippy --no-default-features --features uart -- --deny=warnings
   formatting:
     name: Formatting
     runs-on: ubuntu-latest

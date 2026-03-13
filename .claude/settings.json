@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path' | grep -q '\\.rs$' && cargo clippy --all-features -- --deny=warnings"
+            "command": "jq -r '.tool_input.file_path' | grep -q '\\.rs$' && cargo clippy --no-default-features --features helloworld -- --deny=warnings && cargo clippy --no-default-features --features blinky -- --deny=warnings && cargo clippy --no-default-features --features uart -- --deny=warnings"
           }
         ]
       }
