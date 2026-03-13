@@ -55,7 +55,7 @@ fn main() -> ! {
 
     Task::new()
         .name("jvm")
-        .stack_size(2048)
+        .stack_size(4096)
         .start(move |_| {
             framework::run_jvm();
         })

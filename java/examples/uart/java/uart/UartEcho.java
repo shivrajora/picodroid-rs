@@ -2,6 +2,7 @@ package uart;
 
 import picodroid.pio.PeripheralManager;
 import picodroid.pio.UartDevice;
+import picodroid.util.Log;
 
 public class UartEcho {
   public static void main(String[] args) {
@@ -23,6 +24,7 @@ public class UartEcho {
     while (true) {
       int b = uart.readByte();
       if (b != -1) {
+        Log.i("UART", "Received: " + b);
         uart.writeByte(b);
       }
     }

@@ -639,6 +639,7 @@ fn class_name_to_static(name: &str) -> &'static str {
         "picodroid/pio/PeripheralManager" => "picodroid/pio/PeripheralManager",
         "picodroid/os/SystemClock" => "picodroid/os/SystemClock",
         "picodroid/util/Log" => "picodroid/util/Log",
+        "java/lang/StringBuilder" => "java/lang/StringBuilder",
         _ => "unknown",
     }
 }
@@ -662,7 +663,7 @@ mod tests {
             _method_name: &str,
             _descriptor: &str,
             _args: &[Value],
-            _strings: &StringTable,
+            _strings: &mut StringTable,
             _objects: &mut ObjectHeap,
         ) -> Result<Option<Value>, JvmError> {
             Ok(None)

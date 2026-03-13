@@ -9,17 +9,32 @@ pub struct JvmObject {
 
 pub struct ObjectHeap {
     objects: Vec<JvmObject, 16>,
+    sb_buf: [u8; 64],
+    sb_len: usize,
 }
 
 impl ObjectHeap {
     pub const fn new() -> Self {
         Self {
             objects: Vec::new(),
+            sb_buf: [0u8; 64],
+            sb_len: 0,
         }
     }
 
     /// Allocate a new object of the given class, returning its heap index.
+    /// For `java/lang/StringBuilder`, reuses an existing slot if one exists —
+    /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
+        if class_name == "java/lang/StringBuilder" {
+            if let Some(idx) = self
+                .objects
+                .iter()
+                .position(|o| o.class_name == "java/lang/StringBuilder")
+            {
+                return Some(idx as u16);
+            }
+        }
         let idx = self.objects.len() as u16;
         self.objects
             .push(JvmObject {
@@ -47,6 +62,55 @@ impl ObjectHeap {
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
         Some(self.objects.get(idx as usize)?.class_name)
     }
+
+    /// Clear the shared StringBuilder buffer.
+    pub fn sb_clear(&mut self) {
+        self.sb_len = 0;
+    }
+
+    /// Append bytes to the shared StringBuilder buffer (truncates at 64 bytes).
+    pub fn sb_append_bytes(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            if self.sb_len < self.sb_buf.len() {
+                self.sb_buf[self.sb_len] = b;
+                self.sb_len += 1;
+            }
+        }
+    }
+
+    /// Append an integer (decimal) to the shared StringBuilder buffer.
+    pub fn sb_append_int(&mut self, n: i32) {
+        let mut tmp = [0u8; 12];
+        let s = int_to_decimal(n, &mut tmp);
+        self.sb_append_bytes(s);
+    }
+
+    /// Return the current StringBuilder buffer contents and a raw pointer to them.
+    pub fn sb_contents(&self) -> (*const u8, usize) {
+        (self.sb_buf.as_ptr(), self.sb_len)
+    }
+}
+
+fn int_to_decimal(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
+    if n == 0 {
+        buf[0] = b'0';
+        return &buf[..1];
+    }
+    let neg = n < 0;
+    if neg {
+        n = n.wrapping_neg();
+    }
+    let mut i = 12usize;
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    if neg {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    &buf[i..]
 }
 
 #[cfg(test)]

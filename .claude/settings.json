@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "jq -r '.tool_input.file_path' | grep -q '\\.rs$' && cargo fmt"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | grep -q '\\.rs$' && cargo clippy --all-features -- --deny=warnings"
           }
         ]
       }

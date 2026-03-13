@@ -10,7 +10,8 @@
       "Bash(curl -fsSL \"https://api.github.com/repos/google/google-java-format/releases/latest\")",
       "Bash(./scripts/format_java.sh check)",
       "Bash(javap -verbose \"/Users/shivrajora/projects/picodroid-rs/target/thumbv6m-none-eabi/release/build/picodroid-3e5436ca19a4d1f8/out/classes/uart/UartEcho.class\")",
-      "Bash(javap -c \"/Users/shivrajora/projects/picodroid-rs/target/thumbv6m-none-eabi/release/build/picodroid-3e5436ca19a4d1f8/out/classes/uart/UartEcho.class\")"
+      "Bash(javap -c \"/Users/shivrajora/projects/picodroid-rs/target/thumbv6m-none-eabi/release/build/picodroid-3e5436ca19a4d1f8/out/classes/uart/UartEcho.class\")",
+      "Bash(cargo build --no-default-features --features uart --target thumbv6m-none-eabi)"
     ]
   }
 }

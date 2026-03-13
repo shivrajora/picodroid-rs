@@ -14,7 +14,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         method_name: &str,
         _descriptor: &str,
         args: &[Value],
-        strings: &StringTable,
+        strings: &mut StringTable,
         objects: &mut ObjectHeap,
     ) -> Result<Option<Value>, JvmError> {
         match (class_name, method_name) {
@@ -61,6 +61,34 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/pio/Gpio", "close") => Ok(None),
             ("picodroid/os/SystemClock", "sleep") => {
                 crate::system::picodroid::os::system_clock::sleep(args)
+            }
+            ("java/lang/Object", "<init>") => Ok(None),
+            ("java/lang/StringBuilder", "<init>") => {
+                objects.sb_clear();
+                Ok(None)
+            }
+            ("java/lang/StringBuilder", "append") => {
+                match args.get(1) {
+                    Some(Value::Reference(idx)) => {
+                        let s = strings.resolve(*idx).unwrap_or("");
+                        objects.sb_append_bytes(s.as_bytes());
+                    }
+                    Some(Value::Int(n)) => {
+                        objects.sb_append_int(*n);
+                    }
+                    _ => {}
+                }
+                Ok(args.first().copied().map(Some).unwrap_or(None))
+            }
+            ("java/lang/StringBuilder", "toString") => {
+                let (ptr, len) = objects.sb_contents();
+                // SAFETY: ptr points into ObjectHeap::sb_buf which lives for the
+                // duration of the JVM. The dyn_slot in StringTable is overwritten on
+                // the next toString() call, which is safe because Log.i (the only
+                // consumer) copies the string before that happens.
+                let str_ref =
+                    unsafe { strings.intern_dyn(ptr, len) }.ok_or(JvmError::StackOverflow)?;
+                Ok(Some(Value::Reference(str_ref)))
             }
             ("java/lang/String", "length") => {
                 if let Some(Value::Reference(idx)) = args.first() {

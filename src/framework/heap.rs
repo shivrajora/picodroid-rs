@@ -7,6 +7,7 @@ use heapless::Vec;
 pub struct StringTable {
     ptrs: Vec<*const u8, 32>,
     lens: Vec<u16, 32>,
+    dyn_slot: Option<u16>,
 }
 
 // SAFETY: the pointers reference static Flash data which is never mutated.
@@ -17,6 +18,7 @@ impl StringTable {
         Self {
             ptrs: Vec::new(),
             lens: Vec::new(),
+            dyn_slot: None,
         }
     }
 
@@ -35,6 +37,29 @@ impl StringTable {
         self.ptrs.push(s.as_ptr()).ok()?;
         self.lens.push(s.len() as u16).ok()?;
         Some(idx)
+    }
+
+    /// Intern a dynamically-built string, reusing a single slot to avoid exhaustion.
+    ///
+    /// # Safety
+    /// `ptr` must remain valid (pointing into stable memory, e.g. `ObjectHeap::sb_buf`)
+    /// until the next call to `intern_dyn`, which overwrites this slot.
+    pub unsafe fn intern_dyn(&mut self, ptr: *const u8, len: usize) -> Option<u16> {
+        match self.dyn_slot {
+            Some(slot) => {
+                let i = slot as usize;
+                self.ptrs[i] = ptr;
+                self.lens[i] = len as u16;
+                Some(slot)
+            }
+            None => {
+                let idx = self.ptrs.len() as u16;
+                self.ptrs.push(ptr).ok()?;
+                self.lens.push(len as u16).ok()?;
+                self.dyn_slot = Some(idx);
+                Some(idx)
+            }
+        }
     }
 
     /// Resolve a Reference index to a `&'static str`.

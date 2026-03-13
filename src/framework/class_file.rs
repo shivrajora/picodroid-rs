@@ -30,9 +30,9 @@ pub struct ClassFile {
     data: &'static [u8],
     /// Byte offset of each CP entry's *data* (after the tag byte) within `data`.
     /// Index 0 is unused (CP is 1-based); index N corresponds to CP entry N.
-    cp_offsets: Vec<usize, 128>,
+    cp_offsets: Vec<usize, 96>,
     /// Tag of each CP entry (same indexing as cp_offsets).
-    cp_tags: Vec<u8, 128>,
+    cp_tags: Vec<u8, 96>,
     pub methods: Vec<MethodInfo, 16>,
     pub class_name_index: u16, // index of the Utf8 entry for this class's name
 }
@@ -95,8 +95,8 @@ impl ClassFile {
         // Constant pool
         let cp_count = c.u16().ok_or("truncated")? as usize;
         // cp_offsets[0] unused; entries 1..cp_count
-        let mut cp_offsets: Vec<usize, 128> = Vec::new();
-        let mut cp_tags: Vec<u8, 128> = Vec::new();
+        let mut cp_offsets: Vec<usize, 96> = Vec::new();
+        let mut cp_tags: Vec<u8, 96> = Vec::new();
         cp_offsets.push(0).ok(); // index 0 placeholder
         cp_tags.push(0).ok();
 

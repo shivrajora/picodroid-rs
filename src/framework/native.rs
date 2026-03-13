@@ -11,7 +11,7 @@ pub trait NativeMethodHandler {
         method_name: &str,
         descriptor: &str,
         args: &[Value],
-        strings: &StringTable,
+        strings: &mut StringTable,
         objects: &mut ObjectHeap,
     ) -> Result<Option<Value>, JvmError>;
 }
