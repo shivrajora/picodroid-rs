@@ -6,6 +6,7 @@ use crate::framework::{
 };
 
 pub trait NativeMethodHandler {
+    #[allow(clippy::too_many_arguments)]
     fn dispatch(
         &mut self,
         class_name: &str,

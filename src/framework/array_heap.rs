@@ -4,13 +4,21 @@ pub const MAX_ARRAY_ELEMENTS: usize = 16;
 pub const MAX_ARRAYS: usize = 8;
 
 // JVM atype constants for newarray
+#[allow(dead_code)]
 pub const ATYPE_BOOLEAN: u8 = 4;
+#[allow(dead_code)]
 pub const ATYPE_CHAR: u8 = 5;
+#[allow(dead_code)]
 pub const ATYPE_FLOAT: u8 = 6;
+#[allow(dead_code)]
 pub const ATYPE_DOUBLE: u8 = 7;
+#[allow(dead_code)]
 pub const ATYPE_BYTE: u8 = 8;
+#[allow(dead_code)]
 pub const ATYPE_SHORT: u8 = 9;
+#[allow(dead_code)]
 pub const ATYPE_INT: u8 = 10;
+#[allow(dead_code)]
 pub const ATYPE_LONG: u8 = 11;
 pub const ATYPE_REF: u8 = 0; // used by anewarray
 
