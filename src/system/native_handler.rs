@@ -27,6 +27,31 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/pio/PeripheralManager", "openGpio") => {
                 crate::system::picodroid::pio::peripheral_manager::open_gpio(args, strings, objects)
             }
+            ("picodroid/pio/PeripheralManager", "openUartDevice") => {
+                crate::system::picodroid::pio::peripheral_manager::open_uart(args, strings, objects)
+            }
+            ("picodroid/pio/UartDevice", "setBaudrate") => {
+                crate::system::picodroid::pio::uart::set_baudrate_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "setDataSize") => {
+                crate::system::picodroid::pio::uart::set_data_size_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "setParity") => {
+                crate::system::picodroid::pio::uart::set_parity_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "setStopBits") => {
+                crate::system::picodroid::pio::uart::set_stop_bits_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "setHardwareFlowControl") => {
+                crate::system::picodroid::pio::uart::set_hw_flow_ctrl_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "writeByte") => {
+                crate::system::picodroid::pio::uart::write_byte_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "readByte") => {
+                crate::system::picodroid::pio::uart::read_byte_native(args, objects)
+            }
+            ("picodroid/pio/UartDevice", "close") => Ok(None),
             ("picodroid/pio/Gpio", "setDirection") => {
                 crate::system::picodroid::pio::gpio::set_direction_native(args, objects)
             }

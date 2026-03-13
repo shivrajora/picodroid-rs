@@ -6,4 +6,5 @@ public class PeripheralManager {
     public static native PeripheralManager getInstance();
 
     public native Gpio openGpio(String name);
+    public native UartDevice openUartDevice(String name);
 }

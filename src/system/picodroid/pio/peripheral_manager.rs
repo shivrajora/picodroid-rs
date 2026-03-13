@@ -46,6 +46,61 @@ pub fn open_gpio(
     Ok(Some(Value::ObjectRef(obj_idx)))
 }
 
+pub fn open_uart(
+    args: &[Value],
+    strings: &StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    // args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "UARTx" string
+    let name_ref = match args.get(1) {
+        Some(Value::Reference(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let name = strings
+        .resolve(name_ref)
+        .ok_or(JvmError::InvalidReference)?;
+
+    // Parse "UART0" → 0, "UART1" → 1
+    let id_str = name
+        .strip_prefix("UART")
+        .ok_or(JvmError::InvalidReference)?;
+    let uart_id: u8 = match id_str {
+        "0" => 0,
+        "1" => 1,
+        _ => return Err(JvmError::InvalidReference),
+    };
+
+    let obj_idx = objects
+        .alloc("picodroid/pio/UartDevice")
+        .ok_or(JvmError::StackOverflow)?;
+
+    // Store config fields with defaults: uart_id, 9600, 8, NONE, 1, NONE
+    objects
+        .set_field(obj_idx, 0, Value::Int(uart_id as i32))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 1, Value::Int(9600))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 2, Value::Int(8))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 3, Value::Int(0))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 4, Value::Int(1))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 5, Value::Int(0))
+        .ok_or(JvmError::StackOverflow)?;
+
+    // Initialize hardware: GPIO function select + UART enable with defaults
+    #[cfg(not(test))]
+    super::uart::init(uart_id);
+
+    Ok(Some(Value::ObjectRef(obj_idx)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

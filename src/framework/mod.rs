@@ -90,6 +90,7 @@ pub fn run_jvm() -> ! {
     jvm.load_class(PICODROID_PIO_GPIO_CLASS).unwrap();
     jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
         .unwrap();
+    jvm.load_class(PICODROID_PIO_UARTDEVICE_CLASS).unwrap();
     jvm.load_class(PICODROID_OS_SYSTEMCLOCK_CLASS).unwrap();
     jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
 
