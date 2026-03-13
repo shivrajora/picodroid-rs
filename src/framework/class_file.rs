@@ -509,6 +509,77 @@ mod tests {
         0x00, 0x00,
     ];
 
+    // Class "Child" extends "Base" (non-Object super), no fields, method m()V.
+    //
+    // Constant pool (cp_count=8, entries #1..#7):
+    //   #1: Class  -> #2
+    //   #2: Utf8   "Child"
+    //   #3: Class  -> #4
+    //   #4: Utf8   "Base"
+    //   #5: Utf8   "m"
+    //   #6: Utf8   "()V"
+    //   #7: Utf8   "Code"
+    static CLASS_NONOBJECT_SUPER: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version
+        0x00, 0x08, // cp_count=8
+        // #1 Class -> #2
+        0x07, 0x00, 0x02, // #2 Utf8 "Child" (5)
+        0x01, 0x00, 0x05, b'C', b'h', b'i', b'l', b'd', // #3 Class -> #4
+        0x07, 0x00, 0x04, // #4 Utf8 "Base" (4)
+        0x01, 0x00, 0x04, b'B', b'a', b's', b'e', // #5 Utf8 "m" (1)
+        0x01, 0x00, 0x01, b'm', // #6 Utf8 "()V" (3)
+        0x01, 0x00, 0x03, b'(', b')', b'V', // #7 Utf8 "Code" (4)
+        0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // access=1, this=#1, super=#3
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces=0, fields=0, methods=1
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        // method: access=1, name=#5, desc=#6, attrs=1
+        0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code: name=#7, attr_len=13
+        0x00, 0x07, 0x00, 0x00, 0x00, 0x0D, // max_stack=1, max_locals=1, code_len=1
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // bytecode: return
+        0xB1, // exc_table=0, code_attrs=0
+        0x00, 0x00, 0x00, 0x00, // class attrs=0
+        0x00, 0x00,
+    ];
+
+    // Class "F" extends java/lang/Object, one instance field "x:I", method m()V.
+    //
+    // Constant pool (cp_count=10, entries #1..#9):
+    //   #1: Class  -> #2
+    //   #2: Utf8   "F"
+    //   #3: Class  -> #4
+    //   #4: Utf8   "java/lang/Object"
+    //   #5: Utf8   "m"
+    //   #6: Utf8   "()V"
+    //   #7: Utf8   "Code"
+    //   #8: Utf8   "x"
+    //   #9: Utf8   "I"
+    static CLASS_WITH_FIELD: &[u8] = &[
+        0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version
+        0x00, 0x0A, // cp_count=10
+        // #1 Class -> #2
+        0x07, 0x00, 0x02, // #2 Utf8 "F" (1)
+        0x01, 0x00, 0x01, b'F', // #3 Class -> #4
+        0x07, 0x00, 0x04, // #4 Utf8 "java/lang/Object" (16)
+        0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b',
+        b'j', b'e', b'c', b't', // #5 Utf8 "m" (1)
+        0x01, 0x00, 0x01, b'm', // #6 Utf8 "()V" (3)
+        0x01, 0x00, 0x03, b'(', b')', b'V', // #7 Utf8 "Code" (4)
+        0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #8 Utf8 "x" (1)
+        0x01, 0x00, 0x01, b'x', // #9 Utf8 "I" (1)
+        0x01, 0x00, 0x01, b'I', // access=1, this=#1, super=#3
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces=0
+        0x00, 0x00, // fields=1: access=0, name=#8, desc=#9, attrs=0
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x09, 0x00, 0x00,
+        // methods=1: access=1, name=#5, desc=#6, attrs=1
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+        // Code: name=#7, attr_len=13
+        0x00, 0x07, 0x00, 0x00, 0x00, 0x0D, // max_stack=1, max_locals=1, code_len=1
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // bytecode: return
+        0xB1, // exc_table=0, code_attrs=0
+        0x00, 0x00, 0x00, 0x00, // class_attrs=0
+        0x00, 0x00,
+    ];
+
     // Wrong magic bytes — should trigger "bad magic" error.
     static BAD_MAGIC: &[u8] = &[0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x34];
 
@@ -565,5 +636,42 @@ mod tests {
         let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
         // CP #1 is a Class entry (tag=7), not a Utf8 entry — must return None
         assert_eq!(cf.cp_utf8(1), None);
+    }
+
+    #[test]
+    fn super_class_name_is_none_for_object_parent() {
+        // MINIMAL_CLASS extends java/lang/Object — should return None
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        assert_eq!(cf.super_class_name(), None);
+    }
+
+    #[test]
+    fn super_class_name_returns_bytes_for_nonobject_parent() {
+        let cf = ClassFile::parse(CLASS_NONOBJECT_SUPER).unwrap();
+        assert_eq!(cf.super_class_name(), Some(b"Base" as &[u8]));
+    }
+
+    #[test]
+    fn class_name_is_child_for_nonobject_super() {
+        let cf = ClassFile::parse(CLASS_NONOBJECT_SUPER).unwrap();
+        assert_eq!(cf.class_name(), Some(b"Child" as &[u8]));
+    }
+
+    #[test]
+    fn field_count_one_for_class_with_field() {
+        let cf = ClassFile::parse(CLASS_WITH_FIELD).unwrap();
+        assert_eq!(cf.fields.len(), 1);
+    }
+
+    #[test]
+    fn field_name_is_x_for_class_with_field() {
+        let cf = ClassFile::parse(CLASS_WITH_FIELD).unwrap();
+        assert_eq!(cf.field_name(0), Some(b"x" as &[u8]));
+    }
+
+    #[test]
+    fn field_count_zero_for_minimal_class() {
+        let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+        assert_eq!(cf.fields.len(), 0);
     }
 }
