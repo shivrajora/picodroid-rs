@@ -94,6 +94,16 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 ./scripts/format_java.sh check
 ```
 
+## Examples
+
+Three examples are included under `java/examples/`:
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `blinky` | `blinky.LedBlink` | Blinks the onboard LED on GP25 every 500 ms |
+| `uart` | `uart.UartEcho` | Configures UART0 at 115200 baud and echoes received bytes |
+| `helloworld` | `helloworld.HelloWorld` | Prints "Hello, World!" via `Log.i()` |
+
 ## Getting Started
 
 ```bash
@@ -101,26 +111,35 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
-# Build firmware (also compiles Java sources) and print memory usage stats
+# Build firmware with the default example (blinky)
 ./scripts/build.sh
 
 # Flash to Pico and view RTT log output
-cargo run
+./scripts/flash.sh
 ```
 
-Expected output:
+### Choosing an example
 
+Pass `--app <name>` to select which example to build or flash:
+
+```bash
+./scripts/build.sh --app blinky       # default
+./scripts/build.sh --app uart
+./scripts/build.sh --app helloworld
+
+./scripts/flash.sh --app uart
+./scripts/flash.sh --app helloworld --release
 ```
-0.001000 INFO  HelloWorld: Hello, World!
-```
+
+The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup.
 
 ## Writing a Java App
 
-1. Create a Java file under `java/apps/` with the appropriate package:
+1. Create a directory and Java file under `java/examples/`:
 
 ```java
-// java/apps/MyApp.java
-package apps;
+// java/examples/myapp/java/myapp/MyApp.java
+package myapp;
 
 import picodroid.util.Log;
 
@@ -131,24 +150,40 @@ public class MyApp {
 }
 ```
 
-2. Register it in `src/framework/mod.rs` inside `run_jvm()`:
+2. Add a feature for it in `Cargo.toml`:
+
+```toml
+[features]
+default = ["blinky"]
+helloworld = []
+blinky = []
+uart = []
+myapp = []       # add this
+```
+
+3. Add a `cfg(feature)` block in `src/framework/mod.rs` inside `run_jvm()`:
 
 ```rust
-jvm.load_class(APPS_MYAPP_CLASS).unwrap();
-jvm.invoke_static("apps/MyApp", "main").unwrap();
+#[cfg(feature = "myapp")]
+{
+    jvm.load_class(MYAPP_MYAPP_CLASS).unwrap();
+    jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+    jvm.invoke_static("myapp/MyApp", "main", &mut handler).unwrap();
+}
 ```
 
-3. Rebuild and flash:
+4. Build and flash:
 
 ```bash
-./scripts/build.sh && cargo run
+./scripts/build.sh --app myapp
+./scripts/flash.sh --app myapp
 ```
 
-The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash.
+The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash. The constant name for a class is derived from its path: `java/examples/myapp/java/myapp/MyApp.class` → `MYAPP_MYAPP_CLASS`.
 
 ## Java System API
 
-Java system APIs live under `java/picodroid/` and mirror the Android API surface.
+Java system APIs live under `java/framework/java/picodroid/` and mirror the Android API surface.
 
 ### `picodroid.util.Log`
 
@@ -164,9 +199,9 @@ Native implementations are in `src/system/picodroid/util/log.rs`.
 
 ```
 picodroid-rs/
-├── java/               # Java source root
-│   ├── apps/           # Your Java apps go here
-│   └── picodroid/      # Android-compatible Java API stubs
+├── java/
+│   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
+│   └── examples/       # Example apps (blinky, uart, helloworld)
 │
 ├── src/
 │   ├── framework/      # JVM interpreter (Rust)
