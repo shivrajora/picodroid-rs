@@ -13,6 +13,7 @@ arraydemo = []
 inherit = []
 interfacedemo = []
 floatdemo = []
+exceptiondemo = []
 
 [dependencies]
 heapless = "0.8"

@@ -98,10 +98,11 @@ pub fn run_jvm() -> ! {
         feature = "arraydemo",
         feature = "inherit",
         feature = "interfacedemo",
-        feature = "floatdemo"
+        feature = "floatdemo",
+        feature = "exceptiondemo"
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, or floatdemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, or exceptiondemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -166,6 +167,27 @@ pub fn run_jvm() -> ! {
 
     #[cfg(all(feature = "interfacedemo", feature = "floatdemo"))]
     compile_error!("Features 'interfacedemo' and 'floatdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "helloworld", feature = "exceptiondemo"))]
+    compile_error!("Features 'helloworld' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "exceptiondemo"))]
+    compile_error!("Features 'blinky' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "exceptiondemo"))]
+    compile_error!("Features 'uart' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "exceptiondemo"))]
+    compile_error!("Features 'arraydemo' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "exceptiondemo"))]
+    compile_error!("Features 'inherit' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "interfacedemo", feature = "exceptiondemo"))]
+    compile_error!("Features 'interfacedemo' and 'exceptiondemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "floatdemo", feature = "exceptiondemo"))]
+    compile_error!("Features 'floatdemo' and 'exceptiondemo' are mutually exclusive.");
 
     #[cfg(feature = "helloworld")]
     {
@@ -238,6 +260,16 @@ pub fn run_jvm() -> ! {
         jvm.load_class(FLOATDEMO_FLOATDEMO_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("floatdemo/FloatDemo", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "exceptiondemo")]
+    {
+        // Load exception class before the main class so the hierarchy is known
+        jvm.load_class(EXCEPTIONDEMO_APPEXCEPTION_CLASS).unwrap();
+        jvm.load_class(EXCEPTIONDEMO_EXCEPTIONDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("exceptiondemo/ExceptionDemo", "main", &mut handler)
             .unwrap();
     }
 

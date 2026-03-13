@@ -22,4 +22,6 @@ pub enum JvmError {
     ArrayIndexOutOfBounds,
     NegativeArraySize,
     AbstractMethodError,
+    /// A Java exception was thrown; the u16 is the ObjectHeap index of the exception object.
+    Exception(u16),
 }

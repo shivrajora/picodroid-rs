@@ -11,6 +11,19 @@ const TAG_FIELDREF: u8 = 9;
 const TAG_METHODREF: u8 = 10;
 const TAG_NAME_AND_TYPE: u8 = 12;
 
+/// One entry in a method's exception table (try/catch region).
+#[derive(Debug, Clone, Copy)]
+pub struct ExceptionEntry {
+    /// Start of the guarded region (inclusive), as a bytecode offset.
+    pub start_pc: u16,
+    /// End of the guarded region (exclusive), as a bytecode offset.
+    pub end_pc: u16,
+    /// Bytecode offset of the catch handler.
+    pub handler_pc: u16,
+    /// CP index of the caught class (CONSTANT_Class), or 0 to catch any (finally).
+    pub catch_type_index: u16,
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct MethodInfo {
@@ -23,6 +36,8 @@ pub struct MethodInfo {
     pub max_stack: u8,
     pub max_locals: u8,
     pub access_flags: u16,
+    /// Exception table parsed from the Code attribute (up to 4 entries).
+    pub exception_table: heapless::Vec<ExceptionEntry, 4>,
 }
 
 #[derive(Debug)]
@@ -259,6 +274,7 @@ impl ClassFile {
             let mut code_len = 0usize;
             let mut max_stack = 0u8;
             let mut max_locals = 0u8;
+            let mut exception_table: heapless::Vec<ExceptionEntry, 4> = heapless::Vec::new();
 
             for _ in 0..attr_count {
                 let attr_name_idx = c.u16().ok_or("truncated")?;
@@ -277,7 +293,8 @@ impl ClassFile {
 
                 if is_code {
                     // Code attribute layout:
-                    // u16 max_stack, u16 max_locals, u32 code_length, [u8; code_length], ...
+                    // u16 max_stack, u16 max_locals, u32 code_length, [u8; code_length],
+                    // u16 exception_table_length, [exception_entry; N], ...
                     let ms = c.u16().ok_or("truncated")?;
                     let ml = c.u16().ok_or("truncated")?;
                     let cl = c.u32().ok_or("truncated")? as usize;
@@ -285,7 +302,26 @@ impl ClassFile {
                     max_locals = ml.min(255) as u8;
                     code_offset = c.pos();
                     code_len = cl;
-                    // Skip the rest of the Code attribute
+                    // Skip over bytecode to reach the exception table
+                    c.skip(cl).ok_or("truncated")?;
+                    // Parse exception table
+                    let exc_count = c.u16().ok_or("truncated")? as usize;
+                    for _ in 0..exc_count {
+                        let start_pc = c.u16().ok_or("truncated")?;
+                        let end_pc = c.u16().ok_or("truncated")?;
+                        let handler_pc = c.u16().ok_or("truncated")?;
+                        let catch_type_index = c.u16().ok_or("truncated")?;
+                        // Silently drop entries beyond capacity
+                        exception_table
+                            .push(ExceptionEntry {
+                                start_pc,
+                                end_pc,
+                                handler_pc,
+                                catch_type_index,
+                            })
+                            .ok();
+                    }
+                    // Skip remaining Code sub-attributes
                     c.pos = attr_start + attr_len;
                 } else {
                     c.skip(attr_len).ok_or("truncated")?;
@@ -301,6 +337,7 @@ impl ClassFile {
                     max_stack,
                     max_locals,
                     access_flags,
+                    exception_table,
                 })
                 .map_err(|_| "too many methods")?;
         }

@@ -65,6 +65,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 crate::system::picodroid::os::system_clock::sleep(args)
             }
             ("java/lang/Object", "<init>") => Ok(None),
+            ("java/lang/Throwable", "<init>") => Ok(None),
+            ("java/lang/Exception", "<init>") => Ok(None),
+            ("java/lang/RuntimeException", "<init>") => Ok(None),
             ("java/lang/StringBuilder", "<init>") => {
                 objects.sb_clear();
                 Ok(None)
