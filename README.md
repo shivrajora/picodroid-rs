@@ -56,13 +56,12 @@ cargo install probe-rs-tools --locked   # installs probe-rs
 
 ### Local CI (pre-commit hook)
 
-The pre-commit hook runs Java formatting check, `cargo fmt -- --check`, and `cargo clean && cargo build` before each commit.
+The pre-commit hook runs Java formatting check, `cargo fmt -- --check`, Clippy (for both RP2040 and RP2350), `cargo clean && cargo build`, and tests before each commit.
 
-Install the hook after cloning:
+Install the hook after cloning by symlinking so it stays in sync with `scripts/pre-commit`:
 
 ```bash
-cp scripts/pre-commit .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+ln -s ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
 To skip the hook in exceptional cases: `git commit --no-verify`.
