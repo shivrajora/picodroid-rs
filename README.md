@@ -8,7 +8,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 
 | Layer | Technology |
 |-------|-----------|
-| Hardware | Raspberry Pi Pico (RP2040, Cortex-M0+ @ 125 MHz) |
+| Hardware | Raspberry Pi Pico (RP2040, Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, Cortex-M33 @ 150 MHz) |
 | RTOS | FreeRTOS (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`src/framework/`) |
 | Java API | Android-compatible (`picodroid.util.Log`, etc.) |
@@ -26,7 +26,7 @@ FreeRTOS scheduler
 
 ## Hardware
 
-- Raspberry Pi Pico (or any RP2040 board)
+- Raspberry Pi Pico (RP2040) or Raspberry Pi Pico 2 (RP2350)
 - An SWD debug probe: [Raspberry Pi Debug Probe](https://www.raspberrypi.com/products/debug-probe/), Picoprobe, J-Link, or any CMSIS-DAP adapter
 
 ## Prerequisites
@@ -34,7 +34,11 @@ FreeRTOS scheduler
 ### Rust toolchain
 
 ```bash
+# RP2040 (Cortex-M0+)
 rustup target add thumbv6m-none-eabi
+
+# RP2350 (Cortex-M33) — only needed if targeting Pico 2
+rustup target add thumbv8m.main-none-eabihf
 ```
 
 ### C cross-compiler (for FreeRTOS)
@@ -112,11 +116,26 @@ Five examples are included under `java/examples/`:
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
-# Build firmware with the default example (blinky)
+# Build firmware with the default example (blinky) for RP2040
 ./scripts/build.sh
 
 # Flash to Pico and view RTT log output
 ./scripts/flash.sh
+```
+
+### Choosing a chip
+
+Both scripts accept a `--chip` flag. The default is `rp2040`.
+
+| Flag | Target | Board |
+|------|--------|-------|
+| `--chip rp2040` | `thumbv6m-none-eabi` | Raspberry Pi Pico |
+| `--chip rp2350` | `thumbv8m.main-none-eabihf` | Raspberry Pi Pico 2 |
+
+```bash
+# Build / flash for Pico 2 (RP2350)
+./scripts/build.sh --chip rp2350
+./scripts/flash.sh --chip rp2350
 ```
 
 ### Choosing an example
@@ -124,19 +143,16 @@ cd picodroid-rs
 Pass `--app <name>` to select which example to build or flash:
 
 ```bash
-./scripts/build.sh --app blinky       # default
-./scripts/build.sh --app uart
-./scripts/build.sh --app helloworld
-./scripts/build.sh --app arraydemo
-./scripts/build.sh --app inherit
+./scripts/build.sh --app blinky                         # RP2040, default app
+./scripts/build.sh --app uart --chip rp2350             # RP2350
+./scripts/build.sh --app helloworld --release
 
-./scripts/flash.sh --app uart
+./scripts/flash.sh --app blinky
+./scripts/flash.sh --app uart --chip rp2350
 ./scripts/flash.sh --app helloworld --release
-./scripts/flash.sh --app arraydemo
-./scripts/flash.sh --app inherit
 ```
 
-The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup.
+The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup. When omitted, `blinky` is used.
 
 ## Writing a Java App
 
@@ -159,7 +175,7 @@ public class MyApp {
 
 ```toml
 [features]
-default = ["blinky"]
+default = ["blinky", "chip-rp2040"]
 helloworld = []
 blinky = []
 uart = []
@@ -182,6 +198,10 @@ myapp = []       # add this
 ```bash
 ./scripts/build.sh --app myapp
 ./scripts/flash.sh --app myapp
+
+# Or for Pico 2
+./scripts/build.sh --app myapp --chip rp2350
+./scripts/flash.sh --app myapp --chip rp2350
 ```
 
 The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash. The constant name for a class is derived from its path: `java/examples/myapp/java/myapp/MyApp.class` → `MYAPP_MYAPP_CLASS`.
@@ -258,6 +278,8 @@ picodroid-rs/
 │   ├── framework/      # JVM interpreter (Rust)
 │   └── system/         # Native implementations of Java API methods
 │
+├── memory.x            # RP2040 linker memory layout
+├── memory_rp2350.x     # RP2350 linker memory layout
 ├── third_party/        # Git submodules (FreeRTOS-Kernel)
 └── build.rs            # Compiles FreeRTOS C + Java sources, embeds .class into firmware
 ```
@@ -269,7 +291,11 @@ picodroid-rs/
 For GDB debugging, run probe-rs in GDB server mode and connect with:
 
 ```bash
+# RP2040
 arm-none-eabi-gdb target/thumbv6m-none-eabi/debug/picodroid
+
+# RP2350
+arm-none-eabi-gdb target/thumbv8m.main-none-eabihf/debug/picodroid
 ```
 
 ## Attribution
