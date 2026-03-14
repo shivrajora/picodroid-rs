@@ -9,7 +9,7 @@ rustflags = [
   "-C", "no-vectorize-loops",
 ]
 
-[target.'thumbv8m.main-none-eabihf']
+[target.thumbv8m.main-none-eabihf]
 # RP2350 (Cortex-M33)
 runner = "probe-rs run --chip RP2350 --protocol swd"
 linker = "flip-link"
