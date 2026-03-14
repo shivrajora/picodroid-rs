@@ -5,7 +5,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["blinky"]
+default = ["blinky", "chip-rp2040"]
 helloworld = []
 blinky = []
 uart = []
@@ -14,6 +14,8 @@ inherit = []
 interfacedemo = []
 floatdemo = []
 exceptiondemo = []
+chip-rp2040 = ["dep:rp-pico"]
+chip-rp2350 = ["dep:rp235x-hal"]
 
 [dependencies]
 heapless = "0.8"
@@ -23,19 +25,13 @@ cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
 freertos-rust = { git = "https://github.com/shivrajora/FreeRTOS-rust.git", branch = "master" }
 defmt = "1"
+rp-pico = { version = "0.9", optional = true }
+rp235x-hal = { version = "0.4", optional = true, features = ["rt", "critical-section-impl"] }
 
-# Hardware-specific deps only needed when targeting the RP2040
+# Hardware-specific deps only needed when targeting ARM embedded
 [target.'cfg(target_arch = "arm")'.dependencies]
-rp-pico = "0.9"
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
-
-# but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
-# sparkfun-pro-micro-rp2040 = "0.8"
-
-# If you're not going to use a Board Support Package you'll need these:
-# rp2040-hal = { version="0.10", features=["rt", "critical-section-impl"] }
-# rp2040-boot2 = "0.3"
 
 [build-dependencies]
 # Used to compile FreeRTOS-Kernel C source directly

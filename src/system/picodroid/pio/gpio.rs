@@ -37,6 +37,9 @@ fn extract_pin(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
 }
 
 fn set_direction(pin: u8, direction: i32) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     // SAFETY: We are the OS — we own all hardware.
     let p = unsafe { pac::Peripherals::steal() };
@@ -79,6 +82,9 @@ fn set_direction(pin: u8, direction: i32) {
 }
 
 pub fn set_value(pin: u8, high: bool) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     if high {

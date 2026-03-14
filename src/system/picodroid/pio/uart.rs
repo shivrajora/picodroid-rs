@@ -3,8 +3,11 @@ use crate::framework::{
     types::{JvmError, Value},
 };
 
-// RP2040 UART clock: CLK_PERI defaults to 125 MHz after boot
+// CLK_PERI defaults to system clock: 125 MHz on RP2040, 150 MHz on RP2350
+#[cfg(feature = "chip-rp2040")]
 const PCLK_HZ: u32 = 125_000_000;
+#[cfg(feature = "chip-rp2350")]
+const PCLK_HZ: u32 = 150_000_000;
 
 // -------------------------------------------------------------------
 // Object field layout for picodroid/pio/UartDevice in ObjectHeap:
@@ -108,6 +111,9 @@ fn reconfigure(
     stop_bits: i32,
     hw_flow: i32,
 ) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     match uart_id {
@@ -119,6 +125,9 @@ fn reconfigure(
 /// Configure GPIO pins for UART function and start the UART with defaults (9600 8N1).
 /// Called once from `peripheral_manager::open_uart()`.
 pub fn init(uart_id: u8) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
 
@@ -264,6 +273,9 @@ pub fn write_byte_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<
         Some(Value::Int(v)) => *v as u8,
         _ => return Err(JvmError::InvalidReference),
     };
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     match uart_id {
@@ -283,6 +295,9 @@ pub fn write_byte_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<
 /// Non-blocking read of a single byte. Returns `Some(Int(-1))` if RX FIFO is empty.
 pub fn read_byte_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let uart_id = extract_uart_id(args, objects)?;
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     let byte = match uart_id {

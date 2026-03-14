@@ -19,30 +19,40 @@ fn main() {
     let is_arm_embedded = target_arch == "arm";
 
     if is_arm_embedded {
-        // Put `memory.x` in our output directory and ensure it's
-        // on the linker search path.
+        let chip_rp2350 = env::var("CARGO_FEATURE_CHIP_RP2350").is_ok();
+
+        // Copy the appropriate memory layout into OUT_DIR so the linker finds it.
+        let memory_src = if chip_rp2350 {
+            "memory_rp2350.x"
+        } else {
+            "memory.x"
+        };
+        let memory_bytes =
+            fs::read(memory_src).unwrap_or_else(|e| panic!("Failed to read {memory_src}: {e}"));
         File::create(out.join("memory.x"))
             .unwrap()
-            .write_all(include_bytes!("memory.x"))
+            .write_all(&memory_bytes)
             .unwrap();
         println!("cargo:rustc-link-search={}", out.display());
+        println!("cargo:rerun-if-changed={memory_src}");
 
         let mut b = freertos_cargo_build::Builder::new();
 
         // Path to FreeRTOS kernel or set ENV "FREERTOS_SRC" instead
         b.freertos("third_party/FreeRTOS-Kernel");
         b.freertos_config("src"); // Location of `FreeRTOSConfig.h`
-        b.freertos_port("GCC/ARM_CM0"); // Port dir relativ to 'FreeRTOS-Kernel/portable'
+                                  // ARM_CM33_NTZ/non_secure for Cortex-M33 (RP2350), ARM_CM0 for Cortex-M0+ (RP2040)
+        let freertos_port = if chip_rp2350 {
+            "GCC/ARM_CM33_NTZ/non_secure"
+        } else {
+            "GCC/ARM_CM0"
+        };
+        b.freertos_port(freertos_port);
         b.heap("heap_4.c"); // Set the heap_?.c allocator to use from
                             // 'FreeRTOS-Kernel/portable/MemMang' (Default: heap_4.c)
 
         b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 
-        // By default, Cargo will re-run a build script whenever
-        // any file in the project changes. By specifying `memory.x`
-        // here, we ensure the build script is only re-run when
-        // `memory.x` is changed.
-        println!("cargo:rerun-if-changed=memory.x");
         println!("cargo:rerun-if-changed=src/FreeRTOSConfig.h");
 
         // This FreeRTOS-Kernel port (Development Branch) uses CMSIS-style handler

@@ -1,8 +1,25 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
-/* Cortex-M0+ (RP2040) running at 125 MHz */
+/* Chip-specific clock and port settings.
+ * ARM_CM33_NTZ defines __ARM_ARCH_8M_MAIN__; ARM_CM0 defines __ARM_ARCH_6M__. */
+#ifdef __ARM_ARCH_8M_MAIN__
+/* RP2350 Cortex-M33 @ 150 MHz */
+#define configCPU_CLOCK_HZ                      150000000UL
+#define configENABLE_FPU                        1
+#define configENABLE_MPU                        0
+#define configENABLE_TRUSTZONE                  0
+#define configRUN_FREERTOS_SECURE_ONLY          1
+/* RP2350 NVIC implements 4 priority bits (16 levels).
+ * Allow FreeRTOS to manage priorities 1-15; level 0 stays unmasked. */
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY    ( 1 << ( 8 - 4 ) )
+#else
+/* RP2040 Cortex-M0+ @ 125 MHz */
 #define configCPU_CLOCK_HZ                      125000000UL
+/* ARM_CM0 port v11 requires this; RP2040 CM0+ has no MPU */
+#define configENABLE_MPU                        0
+#endif
+
 #define configTICK_RATE_HZ                      1000
 
 /* Task priorities and stack */
@@ -11,7 +28,7 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: 128 KB out of the 256 KB available on RP2040 */
+/* Heap: 128 KB (RP2040 has 256 KB, RP2350 has 520 KB — conservative default) */
 #define configTOTAL_HEAP_SIZE                   ( 128 * 1024 )
 
 /* Scheduler behaviour */
@@ -19,9 +36,6 @@
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configUSE_TICKLESS_IDLE                 0
 #define configUSE_16_BIT_TICKS                  0
-
-/* ARM_CM0 port v11 requires this; RP2040 CM0+ has no MPU, so disable it */
-#define configENABLE_MPU                        0
 
 /* Hook functions */
 #define configUSE_IDLE_HOOK                     0
