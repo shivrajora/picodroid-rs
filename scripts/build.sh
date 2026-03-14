@@ -4,6 +4,7 @@ set -e
 CHIP="rp2040"
 APP=""
 PROFILE="debug"
+UF2=false
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -21,6 +22,10 @@ while [[ $# -gt 0 ]]; do
       EXTRA_ARGS+=("--release")
       shift
       ;;
+    --uf2)
+      UF2=true
+      shift
+      ;;
     *)
       EXTRA_ARGS+=("$1")
       shift
@@ -34,12 +39,14 @@ case "$CHIP" in
     CHIP_FEATURE="chip-rp2040"
     FLASH_MAX=2097152   # 2 MB
     RAM_MAX=270336      # 264 KB
+    UF2_FAMILY="0xe48bff56"
     ;;
   rp2350)
     TARGET="thumbv8m.main-none-eabihf"
     CHIP_FEATURE="chip-rp2350"
     FLASH_MAX=4194304   # 4 MB
     RAM_MAX=532480      # 520 KB
+    UF2_FAMILY="0xe48bff59"
     ;;
   *)
     echo "Unknown chip: $CHIP. Use rp2040 or rp2350." >&2
@@ -77,3 +84,13 @@ RAM_PCT=$(( RAM * 100 / RAM_MAX ))
 printf "  Flash: %d / %d bytes (%d%%)\n" "$FLASH" "$FLASH_MAX" "$FLASH_PCT"
 printf "  RAM:   %d / %d bytes (%d%%)\n" "$RAM" "$RAM_MAX" "$RAM_PCT"
 echo ""
+
+if [[ "$UF2" == true ]]; then
+  UF2_OUT="${ELF}.uf2"
+  if ! command -v elf2uf2-rs &>/dev/null; then
+    echo "elf2uf2-rs not found. Install with: cargo install elf2uf2-rs" >&2
+    exit 1
+  fi
+  elf2uf2-rs "$ELF" "$UF2_OUT"
+  echo "UF2 written to: $UF2_OUT"
+fi

@@ -56,6 +56,7 @@ sudo apt install gcc-arm-none-eabi
 ```bash
 cargo install flip-link
 cargo install probe-rs-tools --locked   # installs probe-rs
+cargo install elf2uf2-rs                # optional: needed for --uf2 flag
 ```
 
 ### Local CI (pre-commit hook)
@@ -153,6 +154,17 @@ Pass `--app <name>` to select which example to build or flash:
 ```
 
 The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup. When omitted, `blinky` is used.
+
+### Generating a UF2 file
+
+Pass `--uf2` to `build.sh` to convert the ELF to a UF2 file after building. This is useful for flashing without a debug probe — just drag-and-drop the `.uf2` onto the Pico's USB Mass Storage drive.
+
+```bash
+./scripts/build.sh --app blinky --uf2
+./scripts/build.sh --app blinky --chip rp2350 --release --uf2
+```
+
+The UF2 is written alongside the ELF (e.g. `target/thumbv6m-none-eabi/debug/picodroid.uf2`). Requires `elf2uf2-rs` (`cargo install elf2uf2-rs`).
 
 ## Writing a Java App
 
