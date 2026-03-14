@@ -25,11 +25,11 @@ cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
 freertos-rust = { git = "https://github.com/shivrajora/FreeRTOS-rust.git", branch = "master" }
 defmt = "1"
+
+# Hardware-specific deps — only compiled when targeting ARM embedded
+[target.'cfg(target_arch = "arm")'.dependencies]
 rp-pico = { version = "0.9", optional = true }
 rp235x-hal = { version = "0.4", optional = true, features = ["rt", "critical-section-impl"] }
-
-# Hardware-specific deps only needed when targeting ARM embedded
-[target.'cfg(target_arch = "arm")'.dependencies]
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
 

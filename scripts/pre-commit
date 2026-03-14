@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
 echo "==> Checking Java formatting..."
-if ! bash "$(dirname "$0")/../scripts/format_java.sh" check; then
+if ! bash "$REPO_ROOT/scripts/format_java.sh" check; then
   exit 1
 fi
 
@@ -10,6 +12,24 @@ echo "==> Checking formatting (cargo fmt)..."
 if ! cargo fmt -- --check; then
   echo ""
   echo "ERROR: Formatting check failed. Run 'cargo fmt' to fix, then re-stage your changes."
+  exit 1
+fi
+
+echo "==> Running clippy (RP2040)..."
+if ! cargo clippy --no-default-features --features helloworld,chip-rp2040 -- --deny=warnings || \
+   ! cargo clippy --no-default-features --features blinky,chip-rp2040 -- --deny=warnings || \
+   ! cargo clippy --no-default-features --features uart,chip-rp2040 -- --deny=warnings; then
+  echo ""
+  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
+  exit 1
+fi
+
+echo "==> Running clippy (RP2350)..."
+if ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features helloworld,chip-rp2350 -- --deny=warnings || \
+   ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features blinky,chip-rp2350 -- --deny=warnings || \
+   ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features uart,chip-rp2350 -- --deny=warnings; then
+  echo ""
+  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
   exit 1
 fi
 
