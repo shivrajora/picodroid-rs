@@ -100,7 +100,7 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 
 ## Examples
 
-Five examples are included under `java/examples/`:
+Eight examples are included under `java/examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -109,6 +109,9 @@ Five examples are included under `java/examples/`:
 | `helloworld` | `helloworld.HelloWorld` | Prints "Hello, World!" via `Log.i()` |
 | `arraydemo` | `arraydemo.ArrayDemo` | Demonstrates byte array allocation, `.length`, and iteration via UART |
 | `inherit` | `inherit.InheritDemo` | Demonstrates class inheritance, field inheritance, method overriding, and `super()` |
+| `interfacedemo` | `interfacedemo.InterfaceDemo` | Demonstrates interface dispatch (`invokeinterface`) with `Dog` and `Cat` implementing `Speakable` |
+| `floatdemo` | `floatdemo.FloatDemo` | Demonstrates float arithmetic and `float`-to-`int` cast (`f2i`) |
+| `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 
 ## Getting Started
 
@@ -224,6 +227,9 @@ The build system automatically detects new `.java` files, compiles them with `ja
 |---------|---------|
 | Arrays | `byte[] buf = new byte[16];` — allocation, `.length`, index read/write |
 | Inheritance | `class Dog extends Animal` — field inheritance, `@Override`, `super()` constructor chaining, virtual dispatch |
+| Interfaces | `interface Speakable` / `implements` — `invokeinterface` polymorphic dispatch |
+| Floating-point | `float`/`double` arithmetic, `f2i` cast |
+| Exceptions | `throw new AppException()`, `try`/`catch`, custom exception classes |
 
 ## Java System API
 
@@ -284,7 +290,7 @@ uart.write(buf, 1);     // write byte
 picodroid-rs/
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit)
+│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo)
 │
 ├── src/
 │   ├── framework/      # JVM interpreter (Rust)
