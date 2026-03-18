@@ -65,7 +65,6 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 crate::system::picodroid::os::system_clock::sleep(args)
             }
             ("picodroid/concurrent/Thread", "start") => {
-                #[cfg(feature = "threaddemo")]
                 if let Some(Value::ObjectRef(thread_idx)) = args.first() {
                     if let Some(Value::ObjectRef(runnable_obj_idx)) =
                         objects.get_field(*thread_idx, 0)
@@ -78,7 +77,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .stack_size(4096)
                             .start(move |_| {
                                 let mut jvm = crate::framework::Jvm::new();
-                                crate::framework::load_threaddemo_classes(&mut jvm).unwrap();
+                                crate::framework::load_classes(&mut jvm).unwrap();
                                 let mut handler = PicodroidNativeHandler;
                                 jvm.invoke_instance(
                                     class_name,
