@@ -14,6 +14,7 @@ inherit = []
 interfacedemo = []
 floatdemo = []
 exceptiondemo = []
+threaddemo = []
 chip-rp2040 = ["dep:rp-pico"]
 chip-rp2350 = ["dep:rp235x-hal"]
 

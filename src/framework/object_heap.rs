@@ -8,7 +8,7 @@ pub struct JvmObject {
 }
 
 pub struct ObjectHeap {
-    objects: Vec<JvmObject, 16>,
+    objects: Vec<JvmObject, 32>,
     sb_buf: [u8; 64],
     sb_len: usize,
 }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn alloc_full_returns_none() {
         let mut heap = ObjectHeap::new();
-        for _ in 0..16 {
+        for _ in 0..32 {
             assert!(heap.alloc("X").is_some());
         }
         assert_eq!(heap.alloc("X"), None);

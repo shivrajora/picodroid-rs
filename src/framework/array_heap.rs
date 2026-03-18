@@ -1,7 +1,7 @@
 use heapless::Vec;
 
 pub const MAX_ARRAY_ELEMENTS: usize = 16;
-pub const MAX_ARRAYS: usize = 8;
+pub const MAX_ARRAYS: usize = 16;
 
 // JVM atype constants for newarray
 #[allow(dead_code)]

@@ -64,6 +64,40 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/os/SystemClock", "sleep") => {
                 crate::system::picodroid::os::system_clock::sleep(args)
             }
+            ("picodroid/concurrent/Thread", "start") => {
+                #[cfg(feature = "threaddemo")]
+                if let Some(Value::ObjectRef(thread_idx)) = args.first() {
+                    if let Some(Value::ObjectRef(runnable_obj_idx)) =
+                        objects.get_field(*thread_idx, 0)
+                    {
+                        let class_name: &'static str = objects
+                            .class_name(runnable_obj_idx)
+                            .ok_or(JvmError::InvalidReference)?;
+                        freertos_rust::Task::new()
+                            .name("jvm-t")
+                            .stack_size(4096)
+                            .start(move |_| {
+                                let mut jvm = crate::framework::Jvm::new();
+                                crate::framework::load_threaddemo_classes(&mut jvm).unwrap();
+                                let mut handler = PicodroidNativeHandler;
+                                jvm.invoke_instance(
+                                    class_name,
+                                    "run",
+                                    runnable_obj_idx,
+                                    &mut handler,
+                                )
+                                .ok();
+                                loop {
+                                    freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(
+                                        60_000,
+                                    ));
+                                }
+                            })
+                            .unwrap();
+                    }
+                }
+                Ok(None)
+            }
             ("java/lang/Object", "<init>") => Ok(None),
             ("java/lang/Throwable", "<init>") => Ok(None),
             ("java/lang/Exception", "<init>") => Ok(None),
