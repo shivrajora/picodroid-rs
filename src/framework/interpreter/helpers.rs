@@ -4,6 +4,7 @@ use crate::framework::{
     heap::StringTable,
     native::NativeMethodHandler,
     object_heap::ObjectHeap,
+    static_fields::StaticFieldStore,
     types::{JvmError, Value},
 };
 
@@ -13,6 +14,7 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     arrays: &mut ArrayHeap,
+    statics: &mut StaticFieldStore,
     handler: &mut H,
     class_str: &str,
     name_str: &str,
@@ -39,7 +41,9 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
                 class_str, name_str, desc_str, args_ref, strings, objects, arrays,
             )
         } else {
-            super::execute(classes, strings, objects, arrays, handler, ci, mi, args_ref)
+            super::execute(
+                classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
+            )
         }
     } else {
         handler.dispatch(
@@ -215,6 +219,7 @@ pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     arrays: &mut ArrayHeap,
+    statics: &mut StaticFieldStore,
     handler: &mut H,
     runtime_class: &str,
     name_str: &str,
@@ -247,7 +252,9 @@ pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
                 arrays,
             )
         } else {
-            super::execute(classes, strings, objects, arrays, handler, ci, mi, args_ref)
+            super::execute(
+                classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
+            )
         }
     } else {
         handler.dispatch(

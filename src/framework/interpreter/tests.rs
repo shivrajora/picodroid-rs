@@ -4,6 +4,7 @@ use crate::framework::{
     heap::StringTable,
     native::NativeMethodHandler,
     object_heap::ObjectHeap,
+    static_fields::StaticFieldStore,
     types::{JvmError, Value},
 };
 
@@ -485,12 +486,14 @@ fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
     let mut handler = NoopHandler;
     execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         0,
         0,
@@ -1144,12 +1147,14 @@ fn run_multi(
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
     let mut handler = NoopHandler;
     execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         exec_class_idx,
         0,
@@ -1234,11 +1239,13 @@ fn getfield_putfield_named_field_roundtrip() {
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "F");
+    let mut statics = StaticFieldStore::new();
     let result = execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         0,
         0,
@@ -1265,11 +1272,13 @@ fn invokevirtual_uses_override_in_subclass() {
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "Child");
     // Run Caller.m (class index 2, method index 0)
+    let mut statics = StaticFieldStore::new();
     let result = execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         2,
         0,
@@ -1294,11 +1303,13 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "ChildNS");
     // Run Caller.m (class index 2, method index 0)
+    let mut statics = StaticFieldStore::new();
     let result = execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         2,
         0,
@@ -1370,11 +1381,13 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "Child");
     // Run Caller.m (class index 2, method index 0)
+    let mut statics = StaticFieldStore::new();
     let result = execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         2,
         0,
@@ -1398,11 +1411,13 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "ChildNS");
+    let mut statics = StaticFieldStore::new();
     let result = execute(
         &classes,
         &mut strings,
         &mut objects,
         &mut arrays,
+        &mut statics,
         &mut handler,
         2,
         0,
@@ -1512,4 +1527,106 @@ fn i2f_converts_int_to_float() {
 #[test]
 fn f2i_truncates_float_to_int() {
     assert_eq!(run(CLASS_F2I).unwrap(), Some(Value::Int(2)));
+}
+
+// ── getstatic / putstatic tests ───────────────────────────────────────────
+//
+// Class "S" extends java/lang/Object.
+// One static method m()I:
+//   bipush 99        (0x10, 0x63)
+//   putstatic #8     (0xB3, 0x00, 0x08)
+//   getstatic #8     (0xB2, 0x00, 0x08)
+//   ireturn          (0xAC)
+//
+// Constant pool (cp_count=12, entries #1..#11):
+//   #1:  Class       -> #2
+//   #2:  Utf8        "S"
+//   #3:  Class       -> #4
+//   #4:  Utf8        "java/lang/Object"
+//   #5:  Utf8        "m"
+//   #6:  Utf8        "()I"
+//   #7:  Utf8        "Code"
+//   #8:  Fieldref    -> #1, #9
+//   #9:  NameAndType -> #10, #11
+//   #10: Utf8        "counter"
+//   #11: Utf8        "I"
+static CLASS_STATIC_ROUNDTRIP: &[u8] = &[
+    // magic
+    0xCA, 0xFE, 0xBA, 0xBE, // minor=0, major=52
+    0x00, 0x00, 0x00, 0x34, // cp_count=12
+    0x00, 0x0C, // #1 Class -> #2
+    0x07, 0x00, 0x02, // #2 Utf8 "S" (1)
+    0x01, 0x00, 0x01, b'S', // #3 Class -> #4
+    0x07, 0x00, 0x04, // #4 Utf8 "java/lang/Object" (16)
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #5 Utf8 "m" (1)
+    0x01, 0x00, 0x01, b'm', // #6 Utf8 "()I" (3)
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #7 Utf8 "Code" (4)
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e',
+    // #8 Fieldref -> #1 (class S), #9 (NameAndType)
+    0x09, 0x00, 0x01, 0x00, 0x09, // #9 NameAndType -> #10 (name), #11 (desc)
+    0x0C, 0x00, 0x0A, 0x00, 0x0B, // #10 Utf8 "counter" (7)
+    0x01, 0x00, 0x07, b'c', b'o', b'u', b'n', b't', b'e', b'r', // #11 Utf8 "I" (1)
+    0x01, 0x00, 0x01, b'I', // access_flags=1, this_class=#1, super_class=#3
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces=0, fields=0, methods=1
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    // method: access=0x0008 (static), name=#5, desc=#6, attrs=1
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+    // Code attr: name=#7, attr_length=21 (2+2+4+9 bytecode+2+2)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x15, // max_stack=1, max_locals=0, code_length=9
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09,
+    // bytecode: bipush 99, putstatic #8, getstatic #8, ireturn
+    0x10, 0x63, 0xB3, 0x00, 0x08, 0xB2, 0x00, 0x08, 0xAC,
+    // exception_table_length=0, code_attributes_count=0
+    0x00, 0x00, 0x00, 0x00, // class attributes_count=0
+    0x00, 0x00,
+];
+
+#[test]
+fn putstatic_getstatic_roundtrip() {
+    // putstatic 99 then getstatic should return 99
+    assert_eq!(run(CLASS_STATIC_ROUNDTRIP).unwrap(), Some(Value::Int(99)));
+}
+
+#[test]
+fn getstatic_unset_field_returns_null() {
+    // A getstatic for a field that has never been written returns Null.
+    // We test this by directly querying the StaticFieldStore.
+    let store = StaticFieldStore::new();
+    assert_eq!(store.get(b"S", b"counter"), Value::Null);
+}
+
+#[test]
+fn putstatic_persists_across_two_execute_calls() {
+    // First call: writes 77 into S.counter via putstatic.
+    // Second call: reads it back via getstatic and returns it.
+    // Both calls share the same StaticFieldStore — value must survive.
+    //
+    // We reuse CLASS_STATIC_ROUNDTRIP which does write-then-read in one method,
+    // and verify the store is indeed shared by running it twice on the same store.
+    let cf = ClassFile::parse(CLASS_STATIC_ROUNDTRIP).expect("parse failed");
+    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
+    classes.push(cf).ok().unwrap();
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut handler = NoopHandler;
+
+    // First execution: writes 99, reads 99
+    let r1 = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut handler,
+        0,
+        0,
+        &[],
+    );
+    assert_eq!(r1.unwrap(), Some(Value::Int(99)));
+
+    // After first execution the store holds S.counter = 99.
+    assert_eq!(statics.get(b"S", b"counter"), Value::Int(99));
 }

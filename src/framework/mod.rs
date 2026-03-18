@@ -8,6 +8,7 @@ pub mod heap;
 pub mod interpreter;
 pub mod native;
 pub mod object_heap;
+pub mod static_fields;
 pub mod types;
 
 #[cfg(not(test))]
@@ -18,6 +19,7 @@ use heap::StringTable;
 use heapless::Vec;
 pub use native::NativeMethodHandler;
 use object_heap::ObjectHeap;
+use static_fields::StaticFieldStore;
 use types::JvmError;
 #[cfg(not(test))]
 use types::Value;
@@ -39,6 +41,7 @@ pub struct SharedJvmHeap {
     pub objects: ObjectHeap,
     pub arrays: ArrayHeap,
     pub strings: StringTable,
+    pub statics: StaticFieldStore,
 }
 
 // SAFETY: single-core Cortex-M; only one FreeRTOS task executes at a time.
@@ -52,6 +55,7 @@ static SHARED_HEAP: SharedHeapCell = SharedHeapCell(core::cell::UnsafeCell::new(
     objects: ObjectHeap::new(),
     arrays: ArrayHeap::new(),
     strings: StringTable::new(),
+    statics: StaticFieldStore::new(),
 }));
 
 /// Return a mutable reference to the process-wide shared JVM heap.
@@ -136,6 +140,7 @@ impl Jvm {
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
+            &mut heap.statics,
             handler,
             ci,
             mi,
@@ -161,6 +166,7 @@ impl Jvm {
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
+            &mut heap.statics,
             handler,
             ci,
             mi,

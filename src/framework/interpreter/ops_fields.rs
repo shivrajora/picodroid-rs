@@ -13,10 +13,28 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame: &mut Frame,
     ) -> Result<(), JvmError> {
         match opcode {
-            // getstatic — for M2 we only see this for PeripheralManager; push Null placeholder
+            // getstatic — look up in StaticFieldStore; unset fields read as Null
             0xb2 => {
+                let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                frame.push(Value::Null)?;
+                let cf = &self.classes[frame.class_idx];
+                let (class_name, field_name, _desc) =
+                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                let value = self.statics.get(class_name, field_name);
+                frame.push(value)?;
+            }
+
+            // putstatic — store value into StaticFieldStore
+            0xb3 => {
+                let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let value = frame.pop()?;
+                let cf = &self.classes[frame.class_idx];
+                let (class_name, field_name, _desc) =
+                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                self.statics
+                    .set(class_name, field_name, value)
+                    .ok_or(JvmError::StackOverflow)?;
             }
 
             // getfield — objectref → value
