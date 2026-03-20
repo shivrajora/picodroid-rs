@@ -1,7 +1,5 @@
-use heapless::Vec;
-
-pub const MAX_ARRAY_ELEMENTS: usize = 16;
-pub const MAX_ARRAYS: usize = 16;
+use alloc::vec;
+use alloc::vec::Vec;
 
 // JVM atype constants for newarray
 #[allow(dead_code)]
@@ -24,12 +22,11 @@ pub const ATYPE_REF: u8 = 0; // used by anewarray
 
 pub struct JvmArray {
     pub atype: u8,
-    pub len: u8,
-    pub data: [i32; MAX_ARRAY_ELEMENTS],
+    pub data: Vec<i32>,
 }
 
 pub struct ArrayHeap {
-    arrays: Vec<JvmArray, MAX_ARRAYS>,
+    arrays: Vec<Option<JvmArray>>,
 }
 
 impl ArrayHeap {
@@ -37,26 +34,31 @@ impl ArrayHeap {
         Self { arrays: Vec::new() }
     }
 
-    /// Allocate a new array. Returns its heap index, or None if heap is full or len exceeds capacity.
-    pub fn alloc(&mut self, atype: u8, len: u8) -> Option<u16> {
-        if len as usize > MAX_ARRAY_ELEMENTS {
-            return None;
+    /// Allocate a new array. Returns its heap index.
+    /// Reuses a None slot (freed by GC) before growing the backing Vec.
+    pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {
+        let new_arr = JvmArray {
+            atype,
+            data: vec![0i32; len as usize],
+        };
+        // Reuse a None slot if available (after GC)
+        if let Some(idx) = self
+            .arrays
+            .iter()
+            .position(|a: &Option<JvmArray>| a.is_none())
+        {
+            self.arrays[idx] = Some(new_arr);
+            return Some(idx as u16);
         }
         let idx = self.arrays.len() as u16;
-        self.arrays
-            .push(JvmArray {
-                atype,
-                len,
-                data: [0i32; MAX_ARRAY_ELEMENTS],
-            })
-            .ok()?;
+        self.arrays.push(Some(new_arr));
         Some(idx)
     }
 
     /// Load element at index elem from array idx. Returns None on out-of-bounds or invalid idx.
     pub fn load(&self, idx: u16, elem: usize) -> Option<i32> {
-        let arr = self.arrays.get(idx as usize)?;
-        if elem >= arr.len as usize {
+        let arr = self.arrays.get(idx as usize)?.as_ref()?;
+        if elem >= arr.data.len() {
             return None;
         }
         Some(arr.data[elem])
@@ -64,8 +66,8 @@ impl ArrayHeap {
 
     /// Store value at index elem in array idx. Returns None on out-of-bounds or invalid idx.
     pub fn store(&mut self, idx: u16, elem: usize, val: i32) -> Option<()> {
-        let arr = self.arrays.get_mut(idx as usize)?;
-        if elem >= arr.len as usize {
+        let arr = self.arrays.get_mut(idx as usize)?.as_mut()?;
+        if elem >= arr.data.len() {
             return None;
         }
         arr.data[elem] = val;
@@ -73,13 +75,13 @@ impl ArrayHeap {
     }
 
     /// Return the length of array idx.
-    pub fn length(&self, idx: u16) -> Option<u8> {
-        Some(self.arrays.get(idx as usize)?.len)
+    pub fn length(&self, idx: u16) -> Option<u16> {
+        Some(self.arrays.get(idx as usize)?.as_ref()?.data.len() as u16)
     }
 
     #[allow(dead_code)]
     pub fn atype(&self, idx: u16) -> Option<u8> {
-        Some(self.arrays.get(idx as usize)?.atype)
+        Some(self.arrays.get(idx as usize)?.as_ref()?.atype)
     }
 }
 
@@ -96,18 +98,18 @@ mod tests {
     }
 
     #[test]
-    fn alloc_full_returns_none() {
+    fn alloc_beyond_old_capacity_succeeds() {
         let mut heap = ArrayHeap::new();
-        for _ in 0..MAX_ARRAYS {
-            assert!(heap.alloc(ATYPE_INT, 1).is_some());
+        for i in 0..64u16 {
+            assert_eq!(heap.alloc(ATYPE_INT, 1), Some(i));
         }
-        assert_eq!(heap.alloc(ATYPE_INT, 1), None);
     }
 
     #[test]
-    fn alloc_exceeds_max_elements_returns_none() {
+    fn alloc_large_array_succeeds() {
         let mut heap = ArrayHeap::new();
-        assert_eq!(heap.alloc(ATYPE_INT, (MAX_ARRAY_ELEMENTS + 1) as u8), None);
+        assert_eq!(heap.alloc(ATYPE_INT, 1000), Some(0));
+        assert_eq!(heap.length(0), Some(1000));
     }
 
     #[test]
@@ -191,5 +193,18 @@ mod tests {
         heap.alloc(ATYPE_CHAR, 2);
         assert_eq!(heap.atype(0), Some(ATYPE_BYTE));
         assert_eq!(heap.atype(1), Some(ATYPE_CHAR));
+    }
+
+    #[test]
+    fn gc_slot_reuse() {
+        let mut heap = ArrayHeap::new();
+        assert_eq!(heap.alloc(ATYPE_INT, 4), Some(0));
+        assert_eq!(heap.alloc(ATYPE_INT, 8), Some(1));
+        // Simulate GC freeing slot 0
+        heap.arrays[0] = None;
+        // Next alloc should reuse slot 0
+        assert_eq!(heap.alloc(ATYPE_BYTE, 2), Some(0));
+        // Slot 1 still intact
+        assert_eq!(heap.length(1), Some(8));
     }
 }

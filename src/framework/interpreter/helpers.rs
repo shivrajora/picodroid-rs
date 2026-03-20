@@ -7,6 +7,7 @@ use crate::framework::{
     static_fields::StaticFieldStore,
     types::{JvmError, Value},
 };
+use alloc::vec::Vec;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn invoke_method<H: NativeMethodHandler>(
@@ -19,20 +20,19 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
     class_str: &str,
     name_str: &str,
     desc_str: &str,
-    stack: &mut heapless::Vec<Value, 16>,
+    stack: &mut Vec<Value>,
     arg_count: usize,
 ) -> Result<Option<Value>, JvmError> {
     let stack_len = stack.len();
     if stack_len < arg_count {
         return Err(JvmError::StackUnderflow);
     }
-    let mut args_buf = [Value::Null; 8];
     let start = stack_len - arg_count;
-    args_buf[..arg_count].copy_from_slice(&stack[start..]);
+    let args_buf: Vec<Value> = stack[start..].to_vec();
     for _ in 0..arg_count {
         stack.pop();
     }
-    let args_ref = &args_buf[..arg_count];
+    let args_ref = args_buf.as_slice();
 
     if let Some((ci, mi)) = find_method(classes, class_str, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;
@@ -127,20 +127,19 @@ pub(super) fn branch_target(pc_after_offset: usize, offset: i16) -> usize {
 
 /// Computes the runtime field slot for a named field, walking from the root of the hierarchy down.
 /// Super-class fields come first (slot 0), then subclass fields.
-/// Returns None if the field is not found or the hierarchy is too deep (>8 levels).
 pub(super) fn field_slot(
     classes: &[ClassFile],
     class_name: &str,
     field_name: &str,
 ) -> Option<usize> {
     // Build a chain of class indices from root to leaf (root first)
-    let mut chain: heapless::Vec<usize, 8> = heapless::Vec::new();
+    let mut chain: Vec<usize> = Vec::new();
     let mut current: &str = class_name;
     loop {
         let ci = classes
             .iter()
             .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))?;
-        chain.push(ci).ok()?; // returns None if depth > 8
+        chain.push(ci);
         match classes[ci].super_class_name() {
             None => break, // reached java/lang/Object
             Some(super_bytes) => {
@@ -224,20 +223,19 @@ pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
     runtime_class: &str,
     name_str: &str,
     desc_str: &str,
-    stack: &mut heapless::Vec<Value, 16>,
+    stack: &mut Vec<Value>,
     arg_count: usize,
 ) -> Result<Option<Value>, JvmError> {
     let stack_len = stack.len();
     if stack_len < arg_count {
         return Err(JvmError::StackUnderflow);
     }
-    let mut args_buf = [Value::Null; 8];
     let start = stack_len - arg_count;
-    args_buf[..arg_count].copy_from_slice(&stack[start..]);
+    let args_buf: Vec<Value> = stack[start..].to_vec();
     for _ in 0..arg_count {
         stack.pop();
     }
-    let args_ref = &args_buf[..arg_count];
+    let args_ref = args_buf.as_slice();
 
     if let Some((ci, mi)) = find_method_virtual(classes, runtime_class, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;

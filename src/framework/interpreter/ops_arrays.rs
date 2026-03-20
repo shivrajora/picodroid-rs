@@ -267,7 +267,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 let arr_idx = self
                     .arrays
-                    .alloc(atype, count as u8)
+                    .alloc(atype, count as u16)
                     .ok_or(JvmError::StackOverflow)?;
                 frame.push(Value::ArrayRef(arr_idx))?;
             }
@@ -284,7 +284,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 let arr_idx = self
                     .arrays
-                    .alloc(crate::framework::array_heap::ATYPE_REF, count as u8)
+                    .alloc(crate::framework::array_heap::ATYPE_REF, count as u16)
                     .ok_or(JvmError::StackOverflow)?;
                 frame.push(Value::ArrayRef(arr_idx))?;
             }

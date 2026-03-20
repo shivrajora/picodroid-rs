@@ -1,4 +1,3 @@
-#[cfg(not(test))]
 extern crate alloc;
 
 pub mod array_heap;
@@ -13,10 +12,10 @@ pub mod types;
 
 #[cfg(not(test))]
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
 use heap::StringTable;
-use heapless::Vec;
 pub use native::NativeMethodHandler;
 use object_heap::ObjectHeap;
 use static_fields::StaticFieldStore;
@@ -110,7 +109,7 @@ pub fn load_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
 // ── Jvm ──────────────────────────────────────────────────────────────────────
 
 pub struct Jvm {
-    classes: Vec<ClassFile, 12>,
+    classes: Vec<ClassFile>,
 }
 
 impl Jvm {
@@ -122,7 +121,8 @@ impl Jvm {
 
     pub fn load_class(&mut self, data: &'static [u8]) -> Result<(), JvmError> {
         let cf = ClassFile::parse(data).map_err(|_| JvmError::InvalidBytecode)?;
-        self.classes.push(cf).map_err(|_| JvmError::ClassNotFound)
+        self.classes.push(cf);
+        Ok(())
     }
 
     /// Invoke a static (no-arg) method by class and method name.

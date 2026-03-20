@@ -2,11 +2,11 @@
 ///
 /// All strings in M1 are UTF-8 literals baked into .class files in Flash.
 /// We store (ptr, len) pairs pointing directly into Flash — zero allocation.
-use heapless::Vec;
+use alloc::vec::Vec;
 
 pub struct StringTable {
-    ptrs: Vec<*const u8, 32>,
-    lens: Vec<u16, 32>,
+    ptrs: Vec<*const u8>,
+    lens: Vec<u16>,
     dyn_slot: Option<u16>,
 }
 
@@ -34,8 +34,8 @@ impl StringTable {
             }
         }
         let idx = self.ptrs.len() as u16;
-        self.ptrs.push(s.as_ptr()).ok()?;
-        self.lens.push(s.len() as u16).ok()?;
+        self.ptrs.push(s.as_ptr());
+        self.lens.push(s.len() as u16);
         Some(idx)
     }
 
@@ -44,6 +44,8 @@ impl StringTable {
     /// # Safety
     /// `ptr` must remain valid (pointing into stable memory, e.g. `ObjectHeap::sb_buf`)
     /// until the next call to `intern_dyn`, which overwrites this slot.
+    /// The caller must not mutate the backing buffer between calling this function
+    /// and consuming the returned index (e.g. passing to the operand stack).
     pub unsafe fn intern_dyn(&mut self, ptr: *const u8, len: usize) -> Option<u16> {
         match self.dyn_slot {
             Some(slot) => {
@@ -54,8 +56,8 @@ impl StringTable {
             }
             None => {
                 let idx = self.ptrs.len() as u16;
-                self.ptrs.push(ptr).ok()?;
-                self.lens.push(len as u16).ok()?;
+                self.ptrs.push(ptr);
+                self.lens.push(len as u16);
                 self.dyn_slot = Some(idx);
                 Some(idx)
             }
@@ -117,57 +119,21 @@ mod tests {
     }
 
     #[test]
-    fn intern_fills_to_capacity() {
-        static S00: &[u8] = b"s00";
-        static S01: &[u8] = b"s01";
-        static S02: &[u8] = b"s02";
-        static S03: &[u8] = b"s03";
-        static S04: &[u8] = b"s04";
-        static S05: &[u8] = b"s05";
-        static S06: &[u8] = b"s06";
-        static S07: &[u8] = b"s07";
-        static S08: &[u8] = b"s08";
-        static S09: &[u8] = b"s09";
-        static S10: &[u8] = b"s10";
-        static S11: &[u8] = b"s11";
-        static S12: &[u8] = b"s12";
-        static S13: &[u8] = b"s13";
-        static S14: &[u8] = b"s14";
-        static S15: &[u8] = b"s15";
-        static S16: &[u8] = b"s16";
-        static S17: &[u8] = b"s17";
-        static S18: &[u8] = b"s18";
-        static S19: &[u8] = b"s19";
-        static S20: &[u8] = b"s20";
-        static S21: &[u8] = b"s21";
-        static S22: &[u8] = b"s22";
-        static S23: &[u8] = b"s23";
-        static S24: &[u8] = b"s24";
-        static S25: &[u8] = b"s25";
-        static S26: &[u8] = b"s26";
-        static S27: &[u8] = b"s27";
-        static S28: &[u8] = b"s28";
-        static S29: &[u8] = b"s29";
-        static S30: &[u8] = b"s30";
-        static S31: &[u8] = b"s31";
-        static S32: &[u8] = b"s32"; // one beyond capacity
-
-        let slots: [&'static [u8]; 32] = [
-            S00, S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14, S15, S16,
-            S17, S18, S19, S20, S21, S22, S23, S24, S25, S26, S27, S28, S29, S30, S31,
+    fn intern_beyond_old_capacity_succeeds() {
+        // Previously capped at 32; verify we can now go well beyond that.
+        let strs: [&'static [u8]; 33] = [
+            b"s00", b"s01", b"s02", b"s03", b"s04", b"s05", b"s06", b"s07", b"s08", b"s09", b"s10",
+            b"s11", b"s12", b"s13", b"s14", b"s15", b"s16", b"s17", b"s18", b"s19", b"s20", b"s21",
+            b"s22", b"s23", b"s24", b"s25", b"s26", b"s27", b"s28", b"s29", b"s30", b"s31", b"s32",
         ];
-
         let mut table = StringTable::new();
-        for (expected_idx, &slot) in slots.iter().enumerate() {
-            let result = table.intern(slot);
+        for (expected_idx, &s) in strs.iter().enumerate() {
+            let result = table.intern(s);
             assert_eq!(
                 result,
                 Some(expected_idx as u16),
                 "slot {expected_idx} should intern successfully"
             );
         }
-
-        // Table is now full; the 33rd intern must return None.
-        assert_eq!(table.intern(S32), None);
     }
 }

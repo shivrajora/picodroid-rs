@@ -1,5 +1,5 @@
 use crate::framework::types::Value;
-use heapless::Vec;
+use alloc::vec::Vec;
 
 struct StaticEntry {
     class_name: &'static [u8],
@@ -10,10 +10,9 @@ struct StaticEntry {
 /// Process-wide store for Java static fields.
 ///
 /// Keyed by (class_name, field_name) byte slices backed by Flash (from the
-/// class-file constant pool).  Capacity is fixed at 32 entries; a `putstatic`
-/// that would exceed this returns `None`.
+/// class-file constant pool).
 pub struct StaticFieldStore {
-    entries: Vec<StaticEntry, 32>,
+    entries: Vec<StaticEntry>,
 }
 
 impl StaticFieldStore {
@@ -33,7 +32,7 @@ impl StaticFieldStore {
         Value::Null
     }
 
-    /// Write a static field.  Returns `None` if the store is full.
+    /// Write a static field. Always returns `Some(())`.
     pub fn set(
         &mut self,
         class_name: &'static [u8],
@@ -46,12 +45,11 @@ impl StaticFieldStore {
                 return Some(());
             }
         }
-        self.entries
-            .push(StaticEntry {
-                class_name,
-                field_name,
-                value,
-            })
-            .ok()
+        self.entries.push(StaticEntry {
+            class_name,
+            field_name,
+            value,
+        });
+        Some(())
     }
 }

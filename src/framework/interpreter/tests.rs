@@ -7,6 +7,7 @@ use crate::framework::{
     static_fields::StaticFieldStore,
     types::{JvmError, Value},
 };
+use alloc::vec::Vec;
 
 struct NoopHandler;
 impl NativeMethodHandler for NoopHandler {
@@ -481,8 +482,8 @@ static CLASS_I2C: &[u8] = &[
 
 fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
     let cf = ClassFile::parse(class_bytes).expect("parse failed");
-    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
-    classes.push(cf).ok().expect("push failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1139,10 +1140,10 @@ fn run_multi(
     exec_class_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
-    let mut classes: heapless::Vec<ClassFile, 8> = heapless::Vec::new();
+    let mut classes: Vec<ClassFile> = Vec::new();
     for &data in classes_data {
         let cf = ClassFile::parse(data).expect("parse failed");
-        classes.push(cf).ok().expect("classes full");
+        classes.push(cf);
     }
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
@@ -1173,8 +1174,8 @@ fn alloc_object(objects: &mut ObjectHeap, name: &'static str) -> Value {
 fn field_slot_own_field_is_slot_0() {
     // CLASS_F_GETFIELD has one instance field "x" — slot 0
     let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
-    let mut classes: heapless::Vec<ClassFile, 2> = heapless::Vec::new();
-    classes.push(cf).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
     assert_eq!(helpers::field_slot(&classes, "F", "x"), Some(0));
 }
 
@@ -1189,8 +1190,8 @@ fn field_slot_inherited_field_is_slot_0() {
     // For the *inherited* case, build a "Child" extending "F" — reuse CLASS_CHILD_NO_SPEAK
     // but that extends "Base" not "F". So just test the single-class slot lookup here.
     let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
-    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
-    classes.push(cf).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
     assert_eq!(helpers::field_slot(&classes, "F", "x"), Some(0));
     assert_eq!(helpers::field_slot(&classes, "F", "z"), None); // non-existent field
 }
@@ -1198,8 +1199,8 @@ fn field_slot_inherited_field_is_slot_0() {
 #[test]
 fn is_instance_of_same_class() {
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
-    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
     assert!(helpers::is_instance_of(&classes, "Base", "Base"));
 }
 
@@ -1208,9 +1209,9 @@ fn is_instance_of_parent_class() {
     // Child extends Base → Child is-a Base
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
     let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).unwrap();
-    let mut classes: heapless::Vec<ClassFile, 2> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child);
     assert!(helpers::is_instance_of(&classes, "Child", "Base"));
 }
 
@@ -1219,9 +1220,9 @@ fn is_instance_of_unrelated_class() {
     // Base is NOT a subclass of Child
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
     let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).unwrap();
-    let mut classes: heapless::Vec<ClassFile, 2> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child);
     assert!(!helpers::is_instance_of(&classes, "Base", "Child"));
 }
 
@@ -1232,8 +1233,8 @@ fn getfield_putfield_named_field_roundtrip() {
     // Load "F", alloc an F object, pass it as arg[0] to the static m(LF;)I.
     // Method stores 42 into field "x", then reads it back → should return 42.
     let cf = ClassFile::parse(CLASS_F_GETFIELD).expect("parse failed");
-    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
-    classes.push(cf).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1262,10 +1263,10 @@ fn invokevirtual_uses_override_in_subclass() {
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
     let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse CHILD failed");
     let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEVIRTUAL).expect("parse CALLER failed");
-    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child).ok().unwrap();
-    classes.push(cf_caller).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child);
+    classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1293,10 +1294,10 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
     let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
     let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEVIRTUAL).expect("parse CALLER failed");
-    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child_ns).ok().unwrap();
-    classes.push(cf_caller).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child_ns);
+    classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1371,10 +1372,10 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
     let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse CHILD failed");
     let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
-    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child).ok().unwrap();
-    classes.push(cf_caller).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child);
+    classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1402,10 +1403,10 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
     let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
     let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
     let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
-    let mut classes: heapless::Vec<ClassFile, 4> = heapless::Vec::new();
-    classes.push(cf_base).ok().unwrap();
-    classes.push(cf_child_ns).ok().unwrap();
-    classes.push(cf_caller).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child_ns);
+    classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();
@@ -1605,8 +1606,8 @@ fn putstatic_persists_across_two_execute_calls() {
     // We reuse CLASS_STATIC_ROUNDTRIP which does write-then-read in one method,
     // and verify the store is indeed shared by running it twice on the same store.
     let cf = ClassFile::parse(CLASS_STATIC_ROUNDTRIP).expect("parse failed");
-    let mut classes: heapless::Vec<ClassFile, 1> = heapless::Vec::new();
-    classes.push(cf).ok().unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::framework::array_heap::ArrayHeap::new();

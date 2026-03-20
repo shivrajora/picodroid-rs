@@ -1,7 +1,7 @@
 /// Minimal Java .class file parser for Picodroid Milestone 1.
 /// Parses only the subset needed to run a simple static-method call
 /// (e.g. HelloWorld.main → Log.i).
-use heapless::Vec;
+use alloc::vec::Vec;
 
 // Constant pool tag constants
 const TAG_UTF8: u8 = 1;
@@ -36,8 +36,8 @@ pub struct MethodInfo {
     pub max_stack: u8,
     pub max_locals: u8,
     pub access_flags: u16,
-    /// Exception table parsed from the Code attribute (up to 4 entries).
-    pub exception_table: heapless::Vec<ExceptionEntry, 4>,
+    /// Exception table parsed from the Code attribute.
+    pub exception_table: Vec<ExceptionEntry>,
 }
 
 #[derive(Debug)]
@@ -53,16 +53,16 @@ pub struct ClassFile {
     data: &'static [u8],
     /// Byte offset of each CP entry's *data* (after the tag byte) within `data`.
     /// Index 0 is unused (CP is 1-based); index N corresponds to CP entry N.
-    cp_offsets: Vec<usize, 96>,
+    cp_offsets: Vec<usize>,
     /// Tag of each CP entry (same indexing as cp_offsets).
-    cp_tags: Vec<u8, 96>,
-    pub methods: Vec<MethodInfo, 16>,
+    cp_tags: Vec<u8>,
+    pub methods: Vec<MethodInfo>,
     pub class_name_index: u16,       // Utf8 entry for this class's name
     pub super_class_name_index: u16, // Utf8 entry for super class name; 0 = java/lang/Object
-    pub fields: Vec<FieldInfo, 8>,   // Instance field declarations (non-static)
+    pub fields: Vec<FieldInfo>,      // Instance field declarations (non-static)
     pub access_flags: u16,           // ACC_INTERFACE=0x0200, ACC_ABSTRACT=0x0400, etc.
     #[allow(dead_code)]
-    pub interfaces: Vec<u16, 4>, // Utf8 indices for each implemented interface name
+    pub interfaces: Vec<u16>, // Utf8 indices for each implemented interface name
 }
 
 struct Cursor<'a> {
@@ -123,17 +123,17 @@ impl ClassFile {
         // Constant pool
         let cp_count = c.u16().ok_or("truncated")? as usize;
         // cp_offsets[0] unused; entries 1..cp_count
-        let mut cp_offsets: Vec<usize, 96> = Vec::new();
-        let mut cp_tags: Vec<u8, 96> = Vec::new();
-        cp_offsets.push(0).ok(); // index 0 placeholder
-        cp_tags.push(0).ok();
+        let mut cp_offsets: Vec<usize> = Vec::new();
+        let mut cp_tags: Vec<u8> = Vec::new();
+        cp_offsets.push(0); // index 0 placeholder
+        cp_tags.push(0);
 
         let mut idx = 1;
         while idx < cp_count {
             let tag = c.u8().ok_or("truncated")?;
             let data_offset = c.pos();
-            cp_tags.push(tag).map_err(|_| "cp too large")?;
-            cp_offsets.push(data_offset).map_err(|_| "cp too large")?;
+            cp_tags.push(tag);
+            cp_offsets.push(data_offset);
 
             match tag {
                 TAG_UTF8 => {
@@ -155,8 +155,8 @@ impl ClassFile {
                 // Long/Double take two CP slots (rare in M1 code)
                 5 | 6 => {
                     c.skip(8).ok_or("truncated")?;
-                    cp_tags.push(0).map_err(|_| "cp too large")?;
-                    cp_offsets.push(0).map_err(|_| "cp too large")?;
+                    cp_tags.push(0);
+                    cp_offsets.push(0);
                     idx += 1;
                 }
                 // Integer, Float, InvokeDynamic, FieldRef, InterfaceMethodRef, etc.
@@ -225,20 +225,20 @@ impl ClassFile {
 
         // Parse interface list
         let iface_count = c.u16().ok_or("truncated")? as usize;
-        let mut interfaces: Vec<u16, 4> = Vec::new();
+        let mut interfaces: Vec<u16> = Vec::new();
         for _ in 0..iface_count {
             let iface_cp_idx = c.u16().ok_or("truncated")?;
             let ci = iface_cp_idx as usize;
             if cp_tags.get(ci) == Some(&TAG_CLASS) {
                 let off = cp_offsets[ci];
                 let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
-                interfaces.push(utf8_idx).ok(); // silently drop if > 4 interfaces
+                interfaces.push(utf8_idx);
             }
         }
 
         // Parse instance fields
         let field_count = c.u16().ok_or("truncated")? as usize;
-        let mut fields: Vec<FieldInfo, 8> = Vec::new();
+        let mut fields: Vec<FieldInfo> = Vec::new();
         for _ in 0..field_count {
             let access_flags = c.u16().ok_or("truncated")?;
             let name_idx = c.u16().ok_or("truncated")?;
@@ -251,18 +251,16 @@ impl ClassFile {
             }
             // Store non-static instance fields only (ACC_STATIC = 0x0008)
             if access_flags & 0x0008 == 0 {
-                fields
-                    .push(FieldInfo {
-                        name_index: name_idx,
-                        descriptor_index: descriptor_idx,
-                    })
-                    .ok();
+                fields.push(FieldInfo {
+                    name_index: name_idx,
+                    descriptor_index: descriptor_idx,
+                });
             }
         }
 
         // Parse methods
         let method_count = c.u16().ok_or("truncated")? as usize;
-        let mut methods: Vec<MethodInfo, 16> = Vec::new();
+        let mut methods: Vec<MethodInfo> = Vec::new();
 
         for _ in 0..method_count {
             let access_flags = c.u16().ok_or("truncated")?;
@@ -274,7 +272,7 @@ impl ClassFile {
             let mut code_len = 0usize;
             let mut max_stack = 0u8;
             let mut max_locals = 0u8;
-            let mut exception_table: heapless::Vec<ExceptionEntry, 4> = heapless::Vec::new();
+            let mut exception_table: Vec<ExceptionEntry> = Vec::new();
 
             for _ in 0..attr_count {
                 let attr_name_idx = c.u16().ok_or("truncated")?;
@@ -311,15 +309,12 @@ impl ClassFile {
                         let end_pc = c.u16().ok_or("truncated")?;
                         let handler_pc = c.u16().ok_or("truncated")?;
                         let catch_type_index = c.u16().ok_or("truncated")?;
-                        // Silently drop entries beyond capacity
-                        exception_table
-                            .push(ExceptionEntry {
-                                start_pc,
-                                end_pc,
-                                handler_pc,
-                                catch_type_index,
-                            })
-                            .ok();
+                        exception_table.push(ExceptionEntry {
+                            start_pc,
+                            end_pc,
+                            handler_pc,
+                            catch_type_index,
+                        });
                     }
                     // Skip remaining Code sub-attributes
                     c.pos = attr_start + attr_len;
@@ -328,18 +323,16 @@ impl ClassFile {
                 }
             }
 
-            methods
-                .push(MethodInfo {
-                    name_index,
-                    descriptor_index,
-                    code_offset,
-                    code_len,
-                    max_stack,
-                    max_locals,
-                    access_flags,
-                    exception_table,
-                })
-                .map_err(|_| "too many methods")?;
+            methods.push(MethodInfo {
+                name_index,
+                descriptor_index,
+                code_offset,
+                code_len,
+                max_stack,
+                max_locals,
+                access_flags,
+                exception_table,
+            });
         }
 
         Ok(ClassFile {

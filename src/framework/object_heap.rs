@@ -1,58 +1,72 @@
 use crate::framework::types::Value;
-use heapless::Vec;
+use alloc::vec::Vec;
 
 #[allow(dead_code)]
 pub struct JvmObject {
     pub class_name: &'static str,
-    pub fields: Vec<Value, 16>,
+    pub fields: Vec<Value>,
 }
 
 pub struct ObjectHeap {
-    objects: Vec<JvmObject, 32>,
-    sb_buf: [u8; 64],
-    sb_len: usize,
+    objects: Vec<Option<JvmObject>>,
+    sb_buf: Vec<u8>,
 }
 
 impl ObjectHeap {
     pub const fn new() -> Self {
         Self {
             objects: Vec::new(),
-            sb_buf: [0u8; 64],
-            sb_len: 0,
+            sb_buf: Vec::new(),
         }
     }
 
     /// Allocate a new object of the given class, returning its heap index.
     /// For `java/lang/StringBuilder`, reuses an existing slot if one exists —
     /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
+    /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
         if class_name == "java/lang/StringBuilder" {
             if let Some(idx) = self
                 .objects
                 .iter()
-                .position(|o| o.class_name == "java/lang/StringBuilder")
+                .position(|o| matches!(o, Some(obj) if obj.class_name == "java/lang/StringBuilder"))
             {
                 return Some(idx as u16);
             }
         }
-        let idx = self.objects.len() as u16;
-        self.objects
-            .push(JvmObject {
+        // Reuse a None slot if available (after GC), otherwise grow
+        if let Some(idx) = self
+            .objects
+            .iter()
+            .position(|o: &Option<JvmObject>| o.is_none())
+        {
+            self.objects[idx] = Some(JvmObject {
                 class_name,
                 fields: Vec::new(),
-            })
-            .ok()?;
+            });
+            return Some(idx as u16);
+        }
+        let idx = self.objects.len() as u16;
+        self.objects.push(Some(JvmObject {
+            class_name,
+            fields: Vec::new(),
+        }));
         Some(idx)
     }
 
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
-        self.objects.get(idx as usize)?.fields.get(field).copied()
+        self.objects
+            .get(idx as usize)?
+            .as_ref()?
+            .fields
+            .get(field)
+            .copied()
     }
 
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
-        let obj = self.objects.get_mut(idx as usize)?;
+        let obj = self.objects.get_mut(idx as usize)?.as_mut()?;
         while obj.fields.len() <= field {
-            obj.fields.push(Value::Null).ok()?;
+            obj.fields.push(Value::Null);
         }
         obj.fields[field] = v;
         Some(())
@@ -60,22 +74,17 @@ impl ObjectHeap {
 
     #[allow(dead_code)]
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
-        Some(self.objects.get(idx as usize)?.class_name)
+        Some(self.objects.get(idx as usize)?.as_ref()?.class_name)
     }
 
     /// Clear the shared StringBuilder buffer.
     pub fn sb_clear(&mut self) {
-        self.sb_len = 0;
+        self.sb_buf.clear();
     }
 
-    /// Append bytes to the shared StringBuilder buffer (truncates at 64 bytes).
+    /// Append bytes to the shared StringBuilder buffer.
     pub fn sb_append_bytes(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            if self.sb_len < self.sb_buf.len() {
-                self.sb_buf[self.sb_len] = b;
-                self.sb_len += 1;
-            }
-        }
+        self.sb_buf.extend_from_slice(bytes);
     }
 
     /// Append an integer (decimal) to the shared StringBuilder buffer.
@@ -86,8 +95,13 @@ impl ObjectHeap {
     }
 
     /// Return the current StringBuilder buffer contents and a raw pointer to them.
+    ///
+    /// # Safety
+    /// The returned pointer is valid until the next call to `sb_append_bytes`,
+    /// `sb_append_int`, or `sb_clear`, any of which may reallocate `sb_buf`.
+    /// Consume the pointer (e.g. pass to `intern_dyn`) before any further mutation.
     pub fn sb_contents(&self) -> (*const u8, usize) {
-        (self.sb_buf.as_ptr(), self.sb_len)
+        (self.sb_buf.as_ptr(), self.sb_buf.len())
     }
 }
 
@@ -127,12 +141,11 @@ mod tests {
     }
 
     #[test]
-    fn alloc_full_returns_none() {
+    fn alloc_beyond_old_capacity_succeeds() {
         let mut heap = ObjectHeap::new();
-        for _ in 0..32 {
-            assert!(heap.alloc("X").is_some());
+        for i in 0..64 {
+            assert!(heap.alloc(if i % 2 == 0 { "X" } else { "Y" }).is_some());
         }
-        assert_eq!(heap.alloc("X"), None);
     }
 
     #[test]
@@ -235,12 +248,12 @@ mod tests {
     }
 
     #[test]
-    fn sb_append_truncates_at_capacity() {
+    fn sb_append_no_truncation() {
         let mut heap = ObjectHeap::new();
         let long_str = [b'x'; 70];
         heap.sb_append_bytes(&long_str);
         let (_, len) = heap.sb_contents();
-        assert_eq!(len, 64);
+        assert_eq!(len, 70);
     }
 
     #[test]
@@ -253,5 +266,18 @@ mod tests {
         let (ptr, len) = heap.sb_contents();
         let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
         assert_eq!(slice, b"bar");
+    }
+
+    #[test]
+    fn gc_slot_reuse() {
+        let mut heap = ObjectHeap::new();
+        assert_eq!(heap.alloc("A"), Some(0));
+        assert_eq!(heap.alloc("B"), Some(1));
+        // Simulate GC freeing slot 0
+        heap.objects[0] = None;
+        // Next alloc should reuse slot 0
+        assert_eq!(heap.alloc("C"), Some(0));
+        // Slot 1 still intact
+        assert_eq!(heap.class_name(1), Some("B"));
     }
 }
