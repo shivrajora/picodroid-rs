@@ -191,6 +191,98 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.push(result)?;
             }
 
+            // tableswitch: dense switch (0xaa)
+            0xaa => {
+                let inst_pc = frame.pc - 1;
+                frame.pc += (4 - (frame.pc % 4)) % 4; // skip alignment padding
+
+                let default_offset = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]);
+                frame.pc += 4;
+                let low = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]);
+                frame.pc += 4;
+                let high = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]);
+                frame.pc += 4;
+
+                let key = match frame.pop()? {
+                    Value::Int(n) => n,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+
+                let offset = if key >= low && key <= high {
+                    let i = (key - low) as usize;
+                    i32::from_be_bytes([
+                        code[frame.pc + i * 4],
+                        code[frame.pc + i * 4 + 1],
+                        code[frame.pc + i * 4 + 2],
+                        code[frame.pc + i * 4 + 3],
+                    ])
+                } else {
+                    default_offset
+                };
+                frame.pc = ((inst_pc as i32) + offset) as usize;
+            }
+
+            // lookupswitch: sparse switch (0xab)
+            0xab => {
+                let inst_pc = frame.pc - 1;
+                frame.pc += (4 - (frame.pc % 4)) % 4; // skip alignment padding
+
+                let default_offset = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]);
+                frame.pc += 4;
+                let npairs = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]) as usize;
+                frame.pc += 4;
+
+                let key = match frame.pop()? {
+                    Value::Int(n) => n,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+
+                let mut chosen = default_offset;
+                for i in 0..npairs {
+                    let match_val = i32::from_be_bytes([
+                        code[frame.pc + i * 8],
+                        code[frame.pc + i * 8 + 1],
+                        code[frame.pc + i * 8 + 2],
+                        code[frame.pc + i * 8 + 3],
+                    ]);
+                    if match_val == key {
+                        chosen = i32::from_be_bytes([
+                            code[frame.pc + i * 8 + 4],
+                            code[frame.pc + i * 8 + 5],
+                            code[frame.pc + i * 8 + 6],
+                            code[frame.pc + i * 8 + 7],
+                        ]);
+                        break;
+                    }
+                }
+                frame.pc = ((inst_pc as i32) + chosen) as usize;
+            }
+
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         }
         Ok(())

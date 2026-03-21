@@ -24,8 +24,26 @@ public class UartEcho {
     while (true) {
       int b = uart.readByte();
       if (b != -1) {
-        Log.i("UART", "Received: " + (char) b);
-        uart.writeByte(b);
+        // switch on received byte — showcases lookupswitch opcode (0xab) support
+        switch (b) {
+          case 'p':
+            Log.i("UART", "PING");
+            uart.writeByte('P');
+            uart.writeByte('O');
+            uart.writeByte('N');
+            uart.writeByte('G');
+            uart.writeByte('\r');
+            uart.writeByte('\n');
+            break;
+          case '\r':
+            uart.writeByte('\r');
+            uart.writeByte('\n');
+            break;
+          default:
+            Log.i("UART", "Echo: " + (char) b);
+            uart.writeByte(b);
+            break;
+        }
       }
     }
   }

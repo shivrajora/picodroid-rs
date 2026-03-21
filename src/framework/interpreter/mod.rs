@@ -124,7 +124,7 @@ pub fn execute<H: NativeMethodHandler>(
             0x57..=0x59 => ex.op_stack(opcode, &mut frame),
             0x60..=0x84 => ex.op_math(opcode, code, &mut frame),
             0x86 | 0x8b | 0x91..=0x93 | 0x95..=0x96 => ex.op_convert(opcode, &mut frame),
-            0x99..=0xa7 | 0xc0 | 0xc1 => ex.op_control(opcode, code, &mut frame),
+            0x99..=0xa7 | 0xaa | 0xab | 0xc0 | 0xc1 => ex.op_control(opcode, code, &mut frame),
             0xb2..=0xb5 => ex.op_fields(opcode, code, &mut frame),
             0xb6..=0xb9 => ex.op_invoke(opcode, code, &mut frame),
             0xbb => ex.op_new(code, &mut frame),
