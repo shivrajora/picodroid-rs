@@ -1,4 +1,4 @@
-use picodroid_jvm::{
+use pico_jvm::{
     types::{JvmError, Value},
     NativeContext, NativeMethodHandler,
 };
@@ -79,7 +79,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .name("jvm-t")
                             .stack_size(4096)
                             .start(move |_| {
-                                let mut jvm = picodroid_jvm::Jvm::new();
+                                let mut jvm = pico_jvm::Jvm::new();
                                 crate::app::load_classes(&mut jvm).unwrap();
                                 let heap = crate::app::shared_heap();
                                 let mut handler = PicodroidNativeHandler;

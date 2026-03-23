@@ -1,4 +1,4 @@
-use picodroid_jvm::{
+use pico_jvm::{
     heap::StringTable,
     object_heap::ObjectHeap,
     types::{JvmError, Value},
@@ -104,7 +104,7 @@ pub fn open_uart(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use picodroid_jvm::{heap::StringTable, object_heap::ObjectHeap, types::Value};
+    use pico_jvm::{heap::StringTable, object_heap::ObjectHeap, types::Value};
 
     static GP25: &[u8] = b"GP25";
     static GP0: &[u8] = b"GP0";

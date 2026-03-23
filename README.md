@@ -52,7 +52,7 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 
 ```
 picodroid-rs/
-├── jvm/                # JVM interpreter — reusable library crate (picodroid-jvm)
+├── jvm/                # JVM interpreter — reusable library crate (pico-jvm)
 │   └── src/            # no_std + alloc only; no hardware dependencies
 │
 ├── java/

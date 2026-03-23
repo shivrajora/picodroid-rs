@@ -1,7 +1,8 @@
 [package]
-name = "picodroid-jvm"
+name = "pico-jvm"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70"
 license = "Apache-2.0"
 description = "A no_std Java bytecode interpreter for bare-metal embedded systems"
 repository = "https://github.com/shivrajora/picodroid-rs"

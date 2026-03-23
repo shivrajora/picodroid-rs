@@ -1,4 +1,4 @@
-# picodroid-jvm
+# pico-jvm
 
 A `no_std` Java bytecode interpreter for bare-metal embedded systems.
 
@@ -8,12 +8,12 @@ Parses and executes Java `.class` files on `no_std + alloc` targets with no OS o
 
 ```toml
 [dependencies]
-picodroid-jvm = "0.1"
+pico-jvm = "0.1"
 ```
 
 ```rust
-use picodroid_jvm::{Jvm, SharedJvmHeap, NativeContext, NativeMethodHandler};
-use picodroid_jvm::types::{JvmError, Value};
+use pico_jvm::{Jvm, SharedJvmHeap, NativeContext, NativeMethodHandler};
+use pico_jvm::types::{JvmError, Value};
 
 // 1. Implement NativeMethodHandler for your platform.
 struct MyHandler;

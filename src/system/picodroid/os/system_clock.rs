@@ -1,4 +1,4 @@
-use picodroid_jvm::types::{JvmError, Value};
+use pico_jvm::types::{JvmError, Value};
 
 pub fn sleep(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let ms = match args.first() {

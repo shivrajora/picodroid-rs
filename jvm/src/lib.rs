@@ -1,6 +1,6 @@
 //! A `no_std` Java bytecode interpreter for bare-metal embedded systems.
 //!
-//! `picodroid-jvm` parses and executes Java `.class` files on `no_std + alloc`
+//! `pico-jvm` parses and executes Java `.class` files on `no_std + alloc`
 //! targets with no OS or hardware dependencies.  It is the core of
 //! [Picodroid](https://github.com/shivrajora/picodroid-rs), a stripped-down
 //! Android-style runtime for the Raspberry Pi Pico, but can be embedded in
@@ -9,8 +9,8 @@
 //! # Quick start
 //!
 //! ```rust,ignore
-//! use picodroid_jvm::{Jvm, SharedJvmHeap, NativeContext, NativeMethodHandler};
-//! use picodroid_jvm::types::{JvmError, Value};
+//! use pico_jvm::{Jvm, SharedJvmHeap, NativeContext, NativeMethodHandler};
+//! use pico_jvm::types::{JvmError, Value};
 //!
 //! // 1. Implement NativeMethodHandler for your platform.
 //! struct MyHandler;
@@ -57,7 +57,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! picodroid-jvm = "0.1"
+//! pico-jvm = "0.1"
 //! ```
 
 #![no_std]

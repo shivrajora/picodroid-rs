@@ -42,8 +42,8 @@ pub struct NativeContext<'a> {
 /// # Example
 ///
 /// ```rust,ignore
-/// use picodroid_jvm::{NativeContext, NativeMethodHandler};
-/// use picodroid_jvm::types::{JvmError, Value};
+/// use pico_jvm::{NativeContext, NativeMethodHandler};
+/// use pico_jvm::types::{JvmError, Value};
 ///
 /// struct MyHandler;
 ///

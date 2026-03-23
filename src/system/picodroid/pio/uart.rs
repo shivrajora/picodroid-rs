@@ -1,4 +1,4 @@
-use picodroid_jvm::{
+use pico_jvm::{
     object_heap::ObjectHeap,
     types::{JvmError, Value},
 };
