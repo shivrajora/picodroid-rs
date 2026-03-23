@@ -44,7 +44,7 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 
 - [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip and app selection
 - [Examples](docs/examples.md) — all included example apps
-- [Writing Apps](docs/writing-apps.md) — how to create a new Java app and supported language features
+- [Writing Apps](docs/writing-apps.md) — how to create a new Java app, supported language features, and porting to a new platform
 - [Java API](docs/java-api.md) — `picodroid.*` system API reference
 - [Debugging](docs/debugging.md) — RTT logging and GDB
 

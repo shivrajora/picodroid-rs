@@ -50,6 +50,45 @@ myapp = []       # add this
 
 The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash. The constant name for a class is derived from its path: `java/examples/myapp/java/myapp/MyApp.class` → `MYAPP_MYAPP_CLASS`.
 
+## Porting to a New Platform
+
+The `picodroid-jvm` crate is hardware-independent (`no_std + alloc` only). To use it on a different platform, implement the `NativeMethodHandler` trait and wire it to your hardware.
+
+### `NativeMethodHandler` trait
+
+```rust
+use picodroid_jvm::{NativeContext, NativeMethodHandler};
+use picodroid_jvm::types::{JvmError, Value};
+
+pub struct MyHandler;
+
+impl NativeMethodHandler for MyHandler {
+    fn dispatch(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        match (class_name, method_name) {
+            ("com/example/Foo", "bar") => Some(Ok(None)),  // handle your native methods
+            _ => None,  // return None to fall through to BuiltinHandler
+        }
+    }
+}
+```
+
+Return `None` for any method your handler does not recognise. The interpreter automatically falls back to `BuiltinHandler`, which handles `java/lang/String`, `java/lang/StringBuilder`, `java/lang/Object.<init>`, and related stdlib methods — you do not need to implement these yourself.
+
+### `NativeContext` fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `ctx.args` | `&[Value]` | Method arguments (index 0 = `this` for instance calls) |
+| `ctx.descriptor` | `&str` | JVM method descriptor, e.g. `(ILjava/lang/String;)V` |
+| `ctx.strings` | `&mut StringTable` | Interned string storage |
+| `ctx.objects` | `&mut ObjectHeap` | Object instance storage |
+| `ctx.arrays` | `&mut ArrayHeap` | Array storage |
+
 ## Supported Language Features
 
 | Feature | Example |
