@@ -33,7 +33,15 @@ impl ArrayHeap {
     pub const fn new() -> Self {
         Self { arrays: Vec::new() }
     }
+}
 
+impl Default for ArrayHeap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ArrayHeap {
     /// Allocate a new array. Returns its heap index.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {

@@ -21,7 +21,15 @@ impl StringTable {
             dyn_slot: None,
         }
     }
+}
 
+impl Default for StringTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StringTable {
     /// Intern a UTF-8 byte slice (must have 'static lifetime, e.g. from Flash).
     /// Returns the Reference index (u16).
     pub fn intern(&mut self, s: &'static [u8]) -> Option<u16> {

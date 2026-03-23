@@ -26,14 +26,14 @@ uart = []
 myapp = []       # add this
 ```
 
-3. Add a `cfg(feature)` block in `src/framework/mod.rs` inside `run_jvm()`:
+3. Add a `cfg(feature)` block in `src/app.rs` inside `run_jvm()`:
 
 ```rust
 #[cfg(feature = "myapp")]
 {
     jvm.load_class(MYAPP_MYAPP_CLASS).unwrap();
     jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
-    jvm.invoke_static("myapp/MyApp", "main", &mut handler).unwrap();
+    jvm.invoke_static("myapp/MyApp", "main", heap, &mut handler).unwrap();
 }
 ```
 

@@ -46,6 +46,12 @@ impl SharedJvmHeap {
     }
 }
 
+impl Default for SharedJvmHeap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── Jvm ──────────────────────────────────────────────────────────────────────
 
 pub struct Jvm {
@@ -58,7 +64,15 @@ impl Jvm {
             classes: Vec::new(),
         }
     }
+}
 
+impl Default for Jvm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Jvm {
     pub fn load_class(&mut self, data: &'static [u8]) -> Result<(), JvmError> {
         let cf = ClassFile::parse(data).map_err(|_| JvmError::InvalidBytecode)?;
         self.classes.push(cf);

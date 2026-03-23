@@ -21,7 +21,15 @@ impl StaticFieldStore {
             entries: Vec::new(),
         }
     }
+}
 
+impl Default for StaticFieldStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticFieldStore {
     /// Read a static field.  Returns `Value::Null` if not yet initialised.
     pub fn get(&self, class_name: &[u8], field_name: &[u8]) -> Value {
         for e in &self.entries {

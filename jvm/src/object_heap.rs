@@ -19,7 +19,15 @@ impl ObjectHeap {
             sb_buf: Vec::new(),
         }
     }
+}
 
+impl Default for ObjectHeap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ObjectHeap {
     /// Allocate a new object of the given class, returning its heap index.
     /// For `java/lang/StringBuilder`, reuses an existing slot if one exists —
     /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
