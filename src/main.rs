@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-mod framework;
+mod app;
 mod system;
 
 #[cfg(not(test))]
@@ -74,7 +74,7 @@ fn main() -> ! {
         .name("jvm")
         .stack_size(4096)
         .start(move |_| {
-            framework::run_jvm();
+            app::run_jvm();
         })
         .unwrap();
     FreeRtosUtils::start_scheduler();

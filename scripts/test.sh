@@ -3,4 +3,4 @@
 set -euo pipefail
 
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
-cargo test --jobs "$JOBS" --target "$(rustc -vV | awk '/^host:/ { print $2 }')"
+cargo test --workspace --jobs "$JOBS" --target "$(rustc -vV | awk '/^host:/ { print $2 }')"

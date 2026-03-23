@@ -1,5 +1,5 @@
 use super::*;
-use crate::framework::{
+use crate::{
     class_file::ClassFile,
     heap::StringTable,
     native::NativeMethodHandler,
@@ -19,7 +19,7 @@ impl NativeMethodHandler for NoopHandler {
         _args: &[Value],
         _strings: &mut StringTable,
         _objects: &mut ObjectHeap,
-        _arrays: &mut crate::framework::array_heap::ArrayHeap,
+        _arrays: &mut crate::array_heap::ArrayHeap,
     ) -> Result<Option<Value>, JvmError> {
         Ok(None)
     }
@@ -486,7 +486,7 @@ fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
     classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
     let mut handler = NoopHandler;
     execute(
@@ -1147,7 +1147,7 @@ fn run_multi(
     }
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
     let mut handler = NoopHandler;
     execute(
@@ -1237,7 +1237,7 @@ fn getfield_putfield_named_field_roundtrip() {
     classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "F");
     let mut statics = StaticFieldStore::new();
@@ -1269,7 +1269,7 @@ fn invokevirtual_uses_override_in_subclass() {
     classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "Child");
     // Run Caller.m (class index 2, method index 0)
@@ -1300,7 +1300,7 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
     classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "ChildNS");
     // Run Caller.m (class index 2, method index 0)
@@ -1378,7 +1378,7 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
     classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "Child");
     // Run Caller.m (class index 2, method index 0)
@@ -1409,7 +1409,7 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
     classes.push(cf_caller);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut handler = NoopHandler;
     let obj = alloc_object(&mut objects, "ChildNS");
     let mut statics = StaticFieldStore::new();
@@ -1610,7 +1610,7 @@ fn putstatic_persists_across_two_execute_calls() {
     classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
-    let mut arrays = crate::framework::array_heap::ArrayHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
     let mut handler = NoopHandler;
 

@@ -1,4 +1,4 @@
-use crate::framework::types::{JvmError, Value};
+use crate::types::{JvmError, Value};
 use alloc::vec::Vec;
 
 pub struct Frame {

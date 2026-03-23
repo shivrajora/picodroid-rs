@@ -1,5 +1,5 @@
 use super::{helpers, Executor};
-use crate::framework::{
+use crate::{
     frame::Frame,
     native::NativeMethodHandler,
     types::{JvmError, Value},

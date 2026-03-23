@@ -1,5 +1,5 @@
 use super::Executor;
-use crate::framework::{frame::Frame, native::NativeMethodHandler, types::JvmError};
+use crate::{frame::Frame, native::NativeMethodHandler, types::JvmError};
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     pub(super) fn op_locals_load(

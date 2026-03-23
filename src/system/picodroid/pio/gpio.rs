@@ -1,4 +1,4 @@
-use crate::framework::{
+use picodroid_jvm::{
     object_heap::ObjectHeap,
     types::{JvmError, Value},
 };

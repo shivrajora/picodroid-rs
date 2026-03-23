@@ -1,0 +1,8 @@
+[package]
+name = "picodroid-jvm"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+libm = { version = "0.2", default-features = false }

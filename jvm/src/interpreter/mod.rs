@@ -1,4 +1,4 @@
-use crate::framework::{
+use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
     frame::Frame,
@@ -38,7 +38,7 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
 /// a match, or `None` if no handler applies.
 fn find_exception_handler(
     cf: &ClassFile,
-    method: &crate::framework::class_file::MethodInfo,
+    method: &crate::class_file::MethodInfo,
     inst_pc: usize,
     obj_idx: u16,
     objects: &ObjectHeap,

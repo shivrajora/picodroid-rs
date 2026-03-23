@@ -1,4 +1,4 @@
-use crate::framework::{
+use crate::{
     array_heap::ArrayHeap,
     heap::StringTable,
     object_heap::ObjectHeap,

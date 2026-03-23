@@ -1,4 +1,4 @@
-use crate::framework::{
+use picodroid_jvm::{
     array_heap::ArrayHeap,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -76,13 +76,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .name("jvm-t")
                             .stack_size(4096)
                             .start(move |_| {
-                                let mut jvm = crate::framework::Jvm::new();
-                                crate::framework::load_classes(&mut jvm).unwrap();
+                                let mut jvm = picodroid_jvm::Jvm::new();
+                                crate::app::load_classes(&mut jvm).unwrap();
+                                let heap = crate::app::shared_heap();
                                 let mut handler = PicodroidNativeHandler;
                                 jvm.invoke_instance(
                                     class_name,
                                     "run",
                                     runnable_obj_idx,
+                                    heap,
                                     &mut handler,
                                 )
                                 .ok();

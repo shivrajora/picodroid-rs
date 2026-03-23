@@ -1,4 +1,4 @@
-use crate::framework::types::Value;
+use crate::types::Value;
 use alloc::vec::Vec;
 
 #[allow(dead_code)]
@@ -130,7 +130,7 @@ fn int_to_decimal(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::framework::types::Value;
+    use crate::types::Value;
 
     #[test]
     fn alloc_returns_sequential_indices() {

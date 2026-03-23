@@ -1,5 +1,5 @@
 use super::Executor;
-use crate::framework::{
+use crate::{
     frame::Frame,
     native::NativeMethodHandler,
     types::{JvmError, Value},
@@ -284,7 +284,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 let arr_idx = self
                     .arrays
-                    .alloc(crate::framework::array_heap::ATYPE_REF, count as u16)
+                    .alloc(crate::array_heap::ATYPE_REF, count as u16)
                     .ok_or(JvmError::StackOverflow)?;
                 frame.push(Value::ArrayRef(arr_idx))?;
             }

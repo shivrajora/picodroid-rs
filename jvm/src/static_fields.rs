@@ -1,4 +1,4 @@
-use crate::framework::types::Value;
+use crate::types::Value;
 use alloc::vec::Vec;
 
 struct StaticEntry {
