@@ -100,7 +100,7 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 
 ## Examples
 
-Eight examples are included under `java/examples/`:
+Nine examples are included under `java/examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -110,8 +110,9 @@ Eight examples are included under `java/examples/`:
 | `arraydemo` | `arraydemo.ArrayDemo` | Demonstrates byte array allocation, `.length`, and iteration via UART |
 | `inherit` | `inherit.InheritDemo` | Demonstrates class inheritance, field inheritance, method overriding, and `super()` |
 | `interfacedemo` | `interfacedemo.InterfaceDemo` | Demonstrates interface dispatch (`invokeinterface`) with `Dog` and `Cat` implementing `Speakable` |
-| `floatdemo` | `floatdemo.FloatDemo` | Demonstrates float arithmetic and `float`-to-`int` cast (`f2i`) |
+| `floatdemo` | `floatdemo.FloatDemo` | Demonstrates `float`, `long`, and `double` arithmetic and type conversions (`f2i`, `i2l`, `i2d`, etc.) |
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
+| `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 
 ## Getting Started
 
@@ -228,8 +229,14 @@ The build system automatically detects new `.java` files, compiles them with `ja
 | Arrays | `byte[] buf = new byte[16];` — allocation, `.length`, index read/write |
 | Inheritance | `class Dog extends Animal` — field inheritance, `@Override`, `super()` constructor chaining, virtual dispatch |
 | Interfaces | `interface Speakable` / `implements` — `invokeinterface` polymorphic dispatch |
-| Floating-point | `float`/`double` arithmetic, `f2i` cast |
+| Floating-point | `float`/`double` arithmetic, `f2i`/`f2d` casts |
+| Long integers | `long` arithmetic, `i2l`/`l2i` type conversions |
+| Double precision | `double` arithmetic, `i2d`/`d2i` type conversions |
 | Exceptions | `throw new AppException()`, `try`/`catch`, custom exception classes |
+| Switch statements | `switch`/`case` on integer and other supported types |
+| Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
+| Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
+| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread |
 
 ## Java System API
 
@@ -284,13 +291,22 @@ uart.read(buf, 1);      // blocking read
 uart.write(buf, 1);     // write byte
 ```
 
+### `picodroid.concurrent.Thread`
+
+```java
+import picodroid.concurrent.Thread;
+
+Thread t = new Thread(new MyRunnable());
+t.start();   // spawns a FreeRTOS task that calls MyRunnable.run()
+```
+
 ## Project Structure
 
 ```
 picodroid-rs/
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo)
+│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo)
 │
 ├── src/
 │   ├── framework/      # JVM interpreter (Rust)
