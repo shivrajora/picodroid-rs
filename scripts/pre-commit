@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
@@ -34,7 +34,7 @@ if ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --fea
 fi
 
 echo "==> Building..."
-if ! cargo clean && cargo build; then
+if ! bash "$REPO_ROOT/scripts/build.sh"; then
   echo ""
   echo "ERROR: Build failed. Fix the errors above before committing."
   exit 1

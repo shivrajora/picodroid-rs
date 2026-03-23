@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
 CHIP="rp2040"
 APP=""
 EXTRA_ARGS=()
@@ -22,24 +26,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$CHIP" in
-  rp2040)
-    TARGET="thumbv6m-none-eabi"
-    CHIP_FEATURE="chip-rp2040"
-    ;;
-  rp2350)
-    TARGET="thumbv8m.main-none-eabihf"
-    CHIP_FEATURE="chip-rp2350"
-    ;;
-  *)
-    echo "Unknown chip: $CHIP. Use rp2040 or rp2350." >&2
-    exit 1
-    ;;
-esac
+resolve_chip "$CHIP"
 
 APP_FEATURE="${APP:-blinky}"
+JOBS=$(cpu_count)
 
 cargo run \
+  --jobs "$JOBS" \
   --target "$TARGET" \
   --no-default-features \
   --features "${APP_FEATURE},${CHIP_FEATURE}" \

@@ -6,12 +6,23 @@ JAR_VERSION="1.35.0"
 JAR_NAME="google-java-format-${JAR_VERSION}-all-deps.jar"
 JAR_PATH="${TOOLS_DIR}/${JAR_NAME}"
 JAR_URL="https://github.com/google/google-java-format/releases/download/v${JAR_VERSION}/${JAR_NAME}"
+# Update this when bumping JAR_VERSION: shasum -a 256 <downloaded-jar>
+JAR_SHA256="bfb7f9ead6cd328389bc2da53860443bc0e805dfd08cc889bfdf43b26cb2a6e8"
+
+verify_jar() {
+  echo "${JAR_SHA256}  ${JAR_PATH}" | shasum -a 256 --check --quiet
+}
 
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "==> Downloading google-java-format ${JAR_VERSION}..."
   mkdir -p "$TOOLS_DIR"
   curl -fsSL "$JAR_URL" -o "$JAR_PATH"
   echo "==> Downloaded to ${JAR_PATH}"
+fi
+
+if ! verify_jar; then
+  echo "ERROR: SHA256 mismatch for ${JAR_NAME}. Delete ${JAR_PATH} and re-run." >&2
+  exit 1
 fi
 
 JAVA_DIR="$(cd "$(dirname "$0")/.." && pwd)/java"

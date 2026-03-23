@@ -1,14 +1,39 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
 CHIP="rp2040"
 APP=""
 PROFILE="debug"
 UF2=false
 EXTRA_ARGS=()
 
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Options:
+  --chip <chip>   Target chip: rp2040 (default) or rp2350
+  --app  <app>    App feature to build: helloworld, blinky (default), uart
+  --release       Build in release mode (default: debug)
+  --uf2           Convert output ELF to UF2 (requires elf2uf2-rs)
+  -h, --help      Show this help message
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") --chip rp2350 --app helloworld --release --uf2
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --chip)
       CHIP="$2"
       shift 2
@@ -33,30 +58,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$CHIP" in
-  rp2040)
-    TARGET="thumbv6m-none-eabi"
-    CHIP_FEATURE="chip-rp2040"
-    FLASH_MAX=2097152   # 2 MB
-    RAM_MAX=270336      # 264 KB
-    UF2_FAMILY="0xe48bff56"
-    ;;
-  rp2350)
-    TARGET="thumbv8m.main-none-eabihf"
-    CHIP_FEATURE="chip-rp2350"
-    FLASH_MAX=4194304   # 4 MB
-    RAM_MAX=532480      # 520 KB
-    UF2_FAMILY="0xe48bff59"
-    ;;
-  *)
-    echo "Unknown chip: $CHIP. Use rp2040 or rp2350." >&2
-    exit 1
-    ;;
-esac
+resolve_chip "$CHIP"
 
 APP_FEATURE="${APP:-blinky}"
-
-JOBS=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+JOBS=$(cpu_count)
 cargo build \
   --jobs "$JOBS" \
   --target "$TARGET" \
