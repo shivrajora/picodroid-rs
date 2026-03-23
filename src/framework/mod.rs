@@ -219,9 +219,10 @@ pub fn run_jvm() -> ! {
         feature = "floatdemo",
         feature = "exceptiondemo",
         feature = "threaddemo",
+        feature = "mathsdemo",
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, or threaddemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, or mathsdemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -332,6 +333,33 @@ pub fn run_jvm() -> ! {
     #[cfg(all(feature = "exceptiondemo", feature = "threaddemo"))]
     compile_error!("Features 'exceptiondemo' and 'threaddemo' are mutually exclusive.");
 
+    #[cfg(all(feature = "helloworld", feature = "mathsdemo"))]
+    compile_error!("Features 'helloworld' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "mathsdemo"))]
+    compile_error!("Features 'blinky' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "mathsdemo"))]
+    compile_error!("Features 'uart' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "mathsdemo"))]
+    compile_error!("Features 'arraydemo' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "mathsdemo"))]
+    compile_error!("Features 'inherit' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "interfacedemo", feature = "mathsdemo"))]
+    compile_error!("Features 'interfacedemo' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "floatdemo", feature = "mathsdemo"))]
+    compile_error!("Features 'floatdemo' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "exceptiondemo", feature = "mathsdemo"))]
+    compile_error!("Features 'exceptiondemo' and 'mathsdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "threaddemo", feature = "mathsdemo"))]
+    compile_error!("Features 'threaddemo' and 'mathsdemo' are mutually exclusive.");
+
     #[cfg(feature = "helloworld")]
     {
         jvm.load_class(HELLOWORLD_HELLOWORLD_CLASS).unwrap();
@@ -430,6 +458,16 @@ pub fn run_jvm() -> ! {
         register_class_loader(load_threaddemo);
         load_threaddemo(&mut jvm).unwrap();
         jvm.invoke_static("threaddemo/ThreadDemo", "main", &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "mathsdemo")]
+    {
+        jvm.load_class(MATHSDEMO_SHAPE_CLASS).unwrap();
+        jvm.load_class(MATHSDEMO_CIRCLE_CLASS).unwrap();
+        jvm.load_class(MATHSDEMO_MATHSDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("mathsdemo/MathsDemo", "main", &mut handler)
             .unwrap();
     }
 

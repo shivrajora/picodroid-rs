@@ -1,6 +1,6 @@
 # Examples
 
-Nine examples are included under `java/examples/`:
+Ten examples are included under `java/examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -13,6 +13,7 @@ Nine examples are included under `java/examples/`:
 | `floatdemo` | `floatdemo.FloatDemo` | Demonstrates `float`, `long`, and `double` arithmetic and type conversions (`f2i`, `i2l`, `i2d`, etc.) |
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
+| `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic (`sub`, `div`, `rem`, `neg`), bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, and reference arrays |
 
 To run an example:
 

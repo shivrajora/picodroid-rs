@@ -54,7 +54,7 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 picodroid-rs/
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo)
+│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo)
 │
 ├── src/
 │   ├── framework/      # JVM interpreter (Rust)

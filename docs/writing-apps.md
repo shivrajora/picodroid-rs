@@ -65,3 +65,9 @@ The build system automatically detects new `.java` files, compiles them with `ja
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
 | Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread |
+| Arithmetic ops | subtraction, division, remainder, negation for `int`, `long`, `double` |
+| Bitwise / shifts | `<<`, `>>`, `>>>`, `|`, `^` for `int` and `long` |
+| Cross-type casts | `i2f`, `i2c`, `i2s`, `l2f`, `l2d`, `f2l`, `f2d`, `d2l`, `d2f` |
+| Dense switch | consecutive-case `switch` compiled to `tableswitch` |
+| Type checking | `instanceof`, `checkcast` |
+| Reference arrays | `new SomeClass[n]`, element store and load (`aastore`, `aaload`) |
