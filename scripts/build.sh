@@ -56,7 +56,9 @@ esac
 
 APP_FEATURE="${APP:-blinky}"
 
+JOBS=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 cargo build \
+  --jobs "$JOBS" \
   --target "$TARGET" \
   --no-default-features \
   --features "${APP_FEATURE},${CHIP_FEATURE}" \

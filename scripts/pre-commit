@@ -41,7 +41,7 @@ if ! cargo clean && cargo build; then
 fi
 
 echo "==> Running tests..."
-if ! cargo test --target aarch64-apple-darwin; then
+if ! bash "$REPO_ROOT/scripts/test.sh"; then
   echo ""
   echo "ERROR: Tests failed. Fix the failures above before committing."
   exit 1
