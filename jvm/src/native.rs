@@ -5,15 +5,74 @@ use crate::{
     types::{JvmError, Value},
 };
 
+/// Context passed to [`NativeMethodHandler::dispatch`] for every native call.
+///
+/// All JVM heap state needed to implement a native method is accessible through
+/// this struct, avoiding a large parameter list on the trait method.
 pub struct NativeContext<'a> {
+    /// JVM method descriptor of the called method, e.g. `"(ILjava/lang/String;)V"`.
     pub descriptor: &'a str,
+    /// Method arguments.  For instance methods, `args[0]` is the receiver
+    /// (`this`) as a [`Value::ObjectRef`].
     pub args: &'a [Value],
+    /// Interned string storage.  Use [`StringTable::resolve`] to turn a
+    /// [`Value::Reference`] index into a `&str`.
     pub strings: &'a mut StringTable,
+    /// Object instance storage.
     pub objects: &'a mut ObjectHeap,
+    /// Array storage.
     pub arrays: &'a mut ArrayHeap,
 }
 
+/// Callback interface for resolving Java `native` methods at runtime.
+///
+/// Implement this trait to connect the JVM to your platform.  The interpreter
+/// calls [`dispatch`](NativeMethodHandler::dispatch) whenever it encounters a
+/// native method or a method that is not found in any loaded `.class` file.
+///
+/// # Return convention
+///
+/// | Return value | Meaning |
+/// |---|---|
+/// | `Some(Ok(Some(v)))` | Method returned value `v` |
+/// | `Some(Ok(None))` | Method returned `void` (or a value the caller ignores) |
+/// | `Some(Err(e))` | Method faulted with error `e` |
+/// | `None` | This handler does not recognise the call; try [`BuiltinHandler`] next |
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use picodroid_jvm::{NativeContext, NativeMethodHandler};
+/// use picodroid_jvm::types::{JvmError, Value};
+///
+/// struct MyHandler;
+///
+/// impl NativeMethodHandler for MyHandler {
+///     fn dispatch(
+///         &mut self,
+///         class_name: &str,
+///         method_name: &str,
+///         ctx: &mut NativeContext<'_>,
+///     ) -> Option<Result<Option<Value>, JvmError>> {
+///         match (class_name, method_name) {
+///             ("com/example/Io", "println") => {
+///                 if let Some(Value::Reference(idx)) = ctx.args.first() {
+///                     let s = ctx.strings.resolve(*idx).unwrap_or("");
+///                     // write `s` to your output
+///                 }
+///                 Some(Ok(None))
+///             }
+///             _ => None,
+///         }
+///     }
+/// }
+/// ```
 pub trait NativeMethodHandler {
+    /// Attempt to handle a native method call.
+    ///
+    /// Return `None` to indicate that this handler does not recognise the call.
+    /// The interpreter will then try [`BuiltinHandler`], and finally return
+    /// [`JvmError::NoSuchMethod`] if neither handler claims the call.
     fn dispatch(
         &mut self,
         class_name: &str,
@@ -22,9 +81,22 @@ pub trait NativeMethodHandler {
     ) -> Option<Result<Option<Value>, JvmError>>;
 }
 
-/// Built-in handler for `java/lang/*` methods provided by every JVM.
-/// The interpreter tries the user-supplied handler first, then falls back to
-/// this one.  Returning `None` means "not handled here".
+/// Built-in handler for `java/lang/*` methods common to all JVM environments.
+///
+/// The interpreter tries the user-supplied [`NativeMethodHandler`] first, then
+/// falls back to this handler automatically — you do not need to call it
+/// directly or forward to it.
+///
+/// # Handled methods
+///
+/// | Class | Methods |
+/// |---|---|
+/// | `java/lang/Object` | `<init>` |
+/// | `java/lang/Throwable` | `<init>` |
+/// | `java/lang/Exception` | `<init>` |
+/// | `java/lang/RuntimeException` | `<init>` |
+/// | `java/lang/StringBuilder` | `<init>`, `append(String)`, `append(int)`, `append(char)`, `toString` |
+/// | `java/lang/String` | `length`, `charAt` |
 pub struct BuiltinHandler;
 
 impl NativeMethodHandler for BuiltinHandler {

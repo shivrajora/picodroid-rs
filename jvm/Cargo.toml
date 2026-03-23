@@ -3,6 +3,11 @@ name = "picodroid-jvm"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+description = "A no_std Java bytecode interpreter for bare-metal embedded systems"
+repository = "https://github.com/shivrajora/picodroid-rs"
+keywords = ["jvm", "java", "embedded", "bytecode", "no-std"]
+categories = ["embedded", "no-std", "virtualization"]
+readme = "README.md"
 
 [dependencies]
 libm = { version = "0.2", default-features = false }
