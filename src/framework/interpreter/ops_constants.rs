@@ -28,6 +28,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x07 => frame.push(Value::Int(4))?,
             0x08 => frame.push(Value::Int(5))?,
 
+            // lconst_0, lconst_1
+            0x09 => frame.push(Value::Long(0))?,
+            0x0a => frame.push(Value::Long(1))?,
+
             // fconst_<n>: 0.0, 1.0, 2.0
             0x0b => frame.push(Value::Float(0.0))?,
             0x0c => frame.push(Value::Float(1.0))?,
@@ -64,6 +68,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cf = &self.classes[frame.class_idx];
                 let v = helpers::resolve_ldc(cf, self.strings, cp_idx)?;
                 frame.push(v)?;
+            }
+
+            // ldc2_w — two-byte CP index → CONSTANT_Long
+            0x14 => {
+                let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let cf = &self.classes[frame.class_idx];
+                let v = cf.cp_long(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                frame.push(Value::Long(v))?;
             }
 
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),

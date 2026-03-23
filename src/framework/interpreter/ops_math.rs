@@ -201,6 +201,143 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // ladd
+            0x61 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => {
+                        frame.push(Value::Long(a.wrapping_add(b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lsub
+            0x65 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => {
+                        frame.push(Value::Long(a.wrapping_sub(b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lmul
+            0x69 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => {
+                        frame.push(Value::Long(a.wrapping_mul(b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ldiv
+            0x6d => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(_), Value::Long(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Long(a), Value::Long(b)) => {
+                        frame.push(Value::Long(a.wrapping_div(b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lrem
+            0x71 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(_), Value::Long(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Long(a), Value::Long(b)) => {
+                        frame.push(Value::Long(a.wrapping_rem(b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lneg
+            0x75 => {
+                let v = frame.pop()?;
+                match v {
+                    Value::Long(n) => frame.push(Value::Long(n.wrapping_neg()))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lshl — shift amount is Int, value is Long
+            0x79 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Int(b)) => {
+                        frame.push(Value::Long(a.wrapping_shl((b & 0x3f) as u32)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lshr — arithmetic shift right
+            0x7b => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Int(b)) => {
+                        frame.push(Value::Long(a.wrapping_shr((b & 0x3f) as u32)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lushr — logical (unsigned) shift right
+            0x7d => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Int(b)) => frame.push(Value::Long(
+                        ((a as u64).wrapping_shr((b & 0x3f) as u32)) as i64,
+                    ))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // land
+            0x7f => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => frame.push(Value::Long(a & b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lor
+            0x81 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => frame.push(Value::Long(a | b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // lxor
+            0x83 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Long(a), Value::Long(b)) => frame.push(Value::Long(a ^ b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
             // iinc: local[index] += const
             0x84 => {
                 let idx = code[frame.pc];

@@ -38,10 +38,40 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // i2l — int to long
+            0x85 => {
+                let v = frame.pop()?;
+                if let Value::Int(n) = v {
+                    frame.push(Value::Long(n as i64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
             // i2f — int to float
             0x86 => {
                 let v = frame.pop()?;
                 if let Value::Int(n) = v {
+                    frame.push(Value::Float(n as f32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // l2i — long to int (truncate lower 32 bits)
+            0x88 => {
+                let v = frame.pop()?;
+                if let Value::Long(n) = v {
+                    frame.push(Value::Int(n as i32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // l2f — long to float
+            0x89 => {
+                let v = frame.pop()?;
+                if let Value::Long(n) = v {
                     frame.push(Value::Float(n as f32))?;
                 } else {
                     return Err(JvmError::InvalidBytecode);
@@ -57,6 +87,31 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     return Err(JvmError::InvalidBytecode);
                 }
             }
+
+            // f2l — float to long (truncate toward zero)
+            0x8c => {
+                let v = frame.pop()?;
+                if let Value::Float(f) = v {
+                    frame.push(Value::Long(f as i64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // lcmp — compare two longs; push Int(-1 / 0 / 1)
+            0x94 => match (frame.pop()?, frame.pop()?) {
+                (Value::Long(b), Value::Long(a)) => {
+                    let r = if a > b {
+                        1
+                    } else if a == b {
+                        0
+                    } else {
+                        -1
+                    };
+                    frame.push(Value::Int(r))?;
+                }
+                _ => return Err(JvmError::InvalidBytecode),
+            },
 
             // fcmpl — float compare, NaN → -1
             0x95 => {

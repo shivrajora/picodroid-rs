@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     Int(i32),
+    Long(i64),
     Float(f32),
     Reference(u16), // index into StringTable
     ObjectRef(u16), // index into ObjectHeap

@@ -530,6 +530,25 @@ impl ClassFile {
         ]);
         Some(f32::from_bits(bits))
     }
+
+    /// Resolves a CONSTANT_Long CP entry to an i64.
+    pub fn cp_long(&self, index: u16) -> Option<i64> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&5u8) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        Some(i64::from_be_bytes([
+            self.data[off],
+            self.data[off + 1],
+            self.data[off + 2],
+            self.data[off + 3],
+            self.data[off + 4],
+            self.data[off + 5],
+            self.data[off + 6],
+            self.data[off + 7],
+        ]))
+    }
 }
 
 #[cfg(test)]
