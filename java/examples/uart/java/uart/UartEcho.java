@@ -8,6 +8,13 @@ public class UartEcho {
   public static void main(String[] args) {
     PeripheralManager mgr = PeripheralManager.getInstance();
     UartDevice uart = mgr.openUartDevice("UART0");
+
+    // null-check before use — showcases ifnull (0xC6) opcode support
+    if (uart == null) {
+      Log.i("UART", "UART0 unavailable");
+      return;
+    }
+
     uart.setBaudrate(115200);
     uart.setDataSize(8);
     uart.setParity(UartDevice.PARITY_NONE);
