@@ -283,6 +283,26 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.pc = ((inst_pc as i32) + chosen) as usize;
             }
 
+            // ifnull: branch if TOS is null
+            0xc6 => {
+                let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let v = frame.pop()?;
+                if matches!(v, Value::Null) {
+                    frame.pc = helpers::branch_target(frame.pc, offset);
+                }
+            }
+
+            // ifnonnull: branch if TOS is not null
+            0xc7 => {
+                let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let v = frame.pop()?;
+                if !matches!(v, Value::Null) {
+                    frame.pc = helpers::branch_target(frame.pc, offset);
+                }
+            }
+
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         }
         Ok(())
