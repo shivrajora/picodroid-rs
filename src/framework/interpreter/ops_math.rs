@@ -338,6 +338,67 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // dadd
+            0x63 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Double(a), Value::Double(b)) => frame.push(Value::Double(a + b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // dsub
+            0x67 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Double(a), Value::Double(b)) => frame.push(Value::Double(a - b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // dmul
+            0x6b => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Double(a), Value::Double(b)) => frame.push(Value::Double(a * b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // ddiv
+            0x6f => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Double(a), Value::Double(b)) => frame.push(Value::Double(a / b))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // drem
+            0x73 => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                match (a, b) {
+                    (Value::Double(a), Value::Double(b)) => {
+                        frame.push(Value::Double(libm::fmod(a, b)))?
+                    }
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
+            // dneg
+            0x77 => {
+                let v = frame.pop()?;
+                match v {
+                    Value::Double(d) => frame.push(Value::Double(-d))?,
+                    _ => return Err(JvmError::InvalidBytecode),
+                }
+            }
+
             // iinc: local[index] += const
             0x84 => {
                 let idx = code[frame.pc];

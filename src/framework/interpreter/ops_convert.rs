@@ -154,6 +154,98 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // i2d — int to double
+            0x87 => {
+                let v = frame.pop()?;
+                if let Value::Int(n) = v {
+                    frame.push(Value::Double(n as f64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // l2d — long to double
+            0x8a => {
+                let v = frame.pop()?;
+                if let Value::Long(n) = v {
+                    frame.push(Value::Double(n as f64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // f2d — float to double (widening)
+            0x8d => {
+                let v = frame.pop()?;
+                if let Value::Float(f) = v {
+                    frame.push(Value::Double(f as f64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // d2i — double to int (truncate toward zero)
+            0x8e => {
+                let v = frame.pop()?;
+                if let Value::Double(d) = v {
+                    frame.push(Value::Int(d as i32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // d2l — double to long (truncate toward zero)
+            0x8f => {
+                let v = frame.pop()?;
+                if let Value::Double(d) = v {
+                    frame.push(Value::Long(d as i64))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // d2f — double to float (narrowing)
+            0x90 => {
+                let v = frame.pop()?;
+                if let Value::Double(d) = v {
+                    frame.push(Value::Float(d as f32))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
+            }
+
+            // dcmpl — double compare, NaN → -1
+            0x97 => match (frame.pop()?, frame.pop()?) {
+                (Value::Double(b), Value::Double(a)) => {
+                    let r = if a.is_nan() || b.is_nan() {
+                        -1
+                    } else if a > b {
+                        1
+                    } else if a == b {
+                        0
+                    } else {
+                        -1
+                    };
+                    frame.push(Value::Int(r))?;
+                }
+                _ => return Err(JvmError::InvalidBytecode),
+            },
+
+            // dcmpg — double compare, NaN → +1
+            0x98 => match (frame.pop()?, frame.pop()?) {
+                (Value::Double(b), Value::Double(a)) => {
+                    let r = if a.is_nan() || b.is_nan() || a > b {
+                        1
+                    } else if a == b {
+                        0
+                    } else {
+                        -1
+                    };
+                    frame.push(Value::Int(r))?;
+                }
+                _ => return Err(JvmError::InvalidBytecode),
+            },
+
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         }
         Ok(())

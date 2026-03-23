@@ -103,7 +103,7 @@ pub fn execute<H: NativeMethodHandler>(
 
         // Return opcodes are handled inline — they cannot throw Java exceptions.
         match opcode {
-            0xac | 0xad | 0xae | 0xb0 => {
+            0xac..=0xb0 => {
                 let v = frame.pop()?;
                 return Ok(Some(v));
             }
@@ -113,19 +113,13 @@ pub fn execute<H: NativeMethodHandler>(
 
         let r: Result<(), JvmError> = match opcode {
             0x00..=0x14 => ex.op_constants(opcode, code, &mut frame),
-            0x15 | 0x16 | 0x17 | 0x19 | 0x1a..=0x1d | 0x1e..=0x21 | 0x22..=0x25 | 0x2a..=0x2d => {
-                ex.op_locals_load(opcode, code, &mut frame)
-            }
+            0x15..=0x2d => ex.op_locals_load(opcode, code, &mut frame),
             0x2e | 0x32..=0x35 => ex.op_array_load(opcode, &mut frame),
-            0x36 | 0x37 | 0x38 | 0x3a | 0x3b..=0x3e | 0x3f..=0x42 | 0x43..=0x46 | 0x4b..=0x4e => {
-                ex.op_locals_store(opcode, code, &mut frame)
-            }
+            0x36..=0x4e => ex.op_locals_store(opcode, code, &mut frame),
             0x4f | 0x53..=0x56 => ex.op_array_store(opcode, &mut frame),
             0x57..=0x59 => ex.op_stack(opcode, &mut frame),
             0x60..=0x84 => ex.op_math(opcode, code, &mut frame),
-            0x85 | 0x86 | 0x88 | 0x89 | 0x8b | 0x8c | 0x91..=0x93 | 0x94 | 0x95..=0x96 => {
-                ex.op_convert(opcode, &mut frame)
-            }
+            0x85..=0x98 => ex.op_convert(opcode, &mut frame),
             0x99..=0xa7 | 0xaa | 0xab | 0xc0 | 0xc1 => ex.op_control(opcode, code, &mut frame),
             0xb2..=0xb5 => ex.op_fields(opcode, code, &mut frame),
             0xb6..=0xb9 => ex.op_invoke(opcode, code, &mut frame),

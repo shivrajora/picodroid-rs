@@ -549,6 +549,26 @@ impl ClassFile {
             self.data[off + 7],
         ]))
     }
+
+    /// Resolves a CONSTANT_Double CP entry to an f64.
+    pub fn cp_double(&self, index: u16) -> Option<f64> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&6u8) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let bits = u64::from_be_bytes([
+            self.data[off],
+            self.data[off + 1],
+            self.data[off + 2],
+            self.data[off + 3],
+            self.data[off + 4],
+            self.data[off + 5],
+            self.data[off + 6],
+            self.data[off + 7],
+        ]);
+        Some(f64::from_bits(bits))
+    }
 }
 
 #[cfg(test)]

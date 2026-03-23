@@ -32,6 +32,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x09 => frame.push(Value::Long(0))?,
             0x0a => frame.push(Value::Long(1))?,
 
+            // dconst_0, dconst_1
+            0x0e => frame.push(Value::Double(0.0))?,
+            0x0f => frame.push(Value::Double(1.0))?,
+
             // fconst_<n>: 0.0, 1.0, 2.0
             0x0b => frame.push(Value::Float(0.0))?,
             0x0c => frame.push(Value::Float(1.0))?,
@@ -70,13 +74,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.push(v)?;
             }
 
-            // ldc2_w — two-byte CP index → CONSTANT_Long
+            // ldc2_w — two-byte CP index → CONSTANT_Long or CONSTANT_Double
             0x14 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 let cf = &self.classes[frame.class_idx];
-                let v = cf.cp_long(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                frame.push(Value::Long(v))?;
+                if let Some(v) = cf.cp_long(cp_idx) {
+                    frame.push(Value::Long(v))?;
+                } else if let Some(v) = cf.cp_double(cp_idx) {
+                    frame.push(Value::Double(v))?;
+                } else {
+                    return Err(JvmError::InvalidBytecode);
+                }
             }
 
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
