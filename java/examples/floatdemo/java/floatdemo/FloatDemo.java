@@ -4,10 +4,31 @@ import picodroid.util.Log;
 
 public class FloatDemo {
   public static void main(String[] args) {
+    // float arithmetic (fmul, f2i)
     float x = 3.0f;
     float y = 2.0f;
     float z = x * y; // 6.0
-    int result = (int) z; // 6 (f2i)
-    Log.i("FloatDemo", "Float math works!");
+    int fi = (int) z; // 6 — showcases f2i
+
+    // long arithmetic — showcases ladd, lmul, lcmp, i2l, l2i opcodes
+    long a = 1_000_000_000L; // ldc2_w / sipush + i2l
+    long b = 3L;
+    long product = a * b; // 3_000_000_000 — lmul (exceeds int range)
+    int li = (int) product; // -1_294_967_296 — l2i (truncated)
+
+    // double arithmetic — showcases dadd, dmul, dcmpg, i2d, d2i opcodes
+    double p = 355.0;
+    double q = 113.0;
+    double pi = p / q; // ≈ 3.1415929 — ddiv
+    int di = (int) pi; // 3 — d2i
+
+    Log.i(
+        "FloatDemo",
+        "float*2="
+            + fi // 6
+            + " long*3(lo)="
+            + li // -1294967296
+            + " pi(int)="
+            + di); // 3
   }
 }
