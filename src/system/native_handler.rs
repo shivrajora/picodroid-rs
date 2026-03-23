@@ -1,9 +1,6 @@
 use picodroid_jvm::{
-    array_heap::ArrayHeap,
-    heap::StringTable,
-    object_heap::ObjectHeap,
     types::{JvmError, Value},
-    NativeMethodHandler,
+    NativeContext, NativeMethodHandler,
 };
 
 pub struct PicodroidNativeHandler;
@@ -13,65 +10,71 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         &mut self,
         class_name: &str,
         method_name: &str,
-        descriptor: &str,
-        args: &[Value],
-        strings: &mut StringTable,
-        objects: &mut ObjectHeap,
-        _arrays: &mut ArrayHeap,
-    ) -> Result<Option<Value>, JvmError> {
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
         match (class_name, method_name) {
-            ("picodroid/util/Log", "i") => {
-                crate::system::picodroid::util::log::log_i(args, strings).map(|_| None)
-            }
+            ("picodroid/util/Log", "i") => Some(
+                crate::system::picodroid::util::log::log_i(ctx.args, ctx.strings).map(|_| None),
+            ),
             ("picodroid/pio/PeripheralManager", "getInstance") => {
-                crate::system::picodroid::pio::peripheral_manager::get_instance(objects)
+                Some(crate::system::picodroid::pio::peripheral_manager::get_instance(ctx.objects))
             }
-            ("picodroid/pio/PeripheralManager", "openGpio") => {
-                crate::system::picodroid::pio::peripheral_manager::open_gpio(args, strings, objects)
-            }
-            ("picodroid/pio/PeripheralManager", "openUartDevice") => {
-                crate::system::picodroid::pio::peripheral_manager::open_uart(args, strings, objects)
-            }
-            ("picodroid/pio/UartDevice", "setBaudrate") => {
-                crate::system::picodroid::pio::uart::set_baudrate_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "setDataSize") => {
-                crate::system::picodroid::pio::uart::set_data_size_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "setParity") => {
-                crate::system::picodroid::pio::uart::set_parity_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "setStopBits") => {
-                crate::system::picodroid::pio::uart::set_stop_bits_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "setHardwareFlowControl") => {
-                crate::system::picodroid::pio::uart::set_hw_flow_ctrl_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "writeByte") => {
-                crate::system::picodroid::pio::uart::write_byte_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "readByte") => {
-                crate::system::picodroid::pio::uart::read_byte_native(args, objects)
-            }
-            ("picodroid/pio/UartDevice", "close") => Ok(None),
-            ("picodroid/pio/Gpio", "setDirection") => {
-                crate::system::picodroid::pio::gpio::set_direction_native(args, objects)
-            }
-            ("picodroid/pio/Gpio", "setValue") => {
-                crate::system::picodroid::pio::gpio::set_value_native(args, objects)
-            }
-            ("picodroid/pio/Gpio", "close") => Ok(None),
+            ("picodroid/pio/PeripheralManager", "openGpio") => Some(
+                crate::system::picodroid::pio::peripheral_manager::open_gpio(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/pio/PeripheralManager", "openUartDevice") => Some(
+                crate::system::picodroid::pio::peripheral_manager::open_uart(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/pio/UartDevice", "setBaudrate") => Some(
+                crate::system::picodroid::pio::uart::set_baudrate_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "setDataSize") => Some(
+                crate::system::picodroid::pio::uart::set_data_size_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "setParity") => Some(
+                crate::system::picodroid::pio::uart::set_parity_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "setStopBits") => Some(
+                crate::system::picodroid::pio::uart::set_stop_bits_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "setHardwareFlowControl") => Some(
+                crate::system::picodroid::pio::uart::set_hw_flow_ctrl_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "writeByte") => Some(
+                crate::system::picodroid::pio::uart::write_byte_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "readByte") => Some(
+                crate::system::picodroid::pio::uart::read_byte_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/UartDevice", "close") => Some(Ok(None)),
+            ("picodroid/pio/Gpio", "setDirection") => Some(
+                crate::system::picodroid::pio::gpio::set_direction_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Gpio", "setValue") => Some(
+                crate::system::picodroid::pio::gpio::set_value_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Gpio", "close") => Some(Ok(None)),
             ("picodroid/os/SystemClock", "sleep") => {
-                crate::system::picodroid::os::system_clock::sleep(args)
+                Some(crate::system::picodroid::os::system_clock::sleep(ctx.args))
             }
             ("picodroid/concurrent/Thread", "start") => {
-                if let Some(Value::ObjectRef(thread_idx)) = args.first() {
+                if let Some(Value::ObjectRef(thread_idx)) = ctx.args.first() {
                     if let Some(Value::ObjectRef(runnable_obj_idx)) =
-                        objects.get_field(*thread_idx, 0)
+                        ctx.objects.get_field(*thread_idx, 0)
                     {
-                        let class_name: &'static str = objects
+                        let class_name: &'static str = ctx
+                            .objects
                             .class_name(runnable_obj_idx)
-                            .ok_or(JvmError::InvalidReference)?;
+                            .ok_or(JvmError::InvalidReference)
+                            .ok()?;
                         freertos_rust::Task::new()
                             .name("jvm-t")
                             .stack_size(4096)
@@ -97,65 +100,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .unwrap();
                     }
                 }
-                Ok(None)
+                Some(Ok(None))
             }
-            ("java/lang/Object", "<init>") => Ok(None),
-            ("java/lang/Throwable", "<init>") => Ok(None),
-            ("java/lang/Exception", "<init>") => Ok(None),
-            ("java/lang/RuntimeException", "<init>") => Ok(None),
-            ("java/lang/StringBuilder", "<init>") => {
-                objects.sb_clear();
-                Ok(None)
-            }
-            ("java/lang/StringBuilder", "append") => {
-                match args.get(1) {
-                    Some(Value::Reference(idx)) => {
-                        let s = strings.resolve(*idx).unwrap_or("");
-                        objects.sb_append_bytes(s.as_bytes());
-                    }
-                    Some(Value::Int(n)) => {
-                        if descriptor.starts_with("(C)") {
-                            // append(char): emit the character, not its decimal value
-                            let ch = (*n as u8).max(0x20); // replace non-printable with space
-                            objects.sb_append_bytes(&[ch]);
-                        } else {
-                            objects.sb_append_int(*n);
-                        }
-                    }
-                    _ => {}
-                }
-                Ok(args.first().copied().map(Some).unwrap_or(None))
-            }
-            ("java/lang/StringBuilder", "toString") => {
-                let (ptr, len) = objects.sb_contents();
-                // SAFETY: ptr points into ObjectHeap::sb_buf which lives for the
-                // duration of the JVM. The dyn_slot in StringTable is overwritten on
-                // the next toString() call, which is safe because Log.i (the only
-                // consumer) copies the string before that happens.
-                let str_ref =
-                    unsafe { strings.intern_dyn(ptr, len) }.ok_or(JvmError::StackOverflow)?;
-                Ok(Some(Value::Reference(str_ref)))
-            }
-            ("java/lang/String", "length") => {
-                if let Some(Value::Reference(idx)) = args.first() {
-                    let s = strings.resolve(*idx).unwrap_or("");
-                    Ok(Some(Value::Int(s.len() as i32)))
-                } else {
-                    Err(JvmError::InvalidReference)
-                }
-            }
-            ("java/lang/String", "charAt") => {
-                if let (Some(Value::Reference(idx)), Some(Value::Int(i))) =
-                    (args.first(), args.get(1))
-                {
-                    let s = strings.resolve(*idx).unwrap_or("");
-                    let ch = s.as_bytes().get(*i as usize).copied().unwrap_or(0);
-                    Ok(Some(Value::Int(ch as i32)))
-                } else {
-                    Err(JvmError::InvalidReference)
-                }
-            }
-            _ => Err(JvmError::NoSuchMethod),
+            _ => None,
         }
     }
 }

@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
 use heap::StringTable;
-pub use native::NativeMethodHandler;
+pub use native::{BuiltinHandler, NativeContext, NativeMethodHandler};
 use object_heap::ObjectHeap;
 use static_fields::StaticFieldStore;
 use types::{JvmError, Value};

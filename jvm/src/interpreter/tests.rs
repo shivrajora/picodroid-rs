@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     class_file::ClassFile,
     heap::StringTable,
-    native::NativeMethodHandler,
+    native::{NativeContext, NativeMethodHandler},
     object_heap::ObjectHeap,
     static_fields::StaticFieldStore,
     types::{JvmError, Value},
@@ -15,13 +15,9 @@ impl NativeMethodHandler for NoopHandler {
         &mut self,
         _class_name: &str,
         _method_name: &str,
-        _descriptor: &str,
-        _args: &[Value],
-        _strings: &mut StringTable,
-        _objects: &mut ObjectHeap,
-        _arrays: &mut crate::array_heap::ArrayHeap,
-    ) -> Result<Option<Value>, JvmError> {
-        Ok(None)
+        _ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        None
     }
 }
 

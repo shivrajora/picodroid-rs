@@ -2,7 +2,7 @@ use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
     heap::StringTable,
-    native::NativeMethodHandler,
+    native::{BuiltinHandler, NativeContext, NativeMethodHandler},
     object_heap::ObjectHeap,
     static_fields::StaticFieldStore,
     types::{JvmError, Value},
@@ -37,18 +37,34 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
     if let Some((ci, mi)) = find_method(classes, class_str, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;
         if is_native {
-            handler.dispatch(
-                class_str, name_str, desc_str, args_ref, strings, objects, arrays,
-            )
+            let mut ctx = NativeContext {
+                descriptor: desc_str,
+                args: args_ref,
+                strings,
+                objects,
+                arrays,
+            };
+            handler
+                .dispatch(class_str, name_str, &mut ctx)
+                .or_else(|| BuiltinHandler.dispatch(class_str, name_str, &mut ctx))
+                .unwrap_or(Err(JvmError::NoSuchMethod))
         } else {
             super::execute(
                 classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
             )
         }
     } else {
-        handler.dispatch(
-            class_str, name_str, desc_str, args_ref, strings, objects, arrays,
-        )
+        let mut ctx = NativeContext {
+            descriptor: desc_str,
+            args: args_ref,
+            strings,
+            objects,
+            arrays,
+        };
+        handler
+            .dispatch(class_str, name_str, &mut ctx)
+            .or_else(|| BuiltinHandler.dispatch(class_str, name_str, &mut ctx))
+            .unwrap_or(Err(JvmError::NoSuchMethod))
     }
 }
 
@@ -240,30 +256,34 @@ pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
     if let Some((ci, mi)) = find_method_virtual(classes, runtime_class, name_str, desc_str) {
         let is_native = classes[ci].methods[mi].code_offset == 0;
         if is_native {
-            handler.dispatch(
-                runtime_class,
-                name_str,
-                desc_str,
-                args_ref,
+            let mut ctx = NativeContext {
+                descriptor: desc_str,
+                args: args_ref,
                 strings,
                 objects,
                 arrays,
-            )
+            };
+            handler
+                .dispatch(runtime_class, name_str, &mut ctx)
+                .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
+                .unwrap_or(Err(JvmError::NoSuchMethod))
         } else {
             super::execute(
                 classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
             )
         }
     } else {
-        handler.dispatch(
-            runtime_class,
-            name_str,
-            desc_str,
-            args_ref,
+        let mut ctx = NativeContext {
+            descriptor: desc_str,
+            args: args_ref,
             strings,
             objects,
             arrays,
-        )
+        };
+        handler
+            .dispatch(runtime_class, name_str, &mut ctx)
+            .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
+            .unwrap_or(Err(JvmError::NoSuchMethod))
     }
 }
 
