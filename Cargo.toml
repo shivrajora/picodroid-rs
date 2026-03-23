@@ -24,7 +24,7 @@ chip-rp2040 = ["dep:rp-pico"]
 chip-rp2350 = ["dep:rp235x-hal"]
 
 [dependencies]
-pico-jvm = { path = "jvm" }
+pico-jvm = { path = "jvm", version = "0.1" }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
