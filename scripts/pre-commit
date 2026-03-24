@@ -15,26 +15,40 @@ if ! cargo fmt -- --check; then
   exit 1
 fi
 
+# Build a representative APK once for all clippy / firmware build checks.
+echo "==> Building helloworld APK for type-checking..."
+bash "$REPO_ROOT/scripts/build-apk.sh" --app helloworld
+APK_PATH="$REPO_ROOT/build/apks/helloworld.papk"
+
 echo "==> Running clippy (RP2040)..."
-if ! cargo clippy --no-default-features --features helloworld,chip-rp2040 -- --deny=warnings || \
-   ! cargo clippy --no-default-features --features blinky,chip-rp2040 -- --deny=warnings || \
-   ! cargo clippy --no-default-features --features uart,chip-rp2040 -- --deny=warnings; then
+if ! PICODROID_APK_PATH="$APK_PATH" \
+     cargo clippy --no-default-features --features chip-rp2040 -- --deny=warnings; then
+  echo ""
+  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
+  exit 1
+fi
+
+HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+
+echo "==> Running clippy (sim)..."
+if ! PICODROID_APK_PATH="$APK_PATH" \
+     cargo clippy --target "$HOST_TARGET" --no-default-features --features sim -- --deny=warnings; then
   echo ""
   echo "ERROR: Clippy check failed. Fix the warnings above before committing."
   exit 1
 fi
 
 echo "==> Running clippy (RP2350)..."
-if ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features helloworld,chip-rp2350 -- --deny=warnings || \
-   ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features blinky,chip-rp2350 -- --deny=warnings || \
-   ! cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features uart,chip-rp2350 -- --deny=warnings; then
+if ! PICODROID_APK_PATH="$APK_PATH" \
+     cargo clippy --target thumbv8m.main-none-eabihf \
+                  --no-default-features --features chip-rp2350 -- --deny=warnings; then
   echo ""
   echo "ERROR: Clippy check failed. Fix the warnings above before committing."
   exit 1
 fi
 
 echo "==> Building..."
-if ! bash "$REPO_ROOT/scripts/build.sh"; then
+if ! bash "$REPO_ROOT/scripts/build.sh" --app helloworld; then
   echo ""
   echo "ERROR: Build failed. Fix the errors above before committing."
   exit 1

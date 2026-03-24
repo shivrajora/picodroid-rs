@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 CHIP="rp2040"
-APP=""
+APP="blinky"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -28,12 +28,16 @@ done
 
 resolve_chip "$CHIP"
 
-APP_FEATURE="${APP:-blinky}"
-JOBS=$(cpu_count)
+# Step 1: Build the APK for the selected app.
+bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
 
-cargo run \
+APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+
+# Step 2: Build and flash the firmware with the APK embedded.
+JOBS=$(cpu_count)
+PICODROID_APK_PATH="$APK_PATH" cargo run \
   --jobs "$JOBS" \
   --target "$TARGET" \
   --no-default-features \
-  --features "${APP_FEATURE},${CHIP_FEATURE}" \
+  --features "$CHIP_FEATURE" \
   "${EXTRA_ARGS[@]}"

@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 CHIP="rp2040"
-APP=""
+APP="helloworld"
 PROFILE="debug"
 UF2=false
 EXTRA_ARGS=()
@@ -17,7 +17,7 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --chip <chip>   Target chip: rp2040 (default) or rp2350
-  --app  <app>    App feature to build: helloworld, blinky (default), uart
+  --app  <app>    App to build and install: helloworld (default), blinky, uart, etc.
   --release       Build in release mode (default: debug)
   --uf2           Convert output ELF to UF2 (requires elf2uf2-rs)
   -h, --help      Show this help message
@@ -60,13 +60,18 @@ done
 
 resolve_chip "$CHIP"
 
-APP_FEATURE="${APP:-blinky}"
+# Step 1: Build the APK for the selected app.
+bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+
+APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+
+# Step 2: Build the firmware, embedding the APK.
 JOBS=$(cpu_count)
-cargo build \
+PICODROID_APK_PATH="$APK_PATH" cargo build \
   --jobs "$JOBS" \
   --target "$TARGET" \
   --no-default-features \
-  --features "${APP_FEATURE},${CHIP_FEATURE}" \
+  --features "$CHIP_FEATURE" \
   "${EXTRA_ARGS[@]}"
 
 ELF="target/${TARGET}/${PROFILE}/picodroid"

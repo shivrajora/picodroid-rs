@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "jvm"]
+members = [".", "jvm", "tools/papk-pack"]
 resolver = "2"
 
 [package]
@@ -9,19 +9,7 @@ version = "0.1.0"
 license = "Apache-2.0"
 
 [features]
-default = ["blinky", "chip-rp2040"]
-helloworld = []
-blinky = []
-uart = []
-arraydemo = []
-inherit = []
-interfacedemo = []
-floatdemo = []
-exceptiondemo = []
-threaddemo = []
-mathsdemo = []
-i2cdemo = []
-spidemo = []
+default = ["chip-rp2040"]
 chip-rp2040 = ["dep:rp-pico"]
 chip-rp2350 = ["dep:rp235x-hal"]
 sim = []

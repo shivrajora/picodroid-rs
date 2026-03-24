@@ -74,94 +74,56 @@ fn main() {
         println!("cargo:rustc-link-arg=-T{}", vectors_ld.display());
     }
 
-    compile_java(out);
+    embed_apk(out);
 }
 
-fn compile_java(out: &Path) {
-    let classes_dir = out.join("classes");
-    fs::create_dir_all(&classes_dir).unwrap();
+/// Embeds a pre-built `.papk` file into the firmware as a `&'static [u8]` constant.
+///
+/// The APK path is read from the `PICODROID_APK_PATH` environment variable, which
+/// must be set before invoking `cargo build`.  Use `scripts/build.sh --app <name>`
+/// which handles this automatically, or set it manually:
+///
+/// ```sh
+/// PICODROID_APK_PATH=build/apks/helloworld.papk \
+///   cargo build --no-default-features --features chip-rp2040
+/// ```
+fn embed_apk(out: &Path) {
+    println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
 
-    // Collect all .java files under java/
-    let mut java_files: Vec<PathBuf> = Vec::new();
-    collect_java_files(Path::new("java"), &mut java_files);
-
-    if java_files.is_empty() {
-        return;
-    }
-
-    let result = std::process::Command::new("javac")
-        .args(["--release", "8", "-cp", "java/framework/java", "-d"])
-        .arg(&classes_dir)
-        .args(&java_files)
-        .status();
-
-    let status = match result {
-        Ok(s) => s,
-        Err(e) => panic!(
-            "Failed to run javac: {e}\n\
-             Install a JDK and ensure javac is on PATH.\n\
-             On macOS: brew install openjdk && brew link openjdk --force\n\
-             Then add to your shell profile:\n\
-               export PATH=\"$(brew --prefix openjdk)/bin:$PATH\""
-        ),
+    let apk_path = match env::var("PICODROID_APK_PATH") {
+        Ok(p) => p,
+        Err(_) => {
+            // PICODROID_APK_PATH is not set.  This is expected during `cargo test`
+            // because all APK-dependent code in app.rs is gated by #[cfg(not(test))].
+            // Generate a stub so the include! compiles (it will not be evaluated in
+            // test builds).
+            fs::write(
+                out.join("apk_data.rs"),
+                b"pub static APK_DATA: &[u8] = &[];\n",
+            )
+            .unwrap();
+            return;
+        }
     };
 
-    if !status.success() {
-        panic!(
-            "javac compilation failed (exit code: {:?}).\n\
-             Make sure a JDK (not just JRE) is installed.\n\
-             On macOS: brew install openjdk && brew link openjdk --force",
-            status.code()
-        );
-    }
+    assert!(
+        Path::new(&apk_path).exists(),
+        "APK file not found: {apk_path}\n\
+         Build it first with: ./scripts/build-apk.sh --app <name>"
+    );
 
-    println!("cargo:rerun-if-changed=java/");
+    // Generate a small Rust snippet that embeds the APK via include_bytes!.
+    // The absolute path ensures include_bytes! can find the file regardless
+    // of the working directory during compilation.
+    let abs_apk_path = std::fs::canonicalize(&apk_path)
+        .unwrap_or_else(|e| panic!("Cannot resolve APK path '{apk_path}': {e}"));
 
-    // Generate java_classes.rs embedding each .class as a &[u8] constant
-    let mut generated = String::new();
-    let mut class_files: Vec<PathBuf> = Vec::new();
-    collect_class_files(&classes_dir, &mut class_files);
+    let generated = format!(
+        "pub static APK_DATA: &[u8] = include_bytes!({path:?});\n",
+        path = abs_apk_path.display().to_string(),
+    );
+    fs::write(out.join("apk_data.rs"), generated).unwrap();
 
-    for class_path in &class_files {
-        let rel = class_path.strip_prefix(&classes_dir).unwrap();
-        let const_name = rel
-            .to_string_lossy()
-            .replace(['/', '\\', '.', '-'], "_")
-            .to_uppercase();
-        // Remove trailing _CLASS suffix from the extension replacement, then re-add
-        let const_name = const_name.trim_end_matches("_CLASS").to_string() + "_CLASS";
-        generated.push_str(&format!(
-            "#[allow(dead_code)]\npub static {const_name}: &[u8] = include_bytes!({path:?});\n",
-            const_name = const_name,
-            path = class_path.display().to_string(),
-        ));
-    }
-
-    fs::write(out.join("java_classes.rs"), generated).unwrap();
-}
-
-fn collect_java_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_java_files(&path, out);
-            } else if path.extension().is_some_and(|e| e == "java") {
-                out.push(path);
-            }
-        }
-    }
-}
-
-fn collect_class_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_class_files(&path, out);
-            } else if path.extension().is_some_and(|e| e == "class") {
-                out.push(path);
-            }
-        }
-    }
+    // Re-run if the APK file itself changes (e.g. after ./scripts/build-apk.sh).
+    println!("cargo:rerun-if-changed={}", abs_apk_path.display());
 }

@@ -64,6 +64,7 @@
 
 extern crate alloc;
 
+pub mod apk;
 pub mod array_heap;
 pub mod class_file;
 pub mod frame;

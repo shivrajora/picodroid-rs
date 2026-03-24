@@ -9,6 +9,7 @@
 #   ./scripts/sim.sh --release
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP="helloworld"
 EXTRA_ARGS=()
 HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
@@ -18,7 +19,7 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --app <app>   App feature to run: helloworld (default), blinky, uart,
+  --app <app>   App to run: helloworld (default), blinky, uart,
                 arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo,
                 threaddemo, mathsdemo, i2cdemo, spidemo
   --release     Build in release mode
@@ -52,8 +53,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cargo run \
+# Step 1: Build the APK for the selected app.
+bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+
+APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+
+# Step 2: Compile and run the simulator with the APK embedded.
+PICODROID_APK_PATH="$APK_PATH" cargo run \
   --target "$HOST_TARGET" \
   --no-default-features \
-  --features "sim,${APP}" \
+  --features "sim" \
   "${EXTRA_ARGS[@]}"

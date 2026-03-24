@@ -1,0 +1,10 @@
+[package]
+name = "papk-pack"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Packages compiled Java .class files into a PAPK (Picodroid APK) file"
+
+[[bin]]
+name = "papk-pack"
+path = "src/main.rs"

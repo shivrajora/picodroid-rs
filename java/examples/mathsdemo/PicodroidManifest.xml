@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="mathsdemo" version="1.0">
+    <application main-class="mathsdemo/MathsDemo" />
+</manifest>

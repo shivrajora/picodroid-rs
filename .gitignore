@@ -5,7 +5,10 @@ Cargo.lock
 target/
 
 # Downloaded tooling (google-java-format JAR, etc.)
-tools/
+vendor/
+
+# Build artifacts (compiled classes, packaged APKs)
+build/
 
 # Claude Code local settings
 .claude/settings.local.json
