@@ -116,6 +116,8 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .class_name(runnable_obj_idx)
                             .ok_or(JvmError::InvalidReference)
                             .ok()?;
+
+                        #[cfg(not(feature = "sim"))]
                         freertos_rust::Task::new()
                             .name("jvm-t")
                             .stack_size(4096)
@@ -139,6 +141,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                 }
                             })
                             .unwrap();
+
+                        #[cfg(feature = "sim")]
+                        {
+                            // Threading not supported in sim mode; log and skip.
+                            println!(
+                                "[sim] Thread.start() for '{}' skipped (sim is single-threaded)",
+                                class_name
+                            );
+                        }
                     }
                 }
                 Some(Ok(None))

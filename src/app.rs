@@ -68,6 +68,7 @@ pub fn register_class_loader(f: ClassLoaderFn) {
 }
 
 #[cfg(not(test))]
+#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn load_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
     unsafe {
         match *CLASS_LOADER.0.get() {
@@ -80,7 +81,7 @@ pub fn load_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
 // ── run_jvm ───────────────────────────────────────────────────────────────────
 
 #[cfg(not(test))]
-pub fn run_jvm() -> ! {
+pub fn run_jvm() {
     let mut jvm = Box::new(Jvm::new());
     let heap = shared_heap();
     let mut handler = crate::system::native_handler::PicodroidNativeHandler;
@@ -434,6 +435,7 @@ pub fn run_jvm() -> ! {
             .unwrap();
     }
 
+    #[cfg(not(feature = "sim"))]
     loop {
         freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
     }

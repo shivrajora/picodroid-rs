@@ -3,6 +3,13 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
+#[cfg(not(feature = "sim"))]
+#[path = "gpio/real.rs"]
+mod platform;
+#[cfg(feature = "sim")]
+#[path = "gpio/sim.rs"]
+mod platform;
+
 pub fn set_direction_native(
     args: &[Value],
     objects: &ObjectHeap,
@@ -12,7 +19,7 @@ pub fn set_direction_native(
         Some(Value::Int(d)) => *d,
         _ => return Err(JvmError::InvalidReference),
     };
-    set_direction(pin, direction);
+    platform::set_direction(pin, direction);
     Ok(None)
 }
 
@@ -22,7 +29,7 @@ pub fn set_value_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
         Some(Value::Int(v)) => *v != 0,
         _ => return Err(JvmError::InvalidReference),
     };
-    set_value(pin, high);
+    platform::set_value(pin, high);
     Ok(None)
 }
 
@@ -33,67 +40,5 @@ fn extract_pin(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
             _ => Err(JvmError::InvalidReference),
         },
         _ => Err(JvmError::InvalidReference),
-    }
-}
-
-fn set_direction(pin: u8, direction: i32) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    // SAFETY: We are the OS — we own all hardware.
-    let p = unsafe { pac::Peripherals::steal() };
-
-    // IO_BANK0 and PADS_BANK0 are held in reset after boot unless explicitly released.
-    // Unreset them now (idempotent — safe to call even if already done).
-    p.RESETS
-        .reset()
-        .modify(|_, w| w.io_bank0().clear_bit().pads_bank0().clear_bit());
-    while p.RESETS.reset_done().read().io_bank0().bit_is_clear() {}
-    while p.RESETS.reset_done().read().pads_bank0().bit_is_clear() {}
-
-    // Set GPIO function to SIO (function select 5)
-    p.IO_BANK0
-        .gpio(pin as usize)
-        .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(5) });
-
-    // Configure pad: disable input buffer, not open-drain
-    p.PADS_BANK0
-        .gpio(pin as usize)
-        .write(|w| w.ie().clear_bit().od().clear_bit());
-
-    // Enable output driver for this pin
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits(1u32 << pin) });
-
-    // Set initial output level based on direction constant
-    // DIRECTION_OUT_INITIALLY_HIGH = 1, DIRECTION_OUT_INITIALLY_LOW = 2
-    if direction == 1 {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
-    } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
-    }
-}
-
-pub fn set_value(pin: u8, high: bool) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
-    if high {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
-    } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
     }
 }
