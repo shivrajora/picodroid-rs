@@ -1,9 +1,9 @@
 # Writing a Java App
 
-1. Create a directory and Java file under `java/examples/`:
+1. Create a directory and Java file under `examples/`:
 
 ```java
-// java/examples/myapp/java/myapp/MyApp.java
+// examples/myapp/java/myapp/MyApp.java
 package myapp;
 
 import picodroid.util.Log;

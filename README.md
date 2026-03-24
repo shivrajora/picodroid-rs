@@ -55,9 +55,9 @@ picodroid-rs/
 ├── jvm/                # JVM interpreter — reusable library crate (pico-jvm)
 │   └── src/            # no_std + alloc only; no hardware dependencies
 │
-├── java/
-│   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps, each with Java sources and a PicodroidManifest.xml
+├── sdk/                # Android-compatible Java API stubs (picodroid.*)
+│
+├── examples/           # Example apps, each with Java sources and a PicodroidManifest.xml
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)

@@ -40,7 +40,7 @@ if [[ -z "$APP" ]]; then
   exit 1
 fi
 
-APP_DIR="$REPO_ROOT/java/examples/$APP"
+APP_DIR="$REPO_ROOT/examples/$APP"
 MANIFEST_FILE="$APP_DIR/PicodroidManifest.xml"
 
 if [[ ! -d "$APP_DIR" ]]; then
@@ -88,7 +88,7 @@ mkdir -p "$CLASSES_DIR" "$FRAMEWORK_CLASSES_DIR" "$REPO_ROOT/build/apks"
 FRAMEWORK_JAVA_FILES=()
 while IFS= read -r -d '' f; do
   FRAMEWORK_JAVA_FILES+=("$f")
-done < <(find "$REPO_ROOT/java/framework/java" -name "*.java" -print0)
+done < <(find "$REPO_ROOT/sdk/java" -name "*.java" -print0)
 
 echo "==> Compiling picodroid framework..."
 javac --release 8 \

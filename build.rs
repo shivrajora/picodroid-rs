@@ -85,7 +85,7 @@ fn main() {
 /// This mirrors Android's model where framework classes are part of the platform
 /// (boot classpath / ART boot image) rather than packaged inside an APK.
 ///
-/// Framework sources are compiled from `java/framework/java/` using `javac`.
+/// Framework sources are compiled from `sdk/java/` using `javac`.
 /// When `PICODROID_APK_PATH` is not set (e.g. `cargo test`), an empty stub is
 /// emitted since all framework-dependent code is gated by `#[cfg(not(test))]`.
 fn embed_framework_classes(out: &Path) {
@@ -100,7 +100,7 @@ fn embed_framework_classes(out: &Path) {
         return;
     }
 
-    let framework_dir = Path::new("java/framework/java");
+    let framework_dir = Path::new("sdk/java");
 
     // Emit rerun-if-changed for every framework .java file.
     let java_files = collect_files(framework_dir, "java");

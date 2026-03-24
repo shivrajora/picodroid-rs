@@ -25,9 +25,9 @@ if ! verify_jar; then
   exit 1
 fi
 
-JAVA_DIR="$(cd "$(dirname "$0")/.." && pwd)/java"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [[ -z "$(find "$JAVA_DIR" -name '*.java' -print -quit)" ]]; then
+if [[ -z "$(find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print -quit 2>/dev/null)" ]]; then
   echo "No Java files found."
   exit 0
 fi
@@ -36,7 +36,7 @@ MODE="${1:-check}"
 
 if [[ "$MODE" == "check" ]]; then
   echo "==> Checking Java formatting..."
-  if ! find "$JAVA_DIR" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
+  if ! find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
     echo ""
     echo "ERROR: Java formatting check failed."
     echo "       Run './scripts/format_java.sh format' to fix, then re-stage your changes."
@@ -45,7 +45,7 @@ if [[ "$MODE" == "check" ]]; then
   echo "==> Java formatting OK."
 elif [[ "$MODE" == "format" ]]; then
   echo "==> Formatting Java files..."
-  find "$JAVA_DIR" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
+  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
   echo "==> Done."
 else
   echo "Usage: $0 [check|format]"

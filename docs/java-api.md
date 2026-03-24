@@ -1,6 +1,6 @@
 # Java System API
 
-Java system APIs live under `java/framework/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
+Java system APIs live under `sdk/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
 
 ## `picodroid.util.Log`
 

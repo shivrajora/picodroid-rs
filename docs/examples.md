@@ -1,6 +1,6 @@
 # Examples
 
-Twelve examples are included under `java/examples/`:
+Twelve examples are included under `examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
