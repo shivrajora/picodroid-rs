@@ -1,6 +1,6 @@
 # Examples
 
-Ten examples are included under `java/examples/`:
+Eleven examples are included under `java/examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -14,6 +14,7 @@ Ten examples are included under `java/examples/`:
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic (`sub`, `div`, `rem`, `neg`), bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, and reference arrays |
+| `i2cdemo` | `i2cdemo.I2cDemo` | Scans the I2C0 bus (SDA=GP4, SCL=GP5) and logs the 7-bit address of every ACKing device |
 
 To run an example:
 
