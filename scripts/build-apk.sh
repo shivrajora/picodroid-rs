@@ -75,20 +75,37 @@ fi
 
 OUTPUT="${OUTPUT:-$REPO_ROOT/build/apks/${APP}.papk}"
 CLASSES_DIR="$REPO_ROOT/build/classes/$APP"
+FRAMEWORK_CLASSES_DIR="$REPO_ROOT/build/classes/framework"
 
-mkdir -p "$CLASSES_DIR"
+# Clean the app classes dir each build to avoid stale framework classes from
+# older builds (before the framework was separated into its own directory).
+rm -rf "$CLASSES_DIR"
+mkdir -p "$CLASSES_DIR" "$FRAMEWORK_CLASSES_DIR" "$REPO_ROOT/build/apks"
 
-# Collect all Java source files: framework + app
-JAVA_FILES=()
+# Step 1: Compile picodroid framework sources into a separate classes directory.
+# This mirrors Android's model: framework classes are part of the platform, not the APK.
+# They are embedded into firmware by build.rs; here we only need them as a classpath.
+FRAMEWORK_JAVA_FILES=()
 while IFS= read -r -d '' f; do
-  JAVA_FILES+=("$f")
-done < <(find "$REPO_ROOT/java/framework/java" "$APP_DIR" -name "*.java" -print0)
+  FRAMEWORK_JAVA_FILES+=("$f")
+done < <(find "$REPO_ROOT/java/framework/java" -name "*.java" -print0)
+
+echo "==> Compiling picodroid framework..."
+javac --release 8 \
+  -d "$FRAMEWORK_CLASSES_DIR" \
+  "${FRAMEWORK_JAVA_FILES[@]}"
+
+# Step 2: Compile only app sources, using compiled framework classes as classpath.
+APP_JAVA_FILES=()
+while IFS= read -r -d '' f; do
+  APP_JAVA_FILES+=("$f")
+done < <(find "$APP_DIR" -name "*.java" -print0)
 
 echo "==> Compiling Java sources for '$APP'..."
 javac --release 8 \
-  -cp "$REPO_ROOT/java/framework/java" \
+  -cp "$FRAMEWORK_CLASSES_DIR" \
   -d "$CLASSES_DIR" \
-  "${JAVA_FILES[@]}"
+  "${APP_JAVA_FILES[@]}"
 
 echo "==> Packaging '$APP' into $(basename "$OUTPUT")..."
 cargo run \

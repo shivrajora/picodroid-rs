@@ -12,6 +12,13 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 #[cfg(not(test))]
 include!(concat!(env!("OUT_DIR"), "/apk_data.rs"));
 
+// Embedded picodroid framework class bytecode, compiled and embedded by build.rs.
+// Defines: pub static FRAMEWORK_CLASSES: &[&[u8]] = &[include_bytes!("..."), ...];
+// Framework classes are part of the platform (like Android's boot classpath), not
+// the APK — so they are always present in firmware Flash regardless of which app runs.
+#[cfg(not(test))]
+include!(concat!(env!("OUT_DIR"), "/framework_classes.rs"));
+
 // ── Shared heap ──────────────────────────────────────────────────────────────
 //
 // All JVM threads share a single heap (objects, arrays, strings), matching the
@@ -80,6 +87,21 @@ pub fn load_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
     }
 }
 
+// ── Framework class loading ───────────────────────────────────────────────────
+
+/// Loads all picodroid framework classes into `jvm`.
+///
+/// Framework classes (`picodroid.*`) are compiled by `build.rs` and embedded
+/// directly in firmware Flash — they are platform code, not app code.
+/// This mirrors Android's boot classpath model.
+#[cfg(not(test))]
+fn load_framework_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
+    for class_data in FRAMEWORK_CLASSES {
+        jvm.load_class(class_data)?;
+    }
+    Ok(())
+}
+
 // ── APK-driven class loading ──────────────────────────────────────────────────
 
 /// Loads all classes from the embedded APK into `jvm`.
@@ -97,6 +119,14 @@ fn load_classes_from_apk(jvm: &mut Jvm) -> Result<(), JvmError> {
     Ok(())
 }
 
+/// Loads framework classes then app classes — used by `Thread.start()` spawned
+/// tasks that need a fully-populated fresh `Jvm`.
+#[cfg(not(test))]
+fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
+    load_framework_classes(jvm)?;
+    load_classes_from_apk(jvm)
+}
+
 // ── run_jvm ───────────────────────────────────────────────────────────────────
 
 #[cfg(not(test))]
@@ -105,11 +135,12 @@ pub fn run_jvm() {
     let heap = shared_heap();
     let mut handler = crate::system::native_handler::PicodroidNativeHandler;
 
-    // Register the universal class loader so Thread.start() spawned tasks
-    // can load all APK classes into their fresh Jvm instances.
-    register_class_loader(load_classes_from_apk);
+    // Register the combined loader so Thread.start() spawned tasks load both
+    // framework and app classes into their fresh Jvm instances.
+    register_class_loader(load_all_classes);
 
-    // Load all classes declared in the embedded APK.
+    // Load platform (framework) classes first, then app classes from the APK.
+    load_framework_classes(&mut jvm).unwrap();
     load_classes_from_apk(&mut jvm).unwrap();
 
     // Determine the entry point from the APK manifest.

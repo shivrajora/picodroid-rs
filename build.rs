@@ -12,6 +12,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -74,7 +75,98 @@ fn main() {
         println!("cargo:rustc-link-arg=-T{}", vectors_ld.display());
     }
 
+    embed_framework_classes(out);
     embed_apk(out);
+}
+
+/// Compiles picodroid framework Java sources and embeds each `.class` file directly
+/// into the firmware as a `&'static [u8]` array.
+///
+/// This mirrors Android's model where framework classes are part of the platform
+/// (boot classpath / ART boot image) rather than packaged inside an APK.
+///
+/// Framework sources are compiled from `java/framework/java/` using `javac`.
+/// When `PICODROID_APK_PATH` is not set (e.g. `cargo test`), an empty stub is
+/// emitted since all framework-dependent code is gated by `#[cfg(not(test))]`.
+fn embed_framework_classes(out: &Path) {
+    // Use PICODROID_APK_PATH as the "real firmware build" signal — same heuristic
+    // as embed_apk().  When absent we're in a test/check build; emit empty stub.
+    if env::var("PICODROID_APK_PATH").is_err() {
+        fs::write(
+            out.join("framework_classes.rs"),
+            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\n",
+        )
+        .unwrap();
+        return;
+    }
+
+    let framework_dir = Path::new("java/framework/java");
+
+    // Emit rerun-if-changed for every framework .java file.
+    let java_files = collect_files(framework_dir, "java");
+    for f in &java_files {
+        println!("cargo:rerun-if-changed={}", f.display());
+    }
+
+    // Compile framework sources into $OUT_DIR/framework_classes/.
+    let classes_dir = out.join("framework_classes");
+    fs::create_dir_all(&classes_dir).unwrap();
+
+    let status = Command::new("javac")
+        .arg("--release")
+        .arg("8")
+        .arg("-d")
+        .arg(&classes_dir)
+        .args(&java_files)
+        .status()
+        .expect(
+            "javac not found — install a JDK to build picodroid firmware\n\
+             (Ubuntu: apt-get install default-jdk-headless  |  macOS: brew install --cask temurin)",
+        );
+    assert!(
+        status.success(),
+        "javac failed while compiling picodroid framework classes"
+    );
+
+    // Collect compiled .class files in a deterministic order.
+    let mut class_files = collect_files(&classes_dir, "class");
+    class_files.sort();
+
+    // Generate include_bytes! entries using absolute paths so they resolve
+    // correctly when this file is include!()'d from src/app.rs.
+    let mut entries = String::new();
+    for f in &class_files {
+        let abs = f
+            .canonicalize()
+            .unwrap_or_else(|_| f.clone())
+            .display()
+            .to_string();
+        entries.push_str(&format!("    include_bytes!({abs:?}),\n"));
+    }
+
+    let content = format!("pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n");
+    fs::write(out.join("framework_classes.rs"), content).unwrap();
+}
+
+/// Recursively collect all files with the given extension under `dir`.
+fn collect_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    collect_files_recursive(dir, ext, &mut result);
+    result
+}
+
+fn collect_files_recursive(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_recursive(&path, ext, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+            out.push(path);
+        }
+    }
 }
 
 /// Embeds a pre-built `.papk` file into the firmware as a `&'static [u8]` constant.
