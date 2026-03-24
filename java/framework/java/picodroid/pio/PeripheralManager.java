@@ -8,4 +8,6 @@ public class PeripheralManager {
   public native Gpio openGpio(String name);
 
   public native UartDevice openUartDevice(String name);
+
+  public native I2cDevice openI2cDevice(String name);
 }

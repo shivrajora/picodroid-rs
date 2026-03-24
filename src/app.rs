@@ -96,9 +96,10 @@ pub fn run_jvm() -> ! {
         feature = "exceptiondemo",
         feature = "threaddemo",
         feature = "mathsdemo",
+        feature = "i2cdemo",
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, or mathsdemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, or i2cdemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -236,6 +237,36 @@ pub fn run_jvm() -> ! {
     #[cfg(all(feature = "threaddemo", feature = "mathsdemo"))]
     compile_error!("Features 'threaddemo' and 'mathsdemo' are mutually exclusive.");
 
+    #[cfg(all(feature = "helloworld", feature = "i2cdemo"))]
+    compile_error!("Features 'helloworld' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "i2cdemo"))]
+    compile_error!("Features 'blinky' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "i2cdemo"))]
+    compile_error!("Features 'uart' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "i2cdemo"))]
+    compile_error!("Features 'arraydemo' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "i2cdemo"))]
+    compile_error!("Features 'inherit' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "interfacedemo", feature = "i2cdemo"))]
+    compile_error!("Features 'interfacedemo' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "floatdemo", feature = "i2cdemo"))]
+    compile_error!("Features 'floatdemo' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "exceptiondemo", feature = "i2cdemo"))]
+    compile_error!("Features 'exceptiondemo' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "threaddemo", feature = "i2cdemo"))]
+    compile_error!("Features 'threaddemo' and 'i2cdemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "mathsdemo", feature = "i2cdemo"))]
+    compile_error!("Features 'mathsdemo' and 'i2cdemo' are mutually exclusive.");
+
     #[cfg(feature = "helloworld")]
     {
         jvm.load_class(HELLOWORLD_HELLOWORLD_CLASS).unwrap();
@@ -344,6 +375,17 @@ pub fn run_jvm() -> ! {
         jvm.load_class(MATHSDEMO_MATHSDEMO_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("mathsdemo/MathsDemo", "main", heap, &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "i2cdemo")]
+    {
+        jvm.load_class(I2CDEMO_I2CDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+            .unwrap();
+        jvm.load_class(PICODROID_PIO_I2CDEVICE_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("i2cdemo/I2cDemo", "main", heap, &mut handler)
             .unwrap();
     }
 

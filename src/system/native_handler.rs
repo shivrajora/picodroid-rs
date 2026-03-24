@@ -33,6 +33,23 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     ctx.objects,
                 ),
             ),
+            ("picodroid/pio/PeripheralManager", "openI2cDevice") => {
+                Some(crate::system::picodroid::pio::peripheral_manager::open_i2c(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ))
+            }
+            ("picodroid/pio/I2cDevice", "setSpeed") => Some(
+                crate::system::picodroid::pio::i2c::set_speed_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/I2cDevice", "write") => Some(
+                crate::system::picodroid::pio::i2c::write_native(ctx.args, ctx.objects, ctx.arrays),
+            ),
+            ("picodroid/pio/I2cDevice", "read") => Some(
+                crate::system::picodroid::pio::i2c::read_native(ctx.args, ctx.objects, ctx.arrays),
+            ),
+            ("picodroid/pio/I2cDevice", "close") => Some(Ok(None)),
             ("picodroid/pio/UartDevice", "setBaudrate") => Some(
                 crate::system::picodroid::pio::uart::set_baudrate_native(ctx.args, ctx.objects),
             ),
