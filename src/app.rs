@@ -97,9 +97,10 @@ pub fn run_jvm() -> ! {
         feature = "threaddemo",
         feature = "mathsdemo",
         feature = "i2cdemo",
+        feature = "spidemo",
     )))]
     compile_error!(
-        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, or i2cdemo."
+        "No example feature selected. Use --app helloworld, blinky, uart, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, i2cdemo, or spidemo."
     );
 
     #[cfg(all(feature = "helloworld", feature = "blinky"))]
@@ -267,6 +268,39 @@ pub fn run_jvm() -> ! {
     #[cfg(all(feature = "mathsdemo", feature = "i2cdemo"))]
     compile_error!("Features 'mathsdemo' and 'i2cdemo' are mutually exclusive.");
 
+    #[cfg(all(feature = "helloworld", feature = "spidemo"))]
+    compile_error!("Features 'helloworld' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "blinky", feature = "spidemo"))]
+    compile_error!("Features 'blinky' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "uart", feature = "spidemo"))]
+    compile_error!("Features 'uart' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "arraydemo", feature = "spidemo"))]
+    compile_error!("Features 'arraydemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "inherit", feature = "spidemo"))]
+    compile_error!("Features 'inherit' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "interfacedemo", feature = "spidemo"))]
+    compile_error!("Features 'interfacedemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "floatdemo", feature = "spidemo"))]
+    compile_error!("Features 'floatdemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "exceptiondemo", feature = "spidemo"))]
+    compile_error!("Features 'exceptiondemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "threaddemo", feature = "spidemo"))]
+    compile_error!("Features 'threaddemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "mathsdemo", feature = "spidemo"))]
+    compile_error!("Features 'mathsdemo' and 'spidemo' are mutually exclusive.");
+
+    #[cfg(all(feature = "i2cdemo", feature = "spidemo"))]
+    compile_error!("Features 'i2cdemo' and 'spidemo' are mutually exclusive.");
+
     #[cfg(feature = "helloworld")]
     {
         jvm.load_class(HELLOWORLD_HELLOWORLD_CLASS).unwrap();
@@ -386,6 +420,17 @@ pub fn run_jvm() -> ! {
         jvm.load_class(PICODROID_PIO_I2CDEVICE_CLASS).unwrap();
         jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
         jvm.invoke_static("i2cdemo/I2cDemo", "main", heap, &mut handler)
+            .unwrap();
+    }
+
+    #[cfg(feature = "spidemo")]
+    {
+        jvm.load_class(SPIDEMO_SPIDEMO_CLASS).unwrap();
+        jvm.load_class(PICODROID_PIO_PERIPHERALMANAGER_CLASS)
+            .unwrap();
+        jvm.load_class(PICODROID_PIO_SPIDEVICE_CLASS).unwrap();
+        jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
+        jvm.invoke_static("spidemo/SpiDemo", "main", heap, &mut handler)
             .unwrap();
     }
 

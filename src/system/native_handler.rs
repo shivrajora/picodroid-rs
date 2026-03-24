@@ -50,6 +50,30 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 crate::system::picodroid::pio::i2c::read_native(ctx.args, ctx.objects, ctx.arrays),
             ),
             ("picodroid/pio/I2cDevice", "close") => Some(Ok(None)),
+            ("picodroid/pio/PeripheralManager", "openSpiDevice") => {
+                Some(crate::system::picodroid::pio::peripheral_manager::open_spi(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ))
+            }
+            ("picodroid/pio/SpiDevice", "setFrequency") => Some(
+                crate::system::picodroid::pio::spi::set_frequency_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/SpiDevice", "setMode") => Some(
+                crate::system::picodroid::pio::spi::set_mode_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/SpiDevice", "transfer") => {
+                Some(crate::system::picodroid::pio::spi::transfer_native(
+                    ctx.args,
+                    ctx.objects,
+                    ctx.arrays,
+                ))
+            }
+            ("picodroid/pio/SpiDevice", "write") => Some(
+                crate::system::picodroid::pio::spi::write_native(ctx.args, ctx.objects, ctx.arrays),
+            ),
+            ("picodroid/pio/SpiDevice", "close") => Some(Ok(None)),
             ("picodroid/pio/UartDevice", "setBaudrate") => Some(
                 crate::system::picodroid::pio::uart::set_baudrate_native(ctx.args, ctx.objects),
             ),

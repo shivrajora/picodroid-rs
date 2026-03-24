@@ -142,6 +142,50 @@ pub fn open_i2c(
     Ok(Some(Value::ObjectRef(obj_idx)))
 }
 
+pub fn open_spi(
+    args: &[Value],
+    strings: &StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    // args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "SPIx" string
+    let name_ref = match args.get(1) {
+        Some(Value::Reference(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let name = strings
+        .resolve(name_ref)
+        .ok_or(JvmError::InvalidReference)?;
+
+    // Parse "SPI0" → 0, "SPI1" → 1
+    let id_str = name.strip_prefix("SPI").ok_or(JvmError::InvalidReference)?;
+    let spi_id: u8 = match id_str {
+        "0" => 0,
+        "1" => 1,
+        _ => return Err(JvmError::InvalidReference),
+    };
+
+    let obj_idx = objects
+        .alloc("picodroid/pio/SpiDevice")
+        .ok_or(JvmError::StackOverflow)?;
+
+    // Store config fields: spi_id, frequency_hz=1_000_000, mode=0 (MODE_0)
+    objects
+        .set_field(obj_idx, 0, Value::Int(spi_id as i32))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 1, Value::Int(1_000_000))
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj_idx, 2, Value::Int(0))
+        .ok_or(JvmError::StackOverflow)?;
+
+    // Initialize hardware: GPIO function select + SPI enable at 1 MHz, MODE_0
+    #[cfg(not(test))]
+    super::spi::init(spi_id);
+
+    Ok(Some(Value::ObjectRef(obj_idx)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +199,10 @@ mod tests {
     static I2C1_NAME: &[u8] = b"I2C1";
     static I2C_BAD_ID: &[u8] = b"I2C2";
     static I2C_NO_PREFIX: &[u8] = b"SPI0";
+    static SPI0_NAME: &[u8] = b"SPI0";
+    static SPI1_NAME: &[u8] = b"SPI1";
+    static SPI_BAD_ID: &[u8] = b"SPI2";
+    static SPI_NO_PREFIX: &[u8] = b"I2C0";
 
     #[test]
     fn get_instance_returns_object_ref() {
@@ -301,6 +349,78 @@ mod tests {
         let strings = StringTable::new();
         let mut objects = ObjectHeap::new();
         let result = open_i2c(&[Value::Null, Value::Int(0)], &strings, &mut objects);
+        assert_eq!(result, Err(JvmError::InvalidReference));
+    }
+
+    #[test]
+    fn open_spi_spi0_sets_id_0_and_defaults() {
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let _pm_idx = get_instance(&mut objects).unwrap();
+        let ref_idx = strings.intern(SPI0_NAME).expect("intern SPI0");
+        let result = open_spi(
+            &[Value::ObjectRef(0), Value::Reference(ref_idx)],
+            &strings,
+            &mut objects,
+        );
+        let idx = match result {
+            Ok(Some(Value::ObjectRef(i))) => i,
+            other => panic!("expected Ok(Some(ObjectRef(...))), got {:?}", other),
+        };
+        assert_eq!(objects.get_field(idx, 0), Some(Value::Int(0)));
+        assert_eq!(objects.get_field(idx, 1), Some(Value::Int(1_000_000)));
+        assert_eq!(objects.get_field(idx, 2), Some(Value::Int(0)));
+    }
+
+    #[test]
+    fn open_spi_spi1_sets_id_1() {
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let _pm_idx = get_instance(&mut objects).unwrap();
+        let ref_idx = strings.intern(SPI1_NAME).expect("intern SPI1");
+        let result = open_spi(
+            &[Value::ObjectRef(0), Value::Reference(ref_idx)],
+            &strings,
+            &mut objects,
+        );
+        let idx = match result {
+            Ok(Some(Value::ObjectRef(i))) => i,
+            other => panic!("expected Ok(Some(ObjectRef(...))), got {:?}", other),
+        };
+        assert_eq!(objects.get_field(idx, 0), Some(Value::Int(1)));
+    }
+
+    #[test]
+    fn open_spi_bad_id_returns_error() {
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let ref_idx = strings.intern(SPI_BAD_ID).expect("intern SPI2");
+        let result = open_spi(
+            &[Value::Null, Value::Reference(ref_idx)],
+            &strings,
+            &mut objects,
+        );
+        assert_eq!(result, Err(JvmError::InvalidReference));
+    }
+
+    #[test]
+    fn open_spi_no_prefix_returns_error() {
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let ref_idx = strings.intern(SPI_NO_PREFIX).expect("intern I2C0");
+        let result = open_spi(
+            &[Value::Null, Value::Reference(ref_idx)],
+            &strings,
+            &mut objects,
+        );
+        assert_eq!(result, Err(JvmError::InvalidReference));
+    }
+
+    #[test]
+    fn open_spi_invalid_ref_type_returns_error() {
+        let strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let result = open_spi(&[Value::Null, Value::Int(0)], &strings, &mut objects);
         assert_eq!(result, Err(JvmError::InvalidReference));
     }
 }

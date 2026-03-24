@@ -29,6 +29,7 @@ PeripheralManager pm = PeripheralManager.getInstance();
 Gpio gpio       = pm.openGpio("GP25");
 UartDevice uart = pm.openUartDevice("UART0");
 I2cDevice  i2c  = pm.openI2cDevice("I2C0");
+SpiDevice  spi  = pm.openSpiDevice("SPI0");
 ```
 
 ## `picodroid.pio.Gpio`
@@ -74,6 +75,27 @@ int read = i2c.read(0x48, buf, 2);      // returns bytes read, or -1 on NACK
 // Zero-byte write: probe for device presence (returns 0 if ACK, -1 if NACK)
 byte[] empty = new byte[0];
 int ack = i2c.write(0x48, empty, 0);
+```
+
+## `picodroid.pio.SpiDevice`
+
+Default pins (CS not driven by peripheral — use `Gpio` if needed):
+SPI0 → SCK=GP2, MOSI=GP3, MISO=GP0; SPI1 → SCK=GP10, MOSI=GP11, MISO=GP8.
+
+```java
+import picodroid.pio.SpiDevice;
+
+spi.setFrequency(4_000_000);           // 4 MHz (default: 1 MHz)
+spi.setMode(SpiDevice.MODE_0);         // CPOL=0, CPHA=0 (default)
+
+// Full-duplex: write tx, read back rx
+byte[] tx = new byte[]{ (byte)0x9F, 0x00, 0x00 };
+byte[] rx = new byte[3];
+spi.transfer(tx, rx, 3);
+
+// Write-only (RX discarded)
+byte[] cmd = new byte[]{ (byte)0x02, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0xAB };
+spi.write(cmd, 5);
 ```
 
 ## `picodroid.concurrent.Thread`

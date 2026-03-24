@@ -57,7 +57,7 @@ picodroid-rs/
 │
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, i2cdemo)
+│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, i2cdemo, spidemo)
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
