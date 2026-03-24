@@ -22,13 +22,8 @@ public class FloatDemo {
     double pi = p / q; // ≈ 3.1415929 — ddiv
     int di = (int) pi; // 3 — d2i
 
-    Log.i(
-        "FloatDemo",
-        "float*2="
-            + fi // 6
-            + " long*3(lo)="
-            + li // -1294967296
-            + " pi(int)="
-            + di); // 3
+    Log.i("FloatDemo", "3.0f * 2.0f = " + fi);
+    Log.i("FloatDemo", "1_000_000_000L * 3L (overflows int) = " + li);
+    Log.i("FloatDemo", "355.0 / 113.0 (as int) = " + di);
   }
 }
