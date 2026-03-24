@@ -31,17 +31,24 @@ jobs:
       - name: Install ARM toolchain (macOS)
         if: runner.os == 'macOS'
         run: brew install --cask gcc-arm-embedded
+      - uses: actions/setup-java@v4
+        if: runner.os == 'macOS'
+        with:
+          distribution: temurin
+          java-version: '21'
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
       - run: cargo install flip-link
-      # RP2040 (default features)
-      - run: cargo build --all
-      - run: cargo build --all --release
+      - name: Build helloworld APK
+        run: bash scripts/build-apk.sh --app helloworld
+      # RP2040
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --no-default-features --features chip-rp2040
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --no-default-features --features chip-rp2040 --release
       # RP2350
-      - run: cargo build --target thumbv8m.main-none-eabihf --no-default-features --features blinky,chip-rp2350
-      - run: cargo build --target thumbv8m.main-none-eabihf --no-default-features --features blinky,chip-rp2350 --release
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --target thumbv8m.main-none-eabihf --no-default-features --features chip-rp2350
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --target thumbv8m.main-none-eabihf --no-default-features --features chip-rp2350 --release
   testing:
     name: Testing
     runs-on: ubuntu-latest
@@ -68,14 +75,14 @@ jobs:
         with:
           components: clippy
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
+      - name: Build helloworld APK
+        run: bash scripts/build-apk.sh --app helloworld
       # RP2040
-      - run: cargo clippy --no-default-features --features helloworld,chip-rp2040 -- --deny=warnings
-      - run: cargo clippy --no-default-features --features blinky,chip-rp2040 -- --deny=warnings
-      - run: cargo clippy --no-default-features --features uart,chip-rp2040 -- --deny=warnings
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --no-default-features --features chip-rp2040 -- --deny=warnings
       # RP2350
-      - run: cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features helloworld,chip-rp2350 -- --deny=warnings
-      - run: cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features blinky,chip-rp2350 -- --deny=warnings
-      - run: cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features uart,chip-rp2350 -- --deny=warnings
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features chip-rp2350 -- --deny=warnings
+      # Simulator (host target)
+      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim -- --deny=warnings
   formatting:
     name: Formatting
     runs-on: ubuntu-latest
