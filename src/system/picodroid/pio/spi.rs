@@ -4,12 +4,7 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
-// -------------------------------------------------------------------
-// Object field layout for picodroid/pio/SpiDevice in ObjectHeap:
-//   field 0: spi_id       (Int: 0=SPI0, 1=SPI1)
-//   field 1: frequency_hz (Int, default 1_000_000)
-//   field 2: mode         (Int, default 0 = MODE_0: CPOL=0, CPHA=0)
-// -------------------------------------------------------------------
+pub use super::fields::spi as fields;
 
 #[cfg(not(feature = "sim"))]
 #[path = "spi/real.rs"]
@@ -27,7 +22,7 @@ fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
 
 fn extract_spi_id(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     let idx = extract_obj_idx(args)?;
-    match objects.get_field(idx, 0) {
+    match objects.get_field(idx, fields::SPI_ID) {
         Some(Value::Int(id)) => Ok(id as u8),
         _ => Err(JvmError::InvalidReference),
     }
@@ -56,10 +51,10 @@ pub fn set_frequency_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 1, Value::Int(hz as i32))
+        .set_field(idx, fields::FREQUENCY_HZ, Value::Int(hz as i32))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
-    let mode = read_field(objects, idx, 2, 0) as u32;
+    let id = read_field(objects, idx, fields::SPI_ID, 0) as u8;
+    let mode = read_field(objects, idx, fields::MODE, 0) as u32;
     platform::reconfigure(id, hz, mode);
     Ok(None)
 }
@@ -74,10 +69,10 @@ pub fn set_mode_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 2, Value::Int(mode as i32))
+        .set_field(idx, fields::MODE, Value::Int(mode as i32))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
-    let hz = read_field(objects, idx, 1, 1_000_000) as u32;
+    let id = read_field(objects, idx, fields::SPI_ID, 0) as u8;
+    let hz = read_field(objects, idx, fields::FREQUENCY_HZ, 1_000_000) as u32;
     platform::reconfigure(id, hz, mode);
     Ok(None)
 }

@@ -4,11 +4,7 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
-// -------------------------------------------------------------------
-// Object field layout for picodroid/pio/I2cDevice in ObjectHeap:
-//   field 0: i2c_id   (Int: 0=I2C0, 1=I2C1)
-//   field 1: speed_hz (Int, default 100_000)
-// -------------------------------------------------------------------
+pub use super::fields::i2c as fields;
 
 #[cfg(not(feature = "sim"))]
 #[path = "i2c/real.rs"]
@@ -26,7 +22,7 @@ fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
 
 fn extract_i2c_id(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     let idx = extract_obj_idx(args)?;
-    match objects.get_field(idx, 0) {
+    match objects.get_field(idx, fields::I2C_ID) {
         Some(Value::Int(id)) => Ok(id as u8),
         _ => Err(JvmError::InvalidReference),
     }
@@ -48,9 +44,9 @@ pub fn set_speed_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 1, Value::Int(hz as i32))
+        .set_field(idx, fields::SPEED_HZ, Value::Int(hz as i32))
         .ok_or(JvmError::StackOverflow)?;
-    let id = match objects.get_field(idx, 0) {
+    let id = match objects.get_field(idx, fields::I2C_ID) {
         Some(Value::Int(v)) => v as u8,
         _ => return Err(JvmError::InvalidReference),
     };

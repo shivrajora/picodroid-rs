@@ -3,6 +3,8 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
+pub use super::fields::gpio as fields;
+
 #[cfg(not(feature = "sim"))]
 #[path = "gpio/real.rs"]
 mod platform;
@@ -35,7 +37,7 @@ pub fn set_value_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
 
 fn extract_pin(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     match args.first() {
-        Some(Value::ObjectRef(idx)) => match objects.get_field(*idx, 0) {
+        Some(Value::ObjectRef(idx)) => match objects.get_field(*idx, fields::PIN) {
             Some(Value::Int(pin)) => Ok(pin as u8),
             _ => Err(JvmError::InvalidReference),
         },

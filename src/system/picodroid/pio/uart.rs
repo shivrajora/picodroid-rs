@@ -3,15 +3,7 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
-// -------------------------------------------------------------------
-// Object field layout for picodroid/pio/UartDevice in ObjectHeap:
-//   field 0: uart_id   (Int: 0=UART0, 1=UART1)
-//   field 1: baudrate  (Int, default 9600)
-//   field 2: data_size (Int, default 8)
-//   field 3: parity    (Int, default 0=NONE)
-//   field 4: stop_bits (Int, default 1)
-//   field 5: hw_flow   (Int, default 0=NONE)
-// -------------------------------------------------------------------
+pub use super::fields::uart as fields;
 
 #[cfg(not(feature = "sim"))]
 #[path = "uart/real.rs"]
@@ -29,7 +21,7 @@ fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
 
 fn extract_uart_id(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     let idx = extract_obj_idx(args)?;
-    match objects.get_field(idx, 0) {
+    match objects.get_field(idx, fields::UART_ID) {
         Some(Value::Int(id)) => Ok(id as u8),
         _ => Err(JvmError::InvalidReference),
     }
@@ -44,11 +36,11 @@ fn read_field(objects: &ObjectHeap, idx: u16, field: usize, default: i32) -> i32
 
 fn get_config(objects: &ObjectHeap, idx: u16) -> (i32, i32, i32, i32, i32) {
     (
-        read_field(objects, idx, 1, 9600),
-        read_field(objects, idx, 2, 8),
-        read_field(objects, idx, 3, 0),
-        read_field(objects, idx, 4, 1),
-        read_field(objects, idx, 5, 0),
+        read_field(objects, idx, fields::BAUDRATE, 9600),
+        read_field(objects, idx, fields::DATA_SIZE, 8),
+        read_field(objects, idx, fields::PARITY, 0),
+        read_field(objects, idx, fields::STOP_BITS, 1),
+        read_field(objects, idx, fields::HW_FLOW, 0),
     )
 }
 
@@ -68,9 +60,9 @@ pub fn set_baudrate_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 1, Value::Int(rate))
+        .set_field(idx, fields::BAUDRATE, Value::Int(rate))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
+    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
     let (_, data_size, parity, stop_bits, hw_flow) = get_config(objects, idx);
     platform::reconfigure(id, rate, data_size, parity, stop_bits, hw_flow);
     Ok(None)
@@ -86,9 +78,9 @@ pub fn set_data_size_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 2, Value::Int(size))
+        .set_field(idx, fields::DATA_SIZE, Value::Int(size))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
+    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
     let (baudrate, _, parity, stop_bits, hw_flow) = get_config(objects, idx);
     platform::reconfigure(id, baudrate, size, parity, stop_bits, hw_flow);
     Ok(None)
@@ -104,9 +96,9 @@ pub fn set_parity_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 3, Value::Int(mode))
+        .set_field(idx, fields::PARITY, Value::Int(mode))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
+    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
     let (baudrate, data_size, _, stop_bits, hw_flow) = get_config(objects, idx);
     platform::reconfigure(id, baudrate, data_size, mode, stop_bits, hw_flow);
     Ok(None)
@@ -122,9 +114,9 @@ pub fn set_stop_bits_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 4, Value::Int(bits))
+        .set_field(idx, fields::STOP_BITS, Value::Int(bits))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
+    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
     let (baudrate, data_size, parity, _, hw_flow) = get_config(objects, idx);
     platform::reconfigure(id, baudrate, data_size, parity, bits, hw_flow);
     Ok(None)
@@ -140,9 +132,9 @@ pub fn set_hw_flow_ctrl_native(
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, 5, Value::Int(mode))
+        .set_field(idx, fields::HW_FLOW, Value::Int(mode))
         .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, 0, 0) as u8;
+    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
     let (baudrate, data_size, parity, stop_bits, _) = get_config(objects, idx);
     platform::reconfigure(id, baudrate, data_size, parity, stop_bits, mode);
     Ok(None)

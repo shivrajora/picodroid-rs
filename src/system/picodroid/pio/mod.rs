@@ -1,3 +1,4 @@
+pub mod fields;
 #[cfg(not(test))]
 pub mod gpio;
 #[cfg(not(test))]
