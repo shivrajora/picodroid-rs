@@ -126,7 +126,7 @@ pub(super) fn count_args(descriptor: &str) -> usize {
                 count += 1;
             }
             '[' => {}
-            'J' | 'D' => count += 2,
+            'J' | 'D' => count += 1,
             _ => count += 1,
         }
     }

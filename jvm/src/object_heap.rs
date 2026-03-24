@@ -102,6 +102,13 @@ impl ObjectHeap {
         self.sb_append_bytes(s);
     }
 
+    /// Append a long (decimal) to the shared StringBuilder buffer.
+    pub fn sb_append_long(&mut self, n: i64) {
+        let mut tmp = [0u8; 21];
+        let s = long_to_decimal(n, &mut tmp);
+        self.sb_append_bytes(s);
+    }
+
     /// Return the current StringBuilder buffer contents and a raw pointer to them.
     ///
     /// # Safety
@@ -111,6 +118,28 @@ impl ObjectHeap {
     pub fn sb_contents(&self) -> (*const u8, usize) {
         (self.sb_buf.as_ptr(), self.sb_buf.len())
     }
+}
+
+fn long_to_decimal(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
+    if n == 0 {
+        buf[0] = b'0';
+        return &buf[..1];
+    }
+    let neg = n < 0;
+    if neg {
+        n = n.wrapping_neg();
+    }
+    let mut i = 21usize;
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    if neg {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    &buf[i..]
 }
 
 fn int_to_decimal(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {

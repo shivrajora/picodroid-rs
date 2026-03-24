@@ -95,7 +95,7 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Throwable` | `<init>` |
 /// | `java/lang/Exception` | `<init>` |
 /// | `java/lang/RuntimeException` | `<init>` |
-/// | `java/lang/StringBuilder` | `<init>`, `append(String)`, `append(int)`, `append(char)`, `toString` |
+/// | `java/lang/StringBuilder` | `<init>`, `append(String)`, `append(int)`, `append(char)`, `append(long)`, `append(double)`, `toString` |
 /// | `java/lang/String` | `length`, `charAt` |
 pub struct BuiltinHandler;
 
@@ -130,6 +130,12 @@ impl NativeMethodHandler for BuiltinHandler {
                         } else {
                             ctx.objects.sb_append_int(*n);
                         }
+                    }
+                    Some(Value::Long(n)) => {
+                        ctx.objects.sb_append_long(*n);
+                    }
+                    Some(Value::Double(d)) => {
+                        ctx.objects.sb_append_int(*d as i32);
                     }
                     _ => {}
                 }
