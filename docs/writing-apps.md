@@ -15,29 +15,16 @@ public class MyApp {
 }
 ```
 
-2. Add a feature for it in `Cargo.toml`:
+2. Create a `PicodroidManifest.xml` in the app directory:
 
-```toml
-[features]
-default = ["blinky", "chip-rp2040"]
-helloworld = []
-blinky = []
-uart = []
-myapp = []       # add this
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="myapp" version="1.0">
+    <application main-class="myapp/MyApp" />
+</manifest>
 ```
 
-3. Add a `cfg(feature)` block in `src/app.rs` inside `run_jvm()`:
-
-```rust
-#[cfg(feature = "myapp")]
-{
-    jvm.load_class(MYAPP_MYAPP_CLASS).unwrap();
-    jvm.load_class(PICODROID_UTIL_LOG_CLASS).unwrap();
-    jvm.invoke_static("myapp/MyApp", "main", heap, &mut handler).unwrap();
-}
-```
-
-4. Build and flash:
+3. Build and flash — no changes to `Cargo.toml` or `src/app.rs` needed:
 
 ```bash
 ./scripts/build.sh --app myapp
@@ -48,7 +35,7 @@ myapp = []       # add this
 ./scripts/flash.sh --app myapp --chip rp2350
 ```
 
-The build system automatically detects new `.java` files, compiles them with `javac`, and embeds the resulting `.class` bytecode into firmware Flash. The constant name for a class is derived from its path: `java/examples/myapp/java/myapp/MyApp.class` → `MYAPP_MYAPP_CLASS`.
+`build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup to find the entry point.
 
 ## Porting to a New Platform
 

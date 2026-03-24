@@ -32,7 +32,7 @@ cargo install elf2uf2-rs                # optional: needed for --uf2 flag
 
 ### Local CI (pre-commit hook)
 
-The pre-commit hook runs Java formatting check, `cargo fmt -- --check`, Clippy (for both RP2040 and RP2350), `cargo clean && cargo build`, and tests before each commit.
+The pre-commit hook runs Java formatting check, `cargo fmt`, APK build, Clippy (RP2040, RP2350, and sim), firmware build, and tests before each commit.
 
 Install the hook after cloning by symlinking so it stays in sync with `scripts/pre-commit`:
 
@@ -44,7 +44,7 @@ To skip the hook in exceptional cases: `git commit --no-verify`.
 
 ### Java Development Kit (JDK 11+)
 
-The build compiles Java sources automatically using `javac`. JDK 11 or later is required to run the Java formatter (the formatter tool itself needs JDK 11+, even though app code targets Java 8).
+The `build-apk.sh` script compiles Java sources using `javac`. JDK 11 or later is required to run the Java formatter (the formatter tool itself needs JDK 11+, even though app code targets Java 8).
 
 ```bash
 # macOS
@@ -112,7 +112,7 @@ Pass `--app <name>` to select which example to build or flash:
 ./scripts/flash.sh --app helloworld --release
 ```
 
-The `--app` flag maps directly to a Cargo feature and controls which Java class is invoked at startup. When omitted, `blinky` is used.
+The `--app` flag selects which example to build. `build.sh` compiles the Java sources into a `.papk` file and embeds it into the firmware — no Cargo feature flags are involved.
 
 ### Generating a UF2 file
 

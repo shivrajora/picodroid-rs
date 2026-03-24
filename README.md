@@ -20,7 +20,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 FreeRTOS scheduler
   └── "jvm" task
        └── JVM interpreter (jvm/ crate)
-            └── Java bytecode (.class embedded in Flash)
+            └── Java bytecode (loaded from embedded .papk in Flash)
                  └── native dispatch → defmt RTT log
 ```
 
@@ -34,8 +34,8 @@ FreeRTOS scheduler
 ```bash
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
-./scripts/build.sh
-./scripts/flash.sh
+./scripts/build.sh --app helloworld
+./scripts/flash.sh --app helloworld
 ```
 
 See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip selection, app selection, and UF2 flashing.
@@ -57,16 +57,21 @@ picodroid-rs/
 │
 ├── java/
 │   ├── framework/      # Android-compatible Java API stubs (picodroid.*)
-│   └── examples/       # Example apps (blinky, uart, helloworld, arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo, mathsdemo, i2cdemo, spidemo)
+│   └── examples/       # Example apps, each with Java sources and a PicodroidManifest.xml
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
 │   └── system/         # Native implementations of Java API methods
 │
+├── tools/
+│   └── papk-pack/      # Host tool: packages compiled .class files into a .papk file
+│
+├── vendor/             # Downloaded tooling (google-java-format JAR; gitignored)
+│
 ├── memory.x            # RP2040 linker memory layout
 ├── memory_rp2350.x     # RP2350 linker memory layout
 ├── third_party/        # Git submodules (FreeRTOS-Kernel)
-└── build.rs            # Compiles FreeRTOS C + Java sources, embeds .class into firmware
+└── build.rs            # Compiles FreeRTOS C, embeds pre-built .papk into firmware Flash
 ```
 
 ## Attribution
