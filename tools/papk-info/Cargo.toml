@@ -1,0 +1,10 @@
+[package]
+name = "papk-info"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Displays the contents of a PAPK (Picodroid APK) file"
+
+[[bin]]
+name = "papk-info"
+path = "src/main.rs"

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "jvm", "tools/papk-pack"]
+members = [".", "jvm", "tools/papk-pack", "tools/papk-info"]
 resolver = "2"
 
 [package]
