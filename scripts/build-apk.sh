@@ -91,7 +91,7 @@ while IFS= read -r -d '' f; do
 done < <(find "$REPO_ROOT/sdk/java" -name "*.java" -print0)
 
 echo "==> Compiling picodroid framework..."
-javac --release 8 \
+javac --release 8 -Xlint:-options \
   -d "$FRAMEWORK_CLASSES_DIR" \
   "${FRAMEWORK_JAVA_FILES[@]}"
 
@@ -102,7 +102,7 @@ while IFS= read -r -d '' f; do
 done < <(find "$APP_DIR" -name "*.java" -print0)
 
 echo "==> Compiling Java sources for '$APP'..."
-javac --release 8 \
+javac --release 8 -Xlint:-options \
   -cp "$FRAMEWORK_CLASSES_DIR" \
   -d "$CLASSES_DIR" \
   "${APP_JAVA_FILES[@]}"

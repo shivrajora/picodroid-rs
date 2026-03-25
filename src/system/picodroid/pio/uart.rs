@@ -12,6 +12,10 @@ mod platform;
 #[path = "uart/sim.rs"]
 mod platform;
 
+// Expose the platform module so pdb_task can call reconfigure/write_byte directly.
+#[cfg(not(feature = "sim"))]
+pub(crate) use platform::{reconfigure, write_byte};
+
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {
         Some(Value::ObjectRef(idx)) => Ok(*idx),

@@ -79,6 +79,17 @@ pub trait NativeMethodHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>>;
+
+    /// Returns `true` if the JVM should stop at the next opcode boundary.
+    ///
+    /// The interpreter checks this once per bytecode instruction.  When `true`,
+    /// execution is aborted by returning [`JvmError::Interrupted`] — a clean,
+    /// cooperative exit for use cases like hot-swap app deployment.
+    ///
+    /// Default implementation always returns `false` (never interrupted).
+    fn interrupted(&self) -> bool {
+        false
+    }
 }
 
 /// Built-in handler for `java/lang/*` methods common to all JVM environments.

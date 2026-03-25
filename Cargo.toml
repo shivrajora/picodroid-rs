@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "jvm", "tools/papk-pack", "tools/papk-info"]
+members = [".", "jvm", "tools/papk-pack", "tools/papk-info", "tools/pdb"]
 resolver = "2"
 
 [package]
@@ -16,6 +16,7 @@ sim = []
 
 [dependencies]
 pico-jvm = { path = "jvm", version = "0.1" }
+crc32fast = { version = "1", default-features = false }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }

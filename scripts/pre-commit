@@ -54,6 +54,13 @@ if ! bash "$REPO_ROOT/scripts/build.sh" --app helloworld; then
   exit 1
 fi
 
+echo "==> Running clippy (pdb)..."
+if ! cargo clippy -p pdb --target "$HOST_TARGET" -- --deny=warnings; then
+  echo ""
+  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
+  exit 1
+fi
+
 echo "==> Running tests..."
 if ! bash "$REPO_ROOT/scripts/test.sh"; then
   echo ""

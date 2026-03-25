@@ -4,6 +4,8 @@
 extern crate alloc;
 
 mod app;
+#[cfg(not(any(test, feature = "sim")))]
+mod pdb;
 mod system;
 
 #[cfg(not(any(test, feature = "sim")))]
@@ -70,16 +72,41 @@ fn clock_init() {
 fn main() -> ! {
     clock_init();
 
+    // On boot, prefer a persistent PAPK from flash over the baked-in APK.
+    let boot_apk: &'static [u8] = unsafe { pdb::flash::read_flash_papk().unwrap_or(app::APK_DATA) };
+
+    // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
+    Task::new()
+        .name("pdb")
+        .stack_size(1024)
+        .priority(TaskPriority(2))
+        .start(move |_| pdb::run_pdb_task())
+        .unwrap();
+
+    // JVM task: loop forever, hot-swapping the app whenever pdb installs a new one.
     Task::new()
         .name("jvm")
         .stack_size(4096)
-        .start(move |_| {
-            app::run_jvm();
-            loop {
-                freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
+        .priority(TaskPriority(1))
+        .start(move |_| loop {
+            let apk = pdb::pending::take().unwrap_or(boot_apk);
+            pdb::pending::clear_stop();
+            app::run_jvm_with(apk);
+
+            // Wait for any child threads to exit before resetting the heap.
+            while pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0 {
+                CurrentTask::delay(Duration::ms(10));
+            }
+
+            // If nothing new to run, idle until the next install.
+            if !pdb::pending::HAS_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
+                loop {
+                    CurrentTask::delay(Duration::ms(1000));
+                }
             }
         })
         .unwrap();
+
     FreeRtosUtils::start_scheduler();
 }
 

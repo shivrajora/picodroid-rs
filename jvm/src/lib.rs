@@ -116,6 +116,14 @@ impl SharedJvmHeap {
     }
 }
 
+impl SharedJvmHeap {
+    /// Clears all heap state — call before running a new app.
+    /// Drops all objects, arrays, interned strings, and static fields.
+    pub fn reset(&mut self) {
+        *self = SharedJvmHeap::new();
+    }
+}
+
 impl Default for SharedJvmHeap {
     fn default() -> Self {
         Self::new()

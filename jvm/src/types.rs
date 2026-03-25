@@ -49,4 +49,7 @@ pub enum JvmError {
     /// A Java exception was thrown; the `u16` is the [`crate::object_heap::ObjectHeap`]
     /// index of the exception object.
     Exception(u16),
+    /// The interpreter was asked to stop cooperatively (e.g. by `pdb install`).
+    /// Not a real error — signals a clean exit for app hot-swap.
+    Interrupted,
 }

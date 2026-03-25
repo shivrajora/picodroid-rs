@@ -1,0 +1,14 @@
+[package]
+name = "pdb"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Picodroid Debug Bridge — push apps to a picodroid device over UART"
+
+[[bin]]
+name = "pdb"
+path = "src/main.rs"
+
+[dependencies]
+serialport = "4"
+crc32fast = "1"

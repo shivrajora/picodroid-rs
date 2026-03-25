@@ -118,29 +118,43 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                             .ok()?;
 
                         #[cfg(not(feature = "sim"))]
-                        freertos_rust::Task::new()
-                            .name("jvm-t")
-                            .stack_size(4096)
-                            .start(move |_| {
-                                let mut jvm = pico_jvm::Jvm::new();
-                                crate::app::load_classes(&mut jvm).unwrap();
-                                let heap = crate::app::shared_heap();
-                                let mut handler = PicodroidNativeHandler;
-                                jvm.invoke_instance(
-                                    class_name,
-                                    "run",
-                                    runnable_obj_idx,
-                                    heap,
-                                    &mut handler,
-                                )
-                                .ok();
-                                loop {
-                                    freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(
-                                        60_000,
-                                    ));
-                                }
-                            })
-                            .unwrap();
+                        {
+                            // Increment thread counter (single-core; load+store is atomic on ARM).
+                            let n = crate::pdb::pending::ACTIVE_JVM_THREADS
+                                .load(core::sync::atomic::Ordering::Relaxed);
+                            crate::pdb::pending::ACTIVE_JVM_THREADS
+                                .store(n + 1, core::sync::atomic::Ordering::Relaxed);
+                            freertos_rust::Task::new()
+                                .name("jvm-t")
+                                .stack_size(4096)
+                                .start(move |_| {
+                                    let mut jvm = pico_jvm::Jvm::new();
+                                    crate::app::load_classes(&mut jvm).unwrap();
+                                    let heap = crate::app::shared_heap();
+                                    let mut handler = PicodroidNativeHandler;
+                                    jvm.invoke_instance(
+                                        class_name,
+                                        "run",
+                                        runnable_obj_idx,
+                                        heap,
+                                        &mut handler,
+                                    )
+                                    .ok();
+                                    // Decrement thread counter.
+                                    let n = crate::pdb::pending::ACTIVE_JVM_THREADS
+                                        .load(core::sync::atomic::Ordering::Relaxed);
+                                    crate::pdb::pending::ACTIVE_JVM_THREADS.store(
+                                        n.saturating_sub(1),
+                                        core::sync::atomic::Ordering::Release,
+                                    );
+                                    loop {
+                                        freertos_rust::CurrentTask::delay(
+                                            freertos_rust::Duration::ms(60_000),
+                                        );
+                                    }
+                                })
+                                .unwrap();
+                        }
 
                         #[cfg(feature = "sim")]
                         {
@@ -156,5 +170,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             }
             _ => None,
         }
+    }
+
+    #[cfg(not(any(test, feature = "sim")))]
+    fn interrupted(&self) -> bool {
+        crate::pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed)
     }
 }

@@ -88,6 +88,12 @@ pub fn execute<H: NativeMethodHandler>(
     };
 
     loop {
+        // Cooperative stop-point: checked once per bytecode instruction.
+        // Returns Interrupted immediately so the caller can clean up and exit.
+        if ex.handler.interrupted() {
+            return Err(JvmError::Interrupted);
+        }
+
         let cf = &ex.classes[frame.class_idx];
         let method = &cf.methods[frame.method_idx];
         let code = cf.method_code(method);

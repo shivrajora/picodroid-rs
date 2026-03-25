@@ -102,17 +102,43 @@ fn load_framework_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
     Ok(())
 }
 
+// ── Active APK pointer ────────────────────────────────────────────────────────
+//
+// run_jvm_with() stores a pointer to the current APK here so that
+// load_classes_from_apk() (a bare fn, not a closure) can serve both the
+// baked-in APK_DATA and a dynamically-installed PAPK for Thread.start()
+// spawned tasks without needing a global allocator or closure captures.
+//
+// SAFETY: single-core Cortex-M; only one FreeRTOS task writes (jvm_task) and
+// only one reads (jvm_task or jvm-t spawned tasks) at a time.
+#[cfg(not(test))]
+struct ActiveApkCell(core::cell::UnsafeCell<(*const u8, usize)>);
+#[cfg(not(test))]
+unsafe impl Sync for ActiveApkCell {}
+
+#[cfg(not(test))]
+static ACTIVE_APK: ActiveApkCell =
+    ActiveApkCell(core::cell::UnsafeCell::new((core::ptr::null(), 0)));
+
 // ── APK-driven class loading ──────────────────────────────────────────────────
 
-/// Loads all classes from the embedded APK into `jvm`.
+/// Loads all classes from the active APK into `jvm`.
 ///
 /// Used both during initial JVM startup and by the `Thread.start()` native
-/// handler when it spawns a fresh `Jvm` for a new thread.  Because `APK_DATA`
-/// is `'static`, all `ClassEntry::data` slices are `&'static [u8]` and satisfy
-/// the `Jvm::load_class` requirement without any copying.
+/// handler when it spawns a fresh `Jvm` for a new thread.  Reads the APK
+/// pointer set by `run_jvm_with()` so that dynamically-installed PAPKs
+/// are loaded correctly in child threads without closure captures.
 #[cfg(not(test))]
 fn load_classes_from_apk(jvm: &mut Jvm) -> Result<(), JvmError> {
-    let apk = Papk::parse(APK_DATA).map_err(|_| JvmError::InvalidBytecode)?;
+    let apk_data: &[u8] = unsafe {
+        let (ptr, len) = *ACTIVE_APK.0.get();
+        if ptr.is_null() {
+            APK_DATA
+        } else {
+            core::slice::from_raw_parts(ptr, len)
+        }
+    };
+    let apk = Papk::parse(apk_data).map_err(|_| JvmError::InvalidBytecode)?;
     for entry in apk.classes().map_err(|_| JvmError::InvalidBytecode)? {
         jvm.load_class(entry.data)?;
     }
@@ -127,10 +153,23 @@ fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
     load_classes_from_apk(jvm)
 }
 
-// ── run_jvm ───────────────────────────────────────────────────────────────────
+// ── run_jvm_with / run_jvm ────────────────────────────────────────────────────
 
+/// Run the JVM with a specific APK slice.
+///
+/// Resets the shared heap (clearing previous app state), loads framework and
+/// app classes, then calls `<main_class>.main()`.  Returns when execution
+/// completes naturally or is interrupted by `pdb install` (cooperative stop).
+/// `JvmError::Interrupted` is silently ignored — it is a clean exit signal.
 #[cfg(not(test))]
-pub fn run_jvm() {
+pub fn run_jvm_with(apk_data: &[u8]) {
+    // Publish the APK pointer so load_classes_from_apk (a bare fn) picks it up
+    // even when called from Thread.start()-spawned child tasks.
+    unsafe { *ACTIVE_APK.0.get() = (apk_data.as_ptr(), apk_data.len()) };
+
+    // Clear previous app's heap state before running a new app.
+    shared_heap().reset();
+
     let mut jvm = Box::new(Jvm::new());
     let heap = shared_heap();
     let mut handler = crate::system::native_handler::PicodroidNativeHandler;
@@ -144,13 +183,20 @@ pub fn run_jvm() {
     load_classes_from_apk(&mut jvm).unwrap();
 
     // Determine the entry point from the APK manifest.
-    let apk = Papk::parse(APK_DATA).unwrap();
+    let apk = Papk::parse(apk_data).unwrap();
     let main_class = apk
         .main_class()
         .expect("APK manifest is missing 'main-class'");
 
-    jvm.invoke_static(main_class, "main", heap, &mut handler)
-        .unwrap();
+    // Interrupted is a clean cooperative stop — not a real error.
+    let _ = jvm.invoke_static(main_class, "main", heap, &mut handler);
+}
+
+/// Run the JVM with the baked-in APK (sim entry point).
+#[cfg(not(test))]
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
+pub fn run_jvm() {
+    run_jvm_with(APK_DATA);
 
     #[cfg(not(feature = "sim"))]
     loop {
