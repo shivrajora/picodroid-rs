@@ -14,4 +14,6 @@ public class PeripheralManager {
   public native SpiDevice openSpiDevice(String name);
 
   public native Pwm openPwm(String name);
+
+  public native Adc openAdcPin(String name);
 }

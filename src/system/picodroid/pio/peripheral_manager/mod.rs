@@ -3,12 +3,14 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
+mod adc;
 mod gpio;
 mod i2c;
 mod pwm;
 mod spi;
 mod uart;
 
+pub use adc::open_adc;
 pub use gpio::open_gpio;
 pub use i2c::open_i2c;
 pub use pwm::open_pwm;

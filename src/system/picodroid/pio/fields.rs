@@ -28,3 +28,7 @@ pub mod pwm {
     pub const DUTY_CYCLE: usize = 2;
     pub const ENABLED: usize = 3;
 }
+
+pub mod adc {
+    pub const PIN: usize = 0;
+}

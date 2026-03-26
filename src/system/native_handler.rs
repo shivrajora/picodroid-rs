@@ -40,6 +40,17 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     ctx.objects,
                 ))
             }
+            ("picodroid/pio/PeripheralManager", "openAdcPin") => {
+                Some(crate::system::picodroid::pio::peripheral_manager::open_adc(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ))
+            }
+            ("picodroid/pio/Adc", "readValue") => Some(
+                crate::system::picodroid::pio::adc::read_value_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Adc", "close") => Some(Ok(None)),
             ("picodroid/pio/I2cDevice", "setSpeed") => Some(
                 crate::system::picodroid::pio::i2c::set_speed_native(ctx.args, ctx.objects),
             ),

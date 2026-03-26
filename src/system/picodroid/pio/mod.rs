@@ -1,3 +1,5 @@
+#[cfg(not(test))]
+pub mod adc;
 pub mod fields;
 #[cfg(not(test))]
 pub mod gpio;
