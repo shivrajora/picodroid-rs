@@ -97,3 +97,8 @@ Return `None` for any method your handler does not recognise. The interpreter au
 | Dense switch | consecutive-case `switch` compiled to `tableswitch` |
 | Type checking | `instanceof`, `checkcast` |
 | Reference arrays | `new SomeClass[n]`, element store and load (`aastore`, `aaload`) |
+| String predicates | `equals`, `equalsIgnoreCase`, `startsWith`, `endsWith`, `contains`, `isEmpty`, `compareTo` |
+| String search | `indexOf(char/String)`, `lastIndexOf(char/String)` |
+| String transforms | `substring(int)`, `substring(int,int)`, `trim()`, `toUpperCase()`, `toLowerCase()` |
+| String factory | `String.valueOf(int/long/boolean/char/float/double)` |
+| StringBuilder | `new StringBuilder("seed")`, `append(String/int/long/float/boolean/char)`, `length()`, `charAt(int)`, `toString()` |

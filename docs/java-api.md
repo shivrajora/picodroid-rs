@@ -2,6 +2,73 @@
 
 Java system APIs live under `sdk/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
 
+## `java.lang.String`
+
+The JVM provides built-in support for `java.lang.String`. All methods work on ASCII strings; multi-byte UTF-8 sequences are passed through unchanged but byte-indexed (not character-indexed).
+
+```java
+String s = "Hello, Pico!";
+
+// Length and access
+int len   = s.length();          // 12
+char ch   = s.charAt(7);         // 'P'
+boolean e = s.isEmpty();         // false
+
+// Comparison
+boolean eq  = s.equals("Hello, Pico!");          // true
+boolean eqi = s.equalsIgnoreCase("hello, pico!"); // true
+int     cmp = s.compareTo("Hello, Pico!");        // 0
+
+// Predicates
+boolean sw = s.startsWith("Hello");  // true
+boolean ew = s.endsWith("Pico!");    // true
+boolean co = s.contains("Pico");     // true
+
+// Search
+int idx  = s.indexOf(',');         // 6
+int idx2 = s.indexOf("Pico");      // 7
+int li   = s.lastIndexOf('!');     // 11
+
+// Transforms — return new String values
+String sub   = s.substring(7, 11);  // "Pico"
+String tail  = s.substring(7);      // "Pico!"
+String tr    = "  hi  ".trim();     // "hi"
+String upper = "pico".toUpperCase(); // "PICO"
+String lower = "PICO".toLowerCase(); // "pico"
+
+// Static factory
+String vi = String.valueOf(42);       // "42"
+String vl = String.valueOf(9000L);    // "9000"
+String vb = String.valueOf(true);     // "true"
+```
+
+> **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
+> ```java
+> String result = sb.toString();   // snapshot the buffer
+> Log.i(TAG, "prefix=" + result);  // safe to concatenate now
+> ```
+
+## `java.lang.StringBuilder`
+
+```java
+StringBuilder sb = new StringBuilder();         // empty
+StringBuilder sb = new StringBuilder("prefix="); // with initial content
+
+sb.append("text");    // append String
+sb.append(42);        // append int
+sb.append(3.14f);     // append float  (formats as "3.14")
+sb.append(100L);      // append long
+sb.append(true);      // append "true" or "false"
+sb.append('x');       // append char
+
+int  len = sb.length();    // current content length
+char ch  = (char) sb.charAt(2);  // byte at position 2
+
+String s = sb.toString();  // intern result as a String
+```
+
+> **Single shared buffer:** all `StringBuilder` instances in the JVM share one underlying buffer. Creating a new `StringBuilder` (including the compiler-generated one for `+` concatenation) clears that buffer. Build one `StringBuilder` at a time and call `toString()` before starting another.
+
 ## `picodroid.util.Log`
 
 ```java
