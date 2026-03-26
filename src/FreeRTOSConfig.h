@@ -23,7 +23,7 @@
 #define configTICK_RATE_HZ                      1000
 
 /* Task priorities and stack */
-#define configMAX_PRIORITIES                    5
+#define configMAX_PRIORITIES                    32
 #define configMINIMAL_STACK_SIZE                128
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t

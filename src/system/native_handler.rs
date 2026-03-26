@@ -119,9 +119,18 @@ impl NativeMethodHandler for PicodroidNativeHandler {
 
                         #[cfg(not(feature = "sim"))]
                         {
+                            // Field 0 = target (Runnable), field 1 = priority (int).
+                            let android_priority = match ctx.objects.get_field(*thread_idx, 1) {
+                                Some(Value::Int(p)) => p,
+                                _ => 5, // Thread.NORM_PRIORITY fallback
+                            };
+                            let freertos_prio = crate::task_priority::android_to_freertos_priority(
+                                android_priority,
+                            );
                             let child_task = freertos_rust::Task::new()
                                 .name("jvm-t")
                                 .stack_size(4096)
+                                .priority(freertos_rust::TaskPriority(freertos_prio))
                                 .start(move |_| {
                                     let mut jvm = pico_jvm::Jvm::new();
                                     crate::app::load_classes(&mut jvm).unwrap();

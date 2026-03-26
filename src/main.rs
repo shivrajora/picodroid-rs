@@ -7,6 +7,7 @@ mod app;
 #[cfg(not(any(test, feature = "sim")))]
 mod pdb;
 mod system;
+mod task_priority;
 
 #[cfg(not(any(test, feature = "sim")))]
 use cortex_m::asm;
@@ -79,7 +80,7 @@ fn main() -> ! {
     Task::new()
         .name("pdb")
         .stack_size(1024)
-        .priority(TaskPriority(2))
+        .priority(TaskPriority(task_priority::PRIORITY_RT_1))
         .start(move |_| pdb::run_pdb_task())
         .unwrap();
 
@@ -87,7 +88,7 @@ fn main() -> ! {
     Task::new()
         .name("jvm")
         .stack_size(4096)
-        .priority(TaskPriority(1))
+        .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
         .start(move |_| loop {
             let apk = pdb::pending::take().unwrap_or(boot_apk);
             pdb::pending::clear_stop();
