@@ -93,7 +93,10 @@ fn main() -> ! {
             pdb::pending::clear_stop();
             app::run_jvm_with(apk);
 
-            // Wait for any child threads to exit before resetting the heap.
+            // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
+            pdb::pending::abort_all_child_delays();
+
+            // Wait for all children to deregister themselves before resetting the heap.
             while pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0 {
                 CurrentTask::delay(Duration::ms(10));
             }

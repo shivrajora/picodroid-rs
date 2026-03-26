@@ -119,12 +119,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
 
                         #[cfg(not(feature = "sim"))]
                         {
-                            // Increment thread counter (single-core; load+store is atomic on ARM).
-                            let n = crate::pdb::pending::ACTIVE_JVM_THREADS
-                                .load(core::sync::atomic::Ordering::Relaxed);
-                            crate::pdb::pending::ACTIVE_JVM_THREADS
-                                .store(n + 1, core::sync::atomic::Ordering::Relaxed);
-                            freertos_rust::Task::new()
+                            let child_task = freertos_rust::Task::new()
                                 .name("jvm-t")
                                 .stack_size(4096)
                                 .start(move |_| {
@@ -140,12 +135,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                         &mut handler,
                                     )
                                     .ok();
-                                    // Decrement thread counter.
-                                    let n = crate::pdb::pending::ACTIVE_JVM_THREADS
-                                        .load(core::sync::atomic::Ordering::Relaxed);
-                                    crate::pdb::pending::ACTIVE_JVM_THREADS.store(
-                                        n.saturating_sub(1),
-                                        core::sync::atomic::Ordering::Release,
+                                    // Deregister before idling so jvm_task's wait loop unblocks.
+                                    crate::pdb::pending::deregister_child_task(
+                                        freertos_rust::Task::current().unwrap().raw_handle(),
                                     );
                                     loop {
                                         freertos_rust::CurrentTask::delay(
@@ -154,6 +146,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                     }
                                 })
                                 .unwrap();
+                            crate::pdb::pending::register_child_task(child_task);
                         }
 
                         #[cfg(feature = "sim")]
