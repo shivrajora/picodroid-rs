@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class SpiDevice {
+public class SpiDevice implements AutoCloseable {
   public static final int MODE_0 = 0; // CPOL=0, CPHA=0
   public static final int MODE_1 = 1; // CPOL=0, CPHA=1
   public static final int MODE_2 = 2; // CPOL=1, CPHA=0

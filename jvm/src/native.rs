@@ -103,7 +103,7 @@ pub trait NativeMethodHandler {
 /// | Class | Methods |
 /// |---|---|
 /// | `java/lang/Object` | `<init>` |
-/// | `java/lang/Throwable` | `<init>` |
+/// | `java/lang/Throwable` | `<init>`, `addSuppressed` |
 /// | `java/lang/Exception` | `<init>` |
 /// | `java/lang/RuntimeException` | `<init>` |
 /// | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/char/long/float/double/boolean)`, `length`, `charAt`, `toString` |
@@ -154,6 +154,12 @@ impl NativeMethodHandler for BuiltinHandler {
             | ("java/lang/Throwable", "<init>")
             | ("java/lang/Exception", "<init>")
             | ("java/lang/RuntimeException", "<init>") => Some(Ok(None)),
+
+            // ── Throwable instance methods ───────────────────────────────────
+            // addSuppressed is called by try-with-resources when both the body
+            // and close() throw.  Suppressed exceptions are not useful on an
+            // embedded device, so we accept the call and discard the argument.
+            ("java/lang/Throwable", "addSuppressed") => Some(Ok(None)),
 
             // ── StringBuilder ────────────────────────────────────────────────
             ("java/lang/StringBuilder", "<init>") => {

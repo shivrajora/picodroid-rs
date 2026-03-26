@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class Pwm {
+public class Pwm implements AutoCloseable {
   private int pin;
 
   // Package-private — created via PeripheralManager.openPwm()

@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class UartDevice {
+public class UartDevice implements AutoCloseable {
   public static final int PARITY_NONE = 0;
   public static final int PARITY_EVEN = 1;
   public static final int PARITY_ODD = 2;

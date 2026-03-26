@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class Gpio {
+public class Gpio implements AutoCloseable {
   public static final int DIRECTION_OUT_INITIALLY_HIGH = 1;
   public static final int DIRECTION_OUT_INITIALLY_LOW = 2;
 

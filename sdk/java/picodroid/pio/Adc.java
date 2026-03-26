@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class Adc {
+public class Adc implements AutoCloseable {
   private int pin;
 
   Adc(int pin) {

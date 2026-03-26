@@ -1,6 +1,6 @@
 package picodroid.pio;
 
-public class I2cDevice {
+public class I2cDevice implements AutoCloseable {
   public static final int SPEED_STANDARD = 100000;
   public static final int SPEED_FAST = 400000;
 
