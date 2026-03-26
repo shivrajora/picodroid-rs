@@ -1,0 +1,21 @@
+<svg width="100%" viewBox="0 0 680 420" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  
+  <mask id="face">
+    <rect width="680" height="420" fill="white"/>
+    <!-- cut out the inner hex (face area becomes transparent) -->
+    <polygon points="340,92 394,123 394,165 340,196 286,165 286,123" fill="black"/>
+  </mask>
+</defs>
+
+<!-- Ring between outer and inner hex (donut) -->
+<polygon points="340,68 408,106 408,182 340,220 272,182 272,106" mask="url(#face)" style="fill:rgb(224, 136, 64);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+<!-- Eyes and mouth (floating orange shapes) -->
+<circle cx="318" cy="136" r="14" style="fill:rgb(224, 136, 64);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<circle cx="362" cy="136" r="14" style="fill:rgb(224, 136, 64);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<rect x="322" y="163" width="36" height="8" rx="2" style="fill:rgb(224, 136, 64);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+<!-- Wordmark -->
+<text x="340" y="278" text-anchor="middle" font-size="26" font-family="monospace" font-weight="700" letter-spacing="1" style="fill:rgb(224, 136, 64);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:monospace;font-size:26px;font-weight:700;text-anchor:middle;dominant-baseline:auto">picodroid-rs</text>
+</svg>

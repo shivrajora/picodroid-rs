@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/picodroid_rs_inverted.svg" alt="Picodroid" width="400"/>
+</p>
+
 # Picodroid
 
 A stripped-down, FreeRTOS-based version of Android for the Raspberry Pi Pico.
