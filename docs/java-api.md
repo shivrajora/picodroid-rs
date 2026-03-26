@@ -105,7 +105,21 @@ import picodroid.concurrent.Thread;
 
 Thread t = new Thread(new MyRunnable());
 t.start();   // spawns a FreeRTOS task that calls MyRunnable.run()
+
+// Priority (optional, must be set before start())
+t.setPriority(Thread.MAX_PRIORITY);  // 1 (MIN) .. 5 (NORM, default) .. 10 (MAX)
+int p = t.getPriority();
 ```
+
+### Priority
+
+| Java constant | Value | FreeRTOS priority |
+|---|---|---|
+| `Thread.MIN_PRIORITY` | 1 | 11 |
+| `Thread.NORM_PRIORITY` | 5 | 15 (default) |
+| `Thread.MAX_PRIORITY` | 10 | 20 |
+
+Priorities follow the Android `Thread` API (1–10). Internally they map to FreeRTOS priorities 11–20 (the JVM tier), which sit below real-time native tasks (21–30) and above background native services (1–10). `setPriority` must be called before `start()`; changing priority on a running thread is not supported.
 
 Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stack. When `MyRunnable.run()` returns, the task self-deletes and its stack is reclaimed automatically.
 
