@@ -135,15 +135,12 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                         &mut handler,
                                     )
                                     .ok();
-                                    // Deregister before idling so jvm_task's wait loop unblocks.
+                                    // Deregister before returning so jvm_task's wait loop unblocks.
+                                    // The spawn_inner trampoline calls vTaskDelete(NULL) after
+                                    // this closure returns, reclaiming the stack and TCB.
                                     crate::pdb::pending::deregister_child_task(
                                         freertos_rust::Task::current().unwrap().raw_handle(),
                                     );
-                                    loop {
-                                        freertos_rust::CurrentTask::delay(
-                                            freertos_rust::Duration::ms(60_000),
-                                        );
-                                    }
                                 })
                                 .unwrap();
                             crate::pdb::pending::register_child_task(child_task);
