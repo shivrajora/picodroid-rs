@@ -10,6 +10,7 @@ pub struct JvmObject {
 pub struct ObjectHeap {
     objects: Vec<Option<JvmObject>>,
     sb_buf: Vec<u8>,
+    list_bufs: Vec<Option<Vec<Value>>>,
 }
 
 impl ObjectHeap {
@@ -17,6 +18,7 @@ impl ObjectHeap {
         Self {
             objects: Vec::new(),
             sb_buf: Vec::new(),
+            list_bufs: Vec::new(),
         }
     }
 }
@@ -139,6 +141,94 @@ impl ObjectHeap {
     /// `sb_append_int`, or `sb_clear`, any of which may reallocate `sb_buf`.
     pub fn sb_contents(&self) -> (*const u8, usize) {
         (self.sb_buf.as_ptr(), self.sb_buf.len())
+    }
+
+    // ── ArrayList / list_bufs ────────────────────────────────────────────────
+
+    /// Allocate a new list buffer, returning its index.
+    /// Reuses a `None` slot (freed by GC) before growing the backing Vec.
+    pub fn list_alloc(&mut self) -> Option<u16> {
+        if let Some(idx) = self.list_bufs.iter().position(|s| s.is_none()) {
+            self.list_bufs[idx] = Some(Vec::new());
+            return Some(idx as u16);
+        }
+        let idx = self.list_bufs.len() as u16;
+        self.list_bufs.push(Some(Vec::new()));
+        Some(idx)
+    }
+
+    /// Free a list buffer slot (GC hook). No-op if `idx` is out of range.
+    pub fn list_free(&mut self, idx: u16) {
+        if let Some(slot) = self.list_bufs.get_mut(idx as usize) {
+            *slot = None;
+        }
+    }
+
+    /// Return the number of elements in the list.
+    pub fn list_len(&self, idx: u16) -> usize {
+        self.list_bufs
+            .get(idx as usize)
+            .and_then(|s| s.as_ref())
+            .map(|v| v.len())
+            .unwrap_or(0)
+    }
+
+    /// Return the element at position `i`, or `None` if out of bounds.
+    pub fn list_get(&self, idx: u16, i: usize) -> Option<Value> {
+        self.list_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
+    }
+
+    /// Append `v` to the end of the list.
+    pub fn list_add(&mut self, idx: u16, v: Value) {
+        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
+            buf.push(v);
+        }
+    }
+
+    /// Insert `v` at position `i`, shifting subsequent elements right.
+    /// If `i >= len`, appends to the end.
+    pub fn list_insert(&mut self, idx: u16, i: usize, v: Value) {
+        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
+            let pos = i.min(buf.len());
+            buf.insert(pos, v);
+        }
+    }
+
+    /// Replace the element at position `i` with `v`, returning the old value.
+    /// Returns `None` if `i` is out of bounds.
+    pub fn list_set(&mut self, idx: u16, i: usize, v: Value) -> Option<Value> {
+        let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
+        let old = *buf.get(i)?;
+        buf[i] = v;
+        Some(old)
+    }
+
+    /// Remove and return the element at position `i`.
+    /// Returns `None` if `i` is out of bounds.
+    pub fn list_remove(&mut self, idx: u16, i: usize) -> Option<Value> {
+        let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
+        if i < buf.len() {
+            Some(buf.remove(i))
+        } else {
+            None
+        }
+    }
+
+    /// Remove all elements from the list.
+    pub fn list_clear(&mut self, idx: u16) {
+        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
+            buf.clear();
+        }
+    }
+
+    /// Return an iterator over the list elements.
+    pub fn list_iter(&self, idx: u16) -> impl Iterator<Item = Value> + '_ {
+        self.list_bufs
+            .get(idx as usize)
+            .and_then(|s| s.as_ref())
+            .map(|v| v.iter().copied())
+            .into_iter()
+            .flatten()
     }
 }
 
@@ -431,5 +521,92 @@ mod tests {
         let s = float_to_str_buf(-3.14, &mut buf);
         // Should start with "-3."
         assert!(s.starts_with(b"-3."));
+    }
+
+    // ── list_bufs tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn list_alloc_returns_sequential_indices() {
+        let mut heap = ObjectHeap::new();
+        assert_eq!(heap.list_alloc(), Some(0));
+        assert_eq!(heap.list_alloc(), Some(1));
+        assert_eq!(heap.list_alloc(), Some(2));
+    }
+
+    #[test]
+    fn list_add_and_get() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(10));
+        heap.list_add(idx, Value::Int(20));
+        assert_eq!(heap.list_len(idx), 2);
+        assert_eq!(heap.list_get(idx, 0), Some(Value::Int(10)));
+        assert_eq!(heap.list_get(idx, 1), Some(Value::Int(20)));
+        assert_eq!(heap.list_get(idx, 2), None);
+    }
+
+    #[test]
+    fn list_set_returns_old_value() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(1));
+        let old = heap.list_set(idx, 0, Value::Int(99));
+        assert_eq!(old, Some(Value::Int(1)));
+        assert_eq!(heap.list_get(idx, 0), Some(Value::Int(99)));
+    }
+
+    #[test]
+    fn list_remove_returns_value_and_shifts() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(1));
+        heap.list_add(idx, Value::Int(2));
+        heap.list_add(idx, Value::Int(3));
+        let removed = heap.list_remove(idx, 1);
+        assert_eq!(removed, Some(Value::Int(2)));
+        assert_eq!(heap.list_len(idx), 2);
+        assert_eq!(heap.list_get(idx, 1), Some(Value::Int(3)));
+    }
+
+    #[test]
+    fn list_insert_shifts_right() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(1));
+        heap.list_add(idx, Value::Int(3));
+        heap.list_insert(idx, 1, Value::Int(2));
+        assert_eq!(heap.list_len(idx), 3);
+        assert_eq!(heap.list_get(idx, 1), Some(Value::Int(2)));
+        assert_eq!(heap.list_get(idx, 2), Some(Value::Int(3)));
+    }
+
+    #[test]
+    fn list_clear_empties_list() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(1));
+        heap.list_add(idx, Value::Int(2));
+        heap.list_clear(idx);
+        assert_eq!(heap.list_len(idx), 0);
+    }
+
+    #[test]
+    fn list_free_slot_is_reused() {
+        let mut heap = ObjectHeap::new();
+        let idx0 = heap.list_alloc().unwrap();
+        let _idx1 = heap.list_alloc().unwrap();
+        heap.list_free(idx0);
+        let reused = heap.list_alloc().unwrap();
+        assert_eq!(reused, idx0);
+    }
+
+    #[test]
+    fn list_iter_yields_elements() {
+        let mut heap = ObjectHeap::new();
+        let idx = heap.list_alloc().unwrap();
+        heap.list_add(idx, Value::Int(7));
+        heap.list_add(idx, Value::Int(8));
+        let collected: alloc::vec::Vec<Value> = heap.list_iter(idx).collect();
+        assert_eq!(collected, [Value::Int(7), Value::Int(8)]);
     }
 }

@@ -307,6 +307,12 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/os/SystemClock" => "picodroid/os/SystemClock",
         "picodroid/util/Log" => "picodroid/util/Log",
         "java/lang/StringBuilder" => "java/lang/StringBuilder",
+        "java/lang/Integer" => "java/lang/Integer",
+        "java/lang/Boolean" => "java/lang/Boolean",
+        "java/lang/Long" => "java/lang/Long",
+        "java/lang/Float" => "java/lang/Float",
+        "java/lang/Double" => "java/lang/Double",
+        "java/util/ArrayList" => "java/util/ArrayList",
         _ => "unknown",
     }
 }

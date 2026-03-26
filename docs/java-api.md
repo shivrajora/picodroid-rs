@@ -191,3 +191,39 @@ Priorities follow the Android `Thread` API (1–10). Internally they map to Free
 Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stack. When `MyRunnable.run()` returns, the task self-deletes and its stack is reclaimed automatically.
 
 On hot-swap, any thread blocked inside `SystemClock.sleep()` is woken immediately so it can see the stop signal and exit cleanly before the new app starts.
+
+## `java.util.ArrayList`
+
+Dynamic list backed by a per-instance heap buffer.
+
+```java
+import java.util.ArrayList;
+
+// Raw type (stores any Object — String, custom objects, null)
+ArrayList list = new ArrayList();
+list.add("alpha");
+list.add("beta");
+list.add("gamma");
+
+int sz     = list.size();           // 3
+boolean mt = list.isEmpty();        // false
+
+String item    = (String) list.get(1);    // "beta"
+String old     = (String) list.set(0, "ALPHA");  // returns "alpha"
+String removed = (String) list.remove(2);        // returns "gamma"
+
+boolean found = list.contains("ALPHA");   // true
+list.clear();
+
+// Indexed insert
+list.add(0, "first");   // insert at position 0
+
+// Generic type with autoboxing (Integer, Boolean, Long, Float, Double)
+ArrayList<Integer> nums = new ArrayList<Integer>();
+nums.add(10);    // autoboxes int → Integer
+nums.add(20);
+int n = nums.get(0);          // auto-unboxes Integer → int  (10)
+boolean has = nums.contains(20);  // true — value equality for wrappers
+```
+
+> **Autoboxing:** `ArrayList<Integer>` works as expected — `add(42)` and `contains(42)` both box via `Integer.valueOf`. For raw `ArrayList`, store and retrieve Object references (String, custom class instances); do not store bare primitives without explicit boxing (`Integer.valueOf(42)`, etc.).

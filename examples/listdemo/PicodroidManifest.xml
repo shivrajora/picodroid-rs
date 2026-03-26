@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="listdemo" version="1.0">
+    <application main-class="listdemo/ListDemo" />
+</manifest>

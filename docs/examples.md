@@ -1,6 +1,6 @@
 # Examples
 
-Thirteen examples are included under `examples/`:
+Fourteen examples are included under `examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -17,6 +17,7 @@ Thirteen examples are included under `examples/`:
 | `i2cdemo` | `i2cdemo.I2cDemo` | Scans the I2C0 bus (SDA=GP4, SCL=GP5) and logs the 7-bit address of every ACKing device |
 | `spidemo` | `spidemo.SpiDemo` | Full-duplex loopback over SPI0 (SCK=GP2, MOSI=GP3, MISO=GP0): sends 0x00–0x0F and logs received bytes |
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms (`substring`, `trim`, `toUpperCase`, `toLowerCase`), `String.valueOf`, and StringBuilder building |
+| `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
 
 To run an example:
 

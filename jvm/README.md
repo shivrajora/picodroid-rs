@@ -64,6 +64,12 @@ Your [`NativeMethodHandler`] is called for every Java `native` method and for an
 | `java/lang/Throwable / Exception / RuntimeException` | `<init>` |
 | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/long/float/double/char/boolean)`, `length`, `charAt`, `toString` |
 | `java/lang/String` | `length`, `charAt`, `isEmpty`, `equals`, `equalsIgnoreCase`, `compareTo`, `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `substring`, `trim`, `toUpperCase`, `toLowerCase`, `valueOf` |
+| `java/lang/Integer` | `<init>`, `valueOf`, `intValue` |
+| `java/lang/Boolean` | `<init>`, `valueOf`, `booleanValue` |
+| `java/lang/Long` | `<init>`, `valueOf`, `longValue` |
+| `java/lang/Float` | `<init>`, `valueOf`, `floatValue` |
+| `java/lang/Double` | `<init>`, `valueOf`, `doubleValue` |
+| `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
 
 If neither handler claims the call, [`JvmError::NoSuchMethod`] is returned.
 
