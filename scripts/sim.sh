@@ -21,7 +21,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --app <app>   App to run: helloworld (default), blinky, uart,
                 arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo,
-                threaddemo, mathsdemo, i2cdemo, spidemo
+                threaddemo, mathsdemo, i2cdemo, spidemo, stringdemo
   --release     Build in release mode
   -h, --help    Show this help message
 

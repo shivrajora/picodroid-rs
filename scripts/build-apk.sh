@@ -19,7 +19,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --app    <app>    Example app to build: helloworld, blinky, uart, arraydemo,
                     inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo,
-                    mathsdemo, i2cdemo, spidemo
+                    mathsdemo, i2cdemo, spidemo, stringdemo
   --output <file>   Output path (default: build/apks/<app>.papk)
   -h, --help        Show this help message
 EOF

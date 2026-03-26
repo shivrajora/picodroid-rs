@@ -15,7 +15,7 @@ pub fn log_i(args: &[Value], strings: &StringTable) -> Result<(), JvmError> {
     Ok(())
 }
 
-fn resolve(v: Value, strings: &StringTable) -> Result<&'static str, JvmError> {
+fn resolve(v: Value, strings: &StringTable) -> Result<&str, JvmError> {
     match v {
         Value::Reference(idx) => strings.resolve(idx).ok_or(JvmError::InvalidReference),
         _ => Err(JvmError::InvalidReference),

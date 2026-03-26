@@ -98,29 +98,52 @@ impl ObjectHeap {
     /// Append an integer (decimal) to the shared StringBuilder buffer.
     pub fn sb_append_int(&mut self, n: i32) {
         let mut tmp = [0u8; 12];
-        let s = int_to_decimal(n, &mut tmp);
+        let s = int_to_decimal_buf(n, &mut tmp);
         self.sb_append_bytes(s);
     }
 
     /// Append a long (decimal) to the shared StringBuilder buffer.
     pub fn sb_append_long(&mut self, n: i64) {
         let mut tmp = [0u8; 21];
-        let s = long_to_decimal(n, &mut tmp);
+        let s = long_to_decimal_buf(n, &mut tmp);
         self.sb_append_bytes(s);
     }
 
-    /// Return the current StringBuilder buffer contents and a raw pointer to them.
+    /// Append a float to the shared StringBuilder buffer.
+    /// Formats as `[-]integer.fraction` with up to 6 significant decimal digits.
+    pub fn sb_append_float(&mut self, f: f32) {
+        let mut tmp = [0u8; 32];
+        let s = float_to_str_buf(f, &mut tmp);
+        self.sb_append_bytes(s);
+    }
+
+    /// Return the current length of the StringBuilder buffer.
+    pub fn sb_len(&self) -> usize {
+        self.sb_buf.len()
+    }
+
+    /// Return the byte at `idx` in the StringBuilder buffer, or `None` if out of bounds.
+    pub fn sb_char_at(&self, idx: usize) -> Option<u8> {
+        self.sb_buf.get(idx).copied()
+    }
+
+    /// Return the current StringBuilder buffer contents as a byte slice.
+    pub fn sb_contents_slice(&self) -> &[u8] {
+        &self.sb_buf
+    }
+
+    /// Return the current StringBuilder buffer contents as a raw pointer and length.
     ///
     /// # Safety
     /// The returned pointer is valid until the next call to `sb_append_bytes`,
     /// `sb_append_int`, or `sb_clear`, any of which may reallocate `sb_buf`.
-    /// Consume the pointer (e.g. pass to `intern_dyn`) before any further mutation.
     pub fn sb_contents(&self) -> (*const u8, usize) {
         (self.sb_buf.as_ptr(), self.sb_buf.len())
     }
 }
 
-fn long_to_decimal(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
+/// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.
+pub fn long_to_decimal_buf(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
     if n == 0 {
         buf[0] = b'0';
         return &buf[..1];
@@ -142,7 +165,8 @@ fn long_to_decimal(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
     &buf[i..]
 }
 
-fn int_to_decimal(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
+/// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.
+pub fn int_to_decimal_buf(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
     if n == 0 {
         buf[0] = b'0';
         return &buf[..1];
@@ -162,6 +186,69 @@ fn int_to_decimal(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
         buf[i] = b'-';
     }
     &buf[i..]
+}
+
+/// Format `f` as a decimal ASCII string into `buf`.
+/// Produces `[-]integer.fraction` with up to 6 significant decimal digits.
+/// Special values: "NaN", "Infinity", "-Infinity".
+pub fn float_to_str_buf(f: f32, buf: &mut [u8; 32]) -> &[u8] {
+    if f.is_nan() {
+        let s = b"NaN";
+        buf[..s.len()].copy_from_slice(s);
+        return &buf[..s.len()];
+    }
+    if f.is_infinite() {
+        if f > 0.0 {
+            let s = b"Infinity";
+            buf[..s.len()].copy_from_slice(s);
+            return &buf[..s.len()];
+        } else {
+            let s = b"-Infinity";
+            buf[..s.len()].copy_from_slice(s);
+            return &buf[..s.len()];
+        }
+    }
+    let neg = f < 0.0;
+    let f = if neg { -f } else { f };
+
+    // Integer and fractional parts
+    let int_part = f as u32;
+    let frac = f - int_part as f32;
+
+    let mut pos = 0usize;
+    if neg {
+        buf[pos] = b'-';
+        pos += 1;
+    }
+
+    // Write integer part
+    let mut ibuf = [0u8; 12];
+    let istr = int_to_decimal_buf(int_part as i32, &mut ibuf);
+    buf[pos..pos + istr.len()].copy_from_slice(istr);
+    pos += istr.len();
+
+    // Write up to 6 fractional digits, trimming trailing zeros
+    buf[pos] = b'.';
+    pos += 1;
+
+    let mut frac_val = (frac * 1_000_000.0 + 0.5) as u32; // round to 6 places
+                                                          // Trim trailing zeros
+    let mut digits = 6usize;
+    while digits > 1 && frac_val % 10 == 0 {
+        frac_val /= 10;
+        digits -= 1;
+    }
+    // Write digits (right to left, then reverse)
+    let frac_start = pos;
+    let mut fv = frac_val;
+    for _ in 0..digits {
+        buf[pos] = b'0' + (fv % 10) as u8;
+        fv /= 10;
+        pos += 1;
+    }
+    buf[frac_start..pos].reverse();
+
+    &buf[..pos]
 }
 
 #[cfg(test)]
@@ -242,10 +329,8 @@ mod tests {
     fn sb_append_bytes_and_contents() {
         let mut heap = ObjectHeap::new();
         heap.sb_append_bytes(b"hello");
-        let (ptr, len) = heap.sb_contents();
-        assert_eq!(len, 5);
-        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        assert_eq!(slice, b"hello");
+        assert_eq!(heap.sb_contents_slice(), b"hello");
+        assert_eq!(heap.sb_len(), 5);
     }
 
     #[test]
@@ -253,35 +338,37 @@ mod tests {
         let mut heap = ObjectHeap::new();
         heap.sb_append_bytes(b"hello");
         heap.sb_clear();
-        let (_, len) = heap.sb_contents();
-        assert_eq!(len, 0);
+        assert_eq!(heap.sb_len(), 0);
+    }
+
+    #[test]
+    fn sb_char_at() {
+        let mut heap = ObjectHeap::new();
+        heap.sb_append_bytes(b"abc");
+        assert_eq!(heap.sb_char_at(0), Some(b'a'));
+        assert_eq!(heap.sb_char_at(2), Some(b'c'));
+        assert_eq!(heap.sb_char_at(3), None);
     }
 
     #[test]
     fn sb_append_int_zero() {
         let mut heap = ObjectHeap::new();
         heap.sb_append_int(0);
-        let (ptr, len) = heap.sb_contents();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        assert_eq!(slice, b"0");
+        assert_eq!(heap.sb_contents_slice(), b"0");
     }
 
     #[test]
     fn sb_append_int_positive() {
         let mut heap = ObjectHeap::new();
         heap.sb_append_int(12345);
-        let (ptr, len) = heap.sb_contents();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        assert_eq!(slice, b"12345");
+        assert_eq!(heap.sb_contents_slice(), b"12345");
     }
 
     #[test]
     fn sb_append_int_negative() {
         let mut heap = ObjectHeap::new();
         heap.sb_append_int(-42);
-        let (ptr, len) = heap.sb_contents();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        assert_eq!(slice, b"-42");
+        assert_eq!(heap.sb_contents_slice(), b"-42");
     }
 
     #[test]
@@ -289,8 +376,7 @@ mod tests {
         let mut heap = ObjectHeap::new();
         let long_str = [b'x'; 70];
         heap.sb_append_bytes(&long_str);
-        let (_, len) = heap.sb_contents();
-        assert_eq!(len, 70);
+        assert_eq!(heap.sb_len(), 70);
     }
 
     #[test]
@@ -300,9 +386,7 @@ mod tests {
         heap.sb_append_int(7);
         heap.sb_clear();
         heap.sb_append_bytes(b"bar");
-        let (ptr, len) = heap.sb_contents();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-        assert_eq!(slice, b"bar");
+        assert_eq!(heap.sb_contents_slice(), b"bar");
     }
 
     #[test]
@@ -316,5 +400,36 @@ mod tests {
         assert_eq!(heap.alloc("C"), Some(0));
         // Slot 1 still intact
         assert_eq!(heap.class_name(1), Some("B"));
+    }
+
+    #[test]
+    fn float_to_str_special() {
+        let mut buf = [0u8; 32];
+        assert_eq!(float_to_str_buf(f32::NAN, &mut buf), b"NaN");
+        assert_eq!(float_to_str_buf(f32::INFINITY, &mut buf), b"Infinity");
+        assert_eq!(float_to_str_buf(f32::NEG_INFINITY, &mut buf), b"-Infinity");
+    }
+
+    #[test]
+    fn float_to_str_zero() {
+        let mut buf = [0u8; 32];
+        let s = float_to_str_buf(0.0, &mut buf);
+        assert_eq!(s, b"0.0");
+    }
+
+    #[test]
+    fn float_to_str_integer() {
+        let mut buf = [0u8; 32];
+        let s = float_to_str_buf(42.0, &mut buf);
+        // 42.0 → "42.0"
+        assert_eq!(s, b"42.0");
+    }
+
+    #[test]
+    fn float_to_str_negative() {
+        let mut buf = [0u8; 32];
+        let s = float_to_str_buf(-3.14, &mut buf);
+        // Should start with "-3."
+        assert!(s.starts_with(b"-3."));
     }
 }
