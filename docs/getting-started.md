@@ -114,6 +114,45 @@ Pass `--app <name>` to select which example to build or flash:
 
 The `--app` flag selects which example to build. `build.sh` compiles the Java sources into a `.papk` file and embeds it into the firmware — no Cargo feature flags are involved.
 
+## Hot-Swap with pdb {#hot-swap-with-pdb}
+
+The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running device over UART without reflashing the firmware. The firmware listens on UART1 (GP4 TX, GP5 RX) at 115200 baud.
+
+### Install the host tool
+
+```bash
+cargo install --path tools/pdb
+```
+
+### Push an app
+
+```bash
+# Build the app first
+./scripts/build-apk.sh --app blinky
+
+# Find the serial port
+pdb devices
+
+# Push the PAPK
+pdb -s /dev/cu.usbmodem102 install build/apks/blinky.papk
+```
+
+The device stops the running JVM (including any sleeping child threads), writes the new PAPK to flash, and restarts execution — typically in under a second.
+
+### Verify connectivity
+
+```bash
+pdb -s /dev/cu.usbmodem102 ping
+```
+
+### Inspect a PAPK file
+
+```bash
+cargo run -p papk-info -- build/apks/blinky.papk
+```
+
+Prints the manifest, class list, and bytecode size of each class.
+
 ### Generating a UF2 file
 
 Pass `--uf2` to `build.sh` to convert the ELF to a UF2 file after building. This is useful for flashing without a debug probe — just drag-and-drop the `.uf2` onto the Pico's USB Mass Storage drive.

@@ -106,3 +106,7 @@ import picodroid.concurrent.Thread;
 Thread t = new Thread(new MyRunnable());
 t.start();   // spawns a FreeRTOS task that calls MyRunnable.run()
 ```
+
+Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stack. When `MyRunnable.run()` returns, the task self-deletes and its stack is reclaimed automatically.
+
+On hot-swap, any thread blocked inside `SystemClock.sleep()` is woken immediately so it can see the stop signal and exit cleanly before the new app starts.

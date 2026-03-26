@@ -18,11 +18,15 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 
 ```
 FreeRTOS scheduler
-  └── "jvm" task
+  ├── "pdb" task (priority 2)  ← listens on UART1 for pdb install
+  └── "jvm" task  (priority 1)
        └── JVM interpreter (jvm/ crate)
-            └── Java bytecode (loaded from embedded .papk in Flash)
-                 └── native dispatch → defmt RTT log
+            └── Java bytecode (.papk — baked into Flash or hot-swapped via pdb)
+                 ├── native dispatch → GPIO / UART / I2C / SPI / Log
+                 └── Thread.start() → "jvm-t" child tasks (self-delete on exit)
 ```
+
+Apps can be hot-swapped at runtime via `pdb install` without reflashing the firmware.
 
 ## Hardware
 
@@ -38,11 +42,17 @@ cd picodroid-rs
 ./scripts/flash.sh --app helloworld
 ```
 
+After flashing, push a new app over UART without reflashing:
+
+```bash
+cargo run -p pdb -- -s /dev/cu.usbmodem102 install build/apks/blinky.papk
+```
+
 See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip selection, app selection, and UF2 flashing.
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip and app selection
+- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip/app selection, and hot-swap with pdb
 - [Examples](docs/examples.md) — all included example apps
 - [Writing Apps](docs/writing-apps.md) — how to create a new Java app, supported language features, and porting to a new platform
 - [Java API](docs/java-api.md) — `picodroid.*` system API reference
@@ -61,10 +71,13 @@ picodroid-rs/
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
+│   ├── pdb/            # Picodroid Debug Bridge — UART listener + hot-swap logic
 │   └── system/         # Native implementations of Java API methods
 │
 ├── tools/
-│   └── papk-pack/      # Host tool: packages compiled .class files into a .papk file
+│   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
+│   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
+│   └── pdb/            # Host tool: push .papk to a running device over UART
 │
 ├── vendor/             # Downloaded tooling (google-java-format JAR; gitignored)
 │
