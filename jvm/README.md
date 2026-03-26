@@ -46,6 +46,12 @@ let mut jvm = Jvm::new();
 let mut heap = SharedJvmHeap::new();
 jvm.load_class(MY_CLASS).unwrap();
 jvm.invoke_static("MyApp", "main", &mut heap, &mut MyHandler).unwrap();
+
+// To call an instance method, pass the ObjectHeap index of the receiver.
+jvm.invoke_instance("MyApp", "run", obj_ref, &mut heap, &mut MyHandler).unwrap();
+
+// Reset all heap state before running a new app.
+heap.reset();
 ```
 
 ## Native method dispatch
@@ -56,10 +62,23 @@ Your [`NativeMethodHandler`] is called for every Java `native` method and for an
 |---|---|
 | `java/lang/Object` | `<init>` |
 | `java/lang/Throwable / Exception / RuntimeException` | `<init>` |
-| `java/lang/StringBuilder` | `<init>`, `append`, `toString` |
+| `java/lang/StringBuilder` | `<init>`, `append(String)`, `append(int)`, `append(char)`, `append(long)`, `append(double)`, `toString` |
 | `java/lang/String` | `length`, `charAt` |
 
 If neither handler claims the call, [`JvmError::NoSuchMethod`] is returned.
+
+### Cooperative interruption
+
+Override `interrupted()` on your handler to signal a clean stop (e.g. for hot-swap app deployment). The interpreter checks it once per bytecode instruction and returns [`JvmError::Interrupted`] when `true`.
+
+```rust
+impl NativeMethodHandler for MyHandler {
+    fn interrupted(&self) -> bool {
+        self.stop_flag.load(Ordering::Relaxed)
+    }
+    // ...
+}
+```
 
 ## Supported Java language features
 
