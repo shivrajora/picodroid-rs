@@ -185,6 +185,7 @@ pub fn run_pdb_task() -> ! {
                 pending::PAPK_LEN.store(len as usize, Ordering::Relaxed);
                 pending::HAS_PENDING.store(true, Ordering::Relaxed);
                 pending::STOP_JVM.store(true, Ordering::Relaxed);
+                pending::notify_jvm();
 
                 // 3. ACK — jvm_task will restart asynchronously
                 send_response(STATUS_OK, b"");

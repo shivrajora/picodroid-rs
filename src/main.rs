@@ -89,23 +89,30 @@ fn main() -> ! {
         .name("jvm")
         .stack_size(4096)
         .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
-        .start(move |_| loop {
-            let apk = pdb::pending::take().unwrap_or(boot_apk);
-            pdb::pending::clear_stop();
-            app::run_jvm_with(apk);
+        .start(move |_| {
+            // Store our handle so pdb_task and child tasks can notify us.
+            pdb::pending::set_jvm_task(Task::current().unwrap());
+            loop {
+                let apk = pdb::pending::take().unwrap_or(boot_apk);
+                pdb::pending::clear_stop();
+                app::run_jvm_with(apk);
 
-            // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
-            pdb::pending::abort_all_child_delays();
+                // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
+                pdb::pending::abort_all_child_delays();
 
-            // Wait for all children to deregister themselves before resetting the heap.
-            while pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0 {
-                CurrentTask::delay(Duration::ms(10));
-            }
+                // Wait for all children to deregister themselves before resetting the heap.
+                // The last child calls notify_jvm() when the counter reaches zero.
+                // Check first to avoid blocking if they all exited before we got here.
+                if pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0
+                {
+                    CurrentTask::take_notification(true, Duration::infinite());
+                }
 
-            // If nothing new to run, idle until the next install.
-            if !pdb::pending::HAS_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
-                loop {
-                    CurrentTask::delay(Duration::ms(1000));
+                // If nothing new to run, idle until the next install.
+                // pdb_task calls notify_jvm() after setting HAS_PENDING.
+                // Check first to avoid blocking if the install already arrived.
+                if !pdb::pending::HAS_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
+                    CurrentTask::take_notification(true, Duration::infinite());
                 }
             }
         })
