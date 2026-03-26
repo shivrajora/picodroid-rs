@@ -5,11 +5,13 @@ use pico_jvm::{
 
 mod gpio;
 mod i2c;
+mod pwm;
 mod spi;
 mod uart;
 
 pub use gpio::open_gpio;
 pub use i2c::open_i2c;
+pub use pwm::open_pwm;
 pub use spi::open_spi;
 pub use uart::open_uart;
 

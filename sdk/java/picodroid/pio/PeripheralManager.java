@@ -12,4 +12,6 @@ public class PeripheralManager {
   public native I2cDevice openI2cDevice(String name);
 
   public native SpiDevice openSpiDevice(String name);
+
+  public native Pwm openPwm(String name);
 }

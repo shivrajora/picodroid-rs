@@ -21,3 +21,10 @@ pub mod spi {
     pub const FREQUENCY_HZ: usize = 1;
     pub const MODE: usize = 2;
 }
+
+pub mod pwm {
+    pub const PIN: usize = 0;
+    pub const FREQUENCY_HZ: usize = 1;
+    pub const DUTY_CYCLE: usize = 2;
+    pub const ENABLED: usize = 3;
+}

@@ -50,6 +50,23 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 crate::system::picodroid::pio::i2c::read_native(ctx.args, ctx.objects, ctx.arrays),
             ),
             ("picodroid/pio/I2cDevice", "close") => Some(Ok(None)),
+            ("picodroid/pio/PeripheralManager", "openPwm") => {
+                Some(crate::system::picodroid::pio::peripheral_manager::open_pwm(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ))
+            }
+            ("picodroid/pio/Pwm", "setEnabled") => Some(
+                crate::system::picodroid::pio::pwm::set_enabled_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Pwm", "setPwmDutyCycle") => Some(
+                crate::system::picodroid::pio::pwm::set_duty_cycle_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Pwm", "setPwmFrequencyHz") => Some(
+                crate::system::picodroid::pio::pwm::set_frequency_native(ctx.args, ctx.objects),
+            ),
+            ("picodroid/pio/Pwm", "close") => Some(Ok(None)),
             ("picodroid/pio/PeripheralManager", "openSpiDevice") => {
                 Some(crate::system::picodroid::pio::peripheral_manager::open_spi(
                     ctx.args,
