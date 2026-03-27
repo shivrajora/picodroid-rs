@@ -12,8 +12,8 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 
 | Layer | Technology |
 |-------|-----------|
-| Hardware | Raspberry Pi Pico (RP2040, Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, Cortex-M33 @ 150 MHz) |
-| RTOS | FreeRTOS (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
+| Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz) |
+| RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
 | Java API | Android-compatible (`picodroid.util.Log`, etc.) |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
@@ -21,13 +21,13 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 ### Execution flow
 
 ```
-FreeRTOS scheduler
-  ├── "pdb" task (priority 2)  ← listens on UART1 for pdb install
-  └── "jvm" task  (priority 1)
+FreeRTOS SMP scheduler (both cores)
+  ├── "pdb" task  (priority 2, core 1)  ← listens on UART1 for pdb install
+  └── "jvm" task  (priority 1, core 0)
        └── JVM interpreter (jvm/ crate)
             └── Java bytecode (.papk — baked into Flash or hot-swapped via pdb)
                  ├── native dispatch → GPIO / UART / I2C / SPI / Log
-                 └── Thread.start() → "jvm-t" child tasks (self-delete on exit)
+                 └── Thread.start() → "jvm-t" child tasks (core 0, self-delete on exit)
 ```
 
 Apps can be hot-swapped at runtime via `pdb install` without reflashing the firmware.
@@ -76,6 +76,7 @@ picodroid-rs/
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
 │   ├── pdb/            # Picodroid Debug Bridge — UART listener + hot-swap logic
+│   ├── port/           # pico-sdk shims (direct register access; no pico-sdk dependency)
 │   └── system/         # Native implementations of Java API methods
 │
 ├── tools/

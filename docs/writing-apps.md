@@ -91,7 +91,7 @@ Return `None` for any method your handler does not recognise. The interpreter au
 | Switch statements | `switch`/`case` on integer and other supported types |
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
-| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread; stack reclaimed when `run()` returns; priority set via `setPriority(1–10)` before `start()` |
+| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; priority set via `setPriority(1–10)` before `start()` |
 | Arithmetic ops | subtraction, division, remainder, negation for `int`, `long`, `double` |
 | Bitwise / shifts | `<<`, `>>`, `>>>`, `|`, `^` for `int` and `long` |
 | Cross-type casts | `i2f`, `i2c`, `i2s`, `l2f`, `l2d`, `f2l`, `f2d`, `d2l`, `d2f` |
