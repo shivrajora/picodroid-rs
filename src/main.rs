@@ -77,18 +77,23 @@ fn main() -> ! {
     let boot_apk: &'static [u8] = unsafe { pdb::flash::read_flash_papk().unwrap_or(app::APK_DATA) };
 
     // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
+    // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
     Task::new()
         .name("pdb")
         .stack_size(1024)
         .priority(TaskPriority(task_priority::PRIORITY_RT_1))
+        .core_affinity(0b10) // core 1 only
         .start(move |_| pdb::run_pdb_task())
         .unwrap();
 
     // JVM task: loop forever, hot-swapping the app whenever pdb installs a new one.
+    // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
+    // single-core safety assumption of SharedJvmState remains valid.
     Task::new()
         .name("jvm")
         .stack_size(4096)
         .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
+        .core_affinity(0b01) // core 0 only
         .start(move |_| {
             // Store our handle so pdb_task and child tasks can notify us.
             pdb::pending::set_jvm_task(Task::current().unwrap());

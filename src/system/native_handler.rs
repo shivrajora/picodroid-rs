@@ -159,6 +159,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                 .name("jvm-t")
                                 .stack_size(4096)
                                 .priority(freertos_rust::TaskPriority(freertos_prio))
+                                .core_affinity(0b01) // core 0 only — preserves JVM single-core safety
                                 .start(move |_| {
                                     let mut jvm = pico_jvm::Jvm::new();
                                     crate::app::load_classes(&mut jvm).unwrap();

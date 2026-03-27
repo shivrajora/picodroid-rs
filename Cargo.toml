@@ -20,7 +20,7 @@ crc32fast = { version = "1", default-features = false }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
-freertos-rust = { version = "0.2.2", package = "freertos-rust-pd" }
+freertos-rust = { version = "0.2.3", package = "freertos-rust-pd" }
 defmt = "1"
 
 # Hardware-specific deps — only compiled when targeting ARM embedded
@@ -33,7 +33,7 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 [build-dependencies]
 # Used to compile FreeRTOS-Kernel C source directly
 cc = "1.0"
-freertos-cargo-build = { version = "0.2.2", package = "freertos-cargo-build-pd" }
+freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd" }
 
 # cargo build/run
 [profile.dev]

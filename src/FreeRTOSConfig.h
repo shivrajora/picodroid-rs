@@ -63,6 +63,21 @@
 /* Message buffers */
 #define configMESSAGE_BUFFER_LENGTH_TYPE        size_t
 
+/* SMP – dual-core scheduler */
+#define configNUMBER_OF_CORES                   2
+#define configUSE_PASSIVE_IDLE_HOOK             0   /* required by FreeRTOS SMP kernel */
+/* Enable pico-sync interop so prvFIFOInterruptHandler (RP2040 port) compiles.
+ * In SMP mode the handler just calls portYIELD_FROM_ISR; the full interop
+ * code paths are excluded by configNUMBER_OF_CORES != 1 guards. */
+#define configSUPPORT_PICO_SYNC_INTEROP         1
+#define configTICK_CORE                         0   /* core 0 drives the tick */
+#define configUSE_CORE_AFFINITY                 1
+/* Hardware spinlock IDs reserved for FreeRTOS (spinlocks 26 and 27 = PICO_SPINLOCK_ID_OS1/OS2) */
+#define configSMP_SPINLOCK_0                    26
+#define configSMP_SPINLOCK_1                    27
+/* Disable the runtime vector-table check; we use linker-alias approach instead */
+#define configCHECK_HANDLER_INSTALLATION        0
+
 /* Optional API functions */
 #define INCLUDE_vTaskDelay                      1
 #define INCLUDE_vTaskDelayUntil                 1
@@ -72,5 +87,6 @@
 #define INCLUDE_xTaskGetCurrentTaskHandle       1
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 #define INCLUDE_xTaskGetSchedulerState          1
+#define INCLUDE_xTimerPendFunctionCall          1   /* needed by xEventGroupSetBitsFromISR */
 
 #endif /* FREERTOS_CONFIG_H */
