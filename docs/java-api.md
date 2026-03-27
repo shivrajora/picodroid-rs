@@ -99,6 +99,24 @@ I2cDevice  i2c  = pm.openI2cDevice("I2C0");
 SpiDevice  spi  = pm.openSpiDevice("SPI0");
 ```
 
+## Resource management (`AutoCloseable`)
+
+All peripheral classes implement `java.lang.AutoCloseable`, so they can be used in try-with-resources blocks. `close()` releases the hardware resource and is guaranteed to be called even if the body throws.
+
+```java
+try (Gpio gpio = pm.openGpio("GP25")) {
+    gpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_HIGH);
+    // gpio.close() is called automatically here
+}
+
+// Multiple resources (closed in reverse order)
+try (Adc adc = pm.openAdcPin("GP26");
+     Gpio cs  = pm.openGpio("GP17")) {
+    double v = adc.readValue();
+    cs.setValue(false);
+}
+```
+
 ## `picodroid.pio.Gpio`
 
 ```java
@@ -107,6 +125,7 @@ import picodroid.pio.Gpio;
 gpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
 gpio.setValue(true);    // drive high
 gpio.setValue(false);   // drive low
+gpio.close();           // or use try-with-resources
 ```
 
 ## `picodroid.pio.UartDevice`

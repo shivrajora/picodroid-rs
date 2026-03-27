@@ -87,6 +87,7 @@ Return `None` for any method your handler does not recognise. The interpreter au
 | Long integers | `long` arithmetic, `i2l`/`l2i` type conversions |
 | Double precision | `double` arithmetic, `i2d`/`d2i` type conversions |
 | Exceptions | `throw new AppException()`, `try`/`catch`, custom exception classes |
+| Try-with-resources | `try (Gpio gpio = pm.openGpio("GP25")) { ... }` — `AutoCloseable` peripherals; `close()` called on normal exit and on exception |
 | Switch statements | `switch`/`case` on integer and other supported types |
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
