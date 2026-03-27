@@ -11,11 +11,11 @@ EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --chip)
+    -c|--chip)
       CHIP="$2"
       shift 2
       ;;
-    --app)
+    -a|--app)
       APP="$2"
       shift 2
       ;;

@@ -2,8 +2,8 @@
 # Build a .papk file for a given Java example app.
 #
 # Usage:
-#   ./scripts/build-apk.sh --app helloworld
-#   ./scripts/build-apk.sh --app blinky --output /tmp/blinky.papk
+#   ./scripts/build-apk.sh -a helloworld
+#   ./scripts/build-apk.sh -a blinky -o /tmp/blinky.papk
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -17,19 +17,19 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --app    <app>    Example app to build: helloworld, blinky, uart, arraydemo,
-                    inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo,
-                    mathsdemo, i2cdemo, spidemo, stringdemo, listdemo
-  --output <file>   Output path (default: build/apks/<app>.papk)
-  -h, --help        Show this help message
+  -a, --app    <app>    Example app to build: helloworld, blinky, uart, arraydemo,
+                        inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo,
+                        mathsdemo, i2cdemo, spidemo, stringdemo, listdemo
+  -o, --output <file>   Output path (default: build/apks/<app>.papk)
+  -h, --help            Show this help message
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help)  usage; exit 0 ;;
-    --app)      APP="$2";    shift 2 ;;
-    --output)   OUTPUT="$2"; shift 2 ;;
+    -h|--help)       usage; exit 0 ;;
+    -a|--app)        APP="$2";    shift 2 ;;
+    -o|--output)     OUTPUT="$2"; shift 2 ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done

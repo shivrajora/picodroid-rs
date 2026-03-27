@@ -19,17 +19,17 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --app <app>   App to run: helloworld (default), blinky, uart,
-                arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo,
-                threaddemo, mathsdemo, i2cdemo, spidemo, stringdemo,
-                trywithresourcesdemo
-  --release     Build in release mode
-  -h, --help    Show this help message
+  -a, --app <app>   App to run: helloworld (default), blinky, uart,
+                    arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo,
+                    threaddemo, mathsdemo, i2cdemo, spidemo, stringdemo,
+                    trywithresourcesdemo
+  -r, --release     Build in release mode
+  -h, --help        Show this help message
 
 Examples:
   $(basename "$0")
-  $(basename "$0") --app blinky
-  $(basename "$0") --app uart --release
+  $(basename "$0") -a blinky
+  $(basename "$0") -a uart -r
 EOF
 }
 
@@ -39,11 +39,11 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
-    --app)
+    -a|--app)
       APP="$2"
       shift 2
       ;;
-    --release)
+    -r|--release)
       EXTRA_ARGS+=("--release")
       shift
       ;;
