@@ -112,6 +112,16 @@ fn main() -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
+                // If pdb_task requested a flash install, park this core in RAM
+                // so that core 1 can safely erase/program flash without XIP
+                // contention on the shared SSI bus.
+                if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
+                    unsafe { pdb::flash::park_for_flash() };
+                    // After unparking the flash operation is complete — reboot
+                    // so the new (or fallback) app loads from fresh XIP state.
+                    pdb::flash::flash_trigger_reset();
+                }
+
                 // If a flash install triggered this stop, reboot to load the
                 // new app from flash XIP on next boot.
                 if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
@@ -120,6 +130,12 @@ fn main() -> ! {
 
                 // Natural app exit — sleep until pdb installs a new app.
                 CurrentTask::take_notification(true, Duration::infinite());
+
+                // Woken by pdb — check for flash park first.
+                if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
+                    unsafe { pdb::flash::park_for_flash() };
+                    pdb::flash::flash_trigger_reset();
+                }
 
                 // Woken by pdb — reboot if a new app was flashed.
                 if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {

@@ -11,6 +11,19 @@ pub static STOP_JVM: AtomicBool = AtomicBool::new(false);
 /// child threads have exited.  Set by pdb_task after a successful flash install.
 pub static REBOOT_PENDING: AtomicBool = AtomicBool::new(false);
 
+/// Set by pdb_task before CMD_INSTALL flash operations.  When jvm_task sees
+/// this after the JVM exits, it enters a RAM spin loop with interrupts disabled
+/// so core 0 does not access flash during erase/program.
+pub static FLASH_PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Set by jvm_task (core 0) once it has entered the RAM spin loop.
+/// pdb_task polls this before starting flash operations.
+pub static CORE0_PARKED: AtomicBool = AtomicBool::new(false);
+
+/// Set by pdb_task (core 1) when all flash operations are complete.
+/// Core 0's spin loop exits when it sees this flag.
+pub static CORE0_RELEASE: AtomicBool = AtomicBool::new(false);
+
 /// Tracks the number of currently-running JVM child threads (spawned via Thread.start()).
 /// jvm_task waits for this to reach zero before resetting the heap for a new app.
 pub static ACTIVE_JVM_THREADS: AtomicU32 = AtomicU32::new(0);

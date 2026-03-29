@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
 
-use freertos_rust::{Duration, InterruptContext, Queue};
+use freertos_rust::{CurrentTask, Duration, InterruptContext, Queue};
 
 use super::pending;
 use super::protocol::{
@@ -66,9 +66,20 @@ fn setup_uart1_rx_interrupt() {
     use rp_pico::hal::pac;
 
     let p = unsafe { pac::Peripherals::steal() };
-    // Enable the UART1 RX interrupt in the UART's interrupt mask register.
-    // RXIM (bit 4) fires when the RX FIFO transitions from empty to non-empty.
-    p.UART1.uartimsc().modify(|_, w| w.rxim().set_bit());
+
+    // Lower the RX FIFO trigger to 1/8 full (4 bytes for a 32-byte FIFO).
+    // The default 1/2 full (16 bytes) means short frames never trigger RXIM.
+    p.UART1
+        .uartifls()
+        .modify(|_, w| unsafe { w.rxiflsel().bits(0b000) });
+
+    // Enable both RXIM (FIFO threshold) and RTIM (receive timeout).
+    // RTIM fires when the FIFO is non-empty but below the threshold and no
+    // new character arrives for 32 bit periods (~278 µs at 115200 baud).
+    // Without RTIM, trailing bytes of a short frame stay stuck in the FIFO.
+    p.UART1
+        .uartimsc()
+        .modify(|_, w| w.rxim().set_bit().rtim().set_bit());
 
     // Unmask UART1_IRQ in the NVIC
     unsafe {
@@ -139,6 +150,25 @@ fn send_response(status: u8, payload: &[u8]) {
     }
 }
 
+// ── Core-0 parking helpers for multi-core flash safety ───────────────────────
+
+/// Poll [`pending::CORE0_PARKED`] every 10 ms for up to 15 s.
+fn wait_for_core0_park() -> bool {
+    for _ in 0..1500 {
+        if pending::CORE0_PARKED.load(Ordering::Acquire) {
+            return true;
+        }
+        CurrentTask::delay(Duration::ms(10));
+    }
+    false
+}
+
+/// Release core 0 from its RAM spin loop.  Always safe to call, even if core 0
+/// never parked — it will see the flag and exit immediately if it parks late.
+fn release_core0() {
+    pending::CORE0_RELEASE.store(true, Ordering::Release);
+}
+
 // ── pdb_task body ─────────────────────────────────────────────────────────────
 
 pub fn run_pdb_task() -> ! {
@@ -182,7 +212,7 @@ pub fn run_pdb_task() -> ! {
             }
 
             CMD_INSTALL => {
-                // ── Phase A: validate length and erase flash ──────────────────
+                // ── Validate length ───────────────────────────────────────────
                 if len == 0 {
                     send_response(STATUS_ERR, b"");
                     continue 'cmd;
@@ -192,63 +222,54 @@ pub fn run_pdb_task() -> ! {
                     continue 'cmd;
                 }
 
-                // Erase the PAPK flash region (interrupts disabled, ~1.6 s).
-                // The host is idle during this time (waiting for STATUS_READY),
-                // so no UART data is lost.
-                unsafe { super::flash::flash_erase_papk_region() };
+                // ── Phase A: stop JVM, park core 0, erase flash ──────────────
+                pending::STOP_JVM.store(true, Ordering::Release);
+                pending::notify_jvm();
 
-                // Signal host that we are ready to receive the PAPK data stream.
+                if !wait_for_core0_park() {
+                    send_response(STATUS_ERR, b"park timeout");
+                    release_core0();
+                    continue 'cmd;
+                }
+
+                // Core 0 is now parked in RAM with interrupts disabled.
+                // Safe to erase flash.
+                unsafe { super::flash::flash_erase_papk_region() };
                 send_response(STATUS_READY, b"");
 
-                // ── Phase B: stream PAPK bytes, write pages to flash ──────────
-                //
-                // The host now sends `len` raw bytes followed by a 4-byte CRC32.
-                // CRC32 covers [CMD_INSTALL][len_LE][papk_bytes] — same formula
-                // as the existing crc32_frame function.
-                //
-                // We compute the CRC incrementally as bytes arrive and write each
-                // 256-byte page to flash immediately.  Interrupts are disabled for
-                // ~1 ms per page write; the UART hardware FIFO (32 bytes) absorbs
-                // the ~12 bytes that arrive during each write.
-                //
-                // A 2-second per-byte timeout detects host disconnect: if the host
-                // drops the connection after STATUS_READY, pdb_task recovers and
-                // returns to wait_for_magic() so the user can retry.
-
+                // ── Phase B: stream PAPK bytes, write pages ──────────────────
                 let mut crc_hasher = crc32fast::Hasher::new();
                 crc_hasher.update(&[CMD_INSTALL]);
                 crc_hasher.update(&len.to_le_bytes());
 
                 let mut bytes_remaining = len as usize;
                 let mut page_index: u32 = 0;
-
-                'pages: loop {
-                    if bytes_remaining == 0 {
-                        break 'pages;
-                    }
+                while bytes_remaining > 0 {
                     let chunk = bytes_remaining.min(256);
                     let page = unsafe { &mut *PAGE_BUF.0.get() };
-
-                    // Fill the chunk bytes from the queue (with disconnect detection).
+                    let mut timed_out = false;
                     for b in page[..chunk].iter_mut() {
                         match queue_read_byte_timeout() {
                             Some(byte) => *b = byte,
                             None => {
-                                send_response(STATUS_ERR, b"stream timeout");
-                                continue 'cmd;
+                                timed_out = true;
+                                break;
                             }
                         }
                     }
-                    // Pad the remainder of the page with 0xFF (erased flash value).
-                    for b in page[chunk..].iter_mut() {
-                        *b = 0xFF;
+                    if timed_out {
+                        release_core0();
+                        send_response(STATUS_ERR, b"stream timeout");
+                        continue 'cmd;
                     }
-
-                    // Update CRC over the actual data bytes only (not padding).
                     crc_hasher.update(&page[..chunk]);
 
+                    // Pad the last page with 0xFF if it's a partial page
+                    if chunk < 256 {
+                        page[chunk..].fill(0xFF);
+                    }
                     if !unsafe { super::flash::flash_write_page(page_index, page) } {
-                        // Should never happen given the len validation above.
+                        release_core0();
                         send_response(STATUS_ERR, b"flash write failed");
                         continue 'cmd;
                     }
@@ -256,37 +277,30 @@ pub fn run_pdb_task() -> ! {
                     bytes_remaining -= chunk;
                 }
 
-                // Read the 4-byte CRC32 that the host appended (also with timeout).
+                // ── Verify CRC ───────────────────────────────────────────────
                 let wire_crc = match queue_read_u32_le_timeout() {
                     Some(v) => v,
                     None => {
+                        release_core0();
                         send_response(STATUS_ERR, b"stream timeout");
                         continue 'cmd;
                     }
                 };
                 let computed_crc = crc_hasher.finalize();
-
                 if computed_crc != wire_crc {
+                    release_core0();
                     send_response(STATUS_CRC_FAIL, b"");
-                    // Flash data region was written but the metadata magic was
-                    // never committed, so read_flash_papk() returns None on next
-                    // boot and the device falls back to the baked-in APK.
                     continue 'cmd;
                 }
 
-                // Commit the atomic boot metadata (writes the magic last).
+                // ── Commit metadata and release core 0 ──────────────────────
                 unsafe { super::flash::flash_commit_metadata(len) };
-
-                // Signal the JVM to exit gracefully before acknowledging.
-                // Setting these before STATUS_OK ensures the JVM is already
-                // stopping when the host polls PING after the reboot.
-                pending::REBOOT_PENDING.store(true, Ordering::Relaxed);
-                pending::STOP_JVM.store(true, Ordering::Relaxed);
-                pending::notify_jvm();
-
-                // Acknowledge the install.  pdb_task continues running so it
-                // can respond to PING polls while the JVM winds down.
+                release_core0();
                 send_response(STATUS_OK, b"");
+
+                // Request reboot so the new PAPK is loaded
+                pending::REBOOT_PENDING.store(true, Ordering::Release);
+                pending::notify_jvm();
             }
 
             _ => send_response(STATUS_ERR, b"unknown cmd"),

@@ -55,10 +55,13 @@ pub fn scan() -> Vec<(String, String)> {
 
 /// Try a quick PING on `port_name`. Returns the version string on success.
 fn probe(port_name: &str) -> Option<String> {
-    let mut port = serialport::new(port_name, PROBE_BAUD)
+    let mut port = match serialport::new(port_name, PROBE_BAUD)
         .timeout(PROBE_TIMEOUT)
         .open()
-        .ok()?;
+    {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
 
     send_frame(port.as_mut(), CMD_PING, b"").ok()?;
 
