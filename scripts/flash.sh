@@ -42,8 +42,25 @@ bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
 
 APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 
-# Step 2: Build and flash the firmware with the APK embedded.
+# Step 2: Build the firmware, embedding the APK.
 JOBS=$(cpu_count)
+PICODROID_APK_PATH="$APK_PATH" cargo build \
+  --jobs "$JOBS" \
+  --target "$TARGET" \
+  --no-default-features \
+  --features "$CHIP_FEATURE" \
+  "${EXTRA_ARGS[@]}"
+
+ELF="target/${TARGET}/debug/picodroid"
+
+if [[ ! -f "$ELF" ]]; then
+  echo "Binary not found: $ELF" >&2
+  exit 1
+fi
+
+print_memory_usage "$ELF"
+
+# Step 3: Flash the firmware (build is already up-to-date, so this just flashes).
 PICODROID_APK_PATH="$APK_PATH" cargo run \
   --jobs "$JOBS" \
   --target "$TARGET" \

@@ -2,7 +2,6 @@
 # Shared helpers sourced by build.sh and flash.sh
 
 # Sets TARGET, CHIP_FEATURE, FLASH_MAX, RAM_MAX, UF2_FAMILY based on $CHIP.
-# FLASH_MAX/RAM_MAX/UF2_FAMILY are only needed by build.sh; flash.sh ignores them.
 resolve_chip() {
   local chip="$1"
   case "$chip" in
@@ -30,4 +29,22 @@ resolve_chip() {
 # Returns the number of logical CPUs (cross-platform: Linux + macOS).
 cpu_count() {
   nproc 2>/dev/null || sysctl -n hw.logicalcpu
+}
+
+# Prints flash/RAM usage for a given ELF. Requires FLASH_MAX and RAM_MAX to be set.
+print_memory_usage() {
+  local elf="$1"
+  local size_output
+  size_output=$(arm-none-eabi-size "$elf")
+  echo ""
+  echo "=== Memory Usage ==="
+  echo "$size_output"
+
+  read TEXT DATA BSS <<< $(echo "$size_output" | awk 'NR==2 {print $1, $2, $3}')
+  local flash=$(( TEXT + DATA ))
+  local ram=$(( DATA + BSS ))
+
+  printf "  Flash: %d / %d bytes (%d%%)\n" "$flash" "$FLASH_MAX" "$(( flash * 100 / FLASH_MAX ))"
+  printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
+  echo ""
 }
