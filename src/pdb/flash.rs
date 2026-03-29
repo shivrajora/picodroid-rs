@@ -1,7 +1,7 @@
 // Persistent PAPK flash region layout:
 //
-//   Sector 0  [4KB]:  PapkBootMeta { magic: u32, flags: u32, len: u32, _pad: [u8; 4084] }
-//   Remaining [124KB]: raw PAPK bytes
+//   Sector 0  [4KB]:   PapkBootMeta { magic: u32, flags: u32, len: u32, _pad: [u8; 4084] }
+//   Remaining [1020KB]: raw PAPK bytes
 //
 // The PapkBootMeta header is written LAST (after all PAPK data), acting as an
 // atomic commit marker — if power is lost mid-write the magic stays invalid and
@@ -10,26 +10,26 @@
 // flags bit 0 = active_slot (reserved for future A/B support, always 0 today).
 // flags bit 1 = verified    (reserved for future watchdog-rollback support).
 //
-// Future A/B path: expand PAPK_FLASH to 256 KB, add Slot B after Slot A,
+// Future A/B path: expand PAPK_FLASH to 2 MB, add Slot B after Slot A,
 // flip `flags & 1` after writing the inactive slot — no other caller changes.
 
 // RP2040 flash-relative offsets (relative to flash XIP base 0x10000000)
 #[cfg(feature = "chip-rp2040")]
-const PAPK_FLASH_XIP_BASE: usize = 0x101E_0000;
+const PAPK_FLASH_XIP_BASE: usize = 0x1010_0000;
 #[cfg(feature = "chip-rp2040")]
-const PAPK_FLASH_META_OFFSET: u32 = 0x001E_0000; // for ROM erase/program calls
+const PAPK_FLASH_META_OFFSET: u32 = 0x0010_0000; // for ROM erase/program calls
 
-// RP2350 flash-relative offsets (4 MB flash, last 128 KB)
+// RP2350 flash-relative offsets (4 MB flash, last 1 MB)
 #[cfg(feature = "chip-rp2350")]
-const PAPK_FLASH_XIP_BASE: usize = 0x103E_0000;
+const PAPK_FLASH_XIP_BASE: usize = 0x1030_0000;
 #[cfg(feature = "chip-rp2350")]
-const PAPK_FLASH_META_OFFSET: u32 = 0x003E_0000;
+const PAPK_FLASH_META_OFFSET: u32 = 0x0030_0000;
 
 const PAPK_BOOT_META_SIZE: usize = 4096; // one 4 KB erase sector
 const PAPK_SLOT_OFFSET_FROM_META: usize = PAPK_BOOT_META_SIZE;
 
 pub const PAPK_FLASH_MAGIC: u32 = 0x5044_4231; // "PDB1"
-pub const PAPK_MAX_DATA_SIZE: usize = 124 * 1024; // 124 KB
+pub const PAPK_MAX_DATA_SIZE: usize = 1020 * 1024; // 1020 KB (1 MB slot minus 4 KB metadata sector)
 
 /// Check the PAPK flash region for a valid persistent install.
 ///

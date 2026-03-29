@@ -10,11 +10,12 @@ use crate::protocol::{
 const BAUD_RATE: u32 = 115_200;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Timeout for the STATUS_READY response: device needs ~1.6 s to erase flash.
-const ERASE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Timeout for the STATUS_READY response: device needs ~10-15 s to erase 1 MB of flash.
+const ERASE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Timeout for the STATUS_OK response after streaming the full PAPK.
-const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
+/// 1 MB at 115200 baud ≈ 90 s transfer time; add margin for CRC + metadata write.
+const STREAM_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Initial delay before polling PING after STATUS_OK.
 /// Covers JVM graceful exit (~500 ms) + MCU reboot + firmware init (~1.5 s).
@@ -107,7 +108,7 @@ pub fn run(port_name: &str, papk_path: &Path) {
         process::exit(1);
     }
 
-    println!("Erasing flash (~2 s)...");
+    println!("Erasing flash (~10-15 s)...");
 
     let (status, payload) = match recv_response(port.as_mut()) {
         Ok(r) => r,
