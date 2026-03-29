@@ -112,14 +112,19 @@ fn main() -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // If a flash install triggered this stop, reboot now that all
-                // threads have exited cleanly.  The new app will be loaded from
-                // flash XIP on next boot — no RAM copy required.
+                // If a flash install triggered this stop, reboot to load the
+                // new app from flash XIP on next boot.
                 if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
                     pdb::flash::flash_trigger_reset();
                 }
 
-                // Natural app exit — restart the same app.
+                // Natural app exit — sleep until pdb installs a new app.
+                CurrentTask::take_notification(true, Duration::infinite());
+
+                // Woken by pdb — reboot if a new app was flashed.
+                if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
+                    pdb::flash::flash_trigger_reset();
+                }
             }
         })
         .unwrap();

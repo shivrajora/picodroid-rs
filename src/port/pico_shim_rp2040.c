@@ -88,6 +88,7 @@ static void fifo_launch_raw(uint32_t vtor, uint32_t sp, uint32_t entry) {
             __asm volatile("" ::: "memory");
         }
         sio_hw->fifo_wr = cmd;
+        __asm volatile("sev");  /* wake core 1 so it reads the FIFO */
         /* Wait for core 1 echo */
         while (!(sio_hw->fifo_st & SIO_FIFO_ST_VLD)) {
             __asm volatile("wfe");
