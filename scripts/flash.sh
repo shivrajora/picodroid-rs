@@ -11,6 +11,15 @@ EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      echo "Usage: flash.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  -c, --chip CHIP   Target chip (default: rp2040)"
+      echo "  -a, --app APP     App to build and flash (default: blinky)"
+      echo "  -h, --help        Show this help message"
+      exit 0
+      ;;
     -c|--chip)
       CHIP="$2"
       shift 2
