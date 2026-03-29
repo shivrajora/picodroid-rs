@@ -4,6 +4,7 @@ pub const CMD_PING: u8 = 0x00;
 pub const CMD_INSTALL: u8 = 0x01;
 
 pub const STATUS_OK: u8 = 0x00;
+pub const STATUS_READY: u8 = 0x01; // device has erased flash and is ready to receive data
 pub const STATUS_ERR: u8 = 0xFF;
 pub const STATUS_TOO_LARGE: u8 = 0xFE;
 pub const STATUS_CRC_FAIL: u8 = 0xFD;

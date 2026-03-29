@@ -3,12 +3,22 @@ use std::process;
 use std::time::Duration;
 
 use crate::protocol::{
-    recv_response, send_frame, status_str, CMD_INSTALL, CMD_PING, POLL_ATTEMPTS, POLL_TIMEOUT,
-    STATUS_OK,
+    recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
+    POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_OK, STATUS_READY,
 };
 
 const BAUD_RATE: u32 = 115_200;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Timeout for the STATUS_READY response: device needs ~1.6 s to erase flash.
+const ERASE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Timeout for the STATUS_OK response after streaming the full PAPK.
+const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Initial delay before polling PING after STATUS_OK.
+/// Covers JVM graceful exit (~500 ms) + MCU reboot + firmware init (~1.5 s).
+const REBOOT_DELAY: Duration = Duration::from_secs(3);
 
 pub fn run(port_name: &str, papk_path: &Path) {
     // ── Read PAPK file ────────────────────────────────────────────────────────
@@ -52,7 +62,7 @@ pub fn run(port_name: &str, papk_path: &Path) {
         process::exit(1);
     }
 
-    // PING payload: "picodroid/1.0\0" (14 bytes) + max_papk_bytes u32 LE (4 bytes)
+    // PING payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes u32 LE (4 bytes)
     if ping_payload.len() < 18 {
         eprintln!(
             "error: PING payload too short ({} bytes)",
@@ -89,9 +99,37 @@ pub fn run(port_name: &str, papk_path: &Path) {
         papk.len().div_ceil(1024)
     );
 
-    // ── INSTALL ───────────────────────────────────────────────────────────────
-    if let Err(e) = send_frame(port.as_mut(), CMD_INSTALL, &papk) {
-        eprintln!("error: INSTALL send failed: {e}");
+    // ── Phase A: send install header, wait for flash erase to finish ──────────
+    port.set_timeout(ERASE_TIMEOUT).ok();
+
+    if let Err(e) = send_install_header(port.as_mut(), papk.len() as u32) {
+        eprintln!("error: INSTALL header send failed: {e}");
+        process::exit(1);
+    }
+
+    println!("Erasing flash (~2 s)...");
+
+    let (status, payload) = match recv_response(port.as_mut()) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: waiting for READY: {e}");
+            process::exit(1);
+        }
+    };
+
+    if status != STATUS_READY {
+        let msg = String::from_utf8_lossy(&payload);
+        eprintln!("error: expected READY, got {} — {msg}", status_str(status));
+        process::exit(1);
+    }
+
+    // ── Phase B: stream PAPK bytes + CRC32 ───────────────────────────────────
+    port.set_timeout(STREAM_TIMEOUT).ok();
+
+    println!("Streaming {} KB...", papk.len().div_ceil(1024));
+
+    if let Err(e) = send_install_data(port.as_mut(), papk.len() as u32, &papk) {
+        eprintln!("error: INSTALL data send failed: {e}");
         process::exit(1);
     }
 
@@ -109,9 +147,15 @@ pub fn run(port_name: &str, papk_path: &Path) {
         process::exit(1);
     }
 
-    println!("PAPK received. Waiting for app to start...");
+    println!("PAPK written. Waiting for device to reboot...");
 
-    // ── Poll PING until the new app responds ──────────────────────────────────
+    // ── Poll PING until device comes back after reboot ────────────────────────
+    //
+    // The device reboots after the JVM exits gracefully.  pdb_task may respond
+    // to a few PINGs before the reboot (while the JVM is winding down), then
+    // goes silent for ~1-2 s, then comes back up.  The initial delay skips past
+    // both the JVM graceful-exit phase and the reboot+reinit time.
+    std::thread::sleep(REBOOT_DELAY);
     port.set_timeout(POLL_TIMEOUT).ok();
 
     for _ in 0..POLL_ATTEMPTS {
@@ -121,8 +165,6 @@ pub fn run(port_name: &str, papk_path: &Path) {
             continue;
         }
 
-        // Drain any stale bytes by reading with a short buffer until we find the magic.
-        // recv_response will return an error if magic is wrong — just retry.
         match recv_response(port.as_mut()) {
             Ok((STATUS_OK, _)) => {
                 println!("Install complete.");
@@ -132,8 +174,8 @@ pub fn run(port_name: &str, papk_path: &Path) {
         }
     }
 
-    eprintln!("warning: app did not respond to PING within 5 s.");
-    eprintln!("         The install was sent; the app may still be starting.");
+    eprintln!("warning: device did not respond to PING within 20 s after reboot.");
+    eprintln!("         The install was written to flash; the app will load on next boot.");
 }
 
 pub fn ping(port_name: &str) {

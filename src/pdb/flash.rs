@@ -55,26 +55,52 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
     Some(core::slice::from_raw_parts(data_ptr, len))
 }
 
-/// Erase the PAPK flash region and write a new PAPK.
+/// Erase the PAPK flash region (meta sector + all data sectors).
 ///
-/// Write order: data first, then metadata header — so an interrupted write
-/// leaves the magic invalid and the device falls back to the baked-in APK.
-///
-/// This function MUST be linked to RAM (`#[link_section = ".data"]`) because
-/// the RP2040/RP2350 disables the XIP cache during flash erase/program.
-/// `cortex_m::interrupt::free` disables all interrupts for the duration.
-///
-/// Returns `false` if `data` is too large for the slot.
+/// Must be called before streaming page writes. XIP is disabled for the
+/// duration so this function MUST run from RAM (`#[link_section = ".data"]`).
+/// Interrupts are disabled on the calling core for the entire erase.
 #[cfg(not(feature = "sim"))]
 #[link_section = ".data"]
-pub unsafe fn write_papk_to_flash(data: &[u8]) -> bool {
-    if data.len() > PAPK_MAX_DATA_SIZE {
+#[inline(never)]
+pub unsafe fn flash_erase_papk_region() {
+    cortex_m::interrupt::free(|_| {
+        #[cfg(feature = "chip-rp2350")]
+        use rp235x_hal::rom_data;
+        #[cfg(feature = "chip-rp2040")]
+        use rp_pico::hal::rom_data;
+
+        // Erase meta sector + all data sectors in one pass (128 KB total).
+        let total_erase = PAPK_BOOT_META_SIZE + PAPK_MAX_DATA_SIZE;
+        rom_data::flash_range_erase(
+            PAPK_FLASH_META_OFFSET,
+            total_erase,
+            1 << 16, // 64 KB block erase command size
+            0xd8,    // block erase command (standard SPI flash)
+        );
+    });
+}
+
+/// Write one 256-byte flash page into the PAPK data region.
+///
+/// `page_index` is 0-based; `data` must be exactly 256 bytes (pad with 0xFF
+/// for the final partial page).  Returns `false` if `page_index` is out of
+/// range for the 124 KB slot.
+///
+/// MUST run from RAM (`#[link_section = ".data"]`). Interrupts are disabled
+/// for the duration (~1 ms).
+#[cfg(not(feature = "sim"))]
+#[link_section = ".data"]
+#[inline(never)]
+pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool {
+    let offset_within_slot = page_index as usize * 256;
+    // Reject any page whose 256-byte write would extend past the data region.
+    if offset_within_slot + 256 > PAPK_MAX_DATA_SIZE {
         return false;
     }
 
-    // Erase: meta sector (4 KB) + enough data sectors (4 KB aligned)
-    let data_erase = (data.len() + 4095) & !4095;
-    let total_erase = PAPK_BOOT_META_SIZE + data_erase;
+    let flash_offset =
+        PAPK_FLASH_META_OFFSET + PAPK_BOOT_META_SIZE as u32 + offset_within_slot as u32;
 
     cortex_m::interrupt::free(|_| {
         #[cfg(feature = "chip-rp2350")]
@@ -82,33 +108,47 @@ pub unsafe fn write_papk_to_flash(data: &[u8]) -> bool {
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::rom_data;
 
-        // 1. Erase everything (meta + data sectors)
-        rom_data::flash_range_erase(
-            PAPK_FLASH_META_OFFSET,
-            total_erase,
-            1 << 16, // 64 KB block erase command size
-            0xd8,    // block erase command (standard SPI flash)
-        );
-
-        // 2. Program PAPK data in 256-byte pages (before writing meta)
-        let data_flash_offset = PAPK_FLASH_META_OFFSET + PAPK_BOOT_META_SIZE as u32;
-        let mut written = 0usize;
-        while written < data.len() {
-            let chunk_end = (written + 256).min(data.len());
-            let mut page = [0xFFu8; 256];
-            page[..chunk_end - written].copy_from_slice(&data[written..chunk_end]);
-            rom_data::flash_range_program(data_flash_offset + written as u32, page.as_ptr(), 256);
-            written += 256;
-        }
-
-        // 3. Write boot metadata last (atomic commit)
-        //    Only the first 256-byte page of the 4 KB meta sector is used.
-        let mut meta_page = [0xFFu8; 256];
-        meta_page[0..4].copy_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
-        meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
-        meta_page[8..12].copy_from_slice(&(data.len() as u32).to_le_bytes());
-        rom_data::flash_range_program(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
+        rom_data::flash_range_program(flash_offset, data.as_ptr(), 256);
     });
 
     true
+}
+
+/// Write the PapkBootMeta header to sector 0, committing the install atomically.
+///
+/// Call this AFTER all data pages have been written successfully and CRC has
+/// been verified.  Writing the magic last ensures that an interrupted write
+/// leaves the slot invalid, causing a fallback to the baked-in APK on boot.
+///
+/// MUST run from RAM (`#[link_section = ".data"]`). Interrupts are disabled
+/// for the duration (~1 ms).
+#[cfg(not(feature = "sim"))]
+#[link_section = ".data"]
+#[inline(never)]
+pub unsafe fn flash_commit_metadata(len: u32) {
+    let mut meta_page = [0xFFu8; 256];
+    meta_page[0..4].copy_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
+    meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
+    meta_page[8..12].copy_from_slice(&len.to_le_bytes());
+
+    cortex_m::interrupt::free(|_| {
+        #[cfg(feature = "chip-rp2350")]
+        use rp235x_hal::rom_data;
+        #[cfg(feature = "chip-rp2040")]
+        use rp_pico::hal::rom_data;
+
+        rom_data::flash_range_program(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
+    });
+}
+
+/// Trigger a full system reset via the ARM Cortex-M SYSRESETREQ mechanism.
+///
+/// Both cores reset.  The bootloader re-runs, then `main()` starts fresh,
+/// loading the newly-installed PAPK from flash via XIP.
+///
+/// This is called from jvm_task (Core 0) after the JVM and all child threads
+/// have exited gracefully.
+#[cfg(not(feature = "sim"))]
+pub fn flash_trigger_reset() -> ! {
+    cortex_m::peripheral::SCB::sys_reset()
 }

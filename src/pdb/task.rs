@@ -6,7 +6,7 @@ use freertos_rust::{Duration, InterruptContext, Queue};
 use super::pending;
 use super::protocol::{
     crc32_frame, CMD_INSTALL, CMD_PING, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
-    STATUS_TOO_LARGE,
+    STATUS_READY, STATUS_TOO_LARGE,
 };
 
 // ── UART1 RX queue ────────────────────────────────────────────────────────────
@@ -27,6 +27,14 @@ fn uart1_rx_queue() -> &'static Queue<u8> {
             .expect("UART1_RX_QUEUE not initialised")
     }
 }
+
+// ── 256-byte page buffer for streaming flash writes ───────────────────────────
+//
+// Replaces the old 64 KB PAPK_BUF.  Used only during CMD_INSTALL handling.
+// SAFETY: single-core; only pdb_task writes, no concurrent reader.
+struct PageBufCell(UnsafeCell<[u8; 256]>);
+unsafe impl Sync for PageBufCell {}
+static PAGE_BUF: PageBufCell = PageBufCell(UnsafeCell::new([0u8; 256]));
 
 // ── UART1 RX ISR ─────────────────────────────────────────────────────────────
 
@@ -74,12 +82,27 @@ fn queue_read_byte() -> u8 {
     uart1_rx_queue().receive(Duration::infinite()).unwrap_or(0)
 }
 
+/// Read one byte with a 2-second timeout.  Returns `None` if no byte arrives,
+/// which indicates the host has disconnected mid-stream.
+fn queue_read_byte_timeout() -> Option<u8> {
+    uart1_rx_queue().receive(Duration::ms(2000)).ok()
+}
+
 fn queue_read_u32_le() -> u32 {
     let b0 = queue_read_byte() as u32;
     let b1 = queue_read_byte() as u32;
     let b2 = queue_read_byte() as u32;
     let b3 = queue_read_byte() as u32;
     b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+}
+
+/// Read a u32 LE with per-byte timeout.  Returns `None` if any byte times out.
+fn queue_read_u32_le_timeout() -> Option<u32> {
+    let b0 = queue_read_byte_timeout()? as u32;
+    let b1 = queue_read_byte_timeout()? as u32;
+    let b2 = queue_read_byte_timeout()? as u32;
+    let b3 = queue_read_byte_timeout()? as u32;
+    Some(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
 }
 
 /// Block until the 4-byte "PDBP" magic is found in the byte stream.
@@ -116,12 +139,6 @@ fn send_response(status: u8, payload: &[u8]) {
     }
 }
 
-fn drain_queue_bytes(count: u32) {
-    for _ in 0..count {
-        queue_read_byte();
-    }
-}
-
 // ── pdb_task body ─────────────────────────────────────────────────────────────
 
 pub fn run_pdb_task() -> ! {
@@ -136,58 +153,139 @@ pub fn run_pdb_task() -> ! {
     reconfigure(1, 115_200, 8, 0, 1, 0);
     setup_uart1_rx_interrupt();
 
-    loop {
+    'cmd: loop {
         if !wait_for_magic() {
             continue;
         }
 
         let cmd = queue_read_byte();
+        // For CMD_INSTALL the len field carries the PAPK size (no inline payload follows).
+        // For CMD_PING the len field is 0 (empty payload frame).
         let len = queue_read_u32_le();
-
-        if len as usize > pending::MAX_PAPK_SIZE {
-            drain_queue_bytes(len);
-            send_response(STATUS_TOO_LARGE, b"");
-            continue;
-        }
-
-        // Stream payload bytes directly into the static PAPK buffer
-        let buf = unsafe { core::slice::from_raw_parts_mut(pending::buf_mut(), len as usize) };
-        for b in buf.iter_mut() {
-            *b = queue_read_byte();
-        }
-
-        let wire_crc = queue_read_u32_le();
-        let computed = crc32_frame(cmd, len, buf);
-        if computed != wire_crc {
-            send_response(STATUS_CRC_FAIL, b"");
-            continue;
-        }
 
         match cmd {
             CMD_PING => {
-                // Payload: "picodroid/1.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
-                // The host reads max_papk_bytes to validate file size before install.
+                // CMD_PING is a standard framed command with empty payload.
+                // The host sends [PDBP][0x00][len=0][crc32]; consume the CRC.
+                let wire_crc = queue_read_u32_le();
+                let expected_crc = crc32_frame(CMD_PING, len, &[]);
+                if wire_crc != expected_crc {
+                    send_response(STATUS_CRC_FAIL, b"");
+                    continue 'cmd;
+                }
+                // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
                 let mut ping_resp = [0u8; 18];
-                ping_resp[..14].copy_from_slice(b"picodroid/1.0\0");
-                ping_resp[14..18].copy_from_slice(&(pending::MAX_PAPK_SIZE as u32).to_le_bytes());
+                ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
+                ping_resp[14..18]
+                    .copy_from_slice(&(super::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
                 send_response(STATUS_OK, &ping_resp);
             }
 
             CMD_INSTALL => {
-                // 1. Write to flash first for persistence (interrupts disabled inside)
-                let flash_ok = unsafe { super::flash::write_papk_to_flash(buf) };
-                if !flash_ok {
-                    send_response(STATUS_ERR, b"flash write failed");
-                    continue;
+                // ── Phase A: validate length and erase flash ──────────────────
+                if len == 0 {
+                    send_response(STATUS_ERR, b"");
+                    continue 'cmd;
+                }
+                if len as usize > super::flash::PAPK_MAX_DATA_SIZE {
+                    send_response(STATUS_TOO_LARGE, b"");
+                    continue 'cmd;
                 }
 
-                // 2. Deposit in RAM for immediate hot-swap and signal jvm_task
-                pending::PAPK_LEN.store(len as usize, Ordering::Relaxed);
-                pending::HAS_PENDING.store(true, Ordering::Relaxed);
+                // Erase the PAPK flash region (interrupts disabled, ~1.6 s).
+                // The host is idle during this time (waiting for STATUS_READY),
+                // so no UART data is lost.
+                unsafe { super::flash::flash_erase_papk_region() };
+
+                // Signal host that we are ready to receive the PAPK data stream.
+                send_response(STATUS_READY, b"");
+
+                // ── Phase B: stream PAPK bytes, write pages to flash ──────────
+                //
+                // The host now sends `len` raw bytes followed by a 4-byte CRC32.
+                // CRC32 covers [CMD_INSTALL][len_LE][papk_bytes] — same formula
+                // as the existing crc32_frame function.
+                //
+                // We compute the CRC incrementally as bytes arrive and write each
+                // 256-byte page to flash immediately.  Interrupts are disabled for
+                // ~1 ms per page write; the UART hardware FIFO (32 bytes) absorbs
+                // the ~12 bytes that arrive during each write.
+                //
+                // A 2-second per-byte timeout detects host disconnect: if the host
+                // drops the connection after STATUS_READY, pdb_task recovers and
+                // returns to wait_for_magic() so the user can retry.
+
+                let mut crc_hasher = crc32fast::Hasher::new();
+                crc_hasher.update(&[CMD_INSTALL]);
+                crc_hasher.update(&len.to_le_bytes());
+
+                let mut bytes_remaining = len as usize;
+                let mut page_index: u32 = 0;
+
+                'pages: loop {
+                    if bytes_remaining == 0 {
+                        break 'pages;
+                    }
+                    let chunk = bytes_remaining.min(256);
+                    let page = unsafe { &mut *PAGE_BUF.0.get() };
+
+                    // Fill the chunk bytes from the queue (with disconnect detection).
+                    for b in page[..chunk].iter_mut() {
+                        match queue_read_byte_timeout() {
+                            Some(byte) => *b = byte,
+                            None => {
+                                send_response(STATUS_ERR, b"stream timeout");
+                                continue 'cmd;
+                            }
+                        }
+                    }
+                    // Pad the remainder of the page with 0xFF (erased flash value).
+                    for b in page[chunk..].iter_mut() {
+                        *b = 0xFF;
+                    }
+
+                    // Update CRC over the actual data bytes only (not padding).
+                    crc_hasher.update(&page[..chunk]);
+
+                    if !unsafe { super::flash::flash_write_page(page_index, page) } {
+                        // Should never happen given the len validation above.
+                        send_response(STATUS_ERR, b"flash write failed");
+                        continue 'cmd;
+                    }
+                    page_index += 1;
+                    bytes_remaining -= chunk;
+                }
+
+                // Read the 4-byte CRC32 that the host appended (also with timeout).
+                let wire_crc = match queue_read_u32_le_timeout() {
+                    Some(v) => v,
+                    None => {
+                        send_response(STATUS_ERR, b"stream timeout");
+                        continue 'cmd;
+                    }
+                };
+                let computed_crc = crc_hasher.finalize();
+
+                if computed_crc != wire_crc {
+                    send_response(STATUS_CRC_FAIL, b"");
+                    // Flash data region was written but the metadata magic was
+                    // never committed, so read_flash_papk() returns None on next
+                    // boot and the device falls back to the baked-in APK.
+                    continue 'cmd;
+                }
+
+                // Commit the atomic boot metadata (writes the magic last).
+                unsafe { super::flash::flash_commit_metadata(len) };
+
+                // Signal the JVM to exit gracefully before acknowledging.
+                // Setting these before STATUS_OK ensures the JVM is already
+                // stopping when the host polls PING after the reboot.
+                pending::REBOOT_PENDING.store(true, Ordering::Relaxed);
                 pending::STOP_JVM.store(true, Ordering::Relaxed);
                 pending::notify_jvm();
 
-                // 3. ACK — jvm_task will restart asynchronously
+                // Acknowledge the install.  pdb_task continues running so it
+                // can respond to PING polls while the JVM winds down.
                 send_response(STATUS_OK, b"");
             }
 

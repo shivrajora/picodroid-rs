@@ -86,7 +86,7 @@ fn main() -> ! {
         .start(move |_| pdb::run_pdb_task())
         .unwrap();
 
-    // JVM task: loop forever, hot-swapping the app whenever pdb installs a new one.
+    // JVM task: runs the app in a loop, rebooting when a new install arrives.
     // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
     // single-core safety assumption of SharedJvmState remains valid.
     Task::new()
@@ -98,9 +98,8 @@ fn main() -> ! {
             // Store our handle so pdb_task and child tasks can notify us.
             pdb::pending::set_jvm_task(Task::current().unwrap());
             loop {
-                let apk = pdb::pending::take().unwrap_or(boot_apk);
                 pdb::pending::clear_stop();
-                app::run_jvm_with(apk);
+                app::run_jvm_with(boot_apk);
 
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
                 pdb::pending::abort_all_child_delays();
@@ -113,12 +112,14 @@ fn main() -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // If nothing new to run, idle until the next install.
-                // pdb_task calls notify_jvm() after setting HAS_PENDING.
-                // Check first to avoid blocking if the install already arrived.
-                if !pdb::pending::HAS_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
-                    CurrentTask::take_notification(true, Duration::infinite());
+                // If a flash install triggered this stop, reboot now that all
+                // threads have exited cleanly.  The new app will be loaded from
+                // flash XIP on next boot — no RAM copy required.
+                if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
+                    pdb::flash::flash_trigger_reset();
                 }
+
+                // Natural app exit — restart the same app.
             }
         })
         .unwrap();
