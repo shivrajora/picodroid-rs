@@ -31,6 +31,14 @@ cpu_count() {
   nproc 2>/dev/null || sysctl -n hw.logicalcpu
 }
 
+# Prints available app names from the examples directory, one per line, indented.
+list_apps() {
+  local examples_dir="$1"
+  for d in "$examples_dir"/*/; do
+    [[ -d "$d" ]] && echo "    $(basename "$d")"
+  done
+}
+
 # Prints flash/RAM usage for a given ELF. Requires FLASH_MAX and RAM_MAX to be set.
 print_memory_usage() {
   local elf="$1"

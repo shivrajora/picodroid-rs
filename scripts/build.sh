@@ -17,10 +17,13 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   -c, --chip <chip>   Target chip: rp2040 (default) or rp2350
-  -a, --app  <app>    App to build and install: helloworld (default), blinky, uart, etc.
+  -a, --app  <app>    App to build and install (default: helloworld)
   -r, --release       Build in release mode (default: debug)
   -u, --uf2           Convert output ELF to UF2 (requires elf2uf2-rs)
   -h, --help          Show this help message
+
+Apps:
+$(list_apps "$SCRIPT_DIR/../examples")
 
 Examples:
   $(basename "$0")
