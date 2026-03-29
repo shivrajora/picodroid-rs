@@ -1,6 +1,6 @@
 # Examples
 
-Fifteen examples are included under `examples/`:
+Sixteen examples are included under `examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -19,6 +19,7 @@ Fifteen examples are included under `examples/`:
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms (`substring`, `trim`, `toUpperCase`, `toLowerCase`), `String.valueOf`, and StringBuilder building |
 | `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) — opens an ADC pin in a `try` block and confirms `close()` is called on exit |
+| `mathdemo` | `mathdemo.MathDemo` | Demonstrates `java.lang.Math`: `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, trig (`sin`, `cos`), `toRadians`, `toDegrees`, `log`, and `exp` |
 
 To run an example:
 

@@ -70,6 +70,7 @@ Your [`NativeMethodHandler`] is called for every Java `native` method and for an
 | `java/lang/Float` | `<init>`, `valueOf`, `floatValue` |
 | `java/lang/Double` | `<init>`, `valueOf`, `doubleValue` |
 | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
+| `java/lang/Math` | `abs`, `min`, `max` (int/long/float/double), `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 
 If neither handler claims the call, [`JvmError::NoSuchMethod`] is returned.
 

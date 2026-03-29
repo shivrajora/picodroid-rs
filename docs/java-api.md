@@ -213,6 +213,51 @@ All JVM child threads are pinned to **core 0**, the same core as the `jvm` task.
 
 On hot-swap, any thread blocked inside `SystemClock.sleep()` is woken immediately so it can see the stop signal and exit cleanly before the new app starts.
 
+## `java.lang.Math`
+
+Standard math functions. All methods are static. `Math.PI` and `Math.E` are compile-time constants inlined by `javac`.
+
+```java
+// Constants (inlined by the compiler — no runtime cost)
+double pi = Math.PI;   // 3.141592653589793
+double e  = Math.E;    // 2.718281828459045
+
+// abs — int, long, float, double
+int    ai = Math.abs(-7);      // 7
+long   al = Math.abs(-9000L);  // 9000
+float  af = Math.abs(-3.14f);  // 3.14
+double ad = Math.abs(-1.0);    // 1.0
+
+// min / max — int, long, float, double
+int    lo = Math.min(4, 9);    // 4
+double hi = Math.max(1.5, 2.5); // 2.5
+
+// Rounding
+double fl = Math.floor(2.9);    // 2.0
+double ce = Math.ceil(2.1);     // 3.0
+int    ri = Math.round(2.6f);   // 3   (float → int)
+long   rl = Math.round(2.5);    // 3   (double → long)
+
+// Powers / roots
+double sq = Math.sqrt(2.0);          // ≈ 1.4142135
+double pw = Math.pow(2.0, 10.0);     // 1024.0
+
+// Trigonometry (arguments in radians)
+double s  = Math.sin(Math.PI / 2.0); // ≈ 1.0
+double c  = Math.cos(0.0);           // 1.0
+double t  = Math.tan(0.0);           // 0.0
+double a2 = Math.atan2(1.0, 1.0);   // ≈ PI/4
+
+// Angle conversion
+double rad = Math.toRadians(90.0);   // ≈ PI/2
+double deg = Math.toDegrees(Math.PI); // 180.0
+
+// Logarithms / exponential
+double ln  = Math.log(Math.E);       // ≈ 1.0
+double lg  = Math.log10(100.0);      // ≈ 2.0
+double ex  = Math.exp(1.0);          // ≈ 2.71828
+```
+
 ## `java.util.ArrayList`
 
 Dynamic list backed by a per-instance heap buffer.
