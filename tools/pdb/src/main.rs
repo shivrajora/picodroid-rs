@@ -80,11 +80,27 @@ fn main() {
 }
 
 fn require_port(port: Option<&str>) -> String {
-    match port {
-        Some(p) => p.to_owned(),
-        None => {
-            eprintln!("error: -s <port> is required for this command");
-            eprintln!("       Run 'pdb devices' to list available ports.");
+    if let Some(p) = port {
+        return p.to_owned();
+    }
+
+    // Auto-detect: scan for picodroid devices.
+    let found = devices::scan();
+    match found.len() {
+        0 => {
+            eprintln!("error: no picodroid devices found");
+            eprintln!("       Is the device connected and running picodroid firmware?");
+            process::exit(1);
+        }
+        1 => {
+            eprintln!("auto-detected {}", found[0].0);
+            found.into_iter().next().unwrap().0
+        }
+        _ => {
+            eprintln!("error: multiple picodroid devices found — use -s to pick one:");
+            for (name, version) in &found {
+                eprintln!("  {name}  {version}");
+            }
             process::exit(1);
         }
     }
