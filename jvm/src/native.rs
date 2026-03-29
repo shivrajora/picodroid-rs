@@ -114,6 +114,7 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Float` | `<init>`, `valueOf`, `floatValue` |
 /// | `java/lang/Double` | `<init>`, `valueOf`, `doubleValue` |
 /// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
+/// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
 
 /// Extract the list buffer index stored in field 0 of an ArrayList receiver.
@@ -764,7 +765,457 @@ impl NativeMethodHandler for BuiltinHandler {
                 Some(Ok(Some(Value::Int(found as i32))))
             }
 
+            // ── Math ─────────────────────────────────────────────────────────
+            ("java/lang/Math", "abs") => match ctx.args.first() {
+                Some(Value::Int(i)) => Some(Ok(Some(Value::Int(i.abs())))),
+                Some(Value::Long(l)) => Some(Ok(Some(Value::Long(l.abs())))),
+                Some(Value::Float(f)) => Some(Ok(Some(Value::Float(f.abs())))),
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(d.abs())))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "min") => match (ctx.args.first(), ctx.args.get(1)) {
+                (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.min(b))))),
+                (Some(Value::Long(a)), Some(Value::Long(b))) => {
+                    Some(Ok(Some(Value::Long(*a.min(b)))))
+                }
+                (Some(Value::Float(a)), Some(Value::Float(b))) => {
+                    Some(Ok(Some(Value::Float(a.min(*b)))))
+                }
+                (Some(Value::Double(a)), Some(Value::Double(b))) => {
+                    Some(Ok(Some(Value::Double(a.min(*b)))))
+                }
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "max") => match (ctx.args.first(), ctx.args.get(1)) {
+                (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.max(b))))),
+                (Some(Value::Long(a)), Some(Value::Long(b))) => {
+                    Some(Ok(Some(Value::Long(*a.max(b)))))
+                }
+                (Some(Value::Float(a)), Some(Value::Float(b))) => {
+                    Some(Ok(Some(Value::Float(a.max(*b)))))
+                }
+                (Some(Value::Double(a)), Some(Value::Double(b))) => {
+                    Some(Ok(Some(Value::Double(a.max(*b)))))
+                }
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "sqrt") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sqrt(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "pow") => match (ctx.args.first(), ctx.args.get(1)) {
+                (Some(Value::Double(a)), Some(Value::Double(b))) => {
+                    Some(Ok(Some(Value::Double(libm::pow(*a, *b)))))
+                }
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "floor") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::floor(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "ceil") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::ceil(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "round") => match ctx.args.first() {
+                Some(Value::Float(f)) => Some(Ok(Some(Value::Int(libm::roundf(*f) as i32)))),
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Long(libm::round(*d) as i64)))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "sin") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sin(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "cos") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::cos(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "tan") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::tan(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "atan2") => match (ctx.args.first(), ctx.args.get(1)) {
+                (Some(Value::Double(y)), Some(Value::Double(x))) => {
+                    Some(Ok(Some(Value::Double(libm::atan2(*y, *x)))))
+                }
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "toRadians") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
+                    *d * (core::f64::consts::PI / 180.0),
+                )))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "toDegrees") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
+                    *d * (180.0 / core::f64::consts::PI),
+                )))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "log") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "log10") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log10(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+            ("java/lang/Math", "exp") => match ctx.args.first() {
+                Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::exp(*d))))),
+                _ => Some(Err(JvmError::InvalidReference)),
+            },
+
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod math_tests {
+    use super::*;
+    use crate::{array_heap::ArrayHeap, heap::StringTable, object_heap::ObjectHeap};
+
+    fn dispatch_math(
+        method: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let mut ctx = NativeContext {
+            descriptor,
+            args,
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/lang/Math", method, &mut ctx)
+            .expect("Math method not handled")
+    }
+
+    // ── abs ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn abs_int_positive() {
+        assert_eq!(
+            dispatch_math("abs", "(I)I", &[Value::Int(5)]),
+            Ok(Some(Value::Int(5)))
+        );
+    }
+
+    #[test]
+    fn abs_int_negative() {
+        assert_eq!(
+            dispatch_math("abs", "(I)I", &[Value::Int(-5)]),
+            Ok(Some(Value::Int(5)))
+        );
+    }
+
+    #[test]
+    fn abs_long_negative() {
+        assert_eq!(
+            dispatch_math("abs", "(J)J", &[Value::Long(-10)]),
+            Ok(Some(Value::Long(10)))
+        );
+    }
+
+    #[test]
+    fn abs_float_negative() {
+        assert_eq!(
+            dispatch_math("abs", "(F)F", &[Value::Float(-3.5)]),
+            Ok(Some(Value::Float(3.5)))
+        );
+    }
+
+    #[test]
+    fn abs_double_negative() {
+        assert_eq!(
+            dispatch_math("abs", "(D)D", &[Value::Double(-2.0)]),
+            Ok(Some(Value::Double(2.0)))
+        );
+    }
+
+    // ── min ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn min_int() {
+        assert_eq!(
+            dispatch_math("min", "(II)I", &[Value::Int(3), Value::Int(7)]),
+            Ok(Some(Value::Int(3)))
+        );
+    }
+
+    #[test]
+    fn min_long() {
+        assert_eq!(
+            dispatch_math("min", "(JJ)J", &[Value::Long(100), Value::Long(50)]),
+            Ok(Some(Value::Long(50)))
+        );
+    }
+
+    #[test]
+    fn min_float() {
+        assert_eq!(
+            dispatch_math("min", "(FF)F", &[Value::Float(1.5), Value::Float(2.5)]),
+            Ok(Some(Value::Float(1.5)))
+        );
+    }
+
+    #[test]
+    fn min_double() {
+        assert_eq!(
+            dispatch_math("min", "(DD)D", &[Value::Double(0.1), Value::Double(0.2)]),
+            Ok(Some(Value::Double(0.1)))
+        );
+    }
+
+    // ── max ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn max_int() {
+        assert_eq!(
+            dispatch_math("max", "(II)I", &[Value::Int(3), Value::Int(7)]),
+            Ok(Some(Value::Int(7)))
+        );
+    }
+
+    #[test]
+    fn max_long() {
+        assert_eq!(
+            dispatch_math("max", "(JJ)J", &[Value::Long(100), Value::Long(50)]),
+            Ok(Some(Value::Long(100)))
+        );
+    }
+
+    #[test]
+    fn max_float() {
+        assert_eq!(
+            dispatch_math("max", "(FF)F", &[Value::Float(1.5), Value::Float(2.5)]),
+            Ok(Some(Value::Float(2.5)))
+        );
+    }
+
+    #[test]
+    fn max_double() {
+        assert_eq!(
+            dispatch_math("max", "(DD)D", &[Value::Double(9.0), Value::Double(3.0)]),
+            Ok(Some(Value::Double(9.0)))
+        );
+    }
+
+    // ── sqrt ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn sqrt_four() {
+        assert_eq!(
+            dispatch_math("sqrt", "(D)D", &[Value::Double(4.0)]),
+            Ok(Some(Value::Double(2.0)))
+        );
+    }
+
+    #[test]
+    fn sqrt_two() {
+        let Value::Double(result) = dispatch_math("sqrt", "(D)D", &[Value::Double(2.0)])
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - 1.4142135).abs() < 1e-6);
+    }
+
+    // ── pow ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn pow_two_ten() {
+        assert_eq!(
+            dispatch_math("pow", "(DD)D", &[Value::Double(2.0), Value::Double(10.0)]),
+            Ok(Some(Value::Double(1024.0)))
+        );
+    }
+
+    // ── floor / ceil ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn floor_positive() {
+        assert_eq!(
+            dispatch_math("floor", "(D)D", &[Value::Double(2.9)]),
+            Ok(Some(Value::Double(2.0)))
+        );
+    }
+
+    #[test]
+    fn floor_negative() {
+        assert_eq!(
+            dispatch_math("floor", "(D)D", &[Value::Double(-2.1)]),
+            Ok(Some(Value::Double(-3.0)))
+        );
+    }
+
+    #[test]
+    fn ceil_positive() {
+        assert_eq!(
+            dispatch_math("ceil", "(D)D", &[Value::Double(2.1)]),
+            Ok(Some(Value::Double(3.0)))
+        );
+    }
+
+    #[test]
+    fn ceil_negative() {
+        assert_eq!(
+            dispatch_math("ceil", "(D)D", &[Value::Double(-2.9)]),
+            Ok(Some(Value::Double(-2.0)))
+        );
+    }
+
+    // ── round ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn round_float_up() {
+        assert_eq!(
+            dispatch_math("round", "(F)I", &[Value::Float(2.6)]),
+            Ok(Some(Value::Int(3)))
+        );
+    }
+
+    #[test]
+    fn round_float_down() {
+        assert_eq!(
+            dispatch_math("round", "(F)I", &[Value::Float(2.4)]),
+            Ok(Some(Value::Int(2)))
+        );
+    }
+
+    #[test]
+    fn round_double() {
+        assert_eq!(
+            dispatch_math("round", "(D)J", &[Value::Double(2.5)]),
+            Ok(Some(Value::Long(3)))
+        );
+    }
+
+    // ── sin / cos / tan ───────────────────────────────────────────────────────
+
+    #[test]
+    fn sin_zero() {
+        assert_eq!(
+            dispatch_math("sin", "(D)D", &[Value::Double(0.0)]),
+            Ok(Some(Value::Double(0.0)))
+        );
+    }
+
+    #[test]
+    fn cos_zero() {
+        assert_eq!(
+            dispatch_math("cos", "(D)D", &[Value::Double(0.0)]),
+            Ok(Some(Value::Double(1.0)))
+        );
+    }
+
+    #[test]
+    fn sin_pi_over_2() {
+        let Value::Double(result) = dispatch_math(
+            "sin",
+            "(D)D",
+            &[Value::Double(core::f64::consts::FRAC_PI_2)],
+        )
+        .unwrap()
+        .unwrap() else {
+            panic!("expected Double");
+        };
+        assert!((result - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn tan_zero() {
+        assert_eq!(
+            dispatch_math("tan", "(D)D", &[Value::Double(0.0)]),
+            Ok(Some(Value::Double(0.0)))
+        );
+    }
+
+    // ── atan2 ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn atan2_one_one() {
+        let Value::Double(result) =
+            dispatch_math("atan2", "(DD)D", &[Value::Double(1.0), Value::Double(1.0)])
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - core::f64::consts::FRAC_PI_4).abs() < 1e-10);
+    }
+
+    // ── toRadians / toDegrees ────────────────────────────────────────────────
+
+    #[test]
+    fn to_radians_180() {
+        let Value::Double(result) = dispatch_math("toRadians", "(D)D", &[Value::Double(180.0)])
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - core::f64::consts::PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn to_degrees_pi() {
+        let Value::Double(result) =
+            dispatch_math("toDegrees", "(D)D", &[Value::Double(core::f64::consts::PI)])
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - 180.0).abs() < 1e-10);
+    }
+
+    // ── log / log10 / exp ────────────────────────────────────────────────────
+
+    #[test]
+    fn log_e() {
+        let Value::Double(result) =
+            dispatch_math("log", "(D)D", &[Value::Double(core::f64::consts::E)])
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn log10_100() {
+        let Value::Double(result) = dispatch_math("log10", "(D)D", &[Value::Double(100.0)])
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn exp_zero() {
+        assert_eq!(
+            dispatch_math("exp", "(D)D", &[Value::Double(0.0)]),
+            Ok(Some(Value::Double(1.0)))
+        );
+    }
+
+    #[test]
+    fn exp_one() {
+        let Value::Double(result) = dispatch_math("exp", "(D)D", &[Value::Double(1.0)])
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected Double");
+        };
+        assert!((result - core::f64::consts::E).abs() < 1e-10);
     }
 }
