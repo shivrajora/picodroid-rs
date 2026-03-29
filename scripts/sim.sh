@@ -51,8 +51,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      EXTRA_ARGS+=("$1")
-      shift
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
       ;;
   esac
 done
