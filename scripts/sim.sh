@@ -10,6 +10,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
 APP="helloworld"
 EXTRA_ARGS=()
 HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
@@ -19,12 +22,12 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  -a, --app <app>   App to run: helloworld (default), blinky, uart,
-                    arraydemo, inherit, interfacedemo, floatdemo, exceptiondemo,
-                    threaddemo, mathsdemo, i2cdemo, spidemo, stringdemo,
-                    trywithresourcesdemo
+  -a, --app <app>   App to run (default: helloworld)
   -r, --release     Build in release mode
   -h, --help        Show this help message
+
+Apps:
+$(list_apps "$SCRIPT_DIR/../examples")
 
 Examples:
   $(basename "$0")
