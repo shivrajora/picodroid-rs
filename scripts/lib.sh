@@ -8,8 +8,6 @@ resolve_chip() {
     rp2040)
       TARGET="thumbv6m-none-eabi"
       CHIP_FEATURE="chip-rp2040"
-      PROBE_CHIP="RP2040"
-      PAPK_META_ADDR="0x10100000"  # XIP base + PAPK_FLASH_META_OFFSET
       FLASH_MAX=2097152   # 2 MB
       RAM_MAX=270336      # 264 KB
       UF2_FAMILY="0xe48bff56"
@@ -17,8 +15,6 @@ resolve_chip() {
     rp2350)
       TARGET="thumbv8m.main-none-eabihf"
       CHIP_FEATURE="chip-rp2350"
-      PROBE_CHIP="RP2350"
-      PAPK_META_ADDR="0x10300000"  # XIP base + PAPK_FLASH_META_OFFSET
       FLASH_MAX=4194304   # 4 MB
       RAM_MAX=532480      # 520 KB
       UF2_FAMILY="0xe48bff59"

@@ -101,14 +101,8 @@ fn main() -> ! {
             // Store our handle so pdb_task and child tasks can notify us.
             pdb::pending::set_jvm_task(Task::current().unwrap());
             loop {
-                defmt::info!("[jvm] starting app");
                 pdb::pending::clear_stop();
                 app::run_jvm_with(boot_apk);
-                defmt::info!(
-                    "[jvm] app exited — STOP_JVM={} FLASH_PARK={}",
-                    pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed),
-                    pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Relaxed),
-                );
 
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
                 pdb::pending::abort_all_child_delays();
@@ -116,10 +110,8 @@ fn main() -> ! {
                 // Wait for all children to deregister themselves before resetting the heap.
                 // The last child calls notify_jvm() when the counter reaches zero.
                 // Check first to avoid blocking if they all exited before we got here.
-                let active =
-                    pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire);
-                defmt::info!("[jvm] active_threads={}", active);
-                if active > 0 {
+                if pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0
+                {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
@@ -129,30 +121,17 @@ fn main() -> ! {
                 // CORE0_RELEASE after sending STATUS_ERR); in that case just
                 // restart the JVM loop.
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
-                    defmt::info!("[jvm] parking for flash (post-exit)");
                     unsafe { pdb::flash::park_for_flash() };
-                    defmt::warn!("[jvm] park returned — install failed, restarting JVM");
                     continue;
                 }
 
                 // Natural app exit — sleep until pdb installs a new app.
-                defmt::info!("[jvm] natural exit — sleeping for notification");
                 CurrentTask::take_notification(true, Duration::infinite());
-                defmt::info!(
-                    "[jvm] woken: FLASH_PARK={}",
-                    pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Relaxed),
-                );
 
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
-                    defmt::info!("[jvm] parking for flash (woken)");
                     unsafe { pdb::flash::park_for_flash() };
-                    defmt::warn!("[jvm] park returned — install failed, restarting JVM");
                     continue;
                 }
-
-                defmt::warn!(
-                    "[jvm] fell through all checks — looping back (unexpected if stopped by pdb)"
-                );
             }
         })
         .unwrap();

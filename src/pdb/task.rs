@@ -236,28 +236,21 @@ pub fn run_pdb_task() -> ! {
                 }
 
                 // ── Phase A: stop JVM, park core 0, erase flash ──────────────
-                defmt::info!("[pdb] CMD_INSTALL: len={} — stopping JVM", len);
                 pending::STOP_JVM.store(true, Ordering::Release);
                 pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
-                defmt::info!("[pdb] STOP_JVM+FLASH_PARK_REQUESTED set, notifying JVM");
                 pending::notify_jvm();
 
-                defmt::info!("[pdb] waiting for core 0 to park...");
                 if !wait_for_core0_park() {
-                    defmt::error!("[pdb] park timeout after 15s");
                     send_response(STATUS_ERR, b"park timeout");
                     release_core0();
                     pending::FLASH_PARK_REQUESTED.store(false, Ordering::Release);
                     continue 'cmd;
                 }
-                defmt::info!("[pdb] core 0 parked — erasing flash");
 
                 // Core 0 is now parked in RAM with interrupts disabled.
                 // Safe to erase flash. Only erase sectors needed for this papk.
                 let papk_len = len as usize;
-                defmt::info!("[pdb] erasing {} data bytes + 4KB meta sector", papk_len);
                 unsafe { super::flash::flash_erase_papk_region(papk_len) };
-                defmt::info!("[pdb] flash erased — sending READY");
                 send_response(STATUS_READY, b"");
 
                 // ── Phase B: stream PAPK bytes, write pages ──────────────────
@@ -317,13 +310,11 @@ pub fn run_pdb_task() -> ! {
                 }
 
                 // ── Commit metadata, respond, and reboot ─────────────────────
-                defmt::info!("[pdb] CRC ok — committing metadata");
                 unsafe { super::flash::flash_commit_metadata(len) };
                 // Core 0 is still parked in its RAM spin loop.
                 // Send STATUS_OK first so the host sees success, then reset
                 // both cores via SYSRESETREQ — Core 0 will be reset in-place
                 // (SYSRESETREQ ignores PRIMASK, so the parked spin loop is fine).
-                defmt::info!("[pdb] metadata committed — sending OK and rebooting");
                 send_response(STATUS_OK, b"");
                 // Wait for the UART TX shift register to finish transmitting
                 // all bytes before resetting.  Without this, SYSRESETREQ fires
