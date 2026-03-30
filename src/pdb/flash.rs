@@ -55,7 +55,40 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
     Some(core::slice::from_raw_parts(data_ptr, len))
 }
 
-/// Erase the PAPK flash region (meta sector + all data sectors).
+// ── Flash operation helpers ───────────────────────────────────────────────────
+//
+// All functions below are placed in `.data` (RAM) and follow these rules:
+//
+// 1. NO defmt calls anywhere — defmt thunks (Thumbv6MABSLongThunk) call into
+//    .text (flash) via `bl`, which hard-faults once XIP is disabled.
+//
+// 2. All ROM function pointers are pre-resolved via `rom_data::X::ptr()` while
+//    XIP is still enabled, stored as locals, then invoked via `blx rN`.  The
+//    `ptr()` wrappers live in .text but are called BEFORE `cpsid i`.
+//
+// 3. XIP sequence for flash operations (per the RP2040 pico-sdk):
+//      connect_internal_flash()  — restores QSPI pad controls, connects SSI
+//      flash_exit_xip()          — configures SSI for serial SPI mode, exits XIP
+//      <erase or program>        — performs the flash operation
+//      flash_flush_cache()       — flushes XIP cache, clears CS IO-forcing
+//      flash_enter_cmd_xip()     — restores 03h-command XIP mode
+//    The raw ROM functions (flash_range_erase, flash_range_program) do NOT
+//    handle XIP internally — the pico-sdk C wrappers perform this sequence.
+//
+// 4. park_for_flash (core 0) uses read_volatile / write_volatile for all flag
+//    accesses, NOT AtomicBool::load/store.  On thumbv6m, AtomicBool operations
+//    may lower to __atomic_load_1 / __atomic_store_1 libcalls (in .text flash).
+//    Those libcalls fault when core 1's flash_exit_xip has disabled XIP.
+//    read_volatile/write_volatile lower to single ldrb/strb instructions only.
+
+/// Erase the flash sectors needed to hold `papk_len` bytes plus the metadata sector.
+///
+/// Only erases what is necessary:
+///   - always erases the 4 KB metadata sector (sector 0 of the slot)
+///   - erases enough 4 KB data sectors to hold `papk_len` bytes
+///
+/// Using 4 KB sector erase (0x20) rather than 64 KB block erase (0xd8) lets
+/// small apps erase only a few sectors instead of the entire 1 MB slot.
 ///
 /// Must be called before streaming page writes. XIP is disabled for the
 /// duration so this function MUST run from RAM (`#[link_section = ".data"]`).
@@ -63,22 +96,36 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
 #[cfg(not(feature = "sim"))]
 #[link_section = ".data"]
 #[inline(never)]
-pub unsafe fn flash_erase_papk_region() {
-    cortex_m::interrupt::free(|_| {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::rom_data;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::rom_data;
+pub unsafe fn flash_erase_papk_region(papk_len: usize) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::rom_data;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::rom_data;
 
-        // Erase meta sector + all data sectors in one pass (128 KB total).
-        let total_erase = PAPK_BOOT_META_SIZE + PAPK_MAX_DATA_SIZE;
-        rom_data::flash_range_erase(
-            PAPK_FLASH_META_OFFSET,
-            total_erase,
-            1 << 16, // 64 KB block erase command size
-            0xd8,    // block erase command (standard SPI flash)
-        );
-    });
+    const SECTOR: usize = 4096;
+    let data_erase = papk_len.div_ceil(SECTOR) * SECTOR;
+    let total_erase = PAPK_BOOT_META_SIZE + data_erase;
+
+    // Pre-resolve all ROM function pointers while XIP is still enabled.
+    let connect = rom_data::connect_internal_flash::ptr();
+    let exit_xip = rom_data::flash_exit_xip::ptr();
+    let erase = rom_data::flash_range_erase::ptr();
+    let flush = rom_data::flash_flush_cache::ptr();
+    let enter_xip = rom_data::flash_enter_cmd_xip::ptr();
+
+    let primask: u32;
+    core::arch::asm!("mrs {}, PRIMASK", out(reg) primask, options(nomem, nostack, preserves_flags));
+    core::arch::asm!("cpsid i", options(nomem, nostack));
+
+    connect();
+    exit_xip();
+    erase(PAPK_FLASH_META_OFFSET, total_erase, SECTOR as u32, 0x20);
+    flush();
+    enter_xip();
+
+    if primask == 0 {
+        core::arch::asm!("cpsie i", options(nomem, nostack));
+    }
 }
 
 /// Write one 256-byte flash page into the PAPK data region.
@@ -102,14 +149,30 @@ pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool {
     let flash_offset =
         PAPK_FLASH_META_OFFSET + PAPK_BOOT_META_SIZE as u32 + offset_within_slot as u32;
 
-    cortex_m::interrupt::free(|_| {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::rom_data;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::rom_data;
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::rom_data;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::rom_data;
 
-        rom_data::flash_range_program(flash_offset, data.as_ptr(), 256);
-    });
+    let connect = rom_data::connect_internal_flash::ptr();
+    let exit_xip = rom_data::flash_exit_xip::ptr();
+    let program = rom_data::flash_range_program::ptr();
+    let flush = rom_data::flash_flush_cache::ptr();
+    let enter_xip = rom_data::flash_enter_cmd_xip::ptr();
+
+    let primask: u32;
+    core::arch::asm!("mrs {}, PRIMASK", out(reg) primask, options(nomem, nostack, preserves_flags));
+    core::arch::asm!("cpsid i", options(nomem, nostack));
+
+    connect();
+    exit_xip();
+    program(flash_offset, data.as_ptr(), 256);
+    flush();
+    enter_xip();
+
+    if primask == 0 {
+        core::arch::asm!("cpsie i", options(nomem, nostack));
+    }
 
     true
 }
@@ -131,14 +194,30 @@ pub unsafe fn flash_commit_metadata(len: u32) {
     meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
     meta_page[8..12].copy_from_slice(&len.to_le_bytes());
 
-    cortex_m::interrupt::free(|_| {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::rom_data;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::rom_data;
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::rom_data;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::rom_data;
 
-        rom_data::flash_range_program(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
-    });
+    let connect = rom_data::connect_internal_flash::ptr();
+    let exit_xip = rom_data::flash_exit_xip::ptr();
+    let program = rom_data::flash_range_program::ptr();
+    let flush = rom_data::flash_flush_cache::ptr();
+    let enter_xip = rom_data::flash_enter_cmd_xip::ptr();
+
+    let primask: u32;
+    core::arch::asm!("mrs {}, PRIMASK", out(reg) primask, options(nomem, nostack, preserves_flags));
+    core::arch::asm!("cpsid i", options(nomem, nostack));
+
+    connect();
+    exit_xip();
+    program(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
+    flush();
+    enter_xip();
+
+    if primask == 0 {
+        core::arch::asm!("cpsie i", options(nomem, nostack));
+    }
 }
 
 /// Park the calling core in a RAM spin loop with interrupts disabled.
@@ -159,17 +238,75 @@ pub unsafe fn flash_commit_metadata(len: u32) {
 #[inline(never)]
 pub unsafe fn park_for_flash() {
     use super::pending;
-    use core::sync::atomic::Ordering;
 
-    cortex_m::interrupt::free(|_| {
-        pending::CORE0_PARKED.store(true, Ordering::Release);
-        while !pending::CORE0_RELEASE.load(Ordering::Acquire) {
-            cortex_m::asm::nop();
+    // Pre-compute flag addresses while XIP is still enabled (as_ptr() may not
+    // be inlined in debug builds; calling before cpsid i is safe).
+    let parked_addr = pending::CORE0_PARKED.as_ptr() as usize;
+    let release_addr = pending::CORE0_RELEASE.as_ptr() as usize;
+    let park_req_addr = pending::FLASH_PARK_REQUESTED.as_ptr() as usize;
+
+    let primask: u32;
+    core::arch::asm!(
+        "mrs {0}, PRIMASK",
+        out(reg) primask,
+        options(nomem, nostack, preserves_flags)
+    );
+    core::arch::asm!("cpsid i", options(nomem, nostack));
+
+    // Signal core 1 we are parked.
+    //
+    // Use raw strb/ldrb inline asm — read_volatile/write_volatile are only
+    // #[inline] (not #[inline(always)]), so in debug builds they are NOT
+    // inlined and call into .text (flash).  That crashes once core 1's
+    // flash_exit_xip has disabled XIP.  Inline asm is guaranteed to be a
+    // single strb/ldrb with no function call.
+    //
+    // dmb before strb = Release fence; ldrb then dmb = Acquire load.
+    core::arch::asm!(
+        "dmb sy",
+        "strb {val}, [{ptr}]",
+        val = in(reg) 1u32,
+        ptr = in(reg) parked_addr,
+        options(nostack, preserves_flags)
+    );
+
+    // Spin until core 1 sets CORE0_RELEASE.
+    // NO `readonly` — that would let the compiler hoist the load out of the
+    // loop, reading CORE0_RELEASE only once.  Without `readonly` the asm is
+    // treated as a memory side-effect and re-executed on every iteration.
+    loop {
+        let val: u32;
+        core::arch::asm!(
+            "ldrb {val}, [{ptr}]",
+            "dmb sy",
+            val = out(reg) val,
+            ptr = in(reg) release_addr,
+            options(nostack, preserves_flags)
+        );
+        if val != 0 {
+            break;
         }
-        pending::CORE0_PARKED.store(false, Ordering::Relaxed);
-        pending::CORE0_RELEASE.store(false, Ordering::Relaxed);
-        pending::FLASH_PARK_REQUESTED.store(false, Ordering::Relaxed);
-    });
+        // Use inline asm, NOT cortex_m::asm::nop() — the cortex-m crate's
+        // nop() calls `__nop` via a thunk into flash, which faults once
+        // core 1 has disabled XIP.
+        core::arch::asm!("nop", options(nomem, nostack, preserves_flags));
+    }
+
+    // Clear all flags (interrupts still off, no reorder risk).
+    core::arch::asm!(
+        "strb {z}, [{p1}]",
+        "strb {z}, [{p2}]",
+        "strb {z}, [{p3}]",
+        z  = in(reg) 0u32,
+        p1 = in(reg) parked_addr,
+        p2 = in(reg) release_addr,
+        p3 = in(reg) park_req_addr,
+        options(nostack, preserves_flags)
+    );
+
+    if primask == 0 {
+        core::arch::asm!("cpsie i", options(nomem, nostack));
+    }
 }
 
 /// Trigger a full system reset via the ARM Cortex-M SYSRESETREQ mechanism.

@@ -98,8 +98,14 @@ fn main() -> ! {
             // Store our handle so pdb_task and child tasks can notify us.
             pdb::pending::set_jvm_task(Task::current().unwrap());
             loop {
+                defmt::info!("[jvm] starting app");
                 pdb::pending::clear_stop();
                 app::run_jvm_with(boot_apk);
+                defmt::info!(
+                    "[jvm] app exited — STOP_JVM={} FLASH_PARK={}",
+                    pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed),
+                    pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Relaxed),
+                );
 
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
                 pdb::pending::abort_all_child_delays();
@@ -107,40 +113,43 @@ fn main() -> ! {
                 // Wait for all children to deregister themselves before resetting the heap.
                 // The last child calls notify_jvm() when the counter reaches zero.
                 // Check first to avoid blocking if they all exited before we got here.
-                if pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0
-                {
+                let active =
+                    pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire);
+                defmt::info!("[jvm] active_threads={}", active);
+                if active > 0 {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // If pdb_task requested a flash install, park this core in RAM
-                // so that core 1 can safely erase/program flash without XIP
-                // contention on the shared SSI bus.
+                // If pdb_task requested a flash install, park core 0 in RAM.
+                // On success pdb_task calls SYSRESETREQ directly — park_for_flash
+                // never returns.  It returns only on error (pdb_task sets
+                // CORE0_RELEASE after sending STATUS_ERR); in that case just
+                // restart the JVM loop.
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
+                    defmt::info!("[jvm] parking for flash (post-exit)");
                     unsafe { pdb::flash::park_for_flash() };
-                    // After unparking the flash operation is complete — reboot
-                    // so the new (or fallback) app loads from fresh XIP state.
-                    pdb::flash::flash_trigger_reset();
-                }
-
-                // If a flash install triggered this stop, reboot to load the
-                // new app from flash XIP on next boot.
-                if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
-                    pdb::flash::flash_trigger_reset();
+                    defmt::warn!("[jvm] park returned — install failed, restarting JVM");
+                    continue;
                 }
 
                 // Natural app exit — sleep until pdb installs a new app.
+                defmt::info!("[jvm] natural exit — sleeping for notification");
                 CurrentTask::take_notification(true, Duration::infinite());
+                defmt::info!(
+                    "[jvm] woken: FLASH_PARK={}",
+                    pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Relaxed),
+                );
 
-                // Woken by pdb — check for flash park first.
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
+                    defmt::info!("[jvm] parking for flash (woken)");
                     unsafe { pdb::flash::park_for_flash() };
-                    pdb::flash::flash_trigger_reset();
+                    defmt::warn!("[jvm] park returned — install failed, restarting JVM");
+                    continue;
                 }
 
-                // Woken by pdb — reboot if a new app was flashed.
-                if pdb::pending::REBOOT_PENDING.load(core::sync::atomic::Ordering::Relaxed) {
-                    pdb::flash::flash_trigger_reset();
-                }
+                defmt::warn!(
+                    "[jvm] fell through all checks — looping back (unexpected if stopped by pdb)"
+                );
             }
         })
         .unwrap();

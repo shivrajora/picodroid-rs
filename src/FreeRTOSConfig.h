@@ -70,7 +70,7 @@
  * In SMP mode the handler just calls portYIELD_FROM_ISR; the full interop
  * code paths are excluded by configNUMBER_OF_CORES != 1 guards. */
 #define configSUPPORT_PICO_SYNC_INTEROP         1
-#define configTICK_CORE                         0   /* core 0 drives the tick */
+#define configTICK_CORE                         1   /* core 1 drives the tick so park_for_flash() can disable core 0 interrupts without freezing the scheduler */
 #define configUSE_CORE_AFFINITY                 1
 /* Hardware spinlock IDs reserved for FreeRTOS (spinlocks 26 and 27 = PICO_SPINLOCK_ID_OS1/OS2) */
 #define configSMP_SPINLOCK_0                    26

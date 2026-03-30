@@ -7,10 +7,6 @@ use alloc::vec::Vec;
 /// When true, the JVM interpreter exits at the next opcode boundary.
 pub static STOP_JVM: AtomicBool = AtomicBool::new(false);
 
-/// When true, jvm_task should trigger a system reset after the JVM and all
-/// child threads have exited.  Set by pdb_task after a successful flash install.
-pub static REBOOT_PENDING: AtomicBool = AtomicBool::new(false);
-
 /// Set by pdb_task before CMD_INSTALL flash operations.  When jvm_task sees
 /// this after the JVM exits, it enters a RAM spin loop with interrupts disabled
 /// so core 0 does not access flash during erase/program.
