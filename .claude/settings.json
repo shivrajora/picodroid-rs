@@ -1,4 +1,15 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(pkill *)",
+      "Bash(./scripts/*)",
+      "Bash(probe-rs *)",
+      "Bash(echo *)",
+      "Bash(sleep *)",
+      "Bash(grep *)",
+      "Bash(find *)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
