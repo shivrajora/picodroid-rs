@@ -110,6 +110,7 @@ fn main() {
 
     embed_framework_classes(out);
     embed_apk(out);
+    embed_papk_flash_init(out, is_arm_embedded);
 }
 
 /// Compiles picodroid framework Java sources and embeds each `.class` file directly
@@ -200,6 +201,68 @@ fn collect_files_recursive(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+/// Builds a ready-to-flash PAPK image (4 KB metadata sector + raw APK bytes) and
+/// places it into the firmware ELF as a section at the `PAPK_FLASH` address.
+///
+/// When `probe-rs` flashes the ELF it writes this section directly into the
+/// persistent PAPK flash region, so the baked-in app is always installed there
+/// after every probe flash.  This prevents a stale PDB-installed app from
+/// overriding the newly baked-in APK on the next boot.
+///
+/// Only emits the section for ARM embedded targets with `PICODROID_APK_PATH` set.
+fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
+    let is_sim = env::var("CARGO_FEATURE_SIM").is_ok();
+    let apk_path = env::var("PICODROID_APK_PATH").ok();
+
+    if !is_arm_embedded || is_sim || apk_path.is_none() {
+        // Test / sim / clippy build: emit an empty stub so include!() compiles.
+        fs::write(out.join("papk_flash_init.rs"), b"").unwrap();
+        return;
+    }
+
+    let apk_path = apk_path.unwrap();
+    let apk_bytes =
+        fs::read(&apk_path).unwrap_or_else(|e| panic!("Cannot read APK at '{apk_path}': {e}"));
+    let apk_len = apk_bytes.len();
+
+    // Build the PAPK flash image: 4 KB metadata sector followed by raw APK bytes.
+    // Matches the on-device layout expected by read_flash_papk().
+    const PAPK_FLASH_MAGIC: u32 = 0x5044_4231; // "PDB1"
+    const META_SIZE: usize = 4096;
+    let mut image = Vec::with_capacity(META_SIZE + apk_len);
+    image.extend_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
+    image.extend_from_slice(&0u32.to_le_bytes()); // flags
+    image.extend_from_slice(&(apk_len as u32).to_le_bytes()); // len
+    image.resize(META_SIZE, 0xFF); // pad metadata sector to 4 KB
+    image.extend_from_slice(&apk_bytes);
+
+    let bin_path = out.join("papk_flash_init.bin");
+    fs::write(&bin_path, &image)
+        .unwrap_or_else(|e| panic!("Cannot write papk_flash_init.bin: {e}"));
+    let abs_bin = bin_path.canonicalize().unwrap();
+    let total_size = image.len();
+
+    // Generate Rust source: a static array placed in the .papk_flash_init section.
+    let rs = format!(
+        "#[link_section = \".papk_flash_init\"]\n\
+         #[used]\n\
+         static PAPK_FLASH_INIT: [u8; {total_size}] = *include_bytes!({path:?});\n",
+        path = abs_bin.display().to_string()
+    );
+    fs::write(out.join("papk_flash_init.rs"), rs)
+        .unwrap_or_else(|e| panic!("Cannot write papk_flash_init.rs: {e}"));
+
+    // Emit a linker fragment that places .papk_flash_init at the PAPK_FLASH region.
+    // PAPK_FLASH is defined in memory.x (rp2040) / memory_rp2350.x (rp2350).
+    let ld =
+        "SECTIONS {\n  .papk_flash_init : {\n    KEEP(*(.papk_flash_init))\n  } > PAPK_FLASH\n}\n";
+    let ld_path = out.join("papk_flash_init.x");
+    fs::write(&ld_path, ld).unwrap_or_else(|e| panic!("Cannot write papk_flash_init.x: {e}"));
+    println!("cargo:rustc-link-arg=-T{}", ld_path.display());
+
+    println!("cargo:rerun-if-changed={apk_path}");
 }
 
 /// Embeds a pre-built `.papk` file into the firmware as a `&'static [u8]` constant.

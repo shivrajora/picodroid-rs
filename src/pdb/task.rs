@@ -135,6 +135,19 @@ fn wait_for_magic() -> bool {
     false
 }
 
+/// Spin until the UART1 TX FIFO is empty AND the shift register has finished
+/// transmitting the last byte (including stop bits).  PL011 UARTFR bit 3
+/// (BUSY) stays set until the final stop bit has been clocked out.
+fn wait_uart1_tx_drain() {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+
+    let p = unsafe { pac::Peripherals::steal() };
+    while p.UART1.uartfr().read().busy().bit_is_set() {}
+}
+
 fn send_response(status: u8, payload: &[u8]) {
     use crate::system::picodroid::pio::uart::write_byte;
     let len = payload.len() as u32;
@@ -312,6 +325,11 @@ pub fn run_pdb_task() -> ! {
                 // (SYSRESETREQ ignores PRIMASK, so the parked spin loop is fine).
                 defmt::info!("[pdb] metadata committed — sending OK and rebooting");
                 send_response(STATUS_OK, b"");
+                // Wait for the UART TX shift register to finish transmitting
+                // all bytes before resetting.  Without this, SYSRESETREQ fires
+                // before the STATUS_OK frame has been physically shifted out,
+                // and the host never receives the response.
+                wait_uart1_tx_drain();
                 super::flash::flash_trigger_reset();
             }
 
