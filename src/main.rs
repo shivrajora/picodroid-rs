@@ -73,8 +73,11 @@ fn clock_init() {
 fn main() -> ! {
     clock_init();
 
-    // On boot, prefer a persistent PAPK from flash over the baked-in APK.
-    let boot_apk: &'static [u8] = unsafe { pdb::flash::read_flash_papk().unwrap_or(app::APK_DATA) };
+    // The APK lives exclusively in the persistent PAPK flash region.
+    // probe-rs writes it there on every firmware flash (via the .papk_flash_init
+    // ELF section); pdb install updates it over UART.
+    let boot_apk: &'static [u8] =
+        unsafe { pdb::flash::read_flash_papk() }.expect("PAPK flash region invalid");
 
     // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.

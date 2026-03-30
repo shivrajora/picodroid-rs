@@ -132,11 +132,8 @@ static ACTIVE_APK: ActiveApkCell =
 fn load_classes_from_apk(jvm: &mut Jvm) -> Result<(), JvmError> {
     let apk_data: &[u8] = unsafe {
         let (ptr, len) = *ACTIVE_APK.0.get();
-        if ptr.is_null() {
-            APK_DATA
-        } else {
-            core::slice::from_raw_parts(ptr, len)
-        }
+        assert!(!ptr.is_null(), "ACTIVE_APK not set");
+        core::slice::from_raw_parts(ptr, len)
     };
     let apk = Papk::parse(apk_data).map_err(|_| JvmError::InvalidBytecode)?;
     for entry in apk.classes().map_err(|_| JvmError::InvalidBytecode)? {

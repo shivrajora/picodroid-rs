@@ -109,7 +109,7 @@ fn main() {
     }
 
     embed_framework_classes(out);
-    embed_apk(out);
+    embed_apk(out, is_arm_embedded);
     embed_papk_flash_init(out, is_arm_embedded);
 }
 
@@ -275,7 +275,7 @@ fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
 /// PICODROID_APK_PATH=build/apks/helloworld.papk \
 ///   cargo build --no-default-features --features chip-rp2040
 /// ```
-fn embed_apk(out: &Path) {
+fn embed_apk(out: &Path, is_arm_embedded: bool) {
     println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
 
     let apk_path = match env::var("PICODROID_APK_PATH") {
@@ -293,6 +293,18 @@ fn embed_apk(out: &Path) {
             return;
         }
     };
+
+    // For embedded targets the APK lives in the PAPK_FLASH region (written by
+    // embed_papk_flash_init), so there is no need to duplicate it inside the
+    // firmware binary.  APK_DATA is only populated for sim builds.
+    if is_arm_embedded {
+        fs::write(
+            out.join("apk_data.rs"),
+            b"pub static APK_DATA: &[u8] = &[];\n",
+        )
+        .unwrap();
+        return;
+    }
 
     assert!(
         Path::new(&apk_path).exists(),
