@@ -26,7 +26,7 @@ fn main() {
         let memory_src = if chip_rp2350 {
             "memory_rp2350.x"
         } else {
-            "memory.x"
+            "memory_rp2040.x"
         };
         let memory_bytes =
             fs::read(memory_src).unwrap_or_else(|e| panic!("Failed to read {memory_src}: {e}"));

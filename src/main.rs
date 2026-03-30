@@ -26,7 +26,13 @@ use panic_probe as _;
 use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "chip-rp2350"))]
-use rp235x_hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+use rp235x_hal::{block, clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+
+/// IMAGE_DEF block required by the RP2350 bootrom.
+#[cfg(all(not(any(test, feature = "sim")), feature = "chip-rp2350"))]
+#[link_section = ".start_block"]
+#[used]
+pub static IMAGE_DEF: block::ImageDef = block::ImageDef::non_secure_exe();
 
 #[cfg(not(any(test, feature = "sim")))]
 #[global_allocator]
