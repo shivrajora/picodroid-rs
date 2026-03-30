@@ -106,6 +106,28 @@ fn main() {
         )
         .unwrap();
         println!("cargo:rustc-link-arg=-T{}", vectors_ld.display());
+
+        // Place .init_array in FLASH instead of RAM.  GCC's
+        // __attribute__((constructor)) (used by the FreeRTOS RP port) emits
+        // .init_array entries with the SHF_WRITE flag, which causes the default
+        // linker rules to place them in RAM right after .bss/.uninit.  This
+        // merges them into one LOAD segment with FileSiz == MemSiz, making UF2
+        // converters (elf2uf2-rs, picotool) reject the ELF because the BSS
+        // region appears to contain loadable data.  Moving .init_array to FLASH
+        // keeps the BSS segment clean (NOBITS, FileSiz=0).
+        let init_array_ld = out.join("init-array-flash.x");
+        std::fs::write(
+            &init_array_ld,
+            b"SECTIONS {\n\
+              \x20 .init_array : {\n\
+              \x20   __init_array_start = .;\n\
+              \x20   KEEP(*(.init_array .init_array.*))\n\
+              \x20   __init_array_end = .;\n\
+              \x20 } > FLASH\n\
+              } INSERT AFTER .rodata;\n",
+        )
+        .unwrap();
+        println!("cargo:rustc-link-arg=-T{}", init_array_ld.display());
     }
 
     embed_framework_classes(out);

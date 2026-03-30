@@ -88,10 +88,18 @@ print_memory_usage "$ELF"
 
 if [[ "$UF2" == true ]]; then
   UF2_OUT="${ELF}.uf2"
-  if ! command -v elf2uf2-rs &>/dev/null; then
-    echo "elf2uf2-rs not found. Install with: cargo install elf2uf2-rs" >&2
-    exit 1
+  if [[ "$CHIP" == "rp2350" ]]; then
+    if ! command -v picotool &>/dev/null; then
+      echo "picotool not found. Install with: brew install picotool" >&2
+      exit 1
+    fi
+    picotool uf2 convert "$ELF" -t elf "$UF2_OUT" --family rp2350-arm-s
+  else
+    if ! command -v elf2uf2-rs &>/dev/null; then
+      echo "elf2uf2-rs not found. Install with: cargo install elf2uf2-rs" >&2
+      exit 1
+    fi
+    elf2uf2-rs "$ELF" "$UF2_OUT"
   fi
-  elf2uf2-rs "$ELF" "$UF2_OUT"
   echo "UF2 written to: $UF2_OUT"
 fi

@@ -29,10 +29,15 @@ use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchd
 use rp235x_hal::{block, clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 /// IMAGE_DEF block required by the RP2350 bootrom.
+///
+/// Placed right after .vector_table (which lives at flash origin 0x10000000).
+/// The bootrom scans the first 4KB sector for this block marker.  Since the
+/// vector table is at flash origin, no explicit VECTOR_TABLE item is needed —
+/// the bootrom reads SP/Reset from 0x10000000 naturally.
 #[cfg(all(not(any(test, feature = "sim")), feature = "chip-rp2350"))]
 #[link_section = ".start_block"]
 #[used]
-pub static IMAGE_DEF: block::ImageDef = block::ImageDef::non_secure_exe();
+pub static IMAGE_DEF: block::ImageDef = block::ImageDef::secure_exe();
 
 #[cfg(not(any(test, feature = "sim")))]
 #[global_allocator]
@@ -79,13 +84,23 @@ fn clock_init() {
 #[cfg(not(any(test, feature = "sim")))]
 #[entry]
 fn main() -> ! {
+    // Sentinel: write 0xDEADBEEF to top of RAM to prove main() was reached.
+    // Read via: probe-rs read --chip RP235x b32 0x20081FF0 1
+    unsafe {
+        core::ptr::write_volatile(0x20081FF0 as *mut u32, 0xDEAD_BEEF);
+    }
+
+    defmt::info!("picodroid: entry");
+
     clock_init();
+    defmt::info!("picodroid: clocks OK");
 
     // The APK lives exclusively in the persistent PAPK flash region.
     // probe-rs writes it there on every firmware flash (via the .papk_flash_init
     // ELF section); pdb install updates it over UART.
     let boot_apk: &'static [u8] =
         unsafe { packagemanager::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+    defmt::info!("picodroid: APK loaded ({} bytes)", boot_apk.len());
 
     // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
@@ -144,6 +159,7 @@ fn main() -> ! {
         })
         .unwrap();
 
+    defmt::info!("picodroid: starting scheduler");
     FreeRtosUtils::start_scheduler();
 }
 
@@ -165,7 +181,8 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
-    asm::bkpt();
+    // Minimal handler — no defmt (which itself faults before RTT is ready).
+    // Use GDB to inspect: CFSR at 0xE000ED28, HFSR at 0xE000ED2C, stacked PC in _ef.
     #[allow(clippy::empty_loop)]
     loop {}
 }
