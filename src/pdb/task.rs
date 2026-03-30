@@ -182,148 +182,142 @@ fn release_core0() {
     pending::CORE0_RELEASE.store(true, Ordering::Release);
 }
 
+// ── Command handlers ──────────────────────────────────────────────────────────
+
+fn handle_ping(len: u32) {
+    // CMD_PING is a standard framed command with empty payload.
+    // The host sends [PDBP][0x00][len=0][crc32]; consume the CRC.
+    let wire_crc = queue_read_u32_le();
+    let expected_crc = crc32_frame(CMD_PING, len, &[]);
+    if wire_crc != expected_crc {
+        send_response(STATUS_CRC_FAIL, b"");
+        return;
+    }
+    // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
+    let mut ping_resp = [0u8; 18];
+    ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
+    ping_resp[14..18].copy_from_slice(&(super::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
+    send_response(STATUS_OK, &ping_resp);
+}
+
+fn handle_install(len: u32) {
+    if len == 0 {
+        send_response(STATUS_ERR, b"");
+        return;
+    }
+    if len as usize > super::flash::PAPK_MAX_DATA_SIZE {
+        send_response(STATUS_TOO_LARGE, b"");
+        return;
+    }
+
+    // ── Phase A: stop JVM, park core 0, erase flash ──────────────────────
+    pending::STOP_JVM.store(true, Ordering::Release);
+    pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
+    pending::notify_jvm();
+
+    if !wait_for_core0_park() {
+        send_response(STATUS_ERR, b"park timeout");
+        release_core0();
+        pending::FLASH_PARK_REQUESTED.store(false, Ordering::Release);
+        return;
+    }
+
+    // Core 0 is now parked in RAM with interrupts disabled.
+    // Safe to erase flash. Only erase sectors needed for this papk.
+    unsafe { super::flash::flash_erase_papk_region(len as usize) };
+    send_response(STATUS_READY, b"");
+
+    // ── Phase B: stream PAPK bytes, write pages ──────────────────────────
+    if !stream_and_verify_papk(len) {
+        return;
+    }
+
+    // ── Commit metadata, respond, and reboot ─────────────────────────────
+    unsafe { super::flash::flash_commit_metadata(len) };
+    // Core 0 is still parked in its RAM spin loop.  Send STATUS_OK first so
+    // the host sees success, then reset both cores — core 0 will be reset
+    // in-place (watchdog reset ignores PRIMASK).
+    send_response(STATUS_OK, b"");
+    // Wait for the UART TX shift register to finish clocking out STATUS_OK
+    // before resetting, otherwise the host never receives the response.
+    wait_uart1_tx_drain();
+    super::flash::flash_trigger_reset();
+}
+
+/// Stream PAPK bytes from the host, write flash pages, and verify the CRC.
+/// Returns `true` on success, `false` if any step fails (error response already
+/// sent and core 0 released).
+fn stream_and_verify_papk(len: u32) -> bool {
+    let mut crc_hasher = crc32fast::Hasher::new();
+    crc_hasher.update(&[CMD_INSTALL]);
+    crc_hasher.update(&len.to_le_bytes());
+
+    let mut bytes_remaining = len as usize;
+    let mut page_index: u32 = 0;
+    while bytes_remaining > 0 {
+        let chunk = bytes_remaining.min(256);
+        let page = unsafe { &mut *PAGE_BUF.0.get() };
+        for b in page[..chunk].iter_mut() {
+            match queue_read_byte_timeout() {
+                Some(byte) => *b = byte,
+                None => {
+                    release_core0();
+                    send_response(STATUS_ERR, b"stream timeout");
+                    return false;
+                }
+            }
+        }
+        crc_hasher.update(&page[..chunk]);
+
+        if chunk < 256 {
+            page[chunk..].fill(0xFF);
+        }
+        if !unsafe { super::flash::flash_write_page(page_index, page) } {
+            release_core0();
+            send_response(STATUS_ERR, b"flash write failed");
+            return false;
+        }
+        page_index += 1;
+        bytes_remaining -= chunk;
+    }
+
+    let wire_crc = match queue_read_u32_le_timeout() {
+        Some(v) => v,
+        None => {
+            release_core0();
+            send_response(STATUS_ERR, b"stream timeout");
+            return false;
+        }
+    };
+    if crc_hasher.finalize() != wire_crc {
+        release_core0();
+        send_response(STATUS_CRC_FAIL, b"");
+        return false;
+    }
+    true
+}
+
 // ── pdb_task body ─────────────────────────────────────────────────────────────
 
 pub fn run_pdb_task() -> ! {
     use crate::system::picodroid::pio::uart::{init, reconfigure};
 
-    // Create the RX queue (256-byte capacity to absorb burst traffic)
     let q = Queue::new(256).expect("pdb uart1 queue alloc failed");
     unsafe { *UART1_RX_QUEUE.0.get() = Some(q) };
 
-    // Initialize UART1 hardware and enable the RX interrupt
     init(1);
     reconfigure(1, 115_200, 8, 0, 1, 0);
     setup_uart1_rx_interrupt();
 
-    'cmd: loop {
+    loop {
         if !wait_for_magic() {
             continue;
         }
-
         let cmd = queue_read_byte();
-        // For CMD_INSTALL the len field carries the PAPK size (no inline payload follows).
-        // For CMD_PING the len field is 0 (empty payload frame).
         let len = queue_read_u32_le();
-
         match cmd {
-            CMD_PING => {
-                // CMD_PING is a standard framed command with empty payload.
-                // The host sends [PDBP][0x00][len=0][crc32]; consume the CRC.
-                let wire_crc = queue_read_u32_le();
-                let expected_crc = crc32_frame(CMD_PING, len, &[]);
-                if wire_crc != expected_crc {
-                    send_response(STATUS_CRC_FAIL, b"");
-                    continue 'cmd;
-                }
-                // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
-                let mut ping_resp = [0u8; 18];
-                ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
-                ping_resp[14..18]
-                    .copy_from_slice(&(super::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
-                send_response(STATUS_OK, &ping_resp);
-            }
-
-            CMD_INSTALL => {
-                // ── Validate length ───────────────────────────────────────────
-                if len == 0 {
-                    send_response(STATUS_ERR, b"");
-                    continue 'cmd;
-                }
-                if len as usize > super::flash::PAPK_MAX_DATA_SIZE {
-                    send_response(STATUS_TOO_LARGE, b"");
-                    continue 'cmd;
-                }
-
-                // ── Phase A: stop JVM, park core 0, erase flash ──────────────
-                pending::STOP_JVM.store(true, Ordering::Release);
-                pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
-                pending::notify_jvm();
-
-                if !wait_for_core0_park() {
-                    send_response(STATUS_ERR, b"park timeout");
-                    release_core0();
-                    pending::FLASH_PARK_REQUESTED.store(false, Ordering::Release);
-                    continue 'cmd;
-                }
-
-                // Core 0 is now parked in RAM with interrupts disabled.
-                // Safe to erase flash. Only erase sectors needed for this papk.
-                let papk_len = len as usize;
-                unsafe { super::flash::flash_erase_papk_region(papk_len) };
-                send_response(STATUS_READY, b"");
-
-                // ── Phase B: stream PAPK bytes, write pages ──────────────────
-                let mut crc_hasher = crc32fast::Hasher::new();
-                crc_hasher.update(&[CMD_INSTALL]);
-                crc_hasher.update(&len.to_le_bytes());
-
-                let mut bytes_remaining = len as usize;
-                let mut page_index: u32 = 0;
-                while bytes_remaining > 0 {
-                    let chunk = bytes_remaining.min(256);
-                    let page = unsafe { &mut *PAGE_BUF.0.get() };
-                    let mut timed_out = false;
-                    for b in page[..chunk].iter_mut() {
-                        match queue_read_byte_timeout() {
-                            Some(byte) => *b = byte,
-                            None => {
-                                timed_out = true;
-                                break;
-                            }
-                        }
-                    }
-                    if timed_out {
-                        release_core0();
-                        send_response(STATUS_ERR, b"stream timeout");
-                        continue 'cmd;
-                    }
-                    crc_hasher.update(&page[..chunk]);
-
-                    // Pad the last page with 0xFF if it's a partial page
-                    if chunk < 256 {
-                        page[chunk..].fill(0xFF);
-                    }
-                    if !unsafe { super::flash::flash_write_page(page_index, page) } {
-                        release_core0();
-                        send_response(STATUS_ERR, b"flash write failed");
-                        continue 'cmd;
-                    }
-                    page_index += 1;
-                    bytes_remaining -= chunk;
-                }
-
-                // ── Verify CRC ───────────────────────────────────────────────
-                let wire_crc = match queue_read_u32_le_timeout() {
-                    Some(v) => v,
-                    None => {
-                        release_core0();
-                        send_response(STATUS_ERR, b"stream timeout");
-                        continue 'cmd;
-                    }
-                };
-                let computed_crc = crc_hasher.finalize();
-                if computed_crc != wire_crc {
-                    release_core0();
-                    send_response(STATUS_CRC_FAIL, b"");
-                    continue 'cmd;
-                }
-
-                // ── Commit metadata, respond, and reboot ─────────────────────
-                unsafe { super::flash::flash_commit_metadata(len) };
-                // Core 0 is still parked in its RAM spin loop.
-                // Send STATUS_OK first so the host sees success, then reset
-                // both cores via SYSRESETREQ — Core 0 will be reset in-place
-                // (SYSRESETREQ ignores PRIMASK, so the parked spin loop is fine).
-                send_response(STATUS_OK, b"");
-                // Wait for the UART TX shift register to finish transmitting
-                // all bytes before resetting.  Without this, SYSRESETREQ fires
-                // before the STATUS_OK frame has been physically shifted out,
-                // and the host never receives the response.
-                wait_uart1_tx_drain();
-                super::flash::flash_trigger_reset();
-            }
-
+            CMD_PING => handle_ping(len),
+            CMD_INSTALL => handle_install(len),
             _ => send_response(STATUS_ERR, b"unknown cmd"),
         }
     }
