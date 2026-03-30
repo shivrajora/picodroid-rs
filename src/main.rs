@@ -5,6 +5,8 @@ extern crate alloc;
 
 mod app;
 #[cfg(not(any(test, feature = "sim")))]
+mod packagemanager;
+#[cfg(not(any(test, feature = "sim")))]
 mod pdb;
 mod system;
 mod task_priority;
@@ -77,7 +79,7 @@ fn main() -> ! {
     // probe-rs writes it there on every firmware flash (via the .papk_flash_init
     // ELF section); pdb install updates it over UART.
     let boot_apk: &'static [u8] =
-        unsafe { pdb::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+        unsafe { packagemanager::flash::read_flash_papk() }.expect("PAPK flash region invalid");
 
     // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
@@ -121,7 +123,7 @@ fn main() -> ! {
                 // CORE0_RELEASE after sending STATUS_ERR); in that case just
                 // restart the JVM loop.
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
-                    unsafe { pdb::flash::park_for_flash() };
+                    unsafe { packagemanager::flash::park_for_flash() };
                     continue;
                 }
 
@@ -129,7 +131,7 @@ fn main() -> ! {
                 CurrentTask::take_notification(true, Duration::infinite());
 
                 if pdb::pending::FLASH_PARK_REQUESTED.load(core::sync::atomic::Ordering::Acquire) {
-                    unsafe { pdb::flash::park_for_flash() };
+                    unsafe { packagemanager::flash::park_for_flash() };
                     continue;
                 }
             }

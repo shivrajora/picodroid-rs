@@ -231,11 +231,12 @@ pub unsafe fn flash_commit_metadata(len: u32) {
 /// Park the calling core in a RAM spin loop with interrupts disabled.
 ///
 /// Called from jvm_task (core 0) so that core 0 does not access flash (via XIP)
-/// while pdb_task (core 1) erases or programs flash.  The RP2040 SSI is shared
-/// between both cores; any XIP access during a ROM flash operation causes
+/// while the install task (core 1) erases or programs flash.  The RP2040 SSI is
+/// shared between both cores; any XIP access during a ROM flash operation causes
 /// undefined behaviour (bus hang or hard-fault).
 ///
-/// Core 0 stays parked until pdb_task sets [`super::pending::CORE0_RELEASE`].
+/// Core 0 stays parked until the install coordinator sets
+/// [`crate::pdb::pending::CORE0_RELEASE`].
 ///
 /// # Safety
 /// Must only be called from core 0 after the JVM and all child threads have
@@ -245,7 +246,7 @@ pub unsafe fn flash_commit_metadata(len: u32) {
 #[link_section = ".data"]
 #[inline(never)]
 pub unsafe fn park_for_flash() {
-    use super::pending;
+    use crate::pdb::pending;
 
     // Pre-compute flag addresses while XIP is still enabled (as_ptr() may not
     // be inlined in debug builds; calling before cpsid i is safe).
@@ -327,7 +328,7 @@ pub unsafe fn park_for_flash() {
 /// propagate to a full chip reset on multi-core RP2040/RP2350 — the watchdog
 /// path is what the pico-sdk uses and resets all selected subsystems reliably.
 ///
-/// Called from pdb_task (core 1) after the install is complete.
+/// Called from the install task (core 1) after the install is complete.
 #[cfg(not(feature = "sim"))]
 pub fn flash_trigger_reset() -> ! {
     #[cfg(feature = "chip-rp2350")]

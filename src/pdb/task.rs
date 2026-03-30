@@ -1,13 +1,11 @@
 use core::cell::UnsafeCell;
-use core::sync::atomic::Ordering;
 
-use freertos_rust::{CurrentTask, Duration, InterruptContext, Queue};
+use freertos_rust::{Duration, InterruptContext, Queue};
 
-use super::pending;
 use super::protocol::{
     crc32_frame, CMD_INSTALL, CMD_PING, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
-    STATUS_READY, STATUS_TOO_LARGE,
 };
+use super::uart_transport::{PdbCoreCoordinator, UartTransport};
 
 // ── UART1 RX queue ────────────────────────────────────────────────────────────
 //
@@ -27,14 +25,6 @@ fn uart1_rx_queue() -> &'static Queue<u8> {
             .expect("UART1_RX_QUEUE not initialised")
     }
 }
-
-// ── 256-byte page buffer for streaming flash writes ───────────────────────────
-//
-// Replaces the old 64 KB PAPK_BUF.  Used only during CMD_INSTALL handling.
-// SAFETY: single-core; only pdb_task writes, no concurrent reader.
-struct PageBufCell(UnsafeCell<[u8; 256]>);
-unsafe impl Sync for PageBufCell {}
-static PAGE_BUF: PageBufCell = PageBufCell(UnsafeCell::new([0u8; 256]));
 
 // ── UART1 RX ISR ─────────────────────────────────────────────────────────────
 
@@ -95,7 +85,7 @@ fn queue_read_byte() -> u8 {
 
 /// Read one byte with a 2-second timeout.  Returns `None` if no byte arrives,
 /// which indicates the host has disconnected mid-stream.
-fn queue_read_byte_timeout() -> Option<u8> {
+pub(super) fn queue_read_byte_timeout() -> Option<u8> {
     uart1_rx_queue().receive(Duration::ms(2000)).ok()
 }
 
@@ -105,15 +95,6 @@ fn queue_read_u32_le() -> u32 {
     let b2 = queue_read_byte() as u32;
     let b3 = queue_read_byte() as u32;
     b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-}
-
-/// Read a u32 LE with per-byte timeout.  Returns `None` if any byte times out.
-fn queue_read_u32_le_timeout() -> Option<u32> {
-    let b0 = queue_read_byte_timeout()? as u32;
-    let b1 = queue_read_byte_timeout()? as u32;
-    let b2 = queue_read_byte_timeout()? as u32;
-    let b3 = queue_read_byte_timeout()? as u32;
-    Some(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
 }
 
 /// Block until the 4-byte "PDBP" magic is found in the byte stream.
@@ -135,53 +116,6 @@ fn wait_for_magic() -> bool {
     false
 }
 
-/// Spin until the UART1 TX FIFO is empty AND the shift register has finished
-/// transmitting the last byte (including stop bits).  PL011 UARTFR bit 3
-/// (BUSY) stays set until the final stop bit has been clocked out.
-fn wait_uart1_tx_drain() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-
-    let p = unsafe { pac::Peripherals::steal() };
-    while p.UART1.uartfr().read().busy().bit_is_set() {}
-}
-
-fn send_response(status: u8, payload: &[u8]) {
-    use crate::system::picodroid::pio::uart::write_byte;
-    let len = payload.len() as u32;
-    for b in FRAME_MAGIC {
-        write_byte(1, *b);
-    }
-    write_byte(1, status);
-    for b in len.to_le_bytes() {
-        write_byte(1, b);
-    }
-    for b in payload {
-        write_byte(1, *b);
-    }
-}
-
-// ── Core-0 parking helpers for multi-core flash safety ───────────────────────
-
-/// Poll [`pending::CORE0_PARKED`] every 10 ms for up to 15 s.
-fn wait_for_core0_park() -> bool {
-    for _ in 0..1500 {
-        if pending::CORE0_PARKED.load(Ordering::Acquire) {
-            return true;
-        }
-        CurrentTask::delay(Duration::ms(10));
-    }
-    false
-}
-
-/// Release core 0 from its RAM spin loop.  Always safe to call, even if core 0
-/// never parked — it will see the flag and exit immediately if it parks late.
-fn release_core0() {
-    pending::CORE0_RELEASE.store(true, Ordering::Release);
-}
-
 // ── Command handlers ──────────────────────────────────────────────────────────
 
 fn handle_ping(len: u32) {
@@ -190,111 +124,15 @@ fn handle_ping(len: u32) {
     let wire_crc = queue_read_u32_le();
     let expected_crc = crc32_frame(CMD_PING, len, &[]);
     if wire_crc != expected_crc {
-        send_response(STATUS_CRC_FAIL, b"");
+        UartTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
         return;
     }
     // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
     let mut ping_resp = [0u8; 18];
     ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
-    ping_resp[14..18].copy_from_slice(&(super::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
-    send_response(STATUS_OK, &ping_resp);
-}
-
-fn handle_install(len: u32) {
-    if len == 0 {
-        send_response(STATUS_ERR, b"");
-        return;
-    }
-    if len as usize > super::flash::PAPK_MAX_DATA_SIZE {
-        send_response(STATUS_TOO_LARGE, b"");
-        return;
-    }
-
-    // ── Phase A: stop JVM, park core 0, erase flash ──────────────────────
-    pending::STOP_JVM.store(true, Ordering::Release);
-    pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
-    pending::notify_jvm();
-
-    if !wait_for_core0_park() {
-        send_response(STATUS_ERR, b"park timeout");
-        release_core0();
-        pending::FLASH_PARK_REQUESTED.store(false, Ordering::Release);
-        return;
-    }
-
-    // Core 0 is now parked in RAM with interrupts disabled.
-    // Safe to erase flash. Only erase sectors needed for this papk.
-    unsafe { super::flash::flash_erase_papk_region(len as usize) };
-    send_response(STATUS_READY, b"");
-
-    // ── Phase B: stream PAPK bytes, write pages ──────────────────────────
-    if !stream_and_verify_papk(len) {
-        return;
-    }
-
-    // ── Commit metadata, respond, and reboot ─────────────────────────────
-    unsafe { super::flash::flash_commit_metadata(len) };
-    // Core 0 is still parked in its RAM spin loop.  Send STATUS_OK first so
-    // the host sees success, then reset both cores — core 0 will be reset
-    // in-place (watchdog reset ignores PRIMASK).
-    send_response(STATUS_OK, b"");
-    // Wait for the UART TX shift register to finish clocking out STATUS_OK
-    // before resetting, otherwise the host never receives the response.
-    wait_uart1_tx_drain();
-    super::flash::flash_trigger_reset();
-}
-
-/// Stream PAPK bytes from the host, write flash pages, and verify the CRC.
-/// Returns `true` on success, `false` if any step fails (error response already
-/// sent and core 0 released).
-fn stream_and_verify_papk(len: u32) -> bool {
-    let mut crc_hasher = crc32fast::Hasher::new();
-    crc_hasher.update(&[CMD_INSTALL]);
-    crc_hasher.update(&len.to_le_bytes());
-
-    let mut bytes_remaining = len as usize;
-    let mut page_index: u32 = 0;
-    while bytes_remaining > 0 {
-        let chunk = bytes_remaining.min(256);
-        let page = unsafe { &mut *PAGE_BUF.0.get() };
-        for b in page[..chunk].iter_mut() {
-            match queue_read_byte_timeout() {
-                Some(byte) => *b = byte,
-                None => {
-                    release_core0();
-                    send_response(STATUS_ERR, b"stream timeout");
-                    return false;
-                }
-            }
-        }
-        crc_hasher.update(&page[..chunk]);
-
-        if chunk < 256 {
-            page[chunk..].fill(0xFF);
-        }
-        if !unsafe { super::flash::flash_write_page(page_index, page) } {
-            release_core0();
-            send_response(STATUS_ERR, b"flash write failed");
-            return false;
-        }
-        page_index += 1;
-        bytes_remaining -= chunk;
-    }
-
-    let wire_crc = match queue_read_u32_le_timeout() {
-        Some(v) => v,
-        None => {
-            release_core0();
-            send_response(STATUS_ERR, b"stream timeout");
-            return false;
-        }
-    };
-    if crc_hasher.finalize() != wire_crc {
-        release_core0();
-        send_response(STATUS_CRC_FAIL, b"");
-        return false;
-    }
-    true
+    ping_resp[14..18]
+        .copy_from_slice(&(crate::packagemanager::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
+    UartTransport::send_pdbp_response(STATUS_OK, &ping_resp);
 }
 
 // ── pdb_task body ─────────────────────────────────────────────────────────────
@@ -317,8 +155,12 @@ pub fn run_pdb_task() -> ! {
         let len = queue_read_u32_le();
         match cmd {
             CMD_PING => handle_ping(len),
-            CMD_INSTALL => handle_install(len),
-            _ => send_response(STATUS_ERR, b"unknown cmd"),
+            CMD_INSTALL => {
+                let mut transport = UartTransport;
+                let mut coordinator = PdbCoreCoordinator;
+                crate::packagemanager::install::run_install(&mut transport, &mut coordinator, len);
+            }
+            _ => UartTransport::send_pdbp_response(STATUS_ERR, b"unknown cmd"),
         }
     }
 }
