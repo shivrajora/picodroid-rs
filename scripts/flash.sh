@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 CHIP="rp2040"
 APP="blinky"
+PROFILE="debug"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -33,6 +34,11 @@ EOF
       APP="$2"
       shift 2
       ;;
+    -r|--release)
+      PROFILE="release"
+      EXTRA_ARGS+=("$1")
+      shift
+      ;;
     *)
       EXTRA_ARGS+=("$1")
       shift
@@ -56,7 +62,7 @@ PICODROID_APK_PATH="$APK_PATH" cargo build \
   --features "$CHIP_FEATURE" \
   "${EXTRA_ARGS[@]}"
 
-ELF="target/${TARGET}/debug/picodroid"
+ELF="target/${TARGET}/${PROFILE}/picodroid"
 
 if [[ ! -f "$ELF" ]]; then
   echo "Binary not found: $ELF" >&2
