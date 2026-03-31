@@ -1,4 +1,4 @@
-pub(super) fn set_direction(pin: u8, direction: i32) {
+pub fn set_direction(pin: u8, direction: i32) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -46,7 +46,7 @@ pub(super) fn set_direction(pin: u8, direction: i32) {
     }
 }
 
-pub(super) fn set_value(pin: u8, high: bool) {
+pub fn set_value(pin: u8, high: bool) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]

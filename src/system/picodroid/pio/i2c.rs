@@ -6,12 +6,7 @@ use pico_jvm::{
 
 pub use super::fields::i2c as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "i2c/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "i2c/sim.rs"]
-mod platform;
+use crate::hal::i2c as platform;
 
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {

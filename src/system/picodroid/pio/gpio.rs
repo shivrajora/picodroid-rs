@@ -5,12 +5,7 @@ use pico_jvm::{
 
 pub use super::fields::gpio as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "gpio/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "gpio/sim.rs"]
-mod platform;
+use crate::hal::gpio as platform;
 
 pub fn set_direction_native(
     args: &[Value],

@@ -10,8 +10,12 @@ license = "Apache-2.0"
 
 [features]
 default = ["chip-rp2040"]
-chip-rp2040 = ["dep:rp-pico"]
-chip-rp2350 = ["dep:rp235x-hal"]
+# Chip selection (user-facing — pick exactly one for embedded builds)
+chip-rp2040 = ["dep:rp-pico", "family-rp"]
+chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
+# MCU family grouping (internal — activated by chip features)
+family-rp = []
+# Simulator mode (no hardware)
 sim = []
 
 [dependencies]

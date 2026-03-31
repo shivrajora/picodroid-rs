@@ -6,12 +6,7 @@ use pico_jvm::{
 
 pub use super::fields::spi as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "spi/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "spi/sim.rs"]
-mod platform;
+use crate::hal::spi as platform;
 
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {

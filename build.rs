@@ -21,6 +21,7 @@ fn main() {
 
     if is_arm_embedded {
         let chip_rp2350 = env::var("CARGO_FEATURE_CHIP_RP2350").is_ok();
+        let family_rp = env::var("CARGO_FEATURE_FAMILY_RP").is_ok();
 
         // Copy the appropriate memory layout into OUT_DIR so the linker finds it.
         let memory_src = if chip_rp2350 {
@@ -41,11 +42,18 @@ fn main() {
 
         // Path to FreeRTOS kernel or set ENV "FREERTOS_SRC" instead
         b.freertos("third_party/FreeRTOS-Kernel");
-        b.freertos_config("src"); // Location of `FreeRTOSConfig.h`
-                                  // Use RP-specific SMP ports:
-                                  //   RP2040: ThirdParty/GCC/RP2040 (Cortex-M0+, uses SIO FIFO for vYieldCore)
-                                  //   RP2350: ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure
-                                  //           (Cortex-M33, uses SIO doorbells for vYieldCore)
+        // Location of `FreeRTOSConfig.h` — per-family to allow different
+        // core counts, clock speeds, and FreeRTOS port settings.
+        let freertos_config_dir = if family_rp {
+            "src/hal/rp"
+        } else {
+            "src" // fallback
+        };
+        b.freertos_config(freertos_config_dir);
+        // Use RP-specific SMP ports:
+        //   RP2040: ThirdParty/GCC/RP2040 (Cortex-M0+, uses SIO FIFO for vYieldCore)
+        //   RP2350: ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure
+        //           (Cortex-M33, uses SIO doorbells for vYieldCore)
         let (freertos_port, port_include, pico_shim_c) = if chip_rp2350 {
             (
                 "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
@@ -82,7 +90,7 @@ fn main() {
 
         b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 
-        println!("cargo:rerun-if-changed=src/FreeRTOSConfig.h");
+        println!("cargo:rerun-if-changed={freertos_config_dir}/FreeRTOSConfig.h");
 
         // This FreeRTOS-Kernel port (Development Branch) uses CMSIS-style handler
         // names (SVC_Handler, PendSV_Handler, SysTick_Handler).  cortex-m-rt's

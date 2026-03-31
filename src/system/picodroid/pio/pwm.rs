@@ -5,12 +5,7 @@ use pico_jvm::{
 
 pub use super::fields::pwm as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "pwm/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "pwm/sim.rs"]
-mod platform;
+use crate::hal::pwm as platform;
 
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {

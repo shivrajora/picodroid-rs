@@ -5,16 +5,7 @@ use pico_jvm::{
 
 pub use super::fields::uart as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "uart/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "uart/sim.rs"]
-mod platform;
-
-// Expose the platform module so pdb_task can call reconfigure/write_byte directly.
-#[cfg(not(feature = "sim"))]
-pub(crate) use platform::{reconfigure, write_byte};
+use crate::hal::uart as platform;
 
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {

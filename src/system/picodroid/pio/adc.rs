@@ -5,12 +5,7 @@ use pico_jvm::{
 
 pub use super::fields::adc as fields;
 
-#[cfg(not(feature = "sim"))]
-#[path = "adc/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "adc/sim.rs"]
-mod platform;
+use crate::hal::adc as platform;
 
 fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
     match args.first() {

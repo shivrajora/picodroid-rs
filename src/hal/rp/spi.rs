@@ -51,7 +51,7 @@ fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
 }
 
 /// Configure GPIO pins for SPI function and start the controller at 1 MHz, MODE_0.
-pub(super) fn init(spi_id: u8) {
+pub fn init(spi_id: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -101,19 +101,13 @@ pub(super) fn init(spi_id: u8) {
     do_reconfigure(spi_id, 1_000_000, 0);
 }
 
-pub(super) fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
+pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
     do_reconfigure(spi_id, freq_hz, mode);
 }
 
 /// Full-duplex transfer. Writes tx[0..len-1] and stores received bytes into rx[0..len-1].
 /// Returns len on success.
-pub(super) fn transfer(
-    spi_id: u8,
-    tx_idx: u16,
-    rx_idx: u16,
-    len: usize,
-    arrays: &mut ArrayHeap,
-) -> i32 {
+pub fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -145,7 +139,7 @@ pub(super) fn transfer(
 
 /// Write-only transfer. Sends data[0..len-1] and discards received bytes.
 /// Returns len on success.
-pub(super) fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
+pub fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]

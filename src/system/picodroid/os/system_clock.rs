@@ -1,11 +1,6 @@
 use pico_jvm::types::{JvmError, Value};
 
-#[cfg(not(feature = "sim"))]
-#[path = "system_clock/real.rs"]
-mod platform;
-#[cfg(feature = "sim")]
-#[path = "system_clock/sim.rs"]
-mod platform;
+use crate::hal::system_clock as platform;
 
 pub fn sleep(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let ms = match args.first() {

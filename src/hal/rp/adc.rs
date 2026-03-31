@@ -3,7 +3,7 @@ const VREF: f64 = 3.3;
 const ADC_MAX: f64 = 4095.0; // 12-bit ADC
 
 /// Configure a GPIO pin (26–29) for ADC analog input and enable the ADC peripheral.
-pub(super) fn init(pin: u8) {
+pub fn init(pin: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -40,7 +40,7 @@ pub(super) fn init(pin: u8) {
 }
 
 /// Perform a single ADC conversion on the given GPIO pin (26–29) and return voltage in volts.
-pub(super) fn read(pin: u8) -> f64 {
+pub fn read(pin: u8) -> f64 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]

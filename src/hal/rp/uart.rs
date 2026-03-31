@@ -52,7 +52,7 @@ macro_rules! apply_config {
     }};
 }
 
-pub(crate) fn init(uart_id: u8) {
+pub fn init(uart_id: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -106,7 +106,7 @@ pub(crate) fn init(uart_id: u8) {
     reconfigure(uart_id, 9600, 8, 0, 1, 0);
 }
 
-pub(crate) fn reconfigure(
+pub fn reconfigure(
     uart_id: u8,
     baudrate: i32,
     data_size: i32,
@@ -126,7 +126,7 @@ pub(crate) fn reconfigure(
 }
 
 /// Blocking write of a single byte.
-pub(crate) fn write_byte(uart_id: u8, byte: u8) {
+pub fn write_byte(uart_id: u8, byte: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -145,7 +145,7 @@ pub(crate) fn write_byte(uart_id: u8, byte: u8) {
 }
 
 /// Non-blocking read of a single byte. Returns -1 if RX FIFO is empty.
-pub(crate) fn read_byte(uart_id: u8) -> i32 {
+pub fn read_byte(uart_id: u8) -> i32 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]

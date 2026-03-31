@@ -85,7 +85,7 @@ fn do_apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
 }
 
 /// Configure GPIO pin for PWM function and apply default settings (1 kHz, 0% duty, disabled).
-pub(super) fn init(pin: u8) {
+pub fn init(pin: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -119,7 +119,7 @@ pub(super) fn init(pin: u8) {
 }
 
 /// Apply full PWM configuration — used by setEnabled, setPwmFrequencyHz, setPwmDutyCycle.
-pub(super) fn apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
+pub fn apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
     do_apply(pin, freq_hz, duty_cycle, enabled);
 }
 

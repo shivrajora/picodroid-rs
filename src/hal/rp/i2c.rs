@@ -77,7 +77,7 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 }
 
 /// Configure GPIO pins for I2C function and start the controller at 100 kHz.
-pub(super) fn init(i2c_id: u8) {
+pub fn init(i2c_id: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -135,18 +135,12 @@ pub(super) fn init(i2c_id: u8) {
     reconfigure(i2c_id, 100_000);
 }
 
-pub(super) fn set_speed(i2c_id: u8, hz: u32) {
+pub fn set_speed(i2c_id: u8, hz: u32) {
     reconfigure(i2c_id, hz);
 }
 
 /// Blocking write. Returns len on success, -1 on NACK/abort.
-pub(super) fn write(
-    i2c_id: u8,
-    address: u32,
-    data_idx: u16,
-    len: usize,
-    arrays: &ArrayHeap,
-) -> i32 {
+pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -195,13 +189,7 @@ pub(super) fn write(
 }
 
 /// Blocking read. Returns len on success, -1 on NACK/abort.
-pub(super) fn read(
-    i2c_id: u8,
-    address: u32,
-    buf_idx: u16,
-    len: usize,
-    arrays: &mut ArrayHeap,
-) -> i32 {
+pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
