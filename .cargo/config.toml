@@ -11,7 +11,7 @@ rustflags = [
 
 [target.thumbv8m.main-none-eabihf]
 # RP2350 (Cortex-M33)
-runner = "probe-rs run --chip RP2350 --protocol swd"
+runner = "probe-rs run --chip RP235x --protocol swd"
 linker = "flip-link"
 rustflags = [
   "-C", "link-arg=--nmagic",

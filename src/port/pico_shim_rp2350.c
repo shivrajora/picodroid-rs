@@ -75,7 +75,12 @@ void multicore_reset_core1(void) {
     *hw_clr_alias(frce_off) = PSM_FRCE_OFF_PROC1;
 }
 
-/* Bootrom FIFO launch handshake – identical protocol on RP2040 and RP2350. */
+/* Bootrom FIFO launch handshake – identical protocol on RP2040 and RP2350.
+ *
+ * In secure boot mode (IMAGE_DEF secure_exe), core 1's bootrom may not
+ * respond to the FIFO handshake.  A timeout prevents hanging the scheduler;
+ * core 0 proceeds as a single-core system while core 1 stays idle.
+ * TODO: investigate why the RP2350 bootrom ignores the FIFO in secure mode. */
 static void fifo_launch_raw(uint32_t vtor, uint32_t sp, uint32_t entry) {
     const uint32_t cmds[6] = {0, 0, 1, vtor, sp, entry};
     int seq = 0;
@@ -85,12 +90,16 @@ static void fifo_launch_raw(uint32_t vtor, uint32_t sp, uint32_t entry) {
             multicore_fifo_drain();
             __asm volatile("sev");
         }
+        volatile uint32_t tries = 0;
         while (!(sio_hw->fifo_st & SIO_FIFO_ST_RDY)) {
+            if (++tries > 5000000u) return; /* timeout — core 1 not responding */
             __asm volatile("" ::: "memory");
         }
         sio_hw->fifo_wr = cmd;
+        tries = 0;
         while (!(sio_hw->fifo_st & SIO_FIFO_ST_VLD)) {
-            __asm volatile("wfe");
+            if (++tries > 5000000u) return; /* timeout — core 1 not responding */
+            __asm volatile("sev; wfe" ::: "memory");
         }
         uint32_t response = sio_hw->fifo_rd;
         seq = (cmd == response) ? seq + 1 : 0;
