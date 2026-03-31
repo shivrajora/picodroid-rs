@@ -108,9 +108,11 @@ pub(super) fn init(pin: u8) {
         .gpio(pin as usize)
         .gpio_ctrl()
         .write(|w| unsafe { w.funcsel().bits(4) });
-    p.PADS_BANK0
-        .gpio(pin as usize)
-        .write(|w| w.ie().set_bit().od().clear_bit());
+    p.PADS_BANK0.gpio(pin as usize).write(|w| {
+        #[cfg(feature = "chip-rp2350")]
+        let w = w.iso().clear_bit();
+        w.ie().set_bit().od().clear_bit()
+    });
 
     // Apply defaults: 1 kHz, 0% duty cycle, disabled
     do_apply(pin, 1000.0, 0.0, false);

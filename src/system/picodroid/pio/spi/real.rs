@@ -90,9 +90,11 @@ pub(super) fn init(spi_id: u8) {
             .gpio(pin)
             .gpio_ctrl()
             .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
-        p.PADS_BANK0
-            .gpio(pin)
-            .write(|w| w.ie().set_bit().od().clear_bit());
+        p.PADS_BANK0.gpio(pin).write(|w| {
+            #[cfg(feature = "chip-rp2350")]
+            let w = w.iso().clear_bit();
+            w.ie().set_bit().od().clear_bit()
+        });
     }
 
     // Apply default configuration: 1 MHz, MODE_0

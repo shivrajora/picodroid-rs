@@ -91,9 +91,15 @@ pub(crate) fn init(uart_id: u8) {
             .gpio(pin)
             .gpio_ctrl()
             .write(|w| unsafe { w.funcsel().bits(2) }); // 2 = UART
-        p.PADS_BANK0
-            .gpio(pin)
-            .write(|w| w.ie().set_bit().od().clear_bit()); // enable input buffer
+
+        // IE=1 (input enabled), OD=0 (output not disabled).
+        // On RP2350, .write() starts from RESET_VALUE which has ISO=1
+        // (pad isolated); clear it or the pad is electrically dead.
+        p.PADS_BANK0.gpio(pin).write(|w| {
+            #[cfg(feature = "chip-rp2350")]
+            let w = w.iso().clear_bit();
+            w.ie().set_bit().od().clear_bit()
+        });
     }
 
     // Apply default configuration: 9600 8N1, no flow control

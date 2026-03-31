@@ -118,6 +118,8 @@ pub(super) fn init(i2c_id: u8) {
             .write(|w| unsafe { w.funcsel().bits(3) }); // 3 = I2C
                                                         // Enable input, pull-up (open-drain bus), Schmitt trigger
         p.PADS_BANK0.gpio(pin).write(|w| {
+            #[cfg(feature = "chip-rp2350")]
+            let w = w.iso().clear_bit();
             w.ie()
                 .set_bit()
                 .od()

@@ -32,9 +32,11 @@ pub(super) fn init(pin: u8) {
 
     // Disable all pad features for analog: no input enable, no output disable override,
     // no pull-up, no pull-down, no schmitt trigger (all cleared by write())
-    p.PADS_BANK0
-        .gpio(pin as usize)
-        .write(|w| w.ie().clear_bit().od().clear_bit());
+    p.PADS_BANK0.gpio(pin as usize).write(|w| {
+        #[cfg(feature = "chip-rp2350")]
+        let w = w.iso().clear_bit();
+        w.ie().clear_bit().od().clear_bit()
+    });
 }
 
 /// Perform a single ADC conversion on the given GPIO pin (26–29) and return voltage in volts.
