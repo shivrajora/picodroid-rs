@@ -20,10 +20,13 @@ pub(super) fn set_direction(pin: u8, direction: i32) {
         .gpio_ctrl()
         .write(|w| unsafe { w.funcsel().bits(5) });
 
-    // Configure pad: disable input buffer, not open-drain
-    p.PADS_BANK0
-        .gpio(pin as usize)
-        .write(|w| w.ie().clear_bit().od().clear_bit());
+    // Configure pad: disable input buffer, not open-drain.
+    // On RP2350 the pad defaults to ISO=1 (electrically isolated); clear it.
+    p.PADS_BANK0.gpio(pin as usize).write(|w| {
+        #[cfg(feature = "chip-rp2350")]
+        let w = w.iso().clear_bit();
+        w.ie().clear_bit().od().clear_bit()
+    });
 
     // Enable output driver for this pin
     p.SIO
