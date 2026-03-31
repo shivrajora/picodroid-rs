@@ -26,18 +26,32 @@ use panic_probe as _;
 use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "chip-rp2350"))]
-use rp235x_hal::{block, clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+use rp235x_hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
-/// IMAGE_DEF block required by the RP2350 bootrom.
+/// RP2350 bootrom block loop: IMAGE_DEF + END block.
 ///
-/// Placed right after .vector_table (which lives at flash origin 0x10000000).
-/// The bootrom scans the first 4KB sector for this block marker.  Since the
-/// vector table is at flash origin, no explicit VECTOR_TABLE item is needed —
-/// the bootrom reads SP/Reset from 0x10000000 naturally.
+/// The bootrom requires a circular linked list of at least two blocks.
+/// Both are placed right after .vector_table (which lives at flash origin
+/// 0x10000000).  Each block is 20 bytes (5 words); the offset field is a
+/// signed byte offset from this block's start marker to the next block's
+/// start marker.
 #[cfg(all(not(any(test, feature = "sim")), feature = "chip-rp2350"))]
 #[link_section = ".start_block"]
 #[used]
-pub static IMAGE_DEF: block::ImageDef = block::ImageDef::secure_exe();
+pub static IMAGE_DEF: [u32; 10] = [
+    // Block 1: IMAGE_DEF (secure ARM executable for RP2350)
+    0xffff_ded3, // BLOCK_MARKER_START
+    0x1021_0142, // IMAGE_TYPE: EXE | CHIP_RP2350 | CPU_ARM | SECURITY_S
+    0x0000_01ff, // ITEM_LAST(1)
+    0x0000_0014, // offset: +20 bytes → end block
+    0xab12_3579, // BLOCK_MARKER_END
+    // Block 2: END block (closes the loop)
+    0xffff_ded3, // BLOCK_MARKER_START
+    0x0000_01fe, // ITEM_2BS_IGNORED (placeholder)
+    0x0000_01ff, // ITEM_LAST(1)
+    0xffff_ffec, // offset: −20 bytes → IMAGE_DEF block
+    0xab12_3579, // BLOCK_MARKER_END
+];
 
 #[cfg(not(any(test, feature = "sim")))]
 #[global_allocator]
@@ -84,23 +98,13 @@ fn clock_init() {
 #[cfg(not(any(test, feature = "sim")))]
 #[entry]
 fn main() -> ! {
-    // Sentinel: write 0xDEADBEEF to top of RAM to prove main() was reached.
-    // Read via: probe-rs read --chip RP235x b32 0x20081FF0 1
-    unsafe {
-        core::ptr::write_volatile(0x20081FF0 as *mut u32, 0xDEAD_BEEF);
-    }
-
-    defmt::info!("picodroid: entry");
-
     clock_init();
-    defmt::info!("picodroid: clocks OK");
 
     // The APK lives exclusively in the persistent PAPK flash region.
     // probe-rs writes it there on every firmware flash (via the .papk_flash_init
     // ELF section); pdb install updates it over UART.
     let boot_apk: &'static [u8] =
         unsafe { packagemanager::flash::read_flash_papk() }.expect("PAPK flash region invalid");
-    defmt::info!("picodroid: APK loaded ({} bytes)", boot_apk.len());
 
     // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
@@ -159,7 +163,6 @@ fn main() -> ! {
         })
         .unwrap();
 
-    defmt::info!("picodroid: starting scheduler");
     FreeRtosUtils::start_scheduler();
 }
 
@@ -181,8 +184,6 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
-    // Minimal handler — no defmt (which itself faults before RTT is ready).
-    // Use GDB to inspect: CFSR at 0xE000ED28, HFSR at 0xE000ED2C, stacked PC in _ef.
     #[allow(clippy::empty_loop)]
     loop {}
 }
