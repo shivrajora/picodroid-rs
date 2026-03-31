@@ -184,6 +184,11 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
+    // On RP2040 (Cortex-M0+) bkpt halts cleanly with a debugger attached.
+    // On RP2350 (Cortex-M33) bkpt without a debugger causes a re-entrant
+    // fault → lockup, so we skip it.
+    #[cfg(not(feature = "chip-rp2350"))]
+    asm::bkpt();
     #[allow(clippy::empty_loop)]
     loop {}
 }
