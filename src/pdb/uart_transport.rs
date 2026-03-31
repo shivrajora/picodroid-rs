@@ -80,6 +80,12 @@ pub(super) struct PdbCoreCoordinator;
 
 impl CoreCoordinator for PdbCoreCoordinator {
     fn request_stop_and_park(&mut self) {
+        // Clear stale flags from any previous failed install attempt so
+        // core 0 does not see a leftover CORE0_RELEASE and exit the park
+        // loop immediately.
+        pending::CORE0_RELEASE.store(false, Ordering::Relaxed);
+        pending::CORE0_PARKED.store(false, Ordering::Relaxed);
+
         pending::STOP_JVM.store(true, Ordering::Release);
         pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
         pending::notify_jvm();

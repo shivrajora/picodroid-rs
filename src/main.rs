@@ -134,16 +134,17 @@ fn main() -> ! {
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
                 pdb::pending::abort_all_child_delays();
 
-                // Wait for all children to deregister themselves before resetting the heap.
-                // The last child calls notify_jvm() when the counter reaches zero.
-                // Check first to avoid blocking if they all exited before we got here.
-                if pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire) > 0
+                // Wait for all child threads to deregister.  Loop because
+                // notifications may arrive from pdb_task (consumed harmlessly)
+                // before the last child calls notify_jvm().
+                while pdb::pending::ACTIVE_JVM_THREADS.load(core::sync::atomic::Ordering::Acquire)
+                    > 0
                 {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
                 // If pdb_task requested a flash install, park core 0 in RAM.
-                // On success pdb_task calls SYSRESETREQ directly — park_for_flash
+                // On success pdb_task triggers a watchdog reset — park_for_flash
                 // never returns.  It returns only on error (pdb_task sets
                 // CORE0_RELEASE after sending STATUS_ERR); in that case just
                 // restart the JVM loop.
