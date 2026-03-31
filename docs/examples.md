@@ -1,6 +1,6 @@
 # Examples
 
-Fifteen examples are included under `examples/`:
+Seventeen examples are included under `examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -18,6 +18,8 @@ Fifteen examples are included under `examples/`:
 | `spidemo` | `spidemo.SpiDemo` | Full-duplex loopback over SPI0 (SCK=GP2, MOSI=GP3, MISO=GP0): sends 0x00–0x0F and logs received bytes |
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms (`substring`, `trim`, `toUpperCase`, `toLowerCase`), `String.valueOf`, and StringBuilder building |
 | `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
+| `adcdemo` | `adcdemo.AdcDemo` | Opens the ADC on GP26 and takes 5 voltage readings, logging each value |
+| `pwmdemo` | `pwmdemo.PwmDemo` | Fades the onboard LED on GP25 using PWM at 1 kHz — duty cycle sweeps 0%→100%→0% three times |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) — opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 
 To run an example:

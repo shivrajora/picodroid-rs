@@ -56,11 +56,12 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip/app selection, and hot-swap with pdb
+- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip/app selection, simulator, and hot-swap with pdb
 - [Examples](docs/examples.md) — all included example apps
-- [Writing Apps](docs/writing-apps.md) — how to create a new Java app, supported language features, and porting to a new platform
+- [Writing Apps](docs/writing-apps.md) — how to create a new Java app and supported language features
 - [Java API](docs/java-api.md) — `picodroid.*` system API reference
-- [Debugging](docs/debugging.md) — RTT logging and GDB
+- [Porting Guide](docs/porting-guide.md) — how to add support for a new MCU family
+- [Debugging](docs/debugging.md) — RTT logging, GDB, and the host simulator
 
 ## Project Structure
 
@@ -75,14 +76,18 @@ picodroid-rs/
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
+│   ├── hal/            # Hardware Abstraction Layer (rp/ for Pico, sim/ for host simulator)
+│   ├── packagemanager/ # Flash storage and PAPK install logic
 │   ├── pdb/            # Picodroid Debug Bridge — UART listener + hot-swap logic
-│   ├── port/           # pico-sdk shims (direct register access; no pico-sdk dependency)
+│   ├── port/           # pico-sdk C shims (headers + FreeRTOS interop shims)
 │   └── system/         # Native implementations of Java API methods
 │
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
 │   └── pdb/            # Host tool: push .papk to a running device over UART
+│
+├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts
 │
 ├── vendor/             # Downloaded tooling (google-java-format JAR; gitignored)
 │

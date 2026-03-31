@@ -114,11 +114,31 @@ Pass `--app <name>` to select which example to build or flash:
 
 The `--app` flag selects which example to build. `build.sh` compiles the Java sources into a `.papk` file and embeds it into the firmware — no Cargo feature flags are involved.
 
+## Host Simulator
+
+Run any app on the host machine without hardware using the simulator:
+
+```bash
+./scripts/sim.sh --app helloworld
+./scripts/sim.sh --app blinky          # loops forever — Ctrl-C to stop
+./scripts/sim.sh --app uart --release
+```
+
+The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. This is useful for testing app logic without a Pico.
+
 ## Hot-Swap with pdb {#hot-swap-with-pdb}
 
 The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running device over UART without reflashing the firmware. The firmware listens on UART1 (GP4 TX, GP5 RX) at 115200 baud.
 
-### Install the host tool
+### Quick access via script
+
+```bash
+./scripts/pdb.sh devices
+./scripts/pdb.sh -s /dev/cu.usbmodem102 ping
+./scripts/pdb.sh -s /dev/cu.usbmodem102 install build/apks/blinky.papk
+```
+
+### Install the host tool globally (optional)
 
 ```bash
 cargo install --path tools/pdb

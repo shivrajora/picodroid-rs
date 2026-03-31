@@ -97,6 +97,8 @@ Gpio gpio       = pm.openGpio("GP25");
 UartDevice uart = pm.openUartDevice("UART0");
 I2cDevice  i2c  = pm.openI2cDevice("I2C0");
 SpiDevice  spi  = pm.openSpiDevice("SPI0");
+Pwm pwm         = pm.openPwm("GP25");
+Adc adc         = pm.openAdcPin("GP26");
 ```
 
 ## Resource management (`AutoCloseable`)
@@ -183,6 +185,34 @@ spi.transfer(tx, rx, 3);
 byte[] cmd = new byte[]{ (byte)0x02, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0xAB };
 spi.write(cmd, 5);
 ```
+
+## `picodroid.pio.Pwm`
+
+```java
+import picodroid.pio.Pwm;
+
+Pwm pwm = pm.openPwm("GP25");
+
+pwm.setPwmFrequencyHz(1000.0);          // 1 kHz
+pwm.setPwmDutyCycle(50.0);              // 50% duty cycle (0.0–100.0)
+pwm.setEnabled(true);                   // start PWM output
+
+pwm.setEnabled(false);                  // stop PWM output
+pwm.close();                            // or use try-with-resources
+```
+
+## `picodroid.pio.Adc`
+
+```java
+import picodroid.pio.Adc;
+
+Adc adc = pm.openAdcPin("GP26");
+
+double voltage = adc.readValue();       // single blocking read, returns volts
+adc.close();                            // or use try-with-resources
+```
+
+Pins are GPIO numbers (e.g. GP26–GP29 on RP2040). `readValue()` performs a single ADC conversion and returns the voltage.
 
 ## `picodroid.concurrent.Thread`
 
