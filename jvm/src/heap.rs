@@ -60,6 +60,12 @@ impl StringTable {
                 return Some(i as u16);
             }
         }
+        if !self.dyn_bufs.is_empty() {
+            // Dynamic entries already exist — appending and advancing dyn_start
+            // would corrupt the dynamic region.  Fall back to intern_dyn which
+            // correctly manages the dynamic region (copies bytes to the heap).
+            return self.intern_dyn(s);
+        }
         let idx = self.ptrs.len() as u16;
         self.ptrs.push(s.as_ptr());
         self.lens.push(s.len() as u16);
