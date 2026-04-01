@@ -59,14 +59,14 @@ fn main() {
                 "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
                 // RP2350 port: portmacro.h is directly in the port directory
                 None,
-                "src/port/pico_shim_rp2350.c",
+                "src/hal/rp/port/pico_shim_rp2350.c",
             )
         } else {
             (
                 "ThirdParty/GCC/RP2040",
                 // RP2040 port: portmacro.h and rp2040_config.h are in the include/ subdir
                 Some("third_party/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/include"),
-                "src/port/pico_shim_rp2040.c",
+                "src/hal/rp/port/pico_shim_rp2040.c",
             )
         };
         b.freertos_port(freertos_port);
@@ -76,7 +76,7 @@ fn main() {
         // Inject pico-sdk shim (direct register access, no real pico-sdk needed)
         b.add_build_file(pico_shim_c);
         // Expose stub headers that shadow pico-sdk's pico.h, hardware/*.h, pico/multicore.h
-        b.get_cc().include("src/port");
+        b.get_cc().include("src/hal/rp/port");
         // RP2040 port stores portmacro.h in include/ — add it explicitly
         if let Some(inc) = port_include {
             b.get_cc().include(inc);

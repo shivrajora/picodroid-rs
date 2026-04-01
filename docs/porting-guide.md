@@ -253,8 +253,14 @@ Update `build.rs` to handle the new family:
 2. **FreeRTOS port**: select the standard Cortex-M4F port
    (`portable/GCC/ARM_CM4F`) instead of the RP-specific SMP ports.
 3. **FreeRTOS config**: point `freertos_config()` to `src/hal/nrf52/`.
-4. **C shim**: RP family needs `pico_shim_*.c` for FreeRTOS interop; standard
-   Cortex-M ports typically do not need a shim.
+4. **C shim**: the RP family needs `pico_shim_*.c` files (in
+   `src/hal/rp/port/`) that fake the pico-sdk C API expected by the
+   RP-specific FreeRTOS SMP ports. These shims are compiled into
+   `libfreertos.a` and are never called from Rust — they exist purely to
+   satisfy the C linker. Standard Cortex-M FreeRTOS ports (ARM_CM4F, ARM_CM33)
+   use CMSIS directly and do **not** need a shim or shadow headers. If your
+   MCU's FreeRTOS port depends on a vendor SDK, you may need to provide
+   similar stubs in `src/hal/<family>/port/`.
 
 ## .cargo/config.toml
 
