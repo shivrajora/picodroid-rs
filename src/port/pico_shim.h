@@ -182,4 +182,7 @@ void irq_set_enabled(uint32_t num, int enabled);
 /* Clock */
 uint32_t clock_get_hz(uint32_t clk_id);
 
+/* Run-time stats counter (reads hardware µs timer, always running from reset) */
+uint32_t picodroid_get_runtime_counter(void);
+
 #endif /* PICO_SHIM_H */

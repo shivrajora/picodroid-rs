@@ -4,6 +4,7 @@ use std::time::Duration;
 pub const FRAME_MAGIC: &[u8; 4] = b"PDBP";
 pub const CMD_PING: u8 = 0x00;
 pub const CMD_INSTALL: u8 = 0x01;
+pub const CMD_SYSMON: u8 = 0x02;
 pub const STATUS_OK: u8 = 0x00;
 pub const STATUS_READY: u8 = 0x01; // device erased flash, ready to receive data stream
 pub const STATUS_ERR: u8 = 0xFF;

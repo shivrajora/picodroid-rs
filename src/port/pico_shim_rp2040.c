@@ -160,6 +160,16 @@ uint32_t clock_get_hz(uint32_t clk_id) {
     return 125000000UL;
 }
 
+/* ---- Run-time stats counter ---- */
+
+/* RP2040 TIMER peripheral – 64-bit µs counter, always running from reset. */
+#define TIMER_BASE       0x40054000u
+#define TIMER_TIMERAWL   (*(volatile uint32_t *)(TIMER_BASE + 0x28u))
+
+uint32_t picodroid_get_runtime_counter(void) {
+    return TIMER_TIMERAWL;
+}
+
 /* ---- Doorbell stubs (RP2040 uses FIFO, not doorbells; these are no-ops) ---- */
 
 int8_t multicore_doorbell_claim_unused(uint32_t mask, bool required) {

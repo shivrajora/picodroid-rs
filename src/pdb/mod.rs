@@ -3,6 +3,8 @@ pub mod pending;
 #[cfg(not(any(test, feature = "sim")))]
 mod protocol;
 #[cfg(not(any(test, feature = "sim")))]
+pub mod sysmon;
+#[cfg(not(any(test, feature = "sim")))]
 mod task;
 #[cfg(not(any(test, feature = "sim")))]
 mod uart_transport;

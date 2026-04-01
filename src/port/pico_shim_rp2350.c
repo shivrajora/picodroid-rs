@@ -209,6 +209,16 @@ uint32_t multicore_doorbell_irq_num(int8_t db_num) {
     return SIO_IRQ_BELL0 + sio_hw->cpuid;
 }
 
+/* ---- Run-time stats counter ---- */
+
+/* RP2350 TIMER0 peripheral – 64-bit µs counter, always running from reset. */
+#define TIMER0_BASE       0x400B0000u
+#define TIMER0_TIMERAWL   (*(volatile uint32_t *)(TIMER0_BASE + 0x28u))
+
+uint32_t picodroid_get_runtime_counter(void) {
+    return TIMER0_TIMERAWL;
+}
+
 /* ---- Interrupt priority validation stub ---- */
 
 /* portmacrocommon.h defines portASSERT_IF_INTERRUPT_PRIORITY_INVALID() as

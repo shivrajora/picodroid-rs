@@ -1,6 +1,7 @@
 mod devices;
 mod install;
 mod protocol;
+mod sysmon;
 
 use std::{env, path::Path, process};
 
@@ -11,6 +12,7 @@ Commands:
   devices                    List available serial ports
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
+  sysmon                     Show system monitor stats (heap, tasks, CPU%)
 
 Options:
   -s <port>   Serial port to use (e.g. /dev/cu.usbserial-0001)
@@ -53,6 +55,11 @@ fn main() {
         "ping" => {
             let port_name = require_port(port.as_deref());
             install::ping(&port_name);
+        }
+
+        "sysmon" => {
+            let port_name = require_port(port.as_deref());
+            sysmon::run(&port_name);
         }
 
         "install" => {

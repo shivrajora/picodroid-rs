@@ -1,5 +1,6 @@
 use super::protocol::{
-    crc32_frame, CMD_INSTALL, CMD_PING, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
+    crc32_frame, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR,
+    STATUS_OK,
 };
 use super::uart_transport::{PdbCoreCoordinator, UartTransport};
 
@@ -61,6 +62,7 @@ pub fn run_pdb_task() -> ! {
                 let mut coordinator = PdbCoreCoordinator;
                 crate::packagemanager::install::run_install(&mut transport, &mut coordinator, len);
             }
+            CMD_SYSMON => super::sysmon::handle_sysmon(len),
             _ => UartTransport::send_pdbp_response(STATUS_ERR, b"unknown cmd"),
         }
     }
