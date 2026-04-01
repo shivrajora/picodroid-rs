@@ -113,6 +113,28 @@ impl StringTable {
         }
     }
 
+    // ── GC support ────────────────────────────────────────────────────────────
+
+    /// Index where dynamic entries begin (entries before this are static/Flash).
+    pub fn dyn_start(&self) -> usize {
+        self.dyn_start
+    }
+
+    /// Total number of entries (static + dynamic).
+    pub fn total_len(&self) -> usize {
+        self.ptrs.len()
+    }
+
+    /// Returns `true` if `idx` is a dynamic entry that is currently live.
+    pub fn is_dyn_live(&self, idx: u16) -> bool {
+        let i = idx as usize;
+        if i < self.dyn_start || i >= self.ptrs.len() {
+            return false;
+        }
+        let di = i - self.dyn_start;
+        di < self.dyn_bufs.len() && self.dyn_bufs[di].is_some()
+    }
+
     /// Resolve a Reference index to a `&str`.
     pub fn resolve(&self, idx: u16) -> Option<&str> {
         let i = idx as usize;

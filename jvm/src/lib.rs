@@ -68,6 +68,7 @@ pub mod apk;
 pub mod array_heap;
 pub mod class_file;
 pub mod frame;
+pub mod gc;
 pub mod heap;
 pub mod interpreter;
 pub mod native;

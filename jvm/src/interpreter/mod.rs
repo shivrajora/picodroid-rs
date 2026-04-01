@@ -8,6 +8,7 @@ use crate::{
     static_fields::StaticFieldStore,
     types::{JvmError, Value},
 };
+use alloc::vec::Vec;
 
 mod helpers;
 mod ops_arrays;
@@ -24,6 +25,9 @@ mod ops_stack;
 #[cfg(test)]
 mod tests;
 
+/// Number of allocations between automatic GC cycles.
+const GC_THRESHOLD: u16 = 256;
+
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],
     pub strings: &'a mut StringTable,
@@ -32,9 +36,14 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub statics: &'a mut StaticFieldStore,
     pub handler: &'a mut H,
     /// Cache: (class_name ptr, field_name ptr) → field slot index.
-    pub field_cache: alloc::vec::Vec<(*const u8, *const u8, usize)>,
+    pub field_cache: Vec<(*const u8, *const u8, usize)>,
     /// Cache: (class_name ptr, method_name ptr, desc ptr) → (class_idx, method_idx).
-    pub method_cache: alloc::vec::Vec<helpers::MethodCacheEntry>,
+    pub method_cache: Vec<helpers::MethodCacheEntry>,
+    /// Set by `op_invoke` when a Java method should be called; the main loop
+    /// pushes this frame onto the frame stack on the next iteration.
+    pub pending_frame: Option<Frame>,
+    /// Allocation counter for GC triggering.
+    pub alloc_count: u16,
 }
 
 /// Search `method`'s exception table for a handler covering `inst_pc` that
@@ -69,6 +78,33 @@ fn find_exception_handler(
     None
 }
 
+/// Handle a Java exception by walking the frame stack for a matching handler.
+/// Returns `Ok(())` if a handler was found and the frame stack is set up to
+/// continue execution, or `Err` if the exception should propagate to the caller.
+fn handle_exception<H: NativeMethodHandler>(
+    ex: &Executor<'_, H>,
+    frames: &mut Vec<Frame>,
+    obj_idx: u16,
+) -> Result<(), JvmError> {
+    loop {
+        if let Some(f) = frames.last_mut() {
+            let cf = &ex.classes[f.class_idx];
+            let method = &cf.methods[f.method_idx];
+            if let Some(handler_pc) =
+                find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes)
+            {
+                f.stack.clear();
+                f.push(Value::ObjectRef(obj_idx))?;
+                f.pc = handler_pc;
+                return Ok(());
+            }
+            frames.pop();
+        } else {
+            return Err(JvmError::Exception(obj_idx));
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn execute<H: NativeMethodHandler>(
     classes: &[ClassFile],
@@ -81,7 +117,10 @@ pub fn execute<H: NativeMethodHandler>(
     method_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
-    let mut frame = Frame::new(class_idx, method_idx, args)?;
+    let initial_frame = Frame::new(class_idx, method_idx, args)?;
+    let mut frames: Vec<Frame> = Vec::new();
+    frames.push(initial_frame);
+
     let mut ex = Executor {
         classes,
         strings,
@@ -89,76 +128,101 @@ pub fn execute<H: NativeMethodHandler>(
         arrays,
         statics,
         handler,
-        field_cache: alloc::vec::Vec::new(),
-        method_cache: alloc::vec::Vec::new(),
+        field_cache: Vec::new(),
+        method_cache: Vec::new(),
+        pending_frame: None,
+        alloc_count: 0,
     };
 
     loop {
         // Cooperative stop-point: checked once per bytecode instruction.
-        // Returns Interrupted immediately so the caller can clean up and exit.
         if ex.handler.interrupted() {
             return Err(JvmError::Interrupted);
         }
+
+        let frame = match frames.last_mut() {
+            Some(f) => f,
+            None => return Ok(None),
+        };
 
         let cf = &ex.classes[frame.class_idx];
         let method = &cf.methods[frame.method_idx];
         let code = cf.method_code(method);
 
         if frame.pc >= code.len() {
-            return Ok(None);
+            frames.pop();
+            if frames.is_empty() {
+                return Ok(None);
+            }
+            continue;
         }
 
         // Save instruction start PC for exception table lookup.
-        let inst_pc = frame.pc;
+        frame.inst_pc = frame.pc;
         let opcode = code[frame.pc];
         frame.pc += 1;
 
-        // Return opcodes are handled inline — they cannot throw Java exceptions.
+        // Return opcodes are handled inline — they pop the frame stack.
         match opcode {
             0xac..=0xb0 => {
                 let v = frame.pop()?;
-                return Ok(Some(v));
+                frames.pop();
+                if frames.is_empty() {
+                    return Ok(Some(v));
+                }
+                frames.last_mut().unwrap().push(v)?;
+                continue;
             }
-            0xb1 => return Ok(None),
+            0xb1 => {
+                frames.pop();
+                if frames.is_empty() {
+                    return Ok(None);
+                }
+                continue;
+            }
             _ => {}
         }
 
         let r: Result<(), JvmError> = match opcode {
-            0x00..=0x14 => ex.op_constants(opcode, code, &mut frame),
-            0x15..=0x2d => ex.op_locals_load(opcode, code, &mut frame),
-            0x2e | 0x32..=0x35 => ex.op_array_load(opcode, &mut frame),
-            0x36..=0x4e => ex.op_locals_store(opcode, code, &mut frame),
-            0x4f | 0x53..=0x56 => ex.op_array_store(opcode, &mut frame),
-            0x57..=0x59 => ex.op_stack(opcode, &mut frame),
-            0x60..=0x84 => ex.op_math(opcode, code, &mut frame),
-            0x85..=0x98 => ex.op_convert(opcode, &mut frame),
+            0x00..=0x14 => ex.op_constants(opcode, code, frame),
+            0x15..=0x2d => ex.op_locals_load(opcode, code, frame),
+            0x2e | 0x32..=0x35 => ex.op_array_load(opcode, frame),
+            0x36..=0x4e => ex.op_locals_store(opcode, code, frame),
+            0x4f | 0x53..=0x56 => ex.op_array_store(opcode, frame),
+            0x57..=0x59 => ex.op_stack(opcode, frame),
+            0x60..=0x84 => ex.op_math(opcode, code, frame),
+            0x85..=0x98 => ex.op_convert(opcode, frame),
             0x99..=0xa7 | 0xaa | 0xab | 0xc0 | 0xc1 | 0xc6 | 0xc7 => {
-                ex.op_control(opcode, code, &mut frame)
+                ex.op_control(opcode, code, frame)
             }
-            0xb2..=0xb5 => ex.op_fields(opcode, code, &mut frame),
-            0xb6..=0xb9 => ex.op_invoke(opcode, code, &mut frame),
-            0xbb => ex.op_new(code, &mut frame),
-            0xbc..=0xbe => ex.op_array_alloc(opcode, code, &mut frame),
-            0xbf => ex.op_athrow(&mut frame),
+            0xb2..=0xb5 => ex.op_fields(opcode, code, frame),
+            0xb6..=0xb9 => ex.op_invoke(opcode, code, frame),
+            0xbb => ex.op_new(code, frame),
+            0xbc..=0xbe => ex.op_array_alloc(opcode, code, frame),
+            0xbf => ex.op_athrow(frame),
             op => Err(JvmError::UnsupportedOpcode(op)),
         };
+
+        // If op_invoke resolved a Java method, push the new frame.
+        if let Some(new_frame) = ex.pending_frame.take() {
+            if r.is_ok() {
+                frames.push(new_frame);
+                continue;
+            }
+            // If the opcode errored, drop the pending frame and fall through
+            // to exception handling below.
+        }
+
+        // Trigger GC when allocation counter crosses the threshold.
+        if r.is_ok() && ex.alloc_count >= GC_THRESHOLD {
+            crate::gc::collect(&frames, ex.objects, ex.arrays, ex.strings, ex.statics);
+            ex.alloc_count = 0;
+        }
 
         match r {
             Ok(()) => {}
             Err(JvmError::Exception(obj_idx)) => {
-                // Look for a matching catch handler in this frame.
-                let cf = &ex.classes[frame.class_idx];
-                let method = &cf.methods[frame.method_idx];
-                if let Some(handler_pc) =
-                    find_exception_handler(cf, method, inst_pc, obj_idx, ex.objects, ex.classes)
-                {
-                    frame.stack.clear();
-                    frame.push(Value::ObjectRef(obj_idx))?;
-                    frame.pc = handler_pc;
-                } else {
-                    // No handler — propagate to the caller.
-                    return Err(JvmError::Exception(obj_idx));
-                }
+                handle_exception(&ex, &mut frames, obj_idx)?;
             }
             Err(e) => return Err(e),
         }

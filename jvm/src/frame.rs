@@ -5,6 +5,9 @@ pub struct Frame {
     pub class_idx: usize,
     pub method_idx: usize,
     pub pc: usize,
+    /// Start PC of the most recently executed instruction.
+    /// Used by the exception handler search when unwinding the frame stack.
+    pub inst_pc: usize,
     pub locals: Vec<Value>,
     pub stack: Vec<Value>,
 }
@@ -19,6 +22,7 @@ impl Frame {
             class_idx,
             method_idx,
             pc: 0,
+            inst_pc: 0,
             locals,
             stack: Vec::new(),
         })

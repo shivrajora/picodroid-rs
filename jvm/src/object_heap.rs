@@ -139,6 +139,38 @@ impl ObjectHeap {
         &self.sb_buf
     }
 
+    // ── GC support ────────────────────────────────────────────────────────────
+
+    /// Total number of slots (including freed `None` slots).
+    pub fn slot_count(&self) -> usize {
+        self.objects.len()
+    }
+
+    /// Returns `true` if the slot at `idx` contains a live object.
+    pub fn is_live(&self, idx: u16) -> bool {
+        self.objects.get(idx as usize).is_some_and(|o| o.is_some())
+    }
+
+    /// Free the object at `idx`, setting its slot to `None`.
+    pub fn free(&mut self, idx: u16) {
+        let i = idx as usize;
+        if let Some(slot) = self.objects.get_mut(i) {
+            *slot = None;
+            if i < self.first_free {
+                self.first_free = i;
+            }
+        }
+    }
+
+    /// Return an iterator over the fields of the object at `idx`.
+    pub fn fields_slice(&self, idx: u16) -> &[Value] {
+        self.objects
+            .get(idx as usize)
+            .and_then(|o| o.as_ref())
+            .map(|o| o.fields.as_slice())
+            .unwrap_or(&[])
+    }
+
     /// Return the current StringBuilder buffer contents as a raw pointer and length.
     ///
     /// # Safety

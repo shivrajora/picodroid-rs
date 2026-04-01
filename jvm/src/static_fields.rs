@@ -40,6 +40,11 @@ impl StaticFieldStore {
         Value::Null
     }
 
+    /// Iterate over all stored static field values (for GC root scanning).
+    pub fn values_iter(&self) -> impl Iterator<Item = Value> + '_ {
+        self.entries.iter().map(|e| e.value)
+    }
+
     /// Write a static field. Always returns `Some(())`.
     pub fn set(
         &mut self,

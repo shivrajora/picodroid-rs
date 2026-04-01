@@ -98,6 +98,38 @@ impl ArrayHeap {
     pub fn atype(&self, idx: u16) -> Option<u8> {
         Some(self.arrays.get(idx as usize)?.as_ref()?.atype)
     }
+
+    // ── GC support ────────────────────────────────────────────────────────────
+
+    /// Total number of slots (including freed `None` slots).
+    pub fn slot_count(&self) -> usize {
+        self.arrays.len()
+    }
+
+    /// Returns `true` if the slot at `idx` contains a live array.
+    pub fn is_live(&self, idx: u16) -> bool {
+        self.arrays.get(idx as usize).is_some_and(|a| a.is_some())
+    }
+
+    /// Free the array at `idx`, setting its slot to `None`.
+    pub fn free(&mut self, idx: u16) {
+        let i = idx as usize;
+        if let Some(slot) = self.arrays.get_mut(i) {
+            *slot = None;
+            if i < self.first_free {
+                self.first_free = i;
+            }
+        }
+    }
+
+    /// Return the raw data slice of the array at `idx` (for ATYPE_REF scanning).
+    pub fn data_slice(&self, idx: u16) -> &[i32] {
+        self.arrays
+            .get(idx as usize)
+            .and_then(|a| a.as_ref())
+            .map(|a| a.data.as_slice())
+            .unwrap_or(&[])
+    }
 }
 
 #[cfg(test)]
