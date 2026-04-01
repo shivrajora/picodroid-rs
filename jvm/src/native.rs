@@ -142,94 +142,14 @@ fn values_eq(a: Value, b: Value, objects: &ObjectHeap) -> bool {
     }
 }
 
-impl NativeMethodHandler for BuiltinHandler {
-    fn dispatch(
-        &mut self,
-        class_name: &str,
+impl BuiltinHandler {
+    fn dispatch_string(
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
-        match (class_name, method_name) {
-            // ── Object hierarchy constructors ────────────────────────────────
-            ("java/lang/Object", "<init>")
-            | ("java/lang/Throwable", "<init>")
-            | ("java/lang/Exception", "<init>")
-            | ("java/lang/RuntimeException", "<init>") => Some(Ok(None)),
-
-            // ── Throwable instance methods ───────────────────────────────────
-            // addSuppressed is called by try-with-resources when both the body
-            // and close() throw.  Suppressed exceptions are not useful on an
-            // embedded device, so we accept the call and discard the argument.
-            ("java/lang/Throwable", "addSuppressed") => Some(Ok(None)),
-
-            // ── StringBuilder ────────────────────────────────────────────────
-            ("java/lang/StringBuilder", "<init>") => {
-                ctx.objects.sb_clear();
-                // <init>(String): if a String argument was supplied, seed the buffer.
-                if let Some(Value::Reference(idx)) = ctx.args.get(1) {
-                    let s = ctx.strings.resolve(*idx).unwrap_or("");
-                    ctx.objects.sb_append_bytes(s.as_bytes());
-                }
-                Some(Ok(None))
-            }
-            ("java/lang/StringBuilder", "append") => {
-                match ctx.args.get(1) {
-                    Some(Value::Reference(idx)) => {
-                        let s = ctx.strings.resolve(*idx).unwrap_or("");
-                        ctx.objects.sb_append_bytes(s.as_bytes());
-                    }
-                    Some(Value::Int(n)) => {
-                        let desc = ctx.descriptor;
-                        if desc.starts_with("(C)") {
-                            // append(char): emit the character as a single byte.
-                            // Multi-byte Unicode chars are not supported on this platform.
-                            let ch = (*n as u8).max(0x20); // replace non-printable with space
-                            ctx.objects.sb_append_bytes(&[ch]);
-                        } else if desc.starts_with("(Z)") {
-                            // append(boolean)
-                            ctx.objects
-                                .sb_append_bytes(if *n != 0 { b"true" } else { b"false" });
-                        } else {
-                            ctx.objects.sb_append_int(*n);
-                        }
-                    }
-                    Some(Value::Long(n)) => {
-                        ctx.objects.sb_append_long(*n);
-                    }
-                    Some(Value::Float(f)) => {
-                        ctx.objects.sb_append_float(*f);
-                    }
-                    Some(Value::Double(d)) => {
-                        ctx.objects.sb_append_float(*d as f32);
-                    }
-                    _ => {}
-                }
-                // append() returns `this` for chaining.
-                Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
-            }
-            ("java/lang/StringBuilder", "length") => {
-                let len = ctx.objects.sb_len() as i32;
-                Some(Ok(Some(Value::Int(len))))
-            }
-            ("java/lang/StringBuilder", "charAt") => {
-                if let Some(Value::Int(i)) = ctx.args.get(1) {
-                    let ch = ctx.objects.sb_char_at(*i as usize).unwrap_or(0);
-                    Some(Ok(Some(Value::Int(ch as i32))))
-                } else {
-                    Some(Err(JvmError::InvalidReference))
-                }
-            }
-            ("java/lang/StringBuilder", "toString") => {
-                let bytes = ctx.objects.sb_contents_slice().to_vec();
-                let str_ref = ctx
-                    .strings
-                    .intern_dyn(&bytes)
-                    .ok_or(JvmError::StackOverflow);
-                Some(str_ref.map(|r| Some(Value::Reference(r))))
-            }
-
-            // ── String — non-allocating ──────────────────────────────────────
-            ("java/lang/String", "length") => {
+        match method_name {
+            // ── String — non-allocating ──────────────────────────────────
+            "length" => {
                 if let Some(Value::Reference(idx)) = ctx.args.first() {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
                     Some(Ok(Some(Value::Int(s.len() as i32))))
@@ -237,7 +157,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "charAt") => {
+            "charAt" => {
                 if let (Some(Value::Reference(idx)), Some(Value::Int(i))) =
                     (ctx.args.first(), ctx.args.get(1))
                 {
@@ -248,7 +168,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "isEmpty") => {
+            "isEmpty" => {
                 if let Some(Value::Reference(idx)) = ctx.args.first() {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
                     Some(Ok(Some(Value::Int(s.is_empty() as i32))))
@@ -256,7 +176,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "equals") => match (ctx.args.first(), ctx.args.get(1)) {
+            "equals" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -265,7 +185,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 (Some(Value::Reference(_)), Some(Value::Null)) => Some(Ok(Some(Value::Int(0)))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "equalsIgnoreCase") => match (ctx.args.first(), ctx.args.get(1)) {
+            "equalsIgnoreCase" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -274,7 +194,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 (Some(Value::Reference(_)), Some(Value::Null)) => Some(Ok(Some(Value::Int(0)))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "startsWith") => match (ctx.args.first(), ctx.args.get(1)) {
+            "startsWith" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -282,7 +202,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "endsWith") => match (ctx.args.first(), ctx.args.get(1)) {
+            "endsWith" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -290,7 +210,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "contains") => match (ctx.args.first(), ctx.args.get(1)) {
+            "contains" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -298,7 +218,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "indexOf") => {
+            "indexOf" => {
                 match (ctx.args.first(), ctx.args.get(1)) {
                     (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                         // indexOf(String)
@@ -322,7 +242,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     _ => Some(Err(JvmError::InvalidReference)),
                 }
             }
-            ("java/lang/String", "lastIndexOf") => {
+            "lastIndexOf" => {
                 match (ctx.args.first(), ctx.args.get(1)) {
                     (Some(Value::Reference(a)), Some(Value::Int(ch))) => {
                         let sa = ctx.strings.resolve(*a).unwrap_or("");
@@ -345,7 +265,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     _ => Some(Err(JvmError::InvalidReference)),
                 }
             }
-            ("java/lang/String", "compareTo") => match (ctx.args.first(), ctx.args.get(1)) {
+            "compareTo" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -359,8 +279,8 @@ impl NativeMethodHandler for BuiltinHandler {
                 _ => Some(Err(JvmError::InvalidReference)),
             },
 
-            // ── String — allocating ──────────────────────────────────────────
-            ("java/lang/String", "substring") => match ctx.args.first() {
+            // ── String — allocating ──────────────────────────────────────
+            "substring" => match ctx.args.first() {
                 Some(Value::Reference(idx)) => {
                     // Copy bytes to owned storage first so the immutable borrow
                     // on ctx.strings ends before we call intern_dyn (mutable).
@@ -392,7 +312,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/String", "trim") => {
+            "trim" => {
                 if let Some(Value::Reference(idx)) = ctx.args.first() {
                     let owned: alloc::vec::Vec<u8> = {
                         let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -409,7 +329,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "toUpperCase") => {
+            "toUpperCase" => {
                 if let Some(Value::Reference(idx)) = ctx.args.first() {
                     let upper: alloc::vec::Vec<u8> = {
                         let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -424,7 +344,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "toLowerCase") => {
+            "toLowerCase" => {
                 if let Some(Value::Reference(idx)) = ctx.args.first() {
                     let lower: alloc::vec::Vec<u8> = {
                         let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -439,7 +359,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
-            ("java/lang/String", "valueOf") => {
+            "valueOf" => {
                 // Static method: String.valueOf(int/long/boolean/char/float/double)
                 let result: Option<alloc::vec::Vec<u8>> = match ctx.args.first() {
                     Some(Value::Int(n)) => {
@@ -484,171 +404,16 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Err(JvmError::InvalidReference))
                 }
             }
+            _ => None,
+        }
+    }
 
-            // ── Integer ──────────────────────────────────────────────────────
-            ("java/lang/Integer", "<init>") => {
-                // new Integer(int) — deprecated form; store value in field 0.
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.set_field(obj, 0, val);
-                Some(Ok(None))
-            }
-            ("java/lang/Integer", "valueOf") => {
-                // static Integer.valueOf(int) — autoboxing entry point.
-                let val = ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = ctx
-                    .objects
-                    .alloc("java/lang/Integer")
-                    .ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
-            }
-            ("java/lang/Integer", "intValue") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                Some(Ok(Some(
-                    ctx.objects.get_field(obj, 0).unwrap_or(Value::Int(0)),
-                )))
-            }
-
-            // ── Boolean ──────────────────────────────────────────────────────
-            ("java/lang/Boolean", "<init>") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.set_field(obj, 0, val);
-                Some(Ok(None))
-            }
-            ("java/lang/Boolean", "valueOf") => {
-                let val = ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = ctx
-                    .objects
-                    .alloc("java/lang/Boolean")
-                    .ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
-            }
-            ("java/lang/Boolean", "booleanValue") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                Some(Ok(Some(
-                    ctx.objects.get_field(obj, 0).unwrap_or(Value::Int(0)),
-                )))
-            }
-
-            // ── Long ─────────────────────────────────────────────────────────
-            ("java/lang/Long", "<init>") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.set_field(obj, 0, val);
-                Some(Ok(None))
-            }
-            ("java/lang/Long", "valueOf") => {
-                let val = ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = ctx
-                    .objects
-                    .alloc("java/lang/Long")
-                    .ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
-            }
-            ("java/lang/Long", "longValue") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                Some(Ok(Some(
-                    ctx.objects.get_field(obj, 0).unwrap_or(Value::Long(0)),
-                )))
-            }
-
-            // ── Float ─────────────────────────────────────────────────────────
-            ("java/lang/Float", "<init>") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.set_field(obj, 0, val);
-                Some(Ok(None))
-            }
-            ("java/lang/Float", "valueOf") => {
-                let val = ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = ctx
-                    .objects
-                    .alloc("java/lang/Float")
-                    .ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
-            }
-            ("java/lang/Float", "floatValue") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                Some(Ok(Some(
-                    ctx.objects.get_field(obj, 0).unwrap_or(Value::Float(0.0)),
-                )))
-            }
-
-            // ── Double ────────────────────────────────────────────────────────
-            ("java/lang/Double", "<init>") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.set_field(obj, 0, val);
-                Some(Ok(None))
-            }
-            ("java/lang/Double", "valueOf") => {
-                let val = ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = ctx
-                    .objects
-                    .alloc("java/lang/Double")
-                    .ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
-            }
-            ("java/lang/Double", "doubleValue") => {
-                let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                Some(Ok(Some(
-                    ctx.objects.get_field(obj, 0).unwrap_or(Value::Double(0.0)),
-                )))
-            }
-
-            // ── ArrayList ────────────────────────────────────────────────────
-            ("java/util/ArrayList", "<init>") => {
+    fn dispatch_arraylist(
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        match method_name {
+            "<init>" => {
                 // <init>() or <init>(int initialCapacity) — capacity hint ignored.
                 let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null)
                 else {
@@ -662,7 +427,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
                 Some(Ok(None))
             }
-            ("java/util/ArrayList", "add") => {
+            "add" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -682,7 +447,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     Some(Ok(Some(Value::Int(1))))
                 }
             }
-            ("java/util/ArrayList", "get") => {
+            "get" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -695,14 +460,14 @@ impl NativeMethodHandler for BuiltinHandler {
                     None => Some(Err(JvmError::ArrayIndexOutOfBounds)),
                 }
             }
-            ("java/util/ArrayList", "size") => {
+            "size" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
                 };
                 Some(Ok(Some(Value::Int(ctx.objects.list_len(buf_idx) as i32))))
             }
-            ("java/util/ArrayList", "isEmpty") => {
+            "isEmpty" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -711,7 +476,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     (ctx.objects.list_len(buf_idx) == 0) as i32,
                 ))))
             }
-            ("java/util/ArrayList", "set") => {
+            "set" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -726,7 +491,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     .unwrap_or(Value::Null);
                 Some(Ok(Some(old)))
             }
-            ("java/util/ArrayList", "remove") => {
+            "remove" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -739,7 +504,7 @@ impl NativeMethodHandler for BuiltinHandler {
                     None => Some(Err(JvmError::ArrayIndexOutOfBounds)),
                 }
             }
-            ("java/util/ArrayList", "clear") => {
+            "clear" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -747,7 +512,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 ctx.objects.list_clear(buf_idx);
                 Some(Ok(None))
             }
-            ("java/util/ArrayList", "contains") => {
+            "contains" => {
                 let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                     Ok(i) => i,
                     Err(e) => return Some(Err(e)),
@@ -764,16 +529,23 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 Some(Ok(Some(Value::Int(found as i32))))
             }
+            _ => None,
+        }
+    }
 
-            // ── Math ─────────────────────────────────────────────────────────
-            ("java/lang/Math", "abs") => match ctx.args.first() {
+    fn dispatch_math(
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        match method_name {
+            "abs" => match ctx.args.first() {
                 Some(Value::Int(i)) => Some(Ok(Some(Value::Int(i.abs())))),
                 Some(Value::Long(l)) => Some(Ok(Some(Value::Long(l.abs())))),
                 Some(Value::Float(f)) => Some(Ok(Some(Value::Float(f.abs())))),
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(d.abs())))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "min") => match (ctx.args.first(), ctx.args.get(1)) {
+            "min" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.min(b))))),
                 (Some(Value::Long(a)), Some(Value::Long(b))) => {
                     Some(Ok(Some(Value::Long(*a.min(b)))))
@@ -786,7 +558,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "max") => match (ctx.args.first(), ctx.args.get(1)) {
+            "max" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.max(b))))),
                 (Some(Value::Long(a)), Some(Value::Long(b))) => {
                     Some(Ok(Some(Value::Long(*a.max(b)))))
@@ -799,71 +571,369 @@ impl NativeMethodHandler for BuiltinHandler {
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "sqrt") => match ctx.args.first() {
+            "sqrt" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sqrt(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "pow") => match (ctx.args.first(), ctx.args.get(1)) {
+            "pow" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Double(a)), Some(Value::Double(b))) => {
                     Some(Ok(Some(Value::Double(libm::pow(*a, *b)))))
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "floor") => match ctx.args.first() {
+            "floor" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::floor(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "ceil") => match ctx.args.first() {
+            "ceil" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::ceil(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "round") => match ctx.args.first() {
+            "round" => match ctx.args.first() {
                 Some(Value::Float(f)) => Some(Ok(Some(Value::Int(libm::roundf(*f) as i32)))),
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Long(libm::round(*d) as i64)))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "sin") => match ctx.args.first() {
+            "sin" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sin(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "cos") => match ctx.args.first() {
+            "cos" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::cos(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "tan") => match ctx.args.first() {
+            "tan" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::tan(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "atan2") => match (ctx.args.first(), ctx.args.get(1)) {
+            "atan2" => match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Double(y)), Some(Value::Double(x))) => {
                     Some(Ok(Some(Value::Double(libm::atan2(*y, *x)))))
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "toRadians") => match ctx.args.first() {
+            "toRadians" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
                     *d * (core::f64::consts::PI / 180.0),
                 )))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "toDegrees") => match ctx.args.first() {
+            "toDegrees" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
                     *d * (180.0 / core::f64::consts::PI),
                 )))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "log") => match ctx.args.first() {
+            "log" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "log10") => match ctx.args.first() {
+            "log10" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log10(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
-            ("java/lang/Math", "exp") => match ctx.args.first() {
+            "exp" => match ctx.args.first() {
                 Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::exp(*d))))),
                 _ => Some(Err(JvmError::InvalidReference)),
             },
+            _ => None,
+        }
+    }
+}
+
+impl NativeMethodHandler for BuiltinHandler {
+    fn dispatch(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        match class_name {
+            // ── Object / Exception / RuntimeException ────────────────────────
+            "java/lang/Object" | "java/lang/Exception" | "java/lang/RuntimeException" => {
+                match method_name {
+                    "<init>" => Some(Ok(None)),
+                    _ => None,
+                }
+            }
+
+            // ── Throwable ───────────────────────────────────────────────────
+            "java/lang/Throwable" => match method_name {
+                "<init>" => Some(Ok(None)),
+                // addSuppressed is called by try-with-resources when both the body
+                // and close() throw.  Suppressed exceptions are not useful on an
+                // embedded device, so we accept the call and discard the argument.
+                "addSuppressed" => Some(Ok(None)),
+                _ => None,
+            },
+
+            // ── StringBuilder ────────────────────────────────────────────────
+            "java/lang/StringBuilder" => match method_name {
+                "<init>" => {
+                    ctx.objects.sb_clear();
+                    // <init>(String): if a String argument was supplied, seed the buffer.
+                    if let Some(Value::Reference(idx)) = ctx.args.get(1) {
+                        let s = ctx.strings.resolve(*idx).unwrap_or("");
+                        ctx.objects.sb_append_bytes(s.as_bytes());
+                    }
+                    Some(Ok(None))
+                }
+                "append" => {
+                    match ctx.args.get(1) {
+                        Some(Value::Reference(idx)) => {
+                            let s = ctx.strings.resolve(*idx).unwrap_or("");
+                            ctx.objects.sb_append_bytes(s.as_bytes());
+                        }
+                        Some(Value::Int(n)) => {
+                            let desc = ctx.descriptor;
+                            if desc.starts_with("(C)") {
+                                // append(char): emit the character as a single byte.
+                                // Multi-byte Unicode chars are not supported on this platform.
+                                let ch = (*n as u8).max(0x20); // replace non-printable with space
+                                ctx.objects.sb_append_bytes(&[ch]);
+                            } else if desc.starts_with("(Z)") {
+                                // append(boolean)
+                                ctx.objects.sb_append_bytes(if *n != 0 {
+                                    b"true"
+                                } else {
+                                    b"false"
+                                });
+                            } else {
+                                ctx.objects.sb_append_int(*n);
+                            }
+                        }
+                        Some(Value::Long(n)) => {
+                            ctx.objects.sb_append_long(*n);
+                        }
+                        Some(Value::Float(f)) => {
+                            ctx.objects.sb_append_float(*f);
+                        }
+                        Some(Value::Double(d)) => {
+                            ctx.objects.sb_append_float(*d as f32);
+                        }
+                        _ => {}
+                    }
+                    // append() returns `this` for chaining.
+                    Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
+                }
+                "length" => {
+                    let len = ctx.objects.sb_len() as i32;
+                    Some(Ok(Some(Value::Int(len))))
+                }
+                "charAt" => {
+                    if let Some(Value::Int(i)) = ctx.args.get(1) {
+                        let ch = ctx.objects.sb_char_at(*i as usize).unwrap_or(0);
+                        Some(Ok(Some(Value::Int(ch as i32))))
+                    } else {
+                        Some(Err(JvmError::InvalidReference))
+                    }
+                }
+                "toString" => {
+                    let bytes = ctx.objects.sb_contents_slice().to_vec();
+                    let str_ref = ctx
+                        .strings
+                        .intern_dyn(&bytes)
+                        .ok_or(JvmError::StackOverflow);
+                    Some(str_ref.map(|r| Some(Value::Reference(r))))
+                }
+                _ => None,
+            },
+
+            // ── String ──────────────────────────────────────────────────────
+            "java/lang/String" => Self::dispatch_string(method_name, ctx),
+
+            // ── Integer ──────────────────────────────────────────────────────
+            "java/lang/Integer" => match method_name {
+                "<init>" => {
+                    // new Integer(int) — deprecated form; store value in field 0.
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                    ctx.objects.set_field(obj, 0, val);
+                    Some(Ok(None))
+                }
+                "valueOf" => {
+                    // static Integer.valueOf(int) — autoboxing entry point.
+                    let val = ctx.args.first().copied().unwrap_or(Value::Null);
+                    let obj_idx = ctx
+                        .objects
+                        .alloc("java/lang/Integer")
+                        .ok_or(JvmError::StackOverflow);
+                    match obj_idx {
+                        Err(e) => Some(Err(e)),
+                        Ok(idx) => {
+                            ctx.objects.set_field(idx, 0, val);
+                            Some(Ok(Some(Value::ObjectRef(idx))))
+                        }
+                    }
+                }
+                "intValue" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    Some(Ok(Some(
+                        ctx.objects.get_field(obj, 0).unwrap_or(Value::Int(0)),
+                    )))
+                }
+                _ => None,
+            },
+
+            // ── Boolean ──────────────────────────────────────────────────────
+            "java/lang/Boolean" => match method_name {
+                "<init>" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                    ctx.objects.set_field(obj, 0, val);
+                    Some(Ok(None))
+                }
+                "valueOf" => {
+                    let val = ctx.args.first().copied().unwrap_or(Value::Null);
+                    let obj_idx = ctx
+                        .objects
+                        .alloc("java/lang/Boolean")
+                        .ok_or(JvmError::StackOverflow);
+                    match obj_idx {
+                        Err(e) => Some(Err(e)),
+                        Ok(idx) => {
+                            ctx.objects.set_field(idx, 0, val);
+                            Some(Ok(Some(Value::ObjectRef(idx))))
+                        }
+                    }
+                }
+                "booleanValue" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    Some(Ok(Some(
+                        ctx.objects.get_field(obj, 0).unwrap_or(Value::Int(0)),
+                    )))
+                }
+                _ => None,
+            },
+
+            // ── Long ─────────────────────────────────────────────────────────
+            "java/lang/Long" => match method_name {
+                "<init>" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                    ctx.objects.set_field(obj, 0, val);
+                    Some(Ok(None))
+                }
+                "valueOf" => {
+                    let val = ctx.args.first().copied().unwrap_or(Value::Null);
+                    let obj_idx = ctx
+                        .objects
+                        .alloc("java/lang/Long")
+                        .ok_or(JvmError::StackOverflow);
+                    match obj_idx {
+                        Err(e) => Some(Err(e)),
+                        Ok(idx) => {
+                            ctx.objects.set_field(idx, 0, val);
+                            Some(Ok(Some(Value::ObjectRef(idx))))
+                        }
+                    }
+                }
+                "longValue" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    Some(Ok(Some(
+                        ctx.objects.get_field(obj, 0).unwrap_or(Value::Long(0)),
+                    )))
+                }
+                _ => None,
+            },
+
+            // ── Float ────────────────────────────────────────────────────────
+            "java/lang/Float" => match method_name {
+                "<init>" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                    ctx.objects.set_field(obj, 0, val);
+                    Some(Ok(None))
+                }
+                "valueOf" => {
+                    let val = ctx.args.first().copied().unwrap_or(Value::Null);
+                    let obj_idx = ctx
+                        .objects
+                        .alloc("java/lang/Float")
+                        .ok_or(JvmError::StackOverflow);
+                    match obj_idx {
+                        Err(e) => Some(Err(e)),
+                        Ok(idx) => {
+                            ctx.objects.set_field(idx, 0, val);
+                            Some(Ok(Some(Value::ObjectRef(idx))))
+                        }
+                    }
+                }
+                "floatValue" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    Some(Ok(Some(
+                        ctx.objects.get_field(obj, 0).unwrap_or(Value::Float(0.0)),
+                    )))
+                }
+                _ => None,
+            },
+
+            // ── Double ───────────────────────────────────────────────────────
+            "java/lang/Double" => match method_name {
+                "<init>" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                    ctx.objects.set_field(obj, 0, val);
+                    Some(Ok(None))
+                }
+                "valueOf" => {
+                    let val = ctx.args.first().copied().unwrap_or(Value::Null);
+                    let obj_idx = ctx
+                        .objects
+                        .alloc("java/lang/Double")
+                        .ok_or(JvmError::StackOverflow);
+                    match obj_idx {
+                        Err(e) => Some(Err(e)),
+                        Ok(idx) => {
+                            ctx.objects.set_field(idx, 0, val);
+                            Some(Ok(Some(Value::ObjectRef(idx))))
+                        }
+                    }
+                }
+                "doubleValue" => {
+                    let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null)
+                    else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    Some(Ok(Some(
+                        ctx.objects.get_field(obj, 0).unwrap_or(Value::Double(0.0)),
+                    )))
+                }
+                _ => None,
+            },
+
+            // ── ArrayList ────────────────────────────────────────────────────
+            "java/util/ArrayList" => Self::dispatch_arraylist(method_name, ctx),
+
+            // ── Math ─────────────────────────────────────────────────────────
+            "java/lang/Math" => Self::dispatch_math(method_name, ctx),
 
             _ => None,
         }
