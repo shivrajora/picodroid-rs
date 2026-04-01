@@ -136,6 +136,7 @@ The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running devi
 ./scripts/pdb.sh devices
 ./scripts/pdb.sh -s /dev/cu.usbmodem102 ping
 ./scripts/pdb.sh -s /dev/cu.usbmodem102 install build/apks/blinky.papk
+./scripts/pdb.sh -s /dev/cu.usbmodem102 sysmon
 ```
 
 ### Install the host tool globally (optional)
@@ -164,6 +165,16 @@ The device stops the running JVM (including any sleeping child threads), writes 
 ```bash
 pdb -s /dev/cu.usbmodem102 ping
 ```
+
+### System monitor
+
+Query heap usage, task states, stack high-water marks, and per-task CPU usage:
+
+```bash
+pdb -s /dev/cu.usbmodem102 sysmon
+```
+
+CPU % is computed from the delta between consecutive queries. The first query reports CPU % as N/A; run it again after a few seconds to see actual per-task CPU usage.
 
 ### Inspect a PAPK file
 

@@ -52,6 +52,12 @@ After flashing, push a new app over UART without reflashing:
 cargo run -p pdb -- -s /dev/cu.usbmodem102 install build/apks/blinky.papk
 ```
 
+Check device health (heap, tasks, CPU usage) at any time:
+
+```bash
+cargo run -p pdb -- -s /dev/cu.usbmodem102 sysmon
+```
+
 See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip selection, app selection, and UF2 flashing.
 
 ## Documentation
@@ -85,7 +91,7 @@ picodroid-rs/
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
-│   └── pdb/            # Host tool: push .papk to a running device over UART
+│   └── pdb/            # Host tool: push apps and monitor device health over UART
 │
 ├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts
 │

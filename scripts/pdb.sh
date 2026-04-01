@@ -7,6 +7,7 @@
 #   ./scripts/pdb.sh devices
 #   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 ping
 #   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 install build/apks/blinky.papk
+#   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 sysmon
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -19,11 +20,13 @@ Commands:
   devices                         List available serial ports
   -s <port> ping                  Ping a connected device
   -s <port> install <file.papk>   Hot-swap an app onto the device
+  -s <port> sysmon                Show system monitor stats (heap, tasks, CPU%)
 
 Examples:
   ./scripts/pdb.sh devices
   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 ping
   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 install build/apks/blinky.papk
+  ./scripts/pdb.sh -s /dev/cu.usbmodem1402 sysmon
 EOF
   exit 0
 fi

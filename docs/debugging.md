@@ -13,6 +13,24 @@ The host simulator lets you run apps on your development machine without hardwar
 ./scripts/sim.sh --app blinky          # loops forever — Ctrl-C to stop
 ```
 
+## System Monitor (pdb sysmon)
+
+The `pdb sysmon` command queries runtime system health over UART without reflashing or adding debug prints:
+
+```bash
+pdb -s /dev/cu.usbmodem102 sysmon
+```
+
+This reports:
+
+- **Heap**: free bytes, minimum-ever free bytes (high-water mark)
+- **Uptime**: tick count and wall-clock seconds
+- **Task table**: every FreeRTOS task with name, state, priority, stack high-water mark, and CPU %
+
+CPU % is computed from the delta between consecutive queries — run it twice with a few seconds in between. The first query shows CPU % as N/A.
+
+Under the hood this uses `xPortGetFreeHeapSize()`, `xPortGetMinimumEverFreeHeapSize()`, and `uxTaskGetSystemState()` from FreeRTOS, with run-time stats driven by the hardware microsecond timer (TIMERAWL register). There is no background sampling task — stats are collected on-demand when the host sends the query, so there is zero impact on power consumption or scheduling.
+
 ## GDB
 
 For GDB debugging, run probe-rs in GDB server mode and connect with:
