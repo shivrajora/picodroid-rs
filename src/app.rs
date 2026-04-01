@@ -186,6 +186,9 @@ pub fn run_jvm_with(apk_data: &[u8]) {
         .expect("APK manifest is missing 'main-class'");
 
     // Interrupted is a clean cooperative stop — not a real error.
+    #[cfg(feature = "sim")]
+    let start = std::time::Instant::now();
+
     match jvm.invoke_static(main_class, "main", heap, &mut handler) {
         Ok(_) | Err(JvmError::Interrupted) => {}
         #[cfg(not(feature = "sim"))]
@@ -193,6 +196,9 @@ pub fn run_jvm_with(apk_data: &[u8]) {
         #[cfg(feature = "sim")]
         Err(e) => eprintln!("[jvm] error: {:?}", e),
     }
+
+    #[cfg(feature = "sim")]
+    println!("[sim] JVM wall-clock: {} ms", start.elapsed().as_millis());
 }
 
 /// Run the JVM with the baked-in APK (sim entry point).

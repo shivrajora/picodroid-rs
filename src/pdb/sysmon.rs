@@ -1,18 +1,46 @@
+use core::ffi::c_void;
 use core::mem::MaybeUninit;
 
-use freertos_rust::{
-    freertos_rs_get_number_of_tasks, freertos_rs_get_system_state, freertos_rs_xTaskGetTickCount,
-    FreeRtosTaskStatusFfi, FreeRtosUBaseType,
-};
+use freertos_rust::{freertos_rs_xTaskGetTickCount, FreeRtosUBaseType};
 
 use super::protocol::{crc32_frame, CMD_SYSMON, STATUS_CRC_FAIL, STATUS_OK};
 use super::uart_transport::UartTransport;
 
-// ── FFI for heap_4.c functions (always linked when heap_4 is the allocator) ──
+// ── FFI ─────────────────────────────────────────────────────────────────────
 
 extern "C" {
     fn xPortGetFreeHeapSize() -> u32;
     fn xPortGetMinimumEverFreeHeapSize() -> u32;
+    fn uxTaskGetSystemState(
+        pxTaskStatusArray: *mut TaskStatusC,
+        uxArraySize: FreeRtosUBaseType,
+        pulTotalRunTime: *mut u32,
+    ) -> FreeRtosUBaseType;
+    fn uxTaskGetNumberOfTasks() -> FreeRtosUBaseType;
+}
+
+/// C-compatible `TaskStatus_t` matching the FreeRTOS layout for this build:
+///   configUSE_CORE_AFFINITY = 1, configNUMBER_OF_CORES = 2
+///   configSTACK_DEPTH_TYPE  = StackType_t (u32 on ARM)
+///   configRUN_TIME_COUNTER_TYPE = uint32_t
+///   portSTACK_GROWTH = -1, configRECORD_STACK_HIGH_ADDRESS undefined
+///
+/// The upstream `FreeRtosTaskStatusFfi` is missing `uxCoreAffinityMask` and
+/// uses u16 for `stack_high_water_mark`, so its size (36 bytes) does not match
+/// the real C struct (40 bytes).  Using the wrong size causes buffer overflow
+/// and a hard fault when `uxTaskGetSystemState` fills the array.
+#[repr(C)]
+struct TaskStatusC {
+    handle: *const c_void,
+    task_name: *const u8,
+    task_number: u32,
+    task_state: u32, // eTaskState (C enum = 4 bytes on ARM)
+    current_priority: u32,
+    base_priority: u32,
+    run_time_counter: u32,
+    stack_base: *const c_void,
+    stack_high_water_mark: u32, // configSTACK_DEPTH_TYPE = StackType_t = u32
+    core_affinity_mask: u32,    // present when SMP (configNUMBER_OF_CORES > 1)
 }
 
 // ── Snapshot for CPU % computation ──────────────────────────────────────────
@@ -67,13 +95,13 @@ pub fn handle_sysmon(len: u32) {
     }
 
     // Collect current task state
-    let mut task_buf: [MaybeUninit<FreeRtosTaskStatusFfi>; MAX_TASKS] =
+    let mut task_buf: [MaybeUninit<TaskStatusC>; MAX_TASKS] =
         [const { MaybeUninit::uninit() }; MAX_TASKS];
     let mut total_run_time: u32 = 0;
 
     let task_count = unsafe {
-        let n = freertos_rs_get_number_of_tasks() as usize;
-        freertos_rs_get_system_state(
+        let n = uxTaskGetNumberOfTasks() as usize;
+        uxTaskGetSystemState(
             task_buf.as_mut_ptr().cast(),
             n.min(MAX_TASKS) as FreeRtosUBaseType,
             &mut total_run_time,
@@ -121,7 +149,7 @@ pub fn handle_sysmon(len: u32) {
         resp[base + 17] = t.current_priority as u8;
         resp[base + 18] = t.base_priority as u8;
         // resp[base + 19] = reserved
-        resp[base + 20..base + 22].copy_from_slice(&t.stack_high_water_mark.to_le_bytes());
+        resp[base + 20..base + 22].copy_from_slice(&(t.stack_high_water_mark as u16).to_le_bytes());
         resp[base + 22..base + 24].copy_from_slice(&(t.task_number as u16).to_le_bytes());
 
         // CPU % × 10 from delta with previous snapshot

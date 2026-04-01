@@ -134,6 +134,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/os/SystemClock", "sleep") => {
                 Some(crate::system::picodroid::os::system_clock::sleep(ctx.args))
             }
+            ("picodroid/os/SystemClock", "elapsedRealtimeNanos") => {
+                Some(crate::system::picodroid::os::system_clock::elapsed_realtime_nanos())
+            }
             ("picodroid/concurrent/Thread", "start") => {
                 if let Some(Value::ObjectRef(thread_idx)) = ctx.args.first() {
                     if let Some(Value::ObjectRef(runnable_obj_idx)) =

@@ -10,3 +10,8 @@ pub fn sleep(args: &[Value]) -> Result<Option<Value>, JvmError> {
     platform::sleep(ms);
     Ok(None)
 }
+
+pub fn elapsed_realtime_nanos() -> Result<Option<Value>, JvmError> {
+    let nanos = platform::elapsed_realtime_nanos();
+    Ok(Some(Value::Long(nanos)))
+}
