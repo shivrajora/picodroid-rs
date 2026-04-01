@@ -31,6 +31,10 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub arrays: &'a mut ArrayHeap,
     pub statics: &'a mut StaticFieldStore,
     pub handler: &'a mut H,
+    /// Cache: (class_name ptr, field_name ptr) → field slot index.
+    pub field_cache: alloc::vec::Vec<(*const u8, *const u8, usize)>,
+    /// Cache: (class_name ptr, method_name ptr, desc ptr) → (class_idx, method_idx).
+    pub method_cache: alloc::vec::Vec<helpers::MethodCacheEntry>,
 }
 
 /// Search `method`'s exception table for a handler covering `inst_pc` that
@@ -85,6 +89,8 @@ pub fn execute<H: NativeMethodHandler>(
         arrays,
         statics,
         handler,
+        field_cache: alloc::vec::Vec::new(),
+        method_cache: alloc::vec::Vec::new(),
     };
 
     loop {

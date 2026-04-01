@@ -9,6 +9,8 @@ pub struct JvmObject {
 
 pub struct ObjectHeap {
     objects: Vec<Option<JvmObject>>,
+    /// Lowest index that might contain a `None` slot; avoids O(n) scans.
+    first_free: usize,
     sb_buf: Vec<u8>,
     list_bufs: Vec<Option<Vec<Value>>>,
 }
@@ -17,6 +19,7 @@ impl ObjectHeap {
     pub const fn new() -> Self {
         Self {
             objects: Vec::new(),
+            first_free: 0,
             sb_buf: Vec::new(),
             list_bufs: Vec::new(),
         }
@@ -44,23 +47,25 @@ impl ObjectHeap {
                 return Some(idx as u16);
             }
         }
-        // Reuse a None slot if available (after GC), otherwise grow
-        if let Some(idx) = self
-            .objects
-            .iter()
-            .position(|o: &Option<JvmObject>| o.is_none())
-        {
-            self.objects[idx] = Some(JvmObject {
-                class_name,
-                fields: Vec::new(),
-            });
-            return Some(idx as u16);
+        // Scan from first_free for a None slot; skip already-occupied prefix.
+        while self.first_free < self.objects.len() {
+            if self.objects[self.first_free].is_none() {
+                let idx = self.first_free;
+                self.objects[idx] = Some(JvmObject {
+                    class_name,
+                    fields: Vec::new(),
+                });
+                self.first_free = idx + 1;
+                return Some(idx as u16);
+            }
+            self.first_free += 1;
         }
         let idx = self.objects.len() as u16;
         self.objects.push(Some(JvmObject {
             class_name,
             fields: Vec::new(),
         }));
+        self.first_free = self.objects.len();
         Some(idx)
     }
 
@@ -486,6 +491,7 @@ mod tests {
         assert_eq!(heap.alloc("B"), Some(1));
         // Simulate GC freeing slot 0
         heap.objects[0] = None;
+        heap.first_free = 0;
         // Next alloc should reuse slot 0
         assert_eq!(heap.alloc("C"), Some(0));
         // Slot 1 still intact

@@ -27,11 +27,16 @@ pub struct JvmArray {
 
 pub struct ArrayHeap {
     arrays: Vec<Option<JvmArray>>,
+    /// Lowest index that might contain a `None` slot; avoids O(n) scans.
+    first_free: usize,
 }
 
 impl ArrayHeap {
     pub const fn new() -> Self {
-        Self { arrays: Vec::new() }
+        Self {
+            arrays: Vec::new(),
+            first_free: 0,
+        }
     }
 }
 
@@ -49,17 +54,19 @@ impl ArrayHeap {
             atype,
             data: vec![0i32; len as usize],
         };
-        // Reuse a None slot if available (after GC)
-        if let Some(idx) = self
-            .arrays
-            .iter()
-            .position(|a: &Option<JvmArray>| a.is_none())
-        {
-            self.arrays[idx] = Some(new_arr);
-            return Some(idx as u16);
+        // Scan from first_free for a None slot; skip already-occupied prefix.
+        while self.first_free < self.arrays.len() {
+            if self.arrays[self.first_free].is_none() {
+                let idx = self.first_free;
+                self.arrays[idx] = Some(new_arr);
+                self.first_free = idx + 1;
+                return Some(idx as u16);
+            }
+            self.first_free += 1;
         }
         let idx = self.arrays.len() as u16;
         self.arrays.push(Some(new_arr));
+        self.first_free = self.arrays.len();
         Some(idx)
     }
 
@@ -210,6 +217,7 @@ mod tests {
         assert_eq!(heap.alloc(ATYPE_INT, 8), Some(1));
         // Simulate GC freeing slot 0
         heap.arrays[0] = None;
+        heap.first_free = 0;
         // Next alloc should reuse slot 0
         assert_eq!(heap.alloc(ATYPE_BYTE, 2), Some(0));
         // Slot 1 still intact

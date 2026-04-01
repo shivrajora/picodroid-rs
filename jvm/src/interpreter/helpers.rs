@@ -9,8 +9,71 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+/// Cache entry: (class_name ptr, method_name ptr, descriptor ptr) → (class_idx, method_idx).
+pub(super) type MethodCacheEntry = (*const u8, *const u8, *const u8, usize, usize);
+
+/// Cached field_slot: uses pointer identity on the Flash-backed class/field name slices.
+pub(super) fn field_slot_cached(
+    cache: &mut Vec<(*const u8, *const u8, usize)>,
+    classes: &[ClassFile],
+    class_name: &'static str,
+    field_name: &[u8],
+) -> Option<usize> {
+    let cn_ptr = class_name.as_ptr();
+    let fn_ptr = field_name.as_ptr();
+    for &(cp, fp, slot) in cache.iter() {
+        if cp == cn_ptr && fp == fn_ptr {
+            return Some(slot);
+        }
+    }
+    let slot = field_slot(classes, class_name, core::str::from_utf8(field_name).ok()?)?;
+    cache.push((cn_ptr, fn_ptr, slot));
+    Some(slot)
+}
+
+fn find_method_cached(
+    cache: &mut Vec<MethodCacheEntry>,
+    classes: &[ClassFile],
+    class_name: &str,
+    method_name: &str,
+    descriptor: &str,
+) -> Option<(usize, usize)> {
+    let cn_ptr = class_name.as_ptr();
+    let mn_ptr = method_name.as_ptr();
+    let dn_ptr = descriptor.as_ptr();
+    for &(cp, mp, dp, ci, mi) in cache.iter() {
+        if cp == cn_ptr && mp == mn_ptr && dp == dn_ptr {
+            return Some((ci, mi));
+        }
+    }
+    let (ci, mi) = find_method(classes, class_name, method_name, descriptor)?;
+    cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    Some((ci, mi))
+}
+
+fn find_method_virtual_cached(
+    cache: &mut Vec<MethodCacheEntry>,
+    classes: &[ClassFile],
+    runtime_class: &str,
+    method_name: &str,
+    descriptor: &str,
+) -> Option<(usize, usize)> {
+    let cn_ptr = runtime_class.as_ptr();
+    let mn_ptr = method_name.as_ptr();
+    let dn_ptr = descriptor.as_ptr();
+    for &(cp, mp, dp, ci, mi) in cache.iter() {
+        if cp == cn_ptr && mp == mn_ptr && dp == dn_ptr {
+            return Some((ci, mi));
+        }
+    }
+    let (ci, mi) = find_method_virtual(classes, runtime_class, method_name, descriptor)?;
+    cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    Some((ci, mi))
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(super) fn invoke_method<H: NativeMethodHandler>(
+pub(super) fn invoke_method_cached<H: NativeMethodHandler>(
+    method_cache: &mut Vec<MethodCacheEntry>,
     classes: &[ClassFile],
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
@@ -34,7 +97,8 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
     }
     let args_ref = args_buf.as_slice();
 
-    if let Some((ci, mi)) = find_method(classes, class_str, name_str, desc_str) {
+    if let Some((ci, mi)) = find_method_cached(method_cache, classes, class_str, name_str, desc_str)
+    {
         let is_native = classes[ci].methods[mi].code_offset == 0;
         if is_native {
             let mut ctx = NativeContext {
@@ -64,6 +128,68 @@ pub(super) fn invoke_method<H: NativeMethodHandler>(
         handler
             .dispatch(class_str, name_str, &mut ctx)
             .or_else(|| BuiltinHandler.dispatch(class_str, name_str, &mut ctx))
+            .unwrap_or(Err(JvmError::NoSuchMethod))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn invoke_method_virtual_cached<H: NativeMethodHandler>(
+    method_cache: &mut Vec<MethodCacheEntry>,
+    classes: &[ClassFile],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+    statics: &mut StaticFieldStore,
+    handler: &mut H,
+    runtime_class: &str,
+    name_str: &str,
+    desc_str: &str,
+    stack: &mut Vec<Value>,
+    arg_count: usize,
+) -> Result<Option<Value>, JvmError> {
+    let stack_len = stack.len();
+    if stack_len < arg_count {
+        return Err(JvmError::StackUnderflow);
+    }
+    let start = stack_len - arg_count;
+    let args_buf: Vec<Value> = stack[start..].to_vec();
+    for _ in 0..arg_count {
+        stack.pop();
+    }
+    let args_ref = args_buf.as_slice();
+
+    if let Some((ci, mi)) =
+        find_method_virtual_cached(method_cache, classes, runtime_class, name_str, desc_str)
+    {
+        let is_native = classes[ci].methods[mi].code_offset == 0;
+        if is_native {
+            let mut ctx = NativeContext {
+                descriptor: desc_str,
+                args: args_ref,
+                strings,
+                objects,
+                arrays,
+            };
+            handler
+                .dispatch(runtime_class, name_str, &mut ctx)
+                .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
+                .unwrap_or(Err(JvmError::NoSuchMethod))
+        } else {
+            super::execute(
+                classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
+            )
+        }
+    } else {
+        let mut ctx = NativeContext {
+            descriptor: desc_str,
+            args: args_ref,
+            strings,
+            objects,
+            arrays,
+        };
+        handler
+            .dispatch(runtime_class, name_str, &mut ctx)
+            .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
             .unwrap_or(Err(JvmError::NoSuchMethod))
     }
 }
@@ -225,65 +351,6 @@ pub(super) fn find_method_virtual(
         let super_bytes = classes[ci].super_class_name()?;
         let super_str: &'static str = core::str::from_utf8(super_bytes).ok()?;
         current = super_str;
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn invoke_method_virtual<H: NativeMethodHandler>(
-    classes: &[ClassFile],
-    strings: &mut StringTable,
-    objects: &mut ObjectHeap,
-    arrays: &mut ArrayHeap,
-    statics: &mut StaticFieldStore,
-    handler: &mut H,
-    runtime_class: &str,
-    name_str: &str,
-    desc_str: &str,
-    stack: &mut Vec<Value>,
-    arg_count: usize,
-) -> Result<Option<Value>, JvmError> {
-    let stack_len = stack.len();
-    if stack_len < arg_count {
-        return Err(JvmError::StackUnderflow);
-    }
-    let start = stack_len - arg_count;
-    let args_buf: Vec<Value> = stack[start..].to_vec();
-    for _ in 0..arg_count {
-        stack.pop();
-    }
-    let args_ref = args_buf.as_slice();
-
-    if let Some((ci, mi)) = find_method_virtual(classes, runtime_class, name_str, desc_str) {
-        let is_native = classes[ci].methods[mi].code_offset == 0;
-        if is_native {
-            let mut ctx = NativeContext {
-                descriptor: desc_str,
-                args: args_ref,
-                strings,
-                objects,
-                arrays,
-            };
-            handler
-                .dispatch(runtime_class, name_str, &mut ctx)
-                .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
-                .unwrap_or(Err(JvmError::NoSuchMethod))
-        } else {
-            super::execute(
-                classes, strings, objects, arrays, statics, handler, ci, mi, args_ref,
-            )
-        }
-    } else {
-        let mut ctx = NativeContext {
-            descriptor: desc_str,
-            args: args_ref,
-            strings,
-            objects,
-            arrays,
-        };
-        handler
-            .dispatch(runtime_class, name_str, &mut ctx)
-            .or_else(|| BuiltinHandler.dispatch(runtime_class, name_str, &mut ctx))
-            .unwrap_or(Err(JvmError::NoSuchMethod))
     }
 }
 

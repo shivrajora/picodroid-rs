@@ -47,7 +47,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             } else {
                 class_str
             };
-            helpers::invoke_method_virtual(
+            helpers::invoke_method_virtual_cached(
+                &mut self.method_cache,
                 self.classes,
                 self.strings,
                 self.objects,
@@ -61,7 +62,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 arg_count,
             )?
         } else {
-            helpers::invoke_method(
+            helpers::invoke_method_cached(
+                &mut self.method_cache,
                 self.classes,
                 self.strings,
                 self.objects,
