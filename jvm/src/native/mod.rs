@@ -99,6 +99,21 @@ pub trait NativeMethodHandler {
     fn interrupted(&self) -> bool {
         false
     }
+
+    /// Returns platform monotonic clock in nanoseconds.
+    ///
+    /// Used by the interpreter to measure GC pause times.  The default
+    /// returns `0` (no timing); override on platforms that have a clock.
+    fn clock_nanos(&self) -> u64 {
+        0
+    }
+
+    /// Called by the interpreter after each GC cycle.
+    ///
+    /// `time_ns` is the wall-clock time spent in the collector (from
+    /// [`clock_nanos`](NativeMethodHandler::clock_nanos)) and `freed` is the
+    /// number of heap entries reclaimed.  The default is a no-op.
+    fn report_gc(&mut self, _time_ns: u64, _freed: usize) {}
 }
 
 /// Built-in handler for `java/lang/*` methods common to all JVM environments.

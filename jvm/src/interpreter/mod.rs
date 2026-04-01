@@ -215,7 +215,10 @@ pub fn execute<H: NativeMethodHandler>(
 
         // Trigger GC when allocation counter crosses the threshold.
         if r.is_ok() && ex.alloc_count >= GC_THRESHOLD {
-            crate::gc::collect(&frames, ex.objects, ex.arrays, ex.strings, ex.statics);
+            let t0 = ex.handler.clock_nanos();
+            let freed = crate::gc::collect(&frames, ex.objects, ex.arrays, ex.strings, ex.statics);
+            let t1 = ex.handler.clock_nanos();
+            ex.handler.report_gc(t1.wrapping_sub(t0), freed);
             ex.alloc_count = 0;
         }
 

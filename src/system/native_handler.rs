@@ -3,9 +3,33 @@ use pico_jvm::{
     NativeContext, NativeMethodHandler,
 };
 
-pub struct PicodroidNativeHandler;
+pub struct PicodroidNativeHandler {
+    gc_time_ns: u64,
+    gc_count: u32,
+    gc_freed: u32,
+}
+
+impl PicodroidNativeHandler {
+    pub fn new() -> Self {
+        Self {
+            gc_time_ns: 0,
+            gc_count: 0,
+            gc_freed: 0,
+        }
+    }
+}
 
 impl NativeMethodHandler for PicodroidNativeHandler {
+    fn clock_nanos(&self) -> u64 {
+        crate::hal::system_clock::elapsed_realtime_nanos() as u64
+    }
+
+    fn report_gc(&mut self, time_ns: u64, freed: usize) {
+        self.gc_time_ns += time_ns;
+        self.gc_count += 1;
+        self.gc_freed += freed as u32;
+    }
+
     fn dispatch(
         &mut self,
         class_name: &str,
@@ -167,7 +191,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                     let mut jvm = pico_jvm::Jvm::new();
                                     crate::app::load_classes(&mut jvm).unwrap();
                                     let heap = crate::app::shared_heap();
-                                    let mut handler = PicodroidNativeHandler;
+                                    let mut handler = PicodroidNativeHandler::new();
                                     jvm.invoke_instance(
                                         class_name,
                                         "run",
@@ -197,6 +221,17 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                         }
                     }
                 }
+                Some(Ok(None))
+            }
+            ("picodroid/os/Runtime", "gcTimeNanos") => {
+                Some(Ok(Some(Value::Long(self.gc_time_ns as i64))))
+            }
+            ("picodroid/os/Runtime", "gcCount") => Some(Ok(Some(Value::Int(self.gc_count as i32)))),
+            ("picodroid/os/Runtime", "gcFreed") => Some(Ok(Some(Value::Int(self.gc_freed as i32)))),
+            ("picodroid/os/Runtime", "resetGcStats") => {
+                self.gc_time_ns = 0;
+                self.gc_count = 0;
+                self.gc_freed = 0;
                 Some(Ok(None))
             }
             _ => None,

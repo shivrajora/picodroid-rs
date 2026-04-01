@@ -169,7 +169,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     let mut jvm = Box::new(Jvm::new());
     let heap = shared_heap();
-    let mut handler = crate::system::native_handler::PicodroidNativeHandler;
+    let mut handler = crate::system::native_handler::PicodroidNativeHandler::new();
 
     // Register the combined loader so Thread.start() spawned tasks load both
     // framework and app classes into their fresh Jvm instances.
