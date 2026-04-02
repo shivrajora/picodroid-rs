@@ -48,7 +48,7 @@ pub(super) fn notify_jvm() {
     if let Some(t) = unsafe { (*JVM_TASK.0.get()).as_ref() } {
         t.notify(freertos_rust::TaskNotification::Increment);
     }
-    // Wake core 0 from WFE if it is in the RP2350 spin-poll loop.
+    // Wake core 0 from WFE if it is in the RP2350 poll loop.
     cortex_m::asm::sev();
 }
 

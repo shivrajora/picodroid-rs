@@ -15,7 +15,7 @@ use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError
 #[cfg(feature = "chip-rp2350")]
 #[inline(always)]
 fn timer_micros() -> u32 {
-    const TIMERAWL: usize = 0x400B_0000 + 0x28; // TIMER0 base + TIMERAWL offset
+    const TIMERAWL: usize = 0x400B_0000 + 0x28;
     unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) }
 }
 
@@ -47,7 +47,7 @@ impl InstallTransport for UartTransport {
     fn read_byte(&mut self) -> Result<u8, ReadError> {
         // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
         // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
-        // timer so we don't depend on tick-based timeouts.
+        // timer instead of tick-based timeouts.
         #[cfg(feature = "chip-rp2350")]
         return crate::hal::pdb_uart::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
         #[cfg(not(feature = "chip-rp2350"))]

@@ -127,12 +127,13 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                     continue;
                 }
 
-                // Natural app exit — wait for a pdb install request.
+                // Natural app exit — wait for pdb to install a new app.
                 //
-                // On RP2040, cross-core notifications (SIO FIFO) work
-                // reliably so we sleep and let notify_jvm() wake us.
-                // On RP2350, the doorbell-based yield is unreliable so
-                // we spin-poll the flag instead.
+                // On RP2040 (configTICK_CORE=1), cross-core notifications
+                // work so we sleep and let notify_jvm() wake us directly.
+                // On RP2350 (configTICK_CORE=0), the doorbell-based yield
+                // is unreliable; use WFE to sleep at low power until an
+                // SEV from notify_jvm() wakes us.
                 #[cfg(not(feature = "chip-rp2350"))]
                 {
                     CurrentTask::take_notification(true, Duration::infinite());
@@ -151,9 +152,6 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                         unsafe { crate::hal::flash::park_for_flash() };
                         break;
                     }
-                    // WFE sleeps the core until an event (SEV from core 1,
-                    // any interrupt, or debug event).  Avoids burning CPU
-                    // and wasting power on battery-powered devices.
                     cortex_m::asm::wfe();
                 }
             }

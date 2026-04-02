@@ -78,7 +78,10 @@ extern uint32_t picodroid_get_runtime_counter(void);
  * code paths are excluded by configNUMBER_OF_CORES != 1 guards. */
 #define configSUPPORT_PICO_SYNC_INTEROP         1
 #ifdef __ARM_ARCH_8M_MAIN__
-/* RP2350: core 1 FIFO launch hangs in secure boot mode; use core 0 for tick. */
+/* RP2350: the community FreeRTOS SMP port does not support configTICK_CORE=1
+ * (scheduler crashes during core 1 launch).  Tick on core 0 means the
+ * scheduler freezes while park_for_flash() disables core 0 interrupts;
+ * install-time code uses hardware-timer busy-waits to compensate. */
 #define configTICK_CORE                         0
 #else
 /* RP2040: core 1 drives the tick so park_for_flash() can disable core 0
