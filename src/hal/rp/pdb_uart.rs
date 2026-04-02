@@ -107,15 +107,12 @@ pub fn queue_read_byte_timeout() -> Option<u8> {
     uart1_rx_queue().receive(Duration::ms(2000)).ok()
 }
 
-/// Read one byte from the UART1 RX queue, busy-waiting with a hardware µs
-/// timer timeout.  Uses non-blocking `receive(Duration::zero())` so it
-/// works even when the FreeRTOS tick is frozen (core 0 parked).
+/// Read one byte from the UART1 RX queue using non-blocking poll + hardware
+/// timer timeout.  Works even when the FreeRTOS tick is frozen (core 0 parked
+/// on RP2350 with configTICK_CORE=0).
+#[cfg(feature = "chip-rp2350")]
 pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
-    #[cfg(feature = "chip-rp2040")]
-    const TIMERAWL: usize = 0x4005_4000 + 0x28;
-    #[cfg(feature = "chip-rp2350")]
     const TIMERAWL: usize = 0x400B_0000 + 0x28;
-
     let timer = || unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) };
     let start = timer();
     loop {

@@ -127,11 +127,23 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                     continue;
                 }
 
-                // Natural app exit — spin-poll for a pdb install request.
+                // Natural app exit — wait for a pdb install request.
                 //
-                // On RP2350 (configTICK_CORE=0), FreeRTOS delays on core 0
-                // freeze once the pdb busy-wait starves the scheduler.
-                // Use a bare spin loop instead.
+                // On RP2040, cross-core notifications (SIO FIFO) work
+                // reliably so we sleep and let notify_jvm() wake us.
+                // On RP2350, the doorbell-based yield is unreliable so
+                // we spin-poll the flag instead.
+                #[cfg(not(feature = "chip-rp2350"))]
+                {
+                    CurrentTask::take_notification(true, Duration::infinite());
+                    if crate::pdb::pending::FLASH_PARK_REQUESTED
+                        .load(core::sync::atomic::Ordering::Acquire)
+                    {
+                        unsafe { crate::hal::flash::park_for_flash() };
+                        continue;
+                    }
+                }
+                #[cfg(feature = "chip-rp2350")]
                 loop {
                     if crate::pdb::pending::FLASH_PARK_REQUESTED
                         .load(core::sync::atomic::Ordering::Acquire)
@@ -139,7 +151,10 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                         unsafe { crate::hal::flash::park_for_flash() };
                         break;
                     }
-                    cortex_m::asm::nop();
+                    // WFE sleeps the core until an event (SEV from core 1,
+                    // any interrupt, or debug event).  Avoids burning CPU
+                    // and wasting power on battery-powered devices.
+                    cortex_m::asm::wfe();
                 }
             }
         })

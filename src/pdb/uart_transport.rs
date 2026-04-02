@@ -1,5 +1,8 @@
 use core::sync::atomic::Ordering;
 
+#[cfg(not(feature = "chip-rp2350"))]
+use freertos_rust::{CurrentTask, Duration};
+
 use super::pending;
 use super::protocol::{
     FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK, STATUS_READY, STATUS_TOO_LARGE,
@@ -7,16 +10,12 @@ use super::protocol::{
 use crate::packagemanager::install::CoreCoordinator;
 use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
 
-/// Read the hardware µs timer (TIMERAWL register).  This counter runs
-/// independently of interrupts and the FreeRTOS tick, so it works even when
-/// the scheduler is frozen (e.g. during `park_for_flash()`).
+/// Read the hardware µs timer (TIMERAWL register).  Runs independently of
+/// interrupts and the FreeRTOS tick.
+#[cfg(feature = "chip-rp2350")]
 #[inline(always)]
 fn timer_micros() -> u32 {
-    #[cfg(feature = "chip-rp2040")]
-    const TIMERAWL: usize = 0x4005_4000 + 0x28; // TIMER base + TIMERAWL offset
-    #[cfg(feature = "chip-rp2350")]
     const TIMERAWL: usize = 0x400B_0000 + 0x28; // TIMER0 base + TIMERAWL offset
-
     unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) }
 }
 
@@ -46,12 +45,13 @@ impl UartTransport {
 
 impl InstallTransport for UartTransport {
     fn read_byte(&mut self) -> Result<u8, ReadError> {
-        // Busy-wait with a hardware timer timeout.  The UART1 ISR is still
-        // active and feeds bytes into the FreeRTOS queue.  We poll the queue
-        // with zero timeout (non-blocking) so we don't depend on the
-        // FreeRTOS tick, which is frozen when core 0 is parked
-        // (configTICK_CORE=0 on RP2350).
-        crate::hal::pdb_uart::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout)
+        // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
+        // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
+        // timer so we don't depend on tick-based timeouts.
+        #[cfg(feature = "chip-rp2350")]
+        return crate::hal::pdb_uart::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
+        #[cfg(not(feature = "chip-rp2350"))]
+        crate::hal::pdb_uart::queue_read_byte_timeout().ok_or(ReadError::Timeout)
     }
 
     fn report_ready(&mut self) {
@@ -95,19 +95,31 @@ impl CoreCoordinator for PdbCoreCoordinator {
     }
 
     fn wait_for_park(&mut self) -> bool {
-        // Busy-wait using the hardware µs timer instead of CurrentTask::delay().
-        // On RP2350 the FreeRTOS tick runs on core 0 (configTICK_CORE=0), so
-        // after park_for_flash() disables core 0 interrupts, FreeRTOS delays
-        // on core 1 would never complete.  The µs timer is interrupt-independent.
-        const TIMEOUT_US: u32 = 15_000_000; // 15 seconds
-        let start = timer_micros();
-        loop {
-            if pending::CORE0_PARKED.load(Ordering::Acquire) {
-                return true;
+        // On RP2350 (configTICK_CORE=0), core 0 is about to park which
+        // freezes the tick.  Use a hardware timer busy-wait so core 1's
+        // poll loop doesn't depend on CurrentTask::delay.
+        #[cfg(feature = "chip-rp2350")]
+        {
+            const TIMEOUT_US: u32 = 15_000_000;
+            let start = timer_micros();
+            loop {
+                if pending::CORE0_PARKED.load(Ordering::Acquire) {
+                    return true;
+                }
+                if timer_micros().wrapping_sub(start) >= TIMEOUT_US {
+                    return false;
+                }
             }
-            if timer_micros().wrapping_sub(start) >= TIMEOUT_US {
-                return false;
+        }
+        #[cfg(not(feature = "chip-rp2350"))]
+        {
+            for _ in 0..1500 {
+                if pending::CORE0_PARKED.load(Ordering::Acquire) {
+                    return true;
+                }
+                CurrentTask::delay(Duration::ms(10));
             }
+            false
         }
     }
 
