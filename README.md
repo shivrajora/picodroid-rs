@@ -2,6 +2,14 @@
   <img src="assets/picodroid_rs_inverted.svg" alt="Picodroid" width="200"/>
 </p>
 
+<p align="center">
+
+[![CI](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml/badge.svg)](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Rust](https://img.shields.io/badge/rust-nightly%20%7C%20stable-orange)
+
+</p>
+
 # Picodroid
 
 A stripped-down, FreeRTOS-based version of Android for the Raspberry Pi Pico.
@@ -18,17 +26,38 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 | Java API | Android-compatible (`picodroid.util.Log`, etc.) |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
-### Execution flow
+### Architecture
 
-```
-FreeRTOS SMP scheduler (both cores)
-  ├── "pdb" task  (priority 2, core 1)  ← listens on UART1 for pdb install
-  └── "jvm" task  (priority 1, core 0)
-       └── JVM interpreter (jvm/ crate)
-            └── Java bytecode (.papk — baked into Flash or hot-swapped via pdb)
-                 ├── native dispatch → GPIO / UART / I2C / SPI / Log
-                 ├── Thread.start() → "jvm-t" child tasks (core 0, self-delete on exit)
-                 └── mark-sweep GC  (triggers every 256 allocations, stop-the-world)
+```mermaid
+graph TD
+    subgraph Hardware
+        HW["RP2040 (Cortex-M0+ @ 125 MHz) / RP2350 (Cortex-M33 @ 150 MHz)"]
+    end
+
+    subgraph FreeRTOS["FreeRTOS SMP — both cores"]
+        PDB["pdb task<br/><i>priority 2, core 1</i>"]
+        JVM_TASK["jvm task<br/><i>priority 1, core 0</i>"]
+    end
+
+    subgraph JVM["JVM Interpreter (jvm/ crate)"]
+        BC["Java bytecode<br/>.papk app"]
+        NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log"]
+        THREADS["Thread.start()<br/>child tasks (core 0)"]
+        GC["Mark-sweep GC<br/>every 256 allocs"]
+    end
+
+    subgraph Host["Host (development machine)"]
+        PDB_CLI["pdb CLI tool"]
+    end
+
+    HW --> FreeRTOS
+    JVM_TASK --> JVM
+    BC --> NATIVE
+    BC --> THREADS
+    BC --> GC
+
+    PDB_CLI -- "UART hot-swap" --> PDB
+    PDB -- "write .papk → Flash<br/>restart JVM" --> JVM_TASK
 ```
 
 Apps can be hot-swapped at runtime via `pdb install` without reflashing the firmware.
@@ -69,6 +98,8 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 - [Java API](docs/java-api.md) — `picodroid.*` system API reference
 - [Porting Guide](docs/porting-guide.md) — how to add support for a new MCU family
 - [Debugging](docs/debugging.md) — RTT logging, GDB, and the host simulator
+- [Troubleshooting](docs/troubleshooting.md) — common pitfalls and solutions
+- [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure
 

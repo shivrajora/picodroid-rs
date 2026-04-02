@@ -2,6 +2,37 @@
 
 Java system APIs live under `sdk/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
 
+## Quick Example
+
+A complete mini-app that opens a GPIO pin, blinks it, and logs the result:
+
+```java
+package myapp;
+
+import picodroid.util.Log;
+import picodroid.os.SystemClock;
+import picodroid.pio.PeripheralManager;
+import picodroid.pio.Gpio;
+
+public class MyApp {
+    public static void main(String[] args) {
+        PeripheralManager pm = PeripheralManager.getInstance();
+        try (Gpio led = pm.openGpio("GP25")) {
+            led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
+            for (int i = 0; i < 5; i++) {
+                led.setValue(true);
+                SystemClock.sleep(500);
+                led.setValue(false);
+                SystemClock.sleep(500);
+                Log.i("MyApp", "Blink " + String.valueOf(i + 1));
+            }
+        }
+    }
+}
+```
+
+---
+
 ## `java.lang.String`
 
 The JVM provides built-in support for `java.lang.String`. All methods work on ASCII strings; multi-byte UTF-8 sequences are passed through unchanged but byte-indexed (not character-indexed).
@@ -179,6 +210,21 @@ byte[] empty = new byte[0];
 int ack = i2c.write(0x48, empty, 0);
 ```
 
+### I2C bus scan example
+
+Probe every 7-bit address to discover connected devices:
+
+```java
+PeripheralManager pm = PeripheralManager.getInstance();
+try (I2cDevice i2c = pm.openI2cDevice("I2C0")) {
+    byte[] empty = new byte[0];
+    for (int addr = 0x08; addr < 0x78; addr++) {
+        if (i2c.write(addr, empty, 0) == 0) {
+            Log.i("I2C", "Found device at 0x" + String.valueOf(addr));
+        }
+    }
+}
+
 ## `picodroid.pio.SpiDevice`
 
 Default pins (CS not driven by peripheral — use `Gpio` if needed):
@@ -239,6 +285,31 @@ t.start();   // spawns a FreeRTOS task that calls MyRunnable.run()
 // Priority (optional, must be set before start())
 t.setPriority(Thread.MAX_PRIORITY);  // 1 (MIN) .. 5 (NORM, default) .. 10 (MAX)
 int p = t.getPriority();
+```
+
+### Complete Runnable example
+
+```java
+import picodroid.concurrent.Thread;
+import picodroid.util.Log;
+import picodroid.os.SystemClock;
+
+public class MyApp {
+    public static void main(String[] args) {
+        Thread worker = new Thread(new Runnable() {
+            public void run() {
+                for (int i = 0; i < 3; i++) {
+                    Log.i("Worker", "tick " + String.valueOf(i));
+                    SystemClock.sleep(1000);
+                }
+            }
+        });
+        worker.setPriority(Thread.MAX_PRIORITY);
+        worker.start();
+
+        Log.i("Main", "Worker started, main continues");
+    }
+}
 ```
 
 ### Priority
