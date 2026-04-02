@@ -78,7 +78,10 @@ extern uint32_t picodroid_get_runtime_counter(void);
  * code paths are excluded by configNUMBER_OF_CORES != 1 guards. */
 #define configSUPPORT_PICO_SYNC_INTEROP         1
 #ifdef __ARM_ARCH_8M_MAIN__
-/* RP2350: core 1 FIFO launch hangs in secure boot mode; use core 0 for tick. */
+/* RP2350: core 1 FIFO launch hangs in secure boot mode; use core 0 for tick.
+ * The pdb install coordinator uses a hardware-timer busy-wait instead of
+ * CurrentTask::delay() so that the tick freezing during park_for_flash()
+ * does not deadlock the poll loop. */
 #define configTICK_CORE                         0
 #else
 /* RP2040: core 1 drives the tick so park_for_flash() can disable core 0

@@ -62,8 +62,24 @@ fn setup_uart1_rx_interrupt() {
         .uartimsc()
         .modify(|_, w| w.rxim().set_bit().rtim().set_bit());
 
-    // Unmask UART1_IRQ in the NVIC
+    // Set UART1_IRQ priority and unmask in the NVIC.
+    //
+    // On RP2350 (Cortex-M33), FreeRTOS uses BASEPRI to mask interrupts
+    // during critical sections.  ISRs that call FreeRTOS API functions
+    // (like xQueueSendFromISR) MUST have a hardware priority value >=
+    // configMAX_SYSCALL_INTERRUPT_PRIORITY (0x10, i.e. level 1).
+    // The default priority 0 is above this threshold and will fire
+    // inside critical sections, deadlocking on the kernel spinlock.
+    //
+    // On RP2040 (Cortex-M0+), PRIMASK masks all interrupts so priority
+    // doesn't matter, but setting it is harmless.
     unsafe {
+        // Write the priority register directly: NVIC_IPRn.
+        // On RP2350 (4 priority bits), 0x10 = level 1, the lowest
+        // priority that FreeRTOS masks during critical sections.
+        let nvic_ipr = 0xE000_E400 as *mut u8;
+        let irqn = pac::Interrupt::UART1_IRQ as u8;
+        nvic_ipr.add(irqn as usize).write_volatile(0x10);
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::UART1_IRQ);
     }
 }
@@ -89,6 +105,27 @@ pub fn queue_read_byte() -> u8 {
 /// Read one byte with a 2-second timeout.  Returns `None` if no byte arrives.
 pub fn queue_read_byte_timeout() -> Option<u8> {
     uart1_rx_queue().receive(Duration::ms(2000)).ok()
+}
+
+/// Read one byte from the UART1 RX queue, busy-waiting with a hardware µs
+/// timer timeout.  Uses non-blocking `receive(Duration::zero())` so it
+/// works even when the FreeRTOS tick is frozen (core 0 parked).
+pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
+    #[cfg(feature = "chip-rp2040")]
+    const TIMERAWL: usize = 0x4005_4000 + 0x28;
+    #[cfg(feature = "chip-rp2350")]
+    const TIMERAWL: usize = 0x400B_0000 + 0x28;
+
+    let timer = || unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) };
+    let start = timer();
+    loop {
+        if let Ok(byte) = uart1_rx_queue().receive(Duration::zero()) {
+            return Some(byte);
+        }
+        if timer().wrapping_sub(start) >= timeout_us {
+            return None;
+        }
+    }
 }
 
 /// Read a u32 in little-endian byte order from the UART1 RX queue.

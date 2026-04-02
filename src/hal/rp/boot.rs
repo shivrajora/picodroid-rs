@@ -127,14 +127,19 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                     continue;
                 }
 
-                // Natural app exit — sleep until pdb installs a new app.
-                CurrentTask::take_notification(true, Duration::infinite());
-
-                if crate::pdb::pending::FLASH_PARK_REQUESTED
-                    .load(core::sync::atomic::Ordering::Acquire)
-                {
-                    unsafe { crate::hal::flash::park_for_flash() };
-                    continue;
+                // Natural app exit — spin-poll for a pdb install request.
+                //
+                // On RP2350 (configTICK_CORE=0), FreeRTOS delays on core 0
+                // freeze once the pdb busy-wait starves the scheduler.
+                // Use a bare spin loop instead.
+                loop {
+                    if crate::pdb::pending::FLASH_PARK_REQUESTED
+                        .load(core::sync::atomic::Ordering::Acquire)
+                    {
+                        unsafe { crate::hal::flash::park_for_flash() };
+                        break;
+                    }
+                    cortex_m::asm::nop();
                 }
             }
         })
