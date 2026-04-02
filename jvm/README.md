@@ -74,6 +74,23 @@ Your [`NativeMethodHandler`] is called for every Java `native` method and for an
 
 If neither handler claims the call, [`JvmError::NoSuchMethod`] is returned.
 
+### Garbage collection
+
+The interpreter includes a **stop-the-world mark-sweep collector**. It fires automatically every 256 heap allocations, scanning roots from all live frames (locals + operand stacks) and static fields, marking reachable objects/arrays/strings, then freeing the rest.
+
+Your handler receives a callback after each GC cycle via `report_gc`:
+
+```rust
+impl NativeMethodHandler for MyHandler {
+    fn report_gc(&mut self, elapsed_nanos: u64, freed: usize) {
+        // elapsed_nanos: wall-clock time spent in this GC cycle
+        // freed: number of heap entries reclaimed
+    }
+}
+```
+
+The default `report_gc` implementation is a no-op.
+
 ### Cooperative interruption
 
 Override `interrupted()` on your handler to signal a clean stop (e.g. for hot-swap app deployment). The interpreter checks it once per bytecode instruction and returns [`JvmError::Interrupted`] when `true`.

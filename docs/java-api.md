@@ -82,7 +82,21 @@ Log.i("TAG", "message");   // info log → defmt::info! over RTT
 ```java
 import picodroid.os.SystemClock;
 
-SystemClock.sleep(500);   // sleep for 500 ms
+SystemClock.sleep(500);               // sleep for 500 ms
+long t = SystemClock.elapsedRealtimeNanos();  // nanoseconds since boot (monotonic)
+```
+
+## `picodroid.os.Runtime`
+
+GC introspection. All methods are static.
+
+```java
+import picodroid.os.Runtime;
+
+long nanos  = Runtime.gcTimeNanos();  // total time spent in GC so far (ns)
+int  count  = Runtime.gcCount();      // number of GC cycles run
+int  freed  = Runtime.gcFreed();      // total heap entries freed across all cycles
+Runtime.resetGcStats();               // reset all three counters to zero
 ```
 
 ## `picodroid.pio.PeripheralManager`

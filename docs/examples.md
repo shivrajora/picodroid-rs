@@ -1,6 +1,6 @@
 # Examples
 
-Seventeen examples are included under `examples/`:
+Nineteen examples are included under `examples/`:
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -21,6 +21,8 @@ Seventeen examples are included under `examples/`:
 | `adcdemo` | `adcdemo.AdcDemo` | Opens the ADC on GP26 and takes 5 voltage readings, logging each value |
 | `pwmdemo` | `pwmdemo.PwmDemo` | Fades the onboard LED on GP25 using PWM at 1 kHz — duty cycle sweeps 0%→100%→0% three times |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) — opens an ADC pin in a `try` block and confirms `close()` is called on exit |
+| `benchmark` | `benchmark.Benchmark` | JVM performance benchmark: times int/long/float/double arithmetic, method dispatch, interface dispatch, object allocation, array ops, string ops, and control flow; logs per-category and total elapsed time |
+| `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
 
 To run an example:
 

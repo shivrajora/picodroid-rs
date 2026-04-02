@@ -11,6 +11,8 @@ The host simulator lets you run apps on your development machine without hardwar
 ```bash
 ./scripts/sim.sh --app helloworld
 ./scripts/sim.sh --app blinky          # loops forever — Ctrl-C to stop
+./scripts/sim.sh --app benchmark       # JVM performance benchmark (host-only)
+./scripts/sim.sh --app gcstress        # GC stress test (host-only)
 ```
 
 ## System Monitor (pdb sysmon)

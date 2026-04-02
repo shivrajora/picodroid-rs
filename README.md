@@ -27,7 +27,8 @@ FreeRTOS SMP scheduler (both cores)
        └── JVM interpreter (jvm/ crate)
             └── Java bytecode (.papk — baked into Flash or hot-swapped via pdb)
                  ├── native dispatch → GPIO / UART / I2C / SPI / Log
-                 └── Thread.start() → "jvm-t" child tasks (core 0, self-delete on exit)
+                 ├── Thread.start() → "jvm-t" child tasks (core 0, self-delete on exit)
+                 └── mark-sweep GC  (triggers every 256 allocations, stop-the-world)
 ```
 
 Apps can be hot-swapped at runtime via `pdb install` without reflashing the firmware.
@@ -83,9 +84,9 @@ picodroid-rs/
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
 │   ├── hal/            # Hardware Abstraction Layer (rp/ for Pico, sim/ for host simulator)
+│   │   └── rp/port/    # pico-sdk C shims (headers + FreeRTOS interop shims)
 │   ├── packagemanager/ # Flash storage and PAPK install logic
 │   ├── pdb/            # Picodroid Debug Bridge — UART listener + hot-swap logic
-│   ├── port/           # pico-sdk C shims (headers + FreeRTOS interop shims)
 │   └── system/         # Native implementations of Java API methods
 │
 ├── tools/

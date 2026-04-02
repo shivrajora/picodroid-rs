@@ -70,3 +70,18 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 | StringBuilder | `new StringBuilder("seed")`, `append(String/int/long/float/boolean/char)`, `length()`, `charAt(int)`, `toString()` |
 | ArrayList | `new ArrayList()`, `add`, `get`, `size`, `isEmpty`, `set`, `remove(int)`, `clear`, `contains` — dynamic list backed by heap |
 | Autoboxing | `Integer`, `Boolean`, `Long`, `Float`, `Double` — `valueOf` / `intValue` etc.; enables storing primitives in `ArrayList<Integer>` etc. |
+
+## Garbage Collection
+
+The JVM runs a **stop-the-world mark-sweep collector** automatically. After every 256 heap allocations it scans all roots (frame locals, operand stacks, static fields), marks every reachable object, array, and string, then frees everything unreachable. There is no action needed from app code — GC fires transparently between bytecode instructions.
+
+To introspect GC behavior from Java code, use `picodroid.os.Runtime`:
+
+```java
+import picodroid.os.Runtime;
+
+int  count = Runtime.gcCount();      // cycles run since boot (or last reset)
+int  freed = Runtime.gcFreed();      // entries freed across all cycles
+long ns    = Runtime.gcTimeNanos();  // cumulative time spent in GC
+Runtime.resetGcStats();              // zero all counters
+```
