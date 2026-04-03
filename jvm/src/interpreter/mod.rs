@@ -20,6 +20,7 @@ mod ops_fields;
 mod ops_invoke;
 mod ops_locals;
 mod ops_math;
+mod ops_monitor;
 mod ops_stack;
 
 #[cfg(test)]
@@ -200,6 +201,8 @@ pub fn execute<H: NativeMethodHandler>(
             0xbb => ex.op_new(code, frame),
             0xbc..=0xbe => ex.op_array_alloc(opcode, code, frame),
             0xbf => ex.op_athrow(frame),
+            0xc2 => ex.op_monitorenter(frame),
+            0xc3 => ex.op_monitorexit(frame),
             op => Err(JvmError::UnsupportedOpcode(op)),
         };
 

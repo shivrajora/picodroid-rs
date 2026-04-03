@@ -1,3 +1,5 @@
+#[cfg(not(feature = "sim"))]
+use pico_jvm::types::MonitorKey;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext, NativeMethodHandler,
@@ -241,5 +243,20 @@ impl NativeMethodHandler for PicodroidNativeHandler {
     #[cfg(not(any(test, feature = "sim")))]
     fn interrupted(&self) -> bool {
         crate::pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[cfg(not(feature = "sim"))]
+    fn monitor_enter(&mut self, key: MonitorKey) -> Result<(), JvmError> {
+        crate::system::monitor_store::enter(key)
+    }
+
+    #[cfg(not(feature = "sim"))]
+    fn monitor_exit(&mut self, key: MonitorKey) -> Result<(), JvmError> {
+        crate::system::monitor_store::exit(key)
+    }
+
+    #[cfg(not(feature = "sim"))]
+    fn monitors_clear(&mut self) {
+        crate::system::monitor_store::clear();
     }
 }

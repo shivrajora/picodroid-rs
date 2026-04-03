@@ -1,3 +1,11 @@
+/// Identifies which heap entity a Java monitor is associated with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MonitorKey {
+    Object(u16),
+    Array(u16),
+    String(u16),
+}
+
 /// A value on the JVM operand stack or in a local variable slot.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
@@ -49,6 +57,8 @@ pub enum JvmError {
     /// A Java exception was thrown; the `u16` is the [`crate::object_heap::ObjectHeap`]
     /// index of the exception object.
     Exception(u16),
+    /// A `monitorexit` was executed by a thread that does not own the monitor.
+    IllegalMonitorState,
     /// The interpreter was asked to stop cooperatively (e.g. by `pdb install`).
     /// Not a real error — signals a clean exit for app hot-swap.
     Interrupted,

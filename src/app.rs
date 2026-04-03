@@ -166,6 +166,8 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     // Clear previous app's heap state before running a new app.
     shared_heap().reset();
+    #[cfg(not(feature = "sim"))]
+    crate::system::monitor_store::clear();
 
     let mut jvm = Box::new(Jvm::new());
     let heap = shared_heap();

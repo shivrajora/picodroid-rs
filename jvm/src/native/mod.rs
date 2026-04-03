@@ -2,7 +2,7 @@ use crate::{
     array_heap::ArrayHeap,
     heap::StringTable,
     object_heap::ObjectHeap,
-    types::{JvmError, Value},
+    types::{JvmError, MonitorKey, Value},
 };
 
 mod boxed;
@@ -114,6 +114,36 @@ pub trait NativeMethodHandler {
     /// [`clock_nanos`](NativeMethodHandler::clock_nanos)) and `freed` is the
     /// number of heap entries reclaimed.  The default is a no-op.
     fn report_gc(&mut self, _time_ns: u64, _freed: usize) {}
+
+    /// Acquire the monitor associated with `key` (Java `monitorenter`).
+    ///
+    /// If the current thread already owns the monitor, the implementation must
+    /// support reentrant locking (increment an internal count).  If another
+    /// thread holds the monitor, the implementation should block until it is
+    /// released.
+    ///
+    /// The default is a no-op, which is correct for single-threaded
+    /// environments (simulator, unit tests).
+    fn monitor_enter(&mut self, _key: MonitorKey) -> Result<(), JvmError> {
+        Ok(())
+    }
+
+    /// Release the monitor associated with `key` (Java `monitorexit`).
+    ///
+    /// Decrements the reentrant lock count; when it reaches zero the monitor
+    /// is fully released and other threads may acquire it.
+    ///
+    /// The default is a no-op, which is correct for single-threaded
+    /// environments (simulator, unit tests).
+    fn monitor_exit(&mut self, _key: MonitorKey) -> Result<(), JvmError> {
+        Ok(())
+    }
+
+    /// Drop all monitor state.
+    ///
+    /// Called when the JVM heap is reset (e.g. before running a new app).
+    /// Implementations should release any OS-level mutex resources.
+    fn monitors_clear(&mut self) {}
 }
 
 /// Built-in handler for `java/lang/*` methods common to all JVM environments.
