@@ -28,8 +28,12 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: 128 KB (RP2040 has 256 KB, RP2350 has 520 KB — conservative default) */
+/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 256 KB (of 520 KB RAM) */
+#ifdef __ARM_ARCH_8M_MAIN__
+#define configTOTAL_HEAP_SIZE                   ( 256 * 1024 )
+#else
 #define configTOTAL_HEAP_SIZE                   ( 128 * 1024 )
+#endif
 
 /* Scheduler behaviour */
 #define configUSE_PREEMPTION                    1

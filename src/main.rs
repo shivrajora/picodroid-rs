@@ -83,4 +83,6 @@ fn vApplicationMallocFailedHook() {
 #[no_mangle]
 fn vApplicationStackOverflowHook(_pxTask: FreeRtosTaskHandle, _pcTaskName: FreeRtosCharPtr) {
     asm::bkpt();
+    #[allow(clippy::empty_loop)]
+    loop {}
 }

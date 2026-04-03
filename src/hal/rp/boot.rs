@@ -90,9 +90,17 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // JVM task: runs the app in a loop, rebooting when a new install arrives.
     // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
     // single-core safety assumption of SharedJvmState remains valid.
+    // RP2350 (Cortex-M33, FPU) needs a larger stack than RP2040 (Cortex-M0+)
+    // because each interrupt pushes an extended exception frame (~100 bytes)
+    // when the FPU has been used (configENABLE_FPU=1).
+    #[cfg(feature = "chip-rp2350")]
+    let jvm_stack: u16 = 8192;
+    #[cfg(not(feature = "chip-rp2350"))]
+    let jvm_stack: u16 = 4096;
+
     Task::new()
         .name("jvm")
-        .stack_size(4096)
+        .stack_size(jvm_stack)
         .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
         .core_affinity(0b01) // core 0 only
         .start(move |_| {
