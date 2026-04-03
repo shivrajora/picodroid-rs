@@ -195,6 +195,7 @@ pub unsafe fn park_for_flash() {
     core::arch::asm!(
         "dmb sy",
         "strb {val}, [{ptr}]",
+        "sev",
         val = in(reg) 1u32,
         ptr = in(reg) parked_addr,
         options(nostack, preserves_flags)

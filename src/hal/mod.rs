@@ -39,3 +39,6 @@ pub use chip::boot;
 pub use chip::flash;
 #[allow(unused_imports)]
 pub use chip::pdb_uart;
+
+#[cfg(feature = "chip-rp2350")]
+pub use chip::timer_alarm;

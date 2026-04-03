@@ -81,7 +81,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
     Task::new()
         .name("pdb")
-        .stack_size(1024)
+        .stack_size(2048)
         .priority(TaskPriority(task_priority::PRIORITY_RT_1))
         .core_affinity(0b10) // core 1 only
         .start(move |_| crate::pdb::run_pdb_task())

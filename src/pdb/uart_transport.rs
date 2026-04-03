@@ -10,15 +10,6 @@ use super::protocol::{
 use crate::packagemanager::install::CoreCoordinator;
 use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
 
-/// Read the hardware µs timer (TIMERAWL register).  Runs independently of
-/// interrupts and the FreeRTOS tick.
-#[cfg(feature = "chip-rp2350")]
-#[inline(always)]
-fn timer_micros() -> u32 {
-    const TIMERAWL: usize = 0x400B_0000 + 0x28;
-    unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) }
-}
-
 /// PDBP-over-UART1 transport for PAPK install.
 ///
 /// Reads bytes from the UART1 RX queue (fed by the ISR in `hal::pdb_uart`) and sends
@@ -96,24 +87,44 @@ impl CoreCoordinator for PdbCoreCoordinator {
 
     fn wait_for_park(&mut self) -> bool {
         // On RP2350 (configTICK_CORE=0), core 0 is about to park which
-        // freezes the tick.  Use a hardware timer busy-wait so core 1's
-        // poll loop doesn't depend on CurrentTask::delay.
+        // will freeze the FreeRTOS tick.  We cannot use CurrentTask::delay
+        // because the tick may freeze mid-delay, hanging core 1.
+        //
+        // A bare tight loop also does not work: it starves the FreeRTOS
+        // SMP scheduler on core 0 so vTaskDelay never completes and the
+        // JVM cannot see STOP_JVM.  The workaround is a hardware-timer
+        // poll with a 1 ms gap between checks (using NOP, not timer reads)
+        // to give the bus/scheduler breathing room.
+        // On RP2350 (configTICK_CORE=0), the tick freezes when core 0
+        // parks.  A FreeRTOS-managed blocking wait on core 1 lets core 0
+        // run (so the JVM can exit), but once core 0 parks the tick-based
+        // timeout never fires.
+        //
+        // Fix: arm a TIMER0 alarm on core 1 that fires every 1 ms
+        // independently of the FreeRTOS tick.  The ISR checks CORE0_PARKED
+        // and sends to the park-signal queue from ISR context, waking the
+        // PDB task even after the tick freezes.
         #[cfg(feature = "chip-rp2350")]
         {
-            const TIMEOUT_US: u32 = 15_000_000;
-            let start = timer_micros();
-            loop {
+            // Arm the timer alarm
+            crate::hal::timer_alarm::arm_park_alarm();
+
+            // Block in FreeRTOS — lets core 0's scheduler run.
+            // The timer alarm ISR will wake us via the park-signal queue
+            // once CORE0_PARKED is set.
+            for _ in 0..30u32 {
                 if pending::CORE0_PARKED.load(Ordering::Acquire) {
+                    crate::hal::timer_alarm::disarm_park_alarm();
                     return true;
                 }
-                if timer_micros().wrapping_sub(start) >= TIMEOUT_US {
-                    return false;
-                }
+                pending::wait_park_signal(500);
             }
+            crate::hal::timer_alarm::disarm_park_alarm();
+            false
         }
         #[cfg(not(feature = "chip-rp2350"))]
         {
-            for _ in 0..1500 {
+            for _ in 0..1500u32 {
                 if pending::CORE0_PARKED.load(Ordering::Acquire) {
                     return true;
                 }

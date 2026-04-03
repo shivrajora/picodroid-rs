@@ -52,6 +52,46 @@ pub(super) fn notify_jvm() {
     cortex_m::asm::sev();
 }
 
+// ── Cross-core park signaling queue (RP2350) ─────────────────────────────────
+//
+// FreeRTOS SMP cross-core xTaskNotify is unreliable on the RP2350 community
+// port — notifications sent from core 0 to core 1 are silently lost.
+// A FreeRTOS queue works correctly because the send operation triggers a
+// doorbell + PendSV via a different code path.
+
+#[cfg(feature = "chip-rp2350")]
+struct QueueCell(core::cell::UnsafeCell<Option<freertos_rust::Queue<u8>>>);
+#[cfg(feature = "chip-rp2350")]
+unsafe impl Sync for QueueCell {}
+#[cfg(feature = "chip-rp2350")]
+static PARK_SIGNAL_QUEUE: QueueCell = QueueCell(core::cell::UnsafeCell::new(None));
+
+/// Initialize the park-signal queue. Called once from pdb_task at startup.
+#[cfg(feature = "chip-rp2350")]
+pub fn init_park_signal() {
+    let q = freertos_rust::Queue::new(1).expect("park signal queue alloc failed");
+    unsafe { *PARK_SIGNAL_QUEUE.0.get() = Some(q) };
+}
+
+/// Block until park signal arrives or timeout.  Returns true if signalled.
+#[cfg(feature = "chip-rp2350")]
+pub(super) fn wait_park_signal(timeout_ms: u32) -> bool {
+    if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
+        q.receive(freertos_rust::Duration::ms(timeout_ms)).is_ok()
+    } else {
+        false
+    }
+}
+
+/// Send park signal from an ISR context (timer alarm handler).
+#[cfg(feature = "chip-rp2350")]
+pub fn signal_park_from_isr() {
+    if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
+        let mut ctx = freertos_rust::InterruptContext::new();
+        let _ = q.send_from_isr(&mut ctx, 1u8);
+    }
+}
+
 /// Register a child task. Called from the spawning side right after Task::start() returns.
 pub fn register_child_task(task: freertos_rust::Task) {
     let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);

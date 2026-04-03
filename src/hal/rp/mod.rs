@@ -13,4 +13,6 @@ pub mod pdb_uart;
 pub mod pwm;
 pub mod spi;
 pub mod system_clock;
+#[cfg(feature = "chip-rp2350")]
+pub mod timer_alarm;
 pub mod uart;
