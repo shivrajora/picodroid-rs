@@ -65,16 +65,18 @@ fn write_command_data(cmd: u8, data: &[u8]) {
 
 /// Initialize the ST7789 display.
 pub fn init() {
-    // Configure control pins as GPIO outputs
-    // direction=2 means OUT_INITIALLY_LOW
+    // Initialize SPI1 first — spi::init() configures GP8 as SPI MISO,
+    // but we need GP8 as GPIO for DC. So we init SPI, then override GP8.
+    spi::init(SPI_ID);
+    spi::reconfigure(SPI_ID, SPI_FREQ_HZ, 0); // MODE_0
+
+    // Configure control pins as GPIO outputs AFTER spi::init(),
+    // because spi::init(1) claims GP8 for SPI MISO and we need it as DC.
+    // direction=2 means OUT_INITIALLY_LOW, direction=1 means OUT_INITIALLY_HIGH
     gpio::set_direction(PIN_DC, 2);
     gpio::set_direction(PIN_CS, 1); // CS starts high (deselected)
     gpio::set_direction(PIN_RST, 2);
     gpio::set_direction(PIN_BL, 2); // backlight off initially
-
-    // Initialize SPI1 (SCK=GP10, MOSI=GP11 already configured by spi::init)
-    spi::init(SPI_ID);
-    spi::reconfigure(SPI_ID, SPI_FREQ_HZ, 0); // MODE_0
 
     // Hardware reset
     gpio::set_value(PIN_RST, false);
@@ -93,8 +95,8 @@ pub fn init() {
     write_command_data(CMD_COLMOD, &[0x55]);
 
     // Memory data access control: landscape orientation
-    // MY=0, MX=1, MV=1 → 320x240 landscape; BGR order
-    write_command_data(CMD_MADCTL, &[0x60 | 0x08]);
+    // MY=0, MX=1, MV=1 → 320x240 landscape; RGB order
+    write_command_data(CMD_MADCTL, &[0x60]);
 
     // Inversion on (ST7789 requires this for correct colors)
     write_command(CMD_INVON);

@@ -37,13 +37,27 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 fn main() -> ! {
     hal::boot::clock_init();
 
-    // The APK lives exclusively in the persistent PAPK flash region.
-    // probe-rs writes it there on every firmware flash (via the .papk_flash_init
-    // ELF section); pdb install updates it over UART.
-    let boot_apk: &'static [u8] =
-        unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+    // Display test: skip JVM, run LVGL test UI directly on a FreeRTOS task.
+    #[cfg(feature = "display-test")]
+    {
+        Task::new()
+            .name("disp")
+            .stack_size(8192)
+            .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
+            .start(move |_| display_test::run())
+            .unwrap();
 
-    hal::boot::start_tasks(boot_apk)
+        FreeRtosUtils::start_scheduler()
+    }
+
+    // Normal path: boot the JVM with the installed APK.
+    #[cfg(not(feature = "display-test"))]
+    {
+        let boot_apk: &'static [u8] =
+            unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+
+        hal::boot::start_tasks(boot_apk)
+    }
 }
 
 #[cfg(all(feature = "sim", not(feature = "display-test")))]

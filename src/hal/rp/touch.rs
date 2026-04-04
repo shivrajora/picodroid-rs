@@ -48,7 +48,8 @@ pub fn init() {
         .gpio_ctrl()
         .write(|w| unsafe { w.funcsel().bits(5) });
 
-    // Configure pad: input enable, no pull (XPT2046 drives IRQ)
+    // Configure pad: input enable, pull-up enabled.
+    // XPT2046 PENIRQ is open-drain (active low) — needs a pull-up.
     p.PADS_BANK0.gpio(PIN_TOUCH_IRQ as usize).write(|w| {
         #[cfg(feature = "chip-rp2350")]
         let w = w.iso().clear_bit();
@@ -57,7 +58,7 @@ pub fn init() {
             .od()
             .clear_bit()
             .pue()
-            .clear_bit()
+            .set_bit()
             .pde()
             .clear_bit()
     });
@@ -78,47 +79,60 @@ pub fn init() {
         let w = w.iso().clear_bit();
         w.ie().set_bit().od().clear_bit()
     });
-}
 
-/// Returns true if the touch panel is currently pressed (IRQ pin low).
-pub fn is_pressed() -> bool {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
-    // Read GPIO input level
-    (p.SIO.gpio_in().read().bits() & (1u32 << PIN_TOUCH_IRQ)) == 0
-}
-
-/// Read raw 12-bit X and Y ADC values from the XPT2046.
-/// Returns None if touch is not active.
-fn read_raw() -> Option<(u16, u16)> {
-    if !is_pressed() {
-        return None;
-    }
-
-    // Switch SPI1 to slower clock for touch controller
+    // Send an initial command to enable PENIRQ output.
+    // After power-on the XPT2046 may not assert IRQ until it receives
+    // a command with PD1=0, PD0=0 (power-down with PENIRQ enabled).
     spi::reconfigure(SPI_ID, TOUCH_SPI_FREQ_HZ, 0);
+    gpio::set_value(PIN_TOUCH_CS, false);
+    let tx = [CMD_READ_Y, 0x00, 0x00];
+    let mut rx = [0u8; 3];
+    spi::transfer_raw(SPI_ID, &tx, &mut rx);
+    gpio::set_value(PIN_TOUCH_CS, true);
+    spi::reconfigure(SPI_ID, DISPLAY_SPI_FREQ_HZ, 0);
+}
 
+/// Number of samples to take per read. The highest and lowest are
+/// discarded and the rest averaged, which eliminates transient spikes
+/// during finger lift/place.
+const NUM_SAMPLES: usize = 5;
+
+/// Read one raw 12-bit sample for a given command byte.
+fn read_one(cmd: u8) -> u16 {
+    let tx = [cmd, 0x00, 0x00];
+    let mut rx = [0u8; 3];
+    spi::transfer_raw(SPI_ID, &tx, &mut rx);
+    ((rx[1] as u16) << 4) | ((rx[2] as u16) >> 4)
+}
+
+/// Read raw 12-bit X and Y values from the XPT2046 with multi-sample
+/// averaging and outlier rejection. Returns None if no valid touch.
+fn read_raw() -> Option<(u16, u16)> {
+    spi::reconfigure(SPI_ID, TOUCH_SPI_FREQ_HZ, 0);
     gpio::set_value(PIN_TOUCH_CS, false);
 
-    // Read X: send command byte, then read 2 bytes
-    let tx_x = [CMD_READ_X, 0x00, 0x00];
-    let mut rx_x = [0u8; 3];
-    spi::transfer_raw(SPI_ID, &tx_x, &mut rx_x);
-    let raw_x = ((rx_x[1] as u16) << 4) | ((rx_x[2] as u16) >> 4);
-
-    // Read Y: send command byte, then read 2 bytes
-    let tx_y = [CMD_READ_Y, 0x00, 0x00];
-    let mut rx_y = [0u8; 3];
-    spi::transfer_raw(SPI_ID, &tx_y, &mut rx_y);
-    let raw_y = ((rx_y[1] as u16) << 4) | ((rx_y[2] as u16) >> 4);
+    let mut xs = [0u16; NUM_SAMPLES];
+    let mut ys = [0u16; NUM_SAMPLES];
+    for i in 0..NUM_SAMPLES {
+        xs[i] = read_one(CMD_READ_X);
+        ys[i] = read_one(CMD_READ_Y);
+    }
 
     gpio::set_value(PIN_TOUCH_CS, true);
-
-    // Restore display SPI frequency
     spi::reconfigure(SPI_ID, DISPLAY_SPI_FREQ_HZ, 0);
+
+    // Sort and discard the lowest and highest sample (outlier rejection)
+    xs.sort_unstable();
+    ys.sort_unstable();
+    let mid = &xs[1..NUM_SAMPLES - 1];
+    let raw_x = (mid.iter().map(|&v| v as u32).sum::<u32>() / mid.len() as u32) as u16;
+    let mid = &ys[1..NUM_SAMPLES - 1];
+    let raw_y = (mid.iter().map(|&v| v as u32).sum::<u32>() / mid.len() as u32) as u16;
+
+    // Reject if either axis is railed (no touch or noisy transition)
+    if !(100..=4000).contains(&raw_x) || !(100..=4000).contains(&raw_y) {
+        return None;
+    }
 
     Some((raw_x, raw_y))
 }

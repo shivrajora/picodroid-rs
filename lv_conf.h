@@ -10,6 +10,7 @@
    COLOR SETTINGS
  *====================*/
 #define LV_COLOR_DEPTH 16  /* RGB565 */
+#define LV_COLOR_16_SWAP 1 /* Byte-swap for big-endian SPI displays (ST7789) */
 
 /*=========================
    STDLIB WRAPPER SETTINGS
