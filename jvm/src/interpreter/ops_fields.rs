@@ -20,6 +20,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cf = &self.classes[frame.class_idx];
                 let (class_name, field_name, _desc) =
                     cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                if self.ensure_class_initialized(class_name)? {
+                    frame.pc = frame.inst_pc;
+                    return Ok(());
+                }
                 let value = self.statics.get(class_name, field_name);
                 frame.push(value)?;
             }
@@ -28,10 +32,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0xb3 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                let value = frame.pop()?;
                 let cf = &self.classes[frame.class_idx];
                 let (class_name, field_name, _desc) =
                     cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                if self.ensure_class_initialized(class_name)? {
+                    frame.pc = frame.inst_pc;
+                    return Ok(());
+                }
+                let value = frame.pop()?;
                 self.statics
                     .set(class_name, field_name, value)
                     .ok_or(JvmError::StackOverflow)?;

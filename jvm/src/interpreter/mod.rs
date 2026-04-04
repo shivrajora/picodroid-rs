@@ -45,8 +45,56 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// Set by `op_invoke` when a Java method should be called; the main loop
     /// pushes this frame onto the frame stack on the next iteration.
     pub pending_frame: Option<Frame>,
+    /// `<clinit>` frames queued by `ensure_class_initialized`.  Popped onto
+    /// the frame stack so the interpreter runs them before resuming the
+    /// triggering instruction.
+    pub pending_clinit_frames: Vec<Frame>,
     /// Allocation counter for GC triggering.
     pub alloc_count: u16,
+}
+
+impl<'a, H: NativeMethodHandler> Executor<'a, H> {
+    /// If `class_name` (or any superclass in the loaded class set) has not been
+    /// initialized, queue their `<clinit>` frames and return `true`.  The caller
+    /// must rewind `frame.pc` to `frame.inst_pc` and return `Ok(())` so the main
+    /// loop executes the clinit frames first.
+    ///
+    /// Returns `false` when the class is already initialized (caller proceeds
+    /// normally).
+    pub(crate) fn ensure_class_initialized(
+        &mut self,
+        class_name: &'static [u8],
+    ) -> Result<bool, JvmError> {
+        if self.statics.is_initialized(class_name) {
+            return Ok(false);
+        }
+
+        // Build superclass chain, root-first: [Object, ..., Parent, class_name]
+        let chain = helpers::superclass_chain(self.classes, class_name);
+
+        let mut clinit_frames: Vec<Frame> = Vec::new();
+        for &cn in &chain {
+            if self.statics.is_initialized(cn) {
+                continue;
+            }
+            // Mark immediately to prevent re-entrant clinit.
+            self.statics.mark_initialized(cn);
+            if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
+                if self.classes[ci].methods[mi].code_offset != 0 {
+                    clinit_frames.push(Frame::new(ci, mi, &[])?);
+                }
+            }
+        }
+
+        if clinit_frames.is_empty() {
+            return Ok(false);
+        }
+
+        // Reverse so root clinit is on top (LIFO — top executes first).
+        clinit_frames.reverse();
+        self.pending_clinit_frames = clinit_frames;
+        Ok(true)
+    }
 }
 
 /// Search `method`'s exception table for a handler covering `inst_pc` that
@@ -136,6 +184,7 @@ pub fn execute<H: NativeMethodHandler>(
         field_cache: Vec::new(),
         method_cache: Vec::new(),
         pending_frame: None,
+        pending_clinit_frames: Vec::new(),
         alloc_count: 0,
     };
 
@@ -218,6 +267,16 @@ pub fn execute<H: NativeMethodHandler>(
             }
             // If the opcode errored, drop the pending frame and fall through
             // to exception handling below.
+        }
+
+        // If a trigger opcode detected an uninitialized class, push its
+        // <clinit> frames.  The trigger already rewound its PC so the
+        // instruction will re-execute once all clinits complete.
+        if !ex.pending_clinit_frames.is_empty() && r.is_ok() {
+            while let Some(cf) = ex.pending_clinit_frames.pop() {
+                frames.push(cf);
+            }
+            continue;
         }
 
         // Trigger GC when allocation counter crosses the threshold.

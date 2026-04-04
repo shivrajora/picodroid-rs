@@ -27,6 +27,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let name_str = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
         let desc_str = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
 
+        // invokestatic triggers class initialization.
+        if opcode == 0xb8 && self.ensure_class_initialized(class_bytes)? {
+            frame.pc = frame.inst_pc;
+            return Ok(());
+        }
+
         let arg_count = match opcode {
             // invokevirtual / invokespecial / invokeinterface: +1 for `this`
             0xb6 | 0xb7 | 0xb9 => 1 + helpers::count_args(desc_str),
@@ -136,10 +142,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
         frame.pc += 2;
         let cf = &self.classes[frame.class_idx];
-        let class_name = cf
-            .cp_class_name(cp_idx)
-            .and_then(|b| core::str::from_utf8(b).ok())
-            .ok_or(JvmError::InvalidBytecode)?;
+        let class_name_bytes = cf.cp_class_name(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+        if self.ensure_class_initialized(class_name_bytes)? {
+            frame.pc = frame.inst_pc;
+            return Ok(());
+        }
+        let class_name =
+            core::str::from_utf8(class_name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
         // Refuse to instantiate abstract classes or interfaces
         if let Some(target_cf) = self
             .classes

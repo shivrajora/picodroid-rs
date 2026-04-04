@@ -86,6 +86,7 @@ fn alloc_object(objects: &mut ObjectHeap, name: &'static str) -> Value {
 }
 
 mod arrays;
+mod clinit;
 mod constants;
 mod control;
 mod convert;

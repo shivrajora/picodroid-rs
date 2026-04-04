@@ -206,6 +206,50 @@ pub(super) fn is_instance_of(
     }
 }
 
+/// Find the `<clinit>` method in the given class (by raw class name bytes).
+pub(super) fn find_clinit(classes: &[ClassFile], class_name: &[u8]) -> Option<(usize, usize)> {
+    for (ci, cf) in classes.iter().enumerate() {
+        if cf.class_name() != Some(class_name) {
+            continue;
+        }
+        for (mi, m) in cf.methods.iter().enumerate() {
+            if let Some(mn) = cf.cp_utf8(m.name_index) {
+                if mn == b"<clinit>" {
+                    return Some((ci, mi));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Build the superclass chain for `class_name`, root-first.
+/// Only includes classes present in the loaded `classes` set.
+pub(super) fn superclass_chain(classes: &[ClassFile], class_name: &[u8]) -> Vec<&'static [u8]> {
+    let mut chain: Vec<&'static [u8]> = Vec::new();
+    // Find the Flash-backed &'static [u8] for the initial class name.
+    let mut current: Option<&'static [u8]> = classes
+        .iter()
+        .find(|cf| cf.class_name() == Some(class_name))
+        .and_then(|cf| cf.class_name());
+    while let Some(name) = current {
+        chain.push(name);
+        let super_name = classes
+            .iter()
+            .find(|cf| cf.class_name() == Some(name))
+            .and_then(|cf| cf.super_class_name());
+        // Only follow superclasses that are in our loaded class set.
+        current = super_name.and_then(|sn| {
+            classes
+                .iter()
+                .find(|cf| cf.class_name() == Some(sn))
+                .and_then(|cf| cf.class_name())
+        });
+    }
+    chain.reverse(); // root-first
+    chain
+}
+
 /// Virtual dispatch: find a method starting from `runtime_class`, walking up the hierarchy.
 pub(super) fn find_method_virtual(
     classes: &[ClassFile],
