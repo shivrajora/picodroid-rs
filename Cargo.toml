@@ -17,6 +17,8 @@ chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
 family-rp = []
 # Simulator mode (no hardware)
 sim = []
+# Native display test (runs LVGL test UI instead of JVM)
+display-test = []
 
 [dependencies]
 pico-jvm = { path = "jvm", version = "0.1" }

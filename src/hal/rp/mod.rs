@@ -6,6 +6,7 @@
 
 pub mod adc;
 pub mod boot;
+pub mod display;
 pub mod flash;
 pub mod gpio;
 pub mod i2c;
@@ -15,4 +16,5 @@ pub mod spi;
 pub mod system_clock;
 #[cfg(feature = "chip-rp2350")]
 pub mod timer_alarm;
+pub mod touch;
 pub mod uart;

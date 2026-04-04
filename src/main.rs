@@ -4,8 +4,12 @@
 extern crate alloc;
 
 mod app;
+#[cfg(feature = "display-test")]
+mod display_test;
 #[allow(dead_code)]
 mod hal;
+#[cfg(feature = "display-test")]
+mod lvgl_ffi;
 #[cfg(not(any(test, feature = "sim")))]
 mod packagemanager;
 #[cfg(not(any(test, feature = "sim")))]
@@ -42,9 +46,14 @@ fn main() -> ! {
     hal::boot::start_tasks(boot_apk)
 }
 
-#[cfg(feature = "sim")]
+#[cfg(all(feature = "sim", not(feature = "display-test")))]
 fn main() {
     app::run_jvm();
+}
+
+#[cfg(all(feature = "sim", feature = "display-test"))]
+fn main() {
+    display_test::run();
 }
 
 #[cfg(not(any(test, feature = "sim")))]

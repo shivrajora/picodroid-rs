@@ -6,6 +6,8 @@ target/
 
 # Downloaded tooling (google-java-format JAR, etc.)
 vendor/
+# LVGL is a git submodule — must not be ignored
+!vendor/lvgl/
 
 # Build artifacts (compiled classes, packaged APKs)
 build/

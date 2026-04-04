@@ -138,9 +138,68 @@ fn main() {
         println!("cargo:rustc-link-arg=-T{}", init_array_ld.display());
     }
 
+    build_lvgl(out);
+
     embed_framework_classes(out);
     embed_apk(out, is_arm_embedded);
     embed_papk_flash_init(out, is_arm_embedded);
+}
+
+/// Compile LVGL C sources into a static library.
+fn build_lvgl(_out: &Path) {
+    let lvgl_src = Path::new("vendor/lvgl/src");
+    if !lvgl_src.exists() {
+        // LVGL submodule not checked out — skip (e.g. for CI builds without submodules)
+        return;
+    }
+
+    let c_files = collect_files(lvgl_src, "c");
+    if c_files.is_empty() {
+        return;
+    }
+
+    // Filter out stdlib backends we don't use (clib, micropython, rtthread)
+    // and GPU backends we disabled, and driver files (we use our own HAL)
+    let c_files: Vec<_> = c_files
+        .into_iter()
+        .filter(|p| {
+            let s = p.to_string_lossy();
+            !s.contains("stdlib/clib")
+                && !s.contains("stdlib/micropython")
+                && !s.contains("stdlib/rtthread")
+                && !s.contains("draw/vg_lite")
+                && !s.contains("draw/nxp")
+                && !s.contains("draw/sdl")
+                && !s.contains("draw/renesas")
+                && !s.contains("draw/opengles")
+                && !s.contains("libs/thorvg")
+                && !s.contains("others/vg_lite_tvg")
+                && !s.contains("/drivers/")
+        })
+        .collect();
+
+    let mut build = cc::Build::new();
+    build
+        // Include paths: project root (for lv_conf.h) and LVGL root (for lvgl.h)
+        .include(".")
+        .include("vendor/lvgl")
+        .include("vendor/lvgl/src")
+        // Required defines
+        .define("LV_CONF_INCLUDE_SIMPLE", None)
+        .define("LV_LVGL_H_INCLUDE_SIMPLE", None)
+        // Suppress warnings from third-party code
+        .warnings(false)
+        .extra_warnings(false);
+
+    for f in &c_files {
+        build.file(f);
+    }
+
+    build.compile("lvgl");
+
+    // Rerun if any LVGL source or our config changes
+    println!("cargo:rerun-if-changed=lv_conf.h");
+    println!("cargo:rerun-if-changed=vendor/lvgl/src");
 }
 
 /// Compiles picodroid framework Java sources and embeds each `.class` file directly

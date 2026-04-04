@@ -137,6 +137,62 @@ pub fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut A
     len as i32
 }
 
+/// Write raw bytes from a Rust slice (not from ArrayHeap).
+/// Used internally by the display driver to stream pixel data.
+pub fn write_raw(spi_id: u8, data: &[u8]) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+    let p = unsafe { pac::Peripherals::steal() };
+
+    macro_rules! do_write_raw {
+        ($spi:expr) => {{
+            for &byte in data {
+                while $spi.sspsr().read().tnf().bit_is_clear() {}
+                $spi.sspdr()
+                    .write(|w| unsafe { w.data().bits(byte as u16) });
+                while $spi.sspsr().read().rne().bit_is_clear() {}
+                let _ = $spi.sspdr().read(); // drain RX FIFO
+            }
+            while $spi.sspsr().read().bsy().bit_is_set() {}
+        }};
+    }
+
+    match spi_id {
+        0 => do_write_raw!(&p.SPI0),
+        _ => do_write_raw!(&p.SPI1),
+    }
+}
+
+/// Full-duplex transfer with raw Rust slices.
+/// tx and rx must have the same length.
+pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+    let p = unsafe { pac::Peripherals::steal() };
+
+    macro_rules! do_transfer_raw {
+        ($spi:expr) => {{
+            for i in 0..tx.len() {
+                while $spi.sspsr().read().tnf().bit_is_clear() {}
+                $spi.sspdr()
+                    .write(|w| unsafe { w.data().bits(tx[i] as u16) });
+                while $spi.sspsr().read().rne().bit_is_clear() {}
+                rx[i] = $spi.sspdr().read().data().bits() as u8;
+            }
+            while $spi.sspsr().read().bsy().bit_is_set() {}
+        }};
+    }
+
+    match spi_id {
+        0 => do_transfer_raw!(&p.SPI0),
+        _ => do_transfer_raw!(&p.SPI1),
+    }
+}
+
 /// Write-only transfer. Sends data[0..len-1] and discards received bytes.
 /// Returns len on success.
 pub fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {

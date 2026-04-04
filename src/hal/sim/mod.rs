@@ -2,6 +2,7 @@
 
 pub mod adc;
 pub mod boot;
+pub mod display;
 pub mod flash;
 pub mod gpio;
 pub mod i2c;
@@ -9,4 +10,5 @@ pub mod pdb_uart;
 pub mod pwm;
 pub mod spi;
 pub mod system_clock;
+pub mod touch;
 pub mod uart;

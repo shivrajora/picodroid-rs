@@ -19,6 +19,8 @@ mod chip;
 #[allow(unused_imports)]
 pub use chip::adc;
 #[allow(unused_imports)]
+pub use chip::display;
+#[allow(unused_imports)]
 pub use chip::gpio;
 #[allow(unused_imports)]
 pub use chip::i2c;
@@ -28,6 +30,8 @@ pub use chip::pwm;
 pub use chip::spi;
 #[allow(unused_imports)]
 pub use chip::system_clock;
+#[allow(unused_imports)]
+pub use chip::touch;
 #[allow(unused_imports)]
 pub use chip::uart;
 
