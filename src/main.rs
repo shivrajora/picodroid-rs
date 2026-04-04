@@ -4,8 +4,12 @@
 extern crate alloc;
 
 mod app;
+#[cfg(all(not(any(test, feature = "sim")), feature = "board-waveshare-pico-28"))]
+mod boards;
 #[cfg(feature = "display-test")]
 mod display_test;
+#[allow(dead_code)]
+mod drivers;
 #[allow(dead_code)]
 mod hal;
 #[cfg(feature = "display-test")]

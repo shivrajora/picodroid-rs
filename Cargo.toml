@@ -11,10 +11,12 @@ license = "Apache-2.0"
 [features]
 default = ["chip-rp2040"]
 # Chip selection (user-facing — pick exactly one for embedded builds)
-chip-rp2040 = ["dep:rp-pico", "family-rp"]
-chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
+chip-rp2040 = ["dep:rp-pico", "family-rp", "board-waveshare-pico-28"]
+chip-rp2350 = ["dep:rp235x-hal", "family-rp", "board-waveshare-pico-28"]
 # MCU family grouping (internal — activated by chip features)
 family-rp = []
+# Board selection (activated by chip features, or manually for custom boards)
+board-waveshare-pico-28 = []
 # Simulator mode (no hardware)
 sim = []
 # Native display test (runs LVGL test UI instead of JVM)

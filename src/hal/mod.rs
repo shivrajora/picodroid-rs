@@ -19,15 +19,23 @@ mod chip;
 #[allow(unused_imports)]
 pub use chip::adc;
 #[allow(unused_imports)]
+pub use chip::delay;
+#[allow(unused_imports)]
 pub use chip::display;
 #[allow(unused_imports)]
 pub use chip::gpio;
 #[allow(unused_imports)]
 pub use chip::i2c;
 #[allow(unused_imports)]
+pub use chip::input_pin;
+#[allow(unused_imports)]
+pub use chip::output_pin;
+#[allow(unused_imports)]
 pub use chip::pwm;
 #[allow(unused_imports)]
 pub use chip::spi;
+#[allow(unused_imports)]
+pub use chip::spi_bus;
 #[allow(unused_imports)]
 pub use chip::system_clock;
 #[allow(unused_imports)]
