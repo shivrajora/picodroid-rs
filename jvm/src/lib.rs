@@ -79,6 +79,7 @@ pub mod types;
 use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
+use gc::GcState;
 use heap::StringTable;
 pub use native::{BuiltinHandler, NativeContext, NativeMethodHandler};
 use object_heap::ObjectHeap;
@@ -102,6 +103,8 @@ pub struct SharedJvmHeap {
     pub strings: StringTable,
     /// Static field storage.
     pub statics: StaticFieldStore,
+    /// Reusable GC buffers (persistent to avoid heap fragmentation).
+    pub gc_state: GcState,
 }
 
 impl SharedJvmHeap {
@@ -113,6 +116,7 @@ impl SharedJvmHeap {
             arrays: ArrayHeap::new(),
             strings: StringTable::new(),
             statics: StaticFieldStore::new(),
+            gc_state: GcState::new(),
         }
     }
 }
@@ -200,6 +204,7 @@ impl Jvm {
             &mut heap.objects,
             &mut heap.arrays,
             &mut heap.statics,
+            &mut heap.gc_state,
             handler,
             ci,
             mi,
@@ -232,6 +237,7 @@ impl Jvm {
             &mut heap.objects,
             &mut heap.arrays,
             &mut heap.statics,
+            &mut heap.gc_state,
             handler,
             ci,
             mi,

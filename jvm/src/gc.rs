@@ -45,6 +45,44 @@ fn push_ref(work: &mut Vec<GcRef>, v: &Value) {
     }
 }
 
+// ── Persistent GC state ─────────────────────────────────────────────────────
+
+/// Reusable buffers for the mark-sweep collector.
+///
+/// Persisting these across GC cycles avoids allocating and freeing four Vecs
+/// on every collection, which was a major source of FreeRTOS heap fragmentation.
+pub struct GcState {
+    obj_marks: Vec<u8>,
+    arr_marks: Vec<u8>,
+    str_marks: Vec<u8>,
+    work: Vec<GcRef>,
+}
+
+impl GcState {
+    pub const fn new() -> Self {
+        Self {
+            obj_marks: Vec::new(),
+            arr_marks: Vec::new(),
+            str_marks: Vec::new(),
+            work: Vec::new(),
+        }
+    }
+
+    /// Clear all buffers (O(1), no deallocation — capacity is retained).
+    fn clear(&mut self) {
+        self.obj_marks.clear();
+        self.arr_marks.clear();
+        self.str_marks.clear();
+        self.work.clear();
+    }
+}
+
+impl Default for GcState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── Mark-sweep collector ─────────────────────────────────────────────────────
 
 /// Run a full stop-the-world mark-sweep GC cycle.
@@ -60,27 +98,29 @@ pub fn collect(
     arrays: &mut ArrayHeap,
     strings: &mut StringTable,
     statics: &StaticFieldStore,
+    gc: &mut GcState,
 ) -> usize {
-    let mut obj_marks: Vec<u8> = Vec::new();
-    let mut arr_marks: Vec<u8> = Vec::new();
-    let mut str_marks: Vec<u8> = Vec::new();
-    let mut work: Vec<GcRef> = Vec::new();
+    gc.clear();
+    let obj_marks = &mut gc.obj_marks;
+    let arr_marks = &mut gc.arr_marks;
+    let str_marks = &mut gc.str_marks;
+    let work = &mut gc.work;
 
     // ── Phase 1: scan roots ──────────────────────────────────────────────
 
     // Frame locals and operand stacks
     for frame in frames {
         for v in &frame.locals {
-            push_ref(&mut work, v);
+            push_ref(work, v);
         }
         for v in &frame.stack {
-            push_ref(&mut work, v);
+            push_ref(work, v);
         }
     }
 
     // Static fields
     for v in statics.values_iter() {
-        push_ref(&mut work, &v);
+        push_ref(work, &v);
     }
 
     // ── Phase 2: mark (transitive closure) ───────────────────────────────
@@ -88,30 +128,34 @@ pub fn collect(
     while let Some(r) = work.pop() {
         match r {
             GcRef::Object(idx) => {
-                if is_marked(&obj_marks, idx) {
+                if is_marked(obj_marks, idx) {
                     continue;
                 }
-                mark_bit(&mut obj_marks, idx);
+                mark_bit(obj_marks, idx);
 
-                // Scan object fields
-                for v in objects.fields_slice(idx) {
-                    push_ref(&mut work, v);
+                // Scan object fields (inline + overflow)
+                let (inline, overflow) = objects.field_slices(idx);
+                for v in inline {
+                    push_ref(work, v);
+                }
+                for v in overflow {
+                    push_ref(work, v);
                 }
 
                 // ArrayList: scan backing list_bufs for references
                 if objects.class_name(idx) == Some("java/util/ArrayList") {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
                         for v in objects.list_iter(buf_idx as u16) {
-                            push_ref(&mut work, &v);
+                            push_ref(work, &v);
                         }
                     }
                 }
             }
             GcRef::Array(idx) => {
-                if is_marked(&arr_marks, idx) {
+                if is_marked(arr_marks, idx) {
                     continue;
                 }
-                mark_bit(&mut arr_marks, idx);
+                mark_bit(arr_marks, idx);
 
                 // ATYPE_REF arrays hold object references as i32
                 if arrays.atype(idx) == Some(ATYPE_REF) {
@@ -124,7 +168,7 @@ pub fn collect(
             }
             GcRef::String(idx) => {
                 // Strings don't reference other objects; just mark.
-                mark_bit(&mut str_marks, idx);
+                mark_bit(str_marks, idx);
             }
         }
     }
@@ -136,7 +180,7 @@ pub fn collect(
     // Sweep objects
     for idx in 0..objects.slot_count() {
         let i = idx as u16;
-        if objects.is_live(i) && !is_marked(&obj_marks, i) {
+        if objects.is_live(i) && !is_marked(obj_marks, i) {
             // Free ArrayList backing store if applicable
             if objects.class_name(i) == Some("java/util/ArrayList") {
                 if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
@@ -151,7 +195,7 @@ pub fn collect(
     // Sweep arrays
     for idx in 0..arrays.slot_count() {
         let i = idx as u16;
-        if arrays.is_live(i) && !is_marked(&arr_marks, i) {
+        if arrays.is_live(i) && !is_marked(arr_marks, i) {
             arrays.free(i);
             freed += 1;
         }
@@ -161,7 +205,7 @@ pub fn collect(
     let dyn_start = strings.dyn_start();
     for idx in dyn_start..strings.total_len() {
         let i = idx as u16;
-        if strings.is_dyn_live(i) && !is_marked(&str_marks, i) {
+        if strings.is_dyn_live(i) && !is_marked(str_marks, i) {
             strings.free_dyn(i);
             freed += 1;
         }
@@ -181,7 +225,14 @@ mod tests {
         let mut arrays = ArrayHeap::new();
         let mut strings = StringTable::new();
         let statics = StaticFieldStore::new();
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
     }
 
@@ -196,7 +247,14 @@ mod tests {
         objects.alloc("Garbage");
         assert!(objects.is_live(0));
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 1);
         assert!(!objects.is_live(0));
     }
@@ -212,7 +270,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ObjectRef(idx)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(objects.is_live(idx));
     }
@@ -229,7 +294,14 @@ mod tests {
         frame.push(Value::ObjectRef(idx)).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(objects.is_live(idx));
     }
@@ -245,7 +317,14 @@ mod tests {
         statics.set(b"MyClass", b"field", Value::ObjectRef(idx));
 
         let frames = [];
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(objects.is_live(idx));
     }
@@ -270,7 +349,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ObjectRef(a)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(objects.is_live(a));
         assert!(objects.is_live(b));
@@ -292,7 +378,14 @@ mod tests {
         objects.set_field(b, 0, Value::ObjectRef(a));
 
         let frames = [];
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 2);
         assert!(!objects.is_live(a));
         assert!(!objects.is_live(b));
@@ -317,7 +410,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ObjectRef(a)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 1);
         assert!(objects.is_live(a));
         assert!(!objects.is_live(b));
@@ -335,7 +435,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(arrays.is_live(arr));
     }
@@ -350,7 +457,14 @@ mod tests {
         arrays.alloc(10, 4).unwrap();
         let frames = [];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 1);
         assert!(!arrays.is_live(0));
     }
@@ -371,7 +485,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(objects.is_live(obj));
         assert!(arrays.is_live(arr));
@@ -388,7 +509,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::Reference(str_idx)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert_eq!(strings.resolve(str_idx), Some("hello"));
     }
@@ -403,7 +531,14 @@ mod tests {
         let str_idx = strings.intern_dyn(b"garbage").unwrap();
         let frames = [];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 1);
         assert_eq!(strings.resolve(str_idx), None);
     }
@@ -419,7 +554,14 @@ mod tests {
         let str_idx = strings.intern(HELLO).unwrap();
         let frames = []; // No roots — but static strings should never be freed
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert_eq!(strings.resolve(str_idx), Some("hello"));
     }
@@ -439,7 +581,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert_eq!(strings.resolve(str_idx), Some("kept"));
     }
@@ -458,7 +607,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
         assert!(arrays.is_live(arr));
     }
@@ -477,7 +633,14 @@ mod tests {
         let count_before = objects.slot_count();
 
         let frames = [];
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 5);
 
         // Allocate 5 more — should reuse freed slots, not grow
@@ -498,7 +661,14 @@ mod tests {
         let frame = Frame::new(0, 0, &[Value::Null, Value::Int(42)]).unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
     }
 
@@ -515,7 +685,14 @@ mod tests {
         strings.intern_dyn(b"str1").unwrap();
 
         let frames = [];
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 4); // 2 objects + 1 array + 1 string
     }
 
@@ -540,7 +717,14 @@ mod tests {
         .unwrap();
         let frames = [frame];
 
-        let freed = collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+        let freed = collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &mut GcState::new(),
+        );
         assert_eq!(freed, 0);
     }
 
@@ -558,7 +742,14 @@ mod tests {
             if (i + 1) % 10 == 0 {
                 let frame = Frame::new(0, 0, &[Value::ObjectRef(i)]).unwrap();
                 let frames = [frame];
-                collect(&frames, &mut objects, &mut arrays, &mut strings, &statics);
+                collect(
+                    &frames,
+                    &mut objects,
+                    &mut arrays,
+                    &mut strings,
+                    &statics,
+                    &mut GcState::new(),
+                );
             }
         }
         // Heap should not have grown to 100 slots due to reuse

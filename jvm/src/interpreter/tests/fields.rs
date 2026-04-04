@@ -1,4 +1,5 @@
 use super::*;
+use crate::gc::GcState;
 
 // Class "F" extends Object, field "x:I", STATIC method m(LF;)I.
 // Bytecode: aload_0, bipush 42, putfield F.x, aload_0, getfield F.x, ireturn.
@@ -169,6 +170,7 @@ fn getfield_putfield_named_field_roundtrip() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         0,
         0,

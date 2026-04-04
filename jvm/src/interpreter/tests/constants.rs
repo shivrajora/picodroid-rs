@@ -1,4 +1,5 @@
 use super::*;
+use crate::gc::GcState;
 
 // ── Minimal class file layout ──────────────────────────────────────────────
 //
@@ -260,6 +261,7 @@ fn putstatic_persists_across_two_execute_calls() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         0,
         0,

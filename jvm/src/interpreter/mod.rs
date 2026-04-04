@@ -2,6 +2,7 @@ use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
     frame::Frame,
+    gc::GcState,
     heap::StringTable,
     native::NativeMethodHandler,
     object_heap::ObjectHeap,
@@ -35,6 +36,7 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub objects: &'a mut ObjectHeap,
     pub arrays: &'a mut ArrayHeap,
     pub statics: &'a mut StaticFieldStore,
+    pub gc_state: &'a mut GcState,
     pub handler: &'a mut H,
     /// Cache: (class_name ptr, field_name ptr) → field slot index.
     pub field_cache: Vec<(*const u8, *const u8, usize)>,
@@ -113,6 +115,7 @@ pub fn execute<H: NativeMethodHandler>(
     objects: &mut ObjectHeap,
     arrays: &mut ArrayHeap,
     statics: &mut StaticFieldStore,
+    gc_state: &mut GcState,
     handler: &mut H,
     class_idx: usize,
     method_idx: usize,
@@ -128,6 +131,7 @@ pub fn execute<H: NativeMethodHandler>(
         objects,
         arrays,
         statics,
+        gc_state,
         handler,
         field_cache: Vec::new(),
         method_cache: Vec::new(),
@@ -219,7 +223,14 @@ pub fn execute<H: NativeMethodHandler>(
         // Trigger GC when allocation counter crosses the threshold.
         if r.is_ok() && ex.alloc_count >= GC_THRESHOLD {
             let t0 = ex.handler.clock_nanos();
-            let freed = crate::gc::collect(&frames, ex.objects, ex.arrays, ex.strings, ex.statics);
+            let freed = crate::gc::collect(
+                &frames,
+                ex.objects,
+                ex.arrays,
+                ex.strings,
+                ex.statics,
+                ex.gc_state,
+            );
             let t1 = ex.handler.clock_nanos();
             ex.handler.report_gc(t1.wrapping_sub(t0), freed);
             ex.alloc_count = 0;

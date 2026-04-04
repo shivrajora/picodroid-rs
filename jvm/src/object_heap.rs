@@ -1,10 +1,70 @@
 use crate::types::Value;
 use alloc::vec::Vec;
 
-#[allow(dead_code)]
+/// Maximum number of fields stored inline (no heap allocation).
+const INLINE_FIELDS: usize = 4;
+
 pub struct JvmObject {
     pub class_name: &'static str,
-    pub fields: Vec<Value>,
+    field_count: u8,
+    inline_fields: [Value; INLINE_FIELDS],
+    /// Overflow storage for objects with more than INLINE_FIELDS fields.
+    /// `None` when all fields fit inline.
+    overflow: Option<Vec<Value>>,
+}
+
+impl JvmObject {
+    fn new(class_name: &'static str) -> Self {
+        Self {
+            class_name,
+            field_count: 0,
+            inline_fields: [Value::Null; INLINE_FIELDS],
+            overflow: None,
+        }
+    }
+
+    fn get_field(&self, field: usize) -> Option<Value> {
+        if field >= self.field_count as usize {
+            return None;
+        }
+        if field < INLINE_FIELDS {
+            Some(self.inline_fields[field])
+        } else {
+            self.overflow.as_ref()?.get(field - INLINE_FIELDS).copied()
+        }
+    }
+
+    fn set_field(&mut self, field: usize, v: Value) {
+        // Grow field_count to cover `field`.
+        let needed = field + 1;
+        if needed > self.field_count as usize {
+            // Fill any gap slots with Null.
+            if needed > INLINE_FIELDS {
+                let ov = self.overflow.get_or_insert_with(Vec::new);
+                let ov_needed = needed - INLINE_FIELDS;
+                while ov.len() < ov_needed {
+                    ov.push(Value::Null);
+                }
+            }
+            self.field_count = needed as u8;
+        }
+        if field < INLINE_FIELDS {
+            self.inline_fields[field] = v;
+        } else {
+            self.overflow.as_mut().unwrap()[field - INLINE_FIELDS] = v;
+        }
+    }
+
+    /// Returns (inline_slice, overflow_slice) covering all set fields.
+    fn field_slices(&self) -> (&[Value], &[Value]) {
+        let inline_count = core::cmp::min(self.field_count as usize, INLINE_FIELDS);
+        let inline = &self.inline_fields[..inline_count];
+        let overflow = match &self.overflow {
+            Some(v) => v.as_slice(),
+            None => &[],
+        };
+        (inline, overflow)
+    }
 }
 
 pub struct ObjectHeap {
@@ -51,39 +111,27 @@ impl ObjectHeap {
         while self.first_free < self.objects.len() {
             if self.objects[self.first_free].is_none() {
                 let idx = self.first_free;
-                self.objects[idx] = Some(JvmObject {
-                    class_name,
-                    fields: Vec::new(),
-                });
+                self.objects[idx] = Some(JvmObject::new(class_name));
                 self.first_free = idx + 1;
                 return Some(idx as u16);
             }
             self.first_free += 1;
         }
         let idx = self.objects.len() as u16;
-        self.objects.push(Some(JvmObject {
-            class_name,
-            fields: Vec::new(),
-        }));
+        self.objects.push(Some(JvmObject::new(class_name)));
         self.first_free = self.objects.len();
         Some(idx)
     }
 
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
-        self.objects
-            .get(idx as usize)?
-            .as_ref()?
-            .fields
-            .get(field)
-            .copied()
+        self.objects.get(idx as usize)?.as_ref()?.get_field(field)
     }
 
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
-        let obj = self.objects.get_mut(idx as usize)?.as_mut()?;
-        while obj.fields.len() <= field {
-            obj.fields.push(Value::Null);
-        }
-        obj.fields[field] = v;
+        self.objects
+            .get_mut(idx as usize)?
+            .as_mut()?
+            .set_field(field, v);
         Some(())
     }
 
@@ -162,13 +210,13 @@ impl ObjectHeap {
         }
     }
 
-    /// Return an iterator over the fields of the object at `idx`.
-    pub fn fields_slice(&self, idx: u16) -> &[Value] {
+    /// Return (inline_slice, overflow_slice) covering all fields of the object at `idx`.
+    pub fn field_slices(&self, idx: u16) -> (&[Value], &[Value]) {
         self.objects
             .get(idx as usize)
             .and_then(|o| o.as_ref())
-            .map(|o| o.fields.as_slice())
-            .unwrap_or(&[])
+            .map(|o| o.field_slices())
+            .unwrap_or((&[], &[]))
     }
 
     /// Return the current StringBuilder buffer contents as a raw pointer and length.

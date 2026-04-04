@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     class_file::ClassFile,
+    gc::GcState,
     heap::StringTable,
     native::{NativeContext, NativeMethodHandler},
     object_heap::ObjectHeap,
@@ -31,6 +32,7 @@ fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
     let mut handler = NoopHandler;
     execute(
         &classes,
@@ -38,6 +40,7 @@ fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut gc_state,
         &mut handler,
         0,
         0,
@@ -61,6 +64,7 @@ fn run_multi(
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
     let mut handler = NoopHandler;
     execute(
         &classes,
@@ -68,6 +72,7 @@ fn run_multi(
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut gc_state,
         &mut handler,
         exec_class_idx,
         0,

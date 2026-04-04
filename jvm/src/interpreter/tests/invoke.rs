@@ -1,4 +1,5 @@
 use super::*;
+use crate::gc::GcState;
 
 // Class "Base" extends Object, method speak()I returns iconst_1, ireturn.
 //
@@ -181,6 +182,7 @@ fn invokevirtual_uses_override_in_subclass() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         2,
         0,
@@ -212,6 +214,7 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         2,
         0,
@@ -244,6 +247,7 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         2,
         0,
@@ -274,6 +278,7 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
         &mut objects,
         &mut arrays,
         &mut statics,
+        &mut GcState::new(),
         &mut handler,
         2,
         0,

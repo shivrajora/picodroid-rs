@@ -20,9 +20,84 @@ pub const ATYPE_INT: u8 = 10;
 pub const ATYPE_LONG: u8 = 11;
 pub const ATYPE_REF: u8 = 0; // used by anewarray
 
+/// Maximum number of elements stored inline (no heap allocation).
+const INLINE_DATA: usize = 8;
+
+/// Array data stored either inline (small arrays) or on the heap (large arrays).
+/// Using an enum avoids paying for the inline buffer when the heap path is used,
+/// keeping slot size small for large-array workloads like `int[100]`.
+enum ArrayData {
+    Inline { buf: [i32; INLINE_DATA], len: u16 },
+    Heap(Vec<i32>),
+}
+
 pub struct JvmArray {
     pub atype: u8,
-    pub data: Vec<i32>,
+    data: ArrayData,
+}
+
+impl JvmArray {
+    fn new(atype: u8, len: u16) -> Self {
+        if (len as usize) <= INLINE_DATA {
+            Self {
+                atype,
+                data: ArrayData::Inline {
+                    buf: [0i32; INLINE_DATA],
+                    len,
+                },
+            }
+        } else {
+            Self {
+                atype,
+                data: ArrayData::Heap(vec![0i32; len as usize]),
+            }
+        }
+    }
+
+    fn len(&self) -> u16 {
+        match &self.data {
+            ArrayData::Inline { len, .. } => *len,
+            ArrayData::Heap(v) => v.len() as u16,
+        }
+    }
+
+    fn load(&self, elem: usize) -> Option<i32> {
+        match &self.data {
+            ArrayData::Inline { buf, len } => {
+                if elem >= *len as usize {
+                    return None;
+                }
+                Some(buf[elem])
+            }
+            ArrayData::Heap(v) => v.get(elem).copied(),
+        }
+    }
+
+    fn store(&mut self, elem: usize, val: i32) -> Option<()> {
+        match &mut self.data {
+            ArrayData::Inline { buf, len } => {
+                if elem >= *len as usize {
+                    return None;
+                }
+                buf[elem] = val;
+                Some(())
+            }
+            ArrayData::Heap(v) => {
+                if elem >= v.len() {
+                    return None;
+                }
+                v[elem] = val;
+                Some(())
+            }
+        }
+    }
+
+    fn data_slice(&self) -> &[i32] {
+        match &self.data {
+            ArrayData::Inline { buf, len } => &buf[..*len as usize],
+            ArrayData::Heap(v) => v.as_slice(),
+        }
+    }
 }
 
 pub struct ArrayHeap {
@@ -50,10 +125,7 @@ impl ArrayHeap {
     /// Allocate a new array. Returns its heap index.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {
-        let new_arr = JvmArray {
-            atype,
-            data: vec![0i32; len as usize],
-        };
+        let new_arr = JvmArray::new(atype, len);
         // Scan from first_free for a None slot; skip already-occupied prefix.
         while self.first_free < self.arrays.len() {
             if self.arrays[self.first_free].is_none() {
@@ -72,26 +144,20 @@ impl ArrayHeap {
 
     /// Load element at index elem from array idx. Returns None on out-of-bounds or invalid idx.
     pub fn load(&self, idx: u16, elem: usize) -> Option<i32> {
-        let arr = self.arrays.get(idx as usize)?.as_ref()?;
-        if elem >= arr.data.len() {
-            return None;
-        }
-        Some(arr.data[elem])
+        self.arrays.get(idx as usize)?.as_ref()?.load(elem)
     }
 
     /// Store value at index elem in array idx. Returns None on out-of-bounds or invalid idx.
     pub fn store(&mut self, idx: u16, elem: usize, val: i32) -> Option<()> {
-        let arr = self.arrays.get_mut(idx as usize)?.as_mut()?;
-        if elem >= arr.data.len() {
-            return None;
-        }
-        arr.data[elem] = val;
-        Some(())
+        self.arrays
+            .get_mut(idx as usize)?
+            .as_mut()?
+            .store(elem, val)
     }
 
     /// Return the length of array idx.
     pub fn length(&self, idx: u16) -> Option<u16> {
-        Some(self.arrays.get(idx as usize)?.as_ref()?.data.len() as u16)
+        Some(self.arrays.get(idx as usize)?.as_ref()?.len())
     }
 
     #[allow(dead_code)]
@@ -127,7 +193,7 @@ impl ArrayHeap {
         self.arrays
             .get(idx as usize)
             .and_then(|a| a.as_ref())
-            .map(|a| a.data.as_slice())
+            .map(|a| a.data_slice())
             .unwrap_or(&[])
     }
 }
