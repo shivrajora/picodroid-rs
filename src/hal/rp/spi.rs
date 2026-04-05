@@ -35,6 +35,12 @@ macro_rules! apply_config {
 
         // 4. Re-enable: SSE=1, MS=0 (master mode)
         $spi.sspcr1().write(|w| w.sse().set_bit().ms().clear_bit());
+
+        // Ensure all APB writes have committed before returning.
+        // With LTO, the caller's subsequent GPIO/SPI operations can be
+        // scheduled immediately after these register writes; a DSB
+        // guarantees the peripheral sees the new configuration first.
+        cortex_m::asm::dsb();
     }};
 }
 
