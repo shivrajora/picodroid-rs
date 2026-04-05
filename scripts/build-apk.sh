@@ -53,11 +53,18 @@ if [[ ! -f "$MANIFEST_FILE" ]]; then
   exit 1
 fi
 
-# Read main-class and version from PicodroidManifest.xml
+# Read main-class, activity, and version from PicodroidManifest.xml
 MAIN_CLASS=$(python3 - "$MANIFEST_FILE" <<'EOF'
 import sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
 print(root.find("application").get("main-class", ""))
+EOF
+)
+
+ACTIVITY=$(python3 - "$MANIFEST_FILE" <<'EOF'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+print(root.find("application").get("activity", ""))
 EOF
 )
 
@@ -68,8 +75,8 @@ print(root.get("version", "1.0"))
 EOF
 )
 
-if [[ -z "$MAIN_CLASS" ]]; then
-  echo "Error: 'main-class' not found in $MANIFEST_FILE" >&2
+if [[ -z "$MAIN_CLASS" && -z "$ACTIVITY" ]]; then
+  echo "Error: either 'main-class' or 'activity' must be set in $MANIFEST_FILE" >&2
   exit 1
 fi
 
@@ -108,12 +115,21 @@ javac --release 8 -Xlint:-options \
   "${APP_JAVA_FILES[@]}"
 
 echo "==> Packaging '$APP' into $(basename "$OUTPUT")..."
+
+PAPK_ARGS=()
+if [[ -n "$MAIN_CLASS" ]]; then
+  PAPK_ARGS+=(--main-class "$MAIN_CLASS")
+fi
+if [[ -n "$ACTIVITY" ]]; then
+  PAPK_ARGS+=(--activity "$ACTIVITY")
+fi
+
 cargo run \
   --quiet \
   --target "$HOST_TARGET" \
   --manifest-path "$REPO_ROOT/tools/papk-pack/Cargo.toml" \
   -- \
-  --main-class "$MAIN_CLASS" \
+  "${PAPK_ARGS[@]}" \
   --package-name "$APP" \
   --version "$VERSION" \
   --classes-dir "$CLASSES_DIR" \

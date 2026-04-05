@@ -331,6 +331,12 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     ctx.objects,
                 ),
             ),
+            ("picodroid/widget/Button", "nativeRegisterClickListener") => Some(
+                crate::system::picodroid::graphics::widgets::button_register_click_listener(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
 
             // ── LinearLayout ─────────────────────────────────────────────
             ("picodroid/widget/LinearLayout", "nativeCreate") => {

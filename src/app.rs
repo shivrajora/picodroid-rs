@@ -155,8 +155,9 @@ fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
 /// Run the JVM with a specific APK slice.
 ///
 /// Resets the shared heap (clearing previous app state), loads framework and
-/// app classes, then calls `<main_class>.main()`.  Returns when execution
-/// completes naturally or is interrupted by `pdb install` (cooperative stop).
+/// app classes, then either launches an Activity (if the manifest declares one)
+/// or falls back to `<main_class>.main()`.  Returns when execution completes
+/// naturally or is interrupted by `pdb install` (cooperative stop).
 /// `JvmError::Interrupted` is silently ignored — it is a clean exit signal.
 #[cfg(not(test))]
 pub fn run_jvm_with(apk_data: &[u8]) {
@@ -166,6 +167,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     // Clear previous app's heap state before running a new app.
     shared_heap().reset();
+    crate::system::picodroid::graphics::widgets::reset_button_state();
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();
 
@@ -183,24 +185,123 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     // Determine the entry point from the APK manifest.
     let apk = Papk::parse(apk_data).unwrap();
-    let main_class = apk
-        .main_class()
-        .expect("APK manifest is missing 'main-class'");
 
-    // Interrupted is a clean cooperative stop — not a real error.
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();
 
-    match jvm.invoke_static(main_class, "main", heap, &mut handler) {
-        Ok(_) | Err(JvmError::Interrupted) => {}
-        #[cfg(not(feature = "sim"))]
-        Err(e) => defmt::error!("JVM error: {}", defmt::Debug2Format(&e)),
-        #[cfg(feature = "sim")]
-        Err(e) => eprintln!("[jvm] error: {:?}", e),
+    if let Some(activity_class) = apk.activity() {
+        // The APK data is &'static [u8] (Flash-backed), so the parsed
+        // activity class name string is also 'static.  Transmute the
+        // lifetime so alloc() can store it in the object heap.
+        let static_name: &'static str =
+            unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
+        run_activity(&mut jvm, static_name, heap, &mut handler);
+    } else {
+        let main_class = apk
+            .main_class()
+            .expect("APK manifest is missing 'main-class'");
+
+        // Interrupted is a clean cooperative stop — not a real error.
+        match jvm.invoke_static(main_class, "main", heap, &mut handler) {
+            Ok(_) | Err(JvmError::Interrupted) => {}
+            #[cfg(not(feature = "sim"))]
+            Err(e) => defmt::error!("JVM error: {}", defmt::Debug2Format(&e)),
+            #[cfg(feature = "sim")]
+            Err(e) => eprintln!("[jvm] error: {:?}", e),
+        }
     }
 
     #[cfg(feature = "sim")]
     println!("[sim] JVM wall-clock: {} ms", start.elapsed().as_millis());
+}
+
+// ── Activity lifecycle ───────────────────────────────────────────────────────
+
+/// Run an Activity-based app: allocate the Activity object, call `onCreate()`,
+/// then enter the framework event loop (tick LVGL + dispatch click events).
+///
+/// In sim mode, LVGL blocks on `lv_display_create` (no real display hardware),
+/// so we skip the full lifecycle and just verify the Activity class loads.
+#[cfg(all(not(test), feature = "sim"))]
+fn run_activity(
+    _jvm: &mut Jvm,
+    activity_class: &'static str,
+    heap: &mut SharedJvmHeap,
+    _handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    let obj_ref = heap
+        .objects
+        .alloc(activity_class)
+        .expect("OOM allocating Activity");
+    eprintln!(
+        "[sim] Activity '{}' loaded (obj_ref={}); skipping onCreate + event loop (no display in sim)",
+        activity_class, obj_ref
+    );
+}
+
+/// Run an Activity-based app on real hardware: allocate the Activity object,
+/// call `onCreate()`, then enter the framework event loop.
+#[cfg(not(any(test, feature = "sim")))]
+fn run_activity(
+    jvm: &mut Jvm,
+    activity_class: &'static str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::engine;
+    use pico_jvm::NativeMethodHandler;
+
+    // Allocate the Activity object on the Java heap.
+    let obj_ref = heap
+        .objects
+        .alloc(activity_class)
+        .expect("OOM allocating Activity");
+
+    // Call the subclass's onCreate() — this builds the UI tree and calls
+    // setContentView().  Virtual dispatch picks up the override automatically.
+    match jvm.invoke_instance(activity_class, "onCreate", obj_ref, heap, handler) {
+        Ok(()) => {}
+        Err(JvmError::Interrupted) => return,
+        Err(e) => {
+            defmt::error!("Activity.onCreate error: {}", defmt::Debug2Format(&e));
+            return;
+        }
+    }
+
+    // Framework event loop — tick LVGL and dispatch click callbacks.
+    let mut pacer = crate::hal::system_clock::FramePacer::new();
+    loop {
+        engine::tick(16);
+        dispatch_clicks(jvm, heap, handler);
+        pacer.pace(16);
+
+        if handler.interrupted() {
+            break;
+        }
+    }
+}
+
+/// Drain the click queue and invoke `fireClick()` on each matching Button.
+#[cfg(not(any(test, feature = "sim")))]
+fn dispatch_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_click_queue() {
+        if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
+            // fireClick() is a Java method on Button that calls onClickListener.run().
+            let _ = jvm.invoke_instance(
+                "picodroid/widget/Button",
+                "fireClick",
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
 }
 
 /// Run the JVM with the baked-in APK (sim entry point).

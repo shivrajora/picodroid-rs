@@ -26,7 +26,8 @@ const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
 // ── CLI argument parsing ──────────────────────────────────────────────────────
 
 struct Args {
-    main_class: String,
+    main_class: Option<String>,
+    activity: Option<String>,
     package_name: String,
     version: String,
     classes_dir: PathBuf,
@@ -36,6 +37,7 @@ struct Args {
 fn parse_args() -> Result<Args, String> {
     let args: Vec<String> = std::env::args().collect();
     let mut main_class = None;
+    let mut activity = None;
     let mut package_name = None;
     let mut version = None;
     let mut classes_dir = None;
@@ -47,6 +49,10 @@ fn parse_args() -> Result<Args, String> {
             "--main-class" => {
                 i += 1;
                 main_class = Some(args.get(i).ok_or("--main-class requires a value")?.clone());
+            }
+            "--activity" => {
+                i += 1;
+                activity = Some(args.get(i).ok_or("--activity requires a value")?.clone());
             }
             "--package-name" => {
                 i += 1;
@@ -83,8 +89,13 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
+    if main_class.is_none() && activity.is_none() {
+        return Err("either --main-class or --activity is required".into());
+    }
+
     Ok(Args {
-        main_class: main_class.ok_or("--main-class is required")?,
+        main_class,
+        activity,
         package_name: package_name.ok_or("--package-name is required")?,
         version: version.ok_or("--version is required")?,
         classes_dir: classes_dir.ok_or("--classes-dir is required")?,
@@ -95,11 +106,14 @@ fn parse_args() -> Result<Args, String> {
 fn print_usage() {
     eprintln!(
         "Usage: papk-pack \\\n\
-         \x20 --main-class <jvm/ClassName> \\\n\
+         \x20 [--main-class <jvm/ClassName>] \\\n\
+         \x20 [--activity <jvm/ClassName>] \\\n\
          \x20 --package-name <name> \\\n\
          \x20 --version <x.y> \\\n\
          \x20 --classes-dir <dir> \\\n\
-         \x20 --output <file.papk>"
+         \x20 --output <file.papk>\n\
+         \n\
+         Either --main-class or --activity (or both) must be provided."
     );
 }
 
@@ -156,16 +170,25 @@ fn write_str_u16(buf: &mut Vec<u8>, s: &str) {
 }
 
 /// Build the MANIFEST section data (key/value pairs).
-fn build_manifest_data(main_class: &str, package_name: &str, version: &str) -> Vec<u8> {
+fn build_manifest_data(
+    main_class: Option<&str>,
+    activity: Option<&str>,
+    package_name: &str,
+    version: &str,
+) -> Vec<u8> {
     let mut data = Vec::new();
-    for (k, v) in &[
-        ("main-class", main_class),
-        ("package-name", package_name),
-        ("version", version),
-    ] {
-        write_str_u16(&mut data, k);
-        write_str_u16(&mut data, v);
+    if let Some(mc) = main_class {
+        write_str_u16(&mut data, "main-class");
+        write_str_u16(&mut data, mc);
     }
+    if let Some(act) = activity {
+        write_str_u16(&mut data, "activity");
+        write_str_u16(&mut data, act);
+    }
+    write_str_u16(&mut data, "package-name");
+    write_str_u16(&mut data, package_name);
+    write_str_u16(&mut data, "version");
+    write_str_u16(&mut data, version);
     data
 }
 
@@ -192,12 +215,13 @@ fn build_section_header(tag: u32, data_len: u32) -> Vec<u8> {
 }
 
 fn build_papk(
-    main_class: &str,
+    main_class: Option<&str>,
+    activity: Option<&str>,
     package_name: &str,
     version: &str,
     classes: &[(String, Vec<u8>)],
 ) -> Vec<u8> {
-    let manifest_data = build_manifest_data(main_class, package_name, version);
+    let manifest_data = build_manifest_data(main_class, activity, package_name, version);
     let classes_data = build_classes_data(classes);
 
     let manifest_hdr = build_section_header(TAG_MANIFEST, manifest_data.len() as u32);
@@ -267,7 +291,8 @@ fn main() {
     }
 
     let papk = build_papk(
-        &args.main_class,
+        args.main_class.as_deref(),
+        args.activity.as_deref(),
         &args.package_name,
         &args.version,
         &classes,

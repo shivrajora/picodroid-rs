@@ -17,7 +17,10 @@ public class Button extends View {
 
   public void setOnClickListener(Runnable listener) {
     this.onClickListener = listener;
+    nativeRegisterClickListener();
   }
+
+  private native void nativeRegisterClickListener();
 
   void fireClick() {
     if (onClickListener != null) {

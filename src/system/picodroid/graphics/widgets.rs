@@ -63,6 +63,15 @@ static mut CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
 static mut CLICK_QUEUE_HEAD: usize = 0;
 static mut CLICK_QUEUE_TAIL: usize = 0;
 
+// ---------------------------------------------------------------------------
+// Button handle → Java object mapping (for Activity click dispatch)
+// ---------------------------------------------------------------------------
+
+const MAX_BUTTONS: usize = 32;
+/// Maps LVGL `lv_obj_t*` button handles to Java heap object indices.
+static mut BUTTON_HANDLE_MAP: [(usize, u16); MAX_BUTTONS] = [(0, 0); MAX_BUTTONS];
+static mut BUTTON_HANDLE_MAP_LEN: usize = 0;
+
 /// LVGL event callback registered on every button.
 ///
 /// # Safety
@@ -156,6 +165,71 @@ pub fn button_was_clicked(args: &[Value], objects: &ObjectHeap) -> Result<Option
         }
     }
     Ok(Some(Value::Int(0))) // false
+}
+
+/// `Button.nativeRegisterClickListener()` — records the mapping from this
+/// button's LVGL handle to its Java heap index so the framework event loop
+/// can dispatch `fireClick()` on the correct object.
+pub fn button_register_click_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let handle = extract_native_handle(args, objects)? as usize;
+
+    unsafe {
+        // Update if already registered.
+        for entry in &mut BUTTON_HANDLE_MAP[..BUTTON_HANDLE_MAP_LEN] {
+            if entry.0 == handle {
+                entry.1 = obj_ref;
+                return Ok(None);
+            }
+        }
+        // New registration.
+        if BUTTON_HANDLE_MAP_LEN < MAX_BUTTONS {
+            BUTTON_HANDLE_MAP[BUTTON_HANDLE_MAP_LEN] = (handle, obj_ref);
+            BUTTON_HANDLE_MAP_LEN += 1;
+        }
+    }
+    Ok(None)
+}
+
+/// Look up the Java object heap index for a button given its LVGL handle.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_button_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &BUTTON_HANDLE_MAP[..BUTTON_HANDLE_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+/// Pop one click event from the queue, returning the LVGL handle.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_click_queue() -> Option<usize> {
+    unsafe {
+        if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
+            return None;
+        }
+        let handle = CLICK_QUEUE[CLICK_QUEUE_TAIL];
+        CLICK_QUEUE_TAIL = (CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
+        Some(handle)
+    }
+}
+
+/// Reset all button state between app runs.
+pub fn reset_button_state() {
+    unsafe {
+        BUTTON_HANDLE_MAP_LEN = 0;
+        CLICK_QUEUE_HEAD = 0;
+        CLICK_QUEUE_TAIL = 0;
+    }
 }
 
 // ===========================================================================

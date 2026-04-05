@@ -209,12 +209,23 @@ impl<'a> Papk<'a> {
     /// Returns the `main-class` value from the MANIFEST section, or `None` if
     /// the key is absent or its value is not valid UTF-8.
     pub fn main_class(&self) -> Option<&'a str> {
+        self.manifest_value(b"main-class")
+    }
+
+    /// Returns the `activity` value from the MANIFEST section, or `None` if
+    /// the key is absent or its value is not valid UTF-8.
+    pub fn activity(&self) -> Option<&'a str> {
+        self.manifest_value(b"activity")
+    }
+
+    /// Look up a manifest key and return its value as a UTF-8 string.
+    fn manifest_value(&self, target_key: &[u8]) -> Option<&'a str> {
         let mdata = self.manifest_section_data().ok()?;
         let mut pos = 0usize;
         while pos < mdata.len() {
             let key = read_bytes_u16(mdata, &mut pos)?;
             let val = read_bytes_u16(mdata, &mut pos)?;
-            if key == b"main-class" {
+            if key == target_key {
                 return str::from_utf8(val).ok();
             }
         }
