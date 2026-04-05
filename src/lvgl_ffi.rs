@@ -136,6 +136,7 @@ extern "C" {
 
     // Objects
     pub fn lv_obj_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_obj_clean(obj: *mut lv_obj_t);
     pub fn lv_obj_set_pos(obj: *mut lv_obj_t, x: i32, y: i32);
     pub fn lv_obj_set_size(obj: *mut lv_obj_t, w: i32, h: i32);
     pub fn lv_obj_center(obj: *mut lv_obj_t);

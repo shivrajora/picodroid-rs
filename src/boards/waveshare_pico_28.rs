@@ -36,11 +36,13 @@ const PIN_TOUCH_CS: u8 = 16;
 const PIN_TOUCH_IRQ: u8 = 17;
 const PIN_TOUCH_MISO: u8 = 12;
 
-// Calibration: raw ADC range mapped to screen coordinates
-const CAL_X_MIN: u16 = 200;
-const CAL_X_MAX: u16 = 3900;
-const CAL_Y_MIN: u16 = 200;
-const CAL_Y_MAX: u16 = 3900;
+// Calibration: raw ADC range mapped to screen coordinates.
+// X axis is inverted (high raw = low screen X). These defaults were
+// measured empirically; the display-test calibration routine refines them.
+const CAL_X_MIN: u16 = 1970;
+const CAL_X_MAX: u16 = 185;
+const CAL_Y_MIN: u16 = 110;
+const CAL_Y_MAX: u16 = 1950;
 
 // --- Concrete types for this board ---
 pub type Display = St7789<RpSpiBus, RpOutputPin, RpOutputPin, RpOutputPin, RpOutputPin, RpDelay>;
@@ -105,6 +107,8 @@ pub fn create_touch() -> Touch {
         CAL_Y_MIN,
         CAL_Y_MAX,
     );
+    // Touch panel axes are swapped relative to the display orientation
+    touch.set_swap_xy(true);
     touch.init();
     touch
 }

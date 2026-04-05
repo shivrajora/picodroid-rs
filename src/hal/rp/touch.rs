@@ -20,3 +20,40 @@ pub fn init() {
 pub fn read_point() -> Option<(u16, u16)> {
     unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap().read_point() }
 }
+
+/// Read raw 12-bit ADC values (for calibration).
+/// Returns `None` if no touch is active (rejected by noise thresholds).
+pub fn read_raw() -> Option<(u16, u16)> {
+    unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap().read_raw() }
+}
+
+/// Read raw 12-bit ADC values without noise rejection.
+/// Always returns a value — useful for noise-floor discovery.
+pub fn read_raw_unfiltered() -> (u16, u16) {
+    unsafe {
+        (*addr_of_mut!(TOUCH))
+            .as_mut()
+            .unwrap()
+            .read_raw_unfiltered()
+    }
+}
+
+/// Update the touch calibration constants at runtime.
+pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16) {
+    unsafe {
+        (*addr_of_mut!(TOUCH))
+            .as_mut()
+            .unwrap()
+            .set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max);
+    }
+}
+
+/// Update noise-rejection thresholds at runtime.
+pub fn set_rejection_range(lo: u16, hi: u16) {
+    unsafe {
+        (*addr_of_mut!(TOUCH))
+            .as_mut()
+            .unwrap()
+            .set_rejection_range(lo, hi);
+    }
+}

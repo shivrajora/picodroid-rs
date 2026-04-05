@@ -27,6 +27,12 @@ pub struct Xpt2046<SPI, CS> {
     cal_x_max: u16,
     cal_y_min: u16,
     cal_y_max: u16,
+    /// Noise rejection: raw values below this on either axis → no touch.
+    reject_lo: u16,
+    /// Noise rejection: raw values above this on either axis → no touch.
+    reject_hi: u16,
+    /// Swap raw X/Y axes before calibration mapping (board-dependent).
+    swap_xy: bool,
 }
 
 impl<SPI, CS> Xpt2046<SPI, CS>
@@ -63,6 +69,9 @@ where
             cal_x_max,
             cal_y_min,
             cal_y_max,
+            reject_lo: 100,
+            reject_hi: 4000,
+            swap_xy: false,
         }
     }
 
@@ -86,8 +95,41 @@ where
         ((rx[1] as u16) << 4) | ((rx[2] as u16) >> 4)
     }
 
-    /// Read raw 12-bit X and Y with multi-sample averaging and outlier rejection.
-    fn read_raw(&mut self) -> Option<(u16, u16)> {
+    /// Update calibration constants at runtime (e.g. after a calibration routine).
+    pub fn set_calibration(
+        &mut self,
+        cal_x_min: u16,
+        cal_x_max: u16,
+        cal_y_min: u16,
+        cal_y_max: u16,
+    ) {
+        self.cal_x_min = cal_x_min;
+        self.cal_x_max = cal_x_max;
+        self.cal_y_min = cal_y_min;
+        self.cal_y_max = cal_y_max;
+    }
+
+    /// Update noise-rejection thresholds at runtime.
+    ///
+    /// Raw values outside `lo..=hi` on either axis are treated as "no touch".
+    pub fn set_rejection_range(&mut self, lo: u16, hi: u16) {
+        self.reject_lo = lo;
+        self.reject_hi = hi;
+    }
+
+    /// Enable or disable raw X/Y axis swapping.
+    ///
+    /// Some boards mount the touch panel rotated relative to the display;
+    /// enabling swap corrects this so raw X maps to screen X.
+    pub fn set_swap_xy(&mut self, swap: bool) {
+        self.swap_xy = swap;
+    }
+
+    /// Multi-sample averaged read (no rejection filter).
+    ///
+    /// Takes `NUM_SAMPLES` readings, discards the highest and lowest,
+    /// and returns the average of the remaining samples on each axis.
+    fn sample(&mut self) -> (u16, u16) {
         self.spi.set_frequency(self.touch_spi_freq);
         let _ = self.cs.set_low();
 
@@ -101,7 +143,6 @@ where
         let _ = self.cs.set_high();
         self.spi.set_frequency(self.display_spi_freq);
 
-        // Sort and discard lowest/highest (outlier rejection)
         xs.sort_unstable();
         ys.sort_unstable();
         let mid = &xs[1..NUM_SAMPLES - 1];
@@ -109,8 +150,27 @@ where
         let mid = &ys[1..NUM_SAMPLES - 1];
         let raw_y = (mid.iter().map(|&v| v as u32).sum::<u32>() / mid.len() as u32) as u16;
 
-        // Reject if either axis is railed (no touch or noisy transition)
-        if !(100..=4000).contains(&raw_x) || !(100..=4000).contains(&raw_y) {
+        if self.swap_xy {
+            (raw_y, raw_x)
+        } else {
+            (raw_x, raw_y)
+        }
+    }
+
+    /// Read raw 12-bit X and Y without noise rejection.
+    ///
+    /// Useful for noise-floor discovery during calibration.
+    pub fn read_raw_unfiltered(&mut self) -> (u16, u16) {
+        self.sample()
+    }
+
+    /// Read raw 12-bit X and Y with multi-sample averaging and noise rejection.
+    pub fn read_raw(&mut self) -> Option<(u16, u16)> {
+        let (raw_x, raw_y) = self.sample();
+
+        if !(self.reject_lo..=self.reject_hi).contains(&raw_x)
+            || !(self.reject_lo..=self.reject_hi).contains(&raw_y)
+        {
             return None;
         }
 
@@ -118,11 +178,25 @@ where
     }
 
     /// Map a value from one range to another.
+    ///
+    /// Handles inverted input ranges (in_min > in_max) so that calibration
+    /// works even when a raw touch axis runs opposite to the screen axis.
     fn map_range(val: u16, in_min: u16, in_max: u16, out_min: u16, out_max: u16) -> u16 {
-        let val = val.clamp(in_min, in_max);
-        let in_range = (in_max - in_min) as u32;
-        let out_range = (out_max - out_min) as u32;
-        (out_min as u32 + (val - in_min) as u32 * out_range / in_range.max(1)) as u16
+        let (lo, hi) = if in_min <= in_max {
+            (in_min, in_max)
+        } else {
+            (in_max, in_min)
+        };
+        let val = val.clamp(lo, hi) as i32;
+        let in_min = in_min as i32;
+        let in_max = in_max as i32;
+        let in_range = in_max - in_min; // may be negative
+        let out_range = out_max as i32 - out_min as i32;
+        if in_range == 0 {
+            return out_min;
+        }
+        let result = out_min as i32 + (val - in_min) * out_range / in_range;
+        result.clamp(out_min as i32, out_max as i32) as u16
     }
 
     /// Read calibrated screen coordinates.
