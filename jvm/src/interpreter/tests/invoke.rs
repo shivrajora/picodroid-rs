@@ -286,3 +286,142 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
     );
     assert_eq!(result.unwrap(), Some(Value::Int(1)));
 }
+
+// ── invokedynamic (lambda) tests ──────────────────────────────────────────
+
+// Class "Target" extends Object, static method lambda$test$0()I → iconst_3, ireturn.
+//
+// CP (cp_count=8, entries #1..#7):
+//   #1: Class -> #2 (Target)
+//   #2: Utf8 "Target"
+//   #3: Class -> #4 (java/lang/Object)
+//   #4: Utf8 "java/lang/Object"
+//   #5: Utf8 "lambda$test$0"
+//   #6: Utf8 "()I"
+//   #7: Utf8 "Code"
+static CLASS_TARGET_LAMBDA: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, // cp_count=8
+    0x07, 0x00, 0x02, // #1 Class -> #2
+    0x01, 0x00, 0x06, b'T', b'a', b'r', b'g', b'e', b't', // #2 Utf8 "Target"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x0D, b'l', b'a', b'm', b'b', b'd', b'a', b'$', b't', b'e', b's', b't', b'$',
+    b'0', // #5 Utf8 "lambda$test$0"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #6 Utf8 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: access=0x0008 (static), name=#5, desc=#6, attrs=1
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code attr: name=#7, attr_len=14
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x0E, // max_stack=1, max_locals=0, code_len=2
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // iconst_3, ireturn
+    0x06, 0xAC, // exc_table=0, code_attrs=0
+    0x00, 0x00, 0x00, 0x00, // class attrs=0
+    0x00, 0x00,
+];
+
+// Class "LambdaCaller" extends Object, static method m()I.
+// Bytecode: invokedynamic → create lambda proxy, astore_0, aload_0,
+//           invokeinterface Func.call()I, ireturn.
+//
+// CP (cp_count=26, entries #1..#25):
+//   #1:  Class -> #2 (LambdaCaller)
+//   #2:  Utf8 "LambdaCaller"
+//   #3:  Class -> #4 (java/lang/Object)
+//   #4:  Utf8 "java/lang/Object"
+//   #5:  Utf8 "m"
+//   #6:  Utf8 "()I"
+//   #7:  Utf8 "Code"
+//   #8:  Utf8 "call"
+//   #9:  Utf8 "()LFunc;"
+//   #10: Utf8 "Target"
+//   #11: Utf8 "lambda$test$0"
+//   #12: Utf8 "Func"
+//   #13: Utf8 "BootstrapMethods"
+//   #14: Class -> #10 (Target)
+//   #15: Class -> #12 (Func)
+//   #16: NameAndType -> #8, #9 (call:()LFunc;)
+//   #17: NameAndType -> #11, #6 (lambda$test$0:()I)
+//   #18: NameAndType -> #8, #6 (call:()I)
+//   #19: Methodref -> #14, #17 (Target.lambda$test$0:()I)
+//   #20: InterfaceMethodref -> #15, #18 (Func.call:()I)
+//   #21: MethodHandle ref_kind=6, ref_idx=#19 (impl method)
+//   #22: MethodHandle ref_kind=6, ref_idx=#19 (BSM, unused)
+//   #23: MethodType -> #6 (samMethodType)
+//   #24: MethodType -> #6 (instantiatedMethodType)
+//   #25: InvokeDynamic -> bsm_idx=0, nat_idx=#16
+//
+// BootstrapMethods: 1 entry → method_ref=#22, args=[#23, #21, #24]
+static CLASS_CALLER_INVOKEDYNAMIC: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // cp_count = 26
+    0x00, 0x1A, // #1: Class -> #2
+    0x07, 0x00, 0x02, // #2: Utf8 "LambdaCaller" (12)
+    0x01, 0x00, 0x0C, b'L', b'a', b'm', b'b', b'd', b'a', b'C', b'a', b'l', b'l', b'e', b'r',
+    // #3: Class -> #4
+    0x07, 0x00, 0x04, // #4: Utf8 "java/lang/Object" (16)
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #5: Utf8 "m" (1)
+    0x01, 0x00, 0x01, b'm', // #6: Utf8 "()I" (3)
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #7: Utf8 "Code" (4)
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #8: Utf8 "call" (4)
+    0x01, 0x00, 0x04, b'c', b'a', b'l', b'l', // #9: Utf8 "()LFunc;" (8)
+    0x01, 0x00, 0x08, b'(', b')', b'L', b'F', b'u', b'n', b'c', b';',
+    // #10: Utf8 "Target" (6)
+    0x01, 0x00, 0x06, b'T', b'a', b'r', b'g', b'e', b't',
+    // #11: Utf8 "lambda$test$0" (13)
+    0x01, 0x00, 0x0D, b'l', b'a', b'm', b'b', b'd', b'a', b'$', b't', b'e', b's', b't', b'$', b'0',
+    // #12: Utf8 "Func" (4)
+    0x01, 0x00, 0x04, b'F', b'u', b'n', b'c', // #13: Utf8 "BootstrapMethods" (16)
+    0x01, 0x00, 0x10, b'B', b'o', b'o', b't', b's', b't', b'r', b'a', b'p', b'M', b'e', b't', b'h',
+    b'o', b'd', b's', // #14: Class -> #10 (Target)
+    0x07, 0x00, 0x0A, // #15: Class -> #12 (Func)
+    0x07, 0x00, 0x0C, // #16: NameAndType -> #8, #9 (call : ()LFunc;)
+    0x0C, 0x00, 0x08, 0x00, 0x09, // #17: NameAndType -> #11, #6 (lambda$test$0 : ()I)
+    0x0C, 0x00, 0x0B, 0x00, 0x06, // #18: NameAndType -> #8, #6 (call : ()I)
+    0x0C, 0x00, 0x08, 0x00, 0x06,
+    // #19: Methodref -> #14, #17 (Target.lambda$test$0:()I)
+    0x0A, 0x00, 0x0E, 0x00, 0x11, // #20: InterfaceMethodref -> #15, #18 (Func.call:()I)
+    0x0B, 0x00, 0x0F, 0x00, 0x12,
+    // #21: MethodHandle ref_kind=6 (REF_invokeStatic), ref_idx=#19
+    0x0F, 0x06, 0x00, 0x13,
+    // #22: MethodHandle ref_kind=6, ref_idx=#19 (BSM handle, unused by our impl)
+    0x0F, 0x06, 0x00, 0x13, // #23: MethodType -> #6 (()I)
+    0x10, 0x00, 0x06, // #24: MethodType -> #6 (()I)
+    0x10, 0x00, 0x06, // #25: InvokeDynamic -> bsm_idx=0, nat_idx=#16
+    0x12, 0x00, 0x00, 0x00, 0x10, // access_flags = 0x0001
+    0x00, 0x01, // this_class = #1
+    0x00, 0x01, // super_class = #3
+    0x00, 0x03, // interfaces_count = 0
+    0x00, 0x00, // fields_count = 0
+    0x00, 0x00, // methods_count = 1
+    0x00, 0x01, // method: access=0x0008 (static), name=#5 (m), desc=#6 (()I), attrs=1
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code attr: name=#7, attr_length=25
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x19, // max_stack=1, max_locals=1, code_length=13
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0D, // bytecode:
+    0xBA, 0x00, 0x19, 0x00, 0x00, // invokedynamic #25, 0, 0
+    0x3B, // astore_0
+    0x2A, // aload_0
+    0xB9, 0x00, 0x14, 0x01, 0x00, // invokeinterface #20, count=1, 0
+    0xAC, // ireturn
+    // exception_table_length = 0
+    0x00, 0x00, // Code inner attributes_count = 0
+    0x00, 0x00, // class attributes_count = 1
+    0x00, 0x01, // BootstrapMethods attr: name_index=#13, attr_length=12
+    0x00, 0x0D, 0x00, 0x00, 0x00, 0x0C, // num_bootstrap_methods = 1
+    0x00, 0x01, // BSM entry 0: method_ref=#22, num_args=3, args=[#23, #21, #24]
+    0x00, 0x16, 0x00, 0x03, 0x00, 0x17, 0x00, 0x15, 0x00, 0x18,
+];
+
+#[test]
+fn invokedynamic_creates_lambda_proxy_and_dispatches() {
+    // Target has static lambda$test$0()I → returns 3.
+    // LambdaCaller.m()I uses invokedynamic to create a Func proxy,
+    // calls Func.call()I on it via invokeinterface → should return 3.
+    let result = run_multi(
+        &[CLASS_TARGET_LAMBDA, CLASS_CALLER_INVOKEDYNAMIC],
+        1, // LambdaCaller is at index 1
+        &[],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(3)));
+}

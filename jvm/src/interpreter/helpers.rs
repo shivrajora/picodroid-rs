@@ -271,6 +271,18 @@ pub(super) fn find_method_virtual(
     }
 }
 
+/// Extract the class name from the return type of a method descriptor.
+/// e.g. `"()Ljava/lang/Runnable;"` → `Some("java/lang/Runnable")`.
+pub(super) fn descriptor_return_class(desc: &str) -> Option<&str> {
+    let ret_start = desc.find(')')? + 1;
+    let rest = &desc[ret_start..];
+    if rest.starts_with('L') && rest.ends_with(';') {
+        Some(&rest[1..rest.len() - 1])
+    } else {
+        None
+    }
+}
+
 /// Returns a &'static str for a class name. For user-defined classes (loaded into `classes`),
 /// returns the Flash-backed name directly. Falls back to a hardcoded list for native classes.
 pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'static str {
@@ -297,6 +309,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/lang/Float" => "java/lang/Float",
         "java/lang/Double" => "java/lang/Double",
         "java/util/ArrayList" => "java/util/ArrayList",
+        "java/lang/Runnable" => "java/lang/Runnable",
         "picodroid/view/View" => "picodroid/view/View",
         "picodroid/view/MotionEvent" => "picodroid/view/MotionEvent",
         "picodroid/graphics/Display" => "picodroid/graphics/Display",

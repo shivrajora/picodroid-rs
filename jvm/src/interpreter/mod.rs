@@ -250,7 +250,7 @@ pub fn execute<H: NativeMethodHandler>(
                 ex.op_control(opcode, code, frame)
             }
             0xb2..=0xb5 => ex.op_fields(opcode, code, frame),
-            0xb6..=0xb9 => ex.op_invoke(opcode, code, frame),
+            0xb6..=0xba => ex.op_invoke(opcode, code, frame),
             0xbb => ex.op_new(code, frame),
             0xbc..=0xbe => ex.op_array_alloc(opcode, code, frame),
             0xbf => ex.op_athrow(frame),

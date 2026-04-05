@@ -150,6 +150,13 @@ pub fn collect(
                         }
                     }
                 }
+
+                // Lambda proxy: scan captured values for references
+                if let Some(lambda) = objects.get_lambda(idx) {
+                    for v in &lambda.captures {
+                        push_ref(work, v);
+                    }
+                }
             }
             GcRef::Array(idx) => {
                 if is_marked(arr_marks, idx) {
@@ -187,6 +194,7 @@ pub fn collect(
                     objects.list_free(buf_idx as u16);
                 }
             }
+            objects.free_lambda(i);
             objects.free(i);
             freed += 1;
         }

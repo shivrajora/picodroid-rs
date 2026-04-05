@@ -67,12 +67,21 @@ impl JvmObject {
     }
 }
 
+/// Metadata for a lambda proxy object created by `invokedynamic`.
+pub struct LambdaProxy {
+    pub target_class_idx: usize,
+    pub target_method_idx: usize,
+    pub captures: Vec<Value>,
+}
+
 pub struct ObjectHeap {
     objects: Vec<Option<JvmObject>>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     first_free: usize,
     sb_buf: Vec<u8>,
     list_bufs: Vec<Option<Vec<Value>>>,
+    /// Sparse list of lambda proxy metadata, keyed by object index.
+    lambda_proxies: Vec<(u16, LambdaProxy)>,
 }
 
 impl ObjectHeap {
@@ -82,6 +91,7 @@ impl ObjectHeap {
             first_free: 0,
             sb_buf: Vec::new(),
             list_bufs: Vec::new(),
+            lambda_proxies: Vec::new(),
         }
     }
 }
@@ -187,7 +197,27 @@ impl ObjectHeap {
         &self.sb_buf
     }
 
-    // ── GC support ────────────────────────────────────────────────────────────
+    // ── Lambda proxy support ──────────────────────────────────────────────────
+
+    /// Associate a lambda proxy with an existing heap object.
+    pub fn register_lambda(&mut self, obj_idx: u16, proxy: LambdaProxy) {
+        self.lambda_proxies.push((obj_idx, proxy));
+    }
+
+    /// Look up the lambda proxy metadata for an object, if any.
+    pub fn get_lambda(&self, obj_idx: u16) -> Option<&LambdaProxy> {
+        self.lambda_proxies
+            .iter()
+            .find(|(idx, _)| *idx == obj_idx)
+            .map(|(_, proxy)| proxy)
+    }
+
+    /// Remove the lambda proxy entry for an object (called from GC sweep).
+    pub fn free_lambda(&mut self, obj_idx: u16) {
+        self.lambda_proxies.retain(|(idx, _)| *idx != obj_idx);
+    }
+
+    // ── GC support ────────────────���─────────────────────────────��─────────────
 
     /// Total number of slots (including freed `None` slots).
     pub fn slot_count(&self) -> usize {

@@ -2,6 +2,7 @@ use super::{helpers, Executor};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
+    object_heap::LambdaProxy,
     types::{JvmError, Value},
 };
 use alloc::vec::Vec;
@@ -13,6 +14,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         code: &[u8],
         frame: &mut Frame,
     ) -> Result<(), JvmError> {
+        // invokedynamic (0xBA) has a completely different format — handle separately.
+        if opcode == 0xba {
+            return self.op_invokedynamic(code, frame);
+        }
+
         let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
         frame.pc += 2;
         // invokeinterface has 2 extra bytes: count (arg count hint) and a reserved 0 byte
@@ -56,6 +62,37 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         } else {
             class_str
         };
+
+        // Lambda proxy intercept: if receiver is a lambda, dispatch to the target method directly.
+        if is_virtual {
+            let stack_len = frame.stack.len();
+            if stack_len >= arg_count {
+                if let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] {
+                    if let Some(lambda) = self.objects.get_lambda(obj_idx) {
+                        let target_ci = lambda.target_class_idx;
+                        let target_mi = lambda.target_method_idx;
+                        let captures: Vec<Value> = lambda.captures.clone();
+
+                        // Pop all args (including "this")
+                        let start = stack_len - arg_count;
+                        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
+                        frame.stack.truncate(start);
+
+                        // Build actual args: captures first, then interface method args
+                        let mut actual_args = captures;
+                        actual_args.extend_from_slice(&method_args);
+
+                        let is_native = self.classes[target_ci].methods[target_mi].code_offset == 0;
+                        if is_native {
+                            return Err(JvmError::NoSuchMethod);
+                        }
+                        let new_frame = Frame::new(target_ci, target_mi, &actual_args)?;
+                        self.pending_frame = Some(new_frame);
+                        return Ok(());
+                    }
+                }
+            }
+        }
 
         // Resolve method
         let resolved = if is_virtual {
@@ -115,6 +152,93 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             Ok(())
         }
+    }
+
+    /// Handle `invokedynamic` (0xBA) for lambda expressions.
+    fn op_invokedynamic(&mut self, code: &[u8], frame: &mut Frame) -> Result<(), JvmError> {
+        let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+        frame.pc += 4; // skip index (2) + padding (2)
+
+        let cf = &self.classes[frame.class_idx];
+
+        // 1. Resolve CONSTANT_InvokeDynamic -> (bootstrap_idx, name_and_type_idx)
+        let (bsm_idx, nat_idx) = cf
+            .cp_invoke_dynamic(cp_idx)
+            .ok_or(JvmError::InvalidBytecode)?;
+
+        // 2. Get the NameAndType to know the factory descriptor (return type = functional interface)
+        let (_name_bytes, desc_bytes) = cf
+            .cp_name_and_type(nat_idx)
+            .ok_or(JvmError::InvalidBytecode)?;
+        let factory_desc =
+            core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+
+        // 3. Get the BootstrapMethod entry
+        let bsm = cf
+            .bootstrap_methods
+            .get(bsm_idx as usize)
+            .ok_or(JvmError::InvalidBytecode)?;
+
+        // 4. Bootstrap arguments for LambdaMetafactory:
+        //    [0] = MethodType (samMethodType)
+        //    [1] = MethodHandle (implMethod) — the target lambda$ method
+        //    [2] = MethodType (instantiatedMethodType)
+        let impl_method_cp = *bsm.arguments.get(1).ok_or(JvmError::InvalidBytecode)?;
+        let (_ref_kind, ref_idx) = cf
+            .cp_method_handle(impl_method_cp)
+            .ok_or(JvmError::InvalidBytecode)?;
+
+        // 5. Resolve the MethodHandle's Methodref to find the target method
+        let (target_class_bytes, target_name_bytes, target_desc_bytes) =
+            cf.cp_methodref(ref_idx).ok_or(JvmError::InvalidBytecode)?;
+        let target_class =
+            core::str::from_utf8(target_class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+        let target_name =
+            core::str::from_utf8(target_name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+        let target_desc =
+            core::str::from_utf8(target_desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+
+        let (target_ci, target_mi) =
+            helpers::find_method(self.classes, target_class, target_name, target_desc)
+                .ok_or(JvmError::NoSuchMethod)?;
+
+        // 6. Pop captured values from the operand stack
+        let capture_count = helpers::count_args(factory_desc);
+        let stack_len = frame.stack.len();
+        let captures: Vec<Value> = if capture_count > 0 {
+            let start = stack_len
+                .checked_sub(capture_count)
+                .ok_or(JvmError::StackUnderflow)?;
+            let caps = frame.stack[start..].to_vec();
+            frame.stack.truncate(start);
+            caps
+        } else {
+            Vec::new()
+        };
+
+        // 7. Allocate a proxy object with the functional interface class name
+        let iface_class =
+            helpers::descriptor_return_class(factory_desc).ok_or(JvmError::InvalidBytecode)?;
+        let static_name = helpers::class_name_to_static_in(self.classes, iface_class);
+        let obj_idx = self
+            .objects
+            .alloc(static_name)
+            .ok_or(JvmError::StackOverflow)?;
+        self.alloc_count = self.alloc_count.saturating_add(1);
+
+        // 8. Register lambda metadata
+        self.objects.register_lambda(
+            obj_idx,
+            LambdaProxy {
+                target_class_idx: target_ci,
+                target_method_idx: target_mi,
+                captures,
+            },
+        );
+
+        // 9. Push the proxy object reference
+        frame.push(Value::ObjectRef(obj_idx))?;
+        Ok(())
     }
 
     /// Dispatch a native method call through the handler chain.

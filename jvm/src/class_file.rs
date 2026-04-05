@@ -10,6 +10,18 @@ const TAG_STRING: u8 = 8;
 const TAG_FIELDREF: u8 = 9;
 const TAG_METHODREF: u8 = 10;
 const TAG_NAME_AND_TYPE: u8 = 12;
+const TAG_METHOD_HANDLE: u8 = 15;
+const TAG_METHOD_TYPE: u8 = 16;
+const TAG_INVOKE_DYNAMIC: u8 = 18;
+
+/// One entry in the BootstrapMethods class attribute.
+#[derive(Debug, Clone)]
+pub struct BootstrapMethod {
+    /// CP index of CONSTANT_MethodHandle for the bootstrap method.
+    pub method_ref: u16,
+    /// CP indices of the bootstrap arguments.
+    pub arguments: Vec<u16>,
+}
 
 /// One entry in a method's exception table (try/catch region).
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +75,7 @@ pub struct ClassFile {
     pub access_flags: u16,           // ACC_INTERFACE=0x0200, ACC_ABSTRACT=0x0400, etc.
     #[allow(dead_code)]
     pub interfaces: Vec<u16>, // Utf8 indices for each implemented interface name
+    pub bootstrap_methods: Vec<BootstrapMethod>, // BootstrapMethods attribute entries
 }
 
 struct Cursor<'a> {
@@ -335,6 +348,42 @@ impl ClassFile {
             });
         }
 
+        // Parse class-level attributes (looking for BootstrapMethods)
+        let mut bootstrap_methods: Vec<BootstrapMethod> = Vec::new();
+        let class_attr_count = c.u16().ok_or("truncated")? as usize;
+        for _ in 0..class_attr_count {
+            let attr_name_idx = c.u16().ok_or("truncated")?;
+            let attr_len = c.u32().ok_or("truncated")? as usize;
+            let attr_start = c.pos();
+
+            let is_bootstrap = {
+                let ni = attr_name_idx as usize;
+                cp_tags.get(ni) == Some(&TAG_UTF8) && {
+                    let off = cp_offsets[ni];
+                    let slen = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+                    data.get(off + 2..off + 2 + slen) == Some(b"BootstrapMethods")
+                }
+            };
+
+            if is_bootstrap {
+                let num_methods = c.u16().ok_or("truncated")? as usize;
+                for _ in 0..num_methods {
+                    let method_ref = c.u16().ok_or("truncated")?;
+                    let num_args = c.u16().ok_or("truncated")? as usize;
+                    let mut arguments = Vec::with_capacity(num_args);
+                    for _ in 0..num_args {
+                        arguments.push(c.u16().ok_or("truncated")?);
+                    }
+                    bootstrap_methods.push(BootstrapMethod {
+                        method_ref,
+                        arguments,
+                    });
+                }
+            }
+            // Skip to end of attribute (handles both BootstrapMethods and unknown attrs)
+            c.pos = attr_start + attr_len;
+        }
+
         Ok(ClassFile {
             data,
             cp_offsets,
@@ -345,6 +394,7 @@ impl ClassFile {
             fields,
             access_flags,
             interfaces,
+            bootstrap_methods,
         })
     }
 
@@ -568,6 +618,54 @@ impl ClassFile {
             self.data[off + 7],
         ]);
         Some(f64::from_bits(bits))
+    }
+
+    /// Resolves a CONSTANT_NameAndType CP entry to (name_utf8, descriptor_utf8).
+    pub fn cp_name_and_type(&self, index: u16) -> Option<(&'static [u8], &'static [u8])> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_NAME_AND_TYPE) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let name_idx = u16::from_be_bytes([self.data[off], self.data[off + 1]]);
+        let desc_idx = u16::from_be_bytes([self.data[off + 2], self.data[off + 3]]);
+        Some((self.cp_utf8(name_idx)?, self.cp_utf8(desc_idx)?))
+    }
+
+    /// Resolves a CONSTANT_MethodHandle CP entry to (reference_kind, reference_index).
+    pub fn cp_method_handle(&self, index: u16) -> Option<(u8, u16)> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_METHOD_HANDLE) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let ref_kind = self.data[off];
+        let ref_idx = u16::from_be_bytes([self.data[off + 1], self.data[off + 2]]);
+        Some((ref_kind, ref_idx))
+    }
+
+    /// Resolves a CONSTANT_MethodType CP entry to its descriptor Utf8 index.
+    #[allow(dead_code)]
+    pub fn cp_method_type(&self, index: u16) -> Option<u16> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_METHOD_TYPE) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        Some(u16::from_be_bytes([self.data[off], self.data[off + 1]]))
+    }
+
+    /// Resolves a CONSTANT_InvokeDynamic CP entry to
+    /// (bootstrap_method_attr_index, name_and_type_index).
+    pub fn cp_invoke_dynamic(&self, index: u16) -> Option<(u16, u16)> {
+        let i = index as usize;
+        if self.cp_tags.get(i) != Some(&TAG_INVOKE_DYNAMIC) {
+            return None;
+        }
+        let off = self.cp_offsets[i];
+        let bsm_idx = u16::from_be_bytes([self.data[off], self.data[off + 1]]);
+        let nat_idx = u16::from_be_bytes([self.data[off + 2], self.data[off + 3]]);
+        Some((bsm_idx, nat_idx))
     }
 }
 
