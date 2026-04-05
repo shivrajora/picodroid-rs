@@ -112,6 +112,12 @@ pub fn poll_touch(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
 // Tick
 // ---------------------------------------------------------------------------
 
+/// `Display.calibrate()` — runs interactive 4-point touch calibration.
+pub fn calibrate() -> Result<Option<Value>, JvmError> {
+    engine::calibrate();
+    Ok(None)
+}
+
 /// `Display.update()` — advances the LVGL timer and renders dirty regions.
 pub fn update() -> Result<Option<Value>, JvmError> {
     engine::tick(16);

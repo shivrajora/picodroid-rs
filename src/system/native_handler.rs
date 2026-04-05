@@ -269,6 +269,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             ("picodroid/graphics/Display", "update") => {
                 Some(crate::system::picodroid::graphics::display::update())
             }
+            ("picodroid/graphics/Display", "calibrate") => {
+                Some(crate::system::picodroid::graphics::display::calibrate())
+            }
 
             // ── View (base class) ────────────────────────────────────────
             // invokevirtual passes the runtime class name, so inherited View

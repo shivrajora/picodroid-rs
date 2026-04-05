@@ -13,6 +13,7 @@ import picodroid.widget.TextView;
 public class DisplayDemo {
   public static void main() {
     Display display = Display.getInstance();
+    display.calibrate();
     Log.i("DisplayDemo", "Display ready");
 
     // Build the UI tree

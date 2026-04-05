@@ -20,6 +20,8 @@ public class Display {
 
   public native void update();
 
+  public native void calibrate();
+
   public int getWidth() {
     return width;
   }
