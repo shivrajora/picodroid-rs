@@ -90,6 +90,7 @@ mod clinit;
 mod constants;
 mod control;
 mod convert;
+mod exceptions;
 mod fields;
 mod invoke;
 mod locals;
