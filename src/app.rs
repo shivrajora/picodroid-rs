@@ -189,13 +189,21 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();
 
-    if let Some(activity_class) = apk.activity() {
+    if let Some(application_class) = apk.application() {
         // The APK data is &'static [u8] (Flash-backed), so the parsed
-        // activity class name string is also 'static.  Transmute the
-        // lifetime so alloc() can store it in the object heap.
+        // class name string is also 'static.  Transmute the lifetime so
+        // alloc() can store it in the object heap.
+        let static_name: &'static str =
+            unsafe { core::mem::transmute::<&str, &'static str>(application_class) };
+        run_application(&mut jvm, static_name, heap, &mut handler);
+    } else if let Some(activity_class) = apk.activity() {
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
-        run_activity(&mut jvm, static_name, heap, &mut handler);
+        let obj_ref = heap
+            .objects
+            .alloc(static_name)
+            .expect("OOM allocating Activity");
+        run_activity(&mut jvm, static_name, obj_ref, heap, &mut handler);
     } else {
         let main_class = apk
             .main_class()
@@ -215,9 +223,74 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     println!("[sim] JVM wall-clock: {} ms", start.elapsed().as_millis());
 }
 
+// ── Application lifecycle ────────────────────────────────────────────────────
+
+/// Run an Application-based app: allocate the Application object, call
+/// `onCreate()`, then launch a pending Activity if `startActivity()` was called.
+///
+/// In sim mode, the Activity display lifecycle is skipped (no LVGL hardware).
+#[cfg(all(not(test), feature = "sim"))]
+fn run_application(
+    jvm: &mut Jvm,
+    application_class: &'static str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    let obj_ref = heap
+        .objects
+        .alloc(application_class)
+        .expect("OOM allocating Application");
+
+    match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
+        Ok(()) => {}
+        Err(JvmError::Interrupted) => return,
+        Err(e) => {
+            eprintln!("[sim] Application.onCreate error: {:?}", e);
+            return;
+        }
+    }
+
+    if let Some((_activity_ref, activity_class)) = handler.take_pending_activity() {
+        eprintln!(
+            "[sim] startActivity('{}') called; skipping display lifecycle (no display in sim)",
+            activity_class
+        );
+    }
+}
+
+/// Run an Application-based app on real hardware: allocate the Application
+/// object, call `onCreate()`, then launch a pending Activity if
+/// `startActivity()` was called during `onCreate()`.
+#[cfg(not(any(test, feature = "sim")))]
+fn run_application(
+    jvm: &mut Jvm,
+    application_class: &'static str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    let obj_ref = heap
+        .objects
+        .alloc(application_class)
+        .expect("OOM allocating Application");
+
+    match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
+        Ok(()) => {}
+        Err(JvmError::Interrupted) => return,
+        Err(e) => {
+            defmt::error!("Application.onCreate error: {}", defmt::Debug2Format(&e));
+            return;
+        }
+    }
+
+    // If onCreate() called startActivity(), launch the Activity lifecycle.
+    if let Some((activity_ref, activity_class)) = handler.take_pending_activity() {
+        run_activity(jvm, activity_class, activity_ref, heap, handler);
+    }
+}
+
 // ── Activity lifecycle ───────────────────────────────────────────────────────
 
-/// Run an Activity-based app: allocate the Activity object, call `onCreate()`,
+/// Run an Activity-based app: call `onCreate()` on the pre-allocated Activity,
 /// then enter the framework event loop (tick LVGL + dispatch click events).
 ///
 /// In sim mode, LVGL blocks on `lv_display_create` (no real display hardware),
@@ -226,36 +299,28 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 fn run_activity(
     _jvm: &mut Jvm,
     activity_class: &'static str,
-    heap: &mut SharedJvmHeap,
+    obj_ref: u16,
+    _heap: &mut SharedJvmHeap,
     _handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
-    let obj_ref = heap
-        .objects
-        .alloc(activity_class)
-        .expect("OOM allocating Activity");
     eprintln!(
         "[sim] Activity '{}' loaded (obj_ref={}); skipping onCreate + event loop (no display in sim)",
         activity_class, obj_ref
     );
 }
 
-/// Run an Activity-based app on real hardware: allocate the Activity object,
-/// call `onCreate()`, then enter the framework event loop.
+/// Run an Activity-based app on real hardware: call `onCreate()` on the
+/// pre-allocated Activity, then enter the framework event loop.
 #[cfg(not(any(test, feature = "sim")))]
 fn run_activity(
     jvm: &mut Jvm,
     activity_class: &'static str,
+    obj_ref: u16,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     use crate::system::picodroid::graphics::engine;
     use pico_jvm::NativeMethodHandler;
-
-    // Allocate the Activity object on the Java heap.
-    let obj_ref = heap
-        .objects
-        .alloc(activity_class)
-        .expect("OOM allocating Activity");
 
     // Call the subclass's onCreate() — this builds the UI tree and calls
     // setContentView().  Virtual dispatch picks up the override automatically.

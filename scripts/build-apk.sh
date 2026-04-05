@@ -68,6 +68,13 @@ print(root.find("application").get("activity", ""))
 EOF
 )
 
+APPLICATION=$(python3 - "$MANIFEST_FILE" <<'EOF'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+print(root.find("application").get("application", ""))
+EOF
+)
+
 VERSION=$(python3 - "$MANIFEST_FILE" <<'EOF'
 import sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
@@ -75,8 +82,8 @@ print(root.get("version", "1.0"))
 EOF
 )
 
-if [[ -z "$MAIN_CLASS" && -z "$ACTIVITY" ]]; then
-  echo "Error: either 'main-class' or 'activity' must be set in $MANIFEST_FILE" >&2
+if [[ -z "$MAIN_CLASS" && -z "$ACTIVITY" && -z "$APPLICATION" ]]; then
+  echo "Error: either 'main-class', 'activity', or 'application' must be set in $MANIFEST_FILE" >&2
   exit 1
 fi
 
@@ -122,6 +129,9 @@ if [[ -n "$MAIN_CLASS" ]]; then
 fi
 if [[ -n "$ACTIVITY" ]]; then
   PAPK_ARGS+=(--activity "$ACTIVITY")
+fi
+if [[ -n "$APPLICATION" ]]; then
+  PAPK_ARGS+=(--application "$APPLICATION")
 fi
 
 cargo run \

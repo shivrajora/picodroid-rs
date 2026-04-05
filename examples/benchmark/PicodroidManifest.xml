@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="benchmark" version="1.0">
-    <application main-class="benchmark/Benchmark" />
+    <application application="benchmark/Benchmark" />
 </manifest>

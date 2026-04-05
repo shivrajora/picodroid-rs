@@ -28,6 +28,7 @@ const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
 struct Args {
     main_class: Option<String>,
     activity: Option<String>,
+    application: Option<String>,
     package_name: String,
     version: String,
     classes_dir: PathBuf,
@@ -38,6 +39,7 @@ fn parse_args() -> Result<Args, String> {
     let args: Vec<String> = std::env::args().collect();
     let mut main_class = None;
     let mut activity = None;
+    let mut application = None;
     let mut package_name = None;
     let mut version = None;
     let mut classes_dir = None;
@@ -53,6 +55,10 @@ fn parse_args() -> Result<Args, String> {
             "--activity" => {
                 i += 1;
                 activity = Some(args.get(i).ok_or("--activity requires a value")?.clone());
+            }
+            "--application" => {
+                i += 1;
+                application = Some(args.get(i).ok_or("--application requires a value")?.clone());
             }
             "--package-name" => {
                 i += 1;
@@ -89,13 +95,14 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    if main_class.is_none() && activity.is_none() {
-        return Err("either --main-class or --activity is required".into());
+    if main_class.is_none() && activity.is_none() && application.is_none() {
+        return Err("either --main-class, --activity, or --application is required".into());
     }
 
     Ok(Args {
         main_class,
         activity,
+        application,
         package_name: package_name.ok_or("--package-name is required")?,
         version: version.ok_or("--version is required")?,
         classes_dir: classes_dir.ok_or("--classes-dir is required")?,
@@ -108,12 +115,13 @@ fn print_usage() {
         "Usage: papk-pack \\\n\
          \x20 [--main-class <jvm/ClassName>] \\\n\
          \x20 [--activity <jvm/ClassName>] \\\n\
+         \x20 [--application <jvm/ClassName>] \\\n\
          \x20 --package-name <name> \\\n\
          \x20 --version <x.y> \\\n\
          \x20 --classes-dir <dir> \\\n\
          \x20 --output <file.papk>\n\
          \n\
-         Either --main-class or --activity (or both) must be provided."
+         At least one of --main-class, --activity, or --application must be provided."
     );
 }
 
@@ -173,6 +181,7 @@ fn write_str_u16(buf: &mut Vec<u8>, s: &str) {
 fn build_manifest_data(
     main_class: Option<&str>,
     activity: Option<&str>,
+    application: Option<&str>,
     package_name: &str,
     version: &str,
 ) -> Vec<u8> {
@@ -184,6 +193,10 @@ fn build_manifest_data(
     if let Some(act) = activity {
         write_str_u16(&mut data, "activity");
         write_str_u16(&mut data, act);
+    }
+    if let Some(app) = application {
+        write_str_u16(&mut data, "application");
+        write_str_u16(&mut data, app);
     }
     write_str_u16(&mut data, "package-name");
     write_str_u16(&mut data, package_name);
@@ -217,11 +230,13 @@ fn build_section_header(tag: u32, data_len: u32) -> Vec<u8> {
 fn build_papk(
     main_class: Option<&str>,
     activity: Option<&str>,
+    application: Option<&str>,
     package_name: &str,
     version: &str,
     classes: &[(String, Vec<u8>)],
 ) -> Vec<u8> {
-    let manifest_data = build_manifest_data(main_class, activity, package_name, version);
+    let manifest_data =
+        build_manifest_data(main_class, activity, application, package_name, version);
     let classes_data = build_classes_data(classes);
 
     let manifest_hdr = build_section_header(TAG_MANIFEST, manifest_data.len() as u32);
@@ -293,6 +308,7 @@ fn main() {
     let papk = build_papk(
         args.main_class.as_deref(),
         args.activity.as_deref(),
+        args.application.as_deref(),
         &args.package_name,
         &args.version,
         &classes,

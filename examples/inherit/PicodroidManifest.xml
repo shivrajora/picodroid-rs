@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="inherit" version="1.0">
-    <application main-class="inherit/InheritDemo" />
+    <application application="inherit/InheritDemo" />
 </manifest>

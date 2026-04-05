@@ -1,11 +1,12 @@
 package mathsdemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class MathsDemo {
+public class MathsDemo extends Application {
   private static final String TAG = "MathsDemo";
 
-  public static void main() {
+  public void onCreate() {
     // ── Integer arithmetic ─────────────────────────────────────────────────
     int a = 10, b = 3;
     Log.i(TAG, "10 - 3 = " + (a - b)); // isub

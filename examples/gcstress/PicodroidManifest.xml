@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="gcstress" version="1.0">
-    <application main-class="gcstress/GcStress" />
+    <application application="gcstress/GcStress" />
 </manifest>

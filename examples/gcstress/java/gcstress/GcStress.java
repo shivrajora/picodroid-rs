@@ -1,11 +1,12 @@
 package gcstress;
 
 import java.util.ArrayList;
+import picodroid.app.Application;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
-public class GcStress {
+public class GcStress extends Application {
   private static final String TAG = "GcStress";
 
   // Sinks to prevent dead-code elimination.
@@ -13,7 +14,7 @@ public class GcStress {
   static Object sink;
   static Node retained;
 
-  public static void main(String[] args) {
+  public void onCreate() {
     Log.i(TAG, "=== GC Stress Test ===");
     long total = 0;
     long t;

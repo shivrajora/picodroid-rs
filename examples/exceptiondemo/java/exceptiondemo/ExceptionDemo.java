@@ -1,8 +1,9 @@
 package exceptiondemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class ExceptionDemo {
+public class ExceptionDemo extends Application {
 
   /** Throws AppException when x is negative, logs otherwise. */
   static void riskyMethod(int x) throws AppException {
@@ -12,7 +13,7 @@ public class ExceptionDemo {
     Log.i("ExceptionDemo", "no exception");
   }
 
-  public static void main(String[] args) {
+  public void onCreate() {
     // 1. Exception thrown and caught in the same frame.
     try {
       riskyMethod(-1);

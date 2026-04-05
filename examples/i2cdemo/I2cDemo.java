@@ -1,5 +1,6 @@
 package i2cdemo;
 
+import picodroid.app.Application;
 import picodroid.pio.I2cDevice;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
@@ -11,8 +12,8 @@ import picodroid.util.Log;
  * by attempting a zero-byte write. A device that acknowledges is logged; one that NACKs is skipped
  * silently.
  */
-public class I2cDemo {
-  public static void main() {
+public class I2cDemo extends Application {
+  public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     I2cDevice i2c = pm.openI2cDevice("I2C0");
 

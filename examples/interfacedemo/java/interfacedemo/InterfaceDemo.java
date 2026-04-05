@@ -1,7 +1,9 @@
 package interfacedemo;
 
-public class InterfaceDemo {
-  public static void main(String[] args) {
+import picodroid.app.Application;
+
+public class InterfaceDemo extends Application {
+  public void onCreate() {
     // invokeinterface: dispatch speak() through the Speakable interface reference
     Speakable d = new Dog();
     d.speak(); // Dog extends Animal, Animal.speak() logs "sound=1"

@@ -1,9 +1,10 @@
 package benchmark;
 
+import picodroid.app.Application;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
-public class Benchmark {
+public class Benchmark extends Application {
   private static final String TAG = "Benchmark";
   private static final int ITER_INT = 500000;
   private static final int ITER_LONG = 200000;
@@ -22,7 +23,7 @@ public class Benchmark {
   static double sinkDouble;
   static Object sinkObj;
 
-  public static void main(String[] args) {
+  public void onCreate() {
     Log.i(TAG, "--- picodroid JVM benchmark ---");
     long total = 0;
     long t;

@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="i2cdemo" version="1.0">
-    <application main-class="i2cdemo/I2cDemo" />
+    <application application="i2cdemo/I2cDemo" />
 </manifest>

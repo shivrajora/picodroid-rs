@@ -1,5 +1,6 @@
 package clinitdemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
 /**
@@ -8,7 +9,7 @@ import picodroid.util.Log;
  * <p>Exercises field initializers, static blocks, string constants, cross-class clinit chaining,
  * and verifies clinit runs only once.
  */
-public class ClinitDemo {
+public class ClinitDemo extends Application {
   private static final String TAG = "ClinitDemo";
   private static int X = 42;
   private static int Y;
@@ -17,7 +18,7 @@ public class ClinitDemo {
     Y = 100;
   }
 
-  public static void main() {
+  public void onCreate() {
     Log.i(TAG, "Field init: X = " + X);
     Log.i(TAG, "Static block: Y = " + Y);
     Log.i(TAG, "String constant: TAG = " + TAG);

@@ -1,9 +1,10 @@
 package helloworld;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class HelloWorld {
-  public static void main(String[] args) {
+public class HelloWorld extends Application {
+  public void onCreate() {
     Log.i("HelloWorld", "Hello, World!");
   }
 }

@@ -9,6 +9,7 @@ pub struct PicodroidNativeHandler {
     gc_time_ns: u64,
     gc_count: u32,
     gc_freed: u32,
+    pending_activity: Option<(u16, &'static str)>,
 }
 
 impl PicodroidNativeHandler {
@@ -17,7 +18,12 @@ impl PicodroidNativeHandler {
             gc_time_ns: 0,
             gc_count: 0,
             gc_freed: 0,
+            pending_activity: None,
         }
+    }
+
+    pub fn take_pending_activity(&mut self) -> Option<(u16, &'static str)> {
+        self.pending_activity.take()
     }
 }
 
@@ -251,6 +257,21 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.gc_time_ns = 0;
                 self.gc_count = 0;
                 self.gc_freed = 0;
+                Some(Ok(None))
+            }
+            // ── Application ──────────────────────────────────────────────
+            // Match any class name: invokevirtual dispatches with the runtime
+            // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
+            // class "picodroid/app/Application".
+            (_, "startActivity") => {
+                // args[0] = this (Application), args[1] = activity ObjectRef
+                if let Some(Value::ObjectRef(activity_ref)) = ctx.args.get(1) {
+                    let class_name = ctx.objects.class_name(*activity_ref).unwrap_or("unknown");
+                    // SAFETY: class names from ObjectHeap are Flash-backed &'static str.
+                    let static_name: &'static str =
+                        unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
+                    self.pending_activity = Some((*activity_ref, static_name));
+                }
                 Some(Ok(None))
             }
             // ── Display ───────────────────────────────────────────────────

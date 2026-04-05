@@ -310,6 +310,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/lang/Double" => "java/lang/Double",
         "java/util/ArrayList" => "java/util/ArrayList",
         "java/lang/Runnable" => "java/lang/Runnable",
+        "picodroid/app/Application" => "picodroid/app/Application",
         "picodroid/view/View" => "picodroid/view/View",
         "picodroid/view/MotionEvent" => "picodroid/view/MotionEvent",
         "picodroid/graphics/Display" => "picodroid/graphics/Display",

@@ -1,11 +1,12 @@
 package trywithresourcesdemo;
 
+import picodroid.app.Application;
 import picodroid.pio.Adc;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 
-public class TryWithResourcesDemo {
-  public static void main() {
+public class TryWithResourcesDemo extends Application {
+  public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
 
     try (Adc adc = pm.openAdcPin("GP26")) {

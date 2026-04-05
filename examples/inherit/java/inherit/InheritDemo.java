@@ -1,9 +1,10 @@
 package inherit;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class InheritDemo {
-  public static void main(String[] args) {
+public class InheritDemo extends Application {
+  public void onCreate() {
     Dog d = new Dog();
 
     // invokevirtual Dog.speak() — overridden in Dog: sound*10 + tricks = 1*10+3 = 13

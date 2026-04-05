@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="helloworld" version="1.0">
-    <application main-class="helloworld/HelloWorld" />
+    <application application="helloworld/HelloWorld" />
 </manifest>

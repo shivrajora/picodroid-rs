@@ -1,11 +1,12 @@
 package stringdemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class StringDemo {
+public class StringDemo extends Application {
   private static final String TAG = "StringDemo";
 
-  public static void main() {
+  public void onCreate() {
     // ── Basic ──────────────────────────────────────────────────────────────
     String s = "Hello, Pico!";
     Log.i(TAG, "length=" + s.length()); // 12

@@ -1,12 +1,13 @@
 package blinky;
 
+import picodroid.app.Application;
 import picodroid.os.SystemClock;
 import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 
-public class LedBlink {
-  public static void main(String[] args) {
+public class LedBlink extends Application {
+  public void onCreate() {
     Log.i("HelloWorld", "Hello, World!");
 
     PeripheralManager manager = PeripheralManager.getInstance();

@@ -1,12 +1,13 @@
 package listdemo;
 
 import java.util.ArrayList;
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class ListDemo {
+public class ListDemo extends Application {
   private static final String TAG = "ListDemo";
 
-  public static void main() {
+  public void onCreate() {
     // ── String list ───────────────────────────────────────────────────────────
     ArrayList list = new ArrayList();
     list.add("alpha");

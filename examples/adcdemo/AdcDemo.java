@@ -1,5 +1,6 @@
 package adcdemo;
 
+import picodroid.app.Application;
 import picodroid.pio.Adc;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
@@ -11,8 +12,8 @@ import picodroid.util.Log;
  * hardware, connect a potentiometer or voltage source (0–3.3 V) to GP26. In simulation, a fixed
  * mid-scale voltage (1.65 V) is returned.
  */
-public class AdcDemo {
-  public static void main() {
+public class AdcDemo extends Application {
+  public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     Adc adc = pm.openAdcPin("GP26");
 

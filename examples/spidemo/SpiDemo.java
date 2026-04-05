@@ -1,5 +1,6 @@
 package spidemo;
 
+import picodroid.app.Application;
 import picodroid.pio.PeripheralManager;
 import picodroid.pio.SpiDevice;
 import picodroid.util.Log;
@@ -11,8 +12,8 @@ import picodroid.util.Log;
  * transfer. If MISO is wired to MOSI (loopback), received bytes match sent bytes. Without loopback,
  * received bytes will be 0x00.
  */
-public class SpiDemo {
-  public static void main() {
+public class SpiDemo extends Application {
+  public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     SpiDevice spi = pm.openSpiDevice("SPI0");
 

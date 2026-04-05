@@ -1,5 +1,6 @@
 package pwmdemo;
 
+import picodroid.app.Application;
 import picodroid.os.SystemClock;
 import picodroid.pio.PeripheralManager;
 import picodroid.pio.Pwm;
@@ -12,8 +13,8 @@ import picodroid.util.Log;
  * to 100% and back, three times. On hardware, the onboard LED will visibly breathe. In simulation,
  * the duty cycle changes are logged to the console.
  */
-public class PwmDemo {
-  public static void main() {
+public class PwmDemo extends Application {
+  public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     Pwm pwm = pm.openPwm("GP25");
 

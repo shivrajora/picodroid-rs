@@ -1,9 +1,10 @@
 package floatdemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class FloatDemo {
-  public static void main(String[] args) {
+public class FloatDemo extends Application {
+  public void onCreate() {
     // float arithmetic (fmul, f2i)
     float x = 3.0f;
     float y = 2.0f;

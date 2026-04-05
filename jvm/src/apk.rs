@@ -218,6 +218,12 @@ impl<'a> Papk<'a> {
         self.manifest_value(b"activity")
     }
 
+    /// Returns the `application` value from the MANIFEST section, or `None` if
+    /// the key is absent or its value is not valid UTF-8.
+    pub fn application(&self) -> Option<&'a str> {
+        self.manifest_value(b"application")
+    }
+
     /// Look up a manifest key and return its value as a UTF-8 string.
     fn manifest_value(&self, target_key: &[u8]) -> Option<&'a str> {
         let mdata = self.manifest_section_data().ok()?;
@@ -427,6 +433,67 @@ mod tests {
         assert_eq!(classes[0].data, fake_class);
         assert_eq!(classes[1].name, b"lib/Util");
         assert_eq!(classes[1].data, b"data");
+    }
+
+    fn build_test_papk_application(application: &str, classes: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut manifest_data: Vec<u8> = Vec::new();
+        for (k, v) in &[
+            ("application", application),
+            ("package-name", "testpkg"),
+            ("version", "1.0"),
+        ] {
+            let kb = k.as_bytes();
+            let vb = v.as_bytes();
+            manifest_data.extend_from_slice(&(kb.len() as u16).to_le_bytes());
+            manifest_data.extend_from_slice(kb);
+            manifest_data.extend_from_slice(&(vb.len() as u16).to_le_bytes());
+            manifest_data.extend_from_slice(vb);
+        }
+
+        let mut classes_data: Vec<u8> = Vec::new();
+        classes_data.extend_from_slice(&(classes.len() as u32).to_le_bytes());
+        for (name, bytes) in classes {
+            let nb = name.as_bytes();
+            classes_data.extend_from_slice(&(nb.len() as u16).to_le_bytes());
+            classes_data.extend_from_slice(nb);
+            classes_data.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            classes_data.extend_from_slice(bytes);
+        }
+
+        let mani_tag = u32::from_le_bytes(*b"MANI");
+        let clss_tag = u32::from_le_bytes(*b"CLSS");
+        let manifest_offset: u32 = 24;
+        let classes_offset: u32 = manifest_offset + 16 + manifest_data.len() as u32;
+
+        let mut file: Vec<u8> = Vec::new();
+        file.extend_from_slice(b"PAPK");
+        file.extend_from_slice(&1u16.to_le_bytes());
+        file.extend_from_slice(&0u16.to_le_bytes());
+        file.extend_from_slice(&2u32.to_le_bytes());
+        file.extend_from_slice(&manifest_offset.to_le_bytes());
+        file.extend_from_slice(&classes_offset.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&mani_tag.to_le_bytes());
+        file.extend_from_slice(&(manifest_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&manifest_data);
+        file.extend_from_slice(&clss_tag.to_le_bytes());
+        file.extend_from_slice(&(classes_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&classes_data);
+
+        file
+    }
+
+    #[test]
+    fn test_application() {
+        let papk = build_test_papk_application("demo/MyApp", &[]);
+        let p = Papk::parse(Box::leak(papk.into_boxed_slice())).unwrap();
+        assert_eq!(p.application(), Some("demo/MyApp"));
+        assert_eq!(p.main_class(), None);
+        assert_eq!(p.activity(), None);
     }
 
     #[test]

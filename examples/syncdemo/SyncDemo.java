@@ -1,5 +1,6 @@
 package syncdemo;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
 /**
@@ -9,8 +10,8 @@ import picodroid.util.Log;
  * (single-threaded), it verifies the bytecodes are handled without error and reentrant locking
  * works correctly.
  */
-public class SyncDemo {
-  public static void main() {
+public class SyncDemo extends Application {
+  public void onCreate() {
     Log.i("SyncDemo", "Starting synchronized demo");
 
     int counter = 0;

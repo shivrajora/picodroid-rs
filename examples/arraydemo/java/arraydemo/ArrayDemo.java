@@ -1,11 +1,12 @@
 package arraydemo;
 
+import picodroid.app.Application;
 import picodroid.pio.PeripheralManager;
 import picodroid.pio.UartDevice;
 import picodroid.util.Log;
 
-public class ArrayDemo {
-  public static void main(String[] args) {
+public class ArrayDemo extends Application {
+  public void onCreate() {
     // Allocate a byte array and fill it with 'A'..'P'
     byte[] buf = new byte[16];
     for (int i = 0; i < buf.length; i++) {

@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="displaydemo" version="1.0">
-    <application activity="displaydemo/DisplayDemo" />
+    <application application="displaydemo/DisplayDemoApp" />
 </manifest>
