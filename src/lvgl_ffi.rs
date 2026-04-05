@@ -9,6 +9,24 @@
 use core::ffi::{c_char, c_void};
 
 // ---------------------------------------------------------------------------
+// Compiler-rt intrinsic required by LVGL's TLSF allocator on Cortex-M0+
+// (thumbv6m has no CLZ instruction, so __builtin_ffs maps to __ffssi2).
+// ---------------------------------------------------------------------------
+#[cfg(target_arch = "arm")]
+#[no_mangle]
+pub extern "C" fn __ffssi2(mut x: i32) -> i32 {
+    if x == 0 {
+        return 0;
+    }
+    let mut bit = 1i32;
+    while (x & 1) == 0 {
+        x >>= 1;
+        bit += 1;
+    }
+    bit
+}
+
+// ---------------------------------------------------------------------------
 // Opaque pointer types
 // ---------------------------------------------------------------------------
 pub type lv_display_t = c_void;
@@ -91,6 +109,13 @@ pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
 pub type lv_style_selector_t = u32;
+
+// Object flags (from lv_obj.h)
+pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
+pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
+
+// Object states (from lv_obj.h)
+pub const LV_STATE_CHECKED: u32 = 0x0001;
 
 // ---------------------------------------------------------------------------
 // Callback types
@@ -181,4 +206,40 @@ extern "C" {
     // Events
     pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
+
+    // Object lifecycle
+    pub fn lv_obj_delete(obj: *mut lv_obj_t);
+
+    // Object parent / child
+    pub fn lv_obj_set_parent(obj: *mut lv_obj_t, parent: *mut lv_obj_t);
+    pub fn lv_obj_get_child(obj: *mut lv_obj_t, idx: i32) -> *mut lv_obj_t;
+
+    // Object flags
+    pub fn lv_obj_add_flag(obj: *mut lv_obj_t, f: u32);
+    pub fn lv_obj_remove_flag(obj: *mut lv_obj_t, f: u32);
+
+    // Object state
+    pub fn lv_obj_has_state(obj: *mut lv_obj_t, state: u32) -> bool;
+    pub fn lv_obj_add_state(obj: *mut lv_obj_t, state: u32);
+    pub fn lv_obj_remove_state(obj: *mut lv_obj_t, state: u32);
+
+    // Text style
+    pub fn lv_obj_set_style_text_color(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+
+    // List widget
+    pub fn lv_list_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_list_add_text(list: *mut lv_obj_t, text: *const c_char) -> *mut lv_obj_t;
+    pub fn lv_list_add_button(
+        list: *mut lv_obj_t,
+        icon: *const c_char,
+        text: *const c_char,
+    ) -> *mut lv_obj_t;
+
+    // Image widget
+    pub fn lv_image_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_image_set_src(obj: *mut lv_obj_t, src: *const c_void);
 }

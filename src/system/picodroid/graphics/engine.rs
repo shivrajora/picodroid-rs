@@ -11,6 +11,7 @@ const BAND_HEIGHT: usize = 20;
 const BAND_BUF_SIZE: usize = hal::display::WIDTH as usize * BAND_HEIGHT * 2;
 
 /// Use a wrapper to get a raw pointer without creating a mutable reference.
+#[allow(dead_code)]
 struct BandBuf([u8; BAND_BUF_SIZE]);
 static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE]);
 

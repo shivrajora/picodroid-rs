@@ -12,7 +12,7 @@ mod display_test;
 mod drivers;
 #[allow(dead_code)]
 mod hal;
-#[cfg(feature = "display-test")]
+#[cfg(not(test))]
 mod lvgl_ffi;
 #[cfg(not(any(test, feature = "sim")))]
 mod packagemanager;

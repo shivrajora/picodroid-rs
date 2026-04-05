@@ -236,6 +236,148 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.gc_freed = 0;
                 Some(Ok(None))
             }
+            // ── Display ───────────────────────────────────────────────────
+            ("picodroid/graphics/Display", "getInstance") => Some(
+                crate::system::picodroid::graphics::display::get_instance(ctx.objects),
+            ),
+            ("picodroid/graphics/Display", "setContentView") => Some(
+                crate::system::picodroid::graphics::display::set_content_view(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/graphics/Display", "pollTouch") => Some(
+                crate::system::picodroid::graphics::display::poll_touch(ctx.objects),
+            ),
+            ("picodroid/graphics/Display", "update") => {
+                Some(crate::system::picodroid::graphics::display::update())
+            }
+
+            // ── View (base class) ────────────────────────────────────────
+            ("picodroid/view/View", "setPosition") => Some(
+                crate::system::picodroid::graphics::view::set_position(ctx.args, ctx.objects),
+            ),
+            ("picodroid/view/View", "setSize") => Some(
+                crate::system::picodroid::graphics::view::set_size(ctx.args, ctx.objects),
+            ),
+            ("picodroid/view/View", "setBackgroundColor") => Some(
+                crate::system::picodroid::graphics::view::set_bg_color(ctx.args, ctx.objects),
+            ),
+            ("picodroid/view/View", "setVisibility") => Some(
+                crate::system::picodroid::graphics::view::set_visibility(ctx.args, ctx.objects),
+            ),
+            ("picodroid/view/View", "close") => Some(
+                crate::system::picodroid::graphics::view::close(ctx.args, ctx.objects),
+            ),
+
+            // ── TextView ─────────────────────────────────────────────────
+            ("picodroid/widget/TextView", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::text_view_native_create())
+            }
+            ("picodroid/widget/TextView", "setText") => Some(
+                crate::system::picodroid::graphics::widgets::text_view_set_text(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/widget/TextView", "setTextColor") => Some(
+                crate::system::picodroid::graphics::widgets::text_view_set_text_color(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── Button ───────────────────────────────────────────────────
+            ("picodroid/widget/Button", "nativeCreate") => Some(
+                crate::system::picodroid::graphics::widgets::button_native_create(
+                    ctx.args,
+                    ctx.strings,
+                ),
+            ),
+            ("picodroid/widget/Button", "setText") => Some(
+                crate::system::picodroid::graphics::widgets::button_set_text(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/widget/Button", "wasClicked") => Some(
+                crate::system::picodroid::graphics::widgets::button_was_clicked(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── LinearLayout ─────────────────────────────────────────────
+            ("picodroid/widget/LinearLayout", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::linear_layout_native_create())
+            }
+            ("picodroid/widget/LinearLayout", "addView") => Some(
+                crate::system::picodroid::graphics::widgets::linear_layout_add_view(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/widget/LinearLayout", "setOrientation") => Some(
+                crate::system::picodroid::graphics::widgets::linear_layout_set_orientation(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── ProgressBar ──────────────────────────────────────────────
+            ("picodroid/widget/ProgressBar", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::progress_bar_native_create())
+            }
+            ("picodroid/widget/ProgressBar", "setProgress") => Some(
+                crate::system::picodroid::graphics::widgets::progress_bar_set_progress(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── Switch ───────────────────────────────────────────────────
+            ("picodroid/widget/Switch", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::switch_native_create())
+            }
+            ("picodroid/widget/Switch", "isChecked") => Some(
+                crate::system::picodroid::graphics::widgets::switch_is_checked(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+            ("picodroid/widget/Switch", "setChecked") => Some(
+                crate::system::picodroid::graphics::widgets::switch_set_checked(
+                    ctx.args,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── ListView ─────────────────────────────────────────────────
+            ("picodroid/widget/ListView", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::list_view_native_create())
+            }
+            ("picodroid/widget/ListView", "addItem") => Some(
+                crate::system::picodroid::graphics::widgets::list_view_add_item(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+
+            // ── ImageView ────────────────────────────────────────────────
+            ("picodroid/widget/ImageView", "nativeCreate") => {
+                Some(crate::system::picodroid::graphics::widgets::image_view_native_create())
+            }
+            ("picodroid/widget/ImageView", "setImageSource") => Some(
+                crate::system::picodroid::graphics::widgets::image_view_set_src(
+                    ctx.args,
+                    ctx.strings,
+                    ctx.objects,
+                ),
+            ),
+
             _ => None,
         }
     }

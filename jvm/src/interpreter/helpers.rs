@@ -297,6 +297,16 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/lang/Float" => "java/lang/Float",
         "java/lang/Double" => "java/lang/Double",
         "java/util/ArrayList" => "java/util/ArrayList",
+        "picodroid/view/View" => "picodroid/view/View",
+        "picodroid/view/MotionEvent" => "picodroid/view/MotionEvent",
+        "picodroid/graphics/Display" => "picodroid/graphics/Display",
+        "picodroid/widget/TextView" => "picodroid/widget/TextView",
+        "picodroid/widget/Button" => "picodroid/widget/Button",
+        "picodroid/widget/LinearLayout" => "picodroid/widget/LinearLayout",
+        "picodroid/widget/ProgressBar" => "picodroid/widget/ProgressBar",
+        "picodroid/widget/Switch" => "picodroid/widget/Switch",
+        "picodroid/widget/ListView" => "picodroid/widget/ListView",
+        "picodroid/widget/ImageView" => "picodroid/widget/ImageView",
         _ => "unknown",
     }
 }
