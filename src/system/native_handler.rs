@@ -21,6 +21,23 @@ impl PicodroidNativeHandler {
     }
 }
 
+/// Returns `true` if `class_name` is `picodroid/view/View` or any of its subclasses.
+/// Used by match guards so that inherited native methods (setSize, setPosition, …)
+/// dispatch correctly when invokevirtual passes the runtime class name.
+fn is_view(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "picodroid/view/View"
+            | "picodroid/widget/TextView"
+            | "picodroid/widget/Button"
+            | "picodroid/widget/LinearLayout"
+            | "picodroid/widget/ProgressBar"
+            | "picodroid/widget/Switch"
+            | "picodroid/widget/ListView"
+            | "picodroid/widget/ImageView"
+    )
+}
+
 impl NativeMethodHandler for PicodroidNativeHandler {
     fn clock_nanos(&self) -> u64 {
         crate::hal::system_clock::elapsed_realtime_nanos() as u64
@@ -254,21 +271,24 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             }
 
             // ── View (base class) ────────────────────────────────────────
-            ("picodroid/view/View", "setPosition") => Some(
+            // invokevirtual passes the runtime class name, so inherited View
+            // methods may arrive as any subclass name.
+            (c, "setPosition") if is_view(c) => Some(
                 crate::system::picodroid::graphics::view::set_position(ctx.args, ctx.objects),
             ),
-            ("picodroid/view/View", "setSize") => Some(
+            (c, "setSize") if is_view(c) => Some(
                 crate::system::picodroid::graphics::view::set_size(ctx.args, ctx.objects),
             ),
-            ("picodroid/view/View", "setBackgroundColor") => Some(
+            (c, "setBackgroundColor") if is_view(c) => Some(
                 crate::system::picodroid::graphics::view::set_bg_color(ctx.args, ctx.objects),
             ),
-            ("picodroid/view/View", "setVisibility") => Some(
+            (c, "setVisibility") if is_view(c) => Some(
                 crate::system::picodroid::graphics::view::set_visibility(ctx.args, ctx.objects),
             ),
-            ("picodroid/view/View", "close") => Some(
-                crate::system::picodroid::graphics::view::close(ctx.args, ctx.objects),
-            ),
+            (c, "close") if is_view(c) => Some(crate::system::picodroid::graphics::view::close(
+                ctx.args,
+                ctx.objects,
+            )),
 
             // ── TextView ─────────────────────────────────────────────────
             ("picodroid/widget/TextView", "nativeCreate") => {
