@@ -18,6 +18,10 @@ use core::sync::atomic::{AtomicU16, Ordering};
 /// Heap index of the singleton `Display` object (`u16::MAX` = not yet allocated).
 static DISPLAY_INSTANCE: AtomicU16 = AtomicU16::new(u16::MAX);
 
+/// The current root view installed by `setContentView`, as an `lv_obj_t*` cast to usize.
+/// 0 = no root set yet.
+static mut CURRENT_ROOT: usize = 0;
+
 /// `Display.getInstance()` — initialises the display hardware + LVGL on first call.
 pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
     let existing = DISPLAY_INSTANCE.load(Ordering::Relaxed);
@@ -54,13 +58,26 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 // Content management
 // ---------------------------------------------------------------------------
 
-/// `Display.setContentView(View root)` — clears the screen and parents `root` to it.
+/// `Display.setContentView(View root)` — sets `root` as the screen's content view.
+///
+/// On the first call the root is already a child of the screen (every `nativeCreate`
+/// parents to the active screen), so we just record it.  On subsequent calls the
+/// previous root is deleted before installing the new one.
 pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let root_handle = view::extract_handle_at(args, 1, objects)?;
     unsafe {
         let screen = engine::screen();
-        lv_obj_clean(screen);
-        lv_obj_set_parent(root_handle as *mut lv_obj_t, screen);
+        let new_root = root_handle as *mut lv_obj_t;
+
+        // Delete the previous root (if any) and it differs from the new one.
+        let prev = CURRENT_ROOT;
+        if prev != 0 && prev != new_root as usize {
+            lv_obj_delete(prev as *mut lv_obj_t);
+        }
+
+        // Ensure the new root is parented to the screen.
+        lv_obj_set_parent(new_root, screen);
+        CURRENT_ROOT = new_root as usize;
     }
     Ok(None)
 }
