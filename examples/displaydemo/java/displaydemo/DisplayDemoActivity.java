@@ -7,7 +7,7 @@ import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
-public class DisplayDemo extends Activity {
+public class DisplayDemoActivity extends Activity {
   public void onCreate() {
     getDisplay().calibrate();
     Log.i("DisplayDemo", "Display ready");

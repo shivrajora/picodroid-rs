@@ -4,6 +4,6 @@ import picodroid.app.Application;
 
 public class DisplayDemoApp extends Application {
   public void onCreate() {
-    startActivity(new DisplayDemo());
+    startActivity(new DisplayDemoActivity());
   }
 }
