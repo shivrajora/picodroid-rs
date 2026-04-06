@@ -56,3 +56,31 @@ print_memory_usage() {
   printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
   echo ""
 }
+
+# Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.
+# Requires CHIP, APP, PROFILE, EXTRA_ARGS, TARGET, and CHIP_FEATURE to be set.
+build_firmware() {
+  # Step 1: Build the APK for the selected app.
+  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+
+  APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+
+  # Step 2: Build the firmware, embedding the APK.
+  local jobs
+  jobs=$(cpu_count)
+  PICODROID_APK_PATH="$APK_PATH" cargo build \
+    --jobs "$jobs" \
+    --target "$TARGET" \
+    --no-default-features \
+    --features "$CHIP_FEATURE" \
+    "${EXTRA_ARGS[@]}"
+
+  ELF="target/${TARGET}/${PROFILE}/picodroid"
+
+  if [[ ! -f "$ELF" ]]; then
+    echo "Binary not found: $ELF" >&2
+    exit 1
+  fi
+
+  print_memory_usage "$ELF"
+}
