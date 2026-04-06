@@ -3,6 +3,7 @@ pub mod adc;
 pub mod fields;
 #[cfg(not(test))]
 pub mod gpio;
+pub mod helpers;
 #[cfg(not(test))]
 pub mod i2c;
 pub mod peripheral_manager;

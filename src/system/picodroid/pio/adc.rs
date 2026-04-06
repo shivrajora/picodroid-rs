@@ -4,15 +4,9 @@ use pico_jvm::{
 };
 
 pub use super::fields::adc as fields;
+use super::helpers::extract_obj_idx;
 
 use crate::hal::adc as platform;
-
-fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
-    match args.first() {
-        Some(Value::ObjectRef(idx)) => Ok(*idx),
-        _ => Err(JvmError::InvalidReference),
-    }
-}
 
 /// Configure GPIO pin for ADC function. Called once from `peripheral_manager::open_adc()`.
 pub fn init(pin: u8) {

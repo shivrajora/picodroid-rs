@@ -5,28 +5,15 @@ use pico_jvm::{
 };
 
 pub use super::fields::spi as fields;
+use super::helpers::{extract_obj_idx, read_field};
 
 use crate::hal::spi as platform;
-
-fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
-    match args.first() {
-        Some(Value::ObjectRef(idx)) => Ok(*idx),
-        _ => Err(JvmError::InvalidReference),
-    }
-}
 
 fn extract_spi_id(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     let idx = extract_obj_idx(args)?;
     match objects.get_field(idx, fields::SPI_ID) {
         Some(Value::Int(id)) => Ok(id as u8),
         _ => Err(JvmError::InvalidReference),
-    }
-}
-
-fn read_field(objects: &ObjectHeap, idx: u16, field: usize, default: i32) -> i32 {
-    match objects.get_field(idx, field) {
-        Some(Value::Int(v)) => v,
-        _ => default,
     }
 }
 

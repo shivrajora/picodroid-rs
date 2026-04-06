@@ -5,6 +5,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
 
 /// Parses a "GPxx" name string and allocates a Gpio object on the heap.
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPxx" string
@@ -13,13 +14,7 @@ pub fn open_gpio(
     strings: &StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let name_ref = match args.get(1) {
-        Some(Value::Reference(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let name = strings
-        .resolve(name_ref)
-        .ok_or(JvmError::InvalidReference)?;
+    let name = extract_device_name(args, strings)?;
 
     // Parse "GPxx" → pin number
     let pin_str = name.strip_prefix("GP").ok_or(JvmError::InvalidReference)?;
@@ -32,12 +27,7 @@ pub fn open_gpio(
         pin = pin.wrapping_mul(10).wrapping_add(d);
     }
 
-    let obj_idx = objects
-        .alloc("picodroid/pio/Gpio")
-        .ok_or(JvmError::StackOverflow)?;
-    objects
-        .set_field(obj_idx, fields::gpio::PIN, Value::Int(pin as i32))
-        .ok_or(JvmError::StackOverflow)?;
+    let obj_idx = alloc_peripheral_with_id(objects, "picodroid/pio/Gpio", fields::gpio::PIN, pin)?;
 
     Ok(Some(Value::ObjectRef(obj_idx)))
 }

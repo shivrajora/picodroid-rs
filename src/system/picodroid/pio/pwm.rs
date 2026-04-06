@@ -4,15 +4,9 @@ use pico_jvm::{
 };
 
 pub use super::fields::pwm as fields;
+use super::helpers::extract_obj_idx;
 
 use crate::hal::pwm as platform;
-
-fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
-    match args.first() {
-        Some(Value::ObjectRef(idx)) => Ok(*idx),
-        _ => Err(JvmError::InvalidReference),
-    }
-}
 
 fn read_pin(objects: &ObjectHeap, idx: u16) -> u8 {
     match objects.get_field(idx, fields::PIN) {

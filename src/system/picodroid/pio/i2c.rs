@@ -5,15 +5,9 @@ use pico_jvm::{
 };
 
 pub use super::fields::i2c as fields;
+use super::helpers::extract_obj_idx;
 
 use crate::hal::i2c as platform;
-
-fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
-    match args.first() {
-        Some(Value::ObjectRef(idx)) => Ok(*idx),
-        _ => Err(JvmError::InvalidReference),
-    }
-}
 
 fn extract_i2c_id(args: &[Value], objects: &ObjectHeap) -> Result<u8, JvmError> {
     let idx = extract_obj_idx(args)?;

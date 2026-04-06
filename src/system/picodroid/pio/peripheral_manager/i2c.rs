@@ -5,6 +5,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
 
 /// Parses an "I2Cx" name string, allocates an I2cDevice object with default config (100 kHz),
 /// and initializes the hardware.
@@ -14,30 +15,17 @@ pub fn open_i2c(
     strings: &StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let name_ref = match args.get(1) {
-        Some(Value::Reference(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let name = strings
-        .resolve(name_ref)
-        .ok_or(JvmError::InvalidReference)?;
+    let name = extract_device_name(args, strings)?;
+    let i2c_id = parse_bus_id(name, "I2C")?;
 
-    // Parse "I2C0" → 0, "I2C1" → 1
-    let id_str = name.strip_prefix("I2C").ok_or(JvmError::InvalidReference)?;
-    let i2c_id: u8 = match id_str {
-        "0" => 0,
-        "1" => 1,
-        _ => return Err(JvmError::InvalidReference),
-    };
+    let obj_idx = alloc_peripheral_with_id(
+        objects,
+        "picodroid/pio/I2cDevice",
+        fields::i2c::I2C_ID,
+        i2c_id,
+    )?;
 
-    let obj_idx = objects
-        .alloc("picodroid/pio/I2cDevice")
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Store config fields: i2c_id, speed_hz=100_000 (standard speed default)
-    objects
-        .set_field(obj_idx, fields::i2c::I2C_ID, Value::Int(i2c_id as i32))
-        .ok_or(JvmError::StackOverflow)?;
+    // Store default config: speed_hz=100_000 (standard speed default)
     objects
         .set_field(obj_idx, fields::i2c::SPEED_HZ, Value::Int(100_000))
         .ok_or(JvmError::StackOverflow)?;

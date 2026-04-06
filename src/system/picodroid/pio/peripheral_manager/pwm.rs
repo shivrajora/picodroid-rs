@@ -5,6 +5,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
 
 /// Parses a "GPx" name string, allocates a Pwm object with default config (1 kHz, 0% duty,
 /// disabled), and initializes the hardware.
@@ -14,13 +15,7 @@ pub fn open_pwm(
     strings: &StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let name_ref = match args.get(1) {
-        Some(Value::Reference(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let name = strings
-        .resolve(name_ref)
-        .ok_or(JvmError::InvalidReference)?;
+    let name = extract_device_name(args, strings)?;
 
     // Parse "GPx" → pin number 0–29
     let pin_str = name.strip_prefix("GP").ok_or(JvmError::InvalidReference)?;
@@ -30,14 +25,9 @@ pub fn open_pwm(
         .filter(|&p| p <= 29)
         .ok_or(JvmError::InvalidReference)?;
 
-    let obj_idx = objects
-        .alloc("picodroid/pio/Pwm")
-        .ok_or(JvmError::StackOverflow)?;
+    let obj_idx = alloc_peripheral_with_id(objects, "picodroid/pio/Pwm", fields::pwm::PIN, pin)?;
 
     // Store default config fields
-    objects
-        .set_field(obj_idx, fields::pwm::PIN, Value::Int(pin as i32))
-        .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(obj_idx, fields::pwm::FREQUENCY_HZ, Value::Double(1000.0))
         .ok_or(JvmError::StackOverflow)?;

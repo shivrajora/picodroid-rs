@@ -5,6 +5,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
 
 /// Parses a "UARTx" name string, allocates a UartDevice object with default config (9600 8N1),
 /// and initializes the hardware.
@@ -14,32 +15,17 @@ pub fn open_uart(
     strings: &StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let name_ref = match args.get(1) {
-        Some(Value::Reference(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let name = strings
-        .resolve(name_ref)
-        .ok_or(JvmError::InvalidReference)?;
+    let name = extract_device_name(args, strings)?;
+    let uart_id = parse_bus_id(name, "UART")?;
 
-    // Parse "UART0" → 0, "UART1" → 1
-    let id_str = name
-        .strip_prefix("UART")
-        .ok_or(JvmError::InvalidReference)?;
-    let uart_id: u8 = match id_str {
-        "0" => 0,
-        "1" => 1,
-        _ => return Err(JvmError::InvalidReference),
-    };
+    let obj_idx = alloc_peripheral_with_id(
+        objects,
+        "picodroid/pio/UartDevice",
+        fields::uart::UART_ID,
+        uart_id,
+    )?;
 
-    let obj_idx = objects
-        .alloc("picodroid/pio/UartDevice")
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Store config fields with defaults: uart_id, 9600 baud, 8 data bits, no parity, 1 stop bit, no hw flow
-    objects
-        .set_field(obj_idx, fields::uart::UART_ID, Value::Int(uart_id as i32))
-        .ok_or(JvmError::StackOverflow)?;
+    // Store default config: 9600 baud, 8 data bits, no parity, 1 stop bit, no hw flow
     objects
         .set_field(obj_idx, fields::uart::BAUDRATE, Value::Int(9600))
         .ok_or(JvmError::StackOverflow)?;

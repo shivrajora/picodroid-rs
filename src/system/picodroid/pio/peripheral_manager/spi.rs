@@ -5,6 +5,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
 
 /// Parses a "SPIx" name string, allocates a SpiDevice object with default config (1 MHz, MODE_0),
 /// and initializes the hardware.
@@ -14,30 +15,17 @@ pub fn open_spi(
     strings: &StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let name_ref = match args.get(1) {
-        Some(Value::Reference(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let name = strings
-        .resolve(name_ref)
-        .ok_or(JvmError::InvalidReference)?;
+    let name = extract_device_name(args, strings)?;
+    let spi_id = parse_bus_id(name, "SPI")?;
 
-    // Parse "SPI0" → 0, "SPI1" → 1
-    let id_str = name.strip_prefix("SPI").ok_or(JvmError::InvalidReference)?;
-    let spi_id: u8 = match id_str {
-        "0" => 0,
-        "1" => 1,
-        _ => return Err(JvmError::InvalidReference),
-    };
+    let obj_idx = alloc_peripheral_with_id(
+        objects,
+        "picodroid/pio/SpiDevice",
+        fields::spi::SPI_ID,
+        spi_id,
+    )?;
 
-    let obj_idx = objects
-        .alloc("picodroid/pio/SpiDevice")
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Store config fields: spi_id, frequency_hz=1_000_000, mode=0 (MODE_0)
-    objects
-        .set_field(obj_idx, fields::spi::SPI_ID, Value::Int(spi_id as i32))
-        .ok_or(JvmError::StackOverflow)?;
+    // Store default config: frequency_hz=1_000_000, mode=0 (MODE_0)
     objects
         .set_field(obj_idx, fields::spi::FREQUENCY_HZ, Value::Int(1_000_000))
         .ok_or(JvmError::StackOverflow)?;
