@@ -178,7 +178,8 @@ pub(super) fn field_slot(
     None
 }
 
-/// Returns true if `runtime_class` is the same as or a subclass of `target_class`.
+/// Returns true if `runtime_class` is the same as, a subclass of, or
+/// implements `target_class` (checked at each level of the superclass chain).
 pub(super) fn is_instance_of(
     classes: &[ClassFile],
     runtime_class: &str,
@@ -196,7 +197,16 @@ pub(super) fn is_instance_of(
             Some(i) => i,
             None => return false,
         };
-        match classes[ci].super_class_name() {
+        // Check implemented interfaces at this level
+        let cf = &classes[ci];
+        for iface_idx in &cf.interfaces {
+            if let Some(iface_name) = cf.cp_utf8(*iface_idx) {
+                if iface_name == target_class.as_bytes() {
+                    return true;
+                }
+            }
+        }
+        match cf.super_class_name() {
             None => return false,
             Some(super_bytes) => match core::str::from_utf8(super_bytes) {
                 Ok(s) => current = s,

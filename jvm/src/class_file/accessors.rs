@@ -150,7 +150,6 @@ impl ClassFile {
     }
 
     /// Returns the Utf8 name bytes for the Nth implemented interface (0-based).
-    #[allow(dead_code)]
     pub fn interface_name(&self, pos: usize) -> Option<&'static [u8]> {
         self.cp_utf8(*self.interfaces.get(pos)?)
     }

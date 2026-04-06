@@ -425,3 +425,306 @@ fn invokedynamic_creates_lambda_proxy_and_dispatches() {
     );
     assert_eq!(result.unwrap(), Some(Value::Int(3)));
 }
+
+// ── anonymous class tests ────────────────────────────────────────────────
+
+// Interface "IFace" with abstract method get()I.
+//
+// CP (cp_count=7, entries #1..#6):
+//   #1: Class -> #2   (IFace)
+//   #2: Utf8  "IFace"
+//   #3: Class -> #4   (java/lang/Object)
+//   #4: Utf8  "java/lang/Object"
+//   #5: Utf8  "get"
+//   #6: Utf8  "()I"
+static CLASS_IFACE: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x07, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x05, b'I', b'F', b'a', b'c', b'e', // #2 Utf8 "IFace"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #5 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #6 Utf8 "()I"
+    0x06, 0x01, // access_flags = ACC_PUBLIC | ACC_INTERFACE | ACC_ABSTRACT
+    0x00, 0x01, 0x00, 0x03, // this=#1, super=#3
+    0x00, 0x00, // interfaces_count=0
+    0x00, 0x00, // fields_count=0
+    0x00, 0x01, // methods_count=1
+    0x04, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
+    0x00, // method: abstract public, name=#5, desc=#6, 0 attrs
+    0x00, 0x00, // class_attributes_count=0
+];
+
+// Class "Outer$1" extends Object, implements IFace, method get()I returns iconst_3.
+//
+// CP (cp_count=10, entries #1..#9):
+//   #1: Class -> #2   (Outer$1)
+//   #2: Utf8  "Outer$1"
+//   #3: Class -> #4   (java/lang/Object)
+//   #4: Utf8  "java/lang/Object"
+//   #5: Class -> #6   (IFace)
+//   #6: Utf8  "IFace"
+//   #7: Utf8  "get"
+//   #8: Utf8  "()I"
+//   #9: Utf8  "Code"
+static CLASS_ANON1: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0A, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x07, b'O', b'u', b't', b'e', b'r', b'$', b'1', // #2 Utf8 "Outer$1"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x07, 0x00, 0x06, // #5 Class -> #6
+    0x01, 0x00, 0x05, b'I', b'F', b'a', b'c', b'e', // #6 Utf8 "IFace"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #7 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #8 Utf8 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #9 Utf8 "Code"
+    0x00, 0x01, // access_flags = ACC_PUBLIC
+    0x00, 0x01, 0x00, 0x03, // this=#1, super=#3
+    0x00, 0x01, 0x00, 0x05, // interfaces_count=1, interface=#5
+    0x00, 0x00, // fields_count=0
+    0x00, 0x01, // methods_count=1
+    0x00, 0x01, 0x00, 0x07, 0x00, 0x08, 0x00,
+    0x01, // method: public, name=#7, desc=#8, 1 attr
+    0x00, 0x09, 0x00, 0x00, 0x00, 0x0E, // Code attr, name=#9, len=14
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, // max_stack=1, max_locals=1, code_len=2
+    0x06, 0xAC, // iconst_3, ireturn
+    0x00, 0x00, // exception_table_length=0
+    0x00, 0x00, // code_attributes_count=0
+    0x00, 0x00, // class_attributes_count=0
+];
+
+// Class "Outer$2" extends Object, implements IFace, method get()I returns bipush 7.
+//
+// Same layout as CLASS_ANON1 but name="Outer$2" and returns 7.
+static CLASS_ANON2: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0A, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x07, b'O', b'u', b't', b'e', b'r', b'$', b'2', // #2 Utf8 "Outer$2"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x07, 0x00, 0x06, // #5 Class -> #6
+    0x01, 0x00, 0x05, b'I', b'F', b'a', b'c', b'e', // #6 Utf8 "IFace"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #7 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #8 Utf8 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #9 Utf8 "Code"
+    0x00, 0x01, // access_flags = ACC_PUBLIC
+    0x00, 0x01, 0x00, 0x03, // this=#1, super=#3
+    0x00, 0x01, 0x00, 0x05, // interfaces_count=1, interface=#5
+    0x00, 0x00, // fields_count=0
+    0x00, 0x01, // methods_count=1
+    0x00, 0x01, 0x00, 0x07, 0x00, 0x08, 0x00,
+    0x01, // method: public, name=#7, desc=#8, 1 attr
+    0x00, 0x09, 0x00, 0x00, 0x00, 0x0F, // Code attr, name=#9, len=15
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, // max_stack=1, max_locals=1, code_len=3
+    0x10, 0x07, 0xAC, // bipush 7, ireturn
+    0x00, 0x00, // exception_table_length=0
+    0x00, 0x00, // code_attributes_count=0
+    0x00, 0x00, // class_attributes_count=0
+];
+
+// Caller with STATIC m(LIFace;)I that calls get() via invokeinterface.
+//
+// CP (cp_count=14, entries #1..#13):
+//   #1: Class -> #2                  (AnonCaller)
+//   #2: Utf8  "AnonCaller"
+//   #3: Class -> #4                  (java/lang/Object)
+//   #4: Utf8  "java/lang/Object"
+//   #5: Utf8  "m"
+//   #6: Utf8  "(LIFace;)I"
+//   #7: Utf8  "Code"
+//   #8: InterfaceMethodref -> #9, #10
+//   #9: Class -> #11                 (IFace)
+//   #10: NameAndType -> #12, #13
+//   #11: Utf8 "IFace"
+//   #12: Utf8 "get"
+//   #13: Utf8 "()I"
+static CLASS_ANON_CALLER_INVOKEINTERFACE: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x0A, b'A', b'n', b'o', b'n', b'C', b'a', b'l', b'l', b'e',
+    b'r', // #2 Utf8 "AnonCaller"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x01, b'm', // #5 Utf8 "m"
+    0x01, 0x00, 0x0A, b'(', b'L', b'I', b'F', b'a', b'c', b'e', b';', b')',
+    b'I', // #6 Utf8 "(LIFace;)I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x0B, 0x00, 0x09, 0x00, 0x0A, // #8 InterfaceMethodref -> #9, #10
+    0x07, 0x00, 0x0B, // #9 Class -> #11
+    0x0C, 0x00, 0x0C, 0x00, 0x0D, // #10 NameAndType -> #12, #13
+    0x01, 0x00, 0x05, b'I', b'F', b'a', b'c', b'e', // #11 Utf8 "IFace"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #12 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #13 Utf8 "()I"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: static (0x0008), name=#5, desc=#6, 1 attr
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+    // Code attr: name=#7, attr_len=19 (code_len=7)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x13, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x07, // max_stack=2, max_locals=1, code_len=7
+    // aload_0, invokeinterface #8 count=1 0x00, ireturn
+    0x2A, 0xB9, 0x00, 0x08, 0x01, 0x00, 0xAC, 0x00, 0x00, // exception_table_length=0
+    0x00, 0x00, // code_attributes_count=0
+    0x00, 0x00, // class_attributes_count=0
+];
+
+// Caller with STATIC m(LIFace;)I that does instanceof IFace on the argument.
+//
+// CP (cp_count=10, entries #1..#9):
+//   #1: Class -> #2   (InstanceOfCaller)
+//   #2: Utf8  "InstanceOfCaller"
+//   #3: Class -> #4   (java/lang/Object)
+//   #4: Utf8  "java/lang/Object"
+//   #5: Utf8  "m"
+//   #6: Utf8  "(LIFace;)I"
+//   #7: Utf8  "Code"
+//   #8: Class -> #9   (IFace)
+//   #9: Utf8  "IFace"
+static CLASS_INSTANCEOF_CALLER: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0A, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x10, b'I', b'n', b's', b't', b'a', b'n', b'c', b'e', b'O', b'f', b'C', b'a', b'l',
+    b'l', b'e', b'r', // #2 Utf8 "InstanceOfCaller"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x01, b'm', // #5 Utf8 "m"
+    0x01, 0x00, 0x0A, b'(', b'L', b'I', b'F', b'a', b'c', b'e', b';', b')',
+    b'I', // #6 Utf8 "(LIFace;)I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x07, 0x00, 0x09, // #8 Class -> #9
+    0x01, 0x00, 0x05, b'I', b'F', b'a', b'c', b'e', // #9 Utf8 "IFace"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: static (0x0008), name=#5, desc=#6, 1 attr
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+    // Code attr: name=#7, attr_len=17 (code_len=5)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x11, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x05, // max_stack=1, max_locals=1, code_len=5
+    // aload_0, instanceof #8, ireturn
+    0x2A, 0xC1, 0x00, 0x08, 0xAC, 0x00, 0x00, // exception_table_length=0
+    0x00, 0x00, // code_attributes_count=0
+    0x00, 0x00, // class_attributes_count=0
+];
+
+#[test]
+fn invokeinterface_dispatches_on_anonymous_class() {
+    // Outer$1 implements IFace.get()I → returns 3.
+    // AnonCaller.m(LIFace;)I calls invokeinterface IFace.get() on an Outer$1 object.
+    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
+    let cf_anon = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
+    let cf_caller =
+        ClassFile::parse(CLASS_ANON_CALLER_INVOKEINTERFACE).expect("parse AnonCaller failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_iface);
+    classes.push(cf_anon);
+    classes.push(cf_caller);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut handler = NoopHandler;
+    let obj = alloc_object(&mut objects, "Outer$1");
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut GcState::new(),
+        &mut handler,
+        2, // AnonCaller
+        0,
+        &[obj],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(3)));
+}
+
+#[test]
+fn instanceof_anonymous_class_against_interface() {
+    // Outer$1 implements IFace. instanceof IFace on an Outer$1 object should return 1.
+    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
+    let cf_anon = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
+    let cf_caller =
+        ClassFile::parse(CLASS_INSTANCEOF_CALLER).expect("parse InstanceOfCaller failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_iface);
+    classes.push(cf_anon);
+    classes.push(cf_caller);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut handler = NoopHandler;
+    let obj = alloc_object(&mut objects, "Outer$1");
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut GcState::new(),
+        &mut handler,
+        2, // InstanceOfCaller
+        0,
+        &[obj],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(1)));
+}
+
+#[test]
+fn multiple_anonymous_classes_dispatch_independently() {
+    // Outer$1.get()I returns 3, Outer$2.get()I returns 7.
+    // Invoke both via invokeinterface and verify distinct results.
+    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
+    let cf_anon1 = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
+    let cf_anon2 = ClassFile::parse(CLASS_ANON2).expect("parse Outer$2 failed");
+    let cf_caller =
+        ClassFile::parse(CLASS_ANON_CALLER_INVOKEINTERFACE).expect("parse AnonCaller failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_iface);
+    classes.push(cf_anon1);
+    classes.push(cf_anon2);
+    classes.push(cf_caller);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut handler = NoopHandler;
+
+    // Dispatch on Outer$1 → 3
+    let obj1 = alloc_object(&mut objects, "Outer$1");
+    let result1 = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut GcState::new(),
+        &mut handler,
+        3, // AnonCaller
+        0,
+        &[obj1],
+    );
+    assert_eq!(result1.unwrap(), Some(Value::Int(3)));
+
+    // Dispatch on Outer$2 → 7
+    let obj2 = alloc_object(&mut objects, "Outer$2");
+    let result2 = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut GcState::new(),
+        &mut handler,
+        3, // AnonCaller
+        0,
+        &[obj2],
+    );
+    assert_eq!(result2.unwrap(), Some(Value::Int(7)));
+}

@@ -78,8 +78,7 @@ pub struct ClassFile {
     pub super_class_name_index: u16, // Utf8 entry for super class name; 0 = java/lang/Object
     pub fields: Vec<FieldInfo>,      // Instance field declarations (non-static)
     pub access_flags: u16,           // ACC_INTERFACE=0x0200, ACC_ABSTRACT=0x0400, etc.
-    #[allow(dead_code)]
-    pub interfaces: Vec<u16>, // Utf8 indices for each implemented interface name
+    pub interfaces: Vec<u16>,        // Utf8 indices for each implemented interface name
     pub bootstrap_methods: Vec<BootstrapMethod>, // BootstrapMethods attribute entries
 }
 
