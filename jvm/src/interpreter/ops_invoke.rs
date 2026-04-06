@@ -86,7 +86,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         if is_native {
                             return Err(JvmError::NoSuchMethod);
                         }
-                        let new_frame = Frame::new(target_ci, target_mi, &actual_args)?;
+                        let tm = &self.classes[target_ci].methods[target_mi];
+                        let new_frame = Frame::new(
+                            target_ci,
+                            target_mi,
+                            &actual_args,
+                            tm.max_locals,
+                            tm.max_stack,
+                        )?;
                         self.pending_frame = Some(new_frame);
                         return Ok(());
                     }
@@ -113,16 +120,38 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             )
         };
 
-        // Pop arguments from caller's stack
+        // Pop arguments from caller's stack into an inline buffer (avoids heap alloc).
         let stack_len = frame.stack.len();
         if stack_len < arg_count {
             return Err(JvmError::StackUnderflow);
         }
         let start = stack_len - arg_count;
-        let args_buf: Vec<Value> = frame.stack[start..].to_vec();
-        for _ in 0..arg_count {
-            frame.stack.pop();
-        }
+
+        const MAX_INLINE_ARGS: usize = 8;
+        let mut inline_buf = [Value::Null; MAX_INLINE_ARGS];
+        let args: &[Value] = if arg_count <= MAX_INLINE_ARGS {
+            inline_buf[..arg_count].copy_from_slice(&frame.stack[start..]);
+            frame.stack.truncate(start);
+            &inline_buf[..arg_count]
+        } else {
+            let heap_buf: Vec<Value> = frame.stack[start..].to_vec();
+            frame.stack.truncate(start);
+            // SAFETY: heap_buf lives until end of this block; we return before drop.
+            // Use a Vec and pass slices from it below.
+            let native_class = if is_virtual {
+                dispatch_class
+            } else {
+                class_str
+            };
+            return self.invoke_with_heap_args(
+                heap_buf,
+                resolved,
+                native_class,
+                name_str,
+                desc_str,
+                frame,
+            );
+        };
 
         let native_class = if is_virtual {
             dispatch_class
@@ -133,20 +162,56 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if let Some((ci, mi)) = resolved {
             let is_native = self.classes[ci].methods[mi].code_offset == 0;
             if is_native {
-                let result = self.dispatch_native(native_class, name_str, desc_str, &args_buf)?;
+                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
                 if let Some(v) = result {
                     frame.push(v)?;
                 }
                 Ok(())
             } else {
                 // Java method — push new frame for the iterative interpreter loop
-                let new_frame = Frame::new(ci, mi, &args_buf)?;
+                let jm = &self.classes[ci].methods[mi];
+                let new_frame = Frame::new(ci, mi, args, jm.max_locals, jm.max_stack)?;
                 self.pending_frame = Some(new_frame);
                 Ok(())
             }
         } else {
             // Not found in loaded classes — try native dispatch
-            let result = self.dispatch_native(native_class, name_str, desc_str, &args_buf)?;
+            let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+            if let Some(v) = result {
+                frame.push(v)?;
+            }
+            Ok(())
+        }
+    }
+
+    /// Fallback path for methods with >8 arguments (extremely rare).
+    #[cold]
+    #[allow(clippy::too_many_arguments)]
+    fn invoke_with_heap_args(
+        &mut self,
+        args: Vec<Value>,
+        resolved: Option<(usize, usize)>,
+        native_class: &str,
+        name_str: &str,
+        desc_str: &str,
+        frame: &mut Frame,
+    ) -> Result<(), JvmError> {
+        if let Some((ci, mi)) = resolved {
+            let is_native = self.classes[ci].methods[mi].code_offset == 0;
+            if is_native {
+                let result = self.dispatch_native(native_class, name_str, desc_str, &args)?;
+                if let Some(v) = result {
+                    frame.push(v)?;
+                }
+                Ok(())
+            } else {
+                let jm = &self.classes[ci].methods[mi];
+                let new_frame = Frame::new(ci, mi, &args, jm.max_locals, jm.max_stack)?;
+                self.pending_frame = Some(new_frame);
+                Ok(())
+            }
+        } else {
+            let result = self.dispatch_native(native_class, name_str, desc_str, &args)?;
             if let Some(v) = result {
                 frame.push(v)?;
             }

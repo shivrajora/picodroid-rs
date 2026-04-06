@@ -55,6 +55,30 @@ impl StaticFieldStore {
         Value::Null
     }
 
+    /// Read a static field by cached index.
+    #[inline]
+    pub fn get_by_index(&self, idx: usize) -> Value {
+        self.entries
+            .get(idx)
+            .map(|e| e.value)
+            .unwrap_or(Value::Null)
+    }
+
+    /// Write a static field by cached index.
+    #[inline]
+    pub fn set_by_index(&mut self, idx: usize, value: Value) {
+        if let Some(e) = self.entries.get_mut(idx) {
+            e.value = value;
+        }
+    }
+
+    /// Find the index of a static field entry.
+    pub fn find_index(&self, class_name: &[u8], field_name: &[u8]) -> Option<usize> {
+        self.entries
+            .iter()
+            .position(|e| e.class_name == class_name && e.field_name == field_name)
+    }
+
     /// Iterate over all stored static field values (for GC root scanning).
     pub fn values_iter(&self) -> impl Iterator<Item = Value> + '_ {
         self.entries.iter().map(|e| e.value)

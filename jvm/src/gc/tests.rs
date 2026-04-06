@@ -49,7 +49,7 @@ fn gc_retains_object_in_frame_local() {
     let statics = StaticFieldStore::new();
 
     let idx = objects.alloc("Keeper").unwrap();
-    let frame = Frame::new(0, 0, &[Value::ObjectRef(idx)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(idx)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -72,7 +72,7 @@ fn gc_retains_object_in_frame_stack() {
     let statics = StaticFieldStore::new();
 
     let idx = objects.alloc("OnStack").unwrap();
-    let mut frame = Frame::new(0, 0, &[]).unwrap();
+    let mut frame = Frame::new(0, 0, &[], 4, 4).unwrap();
     frame.push(Value::ObjectRef(idx)).unwrap();
     let frames = [frame];
 
@@ -128,7 +128,7 @@ fn gc_retains_deep_chain() {
     objects.set_field(c, 0, Value::ObjectRef(d));
 
     // Only A is rooted
-    let frame = Frame::new(0, 0, &[Value::ObjectRef(a)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(a)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -189,7 +189,7 @@ fn gc_collects_after_field_overwrite() {
     objects.set_field(a, 0, Value::ObjectRef(c));
 
     // Only A is rooted — B should be collected, C retained
-    let frame = Frame::new(0, 0, &[Value::ObjectRef(a)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(a)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -214,7 +214,7 @@ fn gc_retains_array_ref() {
     let statics = StaticFieldStore::new();
 
     let arr = arrays.alloc(10, 4).unwrap(); // ATYPE_INT
-    let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -264,7 +264,7 @@ fn gc_retains_ref_array_elements() {
     arrays.store(arr, 0, obj as i32);
 
     // Only the array is rooted — object should survive via ATYPE_REF scan
-    let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -288,7 +288,7 @@ fn gc_retains_dynamic_string() {
     let statics = StaticFieldStore::new();
 
     let str_idx = strings.intern_dyn(b"hello").unwrap();
-    let frame = Frame::new(0, 0, &[Value::Reference(str_idx)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::Reference(str_idx)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -360,7 +360,7 @@ fn gc_object_holding_string_ref() {
     objects.set_field(obj, 0, Value::Reference(str_idx));
 
     // Root the object — string should survive via field reference
-    let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -386,7 +386,7 @@ fn gc_object_holding_array_ref() {
     let obj = objects.alloc("Holder").unwrap();
     objects.set_field(obj, 0, Value::ArrayRef(arr));
 
-    let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(obj)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -440,7 +440,7 @@ fn gc_null_refs_ignored() {
     let statics = StaticFieldStore::new();
 
     // Frame with Null values should not crash
-    let frame = Frame::new(0, 0, &[Value::Null, Value::Int(42)]).unwrap();
+    let frame = Frame::new(0, 0, &[Value::Null, Value::Int(42)], 4, 4).unwrap();
     let frames = [frame];
 
     let freed = collect(
@@ -495,6 +495,8 @@ fn gc_primitive_values_untouched() {
             Value::Float(3.0),
             Value::Double(4.0),
         ],
+        4,
+        4,
     )
     .unwrap();
     let frames = [frame];
@@ -522,7 +524,7 @@ fn gc_many_small_allocations_bounded() {
         objects.alloc("Temp").unwrap();
         // After every 10 allocations, collect with only the latest as root
         if (i + 1) % 10 == 0 {
-            let frame = Frame::new(0, 0, &[Value::ObjectRef(i)]).unwrap();
+            let frame = Frame::new(0, 0, &[Value::ObjectRef(i)], 4, 4).unwrap();
             let frames = [frame];
             collect(
                 &frames,

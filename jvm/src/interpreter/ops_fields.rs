@@ -24,7 +24,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     frame.pc = frame.inst_pc;
                     return Ok(());
                 }
-                let value = self.statics.get(class_name, field_name);
+                let cn_ptr = class_name.as_ptr();
+                let fn_ptr = field_name.as_ptr();
+                let value = 'lookup: {
+                    for &(cp, fp, idx) in self.static_field_cache.iter() {
+                        if cp == cn_ptr && fp == fn_ptr {
+                            break 'lookup self.statics.get_by_index(idx);
+                        }
+                    }
+                    let value = self.statics.get(class_name, field_name);
+                    if let Some(idx) = self.statics.find_index(class_name, field_name) {
+                        self.static_field_cache.push((cn_ptr, fn_ptr, idx));
+                    }
+                    value
+                };
                 frame.push(value)?;
             }
 
@@ -40,9 +53,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     return Ok(());
                 }
                 let value = frame.pop()?;
-                self.statics
-                    .set(class_name, field_name, value)
-                    .ok_or(JvmError::StackOverflow)?;
+                let cn_ptr = class_name.as_ptr();
+                let fn_ptr = field_name.as_ptr();
+                let mut found = false;
+                for &(cp, fp, idx) in self.static_field_cache.iter() {
+                    if cp == cn_ptr && fp == fn_ptr {
+                        self.statics.set_by_index(idx, value);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    self.statics
+                        .set(class_name, field_name, value)
+                        .ok_or(JvmError::StackOverflow)?;
+                    if let Some(idx) = self.statics.find_index(class_name, field_name) {
+                        self.static_field_cache.push((cn_ptr, fn_ptr, idx));
+                    }
+                }
             }
 
             // getfield — objectref → value

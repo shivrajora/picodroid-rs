@@ -28,7 +28,7 @@ mod ops_stack;
 mod tests;
 
 /// Number of allocations between automatic GC cycles.
-const GC_THRESHOLD: u16 = 256;
+const GC_THRESHOLD: u16 = 512;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],
@@ -42,6 +42,8 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub field_cache: Vec<(*const u8, *const u8, usize)>,
     /// Cache: (class_name ptr, method_name ptr, desc ptr) → (class_idx, method_idx).
     pub method_cache: Vec<helpers::MethodCacheEntry>,
+    /// Cache: (class_name ptr, field_name ptr) → index in StaticFieldStore entries.
+    pub static_field_cache: Vec<(*const u8, *const u8, usize)>,
     /// Set by `op_invoke` when a Java method should be called; the main loop
     /// pushes this frame onto the frame stack on the next iteration.
     pub pending_frame: Option<Frame>,
@@ -51,6 +53,8 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub pending_clinit_frames: Vec<Frame>,
     /// Allocation counter for GC triggering.
     pub alloc_count: u16,
+    /// Instruction counter for batched interrupt checking (checks every 256 insns).
+    pub insn_count: u8,
 }
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
@@ -81,7 +85,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             self.statics.mark_initialized(cn);
             if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
                 if self.classes[ci].methods[mi].code_offset != 0 {
-                    clinit_frames.push(Frame::new(ci, mi, &[])?);
+                    let cm = &self.classes[ci].methods[mi];
+                    clinit_frames.push(Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?);
                 }
             }
         }
@@ -169,7 +174,8 @@ pub fn execute<H: NativeMethodHandler>(
     method_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
-    let initial_frame = Frame::new(class_idx, method_idx, args)?;
+    let m = &classes[class_idx].methods[method_idx];
+    let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
     frames.push(initial_frame);
 
@@ -183,14 +189,17 @@ pub fn execute<H: NativeMethodHandler>(
         handler,
         field_cache: Vec::new(),
         method_cache: Vec::new(),
+        static_field_cache: Vec::new(),
         pending_frame: None,
         pending_clinit_frames: Vec::new(),
         alloc_count: 0,
+        insn_count: 0,
     };
 
     loop {
-        // Cooperative stop-point: checked once per bytecode instruction.
-        if ex.handler.interrupted() {
+        // Cooperative stop-point: checked every 256 bytecode instructions.
+        ex.insn_count = ex.insn_count.wrapping_add(1);
+        if ex.insn_count == 0 && ex.handler.interrupted() {
             return Err(JvmError::Interrupted);
         }
 
