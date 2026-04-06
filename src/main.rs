@@ -13,6 +13,8 @@ mod drivers;
 #[allow(dead_code)]
 mod hal;
 #[cfg(not(test))]
+mod lifecycle;
+#[cfg(not(test))]
 mod lvgl_ffi;
 #[cfg(not(any(test, feature = "sim")))]
 mod packagemanager;

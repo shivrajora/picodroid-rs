@@ -195,7 +195,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
         // alloc() can store it in the object heap.
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(application_class) };
-        run_application(&mut jvm, static_name, heap, &mut handler);
+        crate::lifecycle::run_application(&mut jvm, static_name, heap, &mut handler);
     } else if let Some(activity_class) = apk.activity() {
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
@@ -203,7 +203,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
             .objects
             .alloc(static_name)
             .expect("OOM allocating Activity");
-        run_activity(&mut jvm, static_name, obj_ref, heap, &mut handler);
+        crate::lifecycle::run_activity(&mut jvm, static_name, obj_ref, heap, &mut handler);
     } else {
         let main_class = apk
             .main_class()
@@ -221,152 +221,6 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     #[cfg(feature = "sim")]
     println!("[sim] JVM wall-clock: {} ms", start.elapsed().as_millis());
-}
-
-// ── Application lifecycle ────────────────────────────────────────────────────
-
-/// Run an Application-based app: allocate the Application object, call
-/// `onCreate()`, then launch a pending Activity if `startActivity()` was called.
-///
-/// In sim mode, the Activity display lifecycle is skipped (no LVGL hardware).
-#[cfg(all(not(test), feature = "sim"))]
-fn run_application(
-    jvm: &mut Jvm,
-    application_class: &'static str,
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    let obj_ref = heap
-        .objects
-        .alloc(application_class)
-        .expect("OOM allocating Application");
-
-    match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
-        Ok(()) => {}
-        Err(JvmError::Interrupted) => return,
-        Err(e) => {
-            eprintln!("[sim] Application.onCreate error: {:?}", e);
-            return;
-        }
-    }
-
-    if let Some((_activity_ref, activity_class)) = handler.take_pending_activity() {
-        eprintln!(
-            "[sim] startActivity('{}') called; skipping display lifecycle (no display in sim)",
-            activity_class
-        );
-    }
-}
-
-/// Run an Application-based app on real hardware: allocate the Application
-/// object, call `onCreate()`, then launch a pending Activity if
-/// `startActivity()` was called during `onCreate()`.
-#[cfg(not(any(test, feature = "sim")))]
-fn run_application(
-    jvm: &mut Jvm,
-    application_class: &'static str,
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    let obj_ref = heap
-        .objects
-        .alloc(application_class)
-        .expect("OOM allocating Application");
-
-    match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
-        Ok(()) => {}
-        Err(JvmError::Interrupted) => return,
-        Err(e) => {
-            defmt::error!("Application.onCreate error: {}", defmt::Debug2Format(&e));
-            return;
-        }
-    }
-
-    // If onCreate() called startActivity(), launch the Activity lifecycle.
-    if let Some((activity_ref, activity_class)) = handler.take_pending_activity() {
-        run_activity(jvm, activity_class, activity_ref, heap, handler);
-    }
-}
-
-// ── Activity lifecycle ───────────────────────────────────────────────────────
-
-/// Run an Activity-based app: call `onCreate()` on the pre-allocated Activity,
-/// then enter the framework event loop (tick LVGL + dispatch click events).
-///
-/// In sim mode, LVGL blocks on `lv_display_create` (no real display hardware),
-/// so we skip the full lifecycle and just verify the Activity class loads.
-#[cfg(all(not(test), feature = "sim"))]
-fn run_activity(
-    _jvm: &mut Jvm,
-    activity_class: &'static str,
-    obj_ref: u16,
-    _heap: &mut SharedJvmHeap,
-    _handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    eprintln!(
-        "[sim] Activity '{}' loaded (obj_ref={}); skipping onCreate + event loop (no display in sim)",
-        activity_class, obj_ref
-    );
-}
-
-/// Run an Activity-based app on real hardware: call `onCreate()` on the
-/// pre-allocated Activity, then enter the framework event loop.
-#[cfg(not(any(test, feature = "sim")))]
-fn run_activity(
-    jvm: &mut Jvm,
-    activity_class: &'static str,
-    obj_ref: u16,
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    use crate::system::picodroid::graphics::engine;
-    use pico_jvm::NativeMethodHandler;
-
-    // Call the subclass's onCreate() — this builds the UI tree and calls
-    // setContentView().  Virtual dispatch picks up the override automatically.
-    match jvm.invoke_instance(activity_class, "onCreate", obj_ref, heap, handler) {
-        Ok(()) => {}
-        Err(JvmError::Interrupted) => return,
-        Err(e) => {
-            defmt::error!("Activity.onCreate error: {}", defmt::Debug2Format(&e));
-            return;
-        }
-    }
-
-    // Framework event loop — tick LVGL and dispatch click callbacks.
-    let mut pacer = crate::hal::system_clock::FramePacer::new();
-    loop {
-        engine::tick(16);
-        dispatch_clicks(jvm, heap, handler);
-        pacer.pace(16);
-
-        if handler.interrupted() {
-            break;
-        }
-    }
-}
-
-/// Drain the click queue and invoke `fireClick()` on each matching Button.
-#[cfg(not(any(test, feature = "sim")))]
-fn dispatch_clicks(
-    jvm: &mut Jvm,
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    use crate::system::picodroid::graphics::widgets;
-
-    while let Some(handle) = widgets::drain_click_queue() {
-        if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
-            // fireClick() is a Java method on Button that calls onClickListener.run().
-            let _ = jvm.invoke_instance(
-                "picodroid/widget/Button",
-                "fireClick",
-                obj_ref,
-                heap,
-                handler,
-            );
-        }
-    }
 }
 
 /// Run the JVM with the baked-in APK (sim entry point).
