@@ -28,7 +28,7 @@ mod ops_stack;
 mod tests;
 
 /// Number of allocations between automatic GC cycles.
-const GC_THRESHOLD: u16 = 512;
+const GC_THRESHOLD: u16 = 256;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],
