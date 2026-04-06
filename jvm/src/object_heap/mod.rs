@@ -1,3 +1,6 @@
+mod lambda;
+mod list_store;
+
 use crate::types::Value;
 use alloc::vec::Vec;
 
@@ -75,13 +78,13 @@ pub struct LambdaProxy {
 }
 
 pub struct ObjectHeap {
-    objects: Vec<Option<JvmObject>>,
+    pub(super) objects: Vec<Option<JvmObject>>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
-    first_free: usize,
-    sb_buf: Vec<u8>,
-    list_bufs: Vec<Option<Vec<Value>>>,
+    pub(super) first_free: usize,
+    pub(super) sb_buf: Vec<u8>,
+    pub(super) list_bufs: Vec<Option<Vec<Value>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
-    lambda_proxies: Vec<(u16, LambdaProxy)>,
+    pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
 }
 
 impl ObjectHeap {
@@ -197,27 +200,7 @@ impl ObjectHeap {
         &self.sb_buf
     }
 
-    // ── Lambda proxy support ──────────────────────────────────────────────────
-
-    /// Associate a lambda proxy with an existing heap object.
-    pub fn register_lambda(&mut self, obj_idx: u16, proxy: LambdaProxy) {
-        self.lambda_proxies.push((obj_idx, proxy));
-    }
-
-    /// Look up the lambda proxy metadata for an object, if any.
-    pub fn get_lambda(&self, obj_idx: u16) -> Option<&LambdaProxy> {
-        self.lambda_proxies
-            .iter()
-            .find(|(idx, _)| *idx == obj_idx)
-            .map(|(_, proxy)| proxy)
-    }
-
-    /// Remove the lambda proxy entry for an object (called from GC sweep).
-    pub fn free_lambda(&mut self, obj_idx: u16) {
-        self.lambda_proxies.retain(|(idx, _)| *idx != obj_idx);
-    }
-
-    // ── GC support ────────────────���─────────────────────────────��─────────────
+    // ── GC support ───────────────────────────────────────────────────────────
 
     /// Total number of slots (including freed `None` slots).
     pub fn slot_count(&self) -> usize {
@@ -256,94 +239,6 @@ impl ObjectHeap {
     /// `sb_append_int`, or `sb_clear`, any of which may reallocate `sb_buf`.
     pub fn sb_contents(&self) -> (*const u8, usize) {
         (self.sb_buf.as_ptr(), self.sb_buf.len())
-    }
-
-    // ── ArrayList / list_bufs ────────────────────────────────────────────────
-
-    /// Allocate a new list buffer, returning its index.
-    /// Reuses a `None` slot (freed by GC) before growing the backing Vec.
-    pub fn list_alloc(&mut self) -> Option<u16> {
-        if let Some(idx) = self.list_bufs.iter().position(|s| s.is_none()) {
-            self.list_bufs[idx] = Some(Vec::new());
-            return Some(idx as u16);
-        }
-        let idx = self.list_bufs.len() as u16;
-        self.list_bufs.push(Some(Vec::new()));
-        Some(idx)
-    }
-
-    /// Free a list buffer slot (GC hook). No-op if `idx` is out of range.
-    pub fn list_free(&mut self, idx: u16) {
-        if let Some(slot) = self.list_bufs.get_mut(idx as usize) {
-            *slot = None;
-        }
-    }
-
-    /// Return the number of elements in the list.
-    pub fn list_len(&self, idx: u16) -> usize {
-        self.list_bufs
-            .get(idx as usize)
-            .and_then(|s| s.as_ref())
-            .map(|v| v.len())
-            .unwrap_or(0)
-    }
-
-    /// Return the element at position `i`, or `None` if out of bounds.
-    pub fn list_get(&self, idx: u16, i: usize) -> Option<Value> {
-        self.list_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
-    }
-
-    /// Append `v` to the end of the list.
-    pub fn list_add(&mut self, idx: u16, v: Value) {
-        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
-            buf.push(v);
-        }
-    }
-
-    /// Insert `v` at position `i`, shifting subsequent elements right.
-    /// If `i >= len`, appends to the end.
-    pub fn list_insert(&mut self, idx: u16, i: usize, v: Value) {
-        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
-            let pos = i.min(buf.len());
-            buf.insert(pos, v);
-        }
-    }
-
-    /// Replace the element at position `i` with `v`, returning the old value.
-    /// Returns `None` if `i` is out of bounds.
-    pub fn list_set(&mut self, idx: u16, i: usize, v: Value) -> Option<Value> {
-        let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
-        let old = *buf.get(i)?;
-        buf[i] = v;
-        Some(old)
-    }
-
-    /// Remove and return the element at position `i`.
-    /// Returns `None` if `i` is out of bounds.
-    pub fn list_remove(&mut self, idx: u16, i: usize) -> Option<Value> {
-        let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
-        if i < buf.len() {
-            Some(buf.remove(i))
-        } else {
-            None
-        }
-    }
-
-    /// Remove all elements from the list.
-    pub fn list_clear(&mut self, idx: u16) {
-        if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
-            buf.clear();
-        }
-    }
-
-    /// Return an iterator over the list elements.
-    pub fn list_iter(&self, idx: u16) -> impl Iterator<Item = Value> + '_ {
-        self.list_bufs
-            .get(idx as usize)
-            .and_then(|s| s.as_ref())
-            .map(|v| v.iter().copied())
-            .into_iter()
-            .flatten()
     }
 }
 
