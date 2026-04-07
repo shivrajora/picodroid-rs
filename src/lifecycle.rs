@@ -75,6 +75,9 @@ pub(crate) fn run_activity(
         dispatch_clicks(jvm, heap, handler);
         dispatch_checked_changes(jvm, heap, handler);
         dispatch_switch_checked_changes(jvm, heap, handler);
+        dispatch_seek_bar_changes(jvm, heap, handler);
+        dispatch_checkbox_changes(jvm, heap, handler);
+        dispatch_spinner_changes(jvm, heap, handler);
 
         #[cfg(feature = "sim")]
         {
@@ -159,6 +162,81 @@ fn dispatch_switch_checked_changes(
             let _ = jvm.invoke_instance(
                 "picodroid/widget/Switch",
                 "fireCheckedChanged",
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── CheckBox checked-change dispatch ────────────────────────────────────────
+
+/// Drain the checkbox checked-change queue and invoke `fireCheckedChanged()` on
+/// each matching CheckBox.
+#[cfg(not(test))]
+fn dispatch_checkbox_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_cb_checked_change_queue() {
+        if let Some(obj_ref) = widgets::lookup_cb_checked_change_obj(handle) {
+            let _ = jvm.invoke_instance(
+                "picodroid/widget/CheckBox",
+                "fireCheckedChanged",
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── Spinner item-selected dispatch ──────────────────────────────────────────
+
+/// Drain the spinner value-changed queue and invoke `fireItemSelected()` on
+/// each matching Spinner.
+#[cfg(not(test))]
+fn dispatch_spinner_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_spinner_change_queue() {
+        if let Some(obj_ref) = widgets::lookup_spinner_obj(handle) {
+            let _ = jvm.invoke_instance(
+                "picodroid/widget/Spinner",
+                "fireItemSelected",
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── SeekBar value-changed dispatch ──────────────────────────────────────────
+
+/// Drain the seek bar value-changed queue and invoke `fireProgressChanged()` on
+/// each matching SeekBar.
+#[cfg(not(test))]
+fn dispatch_seek_bar_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_seek_change_queue() {
+        if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
+            let _ = jvm.invoke_instance(
+                "picodroid/widget/SeekBar",
+                "fireProgressChanged",
                 obj_ref,
                 heap,
                 handler,

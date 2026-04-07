@@ -332,6 +332,12 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/widget/ListView" => "picodroid/widget/ListView",
         "picodroid/widget/ImageView" => "picodroid/widget/ImageView",
         "picodroid/widget/ToggleButton" => "picodroid/widget/ToggleButton",
+        "picodroid/widget/SeekBar" => "picodroid/widget/SeekBar",
+        "picodroid/widget/CheckBox" => "picodroid/widget/CheckBox",
+        "picodroid/widget/ScrollView" => "picodroid/widget/ScrollView",
+        "picodroid/widget/FrameLayout" => "picodroid/widget/FrameLayout",
+        "picodroid/widget/Spinner" => "picodroid/widget/Spinner",
+        "picodroid/widget/EditText" => "picodroid/widget/EditText",
         _ => "unknown",
     }
 }

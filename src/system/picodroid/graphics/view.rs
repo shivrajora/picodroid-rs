@@ -143,6 +143,65 @@ pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Val
     Ok(None)
 }
 
+/// `View.setPadding(int left, int top, int right, int bottom)`
+pub fn set_padding(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let left = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let top = match args.get(2) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let right = match args.get(3) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let bottom = match args.get(4) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    unsafe {
+        let obj = resolve(id);
+        lv_obj_set_style_pad_left(obj, left, 0);
+        lv_obj_set_style_pad_top(obj, top, 0);
+        lv_obj_set_style_pad_right(obj, right, 0);
+        lv_obj_set_style_pad_bottom(obj, bottom, 0);
+    }
+    Ok(None)
+}
+
+/// `View.setEnabled(boolean enabled)`
+pub fn set_enabled(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let enabled = match args.get(1) {
+        Some(Value::Int(v)) => *v != 0,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    unsafe {
+        let obj = resolve(id);
+        if enabled {
+            lv_obj_remove_state(obj, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(obj, LV_STATE_DISABLED);
+        }
+    }
+    Ok(None)
+}
+
+/// `View.setAlpha(float alpha)`
+pub fn set_alpha(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let alpha = match args.get(1) {
+        Some(Value::Float(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let opa = (alpha * 255.0) as u8;
+    unsafe { lv_obj_set_style_opa(resolve(id), opa, 0) };
+    Ok(None)
+}
+
 /// `View.close()`
 pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;

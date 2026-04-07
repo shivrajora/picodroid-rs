@@ -18,6 +18,12 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/ToggleButton"
             | "picodroid/widget/ListView"
             | "picodroid/widget/ImageView"
+            | "picodroid/widget/SeekBar"
+            | "picodroid/widget/CheckBox"
+            | "picodroid/widget/ScrollView"
+            | "picodroid/widget/FrameLayout"
+            | "picodroid/widget/Spinner"
+            | "picodroid/widget/EditText"
     )
 }
 
@@ -57,6 +63,15 @@ pub fn dispatch(
         ),
         (c, "setVisibility") if is_view(c) => Some(
             crate::system::picodroid::graphics::view::set_visibility(ctx.args, ctx.objects),
+        ),
+        (c, "setPadding") if is_view(c) => Some(
+            crate::system::picodroid::graphics::view::set_padding(ctx.args, ctx.objects),
+        ),
+        (c, "setEnabled") if is_view(c) => Some(
+            crate::system::picodroid::graphics::view::set_enabled(ctx.args, ctx.objects),
+        ),
+        (c, "setAlpha") if is_view(c) => Some(
+            crate::system::picodroid::graphics::view::set_alpha(ctx.args, ctx.objects),
         ),
         (c, "close") if is_view(c) => Some(crate::system::picodroid::graphics::view::close(
             ctx.args,
@@ -214,12 +229,143 @@ pub fn dispatch(
             ),
         ),
 
+        // ── SeekBar ──────────────────────────────────────────────────
+        ("picodroid/widget/SeekBar", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::seek_bar_native_create())
+        }
+        ("picodroid/widget/SeekBar", "nativeCreateWithMax") => Some(
+            crate::system::picodroid::graphics::widgets::seek_bar_native_create_with_max(ctx.args),
+        ),
+        ("picodroid/widget/SeekBar", "setMax") => Some(
+            crate::system::picodroid::graphics::widgets::seek_bar_set_max(ctx.args, ctx.objects),
+        ),
+        ("picodroid/widget/SeekBar", "setProgress") => Some(
+            crate::system::picodroid::graphics::widgets::seek_bar_set_progress(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/SeekBar", "getProgress") => Some(
+            crate::system::picodroid::graphics::widgets::seek_bar_get_progress(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/SeekBar", "nativeRegisterChangeListener") => Some(
+            crate::system::picodroid::graphics::widgets::seek_bar_register_change_listener(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+
+        // ── CheckBox ─────────────────────────────────────────────────
+        ("picodroid/widget/CheckBox", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::check_box_native_create())
+        }
+        ("picodroid/widget/CheckBox", "setText") => Some(
+            crate::system::picodroid::graphics::widgets::check_box_set_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/CheckBox", "isChecked") => Some(
+            crate::system::picodroid::graphics::widgets::check_box_is_checked(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/CheckBox", "setChecked") => Some(
+            crate::system::picodroid::graphics::widgets::check_box_set_checked(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/CheckBox", "nativeRegisterCheckedChangeListener") => Some(
+            crate::system::picodroid::graphics::widgets::check_box_register_checked_change_listener(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+
         // ── ImageView ────────────────────────────────────────────────
         ("picodroid/widget/ImageView", "nativeCreate") => {
             Some(crate::system::picodroid::graphics::widgets::image_view_native_create())
         }
         ("picodroid/widget/ImageView", "setImageSource") => Some(
             crate::system::picodroid::graphics::widgets::image_view_set_src(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+
+        // ── ScrollView ────────────────────────────────────────────────
+        ("picodroid/widget/ScrollView", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::scroll_view_native_create())
+        }
+        ("picodroid/widget/ScrollView", "addView") => Some(
+            crate::system::picodroid::graphics::widgets::scroll_view_add_view(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+
+        // ── FrameLayout ─────────────────────────────────────────────
+        ("picodroid/widget/FrameLayout", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::frame_layout_native_create())
+        }
+        ("picodroid/widget/FrameLayout", "addView") => Some(
+            crate::system::picodroid::graphics::widgets::frame_layout_add_view(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+
+        // ── Spinner ───────────────────────────────────────────────────
+        ("picodroid/widget/Spinner", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::spinner_native_create())
+        }
+        ("picodroid/widget/Spinner", "setItems") => Some(
+            crate::system::picodroid::graphics::widgets::spinner_set_items(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/Spinner", "getSelectedItemPosition") => Some(
+            crate::system::picodroid::graphics::widgets::spinner_get_selected(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/Spinner", "nativeRegisterItemSelectedListener") => Some(
+            crate::system::picodroid::graphics::widgets::spinner_register_item_selected_listener(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+
+        // ── EditText ──────────────────────────────────────────────────
+        ("picodroid/widget/EditText", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::edit_text_native_create())
+        }
+        ("picodroid/widget/EditText", "setText") => Some(
+            crate::system::picodroid::graphics::widgets::edit_text_set_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/EditText", "getText") => Some(
+            crate::system::picodroid::graphics::widgets::edit_text_get_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/EditText", "setHint") => Some(
+            crate::system::picodroid::graphics::widgets::edit_text_set_hint(
                 ctx.args,
                 ctx.strings,
                 ctx.objects,

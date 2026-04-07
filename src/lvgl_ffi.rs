@@ -117,6 +117,7 @@ pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 
 // Object states (from lv_obj.h)
 pub const LV_STATE_CHECKED: u32 = 0x0001;
+pub const LV_STATE_DISABLED: u32 = 0x0080;
 
 // ---------------------------------------------------------------------------
 // Callback types
@@ -232,6 +233,23 @@ extern "C" {
         selector: lv_style_selector_t,
     );
 
+    // Padding style
+    pub fn lv_obj_set_style_pad_left(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_pad_right(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_pad_top(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_pad_bottom(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+
+    // Opacity style
+    pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+
     // List widget
     pub fn lv_list_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_list_add_text(list: *mut lv_obj_t, text: *const c_char) -> *mut lv_obj_t;
@@ -244,4 +262,25 @@ extern "C" {
     // Image widget
     pub fn lv_image_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_image_set_src(obj: *mut lv_obj_t, src: *const c_void);
+
+    // Slider widget
+    pub fn lv_slider_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_slider_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
+    pub fn lv_slider_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
+    pub fn lv_slider_get_value(obj: *const lv_obj_t) -> i32;
+
+    // Checkbox widget
+    pub fn lv_checkbox_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_checkbox_set_text(obj: *mut lv_obj_t, txt: *const c_char);
+
+    // Dropdown widget
+    pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
+    pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
+
+    // Textarea widget
+    pub fn lv_textarea_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_textarea_set_text(obj: *mut lv_obj_t, txt: *const c_char);
+    pub fn lv_textarea_get_text(obj: *const lv_obj_t) -> *const c_char;
+    pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, txt: *const c_char);
 }

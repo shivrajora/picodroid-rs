@@ -19,5 +19,11 @@ public class View {
 
   public native void setVisibility(int visibility);
 
+  public native void setPadding(int left, int top, int right, int bottom);
+
+  public native void setEnabled(boolean enabled);
+
+  public native void setAlpha(float alpha);
+
   public native void close();
 }
