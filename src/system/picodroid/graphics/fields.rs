@@ -22,6 +22,13 @@ pub mod linear_layout {
     pub const ORIENTATION: usize = 1;
 }
 
+#[allow(dead_code)]
+pub mod toggle_button {
+    // Inherits slot 0 = nativeHandle from View.
+    /// `Runnable` callback (`ObjectRef`) — accessed from Java only.
+    pub const ON_CHECKED_CHANGE_LISTENER: usize = 1;
+}
+
 pub mod display {
     pub const WIDTH: usize = 0;
     pub const HEIGHT: usize = 1;

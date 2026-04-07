@@ -331,6 +331,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/widget/Switch" => "picodroid/widget/Switch",
         "picodroid/widget/ListView" => "picodroid/widget/ListView",
         "picodroid/widget/ImageView" => "picodroid/widget/ImageView",
+        "picodroid/widget/ToggleButton" => "picodroid/widget/ToggleButton",
         _ => "unknown",
     }
 }

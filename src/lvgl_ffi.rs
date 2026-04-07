@@ -113,6 +113,7 @@ pub type lv_style_selector_t = u32;
 // Object flags (from lv_obj.h)
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
+pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 
 // Object states (from lv_obj.h)
 pub const LV_STATE_CHECKED: u32 = 0x0001;

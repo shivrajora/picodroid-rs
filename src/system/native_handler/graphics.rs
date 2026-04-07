@@ -15,6 +15,7 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/LinearLayout"
             | "picodroid/widget/ProgressBar"
             | "picodroid/widget/Switch"
+            | "picodroid/widget/ToggleButton"
             | "picodroid/widget/ListView"
             | "picodroid/widget/ImageView"
     )
@@ -141,6 +142,55 @@ pub fn dispatch(
         ),
         ("picodroid/widget/Switch", "setChecked") => Some(
             crate::system::picodroid::graphics::widgets::switch_set_checked(ctx.args, ctx.objects),
+        ),
+
+        // ── ToggleButton ─────────────────────────────────────────────
+        ("picodroid/widget/ToggleButton", "nativeCreate") => {
+            Some(crate::system::picodroid::graphics::widgets::toggle_button_native_create())
+        }
+        ("picodroid/widget/ToggleButton", "nativeCreateWithText") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_native_create_with_text(
+                ctx.args,
+                ctx.strings,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "isChecked") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_is_checked(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "setChecked") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_set_checked(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "toggle") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_toggle(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "setTextOn") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_set_text_on(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "setTextOff") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_set_text_off(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            ),
+        ),
+        ("picodroid/widget/ToggleButton", "nativeRegisterCheckedChangeListener") => Some(
+            crate::system::picodroid::graphics::widgets::toggle_button_register_checked_change_listener(
+                ctx.args,
+                ctx.objects,
+            ),
         ),
 
         // ── ListView ─────────────────────────────────────────────────

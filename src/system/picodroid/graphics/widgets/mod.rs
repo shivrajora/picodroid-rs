@@ -1,5 +1,6 @@
 //! Native method implementations for all widget classes:
-//! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ListView`, `ImageView`.
+//! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ToggleButton`, `ListView`,
+//! `ImageView`.
 
 mod button;
 mod image_view;
@@ -8,6 +9,7 @@ mod list_view;
 mod progress_bar;
 mod switch;
 mod text_view;
+mod toggle_button;
 
 pub use button::{
     button_native_create, button_register_click_listener, button_set_text, button_was_clicked,
@@ -23,3 +25,11 @@ pub use list_view::{list_view_add_item, list_view_native_create};
 pub use progress_bar::{progress_bar_native_create, progress_bar_set_progress};
 pub use switch::{switch_is_checked, switch_native_create, switch_set_checked};
 pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_text_color};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
+pub use toggle_button::{
+    reset_toggle_button_state, toggle_button_is_checked, toggle_button_native_create,
+    toggle_button_native_create_with_text, toggle_button_register_checked_change_listener,
+    toggle_button_set_checked, toggle_button_set_text_off, toggle_button_set_text_on,
+    toggle_button_toggle,
+};

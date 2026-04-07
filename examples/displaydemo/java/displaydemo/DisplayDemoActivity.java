@@ -26,6 +26,16 @@ public class DisplayDemoActivity extends Activity {
     btn.setOnClickListener(new TapHandler(title));
     root.addView(btn);
 
+    TextView toggleLabel = new TextView();
+    toggleLabel.setText("LED: OFF");
+    toggleLabel.setTextColor(Color.WHITE);
+    root.addView(toggleLabel);
+
+    ToggleButton toggle = new ToggleButton("ON", "OFF");
+    toggle.setSize(200, 50);
+    toggle.setOnCheckedChangeListener(new ToggleHandler(toggleLabel, toggle));
+    root.addView(toggle);
+
     setContentView(root);
   }
 }
