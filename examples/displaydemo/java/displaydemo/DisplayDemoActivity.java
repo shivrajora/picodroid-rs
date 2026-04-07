@@ -41,15 +41,13 @@ public class DisplayDemoActivity extends Activity {
     Gpio led = manager.openGpio("GP25");
     led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
     toggle.setOnCheckedChangeListener(
-        new Runnable() {
-          public void run() {
-            if (toggle.isChecked()) {
-              toggleLabel.setText("LED: ON");
-              led.setValue(true);
-            } else {
-              toggleLabel.setText("LED: OFF");
-              led.setValue(false);
-            }
+        () -> {
+          if (toggle.isChecked()) {
+            toggleLabel.setText("LED: ON");
+            led.setValue(true);
+          } else {
+            toggleLabel.setText("LED: OFF");
+            led.setValue(false);
           }
         });
     root.addView(toggle);
