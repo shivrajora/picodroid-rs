@@ -1,6 +1,6 @@
 use core::sync::atomic::Ordering;
 
-#[cfg(not(feature = "chip-rp2350"))]
+#[cfg(not(feature = "chip-rp2350-hal"))]
 use freertos_rust::{CurrentTask, Duration};
 
 use super::pending;
@@ -39,9 +39,9 @@ impl InstallTransport for UartTransport {
         // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
         // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
         // timer instead of tick-based timeouts.
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         return crate::hal::pdb_uart::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
-        #[cfg(not(feature = "chip-rp2350"))]
+        #[cfg(not(feature = "chip-rp2350-hal"))]
         crate::hal::pdb_uart::queue_read_byte_timeout().ok_or(ReadError::Timeout)
     }
 
@@ -104,7 +104,7 @@ impl CoreCoordinator for PdbCoreCoordinator {
         // independently of the FreeRTOS tick.  The ISR checks CORE0_PARKED
         // and sends to the park-signal queue from ISR context, waking the
         // PDB task even after the tick freezes.
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         {
             // Arm the timer alarm
             crate::hal::timer_alarm::arm_park_alarm();
@@ -122,7 +122,7 @@ impl CoreCoordinator for PdbCoreCoordinator {
             crate::hal::timer_alarm::disarm_park_alarm();
             false
         }
-        #[cfg(not(feature = "chip-rp2350"))]
+        #[cfg(not(feature = "chip-rp2350-hal"))]
         {
             for _ in 0..1500u32 {
                 if pending::CORE0_PARKED.load(Ordering::Acquire) {

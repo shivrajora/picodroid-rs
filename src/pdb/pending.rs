@@ -59,22 +59,22 @@ pub(super) fn notify_jvm() {
 // A FreeRTOS queue works correctly because the send operation triggers a
 // doorbell + PendSV via a different code path.
 
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 struct QueueCell(core::cell::UnsafeCell<Option<freertos_rust::Queue<u8>>>);
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 unsafe impl Sync for QueueCell {}
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 static PARK_SIGNAL_QUEUE: QueueCell = QueueCell(core::cell::UnsafeCell::new(None));
 
 /// Initialize the park-signal queue. Called once from pdb_task at startup.
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub fn init_park_signal() {
     let q = freertos_rust::Queue::new(1).expect("park signal queue alloc failed");
     unsafe { *PARK_SIGNAL_QUEUE.0.get() = Some(q) };
 }
 
 /// Block until park signal arrives or timeout.  Returns true if signalled.
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub(super) fn wait_park_signal(timeout_ms: u32) -> bool {
     if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
         q.receive(freertos_rust::Duration::ms(timeout_ms)).is_ok()
@@ -84,7 +84,7 @@ pub(super) fn wait_park_signal(timeout_ms: u32) -> bool {
 }
 
 /// Send park signal from an ISR context (timer alarm handler).
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub fn signal_park_from_isr() {
     if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
         let mut ctx = freertos_rust::InterruptContext::new();

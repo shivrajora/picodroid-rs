@@ -1,5 +1,5 @@
 pub fn set_direction(pin: u8, direction: i32) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -23,7 +23,7 @@ pub fn set_direction(pin: u8, direction: i32) {
     // Configure pad: disable input buffer, not open-drain.
     // On RP2350 the pad defaults to ISO=1 (electrically isolated); clear it.
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         let w = w.iso().clear_bit();
         w.ie().clear_bit().od().clear_bit()
     });
@@ -47,7 +47,7 @@ pub fn set_direction(pin: u8, direction: i32) {
 }
 
 pub fn set_value(pin: u8, high: bool) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

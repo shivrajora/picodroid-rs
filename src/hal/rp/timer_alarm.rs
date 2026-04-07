@@ -5,16 +5,16 @@
 //! every 1 ms on core 1, independently of FreeRTOS.  The ISR checks
 //! CORE0_PARKED and signals the PDB task via the park-signal queue.
 
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 use rp235x_hal::pac;
 
 /// TIMER0 alarm 0 IRQ number on RP2350.
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 const TIMER0_IRQ_0_NUM: u16 = 0;
 
 /// Arm a repeating 1 ms alarm on TIMER0 alarm 0.
 /// Must be called from core 1 (the PDB task core).
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub fn arm_park_alarm() {
     let p = unsafe { pac::Peripherals::steal() };
     let timer = &p.TIMER0;
@@ -41,7 +41,7 @@ pub fn arm_park_alarm() {
 }
 
 /// Disarm the park-detection alarm.
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub fn disarm_park_alarm() {
     let p = unsafe { pac::Peripherals::steal() };
     let timer = &p.TIMER0;
@@ -55,7 +55,7 @@ pub fn disarm_park_alarm() {
 
 /// TIMER0_IRQ_0 handler.  Fires every ~1 ms on core 1.
 /// Checks CORE0_PARKED and signals the PDB task if set.
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn TIMER0_IRQ_0() {

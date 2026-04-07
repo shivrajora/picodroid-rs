@@ -26,7 +26,7 @@ fn uart1_rx_queue() -> &'static Queue<u8> {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn UART1_IRQ() {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -45,7 +45,7 @@ extern "C" fn UART1_IRQ() {
 // ── UART1 interrupt setup ─────────────────────────────────────────────────────
 
 fn setup_uart1_rx_interrupt() {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -110,7 +110,7 @@ pub fn queue_read_byte_timeout() -> Option<u8> {
 /// Read one byte from the UART1 RX queue using non-blocking poll + hardware
 /// timer timeout.  Works even when the FreeRTOS tick is frozen (core 0 parked
 /// on RP2350 with configTICK_CORE=0).
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
     const TIMERAWL: usize = 0x400B_0000 + 0x28;
     let timer = || unsafe { core::ptr::read_volatile(TIMERAWL as *const u32) };
@@ -137,7 +137,7 @@ pub fn queue_read_u32_le() -> u32 {
 /// Spin until the UART1 TX FIFO is empty AND the shift register has
 /// finished transmitting the last byte (including stop bits).
 pub fn drain_tx() {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

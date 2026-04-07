@@ -4,8 +4,36 @@
 
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
+// Board-conditional display constants (duplicated from board configs because
+// board modules are not compiled for the simulator target).
+#[cfg(feature = "board-testbench")]
 pub const WIDTH: u16 = 320;
+#[cfg(feature = "board-testbench")]
 pub const HEIGHT: u16 = 240;
+#[cfg(feature = "board-testbench")]
+pub const BAND_HEIGHT: usize = 20;
+#[cfg(feature = "board-testbench")]
+pub const SCROLL_LIMIT: u8 = 30;
+
+#[cfg(feature = "board-pico-enviro-mon")]
+pub const WIDTH: u16 = 240;
+#[cfg(feature = "board-pico-enviro-mon")]
+pub const HEIGHT: u16 = 135;
+#[cfg(feature = "board-pico-enviro-mon")]
+pub const BAND_HEIGHT: usize = 27;
+#[cfg(feature = "board-pico-enviro-mon")]
+pub const SCROLL_LIMIT: u8 = 10;
+
+// Fallback when no board feature is active (e.g. plain `cargo test`)
+#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
+pub const WIDTH: u16 = 320;
+#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
+pub const HEIGHT: u16 = 240;
+#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
+pub const BAND_HEIGHT: usize = 20;
+#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
+pub const SCROLL_LIMIT: u8 = 30;
+
 const NUM_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
 
 // ── Statics (single-threaded sim — safe) ────────────────────────────────────

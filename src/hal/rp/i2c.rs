@@ -3,7 +3,7 @@ use pico_jvm::array_heap::ArrayHeap;
 // CLK_PERI defaults to system clock: 125 MHz on RP2040, 150 MHz on RP2350
 #[cfg(feature = "chip-rp2040")]
 const PCLK_HZ: u32 = 125_000_000;
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 const PCLK_HZ: u32 = 150_000_000;
 
 // IC_CON bit masks
@@ -65,7 +65,7 @@ macro_rules! apply_speed {
 }
 
 fn reconfigure(i2c_id: u8, speed_hz: u32) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -78,7 +78,7 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 
 /// Configure GPIO pins for I2C function and start the controller at 100 kHz.
 pub fn init(i2c_id: u8) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -118,7 +118,7 @@ pub fn init(i2c_id: u8) {
             .write(|w| unsafe { w.funcsel().bits(3) }); // 3 = I2C
                                                         // Enable input, pull-up (open-drain bus), Schmitt trigger
         p.PADS_BANK0.gpio(pin).write(|w| {
-            #[cfg(feature = "chip-rp2350")]
+            #[cfg(feature = "chip-rp2350-hal")]
             let w = w.iso().clear_bit();
             w.ie()
                 .set_bit()
@@ -141,7 +141,7 @@ pub fn set_speed(i2c_id: u8, hz: u32) {
 
 /// Blocking write. Returns len on success, -1 on NACK/abort.
 pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -190,7 +190,7 @@ pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &Array
 
 /// Blocking read. Returns len on success, -1 on NACK/abort.
 pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

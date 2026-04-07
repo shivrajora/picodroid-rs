@@ -5,9 +5,9 @@ use crate::lvgl_ffi::*;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// Band buffer: 320 pixels wide x 20 rows x 2 bytes (RGB565) = 12,800 bytes.
-/// LVGL renders into this buffer band-by-band (partial render mode).
-const BAND_HEIGHT: usize = 20;
+/// Band buffer for LVGL partial rendering. Size and band height are
+/// board-specific (set in the board config / hal::display constants).
+const BAND_HEIGHT: usize = hal::display::BAND_HEIGHT;
 const BAND_BUF_SIZE: usize = hal::display::WIDTH as usize * BAND_HEIGHT * 2;
 
 /// Use a wrapper to get a raw pointer without creating a mutable reference.
@@ -53,11 +53,9 @@ pub fn init() {
         let indev = lv_indev_create();
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
-        // Raise scroll threshold from LVGL default (10px) to 50px.
-        // The XPT2046 resistive touchscreen jitters ~5px between
-        // settled frames; the first-sample discard (below) handles
-        // the large 20-60px initial transient.
-        lv_indev_set_scroll_limit(indev, 30);
+        // Scroll threshold is board-specific: resistive touchscreens need
+        // a higher value to compensate for ADC jitter.
+        lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
     }
 }
 

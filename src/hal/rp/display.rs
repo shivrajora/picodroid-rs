@@ -8,6 +8,8 @@ use core::ptr::addr_of_mut;
 
 pub const WIDTH: u16 = boards::SCREEN_WIDTH;
 pub const HEIGHT: u16 = boards::SCREEN_HEIGHT;
+pub const BAND_HEIGHT: usize = boards::BAND_HEIGHT;
+pub const SCROLL_LIMIT: u8 = boards::SCROLL_LIMIT;
 
 static mut DISPLAY: Option<boards::Display> = None;
 

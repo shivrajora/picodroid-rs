@@ -20,7 +20,8 @@ fn main() {
     let is_arm_embedded = target_arch == "arm";
 
     if is_arm_embedded {
-        let chip_rp2350 = env::var("CARGO_FEATURE_CHIP_RP2350").is_ok();
+        let chip_rp2350 = env::var("CARGO_FEATURE_CHIP_RP2350").is_ok()
+            || env::var("CARGO_FEATURE_CHIP_RP2350_HAL").is_ok();
         let family_rp = env::var("CARGO_FEATURE_FAMILY_RP").is_ok();
 
         // Copy the appropriate memory layout into OUT_DIR so the linker finds it.
@@ -190,6 +191,13 @@ fn build_lvgl(_out: &Path) {
         // Suppress warnings from third-party code
         .warnings(false)
         .extra_warnings(false);
+
+    // Board-specific LVGL overrides (take precedence over lv_conf.h via #ifndef guards)
+    if env::var("CARGO_FEATURE_BOARD_PICO_ENVIRO_MON").is_ok() {
+        build.define("LV_DPI_DEF", "166"); // 1.14" 240x135 ≈ 166 DPI
+        build.define("LV_MEM_SIZE", "(48 * 1024U)");
+    }
+    // board-testbench uses lv_conf.h defaults (130 DPI, 64 KB)
 
     // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values
     // fit.  Our Rust FFI (lvgl_ffi.rs) mirrors this with u8 typedefs.  On

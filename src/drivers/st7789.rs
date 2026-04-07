@@ -29,6 +29,7 @@ pub struct St7789<SPI, DC, CS, RST, BL, D> {
     delay: D,
     width: u16,
     height: u16,
+    madctl: u8,
 }
 
 impl<SPI, DC, CS, RST, BL, D> St7789<SPI, DC, CS, RST, BL, D>
@@ -42,6 +43,9 @@ where
 {
     /// Create a new ST7789 driver. Does NOT initialize the display —
     /// call `init()` after construction.
+    ///
+    /// `madctl` sets the MADCTL register for display orientation/mirroring.
+    /// Common values: 0x60 = landscape 320x240, 0x00 = portrait.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         spi: SPI,
@@ -52,6 +56,7 @@ where
         delay: D,
         width: u16,
         height: u16,
+        madctl: u8,
     ) -> Self {
         Self {
             spi,
@@ -62,6 +67,7 @@ where
             delay,
             width,
             height,
+            madctl,
         }
     }
 
@@ -108,9 +114,8 @@ where
         // Color mode: 16-bit RGB565
         self.write_command_data(CMD_COLMOD, &[0x55]);
 
-        // Memory data access control: landscape orientation
-        // MY=0, MX=1, MV=1 → 320x240 landscape; RGB order
-        self.write_command_data(CMD_MADCTL, &[0x60]);
+        // Memory data access control (orientation set by board config)
+        self.write_command_data(CMD_MADCTL, &[self.madctl]);
 
         // Inversion on (ST7789 requires this for correct colors)
         self.write_command(CMD_INVON);

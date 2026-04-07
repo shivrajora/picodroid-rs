@@ -1,6 +1,9 @@
 /**
- * LVGL configuration for picodroid — Waveshare 2.8" 320x240 TFT on RP2350.
+ * LVGL configuration for picodroid.
  * Based on lv_conf_template.h for LVGL v9.2.2.
+ *
+ * Board-specific values (LV_DPI_DEF, LV_MEM_SIZE) may be overridden
+ * by -D flags injected from build.rs; #ifndef guards preserve defaults.
  */
 
 #ifndef LV_CONF_H
@@ -32,14 +35,19 @@
 #define LV_LIMITS_INCLUDE       <limits.h>
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
-/* 64 KB built-in memory pool — fits comfortably in RP2350's 520 KB SRAM */
+/* Built-in memory pool — default 64 KB for RP2350's 520 KB SRAM.
+ * Override via build.rs -D for boards with different RAM budgets. */
+#ifndef LV_MEM_SIZE
 #define LV_MEM_SIZE (64 * 1024U)
+#endif
 
 /*====================
    HAL SETTINGS
  *====================*/
 #define LV_DEF_REFR_PERIOD  33   /* ~30 fps */
+#ifndef LV_DPI_DEF
 #define LV_DPI_DEF          130
+#endif
 
 /*=================
  * OPERATING SYSTEM

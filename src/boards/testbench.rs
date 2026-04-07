@@ -1,4 +1,4 @@
-//! Board configuration for the Waveshare 2.8" Pico display (ST7789 + XPT2046).
+//! TestBench board — Waveshare 2.8" Pico display (ST7789 + XPT2046).
 //!
 //! Pin mapping (directly on RP2350 Pico 2):
 //!   SPI1: GP10 (SCK), GP11 (MOSI)
@@ -20,6 +20,14 @@ use crate::hal::spi_bus::RpSpiBus;
 // --- Display constants ---
 pub const SCREEN_WIDTH: u16 = 320;
 pub const SCREEN_HEIGHT: u16 = 240;
+
+/// LVGL partial-render band height (rows per flush).
+/// 320 * 20 * 2 = 12,800 bytes per band buffer.
+pub const BAND_HEIGHT: usize = 20;
+
+/// LVGL scroll threshold (pixels) — raised from default (10) to compensate
+/// for XPT2046 resistive touchscreen jitter (~5 px between settled frames).
+pub const SCROLL_LIMIT: u8 = 30;
 
 const SPI_ID: u8 = 1;
 const DISPLAY_SPI_FREQ: u32 = 62_500_000;
@@ -51,7 +59,7 @@ pub type Touch = Xpt2046<RpSpiBus, RpOutputPin>;
 /// Configure GP12 (MISO) for SPI1 function — needed for touch reads.
 /// Display init only configures SCK (GP10) and MOSI (GP11).
 fn configure_touch_miso() {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -62,7 +70,7 @@ fn configure_touch_miso() {
         .gpio_ctrl()
         .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
     p.PADS_BANK0.gpio(PIN_TOUCH_MISO as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         let w = w.iso().clear_bit();
         w.ie().set_bit().od().clear_bit()
     });
@@ -80,7 +88,18 @@ pub fn create_display() -> Display {
     let bl = RpOutputPin::new(PIN_BL, false); // backlight off initially
     let delay = RpDelay::new();
 
-    let mut display = St7789::new(spi, dc, cs, rst, bl, delay, SCREEN_WIDTH, SCREEN_HEIGHT);
+    // MADCTL 0x60: MY=0, MX=1, MV=1 → 320x240 landscape; RGB order
+    let mut display = St7789::new(
+        spi,
+        dc,
+        cs,
+        rst,
+        bl,
+        delay,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        0x60,
+    );
     display.init();
     display
 }

@@ -4,7 +4,10 @@
 extern crate alloc;
 
 mod app;
-#[cfg(all(not(any(test, feature = "sim")), feature = "board-waveshare-pico-28"))]
+#[cfg(all(
+    not(any(test, feature = "sim")),
+    any(feature = "board-testbench", feature = "board-pico-enviro-mon")
+))]
 mod boards;
 #[cfg(feature = "display-test")]
 mod display_test;
@@ -92,7 +95,7 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     // On RP2040 (Cortex-M0+) bkpt halts cleanly with a debugger attached.
     // On RP2350 (Cortex-M33) bkpt without a debugger causes a re-entrant
     // fault → lockup, so we skip it.
-    #[cfg(not(feature = "chip-rp2350"))]
+    #[cfg(not(feature = "chip-rp2350-hal"))]
     asm::bkpt();
     #[allow(clippy::empty_loop)]
     loop {}

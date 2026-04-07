@@ -3,7 +3,7 @@ use pico_jvm::array_heap::ArrayHeap;
 // CLK_PERI defaults to system clock: 125 MHz on RP2040, 150 MHz on RP2350
 #[cfg(feature = "chip-rp2040")]
 const PCLK_HZ: u32 = 125_000_000;
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 const PCLK_HZ: u32 = 150_000_000;
 
 // Compute SSPCPSR (prescale divisor) and SCR (clock rate scaler).
@@ -45,7 +45,7 @@ macro_rules! apply_config {
 }
 
 fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -58,7 +58,7 @@ fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
 
 /// Configure GPIO pins for SPI function and start the controller at 1 MHz, MODE_0.
 pub fn init(spi_id: u8) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -97,7 +97,7 @@ pub fn init(spi_id: u8) {
             .gpio_ctrl()
             .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
         p.PADS_BANK0.gpio(pin).write(|w| {
-            #[cfg(feature = "chip-rp2350")]
+            #[cfg(feature = "chip-rp2350-hal")]
             let w = w.iso().clear_bit();
             w.ie().set_bit().od().clear_bit()
         });
@@ -114,7 +114,7 @@ pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
 /// Full-duplex transfer. Writes tx[0..len-1] and stores received bytes into rx[0..len-1].
 /// Returns len on success.
 pub fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -146,7 +146,7 @@ pub fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut A
 /// Write raw bytes from a Rust slice (not from ArrayHeap).
 /// Used internally by the display driver to stream pixel data.
 pub fn write_raw(spi_id: u8, data: &[u8]) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -174,7 +174,7 @@ pub fn write_raw(spi_id: u8, data: &[u8]) {
 /// Full-duplex transfer with raw Rust slices.
 /// tx and rx must have the same length.
 pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -202,7 +202,7 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
 /// Write-only transfer. Sends data[0..len-1] and discards received bytes.
 /// Returns len on success.
 pub fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

@@ -1,7 +1,7 @@
 // CLK_SYS defaults to system clock: 125 MHz on RP2040, 150 MHz on RP2350
 #[cfg(feature = "chip-rp2040")]
 const PCLK_HZ: u32 = 125_000_000;
-#[cfg(feature = "chip-rp2350")]
+#[cfg(feature = "chip-rp2350-hal")]
 const PCLK_HZ: u32 = 150_000_000;
 
 // Compute (div_int, wrap) for a target PWM frequency.
@@ -61,7 +61,7 @@ macro_rules! configure_ch {
 }
 
 fn do_apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -86,7 +86,7 @@ fn do_apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
 
 /// Configure GPIO pin for PWM function and apply default settings (1 kHz, 0% duty, disabled).
 pub fn init(pin: u8) {
-    #[cfg(feature = "chip-rp2350")]
+    #[cfg(feature = "chip-rp2350-hal")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -109,7 +109,7 @@ pub fn init(pin: u8) {
         .gpio_ctrl()
         .write(|w| unsafe { w.funcsel().bits(4) });
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         let w = w.iso().clear_bit();
         w.ie().set_bit().od().clear_bit()
     });

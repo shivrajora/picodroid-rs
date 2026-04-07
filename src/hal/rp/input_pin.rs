@@ -14,7 +14,7 @@ impl RpInputPin {
     /// Configure a GPIO pin as input.
     /// `pull_up`: true → enable internal pull-up (needed for open-drain signals like XPT2046 PENIRQ).
     pub fn new(pin: u8, pull_up: bool) -> Self {
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         use rp235x_hal::pac;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
@@ -35,7 +35,7 @@ impl RpInputPin {
 
         // Configure pad: input enable, optional pull-up
         p.PADS_BANK0.gpio(pin as usize).write(|w| {
-            #[cfg(feature = "chip-rp2350")]
+            #[cfg(feature = "chip-rp2350-hal")]
             let w = w.iso().clear_bit();
             let w = w.ie().set_bit().od().clear_bit();
             if pull_up {
@@ -60,7 +60,7 @@ impl ErrorType for RpInputPin {
 
 impl InputPin for RpInputPin {
     fn is_high(&mut self) -> Result<bool, Infallible> {
-        #[cfg(feature = "chip-rp2350")]
+        #[cfg(feature = "chip-rp2350-hal")]
         use rp235x_hal::pac;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
