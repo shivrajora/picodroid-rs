@@ -23,7 +23,12 @@ pub use linear_layout::{
 };
 pub use list_view::{list_view_add_item, list_view_native_create};
 pub use progress_bar::{progress_bar_native_create, progress_bar_set_progress};
-pub use switch::{switch_is_checked, switch_native_create, switch_set_checked};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};
+pub use switch::{
+    reset_switch_state, switch_is_checked, switch_native_create,
+    switch_register_checked_change_listener, switch_set_checked, switch_toggle,
+};
 pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_text_color};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};

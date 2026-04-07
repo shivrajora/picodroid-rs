@@ -5,6 +5,7 @@ import picodroid.graphics.Color;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.ToggleButton;
 
@@ -36,6 +37,16 @@ public class DisplayDemoActivity extends Activity {
     toggle.setSize(200, 50);
     toggle.setOnCheckedChangeListener(new ToggleHandler(toggleLabel, toggle));
     root.addView(toggle);
+
+    TextView switchLabel = new TextView();
+    switchLabel.setText("Switch: OFF");
+    switchLabel.setTextColor(Color.WHITE);
+    root.addView(switchLabel);
+
+    Switch sw = new Switch();
+    sw.setSize(60, 30);
+    sw.setOnCheckedChangeListener(new SwitchHandler(switchLabel, sw));
+    root.addView(sw);
 
     setContentView(root);
   }

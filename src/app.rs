@@ -169,6 +169,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     shared_heap().reset();
     crate::system::picodroid::graphics::widgets::reset_button_state();
     crate::system::picodroid::graphics::widgets::reset_toggle_button_state();
+    crate::system::picodroid::graphics::widgets::reset_switch_state();
     crate::system::picodroid::graphics::handle_table::reset();
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();

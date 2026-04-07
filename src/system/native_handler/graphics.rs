@@ -143,6 +143,15 @@ pub fn dispatch(
         ("picodroid/widget/Switch", "setChecked") => Some(
             crate::system::picodroid::graphics::widgets::switch_set_checked(ctx.args, ctx.objects),
         ),
+        ("picodroid/widget/Switch", "toggle") => Some(
+            crate::system::picodroid::graphics::widgets::switch_toggle(ctx.args, ctx.objects),
+        ),
+        ("picodroid/widget/Switch", "nativeRegisterCheckedChangeListener") => Some(
+            crate::system::picodroid::graphics::widgets::switch_register_checked_change_listener(
+                ctx.args,
+                ctx.objects,
+            ),
+        ),
 
         // ── ToggleButton ─────────────────────────────────────────────
         ("picodroid/widget/ToggleButton", "nativeCreate") => {

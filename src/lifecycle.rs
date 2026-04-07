@@ -74,6 +74,7 @@ pub(crate) fn run_activity(
         engine::tick(16);
         dispatch_clicks(jvm, heap, handler);
         dispatch_checked_changes(jvm, heap, handler);
+        dispatch_switch_checked_changes(jvm, heap, handler);
 
         #[cfg(feature = "sim")]
         {
@@ -132,6 +133,31 @@ fn dispatch_checked_changes(
         if let Some(obj_ref) = widgets::lookup_checked_change_obj(handle) {
             let _ = jvm.invoke_instance(
                 "picodroid/widget/ToggleButton",
+                "fireCheckedChanged",
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── Switch checked-change dispatch ──────────────────────────────────────────
+
+/// Drain the switch checked-change queue and invoke `fireCheckedChanged()` on
+/// each matching Switch.
+#[cfg(not(test))]
+fn dispatch_switch_checked_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_sw_checked_change_queue() {
+        if let Some(obj_ref) = widgets::lookup_sw_checked_change_obj(handle) {
+            let _ = jvm.invoke_instance(
+                "picodroid/widget/Switch",
                 "fireCheckedChanged",
                 obj_ref,
                 heap,
