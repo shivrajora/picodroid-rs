@@ -6,10 +6,11 @@
 // examples/myapp/java/myapp/MyApp.java
 package myapp;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class MyApp {
-    public static void main(String[] args) {
+public class MyApp extends Application {
+    public void onCreate() {
         Log.i("MyApp", "Hello from MyApp!");
     }
 }
@@ -20,7 +21,7 @@ public class MyApp {
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="myapp" version="1.0">
-    <application main-class="myapp/MyApp" />
+    <application application="myapp/MyApp" />
 </manifest>
 ```
 
@@ -35,7 +36,74 @@ public class MyApp {
 ./scripts/flash.sh --app myapp --chip rp2350
 ```
 
-`build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup to find the entry point.
+`build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup, instantiates the `Application` class, and calls `onCreate()`.
+
+## Application Lifecycle
+
+All apps extend `picodroid.app.Application` and override `onCreate()`. The runtime instantiates your Application class and calls `onCreate()` as the entry point.
+
+### Console app
+
+For apps that only use logging and peripherals:
+
+```java
+package myapp;
+
+import picodroid.app.Application;
+import picodroid.util.Log;
+
+public class MyApp extends Application {
+    public void onCreate() {
+        Log.i("MyApp", "Hello from MyApp!");
+    }
+}
+```
+
+### Display app
+
+For graphical apps, create an `Activity` subclass and launch it with `startActivity()`:
+
+```java
+// MyApp.java — Application entry point
+package myapp;
+
+import picodroid.app.Application;
+
+public class MyApp extends Application {
+    public void onCreate() {
+        startActivity(new MyActivity());
+    }
+}
+```
+
+```java
+// MyActivity.java — builds the UI
+package myapp;
+
+import picodroid.app.Activity;
+import picodroid.graphics.Color;
+import picodroid.widget.LinearLayout;
+import picodroid.widget.TextView;
+
+public class MyActivity extends Activity {
+    public void onCreate() {
+        getDisplay().calibrate();
+
+        LinearLayout root = new LinearLayout();
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setSize(320, 240);
+
+        TextView label = new TextView();
+        label.setText("Hello, Display!");
+        label.setTextColor(Color.WHITE);
+        root.addView(label);
+
+        setContentView(root);
+    }
+}
+```
+
+The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [java-api.md](java-api.md) for the full graphics and widget API.
 
 ## Porting to a New Platform
 
@@ -57,6 +125,10 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
 | Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; priority set via `setPriority(1–10)` before `start()` |
+| Lambdas | `() -> expr`, `(x) -> expr` — non-capturing and capturing lambdas, method references (`Class::method`), callbacks; compiled via `invokedynamic` |
+| Anonymous classes | `new Interface() { ... }` — anonymous inner classes implementing interfaces, with local variable capture |
+| Static initializers | `static { ... }` blocks, `static` field initializers, cross-class `<clinit>` chaining; each class initializer runs exactly once on first use |
+| Synchronized blocks | `synchronized (lock) { ... }` — `monitorenter`/`monitorexit` bytecodes, reentrant locking on the same object |
 | Arithmetic ops | subtraction, division, remainder, negation for `int`, `long`, `double` |
 | Bitwise / shifts | `<<`, `>>`, `>>>`, `|`, `^` for `int` and `long` |
 | Cross-type casts | `i2f`, `i2c`, `i2s`, `l2f`, `l2d`, `f2l`, `f2d`, `d2l`, `d2f` |

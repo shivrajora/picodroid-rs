@@ -1,6 +1,6 @@
 # Examples
 
-Nineteen examples are included under `examples/`, organized by category.
+Twenty-four examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -39,6 +39,18 @@ Demonstrate Java language features supported by the JVM interpreter.
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms, `String.valueOf`, and StringBuilder building |
 | `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
+| `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
+| `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
+| `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
+| `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
+
+## Graphics and Display
+
+Full graphical UI with touch input, demonstrating the Activity lifecycle and LVGL widget system.
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `displaydemo` | `displaydemo.DisplayDemoApp` | Full UI demo: Activity lifecycle, LinearLayout, TextView, Button, ToggleButton, Switch, touch input, and event handlers on a 320x240 display |
 
 ## Performance and Testing
 

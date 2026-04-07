@@ -13,7 +13,10 @@ The host simulator lets you run apps on your development machine without hardwar
 ./scripts/sim.sh --app blinky          # loops forever — Ctrl-C to stop
 ./scripts/sim.sh --app benchmark       # JVM performance benchmark (host-only)
 ./scripts/sim.sh --app gcstress        # GC stress test (host-only)
+./scripts/sim.sh --app displaydemo     # opens a 320x240 graphical window
 ```
+
+For display apps, the simulator opens a graphical window (via minifb) that renders the LVGL widget tree with mouse-as-touch input. Close the window or press Escape to exit.
 
 ## System Monitor (pdb sysmon)
 

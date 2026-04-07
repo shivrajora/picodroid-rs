@@ -124,7 +124,7 @@ Run any app on the host machine without hardware using the simulator:
 ./scripts/sim.sh --app uart --release
 ```
 
-The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. This is useful for testing app logic without a Pico.
+The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. This is useful for testing app logic without a Pico. Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input.
 
 ## Hot-Swap with pdb {#hot-swap-with-pdb}
 

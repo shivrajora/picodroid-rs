@@ -23,7 +23,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 | Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz) |
 | RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
-| Java API | Android-compatible (`picodroid.util.Log`, etc.) |
+| Java API | Android-compatible (`picodroid.util.Log`, UI widgets, etc.) |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
 ### Architecture
@@ -41,7 +41,7 @@ graph TD
 
     subgraph JVM["JVM Interpreter (jvm/ crate)"]
         BC["Java bytecode<br/>.papk app"]
-        NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log"]
+        NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log / Display"]
         THREADS["Thread.start()<br/>child tasks (core 0)"]
         GC["Mark-sweep GC<br/>every 256 allocs"]
     end
@@ -88,6 +88,8 @@ Check device health (heap, tasks, CPU usage) at any time:
 cargo run -p pdb -- -s /dev/cu.usbmodem102 sysmon
 ```
 
+Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input when run in the simulator.
+
 See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip selection, app selection, and UF2 flashing.
 
 ## Documentation
@@ -114,6 +116,10 @@ picodroid-rs/
 │
 ├── src/
 │   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
+│   ├── lifecycle.rs    # Application/Activity lifecycle management
+│   ├── lvgl_ffi.rs     # FFI bindings to the LVGL graphics library
+│   ├── drivers/        # Display and touch hardware drivers (ST7789, XPT2046)
+│   ├── boards/         # Board-specific pin and peripheral configurations
 │   ├── hal/            # Hardware Abstraction Layer (rp/ for Pico, sim/ for host simulator)
 │   │   └── rp/port/    # pico-sdk C shims (headers + FreeRTOS interop shims)
 │   ├── packagemanager/ # Flash storage and PAPK install logic
@@ -127,7 +133,7 @@ picodroid-rs/
 │
 ├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts
 │
-├── vendor/             # Downloaded tooling (google-java-format JAR; gitignored)
+├── vendor/             # Downloaded tooling and libraries (google-java-format JAR, LVGL; gitignored)
 │
 ├── memory.x            # RP2040 linker memory layout
 ├── memory_rp2350.x     # RP2350 linker memory layout
