@@ -205,16 +205,12 @@ run_test() {
   pkill -f "probe-rs" 2>/dev/null || true
   sleep 2
 
-  # Flash and capture RTT output.
+  # Flash the pre-built ELF and capture RTT output.
+  local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
   hil_log "  Flashing and capturing RTT..."
-  setsid bash -c "
-    PICODROID_APK_PATH='$apk_path' timeout $timeout cargo run \
-      --release \
-      --jobs \$(nproc 2>/dev/null || sysctl -n hw.logicalcpu) \
-      --target '$TARGET' \
-      --no-default-features \
-      --features '$CHIP_FEATURE' 2>&1
-  " > "$log_file" 2>&1 &
+  setsid timeout "$timeout" \
+    probe-rs run --chip RP235x --protocol swd "$elf" \
+    > "$log_file" 2>&1 &
   local run_pid=$!
 
   local result=1  # assume failure
