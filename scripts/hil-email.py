@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send an HTML email report for a picodroid HIL test run.
+"""Send an HTML email report for a picodroid test run (HIL or sim).
 
 Uses Gmail SMTP with an App Password. Credentials are read from
 ~/.config/picodroid/hil-email.conf:
@@ -9,6 +9,7 @@ Uses Gmail SMTP with an App Password. Credentials are read from
 
 Usage:
     python3 hil-email.py --results <file> --log-dir <dir> --run-id <id> --sha <sha>
+    python3 hil-email.py --results <file> ... --suite sim
     python3 hil-email.py --results <file> ... --to someone@example.com
 """
 
@@ -78,7 +79,7 @@ def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
     return "\n".join(tail)
 
 
-def build_html(entries, log_dir, run_id, sha):
+def build_html(entries, log_dir, run_id, sha, suite="HIL"):
     """Build an HTML email body with colour-coded results."""
     colors = {
         "PASS": "#2e7d32",
@@ -160,9 +161,9 @@ def build_html(entries, log_dir, run_id, sha):
   {''.join(failure_details)}
 """
 
-    html += """\
+    html += f"""\
   <p style="margin-top:24px;font-size:12px;color:#999;">
-    Picodroid HIL &middot; nightly test run on RP2350
+    Picodroid {suite} &middot; nightly test run
   </p>
 </body>
 </html>"""
@@ -195,6 +196,7 @@ def main():
     parser.add_argument("--log-dir", required=True, help="Directory containing per-app RTT logs")
     parser.add_argument("--run-id", required=True, help="Run identifier (timestamp-sha)")
     parser.add_argument("--sha", required=True, help="Git commit SHA")
+    parser.add_argument("--suite", default="HIL", help="Test suite name (e.g. HIL, sim)")
     parser.add_argument("--to", default=DEFAULT_RECIPIENT, help="Recipient email address")
     args = parser.parse_args()
 
@@ -208,10 +210,11 @@ def main():
     total_run = counts["PASS"] + counts["FAIL"] + counts["ERROR"]
 
     all_passed = counts["FAIL"] == 0 and counts["ERROR"] == 0
+    suite = args.suite.upper()
     status_emoji = "PASS" if all_passed else "FAIL"
-    subject = f"[picodroid HIL] {status_emoji}: {counts['PASS']}/{total_run} passed ({args.sha})"
+    subject = f"[picodroid {suite}] {status_emoji}: {counts['PASS']}/{total_run} passed ({args.sha})"
 
-    html = build_html(entries, args.log_dir, args.run_id, args.sha)
+    html = build_html(entries, args.log_dir, args.run_id, args.sha, suite=suite)
     send_email(recipient, subject, html, gmail_user, gmail_password)
 
 

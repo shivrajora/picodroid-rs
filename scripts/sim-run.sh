@@ -5,8 +5,9 @@
 # log patterns from hil-tests.conf.
 #
 # Usage:
-#   ./scripts/sim-run.sh                  # run all sim-compatible tests
+#   ./scripts/sim-run.sh                  # run all sim-compatible tests, send email report
 #   ./scripts/sim-run.sh --app helloworld # run one test only
+#   ./scripts/sim-run.sh --no-email       # skip email report
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,18 +22,21 @@ SIM_LOG_DIR="$SIM_DIR/logs"
 SIM_RESULTS_DIR="$SIM_DIR/results"
 
 SPECIFIC_APP=""
+SEND_EMAIL=true
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
+    --no-email)   SEND_EMAIL=false; shift ;;
     -h|--help)
       cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --app <name>    Run only the specified test
+  --no-email      Skip sending the email report
   -h, --help      Show this help message
 EOF
       exit 0
@@ -155,6 +159,18 @@ sim_log "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP"
 sim_log "  Results: $RESULTS_FILE"
 sim_log "  Logs:    $SIM_LOG_DIR/${RUN_ID}-*.log"
 sim_log "========================================="
+
+# Send email report.
+if [[ "$SEND_EMAIL" == "true" ]]; then
+  sim_log "Sending email report..."
+  python3 "$SCRIPT_DIR/hil-email.py" \
+    --results "$RESULTS_FILE" \
+    --log-dir "$SIM_LOG_DIR" \
+    --run-id "$RUN_ID" \
+    --sha "$COMMIT_SHA" \
+    --suite sim 2>&1 | while IFS= read -r line; do sim_log "  email: $line"; done || \
+    sim_log "  Email sending failed (non-fatal)."
+fi
 
 # Exit with failure if any tests failed.
 [[ $FAIL -eq 0 ]]
