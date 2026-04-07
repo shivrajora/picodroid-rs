@@ -89,16 +89,48 @@ sim_log "========================================="
 
 PASS=0; FAIL=0; SKIP=0; TOTAL=0
 
+HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4"
   local log_file="$RUN_LOG_DIR/${app}.log"
+  local build_log="$RUN_LOG_DIR/${app}.build.log"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
 
-  # Run sim with timeout.
-  sim_log "  Running sim (release)..."
-  if timeout "$timeout" bash "$SCRIPT_DIR/sim.sh" --app "$app" --release > "$log_file" 2>&1; then
+  # Build APK.
+  sim_log "  Building APK..."
+  if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $app (apk build failed)" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+
+  # Build sim binary (release).
+  sim_log "  Building sim binary..."
+  if ! PICODROID_APK_PATH="$apk_path" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $app (sim build failed)" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  # Run the pre-built binary with timeout.
+  sim_log "  Running (${timeout}s timeout)..."
+  if PICODROID_APK_PATH="$apk_path" timeout "$timeout" \
+    cargo run \
+      --release \
+      --target "$HOST_TARGET" \
+      --no-default-features \
+      --features "sim" > "$log_file" 2>&1; then
     : # exited cleanly
   else
     local exit_code=$?
