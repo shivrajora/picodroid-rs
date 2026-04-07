@@ -53,6 +53,11 @@ pub fn init() {
         let indev = lv_indev_create();
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
+        // Raise scroll threshold from LVGL default (10px) to 30px.
+        // The XPT2046 resistive touchscreen jitters enough between
+        // frames that a stationary tap can exceed 10px, causing LVGL
+        // to treat every tap as a scroll instead of a click.
+        lv_indev_set_scroll_limit(indev, 50);
     }
 }
 

@@ -156,6 +156,7 @@ extern "C" {
     pub fn lv_indev_create() -> *mut lv_indev_t;
     pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
     pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
+    pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
 
     // Screen
     pub fn lv_screen_active() -> *mut lv_obj_t;
