@@ -13,10 +13,6 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 
 /// Run an Application-based app: allocate the Application object, call
 /// `onCreate()`, then launch a pending Activity if `startActivity()` was called.
-///
-/// On real hardware the full Activity display lifecycle runs if one was
-/// requested.  In sim mode the Activity launch is noted but skipped (no LVGL
-/// display hardware).
 #[cfg(not(test))]
 pub(crate) fn run_application(
     jvm: &mut Jvm,
@@ -40,18 +36,7 @@ pub(crate) fn run_application(
 
     // If onCreate() called startActivity(), launch the Activity lifecycle.
     if let Some((activity_ref, activity_class)) = handler.take_pending_activity() {
-        #[cfg(feature = "sim")]
-        {
-            let _ = activity_ref;
-            eprintln!(
-                "[sim] startActivity('{}') called; skipping display lifecycle (no display in sim)",
-                activity_class
-            );
-        }
-        #[cfg(not(feature = "sim"))]
-        {
-            run_activity(jvm, activity_class, activity_ref, heap, handler);
-        }
+        run_activity(jvm, activity_class, activity_ref, heap, handler);
     }
 }
 
@@ -60,25 +45,8 @@ pub(crate) fn run_application(
 /// Run an Activity-based app: call `onCreate()` on the pre-allocated Activity,
 /// then enter the framework event loop (tick LVGL + dispatch click events).
 ///
-/// In sim mode LVGL blocks on `lv_display_create` (no real display hardware),
-/// so we skip the full lifecycle and just verify the Activity class loads.
-#[cfg(all(not(test), feature = "sim"))]
-pub(crate) fn run_activity(
-    _jvm: &mut Jvm,
-    activity_class: &'static str,
-    obj_ref: u16,
-    _heap: &mut SharedJvmHeap,
-    _handler: &mut crate::system::native_handler::PicodroidNativeHandler,
-) {
-    eprintln!(
-        "[sim] Activity '{}' loaded (obj_ref={}); skipping onCreate + event loop (no display in sim)",
-        activity_class, obj_ref
-    );
-}
-
-/// Run an Activity-based app on real hardware: call `onCreate()` on the
-/// pre-allocated Activity, then enter the framework event loop.
-#[cfg(not(any(test, feature = "sim")))]
+/// Works on both real hardware and the host simulator (minifb window).
+#[cfg(not(test))]
 pub(crate) fn run_activity(
     jvm: &mut Jvm,
     activity_class: &'static str,
@@ -106,6 +74,15 @@ pub(crate) fn run_activity(
         engine::tick(16);
         dispatch_clicks(jvm, heap, handler);
         dispatch_checked_changes(jvm, heap, handler);
+
+        #[cfg(feature = "sim")]
+        {
+            crate::hal::display::update_window();
+            if !crate::hal::display::is_window_open() {
+                break;
+            }
+        }
+
         pacer.pace(16);
 
         if handler.interrupted() {
@@ -117,7 +94,7 @@ pub(crate) fn run_activity(
 // ── Click dispatch ───────────────────────────────────────────────────────────
 
 /// Drain the click queue and invoke `fireClick()` on each matching Button.
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(not(test))]
 fn dispatch_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
@@ -143,7 +120,7 @@ fn dispatch_clicks(
 
 /// Drain the checked-change queue and invoke `fireCheckedChanged()` on each
 /// matching ToggleButton.
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(not(test))]
 fn dispatch_checked_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,

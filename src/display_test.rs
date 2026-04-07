@@ -53,13 +53,16 @@ pub fn run() {
             }
         }
 
-        crate::hal::system_clock::sleep(16);
-
-        // In sim mode, stop after ~5 seconds
+        // In sim mode, blit framebuffer to the emulator window and check for close.
         #[cfg(feature = "sim")]
-        if elapsed_ms >= 5000 {
-            break;
+        {
+            crate::hal::display::update_window();
+            if !crate::hal::display::is_window_open() {
+                break;
+            }
         }
+
+        crate::hal::system_clock::sleep(16);
     }
 }
 
