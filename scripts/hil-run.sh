@@ -79,17 +79,26 @@ power_cycle_all() {
   wait_for_probe
 }
 
-# Poll until the debug probe re-enumerates on USB.
+# Poll until the debug probe is fully enumerated on USB.
+# Checks both device directory and bConfigurationValue (kernel USB config).
 wait_for_probe() {
   local elapsed=0
-  while [[ ! -e "$PROBE_SYSFS" ]] && [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
+  local bcfg="$PROBE_SYSFS/bConfigurationValue"
+  while [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
+    if [[ -e "$PROBE_SYSFS" ]] && [[ -r "$bcfg" ]] && [[ -n "$(cat "$bcfg" 2>/dev/null)" ]]; then
+      hil_log "  Probe fully enumerated after ${elapsed}s (bConfigurationValue=$(cat "$bcfg"))"
+      return
+    fi
     sleep "$PROBE_POLL_INTERVAL"
     elapsed=$((elapsed + PROBE_POLL_INTERVAL))
   done
-  if [[ -e "$PROBE_SYSFS" ]]; then
-    hil_log "  Probe re-enumerated after ${elapsed}s"
+  hil_log "  WARNING: Probe not fully enumerated within ${PROBE_POLL_TIMEOUT}s"
+  if [[ ! -e "$PROBE_SYSFS" ]]; then
+    hil_log "    sysfs dir missing: $PROBE_SYSFS"
+  elif [[ ! -r "$bcfg" ]]; then
+    hil_log "    bConfigurationValue not readable: $bcfg"
   else
-    hil_log "  WARNING: Probe did not re-enumerate within ${PROBE_POLL_TIMEOUT}s ($PROBE_SYSFS missing)"
+    hil_log "    bConfigurationValue empty (device not configured)"
   fi
 }
 
@@ -210,7 +219,7 @@ run_test() {
 
   local result=1  # assume failure
 
-  if [[ "$category" == "term" ]]; then
+  if [[ "$category" == "term" || "$category" == "hw" ]]; then
     # Poll for expected output, kill early on match.
     local elapsed=0
     while kill -0 "$run_pid" 2>/dev/null && [[ $elapsed -lt $timeout ]]; do
