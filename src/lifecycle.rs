@@ -174,9 +174,9 @@ fn dispatch_switch_checked_changes(
 macro_rules! log_error {
     ($fmt:literal, $val:expr) => {
         #[cfg(feature = "sim")]
-        eprintln!(concat!("[sim] ", $fmt), format_args!("{:?}", $val));
+        eprintln!(concat!("[sim] ", $fmt), $val);
         #[cfg(not(feature = "sim"))]
-        defmt::error!($fmt, defmt::Debug2Format(&$val));
+        defmt::error!($fmt, defmt::Display2Format(&$val));
     };
 }
 use log_error;

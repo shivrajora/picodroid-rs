@@ -7,7 +7,7 @@ use crate::{
     native::NativeMethodHandler,
     object_heap::ObjectHeap,
     static_fields::StaticFieldStore,
-    types::{JvmError, Value},
+    types::{JvmError, StackTraceEntry, Value},
 };
 use alloc::vec::Vec;
 
@@ -137,28 +137,57 @@ fn find_exception_handler(
 /// Handle a Java exception by walking the frame stack for a matching handler.
 /// Returns `Ok(())` if a handler was found and the frame stack is set up to
 /// continue execution, or `Err` if the exception should propagate to the caller.
+///
+/// When no handler is found the error includes a stack trace captured from the
+/// frame stack before unwinding.
 fn handle_exception<H: NativeMethodHandler>(
     ex: &Executor<'_, H>,
     frames: &mut Vec<Frame>,
     obj_idx: u16,
 ) -> Result<(), JvmError> {
-    loop {
-        if let Some(f) = frames.last_mut() {
-            let cf = &ex.classes[f.class_idx];
-            let method = &cf.methods[f.method_idx];
-            if let Some(handler_pc) =
-                find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes)
-            {
-                f.stack.clear();
-                f.push(Value::ObjectRef(obj_idx))?;
-                f.pc = handler_pc;
-                return Ok(());
-            }
-            frames.pop();
-        } else {
-            return Err(JvmError::Exception(obj_idx));
-        }
+    // First pass: search for a handler without popping frames.
+    let handler_frame_idx = (0..frames.len()).rev().find(|&i| {
+        let f = &frames[i];
+        let cf = &ex.classes[f.class_idx];
+        let method = &cf.methods[f.method_idx];
+        find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).is_some()
+    });
+
+    if let Some(idx) = handler_frame_idx {
+        // Found a handler — truncate to that frame and set up for execution.
+        frames.truncate(idx + 1);
+        let f = frames.last_mut().unwrap();
+        let cf = &ex.classes[f.class_idx];
+        let method = &cf.methods[f.method_idx];
+        let handler_pc =
+            find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).unwrap();
+        f.stack.clear();
+        f.push(Value::ObjectRef(obj_idx))?;
+        f.pc = handler_pc;
+        return Ok(());
     }
+
+    // No handler — build stack trace from the intact frame stack (top-first).
+    let trace: Vec<StackTraceEntry> = frames
+        .iter()
+        .rev()
+        .filter_map(|f| {
+            let cf = &ex.classes[f.class_idx];
+            let cn = core::str::from_utf8(cf.class_name()?).ok()?;
+            let mn = core::str::from_utf8(cf.cp_utf8(cf.methods[f.method_idx].name_index)?).ok()?;
+            Some(StackTraceEntry {
+                class_name: cn,
+                method_name: mn,
+                pc: f.inst_pc,
+            })
+        })
+        .collect();
+    let exception_class = ex.objects.class_name(obj_idx).unwrap_or("<unknown>");
+    frames.clear();
+    Err(JvmError::UncaughtException {
+        exception_class,
+        trace,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

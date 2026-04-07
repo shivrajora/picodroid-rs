@@ -291,7 +291,7 @@ fn athrow_null_becomes_error() {
 #[test]
 fn athrow_uncaught_propagates() {
     let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT], 1, &[]);
-    assert!(matches!(result, Err(JvmError::Exception(_))));
+    assert!(matches!(result, Err(JvmError::UncaughtException { .. })));
 }
 
 /// Throw Exc inside a try region with a matching catch handler → handler runs.
@@ -324,7 +324,7 @@ fn athrow_catch_all_handler() {
 #[test]
 fn athrow_outside_try_region() {
     let result = run_multi(&[CLASS_EXC, CLASS_TEST_OUTSIDE_REGION], 1, &[]);
-    assert!(matches!(result, Err(JvmError::Exception(_))));
+    assert!(matches!(result, Err(JvmError::UncaughtException { .. })));
 }
 
 /// Throw a Child exception inside a try that catches Base.
@@ -362,5 +362,5 @@ fn athrow_superclass_not_caught_by_subclass() {
         2,
         &[],
     );
-    assert!(matches!(result, Err(JvmError::Exception(_))));
+    assert!(matches!(result, Err(JvmError::UncaughtException { .. })));
 }

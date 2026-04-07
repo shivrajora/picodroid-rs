@@ -216,9 +216,9 @@ pub fn run_jvm_with(apk_data: &[u8]) {
         match jvm.invoke_static(main_class, "main", heap, &mut handler) {
             Ok(_) | Err(JvmError::Interrupted) => {}
             #[cfg(not(feature = "sim"))]
-            Err(e) => defmt::error!("JVM error: {}", defmt::Debug2Format(&e)),
+            Err(e) => defmt::error!("JVM error: {}", defmt::Display2Format(&e)),
             #[cfg(feature = "sim")]
-            Err(e) => eprintln!("[jvm] error: {:?}", e),
+            Err(e) => eprintln!("[jvm] error: {}", e),
         }
     }
 
