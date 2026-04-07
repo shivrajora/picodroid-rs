@@ -4,11 +4,12 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::engine;
+use super::super::handle_table;
 
 /// `ImageView.nativeCreate()` — creates an `lv_image`.
 pub fn image_view_native_create() -> Result<Option<Value>, JvmError> {
-    let img = unsafe { lv_image_create(engine::screen()) };
-    Ok(Some(Value::Int(img as i32)))
+    let ptr = unsafe { lv_image_create(engine::screen()) };
+    Ok(Some(Value::Int(handle_table::register(ptr))))
 }
 
 /// `ImageView.setImageSource(String path)` — stub (no filesystem on embedded).

@@ -98,7 +98,7 @@ pub type lv_event_code_t = u32;
 pub const LV_EVENT_ALL: lv_event_code_t = 0;
 pub const LV_EVENT_PRESSED: lv_event_code_t = 1;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 7;
-pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 28;
+pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 32; // LVGL 9.2.2: shifted +4 by ROTARY, HOVER_OVER, HOVER_LEAVE, DRAW_TASK_ADDED
 
 pub type lv_flex_flow_t = u32;
 pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0x00;

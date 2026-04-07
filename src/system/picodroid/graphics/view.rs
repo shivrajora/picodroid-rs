@@ -7,12 +7,13 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
+use super::handle_table;
 
 // ---------------------------------------------------------------------------
 // Helpers shared across view.rs and widgets.rs
 // ---------------------------------------------------------------------------
 
-/// Extract the `lv_obj_t*` handle from `this` (args[0]).
+/// Extract the `nativeHandle` ID from `this` (args[0]).
 pub fn extract_native_handle(args: &[Value], objects: &ObjectHeap) -> Result<i32, JvmError> {
     let obj_idx = match args.first() {
         Some(Value::ObjectRef(idx)) => *idx,
@@ -24,7 +25,7 @@ pub fn extract_native_handle(args: &[Value], objects: &ObjectHeap) -> Result<i32
     }
 }
 
-/// Extract the `lv_obj_t*` handle from a `View` argument at the given position.
+/// Extract the `nativeHandle` ID from a `View` argument at the given position.
 pub fn extract_handle_at(
     args: &[Value],
     arg_idx: usize,
@@ -38,6 +39,11 @@ pub fn extract_handle_at(
         Some(Value::Int(handle)) => Ok(handle),
         _ => Err(JvmError::InvalidReference),
     }
+}
+
+/// Look up the `lv_obj_t*` for a handle ID from `extract_native_handle`.
+pub fn resolve(id: i32) -> *mut lv_obj_t {
+    handle_table::lookup(id)
 }
 
 /// Convert a Java string `Reference` to a null-terminated byte buffer on the stack.
@@ -77,7 +83,7 @@ fn argb_to_lv_color(argb: i32) -> lv_color_t {
 
 /// `View.setPosition(int x, int y)`
 pub fn set_position(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let x = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
@@ -86,13 +92,13 @@ pub fn set_position(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
-    unsafe { lv_obj_set_pos(handle as *mut lv_obj_t, x, y) };
+    unsafe { lv_obj_set_pos(resolve(id), x, y) };
     Ok(None)
 }
 
 /// `View.setSize(int width, int height)`
 pub fn set_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let w = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
@@ -101,31 +107,31 @@ pub fn set_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, J
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
-    unsafe { lv_obj_set_size(handle as *mut lv_obj_t, w, h) };
+    unsafe { lv_obj_set_size(resolve(id), w, h) };
     Ok(None)
 }
 
 /// `View.setBackgroundColor(int argb)`
 pub fn set_bg_color(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let argb = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
     let color = argb_to_lv_color(argb);
-    unsafe { lv_obj_set_style_bg_color(handle as *mut lv_obj_t, color, 0) };
+    unsafe { lv_obj_set_style_bg_color(resolve(id), color, 0) };
     Ok(None)
 }
 
 /// `View.setVisibility(int visibility)`
 pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let vis = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
     unsafe {
-        let obj = handle as *mut lv_obj_t;
+        let obj = resolve(id);
         if vis == 0 {
             // VISIBLE
             lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
@@ -139,7 +145,7 @@ pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Val
 
 /// `View.close()`
 pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
-    unsafe { lv_obj_delete(handle as *mut lv_obj_t) };
+    let id = extract_native_handle(args, objects)?;
+    unsafe { lv_obj_delete(resolve(id)) };
     Ok(None)
 }

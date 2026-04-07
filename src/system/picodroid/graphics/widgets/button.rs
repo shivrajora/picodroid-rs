@@ -4,6 +4,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::engine;
+use super::super::handle_table;
 use super::super::view::{extract_native_handle, java_str_to_cstr};
 
 /// Static ring buffer for button click events.
@@ -64,7 +65,7 @@ pub fn button_native_create(
         );
     }
 
-    Ok(Some(Value::Int(btn as i32)))
+    Ok(Some(Value::Int(handle_table::register(btn))))
 }
 
 /// `Button.setText(String text)`
@@ -73,13 +74,13 @@ pub fn button_set_text(
     strings: &StringTable,
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let text_arg = args.get(1).ok_or(JvmError::InvalidReference)?;
     let mut buf = [0u8; 128];
     let cstr = java_str_to_cstr(text_arg, strings, &mut buf)?;
     unsafe {
         // The first child of a button is its label.
-        let label = lv_obj_get_child(handle as *mut lv_obj_t, 0);
+        let label = lv_obj_get_child(handle_table::lookup(id), 0);
         if !label.is_null() {
             lv_label_set_text(label, cstr);
         }
@@ -89,11 +90,12 @@ pub fn button_set_text(
 
 /// `Button.wasClicked()` — returns `true` if this button was clicked since last poll.
 pub fn button_was_clicked(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)? as usize;
+    let id = extract_native_handle(args, objects)?;
+    let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
         let mut i = CLICK_QUEUE_TAIL;
         while i != CLICK_QUEUE_HEAD {
-            if CLICK_QUEUE[i] == handle {
+            if CLICK_QUEUE[i] == raw_ptr {
                 // Consume this event by compacting the queue: shift remaining entries.
                 let mut j = i;
                 loop {
@@ -128,19 +130,20 @@ pub fn button_register_click_listener(
         Some(Value::ObjectRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
-    let handle = extract_native_handle(args, objects)? as usize;
+    let id = extract_native_handle(args, objects)?;
+    let raw_ptr = handle_table::lookup(id) as usize;
 
     unsafe {
         // Update if already registered.
         for entry in &mut BUTTON_HANDLE_MAP[..BUTTON_HANDLE_MAP_LEN] {
-            if entry.0 == handle {
+            if entry.0 == raw_ptr {
                 entry.1 = obj_ref;
                 return Ok(None);
             }
         }
         // New registration.
         if BUTTON_HANDLE_MAP_LEN < MAX_BUTTONS {
-            BUTTON_HANDLE_MAP[BUTTON_HANDLE_MAP_LEN] = (handle, obj_ref);
+            BUTTON_HANDLE_MAP[BUTTON_HANDLE_MAP_LEN] = (raw_ptr, obj_ref);
             BUTTON_HANDLE_MAP_LEN += 1;
         }
     }

@@ -6,6 +6,7 @@ import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
+import picodroid.widget.ToggleButton;
 
 public class DisplayDemoActivity extends Activity {
   public void onCreate() {

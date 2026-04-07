@@ -3,11 +3,12 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::engine;
-use super::super::view::extract_native_handle;
+use super::super::handle_table;
+use super::super::view::{extract_handle_at, extract_native_handle};
 
 /// `LinearLayout.nativeCreate()` — creates an `lv_obj` with flex column layout.
 pub fn linear_layout_native_create() -> Result<Option<Value>, JvmError> {
-    let obj = unsafe {
+    let ptr = unsafe {
         let o = lv_obj_create(engine::screen());
         lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(
@@ -18,7 +19,7 @@ pub fn linear_layout_native_create() -> Result<Option<Value>, JvmError> {
         );
         o
     };
-    Ok(Some(Value::Int(obj as i32)))
+    Ok(Some(Value::Int(handle_table::register(ptr))))
 }
 
 /// `LinearLayout.addView(View child)`
@@ -26,12 +27,12 @@ pub fn linear_layout_add_view(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let parent_handle = extract_native_handle(args, objects)?;
-    let child_handle = super::super::view::extract_handle_at(args, 1, objects)?;
+    let parent_id = extract_native_handle(args, objects)?;
+    let child_id = extract_handle_at(args, 1, objects)?;
     unsafe {
         lv_obj_set_parent(
-            child_handle as *mut lv_obj_t,
-            parent_handle as *mut lv_obj_t,
+            handle_table::lookup(child_id),
+            handle_table::lookup(parent_id),
         );
     }
     Ok(None)
@@ -42,7 +43,7 @@ pub fn linear_layout_set_orientation(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let handle = extract_native_handle(args, objects)?;
+    let id = extract_native_handle(args, objects)?;
     let orientation = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
@@ -52,6 +53,6 @@ pub fn linear_layout_set_orientation(
     } else {
         LV_FLEX_FLOW_COLUMN
     };
-    unsafe { lv_obj_set_flex_flow(handle as *mut lv_obj_t, flow) };
+    unsafe { lv_obj_set_flex_flow(handle_table::lookup(id), flow) };
     Ok(None)
 }

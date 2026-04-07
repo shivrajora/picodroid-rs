@@ -6,6 +6,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::engine;
 use super::fields;
+use super::handle_table;
 use super::view;
 use crate::lvgl_ffi::*;
 
@@ -64,12 +65,12 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 /// parents to the active screen), so we just record it.  On subsequent calls the
 /// previous root is deleted before installing the new one.
 pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let root_handle = view::extract_handle_at(args, 1, objects)?;
+    let root_id = view::extract_handle_at(args, 1, objects)?;
+    let new_root = handle_table::lookup(root_id);
     unsafe {
         let screen = engine::screen();
-        let new_root = root_handle as *mut lv_obj_t;
 
-        // Delete the previous root (if any) and it differs from the new one.
+        // Delete the previous root (if any) if it differs from the new one.
         let prev = CURRENT_ROOT;
         if prev != 0 && prev != new_root as usize {
             lv_obj_delete(prev as *mut lv_obj_t);

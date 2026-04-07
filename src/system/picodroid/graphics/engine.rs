@@ -11,6 +11,9 @@ const BAND_HEIGHT: usize = 20;
 const BAND_BUF_SIZE: usize = hal::display::WIDTH as usize * BAND_HEIGHT * 2;
 
 /// Use a wrapper to get a raw pointer without creating a mutable reference.
+/// Must be 4-byte aligned to satisfy LVGL's LV_DRAW_BUF_ALIGN requirement on
+/// all platforms (x86_64 defaults byte arrays to 1-byte alignment).
+#[repr(align(4))]
 #[allow(dead_code)]
 struct BandBuf([u8; BAND_BUF_SIZE]);
 static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE]);
