@@ -77,8 +77,11 @@ sim_log "Pulling latest code..."
 git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do sim_log "  git: $line"; done || true
 
 COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-RUN_ID="$(date '+%Y%m%d-%H%M%S')-${COMMIT_SHA}"
+RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
+RUN_LOG_DIR="$SIM_LOG_DIR/$RUN_ID"
 RESULTS_FILE="$SIM_RESULTS_DIR/${RUN_ID}.txt"
+
+mkdir -p "$RUN_LOG_DIR"
 
 sim_log "========================================="
 sim_log "Sim Run: $RUN_ID"
@@ -88,7 +91,7 @@ PASS=0; FAIL=0; SKIP=0; TOTAL=0
 
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4"
-  local log_file="$SIM_LOG_DIR/${RUN_ID}-${app}.log"
+  local log_file="$RUN_LOG_DIR/${app}.log"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
@@ -157,7 +160,7 @@ sim_log "========================================="
 sim_log "Sim Run $RUN_ID Complete"
 sim_log "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP"
 sim_log "  Results: $RESULTS_FILE"
-sim_log "  Logs:    $SIM_LOG_DIR/${RUN_ID}-*.log"
+sim_log "  Logs:    $RUN_LOG_DIR/"
 sim_log "========================================="
 
 # Send email report.

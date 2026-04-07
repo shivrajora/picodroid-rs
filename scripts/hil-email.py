@@ -71,7 +71,10 @@ def parse_results(results_path):
 
 def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
     """Read the last N lines of an app's RTT log."""
-    log_file = Path(log_dir) / f"{run_id}-{app}.log"
+    # New layout: logs/<run_id>/<app>.log; fall back to flat naming for old runs.
+    log_file = Path(log_dir) / run_id / f"{app}.log"
+    if not log_file.exists():
+        log_file = Path(log_dir) / f"{run_id}-{app}.log"
     if not log_file.exists():
         return "(no log file found)"
     lines = log_file.read_text().splitlines()

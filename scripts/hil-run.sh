@@ -65,10 +65,32 @@ hil_log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+PROBE_SYSFS="/sys/bus/usb/devices/${USB_HUB}.${USB_PORT_PROBE}"
+PROBE_POLL_INTERVAL=1
+PROBE_POLL_TIMEOUT=15
+
 power_cycle_all() {
   hil_log "Power-cycling debug probe + Pico 2..."
-  sudo uhubctl -l "$USB_HUB" -p "$USB_PORT_PICO,$USB_PORT_PROBE" -a cycle 2>/dev/null || true
-  sleep 3
+  if ! sudo uhubctl -l "$USB_HUB" -p "$USB_PORT_PICO,$USB_PORT_PROBE" -a cycle 2>&1 | \
+       while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
+    hil_log "  WARNING: uhubctl returned non-zero exit status"
+  fi
+  sleep 5
+  wait_for_probe
+}
+
+# Poll until the debug probe re-enumerates on USB.
+wait_for_probe() {
+  local elapsed=0
+  while [[ ! -e "$PROBE_SYSFS" ]] && [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
+    sleep "$PROBE_POLL_INTERVAL"
+    elapsed=$((elapsed + PROBE_POLL_INTERVAL))
+  done
+  if [[ -e "$PROBE_SYSFS" ]]; then
+    hil_log "  Probe re-enumerated after ${elapsed}s"
+  else
+    hil_log "  WARNING: Probe did not re-enumerate within ${PROBE_POLL_TIMEOUT}s ($PROBE_SYSFS missing)"
+  fi
 }
 
 recover_probe() {
@@ -120,8 +142,11 @@ hil_log "Pulling latest code..."
 git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do hil_log "  git: $line"; done || true
 
 COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-RUN_ID="$(date '+%Y%m%d-%H%M%S')-${COMMIT_SHA}"
+RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
+RUN_LOG_DIR="$HIL_LOG_DIR/$RUN_ID"
 RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
+
+mkdir -p "$RUN_LOG_DIR"
 
 hil_log "========================================="
 hil_log "HIL Run: $RUN_ID"
@@ -131,8 +156,8 @@ PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4"
-  local log_file="$HIL_LOG_DIR/${RUN_ID}-${app}.log"
-  local build_log="$HIL_LOG_DIR/${RUN_ID}-${app}.build.log"
+  local log_file="$RUN_LOG_DIR/${app}.log"
+  local build_log="$RUN_LOG_DIR/${app}.build.log"
 
   TOTAL=$((TOTAL + 1))
   hil_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
@@ -262,7 +287,7 @@ hil_log "========================================="
 hil_log "HIL Run $RUN_ID Complete"
 hil_log "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP  ERROR: $ERROR"
 hil_log "  Results: $RESULTS_FILE"
-hil_log "  Logs:    $HIL_LOG_DIR/${RUN_ID}-*.log"
+hil_log "  Logs:    $RUN_LOG_DIR/"
 hil_log "========================================="
 
 # Send email report.
