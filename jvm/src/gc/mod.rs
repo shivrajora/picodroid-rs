@@ -59,6 +59,8 @@ pub struct GcState {
     arr_marks: Vec<u8>,
     str_marks: Vec<u8>,
     work: Vec<GcRef>,
+    /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
+    arena_compact_buf: Vec<(usize, u32, u16)>,
 }
 
 impl GcState {
@@ -68,6 +70,7 @@ impl GcState {
             arr_marks: Vec::new(),
             str_marks: Vec::new(),
             work: Vec::new(),
+            arena_compact_buf: Vec::new(),
         }
     }
 
@@ -77,6 +80,7 @@ impl GcState {
         self.arr_marks.clear();
         self.str_marks.clear();
         self.work.clear();
+        // arena_compact_buf is cleared inside compact_arena(), not here.
     }
 }
 
@@ -221,6 +225,9 @@ pub fn collect(
             freed += 1;
         }
     }
+
+    // ── Phase 4: compact array arena ─────────────────────────────────────
+    arrays.compact_arena(&mut gc.arena_compact_buf);
 
     freed
 }

@@ -539,3 +539,43 @@ fn gc_many_small_allocations_bounded() {
     // Heap should not have grown to 100 slots due to reuse
     assert!(objects.slot_count() < 20);
 }
+
+#[test]
+fn gc_compacts_array_arena() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    // Allocate 3 large (arena-backed) arrays
+    let a0 = arrays.alloc(10, 20).unwrap(); // ATYPE_INT, 20 elements
+    let a1 = arrays.alloc(10, 20).unwrap();
+    let a2 = arrays.alloc(10, 20).unwrap();
+    arrays.store(a0, 0, 111);
+    arrays.store(a1, 0, 222);
+    arrays.store(a2, 0, 333);
+
+    // Root only the first and third arrays — middle should be collected
+    let frame = Frame::new(0, 0, &[Value::ArrayRef(a0), Value::ArrayRef(a2)], 4, 4).unwrap();
+    let frames = [frame];
+
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut gc,
+    );
+    assert_eq!(freed, 1);
+    assert!(arrays.is_live(a0));
+    assert!(!arrays.is_live(a1));
+    assert!(arrays.is_live(a2));
+
+    // Arena should have been compacted: 2 * 20 = 40 elements
+    assert_eq!(arrays.data_slice(a0).len(), 20);
+    assert_eq!(arrays.data_slice(a2).len(), 20);
+    assert_eq!(arrays.load(a0, 0), Some(111));
+    assert_eq!(arrays.load(a2, 0), Some(333));
+}
