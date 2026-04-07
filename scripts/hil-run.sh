@@ -137,6 +137,9 @@ run_test() {
   TOTAL=$((TOTAL + 1))
   hil_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
 
+  # Power cycle devices to ensure clean state.
+  power_cycle_all
+
   # Build APK.
   hil_log "  Building APK..."
   if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$build_log" 2>&1; then
