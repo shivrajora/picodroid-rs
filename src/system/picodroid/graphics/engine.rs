@@ -53,11 +53,11 @@ pub fn init() {
         let indev = lv_indev_create();
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
-        // Raise scroll threshold from LVGL default (10px) to 30px.
-        // The XPT2046 resistive touchscreen jitters enough between
-        // frames that a stationary tap can exceed 10px, causing LVGL
-        // to treat every tap as a scroll instead of a click.
-        lv_indev_set_scroll_limit(indev, 50);
+        // Raise scroll threshold from LVGL default (10px) to 50px.
+        // The XPT2046 resistive touchscreen jitters ~5px between
+        // settled frames; the first-sample discard (below) handles
+        // the large 20-60px initial transient.
+        lv_indev_set_scroll_limit(indev, 30);
     }
 }
 
@@ -104,6 +104,10 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
     lv_display_flush_ready(disp);
 }
 
+/// Track previous touch state so we can detect the released→pressed transition
+/// and discard the first (unsettled) ADC reading from the XPT2046.
+static mut TOUCH_WAS_PRESSED: bool = false;
+
 /// LVGL input device read callback — called by LVGL to poll touch state.
 ///
 /// # Safety
@@ -112,11 +116,21 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
     let data = &mut *data;
     match hal::touch::read_point() {
         Some((x, y)) => {
-            data.point.x = x as i32;
-            data.point.y = y as i32;
-            data.state = LV_INDEV_STATE_PRESSED;
+            if !TOUCH_WAS_PRESSED {
+                // First reading after touch-down: the XPT2046 resistive
+                // panel's RC network hasn't settled yet, so this sample
+                // can be 20-60 px off.  Discard it — report as still
+                // released so LVGL ignores the coordinates.
+                TOUCH_WAS_PRESSED = true;
+                data.state = LV_INDEV_STATE_RELEASED;
+            } else {
+                data.point.x = x as i32;
+                data.point.y = y as i32;
+                data.state = LV_INDEV_STATE_PRESSED;
+            }
         }
         None => {
+            TOUCH_WAS_PRESSED = false;
             data.state = LV_INDEV_STATE_RELEASED;
         }
     }
