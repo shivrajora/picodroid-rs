@@ -191,6 +191,16 @@ fn build_lvgl(_out: &Path) {
         .warnings(false)
         .extra_warnings(false);
 
+    // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values
+    // fit.  Our Rust FFI (lvgl_ffi.rs) mirrors this with u8 typedefs.  On
+    // x86_64 (sim builds) enums are 4 bytes by default, which breaks struct
+    // layout (e.g. lv_indev_data_t.state lands at the wrong offset).  Force
+    // -fshort-enums on non-ARM targets so the C and Rust layouts match.
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if target_arch != "arm" {
+        build.flag("-fshort-enums");
+    }
+
     for f in &c_files {
         build.file(f);
     }
