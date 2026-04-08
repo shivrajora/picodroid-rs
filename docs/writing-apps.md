@@ -31,9 +31,9 @@ public class MyApp extends Application {
 ./scripts/build.sh --app myapp
 ./scripts/flash.sh --app myapp
 
-# Or for Pico 2
-./scripts/build.sh --app myapp --chip rp2350
-./scripts/flash.sh --app myapp --chip rp2350
+# Or for Pico (RP2040)
+./scripts/build.sh --app myapp --board testbench_rp2040
+./scripts/flash.sh --app myapp --board testbench_rp2040
 ```
 
 `build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup, instantiates the `Application` class, and calls `onCreate()`.

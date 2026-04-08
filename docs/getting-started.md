@@ -76,26 +76,27 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
-# Build firmware with the default example (blinky) for RP2040
+# Build firmware with the default example (blinky) for testbench_rp2350
 ./scripts/build.sh
 
 # Flash to Pico and view RTT log output
 ./scripts/flash.sh
 ```
 
-### Choosing a chip
+### Choosing a board
 
-Both scripts accept a `--chip` flag. The default is `rp2040`.
+Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 
-| Flag | Target | Board |
-|------|--------|-------|
-| `--chip rp2040` | `thumbv6m-none-eabi` | Raspberry Pi Pico |
-| `--chip rp2350` | `thumbv8m.main-none-eabihf` | Raspberry Pi Pico 2 |
+| Flag | MCU | Target |
+|------|-----|--------|
+| `--board testbench_rp2040` | RP2040 | Raspberry Pi Pico |
+| `--board testbench_rp2350` | RP2350 | Raspberry Pi Pico 2 |
+| `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon |
 
 ```bash
-# Build / flash for Pico 2 (RP2350)
-./scripts/build.sh --chip rp2350
-./scripts/flash.sh --chip rp2350
+# Build / flash for Pico (RP2040)
+./scripts/build.sh --board testbench_rp2040
+./scripts/flash.sh --board testbench_rp2040
 ```
 
 ### Choosing an example
@@ -103,12 +104,12 @@ Both scripts accept a `--chip` flag. The default is `rp2040`.
 Pass `--app <name>` to select which example to build or flash:
 
 ```bash
-./scripts/build.sh --app blinky                         # RP2040, default app
-./scripts/build.sh --app uart --chip rp2350             # RP2350
+./scripts/build.sh --app blinky                                   # default board
+./scripts/build.sh --app uart --board testbench_rp2040            # RP2040
 ./scripts/build.sh --app helloworld --release
 
 ./scripts/flash.sh --app blinky
-./scripts/flash.sh --app uart --chip rp2350
+./scripts/flash.sh --app uart --board testbench_rp2040
 ./scripts/flash.sh --app helloworld --release
 ```
 
@@ -190,7 +191,7 @@ Pass `--uf2` to `build.sh` to convert the ELF to a UF2 file after building. This
 
 ```bash
 ./scripts/build.sh --app blinky --uf2
-./scripts/build.sh --app blinky --chip rp2350 --release --uf2
+./scripts/build.sh --app blinky --board testbench_rp2350 --release --uf2
 ```
 
 The UF2 is written alongside the ELF (e.g. `target/thumbv6m-none-eabi/debug/picodroid.uf2`). Requires `elf2uf2-rs` (`cargo install elf2uf2-rs`).
