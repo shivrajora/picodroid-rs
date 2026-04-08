@@ -25,8 +25,6 @@ HIL_LOG_DIR="$HIL_DIR/logs"
 HIL_RESULTS_DIR="$HIL_DIR/results"
 HIL_LOCK="$HIL_DIR/hil.lock"
 
-USB_HUB="1-9.3"
-
 BOARD="testbench_rp2350"
 
 INCLUDE_HW=false
@@ -67,9 +65,20 @@ hil_log() {
 PROBE_POLL_INTERVAL=1
 PROBE_POLL_TIMEOUT=15
 
+# Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
+detect_usb_hub() {
+  sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
+}
+
 power_cycle_all() {
-  hil_log "Power-cycling all ports on hub $USB_HUB..."
-  if ! sudo uhubctl -l "$USB_HUB" -a cycle 2>&1 | \
+  local hub
+  hub=$(detect_usb_hub)
+  if [[ -z "$hub" ]]; then
+    hil_log "WARNING: No USB hub with CMSIS-DAP probe detected, skipping power cycle"
+    return
+  fi
+  hil_log "Power-cycling all ports on hub $hub..."
+  if ! sudo uhubctl -l "$hub" -a cycle 2>&1 | \
        while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
     hil_log "  WARNING: uhubctl returned non-zero exit status"
   fi
