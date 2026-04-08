@@ -104,7 +104,7 @@ public class DisplayDemoActivity extends Activity {
     // -- Spinner --
     TextView spinnerLabel = new TextView();
     spinnerLabel.setText("Color: Red");
-    spinnerLabel.setTextColor(Color.YELLOW);
+    spinnerLabel.setTextColor(Color.RED);
     root.addView(spinnerLabel);
 
     Spinner spinner = new Spinner();
@@ -113,10 +113,19 @@ public class DisplayDemoActivity extends Activity {
     spinner.setOnItemSelectedListener(
         () -> {
           int pos = spinner.getSelectedItemPosition();
-          if (pos == 0) spinnerLabel.setText("Color: Red");
-          else if (pos == 1) spinnerLabel.setText("Color: Green");
-          else if (pos == 2) spinnerLabel.setText("Color: Blue");
-          else spinnerLabel.setText("Color: Yellow");
+          if (pos == 0) {
+            spinnerLabel.setText("Color: Red");
+            spinnerLabel.setTextColor(Color.RED);
+          } else if (pos == 1) {
+            spinnerLabel.setText("Color: Green");
+            spinnerLabel.setTextColor(Color.GREEN);
+          } else if (pos == 2) {
+            spinnerLabel.setText("Color: Blue");
+            spinnerLabel.setTextColor(Color.BLUE);
+          } else {
+            spinnerLabel.setText("Color: Yellow");
+            spinnerLabel.setTextColor(Color.YELLOW);
+          }
         });
     root.addView(spinner);
 
