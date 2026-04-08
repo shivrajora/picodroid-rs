@@ -87,6 +87,18 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
         .start(move |_| crate::pdb::run_pdb_task())
         .unwrap();
 
+    // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
+    // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
+    // Pinned to core 1 alongside PDB — keeps core 0 free for JVM/UI.
+    #[cfg(feature = "net-cyw43")]
+    Task::new()
+        .name("cyw43")
+        .stack_size(2048)
+        .priority(TaskPriority(task_priority::PRIORITY_RT_2))
+        .core_affinity(0b10) // core 1
+        .start(move |_| crate::hal::rp::wifi_task::run_cyw43_task())
+        .unwrap();
+
     // JVM task: runs the app in a loop, rebooting when a new install arrives.
     // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
     // single-core safety assumption of SharedJvmState remains valid.

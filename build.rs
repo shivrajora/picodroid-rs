@@ -525,14 +525,16 @@ fn build_freertos_tcp(freertos_config_dir: &str) {
         build.file(f);
     }
 
-    // Our NetworkInterface driver
+    // Our NetworkInterface driver and stack init glue
     build.file("src/hal/rp/port/net/NetworkInterface_CYW43.c");
+    build.file("src/hal/rp/port/net/net_init.c");
 
     build.compile("freertos_tcp");
 
     println!("cargo:rerun-if-changed=vendor/freertos-plus-tcp/source");
     println!("cargo:rerun-if-changed=src/hal/rp/port/FreeRTOSIPConfig.h");
     println!("cargo:rerun-if-changed=src/hal/rp/port/net/NetworkInterface_CYW43.c");
+    println!("cargo:rerun-if-changed=src/hal/rp/port/net/net_init.c");
 }
 
 /// Builds a ready-to-flash PAPK image (4 KB metadata sector + raw APK bytes) and

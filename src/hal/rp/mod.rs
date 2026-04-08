@@ -27,3 +27,5 @@ pub mod uart;
 
 #[cfg(feature = "has-network")]
 pub mod net;
+#[cfg(feature = "net-cyw43")]
+pub mod wifi_task;
