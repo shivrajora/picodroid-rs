@@ -49,14 +49,14 @@ impl SpiXferState {
 struct XferCell(UnsafeCell<SpiXferState>);
 unsafe impl Sync for XferCell {}
 
-struct SemCell(UnsafeCell<Option<Semaphore>>);
+pub(crate) struct SemCell(pub(crate) UnsafeCell<Option<Semaphore>>);
 unsafe impl Sync for SemCell {}
 
 static SPI0_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 static SPI1_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 
-static SPI0_DONE: SemCell = SemCell(UnsafeCell::new(None));
-static SPI1_DONE: SemCell = SemCell(UnsafeCell::new(None));
+pub(crate) static SPI0_DONE: SemCell = SemCell(UnsafeCell::new(None));
+pub(crate) static SPI1_DONE: SemCell = SemCell(UnsafeCell::new(None));
 
 static SPI0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
 static SPI1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
@@ -254,6 +254,7 @@ macro_rules! finish_isr_xfer {
     ($spi:expr, $spi_id:expr) => {{
         let done = spi_done($spi_id);
         if done.take(Duration::ms(5000)).is_err() {
+            super::dma::abort($spi_id);
             $spi.sspimsc().write(|w| unsafe { w.bits(0) });
             while $spi.sspsr().read().rne().bit_is_set() {
                 let _ = $spi.sspdr().read();
@@ -351,6 +352,9 @@ pub fn init(spi_id: u8) {
         0 => setup_irq!(&p.SPI0, pac::Interrupt::SPI0_IRQ),
         _ => setup_irq!(&p.SPI1, pac::Interrupt::SPI1_IRQ),
     }
+
+    // Initialise DMA (idempotent — safe to call for each SPI peripheral)
+    super::dma::init();
 }
 
 pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
@@ -384,23 +388,17 @@ pub fn write_raw(spi_id: u8, data: &[u8]) {
     let lock = spi_lock(spi_id);
     let _ = lock.take(Duration::infinite());
 
-    let state = spi_state(spi_id);
-    state.op = SpiOp::WriteOnly;
-    state.tx_ptr = data.as_ptr();
-    state.rx_ptr = core::ptr::null_mut();
-    state.len = data.len();
-    state.tx_idx = 0;
-    state.rx_idx = 0;
+    // Mask SPI interrupts — DMA handles completion via DMA_IRQ_0
+    match spi_id {
+        0 => p.SPI0.sspimsc().write(|w| unsafe { w.bits(0) }),
+        _ => p.SPI1.sspimsc().write(|w| unsafe { w.bits(0) }),
+    }
+
+    super::dma::start_write(spi_id, data);
 
     match spi_id {
-        0 => {
-            start_isr_xfer!(&p.SPI0, state);
-            finish_isr_xfer!(&p.SPI0, spi_id);
-        }
-        _ => {
-            start_isr_xfer!(&p.SPI1, state);
-            finish_isr_xfer!(&p.SPI1, spi_id);
-        }
+        0 => finish_isr_xfer!(&p.SPI0, spi_id),
+        _ => finish_isr_xfer!(&p.SPI1, spi_id),
     }
 
     lock.give();

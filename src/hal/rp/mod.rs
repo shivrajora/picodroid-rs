@@ -9,6 +9,7 @@ pub mod boot;
 pub mod clock;
 pub mod delay;
 pub mod display;
+pub mod dma;
 pub mod flash;
 pub mod gpio;
 pub mod i2c;
