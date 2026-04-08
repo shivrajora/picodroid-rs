@@ -49,6 +49,9 @@ pub fn dispatch(
         ("picodroid/graphics/Display", "calibrate") => {
             Some(crate::system::picodroid::graphics::display::calibrate())
         }
+        ("picodroid/graphics/Display", "showFps") => {
+            Some(crate::system::picodroid::graphics::display::show_fps())
+        }
 
         // ── View (base class) ────────────────────────────────────────
         (c, "setPosition") if is_view(c) => Some(

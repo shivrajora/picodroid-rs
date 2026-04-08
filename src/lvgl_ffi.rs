@@ -110,6 +110,9 @@ pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
 pub type lv_style_selector_t = u32;
 
+// Opacity constants
+pub const LV_OPA_COVER: u8 = 255;
+
 // Object flags (from lv_obj.h)
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
@@ -249,6 +252,7 @@ extern "C" {
 
     // Opacity style
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
 
     // List widget
     pub fn lv_list_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

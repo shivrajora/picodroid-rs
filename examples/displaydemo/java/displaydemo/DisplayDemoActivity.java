@@ -18,6 +18,7 @@ import picodroid.widget.ToggleButton;
 public class DisplayDemoActivity extends Activity {
   public void onCreate() {
     getDisplay().calibrate();
+    getDisplay().showFps();
     Log.i("DisplayDemo", "Display ready");
 
     ScrollView scroll = new ScrollView();

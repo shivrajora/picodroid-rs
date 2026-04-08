@@ -22,6 +22,8 @@ public class Display {
 
   public native void calibrate();
 
+  public native void showFps();
+
   public int getWidth() {
     return width;
   }

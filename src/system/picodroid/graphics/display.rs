@@ -119,6 +119,12 @@ pub fn calibrate() -> Result<Option<Value>, JvmError> {
     Ok(None)
 }
 
+/// `Display.showFps()` — enables the on-screen FPS overlay.
+pub fn show_fps() -> Result<Option<Value>, JvmError> {
+    super::fps_overlay::enable();
+    Ok(None)
+}
+
 /// `Display.update()` — advances the LVGL timer and renders dirty regions.
 pub fn update() -> Result<Option<Value>, JvmError> {
     engine::tick(16);

@@ -72,6 +72,7 @@ pub(crate) fn run_activity(
     let mut pacer = crate::hal::system_clock::FramePacer::new();
     loop {
         engine::tick(16);
+        crate::system::picodroid::graphics::fps_overlay::update();
         dispatch_clicks(jvm, heap, handler);
         dispatch_checked_changes(jvm, heap, handler);
         dispatch_switch_checked_changes(jvm, heap, handler);
