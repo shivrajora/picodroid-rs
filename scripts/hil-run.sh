@@ -26,8 +26,6 @@ HIL_RESULTS_DIR="$HIL_DIR/results"
 HIL_LOCK="$HIL_DIR/hil.lock"
 
 USB_HUB="1-9.3"
-USB_PORT_PROBE=3
-USB_PORT_PICO=2
 
 BOARD="testbench_rp2350"
 
@@ -66,13 +64,12 @@ hil_log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-PROBE_SYSFS="/sys/bus/usb/devices/${USB_HUB}.${USB_PORT_PROBE}"
 PROBE_POLL_INTERVAL=1
 PROBE_POLL_TIMEOUT=15
 
 power_cycle_all() {
-  hil_log "Power-cycling debug probe + Pico 2..."
-  if ! sudo uhubctl -l "$USB_HUB" -p "$USB_PORT_PICO,$USB_PORT_PROBE" -a cycle 2>&1 | \
+  hil_log "Power-cycling all ports on hub $USB_HUB..."
+  if ! sudo uhubctl -l "$USB_HUB" -a cycle 2>&1 | \
        while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
     hil_log "  WARNING: uhubctl returned non-zero exit status"
   fi
@@ -80,27 +77,18 @@ power_cycle_all() {
   wait_for_probe
 }
 
-# Poll until the debug probe is fully enumerated on USB.
-# Checks both device directory and bConfigurationValue (kernel USB config).
+# Poll until the debug probe is detected by probe-rs.
 wait_for_probe() {
   local elapsed=0
-  local bcfg="$PROBE_SYSFS/bConfigurationValue"
   while [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
-    if [[ -e "$PROBE_SYSFS" ]] && [[ -r "$bcfg" ]] && [[ -n "$(cat "$bcfg" 2>/dev/null)" ]]; then
-      hil_log "  Probe fully enumerated after ${elapsed}s (bConfigurationValue=$(cat "$bcfg"))"
+    if probe-rs list 2>/dev/null | grep -q "CMSIS-DAP"; then
+      hil_log "  Probe detected after ${elapsed}s"
       return
     fi
     sleep "$PROBE_POLL_INTERVAL"
     elapsed=$((elapsed + PROBE_POLL_INTERVAL))
   done
-  hil_log "  WARNING: Probe not fully enumerated within ${PROBE_POLL_TIMEOUT}s"
-  if [[ ! -e "$PROBE_SYSFS" ]]; then
-    hil_log "    sysfs dir missing: $PROBE_SYSFS"
-  elif [[ ! -r "$bcfg" ]]; then
-    hil_log "    bConfigurationValue not readable: $bcfg"
-  else
-    hil_log "    bConfigurationValue empty (device not configured)"
-  fi
+  hil_log "  WARNING: Probe not detected within ${PROBE_POLL_TIMEOUT}s"
 }
 
 recover_probe() {
