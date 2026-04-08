@@ -1,14 +1,14 @@
-//! TestBench board — Waveshare 2.8" Pico display (ST7789 + XPT2046).
-//!
-//! Pin mapping (directly on RP2350 Pico 2):
-//!   SPI1: GP10 (SCK), GP11 (MOSI)
-//!   GP8  — LCD DC (Data/Command select)
-//!   GP9  — LCD CS
-//!   GP12 — Touch MISO (SPI1 RX)
-//!   GP13 — LCD BL (Backlight)
-//!   GP15 — LCD RST
-//!   GP16 — Touch CS
-//!   GP17 — Touch IRQ (open-drain, pull-up)
+// TestBench board — Waveshare 2.8" Pico display (ST7789 + XPT2046).
+//
+// Pin mapping:
+//   SPI1: GP10 (SCK), GP11 (MOSI)
+//   GP8  — LCD DC (Data/Command select)
+//   GP9  — LCD CS
+//   GP12 — Touch MISO (SPI1 RX)
+//   GP13 — LCD BL (Backlight)
+//   GP15 — LCD RST
+//   GP16 — Touch CS
+//   GP17 — Touch IRQ (open-drain, pull-up)
 
 mod display_config;
 pub use display_config::*;

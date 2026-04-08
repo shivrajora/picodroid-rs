@@ -1,4 +1,4 @@
-//! Display geometry constants for the TestBench board (Waveshare 2.8" ST7789).
+// Display geometry constants for the TestBench board (Waveshare 2.8" ST7789).
 
 pub const SCREEN_WIDTH: u16 = 320;
 pub const SCREEN_HEIGHT: u16 = 240;

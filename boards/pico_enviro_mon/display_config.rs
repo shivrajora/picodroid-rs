@@ -1,4 +1,4 @@
-//! Display geometry constants for the PicoEnviroMon board (ST7789 1.14" 240x135).
+// Display geometry constants for the PicoEnviroMon board (ST7789 1.14" 240x135).
 
 pub const SCREEN_WIDTH: u16 = 240;
 pub const SCREEN_HEIGHT: u16 = 135;

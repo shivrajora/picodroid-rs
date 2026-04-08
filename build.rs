@@ -49,7 +49,7 @@ fn parse_toml(path: &str) -> HashMap<String, String> {
 /// Scans CARGO_FEATURE_BOARD_* env vars set by Cargo.
 fn resolve_active_board() -> Option<String> {
     // Known board names — must match directory names under boards/
-    const BOARDS: &[&str] = &["testbench", "pico_enviro_mon"];
+    const BOARDS: &[&str] = &["testbench_rp2040", "testbench_rp2350", "pico_enviro_mon"];
     for board in BOARDS {
         let feature = format!("CARGO_FEATURE_BOARD_{}", board.to_uppercase());
         if env::var(&feature).is_ok() {

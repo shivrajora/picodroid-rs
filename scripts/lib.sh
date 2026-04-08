@@ -1,29 +1,44 @@
 #!/usr/bin/env bash
-# Shared helpers sourced by build.sh and flash.sh
+# Shared helpers sourced by build.sh, flash.sh, and other scripts.
 
-# Sets TARGET, CHIP_FEATURE, FLASH_MAX, RAM_MAX, UF2_FAMILY based on $CHIP.
-resolve_chip() {
-  local chip="$1"
-  case "$chip" in
-    rp2040)
-      TARGET="thumbv6m-none-eabi"
-      CHIP_FEATURE="chip-rp2040"
-      FLASH_MAX=2097152   # 2 MB
-      RAM_MAX=270336      # 264 KB
-      UF2_FAMILY="0xe48bff56"
-      ;;
-    rp2350)
-      TARGET="thumbv8m.main-none-eabihf"
-      CHIP_FEATURE="chip-rp2350"
-      FLASH_MAX=4194304   # 4 MB
-      RAM_MAX=532480      # 520 KB
-      UF2_FAMILY="0xe48bff59"
-      ;;
-    *)
-      echo "Unknown chip: $chip. Use rp2040 or rp2350." >&2
-      exit 1
-      ;;
-  esac
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Sets BOARD_FEATURE, TARGET, FLASH_MAX, RAM_MAX by reading board.toml and mcu.toml.
+resolve_board() {
+  local board="$1"
+  local board_toml="$REPO_ROOT/boards/$board/board.toml"
+
+  if [[ ! -f "$board_toml" ]]; then
+    echo "Unknown board: $board" >&2
+    echo "Available boards:" >&2
+    for d in "$REPO_ROOT"/boards/*/; do
+      [[ -f "$d/board.toml" ]] && echo "  $(basename "$d")"
+    done
+    exit 1
+  fi
+
+  # Board feature name: underscores → hyphens for Cargo
+  BOARD_FEATURE="board-$(echo "$board" | tr '_' '-')"
+
+  # Read MCU name from board.toml
+  local mcu
+  mcu=$(grep '^mcu' "$board_toml" | sed 's/.*= *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' | tr -d ' ')
+
+  # Find mcu.toml under mcus/
+  local mcu_toml
+  mcu_toml=$(find "$REPO_ROOT/mcus" -name "${mcu}.toml" 2>/dev/null | head -1)
+  if [[ -z "$mcu_toml" ]]; then
+    echo "MCU definition not found: mcus/*/${mcu}.toml" >&2
+    exit 1
+  fi
+
+  # Read target triple, RAM, flash from mcu.toml
+  TARGET=$(grep '^target' "$mcu_toml" | sed 's/.*= *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' | tr -d ' ')
+  local ram_kb flash_kb
+  ram_kb=$(grep '^ram_kb' "$mcu_toml" | sed 's/.*= *//' | tr -d ' ')
+  flash_kb=$(grep '^flash_kb' "$mcu_toml" | sed 's/.*= *//' | tr -d ' ')
+  RAM_MAX=$(( ram_kb * 1024 ))
+  FLASH_MAX=$(( flash_kb * 1024 ))
 }
 
 # Returns the number of logical CPUs (cross-platform: Linux + macOS).
@@ -36,6 +51,13 @@ list_apps() {
   local examples_dir="$1"
   for d in "$examples_dir"/*/; do
     [[ -d "$d" ]] && echo "    $(basename "$d")"
+  done
+}
+
+# Lists available board names from the boards directory, one per line, indented.
+list_boards() {
+  for d in "$REPO_ROOT"/boards/*/; do
+    [[ -f "$d/board.toml" ]] && echo "    $(basename "$d")"
   done
 }
 
@@ -58,7 +80,7 @@ print_memory_usage() {
 }
 
 # Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.
-# Requires CHIP, APP, PROFILE, EXTRA_ARGS, TARGET, and CHIP_FEATURE to be set.
+# Requires BOARD, APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, and TARGET to be set.
 build_firmware() {
   # Step 1: Build the APK for the selected app.
   bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
@@ -72,7 +94,7 @@ build_firmware() {
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$CHIP_FEATURE" \
+    --features "$BOARD_FEATURE" \
     "${EXTRA_ARGS[@]}"
 
   ELF="target/${TARGET}/${PROFILE}/picodroid"

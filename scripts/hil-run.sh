@@ -29,8 +29,7 @@ USB_HUB="1-9.3"
 USB_PORT_PROBE=3
 USB_PORT_PICO=2
 
-TARGET="thumbv8m.main-none-eabihf"
-CHIP_FEATURE="chip-rp2350"
+BOARD="testbench_rp2350"
 
 INCLUDE_HW=false
 SPECIFIC_APP=""
@@ -58,6 +57,8 @@ EOF
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+resolve_board "$BOARD"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ run_test() {
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$CHIP_FEATURE" >> "$build_log" 2>&1; then
+    --features "$BOARD_FEATURE" >> "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (firmware)"
     echo "ERROR $app (firmware build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))

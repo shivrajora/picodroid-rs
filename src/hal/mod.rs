@@ -52,5 +52,5 @@ pub use chip::flash;
 #[allow(unused_imports)]
 pub use chip::pdb_uart;
 
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(all(not(any(feature = "sim", test)), feature = "chip-rp2350-hal"))]
 pub use chip::timer_alarm;

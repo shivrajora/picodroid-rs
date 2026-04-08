@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-CHIP="rp2040"
+BOARD="testbench_rp2350"
 APP="blinky"
 PROFILE="debug"
 EXTRA_ARGS=()
@@ -17,17 +17,21 @@ while [[ $# -gt 0 ]]; do
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  -c, --chip <chip>   Target chip: rp2040 (default) or rp2350
-  -a, --app  <app>    App to build and flash (default: blinky)
-  -h, --help          Show this help message
+  -b, --board <board>  Target board (default: testbench_rp2350)
+  -a, --app  <app>     App to build and flash (default: blinky)
+  -r, --release        Build in release mode
+  -h, --help           Show this help message
+
+Boards:
+$(list_boards)
 
 Apps:
 $(list_apps "$SCRIPT_DIR/../examples")
 EOF
       exit 0
       ;;
-    -c|--chip)
-      CHIP="$2"
+    -b|--board)
+      BOARD="$2"
       shift 2
       ;;
     -a|--app)
@@ -46,7 +50,7 @@ EOF
   esac
 done
 
-resolve_chip "$CHIP"
+resolve_board "$BOARD"
 build_firmware
 
 # Step 3: Flash the firmware (build is already up-to-date, so this just flashes).
@@ -54,5 +58,5 @@ PICODROID_APK_PATH="$APK_PATH" cargo run \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
   --no-default-features \
-  --features "$CHIP_FEATURE" \
+  --features "$BOARD_FEATURE" \
   "${EXTRA_ARGS[@]}"

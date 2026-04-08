@@ -1,6 +1,6 @@
-//! PicoEnviroMon board — RP2350 with ST7789 1.14" 240x135 display, no touch.
-//!
-//! Pin mapping: TBD (placeholder values — fill in when hardware arrives).
+// PicoEnviroMon board — RP2350 with ST7789 1.14" 240x135 display, no touch.
+//
+// Pin mapping: TBD (placeholder values — fill in when hardware arrives).
 
 mod display_config;
 pub use display_config::*;

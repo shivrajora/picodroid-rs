@@ -116,7 +116,7 @@ run_test() {
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim" >> "$build_log" 2>&1; then
+    --features "sim,board-testbench-rp2350" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
     echo "ERROR $app (sim build failed)" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
@@ -130,7 +130,7 @@ run_test() {
       --release \
       --target "$HOST_TARGET" \
       --no-default-features \
-      --features "sim" > "$log_file" 2>&1; then
+      --features "sim,board-testbench-rp2350" > "$log_file" 2>&1; then
     : # exited cleanly
   else
     local exit_code=$?

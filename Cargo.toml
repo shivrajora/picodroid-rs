@@ -9,19 +9,17 @@ version = "0.1.0"
 license = "Apache-2.0"
 
 [features]
-default = ["chip-rp2040"]
-# Board + chip selection (user-facing — pick exactly one for embedded builds)
-chip-rp2040 = ["dep:rp-pico", "family-rp", "board-testbench", "has-touch"]
-chip-rp2350 = ["chip-rp2350-hal", "board-testbench", "has-touch"]
-chip-pico-enviro-mon = ["chip-rp2350-hal", "board-pico-enviro-mon"]
-# MCU family grouping (internal — activated by chip features)
-family-rp = []
-# RP2350 HAL (internal — shared by all RP2350-based boards)
+default = ["board-testbench-rp2350"]
+# Board selection (user-facing — pick exactly one for embedded builds)
+board-testbench-rp2040 = ["chip-rp2040", "has-touch"]
+board-testbench-rp2350 = ["chip-rp2350-hal", "has-touch"]
+board-pico-enviro-mon = ["chip-rp2350-hal"]
+# MCU selection (internal — activated by board features)
+chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350-hal = ["dep:rp235x-hal", "family-rp"]
-# Board selection (internal — activated by chip features)
-board-testbench = []
-board-pico-enviro-mon = []
-# Capability flags (activated by chip/board features)
+# MCU family grouping (internal)
+family-rp = []
+# Capability flags
 has-touch = []
 # Simulator mode (no hardware)
 sim = []

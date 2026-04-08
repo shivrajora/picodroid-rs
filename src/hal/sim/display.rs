@@ -5,14 +5,18 @@
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
 // Display constants sourced from board config files (single source of truth).
-#[cfg(feature = "board-testbench")]
-#[path = "../../../boards/testbench/display_config.rs"]
+#[cfg(any(feature = "board-testbench-rp2040", feature = "board-testbench-rp2350"))]
+#[path = "../../../boards/testbench_rp2350/display_config.rs"]
 mod board_display;
 #[cfg(feature = "board-pico-enviro-mon")]
 #[path = "../../../boards/pico_enviro_mon/display_config.rs"]
 mod board_display;
 // Fallback when no board feature is active (e.g. plain `cargo test`)
-#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
+#[cfg(not(any(
+    feature = "board-testbench-rp2040",
+    feature = "board-testbench-rp2350",
+    feature = "board-pico-enviro-mon"
+)))]
 mod board_display {
     pub const SCREEN_WIDTH: u16 = 320;
     pub const SCREEN_HEIGHT: u16 = 240;

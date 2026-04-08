@@ -2,6 +2,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_DIR="$REPO_ROOT/scripts"
+
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 echo "==> Checking Java formatting..."
 if ! bash "$REPO_ROOT/scripts/format_java.sh" check; then
@@ -20,35 +24,31 @@ echo "==> Building helloworld APK for type-checking..."
 bash "$REPO_ROOT/scripts/build-apk.sh" --app helloworld
 APK_PATH="$REPO_ROOT/build/apks/helloworld.papk"
 
-echo "==> Running clippy (RP2040)..."
-if ! PICODROID_APK_PATH="$APK_PATH" \
-     cargo clippy --no-default-features --features chip-rp2040 -- --deny=warnings; then
-  echo ""
-  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
-  exit 1
-fi
+# Run clippy for each board target
+for board in testbench_rp2040 testbench_rp2350; do
+  resolve_board "$board"
+  echo "==> Running clippy ($board)..."
+  if ! PICODROID_APK_PATH="$APK_PATH" \
+       cargo clippy --target "$TARGET" --no-default-features \
+                    --features "$BOARD_FEATURE" -- --deny=warnings; then
+    echo ""
+    echo "ERROR: Clippy check failed ($board). Fix the warnings above before committing."
+    exit 1
+  fi
+done
 
 HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
 
 echo "==> Running clippy (sim)..."
 if ! PICODROID_APK_PATH="$APK_PATH" \
-     cargo clippy --target "$HOST_TARGET" --no-default-features --features sim -- --deny=warnings; then
-  echo ""
-  echo "ERROR: Clippy check failed. Fix the warnings above before committing."
-  exit 1
-fi
-
-echo "==> Running clippy (RP2350)..."
-if ! PICODROID_APK_PATH="$APK_PATH" \
-     cargo clippy --target thumbv8m.main-none-eabihf \
-                  --no-default-features --features chip-rp2350 -- --deny=warnings; then
+     cargo clippy --target "$HOST_TARGET" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings; then
   echo ""
   echo "ERROR: Clippy check failed. Fix the warnings above before committing."
   exit 1
 fi
 
 echo "==> Building..."
-if ! bash "$REPO_ROOT/scripts/build.sh" --app helloworld; then
+if ! bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2040 --app helloworld; then
   echo ""
   echo "ERROR: Build failed. Fix the errors above before committing."
   exit 1

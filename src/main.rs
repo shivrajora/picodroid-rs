@@ -6,7 +6,11 @@ extern crate alloc;
 mod app;
 #[cfg(all(
     not(any(test, feature = "sim")),
-    any(feature = "board-testbench", feature = "board-pico-enviro-mon")
+    any(
+        feature = "board-testbench-rp2040",
+        feature = "board-testbench-rp2350",
+        feature = "board-pico-enviro-mon"
+    )
 ))]
 mod boards;
 #[cfg(feature = "display-test")]
