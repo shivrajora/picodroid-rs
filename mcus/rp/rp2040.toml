@@ -1,0 +1,10 @@
+# MCU: RP2040 (Cortex-M0+, dual-core)
+family = "rp"
+target = "thumbv6m-none-eabi"
+clock_hz = 125000000
+ram_kb = 256
+flash_kb = 2048
+core_count = 2
+freertos_port = "ThirdParty/GCC/RP2040"
+freertos_port_include = "third_party/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/include"
+pico_shim = "src/hal/rp/port/pico_shim_rp2040.c"

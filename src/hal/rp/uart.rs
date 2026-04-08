@@ -1,8 +1,4 @@
-// CLK_PERI defaults to system clock: 125 MHz on RP2040, 150 MHz on RP2350
-#[cfg(feature = "chip-rp2040")]
-const PCLK_HZ: u32 = 125_000_000;
-#[cfg(feature = "chip-rp2350-hal")]
-const PCLK_HZ: u32 = 150_000_000;
+use super::clock::PCLK_HZ;
 
 // Compute UARTIBRD / UARTFBRD from baud rate.
 //   BRD = PCLK / (16 * baud)

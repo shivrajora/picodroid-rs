@@ -10,24 +10,15 @@
 //!   GP16 — Touch CS
 //!   GP17 — Touch IRQ (open-drain, pull-up)
 
+mod display_config;
+pub use display_config::*;
+
 use crate::drivers::st7789::St7789;
 use crate::drivers::xpt2046::Xpt2046;
 use crate::hal::delay::RpDelay;
 use crate::hal::input_pin::RpInputPin;
 use crate::hal::output_pin::RpOutputPin;
 use crate::hal::spi_bus::RpSpiBus;
-
-// --- Display constants ---
-pub const SCREEN_WIDTH: u16 = 320;
-pub const SCREEN_HEIGHT: u16 = 240;
-
-/// LVGL partial-render band height (rows per flush).
-/// 320 * 20 * 2 = 12,800 bytes per band buffer.
-pub const BAND_HEIGHT: usize = 20;
-
-/// LVGL scroll threshold (pixels) — raised from default (10) to compensate
-/// for XPT2046 resistive touchscreen jitter (~5 px between settled frames).
-pub const SCROLL_LIMIT: u8 = 30;
 
 const SPI_ID: u8 = 1;
 const DISPLAY_SPI_FREQ: u32 = 62_500_000;

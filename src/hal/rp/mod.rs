@@ -6,6 +6,7 @@
 
 pub mod adc;
 pub mod boot;
+pub mod clock;
 pub mod delay;
 pub mod display;
 pub mod flash;

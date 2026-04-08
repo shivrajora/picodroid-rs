@@ -4,35 +4,25 @@
 
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
-// Board-conditional display constants (duplicated from board configs because
-// board modules are not compiled for the simulator target).
+// Display constants sourced from board config files (single source of truth).
 #[cfg(feature = "board-testbench")]
-pub const WIDTH: u16 = 320;
-#[cfg(feature = "board-testbench")]
-pub const HEIGHT: u16 = 240;
-#[cfg(feature = "board-testbench")]
-pub const BAND_HEIGHT: usize = 20;
-#[cfg(feature = "board-testbench")]
-pub const SCROLL_LIMIT: u8 = 30;
-
+#[path = "../../../boards/testbench/display_config.rs"]
+mod board_display;
 #[cfg(feature = "board-pico-enviro-mon")]
-pub const WIDTH: u16 = 240;
-#[cfg(feature = "board-pico-enviro-mon")]
-pub const HEIGHT: u16 = 135;
-#[cfg(feature = "board-pico-enviro-mon")]
-pub const BAND_HEIGHT: usize = 27;
-#[cfg(feature = "board-pico-enviro-mon")]
-pub const SCROLL_LIMIT: u8 = 10;
-
+#[path = "../../../boards/pico_enviro_mon/display_config.rs"]
+mod board_display;
 // Fallback when no board feature is active (e.g. plain `cargo test`)
 #[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
-pub const WIDTH: u16 = 320;
-#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
-pub const HEIGHT: u16 = 240;
-#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
-pub const BAND_HEIGHT: usize = 20;
-#[cfg(not(any(feature = "board-testbench", feature = "board-pico-enviro-mon")))]
-pub const SCROLL_LIMIT: u8 = 30;
+mod board_display {
+    pub const SCREEN_WIDTH: u16 = 320;
+    pub const SCREEN_HEIGHT: u16 = 240;
+    pub const BAND_HEIGHT: usize = 20;
+    pub const SCROLL_LIMIT: u8 = 30;
+}
+pub use board_display::BAND_HEIGHT;
+pub use board_display::SCREEN_HEIGHT as HEIGHT;
+pub use board_display::SCREEN_WIDTH as WIDTH;
+pub use board_display::SCROLL_LIMIT;
 
 const NUM_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
 

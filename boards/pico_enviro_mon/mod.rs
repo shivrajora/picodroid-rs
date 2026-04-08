@@ -2,21 +2,13 @@
 //!
 //! Pin mapping: TBD (placeholder values — fill in when hardware arrives).
 
+mod display_config;
+pub use display_config::*;
+
 use crate::drivers::st7789::St7789;
 use crate::hal::delay::RpDelay;
 use crate::hal::output_pin::RpOutputPin;
 use crate::hal::spi_bus::RpSpiBus;
-
-// --- Display constants ---
-pub const SCREEN_WIDTH: u16 = 240;
-pub const SCREEN_HEIGHT: u16 = 135;
-
-/// LVGL partial-render band height (rows per flush).
-/// 240 * 27 * 2 = 12,960 bytes per band buffer.
-pub const BAND_HEIGHT: usize = 27;
-
-/// LVGL scroll threshold — no touch on this board; use LVGL default.
-pub const SCROLL_LIMIT: u8 = 10;
 
 // TODO: confirm SPI ID and frequency for this board
 const SPI_ID: u8 = 1;

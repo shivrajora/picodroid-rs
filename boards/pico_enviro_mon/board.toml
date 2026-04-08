@@ -1,0 +1,5 @@
+# Board: PicoEnviroMon — RP2350 with ST7789 1.14" 240x135 display, no touch
+mcu = "rp2350"
+has_touch = false
+lv_dpi = 166
+lv_mem_kb = 48

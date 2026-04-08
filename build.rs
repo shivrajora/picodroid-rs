@@ -8,11 +8,91 @@
 //! updating `memory.x` ensures a rebuild of the application with the
 //! new memory settings.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+// ── Simple key=value TOML parser (no dependencies) ─────────────────────────
+
+/// Parse a simple TOML file (flat key = value pairs, no tables/arrays).
+/// Supports string values (quoted or unquoted), integer values, and booleans.
+/// Lines starting with '#' are comments.
+fn parse_toml(path: &str) -> HashMap<String, String> {
+    let content = fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some((key, val)) = trimmed.split_once('=') {
+            let key = key.trim().to_string();
+            let val = val.trim();
+            // Strip surrounding quotes if present
+            let val = if (val.starts_with('"') && val.ends_with('"'))
+                || (val.starts_with('\'') && val.ends_with('\''))
+            {
+                val[1..val.len() - 1].to_string()
+            } else {
+                val.to_string()
+            };
+            map.insert(key, val);
+        }
+    }
+    map
+}
+
+/// Resolve the active board name from Cargo feature flags.
+/// Scans CARGO_FEATURE_BOARD_* env vars set by Cargo.
+fn resolve_active_board() -> Option<String> {
+    // Known board names — must match directory names under boards/
+    const BOARDS: &[&str] = &["testbench", "pico_enviro_mon"];
+    for board in BOARDS {
+        let feature = format!("CARGO_FEATURE_BOARD_{}", board.to_uppercase());
+        if env::var(&feature).is_ok() {
+            return Some(board.to_string());
+        }
+    }
+    None
+}
+
+/// Resolve the active MCU name from Cargo feature flags.
+/// Falls back to the board.toml `mcu` field if no chip feature is active.
+fn resolve_active_mcu(board_cfg: &HashMap<String, String>) -> String {
+    // Check chip features — these take precedence since they determine the HAL crate.
+    if env::var("CARGO_FEATURE_CHIP_RP2040").is_ok() {
+        return "rp2040".to_string();
+    }
+    if env::var("CARGO_FEATURE_CHIP_RP2350").is_ok()
+        || env::var("CARGO_FEATURE_CHIP_RP2350_HAL").is_ok()
+    {
+        return "rp2350".to_string();
+    }
+    // Fall back to board.toml mcu field
+    board_cfg
+        .get("mcu")
+        .cloned()
+        .expect("Cannot determine MCU: no chip feature active and board.toml has no 'mcu' key")
+}
+
+/// Find the MCU .toml file by searching mcus/<family>/<name>.toml.
+fn find_mcu_toml(mcu_name: &str) -> String {
+    let mcus_dir = Path::new("mcus");
+    if let Ok(entries) = fs::read_dir(mcus_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let candidate = entry.path().join(format!("{mcu_name}.toml"));
+                if candidate.exists() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
+    }
+    panic!("MCU definition not found: mcus/*/{mcu_name}.toml");
+}
 
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -20,18 +100,35 @@ fn main() {
     let is_arm_embedded = target_arch == "arm";
 
     if is_arm_embedded {
-        let chip_rp2350 = env::var("CARGO_FEATURE_CHIP_RP2350").is_ok()
-            || env::var("CARGO_FEATURE_CHIP_RP2350_HAL").is_ok();
-        let family_rp = env::var("CARGO_FEATURE_FAMILY_RP").is_ok();
+        // ── Resolve board → MCU config from .toml files ────────────────────
+        let board_name = resolve_active_board()
+            .expect("No board feature active — enable board-testbench or similar");
+        let board_toml_path = format!("boards/{board_name}/board.toml");
+        let board = parse_toml(&board_toml_path);
+        println!("cargo:rerun-if-changed={board_toml_path}");
 
-        // Copy the appropriate memory layout into OUT_DIR so the linker finds it.
-        let memory_src = if chip_rp2350 {
-            "memory_rp2350.x"
+        // MCU is determined primarily from Cargo chip features (which select
+        // the HAL crate), falling back to board.toml's `mcu` field.
+        let mcu_name = resolve_active_mcu(&board);
+
+        let mcu_toml_path = find_mcu_toml(&mcu_name);
+        let mcu = parse_toml(&mcu_toml_path);
+        println!("cargo:rerun-if-changed={mcu_toml_path}");
+
+        let mcu_family = mcu
+            .get("family")
+            .cloned()
+            .unwrap_or_else(|| panic!("MCU toml missing 'family': {mcu_toml_path}"));
+
+        // ── Linker script ──────────────────────────────────────────────────
+        // Board can override with its own linker script (e.g. for external RAM).
+        let memory_src = if let Some(ls) = board.get("linker_script") {
+            ls.clone()
         } else {
-            "memory_rp2040.x"
+            format!("mcus/{mcu_family}/{mcu_name}.x")
         };
         let memory_bytes =
-            fs::read(memory_src).unwrap_or_else(|e| panic!("Failed to read {memory_src}: {e}"));
+            fs::read(&memory_src).unwrap_or_else(|e| panic!("Failed to read {memory_src}: {e}"));
         File::create(out.join("memory.x"))
             .unwrap()
             .write_all(&memory_bytes)
@@ -39,47 +136,28 @@ fn main() {
         println!("cargo:rustc-link-search={}", out.display());
         println!("cargo:rerun-if-changed={memory_src}");
 
+        // ── FreeRTOS ───────────────────────────────────────────────────────
         let mut b = freertos_cargo_build::Builder::new();
-
-        // Path to FreeRTOS kernel or set ENV "FREERTOS_SRC" instead
         b.freertos("third_party/FreeRTOS-Kernel");
-        // Location of `FreeRTOSConfig.h` — per-family to allow different
-        // core counts, clock speeds, and FreeRTOS port settings.
-        let freertos_config_dir = if family_rp {
-            "src/hal/rp"
-        } else {
-            "src" // fallback
-        };
-        b.freertos_config(freertos_config_dir);
-        // Use RP-specific SMP ports:
-        //   RP2040: ThirdParty/GCC/RP2040 (Cortex-M0+, uses SIO FIFO for vYieldCore)
-        //   RP2350: ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure
-        //           (Cortex-M33, uses SIO doorbells for vYieldCore)
-        let (freertos_port, port_include, pico_shim_c) = if chip_rp2350 {
-            (
-                "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
-                // RP2350 port: portmacro.h is directly in the port directory
-                None,
-                "src/hal/rp/port/pico_shim_rp2350.c",
-            )
-        } else {
-            (
-                "ThirdParty/GCC/RP2040",
-                // RP2040 port: portmacro.h and rp2040_config.h are in the include/ subdir
-                Some("third_party/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/include"),
-                "src/hal/rp/port/pico_shim_rp2040.c",
-            )
-        };
-        b.freertos_port(freertos_port);
-        b.heap("heap_4.c"); // Set the heap_?.c allocator to use from
-                            // 'FreeRTOS-Kernel/portable/MemMang' (Default: heap_4.c)
 
-        // Inject pico-sdk shim (direct register access, no real pico-sdk needed)
+        let freertos_config_dir = format!("mcus/{mcu_family}");
+        b.freertos_config(&freertos_config_dir);
+
+        let freertos_port = mcu
+            .get("freertos_port")
+            .unwrap_or_else(|| panic!("MCU toml missing 'freertos_port': {mcu_toml_path}"));
+        b.freertos_port(freertos_port);
+        b.heap("heap_4.c");
+
+        let pico_shim_c = mcu
+            .get("pico_shim")
+            .unwrap_or_else(|| panic!("MCU toml missing 'pico_shim': {mcu_toml_path}"));
         b.add_build_file(pico_shim_c);
+
         // Expose stub headers that shadow pico-sdk's pico.h, hardware/*.h, pico/multicore.h
         b.get_cc().include("src/hal/rp/port");
-        // RP2040 port stores portmacro.h in include/ — add it explicitly
-        if let Some(inc) = port_include {
+        // Some ports store portmacro.h in an include/ subdir
+        if let Some(inc) = mcu.get("freertos_port_include") {
             b.get_cc().include(inc);
         }
         // Preprocessor flags required by the RP-specific FreeRTOS ports
@@ -139,7 +217,12 @@ fn main() {
         println!("cargo:rustc-link-arg=-T{}", init_array_ld.display());
     }
 
-    build_lvgl(out);
+    // Load board config for LVGL overrides (applies to both ARM and sim builds).
+    let board_cfg = resolve_active_board().map(|name| {
+        let path = format!("boards/{name}/board.toml");
+        parse_toml(&path)
+    });
+    build_lvgl(out, &board_cfg);
 
     embed_framework_classes(out);
     embed_apk(out, is_arm_embedded);
@@ -147,7 +230,7 @@ fn main() {
 }
 
 /// Compile LVGL C sources into a static library.
-fn build_lvgl(_out: &Path) {
+fn build_lvgl(_out: &Path, board_cfg: &Option<HashMap<String, String>>) {
     let lvgl_src = Path::new("vendor/lvgl/src");
     if !lvgl_src.exists() {
         // LVGL submodule not checked out — skip (e.g. for CI builds without submodules)
@@ -192,12 +275,17 @@ fn build_lvgl(_out: &Path) {
         .warnings(false)
         .extra_warnings(false);
 
-    // Board-specific LVGL overrides (take precedence over lv_conf.h via #ifndef guards)
-    if env::var("CARGO_FEATURE_BOARD_PICO_ENVIRO_MON").is_ok() {
-        build.define("LV_DPI_DEF", "166"); // 1.14" 240x135 ≈ 166 DPI
-        build.define("LV_MEM_SIZE", "(48 * 1024U)");
+    // Board-specific LVGL overrides (take precedence over lv_conf.h via #ifndef guards).
+    // Values are read from boards/<name>/board.toml; omitted keys use lv_conf.h defaults.
+    if let Some(cfg) = board_cfg {
+        if let Some(dpi) = cfg.get("lv_dpi") {
+            build.define("LV_DPI_DEF", dpi.as_str());
+        }
+        if let Some(mem_kb) = cfg.get("lv_mem_kb") {
+            let mem_val = format!("({mem_kb} * 1024U)");
+            build.define("LV_MEM_SIZE", mem_val.as_str());
+        }
     }
-    // board-testbench uses lv_conf.h defaults (130 DPI, 64 KB)
 
     // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values
     // fit.  Our Rust FFI (lvgl_ffi.rs) mirrors this with u8 typedefs.  On
