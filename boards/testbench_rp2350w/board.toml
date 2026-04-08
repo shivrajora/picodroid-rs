@@ -1,0 +1,6 @@
+# Board: TestBench (WiFi) — Waveshare 2.8" Pico display (ST7789 + XPT2046)
+# on a Raspberry Pi Pico 2 W (RP2350 + CYW43439 WiFi)
+mcu = "rp2350"
+has_touch = true
+has_network = true
+network_type = "cyw43"

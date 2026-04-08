@@ -14,6 +14,7 @@ default = ["board-testbench-rp2350"]
 board-testbench-rp2040 = ["chip-rp2040", "has-touch"]
 board-testbench-rp2350 = ["chip-rp2350-hal", "has-touch"]
 board-pico-enviro-mon = ["chip-rp2350-hal"]
+board-testbench-rp2350w = ["chip-rp2350-hal", "has-touch", "has-network", "net-cyw43"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350-hal = ["dep:rp235x-hal", "family-rp"]
@@ -21,6 +22,8 @@ chip-rp2350-hal = ["dep:rp235x-hal", "family-rp"]
 family-rp = []
 # Capability flags
 has-touch = []
+has-network = []
+net-cyw43 = []
 # Simulator mode (no hardware)
 sim = []
 # Native display test (runs LVGL test UI instead of JVM)

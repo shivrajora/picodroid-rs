@@ -1,0 +1,129 @@
+// TestBench (WiFi) board — Waveshare 2.8" Pico display (ST7789 + XPT2046)
+// on a Raspberry Pi Pico 2 W (RP2350 + CYW43439).
+//
+// Display/touch pin mapping (identical to testbench_rp2350):
+//   SPI1: GP10 (SCK), GP11 (MOSI)
+//   GP8  — LCD DC (Data/Command select)
+//   GP9  — LCD CS
+//   GP12 — Touch MISO (SPI1 RX)
+//   GP13 — LCD BL (Backlight)
+//   GP15 — LCD RST
+//   GP16 — Touch CS
+//   GP17 — Touch IRQ (open-drain, pull-up)
+//
+// CYW43439 WiFi (directly wired on the Pico 2 W module):
+//   GP23 — WL_ON (power enable)
+//   GP24 — WL_D  (data, directly connected to the CYW43 via PIO)
+//   GP25 — WL_CS (directly active low chip select)
+//   GP29 — WL_CLK (directly connected to the CYW43 via PIO)
+
+mod display_config;
+pub use display_config::*;
+
+use crate::drivers::st7789::St7789;
+use crate::drivers::xpt2046::Xpt2046;
+use crate::hal::delay::RpDelay;
+use crate::hal::input_pin::RpInputPin;
+use crate::hal::output_pin::RpOutputPin;
+use crate::hal::spi_bus::RpSpiBus;
+
+const SPI_ID: u8 = 1;
+const DISPLAY_SPI_FREQ: u32 = 62_500_000;
+
+// Display pins
+const PIN_DC: u8 = 8;
+const PIN_CS: u8 = 9;
+const PIN_RST: u8 = 15;
+const PIN_BL: u8 = 13;
+
+// --- Touch constants ---
+const TOUCH_SPI_FREQ: u32 = 2_000_000;
+const PIN_TOUCH_CS: u8 = 16;
+const PIN_TOUCH_IRQ: u8 = 17;
+const PIN_TOUCH_MISO: u8 = 12;
+
+// Calibration: raw ADC range mapped to screen coordinates.
+// X axis is inverted (high raw = low screen X). These defaults were
+// measured empirically; the display-test calibration routine refines them.
+const CAL_X_MIN: u16 = 1970;
+const CAL_X_MAX: u16 = 185;
+const CAL_Y_MIN: u16 = 110;
+const CAL_Y_MAX: u16 = 1950;
+
+// --- CYW43439 WiFi pin constants (directly on the Pico 2 W) ---
+pub const CYW43_PIN_WL_ON: u8 = 23;
+pub const CYW43_PIN_WL_D: u8 = 24;
+pub const CYW43_PIN_WL_CS: u8 = 25;
+pub const CYW43_PIN_WL_CLK: u8 = 29;
+
+// --- Concrete types for this board ---
+pub type Display = St7789<RpSpiBus, RpOutputPin, RpOutputPin, RpOutputPin, RpOutputPin, RpDelay>;
+pub type Touch = Xpt2046<RpSpiBus, RpOutputPin>;
+
+/// Configure GP12 (MISO) for SPI1 function — needed for touch reads.
+/// Display init only configures SCK (GP10) and MOSI (GP11).
+fn configure_touch_miso() {
+    use rp235x_hal::pac;
+    let p = unsafe { pac::Peripherals::steal() };
+
+    p.IO_BANK0
+        .gpio(PIN_TOUCH_MISO as usize)
+        .gpio_ctrl()
+        .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
+    p.PADS_BANK0
+        .gpio(PIN_TOUCH_MISO as usize)
+        .write(|w| w.iso().clear_bit().ie().set_bit().od().clear_bit());
+}
+
+/// Create and initialize the ST7789 display driver for this board.
+pub fn create_display() -> Display {
+    let spi = RpSpiBus::new_init(SPI_ID, DISPLAY_SPI_FREQ);
+    let dc = RpOutputPin::new(PIN_DC, false);
+    let cs = RpOutputPin::new(PIN_CS, true); // CS starts high (deselected)
+    let rst = RpOutputPin::new(PIN_RST, false);
+    let bl = RpOutputPin::new(PIN_BL, false); // backlight off initially
+    let delay = RpDelay::new();
+
+    // MADCTL 0x60: MY=0, MX=1, MV=1 -> 320x240 landscape; RGB order
+    let mut display = St7789::new(
+        spi,
+        dc,
+        cs,
+        rst,
+        bl,
+        delay,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        0x60,
+    );
+    display.init();
+    display
+}
+
+/// Create and initialize the XPT2046 touch driver for this board.
+pub fn create_touch() -> Touch {
+    // Configure MISO pin and IRQ input for touch
+    configure_touch_miso();
+    let _irq = RpInputPin::new(PIN_TOUCH_IRQ, true); // pull-up for open-drain PENIRQ
+
+    // Use a separate SPI handle (same physical bus, no re-init)
+    let spi = RpSpiBus::handle(SPI_ID);
+    let cs = RpOutputPin::new(PIN_TOUCH_CS, true); // CS starts high
+
+    let mut touch = Xpt2046::new(
+        spi,
+        cs,
+        TOUCH_SPI_FREQ,
+        DISPLAY_SPI_FREQ,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        CAL_X_MIN,
+        CAL_X_MAX,
+        CAL_Y_MIN,
+        CAL_Y_MAX,
+    );
+    // Touch panel axes are swapped relative to the display orientation
+    touch.set_swap_xy(true);
+    touch.init();
+    touch
+}

@@ -49,7 +49,12 @@ fn parse_toml(path: &str) -> HashMap<String, String> {
 /// Scans CARGO_FEATURE_BOARD_* env vars set by Cargo.
 fn resolve_active_board() -> Option<String> {
     // Known board names — must match directory names under boards/
-    const BOARDS: &[&str] = &["testbench_rp2040", "testbench_rp2350", "pico_enviro_mon"];
+    const BOARDS: &[&str] = &[
+        "testbench_rp2040",
+        "testbench_rp2350",
+        "testbench_rp2350w",
+        "pico_enviro_mon",
+    ];
     for board in BOARDS {
         let feature = format!("CARGO_FEATURE_BOARD_{}", board.to_uppercase());
         if env::var(&feature).is_ok() {
@@ -215,6 +220,12 @@ fn main() {
         )
         .unwrap();
         println!("cargo:rustc-link-arg=-T{}", init_array_ld.display());
+
+        // ── CYW43 + FreeRTOS+TCP (WiFi boards only) ──────────────────────
+        if env::var("CARGO_FEATURE_NET_CYW43").is_ok() {
+            build_cyw43_driver(&freertos_config_dir);
+            build_freertos_tcp(&freertos_config_dir);
+        }
     }
 
     // Load board config for LVGL overrides (applies to both ARM and sim builds).
@@ -396,6 +407,132 @@ fn collect_files_recursive(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+/// Compile the CYW43 WiFi driver (C sources from vendor/cyw43-driver).
+fn build_cyw43_driver(freertos_config_dir: &str) {
+    let cyw43_src = Path::new("vendor/cyw43-driver/src");
+    if !cyw43_src.exists() {
+        println!(
+            "cargo:warning=CYW43 driver submodule not found at vendor/cyw43-driver — \
+             run: git submodule update --init vendor/cyw43-driver"
+        );
+        return;
+    }
+
+    let mut build = cc::Build::new();
+    build
+        // CYW43 driver sources (firmware/ includes are relative to src/)
+        .include("vendor/cyw43-driver/src")
+        .include("vendor/cyw43-driver")
+        // picodroid port headers (cyw43_configport.h, FreeRTOS shims, PIO/DMA stubs)
+        .include("src/hal/rp/port")
+        // FreeRTOS kernel headers (for task.h, semphr.h, etc.)
+        .include("third_party/FreeRTOS-Kernel/include")
+        .include(freertos_config_dir)
+        // FreeRTOS port headers
+        .include(
+            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
+             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
+        )
+        // Configuration: use our configport, SPI mode, no lwIP
+        .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
+        .define("CYW43_USE_SPI", "1")
+        .define("CYW43_LWIP", "0")
+        .define("NDEBUG", None)
+        .warnings(false)
+        .extra_warnings(false);
+
+    // Core driver sources (skip cyw43_lwip.c since we use FreeRTOS+TCP,
+    // and skip cyw43_sdio.c since we use SPI).
+    let driver_sources = [
+        "vendor/cyw43-driver/src/cyw43_ctrl.c",
+        "vendor/cyw43-driver/src/cyw43_ll.c",
+        "vendor/cyw43-driver/src/cyw43_spi.c",
+        "vendor/cyw43-driver/src/cyw43_stats.c",
+    ];
+    for src in &driver_sources {
+        if Path::new(src).exists() {
+            build.file(src);
+        }
+    }
+
+    // Port implementation files
+    build.file("src/hal/rp/port/net/cyw43_bus_spi.c");
+    build.file("src/hal/rp/port/net/cyw43_port.c");
+
+    build.compile("cyw43");
+
+    println!("cargo:rerun-if-changed=vendor/cyw43-driver/src");
+    println!("cargo:rerun-if-changed=src/hal/rp/port/net");
+    println!("cargo:rerun-if-changed=src/hal/rp/port/cyw43_configport.h");
+}
+
+/// Compile FreeRTOS+TCP (C sources from vendor/freertos-plus-tcp).
+fn build_freertos_tcp(freertos_config_dir: &str) {
+    let tcp_src = Path::new("vendor/freertos-plus-tcp/source");
+    if !tcp_src.exists() {
+        println!(
+            "cargo:warning=FreeRTOS+TCP submodule not found at vendor/freertos-plus-tcp — \
+             run: git submodule update --init vendor/freertos-plus-tcp"
+        );
+        return;
+    }
+
+    // Collect core TCP/IP source files (skip IPv6 files to save flash).
+    let all_c_files = collect_files(tcp_src, "c");
+    let c_files: Vec<_> = all_c_files
+        .into_iter()
+        .filter(|p| {
+            let s = p.to_string_lossy();
+            // Skip IPv6 (we only need IPv4)
+            !s.contains("IPv6")
+                && !s.contains("DHCPv6")
+                && !s.contains("_ND.c")
+                && !s.contains("_RA.c")
+                // Skip network interface implementations (we provide our own)
+                && !s.contains("portable/NetworkInterface/")
+                // Skip BufferAllocation_1 (we use _2 for heap-based allocation)
+                && !s.contains("BufferAllocation_1")
+                // Skip CMakeLists
+                && !s.ends_with("CMakeLists.txt")
+        })
+        .collect();
+
+    let mut build = cc::Build::new();
+    build
+        // FreeRTOS+TCP headers
+        .include("vendor/freertos-plus-tcp/source/include")
+        .include("vendor/freertos-plus-tcp/source/portable/Compiler/GCC")
+        // FreeRTOS kernel headers
+        .include("third_party/FreeRTOS-Kernel/include")
+        .include(freertos_config_dir)
+        .include(
+            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
+             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
+        )
+        // picodroid port headers (FreeRTOSIPConfig.h)
+        .include("src/hal/rp/port")
+        // CYW43 driver headers (for NetworkInterface_CYW43.c)
+        .include("vendor/cyw43-driver/src")
+        .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
+        .define("CYW43_USE_SPI", "1")
+        .define("CYW43_LWIP", "0")
+        .warnings(false)
+        .extra_warnings(false);
+
+    for f in &c_files {
+        build.file(f);
+    }
+
+    // Our NetworkInterface driver
+    build.file("src/hal/rp/port/net/NetworkInterface_CYW43.c");
+
+    build.compile("freertos_tcp");
+
+    println!("cargo:rerun-if-changed=vendor/freertos-plus-tcp/source");
+    println!("cargo:rerun-if-changed=src/hal/rp/port/FreeRTOSIPConfig.h");
+    println!("cargo:rerun-if-changed=src/hal/rp/port/net/NetworkInterface_CYW43.c");
 }
 
 /// Builds a ready-to-flash PAPK image (4 KB metadata sector + raw APK bytes) and

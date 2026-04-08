@@ -3,6 +3,9 @@
 pub mod st7789;
 pub mod xpt2046;
 
+#[cfg(feature = "net-cyw43")]
+pub mod cyw43;
+
 /// Extension trait for SPI buses that support runtime frequency switching.
 ///
 /// `embedded_hal::spi::SpiBus` does not include reconfiguration, but shared

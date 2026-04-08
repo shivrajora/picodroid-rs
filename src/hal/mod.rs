@@ -54,3 +54,7 @@ pub use chip::pdb_uart;
 
 #[cfg(all(not(any(feature = "sim", test)), feature = "chip-rp2350-hal"))]
 pub use chip::timer_alarm;
+
+#[cfg(feature = "has-network")]
+#[allow(unused_imports)]
+pub use chip::net;

@@ -9,6 +9,7 @@ mod app;
     any(
         feature = "board-testbench-rp2040",
         feature = "board-testbench-rp2350",
+        feature = "board-testbench-rp2350w",
         feature = "board-pico-enviro-mon"
     )
 ))]

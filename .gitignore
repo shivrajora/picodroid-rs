@@ -8,6 +8,9 @@ target/
 vendor/
 # LVGL is a git submodule — must not be ignored
 !vendor/lvgl/
+!vendor/freertos-plus-tcp/
+!vendor/cyw43-driver/
+!vendor/cyw43-firmware/
 
 # Build artifacts (compiled classes, packaged APKs)
 build/
