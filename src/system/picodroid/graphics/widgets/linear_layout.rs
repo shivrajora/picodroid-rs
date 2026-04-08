@@ -13,7 +13,7 @@ pub fn linear_layout_native_create() -> Result<Option<Value>, JvmError> {
         lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(
             o,
-            LV_FLEX_ALIGN_CENTER,
+            LV_FLEX_ALIGN_START,
             LV_FLEX_ALIGN_CENTER,
             LV_FLEX_ALIGN_CENTER,
         );
