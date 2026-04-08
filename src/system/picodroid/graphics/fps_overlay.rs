@@ -7,26 +7,29 @@
 use crate::hal;
 use crate::lvgl_ffi::*;
 
+/// Number of frames in the sliding window.
+const WINDOW_SIZE: usize = 10;
+
 /// Whether the FPS overlay is enabled.
 static mut ENABLED: bool = false;
 
 /// Pointer to the LVGL label widget (null until first `update()`).
 static mut FPS_LABEL: *mut lv_obj_t = core::ptr::null_mut();
 
-/// EMA of frame duration in microseconds (initialised to 16 667 µs = 60 fps).
-static mut AVG_FRAME_US: u64 = 16_667;
+/// Ring buffer of the last `WINDOW_SIZE` frame durations (microseconds).
+static mut FRAME_US: [u64; WINDOW_SIZE] = [16_667; WINDOW_SIZE];
+
+/// Current write position in the ring buffer.
+static mut RING_IDX: usize = 0;
+
+/// Number of samples collected so far (caps at `WINDOW_SIZE`).
+static mut SAMPLES: usize = 0;
 
 /// Timestamp of the previous frame (nanos).
 static mut LAST_NANOS: i64 = 0;
 
 /// Frame counter — used to throttle label updates.
 static mut FRAME_COUNT: u32 = 0;
-
-/// EMA window size (power of 2 for shift-based division on Cortex-M0+).
-const EMA_N: u64 = 32;
-
-/// How often (in frames) the label text is refreshed.
-const UPDATE_INTERVAL: u32 = 30;
 
 /// Mark the overlay as enabled.  The label is created lazily in `update()`.
 pub fn enable() {
@@ -59,13 +62,18 @@ pub fn update() {
             return;
         }
 
-        // Integer EMA: avg = avg - avg/N + sample/N
-        AVG_FRAME_US = AVG_FRAME_US - AVG_FRAME_US / EMA_N + frame_us / EMA_N;
+        // Store in ring buffer.
+        FRAME_US[RING_IDX] = frame_us;
+        RING_IDX = (RING_IDX + 1) % WINDOW_SIZE;
+        if SAMPLES < WINDOW_SIZE {
+            SAMPLES += 1;
+        }
 
         FRAME_COUNT += 1;
-        if FRAME_COUNT.is_multiple_of(UPDATE_INTERVAL) {
-            let fps = if AVG_FRAME_US > 0 {
-                (1_000_000u64 / AVG_FRAME_US) as u32
+        if FRAME_COUNT.is_multiple_of(WINDOW_SIZE as u32) {
+            let avg_us = FRAME_US[..SAMPLES].iter().sum::<u64>() / SAMPLES as u64;
+            let fps = if avg_us > 0 {
+                (1_000_000u64 / avg_us) as u32
             } else {
                 0
             };
