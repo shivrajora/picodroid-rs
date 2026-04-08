@@ -9,7 +9,16 @@ use super::super::view::{extract_handle_at, extract_native_handle};
 /// `ScrollView.nativeCreate()` -- creates a scrollable `lv_obj` container.
 /// LVGL objects scroll by default when content exceeds bounds.
 pub fn scroll_view_native_create() -> Result<Option<Value>, JvmError> {
-    let ptr = unsafe { lv_obj_create(engine::screen()) };
+    let ptr = unsafe {
+        let o = lv_obj_create(engine::screen());
+        // Clear theme-applied padding so the scroll container is transparent;
+        // padding is controlled explicitly by the app via setPadding().
+        lv_obj_set_style_pad_left(o, 0, 0);
+        lv_obj_set_style_pad_right(o, 0, 0);
+        lv_obj_set_style_pad_top(o, 0, 0);
+        lv_obj_set_style_pad_bottom(o, 0, 0);
+        o
+    };
     Ok(Some(Value::Int(handle_table::register(ptr))))
 }
 

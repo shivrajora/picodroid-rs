@@ -17,6 +17,11 @@ pub fn linear_layout_native_create() -> Result<Option<Value>, JvmError> {
             LV_FLEX_ALIGN_CENTER,
             LV_FLEX_ALIGN_CENTER,
         );
+        // Clear theme-applied padding so only explicit setPadding() takes effect.
+        lv_obj_set_style_pad_left(o, 0, 0);
+        lv_obj_set_style_pad_right(o, 0, 0);
+        lv_obj_set_style_pad_top(o, 0, 0);
+        lv_obj_set_style_pad_bottom(o, 0, 0);
         o
     };
     Ok(Some(Value::Int(handle_table::register(ptr))))
