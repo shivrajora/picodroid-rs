@@ -28,7 +28,11 @@ mod ops_stack;
 mod tests;
 
 /// Number of allocations between automatic GC cycles.
-const GC_THRESHOLD: u16 = 256;
+///
+/// Must be low enough that arena-backed arrays (100 elements each in the
+/// benchmark) don't exhaust the FreeRTOS heap before GC compacts them.
+/// At 128 the peak arena is ~50 KB — safe on the RP2350's 256 KB heap.
+const GC_THRESHOLD: u16 = 128;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],
