@@ -28,11 +28,7 @@ mod ops_stack;
 mod tests;
 
 /// Number of allocations between automatic GC cycles.
-///
-/// Must be low enough that arena-backed arrays (100 elements each in the
-/// benchmark) don't exhaust the FreeRTOS heap before GC compacts them.
-/// At 128 the peak arena is ~50 KB — safe on the RP2350's 256 KB heap.
-const GC_THRESHOLD: u16 = 128;
+const GC_THRESHOLD: u16 = 256;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],
@@ -57,6 +53,9 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub pending_clinit_frames: Vec<Frame>,
     /// Allocation counter for GC triggering.
     pub alloc_count: u16,
+    /// Set by array/object alloc when `try_reserve_exact` fails (OOM).
+    /// The interpreter rewinds the PC and runs an emergency GC before retrying.
+    pub need_gc: bool,
     /// Instruction counter for batched interrupt checking (checks every 256 insns).
     pub insn_count: u8,
 }
@@ -226,6 +225,7 @@ pub fn execute<H: NativeMethodHandler>(
         pending_frame: None,
         pending_clinit_frames: Vec::new(),
         alloc_count: 0,
+        need_gc: false,
         insn_count: 0,
     };
 
@@ -321,8 +321,11 @@ pub fn execute<H: NativeMethodHandler>(
             continue;
         }
 
-        // Trigger GC when allocation counter crosses the threshold.
-        if r.is_ok() && ex.alloc_count >= GC_THRESHOLD {
+        // Trigger GC when allocation counter crosses the threshold, or when
+        // an allocator reported OOM (need_gc).  After an emergency GC the
+        // opcode that failed has already been rewound and will re-execute.
+        if r.is_ok() && (ex.alloc_count >= GC_THRESHOLD || ex.need_gc) {
+            ex.need_gc = false;
             let t0 = ex.handler.clock_nanos();
             let freed = crate::gc::collect(
                 &frames,

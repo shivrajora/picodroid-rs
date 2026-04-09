@@ -110,9 +110,9 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
 #[allow(non_snake_case)]
 #[no_mangle]
 fn vApplicationMallocFailedHook() {
-    asm::bkpt();
-    #[allow(clippy::empty_loop)]
-    loop {}
+    // Intentionally a no-op: pvPortMalloc returns NULL after this hook,
+    // allowing Rust's try_reserve_exact to return Err and trigger GC.
+    // Non-try allocations still abort via Rust's handle_alloc_error.
 }
 
 #[cfg(not(any(test, feature = "sim")))]

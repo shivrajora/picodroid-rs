@@ -75,8 +75,15 @@ impl ArrayHeap {
                 len,
             }
         } else {
+            let extra = len as usize;
+            // Use try_reserve_exact to avoid Vec's amortized 2× growth.
+            // On constrained FreeRTOS heaps the doubling can request more
+            // contiguous memory than is available (e.g. 64 KB → 128 KB).
+            if self.arena.try_reserve_exact(extra).is_err() {
+                return None; // OOM — caller should trigger GC and retry
+            }
             let offset = self.arena.len() as u32;
-            self.arena.resize(self.arena.len() + len as usize, 0i32);
+            self.arena.resize(self.arena.len() + extra, 0i32);
             ArrayData::Arena { offset, len }
         };
         let new_arr = JvmArray { atype, data };

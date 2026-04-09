@@ -265,12 +265,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 if count < 0 {
                     return Err(JvmError::NegativeArraySize);
                 }
-                let arr_idx = self
-                    .arrays
-                    .alloc(atype, count as u16)
-                    .ok_or(JvmError::StackOverflow)?;
-                self.alloc_count = self.alloc_count.saturating_add(1);
-                frame.push(Value::ArrayRef(arr_idx))?;
+                match self.arrays.alloc(atype, count as u16) {
+                    Some(arr_idx) => {
+                        self.alloc_count = self.alloc_count.saturating_add(1);
+                        frame.push(Value::ArrayRef(arr_idx))?;
+                    }
+                    None => {
+                        // OOM — rewind to inst_pc so the main loop can GC and
+                        // re-execute this opcode.
+                        frame.pc = frame.inst_pc;
+                        frame.push(Value::Int(count))?;
+                        self.need_gc = true;
+                        return Ok(());
+                    }
+                }
             }
 
             // anewarray — create new reference array (class cp_idx consumed but ignored)
@@ -283,12 +291,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 if count < 0 {
                     return Err(JvmError::NegativeArraySize);
                 }
-                let arr_idx = self
+                match self
                     .arrays
                     .alloc(crate::array_heap::ATYPE_REF, count as u16)
-                    .ok_or(JvmError::StackOverflow)?;
-                self.alloc_count = self.alloc_count.saturating_add(1);
-                frame.push(Value::ArrayRef(arr_idx))?;
+                {
+                    Some(arr_idx) => {
+                        self.alloc_count = self.alloc_count.saturating_add(1);
+                        frame.push(Value::ArrayRef(arr_idx))?;
+                    }
+                    None => {
+                        frame.pc = frame.inst_pc;
+                        frame.push(Value::Int(count))?;
+                        self.need_gc = true;
+                        return Ok(());
+                    }
+                }
             }
 
             // arraylength — get length of array
