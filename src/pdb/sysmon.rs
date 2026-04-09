@@ -3,8 +3,8 @@ use core::mem::MaybeUninit;
 
 use freertos_rust::{freertos_rs_xTaskGetTickCount, FreeRtosUBaseType};
 
+use super::cdc_transport::CdcTransport;
 use super::protocol::{crc32_frame, CMD_SYSMON, STATUS_CRC_FAIL, STATUS_OK};
-use super::uart_transport::UartTransport;
 
 // ── FFI ─────────────────────────────────────────────────────────────────────
 
@@ -87,10 +87,10 @@ static mut PREV_SNAPSHOT: RuntimeSnapshot = RuntimeSnapshot::empty();
 /// queries show the CPU usage over the interval since the last query.
 pub fn handle_sysmon(len: u32) {
     // Validate CRC (empty payload)
-    let wire_crc = crate::hal::pdb_uart::queue_read_u32_le();
+    let wire_crc = crate::hal::pdb_usb::queue_read_u32_le();
     let expected_crc = crc32_frame(CMD_SYSMON, len, &[]);
     if wire_crc != expected_crc {
-        UartTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
+        CdcTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
         return;
     }
 
@@ -162,7 +162,7 @@ pub fn handle_sysmon(len: u32) {
         resp[base + 24..base + 28].copy_from_slice(&cpu_pct_x10.to_le_bytes());
     }
 
-    UartTransport::send_pdbp_response(STATUS_OK, &resp[..resp_len]);
+    CdcTransport::send_pdbp_response(STATUS_OK, &resp[..resp_len]);
 
     // Save current state as the previous snapshot for the next query
     let snap = unsafe { &mut *core::ptr::addr_of_mut!(PREV_SNAPSHOT) };

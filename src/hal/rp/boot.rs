@@ -74,10 +74,10 @@ pub fn clock_init() {
 /// Create FreeRTOS tasks and start the scheduler (never returns).
 ///
 /// RP2040/RP2350 are dual-core:
-///   - PDB task on core 1 (priority 2) — listens for UART1 installs
+///   - PDB task on core 1 (priority 2) — listens for USB CDC installs
 ///   - JVM task on core 0 (priority 1) — runs the app
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
-    // pdb listener on UART1 (GP4/GP5). Priority 2 preempts jvm_task (priority 1).
+    // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
     Task::new()
         .name("pdb")

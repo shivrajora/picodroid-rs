@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process;
 use std::time::Duration;
 
+use crate::devices::find_by_vid_pid;
 use crate::protocol::{
     recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
     POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_OK, STATUS_READY,
@@ -14,12 +15,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const ERASE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Timeout for the STATUS_OK response after streaming the full PAPK.
-/// 1 MB at 115200 baud ≈ 90 s transfer time; add margin for CRC + metadata write.
-const STREAM_TIMEOUT: Duration = Duration::from_secs(120);
+/// USB CDC is much faster than 115200 baud UART; 10 s is plenty of margin.
+const STREAM_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Initial delay before polling PING after STATUS_OK.
-/// Covers JVM graceful exit (~500 ms) + MCU reboot + firmware init (~1.5 s).
-const REBOOT_DELAY: Duration = Duration::from_secs(3);
+/// Covers JVM graceful exit + MCU reboot + USB re-enumeration (~500 ms).
+const REBOOT_DELAY: Duration = Duration::from_secs(4);
 
 pub fn run(port_name: &str, papk_path: &Path) {
     // ── Read PAPK file ────────────────────────────────────────────────────────
@@ -152,15 +153,34 @@ pub fn run(port_name: &str, papk_path: &Path) {
 
     // ── Poll PING until device comes back after reboot ────────────────────────
     //
-    // The device reboots after the JVM exits gracefully.  pdb_task may respond
-    // to a few PINGs before the reboot (while the JVM is winding down), then
-    // goes silent for ~1-2 s, then comes back up.  The initial delay skips past
-    // both the JVM graceful-exit phase and the reboot+reinit time.
+    // After reboot the USB CDC device disconnects and re-enumerates.
+    // Drop the old port, wait for the VID/PID to reappear, then re-open.
+    drop(port);
     std::thread::sleep(REBOOT_DELAY);
-    port.set_timeout(POLL_TIMEOUT).ok();
 
-    for _ in 0..POLL_ATTEMPTS {
+    for attempt in 0..POLL_ATTEMPTS {
         std::thread::sleep(POLL_TIMEOUT);
+
+        // Try to find the device by VID/PID first (fast).
+        let port_name = match find_by_vid_pid() {
+            Some(name) => name,
+            None => {
+                if attempt == 0 {
+                    // First attempt — USB may not have re-enumerated yet.
+                    continue;
+                }
+                // Fall back to the original port name.
+                port_name.to_string()
+            }
+        };
+
+        let mut port = match serialport::new(&port_name, BAUD_RATE)
+            .timeout(POLL_TIMEOUT)
+            .open()
+        {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
 
         if send_frame(port.as_mut(), CMD_PING, b"").is_err() {
             continue;

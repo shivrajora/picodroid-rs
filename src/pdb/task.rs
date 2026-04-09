@@ -1,8 +1,8 @@
+use super::cdc_transport::{CdcTransport, PdbCoreCoordinator};
 use super::protocol::{
     crc32_frame, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR,
     STATUS_OK,
 };
-use super::uart_transport::{PdbCoreCoordinator, UartTransport};
 
 // ── Low-level helpers ─────────────────────────────────────────────────────────
 
@@ -12,7 +12,7 @@ fn wait_for_magic() -> bool {
     let mut matched = 0usize;
     // Give up after 64 KB of garbage without a frame start
     for _ in 0..65536usize {
-        let b = crate::hal::pdb_uart::queue_read_byte();
+        let b = crate::hal::pdb_usb::queue_read_byte();
         if b == FRAME_MAGIC[matched] {
             matched += 1;
             if matched == FRAME_MAGIC.len() {
@@ -30,10 +30,10 @@ fn wait_for_magic() -> bool {
 fn handle_ping(len: u32) {
     // CMD_PING is a standard framed command with empty payload.
     // The host sends [PDBP][0x00][len=0][crc32]; consume the CRC.
-    let wire_crc = crate::hal::pdb_uart::queue_read_u32_le();
+    let wire_crc = crate::hal::pdb_usb::queue_read_u32_le();
     let expected_crc = crc32_frame(CMD_PING, len, &[]);
     if wire_crc != expected_crc {
-        UartTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
+        CdcTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
         return;
     }
     // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
@@ -41,13 +41,13 @@ fn handle_ping(len: u32) {
     ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
     ping_resp[14..18]
         .copy_from_slice(&(crate::hal::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
-    UartTransport::send_pdbp_response(STATUS_OK, &ping_resp);
+    CdcTransport::send_pdbp_response(STATUS_OK, &ping_resp);
 }
 
 // ── pdb_task body ─────────────────────────────────────────────────────────────
 
 pub fn run_pdb_task() -> ! {
-    crate::hal::pdb_uart::init();
+    crate::hal::pdb_usb::init();
     #[cfg(feature = "chip-rp2350-hal")]
     crate::pdb::pending::init_park_signal();
 
@@ -55,17 +55,17 @@ pub fn run_pdb_task() -> ! {
         if !wait_for_magic() {
             continue;
         }
-        let cmd = crate::hal::pdb_uart::queue_read_byte();
-        let len = crate::hal::pdb_uart::queue_read_u32_le();
+        let cmd = crate::hal::pdb_usb::queue_read_byte();
+        let len = crate::hal::pdb_usb::queue_read_u32_le();
         match cmd {
             CMD_PING => handle_ping(len),
             CMD_INSTALL => {
-                let mut transport = UartTransport;
+                let mut transport = CdcTransport;
                 let mut coordinator = PdbCoreCoordinator;
                 crate::packagemanager::install::run_install(&mut transport, &mut coordinator, len);
             }
             CMD_SYSMON => super::sysmon::handle_sysmon(len),
-            _ => UartTransport::send_pdbp_response(STATUS_ERR, b"unknown cmd"),
+            _ => CdcTransport::send_pdbp_response(STATUS_ERR, b"unknown cmd"),
         }
     }
 }

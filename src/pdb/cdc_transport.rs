@@ -10,39 +10,43 @@ use super::protocol::{
 use crate::packagemanager::install::CoreCoordinator;
 use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
 
-/// PDBP-over-UART1 transport for PAPK install.
+/// PDBP-over-USB-CDC transport for PAPK install.
 ///
-/// Reads bytes from the UART1 RX queue (fed by the ISR in `hal::pdb_uart`) and sends
-/// PDBP-framed responses via HAL UART write.  Zero-sized — all state lives in
-/// the static RX queue owned by `hal::pdb_uart`.
-pub struct UartTransport;
+/// Reads bytes from the USB CDC RX queue (fed by the ISR in `hal::pdb_usb`) and
+/// sends PDBP-framed responses via bulk IN endpoint.  Zero-sized — all state
+/// lives in the static RX queue owned by `hal::pdb_usb`.
+pub struct CdcTransport;
 
-impl UartTransport {
+impl CdcTransport {
     /// Send a PDBP response frame: `[PDBP][status][len LE][payload]`.
     pub(super) fn send_pdbp_response(status: u8, payload: &[u8]) {
         let len = payload.len() as u32;
-        for b in FRAME_MAGIC {
-            crate::hal::uart::write_byte(1, *b);
-        }
-        crate::hal::uart::write_byte(1, status);
-        for b in len.to_le_bytes() {
-            crate::hal::uart::write_byte(1, b);
-        }
-        for b in payload {
-            crate::hal::uart::write_byte(1, *b);
+        let hdr_len = FRAME_MAGIC.len() + 1 + 4; // magic + status + len
+        let total = hdr_len + payload.len();
+        // Build frame in a stack buffer and send as one bulk write.
+        let mut buf = [0u8; 9 + 256]; // 9-byte header + max typical payload
+        buf[..4].copy_from_slice(FRAME_MAGIC);
+        buf[4] = status;
+        buf[5..9].copy_from_slice(&len.to_le_bytes());
+        let copy_len = payload.len().min(buf.len() - 9);
+        buf[9..9 + copy_len].copy_from_slice(&payload[..copy_len]);
+        crate::hal::pdb_usb::write_bytes(&buf[..total.min(buf.len())]);
+        // If payload exceeds stack buffer (unlikely), send remainder directly.
+        if payload.len() > copy_len {
+            crate::hal::pdb_usb::write_bytes(&payload[copy_len..]);
         }
     }
 }
 
-impl InstallTransport for UartTransport {
+impl InstallTransport for CdcTransport {
     fn read_byte(&mut self) -> Result<u8, ReadError> {
         // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
         // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
         // timer instead of tick-based timeouts.
         #[cfg(feature = "chip-rp2350-hal")]
-        return crate::hal::pdb_uart::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
+        return crate::hal::pdb_usb::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
         #[cfg(not(feature = "chip-rp2350-hal"))]
-        crate::hal::pdb_uart::queue_read_byte_timeout().ok_or(ReadError::Timeout)
+        crate::hal::pdb_usb::queue_read_byte_timeout().ok_or(ReadError::Timeout)
     }
 
     fn report_ready(&mut self) {
@@ -51,7 +55,7 @@ impl InstallTransport for UartTransport {
 
     fn report_success(&mut self) {
         Self::send_pdbp_response(STATUS_OK, b"");
-        crate::hal::pdb_uart::drain_tx();
+        crate::hal::pdb_usb::drain_tx();
     }
 
     fn report_error(&mut self, error: InstallError) {

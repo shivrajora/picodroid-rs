@@ -9,7 +9,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod input_pin;
 pub mod output_pin;
-pub mod pdb_uart;
+pub mod pdb_usb;
 pub mod pwm;
 pub mod spi;
 pub mod spi_bus;
