@@ -6,6 +6,8 @@ use pico_jvm::{
 };
 
 mod graphics;
+#[cfg(feature = "has-network")]
+mod net;
 mod os;
 mod pio;
 
@@ -56,6 +58,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         if let result @ Some(_) = graphics::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        #[cfg(feature = "has-network")]
+        if let result @ Some(_) = net::dispatch(class_name, method_name, ctx) {
             return result;
         }
 
