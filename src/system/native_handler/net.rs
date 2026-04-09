@@ -68,6 +68,15 @@ pub fn dispatch(
             crate::system::picodroid::net::datagram_socket::close_native(ctx.args, ctx.objects),
         ),
 
+        // ── InetAddress ──────────────────────────────────────────────────
+        ("picodroid/net/InetAddress", "getHostAddress") => Some(
+            crate::system::picodroid::net::inet_address::get_host_address_native(
+                ctx.args,
+                ctx.objects,
+                ctx.strings,
+            ),
+        ),
+
         // ── NetworkInfo ─────────────────────────────────────────────────
         ("picodroid/net/NetworkInfo", "isConnected") => {
             Some(crate::system::picodroid::net::network_info::is_connected_native())

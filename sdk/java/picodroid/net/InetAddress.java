@@ -20,13 +20,5 @@ public class InetAddress {
   }
 
   /** Return a dotted-decimal string ("a.b.c.d"). */
-  public String getHostAddress() {
-    return ((address >> 24) & 0xFF)
-        + "."
-        + ((address >> 16) & 0xFF)
-        + "."
-        + ((address >> 8) & 0xFF)
-        + "."
-        + (address & 0xFF);
-  }
+  public native String getHostAddress();
 }
