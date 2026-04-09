@@ -81,7 +81,7 @@ pub struct ObjectHeap {
     pub(super) objects: Vec<Option<JvmObject>>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     pub(super) first_free: usize,
-    pub(super) sb_buf: Vec<u8>,
+    pub(super) sb_stack: Vec<Vec<u8>>,
     pub(super) list_bufs: Vec<Option<Vec<Value>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
@@ -92,7 +92,7 @@ impl ObjectHeap {
         Self {
             objects: Vec::new(),
             first_free: 0,
-            sb_buf: Vec::new(),
+            sb_stack: Vec::new(),
             list_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
         }
@@ -153,14 +153,21 @@ impl ObjectHeap {
         Some(self.objects.get(idx as usize)?.as_ref()?.class_name)
     }
 
-    /// Clear the shared StringBuilder buffer.
-    pub fn sb_clear(&mut self) {
-        self.sb_buf.clear();
+    /// Push a new StringBuilder buffer onto the stack.
+    pub fn sb_push(&mut self) {
+        self.sb_stack.push(Vec::new());
     }
 
-    /// Append bytes to the shared StringBuilder buffer.
+    /// Pop the top StringBuilder buffer off the stack.
+    pub fn sb_pop(&mut self) -> Vec<u8> {
+        self.sb_stack.pop().unwrap_or_default()
+    }
+
+    /// Append bytes to the top StringBuilder buffer.
     pub fn sb_append_bytes(&mut self, bytes: &[u8]) {
-        self.sb_buf.extend_from_slice(bytes);
+        if let Some(top) = self.sb_stack.last_mut() {
+            top.extend_from_slice(bytes);
+        }
     }
 
     /// Append an integer (decimal) to the shared StringBuilder buffer.
@@ -185,19 +192,19 @@ impl ObjectHeap {
         self.sb_append_bytes(s);
     }
 
-    /// Return the current length of the StringBuilder buffer.
+    /// Return the current length of the top StringBuilder buffer.
     pub fn sb_len(&self) -> usize {
-        self.sb_buf.len()
+        self.sb_stack.last().map_or(0, |b| b.len())
     }
 
-    /// Return the byte at `idx` in the StringBuilder buffer, or `None` if out of bounds.
+    /// Return the byte at `idx` in the top StringBuilder buffer, or `None` if out of bounds.
     pub fn sb_char_at(&self, idx: usize) -> Option<u8> {
-        self.sb_buf.get(idx).copied()
+        self.sb_stack.last()?.get(idx).copied()
     }
 
-    /// Return the current StringBuilder buffer contents as a byte slice.
+    /// Return the top StringBuilder buffer contents as a byte slice.
     pub fn sb_contents_slice(&self) -> &[u8] {
-        &self.sb_buf
+        self.sb_stack.last().map_or(&[], |b| b.as_slice())
     }
 
     // ── GC support ───────────────────────────────────────────────────────────
@@ -232,13 +239,16 @@ impl ObjectHeap {
             .unwrap_or((&[], &[]))
     }
 
-    /// Return the current StringBuilder buffer contents as a raw pointer and length.
+    /// Return the top StringBuilder buffer contents as a raw pointer and length.
     ///
     /// # Safety
     /// The returned pointer is valid until the next call to `sb_append_bytes`,
-    /// `sb_append_int`, or `sb_clear`, any of which may reallocate `sb_buf`.
+    /// `sb_append_int`, or `sb_push`, any of which may reallocate the buffer.
     pub fn sb_contents(&self) -> (*const u8, usize) {
-        (self.sb_buf.as_ptr(), self.sb_buf.len())
+        match self.sb_stack.last() {
+            Some(buf) => (buf.as_ptr(), buf.len()),
+            None => (core::ptr::null(), 0),
+        }
     }
 }
 
@@ -428,22 +438,25 @@ mod tests {
     #[test]
     fn sb_append_bytes_and_contents() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_bytes(b"hello");
         assert_eq!(heap.sb_contents_slice(), b"hello");
         assert_eq!(heap.sb_len(), 5);
     }
 
     #[test]
-    fn sb_clear_resets_length() {
+    fn sb_push_creates_fresh_buffer() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_bytes(b"hello");
-        heap.sb_clear();
+        heap.sb_push();
         assert_eq!(heap.sb_len(), 0);
     }
 
     #[test]
     fn sb_char_at() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_bytes(b"abc");
         assert_eq!(heap.sb_char_at(0), Some(b'a'));
         assert_eq!(heap.sb_char_at(2), Some(b'c'));
@@ -453,6 +466,7 @@ mod tests {
     #[test]
     fn sb_append_int_zero() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_int(0);
         assert_eq!(heap.sb_contents_slice(), b"0");
     }
@@ -460,6 +474,7 @@ mod tests {
     #[test]
     fn sb_append_int_positive() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_int(12345);
         assert_eq!(heap.sb_contents_slice(), b"12345");
     }
@@ -467,6 +482,7 @@ mod tests {
     #[test]
     fn sb_append_int_negative() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_int(-42);
         assert_eq!(heap.sb_contents_slice(), b"-42");
     }
@@ -474,19 +490,45 @@ mod tests {
     #[test]
     fn sb_append_no_truncation() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         let long_str = [b'x'; 70];
         heap.sb_append_bytes(&long_str);
         assert_eq!(heap.sb_len(), 70);
     }
 
     #[test]
-    fn sb_append_multiple_then_clear() {
+    fn sb_push_pop_restores_outer() {
         let mut heap = ObjectHeap::new();
+        heap.sb_push();
         heap.sb_append_bytes(b"foo");
         heap.sb_append_int(7);
-        heap.sb_clear();
+        // Nested builder
+        heap.sb_push();
         heap.sb_append_bytes(b"bar");
-        assert_eq!(heap.sb_contents_slice(), b"bar");
+        let inner = heap.sb_pop();
+        assert_eq!(&inner, b"bar");
+        // Outer buffer survives
+        assert_eq!(heap.sb_contents_slice(), b"foo7");
+    }
+
+    #[test]
+    fn sb_nested_builders_preserve_content() {
+        let mut heap = ObjectHeap::new();
+        // Outer: "hi " + (inner) + 42
+        heap.sb_push();
+        heap.sb_append_bytes(b"hi ");
+        // Inner: "Hello, World!" + " bye "
+        heap.sb_push();
+        heap.sb_append_bytes(b"Hello, World!");
+        heap.sb_append_bytes(b" bye ");
+        let inner = heap.sb_pop();
+        assert_eq!(&inner, b"Hello, World! bye ");
+        // Outer resumes
+        assert_eq!(heap.sb_contents_slice(), b"hi ");
+        heap.sb_append_bytes(&inner);
+        heap.sb_append_int(42);
+        let outer = heap.sb_pop();
+        assert_eq!(&outer, b"hi Hello, World! bye 42");
     }
 
     #[test]

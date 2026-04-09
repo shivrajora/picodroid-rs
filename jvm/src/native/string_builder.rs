@@ -8,7 +8,7 @@ pub(crate) fn dispatch(
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
         "<init>" => {
-            ctx.objects.sb_clear();
+            ctx.objects.sb_push();
             // <init>(String): if a String argument was supplied, seed the buffer.
             if let Some(Value::Reference(idx)) = ctx.args.get(1) {
                 let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -64,7 +64,7 @@ pub(crate) fn dispatch(
             }
         }
         "toString" => {
-            let bytes = ctx.objects.sb_contents_slice().to_vec();
+            let bytes = ctx.objects.sb_pop();
             let str_ref = ctx
                 .strings
                 .intern_dyn(&bytes)
