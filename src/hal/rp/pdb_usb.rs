@@ -27,8 +27,8 @@ const BUFF_STATUS: usize = REGS + 0x58;
 const EP_STALL_ARM: usize = REGS + 0x68;
 const USB_MUXING: usize = REGS + 0x74;
 const USB_PWR: usize = REGS + 0x78;
-const INTE: usize = REGS + 0x9C;
-const INTS: usize = REGS + 0xA4;
+const INTE: usize = REGS + 0x90;
+const INTS: usize = REGS + 0x98;
 
 // DPRAM offsets
 const DP_EP1_IN_CTRL: usize = DPRAM + 0x08;
