@@ -1,4 +1,13 @@
 pub fn sleep(ms: u32) {
+    // Fast-path: if the JVM is being stopped (pdb install), skip the
+    // delay entirely so the interpreter reaches its interrupt check
+    // within microseconds instead of blocking for the full duration.
+    // request_stop_and_park() also calls abort_jvm_delay() to wake us
+    // from any in-progress vTaskDelay, so we only need this guard to
+    // prevent re-entering a new delay after being aborted.
+    if crate::pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms));
 }
 

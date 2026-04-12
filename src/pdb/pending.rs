@@ -119,6 +119,17 @@ pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
     }
 }
 
+/// Abort the JVM task's current vTaskDelay (if any).  Called from pdb_task
+/// (core 1) immediately after setting STOP_JVM so the JVM task wakes from
+/// long native sleeps (e.g. `SystemClock.sleep(500)`) without waiting for
+/// the delay to expire naturally.  Uses `xTaskAbortDelay` which enters a
+/// critical section internally, so it is safe to call cross-core.
+pub fn abort_jvm_delay() {
+    if let Some(t) = unsafe { (*JVM_TASK.0.get()).as_ref() } {
+        t.abort_delay();
+    }
+}
+
 /// Abort delays on all registered child tasks. Called from jvm_task immediately
 /// after run_jvm_with() returns so sleeping threads wake up and see STOP_JVM.
 pub fn abort_all_child_delays() {

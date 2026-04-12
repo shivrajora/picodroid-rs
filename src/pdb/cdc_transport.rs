@@ -86,6 +86,7 @@ impl CoreCoordinator for PdbCoreCoordinator {
 
         pending::STOP_JVM.store(true, Ordering::Release);
         pending::FLASH_PARK_REQUESTED.store(true, Ordering::Release);
+        pending::abort_jvm_delay();
         pending::notify_jvm();
     }
 
