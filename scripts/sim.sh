@@ -6,7 +6,7 @@
 #   ./scripts/sim.sh --app blinky
 #   ./scripts/sim.sh --board pico_enviro_mon --app helloworld
 #   ./scripts/sim.sh --release
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
@@ -15,7 +15,7 @@ source "$SCRIPT_DIR/lib.sh"
 BOARD="testbench_rp2350"
 APP="helloworld"
 EXTRA_ARGS=()
-HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+HOST_TARGET="$(host_target)"
 
 usage() {
   cat <<EOF

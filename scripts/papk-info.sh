@@ -5,6 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
   cat <<EOF
@@ -22,7 +24,7 @@ EOF
   exit 0
 fi
 
-HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+HOST_TARGET="$(host_target)"
 
 cargo run \
   --quiet \

@@ -5,8 +5,11 @@
 #   ./scripts/power-cycle.sh
 set -euo pipefail
 
-# Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
-USB_HUB=$(sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}')
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
+USB_HUB=$(detect_usb_hub)
 
 if [[ -z "$USB_HUB" ]]; then
   echo "ERROR: No USB hub with CMSIS-DAP probe detected." >&2

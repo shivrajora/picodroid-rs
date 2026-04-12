@@ -27,11 +27,6 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [[ -z "$(find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print -quit 2>/dev/null)" ]]; then
-  echo "No Java files found."
-  exit 0
-fi
-
 MODE="${1:-check}"
 
 if [[ "$MODE" == "check" ]]; then

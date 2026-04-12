@@ -3,6 +3,40 @@
 
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Returns the host target triple (e.g. x86_64-unknown-linux-gnu).
+host_target() {
+  rustc -vV | awk '/^host:/ { print $2 }'
+}
+
+# Prints a timestamped log line to stdout.
+timestamp_log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Check if all expected patterns are found in a log file.
+# Args: log_file "pattern1;pattern2;..."
+# Prints missing patterns to stdout; returns 0 if all found, 1 if any missing.
+check_patterns() {
+  local log_file="$1"
+  local patterns="$2"
+  local missing=0
+
+  IFS=';' read -ra PATS <<< "$patterns"
+  for pat in "${PATS[@]}"; do
+    [[ -z "$pat" ]] && continue
+    if ! grep -qE "$pat" "$log_file" 2>/dev/null; then
+      echo "  MISSING: $pat"
+      missing=1
+    fi
+  done
+  return $missing
+}
+
+# Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
+detect_usb_hub() {
+  sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
+}
+
 # Sets BOARD_FEATURE, TARGET, FLASH_MAX, RAM_MAX by reading board.toml and mcu.toml.
 resolve_board() {
   local board="$1"

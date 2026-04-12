@@ -58,17 +58,10 @@ resolve_board "$BOARD"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-hil_log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-}
+hil_log() { timestamp_log "$@"; }
 
 PROBE_POLL_INTERVAL=1
 PROBE_POLL_TIMEOUT=15
-
-# Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
-detect_usb_hub() {
-  sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
-}
 
 power_cycle_all() {
   local hub
@@ -105,25 +98,6 @@ recover_probe() {
   pkill -f "probe-rs" 2>/dev/null || true
   sleep 1
   power_cycle_all
-}
-
-# Check if all expected patterns are found in a log file.
-# Args: log_file "pattern1;pattern2;..."
-# Prints missing patterns to stdout; returns 0 if all found, 1 if any missing.
-check_patterns() {
-  local log_file="$1"
-  local patterns="$2"
-  local missing=0
-
-  IFS=';' read -ra PATS <<< "$patterns"
-  for pat in "${PATS[@]}"; do
-    [[ -z "$pat" ]] && continue
-    if ! grep -qE "$pat" "$log_file" 2>/dev/null; then
-      echo "  MISSING: $pat"
-      missing=1
-    fi
-  done
-  return $missing
 }
 
 # Kill an entire process group started with setsid.

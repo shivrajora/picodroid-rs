@@ -47,26 +47,7 @@ done
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-sim_log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-}
-
-# Check if all expected patterns are found in a log file.
-check_patterns() {
-  local log_file="$1"
-  local patterns="$2"
-  local missing=0
-
-  IFS=';' read -ra PATS <<< "$patterns"
-  for pat in "${PATS[@]}"; do
-    [[ -z "$pat" ]] && continue
-    if ! grep -qE "$pat" "$log_file" 2>/dev/null; then
-      echo "  MISSING: $pat"
-      missing=1
-    fi
-  done
-  return $missing
-}
+sim_log() { timestamp_log "$@"; }
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
@@ -87,9 +68,9 @@ sim_log "========================================="
 sim_log "Sim Run: $RUN_ID"
 sim_log "========================================="
 
-PASS=0; FAIL=0; SKIP=0; TOTAL=0
+PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 
-HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+HOST_TARGET="$(host_target)"
 
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4"
@@ -104,7 +85,7 @@ run_test() {
   if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
     echo "ERROR $app (apk build failed)" >> "$RESULTS_FILE"
-    FAIL=$((FAIL + 1))
+    ERROR=$((ERROR + 1))
     return
   fi
 
@@ -119,18 +100,14 @@ run_test() {
     --features "sim,board-testbench-rp2350" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
     echo "ERROR $app (sim build failed)" >> "$RESULTS_FILE"
-    FAIL=$((FAIL + 1))
+    ERROR=$((ERROR + 1))
     return
   fi
 
-  # Run the pre-built binary with timeout.
+  # Run the pre-built binary directly (avoids a redundant cargo build check).
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   sim_log "  Running (${timeout}s timeout)..."
-  if PICODROID_APK_PATH="$apk_path" timeout "$timeout" \
-    cargo run \
-      --release \
-      --target "$HOST_TARGET" \
-      --no-default-features \
-      --features "sim,board-testbench-rp2350" > "$log_file" 2>&1; then
+  if PICODROID_APK_PATH="$apk_path" timeout "$timeout" "$bin" > "$log_file" 2>&1; then
     : # exited cleanly
   else
     local exit_code=$?
@@ -190,7 +167,7 @@ done < "$SIM_CONF"
 # Summary.
 sim_log "========================================="
 sim_log "Sim Run $RUN_ID Complete"
-sim_log "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP"
+sim_log "  PASS: $PASS  FAIL: $FAIL  SKIP: $SKIP  ERROR: $ERROR"
 sim_log "  Results: $RESULTS_FILE"
 sim_log "  Logs:    $RUN_LOG_DIR/"
 sim_log "========================================="
@@ -207,5 +184,5 @@ if [[ "$SEND_EMAIL" == "true" ]]; then
     sim_log "  Email sending failed (non-fatal)."
 fi
 
-# Exit with failure if any tests failed.
-[[ $FAIL -eq 0 ]]
+# Exit with failure if any tests failed or errored.
+[[ $FAIL -eq 0 && $ERROR -eq 0 ]]

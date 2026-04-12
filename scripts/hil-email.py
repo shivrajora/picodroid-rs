@@ -214,8 +214,8 @@ def main():
 
     all_passed = counts["FAIL"] == 0 and counts["ERROR"] == 0
     suite = args.suite.upper()
-    status_emoji = "PASS" if all_passed else "FAIL"
-    subject = f"[picodroid {suite}] {status_emoji}: {counts['PASS']}/{total_run} passed ({args.sha})"
+    status_str = "PASS" if all_passed else "FAIL"
+    subject = f"[picodroid {suite}] {status_str}: {counts['PASS']}/{total_run} passed ({args.sha})"
 
     html = build_html(entries, args.log_dir, args.run_id, args.sha, suite=suite)
     send_email(recipient, subject, html, gmail_user, gmail_password)

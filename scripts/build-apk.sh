@@ -7,21 +7,23 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 APP=""
 OUTPUT=""
-HOST_TARGET="$(rustc -vV | awk '/^host:/ { print $2 }')"
+HOST_TARGET="$(host_target)"
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  -a, --app    <app>    Example app to build: helloworld, blinky, uart, arraydemo,
-                        inherit, interfacedemo, floatdemo, exceptiondemo, threaddemo,
-                        mathsdemo, i2cdemo, spidemo, stringdemo, listdemo
+  -a, --app    <app>    Example app to build
   -o, --output <file>   Output path (default: build/apks/<app>.papk)
   -h, --help            Show this help message
+
+Apps:
+$(list_apps "$REPO_ROOT/examples")
 EOF
 }
 
@@ -53,34 +55,21 @@ if [[ ! -f "$MANIFEST_FILE" ]]; then
   exit 1
 fi
 
-# Read main-class, activity, and version from PicodroidManifest.xml
-MAIN_CLASS=$(python3 - "$MANIFEST_FILE" <<'EOF'
+# Read main-class, activity, application, and version from PicodroidManifest.xml in one pass.
+mapfile -t _manifest_attrs < <(python3 - "$MANIFEST_FILE" <<'EOF'
 import sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
-print(root.find("application").get("main-class", ""))
-EOF
-)
-
-ACTIVITY=$(python3 - "$MANIFEST_FILE" <<'EOF'
-import sys, xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
-print(root.find("application").get("activity", ""))
-EOF
-)
-
-APPLICATION=$(python3 - "$MANIFEST_FILE" <<'EOF'
-import sys, xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
-print(root.find("application").get("application", ""))
-EOF
-)
-
-VERSION=$(python3 - "$MANIFEST_FILE" <<'EOF'
-import sys, xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
+app = root.find("application")
+print(app.get("main-class", ""))
+print(app.get("activity", ""))
+print(app.get("application", ""))
 print(root.get("version", "1.0"))
 EOF
 )
+MAIN_CLASS="${_manifest_attrs[0]}"
+ACTIVITY="${_manifest_attrs[1]}"
+APPLICATION="${_manifest_attrs[2]}"
+VERSION="${_manifest_attrs[3]}"
 
 if [[ -z "$MAIN_CLASS" && -z "$ACTIVITY" && -z "$APPLICATION" ]]; then
   echo "Error: either 'main-class', 'activity', or 'application' must be set in $MANIFEST_FILE" >&2
