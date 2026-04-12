@@ -143,6 +143,26 @@ static mut USB: UsbState = UsbState {
 /// Signalled by ISR when an EP1 IN transfer completes.
 static EP1_IN_DONE: AtomicBool = AtomicBool::new(true);
 
+// ── Flow-control counters ───────────────────────────────────────────────────
+//
+// These are accessed from both the USB ISR and the PDB task, but always on
+// core 1 (ISR preempts task, never concurrent).  Volatile read/write is
+// sufficient — no need for full atomics (which aren't available on M0+).
+
+/// Approximate number of bytes in the RX queue (incremented by ISR, decremented by task).
+static mut RX_QUEUE_LEVEL: u32 = 0;
+
+/// Length of a deferred EP1 OUT packet whose data is still in DPRAM.
+/// Non-zero means the ISR deferred the entire packet because the queue was
+/// too full.  The task must drain this from DPRAM before re-arming.
+static mut EP1_OUT_DEFERRED_LEN: u16 = 0;
+
+/// Tracks whether the EP1 OUT endpoint is currently armed (AVAIL set).
+/// Prevents double-arming which is unsafe while a transfer is in progress.
+static mut EP1_OUT_ARMED: bool = false;
+
+const RX_QUEUE_CAPACITY: u32 = 512;
+
 struct QueueCell(UnsafeCell<Option<Queue<u8>>>);
 unsafe impl Sync for QueueCell {}
 static USB_RX_QUEUE: QueueCell = QueueCell(UnsafeCell::new(None));
@@ -210,6 +230,7 @@ unsafe fn ep0_stall() {
 }
 
 unsafe fn arm_ep1_out() {
+    core::ptr::write_volatile(&raw mut EP1_OUT_ARMED, true);
     let pid = if USB.ep1_out_pid { BC_DATA1 } else { 0 };
     wr(DP_EP1_OUT_BC, pid | 64 | BC_AVAIL);
 }
@@ -321,8 +342,23 @@ unsafe fn handle_ep0_out_done() {
 }
 
 unsafe fn handle_ep1_out_data() {
+    // Hardware cleared AVAIL after receiving — endpoint is no longer armed.
+    core::ptr::write_volatile(&raw mut EP1_OUT_ARMED, false);
+
     let bc = rr(DP_EP1_OUT_BC);
     let len = (bc & 0x3FF) as usize;
+    let level = core::ptr::read_volatile(&raw const RX_QUEUE_LEVEL);
+
+    USB.ep1_out_pid = !USB.ep1_out_pid;
+
+    // Flow control: if the queue cannot hold this entire packet, defer it.
+    // The packet data stays in DPRAM until the task drains the queue and
+    // calls drain_deferred_packet().  The endpoint is NOT re-armed, so the
+    // USB host sees NAKs until we are ready.
+    if level + len as u32 > RX_QUEUE_CAPACITY {
+        core::ptr::write_volatile(&raw mut EP1_OUT_DEFERRED_LEN, len as u16);
+        return; // don't push, don't re-arm
+    }
 
     let mut ctx = InterruptContext::new();
     let base = (DPRAM + BUF_EP1_OUT) as *const u8;
@@ -330,9 +366,14 @@ unsafe fn handle_ep1_out_data() {
         let byte = base.add(i).read_volatile();
         let _ = rx_queue().send_from_isr(&mut ctx, byte);
     }
+    let new_level = level + len as u32;
+    core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, new_level);
 
-    USB.ep1_out_pid = !USB.ep1_out_pid;
-    arm_ep1_out();
+    // Re-arm if there is room for another max-size packet.
+    if new_level + 64 <= RX_QUEUE_CAPACITY {
+        arm_ep1_out();
+    }
+    // else: don't re-arm; the task will re-arm after consuming bytes.
 }
 
 // ── ISR ─────────────────────────────────────────────────────────────────────
@@ -351,6 +392,9 @@ extern "C" fn USBCTRL_IRQ() {
             USB.ep0_pid = true;
             USB.ep1_in_pid = false;
             USB.ep1_out_pid = false;
+            core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, 0);
+            core::ptr::write_volatile(&raw mut EP1_OUT_DEFERRED_LEN, 0);
+            core::ptr::write_volatile(&raw mut EP1_OUT_ARMED, false);
         }
 
         if ints & INT_SETUP_REQ != 0 {
@@ -431,14 +475,53 @@ pub fn init() {
     }
 }
 
+/// Called after consuming a byte from the RX queue.  Decrements the
+/// level counter and, if the ISR deferred a packet, drains it from DPRAM
+/// once there is room, then re-arms the endpoint.
+fn on_byte_consumed() {
+    unsafe {
+        let level = core::ptr::read_volatile(&raw const RX_QUEUE_LEVEL).saturating_sub(1);
+        core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, level);
+
+        // Already armed — nothing to do.
+        if core::ptr::read_volatile(&raw const EP1_OUT_ARMED) {
+            return;
+        }
+
+        let deferred = core::ptr::read_volatile(&raw const EP1_OUT_DEFERRED_LEN);
+        if deferred > 0 && level + deferred as u32 <= RX_QUEUE_CAPACITY {
+            // Drain the deferred packet from DPRAM into the queue.
+            // Safe: endpoint is not armed, so DPRAM won't be overwritten.
+            let base = (DPRAM + BUF_EP1_OUT) as *const u8;
+            for i in 0..deferred as usize {
+                let byte = base.add(i).read_volatile();
+                let _ = rx_queue().send(byte, Duration::zero());
+            }
+            core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, level + deferred as u32);
+            core::ptr::write_volatile(&raw mut EP1_OUT_DEFERRED_LEN, 0);
+            arm_ep1_out();
+        } else if deferred == 0 && level + 64 <= RX_QUEUE_CAPACITY {
+            // No deferred packet, but the ISR skipped re-arm because the
+            // queue was almost full.  Re-arm now that there is room.
+            arm_ep1_out();
+        }
+    }
+}
+
 /// Read one byte from the USB CDC RX queue, blocking forever.
 pub fn queue_read_byte() -> u8 {
-    rx_queue().receive(Duration::infinite()).unwrap_or(0)
+    let b = rx_queue().receive(Duration::infinite()).unwrap_or(0);
+    on_byte_consumed();
+    b
 }
 
 /// Read one byte with a 2-second timeout.
 pub fn queue_read_byte_timeout() -> Option<u8> {
-    rx_queue().receive(Duration::ms(2000)).ok()
+    let b = rx_queue().receive(Duration::ms(2000)).ok();
+    if b.is_some() {
+        on_byte_consumed();
+    }
+    b
 }
 
 /// Read one byte using busy-wait with hardware timer timeout.
@@ -450,6 +533,7 @@ pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
     let start = timer();
     loop {
         if let Ok(byte) = rx_queue().receive(Duration::zero()) {
+            on_byte_consumed();
             return Some(byte);
         }
         if timer().wrapping_sub(start) >= timeout_us {
