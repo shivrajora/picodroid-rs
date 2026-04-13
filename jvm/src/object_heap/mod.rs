@@ -1,5 +1,6 @@
 mod lambda;
 mod list_store;
+mod map_store;
 
 use crate::types::Value;
 use alloc::vec::Vec;
@@ -83,6 +84,7 @@ pub struct ObjectHeap {
     pub(super) first_free: usize,
     pub(super) sb_stack: Vec<Vec<u8>>,
     pub(super) list_bufs: Vec<Option<Vec<Value>>>,
+    pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
 }
@@ -94,6 +96,7 @@ impl ObjectHeap {
             first_free: 0,
             sb_stack: Vec::new(),
             list_bufs: Vec::new(),
+            map_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
         }
     }

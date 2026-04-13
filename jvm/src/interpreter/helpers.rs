@@ -319,6 +319,8 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/lang/Float" => "java/lang/Float",
         "java/lang/Double" => "java/lang/Double",
         "java/util/ArrayList" => "java/util/ArrayList",
+        "java/util/HashMap" => "java/util/HashMap",
+        "java/util/HashSet" => "java/util/HashSet",
         "java/lang/Runnable" => "java/lang/Runnable",
         "picodroid/app/Application" => "picodroid/app/Application",
         "picodroid/view/View" => "picodroid/view/View",

@@ -846,3 +846,259 @@ fn gc_stress_persistent_state_reuse() {
         objects.slot_count()
     );
 }
+
+// ── HashMap / HashSet GC tests ──────────────────────────────────────────────
+
+#[test]
+fn gc_retains_hashmap_entries() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    // Create a HashMap with ObjectRef key and ObjectRef value
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+
+    let key_obj = objects.alloc("Key").unwrap();
+    let val_obj = objects.alloc("Val").unwrap();
+    objects.map_put(
+        buf_idx,
+        Value::ObjectRef(key_obj),
+        Value::ObjectRef(val_obj),
+        &strings,
+    );
+
+    // Root only the map — key and value should survive via map entry tracing
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut GcState::new(),
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(map_obj));
+    assert!(objects.is_live(key_obj));
+    assert!(objects.is_live(val_obj));
+}
+
+#[test]
+fn gc_collects_unreachable_hashmap() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+    objects.map_put(buf_idx, Value::Int(1), Value::Int(10), &strings);
+
+    // No roots — map should be collected
+    let frames = [];
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut GcState::new(),
+    );
+    assert_eq!(freed, 1);
+    assert!(!objects.is_live(map_obj));
+}
+
+#[test]
+fn gc_hashmap_key_keeps_object_alive() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+
+    let key_obj = objects.alloc("OnlyInKey").unwrap();
+    objects.map_put(buf_idx, Value::ObjectRef(key_obj), Value::Int(1), &strings);
+
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut GcState::new(),
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(key_obj));
+}
+
+#[test]
+fn gc_hashmap_value_keeps_object_alive() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+
+    let val_obj = objects.alloc("OnlyInValue").unwrap();
+    objects.map_put(buf_idx, Value::Int(1), Value::ObjectRef(val_obj), &strings);
+
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut GcState::new(),
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(val_obj));
+}
+
+#[test]
+fn gc_hashset_retains_members() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let set_obj = objects.alloc("java/util/HashSet").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(set_obj, 0, Value::Int(buf_idx as i32));
+
+    let member = objects.alloc("Member").unwrap();
+    objects.map_put(buf_idx, Value::ObjectRef(member), Value::Int(1), &strings);
+
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(set_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut GcState::new(),
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(member));
+}
+
+// ── HashMap / HashSet stress tests ──────────────────────────────────────────
+
+#[test]
+fn gc_stress_hashmap_churn() {
+    // Create 200 HashMaps in a loop, each with 5 entries. Root only the latest.
+    // GC every 20 iterations. Verify slot reuse keeps heap bounded.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    let mut last_map = 0u16;
+    for i in 0u16..200 {
+        let map_obj = objects.alloc("java/util/HashMap").unwrap();
+        let buf_idx = objects.map_alloc().unwrap();
+        objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+        for j in 0..5 {
+            objects.map_put(
+                buf_idx,
+                Value::Int(j),
+                Value::Int(i as i32 * 10 + j),
+                &strings,
+            );
+        }
+        last_map = map_obj;
+
+        if (i + 1) % 20 == 0 {
+            let frame = Frame::new(0, 0, &[Value::ObjectRef(last_map)], 4, 4).unwrap();
+            collect(
+                &[frame],
+                &mut objects,
+                &mut arrays,
+                &mut strings,
+                &statics,
+                &mut gc,
+            );
+        }
+    }
+
+    // Verify last map is alive with correct entries
+    assert!(objects.is_live(last_map));
+    let buf_idx = match objects.get_field(last_map, 0) {
+        Some(Value::Int(n)) => n as u16,
+        _ => panic!("expected map buf index"),
+    };
+    assert_eq!(objects.map_len(buf_idx), 5);
+
+    // Heap should be bounded due to slot reuse
+    assert!(
+        objects.slot_count() < 30,
+        "slot_count {} should be < 30 with slot reuse",
+        objects.slot_count()
+    );
+}
+
+#[test]
+fn gc_stress_hashmap_large_map() {
+    // Single HashMap with 500 entries, all Integer keys + ObjectRef values.
+    // GC with map rooted — all 500 values survive. Then unroot and GC — all freed.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+
+    let mut value_objs = alloc::vec::Vec::new();
+    for i in 0..500 {
+        let val = objects.alloc("Val").unwrap();
+        objects.set_field(val, 0, Value::Int(i));
+        objects.map_put(buf_idx, Value::Int(i), Value::ObjectRef(val), &strings);
+        value_objs.push(val);
+    }
+
+    // GC with map rooted — all 500 values survive
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut gc,
+    );
+    assert_eq!(freed, 0);
+    for &val in &value_objs {
+        assert!(objects.is_live(val), "value {} should be live", val);
+    }
+
+    // GC with no roots — everything freed
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &mut gc,
+    );
+    assert!(
+        freed >= 501,
+        "expected at least 501 freed (1 map + 500 vals), got {}",
+        freed
+    );
+    assert!(!objects.is_live(map_obj));
+}

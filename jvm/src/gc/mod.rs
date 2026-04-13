@@ -158,6 +158,17 @@ pub fn collect(
                     }
                 }
 
+                // HashMap / HashSet: scan backing map_bufs for references
+                let cn = objects.class_name(idx);
+                if cn == Some("java/util/HashMap") || cn == Some("java/util/HashSet") {
+                    if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
+                        for (k, v) in objects.map_iter(buf_idx as u16) {
+                            push_ref(work, &k);
+                            push_ref(work, &v);
+                        }
+                    }
+                }
+
                 // Lambda proxy: scan captured values for references
                 if let Some(lambda) = objects.get_lambda(idx) {
                     for v in &lambda.captures {
@@ -199,6 +210,13 @@ pub fn collect(
             if objects.class_name(i) == Some("java/util/ArrayList") {
                 if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
                     objects.list_free(buf_idx as u16);
+                }
+            }
+            // Free HashMap / HashSet backing store if applicable
+            let cn = objects.class_name(i);
+            if cn == Some("java/util/HashMap") || cn == Some("java/util/HashSet") {
+                if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
+                    objects.map_free(buf_idx as u16);
                 }
             }
             objects.free_lambda(i);

@@ -1023,3 +1023,704 @@ fn arraylist_contains() {
         Ok(Some(Value::Int(0)))
     );
 }
+
+// ── HashMap native method tests ──────────────────────────────────────────
+
+fn dispatch_map(
+    method: &str,
+    desc: &str,
+    args: &[Value],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        descriptor: desc,
+        args,
+        strings,
+        objects,
+        arrays: &mut arrays,
+    };
+    BuiltinHandler
+        .dispatch("java/util/HashMap", method, &mut ctx)
+        .expect("HashMap method not handled")
+}
+
+fn dispatch_set(
+    method: &str,
+    desc: &str,
+    args: &[Value],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        descriptor: desc,
+        args,
+        strings,
+        objects,
+        arrays: &mut arrays,
+    };
+    BuiltinHandler
+        .dispatch("java/util/HashSet", method, &mut ctx)
+        .expect("HashSet method not handled")
+}
+
+fn make_map(strings: &mut StringTable, objects: &mut ObjectHeap) -> Value {
+    let map = Value::ObjectRef(objects.alloc("java/util/HashMap").unwrap());
+    dispatch_map("<init>", "()V", &[map], strings, objects).unwrap();
+    map
+}
+
+fn make_set(strings: &mut StringTable, objects: &mut ObjectHeap) -> Value {
+    let set = Value::ObjectRef(objects.alloc("java/util/HashSet").unwrap());
+    dispatch_set("<init>", "()V", &[set], strings, objects).unwrap();
+    set
+}
+
+#[test]
+fn hashmap_init_and_size() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    assert_eq!(
+        dispatch_map("size", "()I", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+    assert_eq!(
+        dispatch_map("isEmpty", "()Z", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn hashmap_put_and_get() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    // put(1, 10), put(2, 20), put(3, 30)
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(2), Value::Int(20)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(3), Value::Int(30)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(10)))
+    );
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(2)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(20)))
+    );
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(3)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(30)))
+    );
+    assert_eq!(
+        dispatch_map("size", "()I", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(3)))
+    );
+}
+
+#[test]
+fn hashmap_put_overwrite() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    // put(1, 10) returns null (no previous)
+    assert_eq!(
+        dispatch_map(
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1), Value::Int(10)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Null))
+    );
+    // put(1, 99) returns old value 10
+    assert_eq!(
+        dispatch_map(
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1), Value::Int(99)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(10)))
+    );
+    assert_eq!(
+        dispatch_map("size", "()I", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn hashmap_get_missing() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(42)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Null))
+    );
+}
+
+#[test]
+fn hashmap_remove() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_map(
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(10)))
+    );
+    assert_eq!(
+        dispatch_map("size", "()I", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn hashmap_remove_missing() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    assert_eq!(
+        dispatch_map(
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(99)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Null))
+    );
+}
+
+#[test]
+fn hashmap_contains_key() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(5), Value::Int(50)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_map(
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            &[map, Value::Int(5)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_map(
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            &[map, Value::Int(6)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn hashmap_contains_value() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(42)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_map(
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            &[map, Value::Int(42)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_map(
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            &[map, Value::Int(99)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn hashmap_clear() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map("clear", "()V", &[map], &mut strings, &mut objects).unwrap();
+    assert_eq!(
+        dispatch_map("size", "()I", &[map], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn hashmap_get_or_default() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    // Key present: returns value
+    assert_eq!(
+        dispatch_map(
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1), Value::Int(-1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(10)))
+    );
+    // Key absent: returns default
+    assert_eq!(
+        dispatch_map(
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(99), Value::Int(-1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(-1)))
+    );
+}
+
+#[test]
+fn hashmap_integer_keys() {
+    // Test with boxed Integer objects as keys (wrapper equality via field 0)
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+
+    // Create two Integer(42) objects at different heap slots
+    let int1 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(int1, 0, Value::Int(42));
+    let int2 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(int2, 0, Value::Int(42));
+    assert_ne!(int1, int2); // different heap slots
+
+    // put with int1 as key
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::ObjectRef(int1), Value::Int(100)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    // get with int2 as key — should find it via wrapper equality
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::ObjectRef(int2)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(100)))
+    );
+}
+
+#[test]
+fn hashmap_string_keys() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+
+    let key_a = Value::Reference(strings.intern(b"alpha").unwrap());
+    let key_b = Value::Reference(strings.intern(b"beta").unwrap());
+
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, key_a, Value::Int(1)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, key_b, Value::Int(2)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, key_a],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, key_b],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(2)))
+    );
+}
+
+#[test]
+fn hashmap_null_key() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Null, Value::Int(77)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Null],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(77)))
+    );
+}
+
+#[test]
+fn hashmap_null_value() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    // put(1, null)
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Null],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    // containsKey should return true
+    assert_eq!(
+        dispatch_map(
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            &[map, Value::Int(1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    // get returns Null (same as "not found"), but containsKey distinguishes
+    assert_eq!(
+        dispatch_map(
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, Value::Int(1)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Null))
+    );
+}
+
+// ── HashSet native method tests ──────────────────────────────────────────
+
+#[test]
+fn hashset_add_contains_remove() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let set = make_set(&mut strings, &mut objects);
+
+    // add(10) returns true (was absent)
+    assert_eq!(
+        dispatch_set(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[set, Value::Int(10)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_set(
+            "contains",
+            "(Ljava/lang/Object;)Z",
+            &[set, Value::Int(10)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_set("size", "()I", &[set], &mut strings, &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+
+    // remove(10) returns true (was present)
+    assert_eq!(
+        dispatch_set(
+            "remove",
+            "(Ljava/lang/Object;)Z",
+            &[set, Value::Int(10)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_set("size", "()I", &[set], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn hashset_add_duplicate() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let set = make_set(&mut strings, &mut objects);
+
+    dispatch_set(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[set, Value::Int(5)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    // Second add returns false (was already present)
+    assert_eq!(
+        dispatch_set(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[set, Value::Int(5)],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(0)))
+    );
+    assert_eq!(
+        dispatch_set("size", "()I", &[set], &mut strings, &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn hashset_clear() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let set = make_set(&mut strings, &mut objects);
+
+    dispatch_set(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[set, Value::Int(1)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_set(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[set, Value::Int(2)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_set("clear", "()V", &[set], &mut strings, &mut objects).unwrap();
+    assert_eq!(
+        dispatch_set("size", "()I", &[set], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+    assert_eq!(
+        dispatch_set("isEmpty", "()Z", &[set], &mut strings, &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+// ── Regression: integer-key map then string-key map ──────────────────────
+
+#[test]
+fn hashmap_int_then_string_keys_shared_heap() {
+    // Reproduces the sim bug: creating a HashMap with Integer keys, using
+    // StringBuilder, then creating a second HashMap with string keys fails
+    // to find the string keys.
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+
+    // Map 1: Integer keys
+    let m1 = Value::ObjectRef(objects.alloc("java/util/HashMap").unwrap());
+    dispatch_map("<init>", "()V", &[m1], &mut strings, &mut objects).unwrap();
+
+    // Integer.valueOf(1) — alloc Integer, set field 0
+    let int1 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(int1, 0, Value::Int(1));
+    let int10 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(int10, 0, Value::Int(10));
+
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[m1, Value::ObjectRef(int1), Value::ObjectRef(int10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    // Verify m1.get works
+    let int1b = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(int1b, 0, Value::Int(1));
+    let result = dispatch_map(
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[m1, Value::ObjectRef(int1b)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::ObjectRef(int10));
+
+    // StringBuilder usage (simulating "v1=" + v1)
+    let _sb = objects.alloc("java/lang/StringBuilder").unwrap();
+    objects.sb_push();
+    objects.sb_append_bytes(b"v1=");
+    objects.sb_append_int(10);
+    let sb_bytes = objects.sb_pop();
+    let _str_idx = strings.intern_dyn(&sb_bytes).unwrap();
+
+    // Map 2: String keys
+    let m2 = Value::ObjectRef(objects.alloc("java/util/HashMap").unwrap());
+    dispatch_map("<init>", "()V", &[m2], &mut strings, &mut objects).unwrap();
+
+    let hello = Value::Reference(strings.intern(b"hello").unwrap());
+    let world = Value::Reference(strings.intern(b"world").unwrap());
+
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[m2, hello, world],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    // This should find "hello" → "world"
+    let result = dispatch_map(
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[m2, hello],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, world);
+}
