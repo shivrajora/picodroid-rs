@@ -119,6 +119,12 @@ run_pdb_test() {
   TOTAL=$((TOTAL + 1))
   hil_log "--- [$TOTAL] $test_name (pdb, ${timeout}s) ---"
 
+  # After an RTT test, probe-rs may leave the MCU halted. Reset the device
+  # so it boots normally and the USB CDC port enumerates.
+  hil_log "  Resetting device..."
+  probe-rs reset --chip RP235x --protocol swd 2>/dev/null || true
+  sleep 3  # wait for USB CDC enumeration
+
   local -a pdb_args=()
   case "$pdb_cmd" in
     ping)
@@ -154,8 +160,8 @@ run_pdb_test() {
 
   # Run PDB tool with timeout; capture stdout and stderr.
   hil_log "  Running: pdb ${pdb_args[*]}"
-  timeout "$timeout" "$PDB_BIN" "${pdb_args[@]}" > "$log_file" 2>&1
-  local exit_code=$?
+  local exit_code=0
+  timeout "$timeout" "$PDB_BIN" "${pdb_args[@]}" > "$log_file" 2>&1 || exit_code=$?
 
   if [[ $exit_code -ne 0 ]]; then
     # "no picodroid devices found" → graceful SKIP.
