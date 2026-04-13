@@ -2052,3 +2052,159 @@ fn iterator_hashmap_values() {
     assert!(values.contains(&Value::Int(10)));
     assert!(values.contains(&Value::Int(20)));
 }
+
+// ── Enum native method tests ─────────────────────────────────────────────
+
+fn dispatch_enum(
+    method: &str,
+    desc: &str,
+    args: &[Value],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        descriptor: desc,
+        args,
+        strings,
+        objects,
+        arrays: &mut arrays,
+    };
+    BuiltinHandler
+        .dispatch("java/lang/Enum", method, &mut ctx)
+        .expect("Enum method not handled")
+}
+
+fn make_enum_instance(
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+    name: &'static [u8],
+    ordinal: i32,
+) -> Value {
+    let obj = Value::ObjectRef(objects.alloc("TestEnum").unwrap());
+    let name_ref = Value::Reference(strings.intern(name).unwrap());
+    dispatch_enum(
+        "<init>",
+        "(Ljava/lang/String;I)V",
+        &[obj, name_ref, Value::Int(ordinal)],
+        strings,
+        objects,
+    )
+    .unwrap();
+    obj
+}
+
+#[test]
+fn enum_init_name_ordinal() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let red = make_enum_instance(&mut objects, &mut strings, b"RED", 0);
+
+    let name = dispatch_enum(
+        "name",
+        "()Ljava/lang/String;",
+        &[red],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let Value::Reference(idx) = name else {
+        panic!("expected Reference");
+    };
+    assert_eq!(strings.resolve(idx), Some("RED"));
+
+    assert_eq!(
+        dispatch_enum("ordinal", "()I", &[red], &mut strings, &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn enum_to_string() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let green = make_enum_instance(&mut objects, &mut strings, b"GREEN", 1);
+
+    let result = dispatch_enum(
+        "toString",
+        "()Ljava/lang/String;",
+        &[green],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let Value::Reference(idx) = result else {
+        panic!("expected Reference");
+    };
+    assert_eq!(strings.resolve(idx), Some("GREEN"));
+}
+
+#[test]
+fn enum_equals_same() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let red = make_enum_instance(&mut objects, &mut strings, b"RED", 0);
+
+    assert_eq!(
+        dispatch_enum(
+            "equals",
+            "(Ljava/lang/Object;)Z",
+            &[red, red],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn enum_equals_different() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let red = make_enum_instance(&mut objects, &mut strings, b"RED", 0);
+    let green = make_enum_instance(&mut objects, &mut strings, b"GREEN", 1);
+
+    assert_eq!(
+        dispatch_enum(
+            "equals",
+            "(Ljava/lang/Object;)Z",
+            &[red, green],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn enum_compare_to() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let red = make_enum_instance(&mut objects, &mut strings, b"RED", 0);
+    let blue = make_enum_instance(&mut objects, &mut strings, b"BLUE", 2);
+
+    // RED(0).compareTo(BLUE(2)) = -2
+    assert_eq!(
+        dispatch_enum(
+            "compareTo",
+            "(Ljava/lang/Enum;)I",
+            &[red, blue],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(-2)))
+    );
+    // BLUE(2).compareTo(RED(0)) = 2
+    assert_eq!(
+        dispatch_enum(
+            "compareTo",
+            "(Ljava/lang/Enum;)I",
+            &[blue, red],
+            &mut strings,
+            &mut objects
+        ),
+        Ok(Some(Value::Int(2)))
+    );
+}

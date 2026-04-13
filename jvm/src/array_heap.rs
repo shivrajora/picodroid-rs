@@ -160,6 +160,21 @@ impl ArrayHeap {
         Some(self.arrays.get(idx as usize)?.as_ref()?.atype)
     }
 
+    /// Clone an array: allocate a new array with the same atype/length and
+    /// copy all elements. Returns the new array's index, or `None` on OOM.
+    pub fn clone(&mut self, idx: u16) -> Option<u16> {
+        let atype = self.atype(idx)?;
+        let len = self.length(idx)?;
+        // Copy the data into a temporary buffer before allocating (to avoid
+        // borrowing conflicts during allocation).
+        let data: alloc::vec::Vec<i32> = self.data_slice(idx).to_vec();
+        let new_idx = self.alloc(atype, len)?;
+        for (i, v) in data.iter().enumerate() {
+            self.store(new_idx, i, *v);
+        }
+        Some(new_idx)
+    }
+
     // ── GC support ────────────────────────────────────────────────────────────
 
     /// Total number of slots (including freed `None` slots).

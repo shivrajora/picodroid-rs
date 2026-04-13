@@ -140,20 +140,37 @@ pub(super) fn branch_target(pc_after_offset: usize, offset: i16) -> usize {
     ((pc_after_offset as i32) - 3 + offset as i32) as usize
 }
 
+/// Number of implicit fields in `java/lang/Enum` (name + ordinal).
+const ENUM_IMPLICIT_FIELDS: usize = 2;
+
 /// Computes the runtime field slot for a named field, walking from the root of the hierarchy down.
 /// Super-class fields come first (slot 0), then subclass fields.
+/// Handles `java/lang/Enum` as a native superclass with 2 implicit fields (name, ordinal).
 pub(super) fn field_slot(
     classes: &[ClassFile],
     class_name: &str,
     field_name: &str,
 ) -> Option<usize> {
-    // Build a chain of class indices from root to leaf (root first)
+    // Build a chain of class indices from root to leaf (root first).
+    // Track whether the chain bottoms out at java/lang/Enum (a native class
+    // not in the loaded class set) so we can account for its implicit fields.
     let mut chain: Vec<usize> = Vec::new();
+    let mut enum_base = false;
     let mut current: &str = class_name;
     loop {
-        let ci = classes
+        let ci = match classes
             .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))?;
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
+        {
+            Some(i) => i,
+            None => {
+                // Not in loaded classes — check if it's java/lang/Enum
+                if current == "java/lang/Enum" {
+                    enum_base = true;
+                }
+                break;
+            }
+        };
         chain.push(ci);
         match classes[ci].super_class_name() {
             None => break, // reached java/lang/Object
@@ -165,7 +182,8 @@ pub(super) fn field_slot(
     }
     chain.reverse(); // root first
 
-    let mut slot = 0usize;
+    // Start slot count after Enum's implicit fields if applicable.
+    let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
     for ci in chain.iter() {
         let cf = &classes[*ci];
         for fi in 0..cf.fields.len() {
@@ -318,6 +336,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/lang/Long" => "java/lang/Long",
         "java/lang/Float" => "java/lang/Float",
         "java/lang/Double" => "java/lang/Double",
+        "java/lang/Enum" => "java/lang/Enum",
         "java/util/ArrayList" => "java/util/ArrayList",
         "java/util/HashMap" => "java/util/HashMap",
         "java/util/HashMap$KeySet" => "java/util/HashMap$KeySet",

@@ -143,6 +143,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
+            // if_acmpeq / if_acmpne — reference equality branches
+            0xa5 | 0xa6 => {
+                let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
+                frame.pc += 2;
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                let eq = a == b;
+                let branch = if opcode == 0xa5 { eq } else { !eq };
+                if branch {
+                    frame.pc = helpers::branch_target(frame.pc, offset);
+                }
+            }
+
             // goto — signed 16-bit offset from opcode start (opcode is at pc-1)
             0xa7 => {
                 let offset = i16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);

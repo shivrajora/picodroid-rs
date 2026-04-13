@@ -321,10 +321,28 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             objects: self.objects,
             arrays: self.arrays,
         };
-        self.handler
+        // Try the exact class first.
+        if let Some(result) = self
+            .handler
             .dispatch(class_name, method_name, &mut ctx)
             .or_else(|| BuiltinHandler.dispatch(class_name, method_name, &mut ctx))
-            .unwrap_or(Err(JvmError::NoSuchMethod))
+        {
+            return result;
+        }
+        // Walk the superclass chain: the method may be inherited from a native
+        // base class (e.g. enumdemo/Color extends java/lang/Enum).
+        let mut current = class_name;
+        while let Some(super_str) = find_super_class(self.classes, current) {
+            if let Some(result) = self
+                .handler
+                .dispatch(super_str, method_name, &mut ctx)
+                .or_else(|| BuiltinHandler.dispatch(super_str, method_name, &mut ctx))
+            {
+                return result;
+            }
+            current = super_str;
+        }
+        Err(JvmError::NoSuchMethod)
     }
 
     pub(super) fn op_new(&mut self, code: &[u8], frame: &mut Frame) -> Result<(), JvmError> {
@@ -357,4 +375,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame.push(Value::ObjectRef(obj_idx))?;
         Ok(())
     }
+}
+
+/// Return the super class name of `class_name` if it's in the loaded set.
+fn find_super_class<'a>(
+    classes: &'a [crate::class_file::ClassFile],
+    class_name: &str,
+) -> Option<&'a str> {
+    let cf = classes
+        .iter()
+        .find(|cf| cf.class_name().is_some_and(|n| n == class_name.as_bytes()))?;
+    let super_bytes = cf.super_class_name()?;
+    core::str::from_utf8(super_bytes).ok()
 }

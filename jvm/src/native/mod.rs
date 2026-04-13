@@ -7,6 +7,7 @@ use crate::{
 
 mod boxed;
 mod collections;
+mod enumeration;
 mod hashmap;
 mod hashset;
 mod iterator;
@@ -174,6 +175,7 @@ pub trait NativeMethodHandler {
 /// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values` |
 /// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
 /// | `java/util/Iterator` | `hasNext`, `next` |
+/// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `compareTo` |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
 
@@ -184,6 +186,19 @@ impl NativeMethodHandler for BuiltinHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
+        // Array clone: class name starts with '[' and method is "clone".
+        // Needed for enum Color.values() which clones the internal $VALUES array.
+        if class_name.starts_with('[') && method_name == "clone" {
+            if let Some(Value::ArrayRef(idx)) = ctx.args.first().copied() {
+                return Some(
+                    ctx.arrays
+                        .clone(idx)
+                        .map(|new_idx| Some(Value::ArrayRef(new_idx)))
+                        .ok_or(JvmError::StackOverflow),
+                );
+            }
+            return Some(Err(JvmError::InvalidReference));
+        }
         match class_name {
             "java/lang/Object" | "java/lang/Exception" | "java/lang/RuntimeException" => {
                 match method_name {
@@ -196,6 +211,7 @@ impl NativeMethodHandler for BuiltinHandler {
                 "addSuppressed" => Some(Ok(None)),
                 _ => None,
             },
+            "java/lang/Enum" => enumeration::dispatch(method_name, ctx),
             "java/lang/StringBuilder" => string_builder::dispatch(method_name, ctx),
             "java/lang/String" => string::dispatch(method_name, ctx),
             "java/lang/Integer" => boxed::dispatch_integer(method_name, ctx),
