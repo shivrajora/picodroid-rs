@@ -9,6 +9,7 @@ mod boxed;
 mod collections;
 mod hashmap;
 mod hashset;
+mod iterator;
 mod math;
 mod string;
 mod string_builder;
@@ -170,8 +171,9 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Float` | `<init>`, `valueOf`, `floatValue` |
 /// | `java/lang/Double` | `<init>`, `valueOf`, `doubleValue` |
 /// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
-/// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault` |
+/// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values` |
 /// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
+/// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
 
@@ -203,7 +205,10 @@ impl NativeMethodHandler for BuiltinHandler {
             "java/lang/Double" => boxed::dispatch_double(method_name, ctx),
             "java/util/ArrayList" => collections::dispatch(method_name, ctx),
             "java/util/HashMap" => hashmap::dispatch(method_name, ctx),
+            "java/util/HashMap$KeySet" => hashmap::dispatch_keyset(method_name, ctx),
+            "java/util/HashMap$Values" => hashmap::dispatch_values(method_name, ctx),
             "java/util/HashSet" => hashset::dispatch(method_name, ctx),
+            "java/util/Iterator" => iterator::dispatch(method_name, ctx),
             "java/lang/Math" => math::dispatch(method_name, ctx),
             _ => None,
         }

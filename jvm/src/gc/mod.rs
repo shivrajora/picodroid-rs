@@ -220,6 +220,7 @@ pub fn collect(
                 }
             }
             objects.free_lambda(i);
+            objects.iter_free(i);
             objects.free(i);
             freed += 1;
         }

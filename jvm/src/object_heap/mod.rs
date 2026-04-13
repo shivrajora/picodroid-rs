@@ -1,3 +1,4 @@
+pub(crate) mod iter_store;
 mod lambda;
 mod list_store;
 mod map_store;
@@ -87,6 +88,8 @@ pub struct ObjectHeap {
     pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
+    /// Sparse list of iterator states, keyed by object index.
+    pub(super) iter_states: Vec<(u16, iter_store::IteratorState)>,
 }
 
 impl ObjectHeap {
@@ -98,6 +101,7 @@ impl ObjectHeap {
             list_bufs: Vec::new(),
             map_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
+            iter_states: Vec::new(),
         }
     }
 }

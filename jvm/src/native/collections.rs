@@ -1,5 +1,5 @@
 use crate::{
-    object_heap::ObjectHeap,
+    object_heap::{iter_store::IterSource, iter_store::IteratorState, ObjectHeap},
     types::{JvmError, Value},
 };
 
@@ -132,6 +132,24 @@ pub(crate) fn dispatch(
             };
             ctx.objects.list_clear(buf_idx);
             Some(Ok(None))
+        }
+        "iterator" => {
+            let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
+                Ok(i) => i,
+                Err(e) => return Some(Err(e)),
+            };
+            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+                Some(idx) => idx,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            ctx.objects.iter_register(
+                iter_obj,
+                IteratorState {
+                    source: IterSource::List(buf_idx),
+                    position: 0,
+                },
+            );
+            Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
         "contains" => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {

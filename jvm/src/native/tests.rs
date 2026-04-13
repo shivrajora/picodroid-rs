@@ -1724,3 +1724,331 @@ fn hashmap_int_then_string_keys_shared_heap() {
     .unwrap();
     assert_eq!(result, world);
 }
+
+// ── Iterator native method tests ─────────────────────────────────────────
+
+fn dispatch_iter(
+    method: &str,
+    desc: &str,
+    args: &[Value],
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let mut strings = StringTable::new();
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        descriptor: desc,
+        args,
+        strings: &mut strings,
+        objects,
+        arrays: &mut arrays,
+    };
+    BuiltinHandler
+        .dispatch("java/util/Iterator", method, &mut ctx)
+        .expect("Iterator method not handled")
+}
+
+#[test]
+fn iterator_arraylist_empty() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+
+    // Create iterator via ArrayList.iterator()
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[list],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    // hasNext should be false immediately
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn iterator_arraylist_basic() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::Int(10)],
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::Int(20)],
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::Int(30)],
+        &mut objects,
+    )
+    .unwrap();
+
+    // Create iterator
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[list],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    // Iterate: hasNext/next cycle
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(10)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(20)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(30)))
+    );
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn iterator_arraylist_single() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::Int(42)],
+        &mut objects,
+    )
+    .unwrap();
+
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[list],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(42)))
+    );
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn iterator_next_past_end() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[list],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    // next() on empty iterator should error
+    assert!(dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects).is_err());
+}
+
+#[test]
+fn iterator_hashmap_keys() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(2), Value::Int(20)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    // keySet()
+    let keyset = dispatch_map(
+        "keySet",
+        "()Ljava/util/Set;",
+        &[map],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+
+    // keySet().iterator()
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[keyset],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/HashMap$KeySet", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    // Collect keys
+    let mut keys = alloc::vec::Vec::new();
+    while dispatch_iter("hasNext", "()Z", &[iter], &mut objects)
+        .unwrap()
+        .unwrap()
+        == Value::Int(1)
+    {
+        let k = dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects)
+            .unwrap()
+            .unwrap();
+        keys.push(k);
+    }
+    assert_eq!(keys.len(), 2);
+    // Keys should be Int(1) and Int(2) (order not guaranteed, but our impl preserves insertion order)
+    assert!(keys.contains(&Value::Int(1)));
+    assert!(keys.contains(&Value::Int(2)));
+}
+
+#[test]
+fn iterator_hashmap_values() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(2), Value::Int(20)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+
+    // values()
+    let vals = dispatch_map(
+        "values",
+        "()Ljava/util/Collection;",
+        &[map],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+
+    // values().iterator()
+    let mut arrays = ArrayHeap::new();
+    let iter = {
+        let mut ctx = NativeContext {
+            descriptor: "()Ljava/util/Iterator;",
+            args: &[vals],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch("java/util/HashMap$Values", "iterator", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+
+    let mut values = alloc::vec::Vec::new();
+    while dispatch_iter("hasNext", "()Z", &[iter], &mut objects)
+        .unwrap()
+        .unwrap()
+        == Value::Int(1)
+    {
+        let v = dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects)
+            .unwrap()
+            .unwrap();
+        values.push(v);
+    }
+    assert_eq!(values.len(), 2);
+    assert!(values.contains(&Value::Int(10)));
+    assert!(values.contains(&Value::Int(20)));
+}

@@ -1,5 +1,5 @@
 use crate::{
-    object_heap::ObjectHeap,
+    object_heap::{iter_store::IterSource, iter_store::IteratorState, ObjectHeap},
     types::{JvmError, Value},
 };
 
@@ -113,6 +113,83 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(default))))
         }
+        "keySet" => {
+            let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
+                Ok(i) => i,
+                Err(e) => return Some(Err(e)),
+            };
+            // Return a view object that stores the map_buf index
+            let view = match ctx.objects.alloc("java/util/HashMap$KeySet") {
+                Some(idx) => idx,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
+            Some(Ok(Some(Value::ObjectRef(view))))
+        }
+        "values" => {
+            let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
+                Ok(i) => i,
+                Err(e) => return Some(Err(e)),
+            };
+            let view = match ctx.objects.alloc("java/util/HashMap$Values") {
+                Some(idx) => idx,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
+            Some(Ok(Some(Value::ObjectRef(view))))
+        }
         _ => None,
     }
+}
+
+/// Dispatch for HashMap$KeySet view — only supports `iterator()`.
+pub(crate) fn dispatch_keyset(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    if method_name != "iterator" {
+        return None;
+    }
+    let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
+        Ok(i) => i,
+        Err(e) => return Some(Err(e)),
+    };
+    let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+        Some(idx) => idx,
+        None => return Some(Err(JvmError::StackOverflow)),
+    };
+    ctx.objects.iter_register(
+        iter_obj,
+        IteratorState {
+            source: IterSource::MapKeys(buf_idx),
+            position: 0,
+        },
+    );
+    Some(Ok(Some(Value::ObjectRef(iter_obj))))
+}
+
+/// Dispatch for HashMap$Values view — only supports `iterator()`.
+pub(crate) fn dispatch_values(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    if method_name != "iterator" {
+        return None;
+    }
+    let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
+        Ok(i) => i,
+        Err(e) => return Some(Err(e)),
+    };
+    let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+        Some(idx) => idx,
+        None => return Some(Err(JvmError::StackOverflow)),
+    };
+    ctx.objects.iter_register(
+        iter_obj,
+        IteratorState {
+            source: IterSource::MapValues(buf_idx),
+            position: 0,
+        },
+    );
+    Some(Ok(Some(Value::ObjectRef(iter_obj))))
 }
