@@ -12,9 +12,17 @@ mod os;
 mod pio;
 
 pub struct PicodroidNativeHandler {
+    /// Resettable counters exposed to Java via Runtime.gcTimeNanos() etc.
     gc_time_ns: u64,
     gc_count: u32,
     gc_freed: u32,
+    /// Cumulative counters (never reset) for sim summary output.
+    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
+    total_gc_time_ns: u64,
+    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
+    total_gc_count: u32,
+    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
+    total_gc_freed: u32,
     pending_activity: Option<(u16, &'static str)>,
 }
 
@@ -24,12 +32,25 @@ impl PicodroidNativeHandler {
             gc_time_ns: 0,
             gc_count: 0,
             gc_freed: 0,
+            total_gc_time_ns: 0,
+            total_gc_count: 0,
+            total_gc_freed: 0,
             pending_activity: None,
         }
     }
 
     pub fn take_pending_activity(&mut self) -> Option<(u16, &'static str)> {
         self.pending_activity.take()
+    }
+
+    /// Returns cumulative (gc_time_ns, gc_count, gc_freed) for the entire run.
+    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
+    pub fn gc_stats(&self) -> (u64, u32, u32) {
+        (
+            self.total_gc_time_ns,
+            self.total_gc_count,
+            self.total_gc_freed,
+        )
     }
 }
 
@@ -42,6 +63,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         self.gc_time_ns += time_ns;
         self.gc_count += 1;
         self.gc_freed += freed as u32;
+        self.total_gc_time_ns += time_ns;
+        self.total_gc_count += 1;
+        self.total_gc_freed += freed as u32;
     }
 
     fn dispatch(
