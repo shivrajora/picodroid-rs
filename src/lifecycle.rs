@@ -85,12 +85,9 @@ pub(crate) fn run_activity(
         dispatch_checkbox_changes(jvm, heap, handler);
         dispatch_spinner_changes(jvm, heap, handler);
 
-        #[cfg(feature = "sim")]
-        {
-            crate::hal::display::update_window();
-            if !crate::hal::display::is_window_open() {
-                break;
-            }
+        crate::hal::display::update_window();
+        if !crate::hal::display::is_window_open() {
+            break;
         }
 
         pacer.pace(16);

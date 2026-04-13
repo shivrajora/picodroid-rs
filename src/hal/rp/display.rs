@@ -40,6 +40,16 @@ pub fn write_pixels(data: &[u8]) {
     }
 }
 
+/// No-op on hardware — only meaningful for the sim's minifb window.
+#[inline(always)]
+pub fn update_window() {}
+
+/// Always true on hardware — only meaningful for the sim's minifb window.
+#[inline(always)]
+pub fn is_window_open() -> bool {
+    true
+}
+
 /// Turn the backlight on or off.
 pub fn set_backlight(on: bool) {
     unsafe {

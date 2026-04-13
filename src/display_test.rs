@@ -53,13 +53,9 @@ pub fn run() {
             }
         }
 
-        // In sim mode, blit framebuffer to the emulator window and check for close.
-        #[cfg(feature = "sim")]
-        {
-            crate::hal::display::update_window();
-            if !crate::hal::display::is_window_open() {
-                break;
-            }
+        crate::hal::display::update_window();
+        if !crate::hal::display::is_window_open() {
+            break;
         }
 
         crate::hal::system_clock::sleep(16);
