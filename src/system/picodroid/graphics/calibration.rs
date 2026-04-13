@@ -58,6 +58,11 @@ pub fn calibrate() {}
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "sim"))]
+fn stopped() -> bool {
+    crate::pdb::pending::is_stop_jvm()
+}
+
+#[cfg(not(feature = "sim"))]
 unsafe fn calibrate_inner() {
     let scr = engine::screen();
 
@@ -73,6 +78,11 @@ unsafe fn calibrate_inner() {
     let mut raw_pts: [(u16, u16); 4] = [(0, 0); 4];
 
     for (i, &(tx, ty)) in CAL_TARGETS.iter().enumerate() {
+        if stopped() {
+            lv_obj_clean(scr);
+            return;
+        }
+
         let mut buf = [0u8; 16];
         buf[0] = b'1' + i as u8;
         buf[1..6].copy_from_slice(b" / 4\0");
@@ -91,6 +101,10 @@ unsafe fn calibrate_inner() {
         hal::system_clock::sleep(200);
     }
 
+    if stopped() {
+        lv_obj_clean(scr);
+        return;
+    }
     apply_calibration(&raw_pts);
 
     lv_obj_clean(scr);
@@ -101,6 +115,9 @@ unsafe fn calibrate_inner() {
 fn wait_for_release() {
     let mut quiet: usize = 0;
     loop {
+        if stopped() {
+            return;
+        }
         engine::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
         if !(50..=4050).contains(&rx) || !(50..=4050).contains(&ry) {
@@ -124,6 +141,9 @@ fn wait_for_debounced_touch() -> (u16, u16) {
     let mut base_y: u16 = 0;
 
     loop {
+        if stopped() {
+            return (0, 0);
+        }
         engine::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
 

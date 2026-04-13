@@ -48,8 +48,6 @@ fn handle_ping(len: u32) {
 
 pub fn run_pdb_task() -> ! {
     crate::hal::pdb_usb::init();
-    #[cfg(feature = "chip-rp2350-hal")]
-    crate::pdb::pending::init_park_signal();
 
     loop {
         if !wait_for_magic() {

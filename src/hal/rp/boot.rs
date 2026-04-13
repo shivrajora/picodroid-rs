@@ -74,16 +74,19 @@ pub fn clock_init() {
 /// Create FreeRTOS tasks and start the scheduler (never returns).
 ///
 /// RP2040/RP2350 are dual-core:
-///   - PDB task on core 1 (priority 2) — listens for USB CDC installs
+///   - PDB task on core 0 (priority 2) — listens for USB CDC installs
 ///   - JVM task on core 0 (priority 1) — runs the app
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).
-    // Pinned to core 1 so it never contends with the JVM interpreter on core 0.
+    // Pinned to core 0: on RP2350, cross-core SRAM visibility between
+    // core 0 and core 1 is unreliable for flow-control counters shared
+    // between the USB ISR and the PDB task.  Keeping both on core 0
+    // avoids the issue entirely.
     Task::new()
         .name("pdb")
         .stack_size(2048)
         .priority(TaskPriority(task_priority::PRIORITY_RT_1))
-        .core_affinity(0b10) // core 1 only
+        .core_affinity(0b01) // core 0 only
         .start(move |_| crate::pdb::run_pdb_task())
         .unwrap();
 
@@ -135,45 +138,23 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // If pdb_task requested a flash install, park core 0 in RAM.
-                // On success pdb_task triggers a watchdog reset — park_for_flash
-                // never returns.  It returns only on error (pdb_task sets
-                // CORE0_RELEASE after sending STATUS_ERR); in that case just
-                // restart the JVM loop.
+                // If pdb_task requested a flash install, park core 0.
+                // Signal CORE0_PARKED then block.  PDB (higher priority on
+                // the same core) will perform the flash write and either
+                // reset or call release().  On release the notification
+                // wakes us and we restart the JVM loop.
                 if crate::pdb::pending::FLASH_PARK_REQUESTED
                     .load(core::sync::atomic::Ordering::Acquire)
                 {
-                    unsafe { crate::hal::flash::park_for_flash() };
+                    crate::pdb::pending::CORE0_PARKED
+                        .store(true, core::sync::atomic::Ordering::Release);
+                    let _ = CurrentTask::take_notification(true, Duration::infinite());
+                    // PDB released us (error path) — restart loop.
                     continue;
                 }
 
                 // Natural app exit — wait for pdb to install a new app.
-                //
-                // On RP2040 (configTICK_CORE=1), cross-core notifications
-                // work so we sleep and let notify_jvm() wake us directly.
-                // On RP2350 (configTICK_CORE=0), the doorbell-based yield
-                // is unreliable; use WFE to sleep at low power until an
-                // SEV from notify_jvm() wakes us.
-                #[cfg(not(feature = "chip-rp2350-hal"))]
-                {
-                    CurrentTask::take_notification(true, Duration::infinite());
-                    if crate::pdb::pending::FLASH_PARK_REQUESTED
-                        .load(core::sync::atomic::Ordering::Acquire)
-                    {
-                        unsafe { crate::hal::flash::park_for_flash() };
-                        continue;
-                    }
-                }
-                #[cfg(feature = "chip-rp2350-hal")]
-                loop {
-                    if crate::pdb::pending::FLASH_PARK_REQUESTED
-                        .load(core::sync::atomic::Ordering::Acquire)
-                    {
-                        unsafe { crate::hal::flash::park_for_flash() };
-                        break;
-                    }
-                    cortex_m::asm::wfe();
-                }
+                CurrentTask::take_notification(true, Duration::infinite());
             }
         })
         .unwrap();

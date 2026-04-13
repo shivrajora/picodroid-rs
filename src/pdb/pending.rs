@@ -7,6 +7,19 @@ use alloc::vec::Vec;
 /// When true, the JVM interpreter exits at the next opcode boundary.
 pub static STOP_JVM: AtomicBool = AtomicBool::new(false);
 
+/// Set STOP_JVM.  PDB and JVM run on the same core so a plain
+/// Relaxed store is immediately visible — no cross-core barriers needed.
+#[cfg(not(feature = "sim"))]
+pub fn set_stop_jvm() {
+    STOP_JVM.store(true, Ordering::Relaxed);
+}
+
+/// Check if the JVM should stop.
+#[cfg(not(feature = "sim"))]
+pub fn is_stop_jvm() -> bool {
+    STOP_JVM.load(Ordering::Relaxed)
+}
+
 /// Set by pdb_task before CMD_INSTALL flash operations.  When jvm_task sees
 /// this after the JVM exits, it enters a RAM spin loop with interrupts disabled
 /// so core 0 does not access flash during erase/program.
@@ -52,46 +65,6 @@ pub(super) fn notify_jvm() {
     cortex_m::asm::sev();
 }
 
-// ── Cross-core park signaling queue (RP2350) ─────────────────────────────────
-//
-// FreeRTOS SMP cross-core xTaskNotify is unreliable on the RP2350 community
-// port — notifications sent from core 0 to core 1 are silently lost.
-// A FreeRTOS queue works correctly because the send operation triggers a
-// doorbell + PendSV via a different code path.
-
-#[cfg(feature = "chip-rp2350-hal")]
-struct QueueCell(core::cell::UnsafeCell<Option<freertos_rust::Queue<u8>>>);
-#[cfg(feature = "chip-rp2350-hal")]
-unsafe impl Sync for QueueCell {}
-#[cfg(feature = "chip-rp2350-hal")]
-static PARK_SIGNAL_QUEUE: QueueCell = QueueCell(core::cell::UnsafeCell::new(None));
-
-/// Initialize the park-signal queue. Called once from pdb_task at startup.
-#[cfg(feature = "chip-rp2350-hal")]
-pub fn init_park_signal() {
-    let q = freertos_rust::Queue::new(1).expect("park signal queue alloc failed");
-    unsafe { *PARK_SIGNAL_QUEUE.0.get() = Some(q) };
-}
-
-/// Block until park signal arrives or timeout.  Returns true if signalled.
-#[cfg(feature = "chip-rp2350-hal")]
-pub(super) fn wait_park_signal(timeout_ms: u32) -> bool {
-    if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
-        q.receive(freertos_rust::Duration::ms(timeout_ms)).is_ok()
-    } else {
-        false
-    }
-}
-
-/// Send park signal from an ISR context (timer alarm handler).
-#[cfg(feature = "chip-rp2350-hal")]
-pub fn signal_park_from_isr() {
-    if let Some(q) = unsafe { (*PARK_SIGNAL_QUEUE.0.get()).as_ref() } {
-        let mut ctx = freertos_rust::InterruptContext::new();
-        let _ = q.send_from_isr(&mut ctx, 1u8);
-    }
-}
-
 /// Register a child task. Called from the spawning side right after Task::start() returns.
 pub fn register_child_task(task: freertos_rust::Task) {
     let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);
@@ -116,17 +89,6 @@ pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
     ACTIVE_JVM_THREADS.store(next, Ordering::Release);
     if next == 0 {
         notify_jvm();
-    }
-}
-
-/// Abort the JVM task's current vTaskDelay (if any).  Called from pdb_task
-/// (core 1) immediately after setting STOP_JVM so the JVM task wakes from
-/// long native sleeps (e.g. `SystemClock.sleep(500)`) without waiting for
-/// the delay to expire naturally.  Uses `xTaskAbortDelay` which enters a
-/// critical section internally, so it is safe to call cross-core.
-pub fn abort_jvm_delay() {
-    if let Some(t) = unsafe { (*JVM_TASK.0.get()).as_ref() } {
-        t.abort_delay();
     }
 }
 

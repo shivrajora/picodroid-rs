@@ -71,6 +71,11 @@ pub(crate) fn run_activity(
     // Framework event loop -- tick LVGL and dispatch click callbacks.
     let mut pacer = crate::hal::system_clock::FramePacer::new();
     loop {
+        // Check before the potentially-blocking LVGL render.
+        if handler.interrupted() {
+            break;
+        }
+
         engine::tick(16);
         crate::system::picodroid::graphics::fps_overlay::update();
         dispatch_clicks(jvm, heap, handler);
@@ -89,10 +94,6 @@ pub(crate) fn run_activity(
         }
 
         pacer.pace(16);
-
-        if handler.interrupted() {
-            break;
-        }
     }
 }
 

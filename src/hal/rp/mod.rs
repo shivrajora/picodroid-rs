@@ -20,8 +20,6 @@ pub mod pwm;
 pub mod spi;
 pub mod spi_bus;
 pub mod system_clock;
-#[cfg(feature = "chip-rp2350-hal")]
-pub mod timer_alarm;
 pub mod touch;
 pub mod uart;
 

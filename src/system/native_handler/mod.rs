@@ -102,7 +102,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
 
     #[cfg(not(any(test, feature = "sim")))]
     fn interrupted(&self) -> bool {
-        crate::pdb::pending::STOP_JVM.load(core::sync::atomic::Ordering::Relaxed)
+        crate::pdb::pending::is_stop_jvm()
     }
 
     #[cfg(not(feature = "sim"))]

@@ -479,7 +479,9 @@ pub fn init() {
 /// level counter and, if the ISR deferred a packet, drains it from DPRAM
 /// once there is room, then re-arms the endpoint.
 fn on_byte_consumed() {
-    unsafe {
+    // Prevent the USB ISR from preempting the RX_QUEUE_LEVEL
+    // read-modify-write and the deferred-packet drain sequence.
+    cortex_m::interrupt::free(|_| unsafe {
         let level = core::ptr::read_volatile(&raw const RX_QUEUE_LEVEL).saturating_sub(1);
         core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, level);
 
@@ -505,7 +507,7 @@ fn on_byte_consumed() {
             // queue was almost full.  Re-arm now that there is room.
             arm_ep1_out();
         }
-    }
+    });
 }
 
 /// Read one byte from the USB CDC RX queue, blocking forever.
