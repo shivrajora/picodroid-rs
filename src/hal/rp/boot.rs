@@ -71,6 +71,17 @@ pub fn clock_init() {
     .unwrap();
 }
 
+/// Initialise the FreeRTOS heap_5 region from linker symbols.
+///
+/// Must be called after clock_init() and before any FreeRTOS API call
+/// (Task::new, pvPortMalloc, etc.).
+pub fn init_heap_regions() {
+    extern "C" {
+        fn picodroid_define_heap_regions();
+    }
+    unsafe { picodroid_define_heap_regions() }
+}
+
 /// Create FreeRTOS tasks and start the scheduler (never returns).
 ///
 /// RP2040/RP2350 are dual-core:

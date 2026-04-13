@@ -28,6 +28,8 @@ mod lvgl_ffi;
 mod packagemanager;
 #[cfg(not(any(test, feature = "sim")))]
 mod pdb;
+#[cfg(feature = "sim")]
+mod sim_allocator;
 mod system;
 mod task_priority;
 
@@ -46,10 +48,15 @@ use panic_probe as _;
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 
+#[cfg(feature = "sim")]
+#[global_allocator]
+static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::new();
+
 #[cfg(not(any(test, feature = "sim")))]
 #[entry]
 fn main() -> ! {
     hal::boot::clock_init();
+    hal::boot::init_heap_regions();
 
     // Display test: skip JVM, run LVGL test UI directly on a FreeRTOS task.
     #[cfg(feature = "display-test")]
@@ -77,6 +84,18 @@ fn main() -> ! {
 #[cfg(all(feature = "sim", not(feature = "display-test")))]
 fn main() {
     app::run_jvm();
+
+    let (current, peak, limit) = GLOBAL.heap_stats();
+    if limit == usize::MAX {
+        println!("[sim] heap: peak {} KB (unlimited)", peak / 1024);
+    } else {
+        println!(
+            "[sim] heap: peak {} KB / {} KB limit ({} KB current)",
+            peak / 1024,
+            limit / 1024,
+            current / 1024,
+        );
+    }
 }
 
 #[cfg(all(feature = "sim", feature = "display-test"))]

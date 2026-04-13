@@ -28,7 +28,11 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 256 KB (of 520 KB RAM) */
+/* Heap: using heap_5 with regions defined at runtime by heap_regions.c.
+ * The actual heap spans __sheap to (_stack_start - 4 KB ISR stack reserve),
+ * automatically capturing all RAM left after .data/.bss/stacks.
+ * configTOTAL_HEAP_SIZE is kept for FreeRTOS internals that reference it
+ * (e.g. stats reporting) but heap_5 ignores it for allocation. */
 #ifdef __ARM_ARCH_8M_MAIN__
 #define configTOTAL_HEAP_SIZE                   ( 256 * 1024 )
 #else

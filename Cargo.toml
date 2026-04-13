@@ -45,9 +45,10 @@ rp235x-hal = { version = "0.4", optional = true, features = ["rt", "critical-sec
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
 
-# Host-only deps — simulator display window
+# Host-only deps — simulator display window + heap limiter
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
+libc = "0.2"
 
 [build-dependencies]
 # Used to compile FreeRTOS-Kernel C source directly

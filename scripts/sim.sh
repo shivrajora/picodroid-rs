@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 BOARD="testbench_rp2350"
 APP="helloworld"
+HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
 
@@ -22,10 +23,11 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  -b, --board <board>  Board to simulate (default: testbench_rp2350)
-  -a, --app <app>      App to run (default: helloworld)
-  -r, --release        Build in release mode
-  -h, --help           Show this help message
+  -b, --board <board>       Board to simulate (default: testbench_rp2350)
+  -a, --app <app>           App to run (default: helloworld)
+  -r, --release             Build in release mode
+  -l, --heap-limit <KB>     Limit sim heap to KB kilobytes (simulates MCU)
+  -h, --help                Show this help message
 
 Boards:
 $(list_boards)
@@ -58,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       EXTRA_ARGS+=("--release")
       shift
       ;;
+    -l|--heap-limit)
+      HEAP_LIMIT_KB="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1" >&2
       usage
@@ -75,7 +81,12 @@ bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
 APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 
 # Step 2: Compile and run the simulator with the APK embedded.
-PICODROID_APK_PATH="$APK_PATH" cargo run \
+ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
+if [[ -n "$HEAP_LIMIT_KB" ]]; then
+  ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
+fi
+
+env "${ENV_VARS[@]}" cargo run \
   --target "$HOST_TARGET" \
   --no-default-features \
   --features "sim,$BOARD_FEATURE" \

@@ -152,12 +152,13 @@ fn main() {
             .get("freertos_port")
             .unwrap_or_else(|| panic!("MCU toml missing 'freertos_port': {mcu_toml_path}"));
         b.freertos_port(freertos_port);
-        b.heap("heap_4.c");
+        b.heap("heap_5.c");
 
         let pico_shim_c = mcu
             .get("pico_shim")
             .unwrap_or_else(|| panic!("MCU toml missing 'pico_shim': {mcu_toml_path}"));
         b.add_build_file(pico_shim_c);
+        b.add_build_file("src/hal/rp/port/heap_regions.c");
 
         // Expose stub headers that shadow pico-sdk's pico.h, hardware/*.h, pico/multicore.h
         b.get_cc().include("src/hal/rp/port");
