@@ -26,8 +26,6 @@ has-network = []
 net-cyw43 = []
 # Simulator mode (no hardware)
 sim = []
-# Native display test (runs LVGL test UI instead of JVM)
-display-test = []
 
 [dependencies]
 pico-jvm = { path = "jvm", version = "0.1" }

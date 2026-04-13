@@ -14,8 +14,6 @@ mod app;
     )
 ))]
 mod boards;
-#[cfg(feature = "display-test")]
-mod display_test;
 #[allow(dead_code)]
 mod drivers;
 #[allow(dead_code)]
@@ -58,30 +56,13 @@ fn main() -> ! {
     hal::boot::clock_init();
     hal::boot::init_heap_regions();
 
-    // Display test: skip JVM, run LVGL test UI directly on a FreeRTOS task.
-    #[cfg(feature = "display-test")]
-    {
-        Task::new()
-            .name("disp")
-            .stack_size(8192)
-            .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
-            .start(move |_| display_test::run())
-            .unwrap();
+    let boot_apk: &'static [u8] =
+        unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
 
-        FreeRtosUtils::start_scheduler()
-    }
-
-    // Normal path: boot the JVM with the installed APK.
-    #[cfg(not(feature = "display-test"))]
-    {
-        let boot_apk: &'static [u8] =
-            unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
-
-        hal::boot::start_tasks(boot_apk)
-    }
+    hal::boot::start_tasks(boot_apk)
 }
 
-#[cfg(all(feature = "sim", not(feature = "display-test")))]
+#[cfg(feature = "sim")]
 fn main() {
     app::run_jvm();
 
@@ -96,11 +77,6 @@ fn main() {
             current / 1024,
         );
     }
-}
-
-#[cfg(all(feature = "sim", feature = "display-test"))]
-fn main() {
-    display_test::run();
 }
 
 #[cfg(not(any(test, feature = "sim")))]

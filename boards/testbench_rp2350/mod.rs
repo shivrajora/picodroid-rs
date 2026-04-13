@@ -37,7 +37,7 @@ const PIN_TOUCH_MISO: u8 = 12;
 
 // Calibration: raw ADC range mapped to screen coordinates.
 // X axis is inverted (high raw = low screen X). These defaults were
-// measured empirically; the display-test calibration routine refines them.
+// measured empirically; the touch calibration routine refines them.
 const CAL_X_MIN: u16 = 1970;
 const CAL_X_MAX: u16 = 185;
 const CAL_Y_MIN: u16 = 110;
