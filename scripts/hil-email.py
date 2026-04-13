@@ -70,9 +70,20 @@ def parse_results(results_path):
 
 
 def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
-    """Read the last N lines of an app's RTT log."""
-    # New layout: logs/<run_id>/<app>.log; fall back to flat naming for old runs.
-    log_file = Path(log_dir) / run_id / f"{app}.log"
+    """Read the last N lines of an app's log (RTT or PDB)."""
+    run_dir = Path(log_dir) / run_id
+
+    # PDB test: app name is "helloworld:pdb-ping" → log is "helloworld.pdb-ping.log"
+    if ":" in app:
+        base_app, _, pdb_suffix = app.partition(":")
+        log_file = run_dir / f"{base_app}.{pdb_suffix}.log"
+        if log_file.exists():
+            lines = log_file.read_text().splitlines()
+            tail = lines[-max_lines:] if len(lines) > max_lines else lines
+            return "\n".join(tail)
+
+    # Standard layout: logs/<run_id>/<app>.log; fall back to flat naming for old runs.
+    log_file = run_dir / f"{app}.log"
     if not log_file.exists():
         log_file = Path(log_dir) / f"{run_id}-{app}.log"
     if not log_file.exists():

@@ -28,6 +28,7 @@ HIL_LOCK="$HIL_DIR/hil.lock"
 BOARD="testbench_rp2350"
 
 INCLUDE_HW=false
+SKIP_PDB=false
 SPECIFIC_APP=""
 SEND_EMAIL=true
 
@@ -36,6 +37,7 @@ SEND_EMAIL=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-hw) INCLUDE_HW=true; shift ;;
+    --skip-pdb)   SKIP_PDB=true; shift ;;
     --no-email)   SEND_EMAIL=false; shift ;;
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
     -h|--help)
@@ -45,6 +47,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --app <name>    Run only the specified test
   --include-hw    Also run hardware-peripheral tests (adcdemo, i2cdemo, etc.)
+  --skip-pdb      Skip all PDB (Picodroid Debug Bridge) tests
   --no-email      Skip sending the email report
   -h, --help      Show this help message
 EOF
@@ -108,6 +111,152 @@ kill_process_group() {
   wait "$pid" 2>/dev/null || true
 }
 
+run_pdb_test() {
+  local app="$1" timeout="$2" patterns="$3" pdb_cmd="$4"
+  local test_name="$app:pdb-$pdb_cmd"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.log"
+
+  TOTAL=$((TOTAL + 1))
+  hil_log "--- [$TOTAL] $test_name (pdb, ${timeout}s) ---"
+
+  local -a pdb_args=()
+  case "$pdb_cmd" in
+    ping)
+      pdb_args=(ping)
+      ;;
+    sysmon)
+      pdb_args=(sysmon)
+      ;;
+    install)
+      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+      if [[ ! -f "$apk_path" ]]; then
+        hil_log "  PAPK not found, building..."
+        if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$RUN_LOG_DIR/${app}.pdb-build.log" 2>&1; then
+          hil_log "  BUILD FAILED (PAPK for install)"
+          echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
+          ERROR=$((ERROR + 1))
+          return
+        fi
+      fi
+      pdb_args=(install "$apk_path")
+      ;;
+    install-stress)
+      run_pdb_install_stress "$app" "$timeout" "$patterns"
+      return
+      ;;
+    *)
+      hil_log "  ERROR: unknown PDB command '$pdb_cmd'"
+      echo "ERROR $test_name (unknown pdb command)" >> "$RESULTS_FILE"
+      ERROR=$((ERROR + 1))
+      return
+      ;;
+  esac
+
+  # Run PDB tool with timeout; capture stdout and stderr.
+  hil_log "  Running: pdb ${pdb_args[*]}"
+  timeout "$timeout" "$PDB_BIN" "${pdb_args[@]}" > "$log_file" 2>&1
+  local exit_code=$?
+
+  if [[ $exit_code -ne 0 ]]; then
+    # "no picodroid devices found" → graceful SKIP.
+    if grep -q "no picodroid devices found" "$log_file" 2>/dev/null; then
+      hil_log "  SKIP (no CDC device detected)"
+      echo "SKIP $test_name" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      return
+    fi
+    if [[ $exit_code -eq 124 ]]; then
+      hil_log "  PDB command timed out after ${timeout}s"
+    else
+      hil_log "  PDB exited with code $exit_code"
+    fi
+  fi
+
+  # Check expected patterns.
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+    hil_log "  PASS"
+    echo "PASS $test_name" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    hil_log "  FAIL"
+    hil_log "  Log tail:"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
+    echo "FAIL $test_name" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+run_pdb_install_stress() {
+  local app="$1" timeout="$2" patterns="$3"
+  local test_name="$app:pdb-install-stress"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-install-stress.log"
+
+  # Alternate between blinky and displaydemo for different PAPK sizes.
+  local -a stress_apps=(blinky displaydemo)
+
+  # Build PAPKs for both apps.
+  for sa in "${stress_apps[@]}"; do
+    local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
+    if [[ ! -f "$apk_path" ]]; then
+      hil_log "  Building PAPK for $sa..."
+      if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$sa" > "$RUN_LOG_DIR/${sa}.pdb-build.log" 2>&1; then
+        hil_log "  BUILD FAILED (PAPK for $sa)"
+        echo "ERROR $test_name (papk build failed for $sa)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
+      fi
+    fi
+  done
+
+  local total_cycles=10
+  local succeeded=0
+
+  : > "$log_file"
+
+  local deadline=$((SECONDS + timeout))
+
+  for i in $(seq 1 $total_cycles); do
+    if [[ $SECONDS -ge $deadline ]]; then
+      echo "cycle $i/$total_cycles: TIMEOUT (overall deadline reached)" >> "$log_file"
+      hil_log "  cycle $i/$total_cycles: TIMEOUT"
+      continue
+    fi
+
+    # Alternate apps: odd=first, even=second.
+    local idx=$(( (i - 1) % ${#stress_apps[@]} ))
+    local sa="${stress_apps[$idx]}"
+    local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
+    local remaining=$((deadline - SECONDS))
+
+    echo "=== cycle $i/$total_cycles: installing $sa ===" >> "$log_file"
+    hil_log "  cycle $i/$total_cycles: installing $sa"
+
+    if timeout "$remaining" "$PDB_BIN" install "$apk_path" >> "$log_file" 2>&1; then
+      succeeded=$((succeeded + 1))
+      echo "cycle $i/$total_cycles: OK" >> "$log_file"
+    else
+      echo "cycle $i/$total_cycles: FAILED (exit $?)" >> "$log_file"
+      hil_log "  cycle $i/$total_cycles: FAILED"
+    fi
+  done
+
+  echo "$succeeded/$total_cycles install cycles succeeded" >> "$log_file"
+  hil_log "  Result: $succeeded/$total_cycles install cycles succeeded"
+
+  # Check expected patterns.
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+    hil_log "  PASS"
+    echo "PASS $test_name" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    hil_log "  FAIL"
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
+    echo "FAIL $test_name" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 mkdir -p "$HIL_LOG_DIR" "$HIL_RESULTS_DIR"
@@ -128,6 +277,21 @@ RUN_LOG_DIR="$HIL_LOG_DIR/$RUN_ID"
 RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
 
 mkdir -p "$RUN_LOG_DIR"
+
+# Pre-build PDB host tool (needed for pdb category tests).
+PDB_BIN=""
+if [[ "$SKIP_PDB" != "true" ]]; then
+  hil_log "Building PDB tool..."
+  PDB_HOST_TARGET="$(host_target)"
+  PDB_BIN="$REPO_ROOT/target/${PDB_HOST_TARGET}/release/pdb"
+  if ! cargo build --release --quiet \
+      --target "$PDB_HOST_TARGET" \
+      --manifest-path "$REPO_ROOT/tools/pdb/Cargo.toml" \
+      > "$RUN_LOG_DIR/pdb-build.log" 2>&1; then
+    hil_log "WARNING: PDB tool build failed; PDB tests will be skipped"
+    PDB_BIN=""
+  fi
+fi
 
 hil_log "========================================="
 hil_log "HIL Run: $RUN_ID"
@@ -227,7 +391,7 @@ run_test() {
 }
 
 # Parse config and run tests.
-while IFS='|' read -r app category timeout patterns; do
+while IFS='|' read -r app category timeout patterns pdb_cmd; do
   # Skip comments and blank lines.
   [[ "$app" =~ ^[[:space:]]*# ]] && continue
   [[ -z "$app" ]] && continue
@@ -250,6 +414,26 @@ while IFS='|' read -r app category timeout patterns; do
     hil_log "SKIP $app"
     echo "SKIP $app" >> "$RESULTS_FILE"
     SKIP=$((SKIP + 1))
+    continue
+  fi
+
+  # PDB tests: run PDB command against already-running device.
+  if [[ "$category" == "pdb" ]]; then
+    if [[ "$SKIP_PDB" == "true" ]]; then
+      hil_log "SKIP $app:pdb-$pdb_cmd (--skip-pdb)"
+      echo "SKIP $app:pdb-$pdb_cmd" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      TOTAL=$((TOTAL + 1))
+      continue
+    fi
+    if [[ -z "$PDB_BIN" || ! -x "$PDB_BIN" ]]; then
+      hil_log "SKIP $app:pdb-$pdb_cmd (PDB tool not available)"
+      echo "SKIP $app:pdb-$pdb_cmd" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      TOTAL=$((TOTAL + 1))
+      continue
+    fi
+    run_pdb_test "$app" "$timeout" "$patterns" "$pdb_cmd"
     continue
   fi
 
