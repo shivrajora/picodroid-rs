@@ -27,6 +27,7 @@ pub const PRIORITY_JVM_MAX: u8 = 20; // Android MAX_PRIORITY  = 10
 
 pub const PRIORITY_RT_1: u8 = 21; // pdb task lives here
 pub const PRIORITY_RT_2: u8 = 22;
+pub const PRIORITY_FS_WORKER: u8 = 22; // fs worker task (alias of RT_2)
 pub const PRIORITY_RT_3: u8 = 23;
 pub const PRIORITY_RT_4: u8 = 24;
 pub const PRIORITY_RT_5: u8 = 25;

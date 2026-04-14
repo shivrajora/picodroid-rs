@@ -2,18 +2,23 @@
 //!
 //! Boot flow: [`init`] is called once, before the FreeRTOS scheduler starts,
 //! so mount/format runs single-core with no cross-core XIP-disable hazard.
-//! Callers reach the mounted filesystem through [`with_fs`].
+//! At the start of `start_tasks` (still pre-scheduler) [`worker::spawn`]
+//! creates a dedicated core-0-pinned fs-worker task.  Every runtime caller
+//! reaches the filesystem by invoking [`with_fs`], which packages the
+//! closure and blocks until the worker has run it.
 //!
-//! Runtime SMP safety: flash writes disable XIP for the duration of the ROM
-//! call.  Today all callers happen on core 0 and are serialised by the
-//! ambient task structure — there is no cross-core concurrent write path.
-//! When a second writer is added (e.g. a future PDB-driven install into the
-//! FS region) it must hook into `park_for_flash` the same way PAPK installs
-//! already do.
+//! Runtime concurrency: all filesystem mutation happens inside the worker,
+//! so same-core interleaving between Java threads is impossible — each
+//! request runs to completion before the next one is dequeued.  The worker's
+//! core affinity keeps the flash XIP-disable window same-core as well.
+//! Flash writes still disable interrupts during the ROM call, so the worker
+//! task is stalled for the duration of each erase/program; that stall is
+//! contained to one well-known task instead of being spread across callers.
 //!
 //! In simulator builds the same `Filesystem` runs against a host-file image
 //! ([`storage_host::HostFileStorage`]) so Java File I/O persists across sim
-//! runs.
+//! runs; sim's `cell` uses an `std::sync::Mutex`, which already serialises
+//! concurrent callers without needing a worker task.
 
 use littlefs_rust::{Config, Filesystem};
 
@@ -22,6 +27,8 @@ pub mod error;
 pub mod storage;
 #[cfg(feature = "sim")]
 pub mod storage_host;
+#[cfg(not(feature = "sim"))]
+pub mod worker;
 
 pub use error::FsError;
 
@@ -135,8 +142,26 @@ fn new_storage() -> Result<FsStorage, FsError> {
     FsStorage::new().map_err(|_| FsError::Io)
 }
 
-/// Run `f` with exclusive access to the mounted filesystem.  Returns `None`
-/// if [`init`] has not been called or the previous mount failed.
-pub fn with_fs<R>(f: impl FnOnce(&Filesystem<FsStorage>) -> R) -> Option<R> {
-    cell::with(f)
+/// Run `f` with exclusive access to the mounted filesystem.
+///
+/// On hardware this dispatches to the fs-worker task (see [`worker`]).  The
+/// caller blocks until the worker has run the closure; on return, any output
+/// captured by the closure has been written.  Must be called from a task
+/// context — calling pre-scheduler will fail to obtain `Task::current()`.
+///
+/// On sim the closure runs synchronously under a mutex.
+///
+/// Returns `None` only if the mount failed in [`init`].
+pub fn with_fs<R, F>(f: F) -> Option<R>
+where
+    F: FnOnce(&Filesystem<FsStorage>) -> R,
+{
+    #[cfg(feature = "sim")]
+    {
+        cell::with(f)
+    }
+    #[cfg(not(feature = "sim"))]
+    {
+        Some(worker::submit(f))
+    }
 }

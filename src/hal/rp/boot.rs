@@ -77,6 +77,12 @@ pub fn clock_init() {
 ///   - PDB task on core 0 (priority 2) — listens for USB CDC installs
 ///   - JVM task on core 0 (priority 1) — runs the app
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
+    // fs-worker: serialises all LittleFS access onto one core-0-pinned task.
+    // Must be spawned after fs::init() (done in main) and before the
+    // scheduler starts; any Java thread calling fs::with_fs blocks until
+    // this task processes its request.
+    crate::fs::worker::spawn();
+
     // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 0: on RP2350, cross-core SRAM visibility between
     // core 0 and core 1 is unreliable for flow-control counters shared
