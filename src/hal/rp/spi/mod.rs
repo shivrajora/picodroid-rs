@@ -1,48 +1,15 @@
+pub mod protocol;
+
 use core::cell::UnsafeCell;
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use pico_jvm::array_heap::ArrayHeap;
 
+use protocol::{
+    clock_divisors, SpiOp, SpiXferState, MAX_STAGING_LEN, SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH,
+};
+
 use super::clock::PCLK_HZ;
-
-const SPI_FIFO_DEPTH: usize = 8;
-const SMALL_XFER_THRESHOLD: usize = 8;
-const MAX_STAGING_LEN: usize = 64;
-
-// ── Transfer state shared between task and ISR ───────────────────────────────
-
-#[derive(Clone, Copy, PartialEq)]
-enum SpiOp {
-    Idle,
-    WriteOnly,
-    FullDuplex,
-}
-
-struct SpiXferState {
-    op: SpiOp,
-    tx_ptr: *const u8,
-    rx_ptr: *mut u8,
-    len: usize,
-    tx_idx: usize,
-    rx_idx: usize,
-    staging: [u8; MAX_STAGING_LEN],
-}
-
-unsafe impl Send for SpiXferState {}
-
-impl SpiXferState {
-    const fn new() -> Self {
-        Self {
-            op: SpiOp::Idle,
-            tx_ptr: core::ptr::null(),
-            rx_ptr: core::ptr::null_mut(),
-            len: 0,
-            tx_idx: 0,
-            rx_idx: 0,
-            staging: [0; MAX_STAGING_LEN],
-        }
-    }
-}
 
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
@@ -162,18 +129,13 @@ extern "C" fn SPI1_IRQ() {
 
 // ── Speed configuration ─────────────────────────────────────────────────────
 
-fn clock_divisors(freq_hz: u32) -> (u8, u8) {
-    let scr = (PCLK_HZ / (2 * freq_hz.max(1))).saturating_sub(1).min(255) as u8;
-    (2u8, scr)
-}
-
 macro_rules! apply_config {
     ($spi:expr, $freq_hz:expr, $mode:expr) => {{
         // 1. Disable the SSP controller before reconfiguring
         $spi.sspcr1().write(|w| unsafe { w.bits(0) });
 
         // 2. Clock prescale divisor (must be even, min 2)
-        let (cpsdvsr, scr) = clock_divisors($freq_hz);
+        let (cpsdvsr, scr) = clock_divisors(PCLK_HZ, $freq_hz);
         $spi.sspcpsr()
             .write(|w| unsafe { w.cpsdvsr().bits(cpsdvsr) });
 
