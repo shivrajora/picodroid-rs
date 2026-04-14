@@ -153,6 +153,14 @@ while IFS='|' read -r app category timeout patterns; do
     continue
   fi
 
+  # Skip pdb tests (require a real device on USB CDC).
+  if [[ "$category" == "pdb" ]]; then
+    sim_log "SKIP $app (pdb — requires device)"
+    echo "SKIP $app" >> "$RESULTS_FILE"
+    SKIP=$((SKIP + 1))
+    continue
+  fi
+
   # Skip explicitly skipped tests.
   if [[ "$category" == "skip" ]]; then
     sim_log "SKIP $app"
