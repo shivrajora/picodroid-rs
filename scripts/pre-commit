@@ -71,11 +71,4 @@ if ! bash "$REPO_ROOT/scripts/test.sh"; then
   exit 1
 fi
 
-echo "==> Running heap pressure tests..."
-if ! bash "$REPO_ROOT/scripts/test-heap.sh"; then
-  echo ""
-  echo "ERROR: Heap pressure tests failed. Fix the failures above before committing."
-  exit 1
-fi
-
 echo "==> All checks passed."

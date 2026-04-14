@@ -164,6 +164,24 @@ while IFS='|' read -r app category timeout patterns; do
   run_test "$app" "$category" "$timeout" "$patterns"
 done < "$SIM_CONF"
 
+# Heap pressure tests (sim-based; bundled here so they run on every sim cycle
+# instead of slowing down pre-commit).
+if [[ -z "$SPECIFIC_APP" ]]; then
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] heap-pressure ---"
+  heap_log="$RUN_LOG_DIR/heap-pressure.log"
+  if bash "$SCRIPT_DIR/test-heap.sh" > "$heap_log" 2>&1; then
+    sim_log "  PASS"
+    echo "PASS heap-pressure" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -10 "$heap_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    echo "FAIL heap-pressure" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
 # Summary.
 sim_log "========================================="
 sim_log "Sim Run $RUN_ID Complete"
