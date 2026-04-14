@@ -1,85 +1,149 @@
 use alloc::vec::Vec;
 
 use super::{
-    BootstrapMethod, ClassFile, Cursor, ExceptionEntry, FieldInfo, MethodInfo, TAG_CLASS, TAG_UTF8,
+    BootstrapMethod, ClassFile, Cursor, ExceptionEntry, FieldInfo, MethodInfo, Parsed, TAG_CLASS,
+    TAG_UTF8,
 };
 
-impl ClassFile {
-    pub fn parse(data: &'static [u8]) -> Result<Self, &'static str> {
-        let mut c = Cursor::new(data);
+/// Walks the constant pool, producing (cp_offsets, cp_tags, position after CP).
+/// Shared between `scan_name` (lazy registration) and `Parsed::parse` (full parse).
+fn parse_cp(data: &[u8]) -> Result<(Vec<usize>, Vec<u8>, usize), &'static str> {
+    let mut c = Cursor::new(data);
 
-        // Magic
-        let magic = c.u32().ok_or("truncated")?;
-        if magic != 0xCAFEBABE {
-            return Err("bad magic");
-        }
+    let magic = c.u32().ok_or("truncated")?;
+    if magic != 0xCAFEBABE {
+        return Err("bad magic");
+    }
+    let _minor = c.u16().ok_or("truncated")?;
+    let _major = c.u16().ok_or("truncated")?;
 
-        // Version
-        let _minor = c.u16().ok_or("truncated")?;
-        let _major = c.u16().ok_or("truncated")?;
+    let cp_count = c.u16().ok_or("truncated")? as usize;
+    let mut cp_offsets: Vec<usize> = Vec::new();
+    let mut cp_tags: Vec<u8> = Vec::new();
+    cp_offsets.push(0);
+    cp_tags.push(0);
 
-        // Constant pool
-        let cp_count = c.u16().ok_or("truncated")? as usize;
-        // cp_offsets[0] unused; entries 1..cp_count
-        let mut cp_offsets: Vec<usize> = Vec::new();
-        let mut cp_tags: Vec<u8> = Vec::new();
-        cp_offsets.push(0); // index 0 placeholder
-        cp_tags.push(0);
+    let mut idx = 1;
+    while idx < cp_count {
+        let tag = c.u8().ok_or("truncated")?;
+        let data_offset = c.pos();
+        cp_tags.push(tag);
+        cp_offsets.push(data_offset);
 
-        let mut idx = 1;
-        while idx < cp_count {
-            let tag = c.u8().ok_or("truncated")?;
-            let data_offset = c.pos();
-            cp_tags.push(tag);
-            cp_offsets.push(data_offset);
-
-            match tag {
-                TAG_UTF8 => {
-                    let len = c.u16().ok_or("truncated")? as usize;
-                    c.skip(len).ok_or("truncated")?;
-                }
-                TAG_CLASS => {
-                    c.skip(2).ok_or("truncated")?; // name_index
-                }
-                8 => {
-                    c.skip(2).ok_or("truncated")?; // string_index
-                }
-                10 => {
-                    c.skip(4).ok_or("truncated")?; // class_index + name_and_type_index
-                }
-                12 => {
-                    c.skip(4).ok_or("truncated")?; // name_index + descriptor_index
-                }
-                // Long/Double take two CP slots (rare in M1 code)
-                5 | 6 => {
-                    c.skip(8).ok_or("truncated")?;
-                    cp_tags.push(0);
-                    cp_offsets.push(0);
-                    idx += 1;
-                }
-                // Integer, Float, InvokeDynamic, FieldRef, InterfaceMethodRef, etc.
-                3 | 4 => {
-                    c.skip(4).ok_or("truncated")?;
-                }
-                11 => {
-                    c.skip(4).ok_or("truncated")?;
-                }
-                9 => {
-                    c.skip(4).ok_or("truncated")?;
-                }
-                18 => {
-                    c.skip(4).ok_or("truncated")?;
-                }
-                15 => {
-                    c.skip(3).ok_or("truncated")?;
-                }
-                16 => {
-                    c.skip(2).ok_or("truncated")?;
-                }
-                _ => return Err("unknown CP tag"),
+        match tag {
+            TAG_UTF8 => {
+                let len = c.u16().ok_or("truncated")? as usize;
+                c.skip(len).ok_or("truncated")?;
             }
-            idx += 1;
+            TAG_CLASS => {
+                c.skip(2).ok_or("truncated")?;
+            }
+            8 => {
+                c.skip(2).ok_or("truncated")?;
+            }
+            10 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            12 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            5 | 6 => {
+                c.skip(8).ok_or("truncated")?;
+                cp_tags.push(0);
+                cp_offsets.push(0);
+                idx += 1;
+            }
+            3 | 4 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            11 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            9 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            18 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            15 => {
+                c.skip(3).ok_or("truncated")?;
+            }
+            16 => {
+                c.skip(2).ok_or("truncated")?;
+            }
+            _ => return Err("unknown CP tag"),
         }
+        idx += 1;
+    }
+
+    Ok((cp_offsets, cp_tags, c.pos()))
+}
+
+/// Resolves a CP Class index to its UTF8 class-name bytes.
+fn cp_class_utf8(
+    data: &'static [u8],
+    cp_offsets: &[usize],
+    cp_tags: &[u8],
+    class_idx: u16,
+) -> Option<&'static [u8]> {
+    let ci = class_idx as usize;
+    if cp_tags.get(ci) != Some(&TAG_CLASS) {
+        return None;
+    }
+    let off = cp_offsets[ci];
+    let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+    if cp_tags.get(utf8_idx) != Some(&TAG_UTF8) {
+        return None;
+    }
+    let uoff = cp_offsets[utf8_idx];
+    let ulen = u16::from_be_bytes([data[uoff], data[uoff + 1]]) as usize;
+    data.get(uoff + 2..uoff + 2 + ulen)
+}
+
+impl ClassFile {
+    /// Registers a class file without fully parsing it.
+    ///
+    /// Scans magic, the constant pool, and the `this_class` index to extract
+    /// the class name (returned via [`ClassFile::scanned_name`]).  The full
+    /// method/field/interface tables are parsed lazily on first access.
+    ///
+    /// This keeps startup RAM low: classes never referenced by the running app
+    /// stay in "registered-only" state and never allocate parsed metadata.
+    pub fn register(data: &'static [u8]) -> Result<Self, &'static str> {
+        let (cp_offsets, cp_tags, pos_after_cp) = parse_cp(data)?;
+        // After CP: access_flags (u16), this_class (u16).  Read this_class.
+        let this_class_pos = pos_after_cp + 2;
+        if data.len() < this_class_pos + 2 {
+            return Err("truncated");
+        }
+        let this_class_idx = u16::from_be_bytes([data[this_class_pos], data[this_class_pos + 1]]);
+        let name =
+            cp_class_utf8(data, &cp_offsets, &cp_tags, this_class_idx).ok_or("bad this_class")?;
+        Ok(ClassFile::new_lazy(data, name))
+    }
+
+    /// Fully parses a class file eagerly.  Kept for tests and callers that
+    /// want to fail-fast on malformed bytecode at load time.
+    pub fn parse(data: &'static [u8]) -> Result<Self, &'static str> {
+        let parsed = Parsed::parse(data)?;
+        let name = {
+            let i = parsed.class_name_index as usize;
+            if parsed.cp_tags.get(i) != Some(&TAG_UTF8) {
+                return Err("bad class name");
+            }
+            let off = parsed.cp_offsets[i];
+            let len = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+            data.get(off + 2..off + 2 + len).ok_or("truncated name")?
+        };
+        Ok(ClassFile::new_eager(data, name, parsed))
+    }
+}
+
+impl Parsed {
+    pub(crate) fn parse(data: &'static [u8]) -> Result<Self, &'static str> {
+        let (cp_offsets, cp_tags, pos_after_cp) = parse_cp(data)?;
+        let mut c = Cursor::new(data);
+        c.pos = pos_after_cp;
 
         // Access flags, this_class, super_class
         let access_flags = c.u16().ok_or("truncated")?;
@@ -269,8 +333,7 @@ impl ClassFile {
             c.pos = attr_start + attr_len;
         }
 
-        Ok(ClassFile {
-            data,
+        Ok(Parsed {
             cp_offsets,
             cp_tags,
             methods,

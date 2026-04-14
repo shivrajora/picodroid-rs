@@ -143,21 +143,24 @@ fn class_name_is_tc() {
 #[test]
 fn one_method_parsed() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
-    assert_eq!(cf.methods.len(), 1);
+    assert_eq!(cf.methods().len(), 1);
 }
 
 #[test]
 fn method_name_is_run() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
     // methods[0].name_index = #5 ("run")
-    assert_eq!(cf.cp_utf8(cf.methods[0].name_index), Some(b"run" as &[u8]));
+    assert_eq!(
+        cf.cp_utf8(cf.methods()[0].name_index),
+        Some(b"run" as &[u8])
+    );
 }
 
 #[test]
 fn method_code_is_return() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
     // The only bytecode instruction is 0xB1 (return)
-    assert_eq!(cf.method_code(&cf.methods[0]), &[0xB1u8]);
+    assert_eq!(cf.method_code(&cf.methods()[0]), &[0xB1u8]);
 }
 
 #[test]
@@ -201,7 +204,7 @@ fn class_name_is_child_for_nonobject_super() {
 #[test]
 fn field_count_one_for_class_with_field() {
     let cf = ClassFile::parse(CLASS_WITH_FIELD).unwrap();
-    assert_eq!(cf.fields.len(), 1);
+    assert_eq!(cf.fields().len(), 1);
 }
 
 #[test]
@@ -213,7 +216,7 @@ fn field_name_is_x_for_class_with_field() {
 #[test]
 fn field_count_zero_for_minimal_class() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
-    assert_eq!(cf.fields.len(), 0);
+    assert_eq!(cf.fields().len(), 0);
 }
 
 // MINIMAL_CLASS with access_flags=0x0200 (ACC_INTERFACE).
@@ -313,7 +316,7 @@ fn normal_class_is_neither_interface_nor_abstract() {
 #[test]
 fn interface_name_resolves_for_class_with_one_interface() {
     let cf = ClassFile::parse(CLASS_WITH_IFACE).unwrap();
-    assert_eq!(cf.interfaces.len(), 1);
+    assert_eq!(cf.interfaces().len(), 1);
     assert_eq!(cf.interface_name(0), Some(b"Runnable" as &[u8]));
     assert_eq!(cf.interface_name(1), None);
 }
@@ -321,5 +324,5 @@ fn interface_name_resolves_for_class_with_one_interface() {
 #[test]
 fn no_interfaces_for_minimal_class() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
-    assert_eq!(cf.interfaces.len(), 0);
+    assert_eq!(cf.interfaces().len(), 0);
 }

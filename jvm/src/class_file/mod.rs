@@ -2,6 +2,7 @@
 /// Parses only the subset needed to run a simple static-method call
 /// (e.g. HelloWorld.main → Log.i).
 use alloc::vec::Vec;
+use core::cell::OnceCell;
 
 mod accessors;
 mod parse;
@@ -64,22 +65,83 @@ pub struct FieldInfo {
     pub descriptor_index: u16,
 }
 
-/// A parsed class file backed by a `&'static [u8]` slice in Flash.
+/// Fully-parsed internals of a class file.  Populated lazily on first access.
+#[derive(Debug)]
+pub(crate) struct Parsed {
+    /// Byte offset of each CP entry's *data* (after the tag byte) within `data`.
+    /// Index 0 is unused (CP is 1-based); index N corresponds to CP entry N.
+    pub cp_offsets: Vec<usize>,
+    /// Tag of each CP entry (same indexing as cp_offsets).
+    pub cp_tags: Vec<u8>,
+    pub methods: Vec<MethodInfo>,
+    pub class_name_index: u16,
+    pub super_class_name_index: u16,
+    pub fields: Vec<FieldInfo>,
+    pub access_flags: u16,
+    pub interfaces: Vec<u16>,
+    pub bootstrap_methods: Vec<BootstrapMethod>,
+}
+
+/// A class file backed by a `&'static [u8]` slice in Flash.
+///
+/// The class name is scanned eagerly at registration so name-based lookups
+/// (e.g. `find_method`, `class_name_to_static_in`) can iterate all registered
+/// classes without forcing a full parse.  All other accessors route through
+/// [`Parsed`] which is populated on first access.
 #[derive(Debug)]
 pub struct ClassFile {
     data: &'static [u8],
-    /// Byte offset of each CP entry's *data* (after the tag byte) within `data`.
-    /// Index 0 is unused (CP is 1-based); index N corresponds to CP entry N.
-    cp_offsets: Vec<usize>,
-    /// Tag of each CP entry (same indexing as cp_offsets).
-    cp_tags: Vec<u8>,
-    pub methods: Vec<MethodInfo>,
-    pub class_name_index: u16,       // Utf8 entry for this class's name
-    pub super_class_name_index: u16, // Utf8 entry for super class name; 0 = java/lang/Object
-    pub fields: Vec<FieldInfo>,      // Instance field declarations (non-static)
-    pub access_flags: u16,           // ACC_INTERFACE=0x0200, ACC_ABSTRACT=0x0400, etc.
-    pub interfaces: Vec<u16>,        // Utf8 indices for each implemented interface name
-    pub bootstrap_methods: Vec<BootstrapMethod>, // BootstrapMethods attribute entries
+    /// Pre-scanned class name (Flash-backed UTF8 bytes from the constant pool).
+    name: &'static [u8],
+    /// Fully-parsed internals; filled on first access via `parsed()`.
+    parsed: OnceCell<Parsed>,
+}
+
+impl ClassFile {
+    /// Returns the raw bytecode slice backing this class file.
+    pub fn data(&self) -> &'static [u8] {
+        self.data
+    }
+
+    /// Returns a reference to the parsed internals, parsing on first call.
+    ///
+    /// Panics only if the class data is malformed — registration (`register`)
+    /// already validated the constant pool enough to extract the class name,
+    /// so in practice a subsequent full parse should not fail.
+    pub(crate) fn parsed(&self) -> &Parsed {
+        self.parsed.get_or_init(|| {
+            Parsed::parse(self.data).expect("class file became unparseable after registration")
+        })
+    }
+
+    /// Returns `true` if the full parse has already been performed.
+    #[cfg(test)]
+    pub(crate) fn is_parsed(&self) -> bool {
+        self.parsed.get().is_some()
+    }
+
+    pub(crate) fn new_lazy(data: &'static [u8], name: &'static [u8]) -> Self {
+        Self {
+            data,
+            name,
+            parsed: OnceCell::new(),
+        }
+    }
+
+    pub(crate) fn new_eager(data: &'static [u8], name: &'static [u8], parsed: Parsed) -> Self {
+        let cell = OnceCell::new();
+        let _ = cell.set(parsed);
+        Self {
+            data,
+            name,
+            parsed: cell,
+        }
+    }
+
+    /// Returns the pre-scanned class name (does not trigger a full parse).
+    pub(crate) fn scanned_name(&self) -> &'static [u8] {
+        self.name
+    }
 }
 
 struct Cursor<'a> {

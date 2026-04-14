@@ -82,11 +82,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         let mut actual_args = captures;
                         actual_args.extend_from_slice(&method_args);
 
-                        let is_native = self.classes[target_ci].methods[target_mi].code_offset == 0;
+                        let is_native =
+                            self.classes[target_ci].methods()[target_mi].code_offset == 0;
                         if is_native {
                             return Err(JvmError::NoSuchMethod);
                         }
-                        let tm = &self.classes[target_ci].methods[target_mi];
+                        let tm = &self.classes[target_ci].methods()[target_mi];
                         let new_frame = Frame::new(
                             target_ci,
                             target_mi,
@@ -160,7 +161,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
 
         if let Some((ci, mi)) = resolved {
-            let is_native = self.classes[ci].methods[mi].code_offset == 0;
+            let is_native = self.classes[ci].methods()[mi].code_offset == 0;
             if is_native {
                 let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
                 if let Some(v) = result {
@@ -169,7 +170,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 Ok(())
             } else {
                 // Java method — push new frame for the iterative interpreter loop
-                let jm = &self.classes[ci].methods[mi];
+                let jm = &self.classes[ci].methods()[mi];
                 let new_frame = Frame::new(ci, mi, args, jm.max_locals, jm.max_stack)?;
                 self.pending_frame = Some(new_frame);
                 Ok(())
@@ -197,7 +198,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame: &mut Frame,
     ) -> Result<(), JvmError> {
         if let Some((ci, mi)) = resolved {
-            let is_native = self.classes[ci].methods[mi].code_offset == 0;
+            let is_native = self.classes[ci].methods()[mi].code_offset == 0;
             if is_native {
                 let result = self.dispatch_native(native_class, name_str, desc_str, &args)?;
                 if let Some(v) = result {
@@ -205,7 +206,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 Ok(())
             } else {
-                let jm = &self.classes[ci].methods[mi];
+                let jm = &self.classes[ci].methods()[mi];
                 let new_frame = Frame::new(ci, mi, &args, jm.max_locals, jm.max_stack)?;
                 self.pending_frame = Some(new_frame);
                 Ok(())
@@ -240,7 +241,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // 3. Get the BootstrapMethod entry
         let bsm = cf
-            .bootstrap_methods
+            .bootstrap_methods()
             .get(bsm_idx as usize)
             .ok_or(JvmError::InvalidBytecode)?;
 

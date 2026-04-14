@@ -175,7 +175,7 @@ impl Jvm {
     /// Returns [`JvmError::InvalidBytecode`] if `data` is not a valid `.class`
     /// file.
     pub fn load_class(&mut self, data: &'static [u8]) -> Result<(), JvmError> {
-        let cf = ClassFile::parse(data).map_err(|_| JvmError::InvalidBytecode)?;
+        let cf = ClassFile::register(data).map_err(|_| JvmError::InvalidBytecode)?;
         self.classes.push(cf);
         Ok(())
     }
@@ -261,7 +261,7 @@ fn find_method_by_name(
             if cn != class_name.as_bytes() {
                 return None;
             }
-            cf.methods.iter().enumerate().find_map(|(mi, m)| {
+            cf.methods().iter().enumerate().find_map(|(mi, m)| {
                 let mn = cf.cp_utf8(m.name_index)?;
                 if mn == method_name.as_bytes() {
                     Some((ci, mi))

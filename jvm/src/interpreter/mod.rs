@@ -87,8 +87,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             // Mark immediately to prevent re-entrant clinit.
             self.statics.mark_initialized(cn);
             if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
-                if self.classes[ci].methods[mi].code_offset != 0 {
-                    let cm = &self.classes[ci].methods[mi];
+                if self.classes[ci].methods()[mi].code_offset != 0 {
+                    let cm = &self.classes[ci].methods()[mi];
                     clinit_frames.push(Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?);
                 }
             }
@@ -152,7 +152,7 @@ fn handle_exception<H: NativeMethodHandler>(
     let handler_frame_idx = (0..frames.len()).rev().find(|&i| {
         let f = &frames[i];
         let cf = &ex.classes[f.class_idx];
-        let method = &cf.methods[f.method_idx];
+        let method = &cf.methods()[f.method_idx];
         find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).is_some()
     });
 
@@ -161,7 +161,7 @@ fn handle_exception<H: NativeMethodHandler>(
         frames.truncate(idx + 1);
         let f = frames.last_mut().unwrap();
         let cf = &ex.classes[f.class_idx];
-        let method = &cf.methods[f.method_idx];
+        let method = &cf.methods()[f.method_idx];
         let handler_pc =
             find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).unwrap();
         f.stack.clear();
@@ -177,7 +177,8 @@ fn handle_exception<H: NativeMethodHandler>(
         .filter_map(|f| {
             let cf = &ex.classes[f.class_idx];
             let cn = core::str::from_utf8(cf.class_name()?).ok()?;
-            let mn = core::str::from_utf8(cf.cp_utf8(cf.methods[f.method_idx].name_index)?).ok()?;
+            let mn =
+                core::str::from_utf8(cf.cp_utf8(cf.methods()[f.method_idx].name_index)?).ok()?;
             Some(StackTraceEntry {
                 class_name: cn,
                 method_name: mn,
@@ -206,7 +207,7 @@ pub fn execute<H: NativeMethodHandler>(
     method_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
-    let m = &classes[class_idx].methods[method_idx];
+    let m = &classes[class_idx].methods()[method_idx];
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
     frames.push(initial_frame);
@@ -242,7 +243,7 @@ pub fn execute<H: NativeMethodHandler>(
         };
 
         let cf = &ex.classes[frame.class_idx];
-        let method = &cf.methods[frame.method_idx];
+        let method = &cf.methods()[frame.method_idx];
         let code = cf.method_code(method);
 
         if frame.pc >= code.len() {

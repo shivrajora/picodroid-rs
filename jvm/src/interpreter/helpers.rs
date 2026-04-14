@@ -96,7 +96,7 @@ pub(super) fn find_method(
         if cn != class_name.as_bytes() {
             continue;
         }
-        for (mi, m) in cf.methods.iter().enumerate() {
+        for (mi, m) in cf.methods().iter().enumerate() {
             let mn = cf.cp_utf8(m.name_index)?;
             let md = cf.cp_utf8(m.descriptor_index)?;
             if mn == method_name.as_bytes() && md == descriptor.as_bytes() {
@@ -186,7 +186,7 @@ pub(super) fn field_slot(
     let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
     for ci in chain.iter() {
         let cf = &classes[*ci];
-        for fi in 0..cf.fields.len() {
+        for fi in 0..cf.fields().len() {
             if cf.field_name(fi)? == field_name.as_bytes() {
                 return Some(slot);
             }
@@ -217,7 +217,7 @@ pub(super) fn is_instance_of(
         };
         // Check implemented interfaces at this level
         let cf = &classes[ci];
-        for iface_idx in &cf.interfaces {
+        for iface_idx in cf.interfaces() {
             if let Some(iface_name) = cf.cp_utf8(*iface_idx) {
                 if iface_name == target_class.as_bytes() {
                     return true;
@@ -240,7 +240,7 @@ pub(super) fn find_clinit(classes: &[ClassFile], class_name: &[u8]) -> Option<(u
         if cf.class_name() != Some(class_name) {
             continue;
         }
-        for (mi, m) in cf.methods.iter().enumerate() {
+        for (mi, m) in cf.methods().iter().enumerate() {
             if let Some(mn) = cf.cp_utf8(m.name_index) {
                 if mn == b"<clinit>" {
                     return Some((ci, mi));
