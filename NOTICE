@@ -67,6 +67,30 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
+littlefs-rust-core (v0.1.0, vendored with local patch)
+================================================================================
+Location:    third_party/littlefs-rust-core/
+License:     BSD-3-Clause
+Copyright:   littlefs-rust contributors
+Upstream:    https://github.com/light-player/littlefs-rust
+
+Pure-Rust port of littlefs, used as the block-level implementation behind the
+`littlefs-rust` crate.  Vendored locally with a single-line patch to
+`lfs_alignup` in src/util.rs: upstream uses checked arithmetic that panics on
+u32 overflow in Rust debug builds, while the C original and the rest of lfs
+rely on unsigned wrap.  The patch switches that site to wrapping_add /
+wrapping_sub.  (Same BSD-3-Clause terms as above apply.)
+
+================================================================================
+littlefs-rust (v0.1.0)
+================================================================================
+License:     BSD-3-Clause
+Copyright:   littlefs-rust contributors
+
+Safe Rust wrapper around `littlefs-rust-core`.  Provides the Filesystem / File
+/ Storage types used by src/fs/.  (Same BSD-3-Clause terms as above apply.)
+
+================================================================================
 google-java-format (v1.35.0) — build tooling only
 ================================================================================
 Location:    vendor/google-java-format-1.35.0-all-deps.jar
