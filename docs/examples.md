@@ -13,7 +13,7 @@ Simple apps to verify your setup and get familiar with the build/flash workflow.
 
 ## Peripherals
 
-Hardware interaction through the `picodroid.pio.PeripheralManager` API.
+Hardware interaction through the `picodroid.pio.PeripheralManager` API. Reference: [api/peripherals.md](api/peripherals.md).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -25,7 +25,7 @@ Hardware interaction through the `picodroid.pio.PeripheralManager` API.
 
 ## Filesystem and Preferences
 
-On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-style key-value API (`picodroid.content.Preferences`).
+On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-style key-value API (`picodroid.content.Preferences`). Reference: [api/storage.md](api/storage.md).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -34,7 +34,7 @@ On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-sty
 
 ## Networking
 
-TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--board testbench_rp2350w`); under the simulator they hit the host network stack.
+TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--board testbench_rp2350w`); under the simulator they hit the host network stack. Reference: [api/networking.md](api/networking.md).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -42,7 +42,7 @@ TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--bo
 
 ## Language Features
 
-Demonstrate Java language features supported by the JVM interpreter.
+Demonstrate Java language features supported by the JVM interpreter. Reference: [api/core.md](api/core.md).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -67,7 +67,7 @@ Demonstrate Java language features supported by the JVM interpreter.
 
 ## Graphics and Display
 
-Full graphical UI with touch input, demonstrating the Activity lifecycle and LVGL widget system.
+Full graphical UI with touch input, demonstrating the Activity lifecycle and LVGL widget system. Reference: [api/ui.md](api/ui.md).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -75,7 +75,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 
 ## Performance and Testing
 
-Benchmarks and stress tests for the JVM runtime and allocator.
+Benchmarks and stress tests for the JVM runtime and allocator. Reference: [api/system.md](api/system.md) (`Runtime.gcCount()`, `Runtime.gcTimeNanos()`).
 
 | Example | Class | Description |
 |---------|-------|-------------|

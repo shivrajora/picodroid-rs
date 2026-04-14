@@ -109,7 +109,7 @@ When adding a new native method that the JVM dispatches to Rust:
 2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`
-5. Update `docs/java-api.md` with the new API surface
+5. Update the relevant `docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
 
 ## Submitting Changes
 

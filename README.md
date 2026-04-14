@@ -94,13 +94,11 @@ See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip s
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, chip/app selection, simulator, and hot-swap with pdb
-- [Examples](docs/examples.md) — all included example apps
-- [Writing Apps](docs/writing-apps.md) — how to create a new Java app and supported language features
-- [Java API](docs/java-api.md) — `picodroid.*` system API reference
-- [Porting Guide](docs/porting-guide.md) — how to add support for a new MCU family
-- [Debugging](docs/debugging.md) — RTT logging, GDB, and the host simulator
-- [Troubleshooting](docs/troubleshooting.md) — common pitfalls and solutions
+Start at [docs/README.md](docs/README.md) for the full index. Highlights:
+
+- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, board/app selection, simulator, hot-swap
+- [Writing Apps](docs/writing-apps.md) — create a new Java app + supported language features
+- [Java API](docs/java-api.md) — split by area: [core](docs/api/core.md), [system](docs/api/system.md), [peripherals](docs/api/peripherals.md), [storage](docs/api/storage.md), [networking](docs/api/networking.md), [UI](docs/api/ui.md)
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure

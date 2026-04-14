@@ -103,7 +103,7 @@ public class MyActivity extends Activity {
 }
 ```
 
-The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [java-api.md](java-api.md) for the full graphics and widget API.
+The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [api/ui.md](api/ui.md) for the full graphics and widget API.
 
 ## Porting to a New Platform
 
