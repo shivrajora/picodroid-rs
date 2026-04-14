@@ -19,6 +19,12 @@ pub const ATYPE_INT: u8 = 10;
 pub const ATYPE_LONG: u8 = 11;
 pub const ATYPE_REF: u8 = 0; // used by anewarray
 
+/// High bit used to tag stored values in ATYPE_REF arrays as string References
+/// (rather than ObjectRefs). Encoding: 0 = Null, positive without tag = ObjectRef,
+/// value with this bit set = Reference (after masking). Needed because arrays
+/// store raw i32 but the JVM has two distinct reference types.
+pub const REF_TAG: u32 = 0x4000_0000;
+
 /// Maximum number of elements stored inline (no heap allocation).
 const INLINE_DATA: usize = 8;
 

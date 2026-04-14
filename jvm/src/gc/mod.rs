@@ -182,10 +182,14 @@ pub fn collect(
                 }
                 mark_bit(arr_marks, idx);
 
-                // ATYPE_REF arrays hold object references as i32
+                // ATYPE_REF arrays hold object references or string references
+                // (distinguished by REF_TAG bit — see array_heap::REF_TAG).
                 if arrays.atype(idx) == Some(ATYPE_REF) {
                     for &val in arrays.data_slice(idx) {
-                        if val >= 0 {
+                        let u = val as u32;
+                        if u & crate::array_heap::REF_TAG != 0 {
+                            work.push(GcRef::String((u & !crate::array_heap::REF_TAG) as u16));
+                        } else if val >= 0 {
                             work.push(GcRef::Object(val as u16));
                         }
                     }

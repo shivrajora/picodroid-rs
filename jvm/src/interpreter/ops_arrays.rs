@@ -47,8 +47,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     .arrays
                     .load(arr_idx, index as usize)
                     .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                // Encoding: 0 = Null, positive = ObjectRef, REF_TAG-bit set = Reference.
                 let v = if raw == 0 {
                     Value::Null
+                } else if (raw as u32) & crate::array_heap::REF_TAG != 0 {
+                    Value::Reference(((raw as u32) & !crate::array_heap::REF_TAG) as u16)
                 } else {
                     Value::ObjectRef(raw as u16)
                 };
@@ -166,6 +169,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let raw = match value {
                     Value::Null => 0i32,
                     Value::ObjectRef(i) => i as i32,
+                    Value::Reference(i) => ((i as u32) | crate::array_heap::REF_TAG) as i32,
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 self.arrays

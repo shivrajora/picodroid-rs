@@ -2208,3 +2208,261 @@ fn enum_compare_to() {
         Ok(Some(Value::Int(2)))
     );
 }
+
+// ── String enhancement tests ────────────────────────────────────────────
+
+#[test]
+fn string_concat() {
+    let mut ctx = StrCtx::new();
+    let a = ctx.intern(b"hello");
+    let b = ctx.intern(b" world");
+    let result = ctx
+        .dispatch("concat", "(Ljava/lang/String;)Ljava/lang/String;", &[a, b])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "hello world");
+}
+
+#[test]
+fn string_concat_empty() {
+    let mut ctx = StrCtx::new();
+    let a = ctx.intern(b"hello");
+    let empty = ctx.intern(b"");
+    let result = ctx
+        .dispatch(
+            "concat",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[a, empty],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "hello");
+}
+
+#[test]
+fn string_hash_code_empty() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"");
+    assert_eq!(
+        ctx.dispatch("hashCode", "()I", &[s]),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn string_hash_code_known() {
+    // Java's "abc".hashCode() = 96354
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    assert_eq!(
+        ctx.dispatch("hashCode", "()I", &[s]),
+        Ok(Some(Value::Int(96354)))
+    );
+}
+
+#[test]
+fn string_replace_char() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"hello");
+    let result = ctx
+        .dispatch(
+            "replace",
+            "(CC)Ljava/lang/String;",
+            &[s, Value::Int(b'l' as i32), Value::Int(b'r' as i32)],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "herro");
+}
+
+#[test]
+fn string_replace_char_no_match() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"hello");
+    let result = ctx
+        .dispatch(
+            "replace",
+            "(CC)Ljava/lang/String;",
+            &[s, Value::Int(b'z' as i32), Value::Int(b'y' as i32)],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "hello");
+}
+
+#[test]
+fn string_replace_string() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"aXbXc");
+    let target = ctx.intern(b"X");
+    let repl = ctx.intern(b"YY");
+    let result = ctx
+        .dispatch(
+            "replace",
+            "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;",
+            &[s, target, repl],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "aYYbYYc");
+}
+
+#[test]
+fn string_replace_string_empty() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    let target = ctx.intern(b"b");
+    let repl = ctx.intern(b"");
+    let result = ctx
+        .dispatch(
+            "replace",
+            "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;",
+            &[s, target, repl],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "ac");
+}
+
+#[test]
+fn string_to_char_array() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    let result = ctx.dispatch("toCharArray", "()[C", &[s]).unwrap().unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(3));
+    assert_eq!(ctx.arrays.load(arr, 0), Some(b'a' as i32));
+    assert_eq!(ctx.arrays.load(arr, 1), Some(b'b' as i32));
+    assert_eq!(ctx.arrays.load(arr, 2), Some(b'c' as i32));
+}
+
+#[test]
+fn string_to_char_array_empty() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"");
+    let result = ctx.dispatch("toCharArray", "()[C", &[s]).unwrap().unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(0));
+}
+
+#[test]
+fn string_split_basic() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"a,b,c");
+    let delim = ctx.intern(b",");
+    let result = ctx
+        .dispatch(
+            "split",
+            "(Ljava/lang/String;)[Ljava/lang/String;",
+            &[s, delim],
+        )
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(3));
+    let r0 = ((ctx.arrays.load(arr, 0).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    let r1 = ((ctx.arrays.load(arr, 1).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    let r2 = ((ctx.arrays.load(arr, 2).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    assert_eq!(ctx.strings.resolve(r0), Some("a"));
+    assert_eq!(ctx.strings.resolve(r1), Some("b"));
+    assert_eq!(ctx.strings.resolve(r2), Some("c"));
+}
+
+#[test]
+fn string_split_no_match() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"hello");
+    let delim = ctx.intern(b",");
+    let result = ctx
+        .dispatch(
+            "split",
+            "(Ljava/lang/String;)[Ljava/lang/String;",
+            &[s, delim],
+        )
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(1));
+    let r0 = ((ctx.arrays.load(arr, 0).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    assert_eq!(ctx.strings.resolve(r0), Some("hello"));
+}
+
+#[test]
+fn string_split_multi_char() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"a::b::c");
+    let delim = ctx.intern(b"::");
+    let result = ctx
+        .dispatch(
+            "split",
+            "(Ljava/lang/String;)[Ljava/lang/String;",
+            &[s, delim],
+        )
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(3));
+    let r0 = ((ctx.arrays.load(arr, 0).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    let r1 = ((ctx.arrays.load(arr, 1).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    let r2 = ((ctx.arrays.load(arr, 2).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    assert_eq!(ctx.strings.resolve(r0), Some("a"));
+    assert_eq!(ctx.strings.resolve(r1), Some("b"));
+    assert_eq!(ctx.strings.resolve(r2), Some("c"));
+}
+
+#[test]
+fn string_split_empty_parts() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"a,,b");
+    let delim = ctx.intern(b",");
+    let result = ctx
+        .dispatch(
+            "split",
+            "(Ljava/lang/String;)[Ljava/lang/String;",
+            &[s, delim],
+        )
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.length(arr), Some(3));
+    let r1 = ((ctx.arrays.load(arr, 1).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
+    assert_eq!(ctx.strings.resolve(r1), Some(""));
+}
+
+// ── Stress: split many times with GC pressure ─────────────────────────────
+
+#[test]
+fn string_split_stress() {
+    // Split a 200-char string with 50 delimiters (51 parts). Repeat many times
+    // and verify each iteration produces the expected parts.
+    let mut ctx = StrCtx::new();
+    static BIG: &[u8] = b"0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50";
+    let s = ctx.intern(BIG);
+    let delim = ctx.intern(b",");
+    for _ in 0..20 {
+        let result = ctx
+            .dispatch(
+                "split",
+                "(Ljava/lang/String;)[Ljava/lang/String;",
+                &[s, delim],
+            )
+            .unwrap()
+            .unwrap();
+        let Value::ArrayRef(arr) = result else {
+            panic!("expected ArrayRef");
+        };
+        assert_eq!(ctx.arrays.length(arr), Some(51));
+    }
+}

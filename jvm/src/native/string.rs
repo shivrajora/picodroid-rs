@@ -1,4 +1,7 @@
-use crate::types::{JvmError, Value};
+use crate::{
+    array_heap::ATYPE_CHAR,
+    types::{JvmError, Value},
+};
 
 use super::NativeContext;
 
@@ -262,6 +265,146 @@ pub(crate) fn dispatch(
             } else {
                 Some(Err(JvmError::InvalidReference))
             }
+        }
+        "concat" => match (ctx.args.first(), ctx.args.get(1)) {
+            (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
+                let combined: alloc::vec::Vec<u8> = {
+                    let sa = ctx.strings.resolve(*a).unwrap_or("");
+                    let sb = ctx.strings.resolve(*b).unwrap_or("");
+                    let mut v = alloc::vec::Vec::with_capacity(sa.len() + sb.len());
+                    v.extend_from_slice(sa.as_bytes());
+                    v.extend_from_slice(sb.as_bytes());
+                    v
+                };
+                let r = ctx
+                    .strings
+                    .intern_dyn(&combined)
+                    .ok_or(JvmError::StackOverflow);
+                Some(r.map(|v| Some(Value::Reference(v))))
+            }
+            _ => Some(Err(JvmError::InvalidReference)),
+        },
+        "hashCode" => {
+            if let Some(Value::Reference(idx)) = ctx.args.first() {
+                let s = ctx.strings.resolve(*idx).unwrap_or("");
+                let mut h: i32 = 0;
+                for &b in s.as_bytes() {
+                    h = h.wrapping_mul(31).wrapping_add(b as i32);
+                }
+                Some(Ok(Some(Value::Int(h))))
+            } else {
+                Some(Err(JvmError::InvalidReference))
+            }
+        }
+        "toCharArray" => {
+            if let Some(Value::Reference(idx)) = ctx.args.first() {
+                let bytes: alloc::vec::Vec<u8> = {
+                    let s = ctx.strings.resolve(*idx).unwrap_or("");
+                    s.as_bytes().to_vec()
+                };
+                let arr = match ctx.arrays.alloc(ATYPE_CHAR, bytes.len() as u16) {
+                    Some(a) => a,
+                    None => return Some(Err(JvmError::StackOverflow)),
+                };
+                for (i, &b) in bytes.iter().enumerate() {
+                    ctx.arrays.store(arr, i, b as i32);
+                }
+                Some(Ok(Some(Value::ArrayRef(arr))))
+            } else {
+                Some(Err(JvmError::InvalidReference))
+            }
+        }
+        "replace" => {
+            // Two overloads: replace(char, char) and replace(CharSequence, CharSequence)
+            if ctx.descriptor.starts_with("(CC)") {
+                // replace(char oldChar, char newChar)
+                let (Some(Value::Reference(idx)), Some(Value::Int(old)), Some(Value::Int(new))) =
+                    (ctx.args.first(), ctx.args.get(1), ctx.args.get(2))
+                else {
+                    return Some(Err(JvmError::InvalidReference));
+                };
+                let replaced: alloc::vec::Vec<u8> = {
+                    let s = ctx.strings.resolve(*idx).unwrap_or("");
+                    s.as_bytes()
+                        .iter()
+                        .map(|&b| if b as i32 == *old { *new as u8 } else { b })
+                        .collect()
+                };
+                let r = ctx
+                    .strings
+                    .intern_dyn(&replaced)
+                    .ok_or(JvmError::StackOverflow);
+                Some(r.map(|v| Some(Value::Reference(v))))
+            } else {
+                // replace(CharSequence target, CharSequence replacement) — we
+                // accept (String, String) descriptors.
+                let (
+                    Some(Value::Reference(idx)),
+                    Some(Value::Reference(target)),
+                    Some(Value::Reference(repl)),
+                ) = (ctx.args.first(), ctx.args.get(1), ctx.args.get(2))
+                else {
+                    return Some(Err(JvmError::InvalidReference));
+                };
+                let replaced: alloc::vec::Vec<u8> = {
+                    let s = ctx.strings.resolve(*idx).unwrap_or("");
+                    let t = ctx.strings.resolve(*target).unwrap_or("");
+                    let r = ctx.strings.resolve(*repl).unwrap_or("");
+                    if t.is_empty() {
+                        s.as_bytes().to_vec()
+                    } else {
+                        s.replace(t, r).into_bytes()
+                    }
+                };
+                let r = ctx
+                    .strings
+                    .intern_dyn(&replaced)
+                    .ok_or(JvmError::StackOverflow);
+                Some(r.map(|v| Some(Value::Reference(v))))
+            }
+        }
+        "split" => {
+            // split(String delim) — literal delimiter, no regex
+            let (Some(Value::Reference(idx)), Some(Value::Reference(delim_idx))) =
+                (ctx.args.first(), ctx.args.get(1))
+            else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            // Collect segments as owned byte vectors to avoid borrow conflicts.
+            let segments: alloc::vec::Vec<alloc::vec::Vec<u8>> = {
+                let s = ctx.strings.resolve(*idx).unwrap_or("");
+                let delim = ctx.strings.resolve(*delim_idx).unwrap_or("");
+                if delim.is_empty() {
+                    alloc::vec![s.as_bytes().to_vec()]
+                } else {
+                    s.split(delim)
+                        .map(|part| part.as_bytes().to_vec())
+                        .collect()
+                }
+            };
+            // Intern each segment, then build a ref array.
+            let mut segment_refs: alloc::vec::Vec<u16> =
+                alloc::vec::Vec::with_capacity(segments.len());
+            for seg in &segments {
+                let r = match ctx.strings.intern_dyn(seg) {
+                    Some(v) => v,
+                    None => return Some(Err(JvmError::StackOverflow)),
+                };
+                segment_refs.push(r);
+            }
+            let arr = match ctx
+                .arrays
+                .alloc(crate::array_heap::ATYPE_REF, segments.len() as u16)
+            {
+                Some(a) => a,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            for (i, &r) in segment_refs.iter().enumerate() {
+                // Tag as Reference (not ObjectRef) so aaload returns Value::Reference.
+                let tagged = ((r as u32) | crate::array_heap::REF_TAG) as i32;
+                ctx.arrays.store(arr, i, tagged);
+            }
+            Some(Ok(Some(Value::ArrayRef(arr))))
         }
         _ => None,
     }
