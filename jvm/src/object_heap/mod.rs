@@ -3,8 +3,12 @@ mod lambda;
 mod list_store;
 mod map_store;
 
-use crate::types::Value;
+use crate::class_file::ClassFile;
+use crate::types::{default_for_descriptor, Value};
 use alloc::vec::Vec;
+
+/// Number of implicit fields in `java/lang/Enum` (name + ordinal).
+const ENUM_IMPLICIT_FIELDS: usize = 2;
 
 /// Maximum number of fields stored inline (no heap allocation).
 const INLINE_FIELDS: usize = 4;
@@ -140,6 +144,64 @@ impl ObjectHeap {
         let idx = self.objects.len() as u16;
         self.objects.push(Some(JvmObject::new(class_name)));
         self.first_free = self.objects.len();
+        Some(idx)
+    }
+
+    /// Allocate and initialize every declared instance field to its JVMS §2.3
+    /// typed default (0 for integral, 0.0 for fp, `Null` for reference).
+    /// Walks the superclass chain root-to-leaf, matching the slot layout used
+    /// by `interpreter::helpers::field_slot`.  Callers without class metadata
+    /// should keep using [`alloc`].
+    pub fn alloc_with_defaults(
+        &mut self,
+        class_name: &'static str,
+        classes: &[ClassFile],
+    ) -> Option<u16> {
+        let idx = self.alloc(class_name)?;
+
+        // Build chain root-first, tracking whether the chain bottoms out at
+        // java/lang/Enum (a native class outside `classes` with 2 implicit
+        // reference-typed fields — those stay Null, matching field_slot).
+        let mut chain: Vec<usize> = Vec::new();
+        let mut enum_base = false;
+        let mut current: &str = class_name;
+        loop {
+            let ci = classes
+                .iter()
+                .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()));
+            match ci {
+                Some(i) => {
+                    chain.push(i);
+                    match classes[i].super_class_name() {
+                        None => break,
+                        Some(super_bytes) => match core::str::from_utf8(super_bytes) {
+                            Ok(s) => current = s,
+                            Err(_) => break,
+                        },
+                    }
+                }
+                None => {
+                    if current == "java/lang/Enum" {
+                        enum_base = true;
+                    }
+                    break;
+                }
+            }
+        }
+        chain.reverse();
+
+        let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
+        for ci in chain.iter() {
+            let cf = &classes[*ci];
+            for fi in cf.fields() {
+                let v = match cf.field_descriptor(fi) {
+                    Some(desc) => default_for_descriptor(desc),
+                    None => Value::Null,
+                };
+                self.set_field(idx, slot, v)?;
+                slot += 1;
+            }
+        }
         Some(idx)
     }
 

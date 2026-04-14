@@ -178,3 +178,25 @@ fn getfield_putfield_named_field_roundtrip() {
     );
     assert_eq!(result.unwrap(), Some(Value::Int(42)));
 }
+
+#[test]
+fn alloc_with_defaults_initializes_int_field_to_zero() {
+    // Regression: uninitialized Java primitive fields used to read as Value::Null
+    // and silently break int-typed opcodes.  Per JVMS §2.3/§2.4, alloc_with_defaults
+    // must set "int x" to Value::Int(0) immediately after alloc — NOT leave it Null.
+    let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
+    let mut objects = ObjectHeap::new();
+    let idx = objects.alloc_with_defaults("F", &classes).unwrap();
+    assert_eq!(objects.get_field(idx, 0), Some(Value::Int(0)));
+}
+
+#[test]
+fn alloc_without_defaults_still_leaves_slots_unset() {
+    // Sanity check: the old `alloc` path is unchanged for native-handler
+    // callers that initialize fields themselves immediately after.
+    let mut objects = ObjectHeap::new();
+    let idx = objects.alloc("F").unwrap();
+    assert_eq!(objects.get_field(idx, 0), None);
+}

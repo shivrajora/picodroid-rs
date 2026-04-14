@@ -61,7 +61,6 @@ pub struct MethodInfo {
 #[derive(Debug)]
 pub struct FieldInfo {
     pub name_index: u16,
-    #[allow(dead_code)]
     pub descriptor_index: u16,
 }
 
@@ -77,6 +76,7 @@ pub(crate) struct Parsed {
     pub class_name_index: u16,
     pub super_class_name_index: u16,
     pub fields: Vec<FieldInfo>,
+    pub static_fields: Vec<FieldInfo>,
     pub access_flags: u16,
     pub interfaces: Vec<u16>,
     pub bootstrap_methods: Vec<BootstrapMethod>,

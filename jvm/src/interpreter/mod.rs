@@ -86,6 +86,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             // Mark immediately to prevent re-entrant clinit.
             self.statics.mark_initialized(cn);
+            // JVMS §5.5 step 2: preparation — every static field gets its
+            // typed default before `<clinit>` runs.  Putstatic in `<clinit>`
+            // then overwrites these with any explicit initializers.
+            if let Some(cf) = self.classes.iter().find(|c| c.class_name() == Some(cn)) {
+                for fi in cf.static_fields() {
+                    if let (Some(name), Some(desc)) =
+                        (cf.cp_utf8(fi.name_index), cf.field_descriptor(fi))
+                    {
+                        self.statics
+                            .set(cn, name, crate::types::default_for_descriptor(desc))
+                            .ok_or(JvmError::StackOverflow)?;
+                    }
+                }
+            }
             if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
                 if self.classes[ci].methods()[mi].code_offset != 0 {
                     let cm = &self.classes[ci].methods()[mi];

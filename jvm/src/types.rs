@@ -30,6 +30,22 @@ pub enum Value {
     Null,
 }
 
+/// Returns the JVMS §2.3 default value for a field with the given descriptor.
+///
+/// Per JVMS §2.4 and §5.5 step 2, every instance field is set to this value on
+/// object creation and every static field is set to this value before the
+/// declaring class's `<clinit>` runs.
+pub fn default_for_descriptor(desc: &[u8]) -> Value {
+    match desc.first() {
+        Some(b'I') | Some(b'S') | Some(b'B') | Some(b'C') | Some(b'Z') => Value::Int(0),
+        Some(b'J') => Value::Long(0),
+        Some(b'F') => Value::Float(0.0),
+        Some(b'D') => Value::Double(0.0),
+        Some(b'L') | Some(b'[') => Value::Null,
+        _ => Value::Null,
+    }
+}
+
 /// One frame in a Java stack trace (class, method, bytecode offset).
 #[derive(Debug, PartialEq)]
 pub struct StackTraceEntry {
@@ -167,5 +183,25 @@ pub fn opcode_name(op: u8) -> &'static str {
         0xc6 => "ifnull",
         0xc7 => "ifnonnull",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_for_descriptor_covers_primitives_and_refs() {
+        assert_eq!(default_for_descriptor(b"I"), Value::Int(0));
+        assert_eq!(default_for_descriptor(b"S"), Value::Int(0));
+        assert_eq!(default_for_descriptor(b"B"), Value::Int(0));
+        assert_eq!(default_for_descriptor(b"C"), Value::Int(0));
+        assert_eq!(default_for_descriptor(b"Z"), Value::Int(0));
+        assert_eq!(default_for_descriptor(b"J"), Value::Long(0));
+        assert_eq!(default_for_descriptor(b"F"), Value::Float(0.0));
+        assert_eq!(default_for_descriptor(b"D"), Value::Double(0.0));
+        assert_eq!(default_for_descriptor(b"Ljava/lang/String;"), Value::Null);
+        assert_eq!(default_for_descriptor(b"[I"), Value::Null);
+        assert_eq!(default_for_descriptor(b""), Value::Null);
     }
 }

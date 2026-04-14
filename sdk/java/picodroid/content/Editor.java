@@ -18,7 +18,7 @@ public final class Editor {
   private int[] intVals = new int[Preferences.MAX_ENTRIES];
   private int[] longValsLo = new int[Preferences.MAX_ENTRIES];
   private int[] longValsHi = new int[Preferences.MAX_ENTRIES];
-  private int count = 0;
+  private int count;
 
   Editor(Preferences base) {
     this.base = base;

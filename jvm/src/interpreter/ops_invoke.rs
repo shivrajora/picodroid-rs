@@ -370,7 +370,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let static_name = helpers::class_name_to_static_in(self.classes, class_name);
         let obj_idx = self
             .objects
-            .alloc(static_name)
+            .alloc_with_defaults(static_name, self.classes)
             .ok_or(JvmError::StackOverflow)?;
         self.alloc_count = self.alloc_count.saturating_add(1);
         frame.push(Value::ObjectRef(obj_idx))?;

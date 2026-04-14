@@ -7,8 +7,12 @@ import picodroid.util.Log;
 public class PrefsDemo extends Application {
   private static final String TAG = "PrefsDemo";
 
-  static int passed = 0;
-  static int failed = 0;
+  // Intentionally no explicit = 0 initializers here — exercises the JVMS §5.5
+  // step 2 static-field preparation path that sets primitives to typed zeros
+  // before <clinit> runs.  A regression would manifest as an ArrayIOB /
+  // InvalidBytecode on the first check() call (iadd on Null).
+  static int passed;
+  static int failed;
 
   static void check(String name, boolean cond) {
     if (cond) {

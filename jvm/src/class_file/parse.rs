@@ -198,9 +198,10 @@ impl Parsed {
             }
         }
 
-        // Parse instance fields
+        // Parse fields, splitting into instance and static lists.
         let field_count = c.u16().ok_or("truncated")? as usize;
         let mut fields: Vec<FieldInfo> = Vec::new();
+        let mut static_fields: Vec<FieldInfo> = Vec::new();
         for _ in 0..field_count {
             let access_flags = c.u16().ok_or("truncated")?;
             let name_idx = c.u16().ok_or("truncated")?;
@@ -211,12 +212,15 @@ impl Parsed {
                 let len = c.u32().ok_or("truncated")? as usize;
                 c.skip(len).ok_or("truncated")?;
             }
-            // Store non-static instance fields only (ACC_STATIC = 0x0008)
+            let info = FieldInfo {
+                name_index: name_idx,
+                descriptor_index: descriptor_idx,
+            };
+            // ACC_STATIC = 0x0008
             if access_flags & 0x0008 == 0 {
-                fields.push(FieldInfo {
-                    name_index: name_idx,
-                    descriptor_index: descriptor_idx,
-                });
+                fields.push(info);
+            } else {
+                static_fields.push(info);
             }
         }
 
@@ -340,6 +344,7 @@ impl Parsed {
             class_name_index: class_name_utf8_idx,
             super_class_name_index,
             fields,
+            static_fields,
             access_flags,
             interfaces,
             bootstrap_methods,

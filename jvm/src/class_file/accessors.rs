@@ -14,6 +14,16 @@ impl ClassFile {
         &self.parsed().fields
     }
 
+    /// Static fields declared in this class.  Triggers parse.
+    pub fn static_fields(&self) -> &[FieldInfo] {
+        &self.parsed().static_fields
+    }
+
+    /// Returns the descriptor bytes for the given FieldInfo (e.g. `b"I"`, `b"Lfoo/Bar;"`).
+    pub fn field_descriptor(&self, fi: &FieldInfo) -> Option<&'static [u8]> {
+        self.cp_utf8(fi.descriptor_index)
+    }
+
     /// Utf8 CP indices for each directly-implemented interface.  Triggers parse.
     pub fn interfaces(&self) -> &[u16] {
         &self.parsed().interfaces

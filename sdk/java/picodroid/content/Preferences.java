@@ -33,7 +33,7 @@ public final class Preferences {
   // Long values split into two int halves to avoid requiring long[] array opcodes.
   int[] longValsLo = new int[MAX_ENTRIES];
   int[] longValsHi = new int[MAX_ENTRIES];
-  int count = 0;
+  int count;
 
   private Preferences(String name) {
     this.name = name;
