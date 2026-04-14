@@ -34,6 +34,20 @@ mod sim_allocator;
 mod system;
 mod task_priority;
 
+// Host-testable pure-logic slices of RP HAL drivers. The rest of `hal::rp`
+// is ARM-only and cfg-gated out on the host; these modules have no
+// `rp-pico`/`rp235x-hal` deps, so pulling them in directly via `#[path]`
+// lets their `#[cfg(test)]` blocks run under `scripts/test.sh`.
+#[cfg(test)]
+#[path = "hal/rp/i2c/protocol.rs"]
+mod hal_rp_i2c_protocol_tests;
+#[cfg(test)]
+#[path = "hal/rp/pdb_usb/protocol.rs"]
+mod hal_rp_pdb_usb_protocol_tests;
+#[cfg(test)]
+#[path = "hal/rp/spi/protocol.rs"]
+mod hal_rp_spi_protocol_tests;
+
 #[cfg(not(any(test, feature = "sim")))]
 use cortex_m::asm;
 #[cfg(not(any(test, feature = "sim")))]
