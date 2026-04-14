@@ -37,6 +37,7 @@ pub fn dispatch(
         ("picodroid/io/File", "length") => Some(file_length(ctx)),
         ("picodroid/io/File", "delete") => Some(file_bool(ctx, backend::delete)),
         ("picodroid/io/File", "mkdir") => Some(file_bool(ctx, backend::mkdir)),
+        ("picodroid/io/File", "renameTo") => Some(file_rename_to(ctx)),
         ("picodroid/io/FileInputStream", "read") => Some(fis_read(ctx)),
         ("picodroid/io/FileInputStream", "available") => Some(fis_available(ctx)),
         ("picodroid/io/FileOutputStream", "initStream") => Some(fos_init_stream(ctx)),
@@ -59,6 +60,21 @@ fn file_bool(
 fn file_length(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let path = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::file::PATH)?;
     Ok(Some(Value::Long(backend::length(path) as i64)))
+}
+
+fn file_rename_to(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let from = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::file::PATH)?;
+    let dest = as_obj(ctx.args.get(1))?;
+    let dest_ref = ctx
+        .objects
+        .get_field(dest, fields::file::PATH)
+        .ok_or(JvmError::InvalidReference)?;
+    let dest_idx = as_string_ref(&dest_ref)?;
+    let to = ctx
+        .strings
+        .resolve(dest_idx)
+        .ok_or(JvmError::InvalidReference)?;
+    Ok(Some(Value::Int(backend::rename(from, to) as i32)))
 }
 
 // ── FileInputStream.read(byte[], int, int) ─────────────────────────────────
@@ -279,6 +295,10 @@ mod backend {
         with_fs(|fs| fs.mkdir(path).is_ok()).unwrap_or(false)
     }
 
+    pub fn rename(from: &str, to: &str) -> bool {
+        with_fs(|fs| fs.rename(from, to).is_ok()).unwrap_or(false)
+    }
+
     pub fn truncate(path: &str) {
         let _ = with_fs(|fs| fs.write_file(path, &[]));
     }
@@ -359,6 +379,15 @@ mod backend {
     }
     pub fn mkdir(_path: &str) -> bool {
         true
+    }
+    pub fn rename(from: &str, to: &str) -> bool {
+        let mut s = store().lock().unwrap();
+        if let Some(data) = s.remove(from) {
+            s.insert(to.to_string(), data);
+            true
+        } else {
+            false
+        }
     }
     pub fn truncate(path: &str) {
         store().lock().unwrap().insert(path.to_string(), Vec::new());

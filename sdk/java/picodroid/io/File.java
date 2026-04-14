@@ -22,4 +22,6 @@ public class File {
   public native boolean delete();
 
   public native boolean mkdir();
+
+  public native boolean renameTo(File dest);
 }
