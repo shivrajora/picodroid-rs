@@ -18,6 +18,42 @@ const PAPK_SLOT_OFFSET_FROM_META: usize = PAPK_BOOT_META_SIZE;
 pub const PAPK_FLASH_MAGIC: u32 = 0x5044_4231; // "PDB1"
 pub const PAPK_MAX_DATA_SIZE: usize = 1020 * 1024; // 1020 KB (1 MB slot minus 4 KB metadata sector)
 
+/// XIP base address for both supported chips.
+pub const XIP_BASE: usize = 0x1000_0000;
+
+/// Flash erase sector size (RP2040/RP2350 NOR flash).
+pub const FLASH_SECTOR_SIZE: usize = 4096;
+
+/// Flash program page size.
+pub const FLASH_PAGE_SIZE: usize = 256;
+
+// FS region symbols defined in the linker script (mcus/rp/rp20{4,35}0.x).
+extern "C" {
+    static __fs_start: u8;
+    static __fs_end: u8;
+}
+
+/// Returns (start_offset, length_bytes) of the LittleFS region, relative to
+/// the flash XIP base (0x10000000).  Both are 4 KB-aligned.
+pub fn fs_region_bounds() -> (u32, u32) {
+    let start = (&raw const __fs_start) as usize;
+    let end = (&raw const __fs_end) as usize;
+    debug_assert!(start >= XIP_BASE && end > start);
+    debug_assert!(start.is_multiple_of(FLASH_SECTOR_SIZE));
+    debug_assert!(end.is_multiple_of(FLASH_SECTOR_SIZE));
+    ((start - XIP_BASE) as u32, (end - start) as u32)
+}
+
+/// Read from an XIP-mapped flash offset (no ROM call; XIP must be enabled).
+///
+/// # Safety
+/// Caller must ensure `flash_offset + buf.len() <= flash size`, XIP is
+/// currently enabled, and no concurrent erase/program is in flight.
+pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
+    let src = (XIP_BASE + flash_offset as usize) as *const u8;
+    core::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), buf.len());
+}
+
 // ── Read ─────────────────────────────────────────────────────────────────────
 
 /// Check the PAPK flash region for a valid persistent install.
@@ -116,50 +152,58 @@ macro_rules! with_xip_disabled {
     }};
 }
 
-/// Erase the flash sectors needed to hold `papk_len` bytes plus the metadata sector.
+// ── Generic absolute-address primitives ──────────────────────────────────────
+//
+// These take flash-relative offsets (0 = XIP base) and are the single point
+// where XIP is disabled.  PAPK and LittleFS helpers sit on top of them.
+
+/// Erase `len` bytes of flash starting at `flash_offset` (both 4 KB-aligned).
 #[link_section = ".data"]
 #[inline(never)]
-pub unsafe fn flash_erase_papk_region(papk_len: usize) {
-    const SECTOR: usize = 4096;
-    let data_erase = papk_len.div_ceil(SECTOR) * SECTOR;
-    let total_erase = PAPK_BOOT_META_SIZE + data_erase;
-
+pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
     with_xip_disabled!(flash_range_erase, |erase| {
-        erase(PAPK_FLASH_META_OFFSET, total_erase, SECTOR as u32, 0x20)
+        erase(flash_offset, len, FLASH_SECTOR_SIZE as u32, 0x20)
     });
 }
 
-/// Write one 256-byte flash page into the PAPK data region.
+/// Program `data` into flash at `flash_offset`.  Both the offset and `data.len()`
+/// must be multiples of `FLASH_PAGE_SIZE` (256 bytes).
 #[link_section = ".data"]
 #[inline(never)]
+pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize) {
+    with_xip_disabled!(flash_range_program, |program| {
+        program(flash_offset, data, len)
+    });
+}
+
+// ── PAPK helpers (layered on the primitives above) ───────────────────────────
+
+/// Erase the flash sectors needed to hold `papk_len` bytes plus the metadata sector.
+pub unsafe fn flash_erase_papk_region(papk_len: usize) {
+    let data_erase = papk_len.div_ceil(FLASH_SECTOR_SIZE) * FLASH_SECTOR_SIZE;
+    let total_erase = PAPK_BOOT_META_SIZE + data_erase;
+    flash_erase_range(PAPK_FLASH_META_OFFSET, total_erase);
+}
+
+/// Write one 256-byte flash page into the PAPK data region.
 pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool {
     let offset_within_slot = page_index as usize * 256;
     if offset_within_slot + 256 > PAPK_MAX_DATA_SIZE {
         return false;
     }
-
     let flash_offset =
         PAPK_FLASH_META_OFFSET + PAPK_BOOT_META_SIZE as u32 + offset_within_slot as u32;
-
-    with_xip_disabled!(flash_range_program, |program| {
-        program(flash_offset, data.as_ptr(), 256)
-    });
-
+    flash_program_range(flash_offset, data.as_ptr(), 256);
     true
 }
 
 /// Write the PapkBootMeta header to sector 0, committing the install atomically.
-#[link_section = ".data"]
-#[inline(never)]
 pub unsafe fn flash_commit_metadata(len: u32) {
     let mut meta_page = [0xFFu8; 256];
     meta_page[0..4].copy_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
     meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
     meta_page[8..12].copy_from_slice(&len.to_le_bytes());
-
-    with_xip_disabled!(flash_range_program, |program| {
-        program(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256)
-    });
+    flash_program_range(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
 }
 
 // ── Park ─────────────────────────────────────────────────────────────────────

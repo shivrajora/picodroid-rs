@@ -17,6 +17,9 @@ mod boards;
 #[allow(dead_code)]
 mod drivers;
 #[allow(dead_code)]
+#[cfg(not(any(test, feature = "sim")))]
+mod fs;
+#[allow(dead_code)]
 mod hal;
 #[cfg(not(test))]
 mod lifecycle;
@@ -57,6 +60,13 @@ fn main() -> ! {
 
     let boot_apk: &'static [u8] =
         unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+
+    // Mount LittleFS on the FS_FLASH region.  Runs pre-scheduler (single-core),
+    // formats on first boot or after corruption.  A failure here is non-fatal
+    // for the JVM — persistence simply remains unavailable until the next boot.
+    if let Err(e) = fs::init() {
+        defmt::warn!("[fs] init failed: {}", defmt::Display2Format(&e));
+    }
 
     hal::boot::start_tasks(boot_apk)
 }
