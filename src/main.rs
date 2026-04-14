@@ -17,7 +17,7 @@ mod boards;
 #[allow(dead_code)]
 mod drivers;
 #[allow(dead_code)]
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(not(test))]
 mod fs;
 #[allow(dead_code)]
 mod hal;
@@ -73,6 +73,10 @@ fn main() -> ! {
 
 #[cfg(feature = "sim")]
 fn main() {
+    if let Err(e) = fs::init() {
+        eprintln!("[sim][fs] init failed: {}", e);
+    }
+
     app::run_jvm();
 
     let (current, peak, limit) = GLOBAL.heap_stats();

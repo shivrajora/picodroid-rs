@@ -250,9 +250,9 @@ fn store_bytes_into_array(
     Ok(bytes.len())
 }
 
-// ── backend: real LittleFS on hardware, in-memory map in sim ───────────────
+// ── backend: real LittleFS for sim + hardware, in-memory map for unit tests ─
 
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(not(test))]
 mod backend {
     use alloc::vec::Vec;
     use littlefs_rust::{OpenFlags, SeekFrom};
@@ -345,7 +345,7 @@ mod backend {
     }
 }
 
-#[cfg(any(test, feature = "sim"))]
+#[cfg(test)]
 mod backend {
     use alloc::collections::BTreeMap;
     use alloc::string::{String, ToString};

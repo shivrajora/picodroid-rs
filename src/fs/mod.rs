@@ -10,29 +10,94 @@
 //! When a second writer is added (e.g. a future PDB-driven install into the
 //! FS region) it must hook into `park_for_flash` the same way PAPK installs
 //! already do.
-
-use core::cell::UnsafeCell;
+//!
+//! In simulator builds the same `Filesystem` runs against a host-file image
+//! ([`storage_host::HostFileStorage`]) so Java File I/O persists across sim
+//! runs.
 
 use littlefs_rust::{Config, Filesystem};
 
 pub mod error;
+#[cfg(not(feature = "sim"))]
 pub mod storage;
+#[cfg(feature = "sim")]
+pub mod storage_host;
 
 pub use error::FsError;
-pub use storage::FlashStorage;
 
-struct FsCell(UnsafeCell<Option<Filesystem<FlashStorage>>>);
+#[cfg(not(feature = "sim"))]
+pub use storage::FlashStorage as FsStorage;
+#[cfg(feature = "sim")]
+pub use storage_host::HostFileStorage as FsStorage;
 
-// SAFETY: access is serialised by the single-threaded invariant documented
-// above — `init` runs pre-scheduler, and runtime callers are all on core 0.
-unsafe impl Sync for FsCell {}
+#[cfg(not(feature = "sim"))]
+mod layout {
+    pub use super::storage::{BLOCK_SIZE, PROG_SIZE, READ_SIZE};
+}
+#[cfg(feature = "sim")]
+mod layout {
+    pub use super::storage_host::{BLOCK_SIZE, PROG_SIZE, READ_SIZE};
+}
 
-static FS: FsCell = FsCell(UnsafeCell::new(None));
+// ── FS singleton ───────────────────────────────────────────────────────────
 
-fn config_for(storage: &FlashStorage) -> Config {
-    let mut cfg = Config::new(storage::BLOCK_SIZE as u32, storage.block_count());
-    cfg.read_size = storage::READ_SIZE as u32;
-    cfg.prog_size = storage::PROG_SIZE as u32;
+#[cfg(not(feature = "sim"))]
+mod cell {
+    use super::*;
+    use core::cell::UnsafeCell;
+
+    pub(super) struct FsCell(UnsafeCell<Option<Filesystem<FsStorage>>>);
+    // SAFETY: access is serialised by the single-threaded invariant
+    // documented at the module level — `init` runs pre-scheduler, and
+    // runtime callers are all on core 0.
+    unsafe impl Sync for FsCell {}
+
+    pub(super) static FS: FsCell = FsCell(UnsafeCell::new(None));
+
+    pub(super) fn install(fs: Filesystem<FsStorage>) {
+        // Safety: single-threaded init — see module-level SAFETY note.
+        unsafe { *FS.0.get() = Some(fs) };
+    }
+
+    pub(super) fn with<R>(f: impl FnOnce(&Filesystem<FsStorage>) -> R) -> Option<R> {
+        // Safety: see module-level SAFETY note.
+        let slot = unsafe { &*FS.0.get() };
+        slot.as_ref().map(f)
+    }
+}
+
+#[cfg(feature = "sim")]
+mod cell {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    // Newtype so we can assert Send/Sync. `Filesystem` holds raw pointers
+    // that don't auto-impl Send; the Mutex around this serialises all
+    // access, and the raw pointers refer into heap owned by the same
+    // filesystem instance, so moving the whole thing between threads under
+    // the mutex is sound.
+    struct FsBox(Filesystem<FsStorage>);
+    unsafe impl Send for FsBox {}
+
+    static FS: OnceLock<Mutex<Option<FsBox>>> = OnceLock::new();
+
+    fn slot() -> &'static Mutex<Option<FsBox>> {
+        FS.get_or_init(|| Mutex::new(None))
+    }
+
+    pub(super) fn install(fs: Filesystem<FsStorage>) {
+        *slot().lock().unwrap() = Some(FsBox(fs));
+    }
+
+    pub(super) fn with<R>(f: impl FnOnce(&Filesystem<FsStorage>) -> R) -> Option<R> {
+        slot().lock().unwrap().as_ref().map(|b| f(&b.0))
+    }
+}
+
+fn config_for(storage: &FsStorage) -> Config {
+    let mut cfg = Config::new(layout::BLOCK_SIZE as u32, storage.block_count());
+    cfg.read_size = layout::READ_SIZE as u32;
+    cfg.prog_size = layout::PROG_SIZE as u32;
     cfg.block_cycles = 500;
     cfg
 }
@@ -41,7 +106,7 @@ fn config_for(storage: &FlashStorage) -> Config {
 ///
 /// Must be called exactly once, before `FreeRtosUtils::start_scheduler`.
 pub fn init() -> Result<(), FsError> {
-    let mut storage = FlashStorage::new();
+    let mut storage = new_storage()?;
     let config = config_for(&storage);
 
     // Try to mount first; only format if mount reports corruption.
@@ -56,17 +121,22 @@ pub fn init() -> Result<(), FsError> {
         Err((e, _)) => return Err(e),
     };
 
-    // Safety: single-threaded init — see module-level SAFETY note.
-    unsafe { *FS.0.get() = Some(fs) };
+    cell::install(fs);
     Ok(())
+}
+
+#[cfg(not(feature = "sim"))]
+fn new_storage() -> Result<FsStorage, FsError> {
+    Ok(FsStorage::new())
+}
+
+#[cfg(feature = "sim")]
+fn new_storage() -> Result<FsStorage, FsError> {
+    FsStorage::new().map_err(|_| FsError::Io)
 }
 
 /// Run `f` with exclusive access to the mounted filesystem.  Returns `None`
 /// if [`init`] has not been called or the previous mount failed.
-pub fn with_fs<R>(f: impl FnOnce(&Filesystem<FlashStorage>) -> R) -> Option<R> {
-    // Safety: see module-level SAFETY note.  Callers must not hold the
-    // returned borrow across task-switch points; the closure form enforces
-    // lexical scoping.
-    let slot = unsafe { &*FS.0.get() };
-    slot.as_ref().map(f)
+pub fn with_fs<R>(f: impl FnOnce(&Filesystem<FsStorage>) -> R) -> Option<R> {
+    cell::with(f)
 }
