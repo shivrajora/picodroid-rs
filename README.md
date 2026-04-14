@@ -23,7 +23,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 | Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz) |
 | RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
-| Java API | Android-compatible (`picodroid.util.Log`, UI widgets, etc.) |
+| Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI), `picodroid.io` (LittleFS files), `picodroid.content.Preferences`, `picodroid.net` (TCP/UDP over WiFi on Pico 2 W), `picodroid.concurrent.Thread`, etc. |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
 ### Architecture
@@ -41,7 +41,7 @@ graph TD
 
     subgraph JVM["JVM Interpreter (jvm/ crate)"]
         BC["Java bytecode<br/>.papk app"]
-        NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log / Display"]
+        NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log / Display / Net / FS (LittleFS)"]
         THREADS["Thread.start()<br/>child tasks (core 0)"]
         GC["Mark-sweep GC<br/>every 256 allocs"]
     end
@@ -56,7 +56,7 @@ graph TD
     BC --> THREADS
     BC --> GC
 
-    PDB_CLI -- "UART hot-swap" --> PDB
+    PDB_CLI -- "USB CDC hot-swap" --> PDB
     PDB -- "write .papk → Flash<br/>restart JVM" --> JVM_TASK
 ```
 
@@ -76,7 +76,7 @@ cd picodroid-rs
 ./scripts/flash.sh --app helloworld
 ```
 
-After flashing, push a new app over UART without reflashing:
+After flashing, push a new app over USB CDC without reflashing:
 
 ```bash
 cargo run -p pdb -- -s /dev/cu.usbmodem102 install build/apks/blinky.papk
@@ -129,7 +129,7 @@ picodroid-rs/
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
-│   └── pdb/            # Host tool: push apps and monitor device health over UART
+│   └── pdb/            # Host tool: push apps and monitor device health over USB CDC
 │
 ├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts
 │

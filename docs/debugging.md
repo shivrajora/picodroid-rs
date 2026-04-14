@@ -20,7 +20,7 @@ For display apps, the simulator opens a graphical window (via minifb) that rende
 
 ## System Monitor (pdb sysmon)
 
-The `pdb sysmon` command queries runtime system health over UART without reflashing or adding debug prints:
+The `pdb sysmon` command queries runtime system health over the device's USB CDC port without reflashing or adding debug prints:
 
 ```bash
 pdb -s /dev/cu.usbmodem102 sysmon

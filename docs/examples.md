@@ -1,6 +1,6 @@
 # Examples
 
-Twenty-four examples are included under `examples/`, organized by category.
+Thirty-two examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -23,6 +23,23 @@ Hardware interaction through the `picodroid.pio.PeripheralManager` API.
 | `adcdemo` | `adcdemo.AdcDemo` | Opens the ADC on GP26 and takes 5 voltage readings, logging each value |
 | `pwmdemo` | `pwmdemo.PwmDemo` | Fades the onboard LED on GP25 using PWM at 1 kHz -- duty cycle sweeps 0%->100%->0% three times |
 
+## Filesystem and Preferences
+
+On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-style key-value API (`picodroid.content.Preferences`).
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `bootcount` | `bootcount.BootCount` | Persists a boot counter across reboots using `picodroid.io.File` / `FileInputStream` / `FileOutputStream` |
+| `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `boolean`) via `Preferences.open()` / `edit().commit()` |
+
+## Networking
+
+TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--board testbench_rp2350w`); under the simulator they hit the host network stack.
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response |
+
 ## Language Features
 
 Demonstrate Java language features supported by the JVM interpreter.
@@ -37,7 +54,11 @@ Demonstrate Java language features supported by the JVM interpreter.
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms, `String.valueOf`, and StringBuilder building |
+| `stringtest` | `stringtest.StringTest` | Exercises the newer `String` methods: `split`, `replace`, `concat`, `toCharArray`, `hashCode` |
+| `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
 | `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
+| `hashmaptest` | `hashmaptest.HashMapTest` | Demonstrates `java.util.HashMap` and `HashSet` — put/get/remove, key iteration, autoboxed keys |
+| `iteratordemo` | `iteratordemo.IteratorDemo` | Demonstrates `Iterable` / `Iterator` and the enhanced `for (T x : collection)` loop |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
@@ -50,16 +71,17 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `displaydemo` | `displaydemo.DisplayDemoApp` | Full UI demo: Activity lifecycle, LinearLayout, TextView, Button, ToggleButton, Switch, touch input, and event handlers on a 320x240 display |
+| `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, and a moving-average FPS overlay (`Display.showFps()`) |
 
 ## Performance and Testing
 
-Benchmarks and stress tests for the JVM runtime.
+Benchmarks and stress tests for the JVM runtime and allocator.
 
 | Example | Class | Description |
 |---------|-------|-------------|
 | `benchmark` | `benchmark.Benchmark` | JVM performance benchmark: times int/long/float/double arithmetic, method dispatch, interface dispatch, object allocation, array ops, string ops, and control flow; logs per-category and total elapsed time |
 | `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
+| `heapstress` | `heapstress.HeapStress` | Allocation/fragmentation stress test exercising the array arena allocator and emergency-GC path |
 
 ## Running an Example
 

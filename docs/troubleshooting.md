@@ -38,10 +38,13 @@ Bare `cargo clippy` fails because the default target is bare-metal ARM. Use the 
 
 ```bash
 # RP2040
-PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --no-default-features --features chip-rp2040 -- --deny=warnings
+PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --no-default-features --features board-testbench-rp2040 -- --deny=warnings
+
+# RP2350
+PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
 
 # Simulator (host)
-PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim -- --deny=warnings
+PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
 ```
 
 Or just run the full pre-commit suite which handles all of this:

@@ -71,6 +71,13 @@ String lower = "PICO".toLowerCase(); // "pico"
 String vi = String.valueOf(42);       // "42"
 String vl = String.valueOf(9000L);    // "9000"
 String vb = String.valueOf(true);     // "true"
+
+// Extended methods
+String[] parts = "a,b,c".split(",");           // ["a", "b", "c"]
+String r       = "foo bar".replace(' ', '_'); // "foo_bar"
+String c       = "Hello, ".concat("World");    // "Hello, World"
+char[] chs     = "abc".toCharArray();          // {'a', 'b', 'c'}
+int    h       = "abc".hashCode();             // standard Java String hash
 ```
 
 > **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
@@ -409,6 +416,213 @@ boolean has = nums.contains(20);  // true — value equality for wrappers
 
 > **Autoboxing:** `ArrayList<Integer>` works as expected — `add(42)` and `contains(42)` both box via `Integer.valueOf`. For raw `ArrayList`, store and retrieve Object references (String, custom class instances); do not store bare primitives without explicit boxing (`Integer.valueOf(42)`, etc.).
 
+## `java.util.HashMap` and `java.util.HashSet`
+
+Hash-table-backed associative containers. Keys are compared by `equals()` / `hashCode()`; autoboxed primitives (`Integer`, `Long`, `Boolean`, `String`) all work as keys.
+
+```java
+import java.util.HashMap;
+import java.util.HashSet;
+
+HashMap map = new HashMap();
+map.put("one", Integer.valueOf(1));
+map.put("two", Integer.valueOf(2));
+
+Integer v   = (Integer) map.get("one");      // 1
+boolean has = map.containsKey("two");        // true
+int     n   = map.size();                    // 2
+map.remove("one");
+
+HashSet set = new HashSet();
+set.add("a");
+set.add("b");
+boolean inSet = set.contains("a");           // true
+```
+
+## `java.util.Iterator` and the enhanced for loop
+
+`ArrayList`, `HashMap` (via `keySet()`), and `HashSet` implement `Iterable`, so the enhanced `for` loop and explicit `Iterator` both work.
+
+```java
+import java.util.ArrayList;
+import java.util.Iterator;
+
+ArrayList items = new ArrayList();
+items.add("a"); items.add("b"); items.add("c");
+
+// Enhanced for-each
+for (Object o : items) {
+    Log.i("TAG", (String) o);
+}
+
+// Explicit iterator
+Iterator it = items.iterator();
+while (it.hasNext()) {
+    Log.i("TAG", (String) it.next());
+}
+```
+
+## Enums
+
+Java `enum` declarations are supported. Each enum constant is a singleton; `values()`, `name()`, `ordinal()`, and `switch (myEnum)` all work.
+
+```java
+public enum Direction { NORTH, EAST, SOUTH, WEST }
+
+Direction d = Direction.NORTH;
+String name = d.name();        // "NORTH"
+int    ord  = d.ordinal();     // 0
+for (Direction dir : Direction.values()) {
+    Log.i("TAG", dir.name());
+}
+
+switch (d) {
+    case NORTH: Log.i("TAG", "up");    break;
+    case SOUTH: Log.i("TAG", "down");  break;
+    default:    Log.i("TAG", "side");  break;
+}
+```
+
+---
+
+## `picodroid.io` — Files
+
+`picodroid.io.File`, `FileInputStream`, and `FileOutputStream` provide a stripped-down `java.io`-style API on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region; under the simulator it is backed by a host file (`build/sim/littlefs.img`) so writes survive across `sim.sh` runs.
+
+Each `read()` / `write()` is independent — there is no native file handle to keep open, so `close()` is a no-op (it is provided so the streams can still be used in try-with-resources blocks).
+
+```java
+import picodroid.io.File;
+import picodroid.io.FileInputStream;
+import picodroid.io.FileOutputStream;
+
+File f = new File("/data/notes.txt");
+boolean exists = f.exists();
+boolean isFile = f.isFile();
+long    size   = f.length();
+boolean ok     = f.delete();
+
+File dir = new File("/data");
+dir.mkdir();
+new File("/data/old.txt").renameTo(new File("/data/new.txt"));
+
+// Append a line
+try (FileOutputStream out = new FileOutputStream("/data/log.txt", /*append=*/true)) {
+    out.write("hello\n".getBytes());
+    out.flush();
+}
+
+// Read it back
+try (FileInputStream in = new FileInputStream(new File("/data/log.txt"))) {
+    byte[] buf = new byte[64];
+    int n = in.read(buf);
+    Log.i("FS", "read " + n + " bytes");
+}
+```
+
+| Class | Selected methods |
+|-------|------------------|
+| `File` | `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `renameTo(File)` |
+| `FileInputStream` | `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
+| `FileOutputStream` | `write(byte[], int, int)`, `write(byte[])`, `write(int)`, `flush()`, `close()`; constructors `(File)`, `(String)`, `(String, boolean append)` |
+
+## `picodroid.content.Preferences`
+
+Typed key-value settings store inspired by Jetpack DataStore. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` on the LittleFS volume.
+
+Supported value types: `String`, `int`, `long`, `boolean`. Limits: 64 entries per file, 63-char keys, 1024-char string values, 4 KB total blob.
+
+```java
+import picodroid.content.Preferences;
+import picodroid.content.Editor;
+
+Preferences prefs = Preferences.open("settings");
+int boots = prefs.getInt("boot_count", 0);
+
+Editor e = prefs.edit();
+e.putInt("boot_count", boots + 1);
+e.putString("device_name", "pico-01");
+e.putBoolean("debug", true);
+boolean ok = e.commit();      // false on I/O failure
+
+if (prefs.contains("device_name")) {
+    String name = prefs.getString("device_name", "");
+}
+```
+
+`commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `Preferences` instances are not thread-safe — synchronize externally if shared.
+
+## `picodroid.net` — TCP / UDP
+
+TCP (`Socket`, `ServerSocket`) and UDP (`DatagramSocket`, `DatagramPacket`) sockets backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only.
+
+`InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free.
+
+### Network status
+
+```java
+import picodroid.net.NetworkInfo;
+import picodroid.net.InetAddress;
+
+if (NetworkInfo.isConnected()) {
+    InetAddress me = new InetAddress(NetworkInfo.getIpAddress());
+    Log.i("Net", "IP: " + me.getHostAddress());   // "192.168.1.42"
+}
+```
+
+### TCP client
+
+```java
+import picodroid.net.Socket;
+
+InetAddress server = InetAddress.getByAddress(192, 168, 1, 10);
+Socket sock = new Socket();
+sock.connect(server.getRawAddress(), 7000);
+sock.setTimeout(5000);                            // 5 s recv timeout (0 = infinite)
+
+byte[] msg = "Hello".getBytes();
+sock.send(msg, 0, msg.length);
+
+byte[] buf = new byte[64];
+int n = sock.recv(buf, 0, buf.length);            // -1 on error
+sock.close();
+```
+
+### TCP server
+
+```java
+import picodroid.net.ServerSocket;
+
+ServerSocket srv = new ServerSocket(8080);
+Socket client = srv.accept();                     // blocking
+// ... use client.send / client.recv ...
+client.close();
+srv.close();
+```
+
+### UDP
+
+```java
+import picodroid.net.DatagramSocket;
+import picodroid.net.DatagramPacket;
+
+DatagramSocket s = new DatagramSocket(0);         // 0 = any free local port
+byte[] data = "ping".getBytes();
+DatagramPacket out = new DatagramPacket(data, data.length,
+                                        InetAddress.getByAddress(192,168,1,10).getRawAddress(),
+                                        9000);
+s.send(out);
+
+byte[] inBuf = new byte[1500];
+DatagramPacket in = new DatagramPacket(inBuf, inBuf.length);
+s.setTimeout(2000);
+s.receive(in);                                    // fills data, length, address, port
+Log.i("Net", "got " + in.getLength() + " bytes");
+s.close();
+```
+
+> **Hardware availability:** the networking stack is only built in for boards with WiFi. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are not registered and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
+
 ---
 
 ## Graphics and UI
@@ -474,6 +688,7 @@ int h = display.getHeight();     // e.g. 240
 display.calibrate();             // run 4-point touch calibration
 display.setContentView(root);    // set root widget
 display.update();                // refresh the display
+display.showFps();               // overlay a moving-average FPS counter (10-frame window)
 MotionEvent touch = display.pollTouch();  // poll for touch input (null if none)
 ```
 
@@ -684,6 +899,96 @@ list.setSize(200, 150);
 list.addItem("Item 1");
 list.addItem("Item 2");
 list.addItem("Item 3");
+```
+
+### `picodroid.widget.CheckBox`
+
+A labelled checkable box.
+
+```java
+import picodroid.widget.CheckBox;
+
+CheckBox cb = new CheckBox();
+cb.setText("Enable WiFi");
+cb.setChecked(true);
+boolean on = cb.isChecked();
+
+cb.setOnCheckedChangeListener(new Runnable() {
+    public void run() { Log.i("UI", "checked=" + cb.isChecked()); }
+});
+```
+
+### `picodroid.widget.SeekBar`
+
+A horizontal slider (0–`max`).
+
+```java
+import picodroid.widget.SeekBar;
+
+SeekBar bar = new SeekBar(100);   // or `new SeekBar()` for default max
+bar.setProgress(25);
+int p = bar.getProgress();
+
+bar.setOnSeekBarChangeListener(new Runnable() {
+    public void run() { Log.i("UI", "progress=" + bar.getProgress()); }
+});
+```
+
+### `picodroid.widget.Spinner`
+
+A drop-down list. Items are passed as a single newline-separated string.
+
+```java
+import picodroid.widget.Spinner;
+
+Spinner sp = new Spinner();
+sp.setItems("Red\nGreen\nBlue");
+int sel = sp.getSelectedItemPosition();
+
+sp.setOnItemSelectedListener(new Runnable() {
+    public void run() { Log.i("UI", "sel=" + sp.getSelectedItemPosition()); }
+});
+```
+
+### `picodroid.widget.EditText`
+
+A single-line text input field.
+
+```java
+import picodroid.widget.EditText;
+
+EditText input = new EditText();
+input.setHint("device name");
+input.setText("pico-01");
+String value = input.getText();
+```
+
+### `picodroid.widget.ScrollView`
+
+A vertically scrollable container with a single child (typically a `LinearLayout`).
+
+```java
+import picodroid.widget.ScrollView;
+import picodroid.widget.LinearLayout;
+
+ScrollView scroll = new ScrollView();
+scroll.setSize(320, 240);
+LinearLayout content = new LinearLayout();
+content.setOrientation(LinearLayout.VERTICAL);
+// ... addView(...) lots of children ...
+scroll.addView(content);
+```
+
+### `picodroid.widget.FrameLayout`
+
+A simple container that stacks children (last `addView` is on top). Useful for overlays such as a status badge over an `ImageView`.
+
+```java
+import picodroid.widget.FrameLayout;
+
+FrameLayout overlay = new FrameLayout();
+overlay.addView(background);
+overlay.addView(badge);
 ```
 
 ## Complete display app example

@@ -141,7 +141,11 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 | String factory | `String.valueOf(int/long/boolean/char/float/double)` |
 | StringBuilder | `new StringBuilder("seed")`, `append(String/int/long/float/boolean/char)`, `length()`, `charAt(int)`, `toString()` |
 | ArrayList | `new ArrayList()`, `add`, `get`, `size`, `isEmpty`, `set`, `remove(int)`, `clear`, `contains` — dynamic list backed by heap |
+| HashMap / HashSet | `java.util.HashMap` and `HashSet` — `put`, `get`, `containsKey`, `remove`, `size`, key iteration; works with autoboxed keys |
+| Iterator / for-each | `Iterable` / `Iterator` and the enhanced `for (T x : collection)` loop — backed by `ArrayList`, `HashMap`, `HashSet` |
+| Enums | Java `enum` declarations — `values()`, `name()`, `ordinal()`, and `switch` over enum constants |
 | Autoboxing | `Integer`, `Boolean`, `Long`, `Float`, `Double` — `valueOf` / `intValue` etc.; enables storing primitives in `ArrayList<Integer>` etc. |
+| String (extended) | `split`, `replace`, `concat`, `toCharArray`, `hashCode` in addition to the predicates / search / transform methods listed above |
 
 ## Garbage Collection
 

@@ -65,26 +65,27 @@ examples/myapp/
   PicodroidManifest.xml
 ```
 
-2. Write your Java source with a `public static void main(String[] args)` entry point:
+2. Write your Java source as an `Application` subclass with an `onCreate()` entry point:
 
 ```java
 package myapp;
 
+import picodroid.app.Application;
 import picodroid.util.Log;
 
-public class MyApp {
-    public static void main(String[] args) {
+public class MyApp extends Application {
+    public void onCreate() {
         Log.i("MyApp", "Hello from MyApp!");
     }
 }
 ```
 
-3. Create `PicodroidManifest.xml`:
+3. Create `PicodroidManifest.xml` (note: the attribute is `application`, not `main-class`):
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="myapp" version="1.0">
-    <application main-class="myapp/MyApp" />
+    <application application="myapp/MyApp" />
 </manifest>
 ```
 

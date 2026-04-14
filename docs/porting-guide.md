@@ -16,6 +16,13 @@ src/hal/
   <your-family>/    # Your new MCU family goes here
 ```
 
+Pin and peripheral configuration for a specific physical board (display
+controller, touch controller, SPI bus assignment, etc.) lives in
+`boards/<board-name>/`, separately from `src/hal/`. The HAL exposes
+chip-level capability; the board module wires it to the actual hardware. A
+new MCU port typically only needs a HAL implementation; a new board on an
+already-supported MCU only needs a `boards/` entry.
+
 The rest of the codebase (`system/`, `pdb/`, `packagemanager/`) calls
 `crate::hal::uart::init()`, `crate::hal::gpio::set_value()`, etc. without
 knowing which chip is underneath. This is a zero-cost abstraction: module-level
@@ -178,6 +185,13 @@ pub fn flash_trigger_reset() -> !;
 
 All flash write/erase functions must run from RAM (not flash) and may need to
 disable XIP. See `src/hal/rp/flash.rs` for the RP family's approach.
+
+In addition to the PAPK region above, a port that wants to support
+`picodroid.io` / `picodroid.content.Preferences` on hardware must reserve a
+separate flash region for the LittleFS volume in its linker memory layout
+(see `memory.x` / `memory_rp2350.x` for the RP family) and expose it to the
+filesystem driver. Sim builds back the same API with a host file image and
+do not need this.
 
 ### pdb_uart.rs
 

@@ -91,7 +91,8 @@ Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 |------|-----|--------|
 | `--board testbench_rp2040` | RP2040 | Raspberry Pi Pico |
 | `--board testbench_rp2350` | RP2350 | Raspberry Pi Pico 2 |
-| `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon |
+| `--board testbench_rp2350w` | RP2350 | Raspberry Pi Pico 2 W (adds WiFi via cyw43 + FreeRTOS+TCP) |
+| `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon (1.14" 240x135 ST7789, no touch) |
 
 ```bash
 # Build / flash for Pico (RP2040)
@@ -125,11 +126,11 @@ Run any app on the host machine without hardware using the simulator:
 ./scripts/sim.sh --app uart --release
 ```
 
-The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. This is useful for testing app logic without a Pico. Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input.
+The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. File I/O (`picodroid.io`) and `picodroid.content.Preferences` are backed by a host-file LittleFS image so writes persist across sim runs. Networking (`picodroid.net`) is backed by the host network stack. Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input.
 
 ## Hot-Swap with pdb {#hot-swap-with-pdb}
 
-The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running device over UART without reflashing the firmware. The firmware listens on UART1 (GP4 TX, GP5 RX) at 115200 baud.
+The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running device over USB CDC without reflashing the firmware. The firmware exposes a USB CDC serial port (e.g. `/dev/cu.usbmodem102` on macOS, `/dev/ttyACM0` on Linux) that pdb talks to — no extra wiring required beyond the USB cable.
 
 ### Quick access via script
 
