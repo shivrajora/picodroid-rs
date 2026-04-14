@@ -6,11 +6,15 @@
 //! Both RP2040 and RP2350 share the same USB 1.1 controller at the same memory
 //! addresses, so one driver covers both chips.
 
+pub mod protocol;
+
 use core::cell::UnsafeCell;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Queue};
+
+use protocol::{assemble_u32_le, CONFIG_DESC, DEVICE_DESC, LINE_CODING, STR0, STR1, STR2};
 
 // ── Register addresses ──────────────────────────────────────────────────────
 
@@ -77,42 +81,6 @@ const EC_ENABLE: u32 = 1 << 31;
 const EC_IRQ_BUF: u32 = 1 << 29;
 const EC_BULK: u32 = 2 << 26;
 const EC_INTERRUPT: u32 = 3 << 26;
-
-// ── USB descriptors ─────────────────────────────────────────────────────────
-
-/// VID 0x1209 (pid.codes open-source), PID 0xCDC0 (picodroid CDC).
-const DEVICE_DESC: [u8; 18] = [
-    18, 0x01, 0x00, 0x02, 0x02, 0x00, 0x00, 64, 0x09, 0x12, 0xC0, 0xCD, 0x00, 0x01, 1, 2, 0, 1,
-];
-
-const CONFIG_DESC: [u8; 67] = [
-    // Configuration
-    9, 0x02, 67, 0, 2, 1, 0, 0x80, 250, // Interface 0: CDC Control (1 endpoint)
-    9, 0x04, 0, 0, 1, 0x02, 0x02, 0x01, 0, // CDC Header FD
-    5, 0x24, 0x00, 0x20, 0x01, // CDC Call Management FD
-    5, 0x24, 0x01, 0x00, 0x01, // CDC ACM FD
-    4, 0x24, 0x02, 0x02, // CDC Union FD
-    5, 0x24, 0x06, 0x00, 0x01, // EP2 IN: interrupt, 8 bytes, 255ms
-    7, 0x05, 0x82, 0x03, 8, 0, 255, // Interface 1: CDC Data (2 endpoints)
-    9, 0x04, 1, 0, 2, 0x0A, 0x00, 0x00, 0, // EP1 OUT: bulk, 64 bytes
-    7, 0x05, 0x01, 0x02, 64, 0, 0, // EP1 IN: bulk, 64 bytes
-    7, 0x05, 0x81, 0x02, 64, 0, 0,
-];
-
-// String descriptor 0: language (English US)
-const STR0: [u8; 4] = [4, 0x03, 0x09, 0x04];
-// String 1: "Picodroid"
-const STR1: [u8; 20] = [
-    20, 0x03, b'P', 0, b'i', 0, b'c', 0, b'o', 0, b'd', 0, b'r', 0, b'o', 0, b'i', 0, b'd', 0,
-];
-// String 2: "PDB (USB CDC)"
-const STR2: [u8; 28] = [
-    28, 0x03, b'P', 0, b'D', 0, b'B', 0, b' ', 0, b'(', 0, b'U', 0, b'S', 0, b'B', 0, b' ', 0,
-    b'C', 0, b'D', 0, b'C', 0, b')', 0,
-];
-
-// Line coding: 115200 8N1 (returned for GET_LINE_CODING)
-const LINE_CODING: [u8; 7] = [0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08];
 
 // ── Static state ────────────────────────────────────────────────────────────
 
@@ -546,11 +514,11 @@ pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
 
 /// Read a u32 in little-endian byte order from the USB CDC RX queue.
 pub fn queue_read_u32_le() -> u32 {
-    let b0 = queue_read_byte() as u32;
-    let b1 = queue_read_byte() as u32;
-    let b2 = queue_read_byte() as u32;
-    let b3 = queue_read_byte() as u32;
-    b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    let b0 = queue_read_byte();
+    let b1 = queue_read_byte();
+    let b2 = queue_read_byte();
+    let b3 = queue_read_byte();
+    assemble_u32_le(b0, b1, b2, b3)
 }
 
 /// Wait for the previous EP1 IN transfer to complete.
