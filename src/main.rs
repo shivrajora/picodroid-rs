@@ -54,7 +54,6 @@ static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::
 #[entry]
 fn main() -> ! {
     hal::boot::clock_init();
-    hal::boot::init_heap_regions();
 
     let boot_apk: &'static [u8] =
         unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
