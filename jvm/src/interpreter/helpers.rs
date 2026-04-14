@@ -368,6 +368,9 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/net/DatagramPacket" => "picodroid/net/DatagramPacket",
         "picodroid/net/InetAddress" => "picodroid/net/InetAddress",
         "picodroid/net/NetworkInfo" => "picodroid/net/NetworkInfo",
+        "picodroid/io/File" => "picodroid/io/File",
+        "picodroid/io/FileInputStream" => "picodroid/io/FileInputStream",
+        "picodroid/io/FileOutputStream" => "picodroid/io/FileOutputStream",
         _ => "unknown",
     }
 }
