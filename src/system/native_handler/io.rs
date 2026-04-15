@@ -30,6 +30,7 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         ("picodroid/io/File", "exists") => Some(file_bool(ctx, backend::exists)),
         ("picodroid/io/File", "isFile") => Some(file_bool(ctx, backend::is_file)),

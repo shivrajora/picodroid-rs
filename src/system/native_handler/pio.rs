@@ -8,6 +8,7 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         ("picodroid/pio/PeripheralManager", "getInstance") => {
             Some(crate::system::picodroid::pio::peripheral_manager::get_instance(ctx.objects))

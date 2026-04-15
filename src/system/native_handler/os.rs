@@ -8,6 +8,7 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         ("picodroid/os/SystemClock", "sleep") => {
             Some(crate::system::picodroid::os::system_clock::sleep(ctx.args))

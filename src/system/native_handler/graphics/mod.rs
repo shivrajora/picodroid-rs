@@ -52,6 +52,7 @@ fn dispatch_with<B: GraphicsBackend>(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    let class_name = crate::shrink_names::unshrink_class(class_name);
     // Class-specific first — these take precedence over inherited View methods
     // so subclass-defined names don't collide with a future View-level setter.
     let class_hit = match class_name {

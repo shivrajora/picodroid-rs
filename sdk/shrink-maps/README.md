@@ -41,8 +41,32 @@ active version (a PAPK built against a newer release cannot run on older
 firmware). Equal-or-lower is accepted, because the append-only rule
 guarantees every name the PAPK uses is still present.
 
-## M1 status
+## Cutting a release
 
-No map files are committed yet. The active version resolves to the sentinel
-`0.0.0` and firmware/PAPKs both advertise that string. M3 will introduce
-the first real map.
+Use the `class-shrink` tool. From the repo root:
+
+```bash
+# Fresh-compile the framework to a scratch dir.
+TMP=$(mktemp -d)
+find sdk/java -name '*.java' -print0 \
+  | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
+
+# Generate the map. Pass --base <previous-release-map> to enforce
+# append-only: existing entries are copied verbatim and only net-new
+# classes get fresh short names.
+cargo run -p class-shrink -- cut-release \
+  --classes-dir "$TMP" \
+  --keep sdk/keep.toml \
+  --base sdk/shrink-maps/v<previous>.toml \
+  --out  sdk/shrink-maps/v<new>.toml
+```
+
+Then bump the `version` field in the root `Cargo.toml` and commit both
+files together. From that commit onwards, both `build.rs` and
+`scripts/build-apk.sh` automatically pick up the new map.
+
+## Current releases
+
+- `v0.1.0.toml` — first release cut. Shrinks all 42 framework classes
+  outside `java/**` (the pico-jvm built-in handler hardcodes those names,
+  so they stay literal).

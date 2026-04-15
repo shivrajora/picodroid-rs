@@ -1,0 +1,171 @@
+# Shrink map (schema v1)
+schema = 1
+
+[[class]]
+from = "picodroid/app/Activity"
+to   = "a/A"
+
+[[class]]
+from = "picodroid/app/Application"
+to   = "a/B"
+
+[[class]]
+from = "picodroid/concurrent/Thread"
+to   = "a/C"
+
+[[class]]
+from = "picodroid/content/Editor"
+to   = "a/D"
+
+[[class]]
+from = "picodroid/content/Preferences"
+to   = "a/E"
+
+[[class]]
+from = "picodroid/graphics/Color"
+to   = "a/F"
+
+[[class]]
+from = "picodroid/graphics/Display"
+to   = "a/G"
+
+[[class]]
+from = "picodroid/io/File"
+to   = "a/H"
+
+[[class]]
+from = "picodroid/io/FileInputStream"
+to   = "a/I"
+
+[[class]]
+from = "picodroid/io/FileOutputStream"
+to   = "a/J"
+
+[[class]]
+from = "picodroid/net/DatagramPacket"
+to   = "a/K"
+
+[[class]]
+from = "picodroid/net/DatagramSocket"
+to   = "a/L"
+
+[[class]]
+from = "picodroid/net/InetAddress"
+to   = "a/M"
+
+[[class]]
+from = "picodroid/net/NetworkInfo"
+to   = "a/N"
+
+[[class]]
+from = "picodroid/net/ServerSocket"
+to   = "a/O"
+
+[[class]]
+from = "picodroid/net/Socket"
+to   = "a/P"
+
+[[class]]
+from = "picodroid/os/Runtime"
+to   = "a/Q"
+
+[[class]]
+from = "picodroid/os/SystemClock"
+to   = "a/R"
+
+[[class]]
+from = "picodroid/pio/Adc"
+to   = "a/S"
+
+[[class]]
+from = "picodroid/pio/Gpio"
+to   = "a/T"
+
+[[class]]
+from = "picodroid/pio/I2cDevice"
+to   = "a/U"
+
+[[class]]
+from = "picodroid/pio/PeripheralManager"
+to   = "a/V"
+
+[[class]]
+from = "picodroid/pio/Pwm"
+to   = "a/W"
+
+[[class]]
+from = "picodroid/pio/SpiDevice"
+to   = "a/X"
+
+[[class]]
+from = "picodroid/pio/UartDevice"
+to   = "a/Y"
+
+[[class]]
+from = "picodroid/util/Log"
+to   = "a/Z"
+
+[[class]]
+from = "picodroid/view/MotionEvent"
+to   = "a/AA"
+
+[[class]]
+from = "picodroid/view/View"
+to   = "a/AB"
+
+[[class]]
+from = "picodroid/widget/Button"
+to   = "a/AC"
+
+[[class]]
+from = "picodroid/widget/CheckBox"
+to   = "a/AD"
+
+[[class]]
+from = "picodroid/widget/EditText"
+to   = "a/AE"
+
+[[class]]
+from = "picodroid/widget/FrameLayout"
+to   = "a/AF"
+
+[[class]]
+from = "picodroid/widget/ImageView"
+to   = "a/AG"
+
+[[class]]
+from = "picodroid/widget/LinearLayout"
+to   = "a/AH"
+
+[[class]]
+from = "picodroid/widget/ListView"
+to   = "a/AI"
+
+[[class]]
+from = "picodroid/widget/ProgressBar"
+to   = "a/AJ"
+
+[[class]]
+from = "picodroid/widget/ScrollView"
+to   = "a/AK"
+
+[[class]]
+from = "picodroid/widget/SeekBar"
+to   = "a/AL"
+
+[[class]]
+from = "picodroid/widget/Spinner"
+to   = "a/AM"
+
+[[class]]
+from = "picodroid/widget/Switch"
+to   = "a/AN"
+
+[[class]]
+from = "picodroid/widget/TextView"
+to   = "a/AO"
+
+[[class]]
+from = "picodroid/widget/ToggleButton"
+to   = "a/AP"
+

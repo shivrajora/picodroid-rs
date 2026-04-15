@@ -58,6 +58,9 @@ libc = "0.2"
 # Used to compile FreeRTOS-Kernel C source directly
 cc = "1.0"
 freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd" }
+# Shrinker library (host-only). Applied to framework .class files whenever a
+# committed shrink map covers the current picodroid package version.
+class-shrink = { path = "tools/class-shrink" }
 
 # cargo build/run
 [profile.dev]

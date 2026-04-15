@@ -112,13 +112,16 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
         .unwrap_or_else(|| UNRELEASED.to_string())
 }
 
-/// Compile picodroid framework Java sources with `javac` and embed each
-/// `.class` file as a `&'static [u8]` into `framework_classes.rs`.
+/// Compile picodroid framework Java sources with `javac`, optionally apply
+/// the active shrink map, and embed each `.class` file as a `&'static [u8]`
+/// into `framework_classes.rs`.
 ///
-/// Mirrors Android's model where framework classes are part of the platform
-/// (boot classpath) rather than packaged inside an APK. When
-/// `PICODROID_APK_PATH` is unset (test / `cargo check`) an empty stub is
-/// emitted since all framework-dependent code is gated by `#[cfg(not(test))]`.
+/// Shrinking is only triggered when [`resolve_active_map_version`] returns
+/// a version other than the `"0.0.0"` sentinel *and* a matching map file
+/// exists. When shrinking runs, this function also writes
+/// `framework_unshrink.rs` — a reverse-translation table from shrunk name
+/// back to original, consumed by the native dispatch layer. When shrinking
+/// is off the emitted table is an identity passthrough.
 pub fn embed_framework_classes(out: &Path) {
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
@@ -126,11 +129,11 @@ pub fn embed_framework_classes(out: &Path) {
             b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\n",
         )
         .unwrap();
+        emit_identity_unshrink(out);
         return;
     }
 
     let framework_dir = Path::new("sdk/java");
-
     let java_files = collect_files(framework_dir, "java");
     for f in &java_files {
         println!("cargo:rerun-if-changed={}", f.display());
@@ -155,7 +158,12 @@ pub fn embed_framework_classes(out: &Path) {
         "javac failed while compiling picodroid framework classes"
     );
 
-    let mut class_files = collect_files(&classes_dir, "class");
+    // If the active map covers our package version, shrink into a sibling
+    // directory and point the embed step at the shrunk output. Otherwise
+    // embed the raw javac output.
+    let embed_dir = apply_active_shrink(out, &classes_dir).unwrap_or(classes_dir);
+
+    let mut class_files = collect_files(&embed_dir, "class");
     class_files.sort();
 
     let mut entries = String::new();
@@ -170,6 +178,71 @@ pub fn embed_framework_classes(out: &Path) {
 
     let content = format!("pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n");
     fs::write(out.join("framework_classes.rs"), content).unwrap();
+}
+
+/// If an active shrink map exists for the current picodroid version, load
+/// it, apply it to `classes_dir`, and return the path holding the shrunk
+/// outputs. Also publishes the map to `target/picodroid/framework-mapping.toml`
+/// so `scripts/build-apk.sh` can find it without groping cargo metadata, and
+/// emits `framework_unshrink.rs` with a reverse-translation function.
+///
+/// Returns `None` when no map is active — caller embeds raw javac output
+/// and the emitted unshrink function is an identity passthrough.
+fn apply_active_shrink(out: &Path, classes_dir: &Path) -> Option<PathBuf> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").ok()?);
+    let shrink_maps_dir = manifest_dir.join("sdk").join("shrink-maps");
+    let cargo_toml = manifest_dir.join("Cargo.toml");
+    let pkg_version = read_package_version(&cargo_toml).ok()?;
+    let active = resolve_active_map_version(&pkg_version, &shrink_maps_dir);
+    if active == "0.0.0" {
+        emit_identity_unshrink(out);
+        return None;
+    }
+    let map_path = shrink_maps_dir.join(format!("v{active}.toml"));
+    let map = class_shrink::mapping::ShrinkMap::load(&map_path)
+        .unwrap_or_else(|e| panic!("failed to load {}: {e}", map_path.display()));
+    println!("cargo:rerun-if-changed={}", map_path.display());
+
+    // Publish the map to a stable location for scripts/build-apk.sh.
+    let publish_dir = manifest_dir.join("target").join("picodroid");
+    fs::create_dir_all(&publish_dir).ok();
+    let _ = fs::copy(&map_path, publish_dir.join("framework-mapping.toml"));
+
+    // Apply to framework classes.
+    let shrunk_dir = out.join("framework_classes_shrunk");
+    let _ = fs::remove_dir_all(&shrunk_dir);
+    class_shrink::shrink::shrink_directory(classes_dir, &shrunk_dir, &map)
+        .unwrap_or_else(|e| panic!("framework shrink failed: {e}"));
+
+    emit_unshrink_table(out, &map);
+    Some(shrunk_dir)
+}
+
+/// Emit an identity `unshrink_class` function — used when no shrink map is
+/// active. Returns its input verbatim.
+fn emit_identity_unshrink(out: &Path) {
+    let content = "/// Reverse-translate a shrunk class name back to its original form. \n\
+                   /// No-shrink build: identity passthrough.\n\
+                   pub fn unshrink_class(name: &str) -> &str { name }\n";
+    fs::write(out.join("framework_unshrink.rs"), content).unwrap();
+}
+
+/// Emit a `unshrink_class` function that reverses the given shrink map.
+/// Uses a `match` on `&str` since the set is small (≤ a few hundred
+/// entries) and match on static strings compiles to fast binary-search.
+fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
+    let mut body = String::new();
+    body.push_str(
+        "/// Reverse-translate a shrunk class name back to its original form. \n\
+         /// Inserted at native-dispatch entry points so match arms in Rust can \n\
+         /// continue using the original internal names. Unknown names pass through.\n\
+         pub fn unshrink_class(name: &str) -> &str {\n    match name {\n",
+    );
+    for (from, to) in map.iter_classes() {
+        body.push_str(&format!("        {to:?} => {from:?},\n"));
+    }
+    body.push_str("        other => other,\n    }\n}\n");
+    fs::write(out.join("framework_unshrink.rs"), body).unwrap();
 }
 
 /// Embed a pre-built `.papk` file into the firmware as `APK_DATA`.

@@ -10,4 +10,10 @@
 //! M1 exposes only the version-resolution machinery. Actual bytecode
 //! rewriting lands in M3.
 
+pub mod classfile;
+pub mod descriptor;
+pub mod keep;
+pub mod mapping;
+pub mod rename;
+pub mod shrink;
 pub mod version;

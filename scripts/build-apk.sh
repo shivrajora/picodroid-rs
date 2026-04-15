@@ -121,6 +121,26 @@ FRAMEWORK_MAP_VERSION="$(cargo run --quiet --target "$HOST_TARGET" \
   --cargo-toml "$REPO_ROOT/Cargo.toml" \
   --shrink-maps-dir "$REPO_ROOT/sdk/shrink-maps")"
 
+# When a shrink map is active, rewrite the app's .class files so references
+# to framework classes (e.g. `Lpicodroid/app/Application;`) get their
+# shrunk forms. The app's own classes are NOT in the map, so they pass
+# through unchanged. This keeps the main-class manifest value valid.
+PACK_CLASSES_DIR="$CLASSES_DIR"
+if [[ "$FRAMEWORK_MAP_VERSION" != "0.0.0" ]]; then
+  MAP_PATH="$REPO_ROOT/sdk/shrink-maps/v${FRAMEWORK_MAP_VERSION}.toml"
+  if [[ ! -f "$MAP_PATH" ]]; then
+    echo "Error: active map $MAP_PATH resolved but file missing" >&2
+    exit 1
+  fi
+  SHRUNK_DIR="$REPO_ROOT/build/classes/${APP}.shrunk"
+  rm -rf "$SHRUNK_DIR"
+  echo "==> Rewriting framework refs in '$APP' classes (map v$FRAMEWORK_MAP_VERSION)..."
+  cargo run --quiet --target "$HOST_TARGET" \
+    --manifest-path "$REPO_ROOT/tools/class-shrink/Cargo.toml" -- \
+    shrink-dir --in "$CLASSES_DIR" --out "$SHRUNK_DIR" --map "$MAP_PATH"
+  PACK_CLASSES_DIR="$SHRUNK_DIR"
+fi
+
 PAPK_ARGS=()
 if [[ -n "$MAIN_CLASS" ]]; then
   PAPK_ARGS+=(--main-class "$MAIN_CLASS")
@@ -141,5 +161,5 @@ cargo run \
   --package-name "$APP" \
   --version "$VERSION" \
   --framework-map-version "$FRAMEWORK_MAP_VERSION" \
-  --classes-dir "$CLASSES_DIR" \
+  --classes-dir "$PACK_CLASSES_DIR" \
   --output "$OUTPUT"

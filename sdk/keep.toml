@@ -1,0 +1,15 @@
+# Framework keep list — names that must NOT be renamed by the shrinker.
+#
+# v1 shrinks only class names (methods/fields are deferred to a later
+# release map). Add entries here as "never rename this class".
+
+# JVM-reserved / built-in classes. Pico-JVM hardcodes these names inside
+# its native handler (jvm/src/native/mod.rs) and its class_name_to_static
+# fallback list, so they must appear literally in every PAPK too.
+[[glob]]
+pattern = "java/**"
+
+# The keep-annotation class itself — its internal name is how the shrinker
+# recognizes `@KeepName` annotations on user classes later.
+[[class]]
+name = "picodroid/annotation/KeepName"
