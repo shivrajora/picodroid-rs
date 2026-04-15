@@ -36,33 +36,59 @@ pub fn dispatch(
                         };
                         let freertos_prio =
                             crate::task_priority::android_to_freertos_priority(android_priority);
-                        let child_task = freertos_rust::Task::new()
+                        let task_result = freertos_rust::Task::new()
                             .name("jvm-t")
                             .stack_size(4096)
                             .priority(freertos_rust::TaskPriority(freertos_prio))
                             .core_affinity(0b01) // core 0 only
                             .start(move |_| {
                                 let mut jvm = pico_jvm::Jvm::new();
-                                crate::app::load_classes(&mut jvm).unwrap();
-                                let heap = crate::app::shared_heap();
-                                let mut handler = super::PicodroidNativeHandler::new();
-                                jvm.invoke_instance(
-                                    class_name,
-                                    "run",
-                                    runnable_obj_idx,
-                                    heap,
-                                    &mut handler,
-                                )
-                                .ok();
+                                // Don't unwrap: a class-load failure inside a child task
+                                // would `bkpt`-halt the whole MCU under panic-probe and
+                                // freeze USB CDC, leaving pdb unable to PING the device.
+                                // Log and bail instead so jvm_task and PDB stay alive.
+                                if let Err(e) = crate::app::load_classes(&mut jvm) {
+                                    defmt::error!(
+                                        "Thread.start: child-task class load failed for {}: {}",
+                                        class_name,
+                                        defmt::Display2Format(&e)
+                                    );
+                                } else {
+                                    let heap = crate::app::shared_heap();
+                                    let mut handler = super::PicodroidNativeHandler::new();
+                                    if let Err(e) = jvm.invoke_instance(
+                                        class_name,
+                                        "run",
+                                        runnable_obj_idx,
+                                        heap,
+                                        &mut handler,
+                                    ) {
+                                        defmt::error!(
+                                            "Thread.start: child-task {}.run() failed: {}",
+                                            class_name,
+                                            defmt::Display2Format(&e)
+                                        );
+                                    }
+                                }
                                 // Deregister before returning so jvm_task's wait loop unblocks.
                                 // The spawn_inner trampoline calls vTaskDelete(NULL) after
                                 // this closure returns, reclaiming the stack and TCB.
-                                crate::pdb::pending::deregister_child_task(
-                                    freertos_rust::Task::current().unwrap().raw_handle(),
+                                if let Ok(t) = freertos_rust::Task::current() {
+                                    crate::pdb::pending::deregister_child_task(t.raw_handle());
+                                }
+                            });
+                        match task_result {
+                            Ok(child_task) => {
+                                crate::pdb::pending::register_child_task(child_task);
+                            }
+                            Err(e) => {
+                                defmt::error!(
+                                    "Thread.start: failed to spawn FreeRTOS task for {}: {:?}",
+                                    class_name,
+                                    defmt::Debug2Format(&e)
                                 );
-                            })
-                            .unwrap();
-                        crate::pdb::pending::register_child_task(child_task);
+                            }
+                        }
                     }
 
                     #[cfg(feature = "sim")]
