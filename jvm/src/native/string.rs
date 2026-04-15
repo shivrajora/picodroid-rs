@@ -10,6 +10,9 @@ pub(crate) fn dispatch(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
+        // ── String — static formatter ────────────────────────────────
+        "format" => super::string_format::format(ctx),
+
         // ── String — non-allocating ──────────────────────────────────
         "length" => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {

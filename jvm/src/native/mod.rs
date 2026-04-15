@@ -14,6 +14,7 @@ mod iterator;
 mod math;
 mod string;
 mod string_builder;
+mod string_format;
 
 #[cfg(test)]
 mod tests;
@@ -200,12 +201,13 @@ impl NativeMethodHandler for BuiltinHandler {
             return Some(Err(JvmError::InvalidReference));
         }
         match class_name {
-            "java/lang/Object" | "java/lang/Exception" | "java/lang/RuntimeException" => {
-                match method_name {
-                    "<init>" => Some(Ok(None)),
-                    _ => None,
-                }
-            }
+            "java/lang/Object"
+            | "java/lang/Exception"
+            | "java/lang/RuntimeException"
+            | "java/util/IllegalFormatException" => match method_name {
+                "<init>" => Some(Ok(None)),
+                _ => None,
+            },
             "java/lang/Throwable" => match method_name {
                 "<init>" => Some(Ok(None)),
                 "addSuppressed" => Some(Ok(None)),
@@ -219,6 +221,7 @@ impl NativeMethodHandler for BuiltinHandler {
             "java/lang/Long" => boxed::dispatch_long(method_name, ctx),
             "java/lang/Float" => boxed::dispatch_float(method_name, ctx),
             "java/lang/Double" => boxed::dispatch_double(method_name, ctx),
+            "java/lang/Character" => boxed::dispatch_character(method_name, ctx),
             "java/util/ArrayList" => collections::dispatch(method_name, ctx),
             "java/util/HashMap" => hashmap::dispatch(method_name, ctx),
             "java/util/HashMap$KeySet" => hashmap::dispatch_keyset(method_name, ctx),

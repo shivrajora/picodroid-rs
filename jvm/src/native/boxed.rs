@@ -76,3 +76,10 @@ pub(crate) fn dispatch_double(
 ) -> Option<Result<Option<Value>, JvmError>> {
     boxed_dispatch!("java/lang/Double", Value::Double(0.0), ctx, method_name)
 }
+
+pub(crate) fn dispatch_character(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    boxed_dispatch!("java/lang/Character", Value::Int(0), ctx, method_name)
+}
