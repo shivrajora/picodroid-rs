@@ -38,7 +38,7 @@ public class MyApp extends Application {
 
 `build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup, instantiates the `Application` class, and calls `onCreate()`.
 
-When a shrink map is active (see [shrinker.md](shrinker.md)), `build-apk.sh` also rewrites framework class references inside your `.class` files — e.g. `Lpicodroid/app/Application;` → `La/B;`. Your own class names stay unchanged, so the `application=` value in the manifest remains valid without any change on your end.
+Pass `--shrink` (off by default) to apply the active class-name shrink map — `build-apk.sh` will rewrite framework class references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own class names stay unchanged, so the `application=` value in the manifest remains valid. See [shrinker.md](shrinker.md) for details.
 
 ## Application Lifecycle
 

@@ -6,14 +6,18 @@ picodroid version and is immutable once merged.
 
 ## How the active map is resolved
 
-On every firmware and PAPK build, tooling reads the `version` field of the
-root `Cargo.toml` and picks the **highest** committed map file whose semver
-is ≤ that version. If none exists (no releases have been cut), the active
-map version is the sentinel `0.0.0`, which means **no shrinking**.
+Shrinking is **off by default**. Pass `--shrink` to the top-level scripts
+(`build.sh`, `flash.sh`, `sim.sh`, `build-apk.sh`) or set
+`PICODROID_SHRINK=1` to turn it on for a build. Both firmware (`build.rs`)
+and PAPK builds honor the same env var, so the two always agree.
 
-`class-shrink print-version` performs this resolution. Both `build.rs` and
-`scripts/build-apk.sh` call it, so firmware and PAPKs always agree on the
-active version for a given commit.
+When shrinking is on, tooling reads the `version` field of the root
+`Cargo.toml` and picks the **highest** committed map file whose semver is
+≤ that version. If none exists, the active map version falls back to the
+`0.0.0` sentinel and nothing is rewritten.
+
+`class-shrink print-version` performs this resolution. It's invoked by
+`build.rs` and `scripts/build-apk.sh` only when `PICODROID_SHRINK=1`.
 
 ## Append-only rule
 

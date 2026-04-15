@@ -243,33 +243,50 @@ impl<'a> Papk<'a> {
 
     /// Verify this PAPK's shrink-map version is compatible with the firmware.
     ///
-    /// Compatibility rule: the PAPK's version must be ≤ the firmware's active
-    /// version. Because maps are append-only (existing entries never rename),
-    /// any name a PAPK built at version `P` refers to is still present in
-    /// firmware at version `F ≥ P`. The reverse can break, so we reject it.
+    /// Compatibility rules:
+    ///
+    /// 1. **Both `0.0.0`** (both built without shrinking): accept. Names
+    ///    are original on both sides.
+    /// 2. **Both non-zero, PAPK ≤ firmware**: accept. The append-only
+    ///    invariant guarantees every shrunk name the PAPK uses is still
+    ///    present in firmware.
+    /// 3. **Asymmetric** (one side `0.0.0`, the other non-zero): reject
+    ///    with `FrameworkVersionMismatch`. Shrunk firmware has no
+    ///    original-name classes, and vice versa — linkage would fail at
+    ///    first method call.
+    /// 4. **PAPK > firmware** (both non-zero): reject. The PAPK may use
+    ///    shrunk names added after the firmware's release.
     ///
     /// Returns `FrameworkVersionMissing` if the PAPK predates the manifest
-    /// key and `firmware_version` is not the `"0.0.0"` sentinel. When the
-    /// firmware is at the sentinel we accept unversioned PAPKs for
-    /// backwards compatibility.
+    /// key and the firmware is not at the `0.0.0` sentinel.
     pub fn verify_compat(&self, firmware_version: &str) -> Result<(), PapkError> {
         let fw = parse_semver(firmware_version).ok_or(PapkError::FrameworkVersionMismatch)?;
-        match self.framework_map_version() {
+        let papk_ver = match self.framework_map_version() {
             None => {
-                if fw == (0, 0, 0) {
+                // Legacy PAPK without the manifest key is only compatible
+                // with firmware at the `0.0.0` sentinel.
+                return if fw == (0, 0, 0) {
                     Ok(())
                 } else {
                     Err(PapkError::FrameworkVersionMissing)
-                }
+                };
             }
-            Some(papk_ver) => {
-                let pv = parse_semver(papk_ver).ok_or(PapkError::FrameworkVersionMismatch)?;
-                if pv <= fw {
-                    Ok(())
-                } else {
-                    Err(PapkError::FrameworkVersionMismatch)
-                }
-            }
+            Some(v) => v,
+        };
+        let pv = parse_semver(papk_ver).ok_or(PapkError::FrameworkVersionMismatch)?;
+        let papk_zero = pv == (0, 0, 0);
+        let fw_zero = fw == (0, 0, 0);
+        if papk_zero && fw_zero {
+            return Ok(());
+        }
+        if papk_zero != fw_zero {
+            // One side shrunk, the other not — asymmetric, reject.
+            return Err(PapkError::FrameworkVersionMismatch);
+        }
+        if pv <= fw {
+            Ok(())
+        } else {
+            Err(PapkError::FrameworkVersionMismatch)
         }
     }
 
@@ -669,6 +686,31 @@ mod tests {
         assert_eq!(
             parse_leaked(papk).verify_compat("0.1.0"),
             Err(PapkError::FrameworkVersionMissing)
+        );
+    }
+
+    #[test]
+    fn verify_compat_rejects_unshrunk_papk_against_shrunk_firmware() {
+        // PAPK built without --shrink carries version "0.0.0" (original
+        // framework names in its CP). Firmware built with --shrink loads
+        // only shrunk framework classes. Linkage would fail — reject.
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.0.0")]);
+        assert_eq!(
+            parse_leaked(papk).verify_compat("0.1.0"),
+            Err(PapkError::FrameworkVersionMismatch)
+        );
+    }
+
+    #[test]
+    fn verify_compat_rejects_shrunk_papk_against_unshrunk_firmware() {
+        // Symmetric guard: shrunk PAPK refers to shrunk names that the
+        // unshrunk firmware simply doesn't have.
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.1.0")]);
+        assert_eq!(
+            parse_leaked(papk).verify_compat("0.0.0"),
+            Err(PapkError::FrameworkVersionMismatch)
         );
     }
 }

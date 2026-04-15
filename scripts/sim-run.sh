@@ -23,6 +23,10 @@ SIM_RESULTS_DIR="$SIM_DIR/results"
 
 SPECIFIC_APP=""
 SEND_EMAIL=true
+# Covers the --shrink matrix: every test runs once without shrinking (the
+# default runtime behavior) and once with it. Override with --mode if you
+# want to inspect a single side.
+MODES=("no-shrink" "shrink")
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -30,14 +34,27 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
     --no-email)   SEND_EMAIL=false; shift ;;
+    --mode)
+      case "$2" in
+        no-shrink) MODES=("no-shrink") ;;
+        shrink)    MODES=("shrink") ;;
+        both)      MODES=("no-shrink" "shrink") ;;
+        *) echo "Unknown --mode value: $2 (want no-shrink|shrink|both)" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
     -h|--help)
       cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --app <name>    Run only the specified test
-  --no-email      Skip sending the email report
-  -h, --help      Show this help message
+  --app <name>            Run only the specified test
+  --mode <no-shrink|shrink|both>
+                          Shrink modes to exercise (default: both). Every
+                          selected test is run once per mode so regressions
+                          on either side are caught.
+  --no-email              Skip sending the email report
+  -h, --help              Show this help message
 EOF
       exit 0
       ;;
@@ -73,33 +90,39 @@ PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 HOST_TARGET="$(host_target)"
 
 run_test() {
-  local app="$1" category="$2" timeout="$3" patterns="$4"
-  local log_file="$RUN_LOG_DIR/${app}.log"
-  local build_log="$RUN_LOG_DIR/${app}.build.log"
+  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5"
+  local tag="${app}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
 
   TOTAL=$((TOTAL + 1))
-  sim_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
+  sim_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
 
   # Build APK.
   sim_log "  Building APK..."
-  if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$build_log" 2>&1; then
+  local -a apk_args=(--app "$app")
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
-    echo "ERROR $app (apk build failed)" >> "$RESULTS_FILE"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
 
   local apk_path="$REPO_ROOT/build/apks/${app}.papk"
 
-  # Build sim binary (release).
+  # Build sim binary (release). PICODROID_SHRINK must match the APK's mode
+  # or verify_compat will reject at load time.
   sim_log "  Building sim binary..."
-  if ! PICODROID_APK_PATH="$apk_path" cargo build \
+  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-testbench-rp2350" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
-    echo "ERROR $app (sim build failed)" >> "$RESULTS_FILE"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
@@ -122,73 +145,83 @@ run_test() {
   # Check patterns.
   if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
     sim_log "  PASS"
-    echo "PASS $app" >> "$RESULTS_FILE"
+    echo "PASS $tag" >> "$RESULTS_FILE"
     PASS=$((PASS + 1))
   else
     sim_log "  FAIL"
     sim_log "  Log tail:"
     tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
-    echo "FAIL $app" >> "$RESULTS_FILE"
+    echo "FAIL $tag" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi
 }
 
-# Parse config and run tests.
-while IFS='|' read -r app category timeout patterns; do
-  # Skip comments and blank lines.
-  [[ "$app" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "$app" ]] && continue
+# Run every selected test once per shrink mode.
+for MODE in "${MODES[@]}"; do
+  sim_log "========================================="
+  sim_log "Mode: $MODE"
+  sim_log "========================================="
 
-  # If specific app requested, skip others.
-  if [[ -n "$SPECIFIC_APP" && "$app" != "$SPECIFIC_APP" ]]; then
-    continue
+  # Parse config and run tests.
+  while IFS='|' read -r app category timeout patterns; do
+    # Skip comments and blank lines.
+    [[ "$app" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$app" ]] && continue
+
+    # If specific app requested, skip others.
+    if [[ -n "$SPECIFIC_APP" && "$app" != "$SPECIFIC_APP" ]]; then
+      continue
+    fi
+
+    # Skip hw-dependent tests (no hardware in sim).
+    if [[ "$category" == "hw" ]]; then
+      sim_log "SKIP $app[$MODE] (hardware-dependent)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    # Skip pdb tests (require a real device on USB CDC).
+    if [[ "$category" == "pdb" ]]; then
+      sim_log "SKIP $app[$MODE] (pdb — requires device)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    # Skip explicitly skipped tests.
+    if [[ "$category" == "skip" ]]; then
+      sim_log "SKIP $app[$MODE]"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
+  done < "$SIM_CONF"
+
+  # Heap pressure tests (sim-based; bundled here so they run on every sim cycle
+  # instead of slowing down pre-commit). Also mode-varied to catch any shrink
+  # regressions in the allocator path.
+  if [[ -z "$SPECIFIC_APP" ]]; then
+    TOTAL=$((TOTAL + 1))
+    sim_log "--- [$TOTAL] heap-pressure[$MODE] ---"
+    heap_log="$RUN_LOG_DIR/heap-pressure.${MODE}.log"
+    heap_env=()
+    [[ "$MODE" == "shrink" ]] && heap_env+=(PICODROID_SHRINK=1)
+    if env "${heap_env[@]}" bash "$SCRIPT_DIR/test-heap.sh" > "$heap_log" 2>&1; then
+      sim_log "  PASS"
+      echo "PASS heap-pressure[$MODE]" >> "$RESULTS_FILE"
+      PASS=$((PASS + 1))
+    else
+      sim_log "  FAIL"
+      tail -10 "$heap_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+      echo "FAIL heap-pressure[$MODE]" >> "$RESULTS_FILE"
+      FAIL=$((FAIL + 1))
+    fi
   fi
-
-  # Skip hw-dependent tests (no hardware in sim).
-  if [[ "$category" == "hw" ]]; then
-    sim_log "SKIP $app (hardware-dependent)"
-    echo "SKIP $app" >> "$RESULTS_FILE"
-    SKIP=$((SKIP + 1))
-    continue
-  fi
-
-  # Skip pdb tests (require a real device on USB CDC).
-  if [[ "$category" == "pdb" ]]; then
-    sim_log "SKIP $app (pdb — requires device)"
-    echo "SKIP $app" >> "$RESULTS_FILE"
-    SKIP=$((SKIP + 1))
-    continue
-  fi
-
-  # Skip explicitly skipped tests.
-  if [[ "$category" == "skip" ]]; then
-    sim_log "SKIP $app"
-    echo "SKIP $app" >> "$RESULTS_FILE"
-    SKIP=$((SKIP + 1))
-    continue
-  fi
-
-  run_test "$app" "$category" "$timeout" "$patterns"
-done < "$SIM_CONF"
-
-# Heap pressure tests (sim-based; bundled here so they run on every sim cycle
-# instead of slowing down pre-commit).
-if [[ -z "$SPECIFIC_APP" ]]; then
-  TOTAL=$((TOTAL + 1))
-  sim_log "--- [$TOTAL] heap-pressure ---"
-  heap_log="$RUN_LOG_DIR/heap-pressure.log"
-  if bash "$SCRIPT_DIR/test-heap.sh" > "$heap_log" 2>&1; then
-    sim_log "  PASS"
-    echo "PASS heap-pressure" >> "$RESULTS_FILE"
-    PASS=$((PASS + 1))
-  else
-    sim_log "  FAIL"
-    tail -10 "$heap_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
-    echo "FAIL heap-pressure" >> "$RESULTS_FILE"
-    FAIL=$((FAIL + 1))
-  fi
-fi
+done
 
 # Summary.
 sim_log "========================================="

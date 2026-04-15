@@ -20,6 +20,8 @@ Options:
   -b, --board <board>  Target board (default: testbench_rp2350)
   -a, --app  <app>     App to build and flash (default: blinky)
   -r, --release        Build in release mode
+      --shrink         Apply the active release class-name shrink map
+                       (off by default; see docs/shrinker.md)
   -h, --help           Show this help message
 
 Boards:
@@ -41,6 +43,10 @@ EOF
     -r|--release)
       PROFILE="release"
       EXTRA_ARGS+=("$1")
+      shift
+      ;;
+    --shrink)
+      export PICODROID_SHRINK=1
       shift
       ;;
     *)

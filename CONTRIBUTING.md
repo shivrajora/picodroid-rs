@@ -114,8 +114,11 @@ When adding a new native method that the JVM dispatches to Rust:
 ## Cutting a New Release
 
 Shrink maps are tied 1:1 to picodroid package versions and are immutable
-once committed. When you bump the `version` in the root `Cargo.toml`,
-cut a fresh map in the same commit:
+once committed. Shrinking itself is **off by default** (opt-in per build
+via `--shrink`), but every release ships a committed map so
+`--shrink`-enabled builds have something to resolve against. When you
+bump the `version` in the root `Cargo.toml`, cut a fresh map in the
+same commit:
 
 ```bash
 TMP=$(mktemp -d)

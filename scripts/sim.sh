@@ -27,6 +27,8 @@ Options:
   -a, --app <app>           App to run (default: helloworld)
   -r, --release             Build in release mode
   -l, --heap-limit <KB>     Limit sim heap to KB kilobytes (simulates MCU)
+      --shrink              Apply the active release class-name shrink map
+                            (off by default; see docs/shrinker.md)
   -h, --help                Show this help message
 
 Boards:
@@ -64,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       HEAP_LIMIT_KB="$2"
       shift 2
       ;;
+    --shrink)
+      export PICODROID_SHRINK=1
+      shift
+      ;;
     *)
       echo "Unknown option: $1" >&2
       usage
@@ -84,6 +90,9 @@ APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
+fi
+if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
+  ENV_VARS+=(PICODROID_SHRINK=1)
 fi
 
 env "${ENV_VARS[@]}" cargo run \

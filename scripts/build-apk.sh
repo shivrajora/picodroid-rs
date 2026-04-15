@@ -20,6 +20,9 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   -a, --app    <app>    Example app to build
   -o, --output <file>   Output path (default: build/apks/<app>.papk)
+      --shrink          Apply the active release shrink map (class-name
+                        shrinking). Off by default; also honored via
+                        PICODROID_SHRINK=1. See docs/shrinker.md.
   -h, --help            Show this help message
 
 Apps:
@@ -32,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)       usage; exit 0 ;;
     -a|--app)        APP="$2";    shift 2 ;;
     -o|--output)     OUTPUT="$2"; shift 2 ;;
+    --shrink)        export PICODROID_SHRINK=1; shift ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
@@ -112,14 +116,19 @@ javac --release 8 -Xlint:-options \
 
 echo "==> Packaging '$APP' into $(basename "$OUTPUT")..."
 
-# Resolve the active shrink-map version. Firmware's build.rs runs the same
-# resolution against the root Cargo.toml and sdk/shrink-maps/, so firmware
-# and PAPK always agree on the version string for a given commit.
-FRAMEWORK_MAP_VERSION="$(cargo run --quiet --target "$HOST_TARGET" \
-  --manifest-path "$REPO_ROOT/tools/class-shrink/Cargo.toml" -- \
-  print-version \
-  --cargo-toml "$REPO_ROOT/Cargo.toml" \
-  --shrink-maps-dir "$REPO_ROOT/sdk/shrink-maps")"
+# Shrinking is opt-in via --shrink / PICODROID_SHRINK=1. Off by default.
+# Without it we advertise the "0.0.0" sentinel and skip the rewrite step
+# entirely. Firmware's build.rs honors the same env var so both sides
+# agree on whether shrinking is active.
+if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
+  FRAMEWORK_MAP_VERSION="$(cargo run --quiet --target "$HOST_TARGET" \
+    --manifest-path "$REPO_ROOT/tools/class-shrink/Cargo.toml" -- \
+    print-version \
+    --cargo-toml "$REPO_ROOT/Cargo.toml" \
+    --shrink-maps-dir "$REPO_ROOT/sdk/shrink-maps")"
+else
+  FRAMEWORK_MAP_VERSION="0.0.0"
+fi
 
 # When a shrink map is active, rewrite the app's .class files so references
 # to framework classes (e.g. `Lpicodroid/app/Application;`) get their

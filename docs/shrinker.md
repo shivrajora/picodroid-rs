@@ -7,8 +7,14 @@ firmware Flash and from every `.papk` without any change to Java source
 or to the native dispatch layer — the translation is completely
 transparent at runtime.
 
+**Shrinking is off by default**, matching Android's "R8 off by default"
+behavior. Opt in on any build by passing `--shrink` to the top-level
+script (`build.sh`, `flash.sh`, `sim.sh`, or `build-apk.sh`), which
+sets `PICODROID_SHRINK=1`. Both firmware and PAPK builds honor the
+same env var so the two sides always agree.
+
 This doc is reference material. Day-to-day app development doesn't
-need any of it; everything happens automatically from the Cargo version.
+need any of it.
 
 ## Design overview
 
@@ -53,30 +59,62 @@ references and `Lfoo/Bar;` substrings inside descriptors. CP indices
 stay stable so the trailing sections (attributes, `Code`,
 `StackMapTable`) don't need touching.
 
+## Enabling shrinking
+
+Off by default. Opt in with `--shrink` on any top-level script:
+
+```bash
+./scripts/build.sh     --app helloworld --shrink
+./scripts/flash.sh     --app blinky     --shrink
+./scripts/sim.sh       --app helloworld --shrink
+./scripts/build-apk.sh --app helloworld --shrink
+```
+
+The flag exports `PICODROID_SHRINK=1`, which both `build.rs` and
+`build-apk.sh` pick up. Without it, both sides emit the `0.0.0`
+sentinel and no framework `.class` bytes are touched.
+
 ## How builds consume the active map
 
-`class-shrink print-version` resolves the active version from the root
-`Cargo.toml` + `sdk/shrink-maps/`. Both sides of the build call it:
+When `PICODROID_SHRINK=1`, `class-shrink print-version` resolves the
+active version from the root `Cargo.toml` + `sdk/shrink-maps/`. Both
+sides of the build call it:
 
-1. **Firmware (`build.rs`)**: after `javac`, if the active version isn't
-   `0.0.0`, applies the map to the compiled framework classes and embeds
-   the shrunk output via `FRAMEWORK_CLASSES`. Also writes
-   `framework_mapping_version.rs` (the version string the firmware
-   advertises) and `framework_unshrink.rs` (the reverse-translation
-   table).
+1. **Firmware (`build.rs`)**: after `javac`, if shrinking is on and the
+   active version isn't `0.0.0`, applies the map to the compiled
+   framework classes and embeds the shrunk output via
+   `FRAMEWORK_CLASSES`. Also writes `framework_mapping_version.rs`
+   (the version string the firmware advertises) and
+   `framework_unshrink.rs` (the reverse-translation table).
 
-2. **Apps (`scripts/build-apk.sh`)**: if the active version isn't
-   `0.0.0`, runs `class-shrink shrink-dir` on the app's `.class` output.
-   The map covers framework classes only, so the app's own classes pass
+2. **Apps (`scripts/build-apk.sh`)**: if shrinking is on, runs
+   `class-shrink shrink-dir` on the app's `.class` output. The map
+   covers framework classes only, so the app's own classes pass
    through unchanged — only cross-references like
-   `Lpicodroid/app/Application;` in the app's super_class get rewritten.
+   `Lpicodroid/app/Application;` in the app's super_class get
+   rewritten.
 
-3. **PAPK manifest**: `papk-pack` writes the active version into the
-   `framework-map-version` manifest key.
+3. **PAPK manifest**: `papk-pack` writes the active version (or
+   `0.0.0` when shrinking is off) into the `framework-map-version`
+   manifest key.
 
 4. **Load time**: `src/app.rs` calls `papk.verify_compat(FRAMEWORK_MAP_VERSION)`
-   right after parsing. PAPK version > firmware version → hard error
-   with a message asking to rebuild the app.
+   right after parsing. A PAPK built with mismatched shrink settings
+   (one side `0.0.0`, the other non-zero) is rejected with a hard
+   error asking to rebuild.
+
+## Compatibility rules
+
+`verify_compat` accepts these combinations and rejects all others:
+
+| Firmware    | PAPK        | Accepted? | Why |
+|-------------|-------------|-----------|-----|
+| `0.0.0`     | `0.0.0`     | Yes       | Both unshrunk, names match. |
+| `v` (≥1)    | `v'` (≥1) and `v' ≤ v` | Yes | Append-only maps: every shrunk name the PAPK uses is still present in firmware. |
+| `v` (≥1)    | `v'` (≥1) and `v' > v` | No (`FrameworkVersionMismatch`) | PAPK may reference shrunk names added after firmware's release. |
+| `0.0.0`     | non-zero    | No        | PAPK's shrunk refs don't exist in unshrunk firmware. |
+| non-zero    | `0.0.0`     | No        | PAPK's original refs don't exist in shrunk firmware. |
+| anything    | unversioned (legacy, pre-M1) | Only if firmware is `0.0.0` (`FrameworkVersionMissing` otherwise) | Backward compat. |
 
 ## Native dispatch — reverse translation
 
@@ -149,11 +187,25 @@ up the new map automatically.
 
 ## What's generated at build time (OUT_DIR)
 
+Always emitted:
 - `framework_mapping_version.rs` — `pub const FRAMEWORK_MAP_VERSION: &str = "…";`
-- `framework_unshrink.rs` — the reverse-translation `unshrink_class` function.
+  (`"0.0.0"` when shrinking is off).
+- `framework_unshrink.rs` — `unshrink_class(name) -> &str`. Identity
+  passthrough when shrinking is off; a reverse-lookup match when on.
 - `framework_classes.rs` — `pub static FRAMEWORK_CLASSES: &[&[u8]] = &[…];`
   pointing at (shrunk or raw) class files.
-- `framework_classes_shrunk/…` — shrunk class files when a map is active.
+
+Emitted only when shrinking is on and a map is active:
+- `framework_classes_shrunk/…` — shrunk class files.
+
+## CI coverage
+
+Both [scripts/sim-run.sh](../scripts/sim-run.sh) and
+[scripts/hil-run.sh](../scripts/hil-run.sh) run the full test matrix
+twice — once with shrinking off, once with it on. Each result is
+tagged with `[no-shrink]` or `[shrink]` so regressions on either side
+are obvious. Pass `--mode no-shrink`, `--mode shrink`, or `--mode both`
+(default) to narrow the run.
 
 ## Diagnosing version mismatch
 

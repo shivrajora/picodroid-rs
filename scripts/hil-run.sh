@@ -31,6 +31,9 @@ INCLUDE_HW=false
 SKIP_PDB=false
 SPECIFIC_APP=""
 SEND_EMAIL=true
+# Shrink matrix: every test runs once with shrinking off (default runtime
+# behavior) and once with it on. Override with --mode to run a single side.
+MODES=("no-shrink" "shrink")
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -40,6 +43,15 @@ while [[ $# -gt 0 ]]; do
     --skip-pdb)   SKIP_PDB=true; shift ;;
     --no-email)   SEND_EMAIL=false; shift ;;
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
+    --mode)
+      case "$2" in
+        no-shrink) MODES=("no-shrink") ;;
+        shrink)    MODES=("shrink") ;;
+        both)      MODES=("no-shrink" "shrink") ;;
+        *) echo "Unknown --mode value: $2 (want no-shrink|shrink|both)" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
     -h|--help)
       cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -48,6 +60,9 @@ Options:
   --app <name>    Run only the specified test
   --include-hw    Also run hardware-peripheral tests (adcdemo, i2cdemo, etc.)
   --skip-pdb      Skip all PDB (Picodroid Debug Bridge) tests
+  --mode <no-shrink|shrink|both>
+                  Shrink modes to exercise (default: both). Every selected
+                  test runs once per mode to catch regressions on either side.
   --no-email      Skip sending the email report
   -h, --help      Show this help message
 EOF
@@ -112,9 +127,9 @@ kill_process_group() {
 }
 
 run_pdb_test() {
-  local app="$1" timeout="$2" patterns="$3" pdb_cmd="$4"
-  local test_name="$app:pdb-$pdb_cmd"
-  local log_file="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.log"
+  local app="$1" timeout="$2" patterns="$3" pdb_cmd="$4" mode="$5"
+  local test_name="$app:pdb-$pdb_cmd[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.log"
 
   TOTAL=$((TOTAL + 1))
   hil_log "--- [$TOTAL] $test_name (pdb, ${timeout}s) ---"
@@ -134,20 +149,22 @@ run_pdb_test() {
       pdb_args=(sysmon)
       ;;
     install)
+      # The installed PAPK must match whatever mode the currently-flashed
+      # firmware was built in, or verify_compat rejects the install.
       local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      if [[ ! -f "$apk_path" ]]; then
-        hil_log "  PAPK not found, building..."
-        if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$RUN_LOG_DIR/${app}.pdb-build.log" 2>&1; then
-          hil_log "  BUILD FAILED (PAPK for install)"
-          echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
-          ERROR=$((ERROR + 1))
-          return
-        fi
+      local -a apk_args=(--app "$app")
+      [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+      hil_log "  Building PAPK ($mode)..."
+      if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${mode}.build.log" 2>&1; then
+        hil_log "  BUILD FAILED (PAPK for install)"
+        echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
       fi
       pdb_args=(install "$apk_path")
       ;;
     install-stress)
-      run_pdb_install_stress "$app" "$timeout" "$patterns"
+      run_pdb_install_stress "$app" "$timeout" "$patterns" "$mode"
       return
       ;;
     *)
@@ -194,24 +211,25 @@ run_pdb_test() {
 }
 
 run_pdb_install_stress() {
-  local app="$1" timeout="$2" patterns="$3"
-  local test_name="$app:pdb-install-stress"
-  local log_file="$RUN_LOG_DIR/${app}.pdb-install-stress.log"
+  local app="$1" timeout="$2" patterns="$3" mode="$4"
+  local test_name="$app:pdb-install-stress[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-install-stress.${mode}.log"
 
   # Alternate between blinky and displaydemo for different PAPK sizes.
   local -a stress_apps=(blinky displaydemo)
 
-  # Build PAPKs for both apps.
+  # Build PAPKs for both apps in the same mode as the flashed firmware.
+  local -a sa_args
   for sa in "${stress_apps[@]}"; do
     local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
-    if [[ ! -f "$apk_path" ]]; then
-      hil_log "  Building PAPK for $sa..."
-      if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$sa" > "$RUN_LOG_DIR/${sa}.pdb-build.log" 2>&1; then
-        hil_log "  BUILD FAILED (PAPK for $sa)"
-        echo "ERROR $test_name (papk build failed for $sa)" >> "$RESULTS_FILE"
-        ERROR=$((ERROR + 1))
-        return
-      fi
+    hil_log "  Building PAPK for $sa ($mode)..."
+    sa_args=(--app "$sa")
+    [[ "$mode" == "shrink" ]] && sa_args+=(--shrink)
+    if ! bash "$SCRIPT_DIR/build-apk.sh" "${sa_args[@]}" > "$RUN_LOG_DIR/${sa}.pdb-${mode}.build.log" 2>&1; then
+      hil_log "  BUILD FAILED (PAPK for $sa)"
+      echo "ERROR $test_name (papk build failed for $sa)" >> "$RESULTS_FILE"
+      ERROR=$((ERROR + 1))
+      return
     fi
   done
 
@@ -263,6 +281,8 @@ run_pdb_install_stress() {
   fi
 }
 
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 mkdir -p "$HIL_LOG_DIR" "$HIL_RESULTS_DIR"
@@ -306,21 +326,24 @@ hil_log "========================================="
 PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 
 run_test() {
-  local app="$1" category="$2" timeout="$3" patterns="$4"
-  local log_file="$RUN_LOG_DIR/${app}.log"
-  local build_log="$RUN_LOG_DIR/${app}.build.log"
+  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5"
+  local tag="${app}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
 
   TOTAL=$((TOTAL + 1))
-  hil_log "--- [$TOTAL] $app ($category, ${timeout}s) ---"
+  hil_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
 
   # Power cycle devices to ensure clean state.
   power_cycle_all
 
-  # Build APK.
+  # Build APK (mode-tagged; --shrink iff this iteration is the shrunk one).
   hil_log "  Building APK..."
-  if ! bash "$SCRIPT_DIR/build-apk.sh" --app "$app" > "$build_log" 2>&1; then
+  local -a apk_args=(--app "$app")
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (APK)"
-    echo "ERROR $app (apk build failed)" >> "$RESULTS_FILE"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
@@ -329,16 +352,19 @@ run_test() {
   local jobs
   jobs=$(cpu_count)
 
-  # Build firmware (release).
+  # Build firmware (release). PICODROID_SHRINK must match the APK's mode
+  # or verify_compat will reject at load.
   hil_log "  Building firmware (release)..."
-  if ! PICODROID_APK_PATH="$apk_path" cargo build \
+  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
     --release \
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
     --features "$BOARD_FEATURE" >> "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (firmware)"
-    echo "ERROR $app (firmware build failed)" >> "$RESULTS_FILE"
+    echo "ERROR $tag (firmware build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
@@ -381,14 +407,14 @@ run_test() {
   # Evaluate result.
   if [[ $result -eq 0 ]]; then
     hil_log "  PASS"
-    echo "PASS $app" >> "$RESULTS_FILE"
+    echo "PASS $tag" >> "$RESULTS_FILE"
     PASS=$((PASS + 1))
   else
     hil_log "  FAIL"
     hil_log "  Log tail:"
     tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
-    echo "FAIL $app" >> "$RESULTS_FILE"
+    echo "FAIL $tag" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
 
     # Try to recover for next test.
@@ -396,55 +422,63 @@ run_test() {
   fi
 }
 
-# Parse config and run tests.
-while IFS='|' read -r app category timeout patterns pdb_cmd; do
-  # Skip comments and blank lines.
-  [[ "$app" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "$app" ]] && continue
+# Run every selected test once per shrink mode. Each mode is a full pass
+# through the config so pdb-install tests see firmware that matches their
+# PAPK's mode.
+for MODE in "${MODES[@]}"; do
+  hil_log "========================================="
+  hil_log "Mode: $MODE"
+  hil_log "========================================="
 
-  # If specific app requested, skip others.
-  if [[ -n "$SPECIFIC_APP" && "$app" != "$SPECIFIC_APP" ]]; then
-    continue
-  fi
+  while IFS='|' read -r app category timeout patterns pdb_cmd; do
+    # Skip comments and blank lines.
+    [[ "$app" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$app" ]] && continue
 
-  # Skip hw-dependent tests unless --include-hw.
-  if [[ "$category" == "hw" && "$INCLUDE_HW" != "true" ]]; then
-    hil_log "SKIP $app (hardware-dependent)"
-    echo "SKIP $app" >> "$RESULTS_FILE"
-    SKIP=$((SKIP + 1))
-    continue
-  fi
-
-  # Skip explicitly skipped tests.
-  if [[ "$category" == "skip" ]]; then
-    hil_log "SKIP $app"
-    echo "SKIP $app" >> "$RESULTS_FILE"
-    SKIP=$((SKIP + 1))
-    continue
-  fi
-
-  # PDB tests: run PDB command against already-running device.
-  if [[ "$category" == "pdb" ]]; then
-    if [[ "$SKIP_PDB" == "true" ]]; then
-      hil_log "SKIP $app:pdb-$pdb_cmd (--skip-pdb)"
-      echo "SKIP $app:pdb-$pdb_cmd" >> "$RESULTS_FILE"
-      SKIP=$((SKIP + 1))
-      TOTAL=$((TOTAL + 1))
+    # If specific app requested, skip others.
+    if [[ -n "$SPECIFIC_APP" && "$app" != "$SPECIFIC_APP" ]]; then
       continue
     fi
-    if [[ -z "$PDB_BIN" || ! -x "$PDB_BIN" ]]; then
-      hil_log "SKIP $app:pdb-$pdb_cmd (PDB tool not available)"
-      echo "SKIP $app:pdb-$pdb_cmd" >> "$RESULTS_FILE"
+
+    # Skip hw-dependent tests unless --include-hw.
+    if [[ "$category" == "hw" && "$INCLUDE_HW" != "true" ]]; then
+      hil_log "SKIP $app[$MODE] (hardware-dependent)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
-      TOTAL=$((TOTAL + 1))
       continue
     fi
-    run_pdb_test "$app" "$timeout" "$patterns" "$pdb_cmd"
-    continue
-  fi
 
-  run_test "$app" "$category" "$timeout" "$patterns"
-done < "$HIL_CONF"
+    # Skip explicitly skipped tests.
+    if [[ "$category" == "skip" ]]; then
+      hil_log "SKIP $app[$MODE]"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    # PDB tests: run PDB command against already-running device.
+    if [[ "$category" == "pdb" ]]; then
+      if [[ "$SKIP_PDB" == "true" ]]; then
+        hil_log "SKIP $app:pdb-$pdb_cmd[$MODE] (--skip-pdb)"
+        echo "SKIP $app:pdb-$pdb_cmd[$MODE]" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        TOTAL=$((TOTAL + 1))
+        continue
+      fi
+      if [[ -z "$PDB_BIN" || ! -x "$PDB_BIN" ]]; then
+        hil_log "SKIP $app:pdb-$pdb_cmd[$MODE] (PDB tool not available)"
+        echo "SKIP $app:pdb-$pdb_cmd[$MODE]" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        TOTAL=$((TOTAL + 1))
+        continue
+      fi
+      run_pdb_test "$app" "$timeout" "$patterns" "$pdb_cmd" "$MODE"
+      continue
+    fi
+
+    run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
+  done < "$HIL_CONF"
+done
 
 # Release lock.
 flock -u 9

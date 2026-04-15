@@ -20,6 +20,8 @@ Options:
   -a, --app  <app>     App to build and install (default: helloworld)
   -r, --release        Build in release mode (default: debug)
   -u, --uf2            Convert output ELF to UF2 (requires elf2uf2-rs)
+      --shrink         Apply the active release class-name shrink map
+                       (off by default; see docs/shrinker.md)
   -h, --help           Show this help message
 
 Boards:
@@ -55,6 +57,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -u|--uf2)
       UF2=true
+      shift
+      ;;
+    --shrink)
+      export PICODROID_SHRINK=1
       shift
       ;;
     *)

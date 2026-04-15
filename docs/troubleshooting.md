@@ -75,20 +75,36 @@ To verify it is installed: `ls -la .git/hooks/pre-commit` should show it pointin
 The firmware panics at PAPK load with something like:
 
 ```
-PAPK framework-map-version incompatible with firmware (firmware = 0.1.0):
+PAPK framework-map-version incompatible with firmware (firmware = 0.0.0):
     FrameworkVersionMismatch
 ```
 
-This means the PAPK was packaged against a shrink-map release newer
-than the firmware's. Rebuild the app against the current source tree:
+The two most common causes:
 
-```bash
-./scripts/build-apk.sh --app <name>
-```
+1. **Firmware and PAPK disagree about `--shrink`.** Shrinking is opt-in
+   per build. If you built the firmware without `--shrink` but the
+   PAPK with it (or vice versa), load-time linkage would fail — so
+   `verify_compat` rejects the combination up front. Rebuild both with
+   the same flag:
 
-If you see `FrameworkVersionMissing` instead, the PAPK predates the
-manifest key — also fixed by rebuilding. See [shrinker.md](shrinker.md)
-for the full compatibility story.
+   ```bash
+   # Either both off (default)
+   ./scripts/build-apk.sh --app <name>
+   ./scripts/flash.sh     --app <name>
+
+   # Or both on
+   ./scripts/build-apk.sh --app <name> --shrink
+   ./scripts/flash.sh     --app <name> --shrink
+   ```
+
+2. **PAPK was packaged against a shrink-map release newer than the
+   firmware's** (both sides `--shrink`-on, but PAPK's Cargo.toml
+   version bumped past what the firmware knows). Rebuild the PAPK
+   against the current source tree.
+
+`FrameworkVersionMissing` means the PAPK predates the manifest key
+entirely (legacy, pre-M1). Also fixed by rebuilding. See
+[shrinker.md](shrinker.md) for the full compatibility story.
 
 ## Java formatting check fails
 
