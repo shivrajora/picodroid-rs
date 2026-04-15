@@ -19,6 +19,13 @@ include!(concat!(env!("OUT_DIR"), "/apk_data.rs"));
 #[cfg(not(test))]
 include!(concat!(env!("OUT_DIR"), "/framework_classes.rs"));
 
+// Active shrink-map version for this firmware build. Set by build.rs from the
+// highest committed sdk/shrink-maps/v<semver>.toml ≤ the picodroid Cargo.toml
+// version; falls back to "0.0.0" (no shrinking) when none exists.
+// Defines: pub const FRAMEWORK_MAP_VERSION: &str = "...";
+#[cfg(not(test))]
+include!(concat!(env!("OUT_DIR"), "/framework_mapping_version.rs"));
+
 // ── Shared heap ──────────────────────────────────────────────────────────────
 //
 // All JVM threads share a single heap (objects, arrays, strings), matching the
@@ -191,6 +198,17 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     // Determine the entry point from the APK manifest.
     let apk = Papk::parse(apk_data).unwrap();
+
+    // Reject PAPKs built against a newer shrink-map release than the firmware
+    // knows about. Maps are append-only per release, so older PAPKs are always
+    // accepted; only a forward-incompatible PAPK fails here.
+    apk.verify_compat(FRAMEWORK_MAP_VERSION)
+        .unwrap_or_else(|e| {
+            panic!(
+                "PAPK framework-map-version incompatible with firmware (firmware = {}): {:?}",
+                FRAMEWORK_MAP_VERSION, e
+            )
+        });
 
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();

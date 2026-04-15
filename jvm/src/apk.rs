@@ -80,6 +80,13 @@ pub enum PapkError {
     Truncated,
     /// A required section (MANIFEST or CLASSES) is missing from the file.
     MissingSection,
+    /// The PAPK's `framework-map-version` manifest key is missing but the
+    /// firmware requires one (caller opted into strict checking).
+    FrameworkVersionMissing,
+    /// The PAPK was built against a shrink-map version newer than the
+    /// firmware's active version; the append-only invariant cannot cover
+    /// the gap. Rebuild the app against matching firmware.
+    FrameworkVersionMismatch,
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -224,6 +231,48 @@ impl<'a> Papk<'a> {
         self.manifest_value(b"application")
     }
 
+    /// Returns the `framework-map-version` value from the MANIFEST section,
+    /// or `None` if the key is absent (legacy PAPK) or not valid UTF-8.
+    ///
+    /// The value is a semver string like `"0.1.0"`; `"0.0.0"` is the sentinel
+    /// emitted when the firmware and PAPK were both built against no shrink
+    /// map (default behavior until a release cut introduces one).
+    pub fn framework_map_version(&self) -> Option<&'a str> {
+        self.manifest_value(b"framework-map-version")
+    }
+
+    /// Verify this PAPK's shrink-map version is compatible with the firmware.
+    ///
+    /// Compatibility rule: the PAPK's version must be ≤ the firmware's active
+    /// version. Because maps are append-only (existing entries never rename),
+    /// any name a PAPK built at version `P` refers to is still present in
+    /// firmware at version `F ≥ P`. The reverse can break, so we reject it.
+    ///
+    /// Returns `FrameworkVersionMissing` if the PAPK predates the manifest
+    /// key and `firmware_version` is not the `"0.0.0"` sentinel. When the
+    /// firmware is at the sentinel we accept unversioned PAPKs for
+    /// backwards compatibility.
+    pub fn verify_compat(&self, firmware_version: &str) -> Result<(), PapkError> {
+        let fw = parse_semver(firmware_version).ok_or(PapkError::FrameworkVersionMismatch)?;
+        match self.framework_map_version() {
+            None => {
+                if fw == (0, 0, 0) {
+                    Ok(())
+                } else {
+                    Err(PapkError::FrameworkVersionMissing)
+                }
+            }
+            Some(papk_ver) => {
+                let pv = parse_semver(papk_ver).ok_or(PapkError::FrameworkVersionMismatch)?;
+                if pv <= fw {
+                    Ok(())
+                } else {
+                    Err(PapkError::FrameworkVersionMismatch)
+                }
+            }
+        }
+    }
+
     /// Look up a manifest key and return its value as a UTF-8 string.
     fn manifest_value(&self, target_key: &[u8]) -> Option<&'a str> {
         let mdata = self.manifest_section_data().ok()?;
@@ -307,6 +356,26 @@ fn read_bytes_u32<'a>(buf: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
     let slice = &buf[*pos..*pos + len];
     *pos += len;
     Some(slice)
+}
+
+/// Parse a `MAJOR.MINOR.PATCH` semver string into a comparable tuple.
+/// Pre-release and build suffixes (`-rc1`, `+build.123`) are stripped
+/// before parsing so `"0.1.0-rc1"` and `"0.1.0"` compare equal.
+/// Returns `None` on malformed input. `no_std`/`no_alloc` friendly.
+fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    // Trim anything after the first '-' or '+'.
+    let core = match s.find(['-', '+']) {
+        Some(i) => &s[..i],
+        None => s,
+    };
+    let mut it = core.split('.');
+    let major: u32 = it.next()?.parse().ok()?;
+    let minor: u32 = it.next()?.parse().ok()?;
+    let patch: u32 = it.next()?.parse().ok()?;
+    if it.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
 }
 
 /// Returns the section data slice for the section at `section_offset`,
@@ -510,5 +579,96 @@ mod tests {
         let short: Vec<u8> = papk[..10].to_vec();
         let leaked: &'static [u8] = Box::leak(short.into_boxed_slice());
         assert!(matches!(Papk::parse(leaked), Err(PapkError::Truncated)));
+    }
+
+    /// Build a PAPK with a custom set of manifest key/value pairs (no classes).
+    fn build_papk_with_manifest(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut manifest_data: Vec<u8> = Vec::new();
+        for (k, v) in entries {
+            let kb = k.as_bytes();
+            let vb = v.as_bytes();
+            manifest_data.extend_from_slice(&(kb.len() as u16).to_le_bytes());
+            manifest_data.extend_from_slice(kb);
+            manifest_data.extend_from_slice(&(vb.len() as u16).to_le_bytes());
+            manifest_data.extend_from_slice(vb);
+        }
+        let classes_data: Vec<u8> = 0u32.to_le_bytes().to_vec();
+        let mani_tag = u32::from_le_bytes(*b"MANI");
+        let clss_tag = u32::from_le_bytes(*b"CLSS");
+        let manifest_offset: u32 = 24;
+        let classes_offset: u32 = manifest_offset + 16 + manifest_data.len() as u32;
+
+        let mut file: Vec<u8> = Vec::new();
+        file.extend_from_slice(b"PAPK");
+        file.extend_from_slice(&1u16.to_le_bytes());
+        file.extend_from_slice(&1u16.to_le_bytes()); // version_minor = 1
+        file.extend_from_slice(&2u32.to_le_bytes());
+        file.extend_from_slice(&manifest_offset.to_le_bytes());
+        file.extend_from_slice(&classes_offset.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&mani_tag.to_le_bytes());
+        file.extend_from_slice(&(manifest_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&manifest_data);
+        file.extend_from_slice(&clss_tag.to_le_bytes());
+        file.extend_from_slice(&(classes_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&classes_data);
+        file
+    }
+
+    fn parse_leaked(papk: Vec<u8>) -> Papk<'static> {
+        Papk::parse(Box::leak(papk.into_boxed_slice())).unwrap()
+    }
+
+    #[test]
+    fn framework_map_version_reads_manifest_key() {
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.1.0")]);
+        let p = parse_leaked(papk);
+        assert_eq!(p.framework_map_version(), Some("0.1.0"));
+    }
+
+    #[test]
+    fn verify_compat_accepts_equal_versions() {
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.1.0")]);
+        assert_eq!(parse_leaked(papk).verify_compat("0.1.0"), Ok(()));
+    }
+
+    #[test]
+    fn verify_compat_accepts_older_papk() {
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.1.0")]);
+        assert_eq!(parse_leaked(papk).verify_compat("0.2.0"), Ok(()));
+    }
+
+    #[test]
+    fn verify_compat_rejects_newer_papk() {
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.2.0")]);
+        assert_eq!(
+            parse_leaked(papk).verify_compat("0.1.0"),
+            Err(PapkError::FrameworkVersionMismatch)
+        );
+    }
+
+    #[test]
+    fn verify_compat_accepts_unversioned_papk_against_sentinel_firmware() {
+        // A legacy PAPK (pre-M1) is compatible with firmware that hasn't
+        // cut any shrink-map release yet.
+        let papk = build_papk_with_manifest(&[("main-class", "x/Y")]);
+        assert_eq!(parse_leaked(papk).verify_compat("0.0.0"), Ok(()));
+    }
+
+    #[test]
+    fn verify_compat_rejects_unversioned_papk_against_released_firmware() {
+        let papk = build_papk_with_manifest(&[("main-class", "x/Y")]);
+        assert_eq!(
+            parse_leaked(papk).verify_compat("0.1.0"),
+            Err(PapkError::FrameworkVersionMissing)
+        );
     }
 }

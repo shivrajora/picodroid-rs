@@ -63,6 +63,7 @@ fn main() {
     });
     lvgl::build(out, &board_cfg);
 
+    papk::emit_framework_map_version(out);
     papk::embed_framework_classes(out);
     papk::embed_apk(out, is_arm_embedded);
     papk::embed_papk_flash_init(out, is_arm_embedded);

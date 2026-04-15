@@ -112,6 +112,15 @@ javac --release 8 -Xlint:-options \
 
 echo "==> Packaging '$APP' into $(basename "$OUTPUT")..."
 
+# Resolve the active shrink-map version. Firmware's build.rs runs the same
+# resolution against the root Cargo.toml and sdk/shrink-maps/, so firmware
+# and PAPK always agree on the version string for a given commit.
+FRAMEWORK_MAP_VERSION="$(cargo run --quiet --target "$HOST_TARGET" \
+  --manifest-path "$REPO_ROOT/tools/class-shrink/Cargo.toml" -- \
+  print-version \
+  --cargo-toml "$REPO_ROOT/Cargo.toml" \
+  --shrink-maps-dir "$REPO_ROOT/sdk/shrink-maps")"
+
 PAPK_ARGS=()
 if [[ -n "$MAIN_CLASS" ]]; then
   PAPK_ARGS+=(--main-class "$MAIN_CLASS")
@@ -131,5 +140,6 @@ cargo run \
   "${PAPK_ARGS[@]}" \
   --package-name "$APP" \
   --version "$VERSION" \
+  --framework-map-version "$FRAMEWORK_MAP_VERSION" \
   --classes-dir "$CLASSES_DIR" \
   --output "$OUTPUT"

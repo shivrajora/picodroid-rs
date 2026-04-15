@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 
 const MAGIC: &[u8; 4] = b"PAPK";
 const VERSION_MAJOR: u16 = 1;
-const VERSION_MINOR: u16 = 0;
+// Bumped 0 → 1 when the `framework-map-version` manifest key was introduced
+// (M1 of class/method name shrinking). Binary layout is unchanged, so
+// VERSION_MAJOR stays at 1 and older parsers still walk the file.
+const VERSION_MINOR: u16 = 1;
 
 // Section tags (ASCII tag stored as little-endian u32)
 // "MANI" = 0x494E414D, "CLSS" = 0x53534C43
@@ -31,6 +34,7 @@ struct Args {
     application: Option<String>,
     package_name: String,
     version: String,
+    framework_map_version: String,
     classes_dir: PathBuf,
     output: PathBuf,
 }
@@ -42,6 +46,7 @@ fn parse_args() -> Result<Args, String> {
     let mut application = None;
     let mut package_name = None;
     let mut version = None;
+    let mut framework_map_version = None;
     let mut classes_dir = None;
     let mut output = None;
 
@@ -71,6 +76,14 @@ fn parse_args() -> Result<Args, String> {
             "--version" => {
                 i += 1;
                 version = Some(args.get(i).ok_or("--version requires a value")?.clone());
+            }
+            "--framework-map-version" => {
+                i += 1;
+                framework_map_version = Some(
+                    args.get(i)
+                        .ok_or("--framework-map-version requires a value")?
+                        .clone(),
+                );
             }
             "--classes-dir" => {
                 i += 1;
@@ -105,6 +118,8 @@ fn parse_args() -> Result<Args, String> {
         application,
         package_name: package_name.ok_or("--package-name is required")?,
         version: version.ok_or("--version is required")?,
+        framework_map_version: framework_map_version
+            .ok_or("--framework-map-version is required")?,
         classes_dir: classes_dir.ok_or("--classes-dir is required")?,
         output: output.ok_or("--output is required")?,
     })
@@ -118,6 +133,7 @@ fn print_usage() {
          \x20 [--application <jvm/ClassName>] \\\n\
          \x20 --package-name <name> \\\n\
          \x20 --version <x.y> \\\n\
+         \x20 --framework-map-version <semver> \\\n\
          \x20 --classes-dir <dir> \\\n\
          \x20 --output <file.papk>\n\
          \n\
@@ -184,6 +200,7 @@ fn build_manifest_data(
     application: Option<&str>,
     package_name: &str,
     version: &str,
+    framework_map_version: &str,
 ) -> Vec<u8> {
     let mut data = Vec::new();
     if let Some(mc) = main_class {
@@ -202,6 +219,8 @@ fn build_manifest_data(
     write_str_u16(&mut data, package_name);
     write_str_u16(&mut data, "version");
     write_str_u16(&mut data, version);
+    write_str_u16(&mut data, "framework-map-version");
+    write_str_u16(&mut data, framework_map_version);
     data
 }
 
@@ -233,10 +252,17 @@ fn build_papk(
     application: Option<&str>,
     package_name: &str,
     version: &str,
+    framework_map_version: &str,
     classes: &[(String, Vec<u8>)],
 ) -> Vec<u8> {
-    let manifest_data =
-        build_manifest_data(main_class, activity, application, package_name, version);
+    let manifest_data = build_manifest_data(
+        main_class,
+        activity,
+        application,
+        package_name,
+        version,
+        framework_map_version,
+    );
     let classes_data = build_classes_data(classes);
 
     let manifest_hdr = build_section_header(TAG_MANIFEST, manifest_data.len() as u32);
@@ -311,6 +337,7 @@ fn main() {
         args.application.as_deref(),
         &args.package_name,
         &args.version,
+        &args.framework_map_version,
         &classes,
     );
 
