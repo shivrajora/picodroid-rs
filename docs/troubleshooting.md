@@ -70,6 +70,26 @@ ln -s ../../scripts/pre-commit .git/hooks/pre-commit
 
 To verify it is installed: `ls -la .git/hooks/pre-commit` should show it pointing to `../../scripts/pre-commit`.
 
+## `PAPK framework-map-version incompatible with firmware`
+
+The firmware panics at PAPK load with something like:
+
+```
+PAPK framework-map-version incompatible with firmware (firmware = 0.1.0):
+    FrameworkVersionMismatch
+```
+
+This means the PAPK was packaged against a shrink-map release newer
+than the firmware's. Rebuild the app against the current source tree:
+
+```bash
+./scripts/build-apk.sh --app <name>
+```
+
+If you see `FrameworkVersionMissing` instead, the PAPK predates the
+manifest key — also fixed by rebuilding. See [shrinker.md](shrinker.md)
+for the full compatibility story.
+
 ## Java formatting check fails
 
 Java sources must follow Google Java Style. Reformat before committing:

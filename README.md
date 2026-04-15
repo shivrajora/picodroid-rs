@@ -99,6 +99,7 @@ Start at [docs/README.md](docs/README.md) for the full index. Highlights:
 - [Getting Started](docs/getting-started.md) — prerequisites, build, flash, board/app selection, simulator, hot-swap
 - [Writing Apps](docs/writing-apps.md) — create a new Java app + supported language features
 - [Java API](docs/java-api.md) — split by area: [core](docs/api/core.md), [system](docs/api/system.md), [peripherals](docs/api/peripherals.md), [storage](docs/api/storage.md), [networking](docs/api/networking.md), [UI](docs/api/ui.md)
+- [Class-name Shrinker](docs/shrinker.md) — release-tied, append-only shrink maps applied to framework `.class` files and PAPK cross-references
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure
@@ -109,6 +110,9 @@ picodroid-rs/
 │   └── src/            # no_std + alloc only; no hardware dependencies
 │
 ├── sdk/                # Android-compatible Java API stubs (picodroid.*)
+│   ├── java/           # Framework Java sources (compiled into firmware Flash)
+│   ├── keep.toml       # Class-name shrinker keep list
+│   └── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
 │
 ├── examples/           # Example apps, each with Java sources and a PicodroidManifest.xml
 │
@@ -127,6 +131,7 @@ picodroid-rs/
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
+│   ├── class-shrink/   # Host tool: release-tied class-name shrinker (see docs/shrinker.md)
 │   └── pdb/            # Host tool: push apps and monitor device health over USB CDC
 │
 ├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts

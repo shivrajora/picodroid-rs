@@ -37,6 +37,7 @@ If you're new, read in this order:
 ## Reference
 
 - [Java API index](java-api.md) — one-page index of the API split above
+- [Class-name Shrinker](shrinker.md) — release-tied, append-only shrink maps; how firmware and PAPKs pick up the active map
 - [Porting Guide](porting-guide.md) — HAL function signatures, FreeRTOS config, build system
 - [RP2350 FreeRTOS SMP Bugs](rp2350-freertos-smp-bugs.md) — known issues with the SMP port on RP2350
 - [Debugging](debugging.md) — RTT logging, the host simulator, `pdb sysmon`, GDB

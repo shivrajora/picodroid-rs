@@ -106,10 +106,31 @@ See [docs/writing-apps.md](docs/writing-apps.md) for supported language features
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `src/system/` under the appropriate module
-2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`
+2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [docs/shrinker.md](docs/shrinker.md) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/helpers.rs` — otherwise virtual dispatch will silently break
-4. Add the Java API stub in `sdk/java/picodroid/`
+4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
 5. Update the relevant `docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
+
+## Cutting a New Release
+
+Shrink maps are tied 1:1 to picodroid package versions and are immutable
+once committed. When you bump the `version` in the root `Cargo.toml`,
+cut a fresh map in the same commit:
+
+```bash
+TMP=$(mktemp -d)
+find sdk/java -name '*.java' -print0 \
+  | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
+
+cargo run -p class-shrink -- cut-release \
+  --classes-dir "$TMP" \
+  --keep sdk/keep.toml \
+  --base sdk/shrink-maps/v<previous>.toml \
+  --out  sdk/shrink-maps/v<new>.toml
+```
+
+`--base` copies the previous map verbatim — existing entries never get
+renamed. See [docs/shrinker.md](docs/shrinker.md) for the full design.
 
 ## Submitting Changes
 
