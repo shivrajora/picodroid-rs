@@ -207,6 +207,44 @@ tagged with `[no-shrink]` or `[shrink]` so regressions on either side
 are obvious. Pass `--mode no-shrink`, `--mode shrink`, or `--mode both`
 (default) to narrow the run.
 
+The HIL suite also exercises rejection paths — three test rows per mode
+(see [scripts/hil-tests.conf](../scripts/hil-tests.conf)):
+
+| Row                            | What it tests |
+|--------------------------------|---------------|
+| `install-reject-host`          | Build a PAPK in the OPPOSITE shrink mode of the firmware; assert `pdb` refuses pre-flight and the device still PINGs after. |
+| `install-reject-device`        | Same as above but with `--skip-host-check`; assert the device returns `STATUS_INCOMPAT` in Phase A and stays alive. |
+| `install-reject-future`        | Synthesize a future map (`v0.<MIN+1>.0.toml`) via [scripts/test-future-version-rejection.sh](../scripts/test-future-version-rejection.sh), build a PAPK against it, assert rejection. Only meaningful in shrink mode. |
+
+After every rejection, `hil-run.sh` runs a `pdb ping` to confirm the
+device is responsive — a successful rejection must not have erased flash
+or rebooted.
+
+## `pdb install` pre-flight
+
+`pdb install` has two compatibility gates so a bad install never reboots
+the device:
+
+1. **Host pre-flight** in [tools/pdb/src/install.rs](../tools/pdb/src/install.rs):
+   after PING, before sending the install header, parse the PAPK manifest
+   for `framework-map-version`, compare to the firmware's version learned
+   from the new PING greeting, and exit with a clear error if `compat::check`
+   rejects.
+2. **Device-side check** in [src/packagemanager/install.rs](../src/packagemanager/install.rs):
+   after parking core 0 but before erasing flash, peek the first
+   `INSTALL_PEEK_BYTES` (512) of the PAPK off the wire, run `compat::check`,
+   and reply `STATUS_INCOMPAT` on mismatch. The host inlines those bytes
+   right after the install header so the peek doesn't stall.
+
+The PING greeting was bumped from `picodroid/2.0` to `picodroid/2.1` and
+gained a trailing `[u8 len][N bytes]` field for the firmware's
+`framework-map-version`. `pdb install` hard-refuses old `picodroid/2.0`
+firmware (you must reflash via SWD) since it can't verify compatibility.
+
+For testing, `pdb install` accepts two flags (used by the HIL reject rows):
+`--skip-host-check` (bypass the host pre-flight) and `--expect-rejected`
+(invert exit codes — refusal = success).
+
 ## Diagnosing version mismatch
 
 `PapkError::FrameworkVersionMismatch` means the PAPK was packaged

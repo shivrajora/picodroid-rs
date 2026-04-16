@@ -12,3 +12,4 @@ readme = "README.md"
 
 [dependencies]
 libm = { version = "0.2", default-features = false }
+compat = { path = "../compat" }

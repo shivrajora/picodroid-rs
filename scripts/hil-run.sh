@@ -163,6 +163,49 @@ run_pdb_test() {
       fi
       pdb_args=(install "$apk_path")
       ;;
+    install-reject-host|install-reject-device)
+      # Build the PAPK in the OPPOSITE mode of the running firmware so its
+      # framework-map-version is incompatible. We expect pdb to refuse the
+      # install (host pre-flight or device-side STATUS_INCOMPAT) and the
+      # device to remain alive afterwards.
+      local opp_mode="no-shrink"
+      [[ "$mode" == "no-shrink" ]] && opp_mode="shrink"
+      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+      local -a apk_args=(--app "$app")
+      [[ "$opp_mode" == "shrink" ]] && apk_args+=(--shrink)
+      hil_log "  Building opposite-mode PAPK ($opp_mode) for $pdb_cmd..."
+      if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
+        hil_log "  BUILD FAILED (PAPK for $pdb_cmd)"
+        echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
+      fi
+      pdb_args=(install --expect-rejected)
+      [[ "$pdb_cmd" == "install-reject-device" ]] && pdb_args+=(--skip-host-check)
+      pdb_args+=("$apk_path")
+      ;;
+    install-reject-future)
+      # Synthesize a higher version map and build a PAPK against it so its
+      # framework-map-version is "from the future" relative to firmware.
+      # Only meaningful in shrink mode (no-shrink can't trigger it; both
+      # sides would be 0.0.0 which is the symmetric-accept case).
+      if [[ "$mode" != "shrink" ]]; then
+        hil_log "SKIP $test_name (only meaningful in shrink mode)"
+        echo "SKIP $test_name" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        return
+      fi
+      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+      hil_log "  Building future-version PAPK..."
+      if ! bash "$SCRIPT_DIR/test-future-version-rejection.sh" "$app" "$apk_path" \
+            > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
+        hil_log "  BUILD FAILED (future PAPK)"
+        echo "ERROR $test_name (future papk build failed)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
+      fi
+      pdb_args=(install --expect-rejected "$apk_path")
+      ;;
     install-stress)
       run_pdb_install_stress "$app" "$timeout" "$patterns" "$mode"
       return
@@ -192,6 +235,26 @@ run_pdb_test() {
       hil_log "  PDB command timed out after ${timeout}s"
     else
       hil_log "  PDB exited with code $exit_code"
+    fi
+  fi
+
+  # For install-reject-* tests we also assert the device is still alive
+  # afterwards: a clean rejection must not have erased flash or rebooted.
+  local reject_test=false
+  case "$pdb_cmd" in
+    install-reject-*) reject_test=true ;;
+  esac
+  if $reject_test; then
+    sleep 1
+    local ping_log="${log_file%.log}.post-ping.log"
+    if ! timeout 5 "$PDB_BIN" ping > "$ping_log" 2>&1 \
+        || ! grep -q "max PAPK" "$ping_log"; then
+      hil_log "  FAIL (device unresponsive after rejection — flash may have been erased)"
+      tail -5 "$ping_log" 2>/dev/null \
+        | while IFS= read -r line; do hil_log "    post-ping: $line"; done || true
+      echo "FAIL $test_name (post-ping liveness)" >> "$RESULTS_FILE"
+      FAIL=$((FAIL + 1))
+      return
     fi
   fi
 

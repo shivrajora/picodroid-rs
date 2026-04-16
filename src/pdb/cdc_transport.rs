@@ -4,7 +4,8 @@ use freertos_rust::{CurrentTask, Duration};
 
 use super::pending;
 use super::protocol::{
-    FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK, STATUS_READY, STATUS_TOO_LARGE,
+    FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
+    STATUS_TOO_LARGE,
 };
 use crate::packagemanager::install::CoreCoordinator;
 use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
@@ -65,6 +66,7 @@ impl InstallTransport for CdcTransport {
             InstallError::StreamTimeout => (STATUS_ERR, b"stream timeout"),
             InstallError::FlashWriteFailed => (STATUS_ERR, b"flash write failed"),
             InstallError::CrcMismatch => (STATUS_CRC_FAIL, b""),
+            InstallError::Incompat => (STATUS_INCOMPAT, b"framework-map-version mismatch"),
         };
         Self::send_pdbp_response(status, msg);
     }

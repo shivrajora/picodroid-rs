@@ -243,51 +243,16 @@ impl<'a> Papk<'a> {
 
     /// Verify this PAPK's shrink-map version is compatible with the firmware.
     ///
-    /// Compatibility rules:
-    ///
-    /// 1. **Both `0.0.0`** (both built without shrinking): accept. Names
-    ///    are original on both sides.
-    /// 2. **Both non-zero, PAPK ≤ firmware**: accept. The append-only
-    ///    invariant guarantees every shrunk name the PAPK uses is still
-    ///    present in firmware.
-    /// 3. **Asymmetric** (one side `0.0.0`, the other non-zero): reject
-    ///    with `FrameworkVersionMismatch`. Shrunk firmware has no
-    ///    original-name classes, and vice versa — linkage would fail at
-    ///    first method call.
-    /// 4. **PAPK > firmware** (both non-zero): reject. The PAPK may use
-    ///    shrunk names added after the firmware's release.
-    ///
-    /// Returns `FrameworkVersionMissing` if the PAPK predates the manifest
-    /// key and the firmware is not at the `0.0.0` sentinel.
+    /// Delegates to [`compat::check`] so the host-side `pdb install`
+    /// pre-flight and this device-side load-time check share one rule
+    /// implementation. See `compat` crate docs for the table.
     pub fn verify_compat(&self, firmware_version: &str) -> Result<(), PapkError> {
-        let fw = parse_semver(firmware_version).ok_or(PapkError::FrameworkVersionMismatch)?;
-        let papk_ver = match self.framework_map_version() {
-            None => {
-                // Legacy PAPK without the manifest key is only compatible
-                // with firmware at the `0.0.0` sentinel.
-                return if fw == (0, 0, 0) {
-                    Ok(())
-                } else {
-                    Err(PapkError::FrameworkVersionMissing)
-                };
+        compat::check(self.framework_map_version(), firmware_version).map_err(|e| match e {
+            compat::CompatError::Missing => PapkError::FrameworkVersionMissing,
+            compat::CompatError::Mismatch | compat::CompatError::BadVersion => {
+                PapkError::FrameworkVersionMismatch
             }
-            Some(v) => v,
-        };
-        let pv = parse_semver(papk_ver).ok_or(PapkError::FrameworkVersionMismatch)?;
-        let papk_zero = pv == (0, 0, 0);
-        let fw_zero = fw == (0, 0, 0);
-        if papk_zero && fw_zero {
-            return Ok(());
-        }
-        if papk_zero != fw_zero {
-            // One side shrunk, the other not — asymmetric, reject.
-            return Err(PapkError::FrameworkVersionMismatch);
-        }
-        if pv <= fw {
-            Ok(())
-        } else {
-            Err(PapkError::FrameworkVersionMismatch)
-        }
+        })
     }
 
     /// Look up a manifest key and return its value as a UTF-8 string.
@@ -373,26 +338,6 @@ fn read_bytes_u32<'a>(buf: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
     let slice = &buf[*pos..*pos + len];
     *pos += len;
     Some(slice)
-}
-
-/// Parse a `MAJOR.MINOR.PATCH` semver string into a comparable tuple.
-/// Pre-release and build suffixes (`-rc1`, `+build.123`) are stripped
-/// before parsing so `"0.1.0-rc1"` and `"0.1.0"` compare equal.
-/// Returns `None` on malformed input. `no_std`/`no_alloc` friendly.
-fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
-    // Trim anything after the first '-' or '+'.
-    let core = match s.find(['-', '+']) {
-        Some(i) => &s[..i],
-        None => s,
-    };
-    let mut it = core.split('.');
-    let major: u32 = it.next()?.parse().ok()?;
-    let minor: u32 = it.next()?.parse().ok()?;
-    let patch: u32 = it.next()?.parse().ok()?;
-    if it.next().is_some() {
-        return None;
-    }
-    Some((major, minor, patch))
 }
 
 /// Returns the section data slice for the section at `section_offset`,

@@ -36,12 +36,25 @@ fn handle_ping(len: u32) {
         CdcTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
         return;
     }
-    // Payload: "picodroid/2.0\0" (14 bytes) + max_papk_bytes (4 bytes LE)
-    let mut ping_resp = [0u8; 18];
-    ping_resp[..14].copy_from_slice(b"picodroid/2.0\0");
-    ping_resp[14..18]
-        .copy_from_slice(&(crate::hal::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
-    CdcTransport::send_pdbp_response(STATUS_OK, &ping_resp);
+    // Greeting payload (additive layout, version-string sentinel signals new fields):
+    //   [14] "picodroid/2.1\0"
+    //   [4]  max_papk_bytes (u32 LE)
+    //   [1]  framework_map_version_len
+    //   [N]  framework-map-version bytes
+    //
+    // Older "picodroid/2.0" hosts saw only the first 18 bytes; this is
+    // strictly additive, so newer hosts read the version field while
+    // older hosts ignore the trailing bytes. New hosts also detect "2.0"
+    // and refuse to install, prompting an SWD reflash.
+    let fw_ver = crate::app::FRAMEWORK_MAP_VERSION.as_bytes();
+    let mut buf = [0u8; 14 + 4 + 1 + 64];
+    buf[..14].copy_from_slice(b"picodroid/2.1\0");
+    buf[14..18].copy_from_slice(&(crate::hal::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());
+    let ver_len = fw_ver.len().min(64) as u8;
+    buf[18] = ver_len;
+    buf[19..19 + ver_len as usize].copy_from_slice(&fw_ver[..ver_len as usize]);
+    let total = 19 + ver_len as usize;
+    CdcTransport::send_pdbp_response(STATUS_OK, &buf[..total]);
 }
 
 // ── pdb_task body ─────────────────────────────────────────────────────────────

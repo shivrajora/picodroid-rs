@@ -1,5 +1,6 @@
 mod devices;
 mod install;
+mod papk_meta;
 mod protocol;
 mod sysmon;
 
@@ -13,6 +14,13 @@ Commands:
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
   sysmon                     Show system monitor stats (heap, tasks, CPU%)
+
+install options:
+  --skip-host-check          Skip the host-side compat pre-flight (HIL test
+                             knob — exercises the device-side rejection path)
+  --expect-rejected          Invert exit codes: success when the install is
+                             rejected, failure when it goes through. Used by
+                             HIL install-reject-* test rows.
 
 Options:
   -s <port>   Serial port to use (e.g. /dev/cu.usbserial-0001)
@@ -63,15 +71,33 @@ fn main() {
         }
 
         "install" => {
-            let papk_path = match args.get(idx) {
-                Some(p) => Path::new(p).to_owned(),
+            // Parse install-specific flags first; the positional <file.papk>
+            // is the remaining non-flag arg.
+            let mut opts = install::InstallOptions::default();
+            let mut papk_path: Option<std::path::PathBuf> = None;
+            while let Some(arg) = args.get(idx) {
+                idx += 1;
+                match arg.as_str() {
+                    "--skip-host-check" => opts.skip_host_check = true,
+                    "--expect-rejected" => opts.expect_rejected = true,
+                    other if !other.starts_with("--") && papk_path.is_none() => {
+                        papk_path = Some(Path::new(other).to_owned());
+                    }
+                    other => {
+                        eprintln!("error: unexpected install argument {other:?}");
+                        process::exit(1);
+                    }
+                }
+            }
+            let papk_path = match papk_path {
+                Some(p) => p,
                 None => {
                     eprintln!("error: install requires a <file.papk> argument");
                     process::exit(1);
                 }
             };
             let port_name = require_port(port.as_deref());
-            install::run(&port_name, &papk_path);
+            install::run(&port_name, &papk_path, opts);
         }
 
         "--help" | "-h" | "help" => {

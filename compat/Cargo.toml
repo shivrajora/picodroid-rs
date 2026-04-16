@@ -1,0 +1,9 @@
+[package]
+name = "compat"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Picodroid PAPK ↔ firmware framework-map-version compatibility check. Single source of truth shared by pico-jvm (device) and tools/pdb (host)."
+
+[lib]
+path = "src/lib.rs"

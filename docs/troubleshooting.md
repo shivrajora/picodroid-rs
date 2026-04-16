@@ -106,6 +106,26 @@ The two most common causes:
 entirely (legacy, pre-M1). Also fixed by rebuilding. See
 [shrinker.md](shrinker.md) for the full compatibility story.
 
+## `pdb install` says "Refusing to install"
+
+`pdb install` runs a host-side compatibility pre-flight against the
+device's running firmware before erasing flash. Two messages you may see:
+
+1. **"PAPK is incompatible with running firmware"** — the PAPK and the
+   running firmware disagree about `--shrink` (or the PAPK's release map
+   version is newer). The on-device PAPK is untouched. Rebuild the PAPK
+   with the matching `--shrink` setting and re-run `pdb install`.
+
+2. **"Firmware advertises 'picodroid/2.0', which predates the
+   framework-map-version protocol field"** — the firmware was built
+   before the compat-check protocol. `pdb install` won't push to it
+   over USB. Reflash the firmware via SWD with `./scripts/flash.sh`,
+   which brings up a `picodroid/2.1` build that advertises the field.
+
+If `--skip-host-check` is passed (HIL test usage) and the device-side
+check still fires, `pdb` reports `device rejected install:
+STATUS_INCOMPAT` — same fix as case 1.
+
 ## Java formatting check fails
 
 Java sources must follow Google Java Style. Reformat before committing:

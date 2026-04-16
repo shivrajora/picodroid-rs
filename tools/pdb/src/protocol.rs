@@ -10,6 +10,17 @@ pub const STATUS_READY: u8 = 0x01; // device erased flash, ready to receive data
 pub const STATUS_ERR: u8 = 0xFF;
 pub const STATUS_TOO_LARGE: u8 = 0xFE;
 pub const STATUS_CRC_FAIL: u8 = 0xFD;
+/// Device refused the install: PAPK's framework-map-version is incompatible
+/// with the running firmware. Returned in install Phase A *before* any
+/// flash erase, so the existing PAPK on-device is unaffected.
+pub const STATUS_INCOMPAT: u8 = 0xFC;
+
+/// Number of PAPK bytes the host sends inline immediately after the install
+/// header (Phase A) — must match the device's `INSTALL_PEEK_BYTES`
+/// constant. Lets the device peek the manifest section before erasing
+/// flash. The remaining `papk_len - INSTALL_PEEK_BYTES` bytes (if any)
+/// stream after STATUS_READY.
+pub const INSTALL_PEEK_BYTES: usize = 512;
 
 /// CRC32 over [cmd byte][4-byte len LE][payload] — mirrors firmware crc32_frame.
 pub fn crc32_frame(cmd: u8, len: u32, payload: &[u8]) -> u32 {
@@ -44,13 +55,21 @@ pub fn send_install_header(port: &mut dyn Write, papk_len: u32) -> io::Result<()
     port.flush()
 }
 
-/// Send the CMD_INSTALL Phase B data stream: raw PAPK bytes followed by CRC32.
+/// Send the CMD_INSTALL Phase B data stream: `tail` bytes followed by CRC32.
 ///
-/// CRC32 is computed over [CMD_INSTALL][papk_len_le:4][papk_bytes], matching
-/// the incremental hasher in the firmware's streaming write handler.
-pub fn send_install_data(port: &mut dyn Write, papk_len: u32, papk: &[u8]) -> io::Result<()> {
-    let crc = crc32_frame(CMD_INSTALL, papk_len, papk);
-    port.write_all(papk)?;
+/// `tail` is the portion of the PAPK that hasn't already been sent inline
+/// during Phase A's peek payload (typically `papk[INSTALL_PEEK_BYTES..]`).
+/// `full_papk` is the **complete** PAPK, used only for the CRC32 — which
+/// must cover every byte in [CMD_INSTALL][papk_len_le:4][papk_bytes] to
+/// match the device's incremental hasher.
+pub fn send_install_data(
+    port: &mut dyn Write,
+    papk_len: u32,
+    full_papk: &[u8],
+    tail: &[u8],
+) -> io::Result<()> {
+    let crc = crc32_frame(CMD_INSTALL, papk_len, full_papk);
+    port.write_all(tail)?;
     port.write_all(&crc.to_le_bytes())?;
     port.flush()
 }
@@ -91,6 +110,7 @@ pub fn status_str(s: u8) -> &'static str {
         STATUS_ERR => "ERR",
         STATUS_TOO_LARGE => "TOO_LARGE",
         STATUS_CRC_FAIL => "CRC_FAIL",
+        STATUS_INCOMPAT => "INCOMPAT",
         _ => "UNKNOWN",
     }
 }
@@ -174,19 +194,44 @@ mod tests {
 
     // ── send_install_data ─────────────────────────────────────────────────────
 
-    /// Phase B stream must be [papk_bytes][crc32_le:4] with no extra framing.
+    /// Phase B stream is `tail` bytes followed by CRC32. The CRC must
+    /// cover the *full* PAPK (including the peek bytes already sent inline
+    /// during Phase A), even though only the tail goes on the wire here.
     #[test]
     fn install_data_ends_with_correct_crc() {
         let papk = b"test papk payload";
         let papk_len = papk.len() as u32;
         let mut buf = Vec::new();
-        send_install_data(&mut buf, papk_len, papk).unwrap();
+        // Tail = full PAPK (no peek inlined): equivalent to old behavior.
+        send_install_data(&mut buf, papk_len, papk, papk).unwrap();
 
         assert_eq!(buf.len(), papk.len() + 4);
         assert_eq!(&buf[..papk.len()], papk.as_slice());
 
         let wire_crc = u32::from_le_bytes(buf[papk.len()..].try_into().unwrap());
         assert_eq!(wire_crc, crc32_frame(CMD_INSTALL, papk_len, papk));
+    }
+
+    /// When part of the PAPK is sent inline during Phase A (peek), the
+    /// Phase B tail is shorter but the CRC still covers the whole PAPK.
+    #[test]
+    fn install_data_crc_covers_full_papk_when_tail_is_partial() {
+        let papk = b"0123456789abcdefghij"; // 20 bytes
+        let papk_len = papk.len() as u32;
+        let peek_len = 8;
+        let tail = &papk[peek_len..]; // 12 bytes
+
+        let mut buf = Vec::new();
+        send_install_data(&mut buf, papk_len, papk, tail).unwrap();
+
+        // Wire = tail bytes + CRC.
+        assert_eq!(buf.len(), tail.len() + 4);
+        assert_eq!(&buf[..tail.len()], tail);
+
+        let wire_crc = u32::from_le_bytes(buf[tail.len()..].try_into().unwrap());
+        // CRC must match the full PAPK, not just the tail.
+        assert_eq!(wire_crc, crc32_frame(CMD_INSTALL, papk_len, papk));
+        assert_ne!(wire_crc, crc32_frame(CMD_INSTALL, papk_len, tail));
     }
 
     // ── recv_response ─────────────────────────────────────────────────────────

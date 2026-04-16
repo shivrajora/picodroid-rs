@@ -18,6 +18,10 @@ pub enum InstallError {
     FlashWriteFailed,
     /// CRC mismatch after all data received.
     CrcMismatch,
+    /// PAPK's framework-map-version is incompatible with the firmware.
+    /// Reported in install Phase A *before* any flash erase, so the
+    /// existing PAPK on-device is unaffected.
+    Incompat,
 }
 
 /// A data source and status reporter for PAPK install operations.
