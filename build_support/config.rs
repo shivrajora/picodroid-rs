@@ -14,11 +14,13 @@ pub struct SensorDecl {
     pub addr: u8,
 }
 
-/// Board configuration: flat key-value properties plus sensor declarations.
+/// Board configuration: flat key-value properties plus peripheral declarations.
 #[derive(Debug)]
 pub struct BoardConfig {
     pub props: HashMap<String, String>,
     pub sensors: Vec<SensorDecl>,
+    pub display: Option<HashMap<String, String>>,
+    pub touch: Option<HashMap<String, String>>,
 }
 
 const KNOWN_SENSOR_KINDS: &[&str] = &["bme688"];
@@ -43,13 +45,25 @@ fn parse_int_value(val: &str) -> u8 {
     }
 }
 
-/// Parse a board TOML file supporting flat key = value pairs and `[[sensor]]`
-/// array-of-tables blocks.
+/// Current section being parsed in board.toml.
+#[derive(PartialEq)]
+enum Section {
+    Top,
+    Display,
+    Touch,
+    Sensor,
+    Unknown,
+}
+
+/// Parse a board TOML file with flat properties, `[display]`, `[touch]`,
+/// and `[[sensor]]` sections.
 pub fn parse_board_toml(path: &str) -> BoardConfig {
     let content = fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
     let mut props = HashMap::new();
     let mut sensors: Vec<SensorDecl> = Vec::new();
-    let mut in_sensor_block = false;
+    let mut display: Option<HashMap<String, String>> = None;
+    let mut touch: Option<HashMap<String, String>> = None;
+    let mut section = Section::Top;
     let mut cur_sensor: HashMap<String, String> = HashMap::new();
 
     for line in content.lines() {
@@ -57,36 +71,73 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
+
+        // Section headers
         if trimmed == "[[sensor]]" {
-            if in_sensor_block {
+            if section == Section::Sensor {
                 sensors.push(finish_sensor(&cur_sensor, path));
                 cur_sensor.clear();
             }
-            in_sensor_block = true;
+            section = Section::Sensor;
+            continue;
+        }
+        if trimmed == "[display]" {
+            if section == Section::Sensor {
+                sensors.push(finish_sensor(&cur_sensor, path));
+                cur_sensor.clear();
+            }
+            display = Some(HashMap::new());
+            section = Section::Display;
+            continue;
+        }
+        if trimmed == "[touch]" {
+            if section == Section::Sensor {
+                sensors.push(finish_sensor(&cur_sensor, path));
+                cur_sensor.clear();
+            }
+            touch = Some(HashMap::new());
+            section = Section::Touch;
             continue;
         }
         if trimmed.starts_with('[') {
-            if in_sensor_block {
+            if section == Section::Sensor {
                 sensors.push(finish_sensor(&cur_sensor, path));
                 cur_sensor.clear();
-                in_sensor_block = false;
             }
+            section = Section::Unknown;
             continue;
         }
+
+        // Key-value pairs routed by current section
         if let Some((key, val)) = trimmed.split_once('=') {
             let key = key.trim().to_string();
             let val = strip_quotes(val.trim());
-            if in_sensor_block {
-                cur_sensor.insert(key, val);
-            } else {
-                props.insert(key, val);
+            match section {
+                Section::Top => {
+                    props.insert(key, val);
+                }
+                Section::Sensor => {
+                    cur_sensor.insert(key, val);
+                }
+                Section::Display => {
+                    display.as_mut().unwrap().insert(key, val);
+                }
+                Section::Touch => {
+                    touch.as_mut().unwrap().insert(key, val);
+                }
+                Section::Unknown => {}
             }
         }
     }
-    if in_sensor_block {
+    if section == Section::Sensor {
         sensors.push(finish_sensor(&cur_sensor, path));
     }
-    BoardConfig { props, sensors }
+    BoardConfig {
+        props,
+        sensors,
+        display,
+        touch,
+    }
 }
 
 fn finish_sensor(fields: &HashMap<String, String>, path: &str) -> SensorDecl {

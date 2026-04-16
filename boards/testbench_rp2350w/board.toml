@@ -1,6 +1,31 @@
 # Board: TestBench (WiFi) — Waveshare 2.8" Pico display (ST7789 + XPT2046)
 # on a Raspberry Pi Pico 2 W (RP2350 + CYW43439 WiFi)
 mcu = "rp2350"
-has_touch = true
 has_network = true
 network_type = "cyw43"
+
+[display]
+driver = "st7789"
+spi_id = 1
+spi_freq = 62500000
+pin_dc = 8
+pin_cs = 9
+pin_rst = 15
+pin_bl = 13
+width = 320
+height = 240
+madctl = 0x60
+band_height = 20
+scroll_limit = 30
+
+[touch]
+driver = "xpt2046"
+spi_freq = 2000000
+pin_cs = 16
+pin_irq = 17
+pin_miso = 12
+cal_x_min = 1970
+cal_x_max = 185
+cal_y_min = 110
+cal_y_max = 1950
+swap_xy = true
