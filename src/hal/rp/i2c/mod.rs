@@ -335,6 +335,158 @@ pub fn set_speed(i2c_id: u8, hz: u32) {
     lock.give();
 }
 
+/// Interrupt-driven write from a byte slice. Returns len on success, -1 on NACK/abort.
+pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32 {
+    #[cfg(feature = "chip-rp2350-hal")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+
+    let len = data.len();
+    let lock = i2c_lock(i2c_id);
+    let _ = lock.take(Duration::infinite());
+
+    let p = unsafe { pac::Peripherals::steal() };
+
+    macro_rules! do_write {
+        ($i2c:expr) => {{
+            $i2c.ic_tar()
+                .write(|w| unsafe { w.ic_tar().bits(address as u16) });
+
+            if len == 0 {
+                while $i2c.ic_status().read().tfnf().bit_is_clear() {}
+                $i2c.ic_data_cmd()
+                    .write(|w| unsafe { w.bits(IC_DATA_CMD_STOP) });
+                while $i2c.ic_status().read().tfe().bit_is_clear() {}
+                while $i2c.ic_status().read().mst_activity().bit_is_set() {}
+                let result = if $i2c.ic_raw_intr_stat().read().tx_abrt().bit_is_set() {
+                    let _ = $i2c.ic_clr_tx_abrt().read();
+                    -1i32
+                } else {
+                    0i32
+                };
+                lock.give();
+                return result;
+            }
+
+            if len > MAX_XFER_LEN {
+                lock.give();
+                return -1;
+            }
+
+            let state = i2c_state(i2c_id);
+            state.buf[..len].copy_from_slice(data);
+            state.op = I2cOp::Write;
+            state.len = len;
+            state.tx_idx = 0;
+            state.rx_idx = 0;
+            state.result = 0;
+
+            $i2c.ic_tx_tl().write(|w| unsafe { w.bits(0) });
+            let _ = $i2c.ic_clr_intr().read();
+            $i2c.ic_intr_mask()
+                .write(|w| unsafe { w.bits(INTR_TX_EMPTY | INTR_TX_ABRT | INTR_STOP_DET) });
+        }};
+    }
+
+    match i2c_id {
+        0 => do_write!(&p.I2C0),
+        _ => do_write!(&p.I2C1),
+    }
+
+    let done = i2c_done(i2c_id);
+    if done.take(Duration::ms(1000)).is_err() {
+        match i2c_id {
+            0 => p.I2C0.ic_intr_mask().write(|w| unsafe { w.bits(0) }),
+            _ => p.I2C1.ic_intr_mask().write(|w| unsafe { w.bits(0) }),
+        }
+        let state = i2c_state(i2c_id);
+        state.op = I2cOp::Idle;
+        state.result = -1;
+    }
+
+    let result = i2c_state(i2c_id).result;
+    lock.give();
+    result
+}
+
+/// Interrupt-driven read into a byte slice. Returns len on success, -1 on NACK/abort.
+pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
+    #[cfg(feature = "chip-rp2350-hal")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+
+    let len = buf.len();
+    if len == 0 {
+        return 0;
+    }
+
+    let lock = i2c_lock(i2c_id);
+    let _ = lock.take(Duration::infinite());
+
+    if len > MAX_XFER_LEN {
+        lock.give();
+        return -1;
+    }
+
+    let p = unsafe { pac::Peripherals::steal() };
+
+    macro_rules! do_read {
+        ($i2c:expr) => {{
+            $i2c.ic_tar()
+                .write(|w| unsafe { w.ic_tar().bits(address as u16) });
+
+            let state = i2c_state(i2c_id);
+            state.op = I2cOp::Read;
+            state.len = len;
+            state.tx_idx = 0;
+            state.rx_idx = 0;
+            state.result = 0;
+
+            $i2c.ic_rx_tl().write(|w| unsafe { w.bits(0) });
+
+            let seed = len.min(16);
+            for i in 0..seed {
+                let stop = if i == len - 1 { IC_DATA_CMD_STOP } else { 0 };
+                $i2c.ic_data_cmd()
+                    .write(|w| unsafe { w.bits(IC_DATA_CMD_READ | stop) });
+            }
+            state.tx_idx = seed;
+
+            let _ = $i2c.ic_clr_intr().read();
+            $i2c.ic_intr_mask()
+                .write(|w| unsafe { w.bits(INTR_RX_FULL | INTR_TX_ABRT | INTR_STOP_DET) });
+        }};
+    }
+
+    match i2c_id {
+        0 => do_read!(&p.I2C0),
+        _ => do_read!(&p.I2C1),
+    }
+
+    let done = i2c_done(i2c_id);
+    if done.take(Duration::ms(1000)).is_err() {
+        match i2c_id {
+            0 => p.I2C0.ic_intr_mask().write(|w| unsafe { w.bits(0) }),
+            _ => p.I2C1.ic_intr_mask().write(|w| unsafe { w.bits(0) }),
+        }
+        let state = i2c_state(i2c_id);
+        state.op = I2cOp::Idle;
+        state.result = -1;
+    }
+
+    let state = i2c_state(i2c_id);
+    let result = state.result;
+    if result > 0 {
+        let n = (result as usize).min(len);
+        buf[..n].copy_from_slice(&state.buf[..n]);
+    }
+
+    lock.give();
+    result
+}
+
 /// Interrupt-driven write. Returns len on success, -1 on NACK/abort.
 pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
     #[cfg(feature = "chip-rp2350-hal")]
