@@ -297,9 +297,9 @@ pub fn execute<H: NativeMethodHandler>(
         let r: Result<(), JvmError> = match opcode {
             0x00..=0x14 => ex.op_constants(opcode, code, frame),
             0x15..=0x2d => ex.op_locals_load(opcode, code, frame),
-            0x2e | 0x32..=0x35 => ex.op_array_load(opcode, frame),
+            0x2e | 0x30 | 0x32..=0x35 => ex.op_array_load(opcode, frame),
             0x36..=0x4e => ex.op_locals_store(opcode, code, frame),
-            0x4f | 0x53..=0x56 => ex.op_array_store(opcode, frame),
+            0x4f | 0x51 | 0x53..=0x56 => ex.op_array_store(opcode, frame),
             0x57..=0x59 => ex.op_stack(opcode, frame),
             0x60..=0x84 => ex.op_math(opcode, code, frame),
             0x85..=0x98 => ex.op_convert(opcode, frame),

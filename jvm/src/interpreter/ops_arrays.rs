@@ -29,6 +29,27 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.push(Value::Int(v))?;
             }
 
+            // faload — load float from float array
+            0x30 => {
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                let raw = self
+                    .arrays
+                    .load(arr_idx, index as usize)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+                frame.push(Value::Float(f32::from_bits(raw as u32)))?;
+            }
+
             // aaload — load reference from reference array
             0x32 => {
                 let index = match frame.pop()? {
@@ -148,6 +169,29 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 self.arrays
                     .store(arr_idx, index as usize, value)
+                    .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+            }
+
+            // fastore — store float into float array
+            0x51 => {
+                let value = match frame.pop()? {
+                    Value::Float(v) => v,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let index = match frame.pop()? {
+                    Value::Int(i) => i,
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                let arr_idx = match frame.pop()? {
+                    Value::ArrayRef(i) => i,
+                    Value::Null => return Err(JvmError::InvalidReference),
+                    _ => return Err(JvmError::InvalidBytecode),
+                };
+                if index < 0 {
+                    return Err(JvmError::ArrayIndexOutOfBounds);
+                }
+                self.arrays
+                    .store(arr_idx, index as usize, value.to_bits() as i32)
                     .ok_or(JvmError::ArrayIndexOutOfBounds)?;
             }
 
