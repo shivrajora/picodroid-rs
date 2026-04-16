@@ -245,6 +245,34 @@ impl Jvm {
         )?;
         Ok(())
     }
+
+    /// Invoke an instance method with explicit arguments (beyond `this`).
+    pub fn invoke_instance_with_args(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        obj_ref: u16,
+        extra_args: &[Value],
+        heap: &mut SharedJvmHeap,
+        handler: &mut impl NativeMethodHandler,
+    ) -> Result<(), JvmError> {
+        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
+        let mut args = alloc::vec![Value::ObjectRef(obj_ref)];
+        args.extend_from_slice(extra_args);
+        interpreter::execute(
+            &self.classes,
+            &mut heap.strings,
+            &mut heap.objects,
+            &mut heap.arrays,
+            &mut heap.statics,
+            &mut heap.gc_state,
+            handler,
+            ci,
+            mi,
+            &args,
+        )?;
+        Ok(())
+    }
 }
 
 /// Find a class + method index by name (descriptor-agnostic).

@@ -85,6 +85,8 @@ pub(crate) fn run_activity(
         dispatch_checkbox_changes(jvm, heap, handler);
         dispatch_spinner_changes(jvm, heap, handler);
 
+        crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
+
         crate::hal::display::update_window();
         if !crate::hal::display::is_window_open() {
             break;

@@ -11,6 +11,8 @@ mod io;
 mod net;
 mod os;
 mod pio;
+#[cfg(not(test))]
+mod sensors;
 
 pub struct PicodroidNativeHandler {
     /// Resettable counters exposed to Java via Runtime.gcTimeNanos() etc.
@@ -92,6 +94,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         }
         #[cfg(feature = "has-network")]
         if let result @ Some(_) = net::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        #[cfg(not(test))]
+        if let result @ Some(_) = sensors::dispatch(class_name, method_name, ctx) {
             return result;
         }
 
