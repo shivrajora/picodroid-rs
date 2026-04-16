@@ -56,7 +56,20 @@ pub fn init() {
         // Scroll threshold is board-specific: resistive touchscreens need
         // a higher value to compensate for ADC jitter.
         lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
+
+        // Keypad indev — interrupt-driven via GPIO ISR queue
+        let keypad = lv_indev_create();
+        lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
+        lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
+
+        // Default group — focusable widgets are navigable via buttons
+        let group = lv_group_create();
+        lv_group_set_default(group);
+        lv_indev_set_group(keypad, group);
     }
+
+    // Init GPIO edge interrupts for hardware buttons (Enviro+ A/B/X/Y)
+    init_button_pins();
 }
 
 /// Advance LVGL's internal tick counter and process pending timers/rendering.
@@ -133,4 +146,43 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
         }
     }
     data.continue_reading = false;
+}
+
+// ── Keypad input (interrupt-driven via GPIO ISR queue) ───────────────────────
+
+const BUTTON_PINS: &[(u8, u32)] = &[
+    (12, LV_KEY_PREV),
+    (13, LV_KEY_NEXT),
+    (14, LV_KEY_ENTER),
+    (15, LV_KEY_ESC),
+];
+
+fn init_button_pins() {
+    for &(pin, _) in BUTTON_PINS {
+        hal::gpio::set_input(pin, hal::gpio::Pull::Up);
+        hal::gpio::enable_edge_irq(pin, hal::gpio::EdgeTrigger::Both);
+    }
+    hal::gpio::init_gpio_irq();
+}
+
+unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
+    let d = &mut *data;
+    if let Some(event) = hal::gpio::drain_gpio_event() {
+        let key = BUTTON_PINS
+            .iter()
+            .find(|&&(p, _)| p == event.pin)
+            .map(|&(_, k)| k);
+        if let Some(k) = key {
+            d.key = k;
+            d.state = if event.rising {
+                LV_INDEV_STATE_RELEASED
+            } else {
+                LV_INDEV_STATE_PRESSED
+            };
+        }
+        d.continue_reading = hal::gpio::has_pending_event();
+    } else {
+        d.state = LV_INDEV_STATE_RELEASED;
+        d.continue_reading = false;
+    }
 }

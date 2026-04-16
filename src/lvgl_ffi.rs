@@ -34,6 +34,7 @@ pub type lv_indev_t = c_void;
 pub type lv_obj_t = c_void;
 pub type lv_event_t = c_void;
 pub type lv_event_dsc_t = c_void;
+pub type lv_group_t = c_void;
 
 // ---------------------------------------------------------------------------
 // Concrete types
@@ -86,6 +87,16 @@ pub const LV_INDEV_STATE_PRESSED: lv_indev_state_t = 1;
 pub type lv_indev_type_t = u8;
 pub const LV_INDEV_TYPE_NONE: lv_indev_type_t = 0;
 pub const LV_INDEV_TYPE_POINTER: lv_indev_type_t = 1;
+pub const LV_INDEV_TYPE_KEYPAD: lv_indev_type_t = 2;
+
+pub const LV_KEY_UP: u32 = 17;
+pub const LV_KEY_DOWN: u32 = 18;
+pub const LV_KEY_RIGHT: u32 = 19;
+pub const LV_KEY_LEFT: u32 = 20;
+pub const LV_KEY_ESC: u32 = 27;
+pub const LV_KEY_ENTER: u32 = 10;
+pub const LV_KEY_NEXT: u32 = 9;
+pub const LV_KEY_PREV: u32 = 11;
 
 pub type lv_display_render_mode_t = u32;
 pub const LV_DISPLAY_RENDER_MODE_PARTIAL: lv_display_render_mode_t = 0;
@@ -161,6 +172,13 @@ extern "C" {
     pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
     pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
     pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
+    pub fn lv_indev_set_group(indev: *mut lv_indev_t, group: *mut lv_group_t);
+
+    // Groups (keypad focus navigation)
+    pub fn lv_group_create() -> *mut lv_group_t;
+    pub fn lv_group_add_obj(group: *mut lv_group_t, obj: *mut lv_obj_t);
+    pub fn lv_group_set_default(group: *mut lv_group_t);
+    pub fn lv_group_get_default() -> *mut lv_group_t;
 
     // Screen
     pub fn lv_screen_active() -> *mut lv_obj_t;
