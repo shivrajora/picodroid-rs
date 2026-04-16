@@ -78,6 +78,9 @@ fn main() {
 }
 
 fn emit_sensor_config(out: &std::path::Path, sensors: &[config::SensorDecl]) {
+    println!("cargo:rustc-check-cfg=cfg(any_sensor)");
+    println!("cargo:rustc-check-cfg=cfg(sensor_bme688)");
+
     if !sensors.is_empty() {
         println!("cargo:rustc-cfg=any_sensor");
     }
