@@ -6,6 +6,108 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// A sensor peripheral declared in board.toml via `[[sensor]]`.
+#[derive(Debug, Clone)]
+pub struct SensorDecl {
+    pub kind: String,
+    pub bus: String,
+    pub addr: u8,
+}
+
+/// Board configuration: flat key-value properties plus sensor declarations.
+#[derive(Debug)]
+pub struct BoardConfig {
+    pub props: HashMap<String, String>,
+    pub sensors: Vec<SensorDecl>,
+}
+
+const KNOWN_SENSOR_KINDS: &[&str] = &["bme688"];
+
+fn strip_quotes(val: &str) -> String {
+    if (val.starts_with('"') && val.ends_with('"'))
+        || (val.starts_with('\'') && val.ends_with('\''))
+    {
+        val[1..val.len() - 1].to_string()
+    } else {
+        val.to_string()
+    }
+}
+
+fn parse_int_value(val: &str) -> u8 {
+    let val = val.trim();
+    if let Some(hex) = val.strip_prefix("0x").or_else(|| val.strip_prefix("0X")) {
+        u8::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("Invalid hex value: {val}"))
+    } else {
+        val.parse()
+            .unwrap_or_else(|_| panic!("Invalid int value: {val}"))
+    }
+}
+
+/// Parse a board TOML file supporting flat key = value pairs and `[[sensor]]`
+/// array-of-tables blocks.
+pub fn parse_board_toml(path: &str) -> BoardConfig {
+    let content = fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+    let mut props = HashMap::new();
+    let mut sensors: Vec<SensorDecl> = Vec::new();
+    let mut in_sensor_block = false;
+    let mut cur_sensor: HashMap<String, String> = HashMap::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed == "[[sensor]]" {
+            if in_sensor_block {
+                sensors.push(finish_sensor(&cur_sensor, path));
+                cur_sensor.clear();
+            }
+            in_sensor_block = true;
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            if in_sensor_block {
+                sensors.push(finish_sensor(&cur_sensor, path));
+                cur_sensor.clear();
+                in_sensor_block = false;
+            }
+            continue;
+        }
+        if let Some((key, val)) = trimmed.split_once('=') {
+            let key = key.trim().to_string();
+            let val = strip_quotes(val.trim());
+            if in_sensor_block {
+                cur_sensor.insert(key, val);
+            } else {
+                props.insert(key, val);
+            }
+        }
+    }
+    if in_sensor_block {
+        sensors.push(finish_sensor(&cur_sensor, path));
+    }
+    BoardConfig { props, sensors }
+}
+
+fn finish_sensor(fields: &HashMap<String, String>, path: &str) -> SensorDecl {
+    let kind = fields
+        .get("kind")
+        .unwrap_or_else(|| panic!("{path}: [[sensor]] missing 'kind'"))
+        .clone();
+    if !KNOWN_SENSOR_KINDS.contains(&kind.as_str()) {
+        panic!("{path}: unknown sensor kind '{kind}' (known: {KNOWN_SENSOR_KINDS:?})");
+    }
+    let bus = fields
+        .get("bus")
+        .unwrap_or_else(|| panic!("{path}: [[sensor]] kind={kind} missing 'bus'"))
+        .clone();
+    let addr_str = fields
+        .get("addr")
+        .unwrap_or_else(|| panic!("{path}: [[sensor]] kind={kind} missing 'addr'"));
+    let addr = parse_int_value(addr_str);
+    SensorDecl { kind, bus, addr }
+}
+
 /// Parse a simple TOML file (flat key = value pairs, no tables/arrays).
 /// Supports string values (quoted or unquoted), integer values, and booleans.
 /// Lines starting with '#' are comments.
@@ -19,14 +121,7 @@ pub fn parse_toml(path: &str) -> HashMap<String, String> {
         }
         if let Some((key, val)) = trimmed.split_once('=') {
             let key = key.trim().to_string();
-            let val = val.trim();
-            let val = if (val.starts_with('"') && val.ends_with('"'))
-                || (val.starts_with('\'') && val.ends_with('\''))
-            {
-                val[1..val.len() - 1].to_string()
-            } else {
-                val.to_string()
-            };
+            let val = strip_quotes(val.trim());
             map.insert(key, val);
         }
     }
