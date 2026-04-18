@@ -9,6 +9,16 @@ use pico_jvm::types::JvmError;
 #[cfg(not(test))]
 use pico_jvm::{Jvm, SharedJvmHeap};
 
+/// Idle period after which the display is put to sleep. Reset by any GPIO
+/// button event.
+#[cfg(not(feature = "sim"))]
+const IDLE_TIMEOUT_MS: u64 = 60_000;
+
+#[cfg(not(feature = "sim"))]
+fn now_ms() -> u64 {
+    crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
+}
+
 // ── Application lifecycle ────────────────────────────────────────────────────
 
 /// Run an Application-based app: allocate the Application object, call
@@ -70,10 +80,40 @@ pub(crate) fn run_activity(
 
     // Framework event loop -- tick LVGL and dispatch click callbacks.
     let mut pacer = crate::hal::system_clock::FramePacer::new();
+    #[cfg(not(feature = "sim"))]
+    let mut last_input_ms: u64 = now_ms();
+    #[cfg(not(feature = "sim"))]
+    let mut sleeping: bool = false;
+
     loop {
         // Check before the potentially-blocking LVGL render.
         if handler.interrupted() {
             break;
+        }
+
+        // Low-power sleep state: skip LVGL tick + dispatches and block on the
+        // GPIO wake semaphore until the next button edge IRQ.
+        #[cfg(not(feature = "sim"))]
+        if sleeping {
+            crate::hal::gpio::wait_for_button_event();
+            if !crate::hal::gpio::has_pending_event() {
+                // Stale signal latched during the awake phase — re-block.
+                continue;
+            }
+            // Discard the wake press AND its release edge so it doesn't reach
+            // LVGL focus navigation or Java OnKeyListener.
+            while crate::hal::gpio::drain_gpio_event().is_some() {}
+            engine::wake();
+            sleeping = false;
+            last_input_ms = now_ms();
+            continue;
+        }
+
+        // Reset the idle timer if a button was pressed since the last frame.
+        // `keypad_read_cb` will still drain & dispatch the event normally.
+        #[cfg(not(feature = "sim"))]
+        if crate::hal::gpio::has_pending_event() {
+            last_input_ms = now_ms();
         }
 
         engine::tick(16);
@@ -94,6 +134,12 @@ pub(crate) fn run_activity(
         }
 
         pacer.pace(16);
+
+        #[cfg(not(feature = "sim"))]
+        if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
+            engine::sleep();
+            sleeping = true;
+        }
     }
 }
 

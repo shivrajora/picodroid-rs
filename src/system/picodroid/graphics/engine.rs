@@ -82,6 +82,26 @@ pub fn tick(ms: u32) {
     }
 }
 
+/// Put the display panel into low-power sleep. LVGL state is untouched — the
+/// caller is responsible for stopping `tick()` until `wake()` is called.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn sleep() {
+    hal::display::display_sleep();
+}
+
+/// Bring the display back from sleep and force a full LVGL repaint so the
+/// previously visible content is restored on the next `tick()`.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn wake() {
+    hal::display::display_wake();
+    unsafe {
+        let scr = lv_screen_active();
+        if !scr.is_null() {
+            lv_obj_invalidate(scr);
+        }
+    }
+}
+
 /// Get the active screen object.
 pub fn screen() -> *mut lv_obj_t {
     unsafe { lv_screen_active() }

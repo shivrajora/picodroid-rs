@@ -235,6 +235,9 @@ extern "C" {
     // Object lifecycle
     pub fn lv_obj_delete(obj: *mut lv_obj_t);
 
+    // Mark the entire object as needing redraw on the next refresh.
+    pub fn lv_obj_invalidate(obj: *mut lv_obj_t);
+
     // Object parent / child
     pub fn lv_obj_set_parent(obj: *mut lv_obj_t, parent: *mut lv_obj_t);
     pub fn lv_obj_get_child(obj: *mut lv_obj_t, idx: i32) -> *mut lv_obj_t;

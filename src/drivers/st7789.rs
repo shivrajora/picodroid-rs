@@ -9,11 +9,13 @@ use embedded_hal::spi::SpiBus;
 
 // ST7789 commands
 const CMD_SWRESET: u8 = 0x01;
+const CMD_SLPIN: u8 = 0x10;
 const CMD_SLPOUT: u8 = 0x11;
 const CMD_COLMOD: u8 = 0x3A;
 const CMD_MADCTL: u8 = 0x36;
 const CMD_INVON: u8 = 0x21;
 const CMD_NORON: u8 = 0x13;
+const CMD_DISPOFF: u8 = 0x28;
 const CMD_DISPON: u8 = 0x29;
 const CMD_CASET: u8 = 0x2A;
 const CMD_RASET: u8 = 0x2B;
@@ -167,6 +169,30 @@ where
         } else {
             let _ = self.bl.set_low();
         }
+    }
+
+    /// Enter low-power sleep mode. Datasheet requires ~5 ms before subsequent
+    /// commands and ~120 ms before the next SLPOUT.
+    pub fn sleep_in(&mut self) {
+        self.write_command(CMD_SLPIN);
+        self.delay.delay_ms(5);
+    }
+
+    /// Leave low-power sleep mode. Datasheet mandates a 120 ms wait before any
+    /// further commands (matches the init sequence at startup).
+    pub fn sleep_out(&mut self) {
+        self.write_command(CMD_SLPOUT);
+        self.delay.delay_ms(120);
+    }
+
+    /// Blank the display (panel RAM is retained).
+    pub fn display_off(&mut self) {
+        self.write_command(CMD_DISPOFF);
+    }
+
+    /// Show the display (after a prior `display_off` or fresh `sleep_out`).
+    pub fn display_on(&mut self) {
+        self.write_command(CMD_DISPON);
     }
 
     #[allow(dead_code)]

@@ -80,3 +80,6 @@ pub fn drain_gpio_event() -> Option<GpioEvent> {
 pub fn has_pending_event() -> bool {
     false
 }
+
+/// No-op in sim — the host has no GPIO IRQ to block on.
+pub fn wait_for_button_event() {}

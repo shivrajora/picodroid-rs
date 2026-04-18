@@ -69,6 +69,25 @@ mod inner {
     pub fn set_backlight(on: bool) {
         display().set_backlight(on);
     }
+
+    /// Composite low-power sequence: backlight off first (avoids a black flash
+    /// while the panel is still powered), then DISPOFF, then SLPIN.
+    pub fn display_sleep() {
+        let d = display();
+        d.set_backlight(false);
+        d.display_off();
+        d.sleep_in();
+    }
+
+    /// Composite wake sequence: SLPOUT (waits 120 ms internally), DISPON, then
+    /// backlight on (avoids briefly showing the panel before its content is
+    /// re-enabled).
+    pub fn display_wake() {
+        let d = display();
+        d.sleep_out();
+        d.display_on();
+        d.set_backlight(true);
+    }
 }
 
 #[cfg(not(has_display))]
@@ -77,6 +96,8 @@ mod inner {
     pub fn set_window(_x0: u16, _y0: u16, _x1: u16, _y1: u16) {}
     pub fn write_pixels(_data: &[u8]) {}
     pub fn set_backlight(_on: bool) {}
+    pub fn display_sleep() {}
+    pub fn display_wake() {}
 }
 
 pub use inner::*;

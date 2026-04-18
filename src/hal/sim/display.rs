@@ -98,6 +98,14 @@ pub fn set_backlight(on: bool) {
     println!("[sim] Display: backlight {}", if on { "ON" } else { "OFF" });
 }
 
+pub fn display_sleep() {
+    println!("[sim] Display: sleep");
+}
+
+pub fn display_wake() {
+    println!("[sim] Display: wake");
+}
+
 // ── Emulator-specific functions ─────────────────────────────────────────────
 
 /// Blit the framebuffer to the minifb window and sample mouse state.

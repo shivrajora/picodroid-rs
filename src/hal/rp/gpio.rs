@@ -1,3 +1,6 @@
+use core::cell::UnsafeCell;
+use freertos_rust::{Duration, InterruptContext, Semaphore};
+
 // ── Output ───────────────────────────────────────────────────────────────────
 
 pub fn set_direction(pin: u8, direction: i32) {
@@ -157,6 +160,15 @@ pub fn init_gpio_irq() {
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
 
+    // Allocate the wake semaphore the first time we install GPIO IRQs.
+    // Subsequent calls leave it in place (binary semaphore, signal-latching).
+    unsafe {
+        if (*BUTTON_WAKE_SEM.0.get()).is_none() {
+            let sem = Semaphore::new_binary().expect("BUTTON_WAKE_SEM alloc");
+            *BUTTON_WAKE_SEM.0.get() = Some(sem);
+        }
+    }
+
     unsafe {
         let nvic_ipr = 0xE000_E400 as *mut u8;
         let irqn = pac::Interrupt::IO_IRQ_BANK0 as u8;
@@ -225,6 +237,12 @@ fn enqueue_gpio_event(pin: u8, rising: bool) {
         if next != GPIO_QUEUE_TAIL {
             GPIO_QUEUE[GPIO_QUEUE_HEAD] = GpioEvent { pin, rising };
             GPIO_QUEUE_HEAD = next;
+            // Wake any task blocked in `wait_for_button_event()`. Latches if
+            // nothing is currently waiting (binary semaphore).
+            if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
+                let mut ctx = InterruptContext::new();
+                sem.give_from_isr(&mut ctx);
+            }
         }
     }
 }
@@ -242,6 +260,24 @@ pub fn drain_gpio_event() -> Option<GpioEvent> {
 
 pub fn has_pending_event() -> bool {
     unsafe { GPIO_QUEUE_TAIL != GPIO_QUEUE_HEAD }
+}
+
+// ── Wake semaphore (signalled from IO_IRQ_BANK0 ISR) ─────────────────────────
+
+struct SemCell(UnsafeCell<Option<Semaphore>>);
+unsafe impl Sync for SemCell {}
+
+static BUTTON_WAKE_SEM: SemCell = SemCell(UnsafeCell::new(None));
+
+/// Block the calling task until the next GPIO edge IRQ enqueues an event.
+/// Returns immediately if a signal was latched while the task wasn't waiting.
+/// No-op if `init_gpio_irq()` has not been called yet.
+pub fn wait_for_button_event() {
+    unsafe {
+        if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
+            let _ = sem.take(Duration::infinite());
+        }
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
