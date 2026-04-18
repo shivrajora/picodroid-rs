@@ -157,6 +157,23 @@ const BUTTON_PINS: &[(u8, u32)] = &[
     (15, LV_KEY_ESC),
 ];
 
+/// Android keycode for each hardware button pin. Parallel to `BUTTON_PINS`.
+/// Semantically aligned: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.
+const PIN_TO_ANDROID_KEYCODE: &[(u8, i32)] = &[
+    (12, 19), // KEYCODE_DPAD_UP
+    (13, 20), // KEYCODE_DPAD_DOWN
+    (14, 23), // KEYCODE_DPAD_CENTER
+    (15, 4),  // KEYCODE_BACK
+];
+
+/// Look up the Android keycode for a hardware button pin.
+pub fn pin_to_keycode(pin: u8) -> Option<i32> {
+    PIN_TO_ANDROID_KEYCODE
+        .iter()
+        .find(|&&(p, _)| p == pin)
+        .map(|&(_, k)| k)
+}
+
 fn init_button_pins() {
     for &(pin, _) in BUTTON_PINS {
         hal::gpio::set_input(pin, hal::gpio::Pull::Up);
@@ -165,9 +182,81 @@ fn init_button_pins() {
     hal::gpio::init_gpio_irq();
 }
 
+// ── Java-visible key event queue (parallel to LVGL's internal queue) ─────────
+
+#[derive(Copy, Clone)]
+pub struct KeyEventRaw {
+    pub pin: u8,
+    pub rising: bool,
+}
+
+const KEY_EVENT_QUEUE_SIZE: usize = 16;
+static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
+    pin: 0,
+    rising: false,
+}; KEY_EVENT_QUEUE_SIZE];
+static mut KEY_EVENT_QUEUE_HEAD: usize = 0;
+static mut KEY_EVENT_QUEUE_TAIL: usize = 0;
+
+fn push_key_event_raw(pin: u8, rising: bool) {
+    unsafe {
+        let head = KEY_EVENT_QUEUE_HEAD;
+        let next = (head + 1) % KEY_EVENT_QUEUE_SIZE;
+        if next != KEY_EVENT_QUEUE_TAIL {
+            KEY_EVENT_QUEUE[head] = KeyEventRaw { pin, rising };
+            KEY_EVENT_QUEUE_HEAD = next;
+        }
+    }
+}
+
+/// Pop one key event from the Java-visible queue, if any.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_key_event() -> Option<KeyEventRaw> {
+    unsafe {
+        if KEY_EVENT_QUEUE_TAIL == KEY_EVENT_QUEUE_HEAD {
+            return None;
+        }
+        let event = KEY_EVENT_QUEUE[KEY_EVENT_QUEUE_TAIL];
+        KEY_EVENT_QUEUE_TAIL = (KEY_EVENT_QUEUE_TAIL + 1) % KEY_EVENT_QUEUE_SIZE;
+        Some(event)
+    }
+}
+
+/// Clear the key event queue between app runs.
+pub fn reset_key_event_queue() {
+    unsafe {
+        KEY_EVENT_QUEUE_HEAD = 0;
+        KEY_EVENT_QUEUE_TAIL = 0;
+    }
+}
+
+/// Return the Java `View` object reference for LVGL's currently focused widget,
+/// if one is registered as a key listener via `view::register_key_listener`.
+///
+/// Returns `None` when there is no default group, no focused widget, or the
+/// focused widget has never had `setOnKeyListener` called on it.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn focused_view_obj() -> Option<u16> {
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return None;
+        }
+        let focused = lv_group_get_focused(group);
+        if focused.is_null() {
+            return None;
+        }
+        super::view::lookup_view_obj(focused as usize)
+    }
+}
+
 unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
     let d = &mut *data;
     if let Some(event) = hal::gpio::drain_gpio_event() {
+        // Mirror the event onto the Java-visible queue before LVGL consumes
+        // it for focus navigation. The two paths are independent from here.
+        push_key_event_raw(event.pin, event.rising);
+
         let key = BUTTON_PINS
             .iter()
             .find(|&&(p, _)| p == event.pin)
@@ -184,5 +273,60 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
     } else {
         d.state = LV_INDEV_STATE_RELEASED;
         d.continue_reading = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pin_to_keycode_maps_known_pins() {
+        assert_eq!(pin_to_keycode(12), Some(19)); // UP
+        assert_eq!(pin_to_keycode(13), Some(20)); // DOWN
+        assert_eq!(pin_to_keycode(14), Some(23)); // CENTER
+        assert_eq!(pin_to_keycode(15), Some(4)); // BACK
+    }
+
+    #[test]
+    fn pin_to_keycode_returns_none_for_unmapped() {
+        assert_eq!(pin_to_keycode(0), None);
+        assert_eq!(pin_to_keycode(11), None);
+        assert_eq!(pin_to_keycode(16), None);
+    }
+
+    #[test]
+    fn key_event_queue_roundtrips_in_fifo_order() {
+        reset_key_event_queue();
+        push_key_event_raw(12, false);
+        push_key_event_raw(13, true);
+        push_key_event_raw(14, false);
+
+        let a = drain_key_event().unwrap();
+        assert_eq!(a.pin, 12);
+        assert!(!a.rising);
+        let b = drain_key_event().unwrap();
+        assert_eq!(b.pin, 13);
+        assert!(b.rising);
+        let c = drain_key_event().unwrap();
+        assert_eq!(c.pin, 14);
+        assert!(!c.rising);
+        assert!(drain_key_event().is_none());
+    }
+
+    #[test]
+    fn key_event_queue_wraps_around() {
+        reset_key_event_queue();
+        // Fill and drain multiple times to exercise wrap-around.
+        for cycle in 0..4 {
+            for i in 0..KEY_EVENT_QUEUE_SIZE - 1 {
+                push_key_event_raw(i as u8, cycle % 2 == 0);
+            }
+            for i in 0..KEY_EVENT_QUEUE_SIZE - 1 {
+                let e = drain_key_event().unwrap();
+                assert_eq!(e.pin, i as u8);
+            }
+            assert!(drain_key_event().is_none());
+        }
     }
 }

@@ -347,6 +347,8 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/app/Application" => "picodroid/app/Application",
         "picodroid/view/View" => "picodroid/view/View",
         "picodroid/view/MotionEvent" => "picodroid/view/MotionEvent",
+        "picodroid/view/KeyEvent" => "picodroid/view/KeyEvent",
+        "picodroid/view/OnKeyListener" => "picodroid/view/OnKeyListener",
         "picodroid/graphics/Display" => "picodroid/graphics/Display",
         "picodroid/widget/TextView" => "picodroid/widget/TextView",
         "picodroid/widget/Button" => "picodroid/widget/Button",

@@ -169,3 +169,11 @@ to   = "a/AO"
 from = "picodroid/widget/ToggleButton"
 to   = "a/AP"
 
+[[class]]
+from = "picodroid/view/KeyEvent"
+to   = "a/AQ"
+
+[[class]]
+from = "picodroid/view/OnKeyListener"
+to   = "a/AR"
+

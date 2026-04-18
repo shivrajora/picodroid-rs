@@ -6,9 +6,24 @@ public class View {
   public static final int GONE = 2;
 
   int nativeHandle;
+  OnKeyListener onKeyListener;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
+  }
+
+  public void setOnKeyListener(OnKeyListener listener) {
+    this.onKeyListener = listener;
+    nativeRegisterKeyListener();
+  }
+
+  private native void nativeRegisterKeyListener();
+
+  boolean fireKey(KeyEvent event) {
+    if (onKeyListener != null) {
+      return onKeyListener.onKey(this, event);
+    }
+    return false;
   }
 
   public native void setPosition(int x, int y);

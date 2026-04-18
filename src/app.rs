@@ -180,6 +180,8 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     crate::system::picodroid::graphics::widgets::reset_seek_bar_state();
     crate::system::picodroid::graphics::widgets::reset_check_box_state();
     crate::system::picodroid::graphics::widgets::reset_spinner_state();
+    crate::system::picodroid::graphics::view::reset_key_listener_state();
+    crate::system::picodroid::graphics::engine::reset_key_event_queue();
     crate::system::picodroid::graphics::handle_table::reset();
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();

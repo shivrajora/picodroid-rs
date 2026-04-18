@@ -84,6 +84,7 @@ pub(crate) fn run_activity(
         dispatch_seek_bar_changes(jvm, heap, handler);
         dispatch_checkbox_changes(jvm, heap, handler);
         dispatch_spinner_changes(jvm, heap, handler);
+        dispatch_key_events(jvm, heap, handler);
 
         crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
 
@@ -218,6 +219,75 @@ fn dispatch_spinner_changes(
                 handler,
             );
         }
+    }
+}
+
+// ── Hardware key-event dispatch ─────────────────────────────────────────────
+
+/// Drain the hardware key-event queue and invoke `View.fireKey()` on the
+/// Java View corresponding to LVGL's currently focused widget. If no widget
+/// is focused or the focused widget has no registered OnKeyListener, the
+/// event is silently dropped — LVGL has already consumed it for focus
+/// navigation via the same `keypad_read_cb`.
+///
+/// Note: `hal::sim::gpio::drain_gpio_event` always returns `None` in sim
+/// builds, so this dispatcher never fires events on the host. End-to-end
+/// verification requires hardware.
+#[cfg(not(test))]
+fn dispatch_key_events(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::engine;
+    use pico_jvm::types::Value;
+
+    while let Some(raw) = engine::drain_key_event() {
+        let view_ref = match engine::focused_view_obj() {
+            Some(r) => r,
+            None => continue,
+        };
+        let keycode = match engine::pin_to_keycode(raw.pin) {
+            Some(k) => k,
+            None => continue,
+        };
+        let action = if raw.rising { 1 } else { 0 }; // ACTION_UP : ACTION_DOWN
+
+        let event_obj = match heap.objects.alloc("picodroid/view/KeyEvent") {
+            Some(o) => o,
+            None => continue,
+        };
+        if heap
+            .objects
+            .set_field(
+                event_obj,
+                crate::system::picodroid::graphics::fields::key_event::ACTION,
+                Value::Int(action),
+            )
+            .is_none()
+        {
+            continue;
+        }
+        if heap
+            .objects
+            .set_field(
+                event_obj,
+                crate::system::picodroid::graphics::fields::key_event::KEY_CODE,
+                Value::Int(keycode),
+            )
+            .is_none()
+        {
+            continue;
+        }
+
+        let _ = jvm.invoke_instance_with_args(
+            "picodroid/view/View",
+            "fireKey",
+            view_ref,
+            &[Value::ObjectRef(event_obj)],
+            heap,
+            handler,
+        );
     }
 }
 

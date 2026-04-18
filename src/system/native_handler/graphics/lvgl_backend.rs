@@ -36,6 +36,7 @@ impl GraphicsBackend for LvglBackend {
             "setEnabled" => Some(view::set_enabled(ctx.args, ctx.objects)),
             "setAlpha" => Some(view::set_alpha(ctx.args, ctx.objects)),
             "close" => Some(view::close(ctx.args, ctx.objects)),
+            "nativeRegisterKeyListener" => Some(view::register_key_listener(ctx.args, ctx.objects)),
             _ => None,
         }
     }

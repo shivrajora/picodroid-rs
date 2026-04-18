@@ -179,6 +179,7 @@ extern "C" {
     pub fn lv_group_add_obj(group: *mut lv_group_t, obj: *mut lv_obj_t);
     pub fn lv_group_set_default(group: *mut lv_group_t);
     pub fn lv_group_get_default() -> *mut lv_group_t;
+    pub fn lv_group_get_focused(group: *mut lv_group_t) -> *mut lv_obj_t;
 
     // Screen
     pub fn lv_screen_active() -> *mut lv_obj_t;
