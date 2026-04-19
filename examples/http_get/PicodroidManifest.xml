@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="http_get" version="1.0">
+    <application application="http_get/HttpGet" />
+</manifest>

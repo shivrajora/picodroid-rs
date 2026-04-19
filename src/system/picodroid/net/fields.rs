@@ -21,3 +21,11 @@ pub mod datagram_packet {
     pub const ADDRESS: usize = 2;
     pub const PORT: usize = 3;
 }
+
+pub mod http_input_stream {
+    pub const HANDLE: usize = 0;
+}
+
+pub mod http_output_stream {
+    pub const HANDLE: usize = 0;
+}

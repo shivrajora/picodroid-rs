@@ -67,6 +67,8 @@ extern "C" {
 
     fn FreeRTOS_GetIPAddress() -> u32;
     fn FreeRTOS_IsNetworkUp() -> i32;
+
+    fn FreeRTOS_gethostbyname(pc_host_name: *const u8) -> u32;
 }
 
 /// FreeRTOS+TCP socket address (IPv4).
@@ -274,4 +276,26 @@ pub fn is_network_up() -> bool {
 /// Get the assigned IP address (from DHCP or static config).
 pub fn get_ip_address() -> u32 {
     unsafe { FreeRTOS_GetIPAddress() }
+}
+
+/// Resolve a hostname to a packed IPv4 address.
+///
+/// Returns the same packed u32 form FreeRTOS+TCP uses for `sin_addr`
+/// (so it can be passed straight to `tcp_connect`).  If the name is
+/// already a dotted-quad literal, FreeRTOS_gethostbyname returns it
+/// without hitting the network.  On failure the upstream returns 0.
+pub fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
+    // FreeRTOS_gethostbyname requires a NUL-terminated C string.
+    let mut cbuf = [0u8; 256];
+    let bytes = hostname.as_bytes();
+    if bytes.len() >= cbuf.len() {
+        return Err(NetError(-1));
+    }
+    cbuf[..bytes.len()].copy_from_slice(bytes);
+    // cbuf[bytes.len()] is already 0.
+    let addr = unsafe { FreeRTOS_gethostbyname(cbuf.as_ptr()) };
+    if addr == 0 {
+        return Err(NetError(-1));
+    }
+    Ok(addr)
 }

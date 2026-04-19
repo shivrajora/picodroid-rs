@@ -86,6 +86,38 @@ pub fn dispatch(
             Some(crate::system::picodroid::net::network_info::get_ip_address_native())
         }
 
+        // ── HttpUrlConnection ───────────────────────────────────────────
+        ("picodroid/net/HttpUrlConnection", "nativeConnect") => Some(
+            crate::system::picodroid::net::http_connection::native_connect(ctx.args, ctx.strings),
+        ),
+        ("picodroid/net/HttpUrlConnection", "nativeReadResponseCode") => Some(
+            crate::system::picodroid::net::http_connection::native_read_response_code(ctx.args),
+        ),
+        ("picodroid/net/HttpUrlConnection", "nativeContentLength") => {
+            Some(crate::system::picodroid::net::http_connection::native_content_length(ctx.args))
+        }
+        ("picodroid/net/HttpUrlConnection", "nativeDisconnect") => {
+            Some(crate::system::picodroid::net::http_connection::native_disconnect(ctx.args))
+        }
+
+        // ── HttpInputStream ─────────────────────────────────────────────
+        ("picodroid/net/HttpInputStream", "read") => Some(
+            crate::system::picodroid::net::http_connection::native_input_read(
+                ctx.args,
+                ctx.objects,
+                ctx.arrays,
+            ),
+        ),
+
+        // ── HttpOutputStream ────────────────────────────────────────────
+        ("picodroid/net/HttpOutputStream", "write") => Some(
+            crate::system::picodroid::net::http_connection::native_output_write(
+                ctx.args,
+                ctx.objects,
+                ctx.arrays,
+            ),
+        ),
+
         _ => None,
     }
 }

@@ -4,7 +4,7 @@
 //! native methods work identically on the simulator and real hardware.
 
 use core::ffi::c_void;
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
 /// Error returned by network operations.
@@ -180,4 +180,26 @@ pub fn is_network_up() -> bool {
 pub fn get_ip_address() -> u32 {
     // 127.0.0.1 in host byte order (MSB = first octet)
     0x7F000001
+}
+
+/// Resolve a hostname to a packed IPv4 address (MSB = first octet).
+///
+/// Accepts both DNS names and dotted-quad literals — `ToSocketAddrs`
+/// handles either.  Returns the first IPv4 result; any IPv6-only
+/// hostname yields `NetError(-1)`.
+pub fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
+    // Port 0 is fine — we only care about the address.
+    let addrs = (hostname, 0u16)
+        .to_socket_addrs()
+        .map_err(|_| NetError(-1))?;
+    for a in addrs {
+        if let std::net::SocketAddr::V4(v4) = a {
+            let o = v4.ip().octets();
+            return Ok(((o[0] as u32) << 24)
+                | ((o[1] as u32) << 16)
+                | ((o[2] as u32) << 8)
+                | (o[3] as u32));
+        }
+    }
+    Err(NetError(-1))
 }
