@@ -14,16 +14,26 @@ pub struct SensorDecl {
     pub addr: u8,
 }
 
+/// A hardware button declared in board.toml via `[[button]]`.
+#[derive(Debug, Clone)]
+pub struct ButtonDecl {
+    pub pin: u8,
+    pub lv_key: String,
+    pub keycode: i32,
+}
+
 /// Board configuration: flat key-value properties plus peripheral declarations.
 #[derive(Debug)]
 pub struct BoardConfig {
     pub props: HashMap<String, String>,
     pub sensors: Vec<SensorDecl>,
+    pub buttons: Vec<ButtonDecl>,
     pub display: Option<HashMap<String, String>>,
     pub touch: Option<HashMap<String, String>>,
 }
 
 const KNOWN_SENSOR_KINDS: &[&str] = &["bme688"];
+const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC"];
 
 fn strip_quotes(val: &str) -> String {
     if (val.starts_with('"') && val.ends_with('"'))
@@ -45,6 +55,16 @@ fn parse_int_value(val: &str) -> u8 {
     }
 }
 
+fn parse_i32_value(val: &str) -> i32 {
+    let val = val.trim();
+    if let Some(hex) = val.strip_prefix("0x").or_else(|| val.strip_prefix("0X")) {
+        i32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("Invalid hex value: {val}"))
+    } else {
+        val.parse()
+            .unwrap_or_else(|_| panic!("Invalid int value: {val}"))
+    }
+}
+
 /// Current section being parsed in board.toml.
 #[derive(PartialEq)]
 enum Section {
@@ -52,19 +72,39 @@ enum Section {
     Display,
     Touch,
     Sensor,
+    Button,
     Unknown,
 }
 
 /// Parse a board TOML file with flat properties, `[display]`, `[touch]`,
-/// and `[[sensor]]` sections.
+/// `[[sensor]]`, and `[[button]]` sections.
 pub fn parse_board_toml(path: &str) -> BoardConfig {
     let content = fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
     let mut props = HashMap::new();
     let mut sensors: Vec<SensorDecl> = Vec::new();
+    let mut buttons: Vec<ButtonDecl> = Vec::new();
     let mut display: Option<HashMap<String, String>> = None;
     let mut touch: Option<HashMap<String, String>> = None;
     let mut section = Section::Top;
     let mut cur_sensor: HashMap<String, String> = HashMap::new();
+    let mut cur_button: HashMap<String, String> = HashMap::new();
+
+    // Flush any in-progress [[array]] entry before transitioning sections.
+    macro_rules! flush_array {
+        ($section:expr, $sensors:ident, $buttons:ident, $cur_sensor:ident, $cur_button:ident, $path:ident) => {
+            match $section {
+                Section::Sensor => {
+                    $sensors.push(finish_sensor(&$cur_sensor, $path));
+                    $cur_sensor.clear();
+                }
+                Section::Button => {
+                    $buttons.push(finish_button(&$cur_button, $path));
+                    $cur_button.clear();
+                }
+                _ => {}
+            }
+        };
+    }
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -74,36 +114,29 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
 
         // Section headers
         if trimmed == "[[sensor]]" {
-            if section == Section::Sensor {
-                sensors.push(finish_sensor(&cur_sensor, path));
-                cur_sensor.clear();
-            }
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             section = Section::Sensor;
             continue;
         }
+        if trimmed == "[[button]]" {
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
+            section = Section::Button;
+            continue;
+        }
         if trimmed == "[display]" {
-            if section == Section::Sensor {
-                sensors.push(finish_sensor(&cur_sensor, path));
-                cur_sensor.clear();
-            }
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             display = Some(HashMap::new());
             section = Section::Display;
             continue;
         }
         if trimmed == "[touch]" {
-            if section == Section::Sensor {
-                sensors.push(finish_sensor(&cur_sensor, path));
-                cur_sensor.clear();
-            }
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             touch = Some(HashMap::new());
             section = Section::Touch;
             continue;
         }
         if trimmed.starts_with('[') {
-            if section == Section::Sensor {
-                sensors.push(finish_sensor(&cur_sensor, path));
-                cur_sensor.clear();
-            }
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             section = Section::Unknown;
             continue;
         }
@@ -119,6 +152,9 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
                 Section::Sensor => {
                     cur_sensor.insert(key, val);
                 }
+                Section::Button => {
+                    cur_button.insert(key, val);
+                }
                 Section::Display => {
                     display.as_mut().unwrap().insert(key, val);
                 }
@@ -129,12 +165,11 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
             }
         }
     }
-    if section == Section::Sensor {
-        sensors.push(finish_sensor(&cur_sensor, path));
-    }
+    flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
     BoardConfig {
         props,
         sensors,
+        buttons,
         display,
         touch,
     }
@@ -157,6 +192,29 @@ fn finish_sensor(fields: &HashMap<String, String>, path: &str) -> SensorDecl {
         .unwrap_or_else(|| panic!("{path}: [[sensor]] kind={kind} missing 'addr'"));
     let addr = parse_int_value(addr_str);
     SensorDecl { kind, bus, addr }
+}
+
+fn finish_button(fields: &HashMap<String, String>, path: &str) -> ButtonDecl {
+    let pin_str = fields
+        .get("pin")
+        .unwrap_or_else(|| panic!("{path}: [[button]] missing 'pin'"));
+    let pin = parse_int_value(pin_str);
+    let lv_key = fields
+        .get("lv_key")
+        .unwrap_or_else(|| panic!("{path}: [[button]] pin={pin} missing 'lv_key'"))
+        .clone();
+    if !KNOWN_LV_KEYS.contains(&lv_key.as_str()) {
+        panic!("{path}: unknown lv_key '{lv_key}' (known: {KNOWN_LV_KEYS:?})");
+    }
+    let keycode_str = fields
+        .get("keycode")
+        .unwrap_or_else(|| panic!("{path}: [[button]] pin={pin} missing 'keycode'"));
+    let keycode = parse_i32_value(keycode_str);
+    ButtonDecl {
+        pin,
+        lv_key,
+        keycode,
+    }
 }
 
 /// Parse a simple TOML file (flat key = value pairs, no tables/arrays).

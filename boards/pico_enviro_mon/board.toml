@@ -21,3 +21,25 @@ scroll_limit = 10
 kind = "bme688"
 bus  = "I2C0"
 addr = 0x77
+
+# Pimoroni Enviro+ Pack hardware buttons (A/B/X/Y → GP12-15).
+# Semantic mapping: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[[button]]
+pin = 13
+lv_key = "NEXT"
+keycode = 20
+
+[[button]]
+pin = 14
+lv_key = "ENTER"
+keycode = 23
+
+[[button]]
+pin = 15
+lv_key = "ESC"
+keycode = 4

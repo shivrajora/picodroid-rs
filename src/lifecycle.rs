@@ -10,11 +10,12 @@ use pico_jvm::types::JvmError;
 use pico_jvm::{Jvm, SharedJvmHeap};
 
 /// Idle period after which the display is put to sleep. Reset by any GPIO
-/// button event.
-#[cfg(not(feature = "sim"))]
+/// button event. Gated on `has_buttons` because the wake path blocks on a
+/// button IRQ — touch-only boards would never wake.
+#[cfg(all(not(feature = "sim"), has_buttons))]
 const IDLE_TIMEOUT_MS: u64 = 60_000;
 
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), has_buttons))]
 fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
 }
@@ -80,9 +81,9 @@ pub(crate) fn run_activity(
 
     // Framework event loop -- tick LVGL and dispatch click callbacks.
     let mut pacer = crate::hal::system_clock::FramePacer::new();
-    #[cfg(not(feature = "sim"))]
+    #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut last_input_ms: u64 = now_ms();
-    #[cfg(not(feature = "sim"))]
+    #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut sleeping: bool = false;
 
     loop {
@@ -93,7 +94,7 @@ pub(crate) fn run_activity(
 
         // Low-power sleep state: skip LVGL tick + dispatches and block on the
         // GPIO wake semaphore until the next button edge IRQ.
-        #[cfg(not(feature = "sim"))]
+        #[cfg(all(not(feature = "sim"), has_buttons))]
         if sleeping {
             crate::hal::gpio::wait_for_button_event();
             if !crate::hal::gpio::has_pending_event() {
@@ -111,7 +112,7 @@ pub(crate) fn run_activity(
 
         // Reset the idle timer if a button was pressed since the last frame.
         // `keypad_read_cb` will still drain & dispatch the event normally.
-        #[cfg(not(feature = "sim"))]
+        #[cfg(all(not(feature = "sim"), has_buttons))]
         if crate::hal::gpio::has_pending_event() {
             last_input_ms = now_ms();
         }
@@ -135,7 +136,7 @@ pub(crate) fn run_activity(
 
         pacer.pace(16);
 
-        #[cfg(not(feature = "sim"))]
+        #[cfg(all(not(feature = "sim"), has_buttons))]
         if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
             engine::sleep();
             sleeping = true;

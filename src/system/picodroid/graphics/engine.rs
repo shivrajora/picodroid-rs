@@ -57,18 +57,22 @@ pub fn init() {
         // a higher value to compensate for ADC jitter.
         lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
 
-        // Keypad indev — interrupt-driven via GPIO ISR queue
-        let keypad = lv_indev_create();
-        lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
-        lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
+        // Keypad indev + focus group — only on boards that declare hardware
+        // buttons in board.toml. Skipping this on touch-only boards avoids
+        // clobbering display/touch GPIOs (e.g. testbench_rp2350's GP12 touch
+        // MISO and GP13/GP15 display BL/RST).
+        #[cfg(has_buttons)]
+        {
+            let keypad = lv_indev_create();
+            lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
+            lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
 
-        // Default group — focusable widgets are navigable via buttons
-        let group = lv_group_create();
-        lv_group_set_default(group);
-        lv_indev_set_group(keypad, group);
+            let group = lv_group_create();
+            lv_group_set_default(group);
+            lv_indev_set_group(keypad, group);
+        }
     }
 
-    // Init GPIO edge interrupts for hardware buttons (Enviro+ A/B/X/Y)
     init_button_pins();
 }
 
@@ -84,14 +88,14 @@ pub fn tick(ms: u32) {
 
 /// Put the display panel into low-power sleep. LVGL state is untouched — the
 /// caller is responsible for stopping `tick()` until `wake()` is called.
-#[cfg_attr(feature = "sim", allow(dead_code))]
+#[cfg_attr(any(feature = "sim", not(has_buttons)), allow(dead_code))]
 pub fn sleep() {
     hal::display::display_sleep();
 }
 
 /// Bring the display back from sleep and force a full LVGL repaint so the
 /// previously visible content is restored on the next `tick()`.
-#[cfg_attr(feature = "sim", allow(dead_code))]
+#[cfg_attr(any(feature = "sim", not(has_buttons)), allow(dead_code))]
 pub fn wake() {
     hal::display::display_wake();
     unsafe {
@@ -170,37 +174,34 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
 
 // ── Keypad input (interrupt-driven via GPIO ISR queue) ───────────────────────
 
-const BUTTON_PINS: &[(u8, u32)] = &[
-    (12, LV_KEY_PREV),
-    (13, LV_KEY_NEXT),
-    (14, LV_KEY_ENTER),
-    (15, LV_KEY_ESC),
-];
-
-/// Android keycode for each hardware button pin. Parallel to `BUTTON_PINS`.
-/// Semantically aligned: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.
-const PIN_TO_ANDROID_KEYCODE: &[(u8, i32)] = &[
-    (12, 19), // KEYCODE_DPAD_UP
-    (13, 20), // KEYCODE_DPAD_DOWN
-    (14, 23), // KEYCODE_DPAD_CENTER
-    (15, 4),  // KEYCODE_BACK
-];
+// Board-specific button table generated from `[[button]]` in board.toml.
+// Entries: (pin, LV_KEY_*, android_keycode). Empty on boards without buttons.
+mod button_generated {
+    #[allow(unused_imports)]
+    use super::*;
+    include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
+}
+use button_generated::BUTTONS;
 
 /// Look up the Android keycode for a hardware button pin.
 pub fn pin_to_keycode(pin: u8) -> Option<i32> {
-    PIN_TO_ANDROID_KEYCODE
+    BUTTONS
         .iter()
-        .find(|&&(p, _)| p == pin)
-        .map(|&(_, k)| k)
+        .find(|&&(p, _, _)| p == pin)
+        .map(|&(_, _, k)| k)
 }
 
+#[cfg(has_buttons)]
 fn init_button_pins() {
-    for &(pin, _) in BUTTON_PINS {
+    for &(pin, _, _) in BUTTONS {
         hal::gpio::set_input(pin, hal::gpio::Pull::Up);
         hal::gpio::enable_edge_irq(pin, hal::gpio::EdgeTrigger::Both);
     }
     hal::gpio::init_gpio_irq();
 }
+
+#[cfg(not(has_buttons))]
+fn init_button_pins() {}
 
 // ── Java-visible key event queue (parallel to LVGL's internal queue) ─────────
 
@@ -218,6 +219,7 @@ static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
 static mut KEY_EVENT_QUEUE_HEAD: usize = 0;
 static mut KEY_EVENT_QUEUE_TAIL: usize = 0;
 
+#[cfg(has_buttons)]
 fn push_key_event_raw(pin: u8, rising: bool) {
     unsafe {
         let head = KEY_EVENT_QUEUE_HEAD;
@@ -270,6 +272,7 @@ pub fn focused_view_obj() -> Option<u16> {
     }
 }
 
+#[cfg(has_buttons)]
 unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
     let d = &mut *data;
     if let Some(event) = hal::gpio::drain_gpio_event() {
@@ -277,10 +280,10 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
         // it for focus navigation. The two paths are independent from here.
         push_key_event_raw(event.pin, event.rising);
 
-        let key = BUTTON_PINS
+        let key = BUTTONS
             .iter()
-            .find(|&&(p, _)| p == event.pin)
-            .map(|&(_, k)| k);
+            .find(|&&(p, _, _)| p == event.pin)
+            .map(|&(_, k, _)| k);
         if let Some(k) = key {
             d.key = k;
             d.state = if event.rising {
@@ -300,21 +303,24 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
 mod tests {
     use super::*;
 
+    // Pin/keycode + event-queue tests exercise the keypad path, which is only
+    // compiled on boards that declare `[[button]]` entries in board.toml.
+    // Under the default test board (testbench_rp2350, no buttons) these skip.
+    #[cfg(has_buttons)]
     #[test]
-    fn pin_to_keycode_maps_known_pins() {
-        assert_eq!(pin_to_keycode(12), Some(19)); // UP
-        assert_eq!(pin_to_keycode(13), Some(20)); // DOWN
-        assert_eq!(pin_to_keycode(14), Some(23)); // CENTER
-        assert_eq!(pin_to_keycode(15), Some(4)); // BACK
+    fn pin_to_keycode_roundtrips_declared_pins() {
+        for &(pin, _, keycode) in BUTTONS {
+            assert_eq!(pin_to_keycode(pin), Some(keycode));
+        }
     }
 
     #[test]
     fn pin_to_keycode_returns_none_for_unmapped() {
-        assert_eq!(pin_to_keycode(0), None);
-        assert_eq!(pin_to_keycode(11), None);
-        assert_eq!(pin_to_keycode(16), None);
+        // Pin 99 is guaranteed not to be a button on any supported board.
+        assert_eq!(pin_to_keycode(99), None);
     }
 
+    #[cfg(has_buttons)]
     #[test]
     fn key_event_queue_roundtrips_in_fifo_order() {
         reset_key_event_queue();
@@ -334,6 +340,7 @@ mod tests {
         assert!(drain_key_event().is_none());
     }
 
+    #[cfg(has_buttons)]
     #[test]
     fn key_event_queue_wraps_around() {
         reset_key_event_queue();
