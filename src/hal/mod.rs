@@ -52,6 +52,6 @@ pub use chip::flash;
 #[allow(unused_imports)]
 pub use chip::pdb_usb;
 
-#[cfg(feature = "has-network")]
+#[cfg(has_network)]
 #[allow(unused_imports)]
 pub use chip::net;

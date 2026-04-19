@@ -2,7 +2,7 @@
 pub mod graphics;
 #[cfg(not(test))]
 pub mod hardware;
-#[cfg(all(not(test), feature = "has-network"))]
+#[cfg(all(not(test), has_network))]
 pub mod net;
 #[cfg(not(test))]
 pub mod os;

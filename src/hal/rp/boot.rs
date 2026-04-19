@@ -99,7 +99,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
     // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
     // Pinned to core 1 alongside PDB — keeps core 0 free for JVM/UI.
-    #[cfg(feature = "net-cyw43")]
+    #[cfg(network_cyw43)]
     Task::new()
         .name("cyw43")
         .stack_size(2048)

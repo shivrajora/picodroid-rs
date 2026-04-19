@@ -23,7 +23,7 @@ pub mod system_clock;
 pub mod touch;
 pub mod uart;
 
-#[cfg(feature = "has-network")]
+#[cfg(has_network)]
 pub mod net;
-#[cfg(feature = "net-cyw43")]
+#[cfg(network_cyw43)]
 pub mod wifi_task;

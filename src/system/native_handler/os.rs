@@ -16,6 +16,18 @@ pub fn dispatch(
         ("picodroid/os/SystemClock", "elapsedRealtimeNanos") => {
             Some(crate::system::picodroid::os::system_clock::elapsed_realtime_nanos())
         }
+        ("picodroid/content/pm/PackageManager", "hasSystemFeature") => {
+            // args[0] = this, args[1] = feature name String
+            let supported = match ctx.args.get(1) {
+                Some(Value::Reference(idx)) => match ctx.strings.resolve(*idx) {
+                    // FEATURE_WIFI: board has a wireless driver compiled in.
+                    Some("picodroid.hardware.wifi") => cfg!(has_network),
+                    _ => false,
+                },
+                _ => false,
+            };
+            Some(Ok(Some(Value::Int(supported as i32))))
+        }
         ("picodroid/concurrent/Thread", "start") => {
             if let Some(Value::ObjectRef(thread_idx)) = ctx.args.first() {
                 if let Some(Value::ObjectRef(runnable_obj_idx)) =

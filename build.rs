@@ -69,12 +69,13 @@ fn main() {
         let freertos_config_dir = format!("mcus/{mcu_family}");
         freertos::build(out, &mcu, &mcu_toml_path, &mcu_family, &freertos_config_dir);
 
-        if env::var("CARGO_FEATURE_NET_CYW43").is_ok() {
+        if board.props.get("network_type").map(String::as_str) == Some("cyw43") {
             network::build_cyw43_driver(&freertos_config_dir);
             network::build_freertos_tcp(&freertos_config_dir);
         }
     }
 
+    emit_network_config(&board_cfg_full);
     emit_sensor_config(out, &sensors);
     emit_display_config(out, &board_display);
     emit_touch_config(out, &board_touch);
@@ -88,6 +89,32 @@ fn main() {
     papk::embed_framework_classes(out);
     papk::embed_apk(out, is_arm_embedded);
     papk::embed_papk_flash_init(out, is_arm_embedded);
+}
+
+/// Emit `has_network` / `network_<type>` rustc cfgs from board.toml. Mirrors the
+/// `sensor_<kind>` pattern — board.toml is the single source of truth, and Rust
+/// code gates modules on these cfgs rather than on Cargo features.
+fn emit_network_config(board: &Option<config::BoardConfig>) {
+    // Known network drivers — extend this list when adding a new wireless chip.
+    const KNOWN_NETWORK_TYPES: &[&str] = &["cyw43"];
+
+    println!("cargo:rustc-check-cfg=cfg(has_network)");
+    for t in KNOWN_NETWORK_TYPES {
+        println!("cargo:rustc-check-cfg=cfg(network_{t})");
+    }
+
+    let Some(b) = board else { return };
+    if b.props.get("has_network").map(String::as_str) != Some("true") {
+        return;
+    }
+    println!("cargo:rustc-cfg=has_network");
+
+    if let Some(t) = b.props.get("network_type") {
+        if !KNOWN_NETWORK_TYPES.contains(&t.as_str()) {
+            panic!("board.toml: unknown network_type '{t}' (known: {KNOWN_NETWORK_TYPES:?})");
+        }
+        println!("cargo:rustc-cfg=network_{t}");
+    }
 }
 
 fn emit_sensor_config(out: &std::path::Path, sensors: &[config::SensorDecl]) {

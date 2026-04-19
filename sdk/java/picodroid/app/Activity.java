@@ -1,6 +1,7 @@
 package picodroid.app;
 
 import picodroid.content.Context;
+import picodroid.content.pm.PackageManager;
 import picodroid.graphics.Display;
 import picodroid.hardware.SensorManager;
 import picodroid.view.View;
@@ -15,6 +16,10 @@ public class Activity {
       return SensorManager.getInstance();
     }
     return null;
+  }
+
+  public PackageManager getPackageManager() {
+    return PackageManager.getInstance();
   }
 
   public void setContentView(View root) {

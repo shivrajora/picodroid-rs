@@ -19,15 +19,14 @@ default = ["board-testbench-rp2350"]
 board-testbench-rp2040 = ["chip-rp2040"]
 board-testbench-rp2350 = ["chip-rp2350-hal"]
 board-pico-enviro-mon = ["chip-rp2350-hal"]
-board-testbench-rp2350w = ["chip-rp2350-hal", "has-network", "net-cyw43"]
+board-testbench-rp2350w = ["chip-rp2350-hal"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350-hal = ["dep:rp235x-hal", "family-rp"]
 # MCU family grouping (internal)
 family-rp = []
-# Capability flags (has_display / has_touch are now emitted by build.rs from board.toml)
-has-network = []
-net-cyw43 = []
+# Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
+# by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
 # Simulator mode (no hardware)
 sim = []
 

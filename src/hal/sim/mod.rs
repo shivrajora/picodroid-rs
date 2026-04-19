@@ -17,5 +17,5 @@ pub mod system_clock;
 pub mod touch;
 pub mod uart;
 
-#[cfg(feature = "has-network")]
+#[cfg(has_network)]
 pub mod net;
