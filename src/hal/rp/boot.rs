@@ -105,7 +105,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
         .stack_size(2048)
         .priority(TaskPriority(task_priority::PRIORITY_RT_2))
         .core_affinity(0b10) // core 1
-        .start(move |_| crate::hal::rp::wifi_task::run_cyw43_task())
+        .start(move |_| super::wifi_task::run_cyw43_task())
         .unwrap();
 
     // JVM task: runs the app in a loop, rebooting when a new install arrives.

@@ -37,9 +37,11 @@ pub fn run_cyw43_task() -> ! {
     }
 
     // Register this task so the CYW43 ISR can wake us via task notification.
+    // freertos-rust returns the handle as `*const c_void`; FreeRTOS itself treats
+    // task handles as opaque `void*` so the const-to-mut cast is a no-op in C.
     let task = Task::current().unwrap();
     unsafe {
-        cyw43::set_poll_task(task.raw_handle());
+        cyw43::set_poll_task(task.raw_handle() as *mut core::ffi::c_void);
     }
 
     // Read MAC address and start the FreeRTOS+TCP IP stack.
