@@ -237,18 +237,22 @@ fn apply_active_shrink(out: &Path, classes_dir: &Path) -> Option<PathBuf> {
     Some(shrunk_dir)
 }
 
-/// Emit an identity `unshrink_class` function — used when no shrink map is
-/// active. Returns its input verbatim.
+/// Emit identity `unshrink_class` / `shrink_class` functions — used when no
+/// shrink map is active. Returns input verbatim in both directions.
 fn emit_identity_unshrink(out: &Path) {
     let content = "/// Reverse-translate a shrunk class name back to its original form. \n\
                    /// No-shrink build: identity passthrough.\n\
-                   pub fn unshrink_class(name: &str) -> &str { name }\n";
+                   pub fn unshrink_class(name: &str) -> &str { name }\n\
+                   \n\
+                   /// Forward-translate an original class name to its shrunk form. \n\
+                   /// No-shrink build: identity passthrough.\n\
+                   pub fn shrink_class(name: &str) -> &str { name }\n";
     fs::write(out.join("framework_unshrink.rs"), content).unwrap();
 }
 
-/// Emit a `unshrink_class` function that reverses the given shrink map.
-/// Uses a `match` on `&str` since the set is small (≤ a few hundred
-/// entries) and match on static strings compiles to fast binary-search.
+/// Emit `unshrink_class` (shrunk → original) and `shrink_class` (original
+/// → shrunk) based on the given map. Both use `match` on `&str` — compact
+/// and fast for the small framework set.
 fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
     let mut body = String::new();
     body.push_str(
@@ -259,6 +263,18 @@ fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
     );
     for (from, to) in map.iter_classes() {
         body.push_str(&format!("        {to:?} => {from:?},\n"));
+    }
+    body.push_str("        other => other,\n    }\n}\n\n");
+
+    body.push_str(
+        "/// Forward-translate an original class name to its shrunk form. \n\
+         /// Used at `jvm.invoke_instance` / `invoke_instance_with_args` call sites \n\
+         /// that hardcode original framework class names — the loaded classes use \n\
+         /// the shrunk form, so lookups would otherwise miss.\n\
+         pub fn shrink_class(name: &str) -> &str {\n    match name {\n",
+    );
+    for (from, to) in map.iter_classes() {
+        body.push_str(&format!("        {from:?} => {to:?},\n"));
     }
     body.push_str("        other => other,\n    }\n}\n");
     fs::write(out.join("framework_unshrink.rs"), body).unwrap();
