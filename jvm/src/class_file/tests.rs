@@ -326,3 +326,56 @@ fn no_interfaces_for_minimal_class() {
     let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
     assert_eq!(cf.interfaces().len(), 0);
 }
+
+// ── Lazy-load regression guard ────────────────────────────────────────────────
+//
+// `ClassFile::register` must stay lazy: only constant-pool + class-name scan
+// is allowed at registration. A full parse must not fire until an accessor
+// that actually needs parsed state is called. The project's memory-footprint
+// claims (~40 KB → ~3–4 KB baseline) rely on this.
+
+#[test]
+fn register_does_not_trigger_full_parse() {
+    let cf = ClassFile::register(MINIMAL_CLASS).unwrap();
+    assert!(
+        !cf.is_parsed(),
+        "ClassFile::register must stay lazy — a full parse here defeats the \
+         startup-RAM win documented in the lazy-load milestone"
+    );
+    // class_name() reads the eagerly-scanned name slice — still lazy.
+    assert_eq!(cf.class_name(), Some(b"TC" as &[u8]));
+    assert!(
+        !cf.is_parsed(),
+        "class_name() must not trigger a full parse"
+    );
+}
+
+#[test]
+fn accessor_access_triggers_parse() {
+    let cf = ClassFile::register(MINIMAL_CLASS).unwrap();
+    assert!(!cf.is_parsed());
+    let _ = cf.methods();
+    assert!(
+        cf.is_parsed(),
+        "accessors beyond class_name() are expected to force a full parse"
+    );
+}
+
+#[test]
+fn untouched_registered_classes_stay_unparsed() {
+    let touched = ClassFile::register(MINIMAL_CLASS).unwrap();
+    let untouched = ClassFile::register(CLASS_NONOBJECT_SUPER).unwrap();
+
+    // Simulate a run that references only `touched`. `class_name()` on both
+    // must stay lazy (it's the most common lookup path).
+    assert_eq!(touched.class_name(), Some(b"TC" as &[u8]));
+    assert_eq!(untouched.class_name(), Some(b"Child" as &[u8]));
+    let _ = touched.methods();
+
+    assert!(touched.is_parsed());
+    assert!(
+        !untouched.is_parsed(),
+        "untouched classes must stay unparsed — this is the whole point of \
+         the lazy-load architecture"
+    );
+}

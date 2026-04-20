@@ -165,6 +165,20 @@ impl Default for Jvm {
 }
 
 impl Jvm {
+    /// Returns (parsed, total) counts for currently loaded classes.
+    ///
+    /// `ClassFile::register` (called by `load_class`) produces a lazy entry:
+    /// only the constant pool is scanned for the class name, and the full
+    /// method/field tables stay unparsed until first access. This accessor
+    /// exposes how many classes have been forced past that lazy state — a
+    /// direct measure of the lazy-load win on any given run.
+    pub fn count_parsed(&self) -> (usize, usize) {
+        let parsed = self.classes.iter().filter(|c| c.is_parsed()).count();
+        (parsed, self.classes.len())
+    }
+}
+
+impl Jvm {
     /// Parses and registers a compiled `.class` file.
     ///
     /// `data` must be a `'static` byte slice (e.g. embedded via `include_bytes!`

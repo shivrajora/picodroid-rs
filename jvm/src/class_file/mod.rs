@@ -115,8 +115,7 @@ impl ClassFile {
     }
 
     /// Returns `true` if the full parse has already been performed.
-    #[cfg(test)]
-    pub(crate) fn is_parsed(&self) -> bool {
+    pub fn is_parsed(&self) -> bool {
         self.parsed.get().is_some()
     }
 

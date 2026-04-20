@@ -247,12 +247,16 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     #[cfg(feature = "sim")]
     {
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
+        let (parsed, total) = jvm.count_parsed();
         println!(
-            "[sim] JVM wall-clock: {} ms, gc: {} collections, {} freed, {} us",
+            "[sim] JVM wall-clock: {} ms, gc: {} collections, {} freed, {} us, \
+             lazy-load: {}/{} classes parsed",
             start.elapsed().as_millis(),
             gc_count,
             gc_freed,
             gc_ns / 1000,
+            parsed,
+            total,
         );
     }
 }
