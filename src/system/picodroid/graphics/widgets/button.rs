@@ -119,6 +119,24 @@ pub fn button_was_clicked(args: &[Value], objects: &ObjectHeap) -> Result<Option
     Ok(Some(Value::Int(0))) // false
 }
 
+/// `Button.performClick()` — synthetically fire `LV_EVENT_CLICKED` on the
+/// underlying LVGL button. The existing `button_click_cb` handles it
+/// identically to a real touch, so the registered `OnClickListener` runs
+/// on the next dispatch tick. Android parity; also the entry point
+/// `examples/callbacktest` uses to exercise the post-`--shrink` dispatch
+/// path without a human clicking.
+pub fn button_perform_click(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    unsafe {
+        let obj = handle_table::lookup(id);
+        lv_obj_send_event(obj, LV_EVENT_CLICKED, core::ptr::null_mut());
+    }
+    Ok(None)
+}
+
 /// `Button.nativeRegisterClickListener()` — records the mapping from this
 /// button's LVGL handle to its Java heap index so the framework event loop
 /// can dispatch `fireClick()` on the correct object.

@@ -274,6 +274,29 @@ pub fn toggle_button_toggle(
     Ok(None)
 }
 
+/// `ToggleButton.performCheckedChange()` — synthetically toggle and fire
+/// `LV_EVENT_VALUE_CHANGED`. Goes through `toggle_button_value_changed_cb`
+/// just like a user tap, so the registered listener runs on the next
+/// dispatch tick. Used by `examples/callbacktest` to exercise the full
+/// callback pipeline headlessly under both shrink modes.
+pub fn toggle_button_perform_checked_change(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    unsafe {
+        let obj = handle_table::lookup(id);
+        // Flip the checked state so the fired event reflects a real transition.
+        if lv_obj_has_state(obj, LV_STATE_CHECKED) {
+            lv_obj_remove_state(obj, LV_STATE_CHECKED);
+        } else {
+            lv_obj_add_state(obj, LV_STATE_CHECKED);
+        }
+        lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, core::ptr::null_mut());
+    }
+    Ok(None)
+}
+
 /// `ToggleButton.setTextOn(String text)`
 pub fn toggle_button_set_text_on(
     args: &[Value],

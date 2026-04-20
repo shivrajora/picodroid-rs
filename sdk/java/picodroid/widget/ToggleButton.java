@@ -23,6 +23,13 @@ public class ToggleButton extends View {
 
   public native void toggle();
 
+  /**
+   * Synthetically toggle and fire a checked-change event. Registered OnCheckedChangeListener runs
+   * on the next main-loop dispatch tick. Useful for scripted UI flows and headless end-to-end
+   * tests.
+   */
+  public native void performCheckedChange();
+
   public native void setTextOn(String text);
 
   public native void setTextOff(String text);

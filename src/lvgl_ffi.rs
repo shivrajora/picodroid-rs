@@ -231,6 +231,15 @@ extern "C" {
     // Events
     pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
+    /// Synchronously fire `event_code` on `obj`. Invokes every matching
+    /// event callback on this object (so e.g. `LV_EVENT_CLICKED` on a
+    /// Button goes through the same `button_click_cb` a real touch would
+    /// trigger). Returns `lv_result_t` (0 = OK, 1 = invalid).
+    pub fn lv_obj_send_event(
+        obj: *mut lv_obj_t,
+        event_code: lv_event_code_t,
+        param: *mut c_void,
+    ) -> u32;
 
     // Object lifecycle
     pub fn lv_obj_delete(obj: *mut lv_obj_t);

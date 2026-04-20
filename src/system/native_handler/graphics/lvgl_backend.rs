@@ -63,6 +63,7 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "performClick" => Some(widgets::button_perform_click(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -104,6 +105,10 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterCheckedChangeListener" => Some(
                 widgets::switch_register_checked_change_listener(ctx.args, ctx.objects),
             ),
+            "performCheckedChange" => Some(widgets::switch_perform_checked_change(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }
@@ -135,6 +140,10 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterCheckedChangeListener" => Some(
                 widgets::toggle_button_register_checked_change_listener(ctx.args, ctx.objects),
             ),
+            "performCheckedChange" => Some(widgets::toggle_button_perform_checked_change(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }
@@ -162,6 +171,10 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "performProgressChange" => Some(widgets::seek_bar_perform_progress_change(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }
@@ -179,6 +192,10 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterCheckedChangeListener" => Some(
                 widgets::check_box_register_checked_change_listener(ctx.args, ctx.objects),
             ),
+            "performCheckedChange" => Some(widgets::check_box_perform_checked_change(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }
@@ -231,6 +248,10 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterItemSelectedListener" => Some(
                 widgets::spinner_register_item_selected_listener(ctx.args, ctx.objects),
             ),
+            "performItemSelected" => Some(widgets::spinner_perform_item_selected(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

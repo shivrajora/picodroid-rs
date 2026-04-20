@@ -1,0 +1,75 @@
+package callbacktest;
+
+import picodroid.app.Activity;
+import picodroid.util.Log;
+import picodroid.widget.Button;
+import picodroid.widget.CheckBox;
+import picodroid.widget.LinearLayout;
+import picodroid.widget.SeekBar;
+import picodroid.widget.Spinner;
+import picodroid.widget.Switch;
+import picodroid.widget.ToggleButton;
+
+/**
+ * End-to-end regression test for the widget-callback dispatch path.
+ *
+ * <p>Registers a lambda listener on each widget, then synthetically fires the corresponding LVGL
+ * event via {@code performClick()} / {@code performCheckedChange()} / etc. Each listener prints a
+ * unique token via {@code Log.i}; {@code scripts/hil-tests.conf} asserts every token appears in
+ * stdout. Runs under both shrink modes via {@code scripts/sim-run.sh}.
+ *
+ * <p>Lambdas (not named {@code Runnable} classes) are deliberate — they exercise the same
+ * invokedynamic → field-stored proxy → cross-execute dispatch path that the shrink bug fixed in
+ * eba57c3 killed.
+ */
+public class CallbackTestActivity extends Activity {
+  public void onCreate() {
+    // Force display init. getDisplay() lazily brings up the LVGL engine; widget
+    // constructors below parent to the screen and crash if it's still null.
+    getDisplay();
+
+    LinearLayout root = new LinearLayout();
+    root.setOrientation(LinearLayout.VERTICAL);
+    root.setSize(320, 240);
+
+    Button btn = new Button("b");
+    btn.setSize(100, 30);
+    btn.setOnClickListener(() -> Log.i("CBT", "BUTTON"));
+    root.addView(btn);
+    btn.performClick();
+
+    ToggleButton tog = new ToggleButton("on", "off");
+    tog.setSize(100, 30);
+    tog.setOnCheckedChangeListener(() -> Log.i("CBT", "TOGGLE"));
+    root.addView(tog);
+    tog.performCheckedChange();
+
+    Switch sw = new Switch();
+    sw.setSize(60, 30);
+    sw.setOnCheckedChangeListener(() -> Log.i("CBT", "SWITCH"));
+    root.addView(sw);
+    sw.performCheckedChange();
+
+    CheckBox cb = new CheckBox();
+    cb.setText("x");
+    cb.setOnCheckedChangeListener(() -> Log.i("CBT", "CHECKBOX"));
+    root.addView(cb);
+    cb.performCheckedChange();
+
+    SeekBar sb = new SeekBar(100);
+    sb.setSize(200, 20);
+    sb.setOnSeekBarChangeListener(() -> Log.i("CBT", "SEEKBAR"));
+    root.addView(sb);
+    sb.performProgressChange();
+
+    Spinner sp = new Spinner();
+    sp.setItems("a\nb");
+    sp.setSize(100, 30);
+    sp.setOnItemSelectedListener(() -> Log.i("CBT", "SPINNER"));
+    root.addView(sp);
+    sp.performItemSelected();
+
+    setContentView(root);
+    Log.i("CBT", "SETUP_DONE");
+  }
+}

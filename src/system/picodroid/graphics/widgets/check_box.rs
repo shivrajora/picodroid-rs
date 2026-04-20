@@ -110,6 +110,27 @@ pub fn check_box_set_checked(
     Ok(None)
 }
 
+/// `CheckBox.performCheckedChange()` — synthetically toggle and fire
+/// `LV_EVENT_VALUE_CHANGED`. Goes through the same native callback a real
+/// tap would trigger, so the registered listener runs on the next
+/// dispatch tick.
+pub fn check_box_perform_checked_change(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    unsafe {
+        let obj = handle_table::lookup(id);
+        if lv_obj_has_state(obj, LV_STATE_CHECKED) {
+            lv_obj_remove_state(obj, LV_STATE_CHECKED);
+        } else {
+            lv_obj_add_state(obj, LV_STATE_CHECKED);
+        }
+        lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, core::ptr::null_mut());
+    }
+    Ok(None)
+}
+
 /// `CheckBox.nativeRegisterCheckedChangeListener()` -- records the mapping
 /// from this checkbox's LVGL handle to its Java heap index.
 pub fn check_box_register_checked_change_listener(

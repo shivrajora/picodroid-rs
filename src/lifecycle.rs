@@ -9,6 +9,24 @@ use pico_jvm::types::JvmError;
 #[cfg(not(test))]
 use pico_jvm::{Jvm, SharedJvmHeap};
 
+#[cfg(not(test))]
+use crate::dispatch_sites::{self, DISPATCH_SITES};
+
+/// Look up the shrunk framework class name for the dispatch site at `idx`
+/// in [`DISPATCH_SITES`]. Zero-cost identity when no shrink map is active.
+#[cfg(not(test))]
+#[inline]
+fn dispatch_class(idx: usize) -> &'static str {
+    crate::shrink_names::shrink_class(DISPATCH_SITES[idx].0)
+}
+
+/// The `fire*` method name for the dispatch site at `idx`.
+#[cfg(not(test))]
+#[inline]
+fn dispatch_method(idx: usize) -> &'static str {
+    DISPATCH_SITES[idx].1
+}
+
 /// Idle period after which the display is put to sleep. Reset by any GPIO
 /// button event. Gated on `has_buttons` because the wake path blocks on a
 /// button IRQ — touch-only boards would never wake.
@@ -159,8 +177,8 @@ fn dispatch_clicks(
         if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
             // fireClick() is a Java method on Button that calls onClickListener.run().
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/Button"),
-                "fireClick",
+                dispatch_class(dispatch_sites::BUTTON),
+                dispatch_method(dispatch_sites::BUTTON),
                 obj_ref,
                 heap,
                 handler,
@@ -184,8 +202,8 @@ fn dispatch_checked_changes(
     while let Some(handle) = widgets::drain_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_checked_change_obj(handle) {
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/ToggleButton"),
-                "fireCheckedChanged",
+                dispatch_class(dispatch_sites::TOGGLE_BUTTON),
+                dispatch_method(dispatch_sites::TOGGLE_BUTTON),
                 obj_ref,
                 heap,
                 handler,
@@ -209,8 +227,8 @@ fn dispatch_switch_checked_changes(
     while let Some(handle) = widgets::drain_sw_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_sw_checked_change_obj(handle) {
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/Switch"),
-                "fireCheckedChanged",
+                dispatch_class(dispatch_sites::SWITCH),
+                dispatch_method(dispatch_sites::SWITCH),
                 obj_ref,
                 heap,
                 handler,
@@ -234,8 +252,8 @@ fn dispatch_checkbox_changes(
     while let Some(handle) = widgets::drain_cb_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_cb_checked_change_obj(handle) {
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/CheckBox"),
-                "fireCheckedChanged",
+                dispatch_class(dispatch_sites::CHECKBOX),
+                dispatch_method(dispatch_sites::CHECKBOX),
                 obj_ref,
                 heap,
                 handler,
@@ -259,8 +277,8 @@ fn dispatch_spinner_changes(
     while let Some(handle) = widgets::drain_spinner_change_queue() {
         if let Some(obj_ref) = widgets::lookup_spinner_obj(handle) {
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/Spinner"),
-                "fireItemSelected",
+                dispatch_class(dispatch_sites::SPINNER),
+                dispatch_method(dispatch_sites::SPINNER),
                 obj_ref,
                 heap,
                 handler,
@@ -328,8 +346,8 @@ fn dispatch_key_events(
         }
 
         let _ = jvm.invoke_instance_with_args(
-            crate::shrink_names::shrink_class("picodroid/view/View"),
-            "fireKey",
+            dispatch_class(dispatch_sites::VIEW_KEY),
+            dispatch_method(dispatch_sites::VIEW_KEY),
             view_ref,
             &[Value::ObjectRef(event_obj)],
             heap,
@@ -353,8 +371,8 @@ fn dispatch_seek_bar_changes(
     while let Some(handle) = widgets::drain_seek_change_queue() {
         if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
             let _ = jvm.invoke_instance(
-                crate::shrink_names::shrink_class("picodroid/widget/SeekBar"),
-                "fireProgressChanged",
+                dispatch_class(dispatch_sites::SEEK_BAR),
+                dispatch_method(dispatch_sites::SEEK_BAR),
                 obj_ref,
                 heap,
                 handler,

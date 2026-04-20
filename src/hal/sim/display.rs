@@ -34,14 +34,37 @@ static mut MOUSE_Y: u16 = 0;
 // ── Public API (matches hal::display contract) ──────────────────────────────
 
 pub fn init() {
+    // Headless mode: requested explicitly, or no DISPLAY/WAYLAND_DISPLAY in
+    // env (common in CI). `WINDOW` stays `None` — `update_window` /
+    // `mouse_state` / `is_window_open` already handle that branch, and the
+    // framebuffer writes are harmless no-ops. Lets sim-run.sh exercise
+    // Activity-based apps (displaydemo, callbacktest) under the shrink
+    // matrix without an X server.
+    let force_headless = std::env::var("PICODROID_SIM_HEADLESS")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let no_display = std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err();
+    if force_headless || no_display {
+        println!("[sim] Display: headless (no window)");
+        return;
+    }
+
     let opts = WindowOptions {
         scale: Scale::X2,
         scale_mode: ScaleMode::AspectRatioStretch,
         ..WindowOptions::default()
     };
 
-    let mut win =
-        Window::new("picodroid", WIDTH as usize, HEIGHT as usize, opts).expect("minifb window");
+    // Treat window-creation failure the same as headless — never panic, so a
+    // local run without a working display still boots the JVM and flushes
+    // logs instead of aborting before any Log.i() fires.
+    let mut win = match Window::new("picodroid", WIDTH as usize, HEIGHT as usize, opts) {
+        Ok(w) => w,
+        Err(e) => {
+            println!("[sim] Display: headless (window creation failed: {e})");
+            return;
+        }
+    };
 
     // Limit update rate to ~60 fps
     win.set_target_fps(60);

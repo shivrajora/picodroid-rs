@@ -12,12 +12,11 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 #[cfg(not(test))]
 include!(concat!(env!("OUT_DIR"), "/apk_data.rs"));
 
-// Embedded picodroid framework class bytecode, compiled and embedded by build.rs.
-// Defines: pub static FRAMEWORK_CLASSES: &[&[u8]] = &[include_bytes!("..."), ...];
-// Framework classes are part of the platform (like Android's boot classpath), not
-// the APK — so they are always present in firmware Flash regardless of which app runs.
+// Framework class bytecode lives in its own ungated module so that the
+// dispatch-site regression test (see `crate::dispatch_sites`) can parse it
+// under `cfg(test)`. Re-exported here for the existing load path.
 #[cfg(not(test))]
-include!(concat!(env!("OUT_DIR"), "/framework_classes.rs"));
+use crate::framework_classes::FRAMEWORK_CLASSES;
 
 // Active shrink-map version for this firmware build. Set by build.rs from the
 // highest committed sdk/shrink-maps/v<semver>.toml ≤ the picodroid Cargo.toml

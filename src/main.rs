@@ -14,8 +14,10 @@ mod app;
     )
 ))]
 mod boards;
+mod dispatch_sites;
 #[allow(dead_code)]
 mod drivers;
+mod framework_classes;
 #[allow(dead_code)]
 #[cfg(not(test))]
 mod fs;
@@ -29,7 +31,6 @@ mod lvgl_ffi;
 mod packagemanager;
 #[cfg(not(any(test, feature = "sim")))]
 mod pdb;
-#[cfg(not(test))]
 mod shrink_names;
 #[cfg(feature = "sim")]
 mod sim_allocator;

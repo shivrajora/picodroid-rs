@@ -88,6 +88,21 @@ pub fn spinner_get_selected(
     Ok(Some(Value::Int(sel as i32)))
 }
 
+/// `Spinner.performItemSelected()` — fire `LV_EVENT_VALUE_CHANGED` on the
+/// underlying `lv_dropdown` so the registered item-selected listener runs
+/// on the next dispatch tick.
+pub fn spinner_perform_item_selected(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    unsafe {
+        let obj = handle_table::lookup(id);
+        lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, core::ptr::null_mut());
+    }
+    Ok(None)
+}
+
 /// `Spinner.nativeRegisterItemSelectedListener()` -- records the mapping
 /// from this dropdown's LVGL handle to its Java heap index.
 pub fn spinner_register_item_selected_listener(

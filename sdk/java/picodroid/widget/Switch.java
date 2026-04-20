@@ -17,6 +17,12 @@ public class Switch extends View {
 
   public native void toggle();
 
+  /**
+   * Synthetically toggle and fire a checked-change event. Registered OnCheckedChangeListener runs
+   * on the next main-loop dispatch tick.
+   */
+  public native void performCheckedChange();
+
   public void setOnCheckedChangeListener(Runnable listener) {
     this.onCheckedChangeListener = listener;
     nativeRegisterCheckedChangeListener();

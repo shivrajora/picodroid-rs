@@ -108,6 +108,26 @@ pub fn seek_bar_set_progress(
     Ok(None)
 }
 
+/// `SeekBar.performProgressChange()` — bump the slider one unit and fire
+/// `LV_EVENT_VALUE_CHANGED`. Goes through the same callback a real drag
+/// would; the registered listener runs on the next dispatch tick.
+pub fn seek_bar_perform_progress_change(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    unsafe {
+        let obj = handle_table::lookup(id);
+        // Advance by 1, or reset to 0 if already at max, to guarantee a state
+        // transition that the LVGL event represents meaningfully.
+        let cur = lv_slider_get_value(obj);
+        let next = cur.saturating_add(1);
+        lv_slider_set_value(obj, next, LV_ANIM_OFF);
+        lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, core::ptr::null_mut());
+    }
+    Ok(None)
+}
+
 /// `SeekBar.getProgress()`
 pub fn seek_bar_get_progress(
     args: &[Value],

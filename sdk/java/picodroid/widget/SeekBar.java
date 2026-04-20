@@ -23,6 +23,12 @@ public class SeekBar extends View {
 
   public native int getProgress();
 
+  /**
+   * Synthetically advance the slider and fire a progress-change event. Registered
+   * OnSeekBarChangeListener runs on the next main-loop dispatch tick.
+   */
+  public native void performProgressChange();
+
   public void setOnSeekBarChangeListener(Runnable listener) {
     this.onSeekBarChangeListener = listener;
     nativeRegisterChangeListener();

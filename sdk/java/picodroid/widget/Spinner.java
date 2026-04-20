@@ -15,6 +15,12 @@ public class Spinner extends View {
 
   public native int getSelectedItemPosition();
 
+  /**
+   * Synthetically fire an item-selected event. Registered OnItemSelectedListener runs on the next
+   * main-loop dispatch tick.
+   */
+  public native void performItemSelected();
+
   public void setOnItemSelectedListener(Runnable listener) {
     this.onItemSelectedListener = listener;
     nativeRegisterItemSelectedListener();

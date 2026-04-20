@@ -128,9 +128,12 @@ run_test() {
   fi
 
   # Run the pre-built binary directly (avoids a redundant cargo build check).
+  # PICODROID_SIM_HEADLESS=1 skips minifb window creation so Activity-based
+  # tests (callbacktest, displaydemo) run under CI without an X server.
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   sim_log "  Running (${timeout}s timeout)..."
-  if PICODROID_APK_PATH="$apk_path" timeout "$timeout" "$bin" > "$log_file" 2>&1; then
+  if PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+     timeout "$timeout" "$bin" > "$log_file" 2>&1; then
     : # exited cleanly
   else
     local exit_code=$?
