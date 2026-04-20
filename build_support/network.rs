@@ -46,6 +46,7 @@ pub fn build_cyw43_driver(freertos_config_dir: &str) {
 
     build.file("src/hal/rp/port/net/cyw43_bus_spi.c");
     build.file("src/hal/rp/port/net/cyw43_port.c");
+    build.file("src/hal/rp/port/net/libc_str.c");
 
     build.compile("cyw43");
 

@@ -18,6 +18,11 @@
 #define static_assert _Static_assert
 #endif
 
+/* Element count of a fixed-size array (driver uses this in event tables). */
+#ifndef CYW43_ARRAY_SIZE
+#define CYW43_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
 /* ---- Bus configuration ---- */
 
 /* Use SPI bus (not SDIO) — Pico W uses gSPI over PIO */
@@ -75,7 +80,17 @@ void cyw43_hal_pin_high(int pin);
 /* ---- MAC address source ---- */
 /* Use OTP-fused MAC address from CYW43 chip */
 #define CYW43_USE_OTP_MAC       (1)
-#define CYW43_HAL_MAC_WLAN0     CYW43_HAL_PIN_ON  /* placeholder — OTP reads real MAC */
+/* Interface selectors passed to cyw43_hal_get_mac. Values only need to be
+ * distinct — the HAL implementation ignores them and returns the same MAC. */
+#define CYW43_HAL_MAC_WLAN0     (0)
+#define CYW43_HAL_MAC_WLAN1     (1)
+#define CYW43_HAL_MAC_BDADDR    (2)
+
+/* MAC HAL entry points implemented in cyw43_port.c. `idx` is a CYW43_HAL_MAC_*
+ * selector; the LAA variant derives a deterministic locally-administered MAC
+ * from the RP2350 flash unique id when OTP has no MAC configured. */
+void cyw43_hal_get_mac(int idx, uint8_t mac[6]);
+void cyw43_hal_generate_laa_mac(int idx, uint8_t mac[6]);
 
 /* ---- Error codes ---- */
 #ifndef CYW43_EPERM

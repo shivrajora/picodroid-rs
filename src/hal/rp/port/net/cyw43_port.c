@@ -139,4 +139,55 @@ void cyw43_yield(void) {
     }
 }
 
+/* ---- MAC address (LAA fallback when OTP is empty) ---- */
+
+/*
+ * The CYW43 driver calls cyw43_hal_get_mac before OTP is read and
+ * cyw43_hal_generate_laa_mac only if the OTP is unprogrammed (see
+ * cyw43_ll.c:1774–1786). Production CYW43439 silicon on Pico 2 W ships
+ * with OTP-fused MACs, so in practice the OTP read always wins; we
+ * return a fixed locally-administered MAC here as a link-only
+ * placeholder and for the rare dev board with blank OTP.
+ */
+static const uint8_t placeholder_mac[6] = { 0x02, 'P', 'I', 'C', 'O', 'W' };
+
+void cyw43_hal_get_mac(int idx, uint8_t mac[6]) {
+    (void)idx;
+    memcpy(mac, placeholder_mac, 6);
+}
+
+void cyw43_hal_generate_laa_mac(int idx, uint8_t mac[6]) {
+    (void)idx;
+    memcpy(mac, placeholder_mac, 6);
+}
+
+/* ---- Link status (FreeRTOS+TCP replacement for cyw43_lwip.c) ---- */
+
+/*
+ * FreeRTOS+TCP has no per-netif link state, so we mirror what
+ * cyw43_lwip.c does without lwIP: report LINK_UP only once the driver
+ * itself says the association is up. DHCP/IP state is tracked by
+ * FreeRTOS+TCP separately, so callers querying this treat it as the
+ * PHY-level link indicator.
+ */
+int cyw43_tcpip_link_status(cyw43_t *self, int itf) {
+    return cyw43_wifi_link_status(self, itf);
+}
+
+/* ---- pbuf stub (CYW43_LWIP=0: buf is always a flat buffer) ---- */
+
+/*
+ * The driver forward-declares this in cyw43_ll.c:56 and only calls it
+ * on the `is_pbuf == true` branch of cyw43_ll_send_ethernet. Our
+ * NetworkInterface always sends with is_pbuf=false, so this is link-only
+ * bait; keep it as a panic stub to catch any future misuse.
+ */
+struct pbuf;
+uint16_t pbuf_copy_partial(const struct pbuf *p, void *dataptr,
+                            uint16_t len, uint16_t offset) {
+    (void)p; (void)dataptr; (void)len; (void)offset;
+    configASSERT(!"pbuf_copy_partial called under CYW43_LWIP=0");
+    return 0;
+}
+
 /* Network callbacks are in NetworkInterface_CYW43.c */

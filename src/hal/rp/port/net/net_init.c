@@ -13,6 +13,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_IP.h"
+#include "FreeRTOS_DHCP.h"
 #include "FreeRTOS_Routing.h"
 #include "NetworkInterface.h"
 
@@ -104,4 +105,28 @@ uint32_t ulApplicationGetNextSequenceNumber(
 
     xApplicationGetRandomNumber(&ulRandom);
     return ulRandom;
+}
+
+/*
+ * DHCP client hostname sent in DHCPDISCOVER. Appears in the router's
+ * DHCP lease table; purely cosmetic.
+ */
+const char *pcApplicationHostnameHook(void) {
+    return "picodroid";
+}
+
+/*
+ * DHCP phase hook (ipconfigUSE_DHCP_HOOK=1). Default behavior: let the
+ * stack discover and request normally. Apps can override later to pin
+ * a static IP if DHCP fails.
+ */
+eDHCPCallbackAnswer_t xApplicationDHCPHook_Multi(
+    eDHCPCallbackPhase_t eDHCPPhase,
+    struct xNetworkEndPoint *pxEndPoint,
+    IP_Address_t *pxIPAddress)
+{
+    (void)eDHCPPhase;
+    (void)pxEndPoint;
+    (void)pxIPAddress;
+    return eDHCPContinue;
 }
