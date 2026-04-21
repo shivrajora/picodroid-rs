@@ -1,6 +1,21 @@
 # Writing a Java App
 
-1. Create a directory and Java file under `examples/`:
+## Quickest path — scaffold with Gradle
+
+```bash
+./gradlew newApp -Pname=myapp
+```
+
+This creates `examples/myapp/` with a starter `MyApp.java`, `PicodroidManifest.xml`, and `build.gradle.kts`. Then build and flash:
+
+```bash
+./scripts/build.sh --app myapp
+./scripts/flash.sh --app myapp
+```
+
+## Manual layout
+
+1. Create a Java source under `examples/myapp/`:
 
 ```java
 // examples/myapp/java/myapp/MyApp.java
@@ -25,7 +40,15 @@ public class MyApp extends Application {
 </manifest>
 ```
 
-3. Build and flash — no changes to `Cargo.toml` or `src/app.rs` needed:
+3. Create a one-line `build.gradle.kts` in the app directory:
+
+```kotlin
+plugins {
+    id("picodroid-papk")
+}
+```
+
+4. Build and flash — no changes to `settings.gradle.kts`, `Cargo.toml`, or `src/app.rs` needed:
 
 ```bash
 ./scripts/build.sh --app myapp
@@ -36,7 +59,11 @@ public class MyApp extends Application {
 ./scripts/flash.sh --app myapp --board testbench_rp2040
 ```
 
-`build-apk.sh` automatically discovers all `.class` files under the compiled output directory and packages them into `build/apks/myapp.papk`. The firmware embeds this `.papk` at build time; the JVM reads the manifest at startup, instantiates the `Application` class, and calls `onCreate()`.
+The build pipeline is a Gradle multi-project with a custom `picodroid-papk` plugin (see [buildSrc/](../buildSrc/)). `settings.gradle.kts` auto-discovers every `examples/<name>/` that has a `PicodroidManifest.xml`. The plugin compiles Java against the framework in `:sdk`, optionally rewrites framework references via the active shrink map, then packages the result into `examples/myapp/build/papk/myapp.papk`. `scripts/build-apk.sh` is a thin wrapper that invokes Gradle and copies the artifact to `build/apks/myapp.papk` where the firmware build embeds it.
+
+## IDE support
+
+The build files in `settings.gradle.kts` and `examples/*/build.gradle.kts` are standard Gradle projects. Opening the repo in IntelliJ IDEA ("Open as Gradle project") or VS Code (with the Red Hat Java + Gradle extensions) gives autocomplete, jump-to-def, and inline error reporting for all framework and app sources.
 
 Pass `--shrink` (off by default) to apply the active class-name shrink map — `build-apk.sh` will rewrite framework class references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own class names stay unchanged, so the `application=` value in the manifest remains valid. See [shrinker.md](shrinker.md) for details.
 

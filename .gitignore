@@ -15,6 +15,9 @@ vendor/
 # Build artifacts (compiled classes, packaged APKs)
 build/
 
+# Gradle wrapper cache, daemon state, config-cache entries
+.gradle/
+
 # Claude Code local settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

@@ -12,6 +12,13 @@ if ! bash "$REPO_ROOT/scripts/format_java.sh" check; then
   exit 1
 fi
 
+echo "==> Type-checking all Java apps (gradle compileJava)..."
+if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
+  echo ""
+  echo "ERROR: Java compilation failed. Fix the errors above before committing."
+  exit 1
+fi
+
 echo "==> Checking formatting (cargo fmt)..."
 if ! cargo fmt -- --check; then
   echo ""
