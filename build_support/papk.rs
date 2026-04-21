@@ -146,34 +146,49 @@ pub fn embed_framework_classes(out: &Path) {
         return;
     }
 
-    let framework_dir = Path::new("sdk/java");
-    let java_files = collect_files(framework_dir, "java");
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set during build"),
+    );
+    let framework_dir = manifest_dir.join("sdk/java");
+    let java_files = collect_files(&framework_dir, "java");
     for f in &java_files {
         println!("cargo:rerun-if-changed={}", f.display());
     }
+    // The Gradle build config itself is an input — changes to how :sdk is
+    // configured must re-trigger class regeneration.
+    for p in [
+        "settings.gradle.kts",
+        "build.gradle.kts",
+        "sdk/build.gradle.kts",
+        "buildSrc",
+    ] {
+        println!("cargo:rerun-if-changed={}", manifest_dir.join(p).display());
+    }
 
-    let classes_dir = out.join("framework_classes");
-    fs::create_dir_all(&classes_dir).unwrap();
-
-    let status = Command::new("javac")
-        .arg("--release")
-        .arg("8")
-        .arg("-d")
-        .arg(&classes_dir)
-        .args(&java_files)
+    let gradlew = manifest_dir.join(if cfg!(windows) {
+        "gradlew.bat"
+    } else {
+        "gradlew"
+    });
+    let status = Command::new(&gradlew)
+        .arg(":sdk:compileJava")
+        .arg("--console=plain")
+        .arg("-q")
+        .current_dir(&manifest_dir)
         .status()
         .expect(
-            "javac not found — install a JDK to build picodroid firmware\n\
+            "./gradlew not found — run from repo root and ensure a JDK is installed\n\
              (Ubuntu: apt-get install default-jdk-headless  |  macOS: brew install --cask temurin)",
         );
     assert!(
         status.success(),
-        "javac failed while compiling picodroid framework classes"
+        "./gradlew :sdk:compileJava failed while compiling picodroid framework classes"
     );
+    let classes_dir = manifest_dir.join("sdk/build/classes/java/main");
 
     // If the active map covers our package version, shrink into a sibling
     // directory and point the embed step at the shrunk output. Otherwise
-    // embed the raw javac output.
+    // embed the raw Gradle output.
     let embed_dir = apply_active_shrink(out, &classes_dir).unwrap_or(classes_dir);
 
     let mut class_files = collect_files(&embed_dir, "class");

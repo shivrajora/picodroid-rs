@@ -34,7 +34,7 @@ abstract class ClassShrinkTask : DefaultTask() {
         out.mkdirs()
 
         val classShrinkManifest = project.rootDir.resolve("tools/class-shrink/Cargo.toml")
-        val proc = ProcessBuilder(
+        val pb = ProcessBuilder(
             "cargo", "run", "--quiet",
             "--target", hostTarget.get(),
             "--manifest-path", classShrinkManifest.absolutePath,
@@ -43,8 +43,9 @@ abstract class ClassShrinkTask : DefaultTask() {
             "--in", inputDir.get().asFile.absolutePath,
             "--out", out.absolutePath,
             "--map", mapFile.get().asFile.absolutePath,
-        ).directory(project.rootDir).inheritIO().start()
-        val rc = proc.waitFor()
+        ).directory(project.rootDir).inheritIO()
+        CargoEnv.sanitize(pb)
+        val rc = pb.start().waitFor()
         if (rc != 0) {
             throw GradleException("class-shrink shrink-dir failed (exit $rc)")
         }

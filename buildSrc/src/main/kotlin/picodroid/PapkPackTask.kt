@@ -66,8 +66,9 @@ abstract class PapkPackTask : DefaultTask() {
             "--output", out.absolutePath,
         )
 
-        val proc = ProcessBuilder(args).directory(project.rootDir).inheritIO().start()
-        val rc = proc.waitFor()
+        val pb = ProcessBuilder(args).directory(project.rootDir).inheritIO()
+        CargoEnv.sanitize(pb)
+        val rc = pb.start().waitFor()
         if (rc != 0) {
             throw GradleException("papk-pack failed (exit $rc)")
         }

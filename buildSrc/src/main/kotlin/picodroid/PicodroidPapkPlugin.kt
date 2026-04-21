@@ -45,9 +45,15 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val manifest = PicodroidManifest.parse(manifestFile)
 
         val shrinkEnabled = isShrinkEnabled(target)
-        val hostTarget = target.rootProject.extra("picodroid.hostTarget") { HostTarget.detect() }
         val frameworkMapVersion = target.rootProject.extra("picodroid.frameworkMapVersion") {
-            ShrinkMapResolver.resolve(target.rootDir, hostTarget, shrinkEnabled)
+            ShrinkMapResolver.resolve(target.rootDir, shrinkEnabled)
+        }
+        // hostTarget is only needed by ClassShrinkTask + PapkPackTask — resolve
+        // lazily via Provider so we don't shell out to rustc during plugin
+        // configuration (keeps apply() fast and avoids any subprocess spawn
+        // from a task-configuration path).
+        val hostTarget = target.provider {
+            target.rootProject.extra("picodroid.hostTarget") { HostTarget.detect() }
         }
 
         val compileJava = target.tasks.named("compileJava", JavaCompile::class.java)
