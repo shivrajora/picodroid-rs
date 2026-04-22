@@ -38,6 +38,14 @@ fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
 }
 
+/// Millisecond clock reader used by the frame-budget loop regardless of
+/// platform/feature flags. Kept separate from [`now_ms`] (which is gated on
+/// `has_buttons`) so the event loop can query it on every board/sim combo.
+#[cfg(not(test))]
+fn now_ms_any() -> u64 {
+    crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
+}
+
 // ── Application lifecycle ────────────────────────────────────────────────────
 
 /// Run an Application-based app: allocate the Application object, call
@@ -83,8 +91,13 @@ pub(crate) fn run_activity(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
+    use crate::system::executors::main_queue::{self, MainTask};
     use crate::system::picodroid::graphics::engine;
     use pico_jvm::NativeMethodHandler;
+
+    // Initialise the unified main-thread FIFO; harmless if the module was
+    // already initialised on a prior activity launch.
+    main_queue::init();
 
     // Call the subclass's onCreate() -- this builds the UI tree and calls
     // setContentView().  Virtual dispatch picks up the override automatically.
@@ -97,7 +110,8 @@ pub(crate) fn run_activity(
         }
     }
 
-    // Framework event loop -- tick LVGL and dispatch click callbacks.
+    // Framework event loop -- unified FIFO drain interleaving LVGL ticks
+    // and user-submitted Runnables for the main-thread executor.
     let mut pacer = crate::hal::system_clock::FramePacer::new();
     #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut last_input_ms: u64 = now_ms();
@@ -135,17 +149,48 @@ pub(crate) fn run_activity(
             last_input_ms = now_ms();
         }
 
-        engine::tick(16);
-        crate::system::picodroid::graphics::fps_overlay::update();
-        dispatch_clicks(jvm, heap, handler);
-        dispatch_checked_changes(jvm, heap, handler);
-        dispatch_switch_checked_changes(jvm, heap, handler);
-        dispatch_seek_bar_changes(jvm, heap, handler);
-        dispatch_checkbox_changes(jvm, heap, handler);
-        dispatch_spinner_changes(jvm, heap, handler);
-        dispatch_key_events(jvm, heap, handler);
+        // Post one LvglTick at each frame boundary. Coalescing inside
+        // main_queue ensures slow Runnables cannot cause ticks to pile up.
+        main_queue::enqueue_tick();
 
-        crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
+        // Drain FIFO items until the queue is empty or we've used up the
+        // 16 ms frame budget — whichever comes first. Remaining items spill
+        // to the next frame. pacer.pace() below re-aligns the frame clock.
+        let budget_end = now_ms_any() + 16;
+        while now_ms_any() < budget_end {
+            match main_queue::try_recv() {
+                Some(MainTask::LvglTick) => {
+                    engine::tick(16);
+                    crate::system::picodroid::graphics::fps_overlay::update();
+                    dispatch_clicks(jvm, heap, handler);
+                    dispatch_checked_changes(jvm, heap, handler);
+                    dispatch_switch_checked_changes(jvm, heap, handler);
+                    dispatch_seek_bar_changes(jvm, heap, handler);
+                    dispatch_checkbox_changes(jvm, heap, handler);
+                    dispatch_spinner_changes(jvm, heap, handler);
+                    dispatch_key_events(jvm, heap, handler);
+                    crate::system::picodroid::hardware::sensors::drain_sensor_events(
+                        jvm, heap, handler,
+                    );
+                }
+                Some(MainTask::Runnable(r)) => {
+                    // Route through the `Executors.dispatchRunnable` bytecode
+                    // bridge so the interpreter's invokeinterface path
+                    // resolves lambda-proxy targets stored in Rust-side
+                    // LambdaProxy metadata. Calling Runnable.run directly
+                    // from Rust finds the abstract interface method with no
+                    // bytecode and silently no-ops.
+                    let _ = jvm.invoke_static_with_args(
+                        dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
+                        dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
+                        &[pico_jvm::types::Value::ObjectRef(r)],
+                        heap,
+                        handler,
+                    );
+                }
+                None => break,
+            }
+        }
 
         crate::hal::display::update_window();
         if !crate::hal::display::is_window_open() {

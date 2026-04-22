@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="executordemo" version="1.0">
+    <application application="executordemo/ExecutorDemoApp" />
+</manifest>

@@ -83,6 +83,12 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // this task processes its request.
     crate::fs::worker::spawn();
 
+    // Background thread pool: pre-spawns the workers that back
+    // `Executors.backgroundExecutor()`. Each worker parks on the shared
+    // work queue and lazily constructs its own Jvm on first submit so it
+    // picks up the registered class loader from `run_jvm_with`.
+    crate::system::executors::background_pool::spawn();
+
     // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 0: on RP2350, cross-core SRAM visibility between
     // core 0 and core 1 is unreliable for flow-control counters shared

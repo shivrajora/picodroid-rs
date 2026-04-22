@@ -27,6 +27,7 @@ pub const CHECKBOX: usize = 3;
 pub const SEEK_BAR: usize = 4;
 pub const SPINNER: usize = 5;
 pub const VIEW_KEY: usize = 6;
+pub const EXECUTORS_DISPATCH: usize = 7;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -38,6 +39,10 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/SeekBar", "fireProgressChanged"),
     ("picodroid/widget/Spinner", "fireItemSelected"),
     ("picodroid/view/View", "fireKey"),
+    // Main-executor + background-pool drain invoke this static bridge,
+    // which then calls `r.run()` via bytecode so lambda proxies resolve
+    // through the interpreter's invokeinterface path.
+    ("picodroid/concurrent/Executors", "dispatchRunnable"),
 ];
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use pico_jvm::{
     NativeContext, NativeMethodHandler,
 };
 
+mod concurrent;
 mod graphics;
 mod io;
 #[cfg(has_network)]
@@ -86,6 +87,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         if let result @ Some(_) = os::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        if let result @ Some(_) = concurrent::dispatch(class_name, method_name, ctx) {
             return result;
         }
         if let result @ Some(_) = graphics::dispatch(class_name, method_name, ctx) {

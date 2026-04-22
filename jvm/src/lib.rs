@@ -227,6 +227,41 @@ impl Jvm {
         Ok(())
     }
 
+    /// Invokes a static method with explicit arguments.
+    ///
+    /// Like [`invoke_static`] but accepts a `Value` slice for the method
+    /// parameters — e.g. used by the Executor drain path to pass a queued
+    /// `Runnable` reference into a one-line static bridge that then invokes
+    /// `run()` via bytecode (so lambda proxies are resolved by the
+    /// interpreter's invokeinterface path).
+    ///
+    /// # Errors
+    /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
+    /// found, or any execution error propagated from the bytecode.
+    pub fn invoke_static_with_args(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        args: &[Value],
+        heap: &mut SharedJvmHeap,
+        handler: &mut impl NativeMethodHandler,
+    ) -> Result<(), JvmError> {
+        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
+        interpreter::execute(
+            &self.classes,
+            &mut heap.strings,
+            &mut heap.objects,
+            &mut heap.arrays,
+            &mut heap.statics,
+            &mut heap.gc_state,
+            handler,
+            ci,
+            mi,
+            args,
+        )?;
+        Ok(())
+    }
+
     /// Invokes an instance method on an object already in the heap.
     ///
     /// `obj_ref` is the [`ObjectHeap`] index of the receiver (`this`).  The
