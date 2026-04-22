@@ -197,6 +197,7 @@ up the new map automatically.
 ## What's generated at build time (OUT_DIR)
 
 Always emitted:
+
 - `framework_mapping_version.rs` — `pub const FRAMEWORK_MAP_VERSION: &str = "…";`
   (`"0.0.0"` when shrinking is off).
 - `framework_unshrink.rs` — `unshrink_class(name) -> &str`. Identity
@@ -205,6 +206,7 @@ Always emitted:
   pointing at (shrunk or raw) class files.
 
 Emitted only when shrinking is on and a map is active:
+
 - `framework_classes_shrunk/…` — shrunk class files.
 
 ## CI coverage

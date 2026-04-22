@@ -8,7 +8,7 @@ add support for a new MCU family.
 All chip-specific code lives in `src/hal/`. A single `#[cfg]` dispatch in
 `src/hal/mod.rs` selects the active chip family at compile time:
 
-```
+```text
 src/hal/
   mod.rs            # feature-gated dispatch
   rp/               # RP2040 + RP2350 (Raspberry Pi Pico family)

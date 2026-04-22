@@ -50,6 +50,7 @@ int    h       = "abc".hashCode();             // standard Java String hash
 ```
 
 > **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
+>
 > ```java
 > String result = sb.toString();   // snapshot the buffer
 > Log.i(TAG, "prefix=" + result);  // safe to concatenate now

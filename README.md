@@ -104,7 +104,7 @@ Start at [docs/README.md](docs/README.md) for the full index. Highlights:
 
 ## Project Structure
 
-```
+```text
 picodroid-rs/
 ├── jvm/                # JVM interpreter — reusable library crate (pico-jvm)
 │   └── src/            # no_std + alloc only; no hardware dependencies

@@ -74,7 +74,7 @@ To verify it is installed: `ls -la .git/hooks/pre-commit` should show it pointin
 
 The firmware panics at PAPK load with something like:
 
-```
+```text
 PAPK framework-map-version incompatible with firmware (firmware = 0.0.0):
     FrameworkVersionMismatch
 ```

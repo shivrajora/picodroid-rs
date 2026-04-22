@@ -1,0 +1,22 @@
+{
+  "globs": [
+    "README.md",
+    "CLAUDE.md",
+    "docs/**/*.md"
+  ],
+  "ignores": [
+    "vendor/**",
+    "node_modules/**",
+    "build/**",
+    "target/**"
+  ],
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD029": false,
+    "MD033": false,
+    "MD041": false,
+    "MD046": { "style": "fenced" }
+  }
+}

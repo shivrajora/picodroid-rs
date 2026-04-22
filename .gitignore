@@ -18,6 +18,9 @@ build/
 # Gradle wrapper cache, daemon state, config-cache entries
 .gradle/
 
+# Node/npm (markdownlint-cli2 dev dependency)
+node_modules/
+
 # Claude Code local settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

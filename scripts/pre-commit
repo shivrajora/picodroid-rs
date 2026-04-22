@@ -12,6 +12,15 @@ if ! bash "$REPO_ROOT/scripts/format_java.sh" check; then
   exit 1
 fi
 
+echo "==> Linting markdown (markdownlint-cli2)..."
+if ! bash "$REPO_ROOT/scripts/lint-md.sh"; then
+  echo ""
+  echo "ERROR: Markdown lint failed. Run './scripts/lint-md.sh --fix' to"
+  echo "       auto-fix, or './scripts/lint-md.sh' to see issues."
+  echo "       If deps aren't installed yet: run 'npm install' in the repo root."
+  exit 1
+fi
+
 echo "==> Type-checking all Java apps (gradle compileJava)..."
 if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
   echo ""

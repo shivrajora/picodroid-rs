@@ -178,7 +178,7 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 | Static initializers | `static { ... }` blocks, `static` field initializers, cross-class `<clinit>` chaining; each class initializer runs exactly once on first use |
 | Synchronized blocks | `synchronized (lock) { ... }` — `monitorenter`/`monitorexit` bytecodes, reentrant locking on the same object |
 | Arithmetic ops | subtraction, division, remainder, negation for `int`, `long`, `double` |
-| Bitwise / shifts | `<<`, `>>`, `>>>`, `|`, `^` for `int` and `long` |
+| Bitwise / shifts | `<<`, `>>`, `>>>`, `\|`, `^` for `int` and `long` |
 | Cross-type casts | `i2f`, `i2c`, `i2s`, `l2f`, `l2d`, `f2l`, `f2d`, `d2l`, `d2f` |
 | Dense switch | consecutive-case `switch` compiled to `tableswitch` |
 | Type checking | `instanceof`, `checkcast` |
