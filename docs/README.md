@@ -8,14 +8,15 @@ If you're new, read in this order:
 
 1. **[Getting Started](getting-started.md)** — install the toolchain, build, flash, pick a board, run the simulator, hot-swap apps with pdb.
 2. **[Writing Apps](writing-apps.md)** — create a new Java app, the `Application` / `Activity` lifecycle, and the supported language features.
-3. **[Examples](examples.md)** — 32 example apps grouped by category. Pick one close to what you want to build and copy it.
+3. **[Examples](examples.md)** — 38 example apps grouped by category. Pick one close to what you want to build and copy it.
 4. **API Reference** — split by area; jump straight to the area you need:
    - [Core language](api/core.md) — `String`, `StringBuilder`, `Math`, `ArrayList`, `HashMap`, `HashSet`, `Iterator`, enums
-   - [System services](api/system.md) — `Log`, `SystemClock`, `Runtime` (GC), `Thread`
+   - [System services](api/system.md) — `Log`, `SystemClock`, `Runtime` (GC), `Thread`, `Executors`
    - [Peripherals](api/peripherals.md) — GPIO, UART, I2C, SPI, PWM, ADC
    - [Storage](api/storage.md) — files (`picodroid.io`) and preferences (`picodroid.content`)
-   - [Networking](api/networking.md) — TCP / UDP sockets (Pico 2 W on hardware; sim always works)
-   - [Graphics & UI](api/ui.md) — `Application` / `Activity` lifecycle, `Display`, all 14 widgets
+   - [Networking](api/networking.md) — TCP / UDP sockets and an HTTP/1.1 client (Pico 2 W on hardware; sim always works)
+   - [Sensors](api/sensors.md) — `SensorManager` + BME688 (temperature / humidity / pressure / gas)
+   - [Graphics & UI](api/ui.md) — `Application` / `Activity` lifecycle, `Display`, all 14 widgets, hardware key events
 
 ## I want to…
 
@@ -26,7 +27,11 @@ If you're new, read in this order:
 | Persist settings across reboots | [api/storage.md](api/storage.md) (`Preferences`) |
 | Read or write files | [api/storage.md](api/storage.md) (`File`, `FileInputStream`, `FileOutputStream`) |
 | Open a TCP/UDP socket over WiFi | [api/networking.md](api/networking.md) — needs `--board testbench_rp2350w` on hardware |
+| Make an HTTP GET / POST | [api/networking.md → HTTP client](api/networking.md#http-client) (`Url`, `HttpUrlConnection`) |
+| Read a temperature / humidity / gas sensor | [api/sensors.md](api/sensors.md) (`SensorManager`, BME688) |
+| Handle hardware button presses | [api/ui.md → Key events](api/ui.md#key-events) (`View.setOnKeyListener`, `KeyEvent`) |
 | Build a touchscreen UI | [api/ui.md](api/ui.md) (`Activity`, widgets) — also try [examples → displaydemo](examples.md#graphics-and-display) |
+| Post work to the main thread or a worker pool | [api/system.md → Executors](api/system.md#picodroidconcurrentexecutors) (`Executors.mainExecutor()`, `backgroundExecutor()`) |
 | Spawn a background thread | [api/system.md](api/system.md#picodroidconcurrentthread) (`picodroid.concurrent.Thread`) |
 | Push a new app without reflashing | [Getting Started → Hot-Swap with pdb](getting-started.md#hot-swap-with-pdb) |
 | Run an app without hardware | [Getting Started → Host Simulator](getting-started.md#host-simulator) |

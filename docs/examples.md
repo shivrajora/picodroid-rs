@@ -1,6 +1,6 @@
 # Examples
 
-Thirty-two examples are included under `examples/`, organized by category.
+Thirty-eight examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -39,6 +39,23 @@ TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--bo
 | Example | Class | Description |
 |---------|-------|-------------|
 | `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response |
+| `http_get` | `http_get.HttpGet` | Android-style `HttpUrlConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream` |
+
+## Sensors
+
+Environmental / hardware sensors exposed through the Android-compatible `SensorManager`. Reference: [api/sensors.md](api/sensors.md).
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `sensordemo` | `sensordemo.SensorDemoActivity` | Registers a `SensorEventListener` on the default ambient-temperature sensor (BME688) and logs each reading; requires a `[[sensor]]` entry in `board.toml` |
+
+## Concurrency
+
+Executors and cross-thread dispatch. Reference: [api/system.md → Executors](api/system.md#picodroidconcurrentexecutors).
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `executordemo` | `executordemo.ExecutorDemoActivity` | Posts Runnables via both `Executors.mainExecutor()` and `Executors.backgroundExecutor()`; verifies main-thread FIFO ordering and cross-pool dispatch |
 
 ## Language Features
 
@@ -55,6 +72,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
 | `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms, `String.valueOf`, and StringBuilder building |
 | `stringtest` | `stringtest.StringTest` | Exercises the newer `String` methods: `split`, `replace`, `concat`, `toCharArray`, `hashCode` |
+| `strformat` | `strformat.StrFormat` | Exhaustive `String.format` coverage across every supported conversion, flag, width, and precision |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
 | `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
 | `hashmaptest` | `hashmaptest.HashMapTest` | Demonstrates `java.util.HashMap` and `HashSet` — put/get/remove, key iteration, autoboxed keys |
@@ -72,6 +90,8 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | Example | Class | Description |
 |---------|-------|-------------|
 | `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, and a moving-average FPS overlay (`Display.showFps()`) |
+| `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: installs an `OnKeyListener` on a focusable `Button` and displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
+| `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
 
 ## Performance and Testing
 

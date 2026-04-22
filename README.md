@@ -23,7 +23,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 | Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz) |
 | RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
-| Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI), `picodroid.io` (LittleFS files), `picodroid.content.Preferences`, `picodroid.net` (TCP/UDP over WiFi on Pico 2 W), `picodroid.concurrent.Thread`, etc. |
+| Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI), `picodroid.view.KeyEvent`, `picodroid.io` (LittleFS files), `picodroid.content.Preferences`, `picodroid.net` (TCP/UDP + `HttpUrlConnection` over WiFi on Pico 2 W), `picodroid.hardware.SensorManager` (BME688), `picodroid.concurrent.Thread` / `Executors`, etc. |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
 ### Architecture
@@ -98,7 +98,7 @@ Start at [docs/README.md](docs/README.md) for the full index. Highlights:
 
 - [Getting Started](docs/getting-started.md) — prerequisites, build, flash, board/app selection, simulator, hot-swap
 - [Writing Apps](docs/writing-apps.md) — create a new Java app + supported language features
-- [Java API](docs/java-api.md) — split by area: [core](docs/api/core.md), [system](docs/api/system.md), [peripherals](docs/api/peripherals.md), [storage](docs/api/storage.md), [networking](docs/api/networking.md), [UI](docs/api/ui.md)
+- [Java API](docs/java-api.md) — split by area: [core](docs/api/core.md), [system](docs/api/system.md), [peripherals](docs/api/peripherals.md), [storage](docs/api/storage.md), [networking](docs/api/networking.md), [sensors](docs/api/sensors.md), [UI](docs/api/ui.md)
 - [Class-name Shrinker](docs/shrinker.md) — opt-in (`--shrink`) release-tied, append-only shrink maps applied to framework `.class` files and PAPK cross-references
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 

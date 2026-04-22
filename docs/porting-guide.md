@@ -307,6 +307,116 @@ On single-core MCUs:
 - **No `configUSE_CORE_AFFINITY`**: omit `.core_affinity()` calls in
   `start_tasks()`.
 
+## board.toml reference
+
+Every physical board ships a `board.toml` under `boards/<name>/`. The build script parses it and emits Rust `cfg`s and `const`s — do not edit `boards/*/mod.rs` to configure a display or sensor, configure it here. All coordinates are RP2040/RP2350 GPIO numbers.
+
+### Top-level properties
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `mcu` | string | yes | `"rp2040"` or `"rp2350"` |
+| `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + driver). |
+| `network_type` | string | no | Required if `has_network = true`. Only `"cyw43"` is supported today. |
+| `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
+| `lv_mem_kb` | int | no | LVGL heap size in KiB. |
+
+### `[display]` — display controller (ST7789 over SPI)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `driver` | string | Currently only `"st7789"`. |
+| `spi_id` | int | SPI peripheral ID (0 or 1). |
+| `spi_freq` | int | SPI clock in Hz (e.g. `62500000`). |
+| `pin_dc`, `pin_cs`, `pin_bl` | int | Data/command, chip-select, backlight GPIOs. |
+| `pin_rst` | int | Reset pin (optional; some displays don't expose one). |
+| `width`, `height` | int | Panel dimensions in pixels. |
+| `madctl` | int (hex) | ST7789 memory-access-control register (controls rotation / mirroring). |
+| `band_height` | int | LVGL partial-render band in pixels. |
+| `scroll_limit` | int | LVGL scroll hysteresis threshold. |
+
+### `[touch]` — touch controller (XPT2046 over SPI)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `driver` | string | Currently only `"xpt2046"`. |
+| `spi_freq` | int | SPI clock in Hz. |
+| `pin_cs`, `pin_irq`, `pin_miso` | int | Chip-select, pen-down IRQ, MISO GPIOs. |
+| `cal_x_min`, `cal_x_max`, `cal_y_min`, `cal_y_max` | int | Raw ADC bounds from touch calibration. |
+| `swap_xy` | bool | Transpose X/Y axes (for rotated panels). |
+
+### `[[sensor]]` — array of environmental sensors
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `kind` | string | Driver selector. Currently only `"bme688"`. |
+| `bus` | string | `"I2C0"` or `"I2C1"`. |
+| `addr` | int | 7-bit I2C address (decimal or hex). |
+
+Each entry here becomes a `Sensor` visible to [`SensorManager`](api/sensors.md).
+
+### `[[button]]` — array of hardware buttons
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `pin` | int | GPIO number. |
+| `lv_key` | string | One of `"PREV"`, `"NEXT"`, `"ENTER"`, `"ESC"` — drives LVGL focus navigation. |
+| `keycode` | int | Android `KeyEvent.KEYCODE_*` value delivered to Java listeners. |
+
+Declaring at least one `[[button]]` enables the 60-second idle display sleep + wake-on-button feature. See [api/ui.md → Key events](api/ui.md#key-events).
+
+### `[background_pool]` — optional thread-pool tuning
+
+All keys optional; defaults in parentheses.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `threads` | int | Worker count (4), range 1..=32. |
+| `priority` | int | FreeRTOS BG-tier priority (5), range 1..=10. |
+| `stack_bytes` | int | Per-worker stack in bytes (4096). |
+| `queue_depth` | int | Shared job queue depth (32). |
+
+Surfaced via [`Executors.backgroundExecutor()`](api/system.md#picodroidconcurrentexecutors).
+
+## HAL additions (v0.2.0)
+
+The HAL has grown a few modules beyond the original 10-module surface. New boards do not *have* to implement these to boot, but skipping them disables features (button input, sensors, display sleep).
+
+### `gpio.rs` — edge-triggered IRQ + event queue
+
+```rust
+pub enum EdgeTrigger { Rising, Falling, Both }
+pub struct GpioEvent { pub pin: u8, pub rising: bool }
+
+pub fn init_gpio_irq();                                // idempotent
+pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger);
+pub fn disable_edge_irq(pin: u8);
+pub fn drain_gpio_event() -> Option<GpioEvent>;        // non-blocking
+pub fn has_pending_event() -> bool;
+pub fn wait_for_button_event();                        // blocks on semaphore
+pub fn read(pin: u8) -> bool;                          // synchronous read
+```
+
+The ISR enqueues events into a lock-free ring and signals a binary semaphore. `wait_for_button_event` is what the idle-sleep path blocks on.
+
+### `i2c` — slice-based I/O
+
+```rust
+pub fn write_slice(i2c_id: u8, addr: u8, data: &[u8])     -> i32;
+pub fn read_slice (i2c_id: u8, addr: u8, buf: &mut [u8]) -> i32;
+```
+
+Interrupt-driven, 1 s timeout. Returns byte count on success or `-1` on NACK/abort. Complement the existing `ArrayHeap`-based `write` / `read` used by the Java I2C API; native drivers (e.g. the BME688 driver) use the slice form.
+
+### `display.rs` — composite sleep / wake
+
+```rust
+pub fn display_sleep();  // backlight off → DISPOFF → SLPIN
+pub fn display_wake();   // SLPOUT (120 ms delay) → DISPON → backlight on
+```
+
+Called from the lifecycle event loop after `IDLE_TIMEOUT_MS` (60 s) with no input, and again on the next GPIO edge. The wake-triggering edges are consumed before they reach LVGL / Java listeners.
+
 ## Verification
 
 After implementing your port, run the full pre-commit suite:

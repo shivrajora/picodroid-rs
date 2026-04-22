@@ -134,6 +134,25 @@ public class MyActivity extends Activity {
 
 The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [api/ui.md](api/ui.md) for the full graphics and widget API.
 
+### Input and idle power
+
+On boards with hardware buttons, install `OnKeyListener`s to receive `KeyEvent`s — see [api/ui.md → Key events](api/ui.md#key-events). After **60 seconds** with no button or touch input, the runtime puts the display panel to sleep (backlight off, `DISPOFF`, `SLPIN`) and blocks on a GPIO semaphore. The next button edge wakes the panel and is swallowed by the framework — it is not delivered to your listener.
+
+### Posting work between threads
+
+To run short-lived async work without spawning a dedicated `Thread`, use the executors in [api/system.md → Executors](api/system.md#picodroidconcurrentexecutors):
+
+```java
+import picodroid.concurrent.Executors;
+
+Executors.backgroundExecutor().execute(() -> {
+    int value = readSensorBlocking();
+    Executors.mainExecutor().execute(() -> label.setText("value=" + value));
+});
+```
+
+`backgroundExecutor()` runs on a shared worker pool (configurable in [`board.toml`](porting-guide.md#boardtoml-reference)); `mainExecutor()` hops back to the UI thread. Both are non-blocking and drop on queue saturation.
+
 ## Porting to a New Platform
 
 The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it on a different platform, implement the HAL modules and `NativeMethodHandler` trait. See [porting-guide.md](porting-guide.md) for the full guide, including HAL function signatures, FreeRTOS configuration, and build system setup.

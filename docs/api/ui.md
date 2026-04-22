@@ -138,6 +138,50 @@ if (event != null) {
 | `MotionEvent.ACTION_UP` | 1 |
 | `MotionEvent.ACTION_MOVE` | 2 |
 
+## Key events
+
+Hardware buttons declared in [`board.toml`](../porting-guide.md#boardtoml-reference) are surfaced through Android-style `KeyEvent`s. Events route to the currently **LVGL-focused** widget — whichever widget holds the focus at the moment of the press. If no widget has focus, the event is dropped.
+
+To receive keys, install an `OnKeyListener` on a focusable widget (a `Button` is the easiest):
+
+```java
+import picodroid.view.KeyEvent;
+import picodroid.view.OnKeyListener;
+import picodroid.view.View;
+import picodroid.widget.Button;
+
+Button focus = new Button("Focus me");
+focus.setOnKeyListener(new OnKeyListener() {
+    public boolean onKey(View v, KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER) {
+            // handled
+            return true;
+        }
+        return false;  // let LVGL default nav run
+    }
+});
+```
+
+Return `true` from `onKey` to consume the event; `false` lets LVGL keep processing it (e.g. for default focus navigation).
+
+| Constant | Value |
+|----------|-------|
+| `KeyEvent.ACTION_DOWN` | 0 |
+| `KeyEvent.ACTION_UP` | 1 |
+| `KeyEvent.KEYCODE_BACK` | 4 |
+| `KeyEvent.KEYCODE_DPAD_UP` | 19 |
+| `KeyEvent.KEYCODE_DPAD_DOWN` | 20 |
+| `KeyEvent.KEYCODE_DPAD_LEFT` | 21 |
+| `KeyEvent.KEYCODE_DPAD_RIGHT` | 22 |
+| `KeyEvent.KEYCODE_DPAD_CENTER` | 23 |
+
+The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide → board.toml reference](../porting-guide.md#boardtoml-reference) for the full schema. On boards with no buttons (touch-only), `setOnKeyListener` is a no-op.
+
+> **Idle wake:** if the display has gone to sleep (60 s with no input), the first button press wakes the display and is **not** delivered to listeners. Subsequent presses route normally.
+
+See [`examples/keydemo/`](../../examples/keydemo/) for a complete example.
+
 ## Widgets
 
 All widget classes live in `picodroid.widget.*` and extend `View`. They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`.

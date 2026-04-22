@@ -7,11 +7,12 @@ The reference is split by package family. Pick the area you need, or browse [doc
 | Area | Packages | Covers |
 |------|----------|--------|
 | [Core language](api/core.md) | `java.lang`, `java.util` | `String`, `StringBuilder`, `Math`, `ArrayList`, `HashMap` / `HashSet`, `Iterator` / for-each, enums |
-| [System services](api/system.md) | `picodroid.util`, `picodroid.os`, `picodroid.concurrent` | `Log`, `SystemClock`, `Runtime` (GC stats), `Thread` |
+| [System services](api/system.md) | `picodroid.util`, `picodroid.os`, `picodroid.concurrent` | `Log`, `SystemClock`, `Runtime` (GC stats), `Thread`, `Executors` (main-thread FIFO + background pool) |
 | [Peripherals](api/peripherals.md) | `picodroid.pio` | `PeripheralManager`, `Gpio`, `UartDevice`, `I2cDevice`, `SpiDevice`, `Pwm`, `Adc`, `AutoCloseable` idiom |
 | [Storage](api/storage.md) | `picodroid.io`, `picodroid.content` | `File` / `FileInputStream` / `FileOutputStream` (LittleFS), `Preferences` / `Editor` |
-| [Networking](api/networking.md) | `picodroid.net` | `Socket`, `ServerSocket`, `DatagramSocket`, `DatagramPacket`, `InetAddress`, `NetworkInfo` (Pico 2 W on hardware; sim always works) |
-| [Graphics & UI](api/ui.md) | `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget` | `Application` / `Activity` lifecycle, `Display`, `Color`, `View`, `MotionEvent`, all 14 widgets |
+| [Networking](api/networking.md) | `picodroid.net` | `Socket`, `ServerSocket`, `DatagramSocket`, `DatagramPacket`, `InetAddress`, `NetworkInfo`, `HttpUrlConnection` + `Url` (Pico 2 W on hardware; sim always works) |
+| [Sensors](api/sensors.md) | `picodroid.hardware` | `SensorManager`, `Sensor`, `SensorEvent`, `SensorEventListener` — BME688 (temperature / humidity / pressure / gas) |
+| [Graphics & UI](api/ui.md) | `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget` | `Application` / `Activity` lifecycle, `Display`, `Color`, `View`, `MotionEvent`, `KeyEvent` / `OnKeyListener`, all 14 widgets |
 
 ## Quick example
 

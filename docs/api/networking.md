@@ -1,6 +1,8 @@
-# Networking: TCP and UDP
+# Networking: TCP, UDP, and HTTP
 
-`picodroid.net.*` — TCP (`Socket`, `ServerSocket`) and UDP (`DatagramSocket`, `DatagramPacket`) sockets backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [docs/README.md](../README.md) for the full API index.
+`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`Url`, `HttpUrlConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [docs/README.md](../README.md) for the full API index.
+
+Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and `network_type = "cyw43"` in its [`board.toml`](../porting-guide.md#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs (`NetworkInfo.isConnected()` returns `false`) and attempting to open a socket throws.
 
 `InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free.
 
@@ -67,8 +69,88 @@ Log.i("Net", "got " + in.getLength() + " bytes");
 s.close();
 ```
 
-> **Hardware availability:** the networking stack is only built in for boards with WiFi. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are not registered and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
+## HTTP client
+
+`Url` + `HttpUrlConnection` — a small Android-style HTTP/1.1 client layered on the TCP socket API. DNS resolution happens at `connect()` time.
+
+Constraints:
+
+- HTTP/1.1 only. HTTPS URLs throw `UnsupportedOperationException` at `connect()` — TLS is not bundled.
+- Methods: `GET`, `POST`, `PUT`.
+- `Connection: close` is always sent — no keep-alive / connection pooling.
+- Request bodies need a known length: call `setFixedLengthStreamingMode(n)` before `connect()` on any request that writes a body.
+
+### GET
+
+```java
+import picodroid.net.HttpInputStream;
+import picodroid.net.HttpUrlConnection;
+import picodroid.net.Url;
+
+HttpUrlConnection c = new Url("http://example.com/api/time").openConnection();
+try {
+    c.connect();
+    if (c.getResponseCode() == 200) {
+        HttpInputStream in = c.getInputStream();
+        byte[] buf = new byte[256];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            // ... consume buf[0..n] ...
+        }
+    }
+} finally {
+    c.disconnect();
+}
+```
+
+`HttpUrlConnection` implements `AutoCloseable`, so a `try`-with-resources block is equivalent:
+
+```java
+try (HttpUrlConnection c = new Url("http://example.com/").openConnection()) {
+    c.connect();
+    // ...
+}
+```
+
+### POST
+
+```java
+import picodroid.net.HttpOutputStream;
+import picodroid.net.HttpUrlConnection;
+import picodroid.net.Url;
+
+byte[] body = "hello".getBytes();
+HttpUrlConnection c = new Url("http://example.com/ingest").openConnection();
+try {
+    c.setRequestMethod("POST");
+    c.setDoOutput(true);
+    c.setFixedLengthStreamingMode(body.length);   // required
+    c.connect();
+    c.getOutputStream().write(body);
+
+    int status = c.getResponseCode();
+    // ...
+} finally {
+    c.disconnect();
+}
+```
+
+`Host:` is set automatically from the URL (including port if non-standard). To add your own headers, the current API only accepts the method, path, and content-length — no per-request header map yet.
+
+### `Url`
+
+```java
+Url u = new Url("http://192.168.1.10:8080/status?id=42");
+u.getProtocol();   // "http"
+u.getHost();       // "192.168.1.10"
+u.getPort();       // 8080 (80 if omitted, 443 for https)
+u.getPath();       // "/status?id=42"  — query string is part of the path
+```
+
+See [`examples/http_get/`](../../examples/http_get/) for a full GET + POST worked example.
+
+> **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
 
 ---
 
-**See also:** [core.md](core.md) (Java language) · [system.md](system.md) (logging, clock, threads) · [peripherals.md](peripherals.md) (GPIO, UART, I2C, SPI, PWM, ADC) · [storage.md](storage.md) (files, preferences) · [ui.md](ui.md) (display, widgets)
+**See also:** [core.md](core.md) (Java language) · [system.md](system.md) (logging, clock, threads) · [peripherals.md](peripherals.md) (GPIO, UART, I2C, SPI, PWM, ADC) · [storage.md](storage.md) (files, preferences) · [sensors.md](sensors.md) (SensorManager) · [ui.md](ui.md) (display, widgets)

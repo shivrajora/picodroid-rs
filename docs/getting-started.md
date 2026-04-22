@@ -44,7 +44,7 @@ To skip the hook in exceptional cases: `git commit --no-verify`.
 
 ### Java Development Kit (JDK 11+)
 
-The `build-apk.sh` script compiles Java sources using `javac`. JDK 11 or later is required to run the Java formatter (the formatter tool itself needs JDK 11+, even though app code targets Java 8).
+App sources are compiled by the Gradle multi-project under the repo root. The `./gradlew` wrapper ships in-tree, so no separate Gradle install is required — only a JDK. App code targets Java 1.8 (configured in [`build.gradle.kts`](../build.gradle.kts)), but JDK 11 or later is required because the Java formatter tool needs it.
 
 ```bash
 # macOS

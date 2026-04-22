@@ -40,12 +40,21 @@ PAPK compatibility is enforced at load time
 version greater than the firmware's is rejected with
 `PapkError::FrameworkVersionMismatch`.
 
+## Active maps
+
+Two release maps are committed today:
+
+| Map | Covers |
+|-----|--------|
+| `sdk/shrink-maps/v0.1.0.toml` | Original 42 framework classes from the first release cut. |
+| `sdk/shrink-maps/v0.2.0.toml` | Adds the classes introduced after v0.1.0 — `Executors` / `Executor` / `MainExecutor` / `BackgroundExecutor`, the `SensorManager` family (`Sensor`, `SensorEvent`, `SensorEventListener`, `SensorManager`), the HTTP client (`Url`, `HttpUrlConnection`, `HttpInputStream`, `HttpOutputStream`), and `KeyEvent` / `OnKeyListener`. Every v0.1.0 mapping is copied verbatim so PAPKs built against v0.1.0 firmware continue to run on v0.2.0 firmware. |
+
 ## v1 scope
 
 v1 shrinks **class names only**. Method and field names stay untouched
-for now — a later release map can add them (still append-only). All 42
-non-`java/**` framework classes collapse into a single synthetic
-package `a/`:
+for now — a later release map can add them (still append-only). The
+original 42 non-`java/**` framework classes collapse into a single
+synthetic package `a/`:
 
 - Order: sort original internal names lexicographically.
 - Suffix: bijective base-26 (`A`, `B`, …, `Z`, `AA`, `AB`, …), skipping

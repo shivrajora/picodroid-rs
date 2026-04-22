@@ -135,3 +135,22 @@ Java sources must follow Google Java Style. Reformat before committing:
 ```
 
 The formatter JAR is downloaded automatically on first use. JDK 11+ is required.
+
+## Gradle build fails with "JAVA_HOME is not set" or "no Java runtime"
+
+Java compilation runs through the Gradle wrapper (`./gradlew`) in-tree — no separate Gradle install is needed, but a **JDK 11+** must be on `PATH`. Install one (see [getting-started.md → JDK](getting-started.md)) and verify with `javac --version`. If `JAVA_HOME` isn't set, point it at your JDK install root before rebuilding.
+
+## `registerListener` returns `false` / sensor event never fires
+
+Three common causes:
+
+1. **No `[[sensor]]` entry in `board.toml`.** `SensorManager.getDefaultSensor(type)` returns `null` if the board doesn't declare a matching sensor. Add an entry — see [porting-guide.md → board.toml reference](porting-guide.md#boardtoml-reference).
+2. **I2C wiring mismatch.** The BME688 driver uses the `bus` + `addr` from `board.toml`. Verify the sensor ACKs on that bus with [`examples/i2cdemo`](../examples/i2cdemo/).
+3. **Registration cap.** `SensorManager` allows up to 8 concurrent registrations. Call `unregisterListener()` from `onPause()` / `onDestroy()`-equivalent paths to avoid leaking slots across app swaps.
+
+## `HttpUrlConnection` hangs or throws at `connect()`
+
+- `HTTPS URLs are rejected` — `HttpUrlConnection` is HTTP/1.1 only; no TLS. Use the raw socket API if you need TLS and are willing to bundle it.
+- `setFixedLengthStreamingMode() required for output` — for POST/PUT, call `setDoOutput(true)` **and** `setFixedLengthStreamingMode(n)` with the exact body byte count before `connect()`.
+- Hangs are usually DNS-resolution failures against an unreachable host. There is no per-operation timeout parameter yet; check that the `Host` header resolves from the device's network.
+- `Connection: close` is always sent — keep-alive / pipelining is not supported, so one `HttpUrlConnection` = one request.
