@@ -167,6 +167,19 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         process::exit(1);
     }
 
+    // ── Structural validation ────────────────────────────────────────────────
+    // Unconditional: reject a garbled / truncated PAPK before touching flash.
+    // Must run independently of --skip-host-check because --skip-host-check is
+    // meant to bypass *compat* arithmetic (so the device-side reject path can
+    // be exercised); it is NOT licence to stream random bytes to the device.
+    // Without this, a stub file (e.g. 100 bytes) in no-shrink mode slipped
+    // through: read_framework_map_version returned None, compat::check saw
+    // None vs firmware 0.0.0 and accepted, and the stub got written to flash —
+    // bricking the device on next boot.
+    if let Err(e) = papk_meta::validate_structure(&papk) {
+        refuse(&format!("PAPK file is not a valid PAPK: {e}"), &opts);
+    }
+
     // ── Pre-flight compat check (host-side) ──────────────────────────────────
     let papk_fmv = papk_meta::read_framework_map_version(&papk);
     if !opts.skip_host_check {
