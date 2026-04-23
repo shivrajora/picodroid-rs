@@ -132,21 +132,26 @@ run_test() {
   # tests (callbacktest, displaydemo) run under CI without an X server.
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   sim_log "  Running (${timeout}s timeout)..."
-  if PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
-     timeout "$timeout" "$bin" > "$log_file" 2>&1; then
-    : # exited cleanly
-  else
-    local exit_code=$?
-    # 124 = timeout killed it, which is expected for "loop" category apps.
-    if [[ "$category" == "loop" && $exit_code -eq 124 ]]; then
-      : # expected
-    elif [[ $exit_code -eq 124 ]]; then
-      sim_log "  TIMED OUT"
-    fi
+  local exit_code=0
+  if ! PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+       timeout "$timeout" "$bin" > "$log_file" 2>&1; then
+    exit_code=$?
   fi
 
-  # Check patterns.
-  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+  # Non-loop tests must complete within their timeout; exit 124 there means
+  # the app hung or deadlocked rather than produced wrong output. Classify as
+  # ERROR so triage distinguishes "didn't finish" from "finished, wrong log".
+  if [[ $exit_code -eq 124 && "$category" != "loop" ]]; then
+    sim_log "  TIMED OUT (no completion within ${timeout}s)"
+    echo "ERROR $tag (timed out)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  # Check positive patterns AND absence of crash markers. Without the crash
+  # scan, an app that prints the expected token then panics would still PASS.
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
     sim_log "  PASS"
     echo "PASS $tag" >> "$RESULTS_FILE"
     PASS=$((PASS + 1))
@@ -155,6 +160,7 @@ run_test() {
     sim_log "  Log tail:"
     tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    check_no_crash "$log_file" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
     echo "FAIL $tag" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi

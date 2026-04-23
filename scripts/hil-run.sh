@@ -126,6 +126,29 @@ kill_process_group() {
   wait "$pid" 2>/dev/null || true
 }
 
+# Build + install a known-good helloworld PAPK via pdb. Called before each
+# install-reject-* test so a previously-flashed broken app can't brick the
+# bench and cascade-fail every downstream rejection test. Returns 0 on
+# success, 1 otherwise (build failure or device unreachable).
+#
+# Args: mode ("no-shrink"|"shrink"), log_prefix (used for build + install logs)
+pdb_install_known_good() {
+  local mode="$1" log_prefix="$2"
+  local apk_path="$REPO_ROOT/build/apks/helloworld.papk"
+  local -a apk_args=(--app helloworld)
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "${log_prefix}.known-good-build.log" 2>&1; then
+    hil_log "  Known-good helloworld PAPK build failed"
+    return 1
+  fi
+  if ! timeout 60 "$PDB_BIN" install "$apk_path" > "${log_prefix}.known-good-install.log" 2>&1; then
+    hil_log "  Known-good pdb install failed (see ${log_prefix}.known-good-install.log)"
+    return 1
+  fi
+  sleep 3  # let the device reboot into fresh helloworld and re-enumerate CDC
+  return 0
+}
+
 run_pdb_test() {
   local app="$1" timeout="$2" patterns="$3" pdb_cmd="$4" mode="$5"
   local test_name="$app:pdb-$pdb_cmd[$mode]"
@@ -139,6 +162,32 @@ run_pdb_test() {
   hil_log "  Resetting device..."
   probe-rs reset --chip RP235x --protocol swd 2>/dev/null || true
   sleep 3  # wait for USB CDC enumeration
+
+  # Early SKIP for install-reject-future when not in shrink mode — do this
+  # before the bench-reset pre-install so we don't waste a build cycle.
+  if [[ "$pdb_cmd" == "install-reject-future" && "$mode" != "shrink" ]]; then
+    hil_log "SKIP $test_name (only meaningful in shrink mode)"
+    echo "SKIP $test_name" >> "$RESULTS_FILE"
+    SKIP=$((SKIP + 1))
+    return
+  fi
+
+  # Cascade guard for install-reject-* tests: pre-install a known-good
+  # helloworld so a prior broken app can't brick the bench and make every
+  # downstream rejection test fail for bench-state reasons rather than the
+  # rejection behavior under test. Seen in the wild when gcstress's on-boot
+  # OOM left the CDC port dead for all subsequent pdb tests.
+  case "$pdb_cmd" in
+    install-reject-*)
+      hil_log "  Pre-installing known-good helloworld to restore bench state..."
+      if ! pdb_install_known_good "$mode" "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}"; then
+        hil_log "  SKIP ($test_name): bench unresponsive — cannot validate rejection"
+        echo "SKIP $test_name (bench unresponsive)" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        return
+      fi
+      ;;
+  esac
 
   local -a pdb_args=()
   case "$pdb_cmd" in
@@ -188,13 +237,8 @@ run_pdb_test() {
       # Synthesize a higher version map and build a PAPK against it so its
       # framework-map-version is "from the future" relative to firmware.
       # Only meaningful in shrink mode (no-shrink can't trigger it; both
-      # sides would be 0.0.0 which is the symmetric-accept case).
-      if [[ "$mode" != "shrink" ]]; then
-        hil_log "SKIP $test_name (only meaningful in shrink mode)"
-        echo "SKIP $test_name" >> "$RESULTS_FILE"
-        SKIP=$((SKIP + 1))
-        return
-      fi
+      # sides would be 0.0.0, the symmetric-accept case) — that early SKIP
+      # happens before the bench-reset pre-install above.
       local apk_path="$REPO_ROOT/build/apks/${app}.papk"
       hil_log "  Building future-version PAPK..."
       if ! bash "$SCRIPT_DIR/test-future-version-rejection.sh" "$app" "$apk_path" \
@@ -204,6 +248,25 @@ run_pdb_test() {
         ERROR=$((ERROR + 1))
         return
       fi
+      pdb_args=(install --expect-rejected "$apk_path")
+      ;;
+    install-reject-truncated)
+      # Build a valid PAPK, then truncate it to a stub so the manifest magic
+      # and framework-map-version are gone. Covers the realistic corruption
+      # case (partial download, damaged SD card, etc.) that install-reject-*
+      # version-mismatch rows don't exercise. Expect refusal + device alive.
+      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+      local -a apk_args=(--app "$app")
+      [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+      hil_log "  Building PAPK for $pdb_cmd ($mode)..."
+      if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
+        hil_log "  BUILD FAILED (PAPK for $pdb_cmd)"
+        echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
+      fi
+      hil_log "  Truncating PAPK to 100 bytes to corrupt manifest..."
+      truncate -s 100 "$apk_path"
       pdb_args=(install --expect-rejected "$apk_path")
       ;;
     install-stress)
@@ -467,6 +530,25 @@ run_test() {
     fi
   fi
 
+  # probe-rs prints "Error: ..." when the probe is lost, flash verify fails,
+  # or the MCU halts unexpectedly. If that marker is present the run result
+  # is not trustworthy — report ERROR so operators know to inspect the bench
+  # rather than chase a phantom content regression in the app.
+  if grep -qE "^Error: " "$log_file" 2>/dev/null; then
+    hil_log "  PROBE-RS ERROR (see log tail)"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
+    echo "ERROR $tag (probe-rs error)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    recover_probe
+    return
+  fi
+
+  # A passing pattern match is invalid if the log also contains a panic /
+  # HardFault / CRASH marker — the app emitted its success token then faulted.
+  if [[ $result -eq 0 ]] && ! check_no_crash "$log_file" > /dev/null 2>&1; then
+    result=1
+  fi
+
   # Evaluate result.
   if [[ $result -eq 0 ]]; then
     hil_log "  PASS"
@@ -477,6 +559,7 @@ run_test() {
     hil_log "  Log tail:"
     tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
+    check_no_crash "$log_file" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
     echo "FAIL $tag" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
 

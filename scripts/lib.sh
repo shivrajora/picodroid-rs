@@ -32,6 +32,26 @@ check_patterns() {
   return $missing
 }
 
+# Scan a log file for crash / panic markers. Positive-pattern matching alone
+# can pass a run that emitted the expected line *before* panicking; this
+# closes that hole. Prints any markers found; returns 1 if any found.
+#
+# Markers chosen to be specific enough to avoid false positives on regular log
+# output: `panicked` (Rust panic-probe + sim panic banner), `HardFault` (ARM
+# Cortex-M fault handler), `SIGSEGV` (sim segfault), `CRASH` uppercase
+# (intentional fatal banner).
+check_no_crash() {
+  local log_file="$1"
+  local marker found=0
+  for marker in 'panicked' 'HardFault' 'SIGSEGV' 'CRASH'; do
+    if grep -qE "$marker" "$log_file" 2>/dev/null; then
+      echo "  CRASH MARKER: $marker"
+      found=1
+    fi
+  done
+  return $found
+}
+
 # Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
 detect_usb_hub() {
   sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
