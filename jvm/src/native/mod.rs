@@ -5,6 +5,7 @@ use crate::{
     types::{JvmError, MonitorKey, Value},
 };
 
+mod arrays;
 mod boxed;
 mod collections;
 mod enumeration;
@@ -178,6 +179,7 @@ pub trait NativeMethodHandler {
 /// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
 /// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
+/// | `java/util/Arrays` | `sort`, `fill`, `copyOf`, `toString` (all numeric primitive overloads: int/long/double/float/short/byte/char) |
 /// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `compareTo` |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
@@ -231,6 +233,7 @@ impl NativeMethodHandler for BuiltinHandler {
             "java/util/HashSet" => hashset::dispatch(method_name, ctx),
             "java/util/Iterator" => iterator::dispatch(method_name, ctx),
             "java/util/Random" => random::dispatch(method_name, ctx),
+            "java/util/Arrays" => arrays::dispatch(method_name, ctx),
             "java/lang/Math" => math::dispatch(method_name, ctx),
             _ => None,
         }
