@@ -16,6 +16,10 @@ pub fn dispatch(
         ("picodroid/os/SystemClock", "elapsedRealtimeNanos") => {
             Some(crate::system::picodroid::os::system_clock::elapsed_realtime_nanos())
         }
+        ("java/lang/System", "currentTimeMillis") => {
+            let nanos = crate::hal::system_clock::elapsed_realtime_nanos();
+            Some(Ok(Some(Value::Long(nanos / 1_000_000))))
+        }
         ("picodroid/content/pm/PackageManager", "hasSystemFeature") => {
             // args[0] = this, args[1] = feature name String
             let supported = match ctx.args.get(1) {

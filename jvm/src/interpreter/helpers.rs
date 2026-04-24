@@ -330,6 +330,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "picodroid/pio/PeripheralManager" => "picodroid/pio/PeripheralManager",
         "picodroid/os/SystemClock" => "picodroid/os/SystemClock",
         "picodroid/util/Log" => "picodroid/util/Log",
+        "java/lang/System" => "java/lang/System",
         "java/lang/StringBuilder" => "java/lang/StringBuilder",
         "java/lang/Integer" => "java/lang/Integer",
         "java/lang/Boolean" => "java/lang/Boolean",
