@@ -236,8 +236,8 @@ impl Parsed {
 
             let mut code_offset = 0usize;
             let mut code_len = 0usize;
-            let mut max_stack = 0u8;
-            let mut max_locals = 0u8;
+            let mut max_stack = 0u16;
+            let mut max_locals = 0u16;
             let mut exception_table: Vec<ExceptionEntry> = Vec::new();
 
             for _ in 0..attr_count {
@@ -262,8 +262,8 @@ impl Parsed {
                     let ms = c.u16().ok_or("truncated")?;
                     let ml = c.u16().ok_or("truncated")?;
                     let cl = c.u32().ok_or("truncated")? as usize;
-                    max_stack = ms.min(255) as u8;
-                    max_locals = ml.min(255) as u8;
+                    max_stack = ms;
+                    max_locals = ml;
                     code_offset = c.pos();
                     code_len = cl;
                     // Skip over bytecode to reach the exception table

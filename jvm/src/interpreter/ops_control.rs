@@ -163,6 +163,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.pc = ((frame.pc as i32) - 1 + offset as i32) as usize;
             }
 
+            // goto_w — signed 32-bit offset from opcode start
+            0xc8 => {
+                let offset = i32::from_be_bytes([
+                    code[frame.pc],
+                    code[frame.pc + 1],
+                    code[frame.pc + 2],
+                    code[frame.pc + 3],
+                ]);
+                frame.pc = ((frame.inst_pc as i64) + offset as i64) as usize;
+            }
+
             // checkcast — peek TOS; error if the object is not an instance of the target class
             0xc0 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);

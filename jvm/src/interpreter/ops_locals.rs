@@ -11,7 +11,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         match opcode {
             // iload (index u8)
             0x15 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.load_local(idx)?;
                 frame.push(v)?;
@@ -19,7 +19,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // lload (index u8)
             0x16 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.load_local(idx)?;
                 frame.push(v)?;
@@ -27,7 +27,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // fload (index u8)
             0x17 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.load_local(idx)?;
                 frame.push(v)?;
@@ -35,7 +35,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // aload (index u8)
             0x19 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.load_local(idx)?;
                 frame.push(v)?;
@@ -97,7 +97,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // dload (index u8)
             0x18 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.load_local(idx)?;
                 frame.push(v)?;
@@ -153,7 +153,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         match opcode {
             // istore (index u8)
             0x36 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.pop()?;
                 frame.store_local(idx, v)?;
@@ -161,7 +161,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // lstore (index u8)
             0x37 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.pop()?;
                 frame.store_local(idx, v)?;
@@ -169,7 +169,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // fstore (index u8)
             0x38 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.pop()?;
                 frame.store_local(idx, v)?;
@@ -177,7 +177,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // astore (index u8)
             0x3a => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.pop()?;
                 frame.store_local(idx, v)?;
@@ -239,7 +239,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // dstore (index u8)
             0x39 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let v = frame.pop()?;
                 frame.store_local(idx, v)?;

@@ -51,8 +51,8 @@ pub struct MethodInfo {
     /// 0 means the method is native (no Code attribute).
     pub code_offset: usize,
     pub code_len: usize,
-    pub max_stack: u8,
-    pub max_locals: u8,
+    pub max_stack: u16,
+    pub max_locals: u16,
     pub access_flags: u16,
     /// Exception table parsed from the Code attribute.
     pub exception_table: Vec<ExceptionEntry>,

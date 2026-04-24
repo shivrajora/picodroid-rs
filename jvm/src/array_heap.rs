@@ -19,14 +19,28 @@ pub const ATYPE_INT: u8 = 10;
 pub const ATYPE_LONG: u8 = 11;
 pub const ATYPE_REF: u8 = 0; // used by anewarray
 
-/// High bit used to tag stored values in ATYPE_REF arrays as string References
-/// (rather than ObjectRefs). Encoding: 0 = Null, positive without tag = ObjectRef,
-/// value with this bit set = Reference (after masking). Needed because arrays
-/// store raw i32 but the JVM has two distinct reference types.
+/// Tag bits for values stored in ATYPE_REF arrays. Arrays store raw i32 but
+/// `Value` distinguishes three live reference kinds, so we disambiguate via
+/// the top bits. Encoding:
+///   - 0                              → Null
+///   - positive, no tag                → ObjectRef (low 16 bits)
+///   - REF_TAG set                     → Reference / interned string (low 16 bits)
+///   - ARRAY_TAG set                   → ArrayRef (low 16 bits)
 pub const REF_TAG: u32 = 0x4000_0000;
+pub const ARRAY_TAG: u32 = 0x2000_0000;
 
-/// Maximum number of elements stored inline (no heap allocation).
+/// Maximum number of i32 slots stored inline (no heap allocation).
 const INLINE_DATA: usize = 8;
+
+/// Physical i32 slots per user-visible element.
+/// `long[]` and `double[]` use two slots per element; everything else uses one.
+#[inline]
+fn slots_per_elem(atype: u8) -> u16 {
+    match atype {
+        ATYPE_LONG | ATYPE_DOUBLE => 2,
+        _ => 1,
+    }
+}
 
 /// Array data stored either inline (small arrays) or in the shared arena.
 ///
@@ -70,18 +84,28 @@ impl Default for ArrayHeap {
 }
 
 impl ArrayHeap {
-    /// Allocate a new array. Returns its heap index.
+    /// Allocate a new array. `len` is the user-visible element count.
+    /// Returns its heap index.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
-    /// Small arrays (<= 8 elements) use inline storage; larger arrays
+    /// Small arrays (<= 8 slots) use inline storage; larger arrays
     /// append their data to the shared arena.
+    ///
+    /// `long[]` and `double[]` occupy two i32 slots per element, so the
+    /// physical slot count is `2 * len` for ATYPE_LONG / ATYPE_DOUBLE.
     pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {
-        let data = if (len as usize) <= INLINE_DATA {
+        let slots_per_elem = slots_per_elem(atype) as u32;
+        let phys_u32 = (len as u32).checked_mul(slots_per_elem)?;
+        if phys_u32 > u16::MAX as u32 {
+            return None;
+        }
+        let phys = phys_u32 as u16;
+        let data = if (phys as usize) <= INLINE_DATA {
             ArrayData::Inline {
                 buf: [0i32; INLINE_DATA],
-                len,
+                len: phys,
             }
         } else {
-            let extra = len as usize;
+            let extra = phys as usize;
             // Use try_reserve_exact to avoid Vec's amortized 2× growth.
             // On constrained FreeRTOS heaps the doubling can request more
             // contiguous memory than is available (e.g. 64 KB → 128 KB).
@@ -90,7 +114,7 @@ impl ArrayHeap {
             }
             let offset = self.arena.len() as u32;
             self.arena.resize(self.arena.len() + extra, 0i32);
-            ArrayData::Arena { offset, len }
+            ArrayData::Arena { offset, len: phys }
         };
         let new_arr = JvmArray { atype, data };
         // Scan from first_free for a None slot; skip already-occupied prefix.
@@ -152,13 +176,35 @@ impl ArrayHeap {
         Some(())
     }
 
-    /// Return the length of array `idx`.
+    /// Return the user-visible length of array `idx`.
+    /// For `long[]` / `double[]` this is the underlying slot count divided by 2.
     pub fn length(&self, idx: u16) -> Option<u16> {
         let arr = self.arrays.get(idx as usize)?.as_ref()?;
-        Some(match &arr.data {
+        let phys = match &arr.data {
             ArrayData::Inline { len, .. } => *len,
             ArrayData::Arena { len, .. } => *len,
-        })
+        };
+        Some(phys / slots_per_elem(arr.atype))
+    }
+
+    /// Load a 64-bit value from a `long[]` / `double[]` at user-visible
+    /// index `elem`. Bytes are stored little-endian across two i32 slots
+    /// (lower 32 bits first).
+    pub fn load64(&self, idx: u16, elem: usize) -> Option<i64> {
+        let raw = elem.checked_mul(2)?;
+        let lo = self.load(idx, raw)? as u32 as u64;
+        let hi = self.load(idx, raw + 1)? as u32 as u64;
+        Some(((hi << 32) | lo) as i64)
+    }
+
+    /// Store a 64-bit value into a `long[]` / `double[]` at user-visible
+    /// index `elem`. Bytes are stored little-endian across two i32 slots.
+    pub fn store64(&mut self, idx: u16, elem: usize, val: i64) -> Option<()> {
+        let raw = elem.checked_mul(2)?;
+        let bits = val as u64;
+        self.store(idx, raw, bits as u32 as i32)?;
+        self.store(idx, raw + 1, (bits >> 32) as u32 as i32)?;
+        Some(())
     }
 
     #[allow(dead_code)]
@@ -517,5 +563,71 @@ mod tests {
         assert_eq!(heap.load(3, 10), Some(4));
         // Arena shrunk to just the one live arena array
         assert_eq!(heap.arena.len(), 15);
+    }
+
+    // ── 64-bit element tests (ATYPE_LONG / ATYPE_DOUBLE) ───────────────────
+
+    #[test]
+    fn long_array_length_reports_user_visible_count() {
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_LONG, 5);
+        assert_eq!(heap.length(0), Some(5));
+    }
+
+    #[test]
+    fn long_array_inline_roundtrip() {
+        // 4 longs → 8 i32 slots, fits inline (INLINE_DATA == 8)
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_LONG, 4);
+        heap.store64(0, 0, i64::MIN).unwrap();
+        heap.store64(0, 1, -1).unwrap();
+        heap.store64(0, 2, 0x1122_3344_5566_7788).unwrap();
+        heap.store64(0, 3, i64::MAX).unwrap();
+        assert_eq!(heap.load64(0, 0), Some(i64::MIN));
+        assert_eq!(heap.load64(0, 1), Some(-1));
+        assert_eq!(heap.load64(0, 2), Some(0x1122_3344_5566_7788));
+        assert_eq!(heap.load64(0, 3), Some(i64::MAX));
+    }
+
+    #[test]
+    fn long_array_arena_roundtrip() {
+        // 16 longs → 32 i32 slots → arena-backed
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_LONG, 16);
+        for i in 0..16 {
+            heap.store64(0, i, (i as i64) * 1_000_000_000_000).unwrap();
+        }
+        for i in 0..16 {
+            assert_eq!(heap.load64(0, i), Some((i as i64) * 1_000_000_000_000));
+        }
+    }
+
+    #[test]
+    fn long_array_out_of_bounds_returns_none() {
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_LONG, 3);
+        assert_eq!(heap.load64(0, 3), None);
+        assert_eq!(heap.store64(0, 3, 0), None);
+    }
+
+    #[test]
+    fn double_array_nan_roundtrip() {
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_DOUBLE, 2);
+        // Use a specific NaN bit pattern to confirm we preserve all bits.
+        let bits: u64 = 0x7ff8_0000_dead_beef;
+        heap.store64(0, 0, bits as i64).unwrap();
+        let raw = heap.load64(0, 0).unwrap() as u64;
+        assert_eq!(raw, bits);
+    }
+
+    #[test]
+    fn long_array_does_not_alias_neighbors() {
+        let mut heap = ArrayHeap::new();
+        heap.alloc(ATYPE_LONG, 3);
+        heap.store64(0, 1, 0x7777_7777_7777_7777).unwrap();
+        // Neighbor slots stay zero
+        assert_eq!(heap.load64(0, 0), Some(0));
+        assert_eq!(heap.load64(0, 2), Some(0));
     }
 }

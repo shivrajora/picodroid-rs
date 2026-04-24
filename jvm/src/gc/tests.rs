@@ -647,7 +647,7 @@ fn gc_stress_mixed_type_churn() {
             window.drain(..4);
         }
 
-        let frame = Frame::new(0, 0, &window, window.len() as u8, 4).unwrap();
+        let frame = Frame::new(0, 0, &window, window.len() as u16, 4).unwrap();
         let freed = collect(
             &[frame],
             &mut objects,
@@ -704,7 +704,7 @@ fn gc_stress_arena_fragmentation() {
             .map(|(_, &idx)| Value::ArrayRef(idx))
             .collect();
 
-        let frame = Frame::new(0, 0, &roots, roots.len() as u8, 4).unwrap();
+        let frame = Frame::new(0, 0, &roots, roots.len() as u16, 4).unwrap();
         collect(
             &[frame],
             &mut objects,
@@ -752,7 +752,7 @@ fn gc_stress_string_table_churn() {
         .iter()
         .map(|&idx| Value::Reference(idx))
         .collect();
-    let frame = Frame::new(0, 0, &roots, roots.len() as u8, 4).unwrap();
+    let frame = Frame::new(0, 0, &roots, roots.len() as u16, 4).unwrap();
     let freed = collect(
         &[frame],
         &mut objects,
@@ -779,7 +779,7 @@ fn gc_stress_string_table_churn() {
     }
 
     // Collect everything except the original rooted set.
-    let frame2 = Frame::new(0, 0, &roots, roots.len() as u8, 4).unwrap();
+    let frame2 = Frame::new(0, 0, &roots, roots.len() as u16, 4).unwrap();
     let freed2 = collect(
         &[frame2],
         &mut objects,

@@ -17,8 +17,8 @@ impl Frame {
         class_idx: usize,
         method_idx: usize,
         args: &[Value],
-        max_locals: u8,
-        max_stack: u8,
+        max_locals: u16,
+        max_stack: u16,
     ) -> Result<Self, JvmError> {
         let cap = (max_locals as usize).max(args.len());
         let mut locals = Vec::with_capacity(cap);
@@ -46,7 +46,7 @@ impl Frame {
     }
 
     #[inline]
-    pub fn load_local(&self, idx: u8) -> Result<Value, JvmError> {
+    pub fn load_local(&self, idx: u16) -> Result<Value, JvmError> {
         self.locals
             .get(idx as usize)
             .copied()
@@ -54,7 +54,7 @@ impl Frame {
     }
 
     #[inline]
-    pub fn store_local(&mut self, idx: u8, v: Value) -> Result<(), JvmError> {
+    pub fn store_local(&mut self, idx: u16, v: Value) -> Result<(), JvmError> {
         let i = idx as usize;
         if let Some(slot) = self.locals.get_mut(i) {
             *slot = v;
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn store_local_many_slots_succeeds() {
         let mut frame = Frame::new(0, 0, &[], 64, 4).expect("Frame::new should succeed");
-        for i in 0u8..64 {
+        for i in 0u16..64 {
             frame
                 .store_local(i, Value::Int(i as i32))
                 .expect("store_local should always succeed");

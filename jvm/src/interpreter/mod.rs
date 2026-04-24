@@ -23,6 +23,7 @@ mod ops_locals;
 mod ops_math;
 mod ops_monitor;
 mod ops_stack;
+mod ops_wide;
 
 #[cfg(test)]
 mod tests;
@@ -297,22 +298,23 @@ pub fn execute<H: NativeMethodHandler>(
         let r: Result<(), JvmError> = match opcode {
             0x00..=0x14 => ex.op_constants(opcode, code, frame),
             0x15..=0x2d => ex.op_locals_load(opcode, code, frame),
-            0x2e | 0x30 | 0x32..=0x35 => ex.op_array_load(opcode, frame),
+            0x2e..=0x35 => ex.op_array_load(opcode, frame),
             0x36..=0x4e => ex.op_locals_store(opcode, code, frame),
-            0x4f | 0x51 | 0x53..=0x56 => ex.op_array_store(opcode, frame),
-            0x57..=0x59 => ex.op_stack(opcode, frame),
+            0x4f..=0x56 => ex.op_array_store(opcode, frame),
+            0x57..=0x5f => ex.op_stack(opcode, frame),
             0x60..=0x84 => ex.op_math(opcode, code, frame),
             0x85..=0x98 => ex.op_convert(opcode, frame),
-            0x99..=0xa7 | 0xaa | 0xab | 0xc0 | 0xc1 | 0xc6 | 0xc7 => {
+            0x99..=0xa7 | 0xaa | 0xab | 0xc0 | 0xc1 | 0xc6 | 0xc7 | 0xc8 => {
                 ex.op_control(opcode, code, frame)
             }
             0xb2..=0xb5 => ex.op_fields(opcode, code, frame),
             0xb6..=0xba => ex.op_invoke(opcode, code, frame),
             0xbb => ex.op_new(code, frame),
-            0xbc..=0xbe => ex.op_array_alloc(opcode, code, frame),
+            0xbc..=0xbe | 0xc5 => ex.op_array_alloc(opcode, code, frame),
             0xbf => ex.op_athrow(frame),
             0xc2 => ex.op_monitorenter(frame),
             0xc3 => ex.op_monitorexit(frame),
+            0xc4 => ex.op_wide(code, frame),
             op => Err(JvmError::UnsupportedOpcode(op)),
         };
 

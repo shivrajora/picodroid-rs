@@ -401,7 +401,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
             // iinc: local[index] += const
             0x84 => {
-                let idx = code[frame.pc];
+                let idx = code[frame.pc] as u16;
                 let inc = code[frame.pc + 1] as i8;
                 frame.pc += 2;
                 if let Value::Int(n) = frame.load_local(idx)? {
