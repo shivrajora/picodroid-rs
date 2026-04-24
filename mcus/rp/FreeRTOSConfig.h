@@ -28,9 +28,19 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 256 KB (of 520 KB RAM) */
+/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 384 KB (of 520 KB RAM).
+ *
+ * RP2350 bumped from 256 KB to 384 KB on 2026-04-22: the earlier 256 KB budget
+ * minus task stacks and framework init left <88 KB contiguous free, which
+ * gcstress's mid-run JVM Vec growth could no longer satisfy (seen as an
+ * `alloc 90112 bytes failed` panic on device). With 384 KB there is still
+ * ~50 KB of SRAM left above bss for the Cortex-M main stack — well above
+ * what cortex-m-rt + ISRs actually need pre-scheduler. If you push this
+ * higher, re-measure `arm-none-eabi-size` first: total static RAM must stay
+ * well below LENGTH(RAM) = 520 KB.
+ */
 #ifdef __ARM_ARCH_8M_MAIN__
-#define configTOTAL_HEAP_SIZE                   ( 256 * 1024 )
+#define configTOTAL_HEAP_SIZE                   ( 384 * 1024 )
 #else
 #define configTOTAL_HEAP_SIZE                   ( 128 * 1024 )
 #endif
