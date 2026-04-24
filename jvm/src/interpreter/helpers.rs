@@ -344,6 +344,7 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
         "java/util/HashMap$Values" => "java/util/HashMap$Values",
         "java/util/HashSet" => "java/util/HashSet",
         "java/util/Iterator" => "java/util/Iterator",
+        "java/util/Random" => "java/util/Random",
         "java/lang/Runnable" => "java/lang/Runnable",
         "picodroid/concurrent/Executor" => "picodroid/concurrent/Executor",
         "picodroid/concurrent/Executors" => "picodroid/concurrent/Executors",

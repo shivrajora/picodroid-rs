@@ -12,6 +12,7 @@ mod hashmap;
 mod hashset;
 mod iterator;
 mod math;
+mod random;
 mod string;
 mod string_builder;
 mod string_format;
@@ -176,6 +177,7 @@ pub trait NativeMethodHandler {
 /// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values` |
 /// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
 /// | `java/util/Iterator` | `hasNext`, `next` |
+/// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
 /// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `compareTo` |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
@@ -228,6 +230,7 @@ impl NativeMethodHandler for BuiltinHandler {
             "java/util/HashMap$Values" => hashmap::dispatch_values(method_name, ctx),
             "java/util/HashSet" => hashset::dispatch(method_name, ctx),
             "java/util/Iterator" => iterator::dispatch(method_name, ctx),
+            "java/util/Random" => random::dispatch(method_name, ctx),
             "java/lang/Math" => math::dispatch(method_name, ctx),
             _ => None,
         }
