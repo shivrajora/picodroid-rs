@@ -92,7 +92,7 @@ pub(crate) fn run_activity(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     use crate::system::executors::main_queue::{self, MainTask};
-    use crate::system::picodroid::graphics::engine;
+    use crate::system::picodroid::graphics::lvgl::with_gfx;
     use pico_jvm::NativeMethodHandler;
 
     // Initialise the unified main-thread FIFO; harmless if the module was
@@ -136,7 +136,7 @@ pub(crate) fn run_activity(
             // Discard the wake press AND its release edge so it doesn't reach
             // LVGL focus navigation or Java OnKeyListener.
             while crate::hal::gpio::drain_gpio_event().is_some() {}
-            engine::wake();
+            with_gfx(|g| g.wake());
             sleeping = false;
             last_input_ms = now_ms();
             continue;
@@ -160,7 +160,7 @@ pub(crate) fn run_activity(
         while now_ms_any() < budget_end {
             match main_queue::try_recv() {
                 Some(MainTask::LvglTick) => {
-                    engine::tick(16);
+                    with_gfx(|g| g.tick(16));
                     crate::system::picodroid::graphics::lvgl::fps_overlay::update();
                     dispatch_clicks(jvm, heap, handler);
                     dispatch_checked_changes(jvm, heap, handler);
@@ -201,7 +201,7 @@ pub(crate) fn run_activity(
 
         #[cfg(all(not(feature = "sim"), has_buttons))]
         if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
-            engine::sleep();
+            with_gfx(|g| g.sleep());
             sleeping = true;
         }
     }
@@ -349,15 +349,15 @@ fn dispatch_key_events(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::engine;
+    use crate::system::picodroid::graphics::lvgl::events;
     use pico_jvm::types::Value;
 
-    while let Some(raw) = engine::drain_key_event() {
-        let view_ref = match engine::focused_view_obj() {
+    while let Some(raw) = events::drain_key_event() {
+        let view_ref = match events::focused_view_obj() {
             Some(r) => r,
             None => continue,
         };
-        let keycode = match engine::pin_to_keycode(raw.pin) {
+        let keycode = match events::pin_to_keycode(raw.pin) {
             Some(k) => k,
             None => continue,
         };

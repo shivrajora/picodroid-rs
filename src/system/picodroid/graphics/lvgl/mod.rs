@@ -4,6 +4,8 @@
 //! migration completes; nothing outside `lvgl/` should reference
 //! `lv_obj_t` / `lv_event_t` / `lv_color_t`.
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
 pub mod calibration;
@@ -13,6 +15,12 @@ pub mod handle_table;
 pub mod lifecycle;
 pub mod view_ops;
 pub mod widgets;
+
+/// Idempotency guard for [`LvglGfx::init`]. LVGL itself doesn't tolerate
+/// `lv_init()` twice; this flag latches on the first successful call so
+/// repeated `with_gfx(|g| g.init(...))` from `Display.getInstance` and
+/// across PDB app reloads are no-ops.
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// LVGL backend instance. ZST today — all LVGL state is global (the
 /// library itself, plus our static `BAND_BUF`, handle table, listener
@@ -36,6 +44,12 @@ impl Gfx for LvglGfx {
     // ── lifecycle ───────────────────────────────────────────────────────────
 
     fn init(&mut self, width: u16, height: u16) {
+        // Cortex-M0+ lacks atomic CAS, so use load + store instead of `swap`;
+        // single-threaded JVM contract means this is race-free in practice.
+        if INITIALIZED.load(Ordering::Relaxed) {
+            return;
+        }
+        INITIALIZED.store(true, Ordering::Relaxed);
         lifecycle::init(width, height);
         events::init_keypad();
     }

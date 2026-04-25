@@ -4,10 +4,9 @@ use crate::hal;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
-use super::engine;
 use super::fields;
 use super::gfx::Handle;
-use super::lvgl::with_gfx;
+use super::lvgl::{calibration, with_gfx};
 use super::view;
 
 // ---------------------------------------------------------------------------
@@ -31,8 +30,9 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
         return Ok(Some(Value::ObjectRef(existing)));
     }
 
-    // First call — bring up the hardware + LVGL engine (idempotent).
-    engine::init();
+    // First call — bring up the hardware + LVGL engine. `LvglGfx::init` is
+    // idempotent so this is safe across PDB hot-reloads.
+    with_gfx(|g| g.init(hal::display::WIDTH, hal::display::HEIGHT));
 
     let idx = objects
         .alloc("picodroid/graphics/Display")
@@ -116,7 +116,7 @@ pub fn poll_touch(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
 
 /// `Display.calibrate()` — runs interactive 4-point touch calibration.
 pub fn calibrate() -> Result<Option<Value>, JvmError> {
-    engine::calibrate();
+    calibration::calibrate();
     Ok(None)
 }
 
@@ -128,6 +128,6 @@ pub fn show_fps() -> Result<Option<Value>, JvmError> {
 
 /// `Display.update()` — advances the LVGL timer and renders dirty regions.
 pub fn update() -> Result<Option<Value>, JvmError> {
-    engine::tick(16);
+    with_gfx(|g| g.tick(16));
     Ok(None)
 }

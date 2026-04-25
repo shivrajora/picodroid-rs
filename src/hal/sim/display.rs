@@ -133,7 +133,7 @@ pub fn display_wake() {
 
 /// Blit the framebuffer to the minifb window and sample mouse state.
 ///
-/// Call once per frame after `engine::tick()`.
+/// Call once per frame after `with_gfx(|g| g.tick(16))`.
 pub fn update_window() {
     unsafe {
         if let Some(ref mut win) = WINDOW {
