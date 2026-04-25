@@ -1,16 +1,24 @@
 //! Native method implementations for `picodroid.view.View`.
+//!
+//! Cross-widget setters route through the [`super::gfx::Gfx`] trait via
+//! `with_gfx`; the LVGL specifics live in `lvgl::view_ops`. The helpers
+//! (`extract_native_handle`, `java_str_to_cstr`, `resolve`) and the key
+//! listener registry stay here because they bridge the JVM heap to the
+//! widget call sites — they are not LVGL-specific in a way the trait
+//! could hide cleanly.
 
-use crate::lvgl_ffi::*;
 use core::ffi::c_char;
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
+use super::gfx::{Handle, Visibility};
 use super::handle_table;
+use super::lvgl::with_gfx;
 
 // ---------------------------------------------------------------------------
-// Helpers shared across view.rs and widgets.rs
+// Helpers shared with widgets/*.rs
 // ---------------------------------------------------------------------------
 
 /// Extract the `nativeHandle` ID from `this` (args[0]).
@@ -41,14 +49,8 @@ pub fn extract_handle_at(
     }
 }
 
-/// Look up the `lv_obj_t*` for a handle ID from `extract_native_handle`.
-pub fn resolve(id: i32) -> *mut lv_obj_t {
-    handle_table::lookup(id)
-}
-
 /// Convert a Java string `Reference` to a null-terminated byte buffer on the stack.
 ///
-/// Returns a `c_char` pointer valid for the lifetime of `buf`.
 /// LVGL text APIs copy the string internally, so the pointer need not outlive the call.
 /// Strings longer than 127 bytes are truncated.
 pub fn java_str_to_cstr(
@@ -68,144 +70,96 @@ pub fn java_str_to_cstr(
     Ok(buf.as_ptr() as *const c_char)
 }
 
-/// Convert an ARGB `int` to an `lv_color_t` (RGB888, ignoring alpha).
-fn argb_to_lv_color(argb: i32) -> lv_color_t {
-    lv_color_t {
-        red: ((argb >> 16) & 0xFF) as u8,
-        green: ((argb >> 8) & 0xFF) as u8,
-        blue: (argb & 0xFF) as u8,
+#[inline]
+fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
+    match args.get(i) {
+        Some(Value::Int(v)) => Ok(*v),
+        _ => Err(JvmError::InvalidReference),
+    }
+}
+
+#[inline]
+fn arg_float(args: &[Value], i: usize) -> Result<f32, JvmError> {
+    match args.get(i) {
+        Some(Value::Float(v)) => Ok(*v),
+        _ => Err(JvmError::InvalidReference),
     }
 }
 
 // ---------------------------------------------------------------------------
-// View native methods
+// View native methods — all routed through Gfx::* via with_gfx.
 // ---------------------------------------------------------------------------
 
 /// `View.setPosition(int x, int y)`
 pub fn set_position(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let x = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let y = match args.get(2) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    unsafe { lv_obj_set_pos(resolve(id), x, y) };
+    let x = arg_int(args, 1)?;
+    let y = arg_int(args, 2)?;
+    with_gfx(|g| g.set_pos(Handle::from_java(id), x, y));
     Ok(None)
 }
 
 /// `View.setSize(int width, int height)`
 pub fn set_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let w = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let h = match args.get(2) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    unsafe { lv_obj_set_size(resolve(id), w, h) };
+    let w = arg_int(args, 1)?;
+    let h = arg_int(args, 2)?;
+    with_gfx(|g| g.set_size(Handle::from_java(id), w, h));
     Ok(None)
 }
 
 /// `View.setBackgroundColor(int argb)`
 pub fn set_bg_color(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let argb = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let color = argb_to_lv_color(argb);
-    unsafe { lv_obj_set_style_bg_color(resolve(id), color, 0) };
+    let argb = arg_int(args, 1)? as u32;
+    with_gfx(|g| g.set_bg_color(Handle::from_java(id), argb));
     Ok(None)
 }
 
-/// `View.setVisibility(int visibility)`
+/// `View.setVisibility(int visibility)` — Android constants
+/// (0=VISIBLE, 1=INVISIBLE, 2=GONE).
 pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let vis = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
+    let v = match arg_int(args, 1)? {
+        0 => Visibility::Visible,
+        1 => Visibility::Invisible,
+        _ => Visibility::Gone,
     };
-    unsafe {
-        let obj = resolve(id);
-        if vis == 0 {
-            // VISIBLE
-            lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            // INVISIBLE or GONE
-            lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
+    with_gfx(|g| g.set_visibility(Handle::from_java(id), v));
     Ok(None)
 }
 
 /// `View.setPadding(int left, int top, int right, int bottom)`
 pub fn set_padding(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let left = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let top = match args.get(2) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let right = match args.get(3) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let bottom = match args.get(4) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    unsafe {
-        let obj = resolve(id);
-        lv_obj_set_style_pad_left(obj, left, 0);
-        lv_obj_set_style_pad_top(obj, top, 0);
-        lv_obj_set_style_pad_right(obj, right, 0);
-        lv_obj_set_style_pad_bottom(obj, bottom, 0);
-    }
+    let left = arg_int(args, 1)?;
+    let top = arg_int(args, 2)?;
+    let right = arg_int(args, 3)?;
+    let bottom = arg_int(args, 4)?;
+    with_gfx(|g| g.set_padding(Handle::from_java(id), left, top, right, bottom));
     Ok(None)
 }
 
 /// `View.setEnabled(boolean enabled)`
 pub fn set_enabled(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let enabled = match args.get(1) {
-        Some(Value::Int(v)) => *v != 0,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    unsafe {
-        let obj = resolve(id);
-        if enabled {
-            lv_obj_remove_state(obj, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(obj, LV_STATE_DISABLED);
-        }
-    }
+    let on = arg_int(args, 1)? != 0;
+    with_gfx(|g| g.set_enabled(Handle::from_java(id), on));
     Ok(None)
 }
 
 /// `View.setAlpha(float alpha)`
 pub fn set_alpha(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let alpha = match args.get(1) {
-        Some(Value::Float(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let opa = (alpha * 255.0) as u8;
-    unsafe { lv_obj_set_style_opa(resolve(id), opa, 0) };
+    let alpha = (arg_float(args, 1)? * 255.0) as u8;
+    with_gfx(|g| g.set_alpha(Handle::from_java(id), alpha));
     Ok(None)
 }
 
 /// `View.close()`
 pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    unsafe { lv_obj_delete(resolve(id)) };
+    with_gfx(|g| g.delete(Handle::from_java(id)));
     Ok(None)
 }
 

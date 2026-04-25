@@ -9,6 +9,7 @@ use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility}
 pub mod events;
 pub mod handle_table;
 pub mod lifecycle;
+pub mod view_ops;
 
 /// LVGL backend instance. ZST today — all LVGL state is global (the
 /// library itself, plus our static `BAND_BUF`, handle table, listener
@@ -54,40 +55,40 @@ impl Gfx for LvglGfx {
 
     // ── cross-widget view ops ───────────────────────────────────────────────
 
-    fn set_pos(&mut self, _h: Handle, _x: i32, _y: i32) {
-        unimplemented!("LvglGfx::set_pos: ported in step 6 of the plan")
+    fn set_pos(&mut self, h: Handle, x: i32, y: i32) {
+        view_ops::set_pos(h, x, y);
     }
 
-    fn set_size(&mut self, _h: Handle, _w: i32, _height: i32) {
-        unimplemented!("LvglGfx::set_size: ported in step 6 of the plan")
+    fn set_size(&mut self, h: Handle, w: i32, height: i32) {
+        view_ops::set_size(h, w, height);
     }
 
-    fn set_bg_color(&mut self, _h: Handle, _argb: u32) {
-        unimplemented!("LvglGfx::set_bg_color: ported in step 6 of the plan")
+    fn set_bg_color(&mut self, h: Handle, argb: u32) {
+        view_ops::set_bg_color(h, argb);
     }
 
-    fn set_padding(&mut self, _h: Handle, _l: i32, _t: i32, _r: i32, _b: i32) {
-        unimplemented!("LvglGfx::set_padding: ported in step 6 of the plan")
+    fn set_padding(&mut self, h: Handle, l: i32, t: i32, r: i32, b: i32) {
+        view_ops::set_padding(h, l, t, r, b);
     }
 
-    fn set_visibility(&mut self, _h: Handle, _v: Visibility) {
-        unimplemented!("LvglGfx::set_visibility: ported in step 6 of the plan")
+    fn set_visibility(&mut self, h: Handle, v: Visibility) {
+        view_ops::set_visibility(h, v);
     }
 
-    fn set_enabled(&mut self, _h: Handle, _on: bool) {
-        unimplemented!("LvglGfx::set_enabled: ported in step 6 of the plan")
+    fn set_enabled(&mut self, h: Handle, on: bool) {
+        view_ops::set_enabled(h, on);
     }
 
-    fn set_alpha(&mut self, _h: Handle, _alpha: u8) {
-        unimplemented!("LvglGfx::set_alpha: ported in step 6 of the plan")
+    fn set_alpha(&mut self, h: Handle, alpha: u8) {
+        view_ops::set_alpha(h, alpha);
     }
 
-    fn set_parent(&mut self, _h: Handle, _parent: Handle) {
-        unimplemented!("LvglGfx::set_parent: ported in step 6 of the plan")
+    fn set_parent(&mut self, h: Handle, parent: Handle) {
+        view_ops::set_parent(h, parent);
     }
 
-    fn delete(&mut self, _h: Handle) {
-        unimplemented!("LvglGfx::delete: ported in step 6 of the plan")
+    fn delete(&mut self, h: Handle) {
+        view_ops::delete(h);
     }
 
     // ── events ──────────────────────────────────────────────────────────────
