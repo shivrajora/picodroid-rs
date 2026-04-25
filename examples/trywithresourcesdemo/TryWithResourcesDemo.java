@@ -7,6 +7,10 @@ import picodroid.util.Log;
 
 public class TryWithResourcesDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     PeripheralManager pm = PeripheralManager.getInstance();
 
     try (Adc adc = pm.openAdcPin("GP26")) {

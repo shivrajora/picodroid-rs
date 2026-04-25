@@ -7,6 +7,10 @@ public class StringDemo extends Application {
   private static final String TAG = "StringDemo";
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // ── Basic ──────────────────────────────────────────────────────────────
     String s = "Hello, Pico!";
     Log.i(TAG, "length=" + s.length()); // 12

@@ -12,6 +12,10 @@ import picodroid.util.Log;
  */
 public class SyncDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     Log.i("SyncDemo", "Starting synchronized demo");
 
     int counter = 0;

@@ -14,6 +14,10 @@ public class ExceptionDemo extends Application {
   }
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // 1. Exception thrown and caught in the same frame.
     try {
       riskyMethod(-1);

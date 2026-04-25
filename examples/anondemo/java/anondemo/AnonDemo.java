@@ -5,6 +5,10 @@ import picodroid.util.Log;
 
 public class AnonDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // 1. Anonymous class implementing an interface
     Greeter hello =
         new Greeter() {

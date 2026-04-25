@@ -23,6 +23,10 @@ public class IteratorDemo extends Application {
   }
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     Log.i(TAG, "=== Iterator Tests ===");
 
     testExplicitIterator();

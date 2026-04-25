@@ -5,6 +5,10 @@ import picodroid.util.Log;
 
 public class LambdaDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // 1. Non-capturing lambda
     IntSupplier three = () -> 3;
     Log.i("Lambda", "non-capturing: " + three.get());

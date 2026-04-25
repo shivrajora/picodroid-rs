@@ -20,6 +20,10 @@ public class EnumDemo extends Application {
   }
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     Log.i(TAG, "=== Enum Tests ===");
 
     // name and ordinal

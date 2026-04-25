@@ -7,6 +7,10 @@ public class MathsDemo extends Application {
   private static final String TAG = "MathsDemo";
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // ── Integer arithmetic ─────────────────────────────────────────────────
     int a = 10, b = 3;
     Log.i(TAG, "10 - 3 = " + (a - b)); // isub

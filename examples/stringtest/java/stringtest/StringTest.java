@@ -20,6 +20,10 @@ public class StringTest extends Application {
   }
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     Log.i(TAG, "=== String Tests ===");
 
     testConcat();

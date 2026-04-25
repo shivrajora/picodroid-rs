@@ -13,6 +13,10 @@ public class StrFormat extends Application {
   private static final String TAG = "StrFormat";
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // ── Conversions ────────────────────────────────────────────────────────
     Log.i(TAG, String.format("s=[%s]", "pico"));
     Log.i(TAG, String.format("d=[%d]", 42));

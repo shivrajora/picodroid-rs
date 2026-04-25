@@ -22,6 +22,10 @@ public class HashMapTest extends Application {
   }
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     Log.i(TAG, "=== HashMap/HashSet Tests ===");
 
     testIntegerKeys();

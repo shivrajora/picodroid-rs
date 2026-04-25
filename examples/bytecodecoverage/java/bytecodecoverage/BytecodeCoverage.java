@@ -16,6 +16,10 @@ public class BytecodeCoverage extends Application {
   private static final String TAG = "ByteCov";
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     int failures = 0;
     failures += longArrays();
     failures += doubleArrays();

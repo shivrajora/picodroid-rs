@@ -5,6 +5,10 @@ import picodroid.util.Log;
 
 public class FloatDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // float arithmetic (fmul, f2i)
     float x = 3.0f;
     float y = 2.0f;

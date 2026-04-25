@@ -8,6 +8,10 @@ public class ListDemo extends Application {
   private static final String TAG = "ListDemo";
 
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // ── String list ───────────────────────────────────────────────────────────
     ArrayList list = new ArrayList();
     list.add("alpha");

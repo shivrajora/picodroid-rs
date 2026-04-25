@@ -7,6 +7,10 @@ import picodroid.util.Log;
 
 public class ArrayDemo extends Application {
   public void onCreate() {
+    run();
+  }
+
+  public static void run() {
     // Allocate a byte array and fill it with 'A'..'P'
     byte[] buf = new byte[16];
     for (int i = 0; i < buf.length; i++) {
