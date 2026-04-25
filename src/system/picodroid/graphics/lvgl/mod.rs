@@ -6,6 +6,7 @@
 
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
+pub mod handle_table;
 pub mod lifecycle;
 
 /// LVGL backend instance. ZST today — all LVGL state is global (the

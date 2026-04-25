@@ -9,8 +9,9 @@
 use crate::hal;
 use crate::lvgl_ffi::*;
 use crate::system::picodroid::graphics::gfx::Handle;
-use crate::system::picodroid::graphics::handle_table;
 use core::ffi::c_void;
+
+use super::handle_table;
 
 // ── Band buffer (RGB565 partial render scratch) ─────────────────────────────
 
