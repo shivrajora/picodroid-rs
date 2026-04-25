@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="gesturedemo" version="1.0">
+    <application application="gesturedemo/GestureDemoApp" />
+</manifest>

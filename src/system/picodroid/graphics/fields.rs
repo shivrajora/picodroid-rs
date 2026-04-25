@@ -41,6 +41,9 @@ pub mod motion_event {
     pub const ACTION: usize = 0;
     pub const X: usize = 1;
     pub const Y: usize = 2;
+    /// Tick-clock millis. This JVM uses one slot per field regardless of
+    /// type, so a `long` field gets the next sequential slot.
+    pub const EVENT_TIME: usize = 3;
 }
 
 pub mod key_event {

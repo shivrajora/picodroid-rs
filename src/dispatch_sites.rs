@@ -39,6 +39,7 @@ pub const ACTIVITY_ON_PAUSE: usize = 12;
 pub const ACTIVITY_ON_STOP: usize = 13;
 pub const ACTIVITY_ON_DESTROY: usize = 14;
 pub const ACTIVITY_ON_BACK_PRESSED: usize = 15;
+pub const VIEW_TOUCH: usize = 16;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -62,6 +63,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/Activity", "onStop"),
     ("picodroid/app/Activity", "onDestroy"),
     ("picodroid/app/Activity", "onBackPressed"),
+    ("picodroid/view/View", "fireTouch"),
 ];
 
 #[cfg(test)]

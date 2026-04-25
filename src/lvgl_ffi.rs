@@ -106,9 +106,15 @@ pub const LV_ANIM_OFF: lv_anim_enable_t = 0;
 pub const LV_ANIM_ON: lv_anim_enable_t = 1;
 
 pub type lv_event_code_t = u32;
+// Values verified against vendor/lvgl/src/misc/lv_event.h in LVGL 9.2.2.
+// See project_lvgl_ffi_constants.md memory: wrong values silently route to
+// wrong handlers and can cause infinite render loops.
 pub const LV_EVENT_ALL: lv_event_code_t = 0;
 pub const LV_EVENT_PRESSED: lv_event_code_t = 1;
+pub const LV_EVENT_PRESSING: lv_event_code_t = 2;
+pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 5;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 7;
+pub const LV_EVENT_RELEASED: lv_event_code_t = 8;
 pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 32; // LVGL 9.2.2: shifted +4 by ROTARY, HOVER_OVER, HOVER_LEAVE, DRAW_TASK_ADDED
 
 pub type lv_flex_flow_t = u32;
@@ -231,6 +237,16 @@ extern "C" {
     // Events
     pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
+
+    /// Get the indev (touch / keypad) that originated `e`. Used by the
+    /// touch-event trampolines to fetch the current pointer position.
+    pub fn lv_event_get_indev(e: *mut lv_event_t) -> *mut lv_indev_t;
+
+    /// Fill `point` with the indev's current pointer position. Result is
+    /// in display pixel coordinates. For non-pointer indevs (keypad) the
+    /// behavior is undefined — only call from PRESSED/PRESSING/RELEASED
+    /// touch callbacks.
+    pub fn lv_indev_get_point(indev: *const lv_indev_t, point: *mut lv_point_t);
     /// Synchronously fire `event_code` on `obj`. Invokes every matching
     /// event callback on this object (so e.g. `LV_EVENT_CLICKED` on a
     /// Button goes through the same `button_click_cb` a real touch would

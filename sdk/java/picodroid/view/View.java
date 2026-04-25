@@ -7,6 +7,7 @@ public class View {
 
   int nativeHandle;
   OnKeyListener onKeyListener;
+  OnTouchListener onTouchListener;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -17,11 +18,30 @@ public class View {
     nativeRegisterKeyListener();
   }
 
+  /**
+   * Register a touch listener. The framework also flips this View's LVGL CLICKABLE flag so the
+   * underlying touch indev routes Press/Release events here. Pass {@code null} to clear (the
+   * CLICKABLE flag stays on — clearing it on a button widget would break click behavior).
+   */
+  public void setOnTouchListener(OnTouchListener listener) {
+    this.onTouchListener = listener;
+    nativeRegisterTouchListener();
+  }
+
   private native void nativeRegisterKeyListener();
+
+  private native void nativeRegisterTouchListener();
 
   boolean fireKey(KeyEvent event) {
     if (onKeyListener != null) {
       return onKeyListener.onKey(this, event);
+    }
+    return false;
+  }
+
+  boolean fireTouch(MotionEvent event) {
+    if (onTouchListener != null) {
+      return onTouchListener.onTouch(this, event);
     }
     return false;
   }

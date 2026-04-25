@@ -175,7 +175,29 @@ pub fn register_key_listener(
     Ok(None)
 }
 
+/// `View.nativeRegisterTouchListener()` — records this View as a
+/// touch-listener target and wires the LVGL press/release/long-press
+/// callbacks. Side effect: flips on `LV_OBJ_FLAG_CLICKABLE` so passive
+/// widgets (TextView, layouts) actually receive hit-tested events.
+pub fn register_touch_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_events::register_view_touch_listener(id, obj_ref);
+    Ok(None)
+}
+
 /// Reset the key-listener registry between app runs.
 pub fn reset_key_listener_state() {
     lvgl_events::reset_view_key_listener_state();
+}
+
+/// Reset the touch-listener registry between app runs.
+pub fn reset_touch_listener_state() {
+    lvgl_events::reset_view_touch_listener_state();
 }

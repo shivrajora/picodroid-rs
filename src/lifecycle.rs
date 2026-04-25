@@ -224,6 +224,7 @@ pub(crate) fn run_activity(
                     dispatch_checkbox_changes(jvm, heap, handler);
                     dispatch_spinner_changes(jvm, heap, handler);
                     dispatch_alert_dialog_clicks(jvm, heap, handler);
+                    dispatch_touch_events(jvm, heap, handler);
                     dispatch_key_events(jvm, heap, handler);
                     crate::system::picodroid::hardware::sensors::drain_sensor_events(
                         jvm, heap, handler,
@@ -631,6 +632,70 @@ fn dispatch_alert_dialog_clicks(
                 handler,
             );
         }
+    }
+}
+
+// ── Touch-event dispatch ────────────────────────────────────────────────────
+
+/// Drain the touch-event queue and invoke `View.fireTouch(MotionEvent)` on
+/// the registered listener for each event. Each record carries action
+/// (DOWN / UP / LONG_PRESS), display-pixel position, and a tick-clock
+/// millisecond timestamp consumed by `GestureDetector` for fling velocity.
+#[cfg(not(test))]
+fn dispatch_touch_events(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::lvgl::events;
+    use pico_jvm::types::Value;
+
+    while let Some(rec) = events::drain_touch_event() {
+        let view_ref = match events::lookup_touch_view_obj(rec.view_handle) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let event_obj = match heap.objects.alloc("picodroid/view/MotionEvent") {
+            Some(o) => o,
+            None => continue,
+        };
+        let mut all_fields_set = true;
+        for (slot, value) in [
+            (
+                crate::system::picodroid::graphics::fields::motion_event::ACTION,
+                Value::Int(rec.action),
+            ),
+            (
+                crate::system::picodroid::graphics::fields::motion_event::X,
+                Value::Int(rec.x),
+            ),
+            (
+                crate::system::picodroid::graphics::fields::motion_event::Y,
+                Value::Int(rec.y),
+            ),
+            (
+                crate::system::picodroid::graphics::fields::motion_event::EVENT_TIME,
+                Value::Long(rec.time_ms as i64),
+            ),
+        ] {
+            if heap.objects.set_field(event_obj, slot, value).is_none() {
+                all_fields_set = false;
+                break;
+            }
+        }
+        if !all_fields_set {
+            continue;
+        }
+
+        let _ = jvm.invoke_instance_with_args(
+            dispatch_class(dispatch_sites::VIEW_TOUCH),
+            dispatch_method(dispatch_sites::VIEW_TOUCH),
+            view_ref,
+            &[Value::ObjectRef(event_obj)],
+            heap,
+            handler,
+        );
     }
 }
 

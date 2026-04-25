@@ -198,6 +198,197 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
     }
 }
 
+// ── View touch-listener registry ────────────────────────────────────────────
+//
+// Mirrors the key-listener pattern above: a small (handle, obj_ref) map,
+// plus a ring buffer fed by LVGL trampolines on PRESSED / RELEASED /
+// LONG_PRESSED. The framework loop drains the queue, allocates a Java
+// MotionEvent, and invokes `View.fireTouch` on the matching object.
+//
+// Each registered View flips on `LV_OBJ_FLAG_CLICKABLE` so the active
+// touch indev actually routes hit-tested events here. This is harmless
+// for widgets that are already clickable (Button, Switch, etc.) and is
+// what makes touch listeners work on otherwise-passive widgets like
+// TextView and LinearLayout.
+
+const MAX_TOUCH_LISTENERS: usize = 32;
+static mut VIEW_TOUCH_MAP: [(usize, u16); MAX_TOUCH_LISTENERS] = [(0, 0); MAX_TOUCH_LISTENERS];
+static mut VIEW_TOUCH_MAP_LEN: usize = 0;
+
+/// Action codes — must match the constants on `picodroid.view.MotionEvent`.
+const ACTION_DOWN: i32 = 0;
+const ACTION_UP: i32 = 1;
+const ACTION_LONG_PRESS: i32 = 3;
+
+#[derive(Copy, Clone)]
+pub struct TouchRecord {
+    pub view_handle: usize,
+    pub action: i32,
+    pub x: i32,
+    pub y: i32,
+    pub time_ms: u64,
+}
+
+const EMPTY_TOUCH: TouchRecord = TouchRecord {
+    view_handle: 0,
+    action: 0,
+    x: 0,
+    y: 0,
+    time_ms: 0,
+};
+
+const TOUCH_QUEUE_SIZE: usize = 32;
+static mut TOUCH_QUEUE: [TouchRecord; TOUCH_QUEUE_SIZE] = [EMPTY_TOUCH; TOUCH_QUEUE_SIZE];
+static mut TOUCH_QUEUE_HEAD: usize = 0;
+static mut TOUCH_QUEUE_TAIL: usize = 0;
+
+/// Read the current monotonic ms from the LVGL tick clock. Used as the
+/// timestamp on each touch event; aligns with the same clock GestureDetector
+/// uses for fling-velocity duration math.
+fn now_ms_for_touch() -> u64 {
+    crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
+}
+
+fn push_touch(record: TouchRecord) {
+    unsafe {
+        let head = TOUCH_QUEUE_HEAD;
+        let next = (head + 1) % TOUCH_QUEUE_SIZE;
+        if next != TOUCH_QUEUE_TAIL {
+            TOUCH_QUEUE[head] = record;
+            TOUCH_QUEUE_HEAD = next;
+        }
+    }
+}
+
+unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Option<TouchRecord> {
+    let target = unsafe { lv_event_get_target_obj(e) };
+    if target.is_null() {
+        return None;
+    }
+    let indev = unsafe { lv_event_get_indev(e) };
+    if indev.is_null() {
+        return None;
+    }
+    let mut p = lv_point_t { x: 0, y: 0 };
+    unsafe { lv_indev_get_point(indev, &mut p as *mut lv_point_t) };
+    Some(TouchRecord {
+        view_handle: target as usize,
+        action,
+        x: p.x,
+        y: p.y,
+        time_ms: now_ms_for_touch(),
+    })
+}
+
+unsafe extern "C" fn touch_press_cb(e: *mut lv_event_t) {
+    if let Some(rec) = unsafe { touch_event_record(e, ACTION_DOWN) } {
+        push_touch(rec);
+    }
+}
+
+unsafe extern "C" fn touch_release_cb(e: *mut lv_event_t) {
+    if let Some(rec) = unsafe { touch_event_record(e, ACTION_UP) } {
+        push_touch(rec);
+    }
+}
+
+unsafe extern "C" fn touch_long_press_cb(e: *mut lv_event_t) {
+    if let Some(rec) = unsafe { touch_event_record(e, ACTION_LONG_PRESS) } {
+        push_touch(rec);
+    }
+}
+
+/// Record a Java `View` object as the touch-listener target for the given
+/// `nativeHandle` id, and register the LVGL press/release/long-press
+/// callbacks on the underlying object. Idempotent: re-registration just
+/// updates the obj_ref slot (no duplicate LVGL callbacks — LVGL tolerates
+/// duplicates but we'd waste slot table space).
+pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
+    let raw_obj = super::handle_table::lookup(id);
+    if raw_obj.is_null() {
+        return;
+    }
+    let raw_ptr = raw_obj as usize;
+
+    unsafe {
+        for entry in &mut VIEW_TOUCH_MAP[..VIEW_TOUCH_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                // Already registered with LVGL — just refresh the obj_ref.
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if VIEW_TOUCH_MAP_LEN < MAX_TOUCH_LISTENERS {
+            VIEW_TOUCH_MAP[VIEW_TOUCH_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_TOUCH_MAP_LEN += 1;
+        } else {
+            return; // table full, silently drop
+        }
+
+        // Make the widget clickable so the touch indev hit-tests it. This
+        // is a no-op for widgets that are already clickable (Button,
+        // Switch, etc.) and is what makes touch work on label-based
+        // widgets like TextView.
+        lv_obj_add_flag(raw_obj, LV_OBJ_FLAG_CLICKABLE);
+
+        // Register the three event callbacks. LVGL allows multiple
+        // descriptors on the same (obj, code) pair so existing
+        // click-handling on Buttons isn't disturbed.
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(touch_press_cb),
+            LV_EVENT_PRESSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(touch_release_cb),
+            LV_EVENT_RELEASED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(touch_long_press_cb),
+            LV_EVENT_LONG_PRESSED,
+            core::ptr::null_mut(),
+        );
+    }
+}
+
+/// Pop one touch event from the queue, if any.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_touch_event() -> Option<TouchRecord> {
+    unsafe {
+        if TOUCH_QUEUE_TAIL == TOUCH_QUEUE_HEAD {
+            return None;
+        }
+        let r = TOUCH_QUEUE[TOUCH_QUEUE_TAIL];
+        TOUCH_QUEUE_TAIL = (TOUCH_QUEUE_TAIL + 1) % TOUCH_QUEUE_SIZE;
+        Some(r)
+    }
+}
+
+/// Look up the Java `View` object reference for a registered LVGL widget.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &VIEW_TOUCH_MAP[..VIEW_TOUCH_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+pub fn reset_view_touch_listener_state() {
+    unsafe {
+        VIEW_TOUCH_MAP_LEN = 0;
+        TOUCH_QUEUE_HEAD = 0;
+        TOUCH_QUEUE_TAIL = 0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
