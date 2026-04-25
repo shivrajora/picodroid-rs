@@ -3,6 +3,7 @@ pub mod display;
 pub mod engine;
 pub mod fields;
 pub mod fps_overlay;
+pub mod gfx;
 pub mod handle_table;
 pub mod view;
 pub mod widgets;
