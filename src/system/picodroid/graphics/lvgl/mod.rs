@@ -10,6 +10,7 @@ pub mod events;
 pub mod handle_table;
 pub mod lifecycle;
 pub mod view_ops;
+pub mod widgets;
 
 /// LVGL backend instance. ZST today — all LVGL state is global (the
 /// library itself, plus our static `BAND_BUF`, handle table, listener

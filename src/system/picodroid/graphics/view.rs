@@ -7,7 +7,6 @@
 //! widget call sites — they are not LVGL-specific in a way the trait
 //! could hide cleanly.
 
-use core::ffi::c_char;
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
@@ -49,25 +48,18 @@ pub fn extract_handle_at(
     }
 }
 
-/// Convert a Java string `Reference` to a null-terminated byte buffer on the stack.
-///
-/// LVGL text APIs copy the string internally, so the pointer need not outlive the call.
-/// Strings longer than 127 bytes are truncated.
-pub fn java_str_to_cstr(
-    arg: &Value,
-    strings: &StringTable,
-    buf: &mut [u8; 128],
-) -> Result<*const c_char, JvmError> {
-    let idx = match arg {
-        Value::Reference(idx) => *idx,
+/// Extract a Java `String` argument as a Rust `&str`. Returned reference
+/// is valid for the lifetime of `strings`.
+pub fn extract_string_at<'s>(
+    args: &[Value],
+    arg_idx: usize,
+    strings: &'s StringTable,
+) -> Result<&'s str, JvmError> {
+    let idx = match args.get(arg_idx) {
+        Some(Value::Reference(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
-    let s = strings.resolve(idx).ok_or(JvmError::InvalidReference)?;
-    let bytes = s.as_bytes();
-    let len = bytes.len().min(127);
-    buf[..len].copy_from_slice(&bytes[..len]);
-    buf[len] = 0;
-    Ok(buf.as_ptr() as *const c_char)
+    strings.resolve(idx).ok_or(JvmError::InvalidReference)
 }
 
 #[inline]

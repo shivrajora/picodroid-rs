@@ -1,16 +1,15 @@
-use crate::lvgl_ffi::*;
+//! Java-binding shim for `picodroid.widget.TextView`.
+
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
-use super::super::engine;
-use super::super::handle_table;
-use super::super::view::{extract_native_handle, java_str_to_cstr};
+use super::super::lvgl::widgets::text_view as lvgl_text_view;
+use super::super::view::{extract_native_handle, extract_string_at};
 
-/// `TextView.nativeCreate()` — creates an `lv_label` on the active screen.
+/// `TextView.nativeCreate()`
 pub fn text_view_native_create() -> Result<Option<Value>, JvmError> {
-    let ptr = unsafe { lv_label_create(engine::screen()) };
-    Ok(Some(Value::Int(handle_table::register(ptr))))
+    Ok(Some(Value::Int(lvgl_text_view::create())))
 }
 
 /// `TextView.setText(String text)`
@@ -20,10 +19,8 @@ pub fn text_view_set_text(
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let text_arg = args.get(1).ok_or(JvmError::InvalidReference)?;
-    let mut buf = [0u8; 128];
-    let cstr = java_str_to_cstr(text_arg, strings, &mut buf)?;
-    unsafe { lv_label_set_text(handle_table::lookup(id), cstr) };
+    let s = extract_string_at(args, 1, strings)?;
+    lvgl_text_view::set_text(id, s);
     Ok(None)
 }
 
@@ -34,14 +31,9 @@ pub fn text_view_set_text_color(
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     let argb = match args.get(1) {
-        Some(Value::Int(v)) => *v,
+        Some(Value::Int(v)) => *v as u32,
         _ => return Err(JvmError::InvalidReference),
     };
-    let color = lv_color_t {
-        red: ((argb >> 16) & 0xFF) as u8,
-        green: ((argb >> 8) & 0xFF) as u8,
-        blue: (argb & 0xFF) as u8,
-    };
-    unsafe { lv_obj_set_style_text_color(handle_table::lookup(id), color, 0) };
+    lvgl_text_view::set_text_color(id, argb);
     Ok(None)
 }

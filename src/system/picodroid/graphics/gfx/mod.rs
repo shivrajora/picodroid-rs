@@ -10,7 +10,6 @@
 
 pub mod handle;
 pub mod trait_def;
-pub mod widget_ops;
 
 pub use handle::Handle;
 pub use trait_def::{EventKind, EventListener, EventPayload, EventRecord, Gfx, Visibility};
