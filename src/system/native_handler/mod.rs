@@ -44,6 +44,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/view/OnTouchListener",
     "picodroid/view/GestureDetector",
     "picodroid/view/GestureDetector$OnGestureListener",
+    "picodroid/view/ViewPropertyAnimator",
     "picodroid/graphics/Display",
     "picodroid/widget/TextView",
     "picodroid/widget/Button",

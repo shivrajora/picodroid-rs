@@ -73,6 +73,7 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/EditText" => be.dispatch_edit_text(method_name, ctx),
         "picodroid/widget/Toast" => be.dispatch_toast(method_name, ctx),
         "picodroid/widget/AlertDialog" => be.dispatch_alert_dialog(method_name, ctx),
+        "picodroid/view/ViewPropertyAnimator" => be.dispatch_view_animator(method_name, ctx),
         _ => None,
     };
     if class_hit.is_some() {

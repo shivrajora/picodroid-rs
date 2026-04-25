@@ -305,4 +305,16 @@ impl GraphicsBackend for LvglBackend {
             _ => None,
         }
     }
+
+    fn dispatch_view_animator(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeStart" => Some(widgets::animator_native_start(ctx.args)),
+            "nativeCancel" => Some(widgets::animator_native_cancel(ctx.args)),
+            _ => None,
+        }
+    }
 }

@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
+pub mod animations;
 pub mod calibration;
 pub mod events;
 pub mod fps_overlay;
@@ -56,12 +57,13 @@ impl Gfx for LvglGfx {
 
     fn tick(&mut self, ms: u32) {
         lifecycle::tick(ms);
-        // Drive toast auto-dismiss off the same per-frame heartbeat. Done
-        // here rather than inside `lifecycle::tick` so the LVGL FFI calls
-        // and the picodroid-specific widget bookkeeping stay in sibling
-        // modules (`lvgl::lifecycle` owns LVGL; `lvgl::widgets::toast`
-        // owns Toast state).
+        // Drive toast auto-dismiss + property animations off the same
+        // per-frame heartbeat. Done here rather than inside
+        // `lifecycle::tick` so the LVGL FFI calls and the picodroid-
+        // specific bookkeeping stay in sibling modules (`lvgl::lifecycle`
+        // owns LVGL; the others own their own state).
         widgets::toast::tick(ms);
+        animations::tick(ms);
     }
 
     fn sleep(&mut self) {

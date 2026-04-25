@@ -194,6 +194,12 @@ extern "C" {
     pub fn lv_obj_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_obj_clean(obj: *mut lv_obj_t);
     pub fn lv_obj_set_pos(obj: *mut lv_obj_t, x: i32, y: i32);
+    /// Set just the x coordinate (preserves y). Used by ViewPropertyAnimator
+    /// to animate axes independently — `lv_obj_set_pos` would clobber the
+    /// other axis if a y-anim were running concurrently.
+    pub fn lv_obj_set_x(obj: *mut lv_obj_t, x: i32);
+    /// See [`lv_obj_set_x`].
+    pub fn lv_obj_set_y(obj: *mut lv_obj_t, y: i32);
     pub fn lv_obj_set_size(obj: *mut lv_obj_t, w: i32, h: i32);
     pub fn lv_obj_center(obj: *mut lv_obj_t);
     pub fn lv_obj_set_style_bg_color(

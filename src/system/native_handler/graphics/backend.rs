@@ -61,4 +61,9 @@ pub trait GraphicsBackend {
         method: &str,
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
+    fn dispatch_view_animator(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
 }

@@ -4,6 +4,7 @@
 //! `Toast`, `AlertDialog`.
 
 mod alert_dialog;
+mod animator;
 mod button;
 mod check_box;
 mod edit_text;
@@ -26,6 +27,7 @@ pub use alert_dialog::{
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use alert_dialog::{drain_click_queue as drain_dialog_click_queue, lookup_dialog_obj};
+pub use animator::{animator_native_cancel, animator_native_start, reset_animation_state};
 pub use button::{
     button_native_create, button_perform_click, button_register_click_listener, button_set_text,
     button_was_clicked, reset_button_state,

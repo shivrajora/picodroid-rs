@@ -61,4 +61,12 @@ public class View {
   public native void setAlpha(float alpha);
 
   public native void close();
+
+  /**
+   * Returns a fresh {@link ViewPropertyAnimator} for this view. Mirrors {@code View.animate()} in
+   * Android — chain alpha/x/y + setDuration on the result and call {@code start()}.
+   */
+  public ViewPropertyAnimator animate() {
+    return new ViewPropertyAnimator(this);
+  }
 }
