@@ -168,6 +168,7 @@ pub(crate) fn run_activity(
                     dispatch_seek_bar_changes(jvm, heap, handler);
                     dispatch_checkbox_changes(jvm, heap, handler);
                     dispatch_spinner_changes(jvm, heap, handler);
+                    dispatch_alert_dialog_clicks(jvm, heap, handler);
                     dispatch_key_events(jvm, heap, handler);
                     crate::system::picodroid::hardware::sensors::drain_sensor_events(
                         jvm, heap, handler,
@@ -325,6 +326,35 @@ fn dispatch_spinner_changes(
                 dispatch_class(dispatch_sites::SPINNER),
                 dispatch_method(dispatch_sites::SPINNER),
                 obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── AlertDialog button-click dispatch ──────────────────────────────────────
+
+/// Drain the AlertDialog button-click queue and invoke `fireButtonClick(int)`
+/// on each matching dialog Java object. The `which` value (0=positive,
+/// 1=negative) is passed straight through; `AlertDialog.fireButtonClick`
+/// routes to the correct Runnable on the Java side and dismisses the dialog.
+#[cfg(not(test))]
+fn dispatch_alert_dialog_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some((dialog_handle, which)) = widgets::drain_dialog_click_queue() {
+        if let Some(obj_ref) = widgets::lookup_dialog_obj(dialog_handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::ALERT_DIALOG),
+                dispatch_method(dispatch_sites::ALERT_DIALOG),
+                obj_ref,
+                &[Value::Int(which)],
                 heap,
                 handler,
             );

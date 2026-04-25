@@ -277,4 +277,29 @@ impl GraphicsBackend for LvglBackend {
             _ => None,
         }
     }
+
+    fn dispatch_toast(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::toast_native_create(ctx.args, ctx.strings)),
+            "nativeShow" => Some(widgets::toast_native_show(ctx.args)),
+            "nativeCancel" => Some(widgets::toast_native_cancel(ctx.args)),
+            _ => None,
+        }
+    }
+
+    fn dispatch_alert_dialog(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::alert_dialog_native_create(ctx.args, ctx.strings)),
+            "nativeShow" => Some(widgets::alert_dialog_native_show(ctx.args)),
+            "nativeDismiss" => Some(widgets::alert_dialog_native_dismiss(ctx.args)),
+            "nativeRegisterButtonClickListener" => Some(
+                widgets::alert_dialog_register_button_click_listener(ctx.args, ctx.objects),
+            ),
+            _ => None,
+        }
+    }
 }

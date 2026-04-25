@@ -1,7 +1,9 @@
 //! Native method implementations for all widget classes:
 //! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ToggleButton`, `ListView`,
-//! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`.
+//! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`,
+//! `Toast`, `AlertDialog`.
 
+mod alert_dialog;
 mod button;
 mod check_box;
 mod edit_text;
@@ -15,8 +17,15 @@ mod seek_bar;
 mod spinner;
 mod switch;
 mod text_view;
+mod toast;
 mod toggle_button;
 
+pub use alert_dialog::{
+    alert_dialog_native_create, alert_dialog_native_dismiss, alert_dialog_native_show,
+    alert_dialog_register_button_click_listener, reset_alert_dialog_state,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use alert_dialog::{drain_click_queue as drain_dialog_click_queue, lookup_dialog_obj};
 pub use button::{
     button_native_create, button_perform_click, button_register_click_listener, button_set_text,
     button_was_clicked, reset_button_state,
@@ -61,6 +70,7 @@ pub use switch::{
     switch_register_checked_change_listener, switch_set_checked, switch_toggle,
 };
 pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_text_color};
+pub use toast::{reset_toast_state, toast_native_cancel, toast_native_create, toast_native_show};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
 pub use toggle_button::{

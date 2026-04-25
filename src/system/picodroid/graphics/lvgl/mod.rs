@@ -56,6 +56,12 @@ impl Gfx for LvglGfx {
 
     fn tick(&mut self, ms: u32) {
         lifecycle::tick(ms);
+        // Drive toast auto-dismiss off the same per-frame heartbeat. Done
+        // here rather than inside `lifecycle::tick` so the LVGL FFI calls
+        // and the picodroid-specific widget bookkeeping stay in sibling
+        // modules (`lvgl::lifecycle` owns LVGL; `lvgl::widgets::toast`
+        // owns Toast state).
+        widgets::toast::tick(ms);
     }
 
     fn sleep(&mut self) {

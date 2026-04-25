@@ -47,3 +47,15 @@ pub mod key_event {
     pub const ACTION: usize = 0;
     pub const KEY_CODE: usize = 1;
 }
+
+/// `picodroid.widget.AlertDialog` is **not** a View subclass — slot numbering
+/// starts from its own first declared field.
+#[allow(dead_code)]
+pub mod alert_dialog {
+    /// Scrim handle returned by `lvgl::widgets::alert_dialog::create`.
+    pub const NATIVE_HANDLE: usize = 0;
+    /// `Runnable` for the positive button — read from Java only.
+    pub const POSITIVE_LISTENER: usize = 1;
+    /// `Runnable` for the negative button — read from Java only.
+    pub const NEGATIVE_LISTENER: usize = 2;
+}

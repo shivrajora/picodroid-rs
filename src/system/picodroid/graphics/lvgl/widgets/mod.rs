@@ -5,6 +5,7 @@
 //! trampolines for that widget. A future second backend would mirror this
 //! tree at e.g. `embedded_graphics/widgets/<name>.rs`.
 
+pub mod alert_dialog;
 pub mod button;
 pub mod check_box;
 pub mod edit_text;
@@ -18,4 +19,5 @@ pub mod seek_bar;
 pub mod spinner;
 pub mod switch;
 pub mod text_view;
+pub mod toast;
 pub mod toggle_button;

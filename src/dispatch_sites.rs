@@ -28,6 +28,7 @@ pub const SEEK_BAR: usize = 4;
 pub const SPINNER: usize = 5;
 pub const VIEW_KEY: usize = 6;
 pub const EXECUTORS_DISPATCH: usize = 7;
+pub const ALERT_DIALOG: usize = 8;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -43,6 +44,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     // which then calls `r.run()` via bytecode so lambda proxies resolve
     // through the interpreter's invokeinterface path.
     ("picodroid/concurrent/Executors", "dispatchRunnable"),
+    ("picodroid/widget/AlertDialog", "fireButtonClick"),
 ];
 
 #[cfg(test)]
