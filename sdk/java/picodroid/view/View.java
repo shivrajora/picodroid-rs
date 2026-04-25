@@ -1,5 +1,7 @@
 package picodroid.view;
 
+import picodroid.graphics.drawable.Drawable;
+
 public class View {
   public static final int VISIBLE = 0;
   public static final int INVISIBLE = 1;
@@ -16,6 +18,17 @@ public class View {
   public void setOnKeyListener(OnKeyListener listener) {
     this.onKeyListener = listener;
     nativeRegisterKeyListener();
+  }
+
+  /**
+   * Apply a {@link Drawable} as this view's background — used for rounded corners, gradients, and
+   * stroke outlines. The drawable is dispatched virtually so subclasses (e.g. a future {@code
+   * StateListDrawable}) can swap their fill on press/focus without changing the call site.
+   */
+  public void setBackground(Drawable drawable) {
+    if (drawable != null) {
+      drawable.applyTo(this);
+    }
   }
 
   /**

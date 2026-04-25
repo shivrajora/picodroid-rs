@@ -125,6 +125,14 @@ pub type lv_flex_align_t = u32;
 pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
+/// Linear-gradient direction. Values verified against
+/// vendor/lvgl/src/misc/lv_style.h. v1 GradientDrawable only exposes
+/// NONE / VER / HOR — LINEAR (arbitrary angle) and RADIAL are deferred.
+pub type lv_grad_dir_t = u32;
+pub const LV_GRAD_DIR_NONE: lv_grad_dir_t = 0;
+pub const LV_GRAD_DIR_VER: lv_grad_dir_t = 1;
+pub const LV_GRAD_DIR_HOR: lv_grad_dir_t = 2;
+
 pub type lv_style_selector_t = u32;
 
 // Opacity constants
@@ -306,6 +314,30 @@ extern "C" {
     // Opacity style
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
     pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+
+    // Drawable styles — used by GradientDrawable to apply a bundle of
+    // visual properties at once.
+    pub fn lv_obj_set_style_radius(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_border_width(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_border_color(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_bg_grad_color(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_bg_grad_dir(
+        obj: *mut lv_obj_t,
+        value: lv_grad_dir_t,
+        selector: lv_style_selector_t,
+    );
 
     // List widget
     pub fn lv_list_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

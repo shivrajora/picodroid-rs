@@ -7,6 +7,7 @@ mod alert_dialog;
 mod animator;
 mod button;
 mod check_box;
+mod drawable;
 mod edit_text;
 mod frame_layout;
 mod image_view;
@@ -41,6 +42,7 @@ pub use check_box::{
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
+pub use drawable::gradient_drawable_apply;
 pub use edit_text::{
     edit_text_get_text, edit_text_native_create, edit_text_set_hint, edit_text_set_text,
 };

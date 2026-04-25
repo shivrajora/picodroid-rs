@@ -317,4 +317,15 @@ impl GraphicsBackend for LvglBackend {
             _ => None,
         }
     }
+
+    fn dispatch_gradient_drawable(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeApply" => Some(widgets::gradient_drawable_apply(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
 }
