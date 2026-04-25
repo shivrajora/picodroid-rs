@@ -6,6 +6,7 @@
 
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
+pub mod events;
 pub mod handle_table;
 pub mod lifecycle;
 
@@ -32,6 +33,7 @@ impl Gfx for LvglGfx {
 
     fn init(&mut self, width: u16, height: u16) {
         lifecycle::init(width, height);
+        events::init_keypad();
     }
 
     fn tick(&mut self, ms: u32) {
