@@ -29,6 +29,16 @@ pub const SPINNER: usize = 5;
 pub const VIEW_KEY: usize = 6;
 pub const EXECUTORS_DISPATCH: usize = 7;
 pub const ALERT_DIALOG: usize = 8;
+// Activity lifecycle fallbacks — used when an Activity subclass doesn't
+// declare the lifecycle method and the framework loop must fall back to
+// the default (no-op) impl on `picodroid/app/Activity`.
+pub const ACTIVITY_ON_CREATE: usize = 9;
+pub const ACTIVITY_ON_START: usize = 10;
+pub const ACTIVITY_ON_RESUME: usize = 11;
+pub const ACTIVITY_ON_PAUSE: usize = 12;
+pub const ACTIVITY_ON_STOP: usize = 13;
+pub const ACTIVITY_ON_DESTROY: usize = 14;
+pub const ACTIVITY_ON_BACK_PRESSED: usize = 15;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -45,6 +55,13 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     // through the interpreter's invokeinterface path.
     ("picodroid/concurrent/Executors", "dispatchRunnable"),
     ("picodroid/widget/AlertDialog", "fireButtonClick"),
+    ("picodroid/app/Activity", "onCreate"),
+    ("picodroid/app/Activity", "onStart"),
+    ("picodroid/app/Activity", "onResume"),
+    ("picodroid/app/Activity", "onPause"),
+    ("picodroid/app/Activity", "onStop"),
+    ("picodroid/app/Activity", "onDestroy"),
+    ("picodroid/app/Activity", "onBackPressed"),
 ];
 
 #[cfg(test)]

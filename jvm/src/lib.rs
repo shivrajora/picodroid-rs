@@ -322,6 +322,39 @@ impl Jvm {
         )?;
         Ok(())
     }
+
+    /// Same as [`invoke_instance_with_args`], but surfaces the method's
+    /// return value. Used by the framework event loop to read e.g.
+    /// `View.fireKey`'s `boolean` result so that BACK can fall through to
+    /// `Activity.onBackPressed()` only when no listener consumed it.
+    ///
+    /// Kept as a separate function so existing `let _ = invoke_*` call
+    /// sites don't need to change signature.
+    pub fn invoke_instance_with_args_returning(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        obj_ref: u16,
+        extra_args: &[Value],
+        heap: &mut SharedJvmHeap,
+        handler: &mut impl NativeMethodHandler,
+    ) -> Result<Option<Value>, JvmError> {
+        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
+        let mut args = alloc::vec![Value::ObjectRef(obj_ref)];
+        args.extend_from_slice(extra_args);
+        interpreter::execute(
+            &self.classes,
+            &mut heap.strings,
+            &mut heap.objects,
+            &mut heap.arrays,
+            &mut heap.statics,
+            &mut heap.gc_state,
+            handler,
+            ci,
+            mi,
+            &args,
+        )
+    }
 }
 
 /// Find a class + method index by name (descriptor-agnostic).

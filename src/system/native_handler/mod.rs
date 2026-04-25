@@ -74,6 +74,34 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/io/FileOutputStream",
 ];
 
+/// Maximum Activity stack depth. Each entry holds a `u16` ObjectRef plus a
+/// `&'static str` class name (12 bytes on 32-bit, 16 on 64-bit). 8 covers
+/// any realistic embedded UI flow without burning RAM.
+pub const MAX_ACTIVITY_STACK: usize = 8;
+
+/// Pending lifecycle transition signaled from Java to the framework loop in
+/// [`crate::lifecycle::run_activity`]. The loop checks this between frame
+/// ticks and invokes the corresponding lifecycle callbacks before clearing it.
+#[derive(Copy, Clone, Debug)]
+pub enum PendingActivityOp {
+    /// `Application.startActivity(activity)` or
+    /// `Activity.startActivity(activity)` — push a new Activity on top of
+    /// the stack. The current top, if any, is paused first.
+    Push {
+        obj_ref: u16,
+        class_name: &'static str,
+    },
+    /// `Activity.finish()` — pop the current top off the stack. If the
+    /// stack is left empty, [`run_activity`] returns and the app exits.
+    Pop,
+}
+
+#[derive(Copy, Clone)]
+struct ActivityStackEntry {
+    obj_ref: u16,
+    class_name: &'static str,
+}
+
 pub struct PicodroidNativeHandler {
     /// Resettable counters exposed to Java via Runtime.gcTimeNanos() etc.
     gc_time_ns: u64,
@@ -86,7 +114,15 @@ pub struct PicodroidNativeHandler {
     total_gc_count: u32,
     #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     total_gc_freed: u32,
-    pending_activity: Option<(u16, &'static str)>,
+    /// Active Activity stack — top is at `len - 1`. Empty before the first
+    /// `startActivity` and after the last `finish()`.
+    activity_stack: [Option<ActivityStackEntry>; MAX_ACTIVITY_STACK],
+    activity_stack_len: usize,
+    /// At most one pending push/pop, drained by the framework loop between
+    /// frames. Multiple `startActivity()` calls in a single frame would
+    /// silently drop all but the last; that matches Android's
+    /// "one transition per frame" semantics.
+    pending_op: Option<PendingActivityOp>,
 }
 
 impl PicodroidNativeHandler {
@@ -98,12 +134,51 @@ impl PicodroidNativeHandler {
             total_gc_time_ns: 0,
             total_gc_count: 0,
             total_gc_freed: 0,
-            pending_activity: None,
+            activity_stack: [None; MAX_ACTIVITY_STACK],
+            activity_stack_len: 0,
+            pending_op: None,
         }
     }
 
-    pub fn take_pending_activity(&mut self) -> Option<(u16, &'static str)> {
-        self.pending_activity.take()
+    pub fn take_pending_op(&mut self) -> Option<PendingActivityOp> {
+        self.pending_op.take()
+    }
+
+    /// Top of the activity stack as `(obj_ref, class_name)`, or `None` when
+    /// the stack is empty.
+    pub fn current_activity(&self) -> Option<(u16, &'static str)> {
+        if self.activity_stack_len == 0 {
+            return None;
+        }
+        let entry = self.activity_stack[self.activity_stack_len - 1].as_ref()?;
+        Some((entry.obj_ref, entry.class_name))
+    }
+
+    /// Push an Activity entry onto the stack. Returns `false` and silently
+    /// drops the push if the stack is full — apps can't sensibly recover
+    /// from a 9-deep nav stack on an MCU, so we'd rather fail soft than
+    /// thread a Result through `dispatch`.
+    pub fn push_activity(&mut self, obj_ref: u16, class_name: &'static str) -> bool {
+        if self.activity_stack_len >= MAX_ACTIVITY_STACK {
+            return false;
+        }
+        self.activity_stack[self.activity_stack_len] = Some(ActivityStackEntry {
+            obj_ref,
+            class_name,
+        });
+        self.activity_stack_len += 1;
+        true
+    }
+
+    /// Pop the top activity off the stack. Returns the popped entry, or
+    /// `None` if the stack was already empty.
+    pub fn pop_activity(&mut self) -> Option<(u16, &'static str)> {
+        if self.activity_stack_len == 0 {
+            return None;
+        }
+        self.activity_stack_len -= 1;
+        let entry = self.activity_stack[self.activity_stack_len].take()?;
+        Some((entry.obj_ref, entry.class_name))
     }
 
     /// Returns cumulative (gc_time_ns, gc_count, gc_freed) for the entire run.
@@ -189,19 +264,32 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.gc_freed = 0;
                 Some(Ok(None))
             }
-            // ── Application ──────────────────────────────────────────────
+            // ── Application / Activity navigation ───────────────────────
             // Match any class name: invokevirtual dispatches with the runtime
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
             (_, "startActivity") => {
-                // args[0] = this (Application), args[1] = activity ObjectRef
+                // args[0] = this (Application or Activity), args[1] = activity ObjectRef
                 if let Some(Value::ObjectRef(activity_ref)) = ctx.args.get(1) {
                     let class_name = ctx.objects.class_name(*activity_ref).unwrap_or("unknown");
                     // SAFETY: class names from ObjectHeap are Flash-backed &'static str.
                     let static_name: &'static str =
                         unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
-                    self.pending_activity = Some((*activity_ref, static_name));
+                    self.pending_op = Some(PendingActivityOp::Push {
+                        obj_ref: *activity_ref,
+                        class_name: static_name,
+                    });
                 }
+                Some(Ok(None))
+            }
+            // `Activity.finish()` — request a pop. The handler doesn't
+            // validate that the caller is actually the current top: even if
+            // a paused Activity calls finish, a single Pop op still pops
+            // exactly the top, and that's the documented Android behavior
+            // ("a paused Activity finishing itself" doesn't happen unless
+            // the app is misbehaving anyway).
+            (_, "finish") => {
+                self.pending_op = Some(PendingActivityOp::Pop);
                 Some(Ok(None))
             }
             _ => None,

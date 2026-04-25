@@ -60,6 +60,24 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 // Content management
 // ---------------------------------------------------------------------------
 
+/// Drop the current content view (if any) and clear `CURRENT_ROOT_ID`.
+///
+/// Called by the lifecycle handler in [`crate::lifecycle`] when an Activity
+/// is destroyed (via `finish()`): the destroyed Activity's root view must
+/// be freed *before* the resumed parent Activity's `onResume` calls
+/// `setContentView` again, otherwise `set_content_view`'s "delete prev"
+/// path would double-free the destroyed view.
+pub(crate) fn clear_content_view() {
+    let prev_id = unsafe {
+        let prev = CURRENT_ROOT_ID;
+        CURRENT_ROOT_ID = 0;
+        prev
+    };
+    if prev_id != 0 {
+        with_gfx(|g| g.delete(Handle::from_java(prev_id)));
+    }
+}
+
 /// `Display.setContentView(View root)` — installs `root` as the screen's
 /// content view, deleting the previous root if different.
 pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {

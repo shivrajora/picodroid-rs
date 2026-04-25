@@ -49,7 +49,8 @@ fn now_ms_any() -> u64 {
 // ── Application lifecycle ────────────────────────────────────────────────────
 
 /// Run an Application-based app: allocate the Application object, call
-/// `onCreate()`, then launch a pending Activity if `startActivity()` was called.
+/// `onCreate()`, then enter the activity loop with whichever Activity (if
+/// any) the application's `onCreate` queued via `startActivity`.
 #[cfg(not(test))]
 pub(crate) fn run_application(
     jvm: &mut Jvm,
@@ -57,6 +58,8 @@ pub(crate) fn run_application(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
+    use crate::system::native_handler::PendingActivityOp;
+
     let obj_ref = heap
         .objects
         .alloc(application_class)
@@ -71,23 +74,42 @@ pub(crate) fn run_application(
         }
     }
 
-    // If onCreate() called startActivity(), launch the Activity lifecycle.
-    if let Some((activity_ref, activity_class)) = handler.take_pending_activity() {
-        run_activity(jvm, activity_class, activity_ref, heap, handler);
+    // If onCreate() called startActivity(), enter the Activity loop with
+    // that initial push. Anything else (e.g. Pop with empty stack) is a
+    // no-op: nothing to drive.
+    if let Some(PendingActivityOp::Push {
+        obj_ref: act_ref,
+        class_name: act_class,
+    }) = handler.take_pending_op()
+    {
+        run_activity(jvm, act_class, act_ref, heap, handler);
     }
 }
 
 // ── Activity lifecycle ───────────────────────────────────────────────────────
 
-/// Run an Activity-based app: call `onCreate()` on the pre-allocated Activity,
-/// then enter the framework event loop (tick LVGL + dispatch click events).
+/// Run the Activity stack starting with `(initial_class, initial_ref)`.
 ///
-/// Works on both real hardware and the host simulator (minifb window).
+/// Owns:
+/// - Pushing the initial Activity onto the handler stack and driving its
+///   `onCreate` → `onStart` → `onResume`.
+/// - The frame-budget event loop (LVGL tick + widget callback dispatch).
+/// - Processing pending push/pop transitions queued by Java
+///   (`startActivity`, `finish()`) between frames.
+/// - Graceful teardown on exit (window close / interrupt / final `finish()`):
+///   `onPause` → `onStop` → `onDestroy` are invoked on every still-live
+///   stack entry, top-down.
+///
+/// **v1 caveat**: Activity content views are NOT preserved across pause.
+/// When B is pushed over A, A's content view is freed by B's
+/// `setContentView` call. When B finishes and A resumes, A must re-call
+/// `setContentView` from its `onResume` to put its UI back. Activity-level
+/// view preservation is a planned follow-up.
 #[cfg(not(test))]
 pub(crate) fn run_activity(
     jvm: &mut Jvm,
-    activity_class: &'static str,
-    obj_ref: u16,
+    initial_class: &'static str,
+    initial_ref: u16,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
@@ -99,15 +121,48 @@ pub(crate) fn run_activity(
     // already initialised on a prior activity launch.
     main_queue::init();
 
-    // Call the subclass's onCreate() -- this builds the UI tree and calls
-    // setContentView().  Virtual dispatch picks up the override automatically.
-    match jvm.invoke_instance(activity_class, "onCreate", obj_ref, heap, handler) {
-        Ok(()) => {}
-        Err(JvmError::Interrupted) => return,
-        Err(e) => {
-            log_error!("Activity.onCreate error: {}", e);
-            return;
-        }
+    // Bootstrap: push the initial Activity, then drive its onCreate ->
+    // onStart -> onResume. From this point on the stack is non-empty for
+    // the rest of the loop's lifetime.
+    if !handler.push_activity(initial_ref, initial_class) {
+        log_error!("activity stack overflow on bootstrap: {}", initial_class);
+        return;
+    }
+    if invoke_lifecycle(
+        jvm,
+        initial_class,
+        dispatch_sites::ACTIVITY_ON_CREATE,
+        initial_ref,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
+        return;
+    }
+    if invoke_lifecycle(
+        jvm,
+        initial_class,
+        dispatch_sites::ACTIVITY_ON_START,
+        initial_ref,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
+        return;
+    }
+    if invoke_lifecycle(
+        jvm,
+        initial_class,
+        dispatch_sites::ACTIVITY_ON_RESUME,
+        initial_ref,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
+        return;
     }
 
     // Framework event loop -- unified FIFO drain interleaving LVGL ticks
@@ -193,6 +248,27 @@ pub(crate) fn run_activity(
             }
         }
 
+        // Process any lifecycle transitions queued by Java during this
+        // frame's dispatches (a button click handler called startActivity,
+        // a key handler called finish(), etc.). At most one transition per
+        // frame is the documented contract, but we drain in a `while` so
+        // back-to-back queues collapse cleanly.
+        let mut should_exit = false;
+        while let Some(op) = handler.take_pending_op() {
+            if process_pending_op(jvm, op, heap, handler).is_break() {
+                should_exit = true;
+                break;
+            }
+            if handler.current_activity().is_none() {
+                // Last activity finish()ed — exit the loop and run teardown.
+                should_exit = true;
+                break;
+            }
+        }
+        if should_exit {
+            break;
+        }
+
         crate::hal::display::update_window();
         if !crate::hal::display::is_window_open() {
             break;
@@ -204,6 +280,202 @@ pub(crate) fn run_activity(
         if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
             with_gfx(|g| g.sleep());
             sleeping = true;
+        }
+    }
+
+    // ── Graceful teardown ─────────────────────────────────────────────
+    // Reasons we can land here: window closed, JVM interrupt, or the last
+    // activity was finish()ed via process_pending_op (in which case the
+    // stack is already empty and the while-let body is a no-op). For
+    // window-close / interrupt the stack still holds live entries; tear
+    // them down top-down so each Activity sees the full Android contract.
+    while let Some((act_ref, act_class)) = handler.pop_activity() {
+        let _ = invoke_lifecycle(
+            jvm,
+            act_class,
+            dispatch_sites::ACTIVITY_ON_PAUSE,
+            act_ref,
+            heap,
+            handler,
+        );
+        let _ = invoke_lifecycle(
+            jvm,
+            act_class,
+            dispatch_sites::ACTIVITY_ON_STOP,
+            act_ref,
+            heap,
+            handler,
+        );
+        let _ = invoke_lifecycle(
+            jvm,
+            act_class,
+            dispatch_sites::ACTIVITY_ON_DESTROY,
+            act_ref,
+            heap,
+            handler,
+        );
+    }
+    crate::system::picodroid::graphics::display::clear_content_view();
+}
+
+// ── Lifecycle invocation + transition processing ─────────────────────────────
+
+/// Result of a lifecycle invocation, used by [`run_activity`] to decide
+/// whether to continue the loop or unwind.
+#[cfg(not(test))]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum LifecycleControl {
+    /// Method ran (or was a no-op fallback); continue the loop.
+    Continue,
+    /// JVM cooperative interrupt — caller should return immediately.
+    Break,
+}
+
+#[cfg(not(test))]
+impl LifecycleControl {
+    fn is_break(self) -> bool {
+        matches!(self, LifecycleControl::Break)
+    }
+}
+
+/// Invoke a lifecycle method on `subclass`, falling back to the default
+/// no-op declared on `picodroid/app/Activity` if the subclass doesn't
+/// override it.
+///
+/// `fallback_idx` is the [`DISPATCH_SITES`] index for the
+/// `(picodroid/app/Activity, methodName)` pair — used both as the
+/// fallback class for the second attempt AND as the source of the
+/// method-name string for the first attempt.
+#[cfg(not(test))]
+fn invoke_lifecycle(
+    jvm: &mut Jvm,
+    subclass: &'static str,
+    fallback_idx: usize,
+    obj_ref: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    let method = dispatch_method(fallback_idx);
+    // First attempt: the receiver's runtime subclass. find_method_by_name
+    // is a flat lookup, so this only succeeds if the subclass declares
+    // the method itself (i.e. overrides the framework default).
+    match jvm.invoke_instance(subclass, method, obj_ref, heap, handler) {
+        Ok(()) => return LifecycleControl::Continue,
+        Err(JvmError::MethodNotFound) => { /* fall through to the framework default */ }
+        Err(JvmError::Interrupted) => return LifecycleControl::Break,
+        Err(e) => {
+            log_error!("Activity lifecycle error: {}", e);
+            return LifecycleControl::Continue;
+        }
+    }
+    let fallback_class = dispatch_class(fallback_idx);
+    match jvm.invoke_instance(fallback_class, method, obj_ref, heap, handler) {
+        Ok(()) => LifecycleControl::Continue,
+        Err(JvmError::Interrupted) => LifecycleControl::Break,
+        Err(e) => {
+            log_error!("Activity lifecycle fallback error: {}", e);
+            LifecycleControl::Continue
+        }
+    }
+}
+
+/// Process a single push or pop, invoking the canonical Android lifecycle
+/// callback sequence on the activities involved. See the doc comment on
+/// [`run_activity`] for the v1 view-preservation caveat.
+#[cfg(not(test))]
+fn process_pending_op(
+    jvm: &mut Jvm,
+    op: crate::system::native_handler::PendingActivityOp,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    use crate::system::native_handler::PendingActivityOp;
+
+    match op {
+        PendingActivityOp::Push {
+            obj_ref: new_ref,
+            class_name: new_class,
+        } => {
+            // Capture the previous top before pushing — needed for the
+            // trailing onStop call after the new top is fully resumed.
+            let prev = handler.current_activity();
+            if let Some((prev_ref, prev_class)) = prev {
+                if invoke_lifecycle(
+                    jvm,
+                    prev_class,
+                    dispatch_sites::ACTIVITY_ON_PAUSE,
+                    prev_ref,
+                    heap,
+                    handler,
+                )
+                .is_break()
+                {
+                    return LifecycleControl::Break;
+                }
+            }
+            if !handler.push_activity(new_ref, new_class) {
+                log_error!("activity stack overflow on push: {}", new_class);
+                return LifecycleControl::Continue;
+            }
+            for site in [
+                dispatch_sites::ACTIVITY_ON_CREATE,
+                dispatch_sites::ACTIVITY_ON_START,
+                dispatch_sites::ACTIVITY_ON_RESUME,
+            ] {
+                if invoke_lifecycle(jvm, new_class, site, new_ref, heap, handler).is_break() {
+                    return LifecycleControl::Break;
+                }
+            }
+            // New top is now fully resumed — stop the previous one. Order
+            // matches Android: `prev.onStop` lands AFTER `new.onResume`.
+            if let Some((prev_ref, prev_class)) = prev {
+                if invoke_lifecycle(
+                    jvm,
+                    prev_class,
+                    dispatch_sites::ACTIVITY_ON_STOP,
+                    prev_ref,
+                    heap,
+                    handler,
+                )
+                .is_break()
+                {
+                    return LifecycleControl::Break;
+                }
+            }
+            LifecycleControl::Continue
+        }
+        PendingActivityOp::Pop => {
+            let (top_ref, top_class) = match handler.current_activity() {
+                Some(t) => t,
+                None => return LifecycleControl::Continue, // already empty
+            };
+            for site in [
+                dispatch_sites::ACTIVITY_ON_PAUSE,
+                dispatch_sites::ACTIVITY_ON_STOP,
+                dispatch_sites::ACTIVITY_ON_DESTROY,
+            ] {
+                if invoke_lifecycle(jvm, top_class, site, top_ref, heap, handler).is_break() {
+                    return LifecycleControl::Break;
+                }
+            }
+            handler.pop_activity();
+            // Free the destroyed activity's content view BEFORE the resumed
+            // parent's onResume calls setContentView again — otherwise that
+            // call's "delete prev" path would double-free.
+            crate::system::picodroid::graphics::display::clear_content_view();
+            if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
+                for site in [
+                    dispatch_sites::ACTIVITY_ON_START,
+                    dispatch_sites::ACTIVITY_ON_RESUME,
+                ] {
+                    if invoke_lifecycle(jvm, new_top_class, site, new_top_ref, heap, handler)
+                        .is_break()
+                    {
+                        return LifecycleControl::Break;
+                    }
+                }
+            }
+            LifecycleControl::Continue
         }
     }
 }
@@ -364,11 +636,9 @@ fn dispatch_alert_dialog_clicks(
 
 // ── Hardware key-event dispatch ─────────────────────────────────────────────
 
-/// Drain the hardware key-event queue and invoke `View.fireKey()` on the
-/// Java View corresponding to LVGL's currently focused widget. If no widget
-/// is focused or the focused widget has no registered OnKeyListener, the
-/// event is silently dropped — LVGL has already consumed it for focus
-/// navigation via the same `keypad_read_cb`.
+/// Drain the hardware key-event queue, dispatch each event to the focused
+/// View's `OnKeyListener`, and route un-consumed BACK releases to the top
+/// Activity's `onBackPressed` (which defaults to `finish()`).
 ///
 /// Note: `hal::sim::gpio::drain_gpio_event` always returns `None` in sim
 /// builds, so this dispatcher never fires events on the host. End-to-end
@@ -380,55 +650,97 @@ fn dispatch_key_events(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     use crate::system::picodroid::graphics::lvgl::events;
-    use pico_jvm::types::Value;
+
+    /// Mirrors `KeyEvent.ACTION_UP` and `KeyEvent.KEYCODE_BACK` on the
+    /// Java side. Hard-coded because there's no enum bridge from Java to
+    /// Rust for these constants.
+    const ACTION_UP: i32 = 1;
+    const KEYCODE_BACK: i32 = 4;
 
     while let Some(raw) = events::drain_key_event() {
-        let view_ref = match events::focused_view_obj() {
-            Some(r) => r,
-            None => continue,
-        };
         let keycode = match events::pin_to_keycode(raw.pin) {
             Some(k) => k,
             None => continue,
         };
         let action = if raw.rising { 1 } else { 0 }; // ACTION_UP : ACTION_DOWN
 
-        let event_obj = match heap.objects.alloc("picodroid/view/KeyEvent") {
-            Some(o) => o,
-            None => continue,
+        // 1) Dispatch to the focused View's OnKeyListener, if any. Capture
+        //    fireKey's `boolean` return so an un-consumed BACK release can
+        //    fall through to onBackPressed below.
+        let consumed = match events::focused_view_obj() {
+            Some(view_ref) => fire_view_key(jvm, view_ref, keycode, action, heap, handler),
+            None => false,
         };
-        if heap
-            .objects
-            .set_field(
-                event_obj,
-                crate::system::picodroid::graphics::fields::key_event::ACTION,
-                Value::Int(action),
-            )
-            .is_none()
-        {
-            continue;
-        }
-        if heap
-            .objects
-            .set_field(
-                event_obj,
-                crate::system::picodroid::graphics::fields::key_event::KEY_CODE,
-                Value::Int(keycode),
-            )
-            .is_none()
-        {
-            continue;
-        }
 
-        let _ = jvm.invoke_instance_with_args(
-            dispatch_class(dispatch_sites::VIEW_KEY),
-            dispatch_method(dispatch_sites::VIEW_KEY),
-            view_ref,
-            &[Value::ObjectRef(event_obj)],
-            heap,
-            handler,
-        );
+        // 2) Default BACK handler: invoke `Activity.onBackPressed` on the
+        //    top activity when no View consumed the BACK release. Apps
+        //    that want to suppress finish() can override `onBackPressed`
+        //    to a no-op (or show a confirm dialog).
+        if !consumed && keycode == KEYCODE_BACK && action == ACTION_UP {
+            if let Some((act_ref, act_class)) = handler.current_activity() {
+                let _ = invoke_lifecycle(
+                    jvm,
+                    act_class,
+                    dispatch_sites::ACTIVITY_ON_BACK_PRESSED,
+                    act_ref,
+                    heap,
+                    handler,
+                );
+            }
+        }
     }
+}
+
+/// Build a `KeyEvent`, invoke `View.fireKey`, and return `true` if the
+/// listener consumed the event (`fireKey` returned non-zero). Helper for
+/// [`dispatch_key_events`] — keeps the BACK-routing logic readable.
+#[cfg(not(test))]
+fn fire_view_key(
+    jvm: &mut Jvm,
+    view_ref: u16,
+    keycode: i32,
+    action: i32,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> bool {
+    use pico_jvm::types::Value;
+
+    let event_obj = match heap.objects.alloc("picodroid/view/KeyEvent") {
+        Some(o) => o,
+        None => return false,
+    };
+    if heap
+        .objects
+        .set_field(
+            event_obj,
+            crate::system::picodroid::graphics::fields::key_event::ACTION,
+            Value::Int(action),
+        )
+        .is_none()
+    {
+        return false;
+    }
+    if heap
+        .objects
+        .set_field(
+            event_obj,
+            crate::system::picodroid::graphics::fields::key_event::KEY_CODE,
+            Value::Int(keycode),
+        )
+        .is_none()
+    {
+        return false;
+    }
+
+    let ret = jvm.invoke_instance_with_args_returning(
+        dispatch_class(dispatch_sites::VIEW_KEY),
+        dispatch_method(dispatch_sites::VIEW_KEY),
+        view_ref,
+        &[Value::ObjectRef(event_obj)],
+        heap,
+        handler,
+    );
+    matches!(ret, Ok(Some(Value::Int(v))) if v != 0)
 }
 
 // ── SeekBar value-changed dispatch ──────────────────────────────────────────
