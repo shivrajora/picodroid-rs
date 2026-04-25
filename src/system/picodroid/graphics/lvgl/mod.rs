@@ -6,7 +6,9 @@
 
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
+pub mod calibration;
 pub mod events;
+pub mod fps_overlay;
 pub mod handle_table;
 pub mod lifecycle;
 pub mod view_ops;

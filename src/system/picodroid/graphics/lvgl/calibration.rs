@@ -10,7 +10,7 @@ use crate::hal;
 use crate::lvgl_ffi::*;
 
 #[cfg(not(feature = "sim"))]
-use super::engine;
+use super::lifecycle;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,7 +64,7 @@ fn stopped() -> bool {
 
 #[cfg(not(feature = "sim"))]
 unsafe fn calibrate_inner() {
-    let scr = engine::screen();
+    let scr = lifecycle::screen_ptr();
 
     let instr = lv_label_create(scr);
     lv_label_set_text(instr, c"Touch each + target".as_ptr());
@@ -90,14 +90,14 @@ unsafe fn calibrate_inner() {
         lv_obj_set_pos(step_lbl, 130, 110);
 
         lv_obj_set_pos(cross, tx - GLYPH_HALF_W, ty - GLYPH_HALF_H);
-        engine::tick(16);
+        lifecycle::tick(16);
 
         wait_for_release();
         raw_pts[i] = wait_for_debounced_touch();
 
         // Brief visual feedback
         lv_obj_set_pos(cross, -50, -50);
-        engine::tick(16);
+        lifecycle::tick(16);
         hal::system_clock::sleep(200);
     }
 
@@ -108,7 +108,7 @@ unsafe fn calibrate_inner() {
     apply_calibration(&raw_pts);
 
     lv_obj_clean(scr);
-    engine::tick(16);
+    lifecycle::tick(16);
 }
 
 #[cfg(not(feature = "sim"))]
@@ -118,7 +118,7 @@ fn wait_for_release() {
         if stopped() {
             return;
         }
-        engine::tick(16);
+        lifecycle::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
         if !(50..=4050).contains(&rx) || !(50..=4050).contains(&ry) {
             quiet += 1;
@@ -144,7 +144,7 @@ fn wait_for_debounced_touch() -> (u16, u16) {
         if stopped() {
             return (0, 0);
         }
-        engine::tick(16);
+        lifecycle::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
 
         if !(50..=4050).contains(&rx) || !(50..=4050).contains(&ry) {

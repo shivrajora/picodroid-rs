@@ -9,12 +9,8 @@
 //! (step 8), this file's screen accessor goes away (step 10).
 
 use crate::hal;
-#[cfg(not(feature = "sim"))]
-use crate::lvgl_ffi::lv_obj_t;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(not(feature = "sim"))]
-use super::lvgl::lifecycle;
 use super::lvgl::with_gfx;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -49,19 +45,9 @@ pub fn wake() {
     with_gfx(|g| g.wake());
 }
 
-/// Get the active screen object as a raw LVGL pointer.
-///
-/// Embedded-only — last consumer is `calibration.rs`, which moves into
-/// `lvgl/` in plan step 9. After that this accessor and the surrounding
-/// shim go away in step 10.
-#[cfg(not(feature = "sim"))]
-pub fn screen() -> *mut lv_obj_t {
-    lifecycle::screen_ptr()
-}
-
 /// Re-export calibration entry point so existing `engine::calibrate()`
 /// calls continue to work without changes.
-pub use super::calibration::calibrate;
+pub use super::lvgl::calibration::calibrate;
 
 // Re-export the keypad/event-queue API from its new home in `lvgl::events`
 // so external callers in `app.rs` and `lifecycle.rs` keep compiling.

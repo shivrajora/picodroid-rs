@@ -62,7 +62,7 @@ pub fn reset_key_event_queue() {
 
 /// Return the Java `View` object reference for LVGL's currently focused
 /// widget, if one is registered as a key listener via
-/// `view::register_key_listener`.
+/// [`register_view_key_listener`].
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn focused_view_obj() -> Option<u16> {
     unsafe {
@@ -74,7 +74,50 @@ pub fn focused_view_obj() -> Option<u16> {
         if focused.is_null() {
             return None;
         }
-        super::super::view::lookup_view_obj(focused as usize)
+        lookup_view_obj(focused as usize)
+    }
+}
+
+// ── View key-listener registry (raw lv_obj_t* → Java View ObjectRef) ────────
+
+const MAX_KEY_LISTENERS: usize = 32;
+static mut VIEW_KEY_MAP: [(usize, u16); MAX_KEY_LISTENERS] = [(0, 0); MAX_KEY_LISTENERS];
+static mut VIEW_KEY_MAP_LEN: usize = 0;
+
+/// Record a Java `View` object as the key-listener target for the given
+/// `nativeHandle` id. The registry keys on the raw `lv_obj_t*` from the
+/// handle table because LVGL's focus group also exposes raw pointers.
+pub fn register_view_key_listener(id: i32, obj_ref: u16) {
+    let raw_ptr = super::handle_table::lookup(id) as usize;
+    unsafe {
+        for entry in &mut VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if VIEW_KEY_MAP_LEN < MAX_KEY_LISTENERS {
+            VIEW_KEY_MAP[VIEW_KEY_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_KEY_MAP_LEN += 1;
+        }
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+fn lookup_view_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+pub fn reset_view_key_listener_state() {
+    unsafe {
+        VIEW_KEY_MAP_LEN = 0;
     }
 }
 

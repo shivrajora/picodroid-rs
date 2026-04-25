@@ -161,7 +161,7 @@ pub(crate) fn run_activity(
             match main_queue::try_recv() {
                 Some(MainTask::LvglTick) => {
                     engine::tick(16);
-                    crate::system::picodroid::graphics::fps_overlay::update();
+                    crate::system::picodroid::graphics::lvgl::fps_overlay::update();
                     dispatch_clicks(jvm, heap, handler);
                     dispatch_checked_changes(jvm, heap, handler);
                     dispatch_switch_checked_changes(jvm, heap, handler);

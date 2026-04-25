@@ -13,7 +13,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
 use super::gfx::{Handle, Visibility};
-use super::handle_table;
+use super::lvgl::events as lvgl_events;
 use super::lvgl::with_gfx;
 
 // ---------------------------------------------------------------------------
@@ -156,15 +156,8 @@ pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmE
 }
 
 // ---------------------------------------------------------------------------
-// Key-listener registry (lv_obj_t* → Java View ObjectRef)
+// Key-listener Java bindings — registry lives in `lvgl::events`.
 // ---------------------------------------------------------------------------
-
-const MAX_KEY_LISTENERS: usize = 32;
-/// Maps LVGL `lv_obj_t*` to the Java `View` heap index that registered a key
-/// listener on it. The listener object itself is read back from the View's
-/// `onKeyListener` field at dispatch time (so stale references are impossible).
-static mut VIEW_KEY_MAP: [(usize, u16); MAX_KEY_LISTENERS] = [(0, 0); MAX_KEY_LISTENERS];
-static mut VIEW_KEY_MAP_LEN: usize = 0;
 
 /// `View.nativeRegisterKeyListener()` — records this View as a key-listener
 /// candidate so the framework event loop can dispatch `fireKey()` when this
@@ -178,39 +171,11 @@ pub fn register_key_listener(
         _ => return Err(JvmError::InvalidReference),
     };
     let id = extract_native_handle(args, objects)?;
-    let raw_ptr = handle_table::lookup(id) as usize;
-
-    unsafe {
-        for entry in &mut VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return Ok(None);
-            }
-        }
-        if VIEW_KEY_MAP_LEN < MAX_KEY_LISTENERS {
-            VIEW_KEY_MAP[VIEW_KEY_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_KEY_MAP_LEN += 1;
-        }
-    }
+    lvgl_events::register_view_key_listener(id, obj_ref);
     Ok(None)
-}
-
-/// Look up the Java `View` object heap index for a given LVGL handle.
-#[cfg_attr(feature = "sim", allow(dead_code))]
-pub fn lookup_view_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
 }
 
 /// Reset the key-listener registry between app runs.
 pub fn reset_key_listener_state() {
-    unsafe {
-        VIEW_KEY_MAP_LEN = 0;
-    }
+    lvgl_events::reset_view_key_listener_state();
 }

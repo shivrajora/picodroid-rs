@@ -122,7 +122,7 @@ pub fn calibrate() -> Result<Option<Value>, JvmError> {
 
 /// `Display.showFps()` — enables the on-screen FPS overlay.
 pub fn show_fps() -> Result<Option<Value>, JvmError> {
-    super::fps_overlay::enable();
+    super::lvgl::fps_overlay::enable();
     Ok(None)
 }
 
