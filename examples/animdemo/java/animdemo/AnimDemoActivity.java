@@ -4,6 +4,7 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.util.Log;
 import picodroid.widget.Button;
+import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
@@ -15,29 +16,28 @@ public class AnimDemoActivity extends Activity {
   public void onCreate() {
     getDisplay();
 
-    LinearLayout root = new LinearLayout();
-    root.setOrientation(LinearLayout.VERTICAL);
+    // FrameLayout root so the animated tile can live at an absolute
+    // position. A vertical LinearLayout would re-layout the tile on every
+    // pass and clobber x/y set via animate() — children of a flex
+    // container don't honor setPosition.
+    FrameLayout root = new FrameLayout();
     root.setSize(240, 240);
-    root.setPadding(10, 10, 10, 10);
+
+    // Controls column anchored to the top half — title + 3 buttons fit in
+    // ~140 px, leaving the lower strip free for the tile to slide across.
+    LinearLayout controls = new LinearLayout();
+    controls.setOrientation(LinearLayout.VERTICAL);
+    controls.setSize(240, 150);
+    controls.setPosition(0, 0);
+    controls.setPadding(10, 10, 10, 10);
 
     TextView title = new TextView();
     title.setText("Animation Demo");
     title.setTextColor(Color.WHITE);
-    root.addView(title);
-
-    // The animated tile. Position is absolute (set via animate().x/y), so
-    // we don't add it to the LinearLayout — flex flow would override our
-    // x/y on every layout pass.
-    tile = new TextView();
-    tile.setText("hello");
-    tile.setSize(60, 30);
-    tile.setBackgroundColor(Color.argb(255, 80, 120, 200));
-    tile.setTextColor(Color.WHITE);
-    tile.setPosition(20, 120);
-    root.addView(tile);
+    controls.addView(title);
 
     Button fadeBtn = new Button("Fade toggle");
-    fadeBtn.setSize(200, 36);
+    fadeBtn.setSize(200, 30);
     fadeBtn.setOnClickListener(
         () -> {
           float from = tileFaded ? 0.0f : 1.0f;
@@ -46,10 +46,10 @@ public class AnimDemoActivity extends Activity {
           Log.i("AnimDemo", "fade " + from + " -> " + to);
           tile.animate().alpha(from, to).setDuration(400).start();
         });
-    root.addView(fadeBtn);
+    controls.addView(fadeBtn);
 
     Button slideBtn = new Button("Slide");
-    slideBtn.setSize(200, 36);
+    slideBtn.setSize(200, 30);
     slideBtn.setOnClickListener(
         () -> {
           int from = tileMoved ? 160 : 20;
@@ -58,19 +58,32 @@ public class AnimDemoActivity extends Activity {
           Log.i("AnimDemo", "slide " + from + " -> " + to);
           tile.animate().x(from, to).setDuration(300).start();
         });
-    root.addView(slideBtn);
+    controls.addView(slideBtn);
 
     Button restoreBtn = new Button("Restore");
-    restoreBtn.setSize(200, 36);
+    restoreBtn.setSize(200, 30);
     restoreBtn.setOnClickListener(
         () -> {
           Log.i("AnimDemo", "restore");
           tile.setAlpha(1.0f);
-          tile.setPosition(20, 120);
+          tile.setPosition(20, 180);
           tileMoved = false;
           tileFaded = false;
         });
-    root.addView(restoreBtn);
+    controls.addView(restoreBtn);
+
+    root.addView(controls);
+
+    // The animated tile — sibling of the controls inside the FrameLayout,
+    // positioned absolutely. setPosition + animate().x/y both work because
+    // FrameLayout is a plain lv_obj with no flex flow.
+    tile = new TextView();
+    tile.setText("hello");
+    tile.setSize(60, 30);
+    tile.setBackgroundColor(Color.argb(255, 80, 120, 200));
+    tile.setTextColor(Color.WHITE);
+    tile.setPosition(20, 180);
+    root.addView(tile);
 
     setContentView(root);
   }
