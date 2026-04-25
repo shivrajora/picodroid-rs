@@ -6,9 +6,9 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::engine;
 use super::fields;
-use super::handle_table;
+use super::gfx::Handle;
+use super::lvgl::with_gfx;
 use super::view;
-use crate::lvgl_ffi::*;
 
 // ---------------------------------------------------------------------------
 // Singleton
@@ -19,9 +19,10 @@ use core::sync::atomic::{AtomicU16, Ordering};
 /// Heap index of the singleton `Display` object (`u16::MAX` = not yet allocated).
 static DISPLAY_INSTANCE: AtomicU16 = AtomicU16::new(u16::MAX);
 
-/// The current root view installed by `setContentView`, as an `lv_obj_t*` cast to usize.
-/// 0 = no root set yet.
-static mut CURRENT_ROOT: usize = 0;
+/// Java `nativeHandle` of the current root view installed by
+/// `setContentView`. `0` = no root set yet. Single-threaded access (the
+/// JVM owns the only frontend), same contract as the prior `usize` cell.
+static mut CURRENT_ROOT_ID: i32 = 0;
 
 /// `Display.getInstance()` — initialises the display hardware + LVGL on first call.
 pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
@@ -59,27 +60,27 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 // Content management
 // ---------------------------------------------------------------------------
 
-/// `Display.setContentView(View root)` — sets `root` as the screen's content view.
-///
-/// On the first call the root is already a child of the screen (every `nativeCreate`
-/// parents to the active screen), so we just record it.  On subsequent calls the
-/// previous root is deleted before installing the new one.
+/// `Display.setContentView(View root)` — installs `root` as the screen's
+/// content view, deleting the previous root if different.
 pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let root_id = view::extract_handle_at(args, 1, objects)?;
-    let new_root = handle_table::lookup(root_id);
-    unsafe {
-        let screen = engine::screen();
+    // SAFETY: single-threaded access matches the prior usize-cell contract.
+    let prev_id = unsafe {
+        let prev = CURRENT_ROOT_ID;
+        CURRENT_ROOT_ID = root_id;
+        prev
+    };
 
-        // Delete the previous root (if any) if it differs from the new one.
-        let prev = CURRENT_ROOT;
-        if prev != 0 && prev != new_root as usize {
-            lv_obj_delete(prev as *mut lv_obj_t);
+    with_gfx(|g| {
+        if prev_id != 0 && prev_id != root_id {
+            g.delete(Handle::from_java(prev_id));
         }
-
-        // Ensure the new root is parented to the screen.
-        lv_obj_set_parent(new_root, screen);
-        CURRENT_ROOT = new_root as usize;
-    }
+        // Ensure the new root is parented to the screen (every nativeCreate
+        // already parents to the active screen on first call, so this is a
+        // re-parent on subsequent setContentView calls).
+        let scr = g.screen();
+        g.set_parent(Handle::from_java(root_id), scr);
+    });
     Ok(None)
 }
 

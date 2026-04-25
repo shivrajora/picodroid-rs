@@ -9,10 +9,13 @@
 //! (step 8), this file's screen accessor goes away (step 10).
 
 use crate::hal;
+#[cfg(not(feature = "sim"))]
 use crate::lvgl_ffi::lv_obj_t;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use super::lvgl::{lifecycle, with_gfx};
+#[cfg(not(feature = "sim"))]
+use super::lvgl::lifecycle;
+use super::lvgl::with_gfx;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
@@ -48,8 +51,10 @@ pub fn wake() {
 
 /// Get the active screen object as a raw LVGL pointer.
 ///
-/// Legacy accessor used by widgets that haven't been migrated to
-/// `with_gfx(|g| g.screen())` yet (plan step 7). Goes away in step 10.
+/// Embedded-only — last consumer is `calibration.rs`, which moves into
+/// `lvgl/` in plan step 9. After that this accessor and the surrounding
+/// shim go away in step 10.
+#[cfg(not(feature = "sim"))]
 pub fn screen() -> *mut lv_obj_t {
     lifecycle::screen_ptr()
 }
