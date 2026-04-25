@@ -277,6 +277,10 @@ impl GraphicsBackend for LvglBackend {
                 ctx.strings,
                 ctx.objects,
             )),
+            "setShowKeyboardOnTouch" => Some(widgets::edit_text_set_show_keyboard_on_touch(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }
@@ -325,6 +329,19 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeApply" => Some(widgets::gradient_drawable_apply(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
+
+    fn dispatch_keyboard(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::keyboard_native_create()),
+            "nativeSetTextarea" => Some(widgets::keyboard_set_textarea(ctx.args, ctx.objects)),
+            "nativeSetMode" => Some(widgets::keyboard_set_mode(ctx.args, ctx.objects)),
+            "nativeRegisterReadyListener" => Some(widgets::keyboard_register_ready_listener(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

@@ -116,6 +116,10 @@ pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 5;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 7;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 8;
 pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 32; // LVGL 9.2.2: shifted +4 by ROTARY, HOVER_OVER, HOVER_LEAVE, DRAW_TASK_ADDED
+/// Fired when a multi-step interaction "completes" — used by lv_keyboard
+/// when the user taps the OK / Enter key. Position 35 in the v9.2.2
+/// enum (VALUE_CHANGED + 3, accounting for INSERT, REFRESH).
+pub const LV_EVENT_READY: lv_event_code_t = 35;
 
 pub type lv_flex_flow_t = u32;
 pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0x00;
@@ -132,6 +136,16 @@ pub type lv_grad_dir_t = u32;
 pub const LV_GRAD_DIR_NONE: lv_grad_dir_t = 0;
 pub const LV_GRAD_DIR_VER: lv_grad_dir_t = 1;
 pub const LV_GRAD_DIR_HOR: lv_grad_dir_t = 2;
+
+/// Soft-keyboard mode. Verified against
+/// vendor/lvgl/src/widgets/keyboard/lv_keyboard.h. Only the four
+/// "primary" modes are exposed; the various "user-defined" modes are
+/// deferred until apps need custom layouts.
+pub type lv_keyboard_mode_t = u32;
+pub const LV_KEYBOARD_MODE_TEXT_LOWER: lv_keyboard_mode_t = 0;
+pub const LV_KEYBOARD_MODE_TEXT_UPPER: lv_keyboard_mode_t = 1;
+pub const LV_KEYBOARD_MODE_SPECIAL: lv_keyboard_mode_t = 2;
+pub const LV_KEYBOARD_MODE_NUMBER: lv_keyboard_mode_t = 3;
 
 pub type lv_style_selector_t = u32;
 
@@ -372,4 +386,9 @@ extern "C" {
     pub fn lv_textarea_set_text(obj: *mut lv_obj_t, txt: *const c_char);
     pub fn lv_textarea_get_text(obj: *const lv_obj_t) -> *const c_char;
     pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, txt: *const c_char);
+
+    // Keyboard widget
+    pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_keyboard_set_textarea(kb: *mut lv_obj_t, ta: *mut lv_obj_t);
+    pub fn lv_keyboard_set_mode(kb: *mut lv_obj_t, mode: lv_keyboard_mode_t);
 }

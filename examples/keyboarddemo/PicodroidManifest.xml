@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="keyboarddemo" version="1.0">
+    <application application="keyboarddemo/KeyboardDemoApp" />
+</manifest>

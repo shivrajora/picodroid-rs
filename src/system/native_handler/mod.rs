@@ -67,6 +67,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/widget/Toast",
     "picodroid/widget/AlertDialog",
     "picodroid/widget/AlertDialog$Builder",
+    "picodroid/widget/Keyboard",
     "picodroid/net/Socket",
     "picodroid/net/ServerSocket",
     "picodroid/net/DatagramSocket",

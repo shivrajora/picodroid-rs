@@ -11,6 +11,7 @@ pub mod check_box;
 pub mod edit_text;
 pub mod frame_layout;
 pub mod image_view;
+pub mod keyboard;
 pub mod linear_layout;
 pub mod list_view;
 pub mod progress_bar;

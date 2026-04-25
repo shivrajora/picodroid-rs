@@ -11,6 +11,7 @@ mod drawable;
 mod edit_text;
 mod frame_layout;
 mod image_view;
+mod keyboard;
 mod linear_layout;
 mod list_view;
 mod progress_bar;
@@ -44,10 +45,17 @@ pub use check_box::{
 pub use check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
 pub use drawable::gradient_drawable_apply;
 pub use edit_text::{
-    edit_text_get_text, edit_text_native_create, edit_text_set_hint, edit_text_set_text,
+    edit_text_get_text, edit_text_native_create, edit_text_set_hint,
+    edit_text_set_show_keyboard_on_touch, edit_text_set_text, reset_edit_text_state,
 };
 pub use frame_layout::{frame_layout_add_view, frame_layout_native_create};
 pub use image_view::{image_view_native_create, image_view_set_src};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use keyboard::{drain_ready_queue as drain_keyboard_ready_queue, lookup_keyboard_obj};
+pub use keyboard::{
+    keyboard_native_create, keyboard_register_ready_listener, keyboard_set_mode,
+    keyboard_set_textarea, reset_keyboard_state,
+};
 pub use linear_layout::{
     linear_layout_add_view, linear_layout_native_create, linear_layout_set_orientation,
 };

@@ -7,6 +7,8 @@ use pico_jvm::types::{JvmError, Value};
 use super::super::lvgl::widgets::edit_text as lvgl_edit_text;
 use super::super::view::{extract_native_handle, extract_string_at};
 
+pub use lvgl_edit_text::reset_edit_text_state;
+
 pub fn edit_text_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_edit_text::create())))
 }
@@ -46,5 +48,19 @@ pub fn edit_text_set_hint(
     let id = extract_native_handle(args, objects)?;
     let hint = extract_string_at(args, 1, strings)?;
     lvgl_edit_text::set_hint(id, hint);
+    Ok(None)
+}
+
+/// `EditText.setShowKeyboardOnTouch(boolean enabled)`
+pub fn edit_text_set_show_keyboard_on_touch(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let enabled = match args.get(1) {
+        Some(Value::Int(v)) => *v != 0,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    lvgl_edit_text::set_autoshow(id, enabled);
     Ok(None)
 }

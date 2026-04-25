@@ -224,6 +224,7 @@ pub(crate) fn run_activity(
                     dispatch_checkbox_changes(jvm, heap, handler);
                     dispatch_spinner_changes(jvm, heap, handler);
                     dispatch_alert_dialog_clicks(jvm, heap, handler);
+                    dispatch_keyboard_ready(jvm, heap, handler);
                     dispatch_touch_events(jvm, heap, handler);
                     dispatch_key_events(jvm, heap, handler);
                     crate::system::picodroid::hardware::sensors::drain_sensor_events(
@@ -729,7 +730,16 @@ fn dispatch_key_events(
         };
         let action = if raw.rising { 1 } else { 0 }; // ACTION_UP : ACTION_DOWN
 
-        // 1) Dispatch to the focused View's OnKeyListener, if any. Capture
+        // 1) BACK release first tries to dismiss the system soft keyboard
+        //    if it's visible. Consumed if so — Activity stays on screen.
+        if keycode == KEYCODE_BACK && action == ACTION_UP {
+            use crate::system::picodroid::graphics::lvgl::widgets::keyboard;
+            if keyboard::hide_system() {
+                continue;
+            }
+        }
+
+        // 2) Dispatch to the focused View's OnKeyListener, if any. Capture
         //    fireKey's `boolean` return so an un-consumed BACK release can
         //    fall through to onBackPressed below.
         let consumed = match events::focused_view_obj() {
@@ -737,7 +747,7 @@ fn dispatch_key_events(
             None => false,
         };
 
-        // 2) Default BACK handler: invoke `Activity.onBackPressed` on the
+        // 3) Default BACK handler: invoke `Activity.onBackPressed` on the
         //    top activity when no View consumed the BACK release. Apps
         //    that want to suppress finish() can override `onBackPressed`
         //    to a no-op (or show a confirm dialog).
@@ -752,6 +762,33 @@ fn dispatch_key_events(
                     handler,
                 );
             }
+        }
+    }
+}
+
+// ── Keyboard READY-event dispatch ──────────────────────────────────────────
+
+/// Drain the per-instance Keyboard READY ring buffer and invoke
+/// `Keyboard.fireReady()` on each matching Java object. The system
+/// keyboard does *not* go through here — it self-hides on its own
+/// READY callback in [`crate::system::picodroid::graphics::lvgl::widgets::keyboard`].
+#[cfg(not(test))]
+fn dispatch_keyboard_ready(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_keyboard_ready_queue() {
+        if let Some(obj_ref) = widgets::lookup_keyboard_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::KEYBOARD_READY),
+                dispatch_method(dispatch_sites::KEYBOARD_READY),
+                obj_ref,
+                heap,
+                handler,
+            );
         }
     }
 }
