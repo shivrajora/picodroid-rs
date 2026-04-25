@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Build-time Java class/method name shrinker for picodroid. Maps are release-versioned and append-only."
+readme = "README.md"
 
 [[bin]]
 name = "class-shrink"

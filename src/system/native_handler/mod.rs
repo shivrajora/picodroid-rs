@@ -17,6 +17,60 @@ mod pio;
 #[cfg(not(test))]
 mod sensors;
 
+/// Picodroid framework class names the JVM must canonicalise to a stable
+/// `&'static str` for pointer-identity caching. Returned from
+/// [`PicodroidNativeHandler::native_class_names`] so the JVM never needs to
+/// hardcode any `picodroid/*` names itself.
+///
+/// Add a class here whenever a new framework class becomes the receiver of a
+/// virtual or static method call (i.e. anything dispatched through the
+/// per-domain handlers in this module). Missing entries silently break virtual
+/// dispatch; the `picodroid_classes_in_handlers` test in this module guards
+/// against drift between the dispatch sites and this list.
+pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
+    "picodroid/pio/Gpio",
+    "picodroid/pio/PeripheralManager",
+    "picodroid/os/SystemClock",
+    "picodroid/util/Log",
+    "picodroid/concurrent/Executor",
+    "picodroid/concurrent/Executors",
+    "picodroid/concurrent/MainExecutor",
+    "picodroid/concurrent/BackgroundExecutor",
+    "picodroid/app/Application",
+    "picodroid/view/View",
+    "picodroid/view/MotionEvent",
+    "picodroid/view/KeyEvent",
+    "picodroid/view/OnKeyListener",
+    "picodroid/graphics/Display",
+    "picodroid/widget/TextView",
+    "picodroid/widget/Button",
+    "picodroid/widget/LinearLayout",
+    "picodroid/widget/ProgressBar",
+    "picodroid/widget/Switch",
+    "picodroid/widget/ListView",
+    "picodroid/widget/ImageView",
+    "picodroid/widget/ToggleButton",
+    "picodroid/widget/SeekBar",
+    "picodroid/widget/CheckBox",
+    "picodroid/widget/ScrollView",
+    "picodroid/widget/FrameLayout",
+    "picodroid/widget/Spinner",
+    "picodroid/widget/EditText",
+    "picodroid/net/Socket",
+    "picodroid/net/ServerSocket",
+    "picodroid/net/DatagramSocket",
+    "picodroid/net/DatagramPacket",
+    "picodroid/net/InetAddress",
+    "picodroid/net/NetworkInfo",
+    "picodroid/net/Url",
+    "picodroid/net/HttpUrlConnection",
+    "picodroid/net/HttpInputStream",
+    "picodroid/net/HttpOutputStream",
+    "picodroid/io/File",
+    "picodroid/io/FileInputStream",
+    "picodroid/io/FileOutputStream",
+];
+
 pub struct PicodroidNativeHandler {
     /// Resettable counters exposed to Java via Runtime.gcTimeNanos() etc.
     gc_time_ns: u64,
@@ -63,6 +117,10 @@ impl PicodroidNativeHandler {
 impl NativeMethodHandler for PicodroidNativeHandler {
     fn clock_nanos(&self) -> u64 {
         crate::hal::system_clock::elapsed_realtime_nanos() as u64
+    }
+
+    fn native_class_names(&self) -> &'static [&'static str] {
+        PICODROID_NATIVE_CLASSES
     }
 
     fn report_gc(&mut self, time_ns: u64, freed: usize) {

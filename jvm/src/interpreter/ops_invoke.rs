@@ -285,7 +285,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // 7. Allocate a proxy object with the functional interface class name
         let iface_class =
             helpers::descriptor_return_class(factory_desc).ok_or(JvmError::InvalidBytecode)?;
-        let static_name = helpers::class_name_to_static_in(self.classes, iface_class);
+        let static_name = helpers::class_name_to_static_in(
+            self.classes,
+            self.handler.native_class_names(),
+            iface_class,
+        );
         let obj_idx = self
             .objects
             .alloc(static_name)
@@ -367,7 +371,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 return Err(JvmError::AbstractMethodError);
             }
         }
-        let static_name = helpers::class_name_to_static_in(self.classes, class_name);
+        let static_name = helpers::class_name_to_static_in(
+            self.classes,
+            self.handler.native_class_names(),
+            class_name,
+        );
         let obj_idx = self
             .objects
             .alloc_with_defaults(static_name, self.classes)

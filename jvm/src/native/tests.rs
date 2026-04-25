@@ -3310,3 +3310,19 @@ fn arrays_to_string_null() {
     };
     assert_eq!(s, "null");
 }
+
+// ── Single-source-of-truth invariant ──────────────────────────────────────
+
+/// Every class with a per-class entry in `BUILTIN_DISPATCH` must also appear in
+/// `BUILTIN_CLASS_NAMES`. Without this, a class would dispatch correctly once
+/// but fail virtual dispatch on subclasses because the interpreter could not
+/// canonicalise its name to a stable `&'static str`.
+#[test]
+fn builtin_dispatch_classes_subset_of_names() {
+    for &(dispatch_name, _fn) in BUILTIN_DISPATCH {
+        assert!(
+            BUILTIN_CLASS_NAMES.iter().any(|&n| n == dispatch_name),
+            "class {dispatch_name:?} appears in BUILTIN_DISPATCH but is missing from BUILTIN_CLASS_NAMES"
+        );
+    }
+}

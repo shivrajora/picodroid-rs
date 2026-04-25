@@ -311,10 +311,23 @@ pub(super) fn descriptor_return_class(desc: &str) -> Option<&str> {
     }
 }
 
-/// Returns a &'static str for a class name. For user-defined classes (loaded into `classes`),
-/// returns the Flash-backed name directly. Falls back to a hardcoded list for native classes.
-pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'static str {
-    // Check loaded user classes first — their names are Flash-backed (&'static [u8])
+/// Returns a `&'static str` for a class name.
+///
+/// Checks, in order:
+/// 1. Loaded user classes — their names are Flash-backed (`&'static [u8]`)
+/// 2. JVM builtins ([`crate::native::BUILTIN_CLASS_NAMES`])
+/// 3. The host application's native classes (passed in via the
+///    [`crate::native::NativeMethodHandler::native_class_names`] trait method)
+///
+/// Falls back to `"unknown"` if no match. A class missing from all three lists
+/// will silently lose virtual dispatch through pointer-identity caching, so
+/// every native class the JVM might encounter must appear in one of them.
+pub(super) fn class_name_to_static_in(
+    classes: &[ClassFile],
+    extra_native_classes: &[&'static str],
+    name: &str,
+) -> &'static str {
+    // 1. Loaded user classes (Flash-backed)
     for cf in classes.iter() {
         if let Some(cn) = cf.class_name() {
             if cn == name.as_bytes() {
@@ -324,69 +337,17 @@ pub(super) fn class_name_to_static_in(classes: &[ClassFile], name: &str) -> &'st
             }
         }
     }
-    // Fallback for native/framework classes
-    match name {
-        "picodroid/pio/Gpio" => "picodroid/pio/Gpio",
-        "picodroid/pio/PeripheralManager" => "picodroid/pio/PeripheralManager",
-        "picodroid/os/SystemClock" => "picodroid/os/SystemClock",
-        "picodroid/util/Log" => "picodroid/util/Log",
-        "java/lang/System" => "java/lang/System",
-        "java/lang/StringBuilder" => "java/lang/StringBuilder",
-        "java/lang/Integer" => "java/lang/Integer",
-        "java/lang/Boolean" => "java/lang/Boolean",
-        "java/lang/Long" => "java/lang/Long",
-        "java/lang/Float" => "java/lang/Float",
-        "java/lang/Double" => "java/lang/Double",
-        "java/lang/Enum" => "java/lang/Enum",
-        "java/util/ArrayList" => "java/util/ArrayList",
-        "java/util/HashMap" => "java/util/HashMap",
-        "java/util/HashMap$KeySet" => "java/util/HashMap$KeySet",
-        "java/util/HashMap$Values" => "java/util/HashMap$Values",
-        "java/util/HashSet" => "java/util/HashSet",
-        "java/util/Iterator" => "java/util/Iterator",
-        "java/util/Random" => "java/util/Random",
-        "java/util/Arrays" => "java/util/Arrays",
-        "java/util/Collections" => "java/util/Collections",
-        "java/util/List" => "java/util/List",
-        "java/lang/Comparable" => "java/lang/Comparable",
-        "java/lang/Runnable" => "java/lang/Runnable",
-        "picodroid/concurrent/Executor" => "picodroid/concurrent/Executor",
-        "picodroid/concurrent/Executors" => "picodroid/concurrent/Executors",
-        "picodroid/concurrent/MainExecutor" => "picodroid/concurrent/MainExecutor",
-        "picodroid/concurrent/BackgroundExecutor" => "picodroid/concurrent/BackgroundExecutor",
-        "picodroid/app/Application" => "picodroid/app/Application",
-        "picodroid/view/View" => "picodroid/view/View",
-        "picodroid/view/MotionEvent" => "picodroid/view/MotionEvent",
-        "picodroid/view/KeyEvent" => "picodroid/view/KeyEvent",
-        "picodroid/view/OnKeyListener" => "picodroid/view/OnKeyListener",
-        "picodroid/graphics/Display" => "picodroid/graphics/Display",
-        "picodroid/widget/TextView" => "picodroid/widget/TextView",
-        "picodroid/widget/Button" => "picodroid/widget/Button",
-        "picodroid/widget/LinearLayout" => "picodroid/widget/LinearLayout",
-        "picodroid/widget/ProgressBar" => "picodroid/widget/ProgressBar",
-        "picodroid/widget/Switch" => "picodroid/widget/Switch",
-        "picodroid/widget/ListView" => "picodroid/widget/ListView",
-        "picodroid/widget/ImageView" => "picodroid/widget/ImageView",
-        "picodroid/widget/ToggleButton" => "picodroid/widget/ToggleButton",
-        "picodroid/widget/SeekBar" => "picodroid/widget/SeekBar",
-        "picodroid/widget/CheckBox" => "picodroid/widget/CheckBox",
-        "picodroid/widget/ScrollView" => "picodroid/widget/ScrollView",
-        "picodroid/widget/FrameLayout" => "picodroid/widget/FrameLayout",
-        "picodroid/widget/Spinner" => "picodroid/widget/Spinner",
-        "picodroid/widget/EditText" => "picodroid/widget/EditText",
-        "picodroid/net/Socket" => "picodroid/net/Socket",
-        "picodroid/net/ServerSocket" => "picodroid/net/ServerSocket",
-        "picodroid/net/DatagramSocket" => "picodroid/net/DatagramSocket",
-        "picodroid/net/DatagramPacket" => "picodroid/net/DatagramPacket",
-        "picodroid/net/InetAddress" => "picodroid/net/InetAddress",
-        "picodroid/net/NetworkInfo" => "picodroid/net/NetworkInfo",
-        "picodroid/net/Url" => "picodroid/net/Url",
-        "picodroid/net/HttpUrlConnection" => "picodroid/net/HttpUrlConnection",
-        "picodroid/net/HttpInputStream" => "picodroid/net/HttpInputStream",
-        "picodroid/net/HttpOutputStream" => "picodroid/net/HttpOutputStream",
-        "picodroid/io/File" => "picodroid/io/File",
-        "picodroid/io/FileInputStream" => "picodroid/io/FileInputStream",
-        "picodroid/io/FileOutputStream" => "picodroid/io/FileOutputStream",
-        _ => "unknown",
+    // 2. JVM builtins
+    for &builtin in crate::native::BUILTIN_CLASS_NAMES {
+        if builtin == name {
+            return builtin;
+        }
     }
+    // 3. Host-supplied native classes
+    for &extra in extra_native_classes {
+        if extra == name {
+            return extra;
+        }
+    }
+    "unknown"
 }

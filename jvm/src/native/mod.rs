@@ -21,6 +21,107 @@ mod string_format;
 #[cfg(test)]
 mod tests;
 
+/// Per-class dispatch function used by [`BuiltinHandler`].
+type BuiltinDispatchFn =
+    fn(method_name: &str, ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>, JvmError>>;
+
+/// Every native class name the JVM canonicalises to a `&'static str` for
+/// pointer-identity caching. A class that appears in `BUILTIN_DISPATCH` MUST
+/// also appear here (the `builtin_dispatch_classes_subset_of_names` test
+/// enforces this).
+///
+/// Two kinds of entries appear:
+/// - **Dispatched builtins** (`java/lang/String`, `java/util/HashMap`, ...) —
+///   handled by [`BuiltinHandler`] when the user-supplied
+///   [`NativeMethodHandler`] passes the call through.
+/// - **Canonicalisation-only** (`java/lang/System`, `java/lang/Runnable`) —
+///   handled by the user's [`NativeMethodHandler`]. They appear here only so
+///   the interpreter can produce a stable `&'static str` for caching, not
+///   because `BuiltinHandler` knows what to do with them.
+pub const BUILTIN_CLASS_NAMES: &[&str] = &[
+    // Dispatched builtins (kept in lockstep with BUILTIN_DISPATCH below).
+    "java/lang/Object",
+    "java/lang/Throwable",
+    "java/lang/Exception",
+    "java/lang/RuntimeException",
+    "java/util/IllegalFormatException",
+    "java/lang/Enum",
+    "java/lang/StringBuilder",
+    "java/lang/String",
+    "java/lang/Integer",
+    "java/lang/Boolean",
+    "java/lang/Long",
+    "java/lang/Float",
+    "java/lang/Double",
+    "java/lang/Character",
+    "java/util/ArrayList",
+    "java/util/HashMap",
+    "java/util/HashMap$KeySet",
+    "java/util/HashMap$Values",
+    "java/util/HashSet",
+    "java/util/Iterator",
+    "java/util/Random",
+    "java/util/Arrays",
+    "java/lang/Math",
+    // Canonicalisation-only — handled by the user's NativeMethodHandler or
+    // referenced as interface/superclass names in user code.
+    "java/lang/System",
+    "java/lang/Runnable",
+    "java/util/Collections",
+    "java/util/List",
+    "java/lang/Comparable",
+];
+
+/// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
+/// changing this table changes the dispatch behaviour. The
+/// `builtin_dispatch_classes_subset_of_names` test asserts every class here is
+/// also in [`BUILTIN_CLASS_NAMES`] so canonicalisation cannot drift.
+const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
+    ("java/lang/Object", dispatch_init_only),
+    ("java/lang/Throwable", dispatch_throwable),
+    ("java/lang/Exception", dispatch_init_only),
+    ("java/lang/RuntimeException", dispatch_init_only),
+    ("java/util/IllegalFormatException", dispatch_init_only),
+    ("java/lang/Enum", enumeration::dispatch),
+    ("java/lang/StringBuilder", string_builder::dispatch),
+    ("java/lang/String", string::dispatch),
+    ("java/lang/Integer", boxed::dispatch_integer),
+    ("java/lang/Boolean", boxed::dispatch_boolean),
+    ("java/lang/Long", boxed::dispatch_long),
+    ("java/lang/Float", boxed::dispatch_float),
+    ("java/lang/Double", boxed::dispatch_double),
+    ("java/lang/Character", boxed::dispatch_character),
+    ("java/util/ArrayList", collections::dispatch),
+    ("java/util/HashMap", hashmap::dispatch),
+    ("java/util/HashMap$KeySet", hashmap::dispatch_keyset),
+    ("java/util/HashMap$Values", hashmap::dispatch_values),
+    ("java/util/HashSet", hashset::dispatch),
+    ("java/util/Iterator", iterator::dispatch),
+    ("java/util/Random", random::dispatch),
+    ("java/util/Arrays", arrays::dispatch),
+    ("java/lang/Math", math::dispatch),
+];
+
+fn dispatch_init_only(
+    method_name: &str,
+    _ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    match method_name {
+        "<init>" => Some(Ok(None)),
+        _ => None,
+    }
+}
+
+fn dispatch_throwable(
+    method_name: &str,
+    _ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    match method_name {
+        "<init>" | "addSuppressed" => Some(Ok(None)),
+        _ => None,
+    }
+}
+
 /// Context passed to [`NativeMethodHandler::dispatch`] for every native call.
 ///
 /// All JVM heap state needed to implement a native method is accessible through
@@ -151,6 +252,20 @@ pub trait NativeMethodHandler {
     /// Called when the JVM heap is reset (e.g. before running a new app).
     /// Implementations should release any OS-level mutex resources.
     fn monitors_clear(&mut self) {}
+
+    /// Names of the native classes this handler dispatches.
+    ///
+    /// The interpreter consults this list (in addition to the JVM's own
+    /// [`BUILTIN_CLASS_NAMES`]) when canonicalising a class name to the
+    /// `&'static str` used as a pointer-identity cache key. Without an entry
+    /// here, virtual dispatch on a native class will silently fall back to
+    /// `"unknown"`.
+    ///
+    /// Return a `&'static [&'static str]` const declared by your crate.
+    /// Default returns `&[]` (no extra native classes).
+    fn native_class_names(&self) -> &'static [&'static str] {
+        &[]
+    }
 }
 
 /// Built-in handler for `java/lang/*` methods common to all JVM environments.
@@ -204,38 +319,11 @@ impl NativeMethodHandler for BuiltinHandler {
             }
             return Some(Err(JvmError::InvalidReference));
         }
-        match class_name {
-            "java/lang/Object"
-            | "java/lang/Exception"
-            | "java/lang/RuntimeException"
-            | "java/util/IllegalFormatException" => match method_name {
-                "<init>" => Some(Ok(None)),
-                _ => None,
-            },
-            "java/lang/Throwable" => match method_name {
-                "<init>" => Some(Ok(None)),
-                "addSuppressed" => Some(Ok(None)),
-                _ => None,
-            },
-            "java/lang/Enum" => enumeration::dispatch(method_name, ctx),
-            "java/lang/StringBuilder" => string_builder::dispatch(method_name, ctx),
-            "java/lang/String" => string::dispatch(method_name, ctx),
-            "java/lang/Integer" => boxed::dispatch_integer(method_name, ctx),
-            "java/lang/Boolean" => boxed::dispatch_boolean(method_name, ctx),
-            "java/lang/Long" => boxed::dispatch_long(method_name, ctx),
-            "java/lang/Float" => boxed::dispatch_float(method_name, ctx),
-            "java/lang/Double" => boxed::dispatch_double(method_name, ctx),
-            "java/lang/Character" => boxed::dispatch_character(method_name, ctx),
-            "java/util/ArrayList" => collections::dispatch(method_name, ctx),
-            "java/util/HashMap" => hashmap::dispatch(method_name, ctx),
-            "java/util/HashMap$KeySet" => hashmap::dispatch_keyset(method_name, ctx),
-            "java/util/HashMap$Values" => hashmap::dispatch_values(method_name, ctx),
-            "java/util/HashSet" => hashset::dispatch(method_name, ctx),
-            "java/util/Iterator" => iterator::dispatch(method_name, ctx),
-            "java/util/Random" => random::dispatch(method_name, ctx),
-            "java/util/Arrays" => arrays::dispatch(method_name, ctx),
-            "java/lang/Math" => math::dispatch(method_name, ctx),
-            _ => None,
+        for &(name, dispatch_fn) in BUILTIN_DISPATCH {
+            if name == class_name {
+                return dispatch_fn(method_name, ctx);
+            }
         }
+        None
     }
 }
