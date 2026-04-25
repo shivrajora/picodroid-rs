@@ -62,15 +62,17 @@ pub struct EventRecord {
 /// no allocation. Per-handle state is keyed in the backend's slot table.
 pub type EventListener = fn(EventPayload);
 
-/// Engine-level graphics trait. Pin `Handle = Handle` (the newtype) at the
-/// `with_gfx` accessor; widget call sites see a concrete handle type.
+/// Engine-level graphics trait. Handle type is the concrete [`Handle`]
+/// newtype (no associated type / no generics) — call sites see a single
+/// public type and `&mut dyn Gfx` works without pinning.
 pub trait Gfx {
     // ── lifecycle ───────────────────────────────────────────────────────────
 
-    /// Initialize the backend. `band_buf` is the framebuffer scratch for
-    /// partial rendering; size and pixel format are backend-specific (the
-    /// LVGL impl assumes RGB565 = `width * band_height * 2` bytes).
-    fn init(&mut self, width: u16, height: u16, band_buf: &'static mut [u8]);
+    /// Initialize the backend. The backend owns its own framebuffer scratch
+    /// (the LVGL impl uses a static RGB565 band buffer sized at compile
+    /// time from `hal::display` constants). A future backend with a
+    /// different pixel format owns a separately-sized static.
+    fn init(&mut self, width: u16, height: u16);
 
     /// Advance the backend's tick counter and process pending timers /
     /// rendering. Call periodically (~16 ms for 60 fps).
