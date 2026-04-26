@@ -10,7 +10,7 @@ littlefs-rust-core = { path = "third_party/littlefs-rust-core" }
 [package]
 edition = "2021"
 name = "picodroid"
-version = "0.2.0"
+version = "0.3.0"
 license = "Apache-2.0"
 
 [features]
