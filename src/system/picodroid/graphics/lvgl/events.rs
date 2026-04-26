@@ -201,9 +201,13 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
 // ── View touch-listener registry ────────────────────────────────────────────
 //
 // Mirrors the key-listener pattern above: a small (handle, obj_ref) map,
-// plus a ring buffer fed by LVGL trampolines on PRESSED / RELEASED /
-// LONG_PRESSED. The framework loop drains the queue, allocates a Java
-// MotionEvent, and invokes `View.fireTouch` on the matching object.
+// plus a ring buffer fed by LVGL trampolines on PRESSED / PRESSING /
+// RELEASED / LONG_PRESSED. The framework loop drains the queue, allocates
+// a Java MotionEvent, and invokes `View.fireTouch` on the matching object.
+//
+// PRESSING is coalesced down to actual movement (see LAST_PRESSING_*
+// snapshot below) so a held finger doesn't flood the queue at the indev
+// refresh rate.
 //
 // Each registered View flips on `LV_OBJ_FLAG_CLICKABLE` so the active
 // touch indev actually routes hit-tested events here. This is harmless
@@ -218,6 +222,7 @@ static mut VIEW_TOUCH_MAP_LEN: usize = 0;
 /// Action codes — must match the constants on `picodroid.view.MotionEvent`.
 const ACTION_DOWN: i32 = 0;
 const ACTION_UP: i32 = 1;
+const ACTION_MOVE: i32 = 2;
 const ACTION_LONG_PRESS: i32 = 3;
 
 #[derive(Copy, Clone)]
@@ -237,10 +242,24 @@ const EMPTY_TOUCH: TouchRecord = TouchRecord {
     time_ms: 0,
 };
 
-const TOUCH_QUEUE_SIZE: usize = 32;
+// Bumped from 32 to 64 when ACTION_MOVE delivery landed: a fast finger
+// crossing 240 px at 60 Hz produces ~60 distinct positions even after
+// coalescing identical samples, and 32 became the obvious choke point.
+const TOUCH_QUEUE_SIZE: usize = 64;
 static mut TOUCH_QUEUE: [TouchRecord; TOUCH_QUEUE_SIZE] = [EMPTY_TOUCH; TOUCH_QUEUE_SIZE];
 static mut TOUCH_QUEUE_HEAD: usize = 0;
 static mut TOUCH_QUEUE_TAIL: usize = 0;
+
+// Producer-local "last MOVE we pushed" snapshot used to coalesce LVGL
+// PRESSING events that report the same coordinates as the previous
+// sample. LVGL fires PRESSING every indev refresh tick whether or not
+// the finger moved; without this filter a held finger floods the queue.
+// Single shared slot is correct under the v1 single-touch assumption
+// (matching every other touch path). i32::MIN sentinel ensures the
+// first PRESSING after each fresh press always pushes.
+static mut LAST_PRESSING_VIEW: usize = 0;
+static mut LAST_PRESSING_X: i32 = i32::MIN;
+static mut LAST_PRESSING_Y: i32 = i32::MIN;
 
 /// Read the current monotonic ms from the LVGL tick clock. Used as the
 /// timestamp on each touch event; aligns with the same clock GestureDetector
@@ -280,13 +299,23 @@ unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Option<TouchRec
     })
 }
 
+fn reset_pressing_coalesce() {
+    unsafe {
+        LAST_PRESSING_VIEW = 0;
+        LAST_PRESSING_X = i32::MIN;
+        LAST_PRESSING_Y = i32::MIN;
+    }
+}
+
 unsafe extern "C" fn touch_press_cb(e: *mut lv_event_t) {
+    reset_pressing_coalesce();
     if let Some(rec) = unsafe { touch_event_record(e, ACTION_DOWN) } {
         push_touch(rec);
     }
 }
 
 unsafe extern "C" fn touch_release_cb(e: *mut lv_event_t) {
+    reset_pressing_coalesce();
     if let Some(rec) = unsafe { touch_event_record(e, ACTION_UP) } {
         push_touch(rec);
     }
@@ -298,8 +327,25 @@ unsafe extern "C" fn touch_long_press_cb(e: *mut lv_event_t) {
     }
 }
 
+unsafe extern "C" fn touch_pressing_cb(e: *mut lv_event_t) {
+    if let Some(rec) = unsafe { touch_event_record(e, ACTION_MOVE) } {
+        unsafe {
+            if LAST_PRESSING_VIEW == rec.view_handle
+                && LAST_PRESSING_X == rec.x
+                && LAST_PRESSING_Y == rec.y
+            {
+                return;
+            }
+            LAST_PRESSING_VIEW = rec.view_handle;
+            LAST_PRESSING_X = rec.x;
+            LAST_PRESSING_Y = rec.y;
+        }
+        push_touch(rec);
+    }
+}
+
 /// Record a Java `View` object as the touch-listener target for the given
-/// `nativeHandle` id, and register the LVGL press/release/long-press
+/// `nativeHandle` id, and register the LVGL press/pressing/release/long-press
 /// callbacks on the underlying object. Idempotent: re-registration just
 /// updates the obj_ref slot (no duplicate LVGL callbacks — LVGL tolerates
 /// duplicates but we'd waste slot table space).
@@ -331,7 +377,7 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
         // widgets like TextView.
         lv_obj_add_flag(raw_obj, LV_OBJ_FLAG_CLICKABLE);
 
-        // Register the three event callbacks. LVGL allows multiple
+        // Register the four event callbacks. LVGL allows multiple
         // descriptors on the same (obj, code) pair so existing
         // click-handling on Buttons isn't disturbed.
         lv_obj_add_event_cb(
@@ -350,6 +396,12 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
             raw_obj,
             Some(touch_long_press_cb),
             LV_EVENT_LONG_PRESSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(touch_pressing_cb),
+            LV_EVENT_PRESSING,
             core::ptr::null_mut(),
         );
     }
@@ -387,6 +439,7 @@ pub fn reset_view_touch_listener_state() {
         TOUCH_QUEUE_HEAD = 0;
         TOUCH_QUEUE_TAIL = 0;
     }
+    reset_pressing_coalesce();
 }
 
 #[cfg(test)]

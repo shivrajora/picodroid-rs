@@ -12,12 +12,16 @@ package picodroid.view;
  *   <li>{@link OnGestureListener#onLongPress} — fired *while the finger is still down* when LVGL
  *       emits its long-press event. Subsequent UP suppresses {@code onSingleTap}.
  *   <li>{@link OnGestureListener#onFling} — UP whose displacement from DOWN exceeds {@link
- *       #FLING_MIN_PX}; velocity is computed from {@code displacement / duration}. v1 caveat: with
- *       no ACTION_MOVE delivery the velocity reflects the average over the whole gesture, not the
- *       lift-off slope.
+ *       #FLING_MIN_PX}; velocity is computed from the lift-off slope (last MOVE → UP) so a flick
+ *       whose speed comes from the final frames reads as fast even if the gesture was initially
+ *       slow. Tap / fling classification still uses the full DOWN→UP displacement.
  * </ul>
  *
- * <p>v1 caveat: ACTION_MOVE / scroll callbacks are not delivered. Multi-touch is not supported.
+ * <p>Apps that want raw drag callbacks (e.g. drag-to-reposition) should attach an {@link
+ * OnTouchListener} directly and observe {@link MotionEvent#ACTION_MOVE} — this class only exposes
+ * the higher-level tap/long-press/fling vocabulary.
+ *
+ * <p>v1 caveat: multi-touch is not supported.
  */
 public class GestureDetector implements OnTouchListener {
   /** Max DOWN→UP displacement (in pixels) for an event to count as a tap rather than a fling. */
@@ -47,6 +51,7 @@ public class GestureDetector implements OnTouchListener {
 
   // State carried between DOWN and UP — single touch only in v1.
   private MotionEvent downEvent;
+  private MotionEvent lastSampleEvent; // most recent DOWN or MOVE; used for lift-off velocity
   private boolean longPressFired;
 
   public GestureDetector(OnGestureListener listener) {
@@ -58,7 +63,12 @@ public class GestureDetector implements OnTouchListener {
     int action = event.getAction();
     if (action == MotionEvent.ACTION_DOWN) {
       downEvent = event;
+      lastSampleEvent = event;
       longPressFired = false;
+      return true;
+    }
+    if (action == MotionEvent.ACTION_MOVE) {
+      lastSampleEvent = event;
       return true;
     }
     if (action == MotionEvent.ACTION_LONG_PRESS) {
@@ -70,7 +80,9 @@ public class GestureDetector implements OnTouchListener {
     }
     if (action == MotionEvent.ACTION_UP) {
       MotionEvent down = downEvent;
+      MotionEvent slopeStart = lastSampleEvent != null ? lastSampleEvent : down;
       downEvent = null;
+      lastSampleEvent = null;
       if (down == null) {
         return false; // UP without prior DOWN — touch likely cancelled
       }
@@ -94,12 +106,18 @@ public class GestureDetector implements OnTouchListener {
         return true;
       }
       if (chebyshev >= FLING_MIN_PX) {
-        long durationMs = event.getEventTime() - down.getEventTime();
+        // Velocity uses the lift-off slope (last MOVE sample → UP) so a
+        // flick whose speed comes from the final frames reads as fast.
+        // Tap / fling classification (above) still uses DOWN→UP so a
+        // slow drift can't be reclassified as a fling on a fast lift.
+        int sdx = event.getX() - slopeStart.getX();
+        int sdy = event.getY() - slopeStart.getY();
+        long durationMs = event.getEventTime() - slopeStart.getEventTime();
         if (durationMs <= 0) {
           durationMs = 1; // avoid div-by-zero on freakishly fast events
         }
-        float vx = (float) dx * 1000.0f / (float) durationMs;
-        float vy = (float) dy * 1000.0f / (float) durationMs;
+        float vx = (float) sdx * 1000.0f / (float) durationMs;
+        float vy = (float) sdy * 1000.0f / (float) durationMs;
         if (listener != null) {
           listener.onFling(down, event, vx, vy);
         }
