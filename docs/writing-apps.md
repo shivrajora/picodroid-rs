@@ -134,6 +134,83 @@ public class MyActivity extends Activity {
 
 The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [api/ui.md](api/ui.md) for the full graphics and widget API.
 
+### Activity lifecycle and back stack
+
+Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Detail())` and pop it with `finish()`:
+
+```java
+public class HomeActivity extends Activity {
+    public void onCreate() {
+        Button btn = new Button("Open detail");
+        btn.setOnClickListener(new Runnable() {
+            public void run() { startActivity(new DetailActivity()); }
+        });
+        setContentView(btn);
+    }
+}
+```
+
+The widget tree set via `setContentView()` is **preserved across pause** — when control returns from a popped Activity, the saved tree is restored automatically. See [api/ui.md → Lifecycle](api/ui.md#lifecycle), [api/ui.md → Back stack](api/ui.md#back-stack), and [`examples/navdemo/`](../examples/navdemo/).
+
+### Toasts and dialogs
+
+```java
+import picodroid.widget.AlertDialog;
+import picodroid.widget.Toast;
+
+Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
+
+new AlertDialog.Builder()
+    .setTitle("Erase data?")
+    .setMessage("This cannot be undone.")
+    .setPositiveButton("Erase", new Runnable() { public void run() { eraseAll(); } })
+    .setNegativeButton("Cancel", null)
+    .show();
+```
+
+See [api/ui.md → Toast](api/ui.md#picodroidwidgettoast), [→ AlertDialog](api/ui.md#picodroidwidgetalertdialog), and [`examples/dialogdemo/`](../examples/dialogdemo/).
+
+### Theme and drawables
+
+Override the global palette before any UI is built (typically in `Application.onCreate`). Apply `GradientDrawable` for rounded fills, gradients, and strokes:
+
+```java
+import picodroid.graphics.Color;
+import picodroid.graphics.Theme;
+import picodroid.graphics.drawable.GradientDrawable;
+
+Theme.colorPrimary    = Color.argb(255, 80, 180, 120);
+Theme.colorBackground = Color.argb(255, 24,  24,  28);
+
+view.setBackground(new GradientDrawable()
+    .setColor(Theme.colorSurface)
+    .setCornerRadius(16)
+    .setStroke(1, Theme.colorOutline));
+```
+
+See [api/ui.md → Theme](api/ui.md#picodroidgraphicstheme), [→ GradientDrawable](api/ui.md#picodroidgraphicsdrawablegradientdrawable), and [`examples/themedemo/`](../examples/themedemo/).
+
+### Gestures and animations
+
+Wire a `GestureDetector` to recognize taps, long presses, and flings, and use `view.animate()` for short property animations:
+
+```java
+import picodroid.view.GestureDetector;
+import picodroid.view.MotionEvent;
+
+view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListener() {
+    public void onSingleTap(MotionEvent e) { view.animate().alpha(1f, 0.3f).setDuration(120).start(); }
+    public void onLongPress(MotionEvent e) { showContextMenu(); }
+    public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) { /* ... */ }
+}));
+```
+
+See [api/ui.md → GestureDetector](api/ui.md#picodroidviewontouchlistener-and-gesturedetector), [→ ViewPropertyAnimator](api/ui.md#picodroidviewviewpropertyanimator), and [`examples/gesturedemo/`](../examples/gesturedemo/) / [`examples/animdemo/`](../examples/animdemo/).
+
+### Soft keyboard
+
+Tapping any `EditText` pops up a system soft keyboard at the screen bottom by default — no setup needed. For custom placement or styling, instantiate `Keyboard` explicitly and pair with `EditText.setShowKeyboardOnTouch(false)`. See [api/ui.md → Keyboard](api/ui.md#picodroidwidgetkeyboard) and [`examples/keyboarddemo/`](../examples/keyboarddemo/).
+
 ### Input and idle power
 
 On boards with hardware buttons, install `OnKeyListener`s to receive `KeyEvent`s — see [api/ui.md → Key events](api/ui.md#key-events). After **60 seconds** with no button or touch input, the runtime puts the display panel to sleep (backlight off, `DISPOFF`, `SLPIN`) and blocks on a GPIO semaphore. The next button edge wakes the panel and is swallowed by the framework — it is not delivered to your listener.
@@ -194,6 +271,8 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 | Enums | Java `enum` declarations — `values()`, `name()`, `ordinal()`, and `switch` over enum constants |
 | Autoboxing | `Integer`, `Boolean`, `Long`, `Float`, `Double` — `valueOf` / `intValue` etc.; enables storing primitives in `ArrayList<Integer>` etc. |
 | String (extended) | `split`, `replace`, `concat`, `toCharArray`, `hashCode` in addition to the predicates / search / transform methods listed above |
+| Sorting / list utilities | `Arrays.sort` / `Arrays.toString` (stable mergesort over `Comparable[]`), `Collections.sort` / `Collections.reverse` over `java.util.List` (`ArrayList` implements it), `java.lang.Comparable<T>` |
+| `System.currentTimeMillis()` | Boot-elapsed milliseconds — convenience for the common `long now = System.currentTimeMillis()` Android idiom |
 
 ## Garbage Collection
 

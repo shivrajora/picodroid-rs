@@ -204,6 +204,52 @@ while (it.hasNext()) {
 }
 ```
 
+## `java.util.Arrays` and `java.util.Collections`
+
+Stable mergesort and a small set of list utilities. Mirrors the most-used subset of the Java standard library.
+
+```java
+import java.lang.Comparable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+
+// Object[] sort — element type must implement Comparable
+String[] words = { "echo", "alpha", "delta", "bravo" };
+Arrays.sort(words);                    // in-place stable mergesort
+String dump = Arrays.toString(words);  // "[alpha, bravo, delta, echo]"
+
+// Collections — operate on java.util.List (ArrayList implements it)
+ArrayList<Integer> nums = new ArrayList<Integer>();
+nums.add(3); nums.add(1); nums.add(2);
+Collections.sort(nums);     // [1, 2, 3]
+Collections.reverse(nums);  // [3, 2, 1]
+```
+
+| Method | Description |
+|--------|-------------|
+| `Arrays.sort(Object[] a)` | In-place stable mergesort. Elements must implement `Comparable`. |
+| `Arrays.toString(Object[] a)` | `"[a, b, c]"` rendering using each element's `toString`. |
+| `Collections.sort(List)` | Stable mergesort over a `List`. Elements must implement `Comparable`. |
+| `Collections.reverse(List)` | Reverse the list in place. |
+
+## `java.lang.Comparable`
+
+```java
+public class Score implements Comparable<Score> {
+    int value;
+    public int compareTo(Score other) {
+        return this.value - other.value;
+    }
+}
+```
+
+Used by `Arrays.sort` and `Collections.sort`. Boxed numerics (`Integer`, `Long`, `Float`, `Double`) and `String` already implement it.
+
+## `java.util.List`
+
+A minimal `List<E>` interface (`size`, `get`, `set`, `add`, `contains`, `isEmpty`, `clear`) — implemented by `ArrayList`. Provided so `Collections.sort` / `reverse` can accept any list type. There are no other concrete `List` implementations in v1.
+
 ## Enums
 
 Java `enum` declarations are supported. Each enum constant is a singleton; `values()`, `name()`, `ordinal()`, and `switch (myEnum)` all work.

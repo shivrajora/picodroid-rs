@@ -42,12 +42,13 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Two release maps are committed today:
+Three release maps are committed today:
 
 | Map | Covers |
 |-----|--------|
 | `sdk/shrink-maps/v0.1.0.toml` | Original 42 framework classes from the first release cut. |
 | `sdk/shrink-maps/v0.2.0.toml` | Adds the classes introduced after v0.1.0 — `Executors` / `Executor` / `MainExecutor` / `BackgroundExecutor`, the `SensorManager` family (`Sensor`, `SensorEvent`, `SensorEventListener`, `SensorManager`), the HTTP client (`Url`, `HttpUrlConnection`, `HttpInputStream`, `HttpOutputStream`), and `KeyEvent` / `OnKeyListener`. Every v0.1.0 mapping is copied verbatim so PAPKs built against v0.1.0 firmware continue to run on v0.2.0 firmware. |
+| `sdk/shrink-maps/v0.3.0.toml` | Adds the classes introduced after v0.2.0 — `picodroid.graphics.Theme`, the drawable family (`Drawable`, `GradientDrawable`, `GradientDrawable$Orientation`), gesture / animation surface (`GestureDetector`, `GestureDetector$OnGestureListener`, `OnTouchListener`, `ViewPropertyAnimator`), and the new dialog / keyboard widgets (`Toast`, `AlertDialog`, `AlertDialog$Builder`, `AlertDialog$1`, `Keyboard`). Every v0.2.0 mapping is copied verbatim so PAPKs built against v0.2.0 firmware continue to run on v0.3.0 firmware. |
 
 ## v1 scope
 

@@ -1,6 +1,6 @@
 # Examples
 
-Thirty-eight examples are included under `examples/`, organized by category.
+Fifty examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -82,6 +82,12 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
 | `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
 | `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
+| `arraysdemo` | `arraysdemo.ArraysDemo` | Demonstrates `java.util.Arrays.sort` (stable mergesort over `Comparable[]`) and `Arrays.toString` |
+| `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Demonstrates `java.util.Collections.sort` and `Collections.reverse` over an `ArrayList` |
+| `randomdemo` | `randomdemo.RandomDemo` | Demonstrates `java.util.Random` — `nextInt`, `nextLong`, `nextFloat`, seeded reproducibility |
+| `clockdemo` | `clockdemo.ClockDemo` | Demonstrates `System.currentTimeMillis()` for boot-elapsed wallclock-style timing |
+| `langsuite` | `langsuite.LangSuite` | Aggregated language-feature test runner — exercises every JVM language feature in one APK |
+| `bytecodecoverage` | `bytecodecoverage.BytecodeCoverage` | JVM bytecode coverage harness — exercises long/double arrays, `multianewarray`, `wide`, `goto_w`, and stack-manipulation opcodes |
 
 ## Graphics and Display
 
@@ -92,6 +98,12 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, and a moving-average FPS overlay (`Display.showFps()`) |
 | `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: installs an `OnKeyListener` on a focusable `Button` and displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
 | `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
+| `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
+| `themedemo` | `themedemo.ThemeDemoApp` | Customizes the `Theme` color palette and applies `GradientDrawable` backgrounds (solid fills, corner radii, two-color gradients) |
+| `gesturedemo` | `gesturedemo.GestureDemoApp` | `GestureDetector` with `onSingleTap` / `onLongPress` / `onFling` listeners on a single View |
+| `animdemo` | `animdemo.AnimDemoApp` | `view.animate().alpha(...).x(...).y(...).setDuration(...).start()` — interpolated property animations |
+| `keyboarddemo` | `keyboarddemo.KeyboardDemoApp` | Soft keyboard: both system-on-touch (default) and explicit `Keyboard` instances bound to `EditText` |
+| `navdemo` | `navdemo.NavDemoApp` | Multi-Activity back-stack — `startActivity()` push, `finish()` pop, lifecycle callbacks (`onPause` / `onStop` / `onResume`) |
 
 ## Performance and Testing
 

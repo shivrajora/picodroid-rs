@@ -43,11 +43,32 @@ public class MyActivity extends Activity {
 }
 ```
 
+### Lifecycle
+
+The full Android-style lifecycle is dispatched by the runtime. Override only the callbacks you need.
+
+| Callback | When |
+|----------|------|
+| `onCreate()` | Once, after instantiation. Build the UI tree here. |
+| `onStart()` | After `onCreate`, and on every return to the foreground. |
+| `onResume()` | Immediately after `onStart`; the Activity is now interactive. |
+| `onPause()` | When another Activity is being launched on top. |
+| `onStop()` | After `onPause`, once the new top Activity is fully resumed. |
+| `onDestroy()` | Just before this Activity is popped off the stack. |
+| `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
+
+The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
+
+### Back stack
+
 | Method | Description |
 |--------|-------------|
-| `onCreate()` | Called after the display is initialized. Override to build your UI. |
+| `startActivity(Activity activity)` | Push a new Activity onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
+| `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
 | `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
 | `getDisplay()` | Returns the `Display` singleton. |
+
+See [`examples/navdemo/`](../../examples/navdemo/) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](../../examples/dialogdemo/) for an `onBackPressed` override pattern.
 
 ## `picodroid.graphics.Display`
 
@@ -97,6 +118,67 @@ int semi   = Color.argb(128, 255, 0, 0);   // 0x80FF0000 (50% transparent red)
 | `Color.rgb(int r, int g, int b)` | Returns an ARGB int with full opacity (alpha=255) |
 | `Color.argb(int a, int r, int g, int b)` | Returns an ARGB int with the specified alpha |
 
+## `picodroid.graphics.Theme`
+
+App-wide color palette — static fields apps read at view-construction time. Customise by assigning to these fields **before any UI is built** (typically in `Application.onCreate`):
+
+```java
+import picodroid.graphics.Color;
+import picodroid.graphics.Theme;
+
+Theme.colorPrimary    = Color.argb(255,  80, 180, 120);
+Theme.colorBackground = Color.argb(255,  24,  24,  28);
+```
+
+| Field | Default | Use |
+|-------|---------|-----|
+| `colorPrimary` | bluish accent | button fill, focused outlines, slider track |
+| `colorOnPrimary` | white | text/icons on top of `colorPrimary` |
+| `colorBackground` | near-black | page background |
+| `colorSurface` | dark grey | card / surface background |
+| `colorText` | near-white | primary body text |
+| `colorTextSecondary` | muted grey | secondary / muted body text |
+| `colorOutline` | dark grey | subtle separator / divider line |
+
+picodroid is single-app, so the palette is process-global rather than per-Activity. Views still need to read these values explicitly (`view.setBackgroundColor(Theme.colorBackground)`); there is no automatic cascading.
+
+See [`examples/themedemo/`](../../examples/themedemo/) for a worked example.
+
+## `picodroid.graphics.drawable.GradientDrawable`
+
+A configurable shape drawable: solid fill (or two-color linear gradient), optional corner radius, optional stroke. Mirrors the most-used subset of Android's `GradientDrawable`.
+
+```java
+import picodroid.graphics.Color;
+import picodroid.graphics.drawable.GradientDrawable;
+
+GradientDrawable bg = new GradientDrawable()
+    .setColor(Color.argb(255, 32, 32, 40))
+    .setCornerRadius(16)
+    .setStroke(2, Color.WHITE);
+view.setBackground(bg);
+
+// Or a vertical gradient
+GradientDrawable g = new GradientDrawable()
+    .setGradient(Color.BLUE, Color.MAGENTA, GradientDrawable.Orientation.TOP_BOTTOM)
+    .setCornerRadius(20);
+view.setBackground(g);
+```
+
+| Method | Description |
+|--------|-------------|
+| `setColor(int argb)` | Solid fill. Replaces any previously set gradient. |
+| `setCornerRadius(int px)` | Corner radius. Half the smaller dimension renders a pill. |
+| `setStroke(int width, int color)` | Border outline. `width = 0` removes. |
+| `setGradient(int start, int end, int orientation)` | Two-color linear gradient. Replaces any previously set solid color. |
+
+| Constant | Value |
+|----------|-------|
+| `GradientDrawable.Orientation.TOP_BOTTOM` | 1 |
+| `GradientDrawable.Orientation.LEFT_RIGHT` | 2 |
+
+Multi-stop gradients, angle-arbitrary orientations, and radial gradients are deferred.
+
 ## `picodroid.view.View`
 
 Base class for all UI widgets. Not instantiated directly — use subclasses like `TextView`, `Button`, etc.
@@ -107,7 +189,10 @@ import picodroid.view.View;
 view.setPosition(10, 20);           // x=10, y=20
 view.setSize(200, 50);              // width=200, height=50
 view.setBackgroundColor(Color.BLUE);
+view.setBackground(drawable);       // or apply a Drawable (see GradientDrawable)
 view.setVisibility(View.VISIBLE);   // VISIBLE, INVISIBLE, or GONE
+view.animate().alpha(0f, 1f).setDuration(200).start();   // see ViewPropertyAnimator
+view.setOnTouchListener(listener);  // per-View touch dispatch
 view.close();                        // release the native widget
 ```
 
@@ -119,16 +204,17 @@ view.close();                        // release the native widget
 
 ## `picodroid.view.MotionEvent`
 
-Represents a touch event from the display. Returned by `Display.pollTouch()`.
+Represents a touch event from the display. Returned by `Display.pollTouch()`, or delivered to per-View `OnTouchListener`s.
 
 ```java
 import picodroid.view.MotionEvent;
 
 MotionEvent event = display.pollTouch();
 if (event != null) {
-    int action = event.getAction();   // ACTION_DOWN, ACTION_UP, or ACTION_MOVE
+    int action = event.getAction();   // ACTION_DOWN, ACTION_UP, ACTION_MOVE, ACTION_LONG_PRESS
     int x = event.getX();
     int y = event.getY();
+    long t = event.getEventTime();    // ms timestamp (boot-elapsed)
 }
 ```
 
@@ -137,6 +223,72 @@ if (event != null) {
 | `MotionEvent.ACTION_DOWN` | 0 |
 | `MotionEvent.ACTION_UP` | 1 |
 | `MotionEvent.ACTION_MOVE` | 2 |
+| `MotionEvent.ACTION_LONG_PRESS` | 3 (picodroid extension; LVGL long-press) |
+
+## `picodroid.view.OnTouchListener` and `GestureDetector`
+
+Install an `OnTouchListener` to receive raw touch events on a single `View`:
+
+```java
+import picodroid.view.MotionEvent;
+import picodroid.view.OnTouchListener;
+import picodroid.view.View;
+
+view.setOnTouchListener(new OnTouchListener() {
+    public boolean onTouch(View v, MotionEvent e) {
+        if (e.getAction() == MotionEvent.ACTION_DOWN) {
+            // ...
+        }
+        return true;   // event consumed
+    }
+});
+```
+
+For tap / long-press / fling recognition, wrap an `OnGestureListener` in `GestureDetector` (which itself implements `OnTouchListener`):
+
+```java
+import picodroid.view.GestureDetector;
+import picodroid.view.MotionEvent;
+import picodroid.view.View;
+
+view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListener() {
+    public void onSingleTap(MotionEvent e) { Log.i("UI", "tap @ " + e.getX()); }
+    public void onLongPress(MotionEvent e) { Log.i("UI", "long press"); }
+    public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {
+        Log.i("UI", "fling vx=" + vx + " vy=" + vy);
+    }
+}));
+```
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `GestureDetector.TAP_SLOP_PX` | 12 | Max DOWN→UP displacement to count as a tap. |
+| `GestureDetector.FLING_MIN_PX` | 24 | Min DOWN→UP displacement to count as a fling. |
+
+Velocities are pixels/second; positive `vx` is rightward, positive `vy` is downward. v1 caveats: no `ACTION_MOVE` / scroll callbacks; multi-touch is not supported. See [`examples/gesturedemo/`](../../examples/gesturedemo/).
+
+## `picodroid.view.ViewPropertyAnimator`
+
+Fluent builder for short interpolated property animations on a single `View`. Obtain via `view.animate()`.
+
+```java
+view.animate()
+    .alpha(0f, 1f)        // fade in
+    .x(20, 60)            // and slide right by 40 px
+    .setDuration(250)     // both in 250 ms (default 300 ms)
+    .start();
+```
+
+| Method | Description |
+|--------|-------------|
+| `alpha(float from, float to)` | Animate alpha (0.0–1.0). |
+| `x(int from, int to)` | Animate horizontal position in pixels. |
+| `y(int from, int to)` | Animate vertical position in pixels. |
+| `setDuration(int ms)` | Total duration; applies to every queued property. |
+| `start()` | Begin every queued property animation. |
+| `cancel()` | Cancel every property animation targeting this view. Properties stay at the last interpolated frame. |
+
+v1 caveats: linear interpolation only (no easing curves), no completion listener, both `from` and `to` are required. Multiple property calls in the same chain run concurrently. See [`examples/animdemo/`](../../examples/animdemo/).
 
 ## Key events
 
@@ -371,7 +523,7 @@ sp.setOnItemSelectedListener(new Runnable() {
 
 ### `picodroid.widget.EditText`
 
-A single-line text input field.
+A single-line text input field. Tapping it pops up the system soft keyboard at the bottom of the screen by default.
 
 ```java
 import picodroid.widget.EditText;
@@ -380,7 +532,10 @@ EditText input = new EditText();
 input.setHint("device name");
 input.setText("pico-01");
 String value = input.getText();
+input.setShowKeyboardOnTouch(false);   // disable system keyboard for this field
 ```
+
+See [`picodroid.widget.Keyboard`](#picodroidwidgetkeyboard) for the soft keyboard widget.
 
 ### `picodroid.widget.ScrollView`
 
@@ -409,6 +564,90 @@ FrameLayout overlay = new FrameLayout();
 overlay.addView(background);
 overlay.addView(badge);
 ```
+
+### `picodroid.widget.Toast`
+
+Brief, non-modal, auto-dismissing message bubble — Android-style.
+
+```java
+import picodroid.widget.Toast;
+
+Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
+```
+
+| Constant | Value | Default duration |
+|----------|-------|-----------------|
+| `Toast.LENGTH_SHORT` | 0 | ~2 s |
+| `Toast.LENGTH_LONG` | 1 | ~3.5 s |
+
+| Method | Description |
+|--------|-------------|
+| `Toast.makeText(String text, int duration)` | Static factory. |
+| `show()` | Display the toast. |
+| `cancel()` | Dismiss before the timeout expires. |
+
+### `picodroid.widget.AlertDialog`
+
+Modal dialog with a title, message, and up to two buttons. Built via the nested `Builder`.
+
+```java
+import picodroid.widget.AlertDialog;
+
+new AlertDialog.Builder()
+    .setTitle("Erase data?")
+    .setMessage("This cannot be undone.")
+    .setPositiveButton("Erase", new Runnable() {
+        public void run() { eraseAll(); }
+    })
+    .setNegativeButton("Cancel", null)
+    .show();
+```
+
+| `Builder` method | Description |
+|-----|-------------|
+| `setTitle(String)` | Dialog title (top bar). |
+| `setMessage(String)` | Body text. |
+| `setPositiveButton(String text, Runnable listener)` | Confirm button. `listener` may be null. |
+| `setNegativeButton(String text, Runnable listener)` | Dismiss button. `listener` may be null. |
+| `create()` | Returns an `AlertDialog` without showing it. |
+| `show()` | Convenience: `create()` + `show()`. |
+
+Either button click runs its listener (if any) and then dismisses the dialog. Call `dialog.dismiss()` to close programmatically. See [`examples/dialogdemo/`](../../examples/dialogdemo/).
+
+### `picodroid.widget.Keyboard`
+
+On-screen soft keyboard, wrapping LVGL's `lv_keyboard`. Two ways to use:
+
+**System keyboard (default).** Any `EditText` pops up a singleton system keyboard at the screen bottom on touch — no setup needed. Dismissed by BACK or the keyboard's OK key.
+
+**Explicit instance** for custom placement or styling:
+
+```java
+import picodroid.widget.EditText;
+import picodroid.widget.Keyboard;
+
+EditText input = new EditText();
+input.setShowKeyboardOnTouch(false);   // disable system keyboard for this field
+
+Keyboard kb = new Keyboard();
+kb.setEditText(input);
+kb.setMode(Keyboard.MODE_TEXT_LOWER);
+kb.setPosition(0, 120);
+kb.setSize(320, 120);
+kb.setOnReadyListener(new Runnable() {
+    public void run() { kb.hide(); /* validate input here */ }
+});
+kb.show();
+```
+
+| Constant | Value |
+|----------|-------|
+| `Keyboard.MODE_TEXT_LOWER` | 0 |
+| `Keyboard.MODE_TEXT_UPPER` | 1 |
+| `Keyboard.MODE_SPECIAL` | 2 |
+| `Keyboard.MODE_NUMBER` | 3 |
+
+LVGL switches modes internally as the user taps the keyboard's "abc"/"ABC"/"123"/"!@#" toggle keys. v1 caveats: US-English layout only; explicit instances do not auto-hide on the OK key (the listener decides). See [`examples/keyboarddemo/`](../../examples/keyboarddemo/).
 
 ## Complete display app example
 

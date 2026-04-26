@@ -19,6 +19,18 @@ SystemClock.sleep(500);               // sleep for 500 ms
 long t = SystemClock.elapsedRealtimeNanos();  // nanoseconds since boot (monotonic)
 ```
 
+## `java.lang.System.currentTimeMillis()`
+
+Convenience for the common Android idiom `long now = System.currentTimeMillis();`. Returns milliseconds elapsed since boot — there is no wall-clock RTC on the Pico, so the value is monotonic but not Unix-epoch-relative. Equivalent to `SystemClock.elapsedRealtimeNanos() / 1_000_000`.
+
+```java
+long start = System.currentTimeMillis();
+doWork();
+long elapsed = System.currentTimeMillis() - start;
+```
+
+See [`examples/clockdemo/`](../../examples/clockdemo/).
+
 ## `picodroid.os.Runtime`
 
 GC introspection. All methods are static.
