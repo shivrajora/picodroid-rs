@@ -100,11 +100,11 @@ pub(crate) fn run_application(
 ///   `onPause` → `onStop` → `onDestroy` are invoked on every still-live
 ///   stack entry, top-down.
 ///
-/// **v1 caveat**: Activity content views are NOT preserved across pause.
-/// When B is pushed over A, A's content view is freed by B's
-/// `setContentView` call. When B finishes and A resumes, A must re-call
-/// `setContentView` from its `onResume` to put its UI back. Activity-level
-/// view preservation is a planned follow-up.
+/// Activity content views ARE preserved across pause: when B is pushed
+/// over A, A's content view is hidden (set to `Visibility::Gone`) and
+/// snapshotted into A's stack entry; when B finishes, A's saved view is
+/// restored before `onStart`/`onResume`. Apps can build UIs in `onCreate`
+/// and need not rebuild from `onResume`.
 #[cfg(not(test))]
 pub(crate) fn run_activity(
     jvm: &mut Jvm,
@@ -114,6 +114,7 @@ pub(crate) fn run_activity(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     use crate::system::executors::main_queue::{self, MainTask};
+    use crate::system::picodroid::graphics::gfx::Handle;
     use crate::system::picodroid::graphics::lvgl::with_gfx;
     use pico_jvm::NativeMethodHandler;
 
@@ -291,7 +292,7 @@ pub(crate) fn run_activity(
     // stack is already empty and the while-let body is a no-op). For
     // window-close / interrupt the stack still holds live entries; tear
     // them down top-down so each Activity sees the full Android contract.
-    while let Some((act_ref, act_class)) = handler.pop_activity() {
+    while let Some((act_ref, act_class, root)) = handler.pop_activity() {
         let _ = invoke_lifecycle(
             jvm,
             act_class,
@@ -316,8 +317,19 @@ pub(crate) fn run_activity(
             heap,
             handler,
         );
+        // Free the saved root for parked entries. The topmost entry's view
+        // is in CURRENT_ROOT_ID rather than its slot (it's still visible
+        // until its onPause snapshot, which the teardown loop bypasses) —
+        // free that one explicitly after the loop.
+        if root != 0 {
+            with_gfx(|g| g.delete(Handle::from_java(root)));
+        }
     }
-    crate::system::picodroid::graphics::display::clear_content_view();
+    let visible_root = crate::system::picodroid::graphics::display::current_root_id();
+    if visible_root != 0 {
+        with_gfx(|g| g.delete(Handle::from_java(visible_root)));
+    }
+    crate::system::picodroid::graphics::display::set_current_root_id(0);
 }
 
 // ── Lifecycle invocation + transition processing ─────────────────────────────
@@ -392,6 +404,9 @@ fn process_pending_op(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     use crate::system::native_handler::PendingActivityOp;
+    use crate::system::picodroid::graphics::display;
+    use crate::system::picodroid::graphics::gfx::{Handle, Visibility};
+    use crate::system::picodroid::graphics::lvgl::with_gfx;
 
     match op {
         PendingActivityOp::Push {
@@ -414,9 +429,29 @@ fn process_pending_op(
                 {
                     return LifecycleControl::Break;
                 }
+                // Park prev's content view: hide it and snapshot the handle
+                // into prev's stack entry. CURRENT_ROOT_ID is cleared so
+                // the new top's setContentView lands on a clean slate.
+                let prev_root = display::current_root_id();
+                if prev_root != 0 {
+                    with_gfx(|g| g.set_visibility(Handle::from_java(prev_root), Visibility::Gone));
+                    handler.set_current_root_handle(prev_root);
+                    display::set_current_root_id(0);
+                }
             }
             if !handler.push_activity(new_ref, new_class) {
                 log_error!("activity stack overflow on push: {}", new_class);
+                // Restore prev's view so it isn't left hidden forever.
+                if prev.is_some() {
+                    let saved = handler.current_root_handle();
+                    if saved != 0 {
+                        with_gfx(|g| {
+                            g.set_visibility(Handle::from_java(saved), Visibility::Visible)
+                        });
+                        display::set_current_root_id(saved);
+                        handler.set_current_root_handle(0);
+                    }
+                }
                 return LifecycleControl::Continue;
             }
             for site in [
@@ -460,12 +495,26 @@ fn process_pending_op(
                     return LifecycleControl::Break;
                 }
             }
+            // Free the destroyed activity's content view BEFORE popping
+            // the entry, so the popped entry's saved root_handle (which
+            // tracks CURRENT_ROOT_ID for the topmost) is consumed cleanly.
+            let top_root = display::current_root_id();
+            if top_root != 0 {
+                with_gfx(|g| g.delete(Handle::from_java(top_root)));
+                display::set_current_root_id(0);
+            }
             handler.pop_activity();
-            // Free the destroyed activity's content view BEFORE the resumed
-            // parent's onResume calls setContentView again — otherwise that
-            // call's "delete prev" path would double-free.
-            crate::system::picodroid::graphics::display::clear_content_view();
+            // Restore the resumed parent's parked view, if any. Apps that
+            // build UI in onCreate get their tree back without rebuilding;
+            // apps that rebuild in onResume will replace it (the saved
+            // root will be deleted by set_content_view's prev-delete branch).
             if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
+                let saved = handler.current_root_handle();
+                if saved != 0 {
+                    with_gfx(|g| g.set_visibility(Handle::from_java(saved), Visibility::Visible));
+                    display::set_current_root_id(saved);
+                    handler.set_current_root_handle(0);
+                }
                 for site in [
                     dispatch_sites::ACTIVITY_ON_START,
                     dispatch_sites::ACTIVITY_ON_RESUME,

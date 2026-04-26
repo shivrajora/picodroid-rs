@@ -5,7 +5,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
-use super::gfx::Handle;
+use super::gfx::{Handle, Visibility};
 use super::lvgl::{calibration, with_gfx};
 use super::view;
 
@@ -60,21 +60,19 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 // Content management
 // ---------------------------------------------------------------------------
 
-/// Drop the current content view (if any) and clear `CURRENT_ROOT_ID`.
-///
-/// Called by the lifecycle handler in [`crate::lifecycle`] when an Activity
-/// is destroyed (via `finish()`): the destroyed Activity's root view must
-/// be freed *before* the resumed parent Activity's `onResume` calls
-/// `setContentView` again, otherwise `set_content_view`'s "delete prev"
-/// path would double-free the destroyed view.
-pub(crate) fn clear_content_view() {
-    let prev_id = unsafe {
-        let prev = CURRENT_ROOT_ID;
-        CURRENT_ROOT_ID = 0;
-        prev
-    };
-    if prev_id != 0 {
-        with_gfx(|g| g.delete(Handle::from_java(prev_id)));
+/// Read `CURRENT_ROOT_ID`. Used by the lifecycle handler to snapshot the
+/// visible root into the current stack entry on push, and to free it on
+/// pop.
+pub(crate) fn current_root_id() -> i32 {
+    unsafe { CURRENT_ROOT_ID }
+}
+
+/// Write `CURRENT_ROOT_ID`. Used by the lifecycle handler to clear it on
+/// push (before the new top's `onCreate`/`setContentView`) and to restore
+/// the resumed activity's saved root on pop.
+pub(crate) fn set_current_root_id(id: i32) {
+    unsafe {
+        CURRENT_ROOT_ID = id;
     }
 }
 
@@ -97,7 +95,12 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
         // already parents to the active screen on first call, so this is a
         // re-parent on subsequent setContentView calls).
         let scr = g.screen();
-        g.set_parent(Handle::from_java(root_id), scr);
+        let h = Handle::from_java(root_id);
+        g.set_parent(h, scr);
+        // Defensive: if the same root is re-installed after a pause cycle
+        // (an app rebuilds in onResume), it must end up visible. Idempotent
+        // for the first-time path.
+        g.set_visibility(h, Visibility::Visible);
     });
     Ok(None)
 }

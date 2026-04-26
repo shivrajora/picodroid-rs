@@ -8,24 +8,25 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 public class HomeActivity extends Activity {
-  /**
-   * v1 caveat: Activity content views are NOT preserved across pause. When DetailActivity is pushed
-   * on top, this Activity's view tree is freed by the new top's setContentView. So we build the UI
-   * in onResume (called once on first launch and again whenever this Activity returns to the
-   * foreground), not in onCreate.
-   */
+  private int buildCount = 0;
+
+  public void onCreate() {
+    Log.i("NavDemo", "Home.onCreate");
+    buildUi();
+  }
+
   public void onResume() {
     Log.i("NavDemo", "Home.onResume");
-    rebuildUi();
   }
 
   public void onPause() {
     Log.i("NavDemo", "Home.onPause");
   }
 
-  private void rebuildUi() {
-    // Force Display init before constructing widgets (idempotent on resubsequent
-    // resumes). Same idiom used by KeyDemoActivity / DialogDemoActivity.
+  private void buildUi() {
+    buildCount++;
+    Log.i("NavDemo", "Home.buildUi count=" + buildCount);
+
     getDisplay();
 
     LinearLayout root = new LinearLayout();

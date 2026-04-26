@@ -8,12 +8,9 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 public class DetailActivity extends Activity {
-  public void onResume() {
-    Log.i("NavDemo", "Detail.onResume");
+  public void onCreate() {
+    Log.i("NavDemo", "Detail.onCreate");
 
-    // Display has already been brought up by HomeActivity, but this idiom
-    // is harmless (idempotent) and self-contained — copy when forking
-    // this demo as a starting point for new screens.
     getDisplay();
 
     LinearLayout root = new LinearLayout();
@@ -28,9 +25,6 @@ public class DetailActivity extends Activity {
 
     Button backBtn = new Button("Back to Home");
     backBtn.setSize(200, 40);
-    // Calling finish() on this Activity pops it off the stack, triggering
-    // onPause/onStop/onDestroy here, then onStart/onResume on HomeActivity
-    // (which rebuilds its UI in onResume).
     backBtn.setOnClickListener(
         () -> {
           Log.i("NavDemo", "Detail: finish() pressed");
@@ -39,6 +33,10 @@ public class DetailActivity extends Activity {
     root.addView(backBtn);
 
     setContentView(root);
+  }
+
+  public void onResume() {
+    Log.i("NavDemo", "Detail.onResume");
   }
 
   public void onPause() {

@@ -109,6 +109,12 @@ pub enum PendingActivityOp {
 struct ActivityStackEntry {
     obj_ref: u16,
     class_name: &'static str,
+    /// Java `nativeHandle` of the content view installed by this Activity's
+    /// most recent `setContentView`. `0` = no view set yet, or the view has
+    /// been freed. Snapshotted from `display::CURRENT_ROOT_ID` on push (so
+    /// the view survives while a child Activity is on top) and restored
+    /// back into `CURRENT_ROOT_ID` on pop.
+    root_handle: i32,
 }
 
 pub struct PicodroidNativeHandler {
@@ -174,20 +180,46 @@ impl PicodroidNativeHandler {
         self.activity_stack[self.activity_stack_len] = Some(ActivityStackEntry {
             obj_ref,
             class_name,
+            root_handle: 0,
         });
         self.activity_stack_len += 1;
         true
     }
 
     /// Pop the top activity off the stack. Returns the popped entry, or
-    /// `None` if the stack was already empty.
-    pub fn pop_activity(&mut self) -> Option<(u16, &'static str)> {
+    /// `None` if the stack was already empty. The third tuple element is
+    /// the saved content-view handle (`0` if none); callers that own
+    /// teardown must `g.delete` it to free the view tree.
+    pub fn pop_activity(&mut self) -> Option<(u16, &'static str, i32)> {
         if self.activity_stack_len == 0 {
             return None;
         }
         self.activity_stack_len -= 1;
         let entry = self.activity_stack[self.activity_stack_len].take()?;
-        Some((entry.obj_ref, entry.class_name))
+        Some((entry.obj_ref, entry.class_name, entry.root_handle))
+    }
+
+    /// Saved content-view handle of the top entry, or `0` if the stack
+    /// is empty / the top Activity has not yet called `setContentView`.
+    pub fn current_root_handle(&self) -> i32 {
+        if self.activity_stack_len == 0 {
+            return 0;
+        }
+        match self.activity_stack[self.activity_stack_len - 1].as_ref() {
+            Some(e) => e.root_handle,
+            None => 0,
+        }
+    }
+
+    /// Set the saved content-view handle on the top entry. No-op when the
+    /// stack is empty.
+    pub fn set_current_root_handle(&mut self, h: i32) {
+        if self.activity_stack_len == 0 {
+            return;
+        }
+        if let Some(e) = self.activity_stack[self.activity_stack_len - 1].as_mut() {
+            e.root_handle = h;
+        }
     }
 
     /// Returns cumulative (gc_time_ns, gc_count, gc_freed) for the entire run.

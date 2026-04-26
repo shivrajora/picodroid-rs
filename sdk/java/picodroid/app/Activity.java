@@ -14,8 +14,10 @@ public class Activity {
 
   /**
    * Called after onCreate, and again whenever this Activity returns to the foreground after another
-   * Activity finished above it. v1 caveat: the previous content view is *not* automatically
-   * preserved across pause — if you want your UI back, re-call setContentView in onResume.
+   * Activity finished above it. The content view installed via setContentView is preserved across
+   * pause: a UI built in onCreate stays alive while this Activity is paused under another, and is
+   * restored automatically on resume. Rebuilding from onResume is still supported (the new root
+   * replaces the saved one).
    */
   public void onStart() {
     // Subclass overrides
