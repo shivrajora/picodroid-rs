@@ -1,4 +1,4 @@
-//! Hand-written FFI bindings for LVGL v9.2.2.
+//! Hand-written FFI bindings for LVGL v9.5.0.
 //!
 //! Only the subset of functions needed by picodroid is declared here.
 //! Opaque LVGL types (lv_display_t, lv_obj_t, etc.) are represented as
@@ -65,14 +65,33 @@ pub struct lv_point_t {
     pub y: i32,
 }
 
+/// LVGL gesture-type count (`LV_INDEV_GESTURE_CNT` in lv_indev.h). Must match
+/// upstream — sized arrays inside `lv_indev_data_t` depend on this. v9.5.0
+/// has 6 gesture types (NONE, PINCH, SWIPE, ROTATE, TWO_FINGERS_SWIPE,
+/// SCROLL).
+const LV_INDEV_GESTURE_CNT: usize = 6;
+
+/// `lv_indev_gesture_type_t` is a C enum compiled with `-fshort-enums` on
+/// both ARM and sim (build_support/lvgl.rs forces the flag on non-ARM), so
+/// it is a single byte.
+pub type lv_indev_gesture_type_t = u8;
+
+/// Layout matches `lv_indev_data_t` in vendor/lvgl/src/indev/lv_indev.h.
+/// The leading `gesture_type` / `gesture_data` arrays were added in v9.5.0
+/// and `state` was reordered to precede `point`. We don't fill the gesture
+/// fields ourselves — LVGL initialises them — so we just need the offsets
+/// for `state`, `point`, `key`, and `continue_reading` to match.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct lv_indev_data_t {
+    pub gesture_type: [lv_indev_gesture_type_t; LV_INDEV_GESTURE_CNT],
+    pub gesture_data: [*mut c_void; LV_INDEV_GESTURE_CNT],
+    pub state: lv_indev_state_t,
     pub point: lv_point_t,
     pub key: u32,
     pub btn_id: u32,
     pub enc_diff: i16,
-    pub state: lv_indev_state_t,
+    pub timestamp: u32,
     pub continue_reading: bool,
 }
 
@@ -106,20 +125,23 @@ pub const LV_ANIM_OFF: lv_anim_enable_t = 0;
 pub const LV_ANIM_ON: lv_anim_enable_t = 1;
 
 pub type lv_event_code_t = u32;
-// Values verified against vendor/lvgl/src/misc/lv_event.h in LVGL 9.2.2.
+// Values verified against vendor/lvgl/src/misc/lv_event.h in LVGL 9.5.0.
 // See project_lvgl_ffi_constants.md memory: wrong values silently route to
 // wrong handlers and can cause infinite render loops.
+//
+// v9.5.0 inserted SINGLE_CLICKED / DOUBLE_CLICKED / TRIPLE_CLICKED before
+// LONG_PRESSED, shifting all subsequent codes by +3 vs v9.2.2.
 pub const LV_EVENT_ALL: lv_event_code_t = 0;
 pub const LV_EVENT_PRESSED: lv_event_code_t = 1;
 pub const LV_EVENT_PRESSING: lv_event_code_t = 2;
-pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 5;
-pub const LV_EVENT_CLICKED: lv_event_code_t = 7;
-pub const LV_EVENT_RELEASED: lv_event_code_t = 8;
-pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 32; // LVGL 9.2.2: shifted +4 by ROTARY, HOVER_OVER, HOVER_LEAVE, DRAW_TASK_ADDED
+pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 8;
+pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
+pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
+pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 35;
 /// Fired when a multi-step interaction "completes" — used by lv_keyboard
-/// when the user taps the OK / Enter key. Position 35 in the v9.2.2
+/// when the user taps the OK / Enter key. Position 38 in the v9.5.0
 /// enum (VALUE_CHANGED + 3, accounting for INSERT, REFRESH).
-pub const LV_EVENT_READY: lv_event_code_t = 35;
+pub const LV_EVENT_READY: lv_event_code_t = 38;
 
 pub type lv_flex_flow_t = u32;
 pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0x00;
@@ -157,9 +179,11 @@ pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 
-// Object states (from lv_obj.h)
-pub const LV_STATE_CHECKED: u32 = 0x0001;
-pub const LV_STATE_DISABLED: u32 = 0x0080;
+// Object states (from lv_obj_style.h, v9.5.0).
+// The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
+// (1 << 0) and reserved slots, so values differ from v9.2.2.
+pub const LV_STATE_CHECKED: u32 = 1 << 2;
+pub const LV_STATE_DISABLED: u32 = 1 << 9;
 
 // ---------------------------------------------------------------------------
 // Callback types
