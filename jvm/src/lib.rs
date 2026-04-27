@@ -171,6 +171,13 @@ impl Default for Jvm {
 }
 
 impl Jvm {
+    /// Read-only access to the loaded class table. Callers that need
+    /// `ClassFile` metadata (e.g. `ObjectHeap::alloc_with_defaults`) take
+    /// `&[ClassFile]` — this accessor avoids exposing the inner `Vec`.
+    pub fn classes(&self) -> &[ClassFile] {
+        &self.classes
+    }
+
     /// Returns (parsed, total) counts for currently loaded classes.
     ///
     /// `ClassFile::register` (called by `load_class`) produces a lazy entry:

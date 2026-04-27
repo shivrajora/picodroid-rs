@@ -74,15 +74,77 @@ pub(crate) fn run_application(
         }
     }
 
-    // If onCreate() called startActivity(), enter the Activity loop with
-    // that initial push. Anything else (e.g. Pop with empty stack) is a
-    // no-op: nothing to drive.
-    if let Some(PendingActivityOp::Push {
-        obj_ref: act_ref,
-        class_name: act_class,
-    }) = handler.take_pending_op()
-    {
+    // Drain any service ops queued during onCreate (start/bind/foreground)
+    // and look for the first Activity push to drive. Service-only apps
+    // never push an Activity — drained ops still run, then we tear down
+    // surviving services and exit cleanly.
+    use crate::system::native_handler::PendingOp;
+    let mut activity_push: Option<&'static str> = None;
+    while let Some(op) = handler.take_next_pending_op() {
+        match op {
+            PendingOp::Activity(PendingActivityOp::Push { class_name }) => {
+                activity_push = Some(class_name);
+                break;
+            }
+            PendingOp::Activity(PendingActivityOp::Pop) => {
+                // No stack yet — nothing to pop.
+            }
+            PendingOp::Service(s) => {
+                let _ = crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+            }
+        }
+    }
+
+    if let Some(act_class) = activity_push {
+        let act_ref = match instantiate_component(jvm, act_class, heap, handler) {
+            Some(r) => r,
+            None => {
+                log_error!("failed to instantiate initial Activity {}", act_class);
+                crate::service_lifecycle::destroy_all(jvm, heap, handler);
+                return;
+            }
+        };
         run_activity(jvm, act_class, act_ref, heap, handler);
+    } else {
+        // Service-only app or app that did nothing in onCreate — process
+        // any further queued ops, then run final teardown so live Services
+        // (started or bound) get an onDestroy.
+        while let Some(op) = handler.take_next_pending_op() {
+            if let PendingOp::Service(s) = op {
+                let _ = crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+            }
+        }
+        crate::service_lifecycle::destroy_all(jvm, heap, handler);
+    }
+}
+
+/// Allocate a fresh component (Activity or Service) and run its no-arg
+/// `<init>`. Returns the new ObjectRef, or `None` if allocation or
+/// initialization failed (allocation OOM, missing class, constructor
+/// faulted). Field defaults are applied per JVMS before the constructor
+/// runs.
+#[cfg(not(test))]
+pub(crate) fn instantiate_component(
+    jvm: &mut Jvm,
+    class_name: &'static str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> Option<u16> {
+    let obj_ref = heap
+        .objects
+        .alloc_with_defaults(class_name, jvm.classes())?;
+    // Run <init> via the leaf class — invokespecial chains up to super.<init>.
+    // If the class doesn't declare <init> (e.g. inherits the implicit default
+    // from the superclass), ignore MethodNotFound: field defaults are already
+    // applied and the implicit super-chain is a no-op.
+    match jvm.invoke_instance(class_name, "<init>", obj_ref, heap, handler) {
+        Ok(()) => Some(obj_ref),
+        Err(JvmError::MethodNotFound) => Some(obj_ref),
+        Err(JvmError::Interrupted) => None,
+        Err(e) => {
+            log_error!("<init> failed: {}", e);
+            Some(obj_ref)
+        }
     }
 }
 
@@ -257,7 +319,7 @@ pub(crate) fn run_activity(
         // frame is the documented contract, but we drain in a `while` so
         // back-to-back queues collapse cleanly.
         let mut should_exit = false;
-        while let Some(op) = handler.take_pending_op() {
+        while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
                 should_exit = true;
                 break;
@@ -330,6 +392,9 @@ pub(crate) fn run_activity(
         with_gfx(|g| g.delete(Handle::from_java(visible_root)));
     }
     crate::system::picodroid::graphics::display::set_current_root_id(0);
+    // Tear down any Services still alive. Foreground/started/bound — all
+    // get a final onDestroy and have their banners cleared.
+    crate::service_lifecycle::destroy_all(jvm, heap, handler);
 }
 
 // ── Lifecycle invocation + transition processing ─────────────────────────────
@@ -338,7 +403,7 @@ pub(crate) fn run_activity(
 /// whether to continue the loop or unwind.
 #[cfg(not(test))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum LifecycleControl {
+pub(crate) enum LifecycleControl {
     /// Method ran (or was a no-op fallback); continue the loop.
     Continue,
     /// JVM cooperative interrupt — caller should return immediately.
@@ -347,7 +412,7 @@ enum LifecycleControl {
 
 #[cfg(not(test))]
 impl LifecycleControl {
-    fn is_break(self) -> bool {
+    pub(crate) fn is_break(self) -> bool {
         matches!(self, LifecycleControl::Break)
     }
 }
@@ -393,26 +458,41 @@ fn invoke_lifecycle(
     }
 }
 
-/// Process a single push or pop, invoking the canonical Android lifecycle
-/// callback sequence on the activities involved. See the doc comment on
+/// Process a single Activity or Service transition, invoking the canonical
+/// Android lifecycle callback sequence. See the doc comment on
 /// [`run_activity`] for the v1 view-preservation caveat.
 #[cfg(not(test))]
 fn process_pending_op(
     jvm: &mut Jvm,
-    op: crate::system::native_handler::PendingActivityOp,
+    op: crate::system::native_handler::PendingOp,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    use crate::system::native_handler::PendingActivityOp;
+    use crate::system::native_handler::{PendingActivityOp, PendingOp};
     use crate::system::picodroid::graphics::display;
     use crate::system::picodroid::graphics::gfx::{Handle, Visibility};
     use crate::system::picodroid::graphics::lvgl::with_gfx;
 
-    match op {
+    let activity_op = match op {
+        PendingOp::Activity(a) => a,
+        PendingOp::Service(s) => {
+            return crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+        }
+    };
+
+    match activity_op {
         PendingActivityOp::Push {
-            obj_ref: new_ref,
             class_name: new_class,
         } => {
+            // Framework owns instantiation: allocate the Activity and run
+            // its no-arg constructor before the lifecycle callbacks.
+            let new_ref = match instantiate_component(jvm, new_class, heap, handler) {
+                Some(r) => r,
+                None => {
+                    log_error!("failed to instantiate Activity {}", new_class);
+                    return LifecycleControl::Continue;
+                }
+            };
             // Capture the previous top before pushing — needed for the
             // trailing onStop call after the new top is fully resumed.
             let prev = handler.current_activity();
@@ -503,6 +583,11 @@ fn process_pending_op(
                 with_gfx(|g| g.delete(Handle::from_java(top_root)));
                 display::set_current_root_id(0);
             }
+            // Auto-unbind any Service connections this Activity owned —
+            // mirrors Android's behaviour for an Activity destroyed while
+            // holding bindings. Runs after the Activity's own onDestroy so
+            // the Activity can still call unbindService itself.
+            crate::service_lifecycle::unbind_owned_by(top_ref, jvm, heap, handler);
             handler.pop_activity();
             // Restore the resumed parent's parked view, if any. Apps that
             // build UI in onCreate get their tree back without rebuilding;

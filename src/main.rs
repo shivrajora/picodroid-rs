@@ -31,6 +31,8 @@ mod lvgl_ffi;
 mod packagemanager;
 #[cfg(not(any(test, feature = "sim")))]
 mod pdb;
+#[cfg(not(test))]
+mod service_lifecycle;
 mod shrink_names;
 #[cfg(feature = "sim")]
 mod sim_allocator;

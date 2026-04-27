@@ -1,6 +1,7 @@
 package navdemo;
 
 import picodroid.app.Activity;
+import picodroid.content.Intent;
 import picodroid.graphics.Color;
 import picodroid.util.Log;
 import picodroid.widget.Button;
@@ -44,7 +45,7 @@ public class HomeActivity extends Activity {
     openBtn.setOnClickListener(
         () -> {
           Log.i("NavDemo", "Home: launching Detail");
-          startActivity(new DetailActivity());
+          startActivity(new Intent(DetailActivity.class));
         });
     root.addView(openBtn);
 

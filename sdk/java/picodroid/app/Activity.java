@@ -1,12 +1,12 @@
 package picodroid.app;
 
 import picodroid.content.Context;
+import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
 import picodroid.graphics.Display;
-import picodroid.hardware.SensorManager;
 import picodroid.view.View;
 
-public class Activity {
+public class Activity extends Context {
   /** Called once when the Activity is first created. Build the UI tree here. */
   public void onCreate() {
     // Subclass overrides
@@ -58,18 +58,13 @@ public class Activity {
   public native void finish();
 
   /**
-   * Push a new Activity on top of this one. The new Activity goes through onCreate → onStart →
-   * onResume; this Activity goes through onPause → onStop. The two are interleaved in the
-   * Android-canonical order (this.onPause first, this.onStop after the new top fully resumes).
+   * Launch the Activity named by {@code intent}'s target class on top of this one. The new Activity
+   * goes through onCreate → onStart → onResume; this Activity goes through onPause → onStop. The
+   * two are interleaved in the Android-canonical order (this.onPause first, this.onStop after the
+   * new top fully resumes). The framework instantiates the target via its no-arg constructor;
+   * Intent extras are not yet exposed via {@code getIntent()}.
    */
-  public native void startActivity(Activity activity);
-
-  public Object getSystemService(String name) {
-    if (Context.SENSOR_SERVICE.equals(name)) {
-      return SensorManager.getInstance();
-    }
-    return null;
-  }
+  public native void startActivity(Intent intent);
 
   public PackageManager getPackageManager() {
     return PackageManager.getInstance();

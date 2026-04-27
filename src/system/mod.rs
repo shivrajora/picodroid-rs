@@ -3,4 +3,6 @@ pub mod executors;
 pub mod monitor_store;
 #[cfg(not(test))]
 pub mod native_handler;
+#[cfg(not(test))]
+pub mod notification;
 pub mod picodroid;

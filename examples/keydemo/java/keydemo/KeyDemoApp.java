@@ -1,9 +1,10 @@
 package keydemo;
 
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class KeyDemoApp extends Application {
   public void onCreate() {
-    startActivity(new KeyDemoActivity());
+    startActivity(new Intent(KeyDemoActivity.class));
   }
 }

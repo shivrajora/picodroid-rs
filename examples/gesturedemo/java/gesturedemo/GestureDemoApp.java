@@ -1,9 +1,10 @@
 package gesturedemo;
 
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class GestureDemoApp extends Application {
   public void onCreate() {
-    startActivity(new GestureDemoActivity());
+    startActivity(new Intent(GestureDemoActivity.class));
   }
 }

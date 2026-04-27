@@ -5,6 +5,7 @@ use pico_jvm::{
     NativeContext, NativeMethodHandler,
 };
 
+mod app_services;
 mod concurrent;
 mod graphics;
 mod io;
@@ -37,6 +38,14 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/concurrent/MainExecutor",
     "picodroid/concurrent/BackgroundExecutor",
     "picodroid/app/Application",
+    "picodroid/app/Activity",
+    "picodroid/app/Service",
+    "picodroid/app/IBinder",
+    "picodroid/app/Notification",
+    "picodroid/app/NotificationManager",
+    "picodroid/content/Context",
+    "picodroid/content/Intent",
+    "picodroid/content/ServiceConnection",
     "picodroid/view/View",
     "picodroid/view/MotionEvent",
     "picodroid/view/KeyEvent",
@@ -88,22 +97,63 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
 /// any realistic embedded UI flow without burning RAM.
 pub const MAX_ACTIVITY_STACK: usize = 8;
 
-/// Pending lifecycle transition signaled from Java to the framework loop in
-/// [`crate::lifecycle::run_activity`]. The loop checks this between frame
-/// ticks and invokes the corresponding lifecycle callbacks before clearing it.
+/// Pending Activity transition signaled from Java to the framework loop in
+/// [`crate::lifecycle::run_activity`]. Wrapped in [`PendingOp`] so it shares
+/// a single FIFO with Service ops, preserving the order the app issued them
+/// (a `startActivity` then `startService` from the same frame must process
+/// in that order).
 #[derive(Copy, Clone, Debug)]
 pub enum PendingActivityOp {
-    /// `Application.startActivity(activity)` or
-    /// `Activity.startActivity(activity)` — push a new Activity on top of
-    /// the stack. The current top, if any, is paused first.
-    Push {
-        obj_ref: u16,
-        class_name: &'static str,
-    },
+    /// `Application.startActivity(intent)` or `Activity.startActivity(intent)`
+    /// — push a new Activity of the named class on top of the stack. The
+    /// framework allocates the instance and runs its no-arg constructor; the
+    /// current top, if any, is paused first.
+    Push { class_name: &'static str },
     /// `Activity.finish()` — pop the current top off the stack. If the
     /// stack is left empty, [`run_activity`] returns and the app exits.
     Pop,
 }
+
+/// Pending Service transition signaled from Java to the framework loop. The
+/// `intent_ref` carries any extras the Service callback needs to read; the
+/// referenced object must remain reachable until the op is processed (the
+/// handler holds a strong root via [`PicodroidNativeHandler::pending_ops`]).
+#[derive(Copy, Clone, Debug)]
+pub enum PendingServiceOp {
+    /// `Context.startService(intent)` — `onCreate` (first time) then
+    /// `onStartCommand`.
+    Start {
+        class_name: &'static str,
+        intent_ref: u16,
+    },
+    /// `Context.stopService(intent)` or `Service.stopSelf()` — clear the
+    /// started flag; if no clients are bound, run `onDestroy`.
+    Stop { class_name: &'static str },
+    /// `Context.bindService(intent, conn)` — `onCreate` (first time) then
+    /// `onBind`, then deliver the IBinder to `conn.onServiceConnected`.
+    Bind {
+        class_name: &'static str,
+        intent_ref: u16,
+        conn_ref: u16,
+        owner_activity_ref: u16,
+    },
+    /// `Context.unbindService(conn)` — last-bind triggers `onUnbind` and
+    /// possibly `onDestroy`.
+    Unbind { conn_ref: u16 },
+}
+
+/// Either an Activity or a Service transition. Drained in FIFO order from
+/// [`PicodroidNativeHandler::pending_ops`] between frames.
+#[derive(Copy, Clone, Debug)]
+pub enum PendingOp {
+    Activity(PendingActivityOp),
+    Service(PendingServiceOp),
+}
+
+/// Maximum pending ops per frame. A typical Activity onCreate that calls
+/// `startService` + `bindService` queues 2 service ops; allowing 8 leaves
+/// headroom for chained transitions without burning RAM.
+pub const MAX_PENDING_OPS: usize = 8;
 
 #[derive(Copy, Clone)]
 struct ActivityStackEntry {
@@ -133,11 +183,12 @@ pub struct PicodroidNativeHandler {
     /// `startActivity` and after the last `finish()`.
     activity_stack: [Option<ActivityStackEntry>; MAX_ACTIVITY_STACK],
     activity_stack_len: usize,
-    /// At most one pending push/pop, drained by the framework loop between
-    /// frames. Multiple `startActivity()` calls in a single frame would
-    /// silently drop all but the last; that matches Android's
-    /// "one transition per frame" semantics.
-    pending_op: Option<PendingActivityOp>,
+    /// Pending Activity / Service ops queued by Java in FIFO order, drained
+    /// by [`crate::lifecycle`] between frames. A typical Activity onCreate
+    /// that does both `startService` and `bindService` queues two ops;
+    /// excess ops past `MAX_PENDING_OPS` are silently dropped (logged).
+    pending_ops: [Option<PendingOp>; MAX_PENDING_OPS],
+    pending_ops_len: usize,
 }
 
 impl PicodroidNativeHandler {
@@ -151,12 +202,36 @@ impl PicodroidNativeHandler {
             total_gc_freed: 0,
             activity_stack: [None; MAX_ACTIVITY_STACK],
             activity_stack_len: 0,
-            pending_op: None,
+            pending_ops: [None; MAX_PENDING_OPS],
+            pending_ops_len: 0,
         }
     }
 
-    pub fn take_pending_op(&mut self) -> Option<PendingActivityOp> {
-        self.pending_op.take()
+    /// Append `op` to the pending queue. Returns `true` on success; `false`
+    /// (with a log) if the queue is full — apps shouldn't be queueing more
+    /// than [`MAX_PENDING_OPS`] transitions per frame.
+    pub fn enqueue_op(&mut self, op: PendingOp) -> bool {
+        if self.pending_ops_len >= MAX_PENDING_OPS {
+            return false;
+        }
+        self.pending_ops[self.pending_ops_len] = Some(op);
+        self.pending_ops_len += 1;
+        true
+    }
+
+    /// Pop the oldest pending op (FIFO). Returns `None` when the queue is
+    /// empty.
+    pub fn take_next_pending_op(&mut self) -> Option<PendingOp> {
+        if self.pending_ops_len == 0 {
+            return None;
+        }
+        let op = self.pending_ops[0].take();
+        // Shift the remaining entries down — bounded loop, max 7 moves.
+        for i in 1..self.pending_ops_len {
+            self.pending_ops[i - 1] = self.pending_ops[i].take();
+        }
+        self.pending_ops_len -= 1;
+        op
     }
 
     /// Top of the activity stack as `(obj_ref, class_name)`, or `None` when
@@ -289,6 +364,11 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         }
 
         let class_name = crate::shrink_names::unshrink_class(class_name);
+        // Service / notification dispatch — needs `self` for the pending-op
+        // queue, so it lives outside the module-style sub-dispatchers above.
+        if let result @ Some(_) = app_services::dispatch(self, class_name, method_name, ctx) {
+            return result;
+        }
         // Arms that need access to `self` stay here.
         match (class_name, method_name) {
             ("picodroid/util/Log", "i") => Some(
@@ -310,16 +390,24 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
             (_, "startActivity") => {
-                // args[0] = this (Application or Activity), args[1] = activity ObjectRef
-                if let Some(Value::ObjectRef(activity_ref)) = ctx.args.get(1) {
-                    let class_name = ctx.objects.class_name(*activity_ref).unwrap_or("unknown");
-                    // SAFETY: class names from ObjectHeap are Flash-backed &'static str.
-                    let static_name: &'static str =
-                        unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
-                    self.pending_op = Some(PendingActivityOp::Push {
-                        obj_ref: *activity_ref,
-                        class_name: static_name,
-                    });
+                // args[0] = this (Application or Activity), args[1] = Intent ObjectRef.
+                // The Intent's `targetClassName` (slot 0, a String Reference) names the
+                // Activity to launch; the framework allocates and runs <init> when the
+                // pending op is processed in lifecycle.rs.
+                if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
+                    if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(*intent_ref, 0)
+                    {
+                        if let Some(class_name) = ctx.strings.resolve(name_idx) {
+                            // SAFETY: targetClassName originates from `Class.getName()`,
+                            // whose returned string-table slot is backed by Flash bytes
+                            // for the lifetime of the JVM (see jvm/src/heap.rs).
+                            let static_name: &'static str =
+                                unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
+                            self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                                class_name: static_name,
+                            }));
+                        }
+                    }
                 }
                 Some(Ok(None))
             }
@@ -330,7 +418,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // ("a paused Activity finishing itself" doesn't happen unless
             // the app is misbehaving anyway).
             (_, "finish") => {
-                self.pending_op = Some(PendingActivityOp::Pop);
+                self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
                 Some(Ok(None))
             }
             _ => None,

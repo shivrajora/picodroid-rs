@@ -1,9 +1,12 @@
 package picodroid.app;
 
-public class Application {
+import picodroid.content.Context;
+import picodroid.content.Intent;
+
+public class Application extends Context {
   public void onCreate() {
     // Subclass overrides this
   }
 
-  public native void startActivity(Activity activity);
+  public native void startActivity(Intent intent);
 }

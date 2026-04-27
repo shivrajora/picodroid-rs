@@ -1,9 +1,10 @@
 package animdemo;
 
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class AnimDemoApp extends Application {
   public void onCreate() {
-    startActivity(new AnimDemoActivity());
+    startActivity(new Intent(AnimDemoActivity.class));
   }
 }

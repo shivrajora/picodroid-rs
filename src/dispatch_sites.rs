@@ -41,6 +41,14 @@ pub const ACTIVITY_ON_DESTROY: usize = 14;
 pub const ACTIVITY_ON_BACK_PRESSED: usize = 15;
 pub const VIEW_TOUCH: usize = 16;
 pub const KEYBOARD_READY: usize = 17;
+// Service lifecycle fallbacks — used when a Service subclass doesn't
+// declare a lifecycle method and the framework loop must fall back to
+// the default (no-op) impl on `picodroid/app/Service`.
+pub const SERVICE_ON_CREATE: usize = 18;
+pub const SERVICE_ON_START_COMMAND: usize = 19;
+pub const SERVICE_ON_BIND: usize = 20;
+pub const SERVICE_ON_UNBIND: usize = 21;
+pub const SERVICE_ON_DESTROY: usize = 22;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -66,6 +74,11 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/Activity", "onBackPressed"),
     ("picodroid/view/View", "fireTouch"),
     ("picodroid/widget/Keyboard", "fireReady"),
+    ("picodroid/app/Service", "onCreate"),
+    ("picodroid/app/Service", "onStartCommand"),
+    ("picodroid/app/Service", "onBind"),
+    ("picodroid/app/Service", "onUnbind"),
+    ("picodroid/app/Service", "onDestroy"),
 ];
 
 #[cfg(test)]
