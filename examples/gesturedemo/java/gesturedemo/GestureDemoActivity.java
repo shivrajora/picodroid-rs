@@ -2,7 +2,6 @@ package gesturedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
-import picodroid.util.Log;
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 import picodroid.widget.LinearLayout;
@@ -12,6 +11,9 @@ public class GestureDemoActivity extends Activity {
   private TextView status;
 
   public void onCreate() {
+    GestureActivityComponent c = new GestureActivityComponent();
+    GestureAppComponent app = c.appComponent();
+
     getDisplay();
 
     LinearLayout root = new LinearLayout();
@@ -46,13 +48,13 @@ public class GestureDemoActivity extends Activity {
             new GestureDetector.OnGestureListener() {
               @Override
               public void onSingleTap(MotionEvent e) {
-                Log.i("GestureDemo", "tap");
+                app.info("tap");
                 status.setText("Tap @ (" + e.getX() + ", " + e.getY() + ")");
               }
 
               @Override
               public void onLongPress(MotionEvent e) {
-                Log.i("GestureDemo", "long-press");
+                app.info("long-press");
                 status.setText("Long press @ (" + e.getX() + ", " + e.getY() + ")");
               }
 
@@ -62,7 +64,7 @@ public class GestureDemoActivity extends Activity {
                     Math.abs(vx) > Math.abs(vy)
                         ? (vx > 0 ? "right" : "left")
                         : (vy > 0 ? "down" : "up");
-                Log.i("GestureDemo", "fling " + dir);
+                app.info("fling " + dir);
                 status.setText("Fling " + dir + " (vx=" + (int) vx + ", vy=" + (int) vy + ")");
               }
             }));

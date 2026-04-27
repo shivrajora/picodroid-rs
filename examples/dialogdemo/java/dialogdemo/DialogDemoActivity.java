@@ -2,7 +2,6 @@ package dialogdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
-import picodroid.util.Log;
 import picodroid.widget.AlertDialog;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -11,11 +10,13 @@ import picodroid.widget.Toast;
 
 public class DialogDemoActivity extends Activity {
   public void onCreate() {
+    DialogActivityComponent c = new DialogActivityComponent();
+
     // Force display init before constructing any widgets — see KeyDemoActivity
     // for the same idiom. Display.getInstance() is what brings up LVGL; without
     // this, widget nativeCreate calls would parent into a null screen.
     getDisplay();
-    Log.i("DialogDemo", "Display ready");
+    c.appComponent().info("Display ready");
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
@@ -31,7 +32,7 @@ public class DialogDemoActivity extends Activity {
     toastBtn.setSize(200, 40);
     toastBtn.setOnClickListener(
         () -> {
-          Log.i("DialogDemo", "toast button clicked");
+          c.appComponent().info("toast button clicked");
           Toast.makeText("Hello from Picodroid!", Toast.LENGTH_SHORT).show();
         });
     root.addView(toastBtn);
@@ -40,12 +41,12 @@ public class DialogDemoActivity extends Activity {
     dialogBtn.setSize(200, 40);
     dialogBtn.setOnClickListener(
         () -> {
-          Log.i("DialogDemo", "dialog button clicked");
+          c.appComponent().info("dialog clicked #" + c.incShowCount());
           new AlertDialog.Builder()
               .setTitle("Delete?")
               .setMessage("Are you sure?")
-              .setPositiveButton("OK", () -> Log.i("DialogDemo", "user confirmed"))
-              .setNegativeButton("Cancel", () -> Log.i("DialogDemo", "user cancelled"))
+              .setPositiveButton("OK", () -> c.appComponent().info("user confirmed"))
+              .setNegativeButton("Cancel", () -> c.appComponent().info("user cancelled"))
               .show();
         });
     root.addView(dialogBtn);
