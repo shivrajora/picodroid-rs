@@ -171,6 +171,7 @@ fn getfield_putfield_named_field_roundtrip() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         0,
         0,

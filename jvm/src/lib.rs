@@ -67,6 +67,7 @@ extern crate alloc;
 pub mod apk;
 pub mod array_heap;
 pub mod class_file;
+pub mod class_objects;
 pub mod frame;
 pub mod gc;
 pub mod heap;
@@ -79,6 +80,7 @@ pub mod types;
 use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
+use class_objects::ClassObjectCache;
 use gc::GcState;
 use heap::StringTable;
 pub use native::{BuiltinHandler, NativeContext, NativeMethodHandler};
@@ -105,6 +107,9 @@ pub struct SharedJvmHeap {
     pub statics: StaticFieldStore,
     /// Reusable GC buffers (persistent to avoid heap fragmentation).
     pub gc_state: GcState,
+    /// Cached `java.lang.Class` objects, one per loaded class. See
+    /// [`class_objects`] for why this lives on the shared heap.
+    pub class_objects: ClassObjectCache,
 }
 
 impl SharedJvmHeap {
@@ -117,6 +122,7 @@ impl SharedJvmHeap {
             strings: StringTable::new(),
             statics: StaticFieldStore::new(),
             gc_state: GcState::new(),
+            class_objects: ClassObjectCache::new(),
         }
     }
 }
@@ -219,6 +225,7 @@ impl Jvm {
             &mut heap.arrays,
             &mut heap.statics,
             &mut heap.gc_state,
+            &mut heap.class_objects,
             handler,
             ci,
             mi,
@@ -254,6 +261,7 @@ impl Jvm {
             &mut heap.arrays,
             &mut heap.statics,
             &mut heap.gc_state,
+            &mut heap.class_objects,
             handler,
             ci,
             mi,
@@ -287,6 +295,7 @@ impl Jvm {
             &mut heap.arrays,
             &mut heap.statics,
             &mut heap.gc_state,
+            &mut heap.class_objects,
             handler,
             ci,
             mi,
@@ -315,6 +324,7 @@ impl Jvm {
             &mut heap.arrays,
             &mut heap.statics,
             &mut heap.gc_state,
+            &mut heap.class_objects,
             handler,
             ci,
             mi,
@@ -349,6 +359,7 @@ impl Jvm {
             &mut heap.arrays,
             &mut heap.statics,
             &mut heap.gc_state,
+            &mut heap.class_objects,
             handler,
             ci,
             mi,

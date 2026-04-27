@@ -7,6 +7,7 @@ use crate::{
 
 mod arrays;
 mod boxed;
+mod class_obj;
 mod collections;
 mod enumeration;
 mod hashmap;
@@ -41,6 +42,7 @@ type BuiltinDispatchFn =
 pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // Dispatched builtins (kept in lockstep with BUILTIN_DISPATCH below).
     "java/lang/Object",
+    "java/lang/Class",
     "java/lang/Throwable",
     "java/lang/Exception",
     "java/lang/RuntimeException",
@@ -78,6 +80,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
 /// also in [`BUILTIN_CLASS_NAMES`] so canonicalisation cannot drift.
 const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
     ("java/lang/Object", dispatch_init_only),
+    ("java/lang/Class", class_obj::dispatch),
     ("java/lang/Throwable", dispatch_throwable),
     ("java/lang/Exception", dispatch_init_only),
     ("java/lang/RuntimeException", dispatch_init_only),

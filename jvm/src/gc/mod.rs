@@ -1,5 +1,6 @@
 use crate::{
     array_heap::{ArrayHeap, ATYPE_REF},
+    class_objects::ClassObjectCache,
     frame::Frame,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -94,8 +95,9 @@ impl Default for GcState {
 
 /// Run a full stop-the-world mark-sweep GC cycle.
 ///
-/// Scans all roots (frame locals/stacks + static fields), transitively marks
-/// reachable objects/arrays/strings, then sweeps unreachable heap entries.
+/// Scans all roots (frame locals/stacks + static fields + cached `Class`
+/// objects), transitively marks reachable objects/arrays/strings, then sweeps
+/// unreachable heap entries.
 ///
 /// Returns the number of heap entries freed.
 #[allow(clippy::too_many_arguments)]
@@ -105,6 +107,7 @@ pub fn collect(
     arrays: &mut ArrayHeap,
     strings: &mut StringTable,
     statics: &StaticFieldStore,
+    class_objects: &ClassObjectCache,
     gc: &mut GcState,
 ) -> usize {
     gc.clear();
@@ -128,6 +131,13 @@ pub fn collect(
     // Static fields
     for v in statics.values_iter() {
         push_ref(work, &v);
+    }
+
+    // Cached `java.lang.Class` objects — one per loaded class. Each Class
+    // object's `String name` field is reached transitively via the standard
+    // field-scan in phase 2.
+    for obj_ref in class_objects.iter() {
+        work.push(GcRef::Object(obj_ref));
     }
 
     // ── Phase 2: mark (transitive closure) ───────────────────────────────

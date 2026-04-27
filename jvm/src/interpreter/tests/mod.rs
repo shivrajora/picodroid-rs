@@ -41,6 +41,7 @@ fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
         &mut arrays,
         &mut statics,
         &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         0,
         0,
@@ -73,6 +74,7 @@ fn run_multi(
         &mut arrays,
         &mut statics,
         &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         exec_class_idx,
         0,
@@ -134,6 +136,7 @@ fn run_code(max_stack: u16, max_locals: u16, code: &[u8]) -> Result<Option<Value
 }
 
 mod arrays;
+mod class_literal;
 mod clinit;
 mod constants;
 mod control;

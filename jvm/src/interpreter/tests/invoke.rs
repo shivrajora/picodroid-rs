@@ -183,6 +183,7 @@ fn invokevirtual_uses_override_in_subclass() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2,
         0,
@@ -215,6 +216,7 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2,
         0,
@@ -248,6 +250,7 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2,
         0,
@@ -279,6 +282,7 @@ fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2,
         0,
@@ -636,6 +640,7 @@ fn invokeinterface_dispatches_on_anonymous_class() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2, // AnonCaller
         0,
@@ -668,6 +673,7 @@ fn instanceof_anonymous_class_against_interface() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         2, // InstanceOfCaller
         0,
@@ -705,6 +711,7 @@ fn multiple_anonymous_classes_dispatch_independently() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         3, // AnonCaller
         0,
@@ -721,6 +728,7 @@ fn multiple_anonymous_classes_dispatch_independently() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         3, // AnonCaller
         0,

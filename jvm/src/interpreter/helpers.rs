@@ -1,6 +1,8 @@
 use crate::{
     class_file::ClassFile,
+    class_objects::ClassObjectCache,
     heap::StringTable,
+    object_heap::ObjectHeap,
     types::{JvmError, Value},
 };
 use alloc::vec::Vec;
@@ -69,7 +71,10 @@ pub(super) fn find_method_virtual_cached(
 
 pub(super) fn resolve_ldc(
     cf: &ClassFile,
+    classes: &[ClassFile],
     strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    class_objects: &mut ClassObjectCache,
     cp_idx: u16,
 ) -> Result<Value, JvmError> {
     if let Some(utf8) = cf.cp_string_utf8(cp_idx) {
@@ -82,7 +87,43 @@ pub(super) fn resolve_ldc(
     if let Some(f) = cf.cp_float(cp_idx) {
         return Ok(Value::Float(f));
     }
+    if let Some(name_bytes) = cf.cp_class_name(cp_idx) {
+        return resolve_class_literal(classes, strings, objects, class_objects, name_bytes);
+    }
     Err(JvmError::InvalidBytecode)
+}
+
+/// Resolve a `CONSTANT_Class` reference to its cached `java.lang.Class`
+/// instance, allocating one on the first sighting. Identity is guaranteed:
+/// every `ldc` for the same class name returns the same `ObjectRef`,
+/// regardless of which class file's CP the request came from.
+fn resolve_class_literal(
+    classes: &[ClassFile],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    class_objects: &mut ClassObjectCache,
+    name_bytes: &'static [u8],
+) -> Result<Value, JvmError> {
+    // The class must be loaded so getName() can read back a stable name and
+    // bytecode that follows (e.g. checkcast, instanceof) can resolve it.
+    classes
+        .iter()
+        .find(|c| c.class_name() == Some(name_bytes))
+        .ok_or(JvmError::ClassNotFound)?;
+    // Intern the name once — `StringTable::intern` deduplicates by content,
+    // so the index is canonical across all class files and threads.
+    let name_idx = strings.intern(name_bytes).ok_or(JvmError::StackOverflow)?;
+    if let Some(obj) = class_objects.lookup(name_idx) {
+        return Ok(Value::ObjectRef(obj));
+    }
+    let obj = objects
+        .alloc_with_defaults("java/lang/Class", classes)
+        .ok_or(JvmError::StackOverflow)?;
+    objects
+        .set_field(obj, 0, Value::Reference(name_idx))
+        .ok_or(JvmError::InvalidReference)?;
+    class_objects.insert(name_idx, obj);
+    Ok(Value::ObjectRef(obj))
 }
 
 pub(super) fn find_method(

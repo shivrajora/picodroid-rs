@@ -273,6 +273,7 @@ fn clinit_basic_getstatic() {
         &mut arrays,
         &mut statics,
         &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         0, // class_idx
         1, // method_idx (m, not <clinit>)
@@ -302,6 +303,7 @@ fn clinit_runs_only_once() {
         &mut arrays,
         &mut statics,
         &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         0,
         1, // m()

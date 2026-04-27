@@ -262,6 +262,7 @@ fn putstatic_persists_across_two_execute_calls() {
         &mut arrays,
         &mut statics,
         &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
         &mut handler,
         0,
         0,

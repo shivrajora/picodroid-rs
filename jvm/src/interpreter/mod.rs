@@ -1,6 +1,7 @@
 use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
+    class_objects::ClassObjectCache,
     frame::Frame,
     gc::GcState,
     heap::StringTable,
@@ -38,6 +39,7 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub arrays: &'a mut ArrayHeap,
     pub statics: &'a mut StaticFieldStore,
     pub gc_state: &'a mut GcState,
+    pub class_objects: &'a mut ClassObjectCache,
     pub handler: &'a mut H,
     /// Cache: (class_name ptr, field_name ptr) → field slot index.
     pub field_cache: Vec<(*const u8, *const u8, usize)>,
@@ -217,6 +219,7 @@ pub fn execute<H: NativeMethodHandler>(
     arrays: &mut ArrayHeap,
     statics: &mut StaticFieldStore,
     gc_state: &mut GcState,
+    class_objects: &mut ClassObjectCache,
     handler: &mut H,
     class_idx: usize,
     method_idx: usize,
@@ -234,6 +237,7 @@ pub fn execute<H: NativeMethodHandler>(
         arrays,
         statics,
         gc_state,
+        class_objects,
         handler,
         field_cache: Vec::new(),
         method_cache: Vec::new(),
@@ -350,6 +354,7 @@ pub fn execute<H: NativeMethodHandler>(
                 ex.arrays,
                 ex.strings,
                 ex.statics,
+                ex.class_objects,
                 ex.gc_state,
             );
             let t1 = ex.handler.clock_nanos();

@@ -61,7 +61,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cp_idx = code[frame.pc] as u16;
                 frame.pc += 1;
                 let cf = &self.classes[frame.class_idx];
-                let v = helpers::resolve_ldc(cf, self.strings, cp_idx)?;
+                let v = helpers::resolve_ldc(
+                    cf,
+                    self.classes,
+                    self.strings,
+                    self.objects,
+                    self.class_objects,
+                    cp_idx,
+                )?;
                 frame.push(v)?;
             }
 
@@ -70,7 +77,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
                 let cf = &self.classes[frame.class_idx];
-                let v = helpers::resolve_ldc(cf, self.strings, cp_idx)?;
+                let v = helpers::resolve_ldc(
+                    cf,
+                    self.classes,
+                    self.strings,
+                    self.objects,
+                    self.class_objects,
+                    cp_idx,
+                )?;
                 frame.push(v)?;
             }
 
