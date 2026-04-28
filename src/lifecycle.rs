@@ -38,14 +38,6 @@ fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
 }
 
-/// Millisecond clock reader used by the frame-budget loop regardless of
-/// platform/feature flags. Kept separate from [`now_ms`] (which is gated on
-/// `has_buttons`) so the event loop can query it on every board/sim combo.
-#[cfg(not(test))]
-fn now_ms_any() -> u64 {
-    crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
-}
-
 // ── Application lifecycle ────────────────────────────────────────────────────
 
 /// Run an Application-based app: allocate the Application object, call
@@ -228,22 +220,25 @@ pub(crate) fn run_activity(
         return;
     }
 
-    // Framework event loop -- unified FIFO drain interleaving LVGL ticks
-    // and user-submitted Runnables for the main-thread executor.
-    let mut pacer = crate::hal::system_clock::FramePacer::new();
+    // Framework event loop — pure dispatcher, mirroring Android's Looper.
+    // The 16 ms LVGL cadence is provided by `tick_source` (a separate
+    // FreeRTOS software timer on device, std::thread on sim) which posts
+    // `MainTask::LvglTick` to the same queue. Posters of user Runnables
+    // wake `recv_blocking` directly via the queue's send semantics.
+    crate::system::executors::tick_source::start();
     #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut last_input_ms: u64 = now_ms();
     #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut sleeping: bool = false;
 
     loop {
-        // Check before the potentially-blocking LVGL render.
         if handler.interrupted() {
             break;
         }
 
-        // Low-power sleep state: skip LVGL tick + dispatches and block on the
-        // GPIO wake semaphore until the next button edge IRQ.
+        // Low-power sleep state: pause the tick source so the chip can
+        // enter deeper idle, and block on the GPIO wake semaphore until
+        // the next button edge IRQ.
         #[cfg(all(not(feature = "sim"), has_buttons))]
         if sleeping {
             crate::hal::gpio::wait_for_button_event();
@@ -255,69 +250,69 @@ pub(crate) fn run_activity(
             // LVGL focus navigation or Java OnKeyListener.
             while crate::hal::gpio::drain_gpio_event().is_some() {}
             with_gfx(|g| g.wake());
+            crate::system::executors::tick_source::resume();
             sleeping = false;
             last_input_ms = now_ms();
             continue;
         }
 
-        // Reset the idle timer if a button was pressed since the last frame.
-        // `keypad_read_cb` will still drain & dispatch the event normally.
-        #[cfg(all(not(feature = "sim"), has_buttons))]
-        if crate::hal::gpio::has_pending_event() {
-            last_input_ms = now_ms();
-        }
+        // Block until the tick source posts an LvglTick or a poster
+        // submits a Runnable. Sub-ms wake on Runnable post.
+        match main_queue::recv_blocking() {
+            MainTask::LvglTick => {
+                with_gfx(|g| g.tick(16));
+                crate::system::picodroid::graphics::lvgl::fps_overlay::update();
+                dispatch_clicks(jvm, heap, handler);
+                dispatch_checked_changes(jvm, heap, handler);
+                dispatch_switch_checked_changes(jvm, heap, handler);
+                dispatch_seek_bar_changes(jvm, heap, handler);
+                dispatch_checkbox_changes(jvm, heap, handler);
+                dispatch_spinner_changes(jvm, heap, handler);
+                dispatch_alert_dialog_clicks(jvm, heap, handler);
+                dispatch_keyboard_ready(jvm, heap, handler);
+                dispatch_touch_events(jvm, heap, handler);
+                dispatch_key_events(jvm, heap, handler);
+                crate::system::picodroid::hardware::sensors::drain_sensor_events(
+                    jvm, heap, handler,
+                );
 
-        // Post one LvglTick at each frame boundary. Coalescing inside
-        // main_queue ensures slow Runnables cannot cause ticks to pile up.
-        main_queue::enqueue_tick();
+                crate::hal::display::update_window();
+                if !crate::hal::display::is_window_open() {
+                    break;
+                }
 
-        // Drain FIFO items until the queue is empty or we've used up the
-        // 16 ms frame budget — whichever comes first. Remaining items spill
-        // to the next frame. pacer.pace() below re-aligns the frame clock.
-        let budget_end = now_ms_any() + 16;
-        while now_ms_any() < budget_end {
-            match main_queue::try_recv() {
-                Some(MainTask::LvglTick) => {
-                    with_gfx(|g| g.tick(16));
-                    crate::system::picodroid::graphics::lvgl::fps_overlay::update();
-                    dispatch_clicks(jvm, heap, handler);
-                    dispatch_checked_changes(jvm, heap, handler);
-                    dispatch_switch_checked_changes(jvm, heap, handler);
-                    dispatch_seek_bar_changes(jvm, heap, handler);
-                    dispatch_checkbox_changes(jvm, heap, handler);
-                    dispatch_spinner_changes(jvm, heap, handler);
-                    dispatch_alert_dialog_clicks(jvm, heap, handler);
-                    dispatch_keyboard_ready(jvm, heap, handler);
-                    dispatch_touch_events(jvm, heap, handler);
-                    dispatch_key_events(jvm, heap, handler);
-                    crate::system::picodroid::hardware::sensors::drain_sensor_events(
-                        jvm, heap, handler,
-                    );
+                #[cfg(all(not(feature = "sim"), has_buttons))]
+                {
+                    if crate::hal::gpio::has_pending_event() {
+                        last_input_ms = now_ms();
+                    }
+                    if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
+                        crate::system::executors::tick_source::pause();
+                        with_gfx(|g| g.sleep());
+                        sleeping = true;
+                    }
                 }
-                Some(MainTask::Runnable(r)) => {
-                    // Route through the `Executors.dispatchRunnable` bytecode
-                    // bridge so the interpreter's invokeinterface path
-                    // resolves lambda-proxy targets stored in Rust-side
-                    // LambdaProxy metadata. Calling Runnable.run directly
-                    // from Rust finds the abstract interface method with no
-                    // bytecode and silently no-ops.
-                    let _ = jvm.invoke_static_with_args(
-                        dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
-                        dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
-                        &[pico_jvm::types::Value::ObjectRef(r)],
-                        heap,
-                        handler,
-                    );
-                }
-                None => break,
+            }
+            MainTask::Runnable(r) => {
+                // Route through the `Executors.dispatchRunnable` bytecode
+                // bridge so the interpreter's invokeinterface path resolves
+                // lambda-proxy targets stored in Rust-side LambdaProxy
+                // metadata. Calling Runnable.run directly from Rust finds
+                // the abstract interface method with no bytecode and
+                // silently no-ops.
+                let _ = jvm.invoke_static_with_args(
+                    dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
+                    dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
+                    &[pico_jvm::types::Value::ObjectRef(r)],
+                    heap,
+                    handler,
+                );
             }
         }
 
-        // Process any lifecycle transitions queued by Java during this
-        // frame's dispatches (a button click handler called startActivity,
-        // a key handler called finish(), etc.). At most one transition per
-        // frame is the documented contract, but we drain in a `while` so
-        // back-to-back queues collapse cleanly.
+        // Drain any lifecycle transitions queued by Java during the
+        // dispatch above (a button click handler called startActivity,
+        // a Runnable called finish(), etc.).
         let mut should_exit = false;
         while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
@@ -333,20 +328,9 @@ pub(crate) fn run_activity(
         if should_exit {
             break;
         }
-
-        crate::hal::display::update_window();
-        if !crate::hal::display::is_window_open() {
-            break;
-        }
-
-        pacer.pace(16);
-
-        #[cfg(all(not(feature = "sim"), has_buttons))]
-        if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
-            with_gfx(|g| g.sleep());
-            sleeping = true;
-        }
     }
+
+    crate::system::executors::tick_source::stop();
 
     // ── Graceful teardown ─────────────────────────────────────────────
     // Reasons we can land here: window closed, JVM interrupt, or the last

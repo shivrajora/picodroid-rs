@@ -99,39 +99,74 @@ mod backing {
     }
 
     pub fn try_send(word: u32) -> bool {
+        // FreeRTOS Queue::send wakes any task blocked on Queue::receive,
+        // which is how `recv_blocking` gets woken sub-ms when a poster runs.
         queue().send(word, Duration::zero()).is_ok()
     }
 
+    #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
         queue().receive(Duration::zero()).ok()
+    }
+
+    pub fn recv_blocking() -> u32 {
+        loop {
+            if let Ok(w) = queue().receive(Duration::infinite()) {
+                return w;
+            }
+            // `Duration::infinite()` shouldn't return Err in practice, but
+            // looping is the conservative choice — better than reporting a
+            // spurious LvglTick (encoded as 0) to the dispatcher.
+        }
     }
 }
 
 #[cfg(any(test, feature = "sim"))]
 mod backing {
     use std::collections::VecDeque;
-    use std::sync::Mutex;
+    use std::sync::{Condvar, Mutex};
 
     use super::CAPACITY;
 
-    static SIM_QUEUE: Mutex<VecDeque<u32>> = Mutex::new(VecDeque::new());
+    struct SimQueue {
+        queue: Mutex<VecDeque<u32>>,
+        cv: Condvar,
+    }
+
+    static SIM_QUEUE: SimQueue = SimQueue {
+        queue: Mutex::new(VecDeque::new()),
+        cv: Condvar::new(),
+    };
 
     pub fn init() {
-        SIM_QUEUE.lock().unwrap().clear();
+        SIM_QUEUE.queue.lock().unwrap().clear();
     }
 
     pub fn try_send(word: u32) -> bool {
-        let mut q = SIM_QUEUE.lock().unwrap();
+        let mut q = SIM_QUEUE.queue.lock().unwrap();
         if q.len() < CAPACITY {
             q.push_back(word);
+            drop(q);
+            // Wake `recv_blocking`, which provides the same send-wakes-receive
+            // semantics that FreeRTOS Queue::send gives us on device.
+            SIM_QUEUE.cv.notify_one();
             true
         } else {
             false
         }
     }
 
+    #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
-        SIM_QUEUE.lock().unwrap().pop_front()
+        SIM_QUEUE.queue.lock().unwrap().pop_front()
+    }
+
+    pub fn recv_blocking() -> u32 {
+        let mut guard = SIM_QUEUE
+            .cv
+            .wait_while(SIM_QUEUE.queue.lock().unwrap(), |q| q.is_empty())
+            .unwrap();
+        guard.pop_front().expect("queue non-empty after wait_while")
     }
 }
 
@@ -165,9 +200,14 @@ pub fn enqueue_runnable(obj_ref: u16) -> bool {
     backing::try_send(encode(MainTask::Runnable(obj_ref)))
 }
 
-/// Pop one `MainTask`. Returns `None` if the queue is empty. Clears the
-/// tick-pending flag when an `LvglTick` is drained so the next frame can
-/// post a fresh one. UI-thread only.
+/// Pop one `MainTask` without blocking. Returns `None` if the queue is
+/// empty. Clears the tick-pending flag when an `LvglTick` is drained so
+/// the next frame can post a fresh one. UI-thread only.
+///
+/// The activity loop uses [`recv_blocking`] in steady state; `try_recv`
+/// is retained for tests and as a non-blocking peek primitive that
+/// future callers may need (e.g. a draining shutdown helper).
+#[allow(dead_code)]
 pub fn try_recv() -> Option<MainTask> {
     let word = backing::try_recv()?;
     let task = decode(word);
@@ -175,6 +215,21 @@ pub fn try_recv() -> Option<MainTask> {
         TICK_IN_QUEUE.0.set(false);
     }
     Some(task)
+}
+
+/// Block the calling task/thread until a `MainTask` is available, then
+/// return it. UI-thread only — the unified queue assumes a single drainer.
+///
+/// This is the wake-on-post primitive: posters call `enqueue_runnable`
+/// (FreeRTOS `Queue::send` on device, `Condvar::notify_one` on sim) and
+/// the blocked drainer wakes within microseconds.
+pub fn recv_blocking() -> MainTask {
+    let word = backing::recv_blocking();
+    let task = decode(word);
+    if task == MainTask::LvglTick {
+        TICK_IN_QUEUE.0.set(false);
+    }
+    task
 }
 
 #[cfg(test)]
@@ -233,6 +288,34 @@ mod tests {
         assert_eq!(try_recv(), Some(MainTask::Runnable(20)));
         assert_eq!(try_recv(), Some(MainTask::Runnable(30)));
         assert_eq!(try_recv(), None);
+    }
+
+    #[test]
+    fn recv_blocking_returns_immediately_when_queue_has_item() {
+        let _guard = acquire();
+        assert!(enqueue_runnable(7));
+        assert_eq!(recv_blocking(), MainTask::Runnable(7));
+    }
+
+    #[test]
+    fn recv_blocking_wakes_when_runnable_is_posted() {
+        let _guard = acquire();
+        let posted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let posted_clone = posted.clone();
+        // Spawn a poster that waits a moment and then enqueues. The main
+        // thread blocks in `recv_blocking` until the post wakes it.
+        let h = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            posted_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(enqueue_runnable(123));
+        });
+        let task = recv_blocking();
+        assert!(
+            posted.load(std::sync::atomic::Ordering::SeqCst),
+            "recv_blocking returned before the post was made"
+        );
+        assert_eq!(task, MainTask::Runnable(123));
+        h.join().unwrap();
     }
 
     #[test]

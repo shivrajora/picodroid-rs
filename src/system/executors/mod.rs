@@ -7,3 +7,5 @@
 #[cfg(not(test))]
 pub mod background_pool;
 pub mod main_queue;
+#[cfg(not(test))]
+pub mod tick_source;
