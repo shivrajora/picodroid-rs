@@ -49,6 +49,7 @@ pub const SERVICE_ON_START_COMMAND: usize = 19;
 pub const SERVICE_ON_BIND: usize = 20;
 pub const SERVICE_ON_UNBIND: usize = 21;
 pub const SERVICE_ON_DESTROY: usize = 22;
+pub const EDIT_TEXT_EDITOR_ACTION: usize = 23;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -79,6 +80,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/Service", "onBind"),
     ("picodroid/app/Service", "onUnbind"),
     ("picodroid/app/Service", "onDestroy"),
+    ("picodroid/widget/EditText", "fireEditorAction"),
 ];
 
 #[cfg(test)]

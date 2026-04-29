@@ -3,6 +3,7 @@ package keyboarddemo;
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.util.Log;
+import picodroid.view.inputmethod.EditorInfo;
 import picodroid.widget.Button;
 import picodroid.widget.EditText;
 import picodroid.widget.Keyboard;
@@ -26,11 +27,29 @@ public class KeyboardDemoActivity extends Activity {
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    // EditText #1: default behavior — tapping pops up the system keyboard
-    // automatically. Dismissed by BACK or the keyboard's OK key.
+    // Press-outside-to-dismiss target: tapping anywhere on this strip
+    // (with no EditText behind it) dismisses the system keyboard.
+    TextView dismissHint = new TextView();
+    dismissHint.setText("Tap me to dismiss");
+    dismissHint.setTextColor(Color.YELLOW);
+    root.addView(dismissHint);
+
+    // EditText #1: default behavior — tapping pops up the system
+    // keyboard with a slide-up animation. The OnEditorActionListener
+    // logs the entered text when the user taps OK; returning false lets
+    // the keyboard's default dismiss run.
     EditText auto = new EditText();
     auto.setHint("Tap to type (auto)");
     auto.setSize(220, 30);
+    auto.setOnEditorActionListener(
+        (v, actionId, event) -> {
+          if (actionId == EditorInfo.IME_ACTION_DONE) {
+            String got = v.getText();
+            Log.i("KeyboardDemo", "OnEditorAction: actionId=" + actionId + " text=\"" + got + "\"");
+            echo.setText("Auto: " + got);
+          }
+          return false; // let the keyboard hide as usual
+        });
     root.addView(auto);
 
     // EditText #2: opted out of the system keyboard. The "Type" button

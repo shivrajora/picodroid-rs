@@ -34,6 +34,51 @@ fn is_autoshow_disabled(raw_ptr: usize) -> bool {
     false
 }
 
+// ── EditorActionListener registry (raw lv_obj_t* → Java EditText obj_ref) ───
+//
+// Populated by [`register_editor_action_listener`], called from
+// `EditText.setOnEditorActionListener`. EditTexts without a listener have
+// no entry; their auto-show calls pass `obj_ref = 0`, and the system
+// keyboard's OK callback will skip editor-action dispatch.
+
+const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
+static mut EDITOR_ACTION_MAP: [(usize, u16); MAX_EDITOR_ACTION_LISTENERS] =
+    [(0, 0); MAX_EDITOR_ACTION_LISTENERS];
+static mut EDITOR_ACTION_MAP_LEN: usize = 0;
+
+fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
+    unsafe {
+        for entry in &EDITOR_ACTION_MAP[..EDITOR_ACTION_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                return entry.1;
+            }
+        }
+    }
+    0
+}
+
+pub(in crate::system::picodroid::graphics) fn register_editor_action_listener(
+    id: i32,
+    obj_ref: u16,
+) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        for entry in &mut EDITOR_ACTION_MAP[..EDITOR_ACTION_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if EDITOR_ACTION_MAP_LEN < MAX_EDITOR_ACTION_LISTENERS {
+            EDITOR_ACTION_MAP[EDITOR_ACTION_MAP_LEN] = (raw_ptr, obj_ref);
+            EDITOR_ACTION_MAP_LEN += 1;
+        }
+    }
+}
+
 unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
     let ta = unsafe { lv_event_get_target_obj(e) };
     if ta.is_null() {
@@ -42,7 +87,8 @@ unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
     if is_autoshow_disabled(ta as usize) {
         return;
     }
-    keyboard::show_system_for(ta);
+    let obj_ref = lookup_editor_action_obj(ta as usize);
+    keyboard::show_system_for(ta, obj_ref);
 }
 
 pub(in crate::system::picodroid::graphics) fn create() -> i32 {
@@ -97,6 +143,7 @@ pub(in crate::system::picodroid::graphics) fn set_autoshow(id: i32, enabled: boo
 pub fn reset_edit_text_state() {
     unsafe {
         AUTOSHOW_DISABLED_LEN = 0;
+        EDITOR_ACTION_MAP_LEN = 0;
     }
 }
 

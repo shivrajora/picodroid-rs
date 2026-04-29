@@ -259,6 +259,14 @@ extern "C" {
         filter: lv_event_code_t,
         user_data: *mut c_void,
     ) -> *mut lv_event_dsc_t;
+    /// Remove every callback descriptor on `obj` whose function matches
+    /// `event_cb`. Returns the count removed. Used by the soft keyboard's
+    /// press-outside dismiss to detach its screen-level press hook on hide.
+    pub fn lv_obj_remove_event_cb(obj: *mut lv_obj_t, event_cb: lv_event_cb_t) -> u32;
+    /// Walk one step up the widget tree. Returns null when `obj` is the
+    /// active screen. Used by the keyboard outside-press hook to decide if
+    /// a tap landed on the keyboard or one of its keys.
+    pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
 
     // Flex layout
     pub fn lv_obj_set_flex_flow(obj: *mut lv_obj_t, flow: lv_flex_flow_t);

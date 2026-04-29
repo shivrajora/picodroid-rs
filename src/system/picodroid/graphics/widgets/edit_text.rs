@@ -64,3 +64,19 @@ pub fn edit_text_set_show_keyboard_on_touch(
     lvgl_edit_text::set_autoshow(id, enabled);
     Ok(None)
 }
+
+/// `EditText.nativeRegisterEditorActionListener()` — instance method.
+/// Records this EditText's Java `obj_ref` so the system keyboard's OK key
+/// can dispatch `fireEditorAction` back to it.
+pub fn edit_text_register_editor_action_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_edit_text::register_editor_action_listener(id, obj_ref);
+    Ok(None)
+}

@@ -270,6 +270,7 @@ pub(crate) fn run_activity(
                 dispatch_spinner_changes(jvm, heap, handler);
                 dispatch_alert_dialog_clicks(jvm, heap, handler);
                 dispatch_keyboard_ready(jvm, heap, handler);
+                dispatch_editor_actions(jvm, heap, handler);
                 dispatch_touch_events(jvm, heap, handler);
                 dispatch_key_events(jvm, heap, handler);
                 crate::system::picodroid::hardware::sensors::drain_sensor_events(
@@ -908,6 +909,33 @@ fn dispatch_keyboard_ready(
                 handler,
             );
         }
+    }
+}
+
+// ── EditText editor-action dispatch ────────────────────────────────────────
+
+/// Drain the system keyboard's pending editor-action and invoke
+/// `EditText.fireEditorAction(int)` on the bound Java object. Set by
+/// the system keyboard's OK callback in
+/// [`crate::system::picodroid::graphics::lvgl::widgets::keyboard`].
+#[cfg(not(test))]
+fn dispatch_editor_actions(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    if let Some(rec) = widgets::drain_editor_action() {
+        let _ = jvm.invoke_instance_with_args(
+            dispatch_class(dispatch_sites::EDIT_TEXT_EDITOR_ACTION),
+            dispatch_method(dispatch_sites::EDIT_TEXT_EDITOR_ACTION),
+            rec.edit_text_ref,
+            &[Value::Int(rec.action_id)],
+            heap,
+            handler,
+        );
     }
 }
 

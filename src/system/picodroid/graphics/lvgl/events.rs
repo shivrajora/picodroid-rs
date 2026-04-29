@@ -442,6 +442,70 @@ pub fn reset_view_touch_listener_state() {
     reset_pressing_coalesce();
 }
 
+// ── Screen-level press hook (single-slot, used by soft keyboard dismiss) ────
+//
+// Soft keyboard's press-outside-to-dismiss attaches a transient callback to
+// the active screen for `LV_EVENT_PRESSED`. We track the currently-attached
+// fn pointer in a static so:
+//   - re-attach during the same visibility cycle is a no-op (idempotent),
+//   - detach knows which cb to remove.
+// Single-slot is sufficient: the keyboard is the only consumer today and
+// the plan explicitly defers generalizing until a second one appears.
+
+#[allow(unused_imports)]
+use crate::lvgl_ffi::{
+    lv_event_cb_t, lv_obj_add_event_cb, lv_obj_remove_event_cb, lv_screen_active, LV_EVENT_PRESSED,
+};
+
+static mut SCREEN_PRESS_HOOK: lv_event_cb_t = None;
+
+/// Attach `cb` to the active screen as an `LV_EVENT_PRESSED` listener.
+/// Idempotent — a second call detaches whatever was previously attached
+/// before re-attaching, so only one screen hook is ever live.
+///
+/// Note: we don't short-circuit when the previous and current `cb` are
+/// the same fn pointer because Rust's `unpredictable_function_pointer_comparisons`
+/// lint correctly warns that fn-pointer equality isn't reliable across
+/// codegen units. Detach-then-re-attach is two cheap LVGL list
+/// operations and is unconditionally correct.
+#[cfg_attr(test, allow(dead_code))]
+pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
+    unsafe {
+        if let Some(prev) = SCREEN_PRESS_HOOK {
+            lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
+        }
+        if cb.is_some() {
+            lv_obj_add_event_cb(
+                lv_screen_active(),
+                cb,
+                LV_EVENT_PRESSED,
+                core::ptr::null_mut(),
+            );
+        }
+        SCREEN_PRESS_HOOK = cb;
+    }
+}
+
+/// Detach the screen-level press hook, if one is attached.
+#[cfg_attr(test, allow(dead_code))]
+pub fn detach_screen_press_hook() {
+    unsafe {
+        if let Some(prev) = SCREEN_PRESS_HOOK {
+            lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
+            SCREEN_PRESS_HOOK = None;
+        }
+    }
+}
+
+pub fn reset_screen_press_hook_state() {
+    unsafe {
+        // The screen widget itself is being torn down, so we only need to
+        // drop our cached pointer — the underlying event_cb registration
+        // dies with the screen.
+        SCREEN_PRESS_HOOK = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

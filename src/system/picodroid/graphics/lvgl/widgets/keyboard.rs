@@ -11,11 +11,17 @@
 //! - **System keyboard**: a single shared `lv_keyboard` lazy-created on
 //!   the first `EditText` tap (when auto-show is enabled). Reused across
 //!   every EditText for the lifetime of the app run. Dismissed by BACK,
-//!   the OK key, or `EditText.hideKeyboard()`. Has *no* Java listener —
-//!   apps that need done-detection construct an explicit Keyboard.
+//!   the OK key, a tap outside the keyboard, or `EditText.hideKeyboard()`.
+//!   Slides up from the screen edge on show; hide is instant.
+//!
+//! The system keyboard tracks the currently-bound EditText's Java
+//! ObjectRef so the OK key can dispatch `EditText.fireEditorAction`
+//! through [`drain_editor_action`] without a per-instance Java listener.
 
 use crate::lvgl_ffi::*;
 
+use super::super::animations;
+use super::super::events;
 use super::super::handle_table;
 use super::super::lifecycle;
 
@@ -49,12 +55,66 @@ unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
 // existing FFI doesn't expose `lv_obj_has_flag` and growing the surface
 // for one read isn't worth it.
 
+const SYSTEM_KEYBOARD_REST_Y: i32 = 100;
+const SYSTEM_KEYBOARD_OFFSCREEN_Y: i32 = 240;
+const SYSTEM_KEYBOARD_SLIDE_DURATION_MS: u32 = 200;
+
 static mut SYSTEM_KEYBOARD: *mut lv_obj_t = core::ptr::null_mut();
+static mut SYSTEM_KEYBOARD_HANDLE: i32 = 0;
 static mut SYSTEM_KEYBOARD_VISIBLE: bool = false;
+/// Java `ObjectRef` of the EditText that triggered the most recent show.
+/// Read by [`drain_editor_action`] after the OK key fires.
+static mut SYSTEM_KEYBOARD_BOUND_ET: u16 = 0;
+
+/// Pending editor-action record drained from the JVM event pump in
+/// `lifecycle::dispatch_editor_actions`. Single-slot: the OK key can only
+/// fire once per visibility cycle, and the slot is consumed before the
+/// next show.
+#[derive(Copy, Clone)]
+pub struct EditorActionRecord {
+    pub edit_text_ref: u16,
+    pub action_id: i32,
+}
+
+static mut PENDING_EDITOR_ACTION: Option<EditorActionRecord> = None;
 
 unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
-    // OK key on the system keyboard auto-hides — no Java callback. Apps
-    // that want done-detection construct an explicit Keyboard.
+    // OK key on the system keyboard: queue an editor-action for dispatch
+    // and dismiss. The Java listener may return `true` to suppress the
+    // dismiss — that decision is made by the dispatch site after Java
+    // returns, so we hide first and the dispatch site re-shows if needed.
+    // For v1 we always hide; suppressing dismiss is a follow-up if any
+    // app actually requires it.
+    unsafe {
+        if SYSTEM_KEYBOARD_BOUND_ET != 0 {
+            PENDING_EDITOR_ACTION = Some(EditorActionRecord {
+                edit_text_ref: SYSTEM_KEYBOARD_BOUND_ET,
+                action_id: 6, // EditorInfo.IME_ACTION_DONE
+            });
+        }
+    }
+    hide_system();
+}
+
+unsafe extern "C" fn screen_press_outside_cb(e: *mut lv_event_t) {
+    let target = unsafe { lv_event_get_target_obj(e) };
+    if target.is_null() {
+        return;
+    }
+    let kb = unsafe { SYSTEM_KEYBOARD };
+    if kb.is_null() {
+        return;
+    }
+    // Walk parent chain — if we hit the keyboard, this press was on the
+    // keyboard itself or one of its keys, so do nothing. Otherwise the
+    // tap landed outside and we dismiss.
+    let mut cur: *mut lv_obj_t = target;
+    while !cur.is_null() {
+        if cur == kb {
+            return;
+        }
+        cur = unsafe { lv_obj_get_parent(cur) };
+    }
     hide_system();
 }
 
@@ -68,7 +128,7 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
         // Force an explicit size + position so we don't depend on
         // LVGL's default heuristics (which vary by version). On a
         // 240x240 panel this leaves the top 100px for the form.
-        lv_obj_set_pos(kb, 0, 100);
+        lv_obj_set_pos(kb, 0, SYSTEM_KEYBOARD_REST_Y);
         lv_obj_set_size(kb, 240, 140);
         lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
         // Hidden until the first show_system_for call.
@@ -80,22 +140,46 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
             core::ptr::null_mut(),
         );
         SYSTEM_KEYBOARD = kb;
+        // Register the keyboard in the handle table so `animations::start`
+        // can locate it by handle on each tick.
+        SYSTEM_KEYBOARD_HANDLE = handle_table::register(kb);
         kb
     }
 }
 
-/// Show the system keyboard, binding it to `ta`. Lazy-creates on the
-/// first call. Called from the EditText auto-show trampoline in
-/// [`super::edit_text`].
-pub fn show_system_for(ta: *mut lv_obj_t) {
+/// Show the system keyboard, binding it to `ta` and recording the Java
+/// EditText `obj_ref` for later editor-action dispatch. Lazy-creates the
+/// keyboard on the first call. Slides up from the screen edge on a
+/// hidden→visible transition; a re-show while already visible re-runs
+/// the slide for visual feedback. Called from the EditText auto-show
+/// trampoline in [`super::edit_text`].
+pub fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
     if ta.is_null() {
         return;
     }
     unsafe {
         let kb = ensure_system_keyboard();
         lv_keyboard_set_textarea(kb, ta);
+        SYSTEM_KEYBOARD_BOUND_ET = et_obj_ref;
+        // Visibility flag must be cleared *before* starting the y-anim,
+        // otherwise the first frame paints at the off-screen y position
+        // while still HIDDEN — fine — and then becomes visible mid-slide
+        // which produces a pop. Clearing first means LVGL renders every
+        // frame of the slide.
         lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_y(kb, SYSTEM_KEYBOARD_OFFSCREEN_Y);
+        animations::start(
+            SYSTEM_KEYBOARD_HANDLE,
+            /* PROPERTY_Y */ 2,
+            SYSTEM_KEYBOARD_OFFSCREEN_Y,
+            SYSTEM_KEYBOARD_REST_Y,
+            SYSTEM_KEYBOARD_SLIDE_DURATION_MS,
+        );
         SYSTEM_KEYBOARD_VISIBLE = true;
+        // Attach press-outside dismiss after the EditText's PRESSED event
+        // has finished bubbling — the screen-level callback will not
+        // receive the same press that opened us.
+        events::attach_screen_press_hook(Some(screen_press_outside_cb));
     }
 }
 
@@ -108,9 +192,30 @@ pub fn hide_system() -> bool {
         if SYSTEM_KEYBOARD.is_null() || !SYSTEM_KEYBOARD_VISIBLE {
             return false;
         }
+        // Cancel any in-flight slide so the keyboard's saved y doesn't
+        // creep back to the rest position after the next show. The next
+        // show_system_for re-snaps y=offscreen explicitly anyway, so
+        // this is belt-and-braces.
+        animations::cancel(SYSTEM_KEYBOARD_HANDLE);
         lv_obj_add_flag(SYSTEM_KEYBOARD, LV_OBJ_FLAG_HIDDEN);
         SYSTEM_KEYBOARD_VISIBLE = false;
+        SYSTEM_KEYBOARD_BOUND_ET = 0;
+        events::detach_screen_press_hook();
         true
+    }
+}
+
+/// Pop the pending editor-action, if any. The JVM event pump in
+/// `lifecycle.rs` consumes this every tick.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_editor_action() -> Option<EditorActionRecord> {
+    // Manual take() — `Option::take` would require &mut to a mutable
+    // static, which trips Rust 2024's `static_mut_refs` lint. The record
+    // is `Copy`, so a load + store is equivalent and lint-clean.
+    unsafe {
+        let popped = PENDING_EDITOR_ACTION;
+        PENDING_EDITOR_ACTION = None;
+        popped
     }
 }
 
@@ -205,6 +310,13 @@ pub fn reset_keyboard_state() {
         // reload, so the system keyboard pointer is dangling — drop our
         // cache so the next show recreates from scratch.
         SYSTEM_KEYBOARD = core::ptr::null_mut();
+        SYSTEM_KEYBOARD_HANDLE = 0;
         SYSTEM_KEYBOARD_VISIBLE = false;
+        SYSTEM_KEYBOARD_BOUND_ET = 0;
+        PENDING_EDITOR_ACTION = None;
     }
+    // Same lifetime as the system keyboard — the screen press hook is
+    // attached only while the keyboard is visible, so the cached cb
+    // pointer must die alongside the screen on reload.
+    events::reset_screen_press_hook_state();
 }
