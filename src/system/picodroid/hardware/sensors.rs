@@ -9,9 +9,16 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
+#[cfg(any(sensor_bme688, sensor_ltr559))]
+mod sensor_table {
+    include!(concat!(env!("OUT_DIR"), "/sensor_table.rs"));
+}
+
 // ── Sensor type IDs (must match picodroid.hardware.Sensor.java) ─────────────
 
+const TYPE_LIGHT: i32 = 5;
 const TYPE_PRESSURE: i32 = 6;
+const TYPE_PROXIMITY: i32 = 8;
 const TYPE_RELATIVE_HUMIDITY: i32 = 12;
 const TYPE_AMBIENT_TEMPERATURE: i32 = 13;
 const TYPE_GAS_RESISTANCE: i32 = 0x10001;
@@ -48,7 +55,7 @@ struct Registration {
 
 struct SensorState {
     registrations: [Option<Registration>; MAX_REGISTRATIONS],
-    sensor_objs: [Option<u16>; 4], // temp, hum, press, gas
+    sensor_objs: [Option<u16>; 6], // temp, hum, press, gas, light, proximity
     tick_count: u64,
 }
 
@@ -56,7 +63,7 @@ impl SensorState {
     const fn new() -> Self {
         Self {
             registrations: [const { None }; MAX_REGISTRATIONS],
-            sensor_objs: [None; 4],
+            sensor_objs: [None; 6],
             tick_count: 0,
         }
     }
@@ -83,9 +90,13 @@ fn sensor_type_index(sensor_type: i32) -> Option<usize> {
         TYPE_RELATIVE_HUMIDITY => Some(1),
         TYPE_PRESSURE => Some(2),
         TYPE_GAS_RESISTANCE => Some(3),
+        TYPE_LIGHT => Some(4),
+        TYPE_PROXIMITY => Some(5),
         _ => None,
     }
 }
+
+const NUM_SENSOR_TYPES: usize = 6;
 
 // ── Native method implementations ───────────────────────────────────────────
 
@@ -129,6 +140,8 @@ pub fn get_default_sensor(
         TYPE_RELATIVE_HUMIDITY => (b"BME688 Humidity", b"Bosch", 100.0, 0.008, 200_000),
         TYPE_PRESSURE => (b"BME688 Pressure", b"Bosch", 1100.0, 0.18, 200_000),
         TYPE_GAS_RESISTANCE => (b"BME688 Gas", b"Bosch", 500000.0, 1.0, 200_000),
+        TYPE_LIGHT => (b"LTR559 Light", b"Lite-On", 64000.0, 0.01, 100_000),
+        TYPE_PROXIMITY => (b"LTR559 Proximity", b"Lite-On", 2047.0, 1.0, 100_000),
         _ => return Ok(Some(Value::Null)),
     };
 
@@ -238,7 +251,7 @@ pub fn drain_sensor_events(
     st.tick_count += 1;
 
     // Collect which sensor types are due this tick
-    let mut types_due = [false; 4];
+    let mut types_due = [false; NUM_SENSOR_TYPES];
     for reg in st.registrations.iter_mut().flatten() {
         if reg.ticks_until_due == 0 {
             if let Some(idx) = sensor_type_index(reg.sensor_type) {
@@ -253,8 +266,19 @@ pub fn drain_sensor_events(
         return;
     }
 
-    // Read the BME688 (or sim fake) once if any environmental type is due
-    let reading = sample_bme688();
+    // Sample each sensor cluster only if at least one of its types is due.
+    let bme_due = types_due[0..4].iter().any(|&d| d);
+    let ltr_due = types_due[4..6].iter().any(|&d| d);
+    let env = if bme_due {
+        sample_bme688()
+    } else {
+        SensorReading::default()
+    };
+    let optical = if ltr_due {
+        sample_ltr559()
+    } else {
+        OpticalReading::default()
+    };
 
     // Deliver events for each due registration
     for i in 0..MAX_REGISTRATIONS {
@@ -268,10 +292,12 @@ pub fn drain_sensor_events(
         };
 
         let value = match type_idx {
-            0 => reading.temp_centi_c as f32 / 100.0,
-            1 => reading.hum_milli_pct as f32 / 1000.0,
-            2 => reading.press_pa as f32 / 100.0, // hPa
-            3 => reading.gas_ohm as f32,
+            0 => env.temp_centi_c as f32 / 100.0,
+            1 => env.hum_milli_pct as f32 / 1000.0,
+            2 => env.press_pa as f32 / 100.0, // hPa
+            3 => env.gas_ohm as f32,
+            4 => optical.lux_milli as f32 / 1000.0,
+            5 => optical.proximity_raw as f32,
             _ => continue,
         };
 
@@ -376,11 +402,13 @@ fn sample_bme688() -> SensorReading {
 
         let bme = unsafe {
             if BME_DRIVER.is_none() {
-                include!(concat!(env!("OUT_DIR"), "/sensor_table.rs"));
-                if let Some(cfg) = SENSORS.first() {
-                    let bus = HalI2c { bus_id: cfg.bus_id };
-                    if let Ok(driver) = crate::drivers::bme688::Bme688::new(bus, cfg.addr) {
-                        BME_DRIVER = Some(driver);
+                for cfg in sensor_table::SENSORS {
+                    if matches!(cfg.kind, sensor_table::SensorKind::Bme688) {
+                        let bus = HalI2c { bus_id: cfg.bus_id };
+                        if let Ok(driver) = crate::drivers::bme688::Bme688::new(bus, cfg.addr) {
+                            BME_DRIVER = Some(driver);
+                        }
+                        break;
                     }
                 }
             }
@@ -408,5 +436,63 @@ fn sample_bme688() -> SensorReading {
     #[cfg(not(sensor_bme688))]
     {
         SensorReading::default()
+    }
+}
+
+#[derive(Default)]
+struct OpticalReading {
+    lux_milli: u32,
+    proximity_raw: u16,
+}
+
+#[cfg(not(test))]
+fn sample_ltr559() -> OpticalReading {
+    #[cfg(sensor_ltr559)]
+    {
+        use crate::drivers::ltr559::I2cBus;
+
+        struct HalI2c {
+            bus_id: u8,
+        }
+        impl I2cBus for HalI2c {
+            fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
+                crate::hal::i2c::write_slice(self.bus_id, addr, data)
+            }
+            fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32 {
+                crate::hal::i2c::read_slice(self.bus_id, addr, buf)
+            }
+        }
+
+        static mut LTR_DRIVER: Option<crate::drivers::ltr559::Ltr559<HalI2c>> = None;
+
+        let drv = unsafe {
+            if LTR_DRIVER.is_none() {
+                for cfg in sensor_table::SENSORS {
+                    if matches!(cfg.kind, sensor_table::SensorKind::Ltr559) {
+                        let bus = HalI2c { bus_id: cfg.bus_id };
+                        if let Ok(d) = crate::drivers::ltr559::Ltr559::new(bus, cfg.addr) {
+                            LTR_DRIVER = Some(d);
+                        }
+                        break;
+                    }
+                }
+            }
+            &mut LTR_DRIVER
+        };
+
+        match drv {
+            Some(driver) => {
+                let r = driver.measure().unwrap_or_default();
+                OpticalReading {
+                    lux_milli: r.lux_milli,
+                    proximity_raw: r.proximity_raw,
+                }
+            }
+            None => OpticalReading::default(),
+        }
+    }
+    #[cfg(not(sensor_ltr559))]
+    {
+        OpticalReading::default()
     }
 }

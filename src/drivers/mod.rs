@@ -9,6 +9,9 @@ pub mod cyw43;
 #[cfg(any(sensor_bme688, test))]
 pub mod bme688;
 
+#[cfg(any(sensor_ltr559, test))]
+pub mod ltr559;
+
 /// Extension trait for SPI buses that support runtime frequency switching.
 ///
 /// `embedded_hal::spi::SpiBus` does not include reconfiguration, but shared

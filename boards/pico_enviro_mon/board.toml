@@ -5,14 +5,14 @@ lv_mem_kb = 48
 
 [display]
 driver = "st7789"
-spi_id = 1
+spi_id = 0
 spi_freq = 62500000
-pin_dc = 8
-pin_cs = 9
-pin_rst = 15
-pin_bl = 13
+pin_dc = 16
+pin_cs = 17
+pin_bl = 20
+# pin_rst omitted — Enviro+ Pack ties RST high in hardware; build.rs emits PIN_RST = None.
 width = 240
-height = 135
+height = 240
 madctl = 0x00
 band_height = 27
 scroll_limit = 10
@@ -21,6 +21,11 @@ scroll_limit = 10
 kind = "bme688"
 bus  = "I2C0"
 addr = 0x77
+
+[[sensor]]
+kind = "ltr559"
+bus  = "I2C0"
+addr = 0x23
 
 # Pimoroni Enviro+ Pack hardware buttons (A/B/X/Y → GP12-15).
 # Semantic mapping: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.

@@ -2,7 +2,9 @@ package picodroid.hardware;
 
 public final class Sensor {
   public static final int TYPE_ALL = -1;
+  public static final int TYPE_LIGHT = 5;
   public static final int TYPE_PRESSURE = 6;
+  public static final int TYPE_PROXIMITY = 8;
   public static final int TYPE_RELATIVE_HUMIDITY = 12;
   public static final int TYPE_AMBIENT_TEMPERATURE = 13;
   public static final int TYPE_GAS_RESISTANCE = 0x10001;

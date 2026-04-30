@@ -33,7 +33,7 @@ pub struct BoardConfig {
     pub background_pool: Option<HashMap<String, String>>,
 }
 
-const KNOWN_SENSOR_KINDS: &[&str] = &["bme688"];
+const KNOWN_SENSOR_KINDS: &[&str] = &["bme688", "ltr559"];
 const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC"];
 
 fn strip_quotes(val: &str) -> String {

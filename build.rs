@@ -123,6 +123,7 @@ fn emit_network_config(board: &Option<config::BoardConfig>) {
 fn emit_sensor_config(out: &std::path::Path, sensors: &[config::SensorDecl]) {
     println!("cargo:rustc-check-cfg=cfg(any_sensor)");
     println!("cargo:rustc-check-cfg=cfg(sensor_bme688)");
+    println!("cargo:rustc-check-cfg=cfg(sensor_ltr559)");
 
     if !sensors.is_empty() {
         println!("cargo:rustc-cfg=any_sensor");
@@ -140,6 +141,7 @@ fn emit_sensor_config(out: &std::path::Path, sensors: &[config::SensorDecl]) {
     code.push_str("#[repr(u8)]\n");
     code.push_str("pub enum SensorKind {\n");
     code.push_str("    Bme688 = 0,\n");
+    code.push_str("    Ltr559 = 1,\n");
     code.push_str("}\n\n");
     code.push_str("#[derive(Debug, Clone, Copy)]\n");
     code.push_str("pub struct SensorHwCfg {\n");
@@ -152,6 +154,7 @@ fn emit_sensor_config(out: &std::path::Path, sensors: &[config::SensorDecl]) {
     for s in sensors {
         let kind_variant = match s.kind.as_str() {
             "bme688" => "Bme688",
+            "ltr559" => "Ltr559",
             other => panic!("No SensorKind variant for '{other}'"),
         };
         let bus_id = s
