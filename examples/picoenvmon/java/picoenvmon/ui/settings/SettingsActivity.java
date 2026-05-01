@@ -83,7 +83,7 @@ public class SettingsActivity extends Activity {
 
     EditText field = new EditText();
     field.setSize(108, 28);
-    field.setText("" + initialValue);
+    field.setText(Integer.toString(initialValue));
     row.addView(field);
 
     root.addView(row);

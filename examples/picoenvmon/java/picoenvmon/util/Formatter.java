@@ -31,7 +31,7 @@ public class Formatter {
   }
 
   public String formatLux(float lux) {
-    return ((int) lux) + " lx";
+    return Integer.toString((int) lux) + " lx";
   }
 
   /** Quick IAQ index from a gas-resistance reading. Higher gas resistance → cleaner air. */
@@ -40,7 +40,7 @@ public class Formatter {
       return "—";
     }
     int iaq = iaqFromGas(gasOhm);
-    return iaq + " IAQ";
+    return Integer.toString(iaq) + " IAQ";
   }
 
   /**
@@ -90,7 +90,7 @@ public class Formatter {
     int abs = neg ? -centi : centi;
     int whole = abs / 100;
     int frac = abs % 100;
-    String fracStr = frac < 10 ? ("0" + frac) : ("" + frac);
+    String fracStr = frac < 10 ? ("0" + frac) : Integer.toString(frac);
     String body = whole + "." + fracStr;
     return neg ? "-" + body : body;
   }

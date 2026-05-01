@@ -852,6 +852,176 @@ fn double_value_of_and_double_value() {
     );
 }
 
+// ── Boxed toString tests ──────────────────────────────────────────────────
+//
+// Each test invokes the static / instance toString variants and resolves
+// the returned `Value::Reference` against the test's own StringTable so the
+// emitted bytes can be checked.
+
+fn dispatch_boxed_to_string(
+    class: &str,
+    desc: &str,
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        descriptor: desc,
+        args,
+        strings,
+        objects,
+        arrays: &mut arrays,
+    };
+    BuiltinHandler
+        .dispatch(class, "toString", &mut ctx)
+        .expect("toString not handled")
+}
+
+fn resolve_str<'a>(strings: &'a StringTable, v: Value) -> &'a str {
+    if let Value::Reference(idx) = v {
+        strings.resolve(idx).unwrap_or("")
+    } else {
+        panic!("expected Reference, got {v:?}");
+    }
+}
+
+#[test]
+fn integer_to_string_static_zero() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let v = dispatch_boxed_to_string(
+        "java/lang/Integer",
+        "(I)Ljava/lang/String;",
+        &[Value::Int(0)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "0");
+}
+
+#[test]
+fn integer_to_string_static_positive_and_negative() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    for (n, expected) in &[(42, "42"), (-7, "-7"), (i32::MAX, "2147483647")] {
+        let v = dispatch_boxed_to_string(
+            "java/lang/Integer",
+            "(I)Ljava/lang/String;",
+            &[Value::Int(*n)],
+            &mut objects,
+            &mut strings,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolve_str(&strings, v), *expected);
+    }
+}
+
+#[test]
+fn integer_to_string_instance() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let boxed = dispatch_boxed(
+        "java/lang/Integer",
+        "valueOf",
+        "(I)Ljava/lang/Integer;",
+        &[Value::Int(123)],
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let v = dispatch_boxed_to_string(
+        "java/lang/Integer",
+        "()Ljava/lang/String;",
+        &[boxed],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "123");
+}
+
+#[test]
+fn long_to_string_static() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let v = dispatch_boxed_to_string(
+        "java/lang/Long",
+        "(J)Ljava/lang/String;",
+        &[Value::Long(9_876_543_210)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "9876543210");
+}
+
+#[test]
+fn boolean_to_string_static_both_paths() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let t = dispatch_boxed_to_string(
+        "java/lang/Boolean",
+        "(Z)Ljava/lang/String;",
+        &[Value::Int(1)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    let f = dispatch_boxed_to_string(
+        "java/lang/Boolean",
+        "(Z)Ljava/lang/String;",
+        &[Value::Int(0)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, t), "true");
+    assert_eq!(resolve_str(&strings, f), "false");
+}
+
+#[test]
+fn float_to_string_static() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let v = dispatch_boxed_to_string(
+        "java/lang/Float",
+        "(F)Ljava/lang/String;",
+        &[Value::Float(0.0)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    // float_to_str_buf renders 0.0 as "0.0" — exact bytes depend on the
+    // shared formatter; just assert it starts with "0".
+    let s = resolve_str(&strings, v);
+    assert!(s.starts_with('0'), "got {s:?}");
+}
+
+#[test]
+fn character_to_string_static_ascii() {
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let v = dispatch_boxed_to_string(
+        "java/lang/Character",
+        "(C)Ljava/lang/String;",
+        &[Value::Int('A' as i32)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "A");
+}
+
 // ── ArrayList / Collections tests ─────────────────────────────────────────
 
 fn dispatch_list(
