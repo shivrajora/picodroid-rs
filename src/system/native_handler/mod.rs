@@ -72,6 +72,8 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/widget/ScrollView",
     "picodroid/widget/FrameLayout",
     "picodroid/widget/Spinner",
+    "picodroid/widget/DatePicker",
+    "picodroid/widget/TimePicker",
     "picodroid/widget/EditText",
     "picodroid/widget/Toast",
     "picodroid/widget/Snackbar",

@@ -245,6 +245,43 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_date_picker(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::date_picker_native_create()),
+            "setDate" => Some(widgets::date_picker_set_date(ctx.args, ctx.objects)),
+            "getYear" => Some(widgets::date_picker_get_year(ctx.args, ctx.objects)),
+            "getMonth" => Some(widgets::date_picker_get_month(ctx.args, ctx.objects)),
+            "getDay" => Some(widgets::date_picker_get_day(ctx.args, ctx.objects)),
+            "nativeRegisterDateChangedListener" => Some(widgets::date_picker_register_listener(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
+    fn dispatch_time_picker(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::time_picker_native_create()),
+            "setTime" => Some(widgets::time_picker_set_time(ctx.args, ctx.objects)),
+            "getHour" => Some(widgets::time_picker_get_hour(ctx.args, ctx.objects)),
+            "getMinute" => Some(widgets::time_picker_get_minute(ctx.args, ctx.objects)),
+            "nativeRegisterTimeChangedListener" => Some(widgets::time_picker_register_listener(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
     fn dispatch_spinner(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::spinner_native_create()),

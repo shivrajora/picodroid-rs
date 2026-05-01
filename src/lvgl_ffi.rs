@@ -159,6 +159,28 @@ pub const LV_GRAD_DIR_NONE: lv_grad_dir_t = 0;
 pub const LV_GRAD_DIR_VER: lv_grad_dir_t = 1;
 pub const LV_GRAD_DIR_HOR: lv_grad_dir_t = 2;
 
+/// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
+/// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
+/// hour/minute lists feel continuous.
+pub type lv_roller_mode_t = u32;
+pub const LV_ROLLER_MODE_NORMAL: lv_roller_mode_t = 0;
+pub const LV_ROLLER_MODE_INFINITE: lv_roller_mode_t = 1;
+
+/// LVGL operation result (`lv_result_t`). Returned by `lv_calendar_get_pressed_date`.
+pub type lv_result_t = u8;
+pub const LV_RESULT_INVALID: lv_result_t = 0;
+pub const LV_RESULT_OK: lv_result_t = 1;
+
+/// `lv_calendar_date_t` (lv_calendar.h:31-35). Layout matters — picodroid
+/// passes pointers to this struct into LVGL via getter/setter calls.
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
+pub struct lv_calendar_date_t {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
 /// Soft-keyboard mode. Verified against
 /// vendor/lvgl/src/widgets/keyboard/lv_keyboard.h. Only the four
 /// "primary" modes are exposed; the various "user-defined" modes are
@@ -451,6 +473,28 @@ extern "C" {
     pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
     pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
+
+    // Roller widget — vertically-scrolling option list. Used by TimePicker
+    // (hour + minute) and could back a future date-roller variant.
+    pub fn lv_roller_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_roller_set_options(
+        obj: *mut lv_obj_t,
+        options: *const c_char,
+        mode: lv_roller_mode_t,
+    );
+    pub fn lv_roller_set_selected(obj: *mut lv_obj_t, sel_opt: u32, anim: lv_anim_enable_t);
+    pub fn lv_roller_get_selected(obj: *const lv_obj_t) -> u32;
+    pub fn lv_roller_set_visible_row_count(obj: *mut lv_obj_t, row_cnt: u32);
+
+    // Calendar widget — backs DatePicker. `lv_calendar_get_pressed_date`
+    // populates a caller-allocated `lv_calendar_date_t`.
+    pub fn lv_calendar_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_calendar_set_today_date(obj: *mut lv_obj_t, year: u32, month: u32, day: u32);
+    pub fn lv_calendar_set_month_shown(obj: *mut lv_obj_t, year: u32, month: u32);
+    pub fn lv_calendar_get_pressed_date(
+        obj: *const lv_obj_t,
+        date: *mut lv_calendar_date_t,
+    ) -> lv_result_t;
 
     // Textarea widget
     pub fn lv_textarea_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

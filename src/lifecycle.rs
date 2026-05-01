@@ -270,6 +270,8 @@ pub(crate) fn run_activity(
                 dispatch_spinner_changes(jvm, heap, handler);
                 dispatch_alert_dialog_clicks(jvm, heap, handler);
                 dispatch_snackbar_action_clicks(jvm, heap, handler);
+                dispatch_date_picker_changes(jvm, heap, handler);
+                dispatch_time_picker_changes(jvm, heap, handler);
                 dispatch_keyboard_ready(jvm, heap, handler);
                 dispatch_editor_actions(jvm, heap, handler);
                 dispatch_touch_events(jvm, heap, handler);
@@ -772,6 +774,50 @@ fn dispatch_snackbar_action_clicks(
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SNACKBAR),
                 dispatch_method(dispatch_sites::SNACKBAR),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain DatePicker selection events and invoke `fireDateChanged()`.
+#[cfg(not(test))]
+fn dispatch_date_picker_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_date_picker_queue() {
+        if let Some(obj_ref) = widgets::lookup_date_picker_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::DATE_PICKER),
+                dispatch_method(dispatch_sites::DATE_PICKER),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain TimePicker selection events and invoke `fireTimeChanged()`.
+#[cfg(not(test))]
+fn dispatch_time_picker_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_time_picker_queue() {
+        if let Some(obj_ref) = widgets::lookup_time_picker_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::TIME_PICKER),
+                dispatch_method(dispatch_sites::TIME_PICKER),
                 obj_ref,
                 heap,
                 handler,

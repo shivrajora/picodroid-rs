@@ -7,6 +7,7 @@ mod alert_dialog;
 mod animator;
 mod button;
 mod check_box;
+mod date_picker;
 mod drawable;
 mod edit_text;
 mod frame_layout;
@@ -21,6 +22,7 @@ mod snackbar;
 mod spinner;
 mod switch;
 mod text_view;
+mod time_picker;
 mod toast;
 mod toggle_button;
 
@@ -44,6 +46,12 @@ pub use check_box::{
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
+pub use date_picker::{
+    date_picker_get_day, date_picker_get_month, date_picker_get_year, date_picker_native_create,
+    date_picker_register_listener, date_picker_set_date, reset_date_picker_state,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
 pub use drawable::gradient_drawable_apply;
 pub use edit_text::{
     edit_text_get_text, edit_text_native_create, edit_text_register_editor_action_listener,
@@ -98,6 +106,12 @@ pub use switch::{
     switch_register_checked_change_listener, switch_set_checked, switch_toggle,
 };
 pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_text_color};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
+pub use time_picker::{
+    reset_time_picker_state, time_picker_get_hour, time_picker_get_minute,
+    time_picker_native_create, time_picker_register_listener, time_picker_set_time,
+};
 pub use toast::{reset_toast_state, toast_native_cancel, toast_native_create, toast_native_show};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};

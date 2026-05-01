@@ -54,6 +54,10 @@ pub trait GraphicsBackend {
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
     fn dispatch_spinner(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
+    fn dispatch_date_picker(&mut self, method: &str, ctx: &mut NativeContext<'_>)
+        -> DispatchResult;
+    fn dispatch_time_picker(&mut self, method: &str, ctx: &mut NativeContext<'_>)
+        -> DispatchResult;
     fn dispatch_edit_text(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_toast(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_snackbar(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;

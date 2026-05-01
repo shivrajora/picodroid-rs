@@ -51,6 +51,8 @@ pub const SERVICE_ON_UNBIND: usize = 21;
 pub const SERVICE_ON_DESTROY: usize = 22;
 pub const EDIT_TEXT_EDITOR_ACTION: usize = 23;
 pub const SNACKBAR: usize = 24;
+pub const DATE_PICKER: usize = 25;
+pub const TIME_PICKER: usize = 26;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -83,6 +85,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/Service", "onDestroy"),
     ("picodroid/widget/EditText", "fireEditorAction"),
     ("picodroid/widget/Snackbar", "fireActionClick"),
+    ("picodroid/widget/DatePicker", "fireDateChanged"),
+    ("picodroid/widget/TimePicker", "fireTimeChanged"),
 ];
 
 #[cfg(test)]

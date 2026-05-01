@@ -34,6 +34,8 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/ScrollView"
             | "picodroid/widget/FrameLayout"
             | "picodroid/widget/Spinner"
+            | "picodroid/widget/DatePicker"
+            | "picodroid/widget/TimePicker"
             | "picodroid/widget/EditText"
             | "picodroid/widget/Keyboard"
     )
@@ -71,6 +73,8 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/ScrollView" => be.dispatch_scroll_view(method_name, ctx),
         "picodroid/widget/FrameLayout" => be.dispatch_frame_layout(method_name, ctx),
         "picodroid/widget/Spinner" => be.dispatch_spinner(method_name, ctx),
+        "picodroid/widget/DatePicker" => be.dispatch_date_picker(method_name, ctx),
+        "picodroid/widget/TimePicker" => be.dispatch_time_picker(method_name, ctx),
         "picodroid/widget/EditText" => be.dispatch_edit_text(method_name, ctx),
         "picodroid/widget/Toast" => be.dispatch_toast(method_name, ctx),
         "picodroid/widget/Snackbar" => be.dispatch_snackbar(method_name, ctx),

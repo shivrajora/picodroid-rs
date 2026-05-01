@@ -8,6 +8,7 @@
 pub mod alert_dialog;
 pub mod button;
 pub mod check_box;
+pub mod date_picker;
 pub mod edit_text;
 pub mod frame_layout;
 pub mod image_view;
@@ -21,5 +22,6 @@ pub mod snackbar;
 pub mod spinner;
 pub mod switch;
 pub mod text_view;
+pub mod time_picker;
 pub mod toast;
 pub mod toggle_button;
