@@ -90,32 +90,75 @@ def pinned_tag(path):
         return None
 
 
+_VERSION_RE = re.compile(r"^[vV]?(\d+(?:\.\d+)*)$")
+
+
+def _version_tuple(tag):
+    """Parse a tag like 'V4.4.1' or 'v9.5.0' into (4, 4, 1) / (9, 5, 0). Returns None if it doesn't match."""
+    if not tag:
+        return None
+    m = _VERSION_RE.match(tag.strip())
+    if not m:
+        return None
+    return tuple(int(x) for x in m.group(1).split("."))
+
+
+def _highest_version(tags):
+    """Return the tag with the highest parsed version tuple, or None if no tag parses."""
+    keyed = [(_version_tuple(t), t) for t in tags]
+    keyed = [(k, t) for (k, t) in keyed if k is not None]
+    if not keyed:
+        return None
+    return max(keyed)[1]
+
+
+def is_behind(pinned, latest):
+    """Return True only if pinned is strictly older than latest (semver compare). Unparseable → False."""
+    p, l = _version_tuple(pinned), _version_tuple(latest)
+    if p is None or l is None:
+        return False
+    return p < l
+
+
 def latest_upstream(owner, repo):
-    """Return the upstream tag name. Tries /releases/latest, falls back to /tags."""
+    """Return the highest semver-ish tag from /releases (preferred), falling back to /tags."""
+    # Prefer /releases (filtered) so maintenance-branch tags like 'V202110.00-SMP' that
+    # exist in /tags but aren't published as releases are naturally excluded. Compare
+    # by parsed version tuple so newer-published-but-older-version backports (e.g.
+    # FreeRTOS-Plus-TCP V4.2.6 published after V4.4.1) don't masquerade as "latest".
     try:
         result = subprocess.run(
-            ["gh", "api", f"repos/{owner}/{repo}/releases/latest", "--jq", ".tag_name"],
+            [
+                "gh", "api", f"repos/{owner}/{repo}/releases", "--paginate",
+                "--jq", ".[] | select(.draft|not) | select(.prerelease|not) | .tag_name",
+            ],
             capture_output=True, text=True, check=True,
         )
-        return result.stdout.strip()
+        tags = [t for t in (line.strip() for line in result.stdout.splitlines()) if t]
+        winner = _highest_version(tags)
+        if winner is not None:
+            return winner
     except FileNotFoundError:
         log("  ERROR: gh not on PATH")
         return None
-    except subprocess.CalledProcessError:
-        # 404 (no releases) → fall back to most-recent tag
-        try:
-            result = subprocess.run(
-                ["gh", "api", f"repos/{owner}/{repo}/tags", "--jq", ".[0].name"],
-                capture_output=True, text=True, check=True,
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            log(f"  latest_upstream({owner}/{repo}) failed: {e.stderr.strip()}")
-            return None
+    except subprocess.CalledProcessError as e:
+        log(f"  latest_upstream({owner}/{repo}) /releases failed: {e.stderr.strip()}")
+        # fall through to /tags
+    # No releases (e.g. cyw43-driver) → fall back to /tags.
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{owner}/{repo}/tags", "--jq", ".[].name"],
+            capture_output=True, text=True, check=True,
+        )
+        tags = [t for t in (line.strip() for line in result.stdout.splitlines()) if t]
+        return _highest_version(tags)
+    except subprocess.CalledProcessError as e:
+        log(f"  latest_upstream({owner}/{repo}) /tags failed: {e.stderr.strip()}")
+        return None
 
 
 def build_html(rows, all_count):
-    """rows: list of dicts with name, pinned, latest, behind (bool)."""
+    """rows: list of dicts with name, pinned, latest, behind (bool), status (str)."""
     behind = [r for r in rows if r["behind"]]
     body = io.StringIO()
     body.write('<html><body style="font-family:-apple-system,sans-serif;font-size:14px">')
@@ -126,14 +169,18 @@ def build_html(rows, all_count):
     body.write('<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">')
     body.write("<tr><th>Submodule</th><th>Pinned</th><th>Latest upstream</th><th>Status</th></tr>")
     for r in rows:
-        color = "#fee" if r["behind"] else "#efe"
-        status = "BEHIND" if r["behind"] else "ok"
+        if r["behind"]:
+            color = "#fee"
+        elif r["status"] in ("unknown", "uncomparable"):
+            color = "#ffd"
+        else:
+            color = "#efe"
         body.write(
             f'<tr style="background:{color}">'
             f'<td>{r["name"]}</td>'
             f'<td>{r["pinned"] or "?"}</td>'
             f'<td>{r["latest"] or "?"}</td>'
-            f'<td>{status}</td></tr>'
+            f'<td>{r["status"]}</td></tr>'
         )
     body.write("</table>")
     body.write("<p style='color:#888;font-size:11px'>Picodroid &middot; daily submodule check</p>")
@@ -183,15 +230,17 @@ def main():
     for name, path, owner, repo in submodules:
         pinned = pretend.get(path) or pretend.get(name) or pinned_tag(path)
         latest = latest_upstream(owner, repo)
-        behind = bool(pinned and latest and pinned != latest)
+        behind = is_behind(pinned, latest)
         if not pinned or not latest:
             status = "unknown"
         elif behind:
             status = "BEHIND"
+        elif _version_tuple(pinned) is None or _version_tuple(latest) is None:
+            status = "uncomparable"
         else:
             status = "ok"
         log(f"  {name}: pinned={pinned} latest={latest} {status}")
-        rows.append({"name": name, "pinned": pinned, "latest": latest, "behind": behind})
+        rows.append({"name": name, "pinned": pinned, "latest": latest, "behind": behind, "status": status})
 
     behind_count = sum(1 for r in rows if r["behind"])
     if behind_count == 0 and not args.always_email:
