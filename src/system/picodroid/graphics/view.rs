@@ -192,6 +192,24 @@ pub fn register_touch_listener(
     Ok(None)
 }
 
+/// `View.nativeRegisterSwipeListener()` — records this View as a
+/// swipe-gesture target and registers the LVGL `LV_EVENT_GESTURE` callback
+/// on the underlying object. Note: the widget itself doesn't need to be
+/// clickable for gestures to fire (LVGL routes gestures via the indev,
+/// not the hit-test path), so we don't touch the CLICKABLE flag here.
+pub fn register_swipe_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_events::register_view_swipe_listener(id, obj_ref);
+    Ok(None)
+}
+
 /// Reset the key-listener registry between app runs.
 pub fn reset_key_listener_state() {
     lvgl_events::reset_view_key_listener_state();
@@ -200,4 +218,9 @@ pub fn reset_key_listener_state() {
 /// Reset the touch-listener registry between app runs.
 pub fn reset_touch_listener_state() {
     lvgl_events::reset_view_touch_listener_state();
+}
+
+/// Reset the swipe-listener registry between app runs.
+pub fn reset_swipe_listener_state() {
+    lvgl_events::reset_view_swipe_listener_state();
 }

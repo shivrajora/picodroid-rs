@@ -40,6 +40,9 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterTouchListener" => {
                 Some(view::register_touch_listener(ctx.args, ctx.objects))
             }
+            "nativeRegisterSwipeListener" => {
+                Some(view::register_swipe_listener(ctx.args, ctx.objects))
+            }
             _ => None,
         }
     }
@@ -388,6 +391,23 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeApply" => Some(widgets::gradient_drawable_apply(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
+
+    fn dispatch_swipe_refresh_layout(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::swipe_refresh_native_create()),
+            "addView" => Some(widgets::swipe_refresh_add_view(ctx.args, ctx.objects)),
+            "setRefreshing" => Some(widgets::swipe_refresh_set_refreshing(ctx.args, ctx.objects)),
+            "nativeRegisterRefreshListener" => Some(widgets::swipe_refresh_register_listener(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

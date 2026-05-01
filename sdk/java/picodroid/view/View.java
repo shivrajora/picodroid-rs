@@ -7,9 +7,17 @@ public class View {
   public static final int INVISIBLE = 1;
   public static final int GONE = 2;
 
+  /** Swipe-direction constants matching LVGL's {@code lv_dir_t}. */
+  public static final int SWIPE_LEFT = 1;
+
+  public static final int SWIPE_RIGHT = 2;
+  public static final int SWIPE_UP = 4;
+  public static final int SWIPE_DOWN = 8;
+
   int nativeHandle;
   OnKeyListener onKeyListener;
   OnTouchListener onTouchListener;
+  OnSwipeListener onSwipeListener;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -41,9 +49,22 @@ public class View {
     nativeRegisterTouchListener();
   }
 
+  /**
+   * Register a swipe-gesture listener on this view. Fires once per gesture with one of {@link
+   * #SWIPE_LEFT}, {@link #SWIPE_RIGHT}, {@link #SWIPE_UP}, {@link #SWIPE_DOWN}. The values mirror
+   * LVGL's {@code lv_dir_t} bits — {@code SWIPE_UP=4} corresponds to a {@code LV_DIR_TOP} gesture
+   * (finger moved upward).
+   */
+  public void setOnSwipeListener(OnSwipeListener listener) {
+    this.onSwipeListener = listener;
+    nativeRegisterSwipeListener();
+  }
+
   private native void nativeRegisterKeyListener();
 
   private native void nativeRegisterTouchListener();
+
+  private native void nativeRegisterSwipeListener();
 
   boolean fireKey(KeyEvent event) {
     if (onKeyListener != null) {
@@ -57,6 +78,12 @@ public class View {
       return onTouchListener.onTouch(this, event);
     }
     return false;
+  }
+
+  void fireSwipe(int direction) {
+    if (onSwipeListener != null) {
+      onSwipeListener.onSwipe(this, direction);
+    }
   }
 
   public native void setPosition(int x, int y);

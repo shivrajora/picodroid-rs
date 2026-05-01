@@ -137,6 +137,7 @@ pub const LV_EVENT_PRESSING: lv_event_code_t = 2;
 pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 8;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
+pub const LV_EVENT_GESTURE: lv_event_code_t = 16;
 pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 35;
 /// Fired when a multi-step interaction "completes" — used by lv_keyboard
 /// when the user taps the OK / Enter key. Position 38 in the v9.5.0
@@ -158,6 +159,16 @@ pub type lv_grad_dir_t = u32;
 pub const LV_GRAD_DIR_NONE: lv_grad_dir_t = 0;
 pub const LV_GRAD_DIR_VER: lv_grad_dir_t = 1;
 pub const LV_GRAD_DIR_HOR: lv_grad_dir_t = 2;
+
+/// Direction bitmask used by `lv_indev_get_gesture_dir`. Verified against
+/// vendor/lvgl/src/misc/lv_area.h:78-86. Only one of LEFT/RIGHT/TOP/BOTTOM
+/// is set per gesture event; HOR / VER / ALL are convenience composites.
+pub type lv_dir_t = u8;
+pub const LV_DIR_NONE: lv_dir_t = 0x00;
+pub const LV_DIR_LEFT: lv_dir_t = 1 << 0;
+pub const LV_DIR_RIGHT: lv_dir_t = 1 << 1;
+pub const LV_DIR_TOP: lv_dir_t = 1 << 2;
+pub const LV_DIR_BOTTOM: lv_dir_t = 1 << 3;
 
 /// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
 /// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
@@ -258,6 +269,12 @@ extern "C" {
     pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
     pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
     pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
+    /// The indev that triggered the currently-running event. Read inside an
+    /// `LV_EVENT_GESTURE` callback to recover gesture parameters.
+    pub fn lv_indev_active() -> *mut lv_indev_t;
+    /// Direction of the most recent gesture detected on `indev`. Returns
+    /// one of `LV_DIR_LEFT/RIGHT/TOP/BOTTOM` (or NONE if no gesture).
+    pub fn lv_indev_get_gesture_dir(indev: *const lv_indev_t) -> lv_dir_t;
     pub fn lv_indev_set_group(indev: *mut lv_indev_t, group: *mut lv_group_t);
 
     // Groups (keypad focus navigation)

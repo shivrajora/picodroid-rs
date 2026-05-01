@@ -20,6 +20,7 @@ mod scroll_view;
 mod seek_bar;
 mod snackbar;
 mod spinner;
+mod swipe_refresh_layout;
 mod switch;
 mod text_view;
 mod time_picker;
@@ -98,6 +99,12 @@ pub use spinner::{drain_spinner_change_queue, lookup_spinner_obj};
 pub use spinner::{
     reset_spinner_state, spinner_get_selected, spinner_native_create,
     spinner_perform_item_selected, spinner_register_item_selected_listener, spinner_set_items,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use swipe_refresh_layout::{drain_refresh_queue, lookup_refresh_obj};
+pub use swipe_refresh_layout::{
+    reset_swipe_refresh_state, swipe_refresh_add_view, swipe_refresh_native_create,
+    swipe_refresh_register_listener, swipe_refresh_set_refreshing,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};

@@ -20,6 +20,7 @@ pub mod scroll_view;
 pub mod seek_bar;
 pub mod snackbar;
 pub mod spinner;
+pub mod swipe_refresh_layout;
 pub mod switch;
 pub mod text_view;
 pub mod time_picker;

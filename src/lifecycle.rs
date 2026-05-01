@@ -272,6 +272,8 @@ pub(crate) fn run_activity(
                 dispatch_snackbar_action_clicks(jvm, heap, handler);
                 dispatch_date_picker_changes(jvm, heap, handler);
                 dispatch_time_picker_changes(jvm, heap, handler);
+                dispatch_swipe_events(jvm, heap, handler);
+                dispatch_swipe_refresh(jvm, heap, handler);
                 dispatch_keyboard_ready(jvm, heap, handler);
                 dispatch_editor_actions(jvm, heap, handler);
                 dispatch_touch_events(jvm, heap, handler);
@@ -797,6 +799,54 @@ fn dispatch_date_picker_changes(
                 dispatch_class(dispatch_sites::DATE_PICKER),
                 dispatch_method(dispatch_sites::DATE_PICKER),
                 obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain SwipeRefreshLayout pull-down events and invoke `fireRefresh()`.
+#[cfg(not(test))]
+fn dispatch_swipe_refresh(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_refresh_queue() {
+        if let Some(obj_ref) = widgets::lookup_refresh_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::SWIPE_REFRESH),
+                dispatch_method(dispatch_sites::SWIPE_REFRESH),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain swipe-gesture events and invoke `View.fireSwipe(int direction)`
+/// on the registered listener for each event. The direction is the same
+/// `lv_dir_t` bitmask LVGL produced (LEFT=1, RIGHT=2, TOP=4, BOTTOM=8).
+#[cfg(not(test))]
+fn dispatch_swipe_events(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::lvgl::events;
+    use pico_jvm::types::Value;
+
+    while let Some(rec) = events::drain_swipe_event() {
+        if let Some(obj_ref) = events::lookup_swipe_view_obj(rec.view_handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::VIEW_SWIPE),
+                dispatch_method(dispatch_sites::VIEW_SWIPE),
+                obj_ref,
+                &[Value::Int(rec.direction)],
                 heap,
                 handler,
             );

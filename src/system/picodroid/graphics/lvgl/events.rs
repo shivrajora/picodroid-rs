@@ -506,6 +506,115 @@ pub fn reset_screen_press_hook_state() {
     }
 }
 
+// ── Swipe-listener registry ─────────────────────────────────────────────────
+//
+// Mirrors the touch-listener pattern: a `(handle, obj_ref)` map keyed by raw
+// `lv_obj_t*` plus a small ring buffer of `(handle, lv_dir_t)` records. The
+// trampoline reads `lv_indev_active` + `lv_indev_get_gesture_dir` to capture
+// the direction, then pushes onto the queue for the framework loop to drain.
+
+const MAX_SWIPE_LISTENERS: usize = 32;
+
+#[derive(Copy, Clone)]
+pub struct SwipeRecord {
+    pub view_handle: usize,
+    pub direction: i32,
+}
+
+const SWIPE_QUEUE_SIZE: usize = 16;
+static mut SWIPE_QUEUE: [SwipeRecord; SWIPE_QUEUE_SIZE] = [SwipeRecord {
+    view_handle: 0,
+    direction: 0,
+}; SWIPE_QUEUE_SIZE];
+static mut SWIPE_QUEUE_HEAD: usize = 0;
+static mut SWIPE_QUEUE_TAIL: usize = 0;
+
+static mut VIEW_SWIPE_MAP: [(usize, u16); MAX_SWIPE_LISTENERS] = [(0, 0); MAX_SWIPE_LISTENERS];
+static mut VIEW_SWIPE_MAP_LEN: usize = 0;
+
+unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe {
+        let indev = lv_indev_active();
+        if indev.is_null() {
+            return;
+        }
+        let dir = lv_indev_get_gesture_dir(indev);
+        if dir == LV_DIR_NONE {
+            return;
+        }
+        let head = SWIPE_QUEUE_HEAD;
+        let next = (head + 1) % SWIPE_QUEUE_SIZE;
+        if next != SWIPE_QUEUE_TAIL {
+            SWIPE_QUEUE[head] = SwipeRecord {
+                view_handle: obj,
+                direction: dir as i32,
+            };
+            SWIPE_QUEUE_HEAD = next;
+        }
+    }
+}
+
+pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
+    let raw_obj = super::handle_table::lookup(id);
+    if raw_obj.is_null() {
+        return;
+    }
+    let raw_ptr = raw_obj as usize;
+    unsafe {
+        for entry in &mut VIEW_SWIPE_MAP[..VIEW_SWIPE_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if VIEW_SWIPE_MAP_LEN < MAX_SWIPE_LISTENERS {
+            VIEW_SWIPE_MAP[VIEW_SWIPE_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_SWIPE_MAP_LEN += 1;
+        } else {
+            return;
+        }
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(swipe_gesture_cb),
+            LV_EVENT_GESTURE,
+            core::ptr::null_mut(),
+        );
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_swipe_event() -> Option<SwipeRecord> {
+    unsafe {
+        if SWIPE_QUEUE_TAIL == SWIPE_QUEUE_HEAD {
+            return None;
+        }
+        let r = SWIPE_QUEUE[SWIPE_QUEUE_TAIL];
+        SWIPE_QUEUE_TAIL = (SWIPE_QUEUE_TAIL + 1) % SWIPE_QUEUE_SIZE;
+        Some(r)
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &VIEW_SWIPE_MAP[..VIEW_SWIPE_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+pub fn reset_view_swipe_listener_state() {
+    unsafe {
+        VIEW_SWIPE_MAP_LEN = 0;
+        SWIPE_QUEUE_HEAD = 0;
+        SWIPE_QUEUE_TAIL = 0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

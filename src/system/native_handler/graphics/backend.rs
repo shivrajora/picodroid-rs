@@ -77,4 +77,9 @@ pub trait GraphicsBackend {
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
     fn dispatch_keyboard(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
+    fn dispatch_swipe_refresh_layout(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
 }

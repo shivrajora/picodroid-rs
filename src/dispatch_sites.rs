@@ -53,6 +53,8 @@ pub const EDIT_TEXT_EDITOR_ACTION: usize = 23;
 pub const SNACKBAR: usize = 24;
 pub const DATE_PICKER: usize = 25;
 pub const TIME_PICKER: usize = 26;
+pub const VIEW_SWIPE: usize = 27;
+pub const SWIPE_REFRESH: usize = 28;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -87,6 +89,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/Snackbar", "fireActionClick"),
     ("picodroid/widget/DatePicker", "fireDateChanged"),
     ("picodroid/widget/TimePicker", "fireTimeChanged"),
+    ("picodroid/view/View", "fireSwipe"),
+    ("picodroid/widget/SwipeRefreshLayout", "fireRefresh"),
 ];
 
 #[cfg(test)]

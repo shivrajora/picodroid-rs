@@ -185,11 +185,13 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     crate::system::picodroid::graphics::widgets::reset_alert_dialog_state();
     crate::system::picodroid::graphics::widgets::reset_date_picker_state();
     crate::system::picodroid::graphics::widgets::reset_time_picker_state();
+    crate::system::picodroid::graphics::widgets::reset_swipe_refresh_state();
     crate::system::picodroid::graphics::widgets::reset_animation_state();
     crate::system::picodroid::graphics::widgets::reset_keyboard_state();
     crate::system::picodroid::graphics::widgets::reset_edit_text_state();
     crate::system::picodroid::graphics::view::reset_key_listener_state();
     crate::system::picodroid::graphics::view::reset_touch_listener_state();
+    crate::system::picodroid::graphics::view::reset_swipe_listener_state();
     crate::system::picodroid::graphics::lvgl::events::reset_key_event_queue();
     crate::system::picodroid::graphics::lvgl::handle_table::reset();
     #[cfg(not(feature = "sim"))]
