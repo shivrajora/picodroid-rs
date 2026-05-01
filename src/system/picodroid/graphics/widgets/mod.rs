@@ -116,8 +116,9 @@ pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_t
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 pub use time_picker::{
-    reset_time_picker_state, time_picker_get_hour, time_picker_get_minute,
-    time_picker_native_create, time_picker_register_listener, time_picker_set_time,
+    reset_time_picker_state, time_picker_get_hour, time_picker_get_minute, time_picker_is_24hour,
+    time_picker_native_create, time_picker_register_listener, time_picker_set_is_24hour,
+    time_picker_set_time,
 };
 pub use toast::{reset_toast_state, toast_native_cancel, toast_native_create, toast_native_show};
 #[cfg_attr(feature = "sim", allow(unused_imports))]

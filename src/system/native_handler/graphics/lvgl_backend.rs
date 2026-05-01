@@ -281,6 +281,8 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "setIs24HourView" => Some(widgets::time_picker_set_is_24hour(ctx.args, ctx.objects)),
+            "is24HourView" => Some(widgets::time_picker_is_24hour(ctx.args, ctx.objects)),
             _ => None,
         }
     }

@@ -61,3 +61,29 @@ pub fn time_picker_register_listener(
     lvgl_time_picker::register_listener(id, obj_ref);
     Ok(None)
 }
+
+pub fn time_picker_set_is_24hour(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let on = match args.get(1) {
+        Some(Value::Int(v)) => *v != 0,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    lvgl_time_picker::set_is_24hour(id, on);
+    Ok(None)
+}
+
+pub fn time_picker_is_24hour(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let v = if lvgl_time_picker::is_24hour(id) {
+        1
+    } else {
+        0
+    };
+    Ok(Some(Value::Int(v)))
+}
