@@ -214,6 +214,9 @@ impl GraphicsBackend for LvglBackend {
                 ctx.strings,
                 ctx.objects,
             )),
+            "setScaleType" => Some(widgets::image_view_set_scale_type(ctx.args, ctx.objects)),
+            "setTint" => Some(widgets::image_view_set_tint(ctx.args, ctx.objects)),
+            "setScale" => Some(widgets::image_view_set_scale(ctx.args, ctx.objects)),
             _ => None,
         }
     }

@@ -51,7 +51,10 @@ pub use edit_text::{
     reset_edit_text_state,
 };
 pub use frame_layout::{frame_layout_add_view, frame_layout_native_create};
-pub use image_view::{image_view_native_create, image_view_set_src};
+pub use image_view::{
+    image_view_native_create, image_view_set_scale, image_view_set_scale_type, image_view_set_src,
+    image_view_set_tint,
+};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use keyboard::{
     drain_editor_action, drain_ready_queue as drain_keyboard_ready_queue, lookup_keyboard_obj,

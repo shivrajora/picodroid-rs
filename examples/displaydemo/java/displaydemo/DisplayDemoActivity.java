@@ -7,6 +7,7 @@ import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
+import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ProgressBar;
 import picodroid.widget.ScrollView;
@@ -105,6 +106,15 @@ public class DisplayDemoActivity extends Activity {
     ProgressBar busy = ProgressBar.indeterminate();
     busy.setSize(40, 40);
     root.addView(busy);
+
+    // -- ImageView scale/tint smoke test (no asset pipeline yet — exercises
+    //    the FFI path without rendering pixels).
+    ImageView img = new ImageView();
+    img.setSize(48, 48);
+    img.setScaleType(ImageView.SCALE_FIT_CENTER);
+    img.setTint(0x80FF0000); // half-strength red tint
+    img.setScale(ImageView.SCALE_1X);
+    root.addView(img);
 
     // -- CheckBox --
     CheckBox checkBox = new CheckBox();

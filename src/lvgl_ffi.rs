@@ -171,6 +171,18 @@ pub const LV_KEYBOARD_MODE_NUMBER: lv_keyboard_mode_t = 3;
 
 pub type lv_style_selector_t = u32;
 
+/// Inner-alignment mode for `lv_image`. Verified against
+/// `vendor/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid
+/// `ImageView` exposes a subset that maps to Android's `ScaleType` enum;
+/// `LV_IMAGE_ALIGN_CENTER` (the default after `setScaleType` is unset)
+/// renders unscaled and centered.
+pub type lv_image_align_t = u32;
+pub const LV_IMAGE_ALIGN_CENTER: lv_image_align_t = 9;
+pub const LV_IMAGE_ALIGN_STRETCH: lv_image_align_t = 11;
+pub const LV_IMAGE_ALIGN_TILE: lv_image_align_t = 12;
+pub const LV_IMAGE_ALIGN_CONTAIN: lv_image_align_t = 13;
+pub const LV_IMAGE_ALIGN_COVER: lv_image_align_t = 14;
+
 // Opacity constants
 pub const LV_OPA_COVER: u8 = 255;
 
@@ -403,6 +415,27 @@ extern "C" {
     // Image widget
     pub fn lv_image_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_image_set_src(obj: *mut lv_obj_t, src: *const c_void);
+    /// Set the inner alignment of the image inside its widget area. Used by
+    /// `ImageView.setScaleType` to map Android's FIT_CENTER / CENTER_CROP /
+    /// FIT_XY / TILE onto LVGL's `lv_image_align_t` enum.
+    pub fn lv_image_set_inner_align(obj: *mut lv_obj_t, align: lv_image_align_t);
+    /// Uniform image scale; `256` = 1.0×.
+    pub fn lv_image_set_scale(obj: *mut lv_obj_t, zoom: u32);
+
+    /// Image recolor (tint) — applies a tint color to the rendered image.
+    /// Recolor is a *style* property on the lv_image widget; pair with
+    /// `lv_obj_set_style_image_recolor_opa(..., 0..255, ...)` to control
+    /// blend strength (0 = no tint, 255 = fully recolored).
+    pub fn lv_obj_set_style_image_recolor(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_image_recolor_opa(
+        obj: *mut lv_obj_t,
+        value: u8,
+        selector: lv_style_selector_t,
+    );
 
     // Slider widget
     pub fn lv_slider_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
