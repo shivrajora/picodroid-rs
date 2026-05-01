@@ -174,6 +174,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     // Clear previous app's heap state before running a new app.
     shared_heap().reset();
     crate::system::picodroid::graphics::widgets::reset_button_state();
+    crate::system::picodroid::graphics::widgets::reset_progress_bar_state();
     crate::system::picodroid::graphics::widgets::reset_toggle_button_state();
     crate::system::picodroid::graphics::widgets::reset_switch_state();
     crate::system::picodroid::graphics::widgets::reset_seek_bar_state();

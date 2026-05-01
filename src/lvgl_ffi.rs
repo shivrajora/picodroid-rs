@@ -288,6 +288,12 @@ extern "C" {
     pub fn lv_bar_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_bar_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
 
+    // Spinner widget — indeterminate counterpart of lv_bar; animates a
+    // rotating arc whose duration and sweep are configurable. Used by the
+    // indeterminate variant of `picodroid.widget.ProgressBar`.
+    pub fn lv_spinner_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_spinner_set_anim_params(obj: *mut lv_obj_t, t_ms: u32, angle_deg: u32);
+
     // Switch widget
     pub fn lv_switch_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
 

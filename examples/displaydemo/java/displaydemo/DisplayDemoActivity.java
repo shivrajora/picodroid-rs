@@ -8,6 +8,7 @@ import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.ProgressBar;
 import picodroid.widget.ScrollView;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Spinner;
@@ -75,19 +76,35 @@ public class DisplayDemoActivity extends Activity {
     sw.setOnCheckedChangeListener(new SwitchHandler(switchLabel, sw));
     root.addView(sw);
 
-    // -- SeekBar --
+    // -- SeekBar driving a determinate ProgressBar --
     TextView seekLabel = new TextView();
     seekLabel.setText("SeekBar: 0");
     seekLabel.setTextColor(Color.CYAN);
     root.addView(seekLabel);
 
+    ProgressBar progress = new ProgressBar();
+    progress.setSize(200, 12);
+    root.addView(progress);
+
     SeekBar seekBar = new SeekBar(100);
     seekBar.setSize(200, 20);
     seekBar.setOnSeekBarChangeListener(
         () -> {
-          seekLabel.setText("SeekBar: " + seekBar.getProgress());
+          int v = seekBar.getProgress();
+          seekLabel.setText("SeekBar: " + v);
+          progress.setProgress(v);
         });
     root.addView(seekBar);
+
+    // -- Indeterminate spinner --
+    TextView spinnerProgressLabel = new TextView();
+    spinnerProgressLabel.setText("Working...");
+    spinnerProgressLabel.setTextColor(Color.WHITE);
+    root.addView(spinnerProgressLabel);
+
+    ProgressBar busy = ProgressBar.indeterminate();
+    busy.setSize(40, 40);
+    root.addView(busy);
 
     // -- CheckBox --
     CheckBox checkBox = new CheckBox();

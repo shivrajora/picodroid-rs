@@ -64,7 +64,10 @@ pub use linear_layout::{
     linear_layout_add_view, linear_layout_native_create, linear_layout_set_orientation,
 };
 pub use list_view::{list_view_add_item, list_view_native_create};
-pub use progress_bar::{progress_bar_native_create, progress_bar_set_progress};
+pub use progress_bar::{
+    progress_bar_native_create, progress_bar_native_create_indeterminate,
+    progress_bar_set_progress, reset_progress_bar_state,
+};
 pub use scroll_view::{scroll_view_add_view, scroll_view_native_create};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use seek_bar::{drain_seek_change_queue, lookup_seek_bar_obj};

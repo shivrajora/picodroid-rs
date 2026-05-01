@@ -94,6 +94,9 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::progress_bar_native_create()),
+            "nativeCreateIndeterminate" => {
+                Some(widgets::progress_bar_native_create_indeterminate())
+            }
             "setProgress" => Some(widgets::progress_bar_set_progress(ctx.args, ctx.objects)),
             _ => None,
         }

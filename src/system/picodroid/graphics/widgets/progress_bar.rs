@@ -6,9 +6,16 @@ use pico_jvm::types::{JvmError, Value};
 use super::super::lvgl::widgets::progress_bar as lvgl_progress_bar;
 use super::super::view::extract_native_handle;
 
+pub use lvgl_progress_bar::reset_progress_bar_state;
+
 /// `ProgressBar.nativeCreate()`
 pub fn progress_bar_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_progress_bar::create())))
+}
+
+/// `ProgressBar.nativeCreateIndeterminate()`
+pub fn progress_bar_native_create_indeterminate() -> Result<Option<Value>, JvmError> {
+    Ok(Some(Value::Int(lvgl_progress_bar::create_indeterminate())))
 }
 
 /// `ProgressBar.setProgress(int value)`
