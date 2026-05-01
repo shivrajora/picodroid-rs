@@ -354,6 +354,11 @@ extern "C" {
     // Events
     pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
+    /// The widget the firing handler is bound to. Differs from
+    /// `lv_event_get_target_obj` when an event bubbles up from a child
+    /// (e.g. lv_calendar's inner btnmatrix VALUE_CHANGED bubbles to the
+    /// calendar root via LV_OBJ_FLAG_EVENT_BUBBLE).
+    pub fn lv_event_get_current_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
 
     /// Get the indev (touch / keypad) that originated `e`. Used by the
     /// touch-event trampolines to fetch the current pointer position.

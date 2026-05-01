@@ -21,7 +21,12 @@ static mut HANDLE_MAP: [(usize, u16); MAX_LISTENERS] = [(0, 0); MAX_LISTENERS];
 static mut HANDLE_MAP_LEN: usize = 0;
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
+    // lv_calendar's inner btnmatrix bubbles VALUE_CHANGED up via
+    // LV_OBJ_FLAG_EVENT_BUBBLE (lv_calendar.c:358), so the original
+    // event target is the btnmatrix, not the calendar root we registered
+    // in HANDLE_MAP. Use the *current* target — the widget this handler
+    // is bound to — to recover the calendar pointer.
+    let obj = unsafe { lv_event_get_current_target_obj(e) };
     unsafe {
         let next = (QUEUE_HEAD + 1) % QUEUE_SIZE;
         if next != QUEUE_TAIL {
