@@ -1,6 +1,6 @@
 # Examples
 
-Fifty examples are included under `examples/`, organized by category.
+Fifty-four examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -57,6 +57,14 @@ Executors and cross-thread dispatch. Reference: [api/system.md → Executors](ap
 |---------|-------|-------------|
 | `executordemo` | `executordemo.ExecutorDemoActivity` | Posts Runnables via both `Executors.mainExecutor()` and `Executors.backgroundExecutor()`; verifies main-thread FIFO ordering and cross-pool dispatch |
 
+## Services
+
+Background components with lifecycle independent of any Activity. Reference: see `picodroid.app.Service`, `IBinder`, `Notification`, and the binding APIs on `Context`.
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `servicedemo` | `servicedemo.ServiceDemoApp` | Drives a `CounterService` through the full Service v1 lifecycle in one non-UI run: two `startService` calls (one `onCreate`, two `onStartCommand`), `bindService` with a `LocalBinder` peek, `unbindService`, then `stopService` (triggers `onDestroy` and the foreground-notification cancel). Uses `startForeground(id, Notification)` |
+
 ## Language Features
 
 Demonstrate Java language features supported by the JVM interpreter. Reference: [api/core.md](api/core.md).
@@ -81,6 +89,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
 | `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
+| `classlit` | `classlit.ClassLit` | Class literals (`T.class`): demonstrates `getName()` and that repeated `T.class` evaluations return the same `Class` instance |
 | `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
 | `arraysdemo` | `arraysdemo.ArraysDemo` | Demonstrates `java.util.Arrays.sort` (stable mergesort over `Comparable[]`) and `Arrays.toString` |
 | `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Demonstrates `java.util.Collections.sort` and `Collections.reverse` over an `ArrayList` |
@@ -101,6 +110,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
 | `themedemo` | `themedemo.ThemeDemoApp` | Customizes the `Theme` color palette and applies `GradientDrawable` backgrounds (solid fills, corner radii, two-color gradients) |
 | `gesturedemo` | `gesturedemo.GestureDemoApp` | `GestureDetector` with `onSingleTap` / `onLongPress` / `onFling` listeners on a single View |
+| `dragdemo` | `dragdemo.DragDemoActivity` | Touch-driven drag using `FrameLayout` + `OnTouchListener`; tracks `MotionEvent.ACTION_DOWN/MOVE/UP` and updates a tile's absolute position via `setPosition()`. The only example using `FrameLayout` for absolute placement (a `LinearLayout` would re-flow on every layout pass) |
 | `animdemo` | `animdemo.AnimDemoApp` | `view.animate().alpha(...).x(...).y(...).setDuration(...).start()` — interpolated property animations |
 | `keyboarddemo` | `keyboarddemo.KeyboardDemoApp` | Soft keyboard: both system-on-touch (default) and explicit `Keyboard` instances bound to `EditText` |
 | `navdemo` | `navdemo.NavDemoApp` | Multi-Activity back-stack — `startActivity()` push, `finish()` pop, lifecycle callbacks (`onPause` / `onStop` / `onResume`) |
@@ -114,6 +124,14 @@ Benchmarks and stress tests for the JVM runtime and allocator. Reference: [api/s
 | `benchmark` | `benchmark.Benchmark` | JVM performance benchmark: times int/long/float/double arithmetic, method dispatch, interface dispatch, object allocation, array ops, string ops, and control flow; logs per-category and total elapsed time |
 | `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
 | `heapstress` | `heapstress.HeapStress` | Allocation/fragmentation stress test exercising the array arena allocator and emergency-GC path |
+
+## Feature Showcase
+
+End-to-end apps that combine multiple subsystems. These are the closest reference for the layout and structure of a "real" picodroid app.
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `picoenvmon` | `picoenvmon.EnvApp` | Environmental monitor for the Pimoroni Enviro+ Pack. Multi-Activity (`HomeActivity`, settings, history) with a sub-package layout (`di/`, `ui/`, `service/`, `hardware/`, `data/`, `util/`); customizes the global `Theme` palette in `Application.onCreate()`; runs a `SensorLoggerService` ring-buffering BME688 + LTR559 readings; drives an RGB LED. Demonstrates the manual DI pattern (`EnvAppComponent`, `ActivitySingletonComponent`) |
 
 ## Running an Example
 

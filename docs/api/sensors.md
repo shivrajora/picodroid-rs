@@ -1,6 +1,6 @@
 # Sensors
 
-`picodroid.hardware.*` — Android-compatible `SensorManager` for environmental sensors declared in [`board.toml`](../porting-guide.md#boardtoml-reference). Today the only supported device is the Bosch **BME688** (temperature, humidity, pressure, gas resistance) over I2C. See [docs/README.md](../README.md) for the full API index.
+`picodroid.hardware.*` — Android-compatible `SensorManager` for environmental sensors declared in [`board.toml`](../porting-guide.md#boardtoml-reference). Today the supported devices are the Bosch **BME688** (temperature, humidity, pressure, gas resistance) and the Lite-On **LTR559** (ambient light, proximity), both over I2C. See [docs/README.md](../README.md) for the full API index.
 
 Events are delivered on the main loop (no background task), so listeners run in the same thread as the Activity. Up to eight concurrent registrations are supported.
 
@@ -59,7 +59,9 @@ Immutable metadata. Construct via `SensorManager.getDefaultSensor()`.
 
 | Type constant | Value | Units (in `SensorEvent.values[0]`) |
 |---------------|-------|------------------------------------|
+| `TYPE_LIGHT` | 5 | lux |
 | `TYPE_PRESSURE` | 6 | hPa |
+| `TYPE_PROXIMITY` | 8 | raw proximity counts (0..2047, higher = closer) |
 | `TYPE_RELATIVE_HUMIDITY` | 12 | % RH |
 | `TYPE_AMBIENT_TEMPERATURE` | 13 | °C |
 | `TYPE_GAS_RESISTANCE` | 0x10001 | Ω (Picodroid extension — Android doesn't define this) |
@@ -91,16 +93,21 @@ public interface SensorEventListener {
 
 ## Hardware wiring
 
-The sensor must be declared in `board.toml`:
+Each sensor must be declared in `board.toml`:
 
 ```toml
 [[sensor]]
-kind = "bme688"     # only kind currently supported
+kind = "bme688"     # temperature / humidity / pressure / gas
 bus  = "I2C0"       # "I2C0" or "I2C1"
 addr = 0x77         # 7-bit I2C address
+
+[[sensor]]
+kind = "ltr559"     # ambient light + proximity
+bus  = "I2C0"
+addr = 0x23         # LTR559 default
 ```
 
-The BME688 driver ([src/drivers/bme688/](../../src/drivers/bme688/)) handles Bosch compensation. Read-only for now — calibration and heater-profile control are not exposed. See [porting-guide.md](../porting-guide.md#boardtoml-reference) for the full board.toml schema.
+The BME688 driver ([src/drivers/bme688/](../../src/drivers/bme688/)) handles Bosch compensation. Read-only for now — calibration and heater-profile control are not exposed. The LTR559 driver lives at [src/drivers/ltr559.rs](../../src/drivers/ltr559.rs) and exposes light (lux) plus raw proximity counts; gain and integration-time control are not yet exposed. See [porting-guide.md](../porting-guide.md#boardtoml-reference) for the full board.toml schema.
 
 ---
 
