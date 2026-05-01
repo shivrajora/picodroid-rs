@@ -297,6 +297,19 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_snackbar(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::snackbar_native_create(ctx.args, ctx.strings)),
+            "nativeShow" => Some(widgets::snackbar_native_show(ctx.args)),
+            "nativeDismiss" => Some(widgets::snackbar_native_dismiss(ctx.args)),
+            "nativeSetAction" => Some(widgets::snackbar_native_set_action(ctx.args, ctx.strings)),
+            "nativeRegisterActionClickListener" => Some(
+                widgets::snackbar_register_action_click_listener(ctx.args, ctx.objects),
+            ),
+            _ => None,
+        }
+    }
+
     fn dispatch_alert_dialog(
         &mut self,
         method: &str,

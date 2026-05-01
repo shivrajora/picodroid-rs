@@ -74,6 +74,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/widget/Spinner",
     "picodroid/widget/EditText",
     "picodroid/widget/Toast",
+    "picodroid/widget/Snackbar",
     "picodroid/widget/AlertDialog",
     "picodroid/widget/AlertDialog$Builder",
     "picodroid/widget/Keyboard",

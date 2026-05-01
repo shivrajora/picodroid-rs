@@ -62,3 +62,13 @@ pub mod alert_dialog {
     /// `Runnable` for the negative button — read from Java only.
     pub const NEGATIVE_LISTENER: usize = 2;
 }
+
+/// `picodroid.widget.Snackbar` is **not** a View subclass — slot numbering
+/// starts from its own first declared field.
+#[allow(dead_code)]
+pub mod snackbar {
+    /// Bar handle returned by `lvgl::widgets::snackbar::create`.
+    pub const NATIVE_HANDLE: usize = 0;
+    /// `Runnable` for the action lozenge — read from Java only.
+    pub const ACTION_LISTENER: usize = 1;
+}

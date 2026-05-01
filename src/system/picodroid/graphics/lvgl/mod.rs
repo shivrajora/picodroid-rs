@@ -64,6 +64,7 @@ impl Gfx for LvglGfx {
         // specific bookkeeping stay in sibling modules (`lvgl::lifecycle`
         // owns LVGL; the others own their own state).
         widgets::toast::tick(ms);
+        widgets::snackbar::tick(ms);
         animations::tick(ms);
     }
 

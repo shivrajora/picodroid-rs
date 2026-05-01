@@ -269,6 +269,7 @@ pub(crate) fn run_activity(
                 dispatch_checkbox_changes(jvm, heap, handler);
                 dispatch_spinner_changes(jvm, heap, handler);
                 dispatch_alert_dialog_clicks(jvm, heap, handler);
+                dispatch_snackbar_action_clicks(jvm, heap, handler);
                 dispatch_keyboard_ready(jvm, heap, handler);
                 dispatch_editor_actions(jvm, heap, handler);
                 dispatch_touch_events(jvm, heap, handler);
@@ -748,6 +749,30 @@ fn dispatch_alert_dialog_clicks(
                 dispatch_method(dispatch_sites::ALERT_DIALOG),
                 obj_ref,
                 &[Value::Int(which)],
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain the Snackbar action-click queue and invoke `fireActionClick()` on
+/// each matching Snackbar. The Java side runs the registered Runnable then
+/// dismisses the snackbar.
+#[cfg(not(test))]
+fn dispatch_snackbar_action_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_snackbar_click_queue() {
+        if let Some(obj_ref) = widgets::lookup_snackbar_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::SNACKBAR),
+                dispatch_method(dispatch_sites::SNACKBAR),
+                obj_ref,
                 heap,
                 handler,
             );

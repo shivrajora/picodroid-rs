@@ -17,6 +17,7 @@ pub mod list_view;
 pub mod progress_bar;
 pub mod scroll_view;
 pub mod seek_bar;
+pub mod snackbar;
 pub mod spinner;
 pub mod switch;
 pub mod text_view;

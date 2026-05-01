@@ -1,7 +1,7 @@
 //! Native method implementations for all widget classes:
 //! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ToggleButton`, `ListView`,
 //! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`,
-//! `Toast`, `AlertDialog`.
+//! `Toast`, `AlertDialog`, `Snackbar`.
 
 mod alert_dialog;
 mod animator;
@@ -17,6 +17,7 @@ mod list_view;
 mod progress_bar;
 mod scroll_view;
 mod seek_bar;
+mod snackbar;
 mod spinner;
 mod switch;
 mod text_view;
@@ -71,6 +72,12 @@ pub use seek_bar::{
     reset_seek_bar_state, seek_bar_get_progress, seek_bar_native_create,
     seek_bar_native_create_with_max, seek_bar_perform_progress_change,
     seek_bar_register_change_listener, seek_bar_set_max, seek_bar_set_progress,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use snackbar::{drain_snackbar_click_queue, lookup_snackbar_obj};
+pub use snackbar::{
+    reset_snackbar_state, snackbar_native_create, snackbar_native_dismiss,
+    snackbar_native_set_action, snackbar_native_show, snackbar_register_action_click_listener,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use spinner::{drain_spinner_change_queue, lookup_spinner_obj};

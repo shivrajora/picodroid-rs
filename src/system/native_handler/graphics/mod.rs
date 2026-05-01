@@ -73,6 +73,7 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/Spinner" => be.dispatch_spinner(method_name, ctx),
         "picodroid/widget/EditText" => be.dispatch_edit_text(method_name, ctx),
         "picodroid/widget/Toast" => be.dispatch_toast(method_name, ctx),
+        "picodroid/widget/Snackbar" => be.dispatch_snackbar(method_name, ctx),
         "picodroid/widget/AlertDialog" => be.dispatch_alert_dialog(method_name, ctx),
         "picodroid/widget/Keyboard" => be.dispatch_keyboard(method_name, ctx),
         "picodroid/view/ViewPropertyAnimator" => be.dispatch_view_animator(method_name, ctx),
