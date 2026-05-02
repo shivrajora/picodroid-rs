@@ -1,21 +1,22 @@
 picodroid
-Copyright 2025 Shiv Rajora
+Copyright (C) 2025 Shiv Rajora
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License, version 3, as published by the
+Free Software Foundation. See the LICENSE file for the full terms.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+picodroid is dual-licensed: in addition to the GPL-3.0-only license, a
+proprietary commercial license is available for customers who need to
+distribute closed-source derivatives. See LICENSING.md for details.
 
 ---
 
-This project includes the following third-party components:
+This project includes the following third-party components. All are
+compatible with GPL-3.0-only as used here.
 
 ================================================================================
 FreeRTOS-Kernel
@@ -24,8 +25,9 @@ Location:    third_party/FreeRTOS-Kernel/
 License:     MIT License
 Copyright:   Amazon.com, Inc. or its affiliates
 
-This project uses FreeRTOS-Kernel under the MIT License. A copy of the FreeRTOS
-MIT License can be found in third_party/FreeRTOS-Kernel/LICENSE.md.
+This project uses FreeRTOS-Kernel under the MIT License. A copy of the
+FreeRTOS MIT License can be found in third_party/FreeRTOS-Kernel/LICENSE.md.
+MIT is a permissive license and is GPL-3.0 compatible.
 
 ================================================================================
 LVGL (v9.2.2)
@@ -34,8 +36,9 @@ Location:    vendor/lvgl/
 License:     MIT License
 Copyright:   2021 LVGL Kft
 
-This project vendors LVGL (Light and Versatile Graphics Library) under the MIT
-License. A copy of the LVGL MIT License can be found in vendor/lvgl/LICENCE.txt.
+This project vendors LVGL (Light and Versatile Graphics Library) under the
+MIT License. A copy of the LVGL MIT License can be found in
+vendor/lvgl/LICENCE.txt. MIT is GPL-3.0 compatible.
 
 ================================================================================
 LZ4 Library
@@ -44,9 +47,9 @@ Location:    vendor/lvgl/src/libs/lz4/
 License:     BSD-2-Clause
 Copyright:   2011-2020, Yann Collet
 
-Bundled within LVGL. Redistribution and use in source and binary forms, with or
-without modification, are permitted provided that the following conditions are
-met:
+Bundled within LVGL. BSD-2-Clause is GPL-3.0 compatible. Redistribution and
+use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
 
 1. Redistributions of source code must retain the above copyright notice, this
    list of conditions and the following disclaimer.
@@ -75,11 +78,12 @@ Copyright:   littlefs-rust contributors
 Upstream:    https://github.com/light-player/littlefs-rust
 
 Pure-Rust port of littlefs, used as the block-level implementation behind the
-`littlefs-rust` crate.  Vendored locally with a single-line patch to
+`littlefs-rust` crate. Vendored locally with a single-line patch to
 `lfs_alignup` in src/util.rs: upstream uses checked arithmetic that panics on
 u32 overflow in Rust debug builds, while the C original and the rest of lfs
-rely on unsigned wrap.  The patch switches that site to wrapping_add /
-wrapping_sub.  (Same BSD-3-Clause terms as above apply.)
+rely on unsigned wrap. The patch switches that site to wrapping_add /
+wrapping_sub. This vendored copy retains its upstream BSD-3-Clause license;
+it is not relicensed under GPL-3.0. BSD-3-Clause is GPL-3.0 compatible.
 
 ================================================================================
 littlefs-rust (v0.1.0)
@@ -87,18 +91,18 @@ littlefs-rust (v0.1.0)
 License:     BSD-3-Clause
 Copyright:   littlefs-rust contributors
 
-Safe Rust wrapper around `littlefs-rust-core`.  Provides the Filesystem / File
-/ Storage types used by src/fs/.  (Same BSD-3-Clause terms as above apply.)
+Safe Rust wrapper around `littlefs-rust-core`. Provides the Filesystem / File
+/ Storage types used by src/fs/. (Same BSD-3-Clause terms as above apply.)
 
 ================================================================================
-google-java-format (v1.35.0) — build tooling only
+google-java-format (v1.35.0) - build tooling only
 ================================================================================
 Location:    vendor/google-java-format-1.35.0-all-deps.jar
 License:     Apache-2.0
 Copyright:   Google LLC
 
 Used only as a build-time Java formatting tool. Not included in firmware or
-runtime libraries.
+runtime libraries. Apache-2.0 is one-way GPL-3.0 compatible (consumable).
 
 ================================================================================
 rp2040-pac (v0.6.0)
@@ -154,34 +158,53 @@ License:     BSD-3-Clause OR MIT OR Apache-2.0
 Copyright:   num_enum contributors
 
 Used under the MIT License. (Same BSD-3-Clause terms as above apply for
-BSD-3-Clause compliance.)
+BSD-3-Clause compliance.) All three of the offered licenses are GPL-3.0
+compatible.
 
 ================================================================================
-serialport (v4.9.0) — pdb tool only
+cyw43-driver
+================================================================================
+Location:    vendor/cyw43-driver/
+License:     dual: vendor/cyw43-driver/LICENSE OR vendor/cyw43-driver/LICENSE.RP
+Copyright:   2019-2022 George Robotics Pty Ltd
+
+Used here under the alternate LICENSE.RP terms (the "Raspberry Pi silicon"
+clause), which permits redistribution in source and binary form when used
+with RP2040, RP2350, or other Raspberry Pi Ltd semiconductor devices. This
+project targets RP2040 and RP2350 exclusively, so LICENSE.RP applies and
+permits commercial redistribution. The alternate LICENSE (with the
+"personal benefit only" restriction) is NOT used and does NOT bind this
+project.
+
+================================================================================
+serialport (v4.9.0) - pdb tool only
 ================================================================================
 License:     MPL-2.0 (Mozilla Public License 2.0)
 Copyright:   serialport contributors
 
-This library is used only in the `pdb` (Picodroid Debug Bridge) tool and is NOT
-included in the firmware or JVM library. The MPL-2.0 is a file-level copyleft
-license: modifications to serialport source files must be made available under
-MPL-2.0, but this does not affect the rest of this project.
+This library is used only in the `pdb` (Picodroid Debug Bridge) host tool
+and is NOT included in the firmware, JVM library, or any runtime artifact
+shipped to the device. The MPL-2.0 is a file-level copyleft license:
+modifications to serialport source files must be made available under
+MPL-2.0, but this does not affect the rest of this project. MPL-2.0 is
+explicitly compatible with GPL-3.0 via MPL Section 3.3 ("Compatible With
+Secondary Licenses").
 
 ================================================================================
-unescaper (v0.1.8) — pdb tool only, via serialport
+unescaper (v0.1.8) - pdb tool only, via serialport
 ================================================================================
 License:     MIT OR GPL-3.0
 Copyright:   unescaper contributors
 
-This library is a transitive dependency of `serialport`, used only in the `pdb`
-tool. This project uses it under the MIT License.
+This library is a transitive dependency of `serialport`, used only in the
+`pdb` tool. This project uses it under the MIT License.
 
 ================================================================================
 All other Rust crate dependencies
 ================================================================================
 The remaining Rust crate dependencies are licensed under MIT, Apache-2.0, or
 dual MIT/Apache-2.0 licenses, all of which are compatible with this project's
-Apache-2.0 license. Key dependencies include:
+GPL-3.0-only license. Key dependencies include:
 
   cortex-m 0.7.7             MIT OR Apache-2.0
   cortex-m-rt 0.7.5          MIT OR Apache-2.0

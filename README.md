@@ -5,7 +5,7 @@
 <p align="center">
 
 [![CI](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml/badge.svg)](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml)
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)
 ![Rust](https://img.shields.io/badge/rust-nightly%20%7C%20stable-orange)
 
 </p>
@@ -150,4 +150,15 @@ Project scaffolding based on [rp2040-project-template](https://github.com/rp-rs/
 
 ## License
 
-Apache-2.0
+picodroid is dual-licensed:
+
+- **Open source:** [GPL-3.0-only](LICENSE) (no Classpath Exception). Forks,
+  modifications, and any Java app linking the picodroid SDK must release
+  source under GPL-3.0.
+- **Commercial:** A separate proprietary license is available for customers
+  who need to ship closed-source apps or derivatives. See [LICENSING.md](LICENSING.md)
+  for details and contact info.
+
+Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md) —
+opening a PR constitutes agreement to the inbound license grant that keeps
+the dual-license model possible.

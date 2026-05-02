@@ -144,4 +144,20 @@ renamed. See [docs/shrinker.md](docs/shrinker.md) for the full design.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache-2.0 license.
+picodroid-rs is dual-licensed: it is available to the public under the
+GPL-3.0-only license (see [LICENSE](LICENSE)), and separately under a
+proprietary commercial license for customers who need to distribute
+closed-source derivatives. See [LICENSING.md](LICENSING.md).
+
+To preserve the project's ability to offer the commercial license, every
+contribution must be made under the terms of [CLA.md](CLA.md). By opening a
+pull request, you grant the project maintainer a perpetual, worldwide,
+non-exclusive, irrevocable, royalty-free license to reproduce, prepare
+derivative works of, and distribute your contribution as part of picodroid-rs
+under the GPL-3.0-only license **and** under any other license the maintainer
+chooses (including the proprietary commercial license).
+
+You retain copyright in your contribution and may continue to use, license,
+or relicense your own contribution however you wish. The grant above is
+non-exclusive — it does not transfer ownership and does not prevent you from
+distributing your standalone contribution under any other terms you choose.

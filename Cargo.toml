@@ -11,7 +11,7 @@ littlefs-rust-core = { path = "third_party/littlefs-rust-core" }
 edition = "2021"
 name = "picodroid"
 version = "0.8.0"
-license = "Apache-2.0"
+license = "GPL-3.0-only"
 
 [features]
 # Bare `cargo build` uses this default. To target a different board (or sim),
