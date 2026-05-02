@@ -500,9 +500,21 @@ run_test() {
   sleep 2
 
   # Flash the pre-built ELF and capture RTT output.
+  #
+  # `timeout` budget = test timeout (conf value, post-boot wall time the app
+  # needs) + flash budget. probe-rs run does flash *and* RTT inside the same
+  # invocation, so without the flash budget the per-test 30 s would be eaten
+  # by the 22–27 s RP2350 flash and leave only a few seconds of RTT capture
+  # — flake territory for `loop` apps whose first log line takes a moment to
+  # appear (e.g. activities that bring up LVGL on the first onCreate).
+  #
+  # 35 s covers both the typical 22–27 s flash + a couple seconds of slop
+  # without running so long that real hangs go unnoticed.
+  local flash_budget=35
+  local effective_timeout=$((timeout + flash_budget))
   local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
   hil_log "  Flashing and capturing RTT..."
-  setsid timeout "$timeout" \
+  setsid timeout "$effective_timeout" \
     probe-rs run --chip RP235x --protocol swd "$elf" \
     > "$log_file" 2>&1 &
   local run_pid=$!
@@ -512,7 +524,7 @@ run_test() {
   if [[ "$category" == "term" || "$category" == "hw" ]]; then
     # Poll for expected output, kill early on match.
     local elapsed=0
-    while kill -0 "$run_pid" 2>/dev/null && [[ $elapsed -lt $timeout ]]; do
+    while kill -0 "$run_pid" 2>/dev/null && [[ $elapsed -lt $effective_timeout ]]; do
       sleep 1
       elapsed=$((elapsed + 1))
       if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
@@ -523,7 +535,8 @@ run_test() {
     kill_process_group "$run_pid"
 
   elif [[ "$category" == "loop" ]]; then
-    # Let it run for the full timeout, then check patterns.
+    # Let it run for the full effective timeout (flash + post-boot window),
+    # then check patterns.
     wait "$run_pid" 2>/dev/null || true
     if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
       result=0
