@@ -58,9 +58,14 @@ pub fn calibrate() {}
 // Implementation (hardware only)
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
 fn stopped() -> bool {
     crate::pdb::pending::is_stop_jvm()
+}
+
+#[cfg(all(not(feature = "sim"), not(feature = "family-rp")))]
+fn stopped() -> bool {
+    false
 }
 
 #[cfg(not(feature = "sim"))]

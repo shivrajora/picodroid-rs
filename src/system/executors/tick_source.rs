@@ -22,7 +22,7 @@
 
 const TICK_PERIOD_MS: u32 = 16;
 
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod backing {
     use core::cell::UnsafeCell;
     use freertos_rust::{Duration, Timer};
@@ -144,6 +144,15 @@ mod backing {
         }
         STARTED.store(false, Ordering::SeqCst);
     }
+}
+
+// ESP stub: no FreeRTOS timer available in Milestone 1.
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+mod backing {
+    pub fn start() {}
+    pub fn pause() {}
+    pub fn resume() {}
+    pub fn stop() {}
 }
 
 /// Start the periodic 16 ms LVGL tick source. Idempotent; if already

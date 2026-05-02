@@ -22,9 +22,9 @@ mod hal;
 mod lifecycle;
 #[cfg(not(test))]
 mod lvgl_ffi;
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod packagemanager;
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod pdb;
 #[cfg(not(test))]
 mod service_lifecycle;
@@ -78,7 +78,7 @@ static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
 #[global_allocator]
-static GLOBAL: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
+static GLOBAL: embedded_alloc::Heap = embedded_alloc::Heap::empty();
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[entry]

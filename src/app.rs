@@ -286,8 +286,10 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 pub fn run_jvm() {
     run_jvm_with(APK_DATA);
 
-    #[cfg(not(feature = "sim"))]
+    #[cfg(all(not(feature = "sim"), feature = "family-rp"))]
     loop {
         freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
     }
+    #[cfg(all(not(feature = "sim"), feature = "family-esp"))]
+    loop {}
 }

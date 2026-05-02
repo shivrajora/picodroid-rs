@@ -74,7 +74,7 @@ pub fn update() {
         if FRAME_COUNT.is_multiple_of(WINDOW_SIZE as u32) {
             let avg_us = FRAME_US[..SAMPLES].iter().sum::<u64>() / SAMPLES as u64;
             let fps = if avg_us > 0 {
-                (1_000_000u64 / avg_us) as u32
+                1_000_000u64.checked_div(avg_us).unwrap_or(0) as u32
             } else {
                 0
             };

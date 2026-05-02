@@ -91,7 +91,7 @@ fn decode(word: u32) -> MainTask {
 // Backing store: FreeRTOS queue on device, Mutex<VecDeque> in sim.
 // ─────────────────────────────────────────────────────────────────────
 
-#[cfg(not(any(test, feature = "sim")))]
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod backing {
     use core::cell::UnsafeCell;
     use freertos_rust::{Duration, Queue};
@@ -197,6 +197,22 @@ mod backing {
             .wait_while(SIM_QUEUE.queue.lock().unwrap(), |q| q.is_empty())
             .unwrap();
         guard.pop_front().expect("queue non-empty after wait_while")
+    }
+}
+
+// ESP stub: single-threaded, no queue needed.
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+mod backing {
+    pub fn init() {}
+    pub fn try_send(_word: u32) -> bool {
+        false
+    }
+    pub fn try_recv() -> Option<u32> {
+        None
+    }
+    pub fn recv_blocking() -> u32 {
+        #[allow(clippy::empty_loop)]
+        loop {}
     }
 }
 

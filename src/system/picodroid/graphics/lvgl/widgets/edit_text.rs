@@ -177,6 +177,9 @@ pub(in crate::system::picodroid::graphics) fn get_text(
     if cstr.is_null() {
         return None;
     }
+    // c_char is i8 on x86_64 and u8 on ARM; cast unconditionally for portability.
+    #[allow(clippy::unnecessary_cast)]
+    let cstr = cstr as *const u8;
     let mut len = 0usize;
     unsafe {
         while *cstr.add(len) != 0 && len < dst.len() {
@@ -184,7 +187,7 @@ pub(in crate::system::picodroid::graphics) fn get_text(
         }
     }
     for (i, slot) in dst[..len].iter_mut().enumerate() {
-        *slot = unsafe { *cstr.add(i) } as u8;
+        *slot = unsafe { *cstr.add(i) };
     }
     Some(len)
 }

@@ -21,11 +21,12 @@ rustflags = [
 [target.xtensa-esp32s3-none-elf]
 # T-Deck Plus (ESP32-S3). Requires espup toolchain and espflash.
 # See docs/esp32s3-toolchain.md for setup instructions.
-# xtensa-lx-rt provides linkall.x via its build.rs; ldproxy passes it through.
+# xtensa-lx-rt provides linkall.x via its build.rs search path.
+# Use xtensa-esp32s3-elf-gcc directly (ldproxy needs embuild from esp-hal).
 runner = "espflash flash --monitor"
-linker = "ldproxy"
+linker = "xtensa-esp32s3-elf-gcc"
 rustflags = [
-  "-C", "link-arg=-Tlinkall.x",
+  "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-nostartfiles",
 ]
 
@@ -38,7 +39,7 @@ b-testbench-rp2040 = "build --target thumbv6m-none-eabi --no-default-features --
 b-testbench-rp2350 = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 b-testbench-rp2350w = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 b-pico-enviro-mon = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
-b-tdeck-plus = "build --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
+b-tdeck-plus = "build -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
 # Simulator (host target — no --target so cargo picks the host triple)
 b-sim = "build --no-default-features --features sim,board-testbench-rp2350"
 # Hardware run (probe-rs runner from the [target.*] blocks above)
@@ -46,7 +47,7 @@ r-testbench-rp2040 = "run --target thumbv6m-none-eabi --no-default-features --fe
 r-testbench-rp2350 = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 r-testbench-rp2350w = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 r-pico-enviro-mon = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
-r-tdeck-plus = "run --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
+r-tdeck-plus = "run -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
 
 [env]
 DEFMT_LOG = "debug"

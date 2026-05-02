@@ -61,7 +61,7 @@ fn file_bool(
 
 fn file_length(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let path = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::file::PATH)?;
-    Ok(Some(Value::Long(backend::length(path) as i64)))
+    Ok(Some(Value::Long(backend::length(path))))
 }
 
 fn file_rename_to(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {

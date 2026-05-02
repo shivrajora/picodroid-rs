@@ -8,6 +8,16 @@
 //! defmt-rtt (used on RP) is ARM-only. We provide a no-op global logger here
 //! so defmt symbols link. Real defmt-over-JTAG lands in a later milestone.
 
+// No-op critical-section implementation for single-threaded ESP32-S3 stub.
+// Real interrupt-disabling impl goes here in Milestone 2 when peripherals land.
+struct EspCriticalSection;
+critical_section::set_impl!(EspCriticalSection);
+
+unsafe impl critical_section::Impl for EspCriticalSection {
+    unsafe fn acquire() -> critical_section::RawRestoreState {}
+    unsafe fn release(_token: critical_section::RawRestoreState) {}
+}
+
 // No-op defmt global logger so defmt symbols link on Xtensa.
 #[defmt::global_logger]
 struct EspDefmtLogger;

@@ -44,7 +44,7 @@ pub fn dispatch(
                         .ok_or(JvmError::InvalidReference)
                         .ok()?;
 
-                    #[cfg(not(feature = "sim"))]
+                    #[cfg(all(not(feature = "sim"), feature = "family-rp"))]
                     {
                         // Field 0 = target (Runnable), field 1 = priority (int).
                         let android_priority = match ctx.objects.get_field(*thread_idx, 1) {
@@ -108,13 +108,10 @@ pub fn dispatch(
                         }
                     }
 
-                    #[cfg(feature = "sim")]
+                    #[cfg(any(feature = "sim", feature = "family-esp"))]
                     {
-                        // Threading not supported in sim mode; log and skip.
-                        println!(
-                            "[sim] Thread.start() for '{}' skipped (sim is single-threaded)",
-                            class_name
-                        );
+                        // Threading not supported in sim/ESP-stub mode; skip.
+                        let _ = class_name;
                     }
                 }
             }

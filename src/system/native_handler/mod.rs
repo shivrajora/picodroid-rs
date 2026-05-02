@@ -431,9 +431,14 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         }
     }
 
-    #[cfg(not(any(test, feature = "sim")))]
+    #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
     fn interrupted(&self) -> bool {
         crate::pdb::pending::is_stop_jvm()
+    }
+
+    #[cfg(all(not(any(test, feature = "sim")), not(feature = "family-rp")))]
+    fn interrupted(&self) -> bool {
+        false
     }
 
     #[cfg(not(feature = "sim"))]

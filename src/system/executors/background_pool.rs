@@ -21,10 +21,10 @@
 mod config {
     include!(concat!(env!("OUT_DIR"), "/background_pool_config.rs"));
 }
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
 use config::{POOL_PRIORITY, POOL_QUEUE_DEPTH, POOL_STACK_BYTES, POOL_THREADS};
 
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
 mod device {
     use core::cell::UnsafeCell;
 
@@ -148,7 +148,14 @@ mod sim {
     }
 }
 
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
 pub use device::{spawn, submit};
 #[cfg(feature = "sim")]
 pub use sim::submit;
+// ESP (single-threaded stub): background tasks are silently dropped in M1.
+#[cfg(all(not(feature = "sim"), feature = "family-esp"))]
+pub fn submit(_obj_ref: u16) -> bool {
+    false
+}
+#[cfg(all(not(feature = "sim"), feature = "family-esp"))]
+pub fn spawn() {}

@@ -77,7 +77,7 @@ pub fn list_committed_maps(shrink_maps_dir: &Path) -> Vec<(String, PathBuf)> {
             out.push((stem.to_string(), path));
         }
     }
-    out.sort_by(|a, b| parse_semver(&a.0).cmp(&parse_semver(&b.0)));
+    out.sort_by_key(|a| parse_semver(&a.0));
     out
 }
 

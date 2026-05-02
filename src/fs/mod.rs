@@ -28,7 +28,7 @@ pub mod error;
 pub mod storage;
 #[cfg(feature = "sim")]
 pub mod storage_host;
-#[cfg(not(feature = "sim"))]
+#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
 pub mod worker;
 
 pub use error::FsError;
@@ -157,12 +157,15 @@ pub fn with_fs<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&Filesystem<FsStorage>) -> R,
 {
-    #[cfg(feature = "sim")]
-    {
-        cell::with(f)
-    }
-    #[cfg(not(feature = "sim"))]
+    #[cfg(all(not(feature = "sim"), feature = "family-rp"))]
     {
         Some(worker::submit(f))
+    }
+    // sim (host) and ESP-stub: run closure synchronously (single-threaded).
+    // Note: sim builds use board-testbench-rp2350 which activates family-rp,
+    // so we must gate on `sim` explicitly rather than `not(family-rp)`.
+    #[cfg(any(feature = "sim", feature = "family-esp"))]
+    {
+        cell::with(f)
     }
 }
