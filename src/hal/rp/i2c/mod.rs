@@ -173,7 +173,7 @@ macro_rules! i2c_isr_body {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C0_IRQ() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -184,7 +184,7 @@ extern "C" fn I2C0_IRQ() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C1_IRQ() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -222,7 +222,7 @@ macro_rules! apply_speed {
 }
 
 fn reconfigure(i2c_id: u8, speed_hz: u32) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -237,7 +237,7 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 
 /// Configure GPIO pins for I2C function and start the controller at 100 kHz.
 pub fn init(i2c_id: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -277,7 +277,7 @@ pub fn init(i2c_id: u8) {
             .write(|w| unsafe { w.funcsel().bits(3) }); // 3 = I2C
                                                         // Enable input, pull-up (open-drain bus), Schmitt trigger
         p.PADS_BANK0.gpio(pin).write(|w| {
-            #[cfg(feature = "chip-rp2350-hal")]
+            #[cfg(feature = "chip-rp2350")]
             let w = w.iso().clear_bit();
             w.ie()
                 .set_bit()
@@ -337,7 +337,7 @@ pub fn set_speed(i2c_id: u8, hz: u32) {
 
 /// Interrupt-driven write from a byte slice. Returns len on success, -1 on NACK/abort.
 pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -412,7 +412,7 @@ pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32 {
 
 /// Interrupt-driven read into a byte slice. Returns len on success, -1 on NACK/abort.
 pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -489,7 +489,7 @@ pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
 
 /// Interrupt-driven write. Returns len on success, -1 on NACK/abort.
 pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -568,7 +568,7 @@ pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &Array
 
 /// Interrupt-driven read. Returns len on success, -1 on NACK/abort.
 pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

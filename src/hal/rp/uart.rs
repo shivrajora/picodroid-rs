@@ -49,7 +49,7 @@ macro_rules! apply_config {
 }
 
 pub fn init(uart_id: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -92,7 +92,7 @@ pub fn init(uart_id: u8) {
         // On RP2350, .write() starts from RESET_VALUE which has ISO=1
         // (pad isolated); clear it or the pad is electrically dead.
         p.PADS_BANK0.gpio(pin).write(|w| {
-            #[cfg(feature = "chip-rp2350-hal")]
+            #[cfg(feature = "chip-rp2350")]
             let w = w.iso().clear_bit();
             w.ie().set_bit().od().clear_bit()
         });
@@ -110,7 +110,7 @@ pub fn reconfigure(
     stop_bits: i32,
     hw_flow: i32,
 ) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -123,7 +123,7 @@ pub fn reconfigure(
 
 /// Blocking write of a single byte.
 pub fn write_byte(uart_id: u8, byte: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -142,7 +142,7 @@ pub fn write_byte(uart_id: u8, byte: u8) {
 
 /// Non-blocking read of a single byte. Returns -1 if RX FIFO is empty.
 pub fn read_byte(uart_id: u8) -> i32 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

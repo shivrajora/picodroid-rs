@@ -4,7 +4,7 @@ use freertos_rust::{Duration, InterruptContext, Semaphore};
 // ── Output ───────────────────────────────────────────────────────────────────
 
 pub fn set_direction(pin: u8, direction: i32) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -18,7 +18,7 @@ pub fn set_direction(pin: u8, direction: i32) {
         .write(|w| unsafe { w.funcsel().bits(5) });
 
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         let w = w.iso().clear_bit();
         w.ie().clear_bit().od().clear_bit()
     });
@@ -39,7 +39,7 @@ pub fn set_direction(pin: u8, direction: i32) {
 }
 
 pub fn set_value(pin: u8, high: bool) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -65,7 +65,7 @@ pub enum Pull {
 }
 
 pub fn set_input(pin: u8, pull: Pull) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -79,7 +79,7 @@ pub fn set_input(pin: u8, pull: Pull) {
         .write(|w| unsafe { w.funcsel().bits(5) }); // SIO
 
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         let w = w.iso().clear_bit();
         let w = w.ie().set_bit().od().clear_bit();
         match pull {
@@ -96,7 +96,7 @@ pub fn set_input(pin: u8, pull: Pull) {
 }
 
 pub fn read(pin: u8) -> bool {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -114,7 +114,7 @@ pub enum EdgeTrigger {
 }
 
 pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -139,7 +139,7 @@ pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
 }
 
 pub fn disable_edge_irq(pin: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -155,7 +155,7 @@ pub fn disable_edge_irq(pin: u8) {
 }
 
 pub fn init_gpio_irq() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -182,7 +182,7 @@ pub fn init_gpio_irq() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn IO_IRQ_BANK0() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -190,7 +190,7 @@ extern "C" fn IO_IRQ_BANK0() {
 
     #[cfg(feature = "chip-rp2040")]
     const NUM_REGS: usize = 4;
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     const NUM_REGS: usize = 6;
 
     for reg_idx in 0..NUM_REGS {
@@ -282,7 +282,7 @@ pub fn wait_for_button_event() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 fn ensure_io_unreset(p: &rp235x_hal::pac::Peripherals) {
     p.RESETS
         .reset()

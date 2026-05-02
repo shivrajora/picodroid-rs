@@ -1,10 +1,16 @@
 //! CYW43 WiFi driver + FreeRTOS+TCP compilation (WiFi-only boards).
+//!
+//! The functions here are family-parametric: `mcu_family` selects the
+//! `src/hal/<family>/port` directory holding C glue and config headers.
+//! FreeRTOS+TCP itself is currently RP-only; if a future family wants
+//! networking it'll likely use a different IP stack (esp-idf/lwIP, …) and
+//! should add a parallel module rather than extending this one.
 
 use crate::config::collect_files;
 use std::path::Path;
 
 /// Compile the CYW43 WiFi driver (C sources from vendor/cyw43-driver).
-pub fn build_cyw43_driver(freertos_config_dir: &str) {
+pub fn build_cyw43_driver(mcu_family: &str, freertos_config_dir: &str) {
     let cyw43_src = Path::new("vendor/cyw43-driver/src");
     if !cyw43_src.exists() {
         println!(
@@ -14,23 +20,31 @@ pub fn build_cyw43_driver(freertos_config_dir: &str) {
         return;
     }
 
+    let port_dir = format!("src/hal/{mcu_family}/port");
+
     let mut build = cc::Build::new();
     build
         .include("vendor/cyw43-driver/src")
         .include("vendor/cyw43-driver")
-        .include("src/hal/rp/port")
+        .include(&port_dir)
         .include("third_party/FreeRTOS-Kernel/include")
         .include(freertos_config_dir)
-        .include(
-            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
-             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
-        )
         .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
         .define("CYW43_USE_SPI", "1")
         .define("CYW43_LWIP", "0")
         .define("NDEBUG", None)
         .warnings(false)
         .extra_warnings(false);
+
+    // TODO(esp): family-specific FreeRTOS port include. Today only RP2350W
+    // ships networking (CYW43+FreeRTOS+TCP). Future families using a
+    // different IP stack should not consume this path.
+    if mcu_family == "rp" {
+        build.include(
+            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
+             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
+        );
+    }
 
     let driver_sources = [
         "vendor/cyw43-driver/src/cyw43_ctrl.c",
@@ -44,19 +58,19 @@ pub fn build_cyw43_driver(freertos_config_dir: &str) {
         }
     }
 
-    build.file("src/hal/rp/port/net/cyw43_bus_spi.c");
-    build.file("src/hal/rp/port/net/cyw43_port.c");
-    build.file("src/hal/rp/port/net/libc_str.c");
+    build.file(format!("{port_dir}/net/cyw43_bus_spi.c"));
+    build.file(format!("{port_dir}/net/cyw43_port.c"));
+    build.file(format!("{port_dir}/net/libc_str.c"));
 
     build.compile("cyw43");
 
     println!("cargo:rerun-if-changed=vendor/cyw43-driver/src");
-    println!("cargo:rerun-if-changed=src/hal/rp/port/net");
-    println!("cargo:rerun-if-changed=src/hal/rp/port/cyw43_configport.h");
+    println!("cargo:rerun-if-changed={port_dir}/net");
+    println!("cargo:rerun-if-changed={port_dir}/cyw43_configport.h");
 }
 
 /// Compile FreeRTOS+TCP (C sources from vendor/freertos-plus-tcp).
-pub fn build_freertos_tcp(freertos_config_dir: &str) {
+pub fn build_freertos_tcp(mcu_family: &str, freertos_config_dir: &str) {
     let tcp_src = Path::new("vendor/freertos-plus-tcp/source");
     if !tcp_src.exists() {
         println!(
@@ -65,6 +79,8 @@ pub fn build_freertos_tcp(freertos_config_dir: &str) {
         );
         return;
     }
+
+    let port_dir = format!("src/hal/{mcu_family}/port");
 
     let all_c_files = collect_files(tcp_src, "c");
     let c_files: Vec<_> = all_c_files
@@ -87,11 +103,7 @@ pub fn build_freertos_tcp(freertos_config_dir: &str) {
         .include("vendor/freertos-plus-tcp/source/portable/Compiler/GCC")
         .include("third_party/FreeRTOS-Kernel/include")
         .include(freertos_config_dir)
-        .include(
-            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
-             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
-        )
-        .include("src/hal/rp/port")
+        .include(&port_dir)
         .include("vendor/cyw43-driver/src")
         .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
         .define("CYW43_USE_SPI", "1")
@@ -99,17 +111,25 @@ pub fn build_freertos_tcp(freertos_config_dir: &str) {
         .warnings(false)
         .extra_warnings(false);
 
+    // TODO(esp): see comment in build_cyw43_driver.
+    if mcu_family == "rp" {
+        build.include(
+            "third_party/FreeRTOS-Kernel/portable/ThirdParty/\
+             Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure",
+        );
+    }
+
     for f in &c_files {
         build.file(f);
     }
 
-    build.file("src/hal/rp/port/net/NetworkInterface_CYW43.c");
-    build.file("src/hal/rp/port/net/net_init.c");
+    build.file(format!("{port_dir}/net/NetworkInterface_CYW43.c"));
+    build.file(format!("{port_dir}/net/net_init.c"));
 
     build.compile("freertos_tcp");
 
     println!("cargo:rerun-if-changed=vendor/freertos-plus-tcp/source");
-    println!("cargo:rerun-if-changed=src/hal/rp/port/FreeRTOSIPConfig.h");
-    println!("cargo:rerun-if-changed=src/hal/rp/port/net/NetworkInterface_CYW43.c");
-    println!("cargo:rerun-if-changed=src/hal/rp/port/net/net_init.c");
+    println!("cargo:rerun-if-changed={port_dir}/FreeRTOSIPConfig.h");
+    println!("cargo:rerun-if-changed={port_dir}/net/NetworkInterface_CYW43.c");
+    println!("cargo:rerun-if-changed={port_dir}/net/net_init.c");
 }

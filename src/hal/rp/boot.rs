@@ -1,7 +1,7 @@
 #[cfg(feature = "chip-rp2040")]
 use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 use rp235x_hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 use freertos_rust::*;
@@ -15,7 +15,7 @@ use crate::task_priority;
 /// 0x10000000).  Each block is 20 bytes (5 words); the offset field is a
 /// signed byte offset from this block's start marker to the next block's
 /// start marker.
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: [u32; 10] = [
@@ -52,7 +52,7 @@ pub fn clock_init() {
     .unwrap();
 }
 
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 pub fn clock_init() {
     // RP2350: 12 MHz crystal → 150 MHz system clock
     let mut pac = pac::Peripherals::take().unwrap();
@@ -120,9 +120,9 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // RP2350 (Cortex-M33, FPU) needs a larger stack than RP2040 (Cortex-M0+)
     // because each interrupt pushes an extended exception frame (~100 bytes)
     // when the FPU has been used (configENABLE_FPU=1).
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     let jvm_stack: u16 = 8192;
-    #[cfg(not(feature = "chip-rp2350-hal"))]
+    #[cfg(not(feature = "chip-rp2350"))]
     let jvm_stack: u16 = 4096;
 
     Task::new()

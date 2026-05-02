@@ -13,7 +13,7 @@ impl RpDelay {
 
 // Cycles per nanosecond at 150 MHz ≈ 0.15, so ns / 7 ≈ cycles.
 // At 125 MHz (RP2040) this is slightly conservative (slower delays), which is safe.
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 const NS_PER_CYCLE: u32 = 7; // 150 MHz: ~6.67 ns/cycle, rounded to 7
 #[cfg(feature = "chip-rp2040")]
 const NS_PER_CYCLE: u32 = 8; // 125 MHz: 8 ns/cycle

@@ -23,7 +23,7 @@ mod inner {
     static mut TOUCH: Option<Touch> = None;
 
     fn configure_touch_miso() {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::pac;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
@@ -36,7 +36,7 @@ mod inner {
         p.PADS_BANK0
             .gpio(generated::TOUCH_PIN_MISO as usize)
             .write(|w| {
-                #[cfg(feature = "chip-rp2350-hal")]
+                #[cfg(feature = "chip-rp2350")]
                 let w = w.iso().clear_bit();
                 w.ie().set_bit().od().clear_bit()
             });

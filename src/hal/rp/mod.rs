@@ -1,7 +1,7 @@
 //! RP-family HAL (RP2040 + RP2350).
 //!
 //! Chip-level differences (clock speed, RP2350 ISO bit) are handled via
-//! `#[cfg(feature = "chip-rp2040")]` / `#[cfg(feature = "chip-rp2350-hal")]`
+//! `#[cfg(feature = "chip-rp2040")]` / `#[cfg(feature = "chip-rp2350")]`
 //! within each module.
 
 pub mod adc;

@@ -36,6 +36,18 @@ pub struct BoardConfig {
 const KNOWN_SENSOR_KINDS: &[&str] = &["bme688", "ltr559"];
 const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC"];
 
+/// Split a semicolon- or comma-separated TOML scalar into trimmed entries.
+/// Empty entries are skipped. Used by MCU TOML keys that pack multiple
+/// values (e.g. `freertos_c_defines = "A=1;B=0"`) without requiring a real
+/// TOML array parser.
+pub fn parse_str_list(val: &str) -> Vec<String> {
+    val.split([';', ','])
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 fn strip_quotes(val: &str) -> String {
     if (val.starts_with('"') && val.ends_with('"'))
         || (val.starts_with('\'') && val.ends_with('\''))
@@ -250,39 +262,41 @@ pub fn parse_toml(path: &str) -> HashMap<String, String> {
     map
 }
 
-/// Resolve the active board name from Cargo feature flags.
-/// Scans CARGO_FEATURE_BOARD_* env vars set by Cargo.
+/// Resolve the active board name by scanning `CARGO_FEATURE_BOARD_*` env
+/// vars and mapping each match to a `boards/<name>/` directory (Cargo
+/// uppercases feature names and replaces `-` with `_`, so the env-var suffix
+/// already matches our snake_case board directory names after lowercasing).
+/// Panics if more than one board feature is active.
 pub fn resolve_active_board() -> Option<String> {
-    const BOARDS: &[&str] = &[
-        "testbench_rp2040",
-        "testbench_rp2350",
-        "testbench_rp2350w",
-        "pico_enviro_mon",
-    ];
-    for board in BOARDS {
-        let feature = format!("CARGO_FEATURE_BOARD_{}", board.to_uppercase());
-        if env::var(&feature).is_ok() {
-            return Some(board.to_string());
+    let mut found: Option<String> = None;
+    for (key, _) in env::vars() {
+        let Some(suffix) = key.strip_prefix("CARGO_FEATURE_BOARD_") else {
+            continue;
+        };
+        let candidate = suffix.to_lowercase();
+        if !Path::new(&format!("boards/{candidate}")).is_dir() {
+            continue;
         }
+        if let Some(prev) = &found {
+            panic!(
+                "Multiple board features active: {} and {}. Pick exactly one with \
+                 `--features board-<name>` (see docs/cargo-aliases.md).",
+                prev, candidate
+            );
+        }
+        found = Some(candidate);
     }
-    None
+    found
 }
 
-/// Resolve the active MCU name from Cargo feature flags.
-/// Falls back to the board.toml `mcu` field if no chip feature is active.
+/// Resolve the active MCU name from the board.toml's `mcu` field. Every
+/// `boards/*/board.toml` is required to declare this; chip-level Cargo
+/// features (`chip-rp2040`, `chip-rp2350`, …) exist only to gate dep crates.
 pub fn resolve_active_mcu(board_cfg: &HashMap<String, String>) -> String {
-    if env::var("CARGO_FEATURE_CHIP_RP2040").is_ok() {
-        return "rp2040".to_string();
-    }
-    if env::var("CARGO_FEATURE_CHIP_RP2350").is_ok()
-        || env::var("CARGO_FEATURE_CHIP_RP2350_HAL").is_ok()
-    {
-        return "rp2350".to_string();
-    }
     board_cfg
         .get("mcu")
         .cloned()
-        .expect("Cannot determine MCU: no chip feature active and board.toml has no 'mcu' key")
+        .expect("board.toml must declare 'mcu = \"<name>\"' (e.g. mcu = \"rp2350\")")
 }
 
 /// Find the MCU .toml file by searching mcus/<family>/<name>.toml.

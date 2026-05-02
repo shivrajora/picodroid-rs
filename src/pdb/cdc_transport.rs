@@ -43,9 +43,9 @@ impl InstallTransport for CdcTransport {
         // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
         // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
         // timer instead of tick-based timeouts.
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         return crate::hal::pdb_usb::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
-        #[cfg(not(feature = "chip-rp2350-hal"))]
+        #[cfg(not(feature = "chip-rp2350"))]
         crate::hal::pdb_usb::queue_read_byte_timeout().ok_or(ReadError::Timeout)
     }
 

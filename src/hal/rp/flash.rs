@@ -7,9 +7,9 @@ pub const PAPK_FLASH_XIP_BASE: usize = 0x1010_0000;
 pub const PAPK_FLASH_META_OFFSET: u32 = 0x0010_0000; // for ROM erase/program calls
 
 // RP2350 flash-relative offsets (4 MB flash, last 1 MB)
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 pub const PAPK_FLASH_XIP_BASE: usize = 0x1030_0000;
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 pub const PAPK_FLASH_META_OFFSET: u32 = 0x0030_0000;
 
 pub const PAPK_BOOT_META_SIZE: usize = 4096; // one 4 KB erase sector
@@ -120,7 +120,7 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
 /// would jump into .text (flash), causing a hard-fault once XIP is disabled.
 macro_rules! with_xip_disabled {
     ($op_fn:ident, |$op:ident| $body:expr) => {{
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::rom_data;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::rom_data;
@@ -282,7 +282,7 @@ pub unsafe fn park_for_flash() {
 
 /// Trigger a full chip reset via the RP2040/RP2350 watchdog.
 pub fn flash_trigger_reset() -> ! {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

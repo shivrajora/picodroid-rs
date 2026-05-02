@@ -4,7 +4,7 @@ const ADC_MAX: f64 = 4095.0; // 12-bit ADC
 
 /// Configure a GPIO pin (26–29) for ADC analog input and enable the ADC peripheral.
 pub fn init(pin: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -33,7 +33,7 @@ pub fn init(pin: u8) {
     // Disable all pad features for analog: no input enable, no output disable override,
     // no pull-up, no pull-down, no schmitt trigger (all cleared by write())
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         let w = w.iso().clear_bit();
         w.ie().clear_bit().od().clear_bit()
     });
@@ -41,7 +41,7 @@ pub fn init(pin: u8) {
 
 /// Perform a single ADC conversion on the given GPIO pin (26–29) and return voltage in volts.
 pub fn read(pin: u8) -> f64 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

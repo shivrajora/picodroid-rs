@@ -51,6 +51,11 @@ fn main() {
         board_background_pool = bc.background_pool.clone();
     }
 
+    // Emit OUT_DIR/board_imports.rs so src/boards/mod.rs can include the
+    // active board's mod.rs (or no-op when no board is active).
+    let active_board_name = config::resolve_active_board();
+    boards::emit_board_imports(out, active_board_name.as_deref());
+
     if is_arm_embedded {
         let board = board_cfg_full
             .as_ref()
@@ -72,8 +77,8 @@ fn main() {
         freertos::build(out, &mcu, &mcu_toml_path, &mcu_family, &freertos_config_dir);
 
         if board.props.get("network_type").map(String::as_str) == Some("cyw43") {
-            network::build_cyw43_driver(&freertos_config_dir);
-            network::build_freertos_tcp(&freertos_config_dir);
+            network::build_cyw43_driver(&mcu_family, &freertos_config_dir);
+            network::build_freertos_tcp(&mcu_family, &freertos_config_dir);
         }
     }
 

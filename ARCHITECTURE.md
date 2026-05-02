@@ -53,3 +53,51 @@ Treat `src/` as a **reference implementation** of how to embed `pico-jvm` on Cor
 | Adding a new framework class with native methods MUST add its FQN to [`PICODROID_NATIVE_CLASSES`](src/system/native_handler/mod.rs). | Same canonicalisation hazard, on the host side. |
 | `src/system/picodroid/` is the framework's Java-side surface — not a generic library. | Reusing it means you accept the picodroid widget/net/sensor vocabulary. If you want only the JVM, depend on `pico-jvm` directly. |
 | `src/hal/` MUST NOT import from `src/system/` or `src/app/`. | HAL is a leaf. Verify with `rg "use crate::(system|app)" src/hal/` (must be empty). |
+
+## Multi-family seams
+
+Picodroid is currently RP2040/RP2350-only, but the codebase is structured so that adding a second chip family (e.g. ESP32-S3) is additive rather than touching dozens of files. The seams below are the contract for future ports.
+
+### Family routing
+
+[src/hal/mod.rs](src/hal/mod.rs) dispatches a single `mod chip;` to the active family via `cfg(feature = "family-<name>")`. Sim/test always routes to `src/hal/sim/`. Add a new family by creating `src/hal/<name>/` exposing the symbols listed in **HAL CONTRACT v1** (see the doc-block at the top of [src/hal/mod.rs](src/hal/mod.rs)) and adding the `family-<name>` feature to [Cargo.toml](Cargo.toml).
+
+### HAL CONTRACT v1
+
+The required public symbols and signatures are documented in [src/hal/mod.rs](src/hal/mod.rs); they are enforced at compile time by [src/hal/contract.rs](src/hal/contract.rs). Drift in any signature breaks `cargo clippy` (rp2040, rp2350) and `cargo test --no-run` (sim). Symbols are tiered:
+
+- **Always required** (sim + every hardware family): `adc`, `display`, `gpio`, `i2c`, `pwm`, `spi`, `system_clock`, `touch`, `uart`.
+- **Hardware-only** (gated by `not(any(test, feature = "sim"))`): `boot::clock_init`, `boot::start_tasks`, `flash::read_flash_papk`, `pdb_usb::*`.
+- **Network-only** (gated by `cfg(has_network)`): `net::*`.
+
+Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-only) are not part of the cross-family contract — they're conditionally compiled at the family-internal level.
+
+### MCU TOML schema
+
+[mcus/&lt;family&gt;/&lt;mcu&gt;.toml](mcus/) drives the build. [build_support/freertos.rs](build_support/freertos.rs) consumes:
+
+- `freertos_port` — kernel port path
+- `pico_shim` — extra C source compiled with the kernel
+- `freertos_port_extra_includes` — semicolon-separated C include paths
+- `freertos_c_defines` — semicolon-separated `KEY=VALUE` defines
+- `freertos_vector_aliases` — semicolon-separated `CMSIS=portasm` linker aliases
+- `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
+
+[build_support/network.rs](build_support/network.rs) takes `mcu_family` and reads `src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP; a future family using esp-idf/lwIP should add a parallel network module rather than extending this one.
+
+### Naming convention
+
+- `family-<name>` (Cargo feature) — e.g. `family-rp`. Activated transitively by chip features.
+- `chip-<mcu_name>` (Cargo feature) — e.g. `chip-rp2040`, `chip-rp2350`. Mechanical 1:1 with `mcus/<family>/<mcu_name>.toml`.
+- `board-<board_name>` (Cargo feature) — e.g. `board-testbench-rp2040`. Mechanical 1:1 with `boards/<board_name>/`.
+
+Boards declare their MCU via `mcu = "..."` in `board.toml`; [build_support/config.rs](build_support/config.rs)::`resolve_active_mcu` reads it directly. Chip features only exist to gate dep crates.
+
+### RP-specific concerns deferred to future ESP-add work
+
+The following are deeply RP-specific and live entirely under [src/hal/rp/](src/hal/rp/). When a second hardware family is added, equivalent mechanisms (or replacements) will be derived for that family — the refactor's job was just to keep them isolated, not to abstract them.
+
+- **SMP / cross-core FIFO / Amazon-SMP affinity APIs** — [src/hal/rp/boot.rs](src/hal/rp/boot.rs) uses `xTaskCreateAffinitySet` (V11 SMP). ESP-IDF FreeRTOS uses `xTaskCreatePinnedToCore` and stack sizes in bytes (not words).
+- **Park-for-flash dance** — [src/hal/rp/flash.rs](src/hal/rp/flash.rs) parks core 0 with interrupts disabled while core 1 erases flash. ESP32-S3 has cache-suspension APIs (`esp_flash_suspend_cache`) that obviate this pattern.
+- **RP2350 cross-core timer alarm** — [src/hal/rp/timer_alarm.rs](src/hal/rp/timer_alarm.rs) compensates for the RP2350 tick freezing during park-for-flash. Different chip, different mechanism.
+- **`mcus/rp/FreeRTOSConfig.h` ARM macros** — keyed off `__ARM_ARCH_8M_MAIN__`. A future `mcus/esp/FreeRTOSConfig.h` will need its own Xtensa-aware variant.

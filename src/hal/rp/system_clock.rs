@@ -17,7 +17,7 @@ pub fn elapsed_realtime_nanos() -> i64 {
         let us = ((hi as u64) << 32) | (lo as u64);
         (us * 1000) as i64
     }
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     {
         use rp235x_hal::pac;
         // SAFETY: read-only register access, no side effects.

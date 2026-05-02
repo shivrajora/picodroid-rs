@@ -398,7 +398,7 @@ pub fn init() {
 
     // Release USBCTRL from reset.
     {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::pac;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
@@ -429,7 +429,7 @@ pub fn init() {
 
     // NVIC: set priority and unmask
     {
-        #[cfg(feature = "chip-rp2350-hal")]
+        #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::pac;
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
@@ -496,7 +496,7 @@ pub fn queue_read_byte_timeout() -> Option<u8> {
 
 /// Read one byte using busy-wait with hardware timer timeout.
 /// Works when the FreeRTOS tick is frozen (RP2350, core 0 parked).
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
     const TIMERAWL: usize = 0x400B_0000 + 0x28;
     let timer = || unsafe { read_volatile(TIMERAWL as *const u32) };

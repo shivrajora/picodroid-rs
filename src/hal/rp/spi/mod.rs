@@ -108,7 +108,7 @@ macro_rules! spi_isr_body {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn SPI0_IRQ() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -119,7 +119,7 @@ extern "C" fn SPI0_IRQ() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn SPI1_IRQ() {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -154,7 +154,7 @@ macro_rules! apply_config {
 }
 
 fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -233,7 +233,7 @@ macro_rules! finish_isr_xfer {
 
 /// Configure GPIO pins for SPI function and start the controller at 1 MHz, MODE_0.
 pub fn init(spi_id: u8) {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -272,7 +272,7 @@ pub fn init(spi_id: u8) {
             .gpio_ctrl()
             .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
         p.PADS_BANK0.gpio(pin).write(|w| {
-            #[cfg(feature = "chip-rp2350-hal")]
+            #[cfg(feature = "chip-rp2350")]
             let w = w.iso().clear_bit();
             w.ie().set_bit().od().clear_bit()
         });
@@ -332,7 +332,7 @@ pub fn write_raw(spi_id: u8, data: &[u8]) {
         return;
     }
 
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -372,7 +372,7 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
         return;
     }
 
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -418,7 +418,7 @@ pub fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut A
         return 0;
     }
 
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
@@ -484,7 +484,7 @@ pub fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
         return 0;
     }
 
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;

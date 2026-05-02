@@ -9,7 +9,7 @@
 
 use freertos_rust::InterruptContext;
 
-#[cfg(feature = "chip-rp2350-hal")]
+#[cfg(feature = "chip-rp2350")]
 use rp235x_hal::pac;
 #[cfg(feature = "chip-rp2040")]
 use rp_pico::hal::pac;
@@ -104,7 +104,7 @@ fn configure_rx_channel(dma: &pac::DMA, ch: usize, dreq: u8) {
 
 /// Return the DREQ number for SPI TX on the given SPI peripheral.
 fn spi_dreq_tx(spi_id: u8) -> u8 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     {
         if spi_id == 0 {
             24
@@ -124,7 +124,7 @@ fn spi_dreq_tx(spi_id: u8) -> u8 {
 
 /// Return the DREQ number for SPI RX on the given SPI peripheral.
 fn spi_dreq_rx(spi_id: u8) -> u8 {
-    #[cfg(feature = "chip-rp2350-hal")]
+    #[cfg(feature = "chip-rp2350")]
     {
         if spi_id == 0 {
             25
