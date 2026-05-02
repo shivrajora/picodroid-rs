@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Picodroid PAPK ↔ firmware compatibility check.
 //!
 //! The same rule runs in two places:

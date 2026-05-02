@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! CYW43439 WiFi driver — Rust FFI wrapper around the C driver.
 //!
 //! The bulk of the driver is compiled from C (vendor/cyw43-driver) via build.rs.

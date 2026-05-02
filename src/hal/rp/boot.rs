@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #[cfg(feature = "chip-rp2040")]
 use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 

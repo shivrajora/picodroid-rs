@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.view.ViewPropertyAnimator`.
 //!
 //! Both natives are *static* (the Java side passes the View's

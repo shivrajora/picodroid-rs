@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.data;
 
 import picodroid.content.Preferences;

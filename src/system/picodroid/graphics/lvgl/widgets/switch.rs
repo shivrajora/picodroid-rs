@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `Switch` (LVGL `lv_switch`).
 
 use crate::lvgl_ffi::*;

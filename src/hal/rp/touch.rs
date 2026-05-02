@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Touch facade — delegates to the generic XPT2046 driver via board config.
 //!
 //! On boards without a `[touch]` section in board.toml (`has_touch` cfg absent),

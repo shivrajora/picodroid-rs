@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `ScrollView` (`lv_obj` — scrolls when content exceeds bounds).
 
 use crate::lvgl_ffi::*;

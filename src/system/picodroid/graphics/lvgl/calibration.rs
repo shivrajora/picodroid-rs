@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! 4-point interactive touch calibration.
 //!
 //! Displays a "+" target at each screen corner and waits for a debounced touch.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use core::sync::atomic::{AtomicU32, Ordering};
 
 static GPIO_OE: AtomicU32 = AtomicU32::new(0);

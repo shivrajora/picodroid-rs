@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `GraphicsBackend` trait — abstracts the Java-facing graphics surface.
 //!
 //! One method per widget class (matching the Android-style API split), each

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Build-script orchestrator. Submodules under `build_support/` own each
 //! concern (config discovery, FreeRTOS compile, LVGL compile, networking,
 //! PAPK/APK embedding). This file wires them together.

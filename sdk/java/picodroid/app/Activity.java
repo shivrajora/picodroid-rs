@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
 import picodroid.content.Context;

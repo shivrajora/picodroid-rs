@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Chip clock constants — single source of truth for the RP family.
 
 #[cfg(feature = "chip-rp2040")]

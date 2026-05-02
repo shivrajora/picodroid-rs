@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! papk-pack: Packages compiled Java .class files into a PAPK (Picodroid APK) binary file.
 //!
 //! Usage:

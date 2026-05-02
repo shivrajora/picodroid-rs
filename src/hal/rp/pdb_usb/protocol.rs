@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pure USB CDC descriptors and byte-assembly helpers.
 //!
 //! No `rp-pico`/`rp235x-hal`/FreeRTOS deps — host-compilable and unit-testable.

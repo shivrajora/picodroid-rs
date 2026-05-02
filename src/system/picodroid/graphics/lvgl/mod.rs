@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL backend — the only [`Gfx`] impl today.
 //!
 //! All `crate::lvgl_ffi::*` imports live under this module after the

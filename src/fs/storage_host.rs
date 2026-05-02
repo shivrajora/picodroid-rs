@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Host-file-backed LittleFS storage for the simulator.
 //!
 //! Mirrors the on-device block layout ([`BLOCK_SIZE`], [`PROG_SIZE`],

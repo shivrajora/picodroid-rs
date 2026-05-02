@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 mod devices;
 mod install;
 mod papk_meta;

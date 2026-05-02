@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! class-shrink: Java class/method name shrinker for picodroid.
 //!
 //! Maps are **release-versioned** and **append-only**: each picodroid release

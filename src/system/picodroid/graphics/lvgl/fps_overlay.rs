@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FPS overlay — displays a moving-average frame rate counter on screen.
 //!
 //! Enabled via `Display.showFps()` from Java.  The LVGL label is created

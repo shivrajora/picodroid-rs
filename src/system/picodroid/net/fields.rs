@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Field slot indices for picodroid.net Java classes.
 //!
 //! Each constant maps to the declaration order of the corresponding

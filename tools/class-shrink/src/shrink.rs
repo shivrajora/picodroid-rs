@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Top-level driver: apply a [`ShrinkMap`] to a directory of `.class` files.
 //!
 //! v1 rewrites only class names (and class-name substrings inside

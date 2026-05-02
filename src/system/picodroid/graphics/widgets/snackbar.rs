@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.widget.Snackbar`.
 //!
 //! Snackbar is *not* a `View` subclass (no `nativeHandle` field on a View

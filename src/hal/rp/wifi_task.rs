@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! CYW43 WiFi task — initialises the CYW43 driver, starts the FreeRTOS+TCP
 //! IP stack, joins a WiFi network, and enters the driver poll loop.
 //!

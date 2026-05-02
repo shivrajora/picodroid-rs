@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Tiny PAPK metadata reader for `pdb install`'s pre-flight compat check.
 //!
 //! Mirrors the PAPK format documented in `jvm/src/apk.rs` but only parses

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Deterministic short-name allocator for class names.
 //!
 //! Given a set of classes to shrink (stable, sorted), allocate short internal

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 pub fn sleep(ms: u32) {
     if crate::pdb::pending::is_stop_jvm() {
         return;

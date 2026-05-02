@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Hardware Abstraction Layer — centralises all chip-specific code.
 //!
 //! A single `#[cfg]` dispatch selects the chip family module.  Each family

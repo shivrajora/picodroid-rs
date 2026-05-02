@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `SeekBar` (LVGL `lv_slider`).
 
 use crate::lvgl_ffi::*;

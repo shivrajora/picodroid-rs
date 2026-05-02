@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! picodroid.net — Java networking API native implementations.
 
 pub mod datagram_socket;

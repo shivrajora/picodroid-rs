@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LTR-559ALS-01 ambient-light + proximity sensor driver.
 //!
 //! Generic over `I2cBus` so the same code works against the RP2040/RP2350 HAL

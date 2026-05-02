@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Unified FIFO queue driving the UI thread.
 //!
 //! One bounded FIFO holds three kinds of items: LVGL tick tokens

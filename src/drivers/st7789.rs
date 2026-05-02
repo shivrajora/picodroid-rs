@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Chip-agnostic ST7789 TFT display driver.
 //!
 //! Generic over `embedded-hal` traits — any MCU that provides

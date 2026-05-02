@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `DatePicker` (LVGL `lv_calendar`).
 //!
 //! Tapping a day cell fires `LV_EVENT_VALUE_CHANGED` on the calendar. The

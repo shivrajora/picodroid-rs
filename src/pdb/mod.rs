@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #[cfg(not(any(test, feature = "sim")))]
 mod cdc_transport;
 #[cfg(not(any(test, feature = "sim")))]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native dispatch for `picodroid.concurrent.Executors` and the built-in
 //! `MainExecutor` / `BackgroundExecutor` instances.
 

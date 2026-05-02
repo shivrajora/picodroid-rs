@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package inherit;
 
 public class Dog extends Animal {

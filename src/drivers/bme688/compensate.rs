@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Bosch BME688 integer compensation formulas.
 //!
 //! Ported from the Bosch Sensortec BME68x Sensor API (BSD-3-Clause).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL-specific widget impls.
 //!
 //! Each module mirrors the corresponding `widgets/<name>.rs` Java-binding

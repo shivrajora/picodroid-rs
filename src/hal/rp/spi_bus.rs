@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `embedded-hal` SpiBus wrapper around the RP SPI free functions.
 //!
 //! Multiple `RpSpiBus` handles with the same `spi_id` are safe to create:

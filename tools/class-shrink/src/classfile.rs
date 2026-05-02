@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Minimal JVM class file parser/serializer.
 //!
 //! Only the constant pool is decoded — every other section (access flags,

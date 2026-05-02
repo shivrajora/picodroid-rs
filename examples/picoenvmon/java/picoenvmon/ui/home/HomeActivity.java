@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.home;
 
 import picodroid.app.Activity;

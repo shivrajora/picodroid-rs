@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native implementations for picodroid.net.InetAddress.
 
 use pico_jvm::heap::StringTable;

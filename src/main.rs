@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #![cfg_attr(not(any(test, feature = "sim")), no_std)]
 #![cfg_attr(not(any(test, feature = "sim")), no_main)]
 

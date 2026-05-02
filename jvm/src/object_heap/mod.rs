@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 pub(crate) mod iter_store;
 mod lambda;
 mod list_store;

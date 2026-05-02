@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /// JVM string table.
 ///
 /// Static strings (UTF-8 literals baked into .class files in Flash) are stored

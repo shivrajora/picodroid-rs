@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator `embedded-hal` SpiBus — delegates to the existing sim SPI stubs.
 
 use core::convert::Infallible;

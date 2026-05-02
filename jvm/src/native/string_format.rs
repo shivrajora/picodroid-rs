@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `java.lang.String.format(String, Object[])` — Java-subset printf formatter.
 //!
 //! Supports conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with flags

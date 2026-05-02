@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! BME688 calibration data unpacked from NVM registers.
 
 #[derive(Debug, Clone)]

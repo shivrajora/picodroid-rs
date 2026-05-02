@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package bytecodecoverage;
 
 import picodroid.app.Application;

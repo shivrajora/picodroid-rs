@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Cross-widget view operations on `LvglGfx`.
 //!
 //! Every widget hits this surface (set_pos, set_size, set_bg_color, …)

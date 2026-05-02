@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use pico_jvm::{
     heap::StringTable,
     types::{JvmError, Value},

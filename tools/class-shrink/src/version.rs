@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Map-version resolution.
 //!
 //! The **active map version** is the highest committed map file in

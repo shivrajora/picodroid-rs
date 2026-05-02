@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::{
     object_heap::ObjectHeap,
     types::{JvmError, Value},

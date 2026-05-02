@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /// Errors that can occur during a transport read operation.
 pub enum ReadError {
     /// The transport timed out waiting for data.

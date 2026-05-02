@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `FrameLayout` (plain `lv_obj` — children stack via absolute pos).
 
 use crate::lvgl_ffi::*;

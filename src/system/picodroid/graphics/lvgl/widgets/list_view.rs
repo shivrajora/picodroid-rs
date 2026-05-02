@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `ListView` (LVGL `lv_list`).
 
 use crate::lvgl_ffi::*;

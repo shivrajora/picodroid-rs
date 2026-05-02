@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Bundled-image-asset registry.
 //!
 //! At app load (after the JVM has finished class loading) [`init_from_papk`]

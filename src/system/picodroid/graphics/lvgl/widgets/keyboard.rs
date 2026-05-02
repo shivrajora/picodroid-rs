@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `picodroid.widget.Keyboard` plus the auto-show "system
 //! keyboard" singleton tapping into `EditText`.
 //!

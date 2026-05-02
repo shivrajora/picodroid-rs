@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator `embedded-hal` InputPin — always reads as not pressed.
 
 use core::convert::Infallible;

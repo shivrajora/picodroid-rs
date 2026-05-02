@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Hand-written FFI bindings for LVGL v9.5.0.
 //!
 //! Only the subset of functions needed by picodroid is declared here.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FreeRTOS fs-worker task: serialises all runtime access to the mounted
 //! LittleFS filesystem onto a single core-0-pinned task.
 //!

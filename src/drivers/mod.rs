@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Chip-agnostic device drivers, generic over `embedded-hal` traits.
 
 pub mod st7789;

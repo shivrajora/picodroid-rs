@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `EditText` (LVGL `lv_textarea`).
 //!
 //! Auto-show keyboard wiring lives here too: every textarea created

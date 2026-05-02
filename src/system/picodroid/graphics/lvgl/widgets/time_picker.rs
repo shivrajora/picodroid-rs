@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `TimePicker` — three side-by-side `lv_roller`s (hour +
 //! minute + AM/PM) parented to a flex-row container.
 //!

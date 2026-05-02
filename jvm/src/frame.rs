@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::types::{JvmError, Value};
 use alloc::vec::Vec;
 

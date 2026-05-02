@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native bridge for `Context.{start,stop,bind,unbind}Service`,
 //! `Service.{stopSelf,startForeground,stopForeground}`, and
 //! `NotificationManager.{notify,cancel}`.

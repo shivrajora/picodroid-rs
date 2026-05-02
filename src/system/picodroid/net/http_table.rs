@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! HTTP connection handle ↔ Java `handle` (i32) conversion.
 //!
 //! Same dual-mode pattern as [`socket_table`](super::socket_table): on 32-bit

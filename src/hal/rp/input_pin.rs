@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `embedded-hal` InputPin wrapper with RP PAC register setup.
 //!
 //! Handles input-enable, pull-up, function select, and RP2350 ISO bit —

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LittleFS block-device backend for the on-chip NOR flash region carved
 //! out in the linker script (`FS_FLASH`).
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `ToggleButton` (LVGL `lv_button` w/ `LV_OBJ_FLAG_CHECKABLE`
 //! and a child label whose text swaps on state change).
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! SensorManager native method implementations.
 //!
 //! Manages sensor registrations and event delivery. For sim builds, sensors are

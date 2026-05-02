@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! View property animations.
 //!
 //! A small static slot table polled from [`LvglGfx::tick(ms)`] every frame.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // goto_w forward: iconst_3 ; goto_w +6 ; iconst_2 ; ireturn

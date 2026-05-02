@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FreeRTOS kernel compilation + linker glue (vectors, init_array).
 //!
 //! All family-specific knobs live in `mcus/<family>/<mcu>.toml`. This module

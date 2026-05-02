@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! On-chip filesystem (LittleFS) living in the `FS_FLASH` linker region.
 //!
 //! Boot flow: [`init`] is called once, before the FreeRTOS scheduler starts,

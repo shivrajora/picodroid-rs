@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::class_objects::ClassObjectCache;
 use crate::gc::GcState;

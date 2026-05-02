@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Hardware timer alarm for core 1 park-detection on RP2350.
 //!
 //! On RP2350 with configTICK_CORE=0, the FreeRTOS tick freezes when core 0

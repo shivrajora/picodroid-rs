@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Java executors: main-thread FIFO + background thread pool.
 //!
 //! `main_queue` owns the unified FIFO that interleaves LVGL ticks with

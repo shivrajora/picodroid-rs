@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // ── Flash constants ───────────────────────────────────────────────────────────
 
 // RP2040 flash-relative offsets (relative to flash XIP base 0x10000000)

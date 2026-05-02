@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! USB CDC ACM driver for PDB (Picodroid Debug Bridge).
 //!
 //! Replaces the UART1-based PDB transport with a USB bulk endpoint, eliminating

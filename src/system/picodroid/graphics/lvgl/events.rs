@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL keypad indev + Java-visible key-event queue.
 //!
 //! Splits cleanly into two paths fed by the same hardware GPIO ISR queue:

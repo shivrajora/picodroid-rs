@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Board-level setup: linker script / memory.x placement, board module
 //! generation.
 

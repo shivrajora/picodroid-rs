@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native method implementations for `picodroid.view.View`.
 //!
 //! Cross-widget setters route through the [`super::gfx::Gfx`] trait via

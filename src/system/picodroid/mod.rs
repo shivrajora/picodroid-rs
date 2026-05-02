@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #[cfg(not(test))]
 pub mod graphics;
 #[cfg(not(test))]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Application and Activity lifecycle management.
 //!
 //! This module owns the Android-like lifecycle callbacks (onCreate, event loop)

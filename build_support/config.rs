@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Build-time configuration resolution: board + MCU discovery, TOML parsing,
 //! filesystem walking. Pure helpers with no side-effects on cargo.
 

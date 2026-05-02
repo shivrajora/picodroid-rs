@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Cache of `java.lang.Class` heap objects, one per class loaded into the JVM.
 //!
 //! `MyClass.class` is encoded as `ldc CONSTANT_Class` in bytecode. The

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Capped global allocator for the host simulator.
 //!
 //! Wraps the system allocator with a configurable byte limit, simulating the

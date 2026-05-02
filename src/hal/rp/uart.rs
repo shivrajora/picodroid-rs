@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::clock::PCLK_HZ;
 
 // Compute UARTIBRD / UARTFBRD from baud rate.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Foreground-service notification tracker.
 //!
 //! v1 records the currently-visible notification id and logs each post /

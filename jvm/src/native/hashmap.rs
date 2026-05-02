@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::{
     object_heap::{iter_store::IterSource, iter_store::IteratorState, ObjectHeap},
     types::{JvmError, Value},

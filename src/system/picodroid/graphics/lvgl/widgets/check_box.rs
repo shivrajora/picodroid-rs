@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `CheckBox` (LVGL `lv_checkbox`).
 
 use crate::lvgl_ffi::*;

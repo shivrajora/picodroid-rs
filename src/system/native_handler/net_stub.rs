@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Stub dispatcher for `picodroid/net/*` native methods on boards that
 //! lack networking (`has_network` cfg is off). Status queries return
 //! safe defaults (disconnected, 0.0.0.0). Any call that would actually

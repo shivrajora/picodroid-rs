@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! RP-family HAL (RP2040 + RP2350).
 //!
 //! Chip-level differences (clock speed, RP2350 ISO bit) are handled via

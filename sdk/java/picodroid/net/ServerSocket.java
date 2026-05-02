@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
 /** TCP server socket — binds to a port and accepts incoming connections. */

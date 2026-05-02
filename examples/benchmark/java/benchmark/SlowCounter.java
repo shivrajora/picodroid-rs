@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package benchmark;
 
 public class SlowCounter extends Counter {

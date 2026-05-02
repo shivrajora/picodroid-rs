@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Embedded picodroid framework class bytecode.
 //!
 //! Compiled and embedded by `build.rs` from `sdk/java/`. Framework classes

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // ── Test 1: Basic <clinit> via getstatic ─────────────────────────────────

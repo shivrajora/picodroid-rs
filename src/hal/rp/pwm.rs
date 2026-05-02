@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::clock::PCLK_HZ;
 
 // Compute (div_int, wrap) for a target PWM frequency.

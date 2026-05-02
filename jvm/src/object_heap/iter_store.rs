@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::ObjectHeap;
 
 /// Source collection type for an iterator.

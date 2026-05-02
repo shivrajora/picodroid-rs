@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pure I2C logic: register-bit constants, SCL timing math, transfer state.
 //!
 //! No `rp-pico`/`rp235x-hal`/FreeRTOS deps — host-compilable and unit-testable.

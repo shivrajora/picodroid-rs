@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pure SPI logic: FIFO thresholds, clock-divisor math, transfer state.
 //!
 //! No `rp-pico`/`rp235x-hal`/FreeRTOS deps — host-compilable and unit-testable.

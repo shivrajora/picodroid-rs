@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `Button` (LVGL `lv_button` + child `lv_label`).
 //!
 //! Click events feed a static ring buffer drained by the framework event

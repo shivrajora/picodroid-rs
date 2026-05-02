@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use core::cell::UnsafeCell;
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 

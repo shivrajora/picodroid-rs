@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native implementations for picodroid.net.Socket.
 
 use pico_jvm::array_heap::ArrayHeap;

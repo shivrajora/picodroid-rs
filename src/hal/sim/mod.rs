@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator HAL — runs on the host for testing without hardware.
 
 pub mod adc;

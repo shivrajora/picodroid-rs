@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `LinearLayout` (LVGL `lv_obj` with flex flow).
 
 use crate::lvgl_ffi::*;

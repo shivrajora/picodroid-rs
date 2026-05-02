@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Runtime reverse-translation for shrunk framework class names.
 //!
 //! Every native-dispatch match arm in `src/system/native_handler/**` and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL lifecycle — `lv_init`, display + touch indev creation, tick, sleep,
 //! wake, screen access, and the partial-render band buffer.
 //!

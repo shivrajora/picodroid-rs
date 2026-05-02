@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::{
     array_heap::{ArrayHeap, ATYPE_REF},
     class_objects::ClassObjectCache,

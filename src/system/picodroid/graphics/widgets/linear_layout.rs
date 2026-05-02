@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.widget.LinearLayout`.
 
 use pico_jvm::object_heap::ObjectHeap;

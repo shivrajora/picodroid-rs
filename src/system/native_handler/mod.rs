@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #[cfg(not(feature = "sim"))]
 use pico_jvm::types::MonitorKey;
 use pico_jvm::{

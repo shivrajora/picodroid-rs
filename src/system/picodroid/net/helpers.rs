@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Shared helper functions for picodroid.net native methods.
 
 use core::ffi::c_void;

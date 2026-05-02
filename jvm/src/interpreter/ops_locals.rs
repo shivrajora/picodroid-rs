@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::Executor;
 use crate::{frame::Frame, native::NativeMethodHandler, types::JvmError};
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /// Minimal Java .class file parser for Picodroid Milestone 1.
 /// Parses only the subset needed to run a simple static-method call
 /// (e.g. HelloWorld.main → Log.i).

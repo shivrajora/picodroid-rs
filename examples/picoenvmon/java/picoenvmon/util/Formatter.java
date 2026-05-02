@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.util;
 
 /** Sensor-value → display-string formatter. The °C↔°F flag is global to the app. */

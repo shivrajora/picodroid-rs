@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL-backed [`GraphicsBackend`] implementation.
 //!
 //! Each method matches on the Java method name and delegates to the leaf

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Network HAL — FreeRTOS+TCP socket wrappers.
 //!
 //! Thin Rust wrappers around the FreeRTOS+TCP C socket API.

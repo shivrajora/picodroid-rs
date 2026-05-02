@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator touch backend — maps mouse input from the minifb display window
 //! to touch coordinates consumed by LVGL's input device driver.
 

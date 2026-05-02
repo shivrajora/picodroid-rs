@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! DMA engine for SPI write-only transfers.
 //!
 //! Uses two channels per SPI peripheral:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package clinitdemo;
 
 /** Helper class with its own static initializers, used to verify cross-class clinit chaining. */

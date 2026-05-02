@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! APK + framework class embedding; PAPK flash-init section generation.
 
 use crate::config::collect_files;

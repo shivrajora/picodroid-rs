@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native method dispatch for picodroid.net.* classes.
 
 use pico_jvm::types::{JvmError, Value};

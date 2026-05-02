@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 pub const FRAME_MAGIC: &[u8; 4] = b"PDBP";
 
 pub const CMD_PING: u8 = 0x00;

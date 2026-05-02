@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Periodic 16 ms LVGL tick source feeding the unified main queue.
 //!
 //! Mirrors Android's split between `Looper` (the dispatcher) and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL object handle ↔ Java `nativeHandle` (i32) conversion.
 //!
 //! Java's `nativeHandle` field is 32-bit.  On 32-bit targets (RP2040/RP2350)

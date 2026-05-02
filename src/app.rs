@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 #[cfg(not(test))]
 use alloc::boxed::Box;
 #[cfg(not(test))]

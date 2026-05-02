@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! BME688 environmental sensor driver — temperature, humidity, pressure, gas.
 //!
 //! Generic over `I2cBus` so the same code works against the RP2040/RP2350 HAL

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator `embedded-hal` DelayNs — no-op (instant).
 
 use embedded_hal::delay::DelayNs;

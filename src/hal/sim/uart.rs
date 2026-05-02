@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 pub fn init(_uart_id: u8) {}
 
 pub fn reconfigure(

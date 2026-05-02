@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Backend-agnostic graphics trait.
 //!
 //! `Gfx` abstracts the engine lifecycle plus the cross-widget setters that

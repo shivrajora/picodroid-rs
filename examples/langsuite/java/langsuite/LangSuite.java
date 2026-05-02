@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package langsuite;
 
 import picodroid.app.Application;

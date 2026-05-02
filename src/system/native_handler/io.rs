@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `java/io/*` native methods — minimal File / FileInputStream / FileOutputStream
 //! backed by LittleFS on hardware and by an in-process map in sim.
 

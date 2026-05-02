@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // dup_x1: .., v2, v1 → .., v1, v2, v1 (cat-1). Push 1, 2, dup_x1, iadd, iadd.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.widget.CheckBox`.
 
 use pico_jvm::heap::StringTable;

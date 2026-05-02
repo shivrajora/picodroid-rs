@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Top-level native dispatch for `picodroid.graphics.*`, `picodroid.view.*`,
 //! and `picodroid.widget.*`. Delegates to a [`GraphicsBackend`] so the LVGL
 //! implementation can be swapped for a test fake in the future.

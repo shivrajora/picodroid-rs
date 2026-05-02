@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // long[] roundtrip: allocate long[3], store lconst_1 at [0], laload it back,

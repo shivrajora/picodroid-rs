@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Global monitor table shared across all JVM threads.
 //!
 //! Each Java `synchronized` block creates a FreeRTOS recursive mutex lazily.

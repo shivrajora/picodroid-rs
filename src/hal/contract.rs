@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! HAL CONTRACT v1 — compile-time assertions.
 //!
 //! Each `_assert_*` function below is dead code: it exists solely to make the

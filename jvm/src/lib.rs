@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! A `no_std` Java bytecode interpreter for bare-metal embedded systems.
 //!
 //! `pico-jvm` parses and executes Java `.class` files on `no_std + alloc`

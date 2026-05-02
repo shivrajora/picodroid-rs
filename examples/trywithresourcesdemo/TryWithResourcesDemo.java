@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package trywithresourcesdemo;
 
 import picodroid.app.Application;

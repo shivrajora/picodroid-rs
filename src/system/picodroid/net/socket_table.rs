@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Socket handle ↔ Java `handle` (i32) conversion.
 //!
 //! On 32-bit targets: zero-cost bit-preserving cast (`*mut c_void` is 32 bits).

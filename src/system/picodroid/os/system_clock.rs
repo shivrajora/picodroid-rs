@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use pico_jvm::types::{JvmError, Value};
 
 use crate::hal::system_clock as platform;

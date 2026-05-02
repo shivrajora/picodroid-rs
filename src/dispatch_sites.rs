@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Widget-callback dispatch site registry.
 //!
 //! Every `dispatch_*` function in `lifecycle.rs` invokes a fixed Java `fire*`

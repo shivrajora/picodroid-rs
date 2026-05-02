@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator network HAL — wraps host OS sockets (std::net).
 //!
 //! Provides the same public API as hal::rp::net so that Java Socket

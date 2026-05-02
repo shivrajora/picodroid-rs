@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `embedded-hal` DelayNs wrapper using `cortex_m::asm::delay`.
 
 use embedded_hal::delay::DelayNs;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picodroid.view;
 
 import picodroid.graphics.drawable.Drawable;

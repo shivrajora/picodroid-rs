@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `Snackbar` — a Toast with an optional clickable action
 //! lozenge.
 //!

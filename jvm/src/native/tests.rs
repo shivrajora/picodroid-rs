@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::{array_heap::ArrayHeap, heap::StringTable, object_heap::ObjectHeap};
 

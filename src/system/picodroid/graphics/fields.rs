@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /// Field indices for picodroid.view.View and subclasses.
 ///
 /// Slot numbering follows the JVM `field_slot()` convention: superclass fields

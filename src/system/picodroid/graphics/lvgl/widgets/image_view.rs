@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `ImageView` (LVGL `lv_image`).
 
 use crate::lvgl_ffi::*;

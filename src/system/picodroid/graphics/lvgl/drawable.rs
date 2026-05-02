@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `picodroid.graphics.drawable.GradientDrawable.applyTo`.
 //!
 //! A drawable bundles a handful of LVGL style properties (bg fill,

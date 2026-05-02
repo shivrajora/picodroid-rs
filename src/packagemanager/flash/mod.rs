@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Embed the PAPK flash initialiser section.
 // build.rs generates papk_flash_init.rs which declares a static array placed
 // in the .papk_flash_init section at the PAPK_FLASH address.  probe-rs writes

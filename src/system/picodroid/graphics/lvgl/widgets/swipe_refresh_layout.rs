@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `SwipeRefreshLayout`.
 //!
 //! Composition: a plain `lv_obj_t` container whose child is the wrapped

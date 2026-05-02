@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator `embedded-hal` OutputPin.
 
 use core::convert::Infallible;

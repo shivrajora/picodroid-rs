@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `Spinner` (LVGL `lv_dropdown`).
 
 use crate::lvgl_ffi::*;

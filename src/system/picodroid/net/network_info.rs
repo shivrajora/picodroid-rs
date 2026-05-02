@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native implementations for picodroid.net.NetworkInfo.
 
 use pico_jvm::types::{JvmError, Value};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Backend-agnostic widget handle.
 //!
 //! Java-side `nativeHandle` is a 32-bit `int`; this newtype is the in-Rust

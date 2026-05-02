@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! `embedded-hal` OutputPin wrapper around the RP GPIO free functions.
 
 use core::convert::Infallible;

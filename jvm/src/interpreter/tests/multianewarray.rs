@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // Hand-crafted class file with an extra Class/Utf8 CP entry for descriptor

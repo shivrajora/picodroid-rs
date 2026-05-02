@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::object_heap::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf};
 use crate::types::{JvmError, Value};
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
 /** Reads the response body of an {@link HttpUrlConnection}. Close the parent connection to free. */

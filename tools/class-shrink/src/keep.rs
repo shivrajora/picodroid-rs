@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Keep list — names that must NEVER be shrunk.
 //!
 //! v1 only tracks class-name keeps (method/field keeps come with method/field

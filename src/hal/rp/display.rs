@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Display facade — delegates to the generic ST7789 driver via board config.
 //!
 //! Display constants and pin mappings come from the build.rs-generated

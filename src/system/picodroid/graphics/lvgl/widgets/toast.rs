@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `Toast` — a non-modal floating label that auto-dismisses
 //! after a fixed duration.
 //!

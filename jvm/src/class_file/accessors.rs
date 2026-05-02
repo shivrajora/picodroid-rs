@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::{
     BootstrapMethod, ClassFile, FieldInfo, MethodInfo, TAG_CLASS, TAG_FIELDREF, TAG_INVOKE_DYNAMIC,
     TAG_METHODREF, TAG_METHOD_HANDLE, TAG_METHOD_TYPE, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,

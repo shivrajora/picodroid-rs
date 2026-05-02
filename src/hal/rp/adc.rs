@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // ADC reference voltage and resolution
 const VREF: f64 = 3.3;
 const ADC_MAX: f64 = 4095.0; // 12-bit ADC

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `TextView` (LVGL `lv_label`).
 
 use crate::lvgl_ffi::*;

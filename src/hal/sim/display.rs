@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Simulator display backend using minifb to render LVGL output in a desktop
 //! window.  Replaces the previous no-op stubs so that graphical apps (e.g.
 //! `displaydemo`) can be tested without hardware.

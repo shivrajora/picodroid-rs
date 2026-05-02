@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native method implementations for all widget classes:
 //! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ToggleButton`, `ListView`,
 //! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`,

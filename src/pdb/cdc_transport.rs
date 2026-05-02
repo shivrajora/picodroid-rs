@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use core::sync::atomic::Ordering;
 
 use freertos_rust::{CurrentTask, Duration};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native methods for `java.lang.Class`.
 //!
 //! Class objects are allocated by `resolve_ldc` when bytecode does

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Simulator stubs — flash operations are not available in sim mode.
 // These constants and functions exist only for module completeness;
 // they are never called because packagemanager is gated by

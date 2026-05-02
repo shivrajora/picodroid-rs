@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // Test 8: ifeq branch taken (push 0, branch to iconst_2)

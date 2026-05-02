@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Service lifecycle and registry.
 //!
 //! Owns the runtime state for `picodroid.app.Service` instances:

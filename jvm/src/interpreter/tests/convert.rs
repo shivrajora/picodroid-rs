@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // i2b: sipush 511 (0x01FF), i2b → 511 as i8 as i32 = 0xFF as i8 = -1

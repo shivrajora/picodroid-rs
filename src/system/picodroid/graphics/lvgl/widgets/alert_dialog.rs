@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `AlertDialog` — a modal dialog with title/message and up to
 //! two buttons (positive / negative).
 //!

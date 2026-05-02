@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Chip-agnostic XPT2046 resistive touch controller driver.
 //!
 //! Generic over `embedded-hal` traits plus `SpiFreqSwitch` for

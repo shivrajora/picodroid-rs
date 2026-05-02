@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Release-versioned shrink map: original → shrunk class name pairs.
 //!
 //! The v1 map is class-only. Methods and fields are deferred to a later

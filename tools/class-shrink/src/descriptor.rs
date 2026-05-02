@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Rewrites class-name references inside Utf8 constant-pool entries.
 //!
 //! Class names appear in three shapes per JVMS §4.3 and §4.4:

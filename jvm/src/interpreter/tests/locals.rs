@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 // Test 7: iconst_1, istore_1, iload_1, ireturn  — [0x04, 0x3C, 0x1B, 0xAC]  (N=4, attr_len=16)

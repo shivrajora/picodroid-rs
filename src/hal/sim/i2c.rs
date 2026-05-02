@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use pico_jvm::array_heap::ArrayHeap;
 
 use core::cell::RefCell;

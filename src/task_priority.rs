@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FreeRTOS task priority tiers.
 //!
 //! Layout (low → high, configMAX_PRIORITIES = 32):

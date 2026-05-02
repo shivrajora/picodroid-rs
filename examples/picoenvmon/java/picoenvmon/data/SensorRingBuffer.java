@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.data;
 
 /** Fixed-capacity circular buffer of float samples. Overwrites oldest on full. */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
 /** A UDP datagram packet — holds data, length, address, and port. */

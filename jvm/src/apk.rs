@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! PAPK (Picodroid APK) binary format parser.
 //!
 //! A zero-copy, `no_std`/`no_alloc` parser for `.papk` files — the packaging

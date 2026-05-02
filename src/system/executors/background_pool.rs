@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pre-spawned FreeRTOS worker pool backing `Executors.backgroundExecutor()`.
 //!
 //! A fixed number of worker tasks (configured by `board.toml`'s optional

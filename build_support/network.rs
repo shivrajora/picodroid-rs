@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! CYW43 WiFi driver + FreeRTOS+TCP compilation (WiFi-only boards).
 //!
 //! The functions here are family-parametric: `mcu_family` selects the

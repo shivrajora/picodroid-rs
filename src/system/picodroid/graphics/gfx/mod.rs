@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Backend-agnostic graphics surface.
 //!
 //! `gfx::Gfx` is the engine-level trait that hides the underlying display
