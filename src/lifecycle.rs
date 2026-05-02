@@ -314,6 +314,10 @@ pub(crate) fn run_activity(
                     handler,
                 );
             }
+            MainTask::Wake => {
+                // Cross-task nudge — fall through to the interrupt /
+                // pending-op drain below without doing tick or runnable work.
+            }
         }
 
         // Drain any lifecycle transitions queued by Java during the

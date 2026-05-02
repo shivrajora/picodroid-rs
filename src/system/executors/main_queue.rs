@@ -1,19 +1,30 @@
 //! Unified FIFO queue driving the UI thread.
 //!
-//! One bounded FIFO holds both LVGL tick tokens (`MainTask::LvglTick`) and
-//! user-submitted `Runnable` obj_refs (`MainTask::Runnable(u16)`). The event
-//! loop in [`crate::lifecycle::run_activity`] enqueues one `LvglTick` per
-//! frame boundary and then drains items in strict FIFO order within a
-//! 16 ms budget, so LVGL work and app-posted work share one ordering
-//! discipline.
+//! One bounded FIFO holds three kinds of items: LVGL tick tokens
+//! (`MainTask::LvglTick`), user-submitted `Runnable` obj_refs
+//! (`MainTask::Runnable(u16)`), and cross-task wake nudges
+//! (`MainTask::Wake`). The event loop in [`crate::lifecycle::run_activity`]
+//! drains items in strict FIFO order, so LVGL work and app-posted work
+//! share one ordering discipline.
 //!
 //! `LvglTick` coalescing (`TICK_IN_QUEUE`) prevents multiple ticks piling up
 //! behind a slow `Runnable` — if a tick is already pending, `enqueue_tick`
 //! is a no-op.
 //!
+//! Posters split by role:
+//! - `enqueue_tick`: tick source only (FreeRTOS timer service task on device,
+//!   `lvgl-tick` std::thread on sim). Touches `TICK_IN_QUEUE`.
+//! - `enqueue_runnable`: any task posting a `Runnable` for UI dispatch
+//!   (executors, lambda proxies). Bypasses `TICK_IN_QUEUE`.
+//! - `enqueue_wake`: any task that needs the UI thread to re-check
+//!   `handler.interrupted()` immediately (used by `pdb::pending::notify_jvm`
+//!   so `STOP_JVM` is observed without waiting for the next 16 ms tick).
+//!   Bypasses `TICK_IN_QUEUE`.
+//!
 //! The payload is encoded into a single `u32`:
-//! - bit 31 set  → `Runnable(obj_ref)`, low 16 bits carry the heap index
-//! - bit 31 clear → `LvglTick` sentinel (value must be `0`)
+//! - bit 31 set   → `Runnable(obj_ref)`, low 16 bits carry the heap index
+//! - bit 30 set   → `Wake` sentinel
+//! - all bits 0   → `LvglTick` sentinel
 
 use core::cell::Cell;
 
@@ -24,9 +35,15 @@ pub enum MainTask {
     LvglTick,
     /// User-submitted `Runnable.run()` dispatch.
     Runnable(u16),
+    /// Cross-task wake nudge — UI loop should re-check interrupt state and
+    /// drain pending lifecycle ops without doing tick work. Carries no
+    /// payload; multiple wakes coalesce naturally because the loop's
+    /// `handler.interrupted()` / pending-op drain is idempotent.
+    Wake,
 }
 
 const RUNNABLE_TAG: u32 = 0x8000_0000;
+const WAKE_SENTINEL: u32 = 0x4000_0000;
 const TICK_SENTINEL: u32 = 0;
 const CAPACITY: usize = 64;
 
@@ -34,14 +51,19 @@ const CAPACITY: usize = 64;
 /// Coalesces repeat `enqueue_tick` calls so slow Runnables cannot cause
 /// ticks to queue up behind them.
 ///
-/// Only touched by the main-loop thread (both `enqueue_tick` and the
-/// `LvglTick` branch of `try_recv`), so a plain `Cell<bool>` is enough —
-/// no atomic CAS is required, which matters because `thumbv6m-none-eabi`
-/// (Cortex-M0+) lacks hardware compare-exchange.
+/// Touched by the tick source (poster) and the UI thread (drainer in
+/// `recv_blocking` / `try_recv`). The tick source runs at the FreeRTOS
+/// timer-task priority (max), so its read-modify-write is atomic w.r.t.
+/// the UI thread; the UI thread's unconditional `set(false)` after popping
+/// any tick guarantees the flag converges even under preemption. A plain
+/// `Cell<bool>` is enough — no atomic CAS is required, which matters
+/// because `thumbv6m-none-eabi` (Cortex-M0+) lacks hardware compare-exchange.
+///
+/// Cross-task wakes (`enqueue_wake`) deliberately do NOT touch this flag —
+/// they post a separate `Wake` sentinel so the tick-source-owns-coalescing
+/// invariant holds regardless of how many tasks need to nudge the UI loop.
 struct TickFlagCell(Cell<bool>);
-// SAFETY: write/read callers are both on the UI thread. Background thread
-// workers touch `enqueue_runnable` / `backing::try_send` only, neither of
-// which mutates this flag.
+// SAFETY: see TICK_IN_QUEUE doc comment above for the write/read discipline.
 unsafe impl Sync for TickFlagCell {}
 
 static TICK_IN_QUEUE: TickFlagCell = TickFlagCell(Cell::new(false));
@@ -50,12 +72,15 @@ fn encode(task: MainTask) -> u32 {
     match task {
         MainTask::LvglTick => TICK_SENTINEL,
         MainTask::Runnable(r) => RUNNABLE_TAG | r as u32,
+        MainTask::Wake => WAKE_SENTINEL,
     }
 }
 
 fn decode(word: u32) -> MainTask {
     if word & RUNNABLE_TAG != 0 {
         MainTask::Runnable((word & 0xFFFF) as u16)
+    } else if word & WAKE_SENTINEL != 0 {
+        MainTask::Wake
     } else {
         MainTask::LvglTick
     }
@@ -184,8 +209,9 @@ pub fn init() {
 /// Enqueue an `LvglTick` if one is not already pending. Returns `true` if
 /// the tick was posted, `false` if coalesced (or if the queue was full).
 ///
-/// UI-thread only. The check-and-set is not atomic; callers must not race
-/// `enqueue_tick` against itself from multiple tasks.
+/// **Tick-source only.** This is the only function that touches
+/// `TICK_IN_QUEUE`; callers from other tasks must use [`enqueue_wake`]
+/// instead so the coalescing invariant stays well-defined.
 pub fn enqueue_tick() -> bool {
     if TICK_IN_QUEUE.0.get() {
         return false;
@@ -202,6 +228,23 @@ pub fn enqueue_tick() -> bool {
 /// is full (returns `false`). Caller is expected to log on drop.
 pub fn enqueue_runnable(obj_ref: u16) -> bool {
     backing::try_send(encode(MainTask::Runnable(obj_ref)))
+}
+
+/// Post a `Wake` sentinel to the queue so the UI loop's `recv_blocking`
+/// returns immediately and the next iteration re-checks
+/// `handler.interrupted()` and drains pending lifecycle ops.
+///
+/// Safe to call from any FreeRTOS task. Bypasses `TICK_IN_QUEUE` entirely
+/// — coalescing is the tick source's concern only. Returns `false` if the
+/// queue is full or uninitialised; both cases are silently absorbed by
+/// callers (the loop will still wake on the next tick).
+///
+/// `#[allow(dead_code)]` because the sole caller (`pdb::pending::notify_jvm`)
+/// is gated out of sim builds; the sim still exercises this through the
+/// unit tests below.
+#[allow(dead_code)]
+pub fn enqueue_wake() -> bool {
+    backing::try_send(encode(MainTask::Wake))
 }
 
 /// Pop one `MainTask` without blocking. Returns `None` if the queue is
@@ -256,6 +299,7 @@ mod tests {
     #[test]
     fn encode_decode_round_trip() {
         assert_eq!(decode(encode(MainTask::LvglTick)), MainTask::LvglTick);
+        assert_eq!(decode(encode(MainTask::Wake)), MainTask::Wake);
         assert_eq!(decode(encode(MainTask::Runnable(0))), MainTask::Runnable(0));
         assert_eq!(
             decode(encode(MainTask::Runnable(0xFFFF))),
@@ -265,6 +309,37 @@ mod tests {
             decode(encode(MainTask::Runnable(42))),
             MainTask::Runnable(42)
         );
+    }
+
+    #[test]
+    fn wake_does_not_touch_tick_flag() {
+        let _guard = acquire();
+        // No tick is in the queue; the flag must remain false after a wake.
+        assert!(enqueue_wake(), "wake should post");
+        assert!(
+            !TICK_IN_QUEUE.0.get(),
+            "wake must not set TICK_IN_QUEUE — that's the tick source's job"
+        );
+        assert_eq!(try_recv(), Some(MainTask::Wake));
+        assert!(
+            !TICK_IN_QUEUE.0.get(),
+            "draining wake must not flip the flag"
+        );
+    }
+
+    #[test]
+    fn wake_does_not_block_subsequent_tick_coalescing() {
+        let _guard = acquire();
+        // A wake in flight must not prevent the tick source from posting
+        // a fresh tick (or coalescing repeats of one).
+        assert!(enqueue_wake());
+        assert!(enqueue_tick(), "tick post after wake");
+        assert!(!enqueue_tick(), "tick still coalesces while wake is queued");
+        assert_eq!(try_recv(), Some(MainTask::Wake));
+        assert_eq!(try_recv(), Some(MainTask::LvglTick));
+        // After the tick is drained, the next post succeeds again.
+        assert!(enqueue_tick(), "post after drain succeeds");
+        assert_eq!(try_recv(), Some(MainTask::LvglTick));
     }
 
     #[test]
