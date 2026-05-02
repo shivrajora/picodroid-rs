@@ -1,0 +1,12 @@
+# Commits listed here are skipped by `git blame` when this file is
+# configured as the ignore-revs source. Each entry must be a full 40-char
+# SHA. Add a comment line above each SHA explaining what it was so the
+# reason survives even after rebases / squash merges.
+#
+# To activate locally, run once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub's web UI honors this file automatically.
+
+# Backfill SPDX-License-Identifier: GPL-3.0-only headers (no semantic change)
+2fcc841789184f3dedf8d74165b706ca95f62f93
