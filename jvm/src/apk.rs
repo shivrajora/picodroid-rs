@@ -6,21 +6,21 @@
 //! # Format overview
 //!
 //! A PAPK file is a flat binary container with a 24-byte file header followed
-//! by a MANIFEST section and a CLASSES section (in that order).  All integers
-//! are little-endian.
+//! by a MANIFEST section, a CLASSES section, and (optionally, in v1.1+) an
+//! ASSETS section.  All integers are little-endian.
 //!
 //! ```text
 //! File header (24 bytes):
 //!   [0..4]   magic:           b"PAPK"
 //!   [4..2]   version_major:   u16 LE  (currently 1)
-//!   [6..2]   version_minor:   u16 LE  (currently 0)
+//!   [6..2]   version_minor:   u16 LE  (0 = no assets, 1 = ASSETS section may exist)
 //!   [8..4]   section_count:   u32 LE
 //!   [12..4]  manifest_offset: u32 LE  (offset to MANIFEST section header)
 //!   [16..4]  classes_offset:  u32 LE  (offset to CLASSES section header)
-//!   [20..4]  reserved:        u32 LE  = 0
+//!   [20..4]  assets_offset:   u32 LE  (offset to ASSETS section header, 0 = absent)
 //!
 //! Section header (16 bytes):
-//!   [0..4]   tag:      u32 LE  ("MANI" or "CLSS")
+//!   [0..4]   tag:      u32 LE  ("MANI", "CLSS", or "ASST")
 //!   [4..4]   length:   u32 LE  (byte count of section data, NOT including header)
 //!   [8..4]   crc32:    u32 LE  (0 = unchecked in v1)
 //!   [12..4]  reserved: u32 LE  = 0
@@ -34,6 +34,17 @@
 //!   For each class:
 //!     [u16 name_len][name bytes (JVM internal, no .class suffix)]
 //!     [u32 data_len][raw .class file bytes]
+//!
+//! ASSETS section data (v1.1+):
+//!   [u32 asset_count]
+//!   For each asset:
+//!     [u16 name_len][name bytes (UTF-8, e.g. "logo.png")]
+//!     [u16 width][u16 height]
+//!     [u8 cf][u8 reserved0][u16 stride]
+//!     [u32 data_size]
+//!     [pad 0..3 bytes so data starts at 4-byte offset within the section]
+//!     [pixel bytes (data_size bytes; LVGL-native, not encoded)]
+//!     [pad 0..3 bytes so next record starts at 4-byte offset within the section]
 //! ```
 //!
 //! # Lifetime
@@ -66,6 +77,7 @@ const FILE_HEADER_LEN: usize = 24;
 const SECTION_HEADER_LEN: usize = 16;
 const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
 const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
+const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
 
 // ── Error type ────────────────────────────────────────────────────────────────
 
@@ -125,6 +137,76 @@ impl<'a> Iterator for ClassIter<'a> {
     }
 }
 
+/// One asset entry from the ASSETS section (v1.1+).
+///
+/// `data` is the raw, LVGL-native pixel buffer (already decoded by `papk-pack`
+/// at build time — no PNG/JPEG decoder runs on the firmware). The slice is
+/// guaranteed to start on a 4-byte boundary within the section, which means
+/// at a 4-byte boundary within the file as long as the section header itself
+/// lands on one.
+pub struct AssetEntry<'a> {
+    /// Asset name (e.g. `"logo.png"`). Lookup is by exact name match.
+    pub name: &'a [u8],
+    /// Pixel width.
+    pub width: u16,
+    /// Pixel height.
+    pub height: u16,
+    /// LVGL color format (`lv_color_format_t`).
+    pub cf: u8,
+    /// Bytes per row. `0` = computed by LVGL from `cf` and `width`.
+    pub stride: u16,
+    /// Raw pixel data (`width * height * bytes-per-pixel` for uncompressed CFs).
+    pub data: &'a [u8],
+}
+
+/// Iterator over asset entries in the ASSETS section.
+pub struct AssetIter<'a> {
+    data: &'a [u8], // slice covering just the ASSETS section data
+    pos: usize,
+    remaining: u32,
+}
+
+impl<'a> Iterator for AssetIter<'a> {
+    type Item = AssetEntry<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        // [u16 name_len][name bytes]
+        let name = read_bytes_u16(self.data, &mut self.pos)?;
+        // [u16 width][u16 height][u8 cf][u8 reserved0][u16 stride][u32 data_size]
+        if self.pos + 12 > self.data.len() {
+            return None;
+        }
+        let width = read_u16_le(self.data, self.pos);
+        let height = read_u16_le(self.data, self.pos + 2);
+        let cf = self.data[self.pos + 4];
+        // self.data[self.pos + 5] is reserved0 (must be 0).
+        let stride = read_u16_le(self.data, self.pos + 6);
+        let data_size = read_u32_le(self.data, self.pos + 8) as usize;
+        self.pos += 12;
+        // Pad up to a 4-byte boundary within the section before the data.
+        self.pos = (self.pos + 3) & !3;
+        if self.pos + data_size > self.data.len() {
+            return None;
+        }
+        let data = &self.data[self.pos..self.pos + data_size];
+        self.pos += data_size;
+        // Pad up to a 4-byte boundary within the section before the next record.
+        self.pos = (self.pos + 3) & !3;
+        self.remaining -= 1;
+        Some(AssetEntry {
+            name,
+            width,
+            height,
+            cf,
+            stride,
+            data,
+        })
+    }
+}
+
 /// Iterator over key/value pairs in the MANIFEST section.
 pub struct ManifestIter<'a> {
     data: &'a [u8], // slice covering just the MANIFEST section data
@@ -160,6 +242,9 @@ pub struct Papk<'a> {
     data: &'a [u8],
     manifest_offset: usize,
     classes_offset: usize,
+    /// Offset to the ASSETS section header, or 0 if the section is absent
+    /// (legacy v1.0 papks).
+    assets_offset: usize,
 }
 
 impl<'a> Papk<'a> {
@@ -182,6 +267,10 @@ impl<'a> Papk<'a> {
         }
         let manifest_offset = read_u32_le(data, 12) as usize;
         let classes_offset = read_u32_le(data, 16) as usize;
+        // 0 here means "no ASSETS section" — the field doubled as `reserved`
+        // in v1.0, where it was always written as 0. So legacy papks parse
+        // without surprise.
+        let assets_offset = read_u32_le(data, 20) as usize;
 
         // Basic bounds check: both offsets must be within file and have room
         // for the 16-byte section header.
@@ -191,11 +280,15 @@ impl<'a> Papk<'a> {
         if classes_offset + SECTION_HEADER_LEN > data.len() {
             return Err(PapkError::Truncated);
         }
+        if assets_offset != 0 && assets_offset + SECTION_HEADER_LEN > data.len() {
+            return Err(PapkError::Truncated);
+        }
 
         Ok(Self {
             data,
             manifest_offset,
             classes_offset,
+            assets_offset,
         })
     }
 
@@ -209,6 +302,15 @@ impl<'a> Papk<'a> {
     /// Returns the raw CLASSES section data slice (excluding the section header).
     fn classes_section_data(&self) -> Result<&'a [u8], PapkError> {
         section_data(self.data, self.classes_offset, TAG_CLASSES)
+    }
+
+    /// Returns the raw ASSETS section data slice (excluding the section header),
+    /// or `None` if the file has no ASSETS section.
+    fn assets_section_data(&self) -> Result<Option<&'a [u8]>, PapkError> {
+        if self.assets_offset == 0 {
+            return Ok(None);
+        }
+        section_data(self.data, self.assets_offset, TAG_ASSETS).map(Some)
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -290,6 +392,28 @@ impl<'a> Papk<'a> {
             pos: 4,
             remaining: class_count,
         })
+    }
+
+    /// Returns an iterator over all asset entries in the ASSETS section,
+    /// or `None` if the papk has no ASSETS section.
+    ///
+    /// The pixel `data` slice for each asset shares the lifetime `'a` of the
+    /// underlying papk buffer, so it can be handed directly to LVGL when the
+    /// papk is `'static` (the embedded case — papk lives in XIP flash for
+    /// the firmware's lifetime).
+    pub fn assets(&self) -> Result<Option<AssetIter<'a>>, PapkError> {
+        let Some(adata) = self.assets_section_data()? else {
+            return Ok(None);
+        };
+        if adata.len() < 4 {
+            return Err(PapkError::Truncated);
+        }
+        let asset_count = read_u32_le(adata, 0);
+        Ok(Some(AssetIter {
+            data: adata,
+            pos: 4,
+            remaining: asset_count,
+        }))
     }
 }
 
@@ -657,5 +781,140 @@ mod tests {
             parse_leaked(papk).verify_compat("0.0.0"),
             Err(PapkError::FrameworkVersionMismatch)
         );
+    }
+
+    // ── ASSETS section tests (v1.1+) ─────────────────────────────────────
+
+    /// Build a v1.1 PAPK with empty manifest/classes and a populated ASSETS
+    /// section. Each asset is `(name, w, h, cf, stride, data)`.
+    fn build_papk_with_assets(assets: &[(&str, u16, u16, u8, u16, &[u8])]) -> Vec<u8> {
+        // Empty manifest data + zero-class CLASSES section.
+        let manifest_data: Vec<u8> = Vec::new();
+        let classes_data: Vec<u8> = 0u32.to_le_bytes().to_vec();
+
+        // ASSETS section data: [u32 count] then per-asset records.
+        let mut assets_data: Vec<u8> = Vec::new();
+        assets_data.extend_from_slice(&(assets.len() as u32).to_le_bytes());
+        for (name, w, h, cf, stride, data) in assets {
+            let nb = name.as_bytes();
+            assets_data.extend_from_slice(&(nb.len() as u16).to_le_bytes());
+            assets_data.extend_from_slice(nb);
+            assets_data.extend_from_slice(&w.to_le_bytes());
+            assets_data.extend_from_slice(&h.to_le_bytes());
+            assets_data.push(*cf);
+            assets_data.push(0); // reserved0
+            assets_data.extend_from_slice(&stride.to_le_bytes());
+            assets_data.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            // Pad to 4-byte boundary within the section before data.
+            while assets_data.len() % 4 != 0 {
+                assets_data.push(0);
+            }
+            assets_data.extend_from_slice(data);
+            // Pad to 4-byte boundary before next record.
+            while assets_data.len() % 4 != 0 {
+                assets_data.push(0);
+            }
+        }
+
+        let mani_tag = u32::from_le_bytes(*b"MANI");
+        let clss_tag = u32::from_le_bytes(*b"CLSS");
+        let asst_tag = u32::from_le_bytes(*b"ASST");
+
+        let manifest_offset: u32 = 24;
+        let classes_offset: u32 = manifest_offset + 16 + manifest_data.len() as u32;
+        let assets_offset: u32 = classes_offset + 16 + classes_data.len() as u32;
+
+        let mut file: Vec<u8> = Vec::new();
+        file.extend_from_slice(b"PAPK");
+        file.extend_from_slice(&1u16.to_le_bytes()); // version_major
+        file.extend_from_slice(&1u16.to_le_bytes()); // version_minor
+        file.extend_from_slice(&3u32.to_le_bytes()); // section_count
+        file.extend_from_slice(&manifest_offset.to_le_bytes());
+        file.extend_from_slice(&classes_offset.to_le_bytes());
+        file.extend_from_slice(&assets_offset.to_le_bytes());
+        // MANIFEST section (empty payload)
+        file.extend_from_slice(&mani_tag.to_le_bytes());
+        file.extend_from_slice(&(manifest_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&manifest_data);
+        // CLASSES section (zero classes)
+        file.extend_from_slice(&clss_tag.to_le_bytes());
+        file.extend_from_slice(&(classes_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&classes_data);
+        // ASSETS section
+        file.extend_from_slice(&asst_tag.to_le_bytes());
+        file.extend_from_slice(&(assets_data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&assets_data);
+        file
+    }
+
+    #[test]
+    fn assets_section_absent_in_legacy_papk() {
+        // Any builder that writes 0 in the [20..24] header slot — the v1.0
+        // `reserved` field — yields a papk with no ASSETS section.
+        let papk = build_test_papk("foo/Bar", &[]);
+        let p = parse_leaked(papk);
+        assert!(p.assets().unwrap().is_none());
+    }
+
+    #[test]
+    fn assets_section_iterates_records() {
+        // Two assets: a 2x2 RGB565 (cf=18) and a 1x1 single-byte (cf=99).
+        let asset_a: &[u8] = &[0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80];
+        let asset_b: &[u8] = &[0xAB];
+        let papk = build_papk_with_assets(&[
+            ("logo.png", 2, 2, 18, 0, asset_a),
+            ("dot.png", 1, 1, 99, 1, asset_b),
+        ]);
+        let p = parse_leaked(papk);
+        let mut iter = p.assets().unwrap().expect("ASSETS section present");
+        let a = iter.next().unwrap();
+        assert_eq!(a.name, b"logo.png");
+        assert_eq!(a.width, 2);
+        assert_eq!(a.height, 2);
+        assert_eq!(a.cf, 18);
+        assert_eq!(a.stride, 0);
+        assert_eq!(a.data, asset_a);
+        let b = iter.next().unwrap();
+        assert_eq!(b.name, b"dot.png");
+        assert_eq!(b.width, 1);
+        assert_eq!(b.height, 1);
+        assert_eq!(b.cf, 99);
+        assert_eq!(b.stride, 1);
+        assert_eq!(b.data, asset_b);
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn assets_data_is_4_byte_aligned_within_section() {
+        // Pixel data alignment matters for LVGL u16/u32 reads from XIP flash.
+        // Names of odd length force the writer to insert padding; verify that
+        // the iterator returns a `data` slice whose offset within the section
+        // is a multiple of 4.
+        let pixels: &[u8] = &[0xDE, 0xAD, 0xBE, 0xEF];
+        let papk = build_papk_with_assets(&[
+            ("a.png", 1, 1, 18, 0, pixels), // odd-length-ish name
+        ]);
+        let p = parse_leaked(papk);
+        let entry = p.assets().unwrap().unwrap().next().unwrap();
+        let section = p.assets_section_data().unwrap().unwrap();
+        let data_offset = (entry.data.as_ptr() as usize).wrapping_sub(section.as_ptr() as usize);
+        assert_eq!(data_offset % 4, 0, "asset data must be 4-byte aligned");
+    }
+
+    #[test]
+    fn assets_section_truncated_offset_rejected() {
+        // Build a v1.1 papk, then corrupt assets_offset to point past EOF.
+        let mut papk = build_papk_with_assets(&[("x.png", 1, 1, 18, 0, &[0, 0])]);
+        let len = papk.len() as u32;
+        let bad = (len + 100).to_le_bytes();
+        papk[20..24].copy_from_slice(&bad);
+        let leaked: &'static [u8] = Box::leak(papk.into_boxed_slice());
+        assert!(matches!(Papk::parse(leaked), Err(PapkError::Truncated)));
     }
 }

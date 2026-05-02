@@ -194,6 +194,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     crate::system::picodroid::graphics::view::reset_swipe_listener_state();
     crate::system::picodroid::graphics::lvgl::events::reset_key_event_queue();
     crate::system::picodroid::graphics::lvgl::handle_table::reset();
+    crate::system::picodroid::graphics::assets::clear();
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();
 
@@ -222,6 +223,11 @@ pub fn run_jvm_with(apk_data: &[u8]) {
                 FRAMEWORK_MAP_VERSION, e
             )
         });
+
+    // Build the bundled-asset registry from this papk's ASSETS section so
+    // `ImageView.setImageSource("name.png")` resolves at runtime. Empty for
+    // legacy v1.0 papks and any v1.1 papk built without `--assets-dir`.
+    crate::system::picodroid::graphics::assets::init_from_papk(&apk);
 
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();

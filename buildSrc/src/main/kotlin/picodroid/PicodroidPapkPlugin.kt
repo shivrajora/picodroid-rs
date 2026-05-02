@@ -73,6 +73,10 @@ class PicodroidPapkPlugin : Plugin<Project> {
             classesOutputDir
         }
 
+        // Per-app `assets/` directory is opt-in: present it to papk-pack only
+        // when the dir actually exists, otherwise skip the flag entirely so
+        // legacy v1.0 papks are emitted unchanged for apps without assets.
+        val appAssetsDir = target.projectDir.resolve("assets")
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
             classesDir.set(packClassesInput)
             packageName.set(target.name)
@@ -81,6 +85,9 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.mainClass?.let { mainClass.set(it) }
             manifest.activity?.let { activity.set(it) }
             manifest.application?.let { application.set(it) }
+            if (appAssetsDir.isDirectory) {
+                assetsDir.set(appAssetsDir)
+            }
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)
         }

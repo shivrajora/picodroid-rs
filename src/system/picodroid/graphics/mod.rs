@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod display;
 pub mod fields;
 pub mod gfx;

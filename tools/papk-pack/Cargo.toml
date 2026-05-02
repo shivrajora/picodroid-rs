@@ -8,3 +8,8 @@ description = "Packages compiled Java .class files into a PAPK (Picodroid APK) f
 [[bin]]
 name = "papk-pack"
 path = "src/main.rs"
+
+[dependencies]
+# Host-only PNG decode for `--assets-dir`. Trimmed to the PNG codec to keep
+# `cargo build` fast; this dependency NEVER enters the firmware build graph.
+image = { version = "0.25", default-features = false, features = ["png"] }

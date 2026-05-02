@@ -22,9 +22,14 @@ const VERSION_MAJOR: u16 = 1;
 const VERSION_MINOR: u16 = 1;
 
 // Section tags (ASCII tag stored as little-endian u32)
-// "MANI" = 0x494E414D, "CLSS" = 0x53534C43
+// "MANI" = 0x494E414D, "CLSS" = 0x53534C43, "ASST" = 0x54535341
 const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
 const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
+const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
+
+/// LVGL `lv_color_format_t` value for native RGB565 little-endian. Verified
+/// against `vendor/lvgl/src/misc/lv_color_format.h` (`LV_COLOR_FORMAT_RGB565`).
+const LV_COLOR_FORMAT_RGB565: u8 = 0x12;
 
 // ── CLI argument parsing ──────────────────────────────────────────────────────
 
@@ -37,6 +42,10 @@ struct Args {
     framework_map_version: String,
     classes_dir: PathBuf,
     output: PathBuf,
+    /// Optional directory of image assets to bundle. PNGs are decoded on the
+    /// host into LVGL-native RGB565 (little-endian per pixel) and emitted in
+    /// the new `ASST` section.
+    assets_dir: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -49,6 +58,7 @@ fn parse_args() -> Result<Args, String> {
     let mut framework_map_version = None;
     let mut classes_dir = None;
     let mut output = None;
+    let mut assets_dir: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -97,6 +107,12 @@ fn parse_args() -> Result<Args, String> {
                     args.get(i).ok_or("--output requires a value")?,
                 ));
             }
+            "--assets-dir" => {
+                i += 1;
+                assets_dir = Some(PathBuf::from(
+                    args.get(i).ok_or("--assets-dir requires a value")?,
+                ));
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -122,6 +138,7 @@ fn parse_args() -> Result<Args, String> {
             .ok_or("--framework-map-version is required")?,
         classes_dir: classes_dir.ok_or("--classes-dir is required")?,
         output: output.ok_or("--output is required")?,
+        assets_dir,
     })
 }
 
@@ -135,9 +152,12 @@ fn print_usage() {
          \x20 --version <x.y> \\\n\
          \x20 --framework-map-version <semver> \\\n\
          \x20 --classes-dir <dir> \\\n\
+         \x20 [--assets-dir <dir>] \\\n\
          \x20 --output <file.papk>\n\
          \n\
-         At least one of --main-class, --activity, or --application must be provided."
+         At least one of --main-class, --activity, or --application must be provided.\n\
+         --assets-dir is optional; PNG files in the directory are decoded into\n\
+         LVGL-native RGB565 and bundled in the ASSETS (ASST) section."
     );
 }
 
@@ -236,6 +256,113 @@ fn build_classes_data(classes: &[(String, Vec<u8>)]) -> Vec<u8> {
     data
 }
 
+// ── Asset discovery and decode ───────────────────────────────────────────────
+
+/// One asset bundled into the ASSETS section.
+struct Asset {
+    name: String,
+    width: u16,
+    height: u16,
+    cf: u8,
+    /// Raw pixel bytes in the format described by `cf`.
+    data: Vec<u8>,
+}
+
+/// Decode all `*.png` files in `dir` (flat, non-recursive) into LVGL-native
+/// RGB565 little-endian-per-pixel buffers.
+fn collect_assets(dir: &Path) -> Result<Vec<Asset>, String> {
+    let mut out = Vec::new();
+    let entries =
+        fs::read_dir(dir).map_err(|e| format!("read assets dir {}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("read assets dir entry: {e}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext != "png" {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("asset {} has non-UTF-8 name", path.display()))?
+            .to_owned();
+        let asset = decode_png_to_rgb565(&path, name)
+            .map_err(|e| format!("decode {}: {e}", path.display()))?;
+        out.push(asset);
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Decode a PNG file into an LVGL-native RGB565 (little-endian per pixel) buffer.
+///
+/// Per-pixel layout: `[low_byte, high_byte]` of the 16-bit value
+/// `(R5 << 11) | (G6 << 5) | B5`. The framebuffer's `LV_COLOR_16_SWAP=1`
+/// configuration handles the eventual byte swap on the SPI write to the
+/// ST7789, so the source data stays in the standard little-endian form
+/// LVGL refers to as `LV_COLOR_FORMAT_RGB565`.
+fn decode_png_to_rgb565(path: &Path, name: String) -> Result<Asset, String> {
+    let img = image::open(path).map_err(|e| format!("{e}"))?;
+    let rgba = img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    if w == 0 || h == 0 {
+        return Err("zero-sized image".into());
+    }
+    if w > u16::MAX as u32 || h > u16::MAX as u32 {
+        return Err(format!("image too large ({w}x{h}); max 65535x65535"));
+    }
+    let mut buf = Vec::with_capacity((w as usize) * (h as usize) * 2);
+    for px in rgba.pixels() {
+        // Discard alpha; RGB565 has no alpha channel.
+        let r = (px[0] >> 3) as u16; // 5 bits
+        let g = (px[1] >> 2) as u16; // 6 bits
+        let b = (px[2] >> 3) as u16; // 5 bits
+        let v: u16 = (r << 11) | (g << 5) | b;
+        buf.extend_from_slice(&v.to_le_bytes());
+    }
+    Ok(Asset {
+        name,
+        width: w as u16,
+        height: h as u16,
+        cf: LV_COLOR_FORMAT_RGB565,
+        data: buf,
+    })
+}
+
+/// Build the ASSETS section data. The data of each asset starts on a 4-byte
+/// boundary within the section and each record is followed by 0..3 pad bytes
+/// so the next record also starts on a 4-byte boundary.
+fn build_assets_data(assets: &[Asset]) -> Vec<u8> {
+    let mut data = Vec::new();
+    write_u32_le(&mut data, assets.len() as u32);
+    for a in assets {
+        write_str_u16(&mut data, &a.name);
+        write_u16_le(&mut data, a.width);
+        write_u16_le(&mut data, a.height);
+        data.push(a.cf);
+        data.push(0); // reserved0
+        write_u16_le(&mut data, 0u16); // stride: 0 = derive from width + cf
+        write_u32_le(&mut data, a.data.len() as u32);
+        // Pad to 4-byte boundary before the data.
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&a.data);
+        // Pad to 4-byte boundary before the next record.
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+    }
+    data
+}
+
 /// Build a section header (16 bytes).
 fn build_section_header(tag: u32, data_len: u32) -> Vec<u8> {
     let mut hdr = Vec::with_capacity(16);
@@ -254,6 +381,7 @@ fn build_papk(
     version: &str,
     framework_map_version: &str,
     classes: &[(String, Vec<u8>)],
+    assets: &[Asset],
 ) -> Vec<u8> {
     let manifest_data = build_manifest_data(
         main_class,
@@ -264,15 +392,29 @@ fn build_papk(
         framework_map_version,
     );
     let classes_data = build_classes_data(classes);
+    let assets_data = if assets.is_empty() {
+        Vec::new()
+    } else {
+        build_assets_data(assets)
+    };
 
     let manifest_hdr = build_section_header(TAG_MANIFEST, manifest_data.len() as u32);
     let classes_hdr = build_section_header(TAG_CLASSES, classes_data.len() as u32);
+    let assets_hdr = build_section_header(TAG_ASSETS, assets_data.len() as u32);
 
     // File header is 24 bytes.
     // MANIFEST section starts immediately after.
     let manifest_offset: u32 = 24;
     let classes_offset: u32 =
         manifest_offset + manifest_hdr.len() as u32 + manifest_data.len() as u32;
+    // 0 means "no ASSETS section". Legacy parsers see zero in the slot they
+    // formerly read as `reserved` and behave unchanged.
+    let assets_offset: u32 = if assets.is_empty() {
+        0
+    } else {
+        classes_offset + classes_hdr.len() as u32 + classes_data.len() as u32
+    };
+    let section_count: u32 = if assets.is_empty() { 2 } else { 3 };
 
     let mut file = Vec::new();
 
@@ -280,10 +422,10 @@ fn build_papk(
     file.extend_from_slice(MAGIC);
     write_u16_le(&mut file, VERSION_MAJOR);
     write_u16_le(&mut file, VERSION_MINOR);
-    write_u32_le(&mut file, 2); // section_count
+    write_u32_le(&mut file, section_count);
     write_u32_le(&mut file, manifest_offset);
     write_u32_le(&mut file, classes_offset);
-    write_u32_le(&mut file, 0); // reserved
+    write_u32_le(&mut file, assets_offset);
 
     // MANIFEST section
     file.extend_from_slice(&manifest_hdr);
@@ -292,6 +434,12 @@ fn build_papk(
     // CLASSES section
     file.extend_from_slice(&classes_hdr);
     file.extend_from_slice(&classes_data);
+
+    // ASSETS section (optional)
+    if !assets.is_empty() {
+        file.extend_from_slice(&assets_hdr);
+        file.extend_from_slice(&assets_data);
+    }
 
     file
 }
@@ -331,6 +479,24 @@ fn main() {
         );
     }
 
+    let assets: Vec<Asset> = match &args.assets_dir {
+        Some(dir) if dir.is_dir() => match collect_assets(dir) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("Error reading assets: {e}");
+                std::process::exit(1);
+            }
+        },
+        Some(dir) => {
+            eprintln!(
+                "Warning: --assets-dir '{}' is not a directory; skipping",
+                dir.display()
+            );
+            Vec::new()
+        }
+        None => Vec::new(),
+    };
+
     let papk = build_papk(
         args.main_class.as_deref(),
         args.activity.as_deref(),
@@ -339,6 +505,7 @@ fn main() {
         &args.version,
         &args.framework_map_version,
         &classes,
+        &assets,
     );
 
     if let Some(parent) = args.output.parent() {
@@ -351,10 +518,11 @@ fn main() {
     match fs::write(&args.output, &papk) {
         Ok(()) => {
             eprintln!(
-                "==> Wrote {} ({} bytes, {} classes)",
+                "==> Wrote {} ({} bytes, {} classes, {} assets)",
                 args.output.display(),
                 papk.len(),
-                classes.len()
+                classes.len(),
+                assets.len()
             );
         }
         Err(e) => {

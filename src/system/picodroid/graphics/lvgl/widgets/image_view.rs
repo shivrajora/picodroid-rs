@@ -60,3 +60,16 @@ pub(in crate::system::picodroid::graphics) fn set_scale(id: i32, zoom: i32) {
     let z = if zoom < 0 { 0u32 } else { zoom as u32 };
     unsafe { lv_image_set_scale(obj, z) };
 }
+
+/// Hand a bundled-asset descriptor to LVGL for this image widget.
+///
+/// `dsc` must outlive the widget — it is `'static` in practice because we
+/// only call this with pointers from `graphics::assets`, which leaks each
+/// descriptor for the firmware's lifetime.
+pub(in crate::system::picodroid::graphics) fn set_src(id: i32, dsc: *const lv_image_dsc_t) {
+    let obj = handle_table::lookup(id);
+    if obj.is_null() || dsc.is_null() {
+        return;
+    }
+    unsafe { lv_image_set_src(obj, dsc as *const core::ffi::c_void) };
+}

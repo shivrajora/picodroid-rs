@@ -216,6 +216,69 @@ pub const LV_IMAGE_ALIGN_TILE: lv_image_align_t = 12;
 pub const LV_IMAGE_ALIGN_CONTAIN: lv_image_align_t = 13;
 pub const LV_IMAGE_ALIGN_COVER: lv_image_align_t = 14;
 
+/// LVGL color format (`lv_color_format_t`). Values from
+/// `vendor/lvgl/src/misc/lv_color.h`. Only the formats picodroid emits
+/// from `papk-pack` are exposed here.
+pub type lv_color_format_t = u8;
+pub const LV_COLOR_FORMAT_RGB888: lv_color_format_t = 0x0F;
+pub const LV_COLOR_FORMAT_ARGB8888: lv_color_format_t = 0x10;
+pub const LV_COLOR_FORMAT_RGB565: lv_color_format_t = 0x12;
+
+/// Magic byte at the top of `lv_image_header_t::magic` for a v9 image
+/// descriptor. See `vendor/lvgl/src/draw/lv_image_dsc.h`.
+pub const LV_IMAGE_HEADER_MAGIC: u8 = 0x19;
+
+/// Mirror of `lv_image_header_t` (`vendor/lvgl/src/draw/lv_image_dsc.h:98-107`).
+///
+/// The C struct uses bitfields packed into 32-bit words. We encode the same
+/// bits manually into `flags` (low byte = magic, next byte = cf, top 16 = flags)
+/// so we don't depend on Rust's bitfield emulation. Layout is `#[repr(C)]`
+/// with the same word order as the C struct, which matches LVGL's reads.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct lv_image_header_t {
+    /// Bit 0..7: `LV_IMAGE_HEADER_MAGIC` (`0x19`).
+    /// Bit 8..15: `lv_color_format_t`.
+    /// Bit 16..31: image flags (`LV_IMAGE_FLAGS_*`; we leave at 0).
+    pub magic_cf_flags: u32,
+    pub w: u16,
+    pub h: u16,
+    pub stride: u16,
+    pub reserved_2: u16,
+}
+
+impl lv_image_header_t {
+    /// Build a header for an uncompressed, non-premultiplied RGB565/RGB888 image.
+    #[inline]
+    pub const fn new(cf: lv_color_format_t, w: u16, h: u16, stride: u16) -> Self {
+        Self {
+            magic_cf_flags: (LV_IMAGE_HEADER_MAGIC as u32) | ((cf as u32) << 8),
+            w,
+            h,
+            stride,
+            reserved_2: 0,
+        }
+    }
+}
+
+/// Mirror of `lv_image_dsc_t` (`vendor/lvgl/src/draw/lv_image_dsc.h:110-138`).
+/// `data` points into XIP-mapped flash for bundled assets, so the descriptor
+/// itself can live in RAM without needing to copy the pixel buffer.
+#[repr(C)]
+pub struct lv_image_dsc_t {
+    pub header: lv_image_header_t,
+    pub data_size: u32,
+    pub data: *const u8,
+    pub reserved: *const core::ffi::c_void,
+    pub reserved_2: *const core::ffi::c_void,
+}
+
+// `lv_image_dsc_t` is shared with LVGL by raw pointer; the descriptor is
+// immutable after init and the pixel data lives in `'static` flash, so it's
+// safe to send/sync across the FreeRTOS tasks that use it.
+unsafe impl Send for lv_image_dsc_t {}
+unsafe impl Sync for lv_image_dsc_t {}
+
 // Opacity constants
 pub const LV_OPA_COVER: u8 = 255;
 

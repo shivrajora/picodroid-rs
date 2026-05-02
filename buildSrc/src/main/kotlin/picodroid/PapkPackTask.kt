@@ -37,6 +37,11 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Optional
     abstract val application: Property<String>
 
+    @get:InputDirectory
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val assetsDir: DirectoryProperty
+
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
@@ -65,6 +70,7 @@ abstract class PapkPackTask : DefaultTask() {
             "--classes-dir", classesDir.get().asFile.absolutePath,
             "--output", out.absolutePath,
         )
+        assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
 
         val pb = ProcessBuilder(args).directory(project.rootDir).inheritIO()
         CargoEnv.sanitize(pb)

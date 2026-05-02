@@ -8,6 +8,7 @@ const FILE_HEADER_LEN: usize = 24;
 const SECTION_HEADER_LEN: usize = 16;
 const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
 const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
+const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
 
 // ── Low-level read helpers ─────────────────────────────────────────────────────
 
@@ -45,6 +46,8 @@ struct FileHeader {
     section_count: u32,
     manifest_offset: usize,
     classes_offset: usize,
+    /// 0 = no ASSETS section (legacy v1.0, or v1.1 without --assets-dir).
+    assets_offset: usize,
 }
 
 struct SectionHeader {
@@ -72,6 +75,7 @@ fn parse_file_header(data: &[u8]) -> Result<FileHeader, String> {
         section_count: read_u32(data, 8).unwrap(),
         manifest_offset: read_u32(data, 12).unwrap() as usize,
         classes_offset: read_u32(data, 16).unwrap() as usize,
+        assets_offset: read_u32(data, 20).unwrap() as usize,
     })
 }
 
@@ -133,6 +137,128 @@ fn parse_classes(data: &[u8]) -> Result<Vec<(String, usize)>, String> {
         classes.push((String::from_utf8_lossy(name).into_owned(), class_data.len()));
     }
     Ok(classes)
+}
+
+/// Decoded asset row for the dump table.
+struct AssetInfo {
+    name: String,
+    width: u16,
+    height: u16,
+    cf: u8,
+    data_size: usize,
+}
+
+fn parse_assets(data: &[u8]) -> Result<Vec<AssetInfo>, String> {
+    if data.len() < 4 {
+        return Err("Assets section too short".into());
+    }
+    let count = read_u32(data, 0).unwrap() as usize;
+    let mut pos = 4;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let Some(name) = read_bytes_u16(data, &mut pos) else {
+            return Err("Truncated asset name".into());
+        };
+        if pos + 12 > data.len() {
+            return Err("Truncated asset header".into());
+        }
+        let width = read_u16(data, pos).unwrap();
+        let height = read_u16(data, pos + 2).unwrap();
+        let cf = data[pos + 4];
+        let data_size = read_u32(data, pos + 8).unwrap() as usize;
+        pos += 12;
+        // Pad to 4-byte boundary before pixel data.
+        pos = (pos + 3) & !3;
+        if pos + data_size > data.len() {
+            return Err("Truncated asset pixel data".into());
+        }
+        pos += data_size;
+        // Pad to 4-byte boundary before next record.
+        pos = (pos + 3) & !3;
+        out.push(AssetInfo {
+            name: String::from_utf8_lossy(name).into_owned(),
+            width,
+            height,
+            cf,
+            data_size,
+        });
+    }
+    Ok(out)
+}
+
+/// Translate an LVGL color format byte to a friendly label. Values match
+/// `vendor/lvgl/src/misc/lv_color.h` `lv_color_format_t`.
+fn cf_label(cf: u8) -> &'static str {
+    match cf {
+        0x0F => "RGB888",
+        0x10 => "ARGB8888",
+        0x12 => "RGB565",
+        0x14 => "RGB565A8",
+        0x1A => "ARGB8888_PRE",
+        0x1B => "RGB565_SWAPPED",
+        _ => "?",
+    }
+}
+
+fn print_assets_table(assets: &[AssetInfo]) {
+    const NAME_MIN: usize = 16;
+    let name_col = assets
+        .iter()
+        .map(|a| a.name.len())
+        .max()
+        .unwrap_or(NAME_MIN)
+        .max(NAME_MIN);
+    let dim_col = 11; // " 1234x5678 "
+    let cf_col = 16;
+    let size_col = 9;
+
+    println!(
+        "  ┌{n}┬{d}┬{c}┬{s}┐",
+        n = "─".repeat(name_col + 2),
+        d = "─".repeat(dim_col + 2),
+        c = "─".repeat(cf_col + 2),
+        s = "─".repeat(size_col + 2),
+    );
+    println!(
+        "  │ {:<name_col$} │ {:<dim_col$} │ {:<cf_col$} │ {:>size_col$} │",
+        "Asset",
+        "Dim",
+        "Format",
+        "Size",
+        name_col = name_col,
+        dim_col = dim_col,
+        cf_col = cf_col,
+        size_col = size_col,
+    );
+    println!(
+        "  ├{n}┼{d}┼{c}┼{s}┤",
+        n = "─".repeat(name_col + 2),
+        d = "─".repeat(dim_col + 2),
+        c = "─".repeat(cf_col + 2),
+        s = "─".repeat(size_col + 2),
+    );
+    for a in assets {
+        let dim = format!("{}x{}", a.width, a.height);
+        let cf_text = format!("{} ({:#04x})", cf_label(a.cf), a.cf);
+        println!(
+            "  │ {:<name_col$} │ {:<dim_col$} │ {:<cf_col$} │ {:>size_col$} │",
+            a.name,
+            dim,
+            cf_text,
+            fmt_size(a.data_size),
+            name_col = name_col,
+            dim_col = dim_col,
+            cf_col = cf_col,
+            size_col = size_col,
+        );
+    }
+    println!(
+        "  └{n}┴{d}┴{c}┴{s}┘",
+        n = "─".repeat(name_col + 2),
+        d = "─".repeat(dim_col + 2),
+        c = "─".repeat(cf_col + 2),
+        s = "─".repeat(size_col + 2),
+    );
 }
 
 // ── Display helpers ────────────────────────────────────────────────────────────
@@ -235,6 +361,14 @@ fn run(path: &Path) -> Result<(), String> {
         "  classes_off     {:#x}  ({})",
         hdr.classes_offset, hdr.classes_offset
     );
+    if hdr.assets_offset != 0 {
+        println!(
+            "  assets_off      {:#x}  ({})",
+            hdr.assets_offset, hdr.assets_offset
+        );
+    } else {
+        println!("  assets_off      —  (no ASSETS section)");
+    }
 
     // ── Manifest section ─────────────────────────────────────────────────────
     let manifest_hdr = parse_section_header(&data, hdr.manifest_offset)?;
@@ -279,6 +413,32 @@ fn run(path: &Path) -> Result<(), String> {
         classes.len(),
         fmt_size(total_bytecode),
     );
+
+    // ── Assets section (optional) ────────────────────────────────────────────
+    if hdr.assets_offset != 0 {
+        let assets_hdr = parse_section_header(&data, hdr.assets_offset)?;
+        let assets_data = section_data(&data, hdr.assets_offset, TAG_ASSETS)
+            .map_err(|e| format!("ASSETS section: {e}"))?;
+        let assets = parse_assets(assets_data)?;
+        let total_pixels: usize = assets.iter().map(|a| a.data_size).sum();
+        println!();
+        println!(
+            "Assets  ({} bytes @ {:#x})  tag \"{}\"",
+            assets_hdr.length,
+            hdr.assets_offset,
+            tag_name(assets_hdr.tag),
+        );
+        if assets.is_empty() {
+            println!("  (empty)");
+        } else {
+            print_assets_table(&assets);
+            println!(
+                "  {} assets · {} of pixel data",
+                assets.len(),
+                fmt_size(total_pixels),
+            );
+        }
+    }
 
     Ok(())
 }
