@@ -79,13 +79,9 @@ mod backing {
 
     static QUEUE: QueueCell = QueueCell(UnsafeCell::new(None));
 
-    fn queue() -> &'static Queue<u32> {
-        // SAFETY: initialised by `init()` before any sender or receiver.
-        unsafe {
-            (*QUEUE.0.get())
-                .as_ref()
-                .expect("main_queue not initialised")
-        }
+    fn queue_opt() -> Option<&'static Queue<u32>> {
+        // SAFETY: only mutated by `init()` pre-scheduler; read-only after.
+        unsafe { (*QUEUE.0.get()).as_ref() }
     }
 
     pub fn init() {
@@ -99,19 +95,27 @@ mod backing {
     }
 
     pub fn try_send(word: u32) -> bool {
+        // Apps that loop forever inside `Application.onCreate` (e.g. blinky)
+        // never reach `run_activity`, so the queue is never init'd. Cross-task
+        // posters such as `pdb::pending::notify_jvm` (called from pdb_task on
+        // core 1) must silently no-op rather than panic. Returning `false`
+        // matches the queue-full path and is harmless to all callers.
+        let Some(q) = queue_opt() else { return false };
         // FreeRTOS Queue::send wakes any task blocked on Queue::receive,
         // which is how `recv_blocking` gets woken sub-ms when a poster runs.
-        queue().send(word, Duration::zero()).is_ok()
+        q.send(word, Duration::zero()).is_ok()
     }
 
     #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
-        queue().receive(Duration::zero()).ok()
+        queue_opt()?.receive(Duration::zero()).ok()
     }
 
     pub fn recv_blocking() -> u32 {
+        // Only called from the UI thread, which always runs `init()` first.
+        let q = queue_opt().expect("main_queue not initialised");
         loop {
-            if let Ok(w) = queue().receive(Duration::infinite()) {
+            if let Ok(w) = q.receive(Duration::infinite()) {
                 return w;
             }
             // `Duration::infinite()` shouldn't return Err in practice, but
