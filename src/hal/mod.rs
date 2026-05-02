@@ -123,6 +123,10 @@ mod chip;
 #[path = "rp/mod.rs"]
 mod chip;
 
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-esp"))]
+#[path = "esp/mod.rs"]
+mod chip;
+
 // Peripheral drivers
 #[allow(unused_imports)]
 pub use chip::adc;

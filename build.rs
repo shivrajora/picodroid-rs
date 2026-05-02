@@ -29,7 +29,7 @@ use std::path::PathBuf;
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let is_arm_embedded = target_arch == "arm";
+    let is_embedded = matches!(target_arch.as_str(), "arm" | "xtensa");
 
     let mut sensors = Vec::new();
     let mut buttons = Vec::new();
@@ -57,7 +57,7 @@ fn main() {
     let active_board_name = config::resolve_active_board();
     boards::emit_board_imports(out, active_board_name.as_deref());
 
-    if is_arm_embedded {
+    if is_embedded {
         let board = board_cfg_full
             .as_ref()
             .expect("No board feature active — enable board-testbench or similar");
@@ -72,14 +72,18 @@ fn main() {
             .cloned()
             .unwrap_or_else(|| panic!("MCU toml missing 'family': {mcu_toml_path}"));
 
-        boards::place_memory_x(out, &board.props, &mcu_family, &mcu_name);
+        // RP-only: per-MCU memory.x and FreeRTOS C build. ESP-family uses
+        // esp-hal's linkall.x (supplied by its own build script) and bypasses
+        // FreeRTOS until Milestone 3.
+        if mcu_family == "rp" {
+            let freertos_config_dir = format!("mcus/{mcu_family}");
+            boards::place_memory_x(out, &board.props, &mcu_family, &mcu_name);
+            freertos::build(out, &mcu, &mcu_toml_path, &mcu_family, &freertos_config_dir);
 
-        let freertos_config_dir = format!("mcus/{mcu_family}");
-        freertos::build(out, &mcu, &mcu_toml_path, &mcu_family, &freertos_config_dir);
-
-        if board.props.get("network_type").map(String::as_str) == Some("cyw43") {
-            network::build_cyw43_driver(&mcu_family, &freertos_config_dir);
-            network::build_freertos_tcp(&mcu_family, &freertos_config_dir);
+            if board.props.get("network_type").map(String::as_str) == Some("cyw43") {
+                network::build_cyw43_driver(&mcu_family, &freertos_config_dir);
+                network::build_freertos_tcp(&mcu_family, &freertos_config_dir);
+            }
         }
     }
 
@@ -96,8 +100,8 @@ fn main() {
 
     papk::emit_framework_map_version(out);
     papk::embed_framework_classes(out);
-    papk::embed_apk(out, is_arm_embedded);
-    papk::embed_papk_flash_init(out, is_arm_embedded);
+    papk::embed_apk(out, is_embedded);
+    papk::embed_papk_flash_init(out, is_embedded);
 }
 
 /// Emit `has_network` / `network_<type>` rustc cfgs from board.toml. Mirrors the

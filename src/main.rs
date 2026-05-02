@@ -49,8 +49,7 @@ mod hal_rp_pdb_usb_protocol_tests;
 mod hal_rp_spi_protocol_tests;
 
 // Family-rp hardware imports (Cortex-M-specific via cortex-m-rt + the
-// generic-FreeRTOS rust bindings). A future family-esp build will provide its
-// own equivalents under cfg(feature = "family-esp").
+// generic-FreeRTOS rust bindings).
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 use cortex_m::asm;
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
@@ -62,6 +61,13 @@ use freertos_rust::*;
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 use panic_probe as _;
 
+// Family-esp hardware imports (Xtensa LX7 via xtensa-lx-rt).
+// defmt global logger and panic handler are in src/hal/esp/boot.rs.
+// Note: esp-hal is deferred until rp235x-hal bumps riscv-rt to ^0.16 (the
+// current conflict makes them mutually exclusive in the same Cargo workspace).
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+use xtensa_lx_rt::entry;
+
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
@@ -69,6 +75,10 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 #[cfg(feature = "sim")]
 #[global_allocator]
 static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::new();
+
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+#[global_allocator]
+static GLOBAL: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[entry]
@@ -83,6 +93,29 @@ fn main() -> ! {
     // for the JVM — persistence simply remains unavailable until the next boot.
     if let Err(e) = fs::init() {
         defmt::warn!("[fs] init failed: {}", defmt::Display2Format(&e));
+    }
+
+    hal::boot::start_tasks(boot_apk)
+}
+
+// Static backing store for the ESP heap allocator.  256 KiB is intentionally
+// conservative for the stub build; tune when FreeRTOS/PSRAM land (Milestone 3).
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+static mut ESP_HEAP: core::mem::MaybeUninit<[u8; 256 * 1024]> = core::mem::MaybeUninit::uninit();
+
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
+#[entry]
+fn main() -> ! {
+    // Initialize heap allocator before any alloc usage.
+    unsafe { GLOBAL.init(ESP_HEAP.as_mut_ptr() as usize, 256 * 1024) }
+
+    hal::boot::clock_init();
+
+    let boot_apk: &'static [u8] =
+        unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+
+    if let Err(_e) = fs::init() {
+        // defmt has no transport yet on ESP; logging deferred to Milestone 2
     }
 
     hal::boot::start_tasks(boot_apk)
