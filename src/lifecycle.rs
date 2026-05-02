@@ -168,6 +168,7 @@ pub(crate) fn run_activity(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     use crate::system::executors::main_queue::{self, MainTask};
+    use crate::system::picodroid::graphics::display;
     use crate::system::picodroid::graphics::gfx::Handle;
     use crate::system::picodroid::graphics::lvgl::with_gfx;
     use pico_jvm::NativeMethodHandler;
@@ -175,6 +176,14 @@ pub(crate) fn run_activity(
     // Initialise the unified main-thread FIFO; harmless if the module was
     // already initialised on a prior activity launch.
     main_queue::init();
+
+    // Bring up LVGL + allocate the Display singleton before the Activity
+    // can run. `Display.setContentView` reads `g.screen()` unconditionally,
+    // so an Activity that calls it without first touching `getDisplay()`
+    // would otherwise segfault on an uninitialized graphics backend.
+    // `display::get_instance` is idempotent — second-and-later activity
+    // launches just return the cached singleton.
+    let _ = display::get_instance(&mut heap.objects);
 
     // Bootstrap: push the initial Activity, then drive its onCreate ->
     // onStart -> onResume. From this point on the stack is non-empty for

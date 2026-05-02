@@ -10,10 +10,6 @@ import picodroid.widget.TextView;
 /** Smoke test for bundled image assets in the papk. */
 public class ImageDemoActivity extends Activity {
   public void onCreate() {
-    // Touch the Display singleton first so LVGL is initialized before we
-    // build the view tree — `setContentView` itself does not bring up the
-    // engine. (Same pattern as displaydemo's `getDisplay().calibrate()`.)
-    getDisplay();
     Log.i("ImageDemo", "loading bundled asset 'logo.png'");
 
     LinearLayout root = new LinearLayout();
