@@ -1,0 +1,351 @@
+# Shrink map (schema v1)
+schema = 1
+
+[[class]]
+from = "picodroid/app/Activity"
+to   = "a/A"
+
+[[class]]
+from = "picodroid/app/Application"
+to   = "a/B"
+
+[[class]]
+from = "picodroid/app/IBinder"
+to   = "a/BT"
+
+[[class]]
+from = "picodroid/app/Notification"
+to   = "a/BU"
+
+[[class]]
+from = "picodroid/app/Notification$Builder"
+to   = "a/BV"
+
+[[class]]
+from = "picodroid/app/NotificationManager"
+to   = "a/BW"
+
+[[class]]
+from = "picodroid/app/Service"
+to   = "a/BX"
+
+[[class]]
+from = "picodroid/concurrent/BackgroundExecutor"
+to   = "a/AS"
+
+[[class]]
+from = "picodroid/concurrent/Executor"
+to   = "a/AT"
+
+[[class]]
+from = "picodroid/concurrent/Executors"
+to   = "a/AU"
+
+[[class]]
+from = "picodroid/concurrent/MainExecutor"
+to   = "a/AV"
+
+[[class]]
+from = "picodroid/concurrent/Thread"
+to   = "a/C"
+
+[[class]]
+from = "picodroid/content/Context"
+to   = "a/AW"
+
+[[class]]
+from = "picodroid/content/Editor"
+to   = "a/D"
+
+[[class]]
+from = "picodroid/content/Intent"
+to   = "a/BY"
+
+[[class]]
+from = "picodroid/content/Preferences"
+to   = "a/E"
+
+[[class]]
+from = "picodroid/content/ServiceConnection"
+to   = "a/BZ"
+
+[[class]]
+from = "picodroid/content/pm/PackageManager"
+to   = "a/AX"
+
+[[class]]
+from = "picodroid/di/ActivitySingletonComponent"
+to   = "a/CA"
+
+[[class]]
+from = "picodroid/di/ApplicationComponent"
+to   = "a/CB"
+
+[[class]]
+from = "picodroid/graphics/Color"
+to   = "a/F"
+
+[[class]]
+from = "picodroid/graphics/Display"
+to   = "a/G"
+
+[[class]]
+from = "picodroid/graphics/Theme"
+to   = "a/BG"
+
+[[class]]
+from = "picodroid/graphics/drawable/Drawable"
+to   = "a/BH"
+
+[[class]]
+from = "picodroid/graphics/drawable/GradientDrawable"
+to   = "a/BI"
+
+[[class]]
+from = "picodroid/graphics/drawable/GradientDrawable$Orientation"
+to   = "a/BJ"
+
+[[class]]
+from = "picodroid/hardware/Sensor"
+to   = "a/AY"
+
+[[class]]
+from = "picodroid/hardware/SensorEvent"
+to   = "a/AZ"
+
+[[class]]
+from = "picodroid/hardware/SensorEventListener"
+to   = "a/BA"
+
+[[class]]
+from = "picodroid/hardware/SensorManager"
+to   = "a/BB"
+
+[[class]]
+from = "picodroid/io/File"
+to   = "a/H"
+
+[[class]]
+from = "picodroid/io/FileInputStream"
+to   = "a/I"
+
+[[class]]
+from = "picodroid/io/FileOutputStream"
+to   = "a/J"
+
+[[class]]
+from = "picodroid/net/DatagramPacket"
+to   = "a/K"
+
+[[class]]
+from = "picodroid/net/DatagramSocket"
+to   = "a/L"
+
+[[class]]
+from = "picodroid/net/HttpInputStream"
+to   = "a/BC"
+
+[[class]]
+from = "picodroid/net/HttpOutputStream"
+to   = "a/BD"
+
+[[class]]
+from = "picodroid/net/HttpUrlConnection"
+to   = "a/BE"
+
+[[class]]
+from = "picodroid/net/InetAddress"
+to   = "a/M"
+
+[[class]]
+from = "picodroid/net/NetworkInfo"
+to   = "a/N"
+
+[[class]]
+from = "picodroid/net/ServerSocket"
+to   = "a/O"
+
+[[class]]
+from = "picodroid/net/Socket"
+to   = "a/P"
+
+[[class]]
+from = "picodroid/net/Url"
+to   = "a/BF"
+
+[[class]]
+from = "picodroid/os/Runtime"
+to   = "a/Q"
+
+[[class]]
+from = "picodroid/os/SystemClock"
+to   = "a/R"
+
+[[class]]
+from = "picodroid/pio/Adc"
+to   = "a/S"
+
+[[class]]
+from = "picodroid/pio/Gpio"
+to   = "a/T"
+
+[[class]]
+from = "picodroid/pio/I2cDevice"
+to   = "a/U"
+
+[[class]]
+from = "picodroid/pio/PeripheralManager"
+to   = "a/V"
+
+[[class]]
+from = "picodroid/pio/Pwm"
+to   = "a/W"
+
+[[class]]
+from = "picodroid/pio/SpiDevice"
+to   = "a/X"
+
+[[class]]
+from = "picodroid/pio/UartDevice"
+to   = "a/Y"
+
+[[class]]
+from = "picodroid/util/Log"
+to   = "a/Z"
+
+[[class]]
+from = "picodroid/view/GestureDetector"
+to   = "a/BK"
+
+[[class]]
+from = "picodroid/view/GestureDetector$OnGestureListener"
+to   = "a/BL"
+
+[[class]]
+from = "picodroid/view/KeyEvent"
+to   = "a/AQ"
+
+[[class]]
+from = "picodroid/view/MotionEvent"
+to   = "a/AA"
+
+[[class]]
+from = "picodroid/view/OnKeyListener"
+to   = "a/AR"
+
+[[class]]
+from = "picodroid/view/OnSwipeListener"
+to   = "a/CE"
+
+[[class]]
+from = "picodroid/view/OnTouchListener"
+to   = "a/BM"
+
+[[class]]
+from = "picodroid/view/View"
+to   = "a/AB"
+
+[[class]]
+from = "picodroid/view/ViewPropertyAnimator"
+to   = "a/BN"
+
+[[class]]
+from = "picodroid/view/inputmethod/EditorInfo"
+to   = "a/CC"
+
+[[class]]
+from = "picodroid/widget/AlertDialog"
+to   = "a/BO"
+
+[[class]]
+from = "picodroid/widget/AlertDialog$1"
+to   = "a/BP"
+
+[[class]]
+from = "picodroid/widget/AlertDialog$Builder"
+to   = "a/BQ"
+
+[[class]]
+from = "picodroid/widget/Button"
+to   = "a/AC"
+
+[[class]]
+from = "picodroid/widget/CheckBox"
+to   = "a/AD"
+
+[[class]]
+from = "picodroid/widget/DatePicker"
+to   = "a/CF"
+
+[[class]]
+from = "picodroid/widget/EditText"
+to   = "a/AE"
+
+[[class]]
+from = "picodroid/widget/FrameLayout"
+to   = "a/AF"
+
+[[class]]
+from = "picodroid/widget/ImageView"
+to   = "a/AG"
+
+[[class]]
+from = "picodroid/widget/Keyboard"
+to   = "a/BR"
+
+[[class]]
+from = "picodroid/widget/LinearLayout"
+to   = "a/AH"
+
+[[class]]
+from = "picodroid/widget/ListView"
+to   = "a/AI"
+
+[[class]]
+from = "picodroid/widget/OnEditorActionListener"
+to   = "a/CD"
+
+[[class]]
+from = "picodroid/widget/ProgressBar"
+to   = "a/AJ"
+
+[[class]]
+from = "picodroid/widget/ScrollView"
+to   = "a/AK"
+
+[[class]]
+from = "picodroid/widget/SeekBar"
+to   = "a/AL"
+
+[[class]]
+from = "picodroid/widget/Snackbar"
+to   = "a/CG"
+
+[[class]]
+from = "picodroid/widget/Spinner"
+to   = "a/AM"
+
+[[class]]
+from = "picodroid/widget/SwipeRefreshLayout"
+to   = "a/CH"
+
+[[class]]
+from = "picodroid/widget/Switch"
+to   = "a/AN"
+
+[[class]]
+from = "picodroid/widget/TextView"
+to   = "a/AO"
+
+[[class]]
+from = "picodroid/widget/TimePicker"
+to   = "a/CI"
+
+[[class]]
+from = "picodroid/widget/Toast"
+to   = "a/BS"
+
+[[class]]
+from = "picodroid/widget/ToggleButton"
+to   = "a/AP"
+
