@@ -32,7 +32,7 @@ pub use picodroid_core::shrink_names;
 #[cfg(feature = "sim")]
 mod sim_allocator;
 mod system;
-mod task_priority;
+pub use picodroid_core::task_priority;
 
 // Host-testable pure-logic slices of RP HAL drivers. The rest of `hal::rp`
 // is ARM-only and cfg-gated out on the host; these modules have no
