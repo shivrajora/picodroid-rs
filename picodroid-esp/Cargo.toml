@@ -27,12 +27,13 @@ embedded-hal   = "1.0"
 defmt          = "1"
 
 # ESP-family (Xtensa LX7) embedded deps.
-# esp-hal is deferred until the riscv-rt conflict with the RP workspace is
-# resolved (rp235x-hal ^0.12 vs esp-hal ^0.16 both declare links="riscv-rt").
-# Using xtensa-lx-rt directly avoids the conflict.  Real esp-hal peripheral
-# drivers are added in Milestone 2 / Stage 5 of the workspace extraction.
+# esp-hal 1.1 is now possible here because this workspace's Cargo.lock does NOT
+# contain rp235x-hal (which requires riscv-rt ^0.12) — the workspace split was
+# exactly the fix for that conflict.  esp-hal itself depends on xtensa-lx-rt so
+# we drop the direct xtensa-lx-rt dep; esp-hal re-exports the entry macro.
 [target.'cfg(target_arch = "xtensa")'.dependencies]
-xtensa-lx-rt     = "0.21"
+esp-hal           = { version = "1.1", features = ["esp32s3"] }
+esp-backtrace     = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
 critical-section  = "1"
 embedded-alloc    = "0.5"
 

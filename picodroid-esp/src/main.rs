@@ -9,7 +9,7 @@ mod boards;
 mod hal;
 
 use embedded_alloc::Heap;
-use xtensa_lx_rt::entry;
+use esp_hal::entry;
 
 #[global_allocator]
 static GLOBAL: Heap = Heap::empty();
@@ -25,8 +25,7 @@ fn main() -> ! {
 
     hal::boot::clock_init();
 
-    let boot_apk: &'static [u8] =
-        unsafe { hal::flash::read_flash_papk() }.unwrap_or(&[]);
+    let boot_apk: &'static [u8] = unsafe { hal::flash::read_flash_papk() }.unwrap_or(&[]);
 
     hal::boot::start_tasks(boot_apk)
 }
