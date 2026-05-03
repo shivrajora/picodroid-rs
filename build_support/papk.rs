@@ -13,21 +13,19 @@ use std::process::Command;
 /// whose semver is ≤ that version; falls back to `"0.0.0"` (sentinel
 /// meaning "no shrinking") when no map has been cut yet.
 ///
+/// `root` is the repo root directory (where `Cargo.toml` and `sdk/` live).
 /// The emitted file exposes `FRAMEWORK_MAP_VERSION: &str`, included by
 /// the firmware crate so that `verify_compat` at PAPK load time can
 /// reject mismatched apps.
-pub fn emit_framework_map_version(out: &Path) {
+pub fn emit_framework_map_version(out: &Path, root: &Path) {
     // Shrinking is opt-in. Without PICODROID_SHRINK=1 we emit the `0.0.0`
     // sentinel so nothing else in the pipeline touches framework .class
     // bytes — matching Android's "R8 off by default" behavior.
     println!("cargo:rerun-if-env-changed=PICODROID_SHRINK");
 
     let active = if shrink_enabled() {
-        let manifest_dir = env::var("CARGO_MANIFEST_DIR")
-            .map(PathBuf::from)
-            .expect("CARGO_MANIFEST_DIR must be set during build");
-        let cargo_toml = manifest_dir.join("Cargo.toml");
-        let shrink_maps_dir = manifest_dir.join("sdk").join("shrink-maps");
+        let cargo_toml = root.join("Cargo.toml");
+        let shrink_maps_dir = root.join("sdk").join("shrink-maps");
 
         println!("cargo:rerun-if-changed={}", cargo_toml.display());
         println!("cargo:rerun-if-changed={}", shrink_maps_dir.display());
@@ -130,13 +128,14 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// the active shrink map, and embed each `.class` file as a `&'static [u8]`
 /// into `framework_classes.rs`.
 ///
+/// `root` is the repo root directory (where `gradlew`, `sdk/`, etc. live).
 /// Shrinking is only triggered when [`resolve_active_map_version`] returns
 /// a version other than the `"0.0.0"` sentinel *and* a matching map file
 /// exists. When shrinking runs, this function also writes
 /// `framework_unshrink.rs` — a reverse-translation table from shrunk name
 /// back to original, consumed by the native dispatch layer. When shrinking
 /// is off the emitted table is an identity passthrough.
-pub fn embed_framework_classes(out: &Path) {
+pub fn embed_framework_classes(out: &Path, root: &Path) {
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
             out.join("framework_classes.rs"),
@@ -147,10 +146,7 @@ pub fn embed_framework_classes(out: &Path) {
         return;
     }
 
-    let manifest_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set during build"),
-    );
-    let framework_dir = manifest_dir.join("sdk/java");
+    let framework_dir = root.join("sdk/java");
     let java_files = collect_files(&framework_dir, "java");
     for f in &java_files {
         println!("cargo:rerun-if-changed={}", f.display());
@@ -163,10 +159,10 @@ pub fn embed_framework_classes(out: &Path) {
         "sdk/build.gradle.kts",
         "buildSrc",
     ] {
-        println!("cargo:rerun-if-changed={}", manifest_dir.join(p).display());
+        println!("cargo:rerun-if-changed={}", root.join(p).display());
     }
 
-    let gradlew = manifest_dir.join(if cfg!(windows) {
+    let gradlew = root.join(if cfg!(windows) {
         "gradlew.bat"
     } else {
         "gradlew"
@@ -175,7 +171,7 @@ pub fn embed_framework_classes(out: &Path) {
         .arg(":sdk:compileJava")
         .arg("--console=plain")
         .arg("-q")
-        .current_dir(&manifest_dir)
+        .current_dir(root)
         .status()
         .expect(
             "./gradlew not found — run from repo root and ensure a JDK is installed\n\
@@ -185,12 +181,12 @@ pub fn embed_framework_classes(out: &Path) {
         status.success(),
         "./gradlew :sdk:compileJava failed while compiling picodroid framework classes"
     );
-    let classes_dir = manifest_dir.join("sdk/build/classes/java/main");
+    let classes_dir = root.join("sdk/build/classes/java/main");
 
     // If the active map covers our package version, shrink into a sibling
     // directory and point the embed step at the shrunk output. Otherwise
     // embed the raw Gradle output.
-    let embed_dir = apply_active_shrink(out, &classes_dir).unwrap_or(classes_dir);
+    let embed_dir = apply_active_shrink(out, &classes_dir, root).unwrap_or(classes_dir);
 
     let mut class_files = collect_files(&embed_dir, "class");
     class_files.sort();
@@ -216,17 +212,17 @@ pub fn embed_framework_classes(out: &Path) {
 /// find it without groping cargo metadata, and emits `framework_unshrink.rs`
 /// with a reverse-translation function.
 ///
+/// `root` is the repo root (where `Cargo.toml`, `sdk/`, `target/` live).
 /// Returns `None` when shrinking is disabled (default) or no map is active —
 /// caller embeds raw javac output and the emitted unshrink function is an
 /// identity passthrough.
-fn apply_active_shrink(out: &Path, classes_dir: &Path) -> Option<PathBuf> {
+fn apply_active_shrink(out: &Path, classes_dir: &Path, root: &Path) -> Option<PathBuf> {
     if !shrink_enabled() {
         emit_identity_unshrink(out);
         return None;
     }
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").ok()?);
-    let shrink_maps_dir = manifest_dir.join("sdk").join("shrink-maps");
-    let cargo_toml = manifest_dir.join("Cargo.toml");
+    let shrink_maps_dir = root.join("sdk").join("shrink-maps");
+    let cargo_toml = root.join("Cargo.toml");
     let pkg_version = read_package_version(&cargo_toml).ok()?;
     let active = resolve_active_map_version(&pkg_version, &shrink_maps_dir);
     if active == "0.0.0" {
@@ -239,7 +235,7 @@ fn apply_active_shrink(out: &Path, classes_dir: &Path) -> Option<PathBuf> {
     println!("cargo:rerun-if-changed={}", map_path.display());
 
     // Publish the map to a stable location for scripts/build-apk.sh.
-    let publish_dir = manifest_dir.join("target").join("picodroid");
+    let publish_dir = root.join("target").join("picodroid");
     fs::create_dir_all(&publish_dir).ok();
     let _ = fs::copy(&map_path, publish_dir.join("framework-mapping.toml"));
 

@@ -9,10 +9,10 @@ mod app;
 // is active). Only pulled in on hardware builds.
 #[cfg(not(any(test, feature = "sim")))]
 mod boards;
-mod dispatch_sites;
+pub use picodroid_core::dispatch_sites;
 #[allow(dead_code)]
-mod drivers;
-mod framework_classes;
+pub use picodroid_core::drivers;
+pub use picodroid_core::framework_classes;
 #[allow(dead_code)]
 #[cfg(not(test))]
 mod fs;
@@ -21,14 +21,14 @@ mod hal;
 #[cfg(not(test))]
 mod lifecycle;
 #[cfg(not(test))]
-mod lvgl_ffi;
+pub use picodroid_core::lvgl_ffi;
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod packagemanager;
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod pdb;
 #[cfg(not(test))]
 mod service_lifecycle;
-mod shrink_names;
+pub use picodroid_core::shrink_names;
 #[cfg(feature = "sim")]
 mod sim_allocator;
 mod system;

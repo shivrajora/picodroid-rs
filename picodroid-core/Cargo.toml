@@ -13,6 +13,15 @@ license = "GPL-3.0-only"
 family-rp  = ["dep:freertos-rust"]
 family-esp = []
 sim        = []
+# Board capability features — activated by the binary crate's board features and
+# forwarded here so picodroid-core can emit the matching rustc-cfgs.
+# Each new board capability (sensor, network type, etc.) needs a feature here
+# so the driver code in picodroid-core compiles correctly for that board.
+sensor-bme688   = ["any-sensor"]
+sensor-ltr559   = ["any-sensor"]
+any-sensor      = []
+network-cyw43   = ["has-network"]
+has-network     = []
 
 [dependencies]
 pico-jvm      = { path = "../jvm",    version = "0.1" }
@@ -23,3 +32,6 @@ crc32fast     = { version = "1", default-features = false }
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 # freertos-rust is safe here: pure Rust bindings to FreeRTOS C symbols, no riscv-rt dep.
 freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = true }
+
+[build-dependencies]
+class-shrink = { path = "../tools/class-shrink" }

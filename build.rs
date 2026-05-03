@@ -97,8 +97,9 @@ fn main() {
     let board_cfg = board_cfg_full.as_ref().map(|bc| bc.props.clone());
     lvgl::build(out, &board_cfg);
 
-    papk::emit_framework_map_version(out);
-    papk::embed_framework_classes(out);
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    papk::emit_framework_map_version(out, &manifest_dir);
+    papk::embed_framework_classes(out, &manifest_dir);
     papk::embed_apk(out, is_embedded);
     papk::embed_papk_flash_init(out, is_embedded);
 }
