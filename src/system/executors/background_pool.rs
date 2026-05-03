@@ -152,10 +152,3 @@ mod sim {
 pub use device::{spawn, submit};
 #[cfg(feature = "sim")]
 pub use sim::submit;
-// ESP (single-threaded stub): background tasks are silently dropped in M1.
-#[cfg(all(not(feature = "sim"), feature = "family-esp"))]
-pub fn submit(_obj_ref: u16) -> bool {
-    false
-}
-#[cfg(all(not(feature = "sim"), feature = "family-esp"))]
-pub fn spawn() {}

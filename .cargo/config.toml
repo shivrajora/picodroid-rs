@@ -18,28 +18,16 @@ rustflags = [
   "-C", "link-arg=-Tdefmt.x",
 ]
 
-[target.xtensa-esp32s3-none-elf]
-# T-Deck Plus (ESP32-S3). Requires espup toolchain and espflash.
-# See docs/esp32s3-toolchain.md for setup instructions.
-# xtensa-lx-rt provides linkall.x via its build.rs search path.
-# Use xtensa-esp32s3-elf-gcc directly (ldproxy needs embuild from esp-hal).
-runner = "espflash flash --monitor"
-linker = "xtensa-esp32s3-elf-gcc"
-rustflags = [
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-nostartfiles",
-]
-
 # Per-board build/run aliases. Bare `cargo build` no longer has a default
 # target so it errors clearly — pick a board explicitly via these aliases or
 # the wrapper scripts in scripts/. See docs/cargo-aliases.md.
+# ESP32-S3 (T-Deck Plus): use `cargo b-tdeck-plus` from picodroid-esp/.
 [alias]
 # Hardware builds (`cargo build --target ... --no-default-features --features ...`)
 b-testbench-rp2040 = "build --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040"
 b-testbench-rp2350 = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 b-testbench-rp2350w = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 b-pico-enviro-mon = "build --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
-b-tdeck-plus = "build -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
 # Simulator (host target — no --target so cargo picks the host triple)
 b-sim = "build --no-default-features --features sim,board-testbench-rp2350"
 # Hardware run (probe-rs runner from the [target.*] blocks above)
@@ -47,12 +35,9 @@ r-testbench-rp2040 = "run --target thumbv6m-none-eabi --no-default-features --fe
 r-testbench-rp2350 = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 r-testbench-rp2350w = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 r-pico-enviro-mon = "run --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
-r-tdeck-plus = "run -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus"
 
 [env]
 DEFMT_LOG = "debug"
 # Cross-compilers used by freertos-cargo-build (cc crate) to compile FreeRTOS C source
 CC_thumbv6m-none-eabi = "arm-none-eabi-gcc"
 "CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
-# Cross-compiler for ESP32-S3 (used by any C build-deps targeting Xtensa)
-"CC_xtensa-esp32s3-none-elf" = "xtensa-esp32s3-elf-gcc"

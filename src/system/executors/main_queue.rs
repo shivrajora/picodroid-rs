@@ -200,22 +200,6 @@ mod backing {
     }
 }
 
-// ESP stub: single-threaded, no queue needed.
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-mod backing {
-    pub fn init() {}
-    pub fn try_send(_word: u32) -> bool {
-        false
-    }
-    pub fn try_recv() -> Option<u32> {
-        None
-    }
-    pub fn recv_blocking() -> u32 {
-        #[allow(clippy::empty_loop)]
-        loop {}
-    }
-}
-
 /// Initialise the queue backing store. Safe to call repeatedly; subsequent
 /// calls are no-ops on device and reset the sim queue.
 pub fn init() {

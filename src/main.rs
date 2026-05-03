@@ -61,13 +61,6 @@ use freertos_rust::*;
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 use panic_probe as _;
 
-// Family-esp hardware imports (Xtensa LX7 via xtensa-lx-rt).
-// defmt global logger and panic handler are in src/hal/esp/boot.rs.
-// Note: esp-hal is deferred until rp235x-hal bumps riscv-rt to ^0.16 (the
-// current conflict makes them mutually exclusive in the same Cargo workspace).
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-use xtensa_lx_rt::entry;
-
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
@@ -75,10 +68,6 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 #[cfg(feature = "sim")]
 #[global_allocator]
 static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::new();
-
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-#[global_allocator]
-static GLOBAL: embedded_alloc::Heap = embedded_alloc::Heap::empty();
 
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[entry]
@@ -93,29 +82,6 @@ fn main() -> ! {
     // for the JVM — persistence simply remains unavailable until the next boot.
     if let Err(e) = fs::init() {
         defmt::warn!("[fs] init failed: {}", defmt::Display2Format(&e));
-    }
-
-    hal::boot::start_tasks(boot_apk)
-}
-
-// Static backing store for the ESP heap allocator.  256 KiB is intentionally
-// conservative for the stub build; tune when FreeRTOS/PSRAM land (Milestone 3).
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-static mut ESP_HEAP: core::mem::MaybeUninit<[u8; 256 * 1024]> = core::mem::MaybeUninit::uninit();
-
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-#[entry]
-fn main() -> ! {
-    // Initialize heap allocator before any alloc usage.
-    unsafe { GLOBAL.init(ESP_HEAP.as_mut_ptr() as usize, 256 * 1024) }
-
-    hal::boot::clock_init();
-
-    let boot_apk: &'static [u8] =
-        unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
-
-    if let Err(_e) = fs::init() {
-        // defmt has no transport yet on ESP; logging deferred to Milestone 2
     }
 
     hal::boot::start_tasks(boot_apk)
@@ -142,10 +108,7 @@ fn main() {
     }
 }
 
-// Cortex-M exception handlers and FreeRTOS application hooks. These are
-// family-rp-specific: cortex-m-rt's #[exception] machinery and the
-// FreeRTOS-rust bindings only exist on this family. A future family-esp
-// will provide its own panic / fault hooks under cfg(feature = "family-esp").
+// Cortex-M exception handlers and FreeRTOS application hooks (family-rp only).
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[exception]

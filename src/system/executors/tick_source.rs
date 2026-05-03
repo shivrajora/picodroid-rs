@@ -146,15 +146,6 @@ mod backing {
     }
 }
 
-// ESP stub: no FreeRTOS timer available in Milestone 1.
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-esp"))]
-mod backing {
-    pub fn start() {}
-    pub fn pause() {}
-    pub fn resume() {}
-    pub fn stop() {}
-}
-
 /// Start the periodic 16 ms LVGL tick source. Idempotent; if already
 /// running, ensures it is unpaused.
 pub fn start() {

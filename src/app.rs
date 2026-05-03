@@ -290,6 +290,4 @@ pub fn run_jvm() {
     loop {
         freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(60_000));
     }
-    #[cfg(all(not(feature = "sim"), feature = "family-esp"))]
-    loop {}
 }

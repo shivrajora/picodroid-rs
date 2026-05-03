@@ -22,15 +22,12 @@ board-testbench-rp2040 = ["chip-rp2040"]
 board-testbench-rp2350 = ["chip-rp2350"]
 board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
 board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/network-cyw43"]
-board-tdeck-plus = ["chip-esp32s3"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
-chip-esp32s3 = ["family-esp"]
 # MCU family grouping (internal — forwarded to picodroid-core so both crates
 # see the same family feature without requiring duplicate cfg flags).
 family-rp = ["picodroid-core/family-rp"]
-family-esp = ["picodroid-core/family-esp"]
 # Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
 # by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
 # Simulator mode (no hardware)
@@ -55,23 +52,9 @@ rp235x-hal = { version = "0.4", optional = true, features = ["rt", "critical-sec
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
 
-# ESP-family (Xtensa LX7) embedded deps.
-# xtensa-lx-rt provides the Xtensa reset vector and entry-point macro without
-# pulling in any riscv-rt transitive deps, avoiding the riscv-rt `links`
-# conflict that would arise from mixing esp-hal (requires riscv-rt ^0.16) with
-# rp235x-hal (requires riscv-rt ^0.12) in the same workspace. esp-hal and
-# real peripheral drivers are added in later milestones once the conflict is
-# resolved upstream (rp235x-hal tracking riscv-rt ^0.16).
-[target.'cfg(target_arch = "xtensa")'.dependencies]
-xtensa-lx-rt = "0.21"
-critical-section = "1"
-# Heap allocator for no_std ESP builds. RP uses FreeRtosAllocator; sim uses
-# CappedAllocator; ESP stubs use embedded-alloc backed by a static heap buffer.
-embedded-alloc = "0.5"
-
 # Host-only deps — simulator display window + heap limiter.
-# Excluded from all embedded targets (both ARM and Xtensa).
-[target.'cfg(not(any(target_arch = "arm", target_arch = "xtensa")))'.dependencies]
+# Excluded from all embedded targets (ARM).
+[target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
 libc = "0.2"
 
@@ -103,10 +86,6 @@ opt-level = 3
 overflow-checks = false
 
 # do not optimize proc-macro crates = faster builds from scratch
-# Xtensa exception handlers are tiny routines that must be optimized even in
-# debug builds — unoptimized code exceeds the Xtensa code-size limits.
-[profile.dev.package.xtensa-lx-rt]
-opt-level = "z"
 
 [profile.dev.build-override]
 codegen-units = 8

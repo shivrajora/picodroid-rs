@@ -108,9 +108,9 @@ pub fn dispatch(
                         }
                     }
 
-                    #[cfg(any(feature = "sim", feature = "family-esp"))]
+                    #[cfg(feature = "sim")]
                     {
-                        // Threading not supported in sim/ESP-stub mode; skip.
+                        // Threading not supported in sim mode; skip.
                         let _ = class_name;
                     }
                 }

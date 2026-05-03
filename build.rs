@@ -25,6 +25,7 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+// File and Write are used by emit_sensor_config, emit_display_config, etc. below.
 
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -81,8 +82,6 @@ fn main() {
                 network::build_cyw43_driver(&mcu_family, &freertos_config_dir);
                 network::build_freertos_tcp(&mcu_family, &freertos_config_dir);
             }
-        } else if mcu_family == "esp" {
-            emit_esp_memory_x(out, &mcu_name);
         }
     }
 
@@ -102,37 +101,6 @@ fn main() {
     papk::embed_framework_classes(out, &manifest_dir);
     papk::embed_apk(out, is_embedded);
     papk::embed_papk_flash_init(out, is_embedded);
-}
-
-/// Write a `memory.x` for the named ESP MCU into OUT_DIR and add OUT_DIR to
-/// the linker search path so xtensa-lx-rt's `link.x` can INCLUDE it.
-fn emit_esp_memory_x(out: &std::path::Path, mcu_name: &str) {
-    let memory_x = match mcu_name {
-        "esp32s3" => {
-            // ESP32-S3 memory map (simplified for Milestone 1 stub build).
-            // Real regions: IRAM 40370000h 320K, DRAM 3FC80000h 512K, Flash 42000000h 8M.
-            // xtensa-lx-rt link.x uses ROTEXT / RODATA (flash) and RWDATA (DRAM).
-            // _stack_start_cpu0 = top of RWDATA (stack grows downward).
-            "\
-MEMORY {\n\
-  /* Xtensa exception/interrupt vectors — first 4 KiB of IRAM */\n\
-  vectors_seg (rx) : ORIGIN = 0x40370000, LENGTH = 4K\n\
-  /* IRAM: code/data that must run from RAM (interrupt handlers, cache-unsafe) */\n\
-  RWTEXT (rwx)     : ORIGIN = 0x40371000, LENGTH = 316K\n\
-  /* 8 MiB flash accessed via cache (XIP read-only) */\n\
-  ROTEXT (rx)      : ORIGIN = 0x42000000, LENGTH = 4M\n\
-  RODATA (r)       : ORIGIN = 0x42400000, LENGTH = 4M\n\
-  /* 512 KiB DRAM (data RAM, read-write) */\n\
-  RWDATA (rw)      : ORIGIN = 0x3FC80000, LENGTH = 512K\n\
-}\n\
-_stack_start_cpu0 = ORIGIN(RWDATA) + LENGTH(RWDATA);\n"
-        }
-        other => panic!("No memory.x template for ESP MCU '{other}'"),
-    };
-    let path = out.join("memory.x");
-    let mut f = File::create(&path).expect("create memory.x");
-    f.write_all(memory_x.as_bytes()).expect("write memory.x");
-    println!("cargo:rustc-link-search={}", out.display());
 }
 
 /// Emit `has_network` / `network_<type>` rustc cfgs from board.toml. Mirrors the

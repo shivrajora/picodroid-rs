@@ -161,10 +161,10 @@ where
     {
         Some(worker::submit(f))
     }
-    // sim (host) and ESP-stub: run closure synchronously (single-threaded).
+    // sim (host): run closure synchronously (single-threaded).
     // Note: sim builds use board-testbench-rp2350 which activates family-rp,
     // so we must gate on `sim` explicitly rather than `not(family-rp)`.
-    #[cfg(any(feature = "sim", feature = "family-esp"))]
+    #[cfg(feature = "sim")]
     {
         cell::with(f)
     }
