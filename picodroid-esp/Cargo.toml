@@ -1,0 +1,76 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+# Apply the same littlefs-rust-core patch as the root workspace.  Each
+# workspace has its own Cargo.lock so the patch must be declared here too.
+[patch.crates-io]
+littlefs-rust-core = { path = "../third_party/littlefs-rust-core" }
+
+[package]
+name = "picodroid-esp"
+edition = "2021"
+version = "0.1.0"
+license = "GPL-3.0-only"
+
+[features]
+default = ["board-tdeck-plus"]
+board-tdeck-plus = ["chip-esp32s3"]
+chip-esp32s3 = ["family-esp"]
+family-esp = ["picodroid-core/family-esp"]
+
+[dependencies]
+picodroid-core = { path = "../picodroid-core" }
+pico-jvm       = { path = "../jvm",    version = "0.1" }
+compat         = { path = "../compat", version = "0.1" }
+embedded-hal   = "1.0"
+defmt          = "1"
+
+# ESP-family (Xtensa LX7) embedded deps.
+# esp-hal is deferred until the riscv-rt conflict with the RP workspace is
+# resolved (rp235x-hal ^0.12 vs esp-hal ^0.16 both declare links="riscv-rt").
+# Using xtensa-lx-rt directly avoids the conflict.  Real esp-hal peripheral
+# drivers are added in Milestone 2 / Stage 5 of the workspace extraction.
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+xtensa-lx-rt     = "0.21"
+critical-section  = "1"
+embedded-alloc    = "0.5"
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 3
+overflow-checks = false
+
+# Xtensa exception handlers are tiny routines that must be optimized even in
+# debug builds — unoptimized code exceeds the Xtensa code-size limits.
+[profile.dev.package.xtensa-lx-rt]
+opt-level = "z"
+
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[build-dependencies]
+class-shrink = { path = "../tools/class-shrink" }

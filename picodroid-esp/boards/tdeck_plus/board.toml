@@ -1,0 +1,6 @@
+# Board: Lilygo T-Deck Plus (ESP32-S3 + ST7789 + SX1262 LoRa + ESP32-C3 keyboard)
+# Milestone 1: minimal config — display, touch, network all disabled while
+# peripheral HAL stubs are being wired up. Enable sections as each peripheral
+# driver is implemented in subsequent milestones.
+mcu = "esp32s3"
+has_network = false
