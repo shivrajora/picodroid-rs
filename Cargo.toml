@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "jvm", "tools/papk-pack", "tools/papk-info", "tools/pdb", "tools/class-shrink", "compat"]
+members = [".", "jvm", "tools/papk-pack", "tools/papk-info", "tools/pdb", "tools/class-shrink", "compat", "picodroid-core"]
 resolver = "2"
 
 # Local fork of littlefs-rust-core v0.1.0 with `lfs_alignup` patched to use
@@ -27,15 +27,17 @@ board-tdeck-plus = ["chip-esp32s3"]
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
 chip-esp32s3 = ["family-esp"]
-# MCU family grouping (internal)
-family-rp = []
-family-esp = []
+# MCU family grouping (internal — forwarded to picodroid-core so both crates
+# see the same family feature without requiring duplicate cfg flags).
+family-rp = ["picodroid-core/family-rp"]
+family-esp = ["picodroid-core/family-esp"]
 # Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
 # by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
 # Simulator mode (no hardware)
-sim = []
+sim = ["picodroid-core/sim"]
 
 [dependencies]
+picodroid-core = { path = "picodroid-core" }
 pico-jvm = { path = "jvm", version = "0.1" }
 compat = { path = "compat" }
 crc32fast = { version = "1", default-features = false }

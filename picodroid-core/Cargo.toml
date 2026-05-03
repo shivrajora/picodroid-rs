@@ -1,0 +1,25 @@
+[package]
+name = "picodroid-core"
+edition = "2021"
+version = "0.1.0"
+license = "GPL-3.0-only"
+
+# Feature convention: one feature per MCU family.
+# Adding a new family (e.g. family-stm32) requires:
+#   1. Add feature here
+#   2. Create picodroid-<family>/ sub-workspace with its own Cargo.lock
+#   3. Implement src/hal/contract.rs for the new target
+[features]
+family-rp  = ["dep:freertos-rust"]
+family-esp = []
+sim        = []
+
+[dependencies]
+pico-jvm      = { path = "../jvm",    version = "0.1" }
+compat        = { path = "../compat", version = "0.1" }
+embedded-hal  = "1.0"
+defmt         = "1"
+crc32fast     = { version = "1", default-features = false }
+littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
+# freertos-rust is safe here: pure Rust bindings to FreeRTOS C symbols, no riscv-rt dep.
+freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = true }
