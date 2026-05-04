@@ -4,8 +4,19 @@
 //! clock_init is a no-op; real ClockControl::max() wiring is Milestone 2.
 //! start_tasks bypasses FreeRTOS entirely (Milestone 3 adds Xtensa RTOS).
 //!
-//! Panic handler and defmt transport are provided by esp-backtrace (Stage 5+).
-//! Critical-section impl: esp-hal provides one via its internal HAL init.
+//! Panic handler is provided by esp-backtrace.
+//! Critical-section: no-op impl for single-threaded M1; replace with
+//! esp-hal's interrupt-disabling impl in Milestone 2.
+
+struct EspCriticalSection;
+critical_section::set_impl!(EspCriticalSection);
+
+unsafe impl critical_section::Impl for EspCriticalSection {
+    unsafe fn acquire() -> critical_section::RawRestoreState {
+        0
+    }
+    unsafe fn release(_token: critical_section::RawRestoreState) {}
+}
 
 // No-op defmt global logger so defmt symbols link on Xtensa.
 // esp-backtrace handles the panic handler; we only need the logger stub here.

@@ -9,7 +9,8 @@ mod boards;
 mod hal;
 
 use embedded_alloc::Heap;
-use esp_hal::entry;
+use esp_backtrace as _;
+use xtensa_lx_rt::entry;
 
 #[global_allocator]
 static GLOBAL: Heap = Heap::empty();
