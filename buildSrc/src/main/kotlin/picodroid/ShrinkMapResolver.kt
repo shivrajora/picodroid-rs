@@ -30,7 +30,7 @@ object ShrinkMapResolver {
 
     fun resolve(repoRoot: File, shrinkEnabled: Boolean): String {
         if (!shrinkEnabled) return UNRELEASED
-        val cargoToml = repoRoot.resolve("Cargo.toml")
+        val cargoToml = repoRoot.resolve("platforms/rp/Cargo.toml")
         val shrinkMapsDir = repoRoot.resolve("sdk/shrink-maps")
 
         val pkgVersion = readPackageVersion(cargoToml)

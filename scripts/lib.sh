@@ -58,14 +58,15 @@ detect_usb_hub() {
 }
 
 # Sets BOARD_FEATURE, TARGET, FLASH_MAX, RAM_MAX by reading board.toml and mcu.toml.
+# RP boards live under platforms/rp/boards/; MCU definitions under platforms/rp/mcus/.
 resolve_board() {
   local board="$1"
-  local board_toml="$REPO_ROOT/boards/$board/board.toml"
+  local board_toml="$REPO_ROOT/platforms/rp/boards/$board/board.toml"
 
   if [[ ! -f "$board_toml" ]]; then
     echo "Unknown board: $board" >&2
     echo "Available boards:" >&2
-    for d in "$REPO_ROOT"/boards/*/; do
+    for d in "$REPO_ROOT"/platforms/rp/boards/*/; do
       [[ -f "$d/board.toml" ]] && echo "  $(basename "$d")"
     done
     exit 1
@@ -78,11 +79,11 @@ resolve_board() {
   local mcu
   mcu=$(grep '^mcu' "$board_toml" | sed 's/.*= *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' | tr -d ' ')
 
-  # Find mcu.toml under mcus/
+  # Find mcu.toml under platforms/rp/mcus/
   local mcu_toml
-  mcu_toml=$(find "$REPO_ROOT/mcus" -name "${mcu}.toml" 2>/dev/null | head -1)
+  mcu_toml=$(find "$REPO_ROOT/platforms/rp/mcus" -name "${mcu}.toml" 2>/dev/null | head -1)
   if [[ -z "$mcu_toml" ]]; then
-    echo "MCU definition not found: mcus/*/${mcu}.toml" >&2
+    echo "MCU definition not found: platforms/rp/mcus/*/${mcu}.toml" >&2
     exit 1
   fi
 
@@ -108,9 +109,9 @@ list_apps() {
   done
 }
 
-# Lists available board names from the boards directory, one per line, indented.
+# Lists available RP board names from platforms/rp/boards/, one per line, indented.
 list_boards() {
-  for d in "$REPO_ROOT"/boards/*/; do
+  for d in "$REPO_ROOT"/platforms/rp/boards/*/; do
     [[ -f "$d/board.toml" ]] && echo "    $(basename "$d")"
   done
 }
@@ -145,6 +146,7 @@ build_firmware() {
   local jobs
   jobs=$(cpu_count)
   PICODROID_APK_PATH="$APK_PATH" cargo build \
+    -p picodroid \
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \

@@ -1,70 +1,11 @@
 [workspace]
-members = [".", "jvm", "tools/papk-pack", "tools/papk-info", "tools/pdb", "tools/class-shrink", "compat", "picodroid-core"]
+members = ["platforms/rp", "jvm", "tools/papk-pack", "tools/papk-info", "tools/pdb", "tools/class-shrink", "compat", "picodroid-core"]
 resolver = "2"
 
 # Local fork of littlefs-rust-core v0.1.0 with `lfs_alignup` patched to use
 # wrapping arithmetic — upstream panics on u32 overflow in debug builds.
 [patch.crates-io]
 littlefs-rust-core = { path = "third_party/littlefs-rust-core" }
-
-[package]
-edition = "2021"
-name = "picodroid"
-version = "0.8.0"
-license = "GPL-3.0-only"
-
-[features]
-# Bare `cargo build` uses this default. To target a different board (or sim),
-# use the per-board cargo aliases — see docs/cargo-aliases.md.
-default = ["board-testbench-rp2350"]
-# Board selection (user-facing — pick exactly one for embedded builds)
-board-testbench-rp2040 = ["chip-rp2040"]
-board-testbench-rp2350 = ["chip-rp2350"]
-board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
-board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/network-cyw43"]
-# MCU selection (internal — activated by board features)
-chip-rp2040 = ["dep:rp-pico", "family-rp"]
-chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
-# MCU family grouping (internal — forwarded to picodroid-core so both crates
-# see the same family feature without requiring duplicate cfg flags).
-family-rp = ["picodroid-core/family-rp"]
-# Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
-# by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
-# Simulator mode (no hardware)
-sim = ["picodroid-core/sim"]
-
-[dependencies]
-picodroid-core = { path = "picodroid-core" }
-pico-jvm = { path = "jvm", version = "0.1" }
-compat = { path = "compat" }
-crc32fast = { version = "1", default-features = false }
-embedded-hal = { version = "1.0.0" }
-defmt = "1"
-littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
-
-# RP-family (Cortex-M) embedded deps.
-[target.'cfg(target_arch = "arm")'.dependencies]
-cortex-m = "0.7"
-cortex-m-rt = "0.7"
-freertos-rust = { version = "0.2.3", package = "freertos-rust-pd" }
-rp-pico = { version = "0.9", optional = true }
-rp235x-hal = { version = "0.4", optional = true, features = ["rt", "critical-section-impl"] }
-defmt-rtt = "1"
-panic-probe = { version = "1", features = ["print-defmt"] }
-
-# Host-only deps — simulator display window + heap limiter.
-# Excluded from all embedded targets (ARM).
-[target.'cfg(not(target_arch = "arm"))'.dependencies]
-minifb = "0.28"
-libc = "0.2"
-
-[build-dependencies]
-# Used to compile FreeRTOS-Kernel C source directly
-cc = "1.0"
-freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd" }
-# Shrinker library (host-only). Applied to framework .class files whenever a
-# committed shrink map covers the current picodroid package version.
-class-shrink = { path = "tools/class-shrink" }
 
 # cargo build/run
 [profile.dev]

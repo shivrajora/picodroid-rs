@@ -61,6 +61,7 @@ build_firmware
 
 # Step 3: Flash the firmware (build is already up-to-date, so this just flashes).
 PICODROID_APK_PATH="$APK_PATH" cargo run \
+  -p picodroid \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
   --no-default-features \

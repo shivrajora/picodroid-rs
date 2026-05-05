@@ -10,7 +10,7 @@ pico_shim = "src/hal/rp/port/pico_shim_rp2040.c"
 
 # FreeRTOS C build knobs consumed by build_support/freertos.rs. Keys are
 # semicolon-separated lists; see freertos.rs for the schema.
-freertos_port_extra_includes = "src/hal/rp/port;third_party/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/include"
+freertos_port_extra_includes = "src/hal/rp/port;../../third_party/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/include"
 freertos_c_defines = "LIB_PICO_MULTICORE=1;LIB_PICO_SYNC=0;LIB_PICO_TIME=0;configUSE_DYNAMIC_EXCEPTION_HANDLERS=0"
 # CMSIS vector slot -> portasm symbol aliases injected into the linker.
 freertos_vector_aliases = "SVCall=isr_svcall;PendSV=isr_pendsv;SysTick=isr_systick"

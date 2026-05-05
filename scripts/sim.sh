@@ -96,6 +96,7 @@ if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
 fi
 
 env "${ENV_VARS[@]}" cargo run \
+  -p picodroid \
   --target "$HOST_TARGET" \
   --no-default-features \
   --features "sim,$BOARD_FEATURE" \

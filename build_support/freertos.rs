@@ -28,15 +28,25 @@ use crate::config::parse_str_list;
 
 /// Compile the FreeRTOS kernel for the selected MCU and emit any linker
 /// fragments declared by the MCU TOML.
+///
+/// `repo_root` must be the absolute path to the repository root so that
+/// `third_party/FreeRTOS-Kernel` can be located regardless of which
+/// `platforms/<family>/` directory the build.rs runs from.
 pub fn build(
     out: &Path,
     mcu: &HashMap<String, String>,
     mcu_toml_path: &str,
     _mcu_family: &str,
     freertos_config_dir: &str,
+    repo_root: &Path,
 ) {
     let mut b = freertos_cargo_build::Builder::new();
-    b.freertos("third_party/FreeRTOS-Kernel");
+    b.freertos(
+        repo_root
+            .join("third_party/FreeRTOS-Kernel")
+            .to_str()
+            .unwrap(),
+    );
     b.freertos_config(freertos_config_dir);
 
     let freertos_port = mcu

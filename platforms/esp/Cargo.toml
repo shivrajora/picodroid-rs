@@ -5,7 +5,7 @@ resolver = "2"
 # Apply the same littlefs-rust-core patch as the root workspace.  Each
 # workspace has its own Cargo.lock so the patch must be declared here too.
 [patch.crates-io]
-littlefs-rust-core = { path = "../third_party/littlefs-rust-core" }
+littlefs-rust-core = { path = "../../third_party/littlefs-rust-core" }
 
 [package]
 name = "picodroid-esp"
@@ -18,11 +18,12 @@ default = ["board-tdeck-plus"]
 board-tdeck-plus = ["chip-esp32s3"]
 chip-esp32s3 = ["family-esp"]
 family-esp = ["picodroid-core/family-esp"]
+sim = ["picodroid-core/sim"]
 
 [dependencies]
-picodroid-core = { path = "../picodroid-core" }
-pico-jvm       = { path = "../jvm",    version = "0.1" }
-compat         = { path = "../compat", version = "0.1" }
+picodroid-core = { path = "../../picodroid-core" }
+pico-jvm       = { path = "../../jvm",    version = "0.1" }
+compat         = { path = "../../compat", version = "0.1" }
 embedded-hal   = "1.0"
 defmt          = "1"
 
@@ -75,4 +76,4 @@ opt-level = 0
 overflow-checks = false
 
 [build-dependencies]
-class-shrink = { path = "../tools/class-shrink" }
+class-shrink = { path = "../../tools/class-shrink" }

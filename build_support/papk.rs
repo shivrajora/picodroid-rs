@@ -24,7 +24,16 @@ pub fn emit_framework_map_version(out: &Path, root: &Path) {
     println!("cargo:rerun-if-env-changed=PICODROID_SHRINK");
 
     let active = if shrink_enabled() {
-        let cargo_toml = root.join("Cargo.toml");
+        // The root Cargo.toml is now a virtual workspace; the picodroid package
+        // version lives in platforms/rp/Cargo.toml.
+        let cargo_toml = {
+            let rp = root.join("platforms/rp/Cargo.toml");
+            if rp.exists() {
+                rp
+            } else {
+                root.join("Cargo.toml")
+            }
+        };
         let shrink_maps_dir = root.join("sdk").join("shrink-maps");
 
         println!("cargo:rerun-if-changed={}", cargo_toml.display());
@@ -222,7 +231,15 @@ fn apply_active_shrink(out: &Path, classes_dir: &Path, root: &Path) -> Option<Pa
         return None;
     }
     let shrink_maps_dir = root.join("sdk").join("shrink-maps");
-    let cargo_toml = root.join("Cargo.toml");
+    // Root Cargo.toml is a virtual workspace; package version lives in platforms/rp/.
+    let cargo_toml = {
+        let rp = root.join("platforms/rp/Cargo.toml");
+        if rp.exists() {
+            rp
+        } else {
+            root.join("Cargo.toml")
+        }
+    };
     let pkg_version = read_package_version(&cargo_toml).ok()?;
     let active = resolve_active_map_version(&pkg_version, &shrink_maps_dir);
     if active == "0.0.0" {

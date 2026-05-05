@@ -484,6 +484,7 @@ run_test() {
   local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
+    -p picodroid \
     --release \
     --jobs "$jobs" \
     --target "$TARGET" \

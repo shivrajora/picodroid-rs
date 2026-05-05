@@ -7,13 +7,17 @@ use std::env;
 use std::path::Path;
 
 /// Compile LVGL C sources into a static library.
-pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>) {
-    let lvgl_src = Path::new("vendor/lvgl/src");
+///
+/// `repo_root` must be the absolute path to the repository root so that
+/// `vendor/lvgl` and `lv_conf.h` can be located regardless of which
+/// `platforms/<family>/` directory the build.rs runs from.
+pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>, repo_root: &Path) {
+    let lvgl_src = repo_root.join("vendor/lvgl/src");
     if !lvgl_src.exists() {
         return;
     }
 
-    let c_files = collect_files(lvgl_src, "c");
+    let c_files = collect_files(&lvgl_src, "c");
     if c_files.is_empty() {
         return;
     }
@@ -38,11 +42,12 @@ pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>) {
         })
         .collect();
 
+    let lvgl_dir = repo_root.join("vendor/lvgl");
     let mut build = cc::Build::new();
     build
-        .include(".")
-        .include("vendor/lvgl")
-        .include("vendor/lvgl/src")
+        .include(repo_root)
+        .include(&lvgl_dir)
+        .include(&lvgl_src)
         .define("LV_CONF_INCLUDE_SIMPLE", None)
         .define("LV_LVGL_H_INCLUDE_SIMPLE", None)
         .warnings(false)
@@ -75,6 +80,9 @@ pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>) {
 
     build.compile("lvgl");
 
-    println!("cargo:rerun-if-changed=lv_conf.h");
-    println!("cargo:rerun-if-changed=vendor/lvgl/src");
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root.join("lv_conf.h").display()
+    );
+    println!("cargo:rerun-if-changed={}", lvgl_src.display());
 }
