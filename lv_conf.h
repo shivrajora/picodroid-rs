@@ -67,9 +67,9 @@
 
 #define LV_USE_DRAW_SW 1
 #if LV_USE_DRAW_SW == 1
-    /* Only RGB565 needed for our display */
+    /* RGB565 for display; RGB565A8 required for transform path (e.g. scaled ImageView) */
     #define LV_DRAW_SW_SUPPORT_RGB565       1
-    #define LV_DRAW_SW_SUPPORT_RGB565A8     0
+    #define LV_DRAW_SW_SUPPORT_RGB565A8     1
     #define LV_DRAW_SW_SUPPORT_RGB888       0
     #define LV_DRAW_SW_SUPPORT_XRGB8888    0
     #define LV_DRAW_SW_SUPPORT_ARGB8888    1  /* needed internally for blending */
