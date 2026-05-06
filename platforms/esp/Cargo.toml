@@ -27,6 +27,12 @@ compat         = { path = "../../compat", version = "0.1" }
 embedded-hal   = "1.0"
 defmt          = "1"
 
+# Host-only deps — simulator display window + heap limiter.
+# Excluded from Xtensa embedded targets.
+[target.'cfg(not(target_arch = "xtensa"))'.dependencies]
+minifb = "0.28"
+libc = "0.2"
+
 # ESP-family (Xtensa LX7) embedded deps.
 # esp-hal 1.1 is now possible here because this workspace's Cargo.lock does NOT
 # contain rp235x-hal (which requires riscv-rt ^0.12) — the workspace split was

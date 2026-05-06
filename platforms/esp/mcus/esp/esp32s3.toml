@@ -5,6 +5,8 @@ clock_hz = 240000000
 ram_kb = 512
 flash_kb = 8192
 core_count = 2
+extra_build_args = "-Zbuild-std=core,alloc"
+size_tool = "xtensa-esp32s3-elf-size"
 # FreeRTOS keys are intentionally absent — the ESP family bypasses FreeRTOS in
 # Milestone 1 (start_tasks calls app::run_jvm directly, single-threaded).
 # Milestone 3 will introduce FreeRTOS-on-Xtensa and populate these fields.

@@ -74,6 +74,10 @@ resolve_board "$BOARD"
 build_firmware
 
 if [[ "$UF2" == true ]]; then
+  if [[ "$PLATFORM" == "esp" ]]; then
+    echo "UF2 is not supported for ESP targets. Use espflash directly." >&2
+    exit 1
+  fi
   UF2_OUT="${ELF}.uf2"
   # Check if this is an RP2350-based board (target contains thumbv8m)
   if [[ "$TARGET" == *"thumbv8m"* ]]; then

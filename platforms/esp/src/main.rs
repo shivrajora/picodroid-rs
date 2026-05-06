@@ -29,7 +29,9 @@ static mut ESP_HEAP: core::mem::MaybeUninit<[u8; 256 * 1024]> = core::mem::Maybe
 #[entry]
 fn main() -> ! {
     // Initialize heap allocator before any alloc usage.
-    unsafe { GLOBAL.init(ESP_HEAP.as_mut_ptr() as usize, 256 * 1024) }
+    // Use addr_of_mut! to obtain a raw pointer without an intermediate &mut
+    // to the static, which triggers the static_mut_refs lint.
+    unsafe { GLOBAL.init(core::ptr::addr_of_mut!(ESP_HEAP) as usize, 256 * 1024) }
 
     hal::boot::clock_init();
 

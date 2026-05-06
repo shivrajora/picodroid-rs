@@ -74,6 +74,11 @@ done
 
 resolve_board "$BOARD"
 
+if [[ "$PLATFORM" == "esp" ]]; then
+  echo "ERROR: HIL tests are not yet supported for ESP boards." >&2
+  exit 1
+fi
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 hil_log() { timestamp_log "$@"; }

@@ -57,19 +57,47 @@ detect_usb_hub() {
   sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
 }
 
-# Sets BOARD_FEATURE, TARGET, FLASH_MAX, RAM_MAX by reading board.toml and mcu.toml.
-# RP boards live under platforms/rp/boards/; MCU definitions under platforms/rp/mcus/.
+# Sets BOARD_FEATURE, TARGET, FLASH_MAX, RAM_MAX, PLATFORM, PACKAGE, MANIFEST_DIR,
+# TARGET_DIR, EXTRA_BUILD_ARGS, and SIZE_TOOL by reading board.toml and mcu.toml.
+# Boards are searched across all platforms/ subdirectories.
 resolve_board() {
   local board="$1"
-  local board_toml="$REPO_ROOT/platforms/rp/boards/$board/board.toml"
 
-  if [[ ! -f "$board_toml" ]]; then
+  # Search all platforms for this board's board.toml
+  local board_toml
+  board_toml=$(find "$REPO_ROOT/platforms" -path "*/boards/$board/board.toml" | head -1)
+
+  if [[ -z "$board_toml" ]]; then
     echo "Unknown board: $board" >&2
     echo "Available boards:" >&2
-    for d in "$REPO_ROOT"/platforms/rp/boards/*/; do
-      [[ -f "$d/board.toml" ]] && echo "  $(basename "$d")"
-    done
+    list_boards >&2
     exit 1
+  fi
+
+  # Derive platform from path: platforms/<platform>/boards/...
+  PLATFORM=$(echo "$board_toml" | sed "s|$REPO_ROOT/platforms/||" | cut -d/ -f1)
+
+  case "$PLATFORM" in
+    rp)
+      PACKAGE="picodroid"
+      CARGO_PLUS=""        # stable toolchain, no override needed
+      ;;
+    esp)
+      PACKAGE="picodroid-esp"
+      CARGO_PLUS="+esp"   # Espressif nightly fork required for -Zbuild-std
+      ;;
+    *)
+      echo "Unknown platform: $PLATFORM" >&2; exit 1
+      ;;
+  esac
+
+  MANIFEST_DIR="$REPO_ROOT/platforms/$PLATFORM"
+
+  # RP workspace shares the repo-root target/; ESP workspace has its own.
+  if [[ "$PLATFORM" == "rp" ]]; then
+    TARGET_DIR="$REPO_ROOT/target"
+  else
+    TARGET_DIR="$MANIFEST_DIR/target"
   fi
 
   # Board feature name: underscores → hyphens for Cargo
@@ -79,21 +107,36 @@ resolve_board() {
   local mcu
   mcu=$(grep '^mcu' "$board_toml" | sed 's/.*= *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' | tr -d ' ')
 
-  # Find mcu.toml under platforms/rp/mcus/
+  # Find mcu.toml across all platforms
   local mcu_toml
-  mcu_toml=$(find "$REPO_ROOT/platforms/rp/mcus" -name "${mcu}.toml" 2>/dev/null | head -1)
+  mcu_toml=$(find "$REPO_ROOT/platforms" -name "${mcu}.toml" 2>/dev/null | head -1)
   if [[ -z "$mcu_toml" ]]; then
-    echo "MCU definition not found: platforms/rp/mcus/*/${mcu}.toml" >&2
+    echo "MCU definition not found: ${mcu}.toml under platforms/" >&2
     exit 1
   fi
 
-  # Read target triple, RAM, flash from mcu.toml
   TARGET=$(grep '^target' "$mcu_toml" | sed 's/.*= *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' | tr -d ' ')
   local ram_kb flash_kb
   ram_kb=$(grep '^ram_kb' "$mcu_toml" | sed 's/.*= *//' | tr -d ' ')
   flash_kb=$(grep '^flash_kb' "$mcu_toml" | sed 's/.*= *//' | tr -d ' ')
   RAM_MAX=$(( ram_kb * 1024 ))
   FLASH_MAX=$(( flash_kb * 1024 ))
+
+  # Optional extra cargo flags (e.g. -Zbuild-std=core,alloc for ESP nightly builds).
+  # Guard with grep -q to avoid failing under set -e when the key is absent.
+  # Use [^=]*= (not .*=) so the sed strips only up to the FIRST '=', preserving
+  # any '=' signs that appear inside the value (e.g. -Zbuild-std=core,alloc).
+  EXTRA_BUILD_ARGS=()
+  if grep -q '^extra_build_args' "$mcu_toml" 2>/dev/null; then
+    local raw_extra
+    raw_extra=$(grep '^extra_build_args' "$mcu_toml" | sed 's/^[^=]*= *//' | tr -d '"')
+    IFS=' ' read -ra EXTRA_BUILD_ARGS <<< "$raw_extra"
+  fi
+
+  SIZE_TOOL="arm-none-eabi-size"
+  if grep -q '^size_tool' "$mcu_toml" 2>/dev/null; then
+    SIZE_TOOL=$(grep '^size_tool' "$mcu_toml" | sed 's/^[^=]*= *//' | tr -d '"')
+  fi
 }
 
 # Returns the number of logical CPUs (cross-platform: Linux + macOS).
@@ -109,23 +152,27 @@ list_apps() {
   done
 }
 
-# Lists available RP board names from platforms/rp/boards/, one per line, indented.
+# Lists available board names from all platforms/, one per line, indented.
 list_boards() {
-  for d in "$REPO_ROOT"/platforms/rp/boards/*/; do
+  for d in "$REPO_ROOT"/platforms/*/boards/*/; do
     [[ -f "$d/board.toml" ]] && echo "    $(basename "$d")"
   done
 }
 
-# Prints flash/RAM usage for a given ELF. Requires FLASH_MAX and RAM_MAX to be set.
+# Prints flash/RAM usage for a given ELF. Requires FLASH_MAX, RAM_MAX, SIZE_TOOL.
 print_memory_usage() {
   local elf="$1"
+  if ! command -v "$SIZE_TOOL" &>/dev/null; then
+    echo "(skipping memory usage: $SIZE_TOOL not found)"
+    return
+  fi
   local size_output
-  size_output=$(arm-none-eabi-size "$elf")
+  size_output=$("$SIZE_TOOL" "$elf")
   echo ""
   echo "=== Memory Usage ==="
   echo "$size_output"
 
-  read TEXT DATA BSS <<< $(echo "$size_output" | awk 'NR==2 {print $1, $2, $3}')
+  read -r TEXT DATA BSS <<< "$(echo "$size_output" | awk 'NR==2 {print $1, $2, $3}')"
   local flash=$(( TEXT + DATA ))
   local ram=$(( DATA + BSS ))
 
@@ -135,7 +182,8 @@ print_memory_usage() {
 }
 
 # Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.
-# Requires BOARD, APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, and TARGET to be set.
+# Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
+# PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
 build_firmware() {
   # Step 1: Build the APK for the selected app.
   bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
@@ -145,15 +193,18 @@ build_firmware() {
   # Step 2: Build the firmware, embedding the APK.
   local jobs
   jobs=$(cpu_count)
-  PICODROID_APK_PATH="$APK_PATH" cargo build \
-    -p picodroid \
+  # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
+  PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
+    --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+    -p "$PACKAGE" \
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
     --features "$BOARD_FEATURE" \
+    "${EXTRA_BUILD_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"
 
-  ELF="target/${TARGET}/${PROFILE}/picodroid"
+  ELF="${TARGET_DIR}/${TARGET}/${PROFILE}/${PACKAGE}"
 
   if [[ ! -f "$ELF" ]]; then
     echo "Binary not found: $ELF" >&2

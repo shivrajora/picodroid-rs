@@ -78,8 +78,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve board feature name (underscores → hyphens)
-BOARD_FEATURE="board-$(echo "$BOARD" | tr '_' '-')"
+resolve_board "$BOARD"
 
 # Step 1: Build the APK for the selected app.
 bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
@@ -87,6 +86,7 @@ bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
 APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 
 # Step 2: Compile and run the simulator with the APK embedded.
+# Sim always targets the host — do not pass EXTRA_BUILD_ARGS (no -Zbuild-std for host).
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
@@ -95,8 +95,10 @@ if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
   ENV_VARS+=(PICODROID_SHRINK=1)
 fi
 
-env "${ENV_VARS[@]}" cargo run \
-  -p picodroid \
+# shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
+env "${ENV_VARS[@]}" cargo $CARGO_PLUS run \
+  --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+  -p "$PACKAGE" \
   --target "$HOST_TARGET" \
   --no-default-features \
   --features "sim,$BOARD_FEATURE" \

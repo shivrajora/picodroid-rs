@@ -54,13 +54,11 @@ fn main() {
     let active_board = config::resolve_active_board();
     boards::emit_board_imports(out, active_board.as_deref());
 
-    let board_display = active_board
-        .map(|name| {
-            let path = format!("boards/{name}/board.toml");
-            println!("cargo:rerun-if-changed={path}");
-            config::parse_board_toml(&path).display
-        })
-        .flatten();
+    let board_display = active_board.and_then(|name| {
+        let path = format!("boards/{name}/board.toml");
+        println!("cargo:rerun-if-changed={path}");
+        config::parse_board_toml(&path).display
+    });
     // config::emit_display_config also emits the has_display check-cfg.
     config::emit_display_config(out, &board_display);
 

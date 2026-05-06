@@ -17,16 +17,22 @@ mod chip;
 
 pub use chip::adc;
 pub use chip::boot;
+#[allow(unused_imports)]
 pub use chip::delay;
 pub use chip::display;
 pub use chip::flash;
 pub use chip::gpio;
 pub use chip::i2c;
+// input_pin / output_pin / spi_bus re-exports are consumed by board-specific
+// init code landing in Milestone 2; allow the forward declarations to compile.
+#[allow(unused_imports)]
 pub use chip::input_pin;
+#[allow(unused_imports)]
 pub use chip::output_pin;
 pub use chip::pdb_usb;
 pub use chip::pwm;
 pub use chip::spi;
+#[allow(unused_imports)]
 pub use chip::spi_bus;
 pub use chip::system_clock;
 pub use chip::touch;

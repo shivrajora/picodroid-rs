@@ -60,10 +60,13 @@ resolve_board "$BOARD"
 build_firmware
 
 # Step 3: Flash the firmware (build is already up-to-date, so this just flashes).
-PICODROID_APK_PATH="$APK_PATH" cargo run \
-  -p picodroid \
+# shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
+PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS run \
+  --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+  -p "$PACKAGE" \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
   --no-default-features \
   --features "$BOARD_FEATURE" \
+  "${EXTRA_BUILD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"

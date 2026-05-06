@@ -3,6 +3,8 @@
 //!
 //! All peripherals are sim-grade no-ops. Real implementations land in
 //! subsequent milestones as each peripheral driver is wired up to esp-hal.
+// Peripheral structs, constants, and helpers are stubs not yet wired up (M2+).
+#![allow(dead_code)]
 
 pub mod adc;
 pub mod boot;
