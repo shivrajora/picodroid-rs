@@ -27,7 +27,7 @@ jobs:
           submodules: recursive
       - name: Install ARM toolchain and JDK (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
       - name: Install ARM toolchain (macOS)
         if: runner.os == 'macOS'
         run: brew install --cask gcc-arm-embedded
@@ -44,11 +44,11 @@ jobs:
       - name: Build helloworld APK
         run: bash scripts/build-apk.sh --app helloworld
       # TestBench RP2040
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --no-default-features --features board-testbench-rp2040
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --no-default-features --features board-testbench-rp2040 --release
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040 --release
       # TestBench RP2350
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo build --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 --release
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 --release
   testing:
     name: Testing
     runs-on: ubuntu-latest
@@ -57,7 +57,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install ARM toolchain and JDK
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: thumbv6m-none-eabi
@@ -70,7 +70,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install ARM toolchain and JDK
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -78,11 +78,11 @@ jobs:
       - name: Build helloworld APK
         run: bash scripts/build-apk.sh --app helloworld
       # TestBench RP2040
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --no-default-features --features board-testbench-rp2040 -- --deny=warnings
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040 -- --deny=warnings
       # TestBench RP2350
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
       # Simulator (host target)
-      - run: PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
   formatting:
     name: Formatting
     runs-on: ubuntu-latest
