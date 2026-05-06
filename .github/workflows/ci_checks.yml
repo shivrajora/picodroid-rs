@@ -30,7 +30,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
       - name: Install ARM toolchain (macOS)
         if: runner.os == 'macOS'
-        run: brew install --cask gcc-arm-embedded
+        run: brew install arm-none-eabi-gcc
       - uses: actions/setup-java@v4
         if: runner.os == 'macOS'
         with:
