@@ -482,6 +482,12 @@ extern "C" {
         value: i32,
         selector: lv_style_selector_t,
     );
+    pub fn lv_obj_set_style_pad_row(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_pad_column(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
 
     // Opacity style
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);

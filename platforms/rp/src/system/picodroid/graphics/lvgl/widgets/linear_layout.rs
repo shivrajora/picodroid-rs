@@ -21,6 +21,8 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
         lv_obj_set_style_pad_right(o, 0, 0);
         lv_obj_set_style_pad_top(o, 0, 0);
         lv_obj_set_style_pad_bottom(o, 0, 0);
+        lv_obj_set_style_pad_row(o, 0, 0);
+        lv_obj_set_style_pad_column(o, 0, 0);
         o
     };
     handle_table::register(ptr)

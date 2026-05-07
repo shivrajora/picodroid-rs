@@ -21,6 +21,7 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
+    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
     TextView title = new TextView();

@@ -30,7 +30,7 @@ public class DragDemoActivity extends Activity {
 
     LinearLayout header = new LinearLayout();
     header.setOrientation(LinearLayout.VERTICAL);
-    header.setSize(240, 70);
+    header.setSize(240, 90);
     header.setPosition(0, 0);
     header.setPadding(10, 10, 10, 0);
 
@@ -42,6 +42,7 @@ public class DragDemoActivity extends Activity {
     TextView hint = new TextView();
     hint.setText("Touch anywhere to move the tile.");
     hint.setTextColor(Color.WHITE);
+    hint.setSize(220, 40);
     header.addView(hint);
 
     status = new TextView();
@@ -97,7 +98,7 @@ public class DragDemoActivity extends Activity {
 
   private void moveTileTo(int touchX, int touchY) {
     int tx = clamp(touchX - TILE_HALF, 0, 240 - TILE_SIZE);
-    int ty = clamp(touchY - TILE_HALF, 70, 240 - TILE_SIZE);
+    int ty = clamp(touchY - TILE_HALF, 90, 240 - TILE_SIZE);
     tile.setPosition(tx, ty);
   }
 
