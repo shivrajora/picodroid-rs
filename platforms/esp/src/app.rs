@@ -8,7 +8,7 @@
 
 use alloc::boxed::Box;
 use pico_jvm::apk::Papk;
-use pico_jvm::types::JvmError;
+use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, NativeContext, NativeMethodHandler, SharedJvmHeap};
 
 use picodroid_core::framework_classes::FRAMEWORK_CLASSES;
@@ -33,21 +33,45 @@ pub fn shared_heap() -> &'static mut SharedJvmHeap {
     unsafe { &mut *SHARED_HEAP.0.get() }
 }
 
-// ── Stub native handler ───────────────────────────────────────────────────────
-// Returns None for every call so the JVM falls through to BuiltinHandler
-// (java/lang/String, StringBuilder, Math, etc.).  Platform-specific handlers
-// (GPIO, Display, Thread) are added in subsequent milestones.
+// ── Native handler ────────────────────────────────────────────────────────────
+// Routes picodroid.util.Log.i to esp-println (USB-Serial-JTAG on the ESP32-S3,
+// readable via `espflash --monitor`).  Returns None for every other native call
+// so the JVM falls through to BuiltinHandler (java/lang/String, StringBuilder,
+// Math, etc.).  Platform-specific handlers (GPIO, Display, Thread) are added
+// in subsequent milestones.
 
-struct StubHandler;
+struct EspNativeHandler;
 
-impl NativeMethodHandler for StubHandler {
+impl NativeMethodHandler for EspNativeHandler {
     fn dispatch(
         &mut self,
-        _class_name: &str,
-        _method_name: &str,
-        _ctx: &mut NativeContext<'_>,
-    ) -> Option<Result<Option<pico_jvm::types::Value>, JvmError>> {
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        if class_name == "picodroid/util/Log" && method_name == "i" {
+            return Some(log_i(ctx));
+        }
         None
+    }
+}
+
+fn log_i(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let tag = resolve_string(ctx.args.first().copied().unwrap_or(Value::Null), ctx)?;
+    let msg = resolve_string(ctx.args.get(1).copied().unwrap_or(Value::Null), ctx)?;
+    #[cfg(target_arch = "xtensa")]
+    esp_println::println!("[{}] {}", tag, msg);
+    #[cfg(not(target_arch = "xtensa"))]
+    {
+        let _ = (tag, msg);
+    }
+    Ok(None)
+}
+
+fn resolve_string<'a>(v: Value, ctx: &'a NativeContext<'_>) -> Result<&'a str, JvmError> {
+    match v {
+        Value::Reference(idx) => ctx.strings.resolve(idx).ok_or(JvmError::InvalidReference),
+        _ => Err(JvmError::InvalidReference),
     }
 }
 
@@ -60,7 +84,7 @@ pub fn run_jvm() {
     heap.reset();
 
     let mut jvm = Box::new(Jvm::new());
-    let mut handler = StubHandler;
+    let mut handler = EspNativeHandler;
 
     for class_data in FRAMEWORK_CLASSES {
         jvm.load_class(class_data)
@@ -85,10 +109,34 @@ pub fn run_jvm() {
         }
     }
 
-    if let Some(main_class) = apk.main_class() {
+    // M1 entry-point dispatch: prefer Application.onCreate (mirrors RP's
+    // lifecycle::run_application minus the activity event loop), fall back
+    // to a static main when the manifest declares one.
+    if let Some(application_class) = apk.application() {
+        let static_name: &'static str =
+            unsafe { core::mem::transmute::<&str, &'static str>(application_class) };
+        let obj_ref = match heap.objects.alloc(static_name) {
+            Some(r) => r,
+            None => return,
+        };
+        match jvm.invoke_instance(static_name, "onCreate", obj_ref, heap, &mut handler) {
+            Ok(_) | Err(JvmError::Interrupted) => {}
+            Err(e) => {
+                #[cfg(target_arch = "xtensa")]
+                esp_println::println!("[jvm] Application.onCreate error: {:?}", e);
+                #[cfg(not(target_arch = "xtensa"))]
+                let _ = e;
+            }
+        }
+    } else if let Some(main_class) = apk.main_class() {
         match jvm.invoke_static(main_class, "main", heap, &mut handler) {
             Ok(_) | Err(JvmError::Interrupted) => {}
-            Err(_) => {}
+            Err(e) => {
+                #[cfg(target_arch = "xtensa")]
+                esp_println::println!("[jvm] main error: {:?}", e);
+                #[cfg(not(target_arch = "xtensa"))]
+                let _ = e;
+            }
         }
     }
 }

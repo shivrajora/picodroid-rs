@@ -34,15 +34,14 @@ minifb = "0.28"
 libc = "0.2"
 
 # ESP-family (Xtensa LX7) embedded deps.
-# esp-hal 1.1 is now possible here because this workspace's Cargo.lock does NOT
-# contain rp235x-hal (which requires riscv-rt ^0.12) — the workspace split was
-# exactly the fix for that conflict.  esp-hal itself depends on xtensa-lx-rt so
-# we drop the direct xtensa-lx-rt dep; esp-hal re-exports the entry macro.
+# esp-hal 1.1's full runtime (#[esp_hal::main] + linkall.x) is required: it
+# configures CPU caches, places the ESP-IDF app descriptor, and provides the
+# critical-section impl.  esp-hal pulls in xtensa-lx-rt 0.22 transitively.
 [target.'cfg(target_arch = "xtensa")'.dependencies]
 esp-hal           = { version = "1.1", features = ["esp32s3"] }
-esp-backtrace     = { version = "0.18", features = ["esp32s3", "panic-handler", "defmt"] }
-xtensa-lx-rt      = "0.22"
-critical-section  = "1"
+esp-backtrace     = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
+esp-println       = { version = "0.16", default-features = false, features = ["esp32s3", "jtag-serial"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32s3"] }
 embedded-alloc    = "0.5"
 
 [profile.dev]
@@ -61,11 +60,6 @@ incremental = false
 lto = "fat"
 opt-level = 3
 overflow-checks = false
-
-# Xtensa exception handlers are tiny routines that must be optimized even in
-# debug builds — unoptimized code exceeds the Xtensa code-size limits.
-[profile.dev.package.xtensa-lx-rt]
-opt-level = "z"
 
 [profile.dev.build-override]
 codegen-units = 8

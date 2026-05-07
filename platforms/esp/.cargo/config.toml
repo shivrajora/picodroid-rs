@@ -1,11 +1,12 @@
 [target.xtensa-esp32s3-none-elf]
 # T-Deck Plus (ESP32-S3). Requires espup toolchain and espflash.
 # See ../docs/esp32s3-toolchain.md for setup instructions.
-# xtensa-lx-rt provides linkall.x via its build.rs search path.
+# We use esp-hal's full runtime, which provides linkall.x (memory map +
+# section layout + cache/interrupt init) via its build script search path.
 runner = "espflash flash --monitor"
 linker = "xtensa-esp32s3-elf-gcc"
 rustflags = [
-  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tlinkall.x",
   "-C", "link-arg=-nostartfiles",
 ]
 

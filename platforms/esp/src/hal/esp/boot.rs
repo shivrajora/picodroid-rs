@@ -5,18 +5,7 @@
 //! start_tasks bypasses FreeRTOS entirely (Milestone 3 adds Xtensa RTOS).
 //!
 //! Panic handler is provided by esp-backtrace.
-//! Critical-section: no-op impl for single-threaded M1; replace with
-//! esp-hal's interrupt-disabling impl in Milestone 2.
-
-struct EspCriticalSection;
-critical_section::set_impl!(EspCriticalSection);
-
-unsafe impl critical_section::Impl for EspCriticalSection {
-    unsafe fn acquire() -> critical_section::RawRestoreState {
-        0
-    }
-    unsafe fn release(_token: critical_section::RawRestoreState) {}
-}
+//! Critical-section impl is provided by esp-hal (interrupt-disabling).
 
 // No-op defmt global logger so defmt symbols link on Xtensa.
 // esp-backtrace handles the panic handler; we only need the logger stub here.

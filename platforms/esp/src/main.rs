@@ -9,12 +9,16 @@ mod boards;
 mod hal;
 
 // Xtensa-specific runtime and allocator — only available on the ESP32-S3 target.
+// Use esp-hal's full runtime: its `#[esp_hal::main]` attribute hooks Reset,
+// configures CPU caches, sets up interrupts, and places the app descriptor.
 #[cfg(not(any(test, feature = "sim")))]
 use embedded_alloc::Heap;
 #[cfg(not(any(test, feature = "sim")))]
 use esp_backtrace as _;
+
+// ESP-IDF app descriptor — espflash refuses to flash esp-hal images without it.
 #[cfg(not(any(test, feature = "sim")))]
-use xtensa_lx_rt::entry;
+esp_bootloader_esp_idf::esp_app_desc!();
 
 #[cfg(not(any(test, feature = "sim")))]
 #[global_allocator]
@@ -26,11 +30,10 @@ static GLOBAL: Heap = Heap::empty();
 static mut ESP_HEAP: core::mem::MaybeUninit<[u8; 256 * 1024]> = core::mem::MaybeUninit::uninit();
 
 #[cfg(not(any(test, feature = "sim")))]
-#[entry]
+#[esp_hal::main]
 fn main() -> ! {
-    // Initialize heap allocator before any alloc usage.
-    // Use addr_of_mut! to obtain a raw pointer without an intermediate &mut
-    // to the static, which triggers the static_mut_refs lint.
+    let _peripherals = esp_hal::init(esp_hal::Config::default());
+
     unsafe { GLOBAL.init(core::ptr::addr_of_mut!(ESP_HEAP) as usize, 256 * 1024) }
 
     hal::boot::clock_init();
