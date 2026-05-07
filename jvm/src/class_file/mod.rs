@@ -57,6 +57,13 @@ pub struct MethodInfo {
     pub access_flags: u16,
     /// Exception table parsed from the Code attribute.
     pub exception_table: Vec<ExceptionEntry>,
+    /// Byte offset of the LineNumberTable body (entry_count u16 + entries) inside
+    /// the Flash-backed class data. 0 = not present. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub lnt_offset: usize,
+    /// Byte length of the LineNumberTable body (= 2 + entry_count*4). Debug builds only.
+    #[cfg(debug_assertions)]
+    pub lnt_len: usize,
 }
 
 #[derive(Debug)]

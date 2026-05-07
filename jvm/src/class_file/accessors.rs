@@ -327,4 +327,32 @@ impl ClassFile {
         let nat_idx = u16::from_be_bytes([data[off + 2], data[off + 3]]);
         Some((bsm_idx, nat_idx))
     }
+
+    /// Maps a bytecode PC to its source line number via a linear scan of the
+    /// Flash-backed LineNumberTable. Returns `None` if no LNT was recorded
+    /// (native method, compiled without `-g:lines`, or release build).
+    #[cfg(debug_assertions)]
+    pub fn pc_to_line(&self, m: &MethodInfo, pc: usize) -> Option<u16> {
+        if m.lnt_offset == 0 || m.lnt_len < 2 {
+            return None;
+        }
+        let data = self.data();
+        let entry_count = u16::from_be_bytes([data[m.lnt_offset], data[m.lnt_offset + 1]]) as usize;
+        let entries_start = m.lnt_offset + 2;
+        let max_entries = (m.lnt_len.saturating_sub(2)) / 4;
+        let n = entry_count.min(max_entries);
+        let mut best: Option<u16> = None;
+        for i in 0..n {
+            let base = entries_start + i * 4;
+            let start_pc = u16::from_be_bytes([data[base], data[base + 1]]) as usize;
+            let line_num = u16::from_be_bytes([data[base + 2], data[base + 3]]);
+            if start_pc <= pc {
+                best = Some(line_num);
+            } else {
+                // Entries are sorted ascending by start_pc per JVMS §4.7.12.
+                break;
+            }
+        }
+        best
+    }
 }

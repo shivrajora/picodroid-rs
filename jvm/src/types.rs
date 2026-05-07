@@ -53,6 +53,9 @@ pub struct StackTraceEntry {
     pub class_name: &'static str,
     pub method_name: &'static str,
     pub pc: usize,
+    /// Source line resolved from the `LineNumberTable`. Debug builds only.
+    #[cfg(debug_assertions)]
+    pub line: Option<u16>,
 }
 
 /// Errors that can occur during JVM execution.
@@ -114,6 +117,17 @@ impl fmt::Display for JvmError {
                     dotted(exception_class)
                 )?;
                 for entry in trace {
+                    #[cfg(debug_assertions)]
+                    if let Some(line) = entry.line {
+                        write!(
+                            f,
+                            "\n    at {}.{}(:{})",
+                            dotted(entry.class_name),
+                            entry.method_name,
+                            line
+                        )?;
+                        continue;
+                    }
                     write!(
                         f,
                         "\n    at {}.{}(pc={})",

@@ -195,12 +195,14 @@ fn handle_exception<H: NativeMethodHandler>(
         .filter_map(|f| {
             let cf = &ex.classes[f.class_idx];
             let cn = core::str::from_utf8(cf.class_name()?).ok()?;
-            let mn =
-                core::str::from_utf8(cf.cp_utf8(cf.methods()[f.method_idx].name_index)?).ok()?;
+            let method = &cf.methods()[f.method_idx];
+            let mn = core::str::from_utf8(cf.cp_utf8(method.name_index)?).ok()?;
             Some(StackTraceEntry {
                 class_name: cn,
                 method_name: mn,
                 pc: f.inst_pc,
+                #[cfg(debug_assertions)]
+                line: cf.pc_to_line(method, f.inst_pc),
             })
         })
         .collect();

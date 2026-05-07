@@ -365,3 +365,73 @@ fn athrow_superclass_not_caught_by_subclass() {
     );
     assert!(matches!(result, Err(JvmError::UncaughtException { .. })));
 }
+
+// ── Test class with LineNumberTable sub-attribute ─────────────────────────
+//
+// Identical to CLASS_TEST_UNCAUGHT except:
+//   - cp_count: 14 → 15  (adds #14 Utf8 "LineNumberTable")
+//   - Code attr len: 22 → 34  (+12 bytes for the LNT sub-attribute)
+//   - code_attrs_count: 0 → 1
+//   - LineNumberTable: 1 entry, start_pc=0 → line 10
+//
+// The athrow fires at inst_pc=7; pc_to_line(7) must return Some(10).
+#[cfg(debug_assertions)]
+static CLASS_TEST_UNCAUGHT_WITH_LNT: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version 52
+    0x00, 0x0F, // cp_count=15
+    // #1..#13 identical to CLASS_TEST_UNCAUGHT
+    0x07, 0x00, 0x02, 0x01, 0x00, 0x01, b'T', 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, b'j', b'a', b'v',
+    b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j', b'e', b'c', b't', 0x07, 0x00, 0x06,
+    0x01, 0x00, 0x03, b'E', b'x', b'c', 0x0A, 0x00, 0x05, 0x00, 0x08, 0x0C, 0x00, 0x09, 0x00, 0x0A,
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', 0x01, 0x00, 0x03, b'(', b')', b'V', 0x01,
+    0x00, 0x01, b'm', 0x01, 0x00, 0x03, b'(', b')', b'I', 0x01, 0x00, 0x04, b'C', b'o', b'd', b'e',
+    // #14 Utf8 "LineNumberTable" (len=15)
+    0x01, 0x00, 0x0F, b'L', b'i', b'n', b'e', b'N', b'u', b'm', b'b', b'e', b'r', b'T', b'a', b'b',
+    b'l', b'e',
+    // class meta: access=1, this=#1, super=#3, ifaces=0, fields=0, methods=1
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    // Method[0]: access=1, name=#11(0x0B), desc=#12(0x0C), attrs=1
+    0x00, 0x01, 0x00, 0x0B, 0x00, 0x0C, 0x00, 0x01,
+    // Code attr: name=#13(0x0D), len=34(0x22)
+    0x00, 0x0D, 0x00, 0x00, 0x00, 0x22, // max_stack=2, max_locals=1, code_len=10
+    0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0A, 0xBB, 0x00,
+    0x05, // new #5 (Exc) — offset 0
+    0x59, // dup — offset 3
+    0xB7, 0x00, 0x07, // invokespecial #7 — offset 4
+    0xBF, // athrow — offset 7 (inst_pc=7)
+    0x03, 0xAC, // iconst_0, ireturn (unreachable)
+    0x00, 0x00, // exc_table_len=0
+    0x00, 0x01, // code_attrs_count=1
+    0x00, 0x0E, // LNT attr_name_idx=#14
+    0x00, 0x00, 0x00, 0x06, // LNT attr_len=6
+    0x00, 0x01, // LNT entry_count=1
+    0x00, 0x00, // start_pc=0
+    0x00, 0x0A, // line_number=10
+    0x00, 0x00, // class_attrs_count=0
+];
+
+/// LineNumberTable parsed from Code sub-attributes → trace entry carries line number.
+#[cfg(debug_assertions)]
+#[test]
+fn uncaught_exception_trace_has_line_number() {
+    let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT_WITH_LNT], 1, &[]);
+    match result {
+        Err(JvmError::UncaughtException { trace, .. }) => {
+            assert_eq!(trace[0].line, Some(10));
+        }
+        other => panic!("expected UncaughtException, got {:?}", other),
+    }
+}
+
+/// Display of UncaughtException uses `:N` line format when LNT is present.
+#[cfg(debug_assertions)]
+#[test]
+fn uncaught_exception_display_uses_line_format() {
+    let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT_WITH_LNT], 1, &[]);
+    let s = alloc::format!("{}", result.unwrap_err());
+    assert!(s.contains(":10"), "expected ':10' in '{s}'");
+    assert!(
+        !s.contains("pc="),
+        "should not contain 'pc=' when line known: '{s}'"
+    );
+}

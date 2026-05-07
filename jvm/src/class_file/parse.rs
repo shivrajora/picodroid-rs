@@ -240,6 +240,10 @@ impl Parsed {
             let mut max_stack = 0u16;
             let mut max_locals = 0u16;
             let mut exception_table: Vec<ExceptionEntry> = Vec::new();
+            #[cfg(debug_assertions)]
+            let mut lnt_offset = 0usize;
+            #[cfg(debug_assertions)]
+            let mut lnt_len = 0usize;
 
             for _ in 0..attr_count {
                 let attr_name_idx = c.u16().ok_or("truncated")?;
@@ -283,7 +287,31 @@ impl Parsed {
                             catch_type_index,
                         });
                     }
-                    // Skip remaining Code sub-attributes
+                    // Debug: scan Code sub-attributes for LineNumberTable.
+                    #[cfg(debug_assertions)]
+                    {
+                        let sub_count = c.u16().ok_or("truncated")? as usize;
+                        for _ in 0..sub_count {
+                            let sub_name_idx = c.u16().ok_or("truncated")?;
+                            let sub_len = c.u32().ok_or("truncated")? as usize;
+                            let sub_start = c.pos();
+                            let is_lnt = {
+                                let ni = sub_name_idx as usize;
+                                cp_tags.get(ni) == Some(&TAG_UTF8) && {
+                                    let off = cp_offsets[ni];
+                                    let slen =
+                                        u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+                                    data.get(off + 2..off + 2 + slen) == Some(b"LineNumberTable")
+                                }
+                            };
+                            if is_lnt && lnt_offset == 0 {
+                                lnt_offset = sub_start;
+                                lnt_len = sub_len;
+                            }
+                            c.pos = sub_start + sub_len;
+                        }
+                    }
+                    // Always skip to end of Code attribute (corrects position in both profiles).
                     c.pos = attr_start + attr_len;
                 } else {
                     c.skip(attr_len).ok_or("truncated")?;
@@ -299,6 +327,10 @@ impl Parsed {
                 max_locals,
                 access_flags,
                 exception_table,
+                #[cfg(debug_assertions)]
+                lnt_offset,
+                #[cfg(debug_assertions)]
+                lnt_len,
             });
         }
 
