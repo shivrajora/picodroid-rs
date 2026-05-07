@@ -61,7 +61,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: thumbv6m-none-eabi
-      - run: cargo test --target "$(rustc -vV | awk '/^host:/ { print $2 }')"
+      - run: bash scripts/test.sh
   linting:
     name: Linting
     runs-on: ubuntu-latest
