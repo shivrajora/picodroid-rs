@@ -37,3 +37,13 @@ pub(in crate::system::picodroid::graphics) fn set_orientation(id: i32, orientati
     };
     unsafe { lv_obj_set_flex_flow(handle_table::lookup(id), flow) };
 }
+
+/// Gap in pixels between adjacent children. Sets both row and column gap so
+/// the value applies whether the layout is later switched to horizontal flow.
+pub(in crate::system::picodroid::graphics) fn set_spacing(id: i32, spacing: i32) {
+    unsafe {
+        let o = handle_table::lookup(id);
+        lv_obj_set_style_pad_row(o, spacing, 0);
+        lv_obj_set_style_pad_column(o, spacing, 0);
+    }
+}

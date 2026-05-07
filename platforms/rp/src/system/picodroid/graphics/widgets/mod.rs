@@ -75,6 +75,7 @@ pub use keyboard::{
 };
 pub use linear_layout::{
     linear_layout_add_view, linear_layout_native_create, linear_layout_set_orientation,
+    linear_layout_set_spacing,
 };
 pub use list_view::{list_view_add_item, list_view_native_create};
 pub use progress_bar::{

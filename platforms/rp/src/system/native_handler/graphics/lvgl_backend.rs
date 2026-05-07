@@ -87,6 +87,7 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "setSpacing" => Some(widgets::linear_layout_set_spacing(ctx.args, ctx.objects)),
             _ => None,
         }
     }

@@ -19,4 +19,7 @@ public class LinearLayout extends View {
   public native void addView(View child);
 
   public native void setOrientation(int orientation);
+
+  /** Gap in pixels between adjacent children. Default 0. */
+  public native void setSpacing(int px);
 }

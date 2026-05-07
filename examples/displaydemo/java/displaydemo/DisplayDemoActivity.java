@@ -31,6 +31,7 @@ public class DisplayDemoActivity extends Activity {
     root.setOrientation(LinearLayout.VERTICAL);
     root.setSize(320, 600);
     root.setPadding(10, 5, 10, 5);
+    root.setSpacing(4);
     scroll.addView(root);
 
     TextView title = new TextView();

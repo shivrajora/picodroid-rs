@@ -170,6 +170,8 @@ pub const LV_DIR_LEFT: lv_dir_t = 1 << 0;
 pub const LV_DIR_RIGHT: lv_dir_t = 1 << 1;
 pub const LV_DIR_TOP: lv_dir_t = 1 << 2;
 pub const LV_DIR_BOTTOM: lv_dir_t = 1 << 3;
+pub const LV_DIR_HOR: lv_dir_t = LV_DIR_LEFT | LV_DIR_RIGHT;
+pub const LV_DIR_VER: lv_dir_t = LV_DIR_TOP | LV_DIR_BOTTOM;
 
 /// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
 /// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
@@ -382,6 +384,11 @@ extern "C" {
     /// active screen. Used by the keyboard outside-press hook to decide if
     /// a tap landed on the keyboard or one of its keys.
     pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
+
+    // Restrict the axes a scrollable object will scroll/over-pull on.
+    // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
+    // drags don't trigger elastic over-pull or a transient scrollbar.
+    pub fn lv_obj_set_scroll_dir(obj: *mut lv_obj_t, dir: lv_dir_t);
 
     // Flex layout
     pub fn lv_obj_set_flex_flow(obj: *mut lv_obj_t, flow: lv_flex_flow_t);
