@@ -90,16 +90,21 @@ cargo run -p pdb -- -s /dev/cu.usbmodem102 sysmon
 
 Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input when run in the simulator.
 
-See [docs/getting-started.md](docs/getting-started.md) for prerequisites, chip selection, app selection, and UF2 flashing.
+See [Build & flash](website/src/content/docs/get-started/build.md) for prerequisites, chip selection, app selection, and UF2 flashing.
 
 ## Documentation
 
-Start at [docs/README.md](docs/README.md) for the full index. Highlights:
+The full docs are an Astro Starlight site under [`website/`](website/) — once the GitHub Pages workflow ships, they're hosted at `https://shivrajora.github.io/picodroid-rs/`. The same content also renders on GitHub directly:
 
-- [Getting Started](docs/getting-started.md) — prerequisites, build, flash, board/app selection, simulator, hot-swap
-- [Writing Apps](docs/writing-apps.md) — create a new Java app + supported language features
-- [Java API](docs/java-api.md) — split by area: [core](docs/api/core.md), [system](docs/api/system.md), [peripherals](docs/api/peripherals.md), [storage](docs/api/storage.md), [networking](docs/api/networking.md), [sensors](docs/api/sensors.md), [UI](docs/api/ui.md)
-- [Class-name Shrinker](docs/shrinker.md) — opt-in (`--shrink`) release-tied, append-only shrink maps applied to framework `.class` files and PAPK cross-references
+- [Get started → Build & flash](website/src/content/docs/get-started/build.md) — prerequisites, build, flash, board/app selection
+- [Get started → Host simulator](website/src/content/docs/get-started/simulator.md) — run apps without hardware
+- [Get started → Hot-swap with pdb](website/src/content/docs/get-started/hot-swap.md) — push PAPKs over USB CDC
+- [Get started → Your first app](website/src/content/docs/get-started/first-app.md) — Application/Activity lifecycle and supported language features
+- [ESP32-S3 quickstart](website/src/content/docs/get-started/esp32s3.md) — Lilygo T-Deck Plus M1 (compile-only)
+- [Java API](website/src/content/docs/api.md) — split by area: [core](website/src/content/docs/api/core.md), [system](website/src/content/docs/api/system.md), [services](website/src/content/docs/api/services.md), [peripherals](website/src/content/docs/api/peripherals.md), [storage](website/src/content/docs/api/storage.md), [networking](website/src/content/docs/api/networking.md), [sensors](website/src/content/docs/api/sensors.md), [UI](website/src/content/docs/api/ui.md)
+- [Bundled image assets](website/src/content/docs/guides/assets.md) — PAPK 1.1 ASST, `ImageView.setImageSource`
+- [Class-name shrinker](website/src/content/docs/reference/shrinker.md) — opt-in (`--shrink`) release-tied, append-only maps
+- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.9.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure

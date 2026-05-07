@@ -1,0 +1,34 @@
+---
+title: "Picodroid"
+description: "A FreeRTOS-based, Android-like runtime for the Raspberry Pi Pico — apps written in Java, run on a Rust-built JVM."
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Picodroid is a stripped-down Android-shaped runtime that fits on a Raspberry Pi Pico. App code is written in Java, compiled to bytecode, and interpreted by a lightweight JVM built in Rust running on bare-metal embedded hardware.
+
+If you're new, work through the **Get started** section in order: pick your board, build and flash the default app, learn the lifecycle, then copy whichever **Example** is closest to what you want to build.
+
+## Two paths in
+
+<CardGrid>
+  <Card title="Raspberry Pi Pico (RP2040 / RP2350)" icon="rocket">
+    The reference platform. Stable across boards (Pico, Pico 2, Pico 2 W, Pico Enviro Mon).
+    Start at [Build & flash](/get-started/build/).
+  </Card>
+  <Card title="Lilygo T-Deck Plus (ESP32-S3)" icon="puzzle">
+    Milestone 1 — compile-only today; FreeRTOS, networking, and display land in M3.
+    Start at [ESP32-S3 quickstart](/get-started/esp32s3/).
+  </Card>
+</CardGrid>
+
+## What's in here
+
+- **Get started** — install the toolchain, build, flash, and run the simulator.
+- **Examples** — 59 example apps grouped by category. Pick one close to what you want.
+- **Java API** — what the framework exposes to your app, by area: peripherals, storage, networking, sensors, services, UI.
+- **Guides** — debugging, troubleshooting, bundled image assets, theming.
+- **Reference** — cargo aliases, the class-name shrinker, the porting guide, advanced configuration.
+- **Project** — architecture, release notes, contributing, licensing.
+
+Search (top-right) is full-text — type `Snackbar`, `T-Deck`, `setImageSource`, or `BackgroundExecutor` and you'll land on the relevant page.

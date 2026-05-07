@@ -1,0 +1,6 @@
+/* Match the picodroid logo accent. */
+:root {
+  --sl-color-accent-low: #2e1a4a;
+  --sl-color-accent: #6b4ec5;
+  --sl-color-accent-high: #c8b8ee;
+}

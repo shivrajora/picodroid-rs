@@ -71,6 +71,16 @@ files together. From that commit onwards, both `build.rs` and
 
 ## Current releases
 
-- `v0.1.0.toml` — first release cut. Shrinks all 42 framework classes
-  outside `java/**` (the pico-jvm built-in handler hardcodes those names,
-  so they stay literal).
+| Map | Notes |
+|---|---|
+| `v0.1.0.toml` | First release cut — 42 framework classes outside `java/**`. |
+| `v0.2.0.toml` | + `Executors` family, `SensorManager` family, HTTP client, `KeyEvent` / `OnKeyListener`. |
+| `v0.3.0.toml` | + `Theme`, drawables, gesture / animation surface, dialog / keyboard widgets. |
+| `v0.4.0.toml` | + Service / DI surface (`Service`, `IBinder`, `Notification`, `ServiceConnection`, manual DI components). |
+| `v0.5.0.toml` | + Soft-keyboard polish (`OnEditorActionListener`, `EditorInfo`). |
+| `v0.6.0.toml` | Stable — byte-identical to v0.5.0 (`picoenvmon` + LTR559 added no framework classes). |
+| `v0.7.0.toml` | + Tier C widgets (`Snackbar`, `DatePicker`, `TimePicker`, `SwipeRefreshLayout`, `OnSwipeListener`). |
+| `v0.8.0.toml` | Stable — byte-identical to v0.7.0 (PAPK 1.1 bundled assets land outside the framework). |
+| `v0.9.0.toml` | Stable — byte-identical to v0.8.0 (relicense, multi-family refactor, ESP32-S3 M1, Display singleton bootstrap). |
+
+See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

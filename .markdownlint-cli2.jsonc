@@ -2,13 +2,21 @@
   "globs": [
     "README.md",
     "CLAUDE.md",
-    "docs/**/*.md"
+    "ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "LICENSING.md",
+    "CLA.md",
+    "jvm/README.md",
+    "compat/README.md",
+    "tools/*/README.md",
+    "sdk/shrink-maps/README.md"
   ],
   "ignores": [
     "vendor/**",
     "node_modules/**",
     "build/**",
-    "target/**"
+    "target/**",
+    "website/**"
   ],
   "config": {
     "default": true,

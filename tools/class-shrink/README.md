@@ -48,4 +48,4 @@ Internal to the picodroid-rs project. Not published to crates.io.
 
 ## License
 
-Apache-2.0
+GPL-3.0-only. See [LICENSE](https://github.com/shivrajora/picodroid-rs/blob/main/LICENSE) in the repo root.

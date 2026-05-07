@@ -52,11 +52,11 @@ Treat `src/` as a **reference implementation** of how to embed `pico-jvm` on Cor
 | Adding a new entry to [`BUILTIN_DISPATCH`](jvm/src/native/mod.rs) MUST also add it to `BUILTIN_CLASS_NAMES`. | Without canonicalisation, virtual dispatch silently returns "unknown" and breaks. The `builtin_dispatch_classes_subset_of_names` test enforces this. |
 | Adding a new framework class with native methods MUST add its FQN to [`PICODROID_NATIVE_CLASSES`](src/system/native_handler/mod.rs). | Same canonicalisation hazard, on the host side. |
 | `src/system/picodroid/` is the framework's Java-side surface — not a generic library. | Reusing it means you accept the picodroid widget/net/sensor vocabulary. If you want only the JVM, depend on `pico-jvm` directly. |
-| `src/hal/` MUST NOT import from `src/system/` or `src/app/`. | HAL is a leaf. Verify with `rg "use crate::(system|app)" src/hal/` (must be empty). |
+| `src/hal/` MUST NOT import from `src/system/` or `src/app/`. | HAL is a leaf. Verify with `rg "use crate::(system\|app)" src/hal/` (must be empty). |
 
 ## Multi-family seams
 
-Picodroid is currently RP2040/RP2350-only, but the codebase is structured so that adding a second chip family (e.g. ESP32-S3) is additive rather than touching dozens of files. The seams below are the contract for future ports.
+Picodroid runs on RP2040 / RP2350 today and is in **Milestone 1 (compile-only) bring-up on ESP32-S3** for the Lilygo T-Deck Plus. The two families live side by side under `platforms/rp/` and `platforms/esp/`; cross-family shared code lives in `picodroid-core/`. The seams below are the contract for future ports.
 
 ### Family routing
 

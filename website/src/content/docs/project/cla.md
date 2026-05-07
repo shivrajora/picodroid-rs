@@ -1,4 +1,7 @@
-# Contributor License Agreement (CLA)
+---
+title: "Contributor License Agreement (CLA)"
+description: "Contributor License Agreement governing contributions to Picodroid."
+---
 
 > **DRAFT — REVIEW BY LEGAL COUNSEL BEFORE RELYING ON THIS DOCUMENT.**
 >
@@ -15,7 +18,7 @@
 the Project.
 
 **"Project"** means picodroid-rs, the software project maintained at
-<https://github.com/shivrajora/picodroid-rs>.
+https://github.com/shivrajora/picodroid-rs.
 
 **"Maintainer"** means Shiv Rajora, the current copyright holder and
 project lead.

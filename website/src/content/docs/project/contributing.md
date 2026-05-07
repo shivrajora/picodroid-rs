@@ -1,8 +1,11 @@
-# Contributing to Picodroid
+---
+title: "Contributing to Picodroid"
+description: "How to set up the toolchain, run pre-commit, and contribute to Picodroid."
+---
 
 ## Getting Set Up
 
-See [website/src/content/docs/get-started/build.md](website/src/content/docs/get-started/build.md) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).
+See [docs/getting-started.md](/get-started/build/) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).
 
 Quick version:
 
@@ -59,7 +62,7 @@ You can also run it manually at any time:
 
 1. Create the directory structure:
 
-```text
+```
 examples/myapp/
   java/myapp/MyApp.java
   PicodroidManifest.xml
@@ -97,19 +100,19 @@ public class MyApp extends Application {
 ./scripts/flash.sh --app myapp      # flash to hardware
 ```
 
-5. Add your app to [website/src/content/docs/examples.md](website/src/content/docs/examples.md) in the appropriate category.
+5. Add your app to `docs/examples.md` in the appropriate category.
 
-See [website/src/content/docs/get-started/first-app.md](website/src/content/docs/get-started/first-app.md) for supported language features and the full Java API.
+See [docs/writing-apps.md](/get-started/first-app/) for supported language features and the full Java API.
 
 ## Adding a New Native Java Method
 
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `src/system/` under the appropriate module
-2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
+2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [docs/shrinker.md](/reference/shrinker/) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
-5. Update the relevant `website/src/content/docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
+5. Update the relevant `docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
 
 ## Cutting a New Release
 
@@ -133,7 +136,7 @@ cargo run -p class-shrink -- cut-release \
 ```
 
 `--base` copies the previous map verbatim — existing entries never get
-renamed. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for the full design.
+renamed. See [docs/shrinker.md](/reference/shrinker/) for the full design.
 
 ## Submitting Changes
 
@@ -145,12 +148,12 @@ renamed. See [website/src/content/docs/reference/shrinker.md](website/src/conten
 ## License
 
 picodroid-rs is dual-licensed: it is available to the public under the
-GPL-3.0-only license (see [LICENSE](LICENSE)), and separately under a
+GPL-3.0-only license (see [LICENSE](https://github.com/shivrajora/picodroid-rs/blob/main/LICENSE)), and separately under a
 proprietary commercial license for customers who need to distribute
-closed-source derivatives. See [LICENSING.md](LICENSING.md).
+closed-source derivatives. See [Licensing](/project/licensing/).
 
 To preserve the project's ability to offer the commercial license, every
-contribution must be made under the terms of [CLA.md](CLA.md). By opening a
+contribution must be made under the terms of [CLA](/project/cla/). By opening a
 pull request, you grant the project maintainer a perpetual, worldwide,
 non-exclusive, irrevocable, royalty-free license to reproduce, prepare
 derivative works of, and distribute your contribution as part of picodroid-rs
