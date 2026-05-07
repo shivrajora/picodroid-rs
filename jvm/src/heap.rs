@@ -155,6 +155,24 @@ impl StringTable {
         let slice = unsafe { core::slice::from_raw_parts(ptr, self.lens[i] as usize) };
         core::str::from_utf8(slice).ok()
     }
+
+    /// Resolve a Reference index to a `&'static str`, but only for static
+    /// (Flash-backed) entries. Returns `None` for dynamic strings (their
+    /// backing storage is owned by `dyn_bufs` and outlives only `&self`).
+    pub fn resolve_static(&self, idx: u16) -> Option<&'static str> {
+        let i = idx as usize;
+        if i >= self.dyn_start || i >= self.ptrs.len() {
+            return None;
+        }
+        let ptr = self.ptrs[i];
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: static entries are interned via `intern(s: &'static [u8])`,
+        // so the pointer references Flash memory with `'static` lifetime.
+        let slice = unsafe { core::slice::from_raw_parts(ptr, self.lens[i] as usize) };
+        core::str::from_utf8(slice).ok()
+    }
 }
 
 #[cfg(test)]

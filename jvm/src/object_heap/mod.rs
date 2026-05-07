@@ -95,6 +95,9 @@ pub struct ObjectHeap {
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
     /// Sparse list of iterator states, keyed by object index.
     pub(super) iter_states: Vec<(u16, iter_store::IteratorState)>,
+    /// Sparse list of `(throwable_obj_idx, string_table_idx)` pairs holding
+    /// the message arg passed to `Throwable.<init>(String)` / subclasses.
+    pub(super) exception_messages: Vec<(u16, u16)>,
 }
 
 impl ObjectHeap {
@@ -107,7 +110,34 @@ impl ObjectHeap {
             map_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
             iter_states: Vec::new(),
+            exception_messages: Vec::new(),
         }
+    }
+
+    /// Associate a message string (StringTable index) with a Throwable object.
+    /// Captured by `Throwable.<init>(String, ...)` native dispatchers.
+    pub fn register_exception_message(&mut self, obj_idx: u16, msg_idx: u16) {
+        // Replace if an entry exists (e.g. an explicit super("...") chain).
+        for entry in self.exception_messages.iter_mut() {
+            if entry.0 == obj_idx {
+                entry.1 = msg_idx;
+                return;
+            }
+        }
+        self.exception_messages.push((obj_idx, msg_idx));
+    }
+
+    /// Look up the message StringTable index for a Throwable object.
+    pub fn get_exception_message(&self, obj_idx: u16) -> Option<u16> {
+        self.exception_messages
+            .iter()
+            .find(|(idx, _)| *idx == obj_idx)
+            .map(|(_, msg)| *msg)
+    }
+
+    /// Drop the message entry for a freed Throwable. Called from GC sweep.
+    pub fn free_exception_message(&mut self, obj_idx: u16) {
+        self.exception_messages.retain(|(idx, _)| *idx != obj_idx);
     }
 }
 
@@ -488,6 +518,20 @@ mod tests {
     fn class_name_invalid_index_returns_none() {
         let heap = ObjectHeap::new();
         assert_eq!(heap.class_name(99), None);
+    }
+
+    #[test]
+    fn exception_message_register_get_free() {
+        let mut heap = ObjectHeap::new();
+        let obj = heap.alloc("java/lang/RuntimeException").unwrap();
+        assert_eq!(heap.get_exception_message(obj), None);
+        heap.register_exception_message(obj, 7);
+        assert_eq!(heap.get_exception_message(obj), Some(7));
+        // Re-registering replaces the existing entry.
+        heap.register_exception_message(obj, 11);
+        assert_eq!(heap.get_exception_message(obj), Some(11));
+        heap.free_exception_message(obj);
+        assert_eq!(heap.get_exception_message(obj), None);
     }
 
     #[test]

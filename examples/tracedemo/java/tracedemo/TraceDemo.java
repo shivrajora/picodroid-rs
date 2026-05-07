@@ -5,10 +5,19 @@ import picodroid.app.Application;
 import picodroid.util.Log;
 
 /**
- * Showcases stack-trace line numbers from the {@code LineNumberTable} Code sub-attribute. A 3-deep
- * call chain throws an uncaught exception; the JVM surfaces a stack trace where each frame shows
- * the source line in debug builds (e.g. {@code at tracedemo.TraceDemo.deepest(:29)}) and falls back
- * to {@code (pc=N)} in release builds.
+ * Showcases Java-style stack traces: exception class + message header, plus per-frame source line
+ * numbers from the {@code LineNumberTable} Code sub-attribute. A 3-deep call chain throws an
+ * uncaught {@code RuntimeException("kaboom")}; the JVM prints
+ *
+ * <pre>
+ * Exception in thread "main" java.lang.RuntimeException: kaboom
+ *     at tracedemo.TraceDemo.deepest(:29)
+ *     at tracedemo.TraceDemo.middle(:25)
+ *     ...
+ * </pre>
+ *
+ * In release builds, line numbers are omitted (zero RAM/parse cost) and frames fall back to the
+ * {@code (pc=N)} bytecode-offset format.
  */
 public class TraceDemo extends Application {
 

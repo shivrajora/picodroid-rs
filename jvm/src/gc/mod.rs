@@ -239,6 +239,7 @@ pub fn collect(
             }
             objects.free_lambda(i);
             objects.iter_free(i);
+            objects.free_exception_message(i);
             objects.free(i);
             freed += 1;
         }

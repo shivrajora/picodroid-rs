@@ -91,6 +91,9 @@ pub enum JvmError {
     /// A Java exception propagated past all frames without being caught.
     UncaughtException {
         exception_class: &'static str,
+        /// Message string captured from `Throwable.<init>(String, ...)`, if any.
+        /// `None` for no-arg constructors or messages backed by dynamic strings.
+        message: Option<&'static str>,
         trace: Vec<StackTraceEntry>,
     },
     /// A `monitorexit` was executed by a thread that does not own the monitor.
@@ -108,6 +111,7 @@ impl fmt::Display for JvmError {
             }
             JvmError::UncaughtException {
                 exception_class,
+                message,
                 trace,
             } => {
                 let dotted = |name: &str| name.replace('/', ".");
@@ -116,6 +120,9 @@ impl fmt::Display for JvmError {
                     "Exception in thread \"main\" {}",
                     dotted(exception_class)
                 )?;
+                if let Some(msg) = message {
+                    write!(f, ": {}", msg)?;
+                }
                 for entry in trace {
                     #[cfg(debug_assertions)]
                     if let Some(line) = entry.line {

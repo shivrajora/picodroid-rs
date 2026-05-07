@@ -207,9 +207,14 @@ fn handle_exception<H: NativeMethodHandler>(
         })
         .collect();
     let exception_class = ex.objects.class_name(obj_idx).unwrap_or("<unknown>");
+    let message = ex
+        .objects
+        .get_exception_message(obj_idx)
+        .and_then(|msg_idx| ex.strings.resolve_static(msg_idx));
     frames.clear();
     Err(JvmError::UncaughtException {
         exception_class,
+        message,
         trace,
     })
 }

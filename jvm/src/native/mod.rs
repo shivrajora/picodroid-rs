@@ -106,22 +106,45 @@ const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
     ("java/lang/Math", math::dispatch),
 ];
 
+/// If the receiver is a Throwable being constructed with a String first arg
+/// (e.g. `<init>(Ljava/lang/String;)V`), record that message in the side
+/// table on the ObjectHeap so it can later be surfaced in `UncaughtException`.
+fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
+    if !ctx.descriptor.starts_with("(Ljava/lang/String;") {
+        return;
+    }
+    let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
+        return;
+    };
+    let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() else {
+        return;
+    };
+    ctx.objects.register_exception_message(obj_idx, msg_idx);
+}
+
 fn dispatch_init_only(
     method_name: &str,
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
-        "<init>" => Some(Ok(None)),
+        "<init>" => {
+            capture_throwable_message(ctx);
+            Some(Ok(None))
+        }
         _ => None,
     }
 }
 
 fn dispatch_throwable(
     method_name: &str,
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
-        "<init>" | "addSuppressed" => Some(Ok(None)),
+        "<init>" => {
+            capture_throwable_message(ctx);
+            Some(Ok(None))
+        }
+        "addSuppressed" => Some(Ok(None)),
         _ => None,
     }
 }
