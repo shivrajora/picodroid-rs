@@ -17,12 +17,19 @@ pub fn set_direction(pin: u8, direction: i32) {
 }
 
 pub fn set_value(pin: u8, high: bool) {
+    set_value_silent(pin, high);
+    println!("[sim] GP{pin}: {}", if high { "HIGH" } else { "LOW" });
+}
+
+/// Like `set_value` but without the println. Used by driver-level pin
+/// toggles (e.g. SPI CS bit-bang) that fire at LVGL tick rate and would
+/// otherwise spam the log.
+pub fn set_value_silent(pin: u8, high: bool) {
     if high {
         GPIO_OUT.fetch_or(1u32 << pin, Ordering::Relaxed);
     } else {
         GPIO_OUT.fetch_and(!(1u32 << pin), Ordering::Relaxed);
     }
-    println!("[sim] GP{pin}: {}", if high { "HIGH" } else { "LOW" });
 }
 
 // ── Input ────────────────────────────────────────────────────────────────────

@@ -138,8 +138,23 @@ pub fn display_wake() {
 pub fn update_window() {
     unsafe {
         if let Some(ref mut win) = WINDOW {
-            let ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
-            let buf = core::slice::from_raw_parts(ptr, NUM_PIXELS);
+            // PICODROID_SIM_TAP_DEBUG=1 → paint a red crosshair at raw mouse
+            // and a green crosshair at the post-XPT2046-pipeline coordinate
+            // into a *copy* of the framebuffer. Lets you see exactly what
+            // the dispatcher will receive vs where you clicked, useful for
+            // chasing widget hit-test bugs that only repro on device.
+            let buf: &[u32] = if tap_debug_enabled() {
+                let dst_ptr = core::ptr::addr_of_mut!(TAP_DEBUG_BUF) as *mut u32;
+                let dst = core::slice::from_raw_parts_mut(dst_ptr, NUM_PIXELS);
+                let src_ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
+                let src = core::slice::from_raw_parts(src_ptr, NUM_PIXELS);
+                dst.copy_from_slice(src);
+                paint_tap_debug(dst);
+                dst
+            } else {
+                let ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
+                core::slice::from_raw_parts(ptr, NUM_PIXELS)
+            };
             win.update_with_buffer(buf, WIDTH as usize, HEIGHT as usize)
                 .unwrap_or(());
 
@@ -149,6 +164,56 @@ pub fn update_window() {
                 MOUSE_X = (mx as u16).min(WIDTH - 1);
                 MOUSE_Y = (my as u16).min(HEIGHT - 1);
             }
+        }
+    }
+}
+
+// ── Tap-debug overlay (PICODROID_SIM_TAP_DEBUG=1) ───────────────────────────
+
+static mut TAP_DEBUG_BUF: [u32; NUM_PIXELS] = [0u32; NUM_PIXELS];
+static TAP_DEBUG_INIT: std::sync::Once = std::sync::Once::new();
+static mut TAP_DEBUG_ON: bool = false;
+
+fn tap_debug_enabled() -> bool {
+    unsafe {
+        TAP_DEBUG_INIT.call_once(|| {
+            TAP_DEBUG_ON = std::env::var("PICODROID_SIM_TAP_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            if TAP_DEBUG_ON {
+                println!("[sim] Tap debug overlay: ON (red=raw mouse, green=post-driver)");
+            }
+        });
+        TAP_DEBUG_ON
+    }
+}
+
+unsafe fn paint_tap_debug(buf: &mut [u32]) {
+    let (pressed, mx, my) = (MOUSE_PRESSED, MOUSE_X, MOUSE_Y);
+    if !pressed {
+        return;
+    }
+    // Red crosshair at the raw mouse position.
+    paint_crosshair(buf, mx, my, 0xFFFF_0000);
+    // Green crosshair at what the touch driver actually emits — same call
+    // path the JVM dispatcher uses.
+    if let Some((tx, ty)) = crate::hal::touch::read_point() {
+        paint_crosshair(buf, tx, ty, 0xFF00_FF00);
+    }
+}
+
+fn paint_crosshair(buf: &mut [u32], cx: u16, cy: u16, color: u32) {
+    let stride = WIDTH as usize;
+    let cx = cx as i32;
+    let cy = cy as i32;
+    for d in -4i32..=4 {
+        let x = cx + d;
+        if (0..WIDTH as i32).contains(&x) {
+            buf[cy as usize * stride + x as usize] = color;
+        }
+        let y = cy + d;
+        if (0..HEIGHT as i32).contains(&y) {
+            buf[y as usize * stride + cx as usize] = color;
         }
     }
 }

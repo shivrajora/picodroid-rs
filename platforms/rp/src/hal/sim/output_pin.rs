@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Simulator `embedded-hal` OutputPin.
+//!
+//! Driver-level pin toggles (e.g. SPI CS bit-bang in `Xpt2046::sample`) fire
+//! at LVGL tick rate, so they bypass the per-toggle println in `gpio.rs` and
+//! write the GPIO_OUT atomic directly. The one-shot direction print at
+//! `new()` is still useful and stays.
 
 use core::convert::Infallible;
 use embedded_hal::digital::{ErrorType, OutputPin};
@@ -21,12 +26,12 @@ impl ErrorType for SimOutputPin {
 
 impl OutputPin for SimOutputPin {
     fn set_low(&mut self) -> Result<(), Infallible> {
-        super::gpio::set_value(self.pin, false);
+        super::gpio::set_value_silent(self.pin, false);
         Ok(())
     }
 
     fn set_high(&mut self) -> Result<(), Infallible> {
-        super::gpio::set_value(self.pin, true);
+        super::gpio::set_value_silent(self.pin, true);
         Ok(())
     }
 }
