@@ -207,6 +207,13 @@ pub const LV_KEYBOARD_MODE_NUMBER: lv_keyboard_mode_t = 3;
 
 pub type lv_style_selector_t = u32;
 
+/// Part selectors for style setters. Verified against
+/// `vendor/lvgl/src/core/lv_obj_style.h:61-63`. The selector u32 packs both
+/// the part (high bits) and the state (low bits); passing `0` selects
+/// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
+pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
+pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
+
 /// Inner-alignment mode for `lv_image`. Verified against
 /// `vendor/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid
 /// `ImageView` exposes a subset that maps to Android's `ScaleType` enum;
@@ -555,6 +562,25 @@ extern "C" {
     pub fn lv_obj_set_style_image_recolor_opa(
         obj: *mut lv_obj_t,
         value: u8,
+        selector: lv_style_selector_t,
+    );
+
+    // Arc style — used by `lv_arc` and its subclass `lv_spinner`. Pair with
+    // a part selector (e.g. `LV_PART_INDICATOR` for the moving sweep,
+    // `LV_PART_MAIN` for the background ring).
+    pub fn lv_obj_set_style_arc_color(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_arc_width(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_arc_rounded(
+        obj: *mut lv_obj_t,
+        value: bool,
         selector: lv_style_selector_t,
     );
 

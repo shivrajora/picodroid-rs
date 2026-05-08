@@ -23,6 +23,11 @@ use super::super::lifecycle;
 const SPINNER_ANIM_DURATION_MS: u32 = 1000;
 const SPINNER_ARC_SWEEP_DEG: u32 = 60;
 
+/// Tuned to match the LVGL 8.0 docs spinner look on a 240×240 panel.
+/// Android's public ProgressBar API doesn't expose arc width or rounded
+/// caps either — these stay internal.
+const SPINNER_ARC_WIDTH_PX: i32 = 6;
+
 /// Maximum simultaneously-alive indeterminate ProgressBars. The static set
 /// is tiny — most apps use 1, a few use 2 (e.g. one in a list row + a
 /// global one in the action bar). 8 covers any realistic case without
@@ -40,14 +45,44 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
     handle_table::register(ptr)
 }
 
-pub(in crate::system::picodroid::graphics) fn create_indeterminate() -> i32 {
+pub(in crate::system::picodroid::graphics) fn create_indeterminate(argb: i32) -> i32 {
     let ptr = unsafe {
         let s = lv_spinner_create(lifecycle::screen_ptr());
         lv_spinner_set_anim_params(s, SPINNER_ANIM_DURATION_MS, SPINNER_ARC_SWEEP_DEG);
+        apply_indeterminate_style(s, argb);
         s
     };
     register_spinner(ptr as usize);
     handle_table::register(ptr)
+}
+
+/// Stamps the visual defaults expected of an Android-style indeterminate
+/// ProgressBar onto a freshly-created spinner. The track ring keeps LVGL's
+/// default theme color (faint gray) — only the moving sweep is tinted, so
+/// the result reads as "indicator over groove" rather than a flat ring.
+unsafe fn apply_indeterminate_style(obj: *mut crate::lvgl_ffi::lv_obj_t, argb: i32) {
+    // Cast through u32 first so a negative i32 (Java ints are signed) keeps
+    // its bit pattern. Top byte is alpha, low 24 bits are the color — we
+    // ignore alpha here because LVGL arc-color is opaque; opacity is set
+    // separately via `lv_obj_set_style_opa` if ever needed.
+    let rgb = (argb as u32) & 0x00FF_FFFF;
+    lv_obj_set_style_arc_color(obj, lv_color_hex(rgb), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(obj, SPINNER_ARC_WIDTH_PX, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(obj, SPINNER_ARC_WIDTH_PX, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(obj, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(obj, true, LV_PART_MAIN);
+}
+
+pub(in crate::system::picodroid::graphics) fn set_tint(id: i32, argb: i32) {
+    let obj = handle_table::lookup(id);
+    if obj.is_null() || !is_spinner(obj as usize) {
+        // No-op on the determinate `lv_bar`. Matches Android's
+        // `setIndeterminateTintList` which only affects the indeterminate
+        // drawable.
+        return;
+    }
+    let rgb = (argb as u32) & 0x00FF_FFFF;
+    unsafe { lv_obj_set_style_arc_color(obj, lv_color_hex(rgb), LV_PART_INDICATOR) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_progress(id: i32, value: i32) {

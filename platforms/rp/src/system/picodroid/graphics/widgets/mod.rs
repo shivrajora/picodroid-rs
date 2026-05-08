@@ -80,7 +80,7 @@ pub use linear_layout::{
 pub use list_view::{list_view_add_item, list_view_native_create};
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
-    progress_bar_set_progress, reset_progress_bar_state,
+    progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
 };
 pub use scroll_view::{scroll_view_add_view, scroll_view_native_create};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
