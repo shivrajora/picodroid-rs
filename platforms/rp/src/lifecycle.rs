@@ -622,7 +622,7 @@ fn process_pending_op(
 
 // ── Click dispatch ───────────────────────────────────────────────────────────
 
-/// Drain the click queue and invoke `fireClick()` on each matching Button.
+/// Drain the click queue and invoke `View.fireClick()` on each matching view.
 #[cfg(not(test))]
 fn dispatch_clicks(
     jvm: &mut Jvm,
@@ -633,7 +633,9 @@ fn dispatch_clicks(
 
     while let Some(handle) = widgets::drain_click_queue() {
         if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
-            // fireClick() is a Java method on Button that calls onClickListener.run().
+            // fireClick() is a package-private method on View that invokes
+            // onClickListener.onClick(this); any view subclass with a
+            // listener attached resolves it via field inheritance.
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::BUTTON),
                 dispatch_method(dispatch_sites::BUTTON),

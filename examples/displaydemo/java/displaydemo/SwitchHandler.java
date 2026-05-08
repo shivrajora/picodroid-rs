@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package displaydemo;
 
-import picodroid.widget.Switch;
+import picodroid.widget.CompoundButton;
 import picodroid.widget.TextView;
 
-public class SwitchHandler implements Runnable {
+public class SwitchHandler implements CompoundButton.OnCheckedChangeListener {
   private TextView label;
-  private Switch sw;
 
-  public SwitchHandler(TextView label, Switch sw) {
+  public SwitchHandler(TextView label) {
     this.label = label;
-    this.sw = sw;
   }
 
-  public void run() {
-    if (sw.isChecked()) {
+  @Override
+  public void onCheckedChanged(CompoundButton view, boolean isChecked) {
+    if (isChecked) {
       label.setText("Switch: ON");
     } else {
       label.setText("Switch: OFF");

@@ -44,7 +44,7 @@ public class HomeActivity extends Activity {
     Button openBtn = new Button("Open Detail");
     openBtn.setSize(200, 40);
     openBtn.setOnClickListener(
-        () -> {
+        v -> {
           Log.i("NavDemo", "Home: launching Detail");
           startActivity(new Intent(DetailActivity.class));
         });

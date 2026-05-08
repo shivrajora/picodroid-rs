@@ -40,7 +40,7 @@ public class AnimDemoActivity extends Activity {
     Button fadeBtn = new Button("Fade toggle");
     fadeBtn.setSize(200, 30);
     fadeBtn.setOnClickListener(
-        () -> {
+        v -> {
           float from = tileFaded ? 0.0f : 1.0f;
           float to = tileFaded ? 1.0f : 0.0f;
           tileFaded = !tileFaded;
@@ -52,7 +52,7 @@ public class AnimDemoActivity extends Activity {
     Button slideBtn = new Button("Slide");
     slideBtn.setSize(200, 30);
     slideBtn.setOnClickListener(
-        () -> {
+        v -> {
           int from = tileMoved ? 160 : 20;
           int to = tileMoved ? 20 : 160;
           tileMoved = !tileMoved;
@@ -64,7 +64,7 @@ public class AnimDemoActivity extends Activity {
     Button restoreBtn = new Button("Restore");
     restoreBtn.setSize(200, 30);
     restoreBtn.setOnClickListener(
-        () -> {
+        v -> {
           Log.i("AnimDemo", "restore");
           tile.setAlpha(1.0f);
           tile.setPosition(20, 180);

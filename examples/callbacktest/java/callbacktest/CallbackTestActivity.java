@@ -35,38 +35,38 @@ public class CallbackTestActivity extends Activity {
 
     Button btn = new Button("b");
     btn.setSize(100, 30);
-    btn.setOnClickListener(() -> Log.i("CBT", "BUTTON"));
+    btn.setOnClickListener(v -> Log.i("CBT", "BUTTON"));
     root.addView(btn);
     btn.performClick();
 
     ToggleButton tog = new ToggleButton("on", "off");
     tog.setSize(100, 30);
-    tog.setOnCheckedChangeListener(() -> Log.i("CBT", "TOGGLE"));
+    tog.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "TOGGLE"));
     root.addView(tog);
     tog.performCheckedChange();
 
     Switch sw = new Switch();
     sw.setSize(60, 30);
-    sw.setOnCheckedChangeListener(() -> Log.i("CBT", "SWITCH"));
+    sw.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "SWITCH"));
     root.addView(sw);
     sw.performCheckedChange();
 
     CheckBox cb = new CheckBox();
     cb.setText("x");
-    cb.setOnCheckedChangeListener(() -> Log.i("CBT", "CHECKBOX"));
+    cb.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "CHECKBOX"));
     root.addView(cb);
     cb.performCheckedChange();
 
     SeekBar sb = new SeekBar(100);
     sb.setSize(200, 20);
-    sb.setOnSeekBarChangeListener(() -> Log.i("CBT", "SEEKBAR"));
+    sb.setOnSeekBarChangeListener((bar, progress, fromUser) -> Log.i("CBT", "SEEKBAR"));
     root.addView(sb);
     sb.performProgressChange();
 
     Spinner sp = new Spinner();
     sp.setItems("a\nb");
     sp.setSize(100, 30);
-    sp.setOnItemSelectedListener(() -> Log.i("CBT", "SPINNER"));
+    sp.setOnItemSelectedListener((parent, position) -> Log.i("CBT", "SPINNER"));
     root.addView(sp);
     sp.performItemSelected();
 

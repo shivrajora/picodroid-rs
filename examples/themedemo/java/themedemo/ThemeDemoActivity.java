@@ -56,7 +56,7 @@ public class ThemeDemoActivity extends Activity {
             // Pill = corner radius >= half the height. Setting it past
             // that doesn't visually overshoot — LVGL clamps internally.
             .setCornerRadius(20));
-    pill.setOnClickListener(() -> Log.i("ThemeDemo", "pill clicked"));
+    pill.setOnClickListener(v -> Log.i("ThemeDemo", "pill clicked"));
     root.addView(pill);
 
     // An outlined ghost button — surface fill, primary stroke.
@@ -67,7 +67,7 @@ public class ThemeDemoActivity extends Activity {
             .setColor(Theme.colorBackground)
             .setCornerRadius(8)
             .setStroke(2, Theme.colorPrimary));
-    ghost.setOnClickListener(() -> Log.i("ThemeDemo", "ghost clicked"));
+    ghost.setOnClickListener(v -> Log.i("ThemeDemo", "ghost clicked"));
     root.addView(ghost);
 
     setContentView(root);

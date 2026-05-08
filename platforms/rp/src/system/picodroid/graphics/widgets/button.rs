@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.widget.Button`.
+//!
+//! Click-related plumbing (register/perform_click/was_clicked) lives on
+//! `View` now since any view can be clickable; see [`super::view`].
 
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
@@ -30,39 +33,5 @@ pub fn button_set_text(
     let id = extract_native_handle(args, objects)?;
     let text = extract_string_at(args, 1, strings)?;
     lvgl_button::set_text(id, text);
-    Ok(None)
-}
-
-/// `Button.wasClicked()`
-pub fn button_was_clicked(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    Ok(Some(Value::Int(if lvgl_button::was_clicked(id) {
-        1
-    } else {
-        0
-    })))
-}
-
-/// `Button.performClick()`
-pub fn button_perform_click(
-    args: &[Value],
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    lvgl_button::perform_click(id);
-    Ok(None)
-}
-
-/// `Button.nativeRegisterClickListener()`
-pub fn button_register_click_listener(
-    args: &[Value],
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_button::register_click_listener(id, obj_ref);
     Ok(None)
 }

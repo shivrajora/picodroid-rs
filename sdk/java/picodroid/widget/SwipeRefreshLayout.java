@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -9,13 +10,17 @@ import picodroid.view.View;
  * or {@link ListView}).
  *
  * <p>Lifecycle: a downward swipe → the framework auto-flips refreshing on and calls {@link
- * #fireRefresh()}. The caller's {@link Runnable} listener typically kicks off async work and calls
+ * OnRefreshListener#onRefresh()}. The caller's listener typically kicks off async work and calls
  * {@link #setRefreshing(boolean) setRefreshing(false)} when done.
  */
 public class SwipeRefreshLayout extends View {
-  private Runnable refreshListener;
+  private OnRefreshListener refreshListener;
 
   public SwipeRefreshLayout() {
+    super(nativeCreate());
+  }
+
+  public SwipeRefreshLayout(Context ctx) {
     super(nativeCreate());
   }
 
@@ -23,18 +28,23 @@ public class SwipeRefreshLayout extends View {
 
   public native void setRefreshing(boolean refreshing);
 
-  public void setOnRefreshListener(Runnable listener) {
+  public void setOnRefreshListener(OnRefreshListener listener) {
     this.refreshListener = listener;
     nativeRegisterRefreshListener();
   }
 
   void fireRefresh() {
     if (refreshListener != null) {
-      refreshListener.run();
+      refreshListener.onRefresh();
     }
   }
 
   private static native int nativeCreate();
 
   private native void nativeRegisterRefreshListener();
+
+  /** Mirrors {@code androidx.swiperefreshlayout.widget.SwipeRefreshLayout.OnRefreshListener}. */
+  public interface OnRefreshListener {
+    void onRefresh();
+  }
 }

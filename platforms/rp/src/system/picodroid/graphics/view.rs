@@ -15,6 +15,7 @@ use pico_jvm::types::{JvmError, Value};
 use super::fields;
 use super::gfx::{Handle, Visibility};
 use super::lvgl::events as lvgl_events;
+use super::lvgl::widgets::button as lvgl_button;
 use super::lvgl::with_gfx;
 
 // ---------------------------------------------------------------------------
@@ -208,6 +209,30 @@ pub fn register_swipe_listener(
     };
     let id = extract_native_handle(args, objects)?;
     lvgl_events::register_view_swipe_listener(id, obj_ref);
+    Ok(None)
+}
+
+/// `View.nativeRegisterClickListener()` — records this View as a
+/// click-listener target. On first registration for a given widget, sets
+/// the LVGL CLICKABLE flag and attaches the click-event trampoline so any
+/// view (not just Button) becomes clickable.
+pub fn register_click_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_button::register_click_listener(id, obj_ref);
+    Ok(None)
+}
+
+/// `View.performClick()` — synthesize a click event on this view.
+pub fn perform_click(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    lvgl_button::perform_click(id);
     Ok(None)
 }
 

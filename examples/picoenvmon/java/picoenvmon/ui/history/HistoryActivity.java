@@ -97,7 +97,8 @@ public class HistoryActivity extends Activity implements ServiceConnection {
       new AlertDialog.Builder()
           .setTitle("History")
           .setMessage("Showing last " + n + " temperature samples.")
-          .setPositiveButton("OK", () -> Log.i(EnvAppComponent.TAG, "history dialog dismissed"))
+          .setPositiveButton(
+              "OK", (dialog, which) -> Log.i(EnvAppComponent.TAG, "history dialog dismissed"))
           .show();
     }
   }

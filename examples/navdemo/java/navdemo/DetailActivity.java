@@ -27,7 +27,7 @@ public class DetailActivity extends Activity {
     Button backBtn = new Button("Back to Home");
     backBtn.setSize(200, 40);
     backBtn.setOnClickListener(
-        () -> {
+        v -> {
           Log.i("NavDemo", "Detail: finish() pressed");
           finish();
         });

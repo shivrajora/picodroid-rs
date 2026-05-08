@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
-public class AlertDialog {
-  static final int BUTTON_POSITIVE = 0;
-  static final int BUTTON_NEGATIVE = 1;
+import picodroid.content.Context;
+import picodroid.content.DialogInterface;
+
+public class AlertDialog implements DialogInterface {
+  // Match Android values verbatim so apps porting in idioms like
+  // `which == DialogInterface.BUTTON_POSITIVE` keep working.
+  static final int WHICH_POSITIVE_INTERNAL = 0;
+  static final int WHICH_NEGATIVE_INTERNAL = 1;
 
   private final int nativeHandle;
-  private Runnable positiveListener;
-  private Runnable negativeListener;
+  private DialogInterface.OnClickListener positiveListener;
+  private DialogInterface.OnClickListener negativeListener;
 
   private AlertDialog(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -17,18 +22,32 @@ public class AlertDialog {
     nativeShow(nativeHandle);
   }
 
+  @Override
   public void dismiss() {
     nativeDismiss(nativeHandle);
+  }
+
+  @Override
+  public void cancel() {
+    // Match Android: cancel is just dismiss for a basic AlertDialog.
+    dismiss();
   }
 
   /**
    * Invoked from the native event loop when one of the dialog's buttons is clicked. Runs the
    * matching listener (if any) and then dismisses the dialog, mirroring Android's default behavior.
+   * The native layer passes 0 for positive and 1 for negative; we translate to the canonical {@code
+   * DialogInterface.BUTTON_POSITIVE} / {@code BUTTON_NEGATIVE} values before invoking the listener.
    */
-  void fireButtonClick(int which) {
-    Runnable r = (which == BUTTON_POSITIVE) ? positiveListener : negativeListener;
-    if (r != null) {
-      r.run();
+  void fireButtonClick(int whichInternal) {
+    DialogInterface.OnClickListener l =
+        (whichInternal == WHICH_POSITIVE_INTERNAL) ? positiveListener : negativeListener;
+    int which =
+        (whichInternal == WHICH_POSITIVE_INTERNAL)
+            ? DialogInterface.BUTTON_POSITIVE
+            : DialogInterface.BUTTON_NEGATIVE;
+    if (l != null) {
+      l.onClick(this, which);
     }
     dismiss();
   }
@@ -46,9 +65,13 @@ public class AlertDialog {
     private String title = "";
     private String message = "";
     private String positiveText;
-    private Runnable positiveListener;
+    private DialogInterface.OnClickListener positiveListener;
     private String negativeText;
-    private Runnable negativeListener;
+    private DialogInterface.OnClickListener negativeListener;
+
+    public Builder() {}
+
+    public Builder(Context ctx) {}
 
     public Builder setTitle(String title) {
       this.title = title;
@@ -60,13 +83,13 @@ public class AlertDialog {
       return this;
     }
 
-    public Builder setPositiveButton(String text, Runnable listener) {
+    public Builder setPositiveButton(String text, DialogInterface.OnClickListener listener) {
       this.positiveText = text;
       this.positiveListener = listener;
       return this;
     }
 
-    public Builder setNegativeButton(String text, Runnable listener) {
+    public Builder setNegativeButton(String text, DialogInterface.OnClickListener listener) {
       this.negativeText = text;
       this.negativeListener = listener;
       return this;

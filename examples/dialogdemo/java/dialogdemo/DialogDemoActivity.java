@@ -32,7 +32,7 @@ public class DialogDemoActivity extends Activity {
     Button toastBtn = new Button("Show Toast");
     toastBtn.setSize(200, 40);
     toastBtn.setOnClickListener(
-        () -> {
+        v -> {
           c.appComponent().info("toast button clicked");
           Toast.makeText("Hello from Picodroid!", Toast.LENGTH_SHORT).show();
         });
@@ -41,13 +41,14 @@ public class DialogDemoActivity extends Activity {
     Button dialogBtn = new Button("Show Dialog");
     dialogBtn.setSize(200, 40);
     dialogBtn.setOnClickListener(
-        () -> {
+        v -> {
           c.appComponent().info("dialog clicked #" + c.incShowCount());
           new AlertDialog.Builder()
               .setTitle("Delete?")
               .setMessage("Are you sure?")
-              .setPositiveButton("OK", () -> c.appComponent().info("user confirmed"))
-              .setNegativeButton("Cancel", () -> c.appComponent().info("user cancelled"))
+              .setPositiveButton("OK", (dialog, which) -> c.appComponent().info("user confirmed"))
+              .setNegativeButton(
+                  "Cancel", (dialog, which) -> c.appComponent().info("user cancelled"))
               .show();
         });
     root.addView(dialogBtn);

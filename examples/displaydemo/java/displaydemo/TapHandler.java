@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package displaydemo;
 
+import picodroid.view.View;
 import picodroid.widget.TextView;
 
-public class TapHandler implements Runnable {
+public class TapHandler implements View.OnClickListener {
   private TextView label;
   private int taps;
 
@@ -12,7 +13,8 @@ public class TapHandler implements Runnable {
     this.taps = 0;
   }
 
-  public void run() {
+  @Override
+  public void onClick(View v) {
     taps = taps + 1;
     label.setText("Taps: " + taps);
   }

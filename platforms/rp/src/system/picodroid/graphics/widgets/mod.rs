@@ -35,10 +35,7 @@ pub use alert_dialog::{
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use alert_dialog::{drain_click_queue as drain_dialog_click_queue, lookup_dialog_obj};
 pub use animator::{animator_native_cancel, animator_native_start, reset_animation_state};
-pub use button::{
-    button_native_create, button_perform_click, button_register_click_listener, button_set_text,
-    button_was_clicked, reset_button_state,
-};
+pub use button::{button_native_create, button_set_text, reset_button_state};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use button::{drain_click_queue, lookup_button_obj};
 pub use check_box::{

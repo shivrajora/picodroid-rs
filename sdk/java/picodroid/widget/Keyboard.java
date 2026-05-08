@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -30,9 +31,13 @@ public class Keyboard extends View {
   public static final int MODE_SPECIAL = 2;
   public static final int MODE_NUMBER = 3;
 
-  private Runnable onReadyListener;
+  private OnReadyListener onReadyListener;
 
   public Keyboard() {
+    super(nativeCreate());
+  }
+
+  public Keyboard(Context ctx) {
     super(nativeCreate());
   }
 
@@ -62,14 +67,14 @@ public class Keyboard extends View {
    * READY for explicit instances — apps decide what done means (validate input, dismiss, advance
    * focus, etc.). Use {@link #hide} from inside the listener to dismiss.
    */
-  public void setOnReadyListener(Runnable listener) {
+  public void setOnReadyListener(OnReadyListener listener) {
     this.onReadyListener = listener;
     nativeRegisterReadyListener();
   }
 
   void fireReady() {
     if (onReadyListener != null) {
-      onReadyListener.run();
+      onReadyListener.onReady(this);
     }
   }
 
@@ -85,4 +90,9 @@ public class Keyboard extends View {
   private native void nativeSetMode(int mode);
 
   private native void nativeRegisterReadyListener();
+
+  /** Single-method listener for the keyboard's OK / Enter key. */
+  public interface OnReadyListener {
+    void onReady(Keyboard keyboard);
+  }
 }

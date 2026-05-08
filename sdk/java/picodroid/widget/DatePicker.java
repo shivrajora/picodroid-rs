@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -10,9 +11,13 @@ import picodroid.view.View;
  * back via {@link #getYear()}, {@link #getMonth()}, {@link #getDay()}.
  */
 public class DatePicker extends View {
-  private Runnable dateChangedListener;
+  private OnDateChangedListener dateChangedListener;
 
   public DatePicker() {
+    super(nativeCreate());
+  }
+
+  public DatePicker(Context ctx) {
     super(nativeCreate());
   }
 
@@ -28,18 +33,23 @@ public class DatePicker extends View {
   /** Returns the selected day (1..31), or 0 if no day has been tapped yet. */
   public native int getDay();
 
-  public void setOnDateChangedListener(Runnable listener) {
+  public void setOnDateChangedListener(OnDateChangedListener listener) {
     this.dateChangedListener = listener;
     nativeRegisterDateChangedListener();
   }
 
   void fireDateChanged() {
     if (dateChangedListener != null) {
-      dateChangedListener.run();
+      dateChangedListener.onDateChanged(this, getYear(), getMonth(), getDay());
     }
   }
 
   private static native int nativeCreate();
 
   private native void nativeRegisterDateChangedListener();
+
+  /** Mirrors {@code android.widget.DatePicker.OnDateChangedListener}. */
+  public interface OnDateChangedListener {
+    void onDateChanged(DatePicker view, int year, int monthOfYear, int dayOfMonth);
+  }
 }

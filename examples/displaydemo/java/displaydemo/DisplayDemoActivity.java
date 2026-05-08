@@ -60,8 +60,8 @@ public class DisplayDemoActivity extends Activity {
     Gpio led = manager.openGpio("GP25");
     led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
     toggle.setOnCheckedChangeListener(
-        () -> {
-          if (toggle.isChecked()) {
+        (view, checked) -> {
+          if (checked) {
             toggleLabel.setText("LED: ON");
             led.setValue(true);
           } else {
@@ -80,7 +80,7 @@ public class DisplayDemoActivity extends Activity {
 
     Switch sw = new Switch();
     sw.setSize(60, 30);
-    sw.setOnCheckedChangeListener(new SwitchHandler(switchLabel, sw));
+    sw.setOnCheckedChangeListener(new SwitchHandler(switchLabel));
     root.addView(sw);
 
     // -- SeekBar driving a determinate ProgressBar --
@@ -97,8 +97,7 @@ public class DisplayDemoActivity extends Activity {
     SeekBar seekBar = new SeekBar(100);
     seekBar.setSize(200, 20);
     seekBar.setOnSeekBarChangeListener(
-        () -> {
-          int v = seekBar.getProgress();
+        (bar, v, fromUser) -> {
           seekLabel.setText("SeekBar: " + v);
           progress.setProgress(v);
         });
@@ -126,8 +125,8 @@ public class DisplayDemoActivity extends Activity {
     CheckBox checkBox = new CheckBox();
     checkBox.setText("Enable notifications");
     checkBox.setOnCheckedChangeListener(
-        () -> {
-          if (checkBox.isChecked()) {
+        (view, checked) -> {
+          if (checked) {
             Log.i("DisplayDemo", "Notifications enabled");
           } else {
             Log.i("DisplayDemo", "Notifications disabled");
@@ -146,8 +145,7 @@ public class DisplayDemoActivity extends Activity {
     spinner.setItems("Red\nGreen\nBlue\nYellow");
     spinner.setSize(200, 40);
     spinner.setOnItemSelectedListener(
-        () -> {
-          int pos = spinner.getSelectedItemPosition();
+        (parent, pos) -> {
           if (pos == 0) {
             spinnerLabel.setText("Color: Red");
             spinnerLabel.setTextColor(Color.RED);

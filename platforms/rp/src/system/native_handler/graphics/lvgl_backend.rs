@@ -37,6 +37,10 @@ impl GraphicsBackend for LvglBackend {
             "setEnabled" => Some(view::set_enabled(ctx.args, ctx.objects)),
             "setAlpha" => Some(view::set_alpha(ctx.args, ctx.objects)),
             "close" => Some(view::close(ctx.args, ctx.objects)),
+            "performClick" => Some(view::perform_click(ctx.args, ctx.objects)),
+            "nativeRegisterClickListener" => {
+                Some(view::register_click_listener(ctx.args, ctx.objects))
+            }
             "nativeRegisterKeyListener" => Some(view::register_key_listener(ctx.args, ctx.objects)),
             "nativeRegisterTouchListener" => {
                 Some(view::register_touch_listener(ctx.args, ctx.objects))
@@ -69,12 +73,6 @@ impl GraphicsBackend for LvglBackend {
         match method {
             "nativeCreate" => Some(widgets::button_native_create(ctx.args, ctx.strings)),
             "setText" => Some(widgets::button_set_text(ctx.args, ctx.strings, ctx.objects)),
-            "wasClicked" => Some(widgets::button_was_clicked(ctx.args, ctx.objects)),
-            "nativeRegisterClickListener" => Some(widgets::button_register_click_listener(
-                ctx.args,
-                ctx.objects,
-            )),
-            "performClick" => Some(widgets::button_perform_click(ctx.args, ctx.objects)),
             _ => None,
         }
     }

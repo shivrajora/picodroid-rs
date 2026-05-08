@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -12,9 +13,13 @@ import picodroid.view.View;
  * values, regardless of display mode — matches Android's {@code TimePicker} API 23+.
  */
 public class TimePicker extends View {
-  private Runnable timeChangedListener;
+  private OnTimeChangedListener timeChangedListener;
 
   public TimePicker() {
+    super(nativeCreate());
+  }
+
+  public TimePicker(Context ctx) {
     super(nativeCreate());
   }
 
@@ -34,18 +39,23 @@ public class TimePicker extends View {
 
   public native boolean is24HourView();
 
-  public void setOnTimeChangedListener(Runnable listener) {
+  public void setOnTimeChangedListener(OnTimeChangedListener listener) {
     this.timeChangedListener = listener;
     nativeRegisterTimeChangedListener();
   }
 
   void fireTimeChanged() {
     if (timeChangedListener != null) {
-      timeChangedListener.run();
+      timeChangedListener.onTimeChanged(this, getHour(), getMinute());
     }
   }
 
   private static native int nativeCreate();
 
   private native void nativeRegisterTimeChangedListener();
+
+  /** Mirrors {@code android.widget.TimePicker.OnTimeChangedListener}. */
+  public interface OnTimeChangedListener {
+    void onTimeChanged(TimePicker view, int hourOfDay, int minute);
+  }
 }

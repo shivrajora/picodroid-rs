@@ -26,9 +26,28 @@ public class View {
   OnKeyListener onKeyListener;
   OnTouchListener onTouchListener;
   OnSwipeListener onSwipeListener;
+  OnClickListener onClickListener;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
+  }
+
+  /**
+   * Click callback. Mirrors {@code android.view.View.OnClickListener} — fires after a finger
+   * DOWN→UP gesture stays within the click slop and the widget is enabled. Any view that has a
+   * click listener attached automatically becomes clickable.
+   */
+  public interface OnClickListener {
+    void onClick(View v);
+  }
+
+  /**
+   * Register a click listener. Setting a non-null listener flips this View's LVGL CLICKABLE flag so
+   * touches generate {@code LV_EVENT_CLICKED}. Pass {@code null} to clear.
+   */
+  public void setOnClickListener(OnClickListener listener) {
+    this.onClickListener = listener;
+    nativeRegisterClickListener();
   }
 
   public void setOnKeyListener(OnKeyListener listener) {
@@ -68,11 +87,19 @@ public class View {
     nativeRegisterSwipeListener();
   }
 
+  private native void nativeRegisterClickListener();
+
   private native void nativeRegisterKeyListener();
 
   private native void nativeRegisterTouchListener();
 
   private native void nativeRegisterSwipeListener();
+
+  void fireClick() {
+    if (onClickListener != null) {
+      onClickListener.onClick(this);
+    }
+  }
 
   boolean fireKey(KeyEvent event) {
     if (onKeyListener != null) {
@@ -109,6 +136,13 @@ public class View {
   public native void setAlpha(float alpha);
 
   public native void close();
+
+  /**
+   * Synthesize a click event. Equivalent to {@code android.view.View#performClick()} — invokes the
+   * registered {@link OnClickListener} without requiring a real touch. Useful for scripted UI
+   * flows, accessibility, and headless end-to-end tests.
+   */
+  public native void performClick();
 
   /**
    * Returns a fresh {@link ViewPropertyAnimator} for this view. Mirrors {@code View.animate()} in

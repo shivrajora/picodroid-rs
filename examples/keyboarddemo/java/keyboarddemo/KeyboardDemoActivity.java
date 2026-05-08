@@ -64,7 +64,7 @@ public class KeyboardDemoActivity extends Activity {
     Button typeBtn = new Button("Type into manual");
     typeBtn.setSize(220, 28);
     typeBtn.setOnClickListener(
-        () -> {
+        clicked -> {
           Log.i("KeyboardDemo", "manual keyboard show");
           Keyboard kb = new Keyboard();
           kb.setSize(240, 140);
@@ -72,11 +72,11 @@ public class KeyboardDemoActivity extends Activity {
           kb.setEditText(manual);
           // Explicit instance fires READY so the app can read the value.
           kb.setOnReadyListener(
-              () -> {
+              keyboard -> {
                 String got = manual.getText();
                 Log.i("KeyboardDemo", "manual got: " + got);
                 echo.setText("Manual: " + got);
-                kb.hide();
+                keyboard.hide();
               });
           kb.show();
         });

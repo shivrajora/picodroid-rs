@@ -31,21 +31,21 @@ public class SnackbarDemoActivity extends Activity {
     Button plain = new Button("Plain (auto-dismiss)");
     plain.setSize(220, 36);
     plain.setOnClickListener(
-        () -> {
+        v -> {
           Log.i(TAG, "plain snackbar");
-          Snackbar.make("Saved", Snackbar.LENGTH_SHORT).show();
+          Snackbar.make(root, "Saved", Snackbar.LENGTH_SHORT).show();
         });
     root.addView(plain);
 
     Button withAction = new Button("With UNDO");
     withAction.setSize(220, 36);
     withAction.setOnClickListener(
-        () -> {
+        v -> {
           Log.i(TAG, "snackbar with action");
-          Snackbar.make("Item deleted", Snackbar.LENGTH_LONG)
+          Snackbar.make(root, "Item deleted", Snackbar.LENGTH_LONG)
               .setAction(
                   "UNDO",
-                  () -> {
+                  view -> {
                     undoCount++;
                     Log.i(TAG, "user undid (count=" + undoCount + ")");
                   })
@@ -56,10 +56,10 @@ public class SnackbarDemoActivity extends Activity {
     Button indef = new Button("Indefinite");
     indef.setSize(220, 36);
     indef.setOnClickListener(
-        () -> {
+        v -> {
           Log.i(TAG, "indefinite snackbar");
-          Snackbar.make("Tap RETRY to dismiss", Snackbar.LENGTH_INDEFINITE)
-              .setAction("RETRY", () -> Log.i(TAG, "user retried"))
+          Snackbar.make(root, "Tap RETRY to dismiss", Snackbar.LENGTH_INDEFINITE)
+              .setAction("RETRY", view -> Log.i(TAG, "user retried"))
               .show();
         });
     root.addView(indef);

@@ -2,7 +2,7 @@
 //! Widget-callback dispatch site registry.
 //!
 //! Every `dispatch_*` function in `lifecycle.rs` invokes a fixed Java `fire*`
-//! method on a framework class (Button.fireClick, ToggleButton.fireCheckedChanged,
+//! method on a framework class (View.fireClick, ToggleButton.fireCheckedChanged,
 //! …). Under `--shrink` the loaded class is renamed (e.g. `picodroid/widget/
 //! ToggleButton` → `a/AP`), so passing the original name to
 //! `jvm.invoke_instance` fails silently. The fix routes each name through
@@ -60,10 +60,10 @@ pub const SWIPE_REFRESH: usize = 28;
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
 pub const DISPATCH_SITES: &[(&str, &str)] = &[
-    ("picodroid/widget/Button", "fireClick"),
-    ("picodroid/widget/ToggleButton", "fireCheckedChanged"),
-    ("picodroid/widget/Switch", "fireCheckedChanged"),
-    ("picodroid/widget/CheckBox", "fireCheckedChanged"),
+    ("picodroid/view/View", "fireClick"),
+    ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
+    ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
+    ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
     ("picodroid/widget/SeekBar", "fireProgressChanged"),
     ("picodroid/widget/Spinner", "fireItemSelected"),
     ("picodroid/view/View", "fireKey"),

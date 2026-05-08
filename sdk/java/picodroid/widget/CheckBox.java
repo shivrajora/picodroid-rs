@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
-import picodroid.view.View;
+import picodroid.content.Context;
 
-public class CheckBox extends View {
-  private Runnable onCheckedChangeListener;
-
+public class CheckBox extends CompoundButton {
   public CheckBox() {
+    super(nativeCreate());
+  }
+
+  public CheckBox(Context ctx) {
     super(nativeCreate());
   }
 
@@ -17,23 +19,4 @@ public class CheckBox extends View {
   public native boolean isChecked();
 
   public native void setChecked(boolean checked);
-
-  /**
-   * Synthetically toggle and fire a checked-change event. Registered OnCheckedChangeListener runs
-   * on the next main-loop dispatch tick.
-   */
-  public native void performCheckedChange();
-
-  public void setOnCheckedChangeListener(Runnable listener) {
-    this.onCheckedChangeListener = listener;
-    nativeRegisterCheckedChangeListener();
-  }
-
-  private native void nativeRegisterCheckedChangeListener();
-
-  void fireCheckedChanged() {
-    if (onCheckedChangeListener != null) {
-      onCheckedChangeListener.run();
-    }
-  }
 }

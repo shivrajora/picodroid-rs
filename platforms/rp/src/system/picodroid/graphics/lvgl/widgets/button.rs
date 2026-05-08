@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! LVGL impl of `Button` (LVGL `lv_button` + child `lv_label`).
+//! LVGL impl of the click pathway shared by all View subclasses.
 //!
-//! Click events feed a static ring buffer drained by the framework event
-//! loop. The handle→Java-ObjectRef map keys on the raw `lv_obj_t*`
-//! address (matches the value stored by the LVGL trampoline).
+//! `Button::create()` constructs an `lv_button` + child `lv_label` for the
+//! Button widget specifically. The click event plumbing — ring buffer,
+//! handle→ObjectRef map, `LV_EVENT_CLICKED` trampoline, `performClick` —
+//! lives here but is reached through `View.setOnClickListener` /
+//! `View.performClick`, so any view (TextView, layout, ImageView) that
+//! attaches a click listener becomes clickable. The LVGL CLICKABLE flag
+//! and the event callback are both attached lazily on first listener
+//! registration to avoid emitting events on widgets that don't care.
 
 use crate::lvgl_ffi::*;
 use core::ffi::c_char;
@@ -20,13 +25,13 @@ static mut CLICK_QUEUE_TAIL: usize = 0;
 
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
-const MAX_BUTTONS: usize = 32;
-static mut BUTTON_HANDLE_MAP: [(usize, u16); MAX_BUTTONS] = [(0, 0); MAX_BUTTONS];
-static mut BUTTON_HANDLE_MAP_LEN: usize = 0;
+const MAX_CLICK_VIEWS: usize = 32;
+static mut VIEW_CLICK_MAP: [(usize, u16); MAX_CLICK_VIEWS] = [(0, 0); MAX_CLICK_VIEWS];
+static mut VIEW_CLICK_MAP_LEN: usize = 0;
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
-unsafe extern "C" fn button_click_cb(e: *mut lv_event_t) {
+unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
     unsafe {
         let head = CLICK_QUEUE_HEAD;
@@ -38,10 +43,12 @@ unsafe extern "C" fn button_click_cb(e: *mut lv_event_t) {
     }
 }
 
-// ── LVGL ops (plain-Rust; called from widgets/button.rs Java shim) ──────────
+// ── LVGL ops (plain-Rust; called from widgets/*.rs Java shims) ──────────────
 
 /// Create `lv_button` with a centered child label set to `text`. Returns
-/// the Java-side `nativeHandle`.
+/// the Java-side `nativeHandle`. Click events are not wired here — the
+/// `LV_EVENT_CLICKED` trampoline is attached lazily by [`register_click_listener`]
+/// on the first `View.setOnClickListener` call.
 pub(in crate::system::picodroid::graphics) fn create(text: &str) -> i32 {
     let btn = unsafe { lv_button_create(lifecycle::screen_ptr()) };
     let label = unsafe { lv_label_create(btn) };
@@ -53,12 +60,6 @@ pub(in crate::system::picodroid::graphics) fn create(text: &str) -> i32 {
     unsafe {
         lv_label_set_text(label, buf.as_ptr() as *const c_char);
         lv_obj_center(label);
-        lv_obj_add_event_cb(
-            btn,
-            Some(button_click_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
     }
 
     handle_table::register(btn)
@@ -78,38 +79,8 @@ pub(in crate::system::picodroid::graphics) fn set_text(id: i32, text: &str) {
     }
 }
 
-/// Drain a click event for `id` if any are queued; returns `true` when
-/// consumed.
-pub(in crate::system::picodroid::graphics) fn was_clicked(id: i32) -> bool {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    unsafe {
-        let mut i = CLICK_QUEUE_TAIL;
-        while i != CLICK_QUEUE_HEAD {
-            if CLICK_QUEUE[i] == raw_ptr {
-                // Compact the queue: shift remaining entries down by one.
-                let mut j = i;
-                loop {
-                    let next = (j + 1) % CLICK_QUEUE_SIZE;
-                    if next == CLICK_QUEUE_HEAD {
-                        break;
-                    }
-                    CLICK_QUEUE[j] = CLICK_QUEUE[next];
-                    j = next;
-                }
-                CLICK_QUEUE_HEAD = if CLICK_QUEUE_HEAD == 0 {
-                    CLICK_QUEUE_SIZE - 1
-                } else {
-                    CLICK_QUEUE_HEAD - 1
-                };
-                return true;
-            }
-            i = (i + 1) % CLICK_QUEUE_SIZE;
-        }
-    }
-    false
-}
-
-/// Synthetically fire `LV_EVENT_CLICKED` on the underlying button.
+/// Synthetically fire `LV_EVENT_CLICKED` on the underlying widget.
+/// No-op if no click listener has been registered (no trampoline attached).
 pub(in crate::system::picodroid::graphics) fn perform_click(id: i32) {
     unsafe {
         lv_obj_send_event(
@@ -121,19 +92,30 @@ pub(in crate::system::picodroid::graphics) fn perform_click(id: i32) {
 }
 
 /// Register a Java `View` object as the click-listener target for the
-/// given handle.
+/// given handle. On the first registration for a widget, attaches the
+/// `LV_EVENT_CLICKED` trampoline and sets `LV_OBJ_FLAG_CLICKABLE` so any
+/// view (not just Button) becomes clickable.
 pub(in crate::system::picodroid::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut BUTTON_HANDLE_MAP[..BUTTON_HANDLE_MAP_LEN] {
+        for entry in &mut VIEW_CLICK_MAP[..VIEW_CLICK_MAP_LEN] {
             if entry.0 == raw_ptr {
                 entry.1 = obj_ref;
                 return;
             }
         }
-        if BUTTON_HANDLE_MAP_LEN < MAX_BUTTONS {
-            BUTTON_HANDLE_MAP[BUTTON_HANDLE_MAP_LEN] = (raw_ptr, obj_ref);
-            BUTTON_HANDLE_MAP_LEN += 1;
+        if VIEW_CLICK_MAP_LEN < MAX_CLICK_VIEWS {
+            VIEW_CLICK_MAP[VIEW_CLICK_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_CLICK_MAP_LEN += 1;
+            // First registration for this widget — wire LVGL plumbing.
+            let obj = raw_ptr as *mut lv_obj_t;
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(
+                obj,
+                Some(view_click_cb),
+                LV_EVENT_CLICKED,
+                core::ptr::null_mut(),
+            );
         }
     }
 }
@@ -151,11 +133,11 @@ pub fn drain_click_queue() -> Option<usize> {
     }
 }
 
-/// Look up the Java `View` object index for a button's raw LVGL pointer.
+/// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
     unsafe {
-        for entry in &BUTTON_HANDLE_MAP[..BUTTON_HANDLE_MAP_LEN] {
+        for entry in &VIEW_CLICK_MAP[..VIEW_CLICK_MAP_LEN] {
             if entry.0 == handle {
                 return Some(entry.1);
             }
@@ -166,7 +148,7 @@ pub fn lookup_button_obj(handle: usize) -> Option<u16> {
 
 pub fn reset_button_state() {
     unsafe {
-        BUTTON_HANDLE_MAP_LEN = 0;
+        VIEW_CLICK_MAP_LEN = 0;
         CLICK_QUEUE_HEAD = 0;
         CLICK_QUEUE_TAIL = 0;
     }

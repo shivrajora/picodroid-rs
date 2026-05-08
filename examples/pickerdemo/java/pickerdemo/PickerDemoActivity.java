@@ -36,10 +36,9 @@ public class PickerDemoActivity extends Activity {
     date.setSize(220, 200);
     date.setDate(2026, 5, 1);
     date.setOnDateChangedListener(
-        () -> {
-          dateLabel.setText(
-              "Date: " + date.getYear() + "-" + date.getMonth() + "-" + date.getDay());
-          Log.i(TAG, "date " + date.getYear() + "-" + date.getMonth() + "-" + date.getDay());
+        (view, year, month, day) -> {
+          dateLabel.setText("Date: " + year + "-" + month + "-" + day);
+          Log.i(TAG, "date " + year + "-" + month + "-" + day);
         });
     root.addView(date);
 
@@ -52,9 +51,7 @@ public class PickerDemoActivity extends Activity {
     time.setSize(200, 100);
     time.setTime(12, 0);
     time.setOnTimeChangedListener(
-        () -> {
-          int h = time.getHour();
-          int m = time.getMinute();
+        (view, h, m) -> {
           String mode = time.is24HourView() ? "24h" : "12h";
           timeLabel.setText(
               "Time: "
@@ -73,7 +70,7 @@ public class PickerDemoActivity extends Activity {
     Button toggle = new Button("Toggle 12/24h");
     toggle.setSize(200, 36);
     toggle.setOnClickListener(
-        () -> {
+        v -> {
           boolean next = !time.is24HourView();
           time.setIs24HourView(next);
           Log.i(TAG, "mode -> " + (next ? "24h" : "12h"));
