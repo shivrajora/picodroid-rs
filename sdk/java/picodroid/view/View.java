@@ -27,6 +27,7 @@ public class View {
   OnTouchListener onTouchListener;
   OnSwipeListener onSwipeListener;
   OnClickListener onClickListener;
+  ViewGroup.LayoutParams layoutParams;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -136,6 +137,26 @@ public class View {
   public native void setAlpha(float alpha);
 
   public native void close();
+
+  /**
+   * Records the {@link ViewGroup.LayoutParams} that the parent layout should apply to this child.
+   * The framework reads {@code width}/{@code height} during {@link ViewGroup#addView(View,
+   * ViewGroup.LayoutParams)} and forwards them to {@link #setSize}; subclass-specific fields like
+   * {@code LinearLayout.LayoutParams.weight} are applied by the parent layout itself.
+   */
+  public void setLayoutParams(ViewGroup.LayoutParams params) {
+    this.layoutParams = params;
+  }
+
+  public ViewGroup.LayoutParams getLayoutParams() {
+    return layoutParams;
+  }
+
+  /**
+   * Apply a flex-grow weight to this view inside its {@link LinearLayout} parent. Visible to
+   * picodroid.widget for {@link ViewGroup#addView(View, ViewGroup.LayoutParams)}'s weight handling.
+   */
+  native void nativeSetFlexGrow(int weight);
 
   /**
    * Synthesize a click event. Equivalent to {@code android.view.View#performClick()} — invokes the

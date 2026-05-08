@@ -2,9 +2,8 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
-import picodroid.view.View;
 
-public class Spinner extends View {
+public class Spinner extends AdapterView<Adapter> {
   private OnItemSelectedListener onItemSelectedListener;
 
   public Spinner() {
@@ -18,8 +17,9 @@ public class Spinner extends View {
   private static native int nativeCreate();
 
   /**
-   * Set the dropdown items. Accepts a newline-separated string for now; an {@code Adapter}-based
-   * variant is planned (see {@code project_future_milestones.md} resource-system milestone).
+   * Direct items setter — accepts a newline-separated string. Convenience for apps that haven't
+   * migrated to {@link #setAdapter}; programmatic callers should prefer constructing an {@link
+   * ArrayAdapter}.
    */
   public native void setItems(String items);
 
@@ -38,6 +38,24 @@ public class Spinner extends View {
 
   private native void nativeRegisterItemSelectedListener();
 
+  @Override
+  protected void refreshFromAdapter() {
+    if (adapter == null) {
+      setItems("");
+      return;
+    }
+    StringBuilder sb = new StringBuilder();
+    int n = adapter.getCount();
+    for (int i = 0; i < n; i++) {
+      if (i > 0) {
+        sb.append('\n');
+      }
+      Object item = adapter.getItem(i);
+      sb.append(item == null ? "" : item.toString());
+    }
+    setItems(sb.toString());
+  }
+
   void fireItemSelected() {
     if (onItemSelectedListener != null) {
       onItemSelectedListener.onItemSelected(this, getSelectedItemPosition());
@@ -45,10 +63,10 @@ public class Spinner extends View {
   }
 
   /**
-   * Picodroid's lighter-weight equivalent of {@code AdapterView.OnItemSelectedListener}. Until an
-   * adapter pattern lands the {@code position} is read straight from the underlying roller; the
-   * full Android signature ({@code View, long id}) will be reintroduced when the adapter milestone
-   * ships.
+   * Picodroid's lighter-weight equivalent of {@code AdapterView.OnItemSelectedListener}. Until the
+   * adapter pattern is fully wired through native rendering the {@code position} is read straight
+   * from the underlying roller; the full Android signature ({@code View, long id}) will be
+   * reintroduced when the adapter milestone ships.
    */
   public interface OnItemSelectedListener {
     void onItemSelected(Spinner parent, int position);

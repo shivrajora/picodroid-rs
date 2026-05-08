@@ -25,6 +25,12 @@ pub trait GraphicsBackend {
     /// needed by the implementation.
     fn dispatch_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
 
+    /// ViewGroup methods (addView, removeView, removeAllViews, getChildCount)
+    /// are inherited by every layout subclass; [`super::is_view_group`]
+    /// gates routing here. Checked between class-specific dispatch and the
+    /// View-level fallthrough.
+    fn dispatch_view_group(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
+
     fn dispatch_text_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_button(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_linear_layout(

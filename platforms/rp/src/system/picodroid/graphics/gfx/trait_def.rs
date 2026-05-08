@@ -104,6 +104,27 @@ pub trait Gfx {
     fn set_parent(&mut self, h: Handle, parent: Handle);
     fn delete(&mut self, h: Handle);
 
+    // ── ViewGroup ops ───────────────────────────────────────────────────────
+
+    /// Number of children currently parented to `h`.
+    fn child_count(&self, h: Handle) -> i32;
+
+    /// Child at `index`, or [`Handle::NULL`] if out of range.
+    fn child_at(&self, h: Handle, index: i32) -> Handle;
+
+    /// Detach and delete `child`. The Java side calls this from {@code
+    /// ViewGroup.removeView}; LVGL's parent-aware delete walks the tree so
+    /// `parent` is informational on the trait surface.
+    fn remove_child(&mut self, parent: Handle, child: Handle);
+
+    /// Detach and delete every child of `h`. Maps to LVGL's `lv_obj_clean`.
+    fn remove_all_children(&mut self, h: Handle);
+
+    /// Apply a flex-grow factor to `h`. Used by
+    /// {@code LinearLayout.LayoutParams.weight} so weighted children expand
+    /// to fill remaining space along the layout's main axis.
+    fn set_flex_grow(&mut self, h: Handle, weight: i32);
+
     // ── events ──────────────────────────────────────────────────────────────
 
     /// Register a push-mode listener. Today's Java path uses

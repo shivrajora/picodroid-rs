@@ -47,3 +47,39 @@ pub(in crate::system::picodroid::graphics) fn set_spacing(id: i32, spacing: i32)
         lv_obj_set_style_pad_column(o, spacing, 0);
     }
 }
+
+/// Set main-axis flex alignment from a Picodroid gravity bitmask.
+///
+/// We accept Android's gravity constants and translate the main-axis bits
+/// (LEFT/CENTER_HORIZONTAL/RIGHT for horizontal flow, TOP/CENTER_VERTICAL/
+/// BOTTOM for vertical flow) into LVGL's flex-align enum. The cross-axis
+/// stays CENTER for v1; full per-axis routing is part of the
+/// resource/inflater milestone.
+pub(in crate::system::picodroid::graphics) fn set_gravity(id: i32, gravity: i32) {
+    // Mirror the relevant subset of Android's Gravity bits.
+    const TOP: i32 = 0x30;
+    const BOTTOM: i32 = 0x50;
+    const LEFT: i32 = 0x03;
+    const RIGHT: i32 = 0x05;
+    const CENTER_VERTICAL: i32 = 0x10;
+    const CENTER_HORIZONTAL: i32 = 0x01;
+    const CENTER: i32 = CENTER_VERTICAL | CENTER_HORIZONTAL;
+
+    let main = if gravity & CENTER == CENTER {
+        LV_FLEX_ALIGN_CENTER
+    } else if gravity & (LEFT | TOP) != 0 {
+        LV_FLEX_ALIGN_START
+    } else if gravity & (RIGHT | BOTTOM) != 0 {
+        LV_FLEX_ALIGN_END
+    } else {
+        LV_FLEX_ALIGN_START
+    };
+    unsafe {
+        lv_obj_set_flex_align(
+            handle_table::lookup(id),
+            main,
+            LV_FLEX_ALIGN_CENTER,
+            LV_FLEX_ALIGN_CENTER,
+        );
+    }
+}

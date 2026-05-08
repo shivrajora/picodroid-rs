@@ -22,8 +22,11 @@ fn is_view(class_name: &str) -> bool {
     matches!(
         class_name,
         "picodroid/view/View"
+            | "picodroid/view/ViewGroup"
             | "picodroid/widget/TextView"
             | "picodroid/widget/Button"
+            | "picodroid/widget/CompoundButton"
+            | "picodroid/widget/AdapterView"
             | "picodroid/widget/LinearLayout"
             | "picodroid/widget/ProgressBar"
             | "picodroid/widget/Switch"
@@ -40,6 +43,23 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/SwipeRefreshLayout"
             | "picodroid/widget/EditText"
             | "picodroid/widget/Keyboard"
+    )
+}
+
+/// Returns `true` if `class_name` is `picodroid/view/ViewGroup` or any of its
+/// concrete subclasses. Routes ViewGroup-inherited natives (addView,
+/// removeView, getChildCount, …) before the View fallthrough.
+fn is_view_group(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "picodroid/view/ViewGroup"
+            | "picodroid/widget/AdapterView"
+            | "picodroid/widget/LinearLayout"
+            | "picodroid/widget/FrameLayout"
+            | "picodroid/widget/ScrollView"
+            | "picodroid/widget/SwipeRefreshLayout"
+            | "picodroid/widget/Spinner"
+            | "picodroid/widget/ListView"
     )
 }
 
@@ -91,6 +111,18 @@ fn dispatch_with<B: GraphicsBackend>(
     };
     if class_hit.is_some() {
         return class_hit;
+    }
+
+    // Inherited ViewGroup methods (addView, removeView, removeAllViews,
+    // getChildCount). Checked between class-specific dispatch and the
+    // View fallthrough so a layout's own setOrientation/setSpacing wins
+    // first, then ViewGroup's parenting natives, and finally generic
+    // View ops resolve.
+    if is_view_group(class_name) {
+        let vg_hit = be.dispatch_view_group(method_name, ctx);
+        if vg_hit.is_some() {
+            return vg_hit;
+        }
     }
 
     // Inherited View methods — match on any View subclass.

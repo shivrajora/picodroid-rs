@@ -2,7 +2,7 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
-import picodroid.view.View;
+import picodroid.view.ViewGroup;
 
 /**
  * Container that fires a refresh callback on a downward swipe and shows an indeterminate spinner
@@ -13,7 +13,7 @@ import picodroid.view.View;
  * OnRefreshListener#onRefresh()}. The caller's listener typically kicks off async work and calls
  * {@link #setRefreshing(boolean) setRefreshing(false)} when done.
  */
-public class SwipeRefreshLayout extends View {
+public class SwipeRefreshLayout extends ViewGroup {
   private OnRefreshListener refreshListener;
 
   public SwipeRefreshLayout() {
@@ -23,8 +23,6 @@ public class SwipeRefreshLayout extends View {
   public SwipeRefreshLayout(Context ctx) {
     super(nativeCreate());
   }
-
-  public native void addView(View child);
 
   public native void setRefreshing(boolean refreshing);
 

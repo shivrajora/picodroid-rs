@@ -110,15 +110,6 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
     }
 }
 
-pub(in crate::system::picodroid::graphics) fn add_view(parent: i32, child: i32) {
-    let parent_obj = handle_table::lookup(parent);
-    let child_obj = handle_table::lookup(child);
-    if parent_obj.is_null() || child_obj.is_null() {
-        return;
-    }
-    unsafe { lv_obj_set_parent(child_obj, parent_obj) };
-}
-
 pub(in crate::system::picodroid::graphics) fn set_refreshing(id: i32, refreshing: bool) {
     let container = handle_table::lookup(id);
     if container.is_null() {

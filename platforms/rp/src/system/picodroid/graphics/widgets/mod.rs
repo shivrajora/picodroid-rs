@@ -57,7 +57,7 @@ pub use edit_text::{
     edit_text_set_hint, edit_text_set_show_keyboard_on_touch, edit_text_set_text,
     reset_edit_text_state,
 };
-pub use frame_layout::{frame_layout_add_view, frame_layout_native_create};
+pub use frame_layout::frame_layout_native_create;
 pub use image_view::{
     image_view_native_create, image_view_set_scale, image_view_set_scale_type, image_view_set_src,
     image_view_set_tint,
@@ -71,7 +71,7 @@ pub use keyboard::{
     keyboard_set_textarea, reset_keyboard_state,
 };
 pub use linear_layout::{
-    linear_layout_add_view, linear_layout_native_create, linear_layout_set_orientation,
+    linear_layout_native_create, linear_layout_set_gravity, linear_layout_set_orientation,
     linear_layout_set_spacing,
 };
 pub use list_view::{list_view_add_item, list_view_native_create};
@@ -79,7 +79,7 @@ pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
     progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
 };
-pub use scroll_view::{scroll_view_add_view, scroll_view_native_create};
+pub use scroll_view::scroll_view_native_create;
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use seek_bar::{drain_seek_change_queue, lookup_seek_bar_obj};
 pub use seek_bar::{
@@ -102,8 +102,8 @@ pub use spinner::{
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use swipe_refresh_layout::{drain_refresh_queue, lookup_refresh_obj};
 pub use swipe_refresh_layout::{
-    reset_swipe_refresh_state, swipe_refresh_add_view, swipe_refresh_native_create,
-    swipe_refresh_register_listener, swipe_refresh_set_refreshing,
+    reset_swipe_refresh_state, swipe_refresh_native_create, swipe_refresh_register_listener,
+    swipe_refresh_set_refreshing,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};

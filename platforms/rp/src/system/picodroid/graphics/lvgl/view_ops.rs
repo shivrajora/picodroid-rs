@@ -38,11 +38,15 @@ pub(in crate::system::picodroid::graphics) fn set_pos(h: Handle, x: i32, y: i32)
 /// `View.WRAP_CONTENT (-2)` at the FFI boundary so layouts can size themselves to their children.
 const LV_SIZE_CONTENT: i32 = (1 << 30) - 1;
 
+/// LVGL `LV_PCT(100) = LV_COORD_MAX - 1000 + 100 = (1<<21) - 901`. Mirrors Java
+/// `ViewGroup.LayoutParams.MATCH_PARENT (-1)` at the FFI boundary.
+const LV_SIZE_MATCH_PARENT: i32 = (1 << 21) - 901;
+
 fn translate_dim(v: i32) -> i32 {
-    if v == -2 {
-        LV_SIZE_CONTENT
-    } else {
-        v
+    match v {
+        -2 => LV_SIZE_CONTENT,
+        -1 => LV_SIZE_MATCH_PARENT,
+        other => other,
     }
 }
 
@@ -105,4 +109,38 @@ pub(in crate::system::picodroid::graphics) fn set_parent(h: Handle, parent: Hand
 
 pub(in crate::system::picodroid::graphics) fn delete(h: Handle) {
     unsafe { lv_obj_delete(obj(h)) };
+}
+
+// ── ViewGroup ops ──────────────────────────────────────────────────────────
+
+pub(in crate::system::picodroid::graphics) fn child_count(h: Handle) -> i32 {
+    unsafe { lv_obj_get_child_count(obj(h) as *const lv_obj_t) as i32 }
+}
+
+pub(in crate::system::picodroid::graphics) fn child_at(_h: Handle, _index: i32) -> Handle {
+    // No reverse map (raw lv_obj_t* → Java View ObjectRef) exists today, so
+    // we can't return the child's original Handle here. The Java side throws
+    // UnsupportedOperationException before reaching native, so this only
+    // exists to satisfy the trait surface. See ViewGroup.getChildAt javadoc.
+    Handle::NULL
+}
+
+pub(in crate::system::picodroid::graphics) fn remove_child(_parent: Handle, child: Handle) {
+    // LVGL's delete walks the tree to detach from the parent automatically.
+    unsafe { lv_obj_delete(obj(child)) };
+}
+
+pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
+    unsafe { lv_obj_clean(obj(h)) };
+}
+
+pub(in crate::system::picodroid::graphics) fn set_flex_grow(h: Handle, weight: i32) {
+    let w = if weight < 0 {
+        0
+    } else if weight > 255 {
+        255
+    } else {
+        weight as u8
+    };
+    unsafe { lv_obj_set_flex_grow(obj(h), w) };
 }

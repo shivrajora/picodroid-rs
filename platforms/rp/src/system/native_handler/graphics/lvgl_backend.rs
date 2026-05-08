@@ -10,7 +10,7 @@ use pico_jvm::NativeContext;
 
 use super::backend::{DispatchResult, GraphicsBackend};
 
-use crate::system::picodroid::graphics::{display, view, widgets};
+use crate::system::picodroid::graphics::{display, view, view_group, widgets};
 
 pub struct LvglBackend;
 
@@ -38,6 +38,7 @@ impl GraphicsBackend for LvglBackend {
             "setAlpha" => Some(view::set_alpha(ctx.args, ctx.objects)),
             "close" => Some(view::close(ctx.args, ctx.objects)),
             "performClick" => Some(view::perform_click(ctx.args, ctx.objects)),
+            "nativeSetFlexGrow" => Some(view::set_flex_grow(ctx.args, ctx.objects)),
             "nativeRegisterClickListener" => {
                 Some(view::register_click_listener(ctx.args, ctx.objects))
             }
@@ -48,6 +49,16 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterSwipeListener" => {
                 Some(view::register_swipe_listener(ctx.args, ctx.objects))
             }
+            _ => None,
+        }
+    }
+
+    fn dispatch_view_group(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            "addView" => Some(view_group::add_view(ctx.args, ctx.objects)),
+            "removeView" => Some(view_group::remove_view(ctx.args, ctx.objects)),
+            "removeAllViews" => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
+            "getChildCount" => Some(view_group::get_child_count(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -84,12 +95,12 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::linear_layout_native_create()),
-            "addView" => Some(widgets::linear_layout_add_view(ctx.args, ctx.objects)),
             "setOrientation" => Some(widgets::linear_layout_set_orientation(
                 ctx.args,
                 ctx.objects,
             )),
             "setSpacing" => Some(widgets::linear_layout_set_spacing(ctx.args, ctx.objects)),
+            "setGravity" => Some(widgets::linear_layout_set_gravity(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -232,11 +243,10 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_scroll_view(
         &mut self,
         method: &str,
-        ctx: &mut NativeContext<'_>,
+        _ctx: &mut NativeContext<'_>,
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::scroll_view_native_create()),
-            "addView" => Some(widgets::scroll_view_add_view(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -244,11 +254,10 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_frame_layout(
         &mut self,
         method: &str,
-        ctx: &mut NativeContext<'_>,
+        _ctx: &mut NativeContext<'_>,
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::frame_layout_native_create()),
-            "addView" => Some(widgets::frame_layout_add_view(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -409,7 +418,6 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::swipe_refresh_native_create()),
-            "addView" => Some(widgets::swipe_refresh_add_view(ctx.args, ctx.objects)),
             "setRefreshing" => Some(widgets::swipe_refresh_set_refreshing(ctx.args, ctx.objects)),
             "nativeRegisterRefreshListener" => Some(widgets::swipe_refresh_register_listener(
                 ctx.args,

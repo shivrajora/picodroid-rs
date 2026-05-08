@@ -151,6 +151,7 @@ pub const LV_FLEX_FLOW_COLUMN: lv_flex_flow_t = 0x01;
 
 pub type lv_flex_align_t = u32;
 pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
+pub const LV_FLEX_ALIGN_END: lv_flex_align_t = 1;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
 /// Linear-gradient direction. Values verified against
@@ -466,6 +467,12 @@ extern "C" {
     // Object parent / child
     pub fn lv_obj_set_parent(obj: *mut lv_obj_t, parent: *mut lv_obj_t);
     pub fn lv_obj_get_child(obj: *mut lv_obj_t, idx: i32) -> *mut lv_obj_t;
+    pub fn lv_obj_get_child_count(obj: *const lv_obj_t) -> u32;
+
+    // Flex layout — set_flex_flow / align live above; this declaration
+    // backs `LinearLayout.LayoutParams.weight` so weighted children expand
+    // along the flex axis. Maps directly to `lv_obj_set_flex_grow`.
+    pub fn lv_obj_set_flex_grow(obj: *mut lv_obj_t, grow: u8);
 
     // Object flags
     pub fn lv_obj_add_flag(obj: *mut lv_obj_t, f: u32);

@@ -119,6 +119,28 @@ impl Gfx for LvglGfx {
         view_ops::delete(h);
     }
 
+    // ── ViewGroup ops ───────────────────────────────────────────────────────
+
+    fn child_count(&self, h: Handle) -> i32 {
+        view_ops::child_count(h)
+    }
+
+    fn child_at(&self, h: Handle, index: i32) -> Handle {
+        view_ops::child_at(h, index)
+    }
+
+    fn remove_child(&mut self, parent: Handle, child: Handle) {
+        view_ops::remove_child(parent, child);
+    }
+
+    fn remove_all_children(&mut self, h: Handle) {
+        view_ops::remove_all_children(h);
+    }
+
+    fn set_flex_grow(&mut self, h: Handle, weight: i32) {
+        view_ops::set_flex_grow(h, weight);
+    }
+
     // ── events ──────────────────────────────────────────────────────────────
 
     fn add_event_listener(&mut self, _h: Handle, _kind: EventKind, _cb: EventListener) {

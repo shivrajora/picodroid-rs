@@ -236,6 +236,16 @@ pub fn perform_click(args: &[Value], objects: &ObjectHeap) -> Result<Option<Valu
     Ok(None)
 }
 
+/// `View.nativeSetFlexGrow(int weight)` — apply a flex-grow factor to this view inside its
+/// LinearLayout parent. Called by `ViewGroup.addView(child, LinearLayout.LayoutParams)` when the
+/// params carry a non-zero weight.
+pub fn set_flex_grow(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let weight = arg_int(args, 1)?;
+    with_gfx(|g| g.set_flex_grow(Handle::from_java(id), weight));
+    Ok(None)
+}
+
 /// Reset the key-listener registry between app runs.
 pub fn reset_key_listener_state() {
     lvgl_events::reset_view_key_listener_state();
