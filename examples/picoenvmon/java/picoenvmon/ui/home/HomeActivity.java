@@ -97,7 +97,9 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
                 Formatter f = comp.formatter();
                 f.toggleUnits();
                 Log.i(EnvAppComponent.TAG, "units toggled fahrenheit=" + f.isFahrenheit());
-                Toast.makeText(f.isFahrenheit() ? "°F" : "°C", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                        HomeActivity.this, f.isFahrenheit() ? "°F" : "°C", Toast.LENGTH_SHORT)
+                    .show();
               }
 
               public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {}
@@ -248,11 +250,11 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
     if (serviceRunning) {
       stopService(svc);
       serviceRunning = false;
-      Toast.makeText("Logger stopped", Toast.LENGTH_SHORT).show();
+      Toast.makeText(this, "Logger stopped", Toast.LENGTH_SHORT).show();
     } else {
       startService(svc);
       serviceRunning = true;
-      Toast.makeText("Logger started", Toast.LENGTH_SHORT).show();
+      Toast.makeText(this, "Logger started", Toast.LENGTH_SHORT).show();
     }
   }
 }

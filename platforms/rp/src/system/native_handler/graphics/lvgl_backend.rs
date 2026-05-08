@@ -19,8 +19,21 @@ impl GraphicsBackend for LvglBackend {
         match method {
             "getInstance" => Some(display::get_instance(ctx.objects)),
             "setContentView" => Some(display::set_content_view(ctx.args, ctx.objects)),
-            "pollTouch" => Some(display::poll_touch(ctx.objects)),
             "update" => Some(display::update()),
+            _ => None,
+        }
+    }
+
+    fn dispatch_display_debug(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        // Picodroid-only debug helpers; mirrors the existing dispatch_display
+        // entries before they were moved off picodroid/graphics/Display in
+        // the Tier 4 cleanup.
+        match method {
+            "pollTouch" => Some(display::poll_touch(ctx.objects)),
             "calibrate" => Some(display::calibrate()),
             "showFps" => Some(display::show_fps()),
             _ => None,

@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.graphics.Theme;
 import picodroid.view.View;
 
 public class ProgressBar extends View {
   /** Determinate progress bar — call {@link #setProgress(int)} to update value 0..100. */
   public ProgressBar() {
+    super(nativeCreate());
+  }
+
+  public ProgressBar(Context ctx) {
     super(nativeCreate());
   }
 

@@ -82,6 +82,7 @@ fn dispatch_with<B: GraphicsBackend>(
     // so subclass-defined names don't collide with a future View-level setter.
     let class_hit = match class_name {
         "picodroid/graphics/Display" => be.dispatch_display(method_name, ctx),
+        "picodroid/debug/DisplayDebug" => be.dispatch_display_debug(method_name, ctx),
         "picodroid/widget/TextView" => be.dispatch_text_view(method_name, ctx),
         "picodroid/widget/Button" => be.dispatch_button(method_name, ctx),
         "picodroid/widget/LinearLayout" => be.dispatch_linear_layout(method_name, ctx),

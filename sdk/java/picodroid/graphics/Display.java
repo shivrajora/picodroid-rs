@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.graphics;
 
-import picodroid.view.MotionEvent;
 import picodroid.view.View;
 
 public class Display {
@@ -17,13 +16,7 @@ public class Display {
 
   public native void setContentView(View root);
 
-  public native MotionEvent pollTouch();
-
   public native void update();
-
-  public native void calibrate();
-
-  public native void showFps();
 
   public int getWidth() {
     return width;

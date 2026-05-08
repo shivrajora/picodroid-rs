@@ -34,7 +34,7 @@ public class DialogDemoActivity extends Activity {
     toastBtn.setOnClickListener(
         v -> {
           c.appComponent().info("toast button clicked");
-          Toast.makeText("Hello from Picodroid!", Toast.LENGTH_SHORT).show();
+          Toast.makeText(this, "Hello from Picodroid!", Toast.LENGTH_SHORT).show();
         });
     root.addView(toastBtn);
 

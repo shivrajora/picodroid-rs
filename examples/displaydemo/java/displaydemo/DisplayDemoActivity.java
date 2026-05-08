@@ -2,6 +2,7 @@
 package displaydemo;
 
 import picodroid.app.Activity;
+import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
 import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
@@ -21,8 +22,9 @@ import picodroid.widget.ToggleButton;
 
 public class DisplayDemoActivity extends Activity {
   public void onCreate() {
-    getDisplay().calibrate();
-    getDisplay().showFps();
+    getDisplay();
+    DisplayDebug.calibrate();
+    DisplayDebug.showFps();
     Log.i("DisplayDemo", "Display ready");
 
     ScrollView scroll = new ScrollView();

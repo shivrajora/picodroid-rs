@@ -20,6 +20,15 @@ pub type DispatchResult = Option<Result<Option<Value>, JvmError>>;
 pub trait GraphicsBackend {
     fn dispatch_display(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
 
+    /// `picodroid/debug/DisplayDebug` static helpers (calibrate, showFps,
+    /// pollTouch). Split out of `dispatch_display` so the public Display
+    /// API stays close to Android's surface.
+    fn dispatch_display_debug(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
+
     /// View methods are inherited by every widget subclass; the caller uses
     /// [`super::is_view`] to decide when to route here. Class name is not
     /// needed by the implementation.

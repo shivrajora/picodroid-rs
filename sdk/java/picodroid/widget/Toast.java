@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
+
 public class Toast {
   public static final int LENGTH_SHORT = 0;
   public static final int LENGTH_LONG = 1;
@@ -11,7 +13,12 @@ public class Toast {
     this.nativeHandle = nativeHandle;
   }
 
-  public static Toast makeText(String text, int duration) {
+  /**
+   * Mirrors {@code Toast.makeText(Context, CharSequence, int)}. The {@code ctx} parameter matches
+   * Android's signature; picodroid's single-Context model means it isn't consulted for placement
+   * but the parameter is captured for future-proofing.
+   */
+  public static Toast makeText(Context ctx, String text, int duration) {
     return new Toast(nativeCreate(text, duration));
   }
 

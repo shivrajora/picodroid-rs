@@ -110,7 +110,7 @@ public class SettingsActivity extends Activity {
             + th.luxLo
             + " ok="
             + ok);
-    Toast.makeText(ok ? "Saved" : "Save failed", Toast.LENGTH_SHORT).show();
+    Toast.makeText(this, ok ? "Saved" : "Save failed", Toast.LENGTH_SHORT).show();
     finish();
   }
 

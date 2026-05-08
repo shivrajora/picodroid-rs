@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 public class ImageView extends View {
@@ -21,6 +22,10 @@ public class ImageView extends View {
   public static final int SCALE_1X = 256;
 
   public ImageView() {
+    super(nativeCreate());
+  }
+
+  public ImageView(Context ctx) {
     super(nativeCreate());
   }
 

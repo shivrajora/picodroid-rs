@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 public class TextView extends View {
   public TextView() {
+    super(nativeCreate());
+  }
+
+  public TextView(Context ctx) {
     super(nativeCreate());
   }
 

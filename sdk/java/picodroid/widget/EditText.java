@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -17,6 +18,10 @@ public class EditText extends View {
   private OnEditorActionListener editorActionListener;
 
   public EditText() {
+    super(nativeCreate());
+  }
+
+  public EditText(Context ctx) {
     super(nativeCreate());
   }
 
