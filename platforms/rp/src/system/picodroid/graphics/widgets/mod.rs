@@ -114,7 +114,10 @@ pub use switch::{
     reset_switch_state, switch_is_checked, switch_native_create, switch_perform_checked_change,
     switch_register_checked_change_listener, switch_set_checked, switch_toggle,
 };
-pub use text_view::{text_view_native_create, text_view_set_text, text_view_set_text_color};
+pub use text_view::{
+    text_view_native_create, text_view_set_include_font_padding, text_view_set_text,
+    text_view_set_text_color,
+};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 pub use time_picker::{

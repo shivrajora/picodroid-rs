@@ -6,6 +6,7 @@ import picodroid.graphics.Color;
 import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
+import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.ImageView;
@@ -29,7 +30,7 @@ public class DisplayDemoActivity extends Activity {
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(320, 600);
+    root.setSize(320, View.WRAP_CONTENT);
     root.setPadding(10, 5, 10, 5);
     root.setSpacing(4);
     scroll.addView(root);
@@ -37,6 +38,7 @@ public class DisplayDemoActivity extends Activity {
     TextView title = new TextView();
     title.setText("Picodroid UI Demo");
     title.setTextColor(Color.WHITE);
+    title.setIncludeFontPadding(false);
     root.addView(title);
 
     // -- Button with tap counter --
@@ -49,6 +51,7 @@ public class DisplayDemoActivity extends Activity {
     TextView toggleLabel = new TextView();
     toggleLabel.setText("LED: OFF");
     toggleLabel.setTextColor(Color.WHITE);
+    toggleLabel.setIncludeFontPadding(false);
     root.addView(toggleLabel);
 
     ToggleButton toggle = new ToggleButton("ON", "OFF");
@@ -72,6 +75,7 @@ public class DisplayDemoActivity extends Activity {
     TextView switchLabel = new TextView();
     switchLabel.setText("Switch: OFF");
     switchLabel.setTextColor(Color.WHITE);
+    switchLabel.setIncludeFontPadding(false);
     root.addView(switchLabel);
 
     Switch sw = new Switch();
@@ -83,6 +87,7 @@ public class DisplayDemoActivity extends Activity {
     TextView seekLabel = new TextView();
     seekLabel.setText("SeekBar: 0");
     seekLabel.setTextColor(Color.CYAN);
+    seekLabel.setIncludeFontPadding(false);
     root.addView(seekLabel);
 
     ProgressBar progress = new ProgressBar();
@@ -103,19 +108,18 @@ public class DisplayDemoActivity extends Activity {
     TextView spinnerProgressLabel = new TextView();
     spinnerProgressLabel.setText("Working...");
     spinnerProgressLabel.setTextColor(Color.WHITE);
+    spinnerProgressLabel.setIncludeFontPadding(false);
     root.addView(spinnerProgressLabel);
 
     ProgressBar busy = ProgressBar.indeterminate();
     busy.setSize(40, 40);
     root.addView(busy);
 
-    // -- ImageView scale/tint smoke test (no asset pipeline yet — exercises
-    //    the FFI path without rendering pixels).
+    // -- ImageView showing a bundled PNG asset --
     ImageView img = new ImageView();
     img.setSize(48, 48);
+    img.setImageSource("logo.png");
     img.setScaleType(ImageView.SCALE_FIT_CENTER);
-    img.setTint(0x80FF0000); // half-strength red tint
-    img.setScale(ImageView.SCALE_1X);
     root.addView(img);
 
     // -- CheckBox --
@@ -135,6 +139,7 @@ public class DisplayDemoActivity extends Activity {
     TextView spinnerLabel = new TextView();
     spinnerLabel.setText("Color: Red");
     spinnerLabel.setTextColor(Color.RED);
+    spinnerLabel.setIncludeFontPadding(false);
     root.addView(spinnerLabel);
 
     Spinner spinner = new Spinner();

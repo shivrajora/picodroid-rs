@@ -29,3 +29,19 @@ pub(in crate::system::picodroid::graphics) fn set_text_color(id: i32, argb: u32)
     };
     unsafe { lv_obj_set_style_text_color(handle_table::lookup(id), color, 0) };
 }
+
+/// Mirrors Android `TextView.setIncludeFontPadding(boolean)`. `lv_label` content-sizes to the
+/// font's full `line_height`, which leaves a few pixels of top side-bearing whitespace inside the
+/// box; with `include = false` we apply negative top/bottom pad so the label height hugs the
+/// glyphs and reads as balanced inside a flex column. Tuned for LVGL's bundled Montserrat font.
+pub(in crate::system::picodroid::graphics) fn set_include_font_padding(id: i32, include: bool) {
+    const TOP_LEADING_PX: i32 = 3;
+    const BOTTOM_LEADING_PX: i32 = 1;
+    let pad_top = if include { 0 } else { -TOP_LEADING_PX };
+    let pad_bot = if include { 0 } else { -BOTTOM_LEADING_PX };
+    unsafe {
+        let label = handle_table::lookup(id);
+        lv_obj_set_style_pad_top(label, pad_top, 0);
+        lv_obj_set_style_pad_bottom(label, pad_bot, 0);
+    }
+}

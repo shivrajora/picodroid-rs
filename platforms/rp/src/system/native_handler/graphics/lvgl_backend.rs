@@ -57,6 +57,10 @@ impl GraphicsBackend for LvglBackend {
                 ctx.objects,
             )),
             "setTextColor" => Some(widgets::text_view_set_text_color(ctx.args, ctx.objects)),
+            "setIncludeFontPadding" => Some(widgets::text_view_set_include_font_padding(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

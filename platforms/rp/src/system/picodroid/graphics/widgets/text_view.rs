@@ -38,3 +38,14 @@ pub fn text_view_set_text_color(
     lvgl_text_view::set_text_color(id, argb);
     Ok(None)
 }
+
+/// `TextView.setIncludeFontPadding(boolean include)`
+pub fn text_view_set_include_font_padding(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let include = matches!(args.get(1), Some(Value::Int(v)) if *v != 0);
+    lvgl_text_view::set_include_font_padding(id, include);
+    Ok(None)
+}

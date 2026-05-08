@@ -34,8 +34,20 @@ pub(in crate::system::picodroid::graphics) fn set_pos(h: Handle, x: i32, y: i32)
     unsafe { lv_obj_set_pos(obj(h), x, y) };
 }
 
+/// LVGL `LV_SIZE_CONTENT = LV_COORD_MAX | LV_COORD_TYPE_SPEC = (1<<30)-1`. Mirrors Java
+/// `View.WRAP_CONTENT (-2)` at the FFI boundary so layouts can size themselves to their children.
+const LV_SIZE_CONTENT: i32 = (1 << 30) - 1;
+
+fn translate_dim(v: i32) -> i32 {
+    if v == -2 {
+        LV_SIZE_CONTENT
+    } else {
+        v
+    }
+}
+
 pub(in crate::system::picodroid::graphics) fn set_size(h: Handle, w: i32, height: i32) {
-    unsafe { lv_obj_set_size(obj(h), w, height) };
+    unsafe { lv_obj_set_size(obj(h), translate_dim(w), translate_dim(height)) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_bg_color(h: Handle, argb: u32) {

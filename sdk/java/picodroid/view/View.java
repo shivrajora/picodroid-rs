@@ -8,6 +8,13 @@ public class View {
   public static final int INVISIBLE = 1;
   public static final int GONE = 2;
 
+  /**
+   * Mirrors Android's {@code ViewGroup.LayoutParams.WRAP_CONTENT}. Passed to {@link #setSize}, the
+   * view sizes itself to fit its children. Maps to LVGL's {@code LV_SIZE_CONTENT} at the FFI
+   * boundary.
+   */
+  public static final int WRAP_CONTENT = -2;
+
   /** Swipe-direction constants matching LVGL's {@code lv_dir_t}. */
   public static final int SWIPE_LEFT = 1;
 
