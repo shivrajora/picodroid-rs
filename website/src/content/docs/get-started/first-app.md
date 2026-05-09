@@ -191,7 +191,7 @@ view.setBackground(new GradientDrawable()
     .setStroke(1, Theme.colorOutline));
 ```
 
-See [api/ui.md → Theme](/api/ui/#picodroidgraphicstheme), [→ GradientDrawable](/api/ui/#picodroidgraphicsdrawablegradientdrawable), and [`examples/themedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/themedemo).
+See [api/ui.md → Theme](/api/ui/#picodroidgraphicstheme), [→ GradientDrawable](/api/ui/#picodroidgraphicsdrawablegradientdrawable), and the themed-widgets section of [`examples/displaydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/displaydemo).
 
 ### Gestures and animations
 

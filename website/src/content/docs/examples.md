@@ -74,28 +74,21 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `arraydemo` | `arraydemo.ArrayDemo` | Demonstrates byte array allocation, `.length`, and iteration via UART |
 | `inherit` | `inherit.InheritDemo` | Demonstrates class inheritance, field inheritance, method overriding, and `super()` |
 | `interfacedemo` | `interfacedemo.InterfaceDemo` | Demonstrates interface dispatch (`invokeinterface`) with `Dog` and `Cat` implementing `Speakable` |
 | `floatdemo` | `floatdemo.FloatDemo` | Demonstrates `float`, `long`, and `double` arithmetic and type conversions (`f2i`, `i2l`, `i2d`, etc.) |
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
-| `stringdemo` | `stringdemo.StringDemo` | Demonstrates `java.lang.String` and `StringBuilder` APIs: predicates, search, transforms, `String.valueOf`, and StringBuilder building |
-| `stringtest` | `stringtest.StringTest` | Exercises the newer `String` methods: `split`, `replace`, `concat`, `toCharArray`, `hashCode` |
-| `strformat` | `strformat.StrFormat` | Exhaustive `String.format` coverage across every supported conversion, flag, width, and precision |
+| `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, plus exhaustive printf-style conversions, flags, widths, and precision |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
-| `listdemo` | `listdemo.ListDemo` | Demonstrates `java.util.ArrayList`: add, get, set, remove, contains, clear, and autoboxing with `Integer` and `Boolean` |
-| `hashmaptest` | `hashmaptest.HashMapTest` | Demonstrates `java.util.HashMap` and `HashSet` — put/get/remove, key iteration, autoboxed keys |
-| `iteratordemo` | `iteratordemo.IteratorDemo` | Demonstrates `Iterable` / `Iterator` and the enhanced `for (T x : collection)` loop |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
 | `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
 | `classlit` | `classlit.ClassLit` | Class literals (`T.class`): demonstrates `getName()` and that repeated `T.class` evaluations return the same `Class` instance |
 | `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
-| `arraysdemo` | `arraysdemo.ArraysDemo` | Demonstrates `java.util.Arrays.sort` (stable mergesort over `Comparable[]`) and `Arrays.toString` |
-| `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Demonstrates `java.util.Collections.sort` and `Collections.reverse` over an `ArrayList` |
+| `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Test-harness coverage of `java.util.*`: `ArrayList` add/get/set/remove/contains/clear plus `Integer`/`Boolean` autoboxing, `Arrays.sort`/`copyOf`/`fill`/`toString`, `Arrays.sort(Object[])` and `Collections.sort`/`reverse` over `Comparable<T>`, explicit `Iterator` and enhanced for-each over lists/maps, `HashMap` and `HashSet` |
 | `randomdemo` | `randomdemo.RandomDemo` | Demonstrates `java.util.Random` — `nextInt`, `nextLong`, `nextFloat`, seeded reproducibility |
 | `clockdemo` | `clockdemo.ClockDemo` | Demonstrates `System.currentTimeMillis()` for boot-elapsed wallclock-style timing |
 | `langsuite` | `langsuite.LangSuite` | Aggregated language-feature test runner — exercises every JVM language feature in one APK |
@@ -107,11 +100,10 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, and a moving-average FPS overlay (`Display.showFps()`) |
+| `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, a moving-average FPS overlay (`Display.showFps()`), and a themed-widgets section using a custom `Theme` palette with `GradientDrawable` (gradient header, surface card, pill / ghost buttons) |
 | `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: installs an `OnKeyListener` on a focusable `Button` and displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
 | `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
 | `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
-| `themedemo` | `themedemo.ThemeDemoApp` | Customizes the `Theme` color palette and applies `GradientDrawable` backgrounds (solid fills, corner radii, two-color gradients) |
 | `gesturedemo` | `gesturedemo.GestureDemoApp` | `GestureDetector` with `onSingleTap` / `onLongPress` / `onFling` listeners on a single View |
 | `dragdemo` | `dragdemo.DragDemoActivity` | Touch-driven drag using `FrameLayout` + `OnTouchListener`; tracks `MotionEvent.ACTION_DOWN/MOVE/UP` and updates a tile's absolute position via `setPosition()`. The only example using `FrameLayout` for absolute placement (a `LinearLayout` would re-flow on every layout pass) |
 | `animdemo` | `animdemo.AnimDemoApp` | `view.animate().alpha(...).x(...).y(...).setDuration(...).start()` — interpolated property animations |

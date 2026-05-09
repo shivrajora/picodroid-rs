@@ -77,6 +77,6 @@ header.setBackground(g);
 
 ## Worked example
 
-`examples/themedemo/` walks the full palette + gradient pipeline on a single screen. See [`examples/themedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/themedemo).
+The `displaydemo` widget sampler ends with a themed-widgets section that walks the full palette + gradient pipeline (gradient header, surface card, pill / ghost buttons). See [`examples/displaydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/displaydemo).
 
 `examples/picoenvmon/` is a more realistic application — it customizes the global theme in `Application.onCreate` and uses gradients sparingly for mood. See [`examples/picoenvmon/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/picoenvmon).

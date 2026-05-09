@@ -145,7 +145,7 @@ Theme.colorBackground = Color.argb(255,  24,  24,  28);
 
 picodroid is single-app, so the palette is process-global rather than per-Activity. Views still need to read these values explicitly (`view.setBackgroundColor(Theme.colorBackground)`); there is no automatic cascading.
 
-See [`examples/themedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/themedemo) for a worked example.
+See the themed-widgets section of [`examples/displaydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/displaydemo) for a worked example.
 
 ## `picodroid.graphics.drawable.GradientDrawable`
 

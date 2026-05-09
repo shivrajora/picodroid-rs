@@ -15,7 +15,7 @@ The simulator builds with `--features sim` and runs natively on the host. Hardwa
 
 ## Running a UI demo
 
-The window-based demos (`displaydemo`, `dragdemo`, `keydemo`, `themedemo`, `pickerdemo`, `swipedemo`, etc.) open a 320×240 window. Mouse drag is treated as touch.
+The window-based demos (`displaydemo`, `dragdemo`, `keydemo`, `pickerdemo`, `swipedemo`, etc.) open a 320×240 window. Mouse drag is treated as touch.
 
 If you're driving the sim from a script (e.g. for end-to-end tests), prefer `xdotool mousedown / sleep 0.3 / mouseup` over `xdotool click 1` — minifb at 60 Hz misses very fast clicks.
 
