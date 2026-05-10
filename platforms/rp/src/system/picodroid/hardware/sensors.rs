@@ -123,7 +123,9 @@ pub fn get_default_sensor(
     }
 
     let obj = objects
-        .alloc("picodroid/hardware/Sensor")
+        .alloc(crate::shrink_names::shrink_class(
+            "picodroid/hardware/Sensor",
+        ))
         .ok_or(JvmError::StackOverflow)?;
 
     objects
@@ -325,7 +327,9 @@ fn deliver_event(
     // Allocate SensorEvent
     let event_obj = heap
         .objects
-        .alloc("picodroid/hardware/SensorEvent")
+        .alloc(crate::shrink_names::shrink_class(
+            "picodroid/hardware/SensorEvent",
+        ))
         .ok_or(JvmError::StackOverflow)?;
 
     // Set event.sensor
