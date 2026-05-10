@@ -96,6 +96,10 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/io/File",
     "picodroid/io/FileInputStream",
     "picodroid/io/FileOutputStream",
+    "picodroid/hardware/Sensor",
+    "picodroid/hardware/SensorEvent",
+    "picodroid/hardware/SensorEventListener",
+    "picodroid/hardware/SensorManager",
 ];
 
 /// Maximum Activity stack depth. Each entry holds a `u16` ObjectRef plus a
