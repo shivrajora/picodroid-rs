@@ -27,13 +27,16 @@ mod inner {
     static mut DISPLAY: Option<Display> = None;
 
     pub fn init() {
-        let spi = RpSpiBus::new_init(generated::SPI_ID, generated::SPI_FREQ);
+        let spi = RpSpiBus::new_init_with_pins(
+            generated::SPI_ID,
+            generated::SPI_FREQ,
+            generated::SPI_SCK,
+            generated::SPI_MOSI,
+            generated::SPI_MISO,
+        );
         let dc = RpOutputPin::new(generated::PIN_DC, false);
         let cs = RpOutputPin::new(generated::PIN_CS, true);
-        let rst = RpOutputPin::new(
-            generated::PIN_RST.expect("display has no RST pin — future boards may need a NoopPin"),
-            false,
-        );
+        let rst = RpOutputPin::new_optional(generated::PIN_RST, false);
         let bl = RpOutputPin::new(generated::PIN_BL, false);
         let delay = RpDelay::new();
 

@@ -232,8 +232,38 @@ macro_rules! finish_isr_xfer {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+/// True once `init(spi_id)` has run. Used to make `init` idempotent so display
+/// init and `PeripheralManager.openSpi` can each request the same bus without
+/// re-allocating semaphores.
+fn is_initialised(spi_id: u8) -> bool {
+    unsafe {
+        match spi_id {
+            0 => (*SPI0_LOCK.0.get()).is_some(),
+            _ => (*SPI1_LOCK.0.get()).is_some(),
+        }
+    }
+}
+
 /// Configure GPIO pins for SPI function and start the controller at 1 MHz, MODE_0.
+/// Uses the chip-default pin set for the bus.
 pub fn init(spi_id: u8) {
+    init_with_pins(spi_id, None, None, None);
+}
+
+/// Like `init`, but lets the caller pin SCK/MOSI/MISO to a specific pad. `None`
+/// for any pin falls back to the chip default. Boards whose SPI signals aren't
+/// on the default pads (e.g. Pimoroni Pico Enviro+ Pack uses GP18/GP19 for
+/// SPI0 SCK/MOSI) wire these via `[display]` keys in board.toml.
+pub fn init_with_pins(
+    spi_id: u8,
+    sck_override: Option<u8>,
+    mosi_override: Option<u8>,
+    miso_override: Option<u8>,
+) {
+    if is_initialised(spi_id) {
+        return;
+    }
+
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
@@ -263,10 +293,13 @@ pub fn init(spi_id: u8) {
     // Default pin assignments (3-wire, CS managed separately via Gpio):
     //   SPI0 → SCK=GP2, MOSI(TX)=GP3, MISO(RX)=GP0
     //   SPI1 → SCK=GP10, MOSI(TX)=GP11, MISO(RX)=GP8
-    let (sck, mosi, miso): (usize, usize, usize) = match spi_id {
+    let (default_sck, default_mosi, default_miso): (usize, usize, usize) = match spi_id {
         0 => (2, 3, 0),
         _ => (10, 11, 8),
     };
+    let sck = sck_override.map(|v| v as usize).unwrap_or(default_sck);
+    let mosi = mosi_override.map(|v| v as usize).unwrap_or(default_mosi);
+    let miso = miso_override.map(|v| v as usize).unwrap_or(default_miso);
     for pin in [sck, mosi, miso] {
         p.IO_BANK0
             .gpio(pin)

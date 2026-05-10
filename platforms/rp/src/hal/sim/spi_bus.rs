@@ -16,6 +16,17 @@ impl SimSpiBus {
         Self { spi_id }
     }
 
+    pub fn new_init_with_pins(
+        spi_id: u8,
+        _freq_hz: u32,
+        _sck: Option<u8>,
+        _mosi: Option<u8>,
+        _miso: Option<u8>,
+    ) -> Self {
+        super::spi::init(spi_id);
+        Self { spi_id }
+    }
+
     pub fn handle(spi_id: u8) -> Self {
         Self { spi_id }
     }

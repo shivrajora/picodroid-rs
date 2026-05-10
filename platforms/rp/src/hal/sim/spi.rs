@@ -3,6 +3,8 @@ use pico_jvm::array_heap::ArrayHeap;
 
 pub fn init(_spi_id: u8) {}
 
+pub fn init_with_pins(_spi_id: u8, _sck: Option<u8>, _mosi: Option<u8>, _miso: Option<u8>) {}
+
 pub fn reconfigure(_spi_id: u8, _freq_hz: u32, _mode: u32) {}
 
 /// Full-duplex loopback: echoes tx into rx.

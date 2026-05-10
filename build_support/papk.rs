@@ -145,6 +145,13 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// back to original, consumed by the native dispatch layer. When shrinking
 /// is off the emitted table is an identity passthrough.
 pub fn embed_framework_classes(out: &Path, root: &Path) {
+    // The empty/full cutover is keyed on PICODROID_APK_PATH (only embedded
+    // builds set it). Without this directive, a `cargo build` without the
+    // var caches the empty table, and the subsequent `flash.sh` build (which
+    // does set the var) reuses that cache and silently boots with no
+    // framework classes — every Java app then dies with NoSuchMethod the
+    // moment it touches Intent / StringBuilder / etc.
+    println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
             out.join("framework_classes.rs"),

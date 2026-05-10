@@ -7,6 +7,9 @@ lv_mem_kb = 48
 driver = "st7789"
 spi_id = 0
 spi_freq = 62500000
+# Enviro+ Pack routes SPI0 SCK/MOSI to GP18/GP19, not the chip-default GP2/GP3.
+spi_sck = 18
+spi_mosi = 19
 pin_dc = 16
 pin_cs = 17
 pin_bl = 20

@@ -405,6 +405,7 @@ fn sample_bme688() -> SensorReading {
             if BME_DRIVER.is_none() {
                 for cfg in sensor_table::SENSORS {
                     if matches!(cfg.kind, sensor_table::SensorKind::Bme688) {
+                        crate::hal::i2c::init(cfg.bus_id);
                         let bus = HalI2c { bus_id: cfg.bus_id };
                         if let Ok(driver) = crate::drivers::bme688::Bme688::new(bus, cfg.addr) {
                             BME_DRIVER = Some(driver);
@@ -470,6 +471,7 @@ fn sample_ltr559() -> OpticalReading {
             if LTR_DRIVER.is_none() {
                 for cfg in sensor_table::SENSORS {
                     if matches!(cfg.kind, sensor_table::SensorKind::Ltr559) {
+                        crate::hal::i2c::init(cfg.bus_id);
                         let bus = HalI2c { bus_id: cfg.bus_id };
                         if let Ok(d) = crate::drivers::ltr559::Ltr559::new(bus, cfg.addr) {
                             LTR_DRIVER = Some(d);

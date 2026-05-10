@@ -16,9 +16,23 @@ pub struct RpSpiBus {
 
 impl RpSpiBus {
     /// Initialize the SPI peripheral and configure it at `freq_hz`, MODE_0.
-    /// Call this only once per SPI bus (typically from board init).
+    /// Uses chip-default pins for the bus.
     pub fn new_init(spi_id: u8, freq_hz: u32) -> Self {
-        super::spi::init(spi_id);
+        Self::new_init_with_pins(spi_id, freq_hz, None, None, None)
+    }
+
+    /// Initialize the SPI peripheral on the given pad set. `None` for any pin
+    /// falls back to the chip default for that bus. Used by display init when
+    /// the board.toml specifies non-default SPI pads (e.g. Pimoroni Pico
+    /// Enviro+ Pack with SPI0 SCK=GP18, MOSI=GP19).
+    pub fn new_init_with_pins(
+        spi_id: u8,
+        freq_hz: u32,
+        sck: Option<u8>,
+        mosi: Option<u8>,
+        miso: Option<u8>,
+    ) -> Self {
+        super::spi::init_with_pins(spi_id, sck, mosi, miso);
         super::spi::reconfigure(spi_id, freq_hz, 0);
         Self { spi_id }
     }

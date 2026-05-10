@@ -382,6 +382,20 @@ pub fn emit_display_config(out: &Path, display: &Option<HashMap<String, String>>
         if let Some(spi_freq) = d.get("spi_freq") {
             code.push_str(&format!("pub const SPI_FREQ: u32 = {spi_freq};\n"));
         }
+        // Optional SPI pad overrides — when None, the HAL falls back to the
+        // chip-default pins (e.g. SPI0 SCK=GP2, MOSI=GP3, MISO=GP0 on RP2350).
+        // The Pimoroni Pico Enviro+ Pack routes SPI0 SCK/MOSI to GP18/GP19
+        // and is the canonical reason this knob exists.
+        for key in ["spi_sck", "spi_mosi", "spi_miso"] {
+            let const_name = key.to_uppercase();
+            if let Some(v) = d.get(key) {
+                code.push_str(&format!(
+                    "pub const {const_name}: Option<u8> = Some({v});\n"
+                ));
+            } else {
+                code.push_str(&format!("pub const {const_name}: Option<u8> = None;\n"));
+            }
+        }
         if let Some(pin_dc) = d.get("pin_dc") {
             code.push_str(&format!("pub const PIN_DC: u8 = {pin_dc};\n"));
         }

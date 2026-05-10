@@ -9,6 +9,8 @@ pub const IC_CON_SPEED_STD: u32 = 1 << 1; // SPEED=01 (standard, 100 kHz)
 pub const IC_CON_SPEED_FAST: u32 = 1 << 2; // SPEED=10 (fast, 400 kHz)
 pub const IC_CON_RESTART_EN: u32 = 1 << 5;
 pub const IC_CON_SLAVE_DISABLE: u32 = 1 << 6;
+pub const IC_CON_TX_EMPTY_CTRL: u32 = 1 << 8;
+pub const IC_CON_RX_FIFO_FULL_HLD: u32 = 1 << 9;
 
 // IC_DATA_CMD bit masks
 pub const IC_DATA_CMD_READ: u32 = 1 << 8;
@@ -19,6 +21,9 @@ pub const INTR_RX_FULL: u32 = 1 << 2;
 pub const INTR_TX_EMPTY: u32 = 1 << 4;
 pub const INTR_TX_ABRT: u32 = 1 << 6;
 pub const INTR_STOP_DET: u32 = 1 << 9;
+
+/// DesignWare I2C TX/RX FIFO depths on RP2040 / RP2350.
+pub const FIFO_DEPTH: u8 = 16;
 
 /// Maximum bytes per interrupt-driven I2C transaction.
 pub const MAX_XFER_LEN: usize = 64;
@@ -61,14 +66,45 @@ pub fn scl_counts(pclk_hz: u32, speed_hz: u32) -> (u16, u16) {
     (hcnt, lcnt)
 }
 
-/// Build the IC_CON register value for the requested bus speed.
-pub fn ic_con_for_speed(speed_hz: u32) -> u32 {
-    let speed_bits = if speed_hz <= 100_000 {
-        IC_CON_SPEED_STD
+/// IC_SDA_TX_HOLD count, mirroring pico-sdk's `i2c_init` formula. The DW
+/// IP resets IC_SDA_HOLD to 1 cycle (~7 ns at 150 MHz), too short for slaves
+/// to reliably latch the falling edge of SCL.
+pub fn sda_tx_hold_count(pclk_hz: u32, speed_hz: u32) -> u16 {
+    let denom = if speed_hz < 1_000_000 {
+        10_000_000
     } else {
-        IC_CON_SPEED_FAST
+        25_000_000
     };
-    IC_CON_MASTER_MODE | speed_bits | IC_CON_RESTART_EN | IC_CON_SLAVE_DISABLE
+    (((pclk_hz as u64 * 3) / denom as u64) + 1) as u16
+}
+
+/// Spike-suppression length for fast-mode SCL. pico-sdk: `lcnt < 16 ? 1 : lcnt / 16`.
+pub fn fs_spklen(lcnt: u16) -> u8 {
+    if lcnt < 16 {
+        1
+    } else {
+        (lcnt / 16) as u8
+    }
+}
+
+/// Build the IC_CON register value for the requested bus speed.
+///
+/// The DW I2C IP integrated in RP2040/RP2350 only operates correctly when
+/// SPEED is FAST (0b10), even for 100 kHz buses — pico-sdk's `i2c_init`
+/// and Pimoroni's MicroPython port both unconditionally set SPEED=FAST,
+/// and devices NACK every address with SPEED=STD here. The actual bus
+/// rate is set by IC_FS_SCL_HCNT/LCNT.
+///
+/// `TX_EMPTY_CTRL` ensures the TX_EMPTY interrupt only fires once the last
+/// byte has shifted out; `RX_FIFO_FULL_HLD_CTRL` enables clock stretching
+/// when the RX FIFO is full so multi-byte reads can't drop bytes.
+pub fn ic_con_for_speed(_speed_hz: u32) -> u32 {
+    IC_CON_MASTER_MODE
+        | IC_CON_SPEED_FAST
+        | IC_CON_RESTART_EN
+        | IC_CON_SLAVE_DISABLE
+        | IC_CON_TX_EMPTY_CTRL
+        | IC_CON_RX_FIFO_FULL_HLD
 }
 
 #[cfg(test)]
@@ -184,30 +220,21 @@ mod tests {
     // ── ic_con_for_speed ──────────────────────────────────────────────────
 
     #[test]
-    fn ic_con_100khz_uses_std_speed() {
+    fn ic_con_always_uses_fast_speed() {
+        // RP2040/RP2350 DW I2C IP only operates correctly with SPEED=FAST,
+        // even for 100 kHz buses. Match pico-sdk's `i2c_init` behaviour.
+        for speed in [100_000u32, 400_000, 1_000_000] {
+            let v = ic_con_for_speed(speed);
+            assert_eq!(v & IC_CON_SPEED_FAST, IC_CON_SPEED_FAST);
+            assert_eq!(v & IC_CON_SPEED_STD, 0);
+        }
+    }
+
+    #[test]
+    fn ic_con_enables_tx_empty_ctrl_and_rx_hold() {
         let v = ic_con_for_speed(100_000);
-        assert_eq!(v & IC_CON_SPEED_STD, IC_CON_SPEED_STD);
-        assert_eq!(v & IC_CON_SPEED_FAST, 0);
-    }
-
-    #[test]
-    fn ic_con_400khz_uses_fast_speed() {
-        let v = ic_con_for_speed(400_000);
-        assert_eq!(v & IC_CON_SPEED_FAST, IC_CON_SPEED_FAST);
-        assert_eq!(v & IC_CON_SPEED_STD, 0);
-    }
-
-    #[test]
-    fn ic_con_1mhz_uses_fast_speed() {
-        let v = ic_con_for_speed(1_000_000);
-        assert_eq!(v & IC_CON_SPEED_FAST, IC_CON_SPEED_FAST);
-    }
-
-    #[test]
-    fn ic_con_boundary_100khz_std_inclusive() {
-        // Exactly 100 kHz stays STD.
-        let v = ic_con_for_speed(100_000);
-        assert_eq!(v & IC_CON_SPEED_STD, IC_CON_SPEED_STD);
+        assert_eq!(v & IC_CON_TX_EMPTY_CTRL, IC_CON_TX_EMPTY_CTRL);
+        assert_eq!(v & IC_CON_RX_FIFO_FULL_HLD, IC_CON_RX_FIFO_FULL_HLD);
     }
 
     #[test]

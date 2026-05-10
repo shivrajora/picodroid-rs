@@ -40,13 +40,15 @@ pub fn pressure(raw: u32, c: &CalibData, t_fine: i32) -> u32 {
         0
     };
 
-    let var1 = ((c.par_p9 as i32) * ((((press >> 3) * (press >> 3)) >> 13) as i32)) >> 12;
-    let var2 = (((press >> 2) as i32) * (c.par_p8 as i32)) >> 13;
-    let var3 = (((press >> 8) as i32)
-        * ((press >> 8) as i32)
-        * ((press >> 8) as i32)
-        * (c.par_p10 as i32))
-        >> 17;
+    // Widen the squaring + cubing to i64 — at typical sea-level pressure
+    // (~101 kPa), `(press >> 8)^3 * par_p10` reaches ≈10 billion, well past
+    // the i32 limit, and `(press >> 3)^2` similarly overflows u32. Bosch's
+    // reference C uses 32-bit math but relies on undefined-behaviour wrap;
+    // i64 here is both correct and accurate.
+    let p64 = press as i64;
+    let var1 = (((c.par_p9 as i64) * (((p64 >> 3) * (p64 >> 3)) >> 13)) >> 12) as i32;
+    let var2 = (((p64 >> 2) * (c.par_p8 as i64)) >> 13) as i32;
+    let var3 = (((p64 >> 8) * (p64 >> 8) * (p64 >> 8) * (c.par_p10 as i64)) >> 17) as i32;
     press = (press as i32 + ((var1 + var2 + var3 + ((c.par_p7 as i32) << 7)) >> 4)) as u32;
     press
 }
