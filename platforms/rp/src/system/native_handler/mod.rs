@@ -30,8 +30,13 @@ mod sensors;
 /// dispatch; the `picodroid_classes_in_handlers` test in this module guards
 /// against drift between the dispatch sites and this list.
 pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
+    "picodroid/pio/Adc",
     "picodroid/pio/Gpio",
+    "picodroid/pio/I2cDevice",
     "picodroid/pio/PeripheralManager",
+    "picodroid/pio/Pwm",
+    "picodroid/pio/SpiDevice",
+    "picodroid/pio/UartDevice",
     "picodroid/os/SystemClock",
     "picodroid/util/Log",
     "picodroid/concurrent/Executor",
