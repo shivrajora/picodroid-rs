@@ -436,7 +436,25 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
                 Some(Ok(None))
             }
-            _ => None,
+            // Permanent diagnostic: log every native call this handler doesn't
+            // claim. Returning None lets the JVM fall through to BuiltinHandler
+            // and then the superclass walk; if both also miss, NoSuchMethod is
+            // raised. Without this log, an unregistered class or a freshly
+            // referenced framework method silently surfaces as
+            // "Activity lifecycle error: NoSuchMethod" with no clue which
+            // class/method was missing — the bug we hit during the picoenvmon
+            // bring-up. Costs roughly one defmt timestamp + interned string
+            // per Java frame entry; cheap enough to leave on in release.
+            _ => {
+                #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+                defmt::info!(
+                    "native miss class={=str} method={=str} desc={=str}",
+                    class_name,
+                    method_name,
+                    ctx.descriptor
+                );
+                None
+            }
         }
     }
 
