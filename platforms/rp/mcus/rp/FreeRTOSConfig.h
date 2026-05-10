@@ -28,19 +28,30 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 384 KB (of 520 KB RAM).
+/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 416 KB (of 520 KB RAM).
  *
- * RP2350 bumped from 256 KB to 384 KB on 2026-04-22: the earlier 256 KB budget
- * minus task stacks and framework init left <88 KB contiguous free, which
- * gcstress's mid-run JVM Vec growth could no longer satisfy (seen as an
- * `alloc 90112 bytes failed` panic on device). With 384 KB there is still
- * ~50 KB of SRAM left above bss for the Cortex-M main stack — well above
- * what cortex-m-rt + ISRs actually need pre-scheduler. If you push this
- * higher, re-measure `arm-none-eabi-size` first: total static RAM must stay
- * well below LENGTH(RAM) = 520 KB.
+ * RP2350 history:
+ * - 2026-04-22: 256 → 384 KB. The earlier 256 KB budget minus task stacks
+ *   and framework init left <88 KB contiguous free, which gcstress's mid-run
+ *   JVM `Vec` doublings (capacity 1024 of 88-byte JvmObject = ~90 KB) could
+ *   no longer satisfy — seen as an `alloc 90112 bytes failed` panic.
+ * - 2026-05-10: 384 → 416 KB. picoenvmon's HomeActivity hit the same
+ *   `90112 bytes failed` panic against a fragmented 384 KB heap, plus a
+ *   secondary `49152 bytes failed` once `ObjectHeap`/`ArrayHeap.arrays`
+ *   were chunked (jvm/src/chunked_slots.rs landed simultaneously to make
+ *   the dominant Vecs grow by 5.6 KB chunks instead of doubling). +32 KB
+ *   gives picoenvmon a clean boot. The same app runs on a 384 KB Rust
+ *   heap in sim, confirming the budget shortfall is FreeRTOS overhead
+ *   (TCBs + task stacks + queues, ~25-30 KB) eating into the heap on
+ *   hardware that sim doesn't see.
+ *
+ * If you push this higher, re-measure `arm-none-eabi-size` first: total
+ * static RAM must stay well below LENGTH(RAM) = 520 KB. At 416 KB heap +
+ * ~76 KB other BSS = ~492 KB, leaving ~28 KB for the Cortex-M main stack —
+ * still well above what cortex-m-rt + ISRs need pre-scheduler.
  */
 #ifdef __ARM_ARCH_8M_MAIN__
-#define configTOTAL_HEAP_SIZE                   ( 384 * 1024 )
+#define configTOTAL_HEAP_SIZE                   ( 416 * 1024 )
 #else
 #define configTOTAL_HEAP_SIZE                   ( 128 * 1024 )
 #endif

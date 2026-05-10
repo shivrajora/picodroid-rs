@@ -4,9 +4,13 @@ mod lambda;
 mod list_store;
 mod map_store;
 
+use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
 use crate::types::{default_for_descriptor, Value};
 use alloc::vec::Vec;
+
+/// Chunked-slot storage for `Option<JvmObject>`. See [`crate::chunked_slots`].
+type ChunkedObjects = ChunkedSlots<JvmObject>;
 
 /// Number of implicit fields in `java/lang/Enum` (name + ordinal).
 const ENUM_IMPLICIT_FIELDS: usize = 2;
@@ -85,7 +89,7 @@ pub struct LambdaProxy {
 }
 
 pub struct ObjectHeap {
-    pub(super) objects: Vec<Option<JvmObject>>,
+    pub(super) objects: ChunkedObjects,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     pub(super) first_free: usize,
     pub(super) sb_stack: Vec<Vec<u8>>,
@@ -103,7 +107,7 @@ pub struct ObjectHeap {
 impl ObjectHeap {
     pub const fn new() -> Self {
         Self {
-            objects: Vec::new(),
+            objects: ChunkedObjects::new(),
             first_free: 0,
             sb_stack: Vec::new(),
             list_bufs: Vec::new(),

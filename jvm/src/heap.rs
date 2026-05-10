@@ -14,6 +14,7 @@
 /// Static entries (added via [`intern`]) are expected to be added before any
 /// dynamic entries.  In practice all `.class` loading happens at startup before
 /// runtime string operations.
+use crate::chunked_slots::ChunkedSlots;
 use alloc::vec::Vec;
 
 pub struct StringTable {
@@ -21,8 +22,10 @@ pub struct StringTable {
     lens: Vec<u16>,
     /// Backing storage for dynamic strings.  `dyn_bufs[i]` corresponds to
     /// `ptrs[dyn_start + i]`.  `None` means the slot has been freed (by GC)
-    /// and is available for reuse.
-    dyn_bufs: Vec<Option<Vec<u8>>>,
+    /// and is available for reuse. Chunked to avoid `Vec` doubling-realloc
+    /// (cap 4096 = 49152 bytes single block) blowing past available
+    /// contiguous heap on fragmented hardware heaps.
+    dyn_bufs: ChunkedSlots<Vec<u8>>,
     /// Index into `ptrs`/`lens` where the first dynamic entry lives.
     dyn_start: usize,
 }
@@ -37,7 +40,7 @@ impl StringTable {
         Self {
             ptrs: Vec::new(),
             lens: Vec::new(),
-            dyn_bufs: Vec::new(),
+            dyn_bufs: ChunkedSlots::new(),
             dyn_start: 0,
         }
     }
@@ -61,7 +64,7 @@ impl StringTable {
                 return Some(i as u16);
             }
         }
-        if !self.dyn_bufs.is_empty() {
+        if self.dyn_bufs.len() > 0 {
             // Dynamic entries already exist — appending and advancing dyn_start
             // would corrupt the dynamic region.  Fall back to intern_dyn which
             // correctly manages the dynamic region (copies bytes to the heap).
@@ -81,15 +84,15 @@ impl StringTable {
     /// Safe — this table owns the backing `Vec<u8>` for each dynamic entry.
     pub fn intern_dyn(&mut self, bytes: &[u8]) -> Option<u16> {
         // Look for a freed slot to reuse.
-        for (di, slot) in self.dyn_bufs.iter_mut().enumerate() {
-            if slot.is_none() {
+        for di in 0..self.dyn_bufs.len() {
+            if self.dyn_bufs[di].is_none() {
                 let idx = (self.dyn_start + di) as u16;
                 let buf: Vec<u8> = bytes.to_vec();
-                // SAFETY: buf is moved into `*slot` below; the heap allocation
+                // SAFETY: buf is moved into the slot below; the heap allocation
                 // for the bytes does not move when the Vec struct is moved.
                 self.ptrs[idx as usize] = buf.as_ptr();
                 self.lens[idx as usize] = buf.len() as u16;
-                *slot = Some(buf);
+                self.dyn_bufs[di] = Some(buf);
                 return Some(idx);
             }
         }

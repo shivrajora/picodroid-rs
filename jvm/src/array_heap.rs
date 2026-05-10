@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::chunked_slots::ChunkedSlots;
 use alloc::vec::Vec;
 
 // JVM atype constants for newarray
@@ -60,7 +61,7 @@ struct JvmArray {
 }
 
 pub struct ArrayHeap {
-    arrays: Vec<Option<JvmArray>>,
+    arrays: ChunkedSlots<JvmArray>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     first_free: usize,
     /// Contiguous arena for large-array element data.
@@ -71,7 +72,7 @@ pub struct ArrayHeap {
 impl ArrayHeap {
     pub const fn new() -> Self {
         Self {
-            arrays: Vec::new(),
+            arrays: ChunkedSlots::new(),
             first_free: 0,
             arena: Vec::new(),
         }
