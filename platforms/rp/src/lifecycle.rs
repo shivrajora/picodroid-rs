@@ -913,7 +913,9 @@ fn dispatch_touch_events(
             None => continue,
         };
 
-        let event_obj = match heap.objects.alloc("picodroid/view/MotionEvent") {
+        let event_obj = match heap.objects.alloc(crate::shrink_names::shrink_class(
+            "picodroid/view/MotionEvent",
+        )) {
             Some(o) => o,
             None => continue,
         };
@@ -1090,7 +1092,10 @@ fn fire_view_key(
 ) -> bool {
     use pico_jvm::types::Value;
 
-    let event_obj = match heap.objects.alloc("picodroid/view/KeyEvent") {
+    let event_obj = match heap
+        .objects
+        .alloc(crate::shrink_names::shrink_class("picodroid/view/KeyEvent"))
+    {
         Some(o) => o,
         None => return false,
     };

@@ -31,7 +31,7 @@ pub fn accept_native(args: &[Value], objects: &mut ObjectHeap) -> Result<Option<
 
     // Allocate a new Socket object and set its handle field.
     let obj_idx = objects
-        .alloc("picodroid/net/Socket")
+        .alloc(crate::shrink_names::shrink_class("picodroid/net/Socket"))
         .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(obj_idx, fields::socket::HANDLE, Value::Int(client_handle))

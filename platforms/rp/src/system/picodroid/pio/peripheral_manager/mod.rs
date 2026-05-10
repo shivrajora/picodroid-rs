@@ -20,7 +20,9 @@ pub use uart::open_uart;
 
 pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
     let idx = objects
-        .alloc("picodroid/pio/PeripheralManager")
+        .alloc(crate::shrink_names::shrink_class(
+            "picodroid/pio/PeripheralManager",
+        ))
         .ok_or(JvmError::StackOverflow)?;
     Ok(Some(Value::ObjectRef(idx)))
 }
