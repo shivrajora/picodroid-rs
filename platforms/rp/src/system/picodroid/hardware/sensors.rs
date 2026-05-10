@@ -272,6 +272,13 @@ pub fn drain_sensor_events(
     // Sample each sensor cluster only if at least one of its types is due.
     let bme_due = types_due[0..4].iter().any(|&d| d);
     let ltr_due = types_due[4..6].iter().any(|&d| d);
+    #[cfg(not(feature = "sim"))]
+    defmt::debug!(
+        "sensors: drain tick={} bme_due={} ltr_due={}",
+        st.tick_count,
+        bme_due,
+        ltr_due
+    );
     let env = if bme_due {
         sample_bme688()
     } else {
@@ -284,6 +291,7 @@ pub fn drain_sensor_events(
     };
 
     // Deliver events for each due registration
+    let mut delivered = 0u32;
     for i in 0..MAX_REGISTRATIONS {
         let reg = match &st.registrations[i] {
             Some(r) => r,
@@ -307,12 +315,19 @@ pub fn drain_sensor_events(
         let listener_obj = reg.listener_obj;
         let sensor_obj = reg.sensor_obj;
 
+        delivered += 1;
         if let Err(e) = deliver_event(jvm, heap, handler, listener_obj, sensor_obj, value) {
+            #[cfg(not(feature = "sim"))]
+            defmt::warn!("sensors: deliver_event err");
             #[cfg(feature = "sim")]
             eprintln!("[sim] sensor event delivery error: {e}");
             let _ = e;
         }
     }
+    #[cfg(not(feature = "sim"))]
+    defmt::debug!("sensors: drain delivered {} regs", delivered);
+    #[cfg(feature = "sim")]
+    let _ = delivered;
 }
 
 #[cfg(not(test))]
@@ -423,9 +438,32 @@ fn sample_bme688() -> SensorReading {
 
         match bme {
             Some(driver) => {
+                use embedded_hal::delay::DelayNs;
+                #[cfg(not(feature = "sim"))]
+                defmt::debug!("bme: trigger");
                 let _ = driver.trigger_forced();
-                if driver.poll_ready(1000) {
+                // BME688 forced-mode TPHG conversion is ~10–15 ms at 1x
+                // oversampling; gas heater adds variable extra time. Wait
+                // the typical worst case before polling so we don't tight-
+                // spin against an in-progress measurement.
+                #[cfg(feature = "sim")]
+                let mut delay = crate::hal::delay::SimDelay::new();
+                #[cfg(not(feature = "sim"))]
+                let mut delay = crate::hal::delay::RpDelay::new();
+                delay.delay_ms(20);
+                let ready = driver.poll_ready(5);
+                #[cfg(not(feature = "sim"))]
+                defmt::debug!("bme: poll_ready={}", ready);
+                if ready {
                     let r = driver.read_compensated().unwrap_or_default();
+                    #[cfg(not(feature = "sim"))]
+                    defmt::debug!(
+                        "bme: temp={} hum={} press={} gas={}",
+                        r.temp_centi_c,
+                        r.hum_milli_pct,
+                        r.press_pa,
+                        r.gas_ohm
+                    );
                     SensorReading {
                         temp_centi_c: r.temp_centi_c,
                         hum_milli_pct: r.hum_milli_pct,

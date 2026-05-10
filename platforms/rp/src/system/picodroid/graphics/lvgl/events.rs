@@ -162,9 +162,32 @@ static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
 static mut KEY_EVENT_QUEUE_HEAD: usize = 0;
 static mut KEY_EVENT_QUEUE_TAIL: usize = 0;
 
+/// Bitmap of currently-pressed buttons (bit `pin` set ⇒ pin is held down).
+/// Initialised to 0 — every button starts "released" — so the first event
+/// for a pin must be a falling edge (press) before any rising edge (release)
+/// is delivered. This filters out the spurious rising-edge IRQs that fire at
+/// boot when `enable_edge_irq` arms the GPIO peripheral on pins that were in
+/// an indeterminate state during init (observed on Pico Enviro+ Pack: every
+/// button GP12-15 fires a phantom release within the first 50 ms, which
+/// dispatches BACK and finishes the activity before sensors can deliver a
+/// second event).
+#[cfg(has_buttons)]
+static mut KEY_PRESSED_MASK: u32 = 0;
+
 #[cfg(has_buttons)]
 fn push_key_event_raw(pin: u8, rising: bool) {
     unsafe {
+        let bit = 1u32 << (pin & 0x1f);
+        if rising {
+            // Release: only queue if the pin was previously pressed.
+            if KEY_PRESSED_MASK & bit == 0 {
+                return;
+            }
+            KEY_PRESSED_MASK &= !bit;
+        } else {
+            // Press: always queue, mark as held.
+            KEY_PRESSED_MASK |= bit;
+        }
         let head = KEY_EVENT_QUEUE_HEAD;
         let next = (head + 1) % KEY_EVENT_QUEUE_SIZE;
         if next != KEY_EVENT_QUEUE_TAIL {
