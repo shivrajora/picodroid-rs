@@ -12,6 +12,7 @@ import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
 import picodroid.util.Log;
 import picodroid.view.GestureDetector;
+import picodroid.view.GestureDetector.OnGestureListener;
 import picodroid.view.KeyEvent;
 import picodroid.view.MotionEvent;
 import picodroid.view.OnKeyListener;
@@ -27,28 +28,29 @@ import picoenvmon.ui.settings.SettingsActivity;
 import picoenvmon.util.Formatter;
 
 /**
- * Live dashboard. Tile fade-in on entry, sensor listeners feeding 5 tiles, button-key navigation
- * (A=Settings, B=History, X=toggle Service, Y=back), long-press toggles °C↔°F.
+ * Live dashboard. Sensor listeners feed 5 tiles, button-key navigation (A=Settings, B=History,
+ * X=toggle Service, Y=back), long-press toggles °C↔°F.
  */
-public class HomeActivity extends Activity implements SensorEventListener, OnKeyListener {
+public class HomeActivity extends Activity
+    implements SensorEventListener, OnKeyListener, OnGestureListener {
 
-  private static class Tile {
-    LinearLayout root;
-    TextView label;
-    TextView value;
-    GradientDrawable bg;
-    int defaultColor;
-  }
+  // Tile slot indices for the parallel arrays below.
+  private static final int IDX_TEMP = 0;
+  private static final int IDX_HUM = 1;
+  private static final int IDX_PRESS = 2;
+  private static final int IDX_IAQ = 3;
+  private static final int IDX_LIGHT = 4;
+  private static final int NUM_TILES = 5;
 
   private EnvActivityComponent comp;
   private SensorManager sensorManager;
   private boolean serviceRunning;
 
-  private Tile tempTile;
-  private Tile humTile;
-  private Tile pressTile;
-  private Tile iaqTile;
-  private Tile lightTile;
+  /** Tile root LinearLayout per sensor index (used by flashOnBreach). */
+  private final LinearLayout[] tileRoots = new LinearLayout[NUM_TILES];
+
+  /** Tile value TextView per sensor index. */
+  private final TextView[] tileValues = new TextView[NUM_TILES];
 
   private float lastGas = -1f;
 
@@ -68,17 +70,16 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
     title.setTextColor(Theme.colorPrimary);
     root.addView(title);
 
-    tempTile = buildTile("Temp", Theme.colorSurface);
-    humTile = buildTile("Humidity", Theme.colorSurface);
-    pressTile = buildTile("Pressure", Theme.colorSurface);
-    iaqTile = buildTile("Air quality", Theme.colorSurface);
-    lightTile = buildTile("Light", Theme.colorSurface);
+    // One GradientDrawable shared across all 5 tile backgrounds — same color, radius and stroke,
+    // no per-tile customization, so the previous 5 instances were redundant.
+    GradientDrawable tileBg = new GradientDrawable();
+    tileBg.setColor(Theme.colorSurface).setCornerRadius(6).setStroke(1, Theme.colorOutline);
 
-    root.addView(tempTile.root);
-    root.addView(humTile.root);
-    root.addView(pressTile.root);
-    root.addView(iaqTile.root);
-    root.addView(lightTile.root);
+    buildTile(root, IDX_TEMP, "Temp", tileBg);
+    buildTile(root, IDX_HUM, "Humidity", tileBg);
+    buildTile(root, IDX_PRESS, "Pressure", tileBg);
+    buildTile(root, IDX_IAQ, "Air quality", tileBg);
+    buildTile(root, IDX_LIGHT, "Light", tileBg);
 
     TextView footer = new TextView();
     footer.setText("A:Settings B:History X:Logger");
@@ -87,26 +88,8 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
 
     setContentView(root);
     root.setOnKeyListener(this);
+    root.setOnTouchListener(new GestureDetector(this));
 
-    GestureDetector gd =
-        new GestureDetector(
-            new GestureDetector.OnGestureListener() {
-              public void onSingleTap(MotionEvent e) {}
-
-              public void onLongPress(MotionEvent e) {
-                Formatter f = comp.formatter();
-                f.toggleUnits();
-                Log.i(EnvAppComponent.TAG, "units toggled fahrenheit=" + f.isFahrenheit());
-                Toast.makeText(
-                        HomeActivity.this, f.isFahrenheit() ? "°F" : "°C", Toast.LENGTH_SHORT)
-                    .show();
-              }
-
-              public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {}
-            });
-    root.setOnTouchListener(gd);
-
-    animateIn();
     registerSensors();
   }
 
@@ -128,39 +111,28 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
     }
   }
 
-  private void animateIn() {
-    Tile[] tiles = {tempTile, humTile, pressTile, iaqTile, lightTile};
-    for (int i = 0; i < tiles.length; i++) {
-      View v = tiles[i].root;
-      v.setAlpha(0f);
-      v.animate().alpha(0f, 1f).setDuration(220 + i * 60).start();
-    }
-  }
+  private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
+    LinearLayout tile = new LinearLayout();
+    tile.setOrientation(LinearLayout.HORIZONTAL);
+    tile.setSize(224, 28);
+    tile.setPadding(8, 4, 8, 4);
+    tile.setBackground(bg);
 
-  private Tile buildTile(String label, int bgColor) {
-    Tile t = new Tile();
-    t.defaultColor = bgColor;
-    t.root = new LinearLayout();
-    t.root.setOrientation(LinearLayout.HORIZONTAL);
-    t.root.setSize(224, 28);
-    t.root.setPadding(8, 4, 8, 4);
+    TextView labelView = new TextView();
+    labelView.setText(label);
+    labelView.setTextColor(Theme.colorTextSecondary);
+    labelView.setSize(96, 20);
+    tile.addView(labelView);
 
-    t.bg = new GradientDrawable();
-    t.bg.setColor(bgColor).setCornerRadius(6).setStroke(1, Theme.colorOutline);
-    t.root.setBackground(t.bg);
+    TextView valueView = new TextView();
+    valueView.setText("—");
+    valueView.setTextColor(Theme.colorText);
+    valueView.setSize(112, 20);
+    tile.addView(valueView);
 
-    t.label = new TextView();
-    t.label.setText(label);
-    t.label.setTextColor(Theme.colorTextSecondary);
-    t.label.setSize(96, 20);
-    t.root.addView(t.label);
-
-    t.value = new TextView();
-    t.value.setText("—");
-    t.value.setTextColor(Theme.colorText);
-    t.value.setSize(112, 20);
-    t.root.addView(t.value);
-    return t;
+    parent.addView(tile);
+    tileRoots[idx] = tile;
+    tileValues[idx] = valueView;
   }
 
   private void registerSensors() {
@@ -189,23 +161,23 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
     int type = event.sensor.getType();
     switch (type) {
       case Sensor.TYPE_AMBIENT_TEMPERATURE:
-        tempTile.value.setText(f.formatTemp(v));
-        flashOnBreach(tempTile, comp.thresholds().tempBreached(v));
+        tileValues[IDX_TEMP].setText(f.formatTemp(v));
+        flashOnBreach(tileRoots[IDX_TEMP], comp.thresholds().tempBreached(v));
         break;
       case Sensor.TYPE_RELATIVE_HUMIDITY:
-        humTile.value.setText(f.formatHumidity(v));
-        flashOnBreach(humTile, comp.thresholds().humidityBreached(v));
+        tileValues[IDX_HUM].setText(f.formatHumidity(v));
+        flashOnBreach(tileRoots[IDX_HUM], comp.thresholds().humidityBreached(v));
         break;
       case Sensor.TYPE_PRESSURE:
-        pressTile.value.setText(f.formatPressure(v));
+        tileValues[IDX_PRESS].setText(f.formatPressure(v));
         break;
       case Sensor.TYPE_GAS_RESISTANCE:
         lastGas = v;
-        iaqTile.value.setText(f.formatGasIaq(v));
+        tileValues[IDX_IAQ].setText(f.formatGasIaq(v));
         break;
       case Sensor.TYPE_LIGHT:
-        lightTile.value.setText(f.formatLux(v));
-        flashOnBreach(lightTile, comp.thresholds().luxBreached(v));
+        tileValues[IDX_LIGHT].setText(f.formatLux(v));
+        flashOnBreach(tileRoots[IDX_LIGHT], comp.thresholds().luxBreached(v));
         break;
       default:
         break;
@@ -215,13 +187,13 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
   @Override
   public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
-  private void flashOnBreach(Tile t, boolean breached) {
+  private void flashOnBreach(LinearLayout tile, boolean breached) {
     if (!breached) {
       return;
     }
     // ViewPropertyAnimator has no completion listener; the alpha pulse self-restores.
-    t.root.animate().alpha(1f, 0.35f).setDuration(180).start();
-    t.root.animate().alpha(0.35f, 1f).setDuration(360).start();
+    tile.animate().alpha(1f, 0.35f).setDuration(180).start();
+    tile.animate().alpha(0.35f, 1f).setDuration(360).start();
   }
 
   @Override
@@ -244,6 +216,22 @@ public class HomeActivity extends Activity implements SensorEventListener, OnKey
     }
     return false;
   }
+
+  // OnGestureListener — implemented directly on HomeActivity, replacing the anonymous inner class
+  // that previously captured `this`. Saves one class load + one instance.
+  @Override
+  public void onSingleTap(MotionEvent e) {}
+
+  @Override
+  public void onLongPress(MotionEvent e) {
+    Formatter f = comp.formatter();
+    f.toggleUnits();
+    Log.i(EnvAppComponent.TAG, "units toggled fahrenheit=" + f.isFahrenheit());
+    Toast.makeText(this, f.isFahrenheit() ? "°F" : "°C", Toast.LENGTH_SHORT).show();
+  }
+
+  @Override
+  public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {}
 
   private void toggleService() {
     Intent svc = new Intent(SensorLoggerService.class);
