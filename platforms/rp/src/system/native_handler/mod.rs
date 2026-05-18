@@ -332,6 +332,52 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         PICODROID_NATIVE_CLASSES
     }
 
+    fn gc_visit_roots(&self, visit: &mut dyn FnMut(Value)) {
+        // Activity stack: every entry holds the Activity instance whose
+        // lifecycle methods are about to be invoked. Without rooting these,
+        // GC during a quiet frame (between `onResume` and the next callback)
+        // sweeps the Activity out from under us.
+        for entry in self.activity_stack[..self.activity_stack_len]
+            .iter()
+            .flatten()
+        {
+            visit(Value::ObjectRef(entry.obj_ref));
+        }
+
+        // Pending ops: the Service `intent` / `conn` / `owner_activity`
+        // references must survive until [`take_next_pending_op`] runs the
+        // op. The Activity::Push variant carries only a class-name string
+        // (no heap ref) and needs no rooting.
+        for op in self.pending_ops[..self.pending_ops_len].iter().flatten() {
+            match op {
+                PendingOp::Activity(_) => {}
+                PendingOp::Service(svc) => match *svc {
+                    PendingServiceOp::Start { intent_ref, .. } => {
+                        visit(Value::ObjectRef(intent_ref));
+                    }
+                    PendingServiceOp::Stop { .. } => {}
+                    PendingServiceOp::Bind {
+                        intent_ref,
+                        conn_ref,
+                        owner_activity_ref,
+                        ..
+                    } => {
+                        visit(Value::ObjectRef(intent_ref));
+                        visit(Value::ObjectRef(conn_ref));
+                        visit(Value::ObjectRef(owner_activity_ref));
+                    }
+                    PendingServiceOp::Unbind { conn_ref } => {
+                        visit(Value::ObjectRef(conn_ref));
+                    }
+                },
+            }
+        }
+
+        // Delegate to sub-modules that own their own native object refs.
+        crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);
+        crate::service_lifecycle::visit_gc_roots(&mut *visit);
+    }
+
     fn report_gc(&mut self, time_ns: u64, freed: usize) {
         self.gc_time_ns += time_ns;
         self.gc_count += 1;

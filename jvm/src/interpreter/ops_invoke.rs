@@ -295,7 +295,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .objects
             .alloc(static_name)
             .ok_or(JvmError::StackOverflow)?;
-        self.alloc_count = self.alloc_count.saturating_add(1);
+        self.bump_alloc_count(1);
 
         // 8. Register lambda metadata
         self.objects.register_lambda(
@@ -381,7 +381,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .objects
             .alloc_with_defaults(static_name, self.classes)
             .ok_or(JvmError::StackOverflow)?;
-        self.alloc_count = self.alloc_count.saturating_add(1);
+        self.bump_alloc_count(1);
         frame.push(Value::ObjectRef(obj_idx))?;
         Ok(())
     }

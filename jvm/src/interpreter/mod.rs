@@ -55,13 +55,35 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// the frame stack so the interpreter runs them before resuming the
     /// triggering instruction.
     pub pending_clinit_frames: Vec<Frame>,
-    /// Allocation counter for GC triggering.
-    pub alloc_count: u16,
-    /// Set by array/object alloc when `try_reserve_exact` fails (OOM).
-    /// The interpreter rewinds the PC and runs an emergency GC before retrying.
-    pub need_gc: bool,
     /// Instruction counter for batched interrupt checking (checks every 256 insns).
     pub insn_count: u8,
+}
+
+impl<'a, H: NativeMethodHandler> Executor<'a, H> {
+    /// Allocation counter for GC triggering.  Stored on the shared `GcState`
+    /// so it persists across nested `execute()` calls — without this, every
+    /// native-driven callback (e.g. `onSensorChanged`) starts a fresh
+    /// `Executor` with `alloc_count = 0` and the 256-alloc GC threshold is
+    /// never reached when allocations are spread across many short calls.
+    #[inline]
+    pub fn alloc_count(&self) -> u16 {
+        self.gc_state.alloc_count
+    }
+
+    #[inline]
+    pub fn bump_alloc_count(&mut self, n: u16) {
+        self.gc_state.alloc_count = self.gc_state.alloc_count.saturating_add(n);
+    }
+
+    #[inline]
+    pub fn need_gc(&self) -> bool {
+        self.gc_state.need_gc
+    }
+
+    #[inline]
+    pub fn set_need_gc(&mut self, v: bool) {
+        self.gc_state.need_gc = v;
+    }
 }
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
@@ -252,8 +274,6 @@ pub fn execute<H: NativeMethodHandler>(
         static_field_cache: Vec::new(),
         pending_frame: None,
         pending_clinit_frames: Vec::new(),
-        alloc_count: 0,
-        need_gc: false,
         insn_count: 0,
     };
 
@@ -353,9 +373,10 @@ pub fn execute<H: NativeMethodHandler>(
         // Trigger GC when allocation counter crosses the threshold, or when
         // an allocator reported OOM (need_gc).  After an emergency GC the
         // opcode that failed has already been rewound and will re-execute.
-        if r.is_ok() && (ex.alloc_count >= GC_THRESHOLD || ex.need_gc) {
-            ex.need_gc = false;
+        if r.is_ok() && (ex.alloc_count() >= GC_THRESHOLD || ex.need_gc()) {
+            ex.set_need_gc(false);
             let t0 = ex.handler.clock_nanos();
+            let handler = &*ex.handler;
             let freed = crate::gc::collect(
                 &frames,
                 ex.objects,
@@ -364,10 +385,11 @@ pub fn execute<H: NativeMethodHandler>(
                 ex.statics,
                 ex.class_objects,
                 ex.gc_state,
+                |visit| handler.gc_visit_roots(visit),
             );
             let t1 = ex.handler.clock_nanos();
             ex.handler.report_gc(t1.wrapping_sub(t0), freed);
-            ex.alloc_count = 0;
+            ex.gc_state.alloc_count = 0;
         }
 
         match r {

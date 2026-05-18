@@ -87,6 +87,23 @@ fn parse_env_limit() -> usize {
     }
 }
 
+/// Stack-only writer for emitting OOM diagnostics without re-entering the
+/// allocator (println/eprintln would recurse since the failing allocation
+/// arrives via the global allocator).
+struct StackWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+impl core::fmt::Write for StackWriter<'_> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let b = s.as_bytes();
+        let n = b.len().min(self.buf.len().saturating_sub(self.pos));
+        self.buf[self.pos..self.pos + n].copy_from_slice(&b[..n]);
+        self.pos += n;
+        Ok(())
+    }
+}
+
 unsafe impl GlobalAlloc for CappedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
@@ -97,6 +114,24 @@ unsafe impl GlobalAlloc for CappedAllocator {
         if prev + size > limit {
             // Over budget — undo and return null (triggers Rust OOM).
             self.allocated.fetch_sub(size, Ordering::Relaxed);
+            let peak = self.peak.load(Ordering::Relaxed);
+            let mut buf = [0u8; 256];
+            let pos = {
+                let mut w = StackWriter {
+                    buf: &mut buf,
+                    pos: 0,
+                };
+                use core::fmt::Write;
+                let _ = writeln!(
+                    w,
+                    "[sim] OOM: tried {} B, allocated {} B, peak {} B, limit {} B",
+                    size, prev, peak, limit,
+                );
+                w.pos
+            };
+            unsafe {
+                libc::write(2, buf.as_ptr() as *const _, pos);
+            }
             return std::ptr::null_mut();
         }
 

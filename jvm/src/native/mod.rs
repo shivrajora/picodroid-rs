@@ -280,6 +280,24 @@ pub trait NativeMethodHandler {
     /// Implementations should release any OS-level mutex resources.
     fn monitors_clear(&mut self) {}
 
+    /// Visit object / array / string references held in native state so the
+    /// GC keeps them alive across cycles.
+    ///
+    /// Without this, refs the handler keeps in its own state (Activity
+    /// stack, sensor registrations, service bindings, etc.) are invisible
+    /// to the mark phase and get swept the moment they fall off the Java
+    /// frame stack. This bites callback-driven apps hardest: between two
+    /// `onSensorChanged` calls the only reference to the Activity might be
+    /// in the handler's activity-stack entry, and a GC in that gap will
+    /// collect it.
+    ///
+    /// Implementations call `visit(Value::ObjectRef(idx))` (or `ArrayRef`,
+    /// `Reference`) for every reference they own. Non-reference `Value`
+    /// kinds are ignored. The callback is zero-alloc; do not buffer.
+    ///
+    /// Default is a no-op (handlers with no retained refs need nothing).
+    fn gc_visit_roots(&self, _visit: &mut dyn FnMut(Value)) {}
+
     /// Names of the native classes this handler dispatches.
     ///
     /// The interpreter consults this list (in addition to the JVM's own

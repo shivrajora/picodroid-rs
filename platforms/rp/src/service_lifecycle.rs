@@ -77,6 +77,27 @@ fn connections() -> &'static mut [Option<ConnectionEntry>] {
     }
 }
 
+/// Emit GC roots for every object ref stored in service-lifecycle native state.
+///
+/// Live Service instances and ServiceConnection objects are held only by
+/// the registry/connections tables; without rooting them, GC sweeps them
+/// the moment they fall off the Java frame stack.
+pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
+    use pico_jvm::types::Value;
+    for e in registry().iter().flatten() {
+        visit(Value::ObjectRef(e.obj_ref));
+        if let Some(b) = e.binder_ref {
+            visit(Value::ObjectRef(b));
+        }
+    }
+    for c in connections().iter().flatten() {
+        visit(Value::ObjectRef(c.conn_ref));
+        if c.owner_activity_ref != 0 {
+            visit(Value::ObjectRef(c.owner_activity_ref));
+        }
+    }
+}
+
 fn registry_find(class_name: &str) -> Option<usize> {
     registry()
         .iter()

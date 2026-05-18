@@ -409,7 +409,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 match self.arrays.alloc(atype, count as u16) {
                     Some(arr_idx) => {
-                        self.alloc_count = self.alloc_count.saturating_add(1);
+                        self.bump_alloc_count(1);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {
@@ -417,7 +417,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         // re-execute this opcode.
                         frame.pc = frame.inst_pc;
                         frame.push(Value::Int(count))?;
-                        self.need_gc = true;
+                        self.set_need_gc(true);
                         return Ok(());
                     }
                 }
@@ -438,13 +438,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     .alloc(crate::array_heap::ATYPE_REF, count as u16)
                 {
                     Some(arr_idx) => {
-                        self.alloc_count = self.alloc_count.saturating_add(1);
+                        self.bump_alloc_count(1);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {
                         frame.pc = frame.inst_pc;
                         frame.push(Value::Int(count))?;
-                        self.need_gc = true;
+                        self.set_need_gc(true);
                         return Ok(());
                     }
                 }
@@ -488,7 +488,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
                 match alloc_multi(self.arrays, &counts, 0, inner_atype) {
                     Some(arr_idx) => {
-                        self.alloc_count = self.alloc_count.saturating_add(counts.len() as u16);
+                        self.bump_alloc_count(counts.len() as u16);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {
@@ -498,7 +498,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         for c in counts {
                             frame.push(Value::Int(c))?;
                         }
-                        self.need_gc = true;
+                        self.set_need_gc(true);
                         return Ok(());
                     }
                 }

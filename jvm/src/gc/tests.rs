@@ -17,6 +17,7 @@ fn gc_empty_heap_is_noop() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
 }
@@ -40,6 +41,7 @@ fn gc_collects_unreachable_object() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert!(!objects.is_live(0));
@@ -64,6 +66,7 @@ fn gc_retains_object_in_frame_local() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(idx));
@@ -89,6 +92,7 @@ fn gc_retains_object_in_frame_stack() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(idx));
@@ -113,6 +117,7 @@ fn gc_retains_object_via_static_field() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(idx));
@@ -146,6 +151,7 @@ fn gc_retains_deep_chain() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(a));
@@ -176,6 +182,7 @@ fn gc_collects_circular_refs() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 2);
     assert!(!objects.is_live(a));
@@ -209,6 +216,7 @@ fn gc_collects_after_field_overwrite() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert!(objects.is_live(a));
@@ -235,6 +243,7 @@ fn gc_retains_array_ref() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(arrays.is_live(arr));
@@ -258,6 +267,7 @@ fn gc_collects_unreachable_array() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert!(!arrays.is_live(0));
@@ -287,6 +297,7 @@ fn gc_retains_ref_array_elements() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(obj));
@@ -312,6 +323,7 @@ fn gc_retains_dynamic_string() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert_eq!(strings.resolve(str_idx), Some("hello"));
@@ -335,6 +347,7 @@ fn gc_collects_unreachable_dynamic_string() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert_eq!(strings.resolve(str_idx), None);
@@ -359,6 +372,7 @@ fn gc_static_strings_unaffected() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert_eq!(strings.resolve(str_idx), Some("hello"));
@@ -387,6 +401,7 @@ fn gc_object_holding_string_ref() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert_eq!(strings.resolve(str_idx), Some("kept"));
@@ -414,6 +429,7 @@ fn gc_object_holding_array_ref() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(arrays.is_live(arr));
@@ -441,6 +457,7 @@ fn gc_slot_reuse_after_collect() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 5);
 
@@ -470,6 +487,7 @@ fn gc_null_refs_ignored() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
 }
@@ -495,6 +513,7 @@ fn gc_all_unreachable() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 4); // 2 objects + 1 array + 1 string
 }
@@ -530,6 +549,7 @@ fn gc_primitive_values_untouched() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
 }
@@ -556,6 +576,7 @@ fn gc_many_small_allocations_bounded() {
                 &statics,
                 &ClassObjectCache::new(),
                 &mut GcState::new(),
+                |_| {},
             );
         }
     }
@@ -591,6 +612,7 @@ fn gc_compacts_array_arena() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert!(arrays.is_live(a0));
@@ -632,6 +654,7 @@ fn gc_stress_alloc_free_cycles() {
             &statics,
             &ClassObjectCache::new(),
             &mut gc,
+            |_| {},
         );
     }
     // Slot count should stay bounded due to slot reuse (well under 500).
@@ -680,6 +703,7 @@ fn gc_stress_mixed_type_churn() {
             &statics,
             &ClassObjectCache::new(),
             &mut gc,
+            |_| {},
         );
         total_freed += freed;
     }
@@ -738,6 +762,7 @@ fn gc_stress_arena_fragmentation() {
             &statics,
             &ClassObjectCache::new(),
             &mut gc,
+            |_| {},
         );
 
         // Verify surviving arrays have correct sentinels.
@@ -787,6 +812,7 @@ fn gc_stress_string_table_churn() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
 
     // Should have freed 180 of 200 strings (keeping every 10th).
@@ -815,6 +841,7 @@ fn gc_stress_string_table_churn() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
     assert!(freed2 >= 180, "second GC should free at least 180 strings");
 
@@ -863,6 +890,7 @@ fn gc_stress_persistent_state_reuse() {
             &statics,
             &ClassObjectCache::new(),
             &mut gc,
+            |_| {},
         );
     }
 
@@ -909,6 +937,7 @@ fn gc_retains_hashmap_entries() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(map_obj));
@@ -938,6 +967,7 @@ fn gc_collects_unreachable_hashmap() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1);
     assert!(!objects.is_live(map_obj));
@@ -966,6 +996,7 @@ fn gc_hashmap_key_keeps_object_alive() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(key_obj));
@@ -994,6 +1025,7 @@ fn gc_hashmap_value_keeps_object_alive() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(val_obj));
@@ -1022,6 +1054,7 @@ fn gc_hashset_retains_members() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(member));
@@ -1064,6 +1097,7 @@ fn gc_stress_hashmap_churn() {
                 &statics,
                 &ClassObjectCache::new(),
                 &mut gc,
+                |_| {},
             );
         }
     }
@@ -1116,6 +1150,7 @@ fn gc_stress_hashmap_large_map() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
     assert_eq!(freed, 0);
     for &val in &value_objs {
@@ -1131,6 +1166,7 @@ fn gc_stress_hashmap_large_map() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
     assert!(
         freed >= 501,
@@ -1176,6 +1212,7 @@ fn gc_collects_iterator() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 1); // iterator freed
     assert!(!objects.is_live(iter_obj));
@@ -1224,6 +1261,7 @@ fn gc_retains_iterator_and_source() {
         &statics,
         &ClassObjectCache::new(),
         &mut GcState::new(),
+        |_| {},
     );
     assert_eq!(freed, 0);
     assert!(objects.is_live(list_obj));
@@ -1279,6 +1317,7 @@ fn gc_stress_iterator_churn() {
                 &statics,
                 &ClassObjectCache::new(),
                 &mut gc,
+                |_| {},
             );
         }
     }
@@ -1307,6 +1346,7 @@ fn gc_stress_iterator_churn() {
         &statics,
         &ClassObjectCache::new(),
         &mut gc,
+        |_| {},
     );
     assert!(objects.is_live(list_obj));
     assert!(objects.is_live(last_iter));

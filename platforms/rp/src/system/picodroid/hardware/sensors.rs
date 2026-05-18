@@ -101,6 +101,24 @@ const NUM_SENSOR_TYPES: usize = 6;
 
 // ── Native method implementations ───────────────────────────────────────────
 
+/// Emit GC roots for every object ref stored in sensor native state.
+///
+/// Called by `PicodroidNativeHandler::gc_visit_roots`. Without this, the
+/// listener (Activity) and Sensor object indices kept in `registrations`
+/// and `sensor_objs` are invisible to the mark phase; a GC between
+/// `onSensorChanged` callbacks would sweep them, and the next sensor
+/// tick would dispatch into a freed slot (NoSuchMethod / InvalidReference).
+pub fn visit_gc_roots(visit: &mut dyn FnMut(Value)) {
+    let st = state();
+    for reg in st.registrations.iter().flatten() {
+        visit(Value::ObjectRef(reg.listener_obj));
+        visit(Value::ObjectRef(reg.sensor_obj));
+    }
+    for obj in st.sensor_objs.iter().flatten() {
+        visit(Value::ObjectRef(*obj));
+    }
+}
+
 pub fn get_default_sensor(
     args: &[Value],
     objects: &mut ObjectHeap,

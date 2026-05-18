@@ -63,6 +63,13 @@ pub struct GcState {
     work: Vec<GcRef>,
     /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
     arena_compact_buf: Vec<(usize, u32, u16)>,
+    /// Allocations since the last GC, persistent across `execute()` calls so
+    /// long native-driven callback bursts (e.g. sensor delivery) still trip
+    /// the GC threshold instead of resetting to 0 on every fresh `Executor`.
+    pub alloc_count: u16,
+    /// Set when an allocator returned None (heap full). Cleared at the next
+    /// GC. Like `alloc_count`, persists across `execute()` calls.
+    pub need_gc: bool,
 }
 
 impl GcState {
@@ -73,6 +80,8 @@ impl GcState {
             str_marks: Vec::new(),
             work: Vec::new(),
             arena_compact_buf: Vec::new(),
+            alloc_count: 0,
+            need_gc: false,
         }
     }
 
@@ -110,6 +119,7 @@ pub fn collect(
     statics: &StaticFieldStore,
     class_objects: &ClassObjectCache,
     gc: &mut GcState,
+    extra_roots: impl FnOnce(&mut dyn FnMut(Value)),
 ) -> usize {
     gc.clear();
     let obj_marks = &mut gc.obj_marks;
@@ -140,6 +150,11 @@ pub fn collect(
     for obj_ref in class_objects.iter() {
         work.push(GcRef::Object(obj_ref));
     }
+
+    // Native handler roots — Activity stacks, sensor registrations, service
+    // bindings, etc. These references live entirely in handler state and
+    // would otherwise be invisible to the mark phase.
+    extra_roots(&mut |v| push_ref(work, &v));
 
     // ── Phase 2: mark (transitive closure) ───────────────────────────────
 
