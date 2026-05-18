@@ -7,6 +7,7 @@ mod map_store;
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
 use crate::types::{default_for_descriptor, Value};
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Chunked-slot storage for `Option<JvmObject>`. See [`crate::chunked_slots`].
@@ -15,33 +16,61 @@ type ChunkedObjects = ChunkedSlots<JvmObject>;
 /// Number of implicit fields in `java/lang/Enum` (name + ordinal).
 const ENUM_IMPLICIT_FIELDS: usize = 2;
 
-/// Maximum number of fields stored inline (no heap allocation).
-const INLINE_FIELDS: usize = 4;
+/// Pre-allocation hint for [`ObjectHeap::alloc`].  Native handlers that create
+/// view / wrapper objects know exactly how many fields they will write — feed
+/// that count back to the heap so the backing slice is sized once instead of
+/// reallocating inside [`JvmObject::set_field`].  Unlisted classes default to
+/// 0; the slice still grows lazily, just at the cost of one extra reallocation.
+fn default_field_count_for_native(class_name: &str) -> usize {
+    match class_name {
+        // Boxed wrappers store the unboxed value at slot 0.
+        "java/lang/Integer"
+        | "java/lang/Boolean"
+        | "java/lang/Long"
+        | "java/lang/Float"
+        | "java/lang/Double"
+        | "java/lang/Character"
+        | "java/lang/Byte"
+        | "java/lang/Short" => 1,
+        // HashMap views store the backing map_buf index at slot 0.
+        "java/util/HashMap$KeySet" | "java/util/HashMap$Values" => 1,
+        _ => 0,
+    }
+}
 
 pub struct JvmObject {
     /// Index into [`ObjectHeap::class_table`]. Resolves back to the canonical
     /// `&'static str` class name via [`ObjectHeap::class_name`]; storing only
     /// the index here saves 14 B per object versus a direct `&'static str`.
     class_idx: u16,
+    /// High-water mark of explicit `set_field` writes — preserves the JVMS
+    /// "uninitialised slot reads as None" contract that the
+    /// `alloc_without_defaults_still_leaves_slots_unset` regression test
+    /// in `interpreter/tests/fields.rs` enforces. May be less than `fields.len()`.
     field_count: u8,
-    inline_fields: [Value; INLINE_FIELDS],
-    /// Overflow storage for objects with more than INLINE_FIELDS fields.
-    /// `None` when all fields fit inline.
-    overflow: Option<Vec<Value>>,
+    /// Field storage, sized once at allocation. Lazily reallocated by
+    /// [`set_field`] if a caller writes past the initial capacity — should be
+    /// rare in production code (every native handler should pass the correct
+    /// `n_fields` to [`ObjectHeap::alloc_with_field_count`]).
+    fields: Box<[Value]>,
 }
+
+// Compile-time guard against future regressions.  A 32 B slot keeps the
+// `ChunkedSlots` chunk size at ~2 KB and is still a 3.5× improvement over the
+// 112 B pre-shrink layout.
+const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() <= 32);
 
 impl JvmObject {
     fn new_with_field_count(class_idx: u16, n_fields: usize) -> Self {
-        let overflow = if n_fields > INLINE_FIELDS {
-            Some(alloc::vec![Value::Null; n_fields - INLINE_FIELDS])
+        let fields = if n_fields == 0 {
+            Box::<[Value]>::default()
         } else {
-            None
+            alloc::vec![Value::Null; n_fields].into_boxed_slice()
         };
         Self {
             class_idx,
-            field_count: n_fields as u8,
-            inline_fields: [Value::Null; INLINE_FIELDS],
-            overflow,
+            field_count: 0,
+            fields,
         }
     }
 
@@ -49,43 +78,31 @@ impl JvmObject {
         if field >= self.field_count as usize {
             return None;
         }
-        if field < INLINE_FIELDS {
-            Some(self.inline_fields[field])
-        } else {
-            self.overflow.as_ref()?.get(field - INLINE_FIELDS).copied()
-        }
+        self.fields.get(field).copied()
     }
 
     fn set_field(&mut self, field: usize, v: Value) {
-        // Grow field_count to cover `field`.
+        if field >= self.fields.len() {
+            // Lazy grow — kicks in when a caller writes past the count it
+            // declared at alloc time.  Reallocates the boxed slice; rare in
+            // production (debug builds can flag this via a heap counter).
+            let mut buf: Vec<Value> = self.fields.to_vec();
+            buf.resize(field + 1, Value::Null);
+            self.fields = buf.into_boxed_slice();
+        }
         let needed = field + 1;
         if needed > self.field_count as usize {
-            // Fill any gap slots with Null.
-            if needed > INLINE_FIELDS {
-                let ov = self.overflow.get_or_insert_with(Vec::new);
-                let ov_needed = needed - INLINE_FIELDS;
-                while ov.len() < ov_needed {
-                    ov.push(Value::Null);
-                }
-            }
             self.field_count = needed as u8;
         }
-        if field < INLINE_FIELDS {
-            self.inline_fields[field] = v;
-        } else {
-            self.overflow.as_mut().unwrap()[field - INLINE_FIELDS] = v;
-        }
+        self.fields[field] = v;
     }
 
-    /// Returns (inline_slice, overflow_slice) covering all set fields.
+    /// Returns the populated field slice.  The leading empty slice preserves
+    /// the `(inline, overflow)` tuple shape used by the GC tracer — collapsed
+    /// to a single slice in the follow-up cleanup commit.
     fn field_slices(&self) -> (&[Value], &[Value]) {
-        let inline_count = core::cmp::min(self.field_count as usize, INLINE_FIELDS);
-        let inline = &self.inline_fields[..inline_count];
-        let overflow = match &self.overflow {
-            Some(v) => v.as_slice(),
-            None => &[],
-        };
-        (inline, overflow)
+        let count = self.field_count as usize;
+        (&[], &self.fields[..count])
     }
 }
 
@@ -170,7 +187,7 @@ impl ObjectHeap {
     /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
-        self.alloc_with_field_count(class_name, 0)
+        self.alloc_with_field_count(class_name, default_field_count_for_native(class_name))
     }
 
     /// Like [`alloc`], but reserves storage for `n_fields` fields up front so
@@ -238,8 +255,6 @@ impl ObjectHeap {
         class_name: &'static str,
         classes: &[ClassFile],
     ) -> Option<u16> {
-        let idx = self.alloc(class_name)?;
-
         // Build chain root-first, tracking whether the chain bottoms out at
         // java/lang/Enum (a native class outside `classes` with 2 implicit
         // reference-typed fields — those stay Null, matching field_slot).
@@ -270,6 +285,15 @@ impl ObjectHeap {
             }
         }
         chain.reverse();
+
+        // Size the backing slice exactly once, before allocating, so the
+        // `set_field` loop below never triggers a reallocation.
+        let n_fields = (if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 })
+            + chain
+                .iter()
+                .map(|&ci| classes[ci].fields().len())
+                .sum::<usize>();
+        let idx = self.alloc_with_field_count(class_name, n_fields)?;
 
         let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
         for ci in chain.iter() {
