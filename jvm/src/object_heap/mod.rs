@@ -55,10 +55,11 @@ pub struct JvmObject {
     fields: Box<[Value]>,
 }
 
-// Compile-time guard against future regressions.  A 32 B slot keeps the
-// `ChunkedSlots` chunk size at ~2 KB and is still a 3.5× improvement over the
-// 112 B pre-shrink layout.
-const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() <= 32);
+// Compile-time guard against future regressions.  Niche-packed
+// `Option<JvmObject>` sits at 24 B — `Box<[Value]>`'s non-null pointer absorbs
+// the discriminant, so the option tag is free.  Loosen the bound only with
+// supporting measurement.
+const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() <= 24);
 
 impl JvmObject {
     fn new_with_field_count(class_idx: u16, n_fields: usize) -> Self {
