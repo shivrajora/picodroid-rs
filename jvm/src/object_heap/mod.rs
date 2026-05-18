@@ -28,12 +28,17 @@ pub struct JvmObject {
 }
 
 impl JvmObject {
-    fn new(class_name: &'static str) -> Self {
+    fn new_with_field_count(class_name: &'static str, n_fields: usize) -> Self {
+        let overflow = if n_fields > INLINE_FIELDS {
+            Some(alloc::vec![Value::Null; n_fields - INLINE_FIELDS])
+        } else {
+            None
+        };
         Self {
             class_name,
-            field_count: 0,
+            field_count: n_fields as u8,
             inline_fields: [Value::Null; INLINE_FIELDS],
-            overflow: None,
+            overflow,
         }
     }
 
@@ -157,6 +162,18 @@ impl ObjectHeap {
     /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
+        self.alloc_with_field_count(class_name, 0)
+    }
+
+    /// Like [`alloc`], but reserves storage for `n_fields` fields up front so
+    /// callers that know the field count (native handlers, `op_new` via
+    /// [`alloc_with_defaults`]) skip the lazy-grow path inside [`set_field`].
+    /// Behaviour is otherwise identical to [`alloc`].
+    pub fn alloc_with_field_count(
+        &mut self,
+        class_name: &'static str,
+        n_fields: usize,
+    ) -> Option<u16> {
         if class_name == "java/lang/StringBuilder" {
             if let Some(idx) = self
                 .objects
@@ -166,20 +183,25 @@ impl ObjectHeap {
                 return Some(idx as u16);
             }
         }
-        // Scan from first_free for a None slot; skip already-occupied prefix.
+        Some(self.place_in_slot(JvmObject::new_with_field_count(class_name, n_fields)))
+    }
+
+    /// Find a free slot (reusing GC-freed None entries before growing) and
+    /// place `obj` in it. Returns the slot index.
+    fn place_in_slot(&mut self, obj: JvmObject) -> u16 {
         while self.first_free < self.objects.len() {
             if self.objects[self.first_free].is_none() {
                 let idx = self.first_free;
-                self.objects[idx] = Some(JvmObject::new(class_name));
+                self.objects[idx] = Some(obj);
                 self.first_free = idx + 1;
-                return Some(idx as u16);
+                return idx as u16;
             }
             self.first_free += 1;
         }
         let idx = self.objects.len() as u16;
-        self.objects.push(Some(JvmObject::new(class_name)));
+        self.objects.push(Some(obj));
         self.first_free = self.objects.len();
-        Some(idx)
+        idx
     }
 
     /// Allocate and initialize every declared instance field to its JVMS §2.3
