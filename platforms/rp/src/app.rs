@@ -199,9 +199,18 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();
 
-    let mut jvm = Box::new(Jvm::new());
+    // Parse the APK once up front so we can pre-size the class table to the
+    // exact framework + app class count.  Avoids 7 Vec doubling reallocations
+    // (and their transient double-buffering) during framework registration.
+    let apk_for_count = Papk::parse(apk_data).unwrap();
+    let apk_class_count = apk_for_count.classes().map(|it| it.count()).unwrap_or(0);
+    let mut jvm = Box::new(Jvm::with_capacity(
+        FRAMEWORK_CLASSES.len() + apk_class_count,
+    ));
     let heap = shared_heap();
     let mut handler = crate::system::native_handler::PicodroidNativeHandler::new();
+    #[cfg(feature = "sim")]
+    crate::sim_allocator::checkpoint("post-jvm-new");
 
     // Register the combined loader so Thread.start() spawned tasks load both
     // framework and app classes into their fresh Jvm instances.
@@ -209,7 +218,11 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     // Load platform (framework) classes first, then app classes from the APK.
     load_framework_classes(&mut jvm).unwrap();
+    #[cfg(feature = "sim")]
+    crate::sim_allocator::checkpoint("post-framework-load");
     load_classes_from_apk(&mut jvm).unwrap();
+    #[cfg(feature = "sim")]
+    crate::sim_allocator::checkpoint("post-app-load");
 
     // Determine the entry point from the APK manifest.
     let apk = Papk::parse(apk_data).unwrap();
@@ -265,6 +278,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
 
     #[cfg(feature = "sim")]
     {
+        crate::sim_allocator::checkpoint("post-onCreate");
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
         let (parsed, total) = jvm.count_parsed();
         println!(

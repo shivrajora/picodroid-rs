@@ -164,6 +164,16 @@ impl Jvm {
             classes: Vec::new(),
         }
     }
+
+    /// Like [`new`](Self::new) but pre-sizes the class table.
+    ///
+    /// Avoids the Vec doubling cascade (and its transient double-allocation)
+    /// when the caller already knows the final framework + app class count.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            classes: Vec::with_capacity(capacity),
+        }
+    }
 }
 
 impl Default for Jvm {

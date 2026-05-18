@@ -65,10 +65,6 @@ use panic_probe as _;
 #[global_allocator]
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 
-#[cfg(feature = "sim")]
-#[global_allocator]
-static GLOBAL: sim_allocator::CappedAllocator = sim_allocator::CappedAllocator::new();
-
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[entry]
 fn main() -> ! {
@@ -89,13 +85,18 @@ fn main() -> ! {
 
 #[cfg(feature = "sim")]
 fn main() {
+    sim_allocator::checkpoint("baseline");
+
     if let Err(e) = fs::init() {
         eprintln!("[sim][fs] init failed: {}", e);
     }
+    sim_allocator::checkpoint("post-fs-init");
 
     app::run_jvm();
 
-    let (current, peak, limit) = GLOBAL.heap_stats();
+    sim_allocator::checkpoint("final");
+
+    let (current, peak, limit) = sim_allocator::heap_stats();
     if limit == usize::MAX {
         println!("[sim] heap: peak {} KB (unlimited)", peak / 1024);
     } else {

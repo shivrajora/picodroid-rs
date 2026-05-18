@@ -9,6 +9,28 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[global_allocator]
+pub static GLOBAL: CappedAllocator = CappedAllocator::new();
+
+/// Snapshot the global allocator. Returns `(current_bytes, peak_bytes, limit_bytes)`.
+pub fn heap_stats() -> (usize, usize, usize) {
+    GLOBAL.heap_stats()
+}
+
+/// Per-phase heap checkpoint for the sim. Prints the byte delta since the
+/// previous call alongside the current and peak values so transient bloat
+/// (allocations freed before the next checkpoint) is visible too.
+pub fn checkpoint(label: &str) {
+    static PREV: AtomicUsize = AtomicUsize::new(0);
+    let (cur, peak, _) = heap_stats();
+    let prev = PREV.swap(cur, Ordering::Relaxed);
+    let delta = cur as i64 - prev as i64;
+    println!(
+        "[sim] heap phase: {:<22} delta {:+8} B (cur {:>8} B, peak {:>8} B)",
+        label, delta, cur, peak,
+    );
+}
+
 pub struct CappedAllocator {
     allocated: AtomicUsize,
     peak: AtomicUsize,

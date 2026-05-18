@@ -2,6 +2,7 @@
 /// Minimal Java .class file parser for Picodroid Milestone 1.
 /// Parses only the subset needed to run a simple static-method call
 /// (e.g. HelloWorld.main → Log.i).
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::OnceCell;
 
@@ -102,7 +103,10 @@ pub struct ClassFile {
     /// Pre-scanned class name (Flash-backed UTF8 bytes from the constant pool).
     name: &'static [u8],
     /// Fully-parsed internals; filled on first access via `parsed()`.
-    parsed: OnceCell<Parsed>,
+    /// Boxed so an unparsed ClassFile is one null pointer (8 B) instead of an
+    /// inlined ~176 B of empty Vec headers — saves ~21 KB on 128 framework
+    /// classes when most are never accessed.
+    parsed: OnceCell<Box<Parsed>>,
 }
 
 impl ClassFile {
@@ -118,7 +122,9 @@ impl ClassFile {
     /// so in practice a subsequent full parse should not fail.
     pub(crate) fn parsed(&self) -> &Parsed {
         self.parsed.get_or_init(|| {
-            Parsed::parse(self.data).expect("class file became unparseable after registration")
+            Box::new(
+                Parsed::parse(self.data).expect("class file became unparseable after registration"),
+            )
         })
     }
 
@@ -137,7 +143,7 @@ impl ClassFile {
 
     pub(crate) fn new_eager(data: &'static [u8], name: &'static [u8], parsed: Parsed) -> Self {
         let cell = OnceCell::new();
-        let _ = cell.set(parsed);
+        let _ = cell.set(Box::new(parsed));
         Self {
             data,
             name,

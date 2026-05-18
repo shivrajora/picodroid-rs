@@ -142,7 +142,7 @@ impl ClassFile {
 
 impl Parsed {
     pub(crate) fn parse(data: &'static [u8]) -> Result<Self, &'static str> {
-        let (cp_offsets, cp_tags, pos_after_cp) = parse_cp(data)?;
+        let (mut cp_offsets, mut cp_tags, pos_after_cp) = parse_cp(data)?;
         let mut c = Cursor::new(data);
         c.pos = pos_after_cp;
 
@@ -188,7 +188,7 @@ impl Parsed {
 
         // Parse interface list
         let iface_count = c.u16().ok_or("truncated")? as usize;
-        let mut interfaces: Vec<u16> = Vec::new();
+        let mut interfaces: Vec<u16> = Vec::with_capacity(iface_count);
         for _ in 0..iface_count {
             let iface_cp_idx = c.u16().ok_or("truncated")?;
             let ci = iface_cp_idx as usize;
@@ -227,7 +227,7 @@ impl Parsed {
 
         // Parse methods
         let method_count = c.u16().ok_or("truncated")? as usize;
-        let mut methods: Vec<MethodInfo> = Vec::new();
+        let mut methods: Vec<MethodInfo> = Vec::with_capacity(method_count);
 
         for _ in 0..method_count {
             let access_flags = c.u16().ok_or("truncated")?;
@@ -275,6 +275,7 @@ impl Parsed {
                     c.skip(cl).ok_or("truncated")?;
                     // Parse exception table
                     let exc_count = c.u16().ok_or("truncated")? as usize;
+                    exception_table.reserve_exact(exc_count);
                     for _ in 0..exc_count {
                         let start_pc = c.u16().ok_or("truncated")?;
                         let end_pc = c.u16().ok_or("truncated")?;
@@ -369,6 +370,14 @@ impl Parsed {
             // Skip to end of attribute (handles both BootstrapMethods and unknown attrs)
             c.pos = attr_start + attr_len;
         }
+
+        // Trim doubling slack on the retained Vecs.  Each saved slot is 4–24 B
+        // and these structs are kept for the lifetime of the Jvm.
+        cp_offsets.shrink_to_fit();
+        cp_tags.shrink_to_fit();
+        fields.shrink_to_fit();
+        static_fields.shrink_to_fit();
+        bootstrap_methods.shrink_to_fit();
 
         Ok(Parsed {
             cp_offsets,
