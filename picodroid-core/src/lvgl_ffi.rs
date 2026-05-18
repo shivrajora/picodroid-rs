@@ -297,6 +297,7 @@ pub const LV_OPA_COVER: u8 = 255;
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
+pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 
 // Object states (from lv_obj_style.h, v9.5.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT

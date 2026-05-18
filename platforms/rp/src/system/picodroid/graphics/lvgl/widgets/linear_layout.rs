@@ -16,6 +16,11 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
             LV_FLEX_ALIGN_CENTER,
             LV_FLEX_ALIGN_CENTER,
         );
+        // Android LinearLayout never scrolls — use ScrollView for that. Clearing
+        // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
+        // when content brushes the inner edge (e.g. the 2 px default border
+        // eating into a 224 px child inside a 240 px parent).
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
         // Clear theme padding so only explicit setPadding() takes effect.
         lv_obj_set_style_pad_left(o, 0, 0);
         lv_obj_set_style_pad_right(o, 0, 0);
