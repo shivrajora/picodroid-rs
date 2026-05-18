@@ -97,12 +97,10 @@ impl JvmObject {
         self.fields[field] = v;
     }
 
-    /// Returns the populated field slice.  The leading empty slice preserves
-    /// the `(inline, overflow)` tuple shape used by the GC tracer — collapsed
-    /// to a single slice in the follow-up cleanup commit.
-    fn field_slices(&self) -> (&[Value], &[Value]) {
-        let count = self.field_count as usize;
-        (&[], &self.fields[..count])
+    /// Returns the slice of populated fields (`field_count` long), used by
+    /// the GC tracer to walk an object's references.
+    fn fields_slice(&self) -> &[Value] {
+        &self.fields[..self.field_count as usize]
     }
 }
 
@@ -405,13 +403,14 @@ impl ObjectHeap {
         }
     }
 
-    /// Return (inline_slice, overflow_slice) covering all fields of the object at `idx`.
-    pub fn field_slices(&self, idx: u16) -> (&[Value], &[Value]) {
+    /// Return the slice of populated fields for the object at `idx`, used by
+    /// the GC tracer.  Empty when the slot is freed or out of bounds.
+    pub fn fields_slice(&self, idx: u16) -> &[Value] {
         self.objects
             .get(idx as usize)
             .and_then(|o| o.as_ref())
-            .map(|o| o.field_slices())
-            .unwrap_or((&[], &[]))
+            .map(|o| o.fields_slice())
+            .unwrap_or(&[])
     }
 
     /// Return the top StringBuilder buffer contents as a raw pointer and length.

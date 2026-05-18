@@ -2,8 +2,9 @@
 //! Chunked-slot storage shared by `ObjectHeap.objects` and
 //! `ArrayHeap.arrays`. Replaces a single growing `Vec<Option<T>>` whose
 //! doubling reallocations forced increasingly large contiguous allocations
-//! (capacity 1024 of an 88-byte `JvmObject` = ~90 KB single block, which the
-//! FreeRTOS heap couldn't satisfy on Pico Enviro+ once fragmentation set in).
+//! (capacity 1024 of an `Option<JvmObject>` slot = tens of KB single block,
+//! which the FreeRTOS heap couldn't satisfy on Pico Enviro+ once
+//! fragmentation set in).
 //!
 //! With `CHUNK_SIZE`-slot chunks, growth allocates one small fixed-size chunk
 //! at a time and previously-allocated chunks aren't moved or freed-and-

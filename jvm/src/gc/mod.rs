@@ -151,12 +151,8 @@ pub fn collect(
                 }
                 mark_bit(obj_marks, idx);
 
-                // Scan object fields (inline + overflow)
-                let (inline, overflow) = objects.field_slices(idx);
-                for v in inline {
-                    push_ref(work, v);
-                }
-                for v in overflow {
+                // Scan object fields for outgoing references.
+                for v in objects.fields_slice(idx) {
                     push_ref(work, v);
                 }
 
