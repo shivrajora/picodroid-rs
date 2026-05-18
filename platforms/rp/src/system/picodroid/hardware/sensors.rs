@@ -298,12 +298,12 @@ pub fn drain_sensor_events(
         ltr_due
     );
     let env = if bme_due {
-        sample_bme688()
+        sample_bme688(st.tick_count)
     } else {
         SensorReading::default()
     };
     let optical = if ltr_due {
-        sample_ltr559()
+        sample_ltr559(st.tick_count)
     } else {
         OpticalReading::default()
     };
@@ -418,8 +418,28 @@ struct SensorReading {
     gas_ohm: u32,
 }
 
-#[cfg(not(test))]
-fn sample_bme688() -> SensorReading {
+/// Sim path: bypass the I²C fake (which compensates to zeros because its
+/// calibration registers are all zero) and emit a slow triangle wave around
+/// realistic indoor values. The wobble proves the UI is re-rendering on each
+/// sensor tick and lets threshold-breach animations be exercised without
+/// rebuilding (raise `Theme`-driven thresholds, watch the tile pulse).
+///
+/// Period: ~200 ticks (~3 s at the 16 ms main-loop cadence). Amplitudes are
+/// chosen to stay inside the default threshold band so steady-state is calm.
+#[cfg(all(not(test), feature = "sim"))]
+fn sample_bme688(tick: u64) -> SensorReading {
+    let phase = (tick % 200) as f32 / 100.0 - 1.0; // triangle in [-1, 1)
+    SensorReading {
+        temp_centi_c: (2200.0 + phase * 50.0) as i32, // 22.0 ± 0.5 °C
+        hum_milli_pct: (45_000.0 + phase * 2_000.0) as u32, // 45 ± 2 %
+        press_pa: (101_325.0 + phase * 100.0) as u32, // 1013.25 ± 1 hPa
+        gas_ohm: (50_000.0 + phase * 5_000.0) as u32, // 50 kΩ ± 5 kΩ
+    }
+}
+
+/// Hardware path: drive the real BME688 over I²C, oversampled to TPHG.
+#[cfg(all(not(test), not(feature = "sim")))]
+fn sample_bme688(_tick: u64) -> SensorReading {
     #[cfg(sensor_bme688)]
     {
         use crate::drivers::bme688::I2cBus;
@@ -507,8 +527,21 @@ struct OpticalReading {
     proximity_raw: u16,
 }
 
-#[cfg(not(test))]
-fn sample_ltr559() -> OpticalReading {
+/// Sim path: no LTR559 fake exists in the sim I²C responder (it only knows
+/// the BME688 at 0x77), so without this we'd permanently read 0 lx. Use the
+/// same triangle wave as the BME path for visual consistency.
+#[cfg(all(not(test), feature = "sim"))]
+fn sample_ltr559(tick: u64) -> OpticalReading {
+    let phase = (tick % 200) as f32 / 100.0 - 1.0;
+    OpticalReading {
+        lux_milli: (300_000.0 + phase * 50_000.0) as u32, // 300 ± 50 lx
+        proximity_raw: 0,
+    }
+}
+
+/// Hardware path: drive the real LTR559 over I²C for lux + proximity.
+#[cfg(all(not(test), not(feature = "sim")))]
+fn sample_ltr559(_tick: u64) -> OpticalReading {
     #[cfg(sensor_ltr559)]
     {
         use crate::drivers::ltr559::I2cBus;
