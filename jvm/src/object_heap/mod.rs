@@ -19,7 +19,10 @@ const ENUM_IMPLICIT_FIELDS: usize = 2;
 const INLINE_FIELDS: usize = 4;
 
 pub struct JvmObject {
-    pub class_name: &'static str,
+    /// Index into [`ObjectHeap::class_table`]. Resolves back to the canonical
+    /// `&'static str` class name via [`ObjectHeap::class_name`]; storing only
+    /// the index here saves 14 B per object versus a direct `&'static str`.
+    class_idx: u16,
     field_count: u8,
     inline_fields: [Value; INLINE_FIELDS],
     /// Overflow storage for objects with more than INLINE_FIELDS fields.
@@ -28,14 +31,14 @@ pub struct JvmObject {
 }
 
 impl JvmObject {
-    fn new_with_field_count(class_name: &'static str, n_fields: usize) -> Self {
+    fn new_with_field_count(class_idx: u16, n_fields: usize) -> Self {
         let overflow = if n_fields > INLINE_FIELDS {
             Some(alloc::vec![Value::Null; n_fields - INLINE_FIELDS])
         } else {
             None
         };
         Self {
-            class_name,
+            class_idx,
             field_count: n_fields as u8,
             inline_fields: [Value::Null; INLINE_FIELDS],
             overflow,
@@ -97,6 +100,10 @@ pub struct ObjectHeap {
     pub(super) objects: ChunkedObjects,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     pub(super) first_free: usize,
+    /// Canonical `&'static str` per loaded class, indexed by
+    /// `JvmObject.class_idx`. Lazily populated on first `alloc` for a class —
+    /// real apps load <200 classes, so a linear scan during intern is cheap.
+    pub(super) class_table: Vec<&'static str>,
     pub(super) sb_stack: Vec<Vec<u8>>,
     pub(super) list_bufs: Vec<Option<Vec<Value>>>,
     pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
@@ -114,6 +121,7 @@ impl ObjectHeap {
         Self {
             objects: ChunkedObjects::new(),
             first_free: 0,
+            class_table: Vec::new(),
             sb_stack: Vec::new(),
             list_bufs: Vec::new(),
             map_bufs: Vec::new(),
@@ -174,16 +182,32 @@ impl ObjectHeap {
         class_name: &'static str,
         n_fields: usize,
     ) -> Option<u16> {
+        let class_idx = self.intern_class(class_name);
         if class_name == "java/lang/StringBuilder" {
             if let Some(idx) = self
                 .objects
                 .iter()
-                .position(|o| matches!(o, Some(obj) if obj.class_name == "java/lang/StringBuilder"))
+                .position(|o| matches!(o, Some(obj) if obj.class_idx == class_idx))
             {
                 return Some(idx as u16);
             }
         }
-        Some(self.place_in_slot(JvmObject::new_with_field_count(class_name, n_fields)))
+        Some(self.place_in_slot(JvmObject::new_with_field_count(class_idx, n_fields)))
+    }
+
+    /// Look up `name` in [`class_table`] (linear scan), inserting it if
+    /// missing. Returns the resulting index. Class-name pointers are
+    /// canonical (see [`crate::interpreter::helpers::class_name_to_static_in`])
+    /// so byte-equality on `&'static str` is fast.
+    fn intern_class(&mut self, name: &'static str) -> u16 {
+        for (i, &existing) in self.class_table.iter().enumerate() {
+            if existing == name {
+                return i as u16;
+            }
+        }
+        let idx = self.class_table.len() as u16;
+        self.class_table.push(name);
+        idx
     }
 
     /// Find a free slot (reusing GC-freed None entries before growing) and
@@ -276,7 +300,8 @@ impl ObjectHeap {
 
     #[allow(dead_code)]
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
-        Some(self.objects.get(idx as usize)?.as_ref()?.class_name)
+        let class_idx = self.objects.get(idx as usize)?.as_ref()?.class_idx;
+        self.class_table.get(class_idx as usize).copied()
     }
 
     /// Push a new StringBuilder buffer onto the stack.
