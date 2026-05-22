@@ -22,8 +22,8 @@ public class Formatter {
     return centiToString(centi) + "C";
   }
 
-  public String formatHumidity(float milliPct) {
-    return centiToString((int) milliPct / 10) + " %";
+  public String formatHumidity(float pct) {
+    return centiToString((int) (pct * 100)) + " %";
   }
 
   /** Pressure in hPa. */
