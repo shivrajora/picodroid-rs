@@ -45,12 +45,14 @@ pub(super) fn find_method_cached(
             return Some((ci, mi));
         }
     }
-    let (ci, mi) = find_method(classes, class_name, method_name, descriptor)?;
+    // JVMS §5.4.3.3: method resolution recurses into the superclass when the named
+    // class doesn't declare a matching method. Used by invokestatic and invokespecial.
+    let (ci, mi) = find_method_walking(classes, class_name, method_name, descriptor)?;
     cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
     Some((ci, mi))
 }
 
-pub(super) fn find_method_virtual_cached(
+pub(super) fn find_method_walking_cached(
     cache: &mut Vec<MethodCacheEntry>,
     classes: &[ClassFile],
     runtime_class: &str,
@@ -65,7 +67,7 @@ pub(super) fn find_method_virtual_cached(
             return Some((ci, mi));
         }
     }
-    let (ci, mi) = find_method_virtual(classes, runtime_class, method_name, descriptor)?;
+    let (ci, mi) = find_method_walking(classes, runtime_class, method_name, descriptor)?;
     cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
     Some((ci, mi))
 }
@@ -320,14 +322,17 @@ pub(super) fn superclass_chain(classes: &[ClassFile], class_name: &[u8]) -> Vec<
     chain
 }
 
-/// Virtual dispatch: find a method starting from `runtime_class`, walking up the hierarchy.
-pub(super) fn find_method_virtual(
+/// JVMS §5.4.3.3 method resolution: find a method starting from `start_class`, walking up the
+/// superclass chain. Used by invokevirtual / invokeinterface (starting from the receiver's runtime
+/// class) AND by invokestatic / invokespecial (starting from the CP-declared class) — both forms
+/// of dispatch recurse to the superclass when the named class doesn't declare the method.
+pub(super) fn find_method_walking(
     classes: &[ClassFile],
-    runtime_class: &str,
+    start_class: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    let mut current: &str = runtime_class;
+    let mut current: &str = start_class;
     loop {
         if let Some(result) = find_method(classes, current, method_name, descriptor) {
             return Some(result);

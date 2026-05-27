@@ -103,9 +103,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
         }
 
-        // Resolve method
+        // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
+        // invokevirtual / invokeinterface start from the receiver's runtime class,
+        // invokestatic / invokespecial start from the CP-declared class.
         let resolved = if is_virtual {
-            helpers::find_method_virtual_cached(
+            helpers::find_method_walking_cached(
                 &mut self.method_cache,
                 self.classes,
                 dispatch_class,

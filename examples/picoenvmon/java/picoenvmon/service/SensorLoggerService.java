@@ -5,7 +5,6 @@ import picodroid.app.IBinder;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.content.Intent;
-import picodroid.di.ApplicationComponent;
 import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
@@ -77,9 +76,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
 
   public void onCreate() {
     binder.service = this;
-    // Call through the declared class — picodroid's invokestatic lookup is flat, so
-    // `EnvAppComponent.current()` (inherited static) would resolve to NoSuchMethod.
-    EnvAppComponent app = (EnvAppComponent) ApplicationComponent.current();
+    EnvAppComponent app = (EnvAppComponent) EnvAppComponent.current();
     rgbLed = app.rgbLed();
     thresholds = app.thresholds();
 

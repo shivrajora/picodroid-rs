@@ -112,6 +112,67 @@ static CLASS_CALLER_INVOKEVIRTUAL: &[u8] = &[
     0x00, 0x00, // class_attrs=0
 ];
 
+// ── invokestatic-walks-superclass tests ───────────────────────────────────
+
+// Class "Base" extends Object, STATIC method get()I returns iconst_3, ireturn.
+// CP layout matches CLASS_BASE_SPEAK above (cp_count=8), differs only in the
+// method name ("get") and access flag (0x0009 = public|static, max_locals=0).
+static CLASS_BASE_GET_STATIC: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00,
+    0x02, // #1 Class -> #2
+    0x01, 0x00, 0x04, b'B', b'a', b's', b'e', // #2 Utf8 "Base"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #5 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #6 Utf8 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: access=0x0009 (public|static), name=#5, desc=#6, attrs=1
+    0x00, 0x09, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07, // Code attr name=#7
+    0x00, 0x00, 0x00, 0x0E, // attr_len=14
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // max_stack=1, max_locals=0, code_len=2
+    0x06, 0xAC, // iconst_3, ireturn
+    0x00, 0x00, 0x00, 0x00, // exc_table=0, code_attrs=0
+    0x00, 0x00, // class_attrs=0
+];
+
+// Class "Caller" with STATIC method m()I that does invokestatic ChildNS.get()I.
+// CP layout matches CLASS_CALLER_INVOKEVIRTUAL except:
+//   - desc "()I" (no LBase; receiver),
+//   - CP #11 names "ChildNS" (so the invokestatic CP entry refers to the subclass
+//     which has no get() — the walk must reach Base.get() on the superclass),
+//   - CP #12 is "get",
+//   - bytecode is invokestatic #8 + ireturn (no aload_0),
+//   - method m takes no args (max_locals=0).
+static CLASS_CALLER_INVOKESTATIC_INHERITED: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, // cp_count=14
+    0x07, 0x00, 0x02, // #1 Class -> #2
+    0x01, 0x00, 0x06, b'C', b'a', b'l', b'l', b'e', b'r', // #2 Utf8 "Caller"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x01, b'm', // #5 Utf8 "m"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #6 Utf8 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x0A, 0x00, 0x09, 0x00, 0x0A, // #8 Methodref -> #9, #10
+    0x07, 0x00, 0x0B, // #9 Class -> #11
+    0x0C, 0x00, 0x0C, 0x00, 0x0D, // #10 NameAndType -> #12, #13
+    0x01, 0x00, 0x07, b'C', b'h', b'i', b'l', b'd', b'N', b'S', // #11 Utf8 "ChildNS"
+    0x01, 0x00, 0x03, b'g', b'e', b't', // #12 Utf8 "get"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #13 Utf8 "()I"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    // method: access=0x0009 (public|static), name=#5, desc=#6, attrs=1
+    0x00, 0x09, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07, // Code attr name=#7
+    0x00, 0x00, 0x00, 0x10, // attr_len=16
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, // max_stack=1, max_locals=0, code_len=4
+    0xB8, 0x00, 0x08, 0xAC, // invokestatic #8, ireturn
+    0x00, 0x00, 0x00, 0x00, // exc_table=0, code_attrs=0
+    0x00, 0x00, // class_attrs=0
+];
+
 // ── invokeinterface tests ─────────────────────────────────────────────────
 
 // Class "Caller" with STATIC m(LBase;)I that calls speak() via invokeinterface.
@@ -224,6 +285,42 @@ fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
         &[obj],
     );
     assert_eq!(result.unwrap(), Some(Value::Int(1)));
+}
+
+#[test]
+fn invokestatic_walks_up_to_base_when_subclass_has_no_inherited_static() {
+    // JVMS §5.4.3.3 method resolution: `invokestatic Subclass.parentStatic()` must walk
+    // up to the superclass when the subclass doesn't declare the method.
+    // Base declares `public static int get() { return 3; }`. ChildNS extends Base, has no get().
+    // Caller.m() does `invokestatic ChildNS.get()I` and is expected to return 3.
+    let cf_base = ClassFile::parse(CLASS_BASE_GET_STATIC).expect("parse BASE failed");
+    let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
+    let cf_caller =
+        ClassFile::parse(CLASS_CALLER_INVOKESTATIC_INHERITED).expect("parse CALLER failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf_base);
+    classes.push(cf_child_ns);
+    classes.push(cf_caller);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut handler = NoopHandler;
+    let mut statics = StaticFieldStore::new();
+    // Run Caller.m (class index 2, method index 0). Static, no args.
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut GcState::new(),
+        &mut crate::class_objects::ClassObjectCache::new(),
+        &mut handler,
+        2,
+        0,
+        &[],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(3)));
 }
 
 #[test]
