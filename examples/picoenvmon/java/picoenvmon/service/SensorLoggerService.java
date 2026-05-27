@@ -5,6 +5,7 @@ import picodroid.app.IBinder;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.content.Intent;
+import picodroid.di.ApplicationComponent;
 import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
@@ -53,9 +54,32 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   private float lastGas = -1f;
   private boolean started;
 
+  // ── 1 Hz smoothing ───────────────────────────────────────────────────────────
+  // Per-type windowed-mean accumulators. Raw callbacks arrive ~5 Hz in a single
+  // burst; on the first callback past the 1 s mark we emit averages to every
+  // registered SmoothedSensorListener and reset the accumulators.
+  private static final long EMIT_INTERVAL_MS = 1000;
+  private static final int NUM_SMOOTHED_SENSORS = 5;
+  private static final int MAX_SMOOTHED_LISTENERS = 4;
+  private static final int[] SMOOTHED_TYPES = {
+    Sensor.TYPE_AMBIENT_TEMPERATURE,
+    Sensor.TYPE_RELATIVE_HUMIDITY,
+    Sensor.TYPE_PRESSURE,
+    Sensor.TYPE_GAS_RESISTANCE,
+    Sensor.TYPE_LIGHT,
+  };
+
+  private final float[] smoothSum = new float[NUM_SMOOTHED_SENSORS];
+  private final int[] smoothCount = new int[NUM_SMOOTHED_SENSORS];
+  private final SmoothedSensorListener[] smoothedListeners =
+      new SmoothedSensorListener[MAX_SMOOTHED_LISTENERS];
+  private long lastEmitMs;
+
   public void onCreate() {
     binder.service = this;
-    EnvAppComponent app = (EnvAppComponent) EnvAppComponent.current();
+    // Call through the declared class — picodroid's invokestatic lookup is flat, so
+    // `EnvAppComponent.current()` (inherited static) would resolve to NoSuchMethod.
+    EnvAppComponent app = (EnvAppComponent) ApplicationComponent.current();
     rgbLed = app.rgbLed();
     thresholds = app.thresholds();
 
@@ -142,6 +166,66 @@ public class SensorLoggerService extends Service implements SensorEventListener 
         break;
       default:
         break;
+    }
+
+    int smIdx = smoothedIdxFor(type);
+    if (smIdx >= 0) {
+      smoothSum[smIdx] += v;
+      smoothCount[smIdx]++;
+      long now = System.currentTimeMillis();
+      if (lastEmitMs == 0) {
+        lastEmitMs = now;
+      }
+      if (now - lastEmitMs >= EMIT_INTERVAL_MS) {
+        emitSmoothed();
+        lastEmitMs = now;
+      }
+    }
+  }
+
+  /** Register for 1 Hz windowed-mean callbacks. Returns false if all slots are full. */
+  public boolean addSmoothedListener(SmoothedSensorListener l) {
+    for (int i = 0; i < MAX_SMOOTHED_LISTENERS; i++) {
+      if (smoothedListeners[i] == null) {
+        smoothedListeners[i] = l;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Idempotent: removing an unregistered listener is a no-op. */
+  public void removeSmoothedListener(SmoothedSensorListener l) {
+    for (int i = 0; i < MAX_SMOOTHED_LISTENERS; i++) {
+      if (smoothedListeners[i] == l) {
+        smoothedListeners[i] = null;
+      }
+    }
+  }
+
+  private static int smoothedIdxFor(int sensorType) {
+    for (int i = 0; i < SMOOTHED_TYPES.length; i++) {
+      if (SMOOTHED_TYPES[i] == sensorType) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private void emitSmoothed() {
+    for (int i = 0; i < NUM_SMOOTHED_SENSORS; i++) {
+      if (smoothCount[i] == 0) {
+        continue;
+      }
+      float avg = smoothSum[i] / smoothCount[i];
+      smoothSum[i] = 0f;
+      smoothCount[i] = 0;
+      for (int j = 0; j < MAX_SMOOTHED_LISTENERS; j++) {
+        SmoothedSensorListener l = smoothedListeners[j];
+        if (l != null) {
+          l.onSmoothedSensor(SMOOTHED_TYPES[i], avg);
+        }
+      }
     }
   }
 

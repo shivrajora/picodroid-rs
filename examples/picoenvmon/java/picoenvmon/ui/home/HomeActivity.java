@@ -2,14 +2,12 @@
 package picoenvmon.ui.home;
 
 import picodroid.app.Activity;
-import picodroid.content.Context;
+import picodroid.app.IBinder;
 import picodroid.content.Intent;
+import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.hardware.Sensor;
-import picodroid.hardware.SensorEvent;
-import picodroid.hardware.SensorEventListener;
-import picodroid.hardware.SensorManager;
 import picodroid.util.Log;
 import picodroid.view.GestureDetector;
 import picodroid.view.GestureDetector.OnGestureListener;
@@ -23,16 +21,18 @@ import picodroid.widget.Toast;
 import picoenvmon.di.EnvActivityComponent;
 import picoenvmon.di.EnvAppComponent;
 import picoenvmon.service.SensorLoggerService;
+import picoenvmon.service.SmoothedSensorListener;
 import picoenvmon.ui.history.HistoryActivity;
 import picoenvmon.ui.settings.SettingsActivity;
 import picoenvmon.util.Formatter;
 
 /**
- * Live dashboard. Sensor listeners feed 5 tiles, button-key navigation (A=Settings, B=History,
- * X=toggle Service, Y=back), long-press toggles °C↔°F.
+ * Live dashboard. Binds {@link SensorLoggerService} for 1 Hz smoothed sensor callbacks that feed 5
+ * tiles. Button-key navigation: A=Settings, B=History, X=toggle Service foreground notification,
+ * Y=back. Long-press toggles °C↔°F.
  */
 public class HomeActivity extends Activity
-    implements SensorEventListener, OnKeyListener, OnGestureListener {
+    implements ServiceConnection, SmoothedSensorListener, OnKeyListener, OnGestureListener {
 
   // Tile slot indices for the parallel arrays below.
   private static final int IDX_TEMP = 0;
@@ -43,7 +43,7 @@ public class HomeActivity extends Activity
   private static final int NUM_TILES = 5;
 
   private EnvActivityComponent comp;
-  private SensorManager sensorManager;
+  private SensorLoggerService service;
   private boolean serviceRunning;
 
   /** Tile root LinearLayout per sensor index (used by flashOnBreach). */
@@ -90,25 +90,31 @@ public class HomeActivity extends Activity
     root.setOnKeyListener(this);
     root.setOnTouchListener(new GestureDetector(this));
 
-    registerSensors();
-  }
-
-  public void onResume() {
-    if (sensorManager != null) {
-      registerSensors();
-    }
-  }
-
-  public void onPause() {
-    if (sensorManager != null) {
-      sensorManager.unregisterListener(this);
-    }
+    bindService(new Intent(SensorLoggerService.class), this);
   }
 
   public void onDestroy() {
-    if (sensorManager != null) {
-      sensorManager.unregisterListener(this);
+    if (service != null) {
+      service.removeSmoothedListener(this);
     }
+    try {
+      unbindService(this);
+    } catch (Throwable t) {
+      Log.i(EnvAppComponent.TAG, "Home unbind ignored: " + t);
+    }
+  }
+
+  @Override
+  public void onServiceConnected(IBinder binder) {
+    service = ((SensorLoggerService.LocalBinder) binder).service;
+    service.addSmoothedListener(this);
+  }
+
+  @Override
+  public void onServiceDisconnected() {
+    // Android only fires this on crash; picodroid also fires on unbind. Either way the binder is
+    // gone — drop the reference. Listener removal already happened in onDestroy (if applicable).
+    service = null;
   }
 
   private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
@@ -135,57 +141,33 @@ public class HomeActivity extends Activity
     tileValues[idx] = valueView;
   }
 
-  private void registerSensors() {
-    if (sensorManager == null) {
-      sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-    }
-    int[] types = {
-      Sensor.TYPE_AMBIENT_TEMPERATURE,
-      Sensor.TYPE_RELATIVE_HUMIDITY,
-      Sensor.TYPE_PRESSURE,
-      Sensor.TYPE_GAS_RESISTANCE,
-      Sensor.TYPE_LIGHT,
-    };
-    for (int t : types) {
-      Sensor s = sensorManager.getDefaultSensor(t);
-      if (s != null) {
-        sensorManager.registerListener(this, s, SensorManager.SENSOR_DELAY_NORMAL);
-      }
-    }
-  }
-
   @Override
-  public void onSensorChanged(SensorEvent event) {
+  public void onSmoothedSensor(int sensorType, float value) {
     Formatter f = comp.formatter();
-    float v = event.values[0];
-    int type = event.sensor.getType();
-    switch (type) {
+    switch (sensorType) {
       case Sensor.TYPE_AMBIENT_TEMPERATURE:
-        tileValues[IDX_TEMP].setText(f.formatTemp(v));
-        flashOnBreach(tileRoots[IDX_TEMP], comp.thresholds().tempBreached(v));
+        tileValues[IDX_TEMP].setText(f.formatTemp(value));
+        flashOnBreach(tileRoots[IDX_TEMP], comp.thresholds().tempBreached(value));
         break;
       case Sensor.TYPE_RELATIVE_HUMIDITY:
-        tileValues[IDX_HUM].setText(f.formatHumidity(v));
-        flashOnBreach(tileRoots[IDX_HUM], comp.thresholds().humidityBreached(v));
+        tileValues[IDX_HUM].setText(f.formatHumidity(value));
+        flashOnBreach(tileRoots[IDX_HUM], comp.thresholds().humidityBreached(value));
         break;
       case Sensor.TYPE_PRESSURE:
-        tileValues[IDX_PRESS].setText(f.formatPressure(v));
+        tileValues[IDX_PRESS].setText(f.formatPressure(value));
         break;
       case Sensor.TYPE_GAS_RESISTANCE:
-        lastGas = v;
-        tileValues[IDX_IAQ].setText(f.formatGasIaq(v));
+        lastGas = value;
+        tileValues[IDX_IAQ].setText(f.formatGasIaq(value));
         break;
       case Sensor.TYPE_LIGHT:
-        tileValues[IDX_LIGHT].setText(f.formatLux(v));
-        flashOnBreach(tileRoots[IDX_LIGHT], comp.thresholds().luxBreached(v));
+        tileValues[IDX_LIGHT].setText(f.formatLux(value));
+        flashOnBreach(tileRoots[IDX_LIGHT], comp.thresholds().luxBreached(value));
         break;
       default:
         break;
     }
   }
-
-  @Override
-  public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
   private void flashOnBreach(LinearLayout tile, boolean breached) {
     if (!breached) {
