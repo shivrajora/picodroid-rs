@@ -28,11 +28,13 @@ fn dispatch_method(idx: usize) -> &'static str {
     DISPATCH_SITES[idx].1
 }
 
-/// Idle period after which the display is put to sleep. Reset by any GPIO
-/// button event. Gated on `has_buttons` because the wake path blocks on a
-/// button IRQ — touch-only boards would never wake.
+// `IDLE_TIMEOUT_MS: Option<u64>` — idle period (ms) after which the display
+// is put to sleep, or `None` to disable. Resolved from board.toml's
+// top-level `idle_timeout_ms` (default 60_000, `0` means disabled) by
+// `build.rs`. Gated on `has_buttons` because the wake path blocks on a
+// button IRQ — touch-only boards would never wake.
 #[cfg(all(not(feature = "sim"), has_buttons))]
-const IDLE_TIMEOUT_MS: u64 = 60_000;
+include!(concat!(env!("OUT_DIR"), "/sleep_config.rs"));
 
 #[cfg(all(not(feature = "sim"), has_buttons))]
 fn now_ms() -> u64 {
@@ -302,10 +304,12 @@ pub(crate) fn run_activity(
                     if crate::hal::gpio::has_pending_event() {
                         last_input_ms = now_ms();
                     }
-                    if now_ms() - last_input_ms >= IDLE_TIMEOUT_MS {
-                        crate::system::executors::tick_source::pause();
-                        with_gfx(|g| g.sleep());
-                        sleeping = true;
+                    if let Some(timeout) = IDLE_TIMEOUT_MS {
+                        if now_ms() - last_input_ms >= timeout {
+                            crate::system::executors::tick_source::pause();
+                            with_gfx(|g| g.sleep());
+                            sleeping = true;
+                        }
                     }
                 }
             }

@@ -2,6 +2,10 @@
 mcu = "rp2350"
 lv_dpi = 166
 lv_mem_kb = 48
+# Disable idle-timeout display sleep — this is a live environmental monitor;
+# users watch the readings without interacting. Set to a positive ms value
+# (e.g. 60000) to re-enable.
+idle_timeout_ms = 0
 
 [display]
 driver = "st7789"
