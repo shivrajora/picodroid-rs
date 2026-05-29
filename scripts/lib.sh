@@ -145,8 +145,10 @@ resolve_board() {
 # so the `pico-jvm` crate's build.rs (which runs before the platform crate
 # and so can't see board.toml directly) can pick them up as `pub const`
 # tunables. Keys present in `[jvm]` are exported; missing keys fall back to
-# the hardcoded defaults baked into `jvm/build.rs`. See
-# `platforms/rp/build.rs::emit_jvm_config` for the schema and ranges.
+# the hardcoded defaults baked into `jvm/build.rs`.
+#
+# Canonical guide: website/src/content/docs/reference/jvm-tunables.md.
+# Schema enforcement: platforms/rp/build.rs::emit_jvm_config.
 apply_jvm_env() {
   local board_toml="$1"
   # Extract the [jvm] block: from "[jvm]" up to the next "[" line, or EOF.

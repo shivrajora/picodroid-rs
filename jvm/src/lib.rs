@@ -77,7 +77,7 @@ pub mod interpreter;
 pub mod native;
 pub mod object_heap;
 pub mod static_fields;
-pub(crate) mod tunables;
+pub mod tunables;
 pub mod types;
 
 use alloc::vec::Vec;

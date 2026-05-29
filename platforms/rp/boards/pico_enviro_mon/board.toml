@@ -7,6 +7,18 @@ lv_mem_kb = 48
 # (e.g. 60000) to re-enable.
 idle_timeout_ms = 0
 
+# JVM tunables (CPU↔memory tradeoffs). All optional — uncomment to override.
+# Canonical guide: website/src/content/docs/reference/jvm-tunables.md
+# Picoenvmon is the canonical heap-constrained target (see project memory
+# `project_picoenvmon_heap_budget.md`); lower `slot_chunk_shift` to 4 and
+# `gc_alloc_threshold` to 128 if you hit OOM under `--shrink -r -l 384`.
+# [jvm]
+# gc_alloc_threshold   = 256   # 16..=8192. Lower = more frequent GC, smaller peak heap, more pauses.
+# slot_chunk_shift     = 6     # 3..=8.    Chunk size = 1 << shift. Lower = smaller worst-case contiguous alloc.
+# inline_array_data    = 8     # 0..=32.   Arrays of ≤N i32-slots stored inline rather than in the arena.
+# activity_stack_depth = 8     # 1..=32.   Max nested Activities.
+# pending_op_queue     = 8     # 1..=64.   Max queued startActivity/startService ops per frame.
+
 [display]
 driver = "st7789"
 spi_id = 0

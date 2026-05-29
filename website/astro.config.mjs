@@ -92,6 +92,7 @@ export default defineConfig({
             { label: 'Cargo aliases', slug: 'reference/cargo-aliases' },
             { label: 'Class-name shrinker', slug: 'reference/shrinker' },
             { label: 'Advanced configuration', slug: 'reference/advanced-config' },
+            { label: 'JVM tunables', slug: 'reference/jvm-tunables' },
             { label: 'Porting guide', slug: 'reference/porting-guide' },
             { label: 'RP2350 SMP bugs', slug: 'reference/rp2350-freertos-smp-bugs' },
             { label: 'ESP32-S3 toolchain', slug: 'reference/esp32s3-toolchain' },

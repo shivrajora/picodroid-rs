@@ -392,6 +392,18 @@ All keys optional; defaults in parentheses.
 
 Surfaced via [`Executors.backgroundExecutor()`](/api/system/#picodroidconcurrentexecutors).
 
+### `[jvm]` — optional CPU↔memory tradeoff knobs
+
+Five compile-time `pub const`s sourced from this section, all optional. See [JVM tunables](/reference/jvm-tunables/) for the full schema, tuning workflow, and worked recipes.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `gc_alloc_threshold` | int | Allocations between auto-GC cycles (256), range 16..=8192. |
+| `slot_chunk_shift` | int | Chunk size = `1 << shift` for heap slot storage (6), range 3..=8. |
+| `inline_array_data` | int | Array elements held inline rather than in the arena (8), range 0..=32. |
+| `activity_stack_depth` | int | Max nested Activities (8), range 1..=32. |
+| `pending_op_queue` | int | Max queued startActivity/startService ops per frame (8), range 1..=64. |
+
 ## HAL additions (v0.2.0)
 
 The HAL has grown a few modules beyond the original 10-module surface. New boards do not *have* to implement these to boot, but skipping them disables features (button input, sensors, display sleep).

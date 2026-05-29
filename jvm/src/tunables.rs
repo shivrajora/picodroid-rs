@@ -9,9 +9,15 @@
 //! bit-for-bit identically to the pre-tunables crate.
 //!
 //! The values come from each board's `board.toml` `[jvm]` section, exported
-//! into the environment by `scripts/lib.sh::resolve_board`. See
-//! `platforms/rp/build.rs::emit_jvm_config` for the schema, ranges, and
-//! per-knob CPU↔memory trade-off documentation.
+//! into the environment by [`scripts/lib.sh::apply_jvm_env`]. Per-const
+//! purpose, range, and trade-off summaries live on each `pub const` below
+//! (also visible in `cargo doc`).
+//!
+//! Canonical guide — schema table, tuning workflow with `perfbench`, and
+//! worked recipes for heap- vs CPU-constrained boards:
+//! <https://shivrajora.github.io/picodroid-rs/reference/jvm-tunables/>
+//!
+//! [`scripts/lib.sh::apply_jvm_env`]: https://github.com/shivrajora/picodroid-rs/blob/main/scripts/lib.sh
 
 include!(concat!(env!("OUT_DIR"), "/tunables.rs"));
 

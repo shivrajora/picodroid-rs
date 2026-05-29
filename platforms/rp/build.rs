@@ -325,6 +325,8 @@ fn emit_background_pool_config(
 
 /// Emit JVM tunables from board.toml's optional `[jvm]` section.
 ///
+/// Canonical guide: `website/src/content/docs/reference/jvm-tunables.md`.
+///
 /// Two outputs:
 ///
 /// 1. `OUT_DIR/jvm_state_config.rs` (consumed by `src/system/native_handler/state.rs`)

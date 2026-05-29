@@ -30,3 +30,10 @@ This runs: Java formatting check, `cargo fmt`, clippy (RP2040 + RP2350), embedde
 Do not consider a code change complete until both of these pass.
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
+
+## Tuning JVM and GC for your board
+
+Five CPU↔memory tunables live in each board's `[jvm]` section in `board.toml` — GC frequency, heap chunking, inline-array threshold, activity-stack depth, pending-op queue depth. Reach for them when optimising for a memory-constrained or CPU-constrained target.
+
+- **Canonical reference:** [`website/src/content/docs/reference/jvm-tunables.md`](website/src/content/docs/reference/jvm-tunables.md) — schema table, what each knob trades, recipes for heap-constrained / CPU-constrained / deep-nav-UI boards.
+- **Measurement instrument:** `./scripts/sim.sh --app perfbench --board <board>` prints a single `SCORE` line (lower is better) that folds wall time, GC cycle count, and peak heap. Use it to validate that a tuning change actually improved the tradeoff before committing.
