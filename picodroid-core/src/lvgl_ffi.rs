@@ -320,7 +320,10 @@ pub type lv_event_cb_t = Option<unsafe extern "C" fn(e: *mut lv_event_t)>;
 // ---------------------------------------------------------------------------
 // Extern "C" function declarations
 // ---------------------------------------------------------------------------
+// Excluded under `cfg(test)` so the constants + drift-check tests below
+// compile on the host without linking against LVGL.
 
+#[cfg(not(test))]
 extern "C" {
     // Core
     pub fn lv_init();
@@ -639,4 +642,83 @@ extern "C" {
     pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_keyboard_set_textarea(kb: *mut lv_obj_t, ta: *mut lv_obj_t);
     pub fn lv_keyboard_set_mode(kb: *mut lv_obj_t, mode: lv_keyboard_mode_t);
+}
+
+#[cfg(test)]
+mod tests {
+    //! Drift guard against the vendored LVGL `lv_event.h`. Per
+    //! `project_lvgl_ffi_constants.md`: wrong event codes silently route
+    //! to wrong handlers, which can cause infinite render loops. The
+    //! enum is implicit-ordinal (no explicit `= N` after `LV_EVENT_ALL = 0`),
+    //! so a single header edit shifts every code below it by one. This test
+    //! parses the enum from the vendored header at compile time and asserts
+    //! the Rust constants we depend on still match.
+    use super::*;
+
+    const LV_EVENT_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_event.h");
+
+    /// Extract the ordinal of `name` from the `lv_event_code_t` enum body.
+    /// Returns `None` if the enum or the name is missing.
+    fn lookup_event_ordinal(name: &str) -> Option<u32> {
+        // The enum opens with `typedef enum {` and `LV_EVENT_ALL = 0,`
+        // explicitly anchors the count. Walk forward from there, counting
+        // each `LV_EVENT_<NAME>` identifier at start-of-line (after
+        // whitespace) until either `name` matches or `}` ends the enum.
+        let start = LV_EVENT_HEADER.find("LV_EVENT_ALL = 0")?;
+        let end = LV_EVENT_HEADER[start..].find("} lv_event_code_t")?;
+        let body = &LV_EVENT_HEADER[start..start + end];
+        let mut ordinal: u32 = 0;
+        for line in body.lines() {
+            let trimmed = line.trim_start();
+            if let Some(ident_end) = trimmed.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            {
+                let ident = &trimmed[..ident_end];
+                if !ident.starts_with("LV_EVENT_") {
+                    continue;
+                }
+                if ident == name {
+                    return Some(ordinal);
+                }
+                ordinal += 1;
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn lv_event_constants_match_vendored_header() {
+        for (rust_const, name) in [
+            (LV_EVENT_ALL, "LV_EVENT_ALL"),
+            (LV_EVENT_PRESSED, "LV_EVENT_PRESSED"),
+            (LV_EVENT_PRESSING, "LV_EVENT_PRESSING"),
+            (LV_EVENT_LONG_PRESSED, "LV_EVENT_LONG_PRESSED"),
+            (LV_EVENT_CLICKED, "LV_EVENT_CLICKED"),
+            (LV_EVENT_RELEASED, "LV_EVENT_RELEASED"),
+            (LV_EVENT_GESTURE, "LV_EVENT_GESTURE"),
+            (LV_EVENT_VALUE_CHANGED, "LV_EVENT_VALUE_CHANGED"),
+            (LV_EVENT_READY, "LV_EVENT_READY"),
+        ] {
+            let header_ord = lookup_event_ordinal(name)
+                .unwrap_or_else(|| panic!("{} not found in vendored lv_event.h", name));
+            assert_eq!(
+                rust_const as u32, header_ord,
+                "{}: Rust FFI ({}) drifted from vendored header ({}). \
+                 The LVGL enum is implicit-ordinal — a single inserted variant \
+                 shifts everything below it. Re-sync lvgl_ffi.rs to match the \
+                 vendored lv_event.h before this slips into a runtime bug.",
+                name, rust_const, header_ord
+            );
+        }
+    }
+
+    /// Anchor test — if the lookup helper itself silently returns wrong
+    /// ordinals, every event assertion above passes vacuously. Pin the
+    /// known-good first three to catch that.
+    #[test]
+    fn lookup_helper_yields_known_ordinals() {
+        assert_eq!(lookup_event_ordinal("LV_EVENT_ALL"), Some(0));
+        assert_eq!(lookup_event_ordinal("LV_EVENT_PRESSED"), Some(1));
+        assert_eq!(lookup_event_ordinal("LV_EVENT_PRESSING"), Some(2));
+        assert_eq!(lookup_event_ordinal("LV_EVENT_DOES_NOT_EXIST"), None);
+    }
 }

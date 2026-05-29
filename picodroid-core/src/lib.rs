@@ -7,7 +7,6 @@ pub mod dispatch_sites;
 #[allow(dead_code)]
 pub mod drivers;
 pub mod framework_classes;
-#[cfg(not(test))]
 pub mod lvgl_ffi;
 pub mod shrink_names;
 pub mod task_priority;
