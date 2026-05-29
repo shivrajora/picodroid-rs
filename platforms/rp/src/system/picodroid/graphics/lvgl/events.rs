@@ -175,7 +175,11 @@ static mut KEY_PRESS_FILTER: super::key_filter::KeyPressFilter =
 #[cfg(has_buttons)]
 fn push_key_event_raw(pin: u8, rising: bool) {
     unsafe {
-        if !KEY_PRESS_FILTER.observe(pin, rising) {
+        // `&raw mut` then deref: forming `&mut KEY_PRESS_FILTER` directly trips
+        // the `static_mut_refs` lint (Rust 2024 compat). See handle_table.rs /
+        // socket_table.rs for the same idiom.
+        let filter = &raw mut KEY_PRESS_FILTER;
+        if !(*filter).observe(pin, rising) {
             return;
         }
         let head = KEY_EVENT_QUEUE_HEAD;

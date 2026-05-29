@@ -459,19 +459,22 @@ fn sample_bme688(_tick: u64) -> SensorReading {
         static mut BME_DRIVER: Option<crate::drivers::bme688::Bme688<HalI2c>> = None;
 
         let bme = unsafe {
-            if BME_DRIVER.is_none() {
+            // Go through a raw pointer rather than referencing the static
+            // directly, which would trip `static_mut_refs` (Rust 2024 compat).
+            let bme_ptr = &raw mut BME_DRIVER;
+            if (*bme_ptr).is_none() {
                 for cfg in sensor_table::SENSORS {
                     if matches!(cfg.kind, sensor_table::SensorKind::Bme688) {
                         crate::hal::i2c::init(cfg.bus_id);
                         let bus = HalI2c { bus_id: cfg.bus_id };
                         if let Ok(driver) = crate::drivers::bme688::Bme688::new(bus, cfg.addr) {
-                            BME_DRIVER = Some(driver);
+                            *bme_ptr = Some(driver);
                         }
                         break;
                     }
                 }
             }
-            &mut BME_DRIVER
+            &mut *bme_ptr
         };
 
         match bme {
@@ -561,19 +564,22 @@ fn sample_ltr559(_tick: u64) -> OpticalReading {
         static mut LTR_DRIVER: Option<crate::drivers::ltr559::Ltr559<HalI2c>> = None;
 
         let drv = unsafe {
-            if LTR_DRIVER.is_none() {
+            // Go through a raw pointer rather than referencing the static
+            // directly, which would trip `static_mut_refs` (Rust 2024 compat).
+            let ltr_ptr = &raw mut LTR_DRIVER;
+            if (*ltr_ptr).is_none() {
                 for cfg in sensor_table::SENSORS {
                     if matches!(cfg.kind, sensor_table::SensorKind::Ltr559) {
                         crate::hal::i2c::init(cfg.bus_id);
                         let bus = HalI2c { bus_id: cfg.bus_id };
                         if let Ok(d) = crate::drivers::ltr559::Ltr559::new(bus, cfg.addr) {
-                            LTR_DRIVER = Some(d);
+                            *ltr_ptr = Some(d);
                         }
                         break;
                     }
                 }
             }
-            &mut LTR_DRIVER
+            &mut *ltr_ptr
         };
 
         match drv {
