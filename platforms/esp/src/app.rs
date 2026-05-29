@@ -140,3 +140,100 @@ pub fn run_jvm() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pico_jvm::array_heap::ArrayHeap;
+    use pico_jvm::heap::StringTable;
+    use pico_jvm::object_heap::ObjectHeap;
+
+    fn make_ctx<'a>(
+        strings: &'a mut StringTable,
+        objects: &'a mut ObjectHeap,
+        arrays: &'a mut ArrayHeap,
+        args: &'a [Value],
+    ) -> NativeContext<'a> {
+        NativeContext {
+            descriptor: "",
+            args,
+            strings,
+            objects,
+            arrays,
+        }
+    }
+
+    /// `dispatch` must return `None` for any class/method outside the small
+    /// allow-list — that's the signal to the JVM that BuiltinHandler should
+    /// take over (java.lang.String, Math, collections, etc.). Returning
+    /// `Some(Err(...))` here would silently break standard library calls.
+    #[test]
+    fn dispatch_returns_none_for_non_log_calls() {
+        let mut h = EspNativeHandler;
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let args: [Value; 0] = [];
+        let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
+        assert!(h.dispatch("java/lang/String", "length", &mut ctx).is_none());
+        assert!(h.dispatch("picodroid/util/Log", "w", &mut ctx).is_none());
+        assert!(h.dispatch("", "", &mut ctx).is_none());
+    }
+
+    /// Log.i is the one method ESP handles directly. With both args resolved
+    /// to interned strings it returns `Ok(None)` (no return value). On host
+    /// it's a no-op (xtensa-only `esp_println::println!`), but the handshake
+    /// with the JVM still has to succeed.
+    #[test]
+    fn log_i_with_valid_string_args_returns_ok_none() {
+        let mut h = EspNativeHandler;
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let tag = strings.intern(b"TestTag").expect("intern tag");
+        let msg = strings.intern(b"hello world").expect("intern msg");
+        let args = [Value::Reference(tag), Value::Reference(msg)];
+        let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
+        let result = h.dispatch("picodroid/util/Log", "i", &mut ctx);
+        assert!(matches!(result, Some(Ok(None))));
+    }
+
+    /// Log.i with a non-Reference arg (e.g. Null where a String was expected)
+    /// must surface InvalidReference — a panic here would crash the device
+    /// instead of letting the JVM throw a NullPointerException to Java.
+    #[test]
+    fn log_i_with_null_tag_returns_invalid_reference() {
+        let mut h = EspNativeHandler;
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let msg = strings.intern(b"msg").unwrap();
+        let args = [Value::Null, Value::Reference(msg)];
+        let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
+        let result = h.dispatch("picodroid/util/Log", "i", &mut ctx);
+        assert!(matches!(result, Some(Err(JvmError::InvalidReference))));
+    }
+
+    #[test]
+    fn log_i_with_int_arg_returns_invalid_reference() {
+        let mut h = EspNativeHandler;
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let tag = strings.intern(b"tag").unwrap();
+        let args = [Value::Reference(tag), Value::Int(42)];
+        let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
+        let result = h.dispatch("picodroid/util/Log", "i", &mut ctx);
+        assert!(matches!(result, Some(Err(JvmError::InvalidReference))));
+    }
+
+    /// `shared_heap` is a single-instance accessor backed by a SyncUnsafeCell.
+    /// Calling it twice must yield the same heap (the JVM bootstrap and any
+    /// later native call have to see the same object/string state).
+    #[test]
+    fn shared_heap_returns_same_instance_each_call() {
+        let a = shared_heap() as *const _;
+        let b = shared_heap() as *const _;
+        assert_eq!(a, b, "shared_heap must alias to the static singleton");
+    }
+}

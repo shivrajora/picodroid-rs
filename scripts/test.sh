@@ -37,3 +37,11 @@ bash "$REPO_ROOT/scripts/build-apk.sh" --app helloworld --shrink
 echo "==> Running tests (shrink)..."
 PICODROID_APK_PATH="$APK_PATH" PICODROID_SHRINK=1 \
   cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET"
+
+# platforms/esp is its own Cargo workspace (separate Cargo.lock to keep the
+# Xtensa-only deps out of the main resolver), so it isn't reached by the
+# --workspace runs above. Run its host-target tests explicitly.
+echo "==> Running tests (platforms/esp)..."
+PICODROID_APK_PATH="$APK_PATH" \
+  cargo test --manifest-path "$REPO_ROOT/platforms/esp/Cargo.toml" \
+    --jobs "$JOBS" --target "$HOST_TARGET"
