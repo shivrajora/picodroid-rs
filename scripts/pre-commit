@@ -108,4 +108,13 @@ if ! bash "$REPO_ROOT/scripts/test.sh"; then
   exit 1
 fi
 
+echo "==> Verifying apply_jvm_env propagation..."
+if ! bash "$REPO_ROOT/scripts/test-jvm-env.sh"; then
+  echo ""
+  echo "ERROR: apply_jvm_env smoke test failed. The [jvm] board.toml parser"
+  echo "       in scripts/lib.sh is not propagating values to the right"
+  echo "       PICODROID_JVM_* env vars. Fix before committing."
+  exit 1
+fi
+
 echo "==> All checks passed."

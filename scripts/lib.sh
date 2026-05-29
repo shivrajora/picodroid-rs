@@ -170,10 +170,14 @@ apply_jvm_env() {
 
 # Helper: if $block has "<key> = <value>", export NAME=value.
 # Strips inline comments and surrounding whitespace. No-op when key absent.
+#
+# The `|| true` swallows pipefail when `grep` finds no match — a `[jvm]`
+# block that sets some keys but not others is a legitimate partial override,
+# and without this guard `set -e` would terminate the caller.
 _export_jvm_kv() {
   local block="$1" key="$2" name="$3" value
-  value=$(echo "$block" | grep -E "^\s*$key\s*=" | head -1 \
-    | sed -E "s/^\s*$key\s*=\s*//; s/#.*$//; s/\s+$//")
+  value=$(echo "$block" | grep -E "^\s*$key\s*=" 2>/dev/null | head -1 \
+    | sed -E "s/^\s*$key\s*=\s*//; s/#.*$//; s/\s+$//" || true)
   [[ -z "$value" ]] && return 0
   export "$name=$value"
 }
