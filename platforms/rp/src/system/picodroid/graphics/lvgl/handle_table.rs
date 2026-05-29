@@ -33,8 +33,19 @@ pub fn reset() {}
 
 // ── 64-bit: indirection table ─────────────────────────────────────────────────
 
+// NOTE: `register` is monotonic — it never reclaims a slot, even after the
+// underlying widget is deleted (`delete`/`remove_child`/`remove_all_children`
+// free the LVGL C object but no unregister hook exists). So the ceiling is on
+// *cumulative* widget creations over a run, not concurrently-live widgets. A
+// normal app builds a bounded UI once and stays well under any sane cap, but
+// the `graphicsbench` example deliberately churns hundreds of widgets, so the
+// host table is sized generously. 64-bit / sim-only: the 32-bit hardware path
+// above is a zero-cost cast with no table and no limit. 4096 * 8 B = 32 KiB of
+// host RAM, negligible in the simulator. Reclaiming freed slots (so cumulative
+// churn is unbounded here too) is a tracked follow-up — the first optimisation
+// `graphicsbench` surfaces.
 #[cfg(target_pointer_width = "64")]
-const MAX_HANDLES: usize = 128;
+const MAX_HANDLES: usize = 4096;
 
 #[cfg(target_pointer_width = "64")]
 static mut HANDLES: [*mut lv_obj_t; MAX_HANDLES] = [core::ptr::null_mut(); MAX_HANDLES];
