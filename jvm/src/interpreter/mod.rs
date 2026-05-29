@@ -30,8 +30,7 @@ mod ops_wide;
 #[cfg(test)]
 mod tests;
 
-/// Number of allocations between automatic GC cycles.
-const GC_THRESHOLD: u16 = 256;
+use crate::tunables::GC_THRESHOLD;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub classes: &'a [ClassFile],

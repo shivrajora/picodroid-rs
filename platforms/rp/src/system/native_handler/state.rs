@@ -7,11 +7,19 @@
 //! module is gated to `cfg(not(test))` because of its FFI/HAL imports), and
 //! `main.rs` pulls this file in via `#[path]` to expose the tests to the
 //! workspace test runner.
+//!
+//! `MAX_ACTIVITY_STACK` and `MAX_PENDING_OPS` are sourced from the active
+//! board's `[jvm]` section in `board.toml` (see
+//! `platforms/rp/build.rs::emit_jvm_config`). Defaults of 8 reproduce the
+//! pre-tunables behaviour for boards that don't opt in.
+
+include!(concat!(env!("OUT_DIR"), "/jvm_state_config.rs"));
 
 /// Maximum Activity stack depth. Each entry holds a `u16` ObjectRef plus a
-/// `&'static str` class name (12 bytes on 32-bit, 16 on 64-bit). 8 covers
-/// any realistic embedded UI flow without burning RAM.
-pub const MAX_ACTIVITY_STACK: usize = 8;
+/// `&'static str` class name (12 bytes on 32-bit, 16 on 64-bit). Default 8
+/// covers any realistic embedded UI flow without burning RAM; raise via
+/// `[jvm] activity_stack_depth = N` in `board.toml`.
+pub const MAX_ACTIVITY_STACK: usize = ACTIVITY_STACK_DEPTH;
 
 /// Pending Activity transition signaled from Java to the framework loop in
 /// [`crate::lifecycle::run_activity`]. Wrapped in [`PendingOp`] so it shares
@@ -67,9 +75,10 @@ pub enum PendingOp {
 }
 
 /// Maximum pending ops per frame. A typical Activity onCreate that calls
-/// `startService` + `bindService` queues 2 service ops; allowing 8 leaves
-/// headroom for chained transitions without burning RAM.
-pub const MAX_PENDING_OPS: usize = 8;
+/// `startService` + `bindService` queues 2 service ops; default 8 leaves
+/// headroom for chained transitions without burning RAM. Raise via
+/// `[jvm] pending_op_queue = N` in `board.toml`.
+pub const MAX_PENDING_OPS: usize = PENDING_OP_QUEUE_DEPTH;
 
 #[derive(Copy, Clone)]
 struct ActivityStackEntry {

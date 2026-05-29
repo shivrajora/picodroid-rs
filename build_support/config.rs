@@ -32,6 +32,7 @@ pub struct BoardConfig {
     pub display: Option<HashMap<String, String>>,
     pub touch: Option<HashMap<String, String>>,
     pub background_pool: Option<HashMap<String, String>>,
+    pub jvm: Option<HashMap<String, String>>,
 }
 
 const KNOWN_SENSOR_KINDS: &[&str] = &["bme688", "ltr559"];
@@ -86,6 +87,7 @@ enum Section {
     Display,
     Touch,
     BackgroundPool,
+    Jvm,
     Sensor,
     Button,
     Unknown,
@@ -101,6 +103,7 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
     let mut display: Option<HashMap<String, String>> = None;
     let mut touch: Option<HashMap<String, String>> = None;
     let mut background_pool: Option<HashMap<String, String>> = None;
+    let mut jvm: Option<HashMap<String, String>> = None;
     let mut section = Section::Top;
     let mut cur_sensor: HashMap<String, String> = HashMap::new();
     let mut cur_button: HashMap<String, String> = HashMap::new();
@@ -157,6 +160,12 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
             section = Section::BackgroundPool;
             continue;
         }
+        if trimmed == "[jvm]" {
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
+            jvm = Some(HashMap::new());
+            section = Section::Jvm;
+            continue;
+        }
         if trimmed.starts_with('[') {
             flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             section = Section::Unknown;
@@ -186,6 +195,9 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
                 Section::BackgroundPool => {
                     background_pool.as_mut().unwrap().insert(key, val);
                 }
+                Section::Jvm => {
+                    jvm.as_mut().unwrap().insert(key, val);
+                }
                 Section::Unknown => {}
             }
         }
@@ -198,6 +210,7 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
         display,
         touch,
         background_pool,
+        jvm,
     }
 }
 

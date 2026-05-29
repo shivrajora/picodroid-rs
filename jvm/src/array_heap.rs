@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::chunked_slots::ChunkedSlots;
+use crate::tunables::INLINE_DATA;
 use alloc::vec::Vec;
 
 // JVM atype constants for newarray
@@ -30,9 +31,6 @@ pub const ATYPE_REF: u8 = 0; // used by anewarray
 ///   - ARRAY_TAG set                   → ArrayRef (low 16 bits)
 pub const REF_TAG: u32 = 0x4000_0000;
 pub const ARRAY_TAG: u32 = 0x2000_0000;
-
-/// Maximum number of i32 slots stored inline (no heap allocation).
-const INLINE_DATA: usize = 8;
 
 /// Physical i32 slots per user-visible element.
 /// `long[]` and `double[]` use two slots per element; everything else uses one.

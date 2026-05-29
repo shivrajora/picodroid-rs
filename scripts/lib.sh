@@ -137,6 +137,43 @@ resolve_board() {
   if grep -q '^size_tool' "$mcu_toml" 2>/dev/null; then
     SIZE_TOOL=$(grep '^size_tool' "$mcu_toml" | sed 's/^[^=]*= *//' | tr -d '"')
   fi
+
+  apply_jvm_env "$board_toml"
+}
+
+# Export PICODROID_JVM_* env vars from board.toml's optional `[jvm]` section
+# so the `pico-jvm` crate's build.rs (which runs before the platform crate
+# and so can't see board.toml directly) can pick them up as `pub const`
+# tunables. Keys present in `[jvm]` are exported; missing keys fall back to
+# the hardcoded defaults baked into `jvm/build.rs`. See
+# `platforms/rp/build.rs::emit_jvm_config` for the schema and ranges.
+apply_jvm_env() {
+  local board_toml="$1"
+  # Extract the [jvm] block: from "[jvm]" up to the next "[" line, or EOF.
+  local block
+  block=$(awk '
+    /^\[jvm\]/ { in_block=1; next }
+    in_block && /^\[/ { exit }
+    in_block { print }
+  ' "$board_toml")
+  [[ -z "$block" ]] && return 0
+
+  _export_jvm_kv "$block" "gc_alloc_threshold" PICODROID_JVM_GC_ALLOC_THRESHOLD
+  _export_jvm_kv "$block" "slot_chunk_shift"   PICODROID_JVM_SLOT_CHUNK_SHIFT
+  _export_jvm_kv "$block" "inline_array_data"  PICODROID_JVM_INLINE_ARRAY_DATA
+  # NOTE: activity_stack_depth and pending_op_queue are consumed by
+  # platforms/rp/build.rs directly via the parsed BoardConfig, so they don't
+  # need env-var plumbing.
+}
+
+# Helper: if $block has "<key> = <value>", export NAME=value.
+# Strips inline comments and surrounding whitespace. No-op when key absent.
+_export_jvm_kv() {
+  local block="$1" key="$2" name="$3" value
+  value=$(echo "$block" | grep -E "^\s*$key\s*=" | head -1 \
+    | sed -E "s/^\s*$key\s*=\s*//; s/#.*$//; s/\s+$//")
+  [[ -z "$value" ]] && return 0
+  export "$name=$value"
 }
 
 # Returns the number of logical CPUs (cross-platform: Linux + macOS).

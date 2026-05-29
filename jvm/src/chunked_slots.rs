@@ -16,13 +16,10 @@
 //! `len()`, `get/get_mut(idx)`, `push(val) -> idx`, `iter()`, plus
 //! `Index/IndexMut<usize>` for in-place writes via `slots[idx] = ...`.
 
+use crate::tunables::{CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
-
-const CHUNK_SHIFT: u8 = 6;
-const CHUNK_SIZE: usize = 1 << CHUNK_SHIFT;
-const CHUNK_MASK: usize = CHUNK_SIZE - 1;
 
 pub struct ChunkedSlots<T> {
     chunks: Vec<Box<[Option<T>]>>,
