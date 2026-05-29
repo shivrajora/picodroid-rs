@@ -142,6 +142,7 @@ mod clinit;
 mod constants;
 mod control;
 mod convert;
+mod dispatch_state;
 mod exceptions;
 mod fields;
 mod invoke;

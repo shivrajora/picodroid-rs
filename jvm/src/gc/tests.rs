@@ -1351,3 +1351,85 @@ fn gc_stress_iterator_churn() {
     assert!(objects.is_live(list_obj));
     assert!(objects.is_live(last_iter));
 }
+
+// ── GcState lifecycle fields ────────────────────────────────────────────────
+//
+// `alloc_count` and `need_gc` are mutated from many sites in the interpreter
+// (object_heap, array_heap, ops_*). They persist across `execute()` calls so a
+// burst of small native callbacks still trips the GC threshold. These tests
+// pin down the contract those callers rely on.
+
+#[test]
+fn gcstate_new_starts_clean() {
+    let gc = GcState::new();
+    assert_eq!(gc.alloc_count, 0);
+    assert!(!gc.need_gc);
+}
+
+#[test]
+fn gcstate_default_matches_new() {
+    let a = GcState::default();
+    let b = GcState::new();
+    assert_eq!(a.alloc_count, b.alloc_count);
+    assert_eq!(a.need_gc, b.need_gc);
+}
+
+#[test]
+fn gcstate_alloc_count_is_mutable() {
+    let mut gc = GcState::new();
+    gc.alloc_count = 5;
+    assert_eq!(gc.alloc_count, 5);
+    gc.alloc_count += 1;
+    assert_eq!(gc.alloc_count, 6);
+}
+
+#[test]
+fn gcstate_need_gc_toggle() {
+    let mut gc = GcState::new();
+    assert!(!gc.need_gc);
+    gc.need_gc = true;
+    assert!(gc.need_gc);
+    gc.need_gc = false;
+    assert!(!gc.need_gc);
+}
+
+/// Reusing a GcState across two GC cycles must not leak retained-mark state
+/// from the first cycle into the second.
+#[test]
+fn gcstate_reused_across_cycles_does_not_leak_marks() {
+    let mut gc = GcState::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    objects.alloc("A");
+    objects.alloc("B");
+    let freed1 = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut gc,
+        |_| {},
+    );
+    assert_eq!(freed1, 2);
+
+    // Second cycle on a fresh allocation must collect cleanly — if the first
+    // cycle's marks leaked, the new object would appear pre-marked and not
+    // be freed.
+    objects.alloc("C");
+    let freed2 = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut gc,
+        |_| {},
+    );
+    assert_eq!(freed2, 1);
+}

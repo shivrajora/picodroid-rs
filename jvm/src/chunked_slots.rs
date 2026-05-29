@@ -105,3 +105,178 @@ impl<T> IndexMut<usize> for ChunkedSlots<T> {
         &mut self.chunks[c][i]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_is_empty() {
+        let s: ChunkedSlots<i32> = ChunkedSlots::new();
+        assert_eq!(s.len(), 0);
+        assert!(s.get(0).is_none());
+    }
+
+    #[test]
+    fn push_returns_sequential_indices() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        assert_eq!(s.push(Some(10)), 0);
+        assert_eq!(s.push(Some(20)), 1);
+        assert_eq!(s.push(Some(30)), 2);
+        assert_eq!(s.len(), 3);
+    }
+
+    #[test]
+    fn push_none_still_advances_len() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        assert_eq!(s.push(None), 0);
+        assert_eq!(s.push(None), 1);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0], None);
+        assert_eq!(s[1], None);
+    }
+
+    #[test]
+    fn get_returns_stored_value() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(42));
+        assert_eq!(s.get(0), Some(&Some(42)));
+    }
+
+    #[test]
+    fn get_out_of_range_returns_none() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(1));
+        assert!(s.get(1).is_none());
+        assert!(s.get(99).is_none());
+    }
+
+    #[test]
+    fn get_mut_allows_in_place_update() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(1));
+        if let Some(slot) = s.get_mut(0) {
+            *slot = Some(99);
+        }
+        assert_eq!(s[0], Some(99));
+    }
+
+    #[test]
+    fn get_mut_out_of_range_returns_none() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(1));
+        assert!(s.get_mut(1).is_none());
+        assert!(s.get_mut(64).is_none());
+    }
+
+    #[test]
+    fn index_mut_writes_in_place() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(0));
+        s[0] = Some(7);
+        assert_eq!(s[0], Some(7));
+    }
+
+    /// Critical: indexing arithmetic must work across chunk boundaries.
+    /// CHUNK_SIZE = 64, so index 63 → chunk 0, index 64 → chunk 1.
+    #[test]
+    fn push_crosses_chunk_boundary() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        for i in 0..CHUNK_SIZE {
+            assert_eq!(s.push(Some(i as i32)), i);
+        }
+        assert_eq!(s.len(), CHUNK_SIZE);
+        let new_idx = s.push(Some(999));
+        assert_eq!(new_idx, CHUNK_SIZE);
+        assert_eq!(s[CHUNK_SIZE], Some(999));
+        assert_eq!(s[CHUNK_SIZE - 1], Some((CHUNK_SIZE - 1) as i32));
+    }
+
+    #[test]
+    fn push_across_many_chunks_preserves_values() {
+        let mut s: ChunkedSlots<usize> = ChunkedSlots::new();
+        let n = CHUNK_SIZE * 5 + 7;
+        for i in 0..n {
+            assert_eq!(s.push(Some(i)), i);
+        }
+        assert_eq!(s.len(), n);
+        for i in 0..n {
+            assert_eq!(s[i], Some(i));
+        }
+    }
+
+    /// `push` should grow the chunk vector exactly when crossing a boundary,
+    /// not earlier — verifies that the fragmentation-friendly growth strategy
+    /// described in the module docs actually holds.
+    #[test]
+    fn push_allocates_one_chunk_per_boundary() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        for i in 0..CHUNK_SIZE {
+            s.push(Some(i as i32));
+        }
+        assert_eq!(s.chunks.len(), 1);
+        s.push(Some(0));
+        assert_eq!(s.chunks.len(), 2);
+        for _ in 1..CHUNK_SIZE {
+            s.push(Some(0));
+        }
+        assert_eq!(s.chunks.len(), 2);
+        s.push(Some(0));
+        assert_eq!(s.chunks.len(), 3);
+    }
+
+    #[test]
+    fn iter_yields_only_used_slots() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        for i in 0..3 {
+            s.push(Some(i));
+        }
+        let collected: Vec<_> = s.iter().collect();
+        assert_eq!(collected.len(), 3);
+        assert_eq!(collected[0], &Some(0));
+        assert_eq!(collected[2], &Some(2));
+    }
+
+    /// `iter` must stop at `len`, not at the end of the last chunk — otherwise
+    /// GC root scanning would walk uninitialized tail slots.
+    #[test]
+    fn iter_stops_at_len_not_chunk_end() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.push(Some(1));
+        s.push(Some(2));
+        assert_eq!(s.iter().count(), 2);
+    }
+
+    #[test]
+    fn iter_walks_multiple_chunks() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        let n = CHUNK_SIZE * 2 + 5;
+        for i in 0..n {
+            s.push(Some(i as i32));
+        }
+        let collected: Vec<_> = s.iter().collect();
+        assert_eq!(collected.len(), n);
+        assert_eq!(collected[0], &Some(0));
+        assert_eq!(collected[CHUNK_SIZE], &Some(CHUNK_SIZE as i32));
+        assert_eq!(collected[n - 1], &Some((n - 1) as i32));
+    }
+
+    #[test]
+    fn default_matches_new() {
+        let a: ChunkedSlots<i32> = ChunkedSlots::default();
+        let b: ChunkedSlots<i32> = ChunkedSlots::new();
+        assert_eq!(a.len(), b.len());
+    }
+
+    #[test]
+    fn boxed_payload_survives_chunk_growth() {
+        let mut s: ChunkedSlots<alloc::boxed::Box<u32>> = ChunkedSlots::new();
+        let n = CHUNK_SIZE + 3;
+        for i in 0..n {
+            s.push(Some(alloc::boxed::Box::new(i as u32)));
+        }
+        for i in 0..n {
+            assert_eq!(s[i].as_deref(), Some(&(i as u32)));
+        }
+    }
+}

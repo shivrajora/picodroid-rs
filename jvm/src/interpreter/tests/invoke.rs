@@ -12,7 +12,7 @@ use crate::gc::GcState;
 //   #5: Utf8   "speak"
 //   #6: Utf8   "()I"
 //   #7: Utf8   "Code"
-static CLASS_BASE_SPEAK: &[u8] = &[
+pub(super) static CLASS_BASE_SPEAK: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00,
     0x02, // #1 Class -> #2
     0x01, 0x00, 0x04, b'B', b'a', b's', b'e', // #2 Utf8 "Base"
@@ -35,7 +35,7 @@ static CLASS_BASE_SPEAK: &[u8] = &[
 // Class "Child" extends "Base", method speak()I returns iconst_2, ireturn.
 //
 // CP: same layout as CLASS_BASE_SPEAK but class="Child", super="Base".
-static CLASS_CHILD_SPEAK: &[u8] = &[
+pub(super) static CLASS_CHILD_SPEAK: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x08, 0x07, 0x00,
     0x02, // #1 Class -> #2
     0x01, 0x00, 0x05, b'C', b'h', b'i', b'l', b'd', // #2 Utf8 "Child"
@@ -85,7 +85,7 @@ static CLASS_CHILD_NO_SPEAK: &[u8] = &[
 //   #11: Utf8      "Base"
 //   #12: Utf8      "speak"
 //   #13: Utf8      "()I"
-static CLASS_CALLER_INVOKEVIRTUAL: &[u8] = &[
+pub(super) static CLASS_CALLER_INVOKEVIRTUAL: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, // cp_count=14
     0x07, 0x00, 0x02, // #1 Class -> #2
     0x01, 0x00, 0x06, b'C', b'a', b'l', b'l', b'e', b'r', // #2 Utf8 "Caller"

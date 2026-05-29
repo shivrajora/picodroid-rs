@@ -153,7 +153,7 @@ static CLASS_CLINIT_RUNS_ONCE: &[u8] = &[
 //   #11: Utf8        "I"
 //   #12: Utf8        "get"
 //   #13: Utf8        "()I"
-static CLASS_E: &[u8] = &[
+pub(super) static CLASS_E: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, // #1 Class -> #2
     0x07, 0x00, 0x02, // #2 Utf8 "E"
     0x01, 0x00, 0x01, b'E', // #3 Class -> #4
@@ -221,7 +221,7 @@ static CLASS_E: &[u8] = &[
 //
 // Wait, Methodref tag is 10 (0x0A), and the class_index points to a Class entry,
 // and the name_and_type_index points to a NameAndType entry.
-static CLASS_CALLER: &[u8] = &[
+pub(super) static CLASS_CALLER: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // cp_count=13
     0x00, 0x0D, // #1 Class -> #2
     0x07, 0x00, 0x02, // #2 Utf8 "Caller"
