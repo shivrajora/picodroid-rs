@@ -202,7 +202,19 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     // Parse the APK once up front so we can pre-size the class table to the
     // exact framework + app class count.  Avoids 7 Vec doubling reallocations
     // (and their transient double-buffering) during framework registration.
-    let apk_for_count = Papk::parse(apk_data).unwrap();
+    let apk_for_count = match Papk::parse(apk_data) {
+        Ok(a) => a,
+        Err(e) => {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!(
+                "PAPK parse failed during pre-sizing: {}",
+                defmt::Debug2Format(&e)
+            );
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] PAPK parse failed during pre-sizing: {:?}", e);
+            return;
+        }
+    };
     let apk_class_count = apk_for_count.classes().map(|it| it.count()).unwrap_or(0);
     let mut jvm = Box::new(Jvm::with_capacity(
         FRAMEWORK_CLASSES.len() + apk_class_count,
@@ -224,19 +236,42 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     #[cfg(feature = "sim")]
     crate::sim_allocator::checkpoint("post-app-load");
 
-    // Determine the entry point from the APK manifest.
-    let apk = Papk::parse(apk_data).unwrap();
+    // Determine the entry point from the APK manifest. The earlier
+    // pre-sizing parse already returned-on-error, so a second failure here
+    // is a fresh-bytes anomaly; bail cleanly rather than panic on-device.
+    let apk = match Papk::parse(apk_data) {
+        Ok(a) => a,
+        Err(e) => {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!(
+                "PAPK parse failed during entry-point lookup: {}",
+                defmt::Debug2Format(&e)
+            );
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] PAPK parse failed during entry-point lookup: {:?}", e);
+            return;
+        }
+    };
 
     // Reject PAPKs built against a newer shrink-map release than the firmware
     // knows about. Maps are append-only per release, so older PAPKs are always
-    // accepted; only a forward-incompatible PAPK fails here.
-    apk.verify_compat(FRAMEWORK_MAP_VERSION)
-        .unwrap_or_else(|e| {
-            panic!(
-                "PAPK framework-map-version incompatible with firmware (firmware = {}): {:?}",
-                FRAMEWORK_MAP_VERSION, e
-            )
-        });
+    // accepted; only a forward-incompatible PAPK fails here. Log + return
+    // cleanly rather than panic on-device: a bad APK shouldn't take down the
+    // boot path before pdb can recover.
+    if let Err(e) = apk.verify_compat(FRAMEWORK_MAP_VERSION) {
+        #[cfg(not(feature = "sim"))]
+        defmt::error!(
+            "PAPK framework-map-version incompatible with firmware (firmware = {}): {}",
+            FRAMEWORK_MAP_VERSION,
+            defmt::Debug2Format(&e)
+        );
+        #[cfg(feature = "sim")]
+        eprintln!(
+            "[sim] PAPK framework-map-version incompatible with firmware (firmware = {}): {:?}",
+            FRAMEWORK_MAP_VERSION, e
+        );
+        return;
+    }
 
     // Build the bundled-asset registry from this papk's ASSETS section so
     // `ImageView.setImageSource("name.png")` resolves at runtime. Empty for

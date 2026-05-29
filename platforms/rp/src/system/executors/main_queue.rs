@@ -169,11 +169,18 @@ mod backing {
     };
 
     pub fn init() {
-        SIM_QUEUE.queue.lock().unwrap().clear();
+        SIM_QUEUE
+            .queue
+            .lock()
+            .expect("sim main_queue mutex poisoned")
+            .clear();
     }
 
     pub fn try_send(word: u32) -> bool {
-        let mut q = SIM_QUEUE.queue.lock().unwrap();
+        let mut q = SIM_QUEUE
+            .queue
+            .lock()
+            .expect("sim main_queue mutex poisoned");
         if q.len() < CAPACITY {
             q.push_back(word);
             drop(q);
@@ -188,14 +195,24 @@ mod backing {
 
     #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
-        SIM_QUEUE.queue.lock().unwrap().pop_front()
+        SIM_QUEUE
+            .queue
+            .lock()
+            .expect("sim main_queue mutex poisoned")
+            .pop_front()
     }
 
     pub fn recv_blocking() -> u32 {
         let mut guard = SIM_QUEUE
             .cv
-            .wait_while(SIM_QUEUE.queue.lock().unwrap(), |q| q.is_empty())
-            .unwrap();
+            .wait_while(
+                SIM_QUEUE
+                    .queue
+                    .lock()
+                    .expect("sim main_queue mutex poisoned"),
+                |q| q.is_empty(),
+            )
+            .expect("sim main_queue cv wait_while: mutex poisoned");
         guard.pop_front().expect("queue non-empty after wait_while")
     }
 }

@@ -94,11 +94,15 @@ mod cell {
     }
 
     pub(super) fn install(fs: Filesystem<FsStorage>) {
-        *slot().lock().unwrap() = Some(FsBox(fs));
+        *slot().lock().expect("sim fs slot mutex poisoned") = Some(FsBox(fs));
     }
 
     pub(super) fn with<R>(f: impl FnOnce(&Filesystem<FsStorage>) -> R) -> Option<R> {
-        slot().lock().unwrap().as_ref().map(|b| f(&b.0))
+        slot()
+            .lock()
+            .expect("sim fs slot mutex poisoned")
+            .as_ref()
+            .map(|b| f(&b.0))
     }
 }
 

@@ -124,7 +124,7 @@ mod backing {
                 }
             })
             .expect("spawn lvgl-tick thread");
-        *HANDLE.lock().unwrap() = Some(h);
+        *HANDLE.lock().expect("tick-source HANDLE mutex poisoned") = Some(h);
     }
 
     #[allow(dead_code)]
@@ -139,7 +139,11 @@ mod backing {
 
     pub fn stop() {
         STOPPING.store(true, Ordering::SeqCst);
-        if let Some(h) = HANDLE.lock().unwrap().take() {
+        if let Some(h) = HANDLE
+            .lock()
+            .expect("tick-source HANDLE mutex poisoned")
+            .take()
+        {
             let _ = h.join();
         }
         STARTED.store(false, Ordering::SeqCst);

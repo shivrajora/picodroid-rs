@@ -360,7 +360,10 @@ mod backend {
     }
 
     pub fn exists(path: &str) -> bool {
-        store().lock().unwrap().contains_key(path)
+        store()
+            .lock()
+            .expect("sim io store mutex poisoned")
+            .contains_key(path)
     }
     pub fn is_file(path: &str) -> bool {
         exists(path)
@@ -377,13 +380,17 @@ mod backend {
             .unwrap_or(0)
     }
     pub fn delete(path: &str) -> bool {
-        store().lock().unwrap().remove(path).is_some()
+        store()
+            .lock()
+            .expect("sim io store mutex poisoned")
+            .remove(path)
+            .is_some()
     }
     pub fn mkdir(_path: &str) -> bool {
         true
     }
     pub fn rename(from: &str, to: &str) -> bool {
-        let mut s = store().lock().unwrap();
+        let mut s = store().lock().expect("sim io store mutex poisoned");
         if let Some(data) = s.remove(from) {
             s.insert(to.to_string(), data);
             true
@@ -392,10 +399,13 @@ mod backend {
         }
     }
     pub fn truncate(path: &str) {
-        store().lock().unwrap().insert(path.to_string(), Vec::new());
+        store()
+            .lock()
+            .expect("sim io store mutex poisoned")
+            .insert(path.to_string(), Vec::new());
     }
     pub fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
-        let s = store().lock().unwrap();
+        let s = store().lock().expect("sim io store mutex poisoned");
         let Some(v) = s.get(path) else {
             return -1;
         };
@@ -408,7 +418,7 @@ mod backend {
         (end - start) as i32
     }
     pub fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
-        let mut s = store().lock().unwrap();
+        let mut s = store().lock().expect("sim io store mutex poisoned");
         let entry = s.entry(path.to_string()).or_default();
         let start = pos as usize;
         if entry.len() < start + data.len() {
