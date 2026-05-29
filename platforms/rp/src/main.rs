@@ -47,6 +47,18 @@ mod hal_rp_pdb_usb_protocol_tests;
 #[cfg(test)]
 #[path = "hal/rp/spi/protocol.rs"]
 mod hal_rp_spi_protocol_tests;
+// Pure lifecycle state-machine (Activity stack + pending-op FIFO). The
+// parent `native_handler` module is cfg(not(test))-gated because of its
+// FFI/HAL imports; this submodule is hardware-free and re-exposed here so
+// its `#[cfg(test)]` block runs under `scripts/test.sh`.
+#[cfg(test)]
+#[path = "system/native_handler/state.rs"]
+mod native_handler_state_tests;
+// Pure button-IRQ press-state filter — guards against the phantom-release
+// boot regression. Same `#[path]` rationale as the lifecycle state module.
+#[cfg(test)]
+#[path = "system/picodroid/graphics/lvgl/key_filter.rs"]
+mod lvgl_key_filter_tests;
 
 // Family-rp hardware imports (Cortex-M-specific via cortex-m-rt + the
 // generic-FreeRTOS rust bindings).

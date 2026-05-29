@@ -107,80 +107,8 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/hardware/SensorManager",
 ];
 
-/// Maximum Activity stack depth. Each entry holds a `u16` ObjectRef plus a
-/// `&'static str` class name (12 bytes on 32-bit, 16 on 64-bit). 8 covers
-/// any realistic embedded UI flow without burning RAM.
-pub const MAX_ACTIVITY_STACK: usize = 8;
-
-/// Pending Activity transition signaled from Java to the framework loop in
-/// [`crate::lifecycle::run_activity`]. Wrapped in [`PendingOp`] so it shares
-/// a single FIFO with Service ops, preserving the order the app issued them
-/// (a `startActivity` then `startService` from the same frame must process
-/// in that order).
-#[derive(Copy, Clone, Debug)]
-pub enum PendingActivityOp {
-    /// `Application.startActivity(intent)` or `Activity.startActivity(intent)`
-    /// — push a new Activity of the named class on top of the stack. The
-    /// framework allocates the instance and runs its no-arg constructor; the
-    /// current top, if any, is paused first.
-    Push { class_name: &'static str },
-    /// `Activity.finish()` — pop the current top off the stack. If the
-    /// stack is left empty, [`run_activity`] returns and the app exits.
-    Pop,
-}
-
-/// Pending Service transition signaled from Java to the framework loop. The
-/// `intent_ref` carries any extras the Service callback needs to read; the
-/// referenced object must remain reachable until the op is processed (the
-/// handler holds a strong root via [`PicodroidNativeHandler::pending_ops`]).
-#[derive(Copy, Clone, Debug)]
-pub enum PendingServiceOp {
-    /// `Context.startService(intent)` — `onCreate` (first time) then
-    /// `onStartCommand`.
-    Start {
-        class_name: &'static str,
-        intent_ref: u16,
-    },
-    /// `Context.stopService(intent)` or `Service.stopSelf()` — clear the
-    /// started flag; if no clients are bound, run `onDestroy`.
-    Stop { class_name: &'static str },
-    /// `Context.bindService(intent, conn)` — `onCreate` (first time) then
-    /// `onBind`, then deliver the IBinder to `conn.onServiceConnected`.
-    Bind {
-        class_name: &'static str,
-        intent_ref: u16,
-        conn_ref: u16,
-        owner_activity_ref: u16,
-    },
-    /// `Context.unbindService(conn)` — last-bind triggers `onUnbind` and
-    /// possibly `onDestroy`.
-    Unbind { conn_ref: u16 },
-}
-
-/// Either an Activity or a Service transition. Drained in FIFO order from
-/// [`PicodroidNativeHandler::pending_ops`] between frames.
-#[derive(Copy, Clone, Debug)]
-pub enum PendingOp {
-    Activity(PendingActivityOp),
-    Service(PendingServiceOp),
-}
-
-/// Maximum pending ops per frame. A typical Activity onCreate that calls
-/// `startService` + `bindService` queues 2 service ops; allowing 8 leaves
-/// headroom for chained transitions without burning RAM.
-pub const MAX_PENDING_OPS: usize = 8;
-
-#[derive(Copy, Clone)]
-struct ActivityStackEntry {
-    obj_ref: u16,
-    class_name: &'static str,
-    /// Java `nativeHandle` of the content view installed by this Activity's
-    /// most recent `setContentView`. `0` = no view set yet, or the view has
-    /// been freed. Snapshotted from `display::CURRENT_ROOT_ID` on push (so
-    /// the view survives while a child Activity is on top) and restored
-    /// back into `CURRENT_ROOT_ID` on pop.
-    root_handle: i32,
-}
+pub mod state;
+pub use state::{PendingActivityOp, PendingOp, PendingServiceOp};
 
 pub struct PicodroidNativeHandler {
     /// Resettable counters exposed to Java via Runtime.gcTimeNanos() etc.
@@ -196,14 +124,12 @@ pub struct PicodroidNativeHandler {
     total_gc_freed: u32,
     /// Active Activity stack — top is at `len - 1`. Empty before the first
     /// `startActivity` and after the last `finish()`.
-    activity_stack: [Option<ActivityStackEntry>; MAX_ACTIVITY_STACK],
-    activity_stack_len: usize,
+    activity_stack: state::ActivityStack,
     /// Pending Activity / Service ops queued by Java in FIFO order, drained
     /// by [`crate::lifecycle`] between frames. A typical Activity onCreate
     /// that does both `startService` and `bindService` queues two ops;
-    /// excess ops past `MAX_PENDING_OPS` are silently dropped (logged).
-    pending_ops: [Option<PendingOp>; MAX_PENDING_OPS],
-    pending_ops_len: usize,
+    /// excess ops past [`MAX_PENDING_OPS`] are silently dropped (logged).
+    pending_ops: state::PendingOpQueue,
 }
 
 impl PicodroidNativeHandler {
@@ -215,10 +141,8 @@ impl PicodroidNativeHandler {
             total_gc_time_ns: 0,
             total_gc_count: 0,
             total_gc_freed: 0,
-            activity_stack: [None; MAX_ACTIVITY_STACK],
-            activity_stack_len: 0,
-            pending_ops: [None; MAX_PENDING_OPS],
-            pending_ops_len: 0,
+            activity_stack: state::ActivityStack::new(),
+            pending_ops: state::PendingOpQueue::new(),
         }
     }
 
@@ -226,37 +150,19 @@ impl PicodroidNativeHandler {
     /// (with a log) if the queue is full — apps shouldn't be queueing more
     /// than [`MAX_PENDING_OPS`] transitions per frame.
     pub fn enqueue_op(&mut self, op: PendingOp) -> bool {
-        if self.pending_ops_len >= MAX_PENDING_OPS {
-            return false;
-        }
-        self.pending_ops[self.pending_ops_len] = Some(op);
-        self.pending_ops_len += 1;
-        true
+        self.pending_ops.enqueue(op)
     }
 
     /// Pop the oldest pending op (FIFO). Returns `None` when the queue is
     /// empty.
     pub fn take_next_pending_op(&mut self) -> Option<PendingOp> {
-        if self.pending_ops_len == 0 {
-            return None;
-        }
-        let op = self.pending_ops[0].take();
-        // Shift the remaining entries down — bounded loop, max 7 moves.
-        for i in 1..self.pending_ops_len {
-            self.pending_ops[i - 1] = self.pending_ops[i].take();
-        }
-        self.pending_ops_len -= 1;
-        op
+        self.pending_ops.take_next()
     }
 
     /// Top of the activity stack as `(obj_ref, class_name)`, or `None` when
     /// the stack is empty.
     pub fn current_activity(&self) -> Option<(u16, &'static str)> {
-        if self.activity_stack_len == 0 {
-            return None;
-        }
-        let entry = self.activity_stack[self.activity_stack_len - 1].as_ref()?;
-        Some((entry.obj_ref, entry.class_name))
+        self.activity_stack.current()
     }
 
     /// Push an Activity entry onto the stack. Returns `false` and silently
@@ -264,16 +170,7 @@ impl PicodroidNativeHandler {
     /// from a 9-deep nav stack on an MCU, so we'd rather fail soft than
     /// thread a Result through `dispatch`.
     pub fn push_activity(&mut self, obj_ref: u16, class_name: &'static str) -> bool {
-        if self.activity_stack_len >= MAX_ACTIVITY_STACK {
-            return false;
-        }
-        self.activity_stack[self.activity_stack_len] = Some(ActivityStackEntry {
-            obj_ref,
-            class_name,
-            root_handle: 0,
-        });
-        self.activity_stack_len += 1;
-        true
+        self.activity_stack.push(obj_ref, class_name)
     }
 
     /// Pop the top activity off the stack. Returns the popped entry, or
@@ -281,35 +178,19 @@ impl PicodroidNativeHandler {
     /// the saved content-view handle (`0` if none); callers that own
     /// teardown must `g.delete` it to free the view tree.
     pub fn pop_activity(&mut self) -> Option<(u16, &'static str, i32)> {
-        if self.activity_stack_len == 0 {
-            return None;
-        }
-        self.activity_stack_len -= 1;
-        let entry = self.activity_stack[self.activity_stack_len].take()?;
-        Some((entry.obj_ref, entry.class_name, entry.root_handle))
+        self.activity_stack.pop()
     }
 
     /// Saved content-view handle of the top entry, or `0` if the stack
     /// is empty / the top Activity has not yet called `setContentView`.
     pub fn current_root_handle(&self) -> i32 {
-        if self.activity_stack_len == 0 {
-            return 0;
-        }
-        match self.activity_stack[self.activity_stack_len - 1].as_ref() {
-            Some(e) => e.root_handle,
-            None => 0,
-        }
+        self.activity_stack.current_root_handle()
     }
 
     /// Set the saved content-view handle on the top entry. No-op when the
     /// stack is empty.
     pub fn set_current_root_handle(&mut self, h: i32) {
-        if self.activity_stack_len == 0 {
-            return;
-        }
-        if let Some(e) = self.activity_stack[self.activity_stack_len - 1].as_mut() {
-            e.root_handle = h;
-        }
+        self.activity_stack.set_current_root_handle(h);
     }
 
     /// Returns cumulative (gc_time_ns, gc_count, gc_freed) for the entire run.
@@ -337,41 +218,16 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         // lifecycle methods are about to be invoked. Without rooting these,
         // GC during a quiet frame (between `onResume` and the next callback)
         // sweeps the Activity out from under us.
-        for entry in self.activity_stack[..self.activity_stack_len]
-            .iter()
-            .flatten()
-        {
-            visit(Value::ObjectRef(entry.obj_ref));
+        for (obj_ref, _class) in self.activity_stack.iter() {
+            visit(Value::ObjectRef(obj_ref));
         }
 
         // Pending ops: the Service `intent` / `conn` / `owner_activity`
         // references must survive until [`take_next_pending_op`] runs the
         // op. The Activity::Push variant carries only a class-name string
         // (no heap ref) and needs no rooting.
-        for op in self.pending_ops[..self.pending_ops_len].iter().flatten() {
-            match op {
-                PendingOp::Activity(_) => {}
-                PendingOp::Service(svc) => match *svc {
-                    PendingServiceOp::Start { intent_ref, .. } => {
-                        visit(Value::ObjectRef(intent_ref));
-                    }
-                    PendingServiceOp::Stop { .. } => {}
-                    PendingServiceOp::Bind {
-                        intent_ref,
-                        conn_ref,
-                        owner_activity_ref,
-                        ..
-                    } => {
-                        visit(Value::ObjectRef(intent_ref));
-                        visit(Value::ObjectRef(conn_ref));
-                        visit(Value::ObjectRef(owner_activity_ref));
-                    }
-                    PendingServiceOp::Unbind { conn_ref } => {
-                        visit(Value::ObjectRef(conn_ref));
-                    }
-                },
-            }
-        }
+        self.pending_ops
+            .visit_object_refs(&mut |r| visit(Value::ObjectRef(r)));
 
         // Delegate to sub-modules that own their own native object refs.
         crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);

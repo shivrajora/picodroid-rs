@@ -15,6 +15,7 @@ pub mod drawable;
 pub mod events;
 pub mod fps_overlay;
 pub mod handle_table;
+pub mod key_filter;
 pub mod lifecycle;
 pub mod view_ops;
 pub mod widgets;
