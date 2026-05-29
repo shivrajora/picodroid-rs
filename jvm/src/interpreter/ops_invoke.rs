@@ -64,43 +64,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class_str
         };
 
-        // Lambda proxy intercept: if receiver is a lambda, dispatch to the target method directly.
-        if is_virtual {
-            let stack_len = frame.stack.len();
-            if stack_len >= arg_count {
-                if let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] {
-                    if let Some(lambda) = self.objects.get_lambda(obj_idx) {
-                        let target_ci = lambda.target_class_idx;
-                        let target_mi = lambda.target_method_idx;
-                        let captures: Vec<Value> = lambda.captures.clone();
-
-                        // Pop all args (including "this")
-                        let start = stack_len - arg_count;
-                        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
-                        frame.stack.truncate(start);
-
-                        // Build actual args: captures first, then interface method args
-                        let mut actual_args = captures;
-                        actual_args.extend_from_slice(&method_args);
-
-                        let is_native =
-                            self.classes[target_ci].methods()[target_mi].code_offset == 0;
-                        if is_native {
-                            return Err(JvmError::NoSuchMethod);
-                        }
-                        let tm = &self.classes[target_ci].methods()[target_mi];
-                        let new_frame = Frame::new(
-                            target_ci,
-                            target_mi,
-                            &actual_args,
-                            tm.max_locals,
-                            tm.max_stack,
-                        )?;
-                        self.pending_frame = Some(new_frame);
-                        return Ok(());
-                    }
-                }
-            }
+        // Lambda proxy intercept: if receiver is a lambda, dispatch to the
+        // target method directly.
+        if is_virtual && self.try_lambda_dispatch(frame, arg_count)? {
+            return Ok(());
         }
 
         // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
@@ -163,28 +130,95 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class_str
         };
 
-        if let Some((ci, mi)) = resolved {
-            let is_native = self.classes[ci].methods()[mi].code_offset == 0;
-            if is_native {
-                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+        self.finalize_invoke(args, resolved, native_class, name_str, desc_str, frame)
+    }
+
+    /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy,
+    /// pop its captures + invocation args, push a frame targeting the
+    /// proxy's `target_class_idx::target_method_idx`, and return `Ok(true)`.
+    /// Returns `Ok(false)` when the receiver isn't a lambda (caller falls
+    /// through to ordinary method resolution).
+    fn try_lambda_dispatch(
+        &mut self,
+        frame: &mut Frame,
+        arg_count: usize,
+    ) -> Result<bool, JvmError> {
+        let stack_len = frame.stack.len();
+        if stack_len < arg_count {
+            return Ok(false);
+        }
+        let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] else {
+            return Ok(false);
+        };
+        let Some(lambda) = self.objects.get_lambda(obj_idx) else {
+            return Ok(false);
+        };
+        let target_ci = lambda.target_class_idx;
+        let target_mi = lambda.target_method_idx;
+        let captures: Vec<Value> = lambda.captures.clone();
+
+        // Pop all args (including "this") and grab the interface-method args
+        // after the lambda receiver itself.
+        let start = stack_len - arg_count;
+        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
+        frame.stack.truncate(start);
+
+        // Build actual args: captures first, then interface method args.
+        let mut actual_args = captures;
+        actual_args.extend_from_slice(&method_args);
+
+        let is_native = self.classes[target_ci].methods()[target_mi].code_offset == 0;
+        if is_native {
+            return Err(JvmError::NoSuchMethod);
+        }
+        let tm = &self.classes[target_ci].methods()[target_mi];
+        let new_frame = Frame::new(
+            target_ci,
+            target_mi,
+            &actual_args,
+            tm.max_locals,
+            tm.max_stack,
+        )?;
+        self.pending_frame = Some(new_frame);
+        Ok(true)
+    }
+
+    /// Shared tail used by both the inline-args fast path and the heap-args
+    /// fallback: dispatches `resolved` to a native handler or pushes a new
+    /// Java frame, with `resolved == None` falling back to native dispatch.
+    fn finalize_invoke(
+        &mut self,
+        args: &[Value],
+        resolved: Option<(usize, usize)>,
+        native_class: &str,
+        name_str: &str,
+        desc_str: &str,
+        frame: &mut Frame,
+    ) -> Result<(), JvmError> {
+        let push_native_result =
+            |frame: &mut Frame, result: Option<Value>| -> Result<(), JvmError> {
                 if let Some(v) = result {
                     frame.push(v)?;
                 }
                 Ok(())
-            } else {
-                // Java method — push new frame for the iterative interpreter loop
+            };
+        match resolved {
+            Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
+                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                push_native_result(frame, result)
+            }
+            Some((ci, mi)) => {
+                // Java method — push new frame for the iterative interpreter loop.
                 let jm = &self.classes[ci].methods()[mi];
                 let new_frame = Frame::new(ci, mi, args, jm.max_locals, jm.max_stack)?;
                 self.pending_frame = Some(new_frame);
                 Ok(())
             }
-        } else {
-            // Not found in loaded classes — try native dispatch
-            let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
-            if let Some(v) = result {
-                frame.push(v)?;
+            None => {
+                // Not found in loaded classes — try native dispatch.
+                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                push_native_result(frame, result)
             }
-            Ok(())
         }
     }
 
@@ -200,27 +234,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         desc_str: &str,
         frame: &mut Frame,
     ) -> Result<(), JvmError> {
-        if let Some((ci, mi)) = resolved {
-            let is_native = self.classes[ci].methods()[mi].code_offset == 0;
-            if is_native {
-                let result = self.dispatch_native(native_class, name_str, desc_str, &args)?;
-                if let Some(v) = result {
-                    frame.push(v)?;
-                }
-                Ok(())
-            } else {
-                let jm = &self.classes[ci].methods()[mi];
-                let new_frame = Frame::new(ci, mi, &args, jm.max_locals, jm.max_stack)?;
-                self.pending_frame = Some(new_frame);
-                Ok(())
-            }
-        } else {
-            let result = self.dispatch_native(native_class, name_str, desc_str, &args)?;
-            if let Some(v) = result {
-                frame.push(v)?;
-            }
-            Ok(())
-        }
+        self.finalize_invoke(&args, resolved, native_class, name_str, desc_str, frame)
     }
 
     /// Handle `invokedynamic` (0xBA) for lambda expressions.
