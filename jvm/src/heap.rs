@@ -145,6 +145,20 @@ impl StringTable {
         di < self.dyn_bufs.len() && self.dyn_bufs[di].is_some()
     }
 
+    /// Approximate bytes held live by the dynamic-string region. Static
+    /// entries reference Flash and are not counted. Used by `perfbench` /
+    /// `Runtime.usedMemory()` to track heap pressure across optimisation
+    /// changes.
+    pub fn live_bytes(&self) -> usize {
+        let mut total = 0;
+        for di in 0..self.dyn_bufs.len() {
+            if let Some(buf) = &self.dyn_bufs[di] {
+                total += buf.capacity();
+            }
+        }
+        total
+    }
+
     /// Resolve a Reference index to a `&str`.
     pub fn resolve(&self, idx: u16) -> Option<&str> {
         let i = idx as usize;

@@ -82,9 +82,10 @@ Your handler receives a callback after each GC cycle via `report_gc`:
 
 ```rust
 impl NativeMethodHandler for MyHandler {
-    fn report_gc(&mut self, elapsed_nanos: u64, freed: usize) {
+    fn report_gc(&mut self, elapsed_nanos: u64, freed: usize, pre_gc_used: usize) {
         // elapsed_nanos: wall-clock time spent in this GC cycle
         // freed: number of heap entries reclaimed
+        // pre_gc_used: approximate live bytes before the sweep (heap high-water sample)
     }
 }
 ```

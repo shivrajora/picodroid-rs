@@ -241,6 +241,25 @@ impl ArrayHeap {
         self.arrays.get(idx as usize).is_some_and(|a| a.is_some())
     }
 
+    /// Approximate bytes held live by this heap (slot overhead + arena
+    /// payload of live arrays). Inline-array data is folded into the slot
+    /// overhead via `size_of::<Option<JvmArray>>()`. Used by `perfbench` /
+    /// `Runtime.usedMemory()` to track heap pressure across optimisation
+    /// changes.
+    pub fn live_bytes(&self) -> usize {
+        const PER_SLOT: usize = core::mem::size_of::<Option<JvmArray>>();
+        let mut total = 0;
+        for i in 0..self.arrays.len() {
+            if let Some(Some(arr)) = self.arrays.get(i) {
+                total += PER_SLOT;
+                if let ArrayData::Arena { len, .. } = &arr.data {
+                    total += (*len as usize) * core::mem::size_of::<i32>();
+                }
+            }
+        }
+        total
+    }
+
     /// Free the array at `idx`, setting its slot to `None`.
     /// Arena space is NOT reclaimed here — it is reclaimed during compaction.
     pub fn free(&mut self, idx: u16) {

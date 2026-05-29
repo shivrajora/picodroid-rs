@@ -414,6 +414,24 @@ impl ObjectHeap {
             .unwrap_or(&[])
     }
 
+    /// Approximate bytes held live by this heap. Used by `perfbench` /
+    /// `Runtime.usedMemory()` to track heap pressure across optimisation
+    /// changes. Sums per-object `size_of::<Option<JvmObject>>()` plus
+    /// `fields.len() * size_of::<Value>()` for the allocated field slice
+    /// (capacity, not high-water `field_count`, so we report what's actually
+    /// pinned in the allocator).
+    pub fn live_bytes(&self) -> usize {
+        const PER_OBJECT: usize = core::mem::size_of::<Option<JvmObject>>();
+        const PER_FIELD: usize = core::mem::size_of::<Value>();
+        let mut total = 0;
+        for i in 0..self.objects.len() {
+            if let Some(Some(obj)) = self.objects.get(i) {
+                total += PER_OBJECT + obj.fields.len() * PER_FIELD;
+            }
+        }
+        total
+    }
+
     /// Return the top StringBuilder buffer contents as a raw pointer and length.
     ///
     /// # Safety

@@ -246,9 +246,12 @@ pub trait NativeMethodHandler {
     /// Called by the interpreter after each GC cycle.
     ///
     /// `time_ns` is the wall-clock time spent in the collector (from
-    /// [`clock_nanos`](NativeMethodHandler::clock_nanos)) and `freed` is the
-    /// number of heap entries reclaimed.  The default is a no-op.
-    fn report_gc(&mut self, _time_ns: u64, _freed: usize) {}
+    /// [`clock_nanos`](NativeMethodHandler::clock_nanos)), `freed` is the
+    /// number of heap entries reclaimed, and `pre_gc_used` is the approximate
+    /// live-bytes total across object / array / string heaps *before* the
+    /// sweep ran — handlers can use this to update a peak-heap counter
+    /// (since GC is triggered at high-water moments). The default is a no-op.
+    fn report_gc(&mut self, _time_ns: u64, _freed: usize, _pre_gc_used: usize) {}
 
     /// Acquire the monitor associated with `key` (Java `monitorenter`).
     ///

@@ -122,6 +122,10 @@ pub struct PicodroidNativeHandler {
     total_gc_count: u32,
     #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     total_gc_freed: u32,
+    /// Live-bytes high-water mark exposed to Java via `Runtime.peakMemory()`.
+    /// Updated from `report_gc` (pre-sweep sample, catches GC-trigger peaks)
+    /// and from each `Runtime.usedMemory()` call. Reset via `resetPeakMemory()`.
+    peak_used: u32,
     /// Active Activity stack — top is at `len - 1`. Empty before the first
     /// `startActivity` and after the last `finish()`.
     activity_stack: state::ActivityStack,
@@ -141,6 +145,7 @@ impl PicodroidNativeHandler {
             total_gc_time_ns: 0,
             total_gc_count: 0,
             total_gc_freed: 0,
+            peak_used: 0,
             activity_stack: state::ActivityStack::new(),
             pending_ops: state::PendingOpQueue::new(),
         }
@@ -234,13 +239,18 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         crate::service_lifecycle::visit_gc_roots(&mut *visit);
     }
 
-    fn report_gc(&mut self, time_ns: u64, freed: usize) {
+    fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {
         self.gc_time_ns += time_ns;
         self.gc_count += 1;
         self.gc_freed += freed as u32;
         self.total_gc_time_ns += time_ns;
         self.total_gc_count += 1;
         self.total_gc_freed += freed as u32;
+        // GC fires at heap pressure peaks — sample the high-water mark.
+        let pre_gc_used = pre_gc_used.min(u32::MAX as usize) as u32;
+        if pre_gc_used > self.peak_used {
+            self.peak_used = pre_gc_used;
+        }
     }
 
     fn dispatch(
@@ -300,6 +310,24 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.gc_time_ns = 0;
                 self.gc_count = 0;
                 self.gc_freed = 0;
+                Some(Ok(None))
+            }
+            ("picodroid/os/Runtime", "usedMemory") => {
+                let used =
+                    ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
+                let used32 = used.min(u32::MAX as usize) as u32;
+                if used32 > self.peak_used {
+                    self.peak_used = used32;
+                }
+                Some(Ok(Some(Value::Long(used as i64))))
+            }
+            ("picodroid/os/Runtime", "peakMemory") => {
+                Some(Ok(Some(Value::Long(self.peak_used as i64))))
+            }
+            ("picodroid/os/Runtime", "resetPeakMemory") => {
+                let used =
+                    ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
+                self.peak_used = used.min(u32::MAX as usize) as u32;
                 Some(Ok(None))
             }
             // ── Application / Activity navigation ───────────────────────

@@ -9,4 +9,13 @@ public class Runtime {
   public static native int gcFreed();
 
   public static native void resetGcStats();
+
+  /** Approximate bytes currently live across the object / array / string heaps. */
+  public static native long usedMemory();
+
+  /** Maximum {@link #usedMemory()} observed since the last {@link #resetPeakMemory()}. */
+  public static native long peakMemory();
+
+  /** Snap the peak counter to the current {@link #usedMemory()} value. */
+  public static native void resetPeakMemory();
 }

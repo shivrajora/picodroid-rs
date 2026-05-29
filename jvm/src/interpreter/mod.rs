@@ -375,6 +375,11 @@ pub fn execute<H: NativeMethodHandler>(
         // opcode that failed has already been rewound and will re-execute.
         if r.is_ok() && (ex.alloc_count() >= GC_THRESHOLD || ex.need_gc()) {
             ex.set_need_gc(false);
+            // Sample pre-sweep live bytes so handlers can track a heap
+            // high-water mark — GC fires at peak pressure, so this is the
+            // natural sample point.
+            let pre_gc_used =
+                ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
             let t0 = ex.handler.clock_nanos();
             let handler = &*ex.handler;
             let freed = crate::gc::collect(
@@ -388,7 +393,8 @@ pub fn execute<H: NativeMethodHandler>(
                 |visit| handler.gc_visit_roots(visit),
             );
             let t1 = ex.handler.clock_nanos();
-            ex.handler.report_gc(t1.wrapping_sub(t0), freed);
+            ex.handler
+                .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
             ex.gc_state.alloc_count = 0;
         }
 
