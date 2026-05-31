@@ -144,6 +144,11 @@ pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 35;
 /// when the user taps the OK / Enter key. Position 38 in the v9.5.0
 /// enum (VALUE_CHANGED + 3, accounting for INSERT, REFRESH).
 pub const LV_EVENT_READY: lv_event_code_t = 38;
+/// Fired while an object is being deleted (also for each descendant during a
+/// recursive `lv_obj_delete` / `lv_obj_clean` / screen switch). Position 42 in
+/// the v9.5.0 enum: READY(38), CANCEL, STATE_CHANGED, CREATE, DELETE. Used by
+/// the sim handle table to invalidate a deleted object's slot.
+pub const LV_EVENT_DELETE: lv_event_code_t = 42;
 
 pub type lv_flex_flow_t = u32;
 pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0x00;
@@ -444,6 +449,10 @@ extern "C" {
     // Events
     pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
+    /// The `user_data` passed to `lv_obj_add_event_cb` for the descriptor whose
+    /// callback is currently running. The handle table rides the slot id here so
+    /// its delete callback can clear the right entry in O(1).
+    pub fn lv_event_get_user_data(e: *mut lv_event_t) -> *mut c_void;
     /// The widget the firing handler is bound to. Differs from
     /// `lv_event_get_target_obj` when an event bubbles up from a child
     /// (e.g. lv_calendar's inner btnmatrix VALUE_CHANGED bubbles to the

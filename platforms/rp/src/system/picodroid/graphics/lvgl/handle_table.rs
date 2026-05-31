@@ -33,17 +33,20 @@ pub fn reset() {}
 
 // ── 64-bit: indirection table ─────────────────────────────────────────────────
 
-// NOTE: `register` is monotonic — it never reclaims a slot, even after the
-// underlying widget is deleted (`delete`/`remove_child`/`remove_all_children`
-// free the LVGL C object but no unregister hook exists). So the ceiling is on
-// *cumulative* widget creations over a run, not concurrently-live widgets. A
-// normal app builds a bounded UI once and stays well under any sane cap, but
-// the `graphicsbench` example deliberately churns hundreds of widgets, so the
-// host table is sized generously. 64-bit / sim-only: the 32-bit hardware path
-// above is a zero-cost cast with no table and no limit. 4096 * 8 B = 32 KiB of
-// host RAM, negligible in the simulator. Reclaiming freed slots (so cumulative
-// churn is unbounded here too) is a tracked follow-up — the first optimisation
-// `graphicsbench` surfaces.
+// NOTE: `register` is monotonic — it never *reclaims* a slot, but it does
+// *invalidate* one: a per-object `LV_EVENT_DELETE` hook nulls HANDLES[id] when
+// LVGL frees the object (directly, or as a descendant of a `lv_obj_delete` /
+// `lv_obj_clean` / screen switch). So a stale Java `nativeHandle` resolves to
+// null via `lookup` and view ops no-op, instead of dereferencing freed memory
+// (the History-screen use-after-free). Slots are not reused — that keeps the
+// "stale handle → null" safety property (reuse would alias a new object), so
+// the ceiling is still on *cumulative* widget creations over a run, not
+// concurrently-live widgets. A normal app builds a bounded UI once and stays
+// well under any sane cap, but the `graphicsbench` example deliberately churns
+// hundreds of widgets, so the host table is sized generously. 64-bit / sim-only:
+// the 32-bit hardware path above is a zero-cost cast with no table and no limit.
+// 4096 * 8 B = 32 KiB of host RAM, negligible in the simulator. Reclaiming freed
+// slots is a separate tracked follow-up (it needs generational ids to stay safe).
 #[cfg(target_pointer_width = "64")]
 const MAX_HANDLES: usize = 4096;
 
@@ -63,8 +66,36 @@ pub fn register(ptr: *mut lv_obj_t) -> i32 {
     unsafe {
         COUNT += 1;
         assert!(COUNT < MAX_HANDLES, "LVGL handle table full");
-        HANDLES[COUNT] = ptr;
-        COUNT as i32
+        let id = COUNT;
+        HANDLES[id] = ptr;
+        // Invalidate this slot when LVGL deletes the object. The slot id rides
+        // in the event user_data so the delete hook clears the exact entry in
+        // O(1). See the module note above on why slots aren't reused.
+        crate::lvgl_ffi::lv_obj_add_event_cb(
+            ptr,
+            Some(handle_delete_cb),
+            crate::lvgl_ffi::LV_EVENT_DELETE,
+            id as *mut core::ffi::c_void,
+        );
+        id as i32
+    }
+}
+
+/// `LV_EVENT_DELETE` hook installed by [`register`]: nulls the deleted object's
+/// handle slot so a stale `nativeHandle` resolves to null rather than freed
+/// memory. Guarded against a slot that no longer references this object.
+#[cfg(target_pointer_width = "64")]
+unsafe extern "C" fn handle_delete_cb(e: *mut crate::lvgl_ffi::lv_event_t) {
+    let id = unsafe { crate::lvgl_ffi::lv_event_get_user_data(e) } as usize;
+    if id == 0 || id >= MAX_HANDLES {
+        return;
+    }
+    let obj = unsafe { crate::lvgl_ffi::lv_event_get_target_obj(e) };
+    let handles = &raw mut HANDLES;
+    unsafe {
+        if (*handles)[id] == obj {
+            (*handles)[id] = core::ptr::null_mut();
+        }
     }
 }
 

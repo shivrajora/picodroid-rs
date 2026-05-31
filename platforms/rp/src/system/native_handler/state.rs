@@ -200,6 +200,16 @@ impl PendingOpQueue {
         true
     }
 
+    /// True if any queued op is an Activity transition (push/pop). The key
+    /// dispatcher uses this to stop feeding input to a departing Activity once
+    /// it has launched or finished within the current frame.
+    pub fn has_pending_activity(&self) -> bool {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .any(|op| matches!(op, PendingOp::Activity(_)))
+    }
+
     /// Take the oldest queued op. Returns `None` when empty.
     pub fn take_next(&mut self) -> Option<PendingOp> {
         if self.len == 0 {

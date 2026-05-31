@@ -104,17 +104,33 @@ pub(in crate::system::picodroid::graphics) fn set_alpha(h: Handle, alpha: u8) {
 }
 
 pub(in crate::system::picodroid::graphics) fn set_parent(h: Handle, parent: Handle) {
-    unsafe { lv_obj_set_parent(obj(h), obj(parent)) };
+    // A stale handle (its lv_obj was deleted) now resolves to null via the
+    // handle table's delete hook. Skip rather than hand null to LVGL — e.g. a
+    // deferred onServiceConnected re-parenting rows into an Activity's freed
+    // layout. See project_picoenvmon_history_segfault.
+    let (child, parent) = (obj(h), obj(parent));
+    if child.is_null() || parent.is_null() {
+        return;
+    }
+    unsafe { lv_obj_set_parent(child, parent) };
 }
 
 pub(in crate::system::picodroid::graphics) fn delete(h: Handle) {
-    unsafe { lv_obj_delete(obj(h)) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // already deleted (stale handle)
+    }
+    unsafe { lv_obj_delete(o) };
 }
 
 // ── ViewGroup ops ──────────────────────────────────────────────────────────
 
 pub(in crate::system::picodroid::graphics) fn child_count(h: Handle) -> i32 {
-    unsafe { lv_obj_get_child_count(obj(h) as *const lv_obj_t) as i32 }
+    let o = obj(h);
+    if o.is_null() {
+        return 0; // stale handle — no children
+    }
+    unsafe { lv_obj_get_child_count(o as *const lv_obj_t) as i32 }
 }
 
 pub(in crate::system::picodroid::graphics) fn child_at(_h: Handle, _index: i32) -> Handle {
@@ -127,11 +143,19 @@ pub(in crate::system::picodroid::graphics) fn child_at(_h: Handle, _index: i32) 
 
 pub(in crate::system::picodroid::graphics) fn remove_child(_parent: Handle, child: Handle) {
     // LVGL's delete walks the tree to detach from the parent automatically.
-    unsafe { lv_obj_delete(obj(child)) };
+    let c = obj(child);
+    if c.is_null() {
+        return; // already deleted (stale handle)
+    }
+    unsafe { lv_obj_delete(c) };
 }
 
 pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
-    unsafe { lv_obj_clean(obj(h)) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — nothing to clean
+    }
+    unsafe { lv_obj_clean(o) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_flex_grow(h: Handle, weight: i32) {

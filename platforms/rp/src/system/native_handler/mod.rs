@@ -164,6 +164,13 @@ impl PicodroidNativeHandler {
         self.pending_ops.take_next()
     }
 
+    /// True if an Activity transition (startActivity / finish) is queued but
+    /// not yet applied. The key dispatcher stops feeding input to a departing
+    /// Activity once it has launched or finished within the frame.
+    pub fn has_pending_activity_transition(&self) -> bool {
+        self.pending_ops.has_pending_activity()
+    }
+
     /// Top of the activity stack as `(obj_ref, class_name)`, or `None` when
     /// the stack is empty.
     pub fn current_activity(&self) -> Option<(u16, &'static str)> {

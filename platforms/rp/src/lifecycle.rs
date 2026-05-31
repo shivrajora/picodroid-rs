@@ -1058,6 +1058,19 @@ fn dispatch_key_events(
                 );
             }
         }
+
+        // If this key initiated an Activity transition (startActivity /
+        // finish), stop draining the batch. The remaining queued keys belong
+        // to the *next* top Activity and must wait until the transition is
+        // applied (between frames). Without this, a fast burst whose key
+        // events land in a single tick — before the push/pop is processed — is
+        // delivered entirely to the *departing* Activity, e.g. double-launching
+        // it; combined with a deferred service bind that then mutates the
+        // first instance's freed views, that was the History-screen segfault.
+        // See project_picoenvmon_history_segfault.
+        if handler.has_pending_activity_transition() {
+            break;
+        }
     }
 }
 
