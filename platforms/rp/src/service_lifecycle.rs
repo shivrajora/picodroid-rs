@@ -359,6 +359,23 @@ fn process_bind(
             owner_activity_ref,
         });
     }
+    // Deliver onServiceConnected with the cached IBinder — but only if the
+    // owner Activity is still the current (top) one. picodroid frees a covered
+    // Activity's content view (handle_pop_op / the push path park it), so a
+    // *deferred* bind whose owner was since covered or replaced — e.g. a rapid
+    // double-launch that stacks two of the same Activity before either bind is
+    // processed — must NOT run its callback: `onServiceConnected` typically
+    // mutates the owner's view tree (HistoryActivity adds rows to its list),
+    // and that tree is gone, so `lv_obj_set_parent` would dereference a freed
+    // object (use-after-free → segfault). `owner == 0` means a non-Activity
+    // binder (Application/Service context), which has no view tree to go stale.
+    let owner_is_live = owner_activity_ref == 0
+        || handler
+            .current_activity()
+            .is_some_and(|(top_ref, _)| top_ref == owner_activity_ref);
+    if !owner_is_live {
+        return crate::lifecycle::LifecycleControl::Continue;
+    }
     // Deliver onServiceConnected with the cached IBinder.
     let binder_ref = registry()[slot].as_ref().unwrap().binder_ref;
     match binder_ref {
