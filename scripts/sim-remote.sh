@@ -22,7 +22,7 @@
 #   PICODROID_NOVNC_DIR=/usr/share/novnc
 #
 # One-time install on the server:
-#   sudo apt-get install -y xvfb x11vnc novnc websockify
+#   sudo apt-get install -y xvfb x11vnc novnc websockify xdotool
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -47,7 +47,7 @@ fi
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "sim-remote: missing dependencies: ${missing[*]}" >&2
   echo "Install with:" >&2
-  echo "  sudo apt-get install -y xvfb x11vnc novnc websockify" >&2
+  echo "  sudo apt-get install -y xvfb x11vnc novnc websockify xdotool" >&2
   exit 1
 fi
 
@@ -78,6 +78,7 @@ XVFB_PID=""
 X11VNC_PID=""
 WS_PID=""
 SIM_PID=""
+FOCUS_PID=""
 
 # Recursively kill a PID and all its descendants (children, grandchildren).
 # Needed because sim.sh spawns `cargo run`, which spawns the picodroid
@@ -93,6 +94,7 @@ kill_tree() {
 
 cleanup() {
   trap - INT TERM EXIT
+  if [[ -n "$FOCUS_PID" ]];   then kill "$FOCUS_PID"   2>/dev/null || true; fi
   if [[ -n "$SIM_PID" ]]; then
     kill_tree "$SIM_PID" TERM
     sleep 0.3
@@ -156,6 +158,7 @@ cat <<EOF
  picodroid sim-remote ready
    Open in your local browser (VSCode Remote-SSH forwards ${WEB_PORT}):
      ${URL}
+   Keyboard: click the sim image once so the browser forwards keys.
    Display: :${DISPLAY_NUM}    VNC: localhost:${VNC_PORT}
    Logs:    ${LOG_PREFIX}-{xvfb,x11vnc,novnc}.log
    Press Ctrl-C in this terminal to stop.
@@ -171,6 +174,31 @@ EOF
 # init.
 DISPLAY=":$DISPLAY_NUM" "$SCRIPT_DIR/sim.sh" "$@" &
 SIM_PID=$!
+
+# ── Keep X input focus on the sim window so browser keystrokes land ─────────
+# Xvfb has no window manager, so nothing gives the minifb window X input focus.
+# X routes keyboard events — including those x11vnc injects from the browser —
+# to the *focused* window; by default that's PointerRoot (the window under the
+# pointer), so VNC keys are silently dropped whenever the cursor isn't over the
+# sim. Poll for the window and pin focus to it, re-asserting periodically so it
+# survives VNC reconnects. Mouse input is coordinate-based and works regardless.
+# Requires xdotool — without it, keyboard still works only while the VNC cursor
+# hovers the sim image.
+if command -v xdotool >/dev/null 2>&1; then
+  (
+    while kill -0 "$SIM_PID" 2>/dev/null; do
+      wid=$(DISPLAY=":$DISPLAY_NUM" xdotool search --name picodroid 2>/dev/null | head -1)
+      [[ -n "$wid" ]] && DISPLAY=":$DISPLAY_NUM" xdotool windowfocus "$wid" 2>/dev/null || true
+      sleep 1
+    done
+  ) &
+  FOCUS_PID=$!
+else
+  echo "sim-remote: xdotool not found — install it so VNC keyboard input works" >&2
+  echo "  reliably (sudo apt-get install -y xdotool). Without it, keep the VNC" >&2
+  echo "  cursor over the sim image while typing." >&2
+fi
+
 SIM_EXIT=0
 wait "$SIM_PID" || SIM_EXIT=$?
 exit "$SIM_EXIT"
