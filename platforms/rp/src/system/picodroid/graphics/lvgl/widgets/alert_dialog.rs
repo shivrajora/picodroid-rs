@@ -73,6 +73,61 @@ static mut BUTTON_MAP: [ButtonEntry; MAX_BUTTONS] = [EMPTY_BUTTON; MAX_BUTTONS];
 const MAX_DIALOGS: usize = 8;
 static mut DIALOG_OBJ_MAP: [(usize, u16); MAX_DIALOGS] = [(0, 0); MAX_DIALOGS];
 
+// ── Shown-dialog stack ──────────────────────────────────────────────────────
+//
+// Java `nativeHandle` ids of dialogs currently on screen, newest on top. Lets
+// the framework dismiss the topmost dialog on BACK (Android's cancelable
+// default) and tear down any dialog an Activity leaves up when it finishes —
+// the scrim is parented to the screen, so it would otherwise outlive the
+// Activity and leak onto the one beneath as an input-absorbing modal.
+
+const MAX_SHOWN: usize = 4;
+static mut SHOWN: [i32; MAX_SHOWN] = [0; MAX_SHOWN];
+static mut SHOWN_LEN: usize = 0;
+
+fn shown_push(id: i32) {
+    unsafe {
+        shown_remove(id); // de-dup so re-show moves it to the top
+        if SHOWN_LEN < MAX_SHOWN {
+            SHOWN[SHOWN_LEN] = id;
+            SHOWN_LEN += 1;
+        }
+    }
+}
+
+fn shown_remove(id: i32) {
+    unsafe {
+        // `&mut SHOWN[..]` (indexed slice) rather than letting a method autoref
+        // the whole static — the latter trips `static_mut_refs`; this matches
+        // the `&mut BUTTON_MAP[..]` idiom used elsewhere in this file.
+        let len = SHOWN_LEN;
+        let s = &mut SHOWN[..];
+        if let Some(pos) = s[..len].iter().position(|&x| x == id) {
+            s.copy_within(pos + 1..len, pos); // left-shift over the hole
+            s[len - 1] = 0;
+            SHOWN_LEN = len - 1;
+        }
+    }
+}
+
+/// True if any dialog is currently on screen.
+pub fn has_shown_dialog() -> bool {
+    unsafe { SHOWN_LEN > 0 }
+}
+
+/// Dismiss the most-recently-shown dialog (BACK / cancel). Returns `true` if
+/// one was dismissed, `false` if none were showing.
+pub fn dismiss_topmost_dialog() -> bool {
+    let id = unsafe {
+        if SHOWN_LEN == 0 {
+            return false;
+        }
+        SHOWN[SHOWN_LEN - 1]
+    };
+    dismiss(id); // also pops it from SHOWN
+    true
+}
+
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
 unsafe extern "C" fn dialog_button_click_cb(e: *mut lv_event_t) {
@@ -223,9 +278,39 @@ pub(in crate::system::picodroid::graphics) fn show(id: i32) {
         return;
     }
     unsafe { lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN) };
+    focus_dialog_buttons(scrim as usize);
+    shown_push(id);
+}
+
+/// Add the shown dialog's buttons to the active keypad focus group and focus
+/// the positive one, so ENTER activates OK on a keypad-only board (the Enviro+
+/// has no touch). No-op when there's no default group (touch boards return
+/// null); the buttons leave the group automatically when the scrim is deleted
+/// on dismiss. See project_picoenvmon_alertdialog_leak.
+fn focus_dialog_buttons(scrim_ptr: usize) {
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return;
+        }
+        let mut focus_target: *mut lv_obj_t = core::ptr::null_mut();
+        for slot in &BUTTON_MAP[..] {
+            if slot.button_handle != 0 && slot.dialog_handle == scrim_ptr {
+                let btn = slot.button_handle as *mut lv_obj_t;
+                lv_group_add_obj(group, btn);
+                if focus_target.is_null() || slot.which == BUTTON_POSITIVE {
+                    focus_target = btn;
+                }
+            }
+        }
+        if !focus_target.is_null() {
+            lv_group_focus_obj(focus_target);
+        }
+    }
 }
 
 pub(in crate::system::picodroid::graphics) fn dismiss(id: i32) {
+    shown_remove(id); // always drop the tracking entry, even if already torn down
     let scrim = handle_table::lookup(id);
     if scrim.is_null() {
         return;
@@ -301,6 +386,10 @@ pub fn reset_alert_dialog_state() {
         }
         CLICK_QUEUE_HEAD = 0;
         CLICK_QUEUE_TAIL = 0;
+        for s in &mut SHOWN[..] {
+            *s = 0;
+        }
+        SHOWN_LEN = 0;
     }
 }
 

@@ -606,6 +606,12 @@ fn handle_pop_op(
         with_gfx(|g| g.delete(Handle::from_java(top_root)));
         display::set_current_root_id(0);
     }
+    // Tear down any AlertDialog the finishing Activity left on screen. The
+    // dialog's modal scrim is parented to the screen, not the content view
+    // deleted above, so it would otherwise outlive the Activity and leak onto
+    // the one beneath as an input-absorbing modal — Android dismisses an
+    // Activity's dialogs on destroy ("leaked window" prevention).
+    while crate::system::picodroid::graphics::widgets::dismiss_topmost_dialog() {}
     // Auto-unbind any Service connections this Activity owned — mirrors
     // Android's behaviour for an Activity destroyed while holding bindings.
     // Runs after the Activity's own onDestroy so the Activity can still call
@@ -1030,6 +1036,19 @@ fn dispatch_key_events(
         if keycode == KEYCODE_BACK && action == ACTION_UP {
             use crate::system::picodroid::graphics::lvgl::widgets::keyboard;
             if keyboard::hide_system() {
+                continue;
+            }
+        }
+
+        // 1b) BACK then dismisses a showing AlertDialog (Android's cancelable
+        //     default) before reaching the focused View or onBackPressed. This
+        //     is also the only way to dismiss a dialog on a keypad-only board
+        //     with no touch — and it stops the modal scrim from outliving its
+        //     Activity. See project_picoenvmon_alertdialog_leak.
+        if keycode == KEYCODE_BACK && action == ACTION_UP {
+            use crate::system::picodroid::graphics::widgets;
+            if widgets::has_shown_dialog() {
+                widgets::dismiss_topmost_dialog();
                 continue;
             }
         }

@@ -30,7 +30,8 @@ mod toggle_button;
 
 pub use alert_dialog::{
     alert_dialog_native_create, alert_dialog_native_dismiss, alert_dialog_native_show,
-    alert_dialog_register_button_click_listener, reset_alert_dialog_state,
+    alert_dialog_register_button_click_listener, dismiss_topmost_dialog, has_shown_dialog,
+    reset_alert_dialog_state,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use alert_dialog::{drain_click_queue as drain_dialog_click_queue, lookup_dialog_obj};
