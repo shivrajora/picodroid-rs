@@ -131,13 +131,176 @@ pub(in crate::system::picodroid::graphics) fn init_keypad() {
         let keypad = lv_indev_create();
         lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
         lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
-
-        let group = lv_group_create();
-        lv_group_set_default(group);
-        lv_indev_set_group(keypad, group);
+        KEYPAD_INDEV = keypad;
+        // No default group yet: each Activity owns its own keypad focus group,
+        // created by `push_activity_group()` as the Activity is launched (see
+        // the "Per-Activity keypad focus groups" section). Until the first
+        // Activity pushes a group, the keypad has nothing to navigate.
     }
 
     init_button_pins();
+}
+
+// ── Per-Activity keypad focus groups ────────────────────────────────────────
+//
+// Android gives every Activity its own Window with an isolated focus scope: a
+// backgrounded Activity's focus is retained untouched and restored on resume,
+// and one Activity can never traverse into another's focus. We mirror that with
+// one `lv_group` per Activity. While an Activity is on top its group is both
+// the LVGL *default* group (so the Activity's group-def widgets — Button,
+// EditText, … — auto-join IT, not a shared global) and the keypad indev's group
+// (so PREV/NEXT navigation stays within it). Push creates the child's group;
+// pop deletes it and reactivates the parent's, whose focus state is intact —
+// no cross-Activity focus bleed, and resume-focus needs no special handling.
+//
+// The group stack is kept in lockstep with the framework Activity stack by
+// `push_activity_group`/`pop_activity_group` calls from `lifecycle.rs` at the
+// same points it pushes/pops Activities.
+
+/// Upper bound on nested Activities, matching the documented range of the
+/// `[jvm] activity_stack_depth` tunable (1..=32). The framework Activity stack
+/// caps depth first, so this group stack never overflows.
+#[cfg(has_buttons)]
+const MAX_ACTIVITY_GROUPS: usize = 32;
+
+#[cfg(has_buttons)]
+static mut KEYPAD_INDEV: *mut lv_indev_t = core::ptr::null_mut();
+
+#[cfg(has_buttons)]
+static mut ACTIVITY_GROUPS: [*mut lv_group_t; MAX_ACTIVITY_GROUPS] =
+    [core::ptr::null_mut(); MAX_ACTIVITY_GROUPS];
+
+#[cfg(has_buttons)]
+static mut ACTIVITY_GROUP_DEPTH: usize = 0;
+
+/// Create a fresh focus group for a newly-launched Activity and make it the
+/// active group (LVGL default + keypad indev). Called from the lifecycle
+/// bootstrap/push paths *before* the Activity's `onCreate`, so its group-def
+/// widgets auto-join this group.
+#[cfg(has_buttons)]
+pub fn push_activity_group() {
+    unsafe {
+        if ACTIVITY_GROUP_DEPTH >= MAX_ACTIVITY_GROUPS {
+            return; // unreachable: the Activity stack caps depth first
+        }
+        let group = lv_group_create();
+        lv_group_set_default(group);
+        if !KEYPAD_INDEV.is_null() {
+            lv_indev_set_group(KEYPAD_INDEV, group);
+        }
+        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH] = group;
+        ACTIVITY_GROUP_DEPTH += 1;
+    }
+}
+
+/// Tear down the top Activity's focus group and reactivate the parent's (or
+/// none if the stack is now empty). Called from the lifecycle pop path *after*
+/// the popped Activity's view tree is deleted. The parent group is reattached
+/// to the indev before the child group is freed, so the indev never references
+/// a deleted group.
+#[cfg(has_buttons)]
+pub fn pop_activity_group() {
+    unsafe {
+        if ACTIVITY_GROUP_DEPTH == 0 {
+            return;
+        }
+        ACTIVITY_GROUP_DEPTH -= 1;
+        let group = ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH];
+        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH] = core::ptr::null_mut();
+
+        let parent = if ACTIVITY_GROUP_DEPTH > 0 {
+            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH - 1]
+        } else {
+            core::ptr::null_mut()
+        };
+        lv_group_set_default(parent);
+        if !KEYPAD_INDEV.is_null() {
+            lv_indev_set_group(KEYPAD_INDEV, parent);
+        }
+        if !group.is_null() {
+            lv_group_delete(group);
+        }
+    }
+}
+
+/// Delete every remaining Activity focus group and reset the stack. Called from
+/// the between-app-run reset path so a fresh app starts with a clean keypad.
+#[cfg(has_buttons)]
+pub fn reset_activity_groups() {
+    unsafe {
+        // Slice idiom (matching `&mut VIEW_KEY_MAP[..]` elsewhere in this file)
+        // rather than an index range — keeps clippy's needless_range_loop quiet
+        // without taking a `&mut` to the whole static (static_mut_refs).
+        let had_groups = ACTIVITY_GROUP_DEPTH > 0;
+        for slot in &mut ACTIVITY_GROUPS[..ACTIVITY_GROUP_DEPTH] {
+            let g = *slot;
+            *slot = core::ptr::null_mut();
+            if !g.is_null() {
+                lv_group_delete(g);
+            }
+        }
+        ACTIVITY_GROUP_DEPTH = 0;
+        // Only touch LVGL when groups actually existed. This runs at app start
+        // before `init_keypad`, so on the very first run LVGL isn't initialized
+        // yet and KEYPAD_INDEV is null; a non-zero depth implies a prior run on
+        // the persistent graphics singleton, where these pointers are live.
+        if had_groups {
+            lv_group_set_default(core::ptr::null_mut());
+            if !KEYPAD_INDEV.is_null() {
+                lv_indev_set_group(KEYPAD_INDEV, core::ptr::null_mut());
+            }
+        }
+    }
+}
+
+// No-button boards have no keypad indev — the group machinery is inert, but the
+// lifecycle still calls these so they exist as no-ops.
+#[cfg(not(has_buttons))]
+pub fn push_activity_group() {}
+#[cfg(not(has_buttons))]
+pub fn pop_activity_group() {}
+#[cfg(not(has_buttons))]
+pub fn reset_activity_groups() {}
+
+/// `View.setFocusable(boolean)` backing: add this view to — or remove it from —
+/// the active Activity's keypad focus group. No-op when the handle is null or no
+/// group is active (non-button boards, or before the first Activity launches).
+pub fn set_view_focusable(id: i32, on: bool) {
+    let raw = super::handle_table::lookup(id);
+    if raw.is_null() {
+        return;
+    }
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return;
+        }
+        if on {
+            lv_group_add_obj(group, raw); // idempotent if already a member
+        } else {
+            lv_group_remove_obj(raw);
+        }
+    }
+}
+
+/// `View.requestFocus()` backing: ensure the view is in the active group and
+/// make it the focused widget. Returns whether it actually became focused —
+/// false when the handle is null or there is no active group, matching
+/// Android's "a view that can't take focus returns false".
+pub fn request_view_focus(id: i32) -> bool {
+    let raw = super::handle_table::lookup(id);
+    if raw.is_null() {
+        return false;
+    }
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return false;
+        }
+        lv_group_add_obj(group, raw); // idempotent if already a member
+        lv_group_focus_obj(raw);
+        lv_group_get_focused(group) == raw
+    }
 }
 
 #[cfg(has_buttons)]
@@ -648,6 +811,20 @@ mod tests {
     #[test]
     fn pin_to_keycode_returns_none_for_unmapped() {
         assert_eq!(pin_to_keycode(99), None);
+    }
+
+    /// Handle `0` maps to a null `lv_obj` on both the 32-bit and 64-bit handle
+    /// tables, so the focus helpers must short-circuit on it without touching
+    /// LVGL group state. Guards the null-handle path that protects sim builds
+    /// and any pre-launch caller.
+    #[test]
+    fn focus_helpers_short_circuit_on_null_handle() {
+        set_view_focusable(0, true);
+        set_view_focusable(0, false);
+        assert!(
+            !request_view_focus(0),
+            "requestFocus on a null handle must report no focus"
+        );
     }
 
     #[cfg(has_buttons)]

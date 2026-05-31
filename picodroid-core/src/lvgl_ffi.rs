@@ -361,6 +361,13 @@ extern "C" {
     pub fn lv_group_set_default(group: *mut lv_group_t);
     pub fn lv_group_get_default() -> *mut lv_group_t;
     pub fn lv_group_get_focused(group: *mut lv_group_t) -> *mut lv_obj_t;
+    /// Focus `obj` within its own group. No-op if `obj` belongs to no group,
+    /// so it is safe to call on a non-focusable widget.
+    pub fn lv_group_focus_obj(obj: *mut lv_obj_t);
+    /// Remove `obj` from whatever group it belongs to. No-op if ungrouped.
+    pub fn lv_group_remove_obj(obj: *mut lv_obj_t);
+    /// Delete a focus group. Used to tear down a per-Activity group on pop.
+    pub fn lv_group_delete(group: *mut lv_group_t);
 
     // Screen
     pub fn lv_screen_active() -> *mut lv_obj_t;

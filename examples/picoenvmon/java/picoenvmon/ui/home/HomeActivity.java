@@ -89,6 +89,11 @@ public class HomeActivity extends Activity
     setContentView(root);
     root.setOnKeyListener(this);
     root.setOnTouchListener(new GestureDetector(this));
+    // Make the layout root keypad-focusable so the A/B/X hardware buttons reach
+    // onKey above. Without this the LVGL keypad group is empty and only BACK
+    // (which has a focus-independent fallback) does anything.
+    root.setFocusable(true);
+    root.requestFocus();
 
     bindService(new Intent(SensorLoggerService.class), this);
   }

@@ -177,6 +177,25 @@ pub fn register_key_listener(
     Ok(None)
 }
 
+/// `View.nativeSetFocusable(boolean)` — add this view to (or remove it from)
+/// the active Activity's keypad focus group, so it becomes eligible for
+/// hardware-key focus. Mirrors `android.view.View#setFocusable`.
+pub fn set_focusable(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let on = arg_int(args, 1)? != 0;
+    lvgl_events::set_view_focusable(id, on);
+    Ok(None)
+}
+
+/// `View.nativeRequestFocus()` — focus this view in the active keypad group.
+/// Returns 1 if it became the focused view, 0 otherwise (mirrors
+/// `android.view.View#requestFocus` returning a boolean).
+pub fn request_focus(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let focused = lvgl_events::request_view_focus(id);
+    Ok(Some(Value::Int(if focused { 1 } else { 0 })))
+}
+
 /// `View.nativeRegisterTouchListener()` — records this View as a
 /// touch-listener target and wires the LVGL press/release/long-press
 /// callbacks. Side effect: flips on `LV_OBJ_FLAG_CLICKABLE` so passive

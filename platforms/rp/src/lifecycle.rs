@@ -314,6 +314,9 @@ fn bootstrap_activity(
         log_error!("activity stack overflow on bootstrap: {}", initial_class);
         return LifecycleControl::Break;
     }
+    // Give this Activity its own keypad focus group before onCreate so its
+    // focusable widgets join the right group (see events::push_activity_group).
+    crate::system::picodroid::graphics::lvgl::events::push_activity_group();
     for site in [
         dispatch_sites::ACTIVITY_ON_CREATE,
         dispatch_sites::ACTIVITY_ON_START,
@@ -538,6 +541,9 @@ fn handle_push_op(
         }
         return LifecycleControl::Continue;
     }
+    // New top gets its own keypad focus group before onCreate, isolating its
+    // focus from the parent's (which is parked with its focus intact).
+    crate::system::picodroid::graphics::lvgl::events::push_activity_group();
     for site in [
         dispatch_sites::ACTIVITY_ON_CREATE,
         dispatch_sites::ACTIVITY_ON_START,
@@ -606,6 +612,10 @@ fn handle_pop_op(
     // unbindService itself.
     crate::service_lifecycle::unbind_owned_by(top_ref, jvm, heap, handler);
     handler.pop_activity();
+    // Tear down the popped Activity's keypad focus group and reactivate the
+    // parent's (with its focus intact) — done after its view tree was deleted
+    // above so the group is empty. No-op on boards without buttons.
+    crate::system::picodroid::graphics::lvgl::events::pop_activity_group();
     // Restore the resumed parent's parked view, if any. Apps that build UI
     // in onCreate get their tree back without rebuilding; apps that rebuild
     // in onResume will replace it (the saved root will be deleted by

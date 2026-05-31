@@ -56,6 +56,8 @@ impl GraphicsBackend for LvglBackend {
                 Some(view::register_click_listener(ctx.args, ctx.objects))
             }
             "nativeRegisterKeyListener" => Some(view::register_key_listener(ctx.args, ctx.objects)),
+            "nativeSetFocusable" => Some(view::set_focusable(ctx.args, ctx.objects)),
+            "nativeRequestFocus" => Some(view::request_focus(ctx.args, ctx.objects)),
             "nativeRegisterTouchListener" => {
                 Some(view::register_touch_listener(ctx.args, ctx.objects))
             }

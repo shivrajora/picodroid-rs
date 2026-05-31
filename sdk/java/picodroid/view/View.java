@@ -28,6 +28,7 @@ public class View {
   OnSwipeListener onSwipeListener;
   OnClickListener onClickListener;
   ViewGroup.LayoutParams layoutParams;
+  boolean focusable = false; // Android default for a plain View / ViewGroup.
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -54,6 +55,35 @@ public class View {
   public void setOnKeyListener(OnKeyListener listener) {
     this.onKeyListener = listener;
     nativeRegisterKeyListener();
+  }
+
+  /**
+   * Set whether this view can take input focus. Mirrors {@code
+   * android.view.View#setFocusable(boolean)}. On a hardware-button device, only a focusable view
+   * receives key events — call this (and {@link #requestFocus()}) on the view that owns the {@link
+   * OnKeyListener}. Focusability is independent of {@link #setOnKeyListener}, exactly as in
+   * Android.
+   */
+  public void setFocusable(boolean focusable) {
+    this.focusable = focusable;
+    nativeSetFocusable(focusable);
+  }
+
+  /** Returns whether this view can take focus. Mirrors {@code android.view.View#isFocusable()}. */
+  public boolean isFocusable() {
+    return focusable;
+  }
+
+  /**
+   * Request that this view take input focus. Mirrors {@code android.view.View#requestFocus()}:
+   * returns {@code false} (without effect) if the view is not {@link #isFocusable() focusable},
+   * otherwise {@code true} if it became the focused view.
+   */
+  public boolean requestFocus() {
+    if (!focusable) {
+      return false;
+    }
+    return nativeRequestFocus();
   }
 
   /**
@@ -91,6 +121,10 @@ public class View {
   private native void nativeRegisterClickListener();
 
   private native void nativeRegisterKeyListener();
+
+  private native void nativeSetFocusable(boolean focusable);
+
+  private native boolean nativeRequestFocus();
 
   private native void nativeRegisterTouchListener();
 
