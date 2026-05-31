@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use core::sync::atomic::{AtomicU32, Ordering};
+use std::collections::VecDeque;
+use std::sync::Mutex;
 
 static GPIO_OE: AtomicU32 = AtomicU32::new(0);
 static GPIO_OUT: AtomicU32 = AtomicU32::new(0);
@@ -81,12 +83,30 @@ pub struct GpioEvent {
     pub rising: bool,
 }
 
+/// Synthetic button-edge queue. On hardware these edges come from the GPIO
+/// IRQ; the host sim has no GPIO peripheral, so the input front-ends in
+/// `hal::sim::display` (keyboard + control channel) call [`inject`] instead.
+/// A `Mutex` (rather than the `static mut` used elsewhere in this file)
+/// because the control-channel front-end injects from a background thread.
+static GPIO_EVENTS: Mutex<VecDeque<GpioEvent>> = Mutex::new(VecDeque::new());
+
+/// Enqueue a synthetic button edge. Active-low convention: `rising == false`
+/// is a PRESS (falling edge → `LV_INDEV_STATE_PRESSED`), `rising == true` a
+/// RELEASE. Always inject a PRESS before its matching RELEASE for a given pin,
+/// or the phantom-release filter in `lvgl::events` drops the unpaired release.
+pub fn inject(pin: u8, rising: bool) {
+    GPIO_EVENTS
+        .lock()
+        .unwrap()
+        .push_back(GpioEvent { pin, rising });
+}
+
 pub fn drain_gpio_event() -> Option<GpioEvent> {
-    None
+    GPIO_EVENTS.lock().unwrap().pop_front()
 }
 
 pub fn has_pending_event() -> bool {
-    false
+    !GPIO_EVENTS.lock().unwrap().is_empty()
 }
 
 /// No-op in sim — the host has no GPIO IRQ to block on.
