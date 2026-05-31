@@ -476,6 +476,14 @@ fn park_top_view(handler: &mut crate::system::native_handler::PicodroidNativeHan
         handler.set_current_root_handle(prev_root);
         display::set_current_root_id(0);
     }
+    // Dismiss any dialog the now-covered Activity left on screen. Its modal
+    // scrim is parented to the screen (not the root hidden above), so it would
+    // otherwise float over the incoming child Activity AND, as the topmost
+    // "shown" dialog, steal the child's BACK. At push time every shown dialog
+    // belongs to the Activity being covered, so dismissing all is correct —
+    // the mirror of handle_pop_op's finish cleanup. See
+    // project_picoenvmon_alertdialog_leak.
+    while crate::system::picodroid::graphics::widgets::dismiss_topmost_dialog() {}
 }
 
 /// Inverse of [`park_top_view`]: restore the top Activity's saved view
