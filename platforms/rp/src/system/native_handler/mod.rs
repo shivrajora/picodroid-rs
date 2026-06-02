@@ -241,6 +241,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         self.pending_ops
             .visit_object_refs(&mut |r| visit(Value::ObjectRef(r)));
 
+        // View key-listener targets: a registered/focused View whose only
+        // reference is the native key-listener map (e.g. a content-view root the
+        // app kept no field for) would otherwise be swept, after which key
+        // dispatch resolves the focused lv_obj to a dead ref and silently drops
+        // — the keypad appears to "lose focus" a few seconds in (post-GC).
+        crate::system::picodroid::graphics::lvgl::events::visit_key_listener_roots(&mut |r| {
+            visit(Value::ObjectRef(r))
+        });
+
         // Delegate to sub-modules that own their own native object refs.
         crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);
         crate::service_lifecycle::visit_gc_roots(&mut *visit);

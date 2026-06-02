@@ -122,6 +122,23 @@ pub fn reset_view_key_listener_state() {
     }
 }
 
+/// Visit the Java `View` object ref of every registered key listener so the GC
+/// keeps it alive. A focused/registered View whose ONLY reference is this
+/// native map (e.g. a content-view root that the app didn't store in a field)
+/// would otherwise be swept; `focused_view_obj` then resolves the focused
+/// `lv_obj` to a dead/reused ref and key dispatch silently drops — the keypad
+/// appears to "lose focus" a few seconds in (after the first GC). Called from
+/// `PicodroidNativeHandler::gc_visit_roots`.
+pub fn visit_key_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for entry in &VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
+            if entry.1 != 0 {
+                visit(entry.1);
+            }
+        }
+    }
+}
+
 /// Initialize the LVGL keypad indev, focus group, and hardware button GPIO
 /// pins. Called from `LvglGfx::init` after [`lifecycle::init`] has run.
 /// No-op on boards without `[[button]]` entries in board.toml.
