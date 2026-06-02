@@ -371,7 +371,15 @@ fn spawn_control_channel() {
     use std::io::BufRead;
     std::thread::spawn(|| {
         let reader: Box<dyn BufRead> = match std::env::var("PICODROID_SIM_CTRL_FIFO") {
-            Ok(path) => match std::fs::File::open(&path) {
+            // Open the FIFO read+write so the reader itself holds a writer end:
+            // reads then never hit EOF when an external `echo > fifo` writer
+            // closes, so each command sent as a separate `echo` is delivered.
+            // (A read-only open would end the loop after the first writer left.)
+            Ok(path) => match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+            {
                 Ok(f) => Box::new(std::io::BufReader::new(f)),
                 Err(e) => {
                     println!("[sim] control channel: cannot open FIFO '{path}': {e}");

@@ -74,6 +74,7 @@ while port_in_use "$WEB_PORT"; do WEB_PORT=$((WEB_PORT + 1)); done
 
 # ── Trap cleanup before starting any background process ─────────────────────
 LOG_PREFIX="/tmp/picodroid-sim-remote-${DISPLAY_NUM}"
+CTRL_FIFO="${LOG_PREFIX}-ctrl"
 XVFB_PID=""
 X11VNC_PID=""
 WS_PID=""
@@ -103,7 +104,7 @@ cleanup() {
   if [[ -n "$WS_PID" ]];      then kill "$WS_PID"      2>/dev/null || true; fi
   if [[ -n "$X11VNC_PID" ]];  then kill "$X11VNC_PID"  2>/dev/null || true; fi
   if [[ -n "$XVFB_PID" ]];    then kill "$XVFB_PID"    2>/dev/null || true; fi
-  rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}" 2>/dev/null || true
+  rm -f "$CTRL_FIFO" "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}" 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
@@ -159,6 +160,9 @@ cat <<EOF
    Open in your local browser (VSCode Remote-SSH forwards ${WEB_PORT}):
      ${URL}
    Keyboard: click the sim image once so the browser forwards keys.
+   Buttons from a terminal (no browser focus needed):
+     echo 'tap B' > ${CTRL_FIFO}
+     # A/B/X/Y or PREV/NEXT/ENTER/ESC; verbs: down|up|press|tap
    Display: :${DISPLAY_NUM}    VNC: localhost:${VNC_PORT}
    Logs:    ${LOG_PREFIX}-{xvfb,x11vnc,novnc}.log
    Press Ctrl-C in this terminal to stop.
@@ -172,6 +176,13 @@ EOF
 # sim.sh hangs), the EXIT trap calls kill_tree on $SIM_PID and brings down
 # cargo + the picodroid binary too — without this they would orphan onto
 # init.
+# Control channel: a FIFO the sim reads button commands from, so the keypad
+# can be driven from a terminal (echo 'tap B' > fifo) while watching in the
+# browser — no canvas focus needed. The sim opens it read+write, so each
+# separate `echo` is delivered rather than EOF-ing the reader after the first.
+mkfifo "$CTRL_FIFO" 2>/dev/null || true
+export PICODROID_SIM_CTRL_FIFO="$CTRL_FIFO"
+
 DISPLAY=":$DISPLAY_NUM" "$SCRIPT_DIR/sim.sh" "$@" &
 SIM_PID=$!
 
