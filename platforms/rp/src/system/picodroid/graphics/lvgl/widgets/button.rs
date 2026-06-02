@@ -153,3 +153,18 @@ pub fn reset_button_state() {
         CLICK_QUEUE_TAIL = 0;
     }
 }
+
+/// Visit the Java `View` object ref of every view registered for an onClick
+/// listener so the GC keeps it alive — a clickable view referenced only by
+/// this native map (the app kept no field for it) would otherwise be swept,
+/// after which its click silently stops dispatching. See
+/// `events::visit_view_listener_roots`.
+pub fn visit_click_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &VIEW_CLICK_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}

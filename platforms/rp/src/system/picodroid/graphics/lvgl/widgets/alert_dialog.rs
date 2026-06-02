@@ -359,6 +359,20 @@ pub fn drain_click_queue() -> Option<(usize, i32)> {
     }
 }
 
+/// Visit the Java `AlertDialog` object ref of every live dialog so the GC keeps
+/// it alive — a shown dialog whose Java object the app no longer references
+/// would otherwise be swept, after which its button click can't dispatch. See
+/// `events::visit_view_listener_roots`.
+pub fn visit_dialog_obj_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &DIALOG_OBJ_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}
+
 /// Look up the Java `AlertDialog` object index for a dialog's raw scrim
 /// pointer.
 #[cfg_attr(feature = "sim", allow(dead_code))]

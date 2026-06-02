@@ -122,18 +122,29 @@ pub fn reset_view_key_listener_state() {
     }
 }
 
-/// Visit the Java `View` object ref of every registered key listener so the GC
-/// keeps it alive. A focused/registered View whose ONLY reference is this
-/// native map (e.g. a content-view root that the app didn't store in a field)
-/// would otherwise be swept; `focused_view_obj` then resolves the focused
-/// `lv_obj` to a dead/reused ref and key dispatch silently drops — the keypad
-/// appears to "lose focus" a few seconds in (after the first GC). Called from
-/// `PicodroidNativeHandler::gc_visit_roots`.
-pub fn visit_key_listener_roots(visit: &mut dyn FnMut(u16)) {
+/// Visit the Java `View` object ref of every view registered for a key, touch,
+/// or swipe callback so the GC keeps it alive. Such a View is referenced only
+/// by these native maps (raw `lv_obj_t*` -> Java obj_ref), not the Java heap,
+/// unless the app also keeps a field for it — so a focused/registered content
+/// root the app didn't field would otherwise be swept by the first GC, after
+/// which dispatch resolves the live `lv_obj` to a dead/reused ref and input
+/// silently drops (the keypad appears to "lose focus" a few seconds in).
+/// Called from `PicodroidNativeHandler::gc_visit_roots`.
+pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
     unsafe {
-        for entry in &VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
-            if entry.1 != 0 {
-                visit(entry.1);
+        for &(_, r) in &VIEW_KEY_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+        for &(_, r) in &VIEW_TOUCH_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+        for &(_, r) in &VIEW_SWIPE_MAP[..] {
+            if r != 0 {
+                visit(r);
             }
         }
     }
