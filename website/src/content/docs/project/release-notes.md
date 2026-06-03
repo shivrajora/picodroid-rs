@@ -3,7 +3,47 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.9.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.10.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## v0.10.0 — 2026-06-02
+
+The Android-parity release. Folds in the typed-listener, adapter, and focus-navigation surface that had been accumulating on `main` since v0.9.0, plus a wave of JVM heap and garbage-collector fixes that keep long-running, callback-driven apps alive.
+
+**Android parity**
+
+- **Typed listener interfaces (Tier 1)** and the **`Adapter` pattern (Tier 2)** land as first-class developer surface: `ViewGroup` + `ViewGroup.LayoutParams`, `Adapter` / `AdapterView` / `ArrayAdapter` / `BaseAdapter`, `CompoundButton`, and `DialogInterface`. Listener interfaces now match `android.*` shapes — `View.OnClickListener` / `OnFocusChangeListener`, `AdapterView.OnItemClickListener`, `CompoundButton.OnCheckedChangeListener`, `Spinner.OnItemSelectedListener`, `SeekBar.OnSeekBarChangeListener`, `DatePicker.OnDateChangedListener`, `TimePicker.OnTimeChangedListener`, `SwipeRefreshLayout.OnRefreshListener`, `Keyboard.OnReadyListener`.
+- `ArrayAdapter` now renders correctly — `Object.toString()` resolves through the JVM, so adapter-backed `ListView`s show real item text.
+- **Context constructors + `Display` cleanup (Tier 4)** round out the parity work.
+
+**Keypad & focus navigation**
+
+- New **View focus API** (`setFocusable` / `requestFocus`) backed by per-Activity LVGL focus groups, plus real **D-pad item selection in `ListView`**. This is what makes button-only devices (no touchscreen) fully navigable.
+- `AlertDialog` is now keypad-dismissable (BACK cancels, ENTER confirms) and is torn down whenever its Activity leaves the foreground — no more leaked dialogs.
+
+**JVM & runtime**
+
+- `invokestatic` now walks the superclass chain per JVMS §5.4.3.3.
+- **Garbage-collector fixes for callback-driven apps:** Views and dialogs referenced only by native listener maps (key / touch / click / dialog) are now GC roots, fixing input that died ~15 s into a session. Also plugs a native-state root leak and a GC-starvation path.
+- **Heap shrink:** `helloworld` peak heap drops 51 KB → 25 KB via a `JvmObject` layout rework (single `Box<[Value]>` field store, `class_idx` side table, tightened layout guard). New **chunked-slot heap storage** plus an RP2350 heap bump 384 KB → 416 KB.
+- Past JVM optimisations are now tunable from a board's `[jvm]` `board.toml` section.
+
+**Robustness**
+
+- Bad-APK and poisoned-mutex paths log and early-return instead of panicking.
+- A covered Activity no longer receives `onServiceConnected` (fixes a stale bound-service use-after-free) and has its dialogs dismissed when pushed under another Activity; further stale-view UAF and duplicate-launch hardening.
+
+**picoenvmon showcase**
+
+- Pimoroni **Pico Enviro+ Pack** bring-up — display plus I2C BME688 / LTR559 sensors.
+- Redesigned to a hub-menu **4-button navigation** model (A=up / B=down / X=open / Y=back), smoothed `HomeActivity` to 1 Hz via a bound service, and fixed the sensordemo "1 event then silent" phantom-IRQ bug.
+
+**Tooling, simulator & docs**
+
+- The simulator now **emulates the physical buttons** via the keyboard plus a headless control channel, runs the real XPT2046 touch driver, and synthesizes BME688 / LTR559 readings instead of zeros.
+- New `perfbench` (unified speed + memory) and `graphicsbench` (LVGL render pipeline) benchmarks, each with a composite SCORE.
+- Documentation migrated to an **Astro Starlight** site, with a central reference page for the `[jvm]` tunables. Example apps coalesced 59 → 51.
+
+Shrink map: **+23 classes (87 → 110)** covering the Tier 1/2 listener and adapter surface; v0.9.0 entries copied verbatim.
 
 ## v0.9.0 — 2026-05-06
 
