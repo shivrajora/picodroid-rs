@@ -741,7 +741,7 @@ fn gc_stress_arena_fragmentation() {
             let size = 10 + (i as u16 % 10) * 10; // 10, 20, ..., 100
             let idx = arrays.alloc(10, size).unwrap();
             // Write a sentinel: round*1000 + i
-            arrays.store(idx, 0, (round * 1000 + i as i32));
+            arrays.store(idx, 0, round * 1000 + i as i32);
             indices.push(idx);
         }
 

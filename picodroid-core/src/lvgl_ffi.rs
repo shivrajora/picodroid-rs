@@ -7,7 +7,11 @@
 
 #![allow(non_camel_case_types, dead_code)]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
+// `c_char` is only referenced by the real LVGL `extern "C"` block below, which
+// is `#[cfg(not(test))]`; gate the import to match so test builds don't warn.
+#[cfg(not(test))]
+use core::ffi::c_char;
 
 // ---------------------------------------------------------------------------
 // Compiler-rt intrinsic required by LVGL's TLSF allocator on Cortex-M0+
