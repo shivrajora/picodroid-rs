@@ -30,7 +30,7 @@ public class CounterService extends Service {
     }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    public int onStartCommand(Intent intent, int startId) {
         count++;
         Log.i("CounterService", "tick=" + count);
         return Service.START_STICKY;
@@ -57,13 +57,16 @@ public class CounterService extends Service {
 | Callback | When it fires |
 |---|---|
 | `onCreate()` | Once, the first time the service is started or bound. |
-| `onStartCommand(Intent, int, int)` | Each call to `Context.startService()`. Return `START_STICKY` to ask the framework to keep the service alive. |
+| `onStartCommand(Intent, int startId)` | Each call to `Context.startService()`. Return `START_STICKY` to ask the framework to keep the service alive. |
 | `onBind(Intent)` | First call to `Context.bindService()` for this service. Return an `IBinder` (typically a custom `LocalBinder`). Cached and reused across subsequent binds. |
-| `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; return `true` to opt into `onRebind`. |
-| `onRebind(Intent)` | A previously-unbound service is bound again, only if `onUnbind` returned `true`. |
+| `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; returning `true` is reserved for `onRebind` (see below). |
 | `onDestroy()` | Service is being torn down (last unbind + no `startService` keepalive, or explicit `stopService`). |
 
 `Service.START_STICKY` is the default return value; the only other recognized constant is `START_NOT_STICKY` (released when `onStartCommand` returns).
+
+> **`onRebind` is not implemented in v1.** `onUnbind` can return `true` to opt into a future
+> `onRebind` callback, but the re-bind path is not yet dispatched — a subsequent bind runs
+> `onBind` again. Don't rely on `onRebind` firing yet.
 
 ## `picodroid.app.IBinder`
 
@@ -89,6 +92,24 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 
 `stopForeground(true)` removes the notification; `onDestroy` cancels it automatically.
 
+### `picodroid.app.NotificationManager`
+
+For notifications outside the foreground-service flow, post or cancel by ID through the
+`NotificationManager` singleton. Picodroid renders a notification as a brief top-of-screen banner.
+
+```java
+import picodroid.app.Notification;
+import picodroid.app.NotificationManager;
+
+Notification n = new Notification.Builder()
+    .setContentTitle("Upload complete")
+    .build();
+
+NotificationManager nm = NotificationManager.getInstance();
+nm.notify(1, n);   // post under id 1
+nm.cancel(1);      // dismiss it
+```
+
 ## `picodroid.content.Context` — start / bind / stop
 
 The `Context` (your `Application` or `Activity`) drives the service lifecycle:
@@ -98,7 +119,7 @@ import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.app.IBinder;
 
-Intent i = new Intent(this, CounterService.class);
+Intent i = new Intent(CounterService.class);
 
 // Fire-and-forget: invokes onStartCommand
 startService(i);
@@ -114,11 +135,14 @@ ServiceConnection conn = new ServiceConnection() {
         // service died unexpectedly
     }
 };
-bindService(i, conn, Context.BIND_AUTO_CREATE);
+bindService(i, conn);   // 2-arg; binding implicitly creates the service if needed
 
 unbindService(conn);
 stopService(i);
 ```
+
+`bindService` takes just `(Intent, ServiceConnection)` — there is no `flags` parameter and no
+`Context.BIND_AUTO_CREATE` constant; binding always creates the service if it isn't running.
 
 ## Manual DI: `ApplicationComponent` / `ActivitySingletonComponent`
 

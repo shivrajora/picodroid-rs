@@ -3,7 +3,7 @@ title: "Graphics and UI"
 description: "Activity lifecycle, widgets, theming, gestures, and animations."
 ---
 
-Picodroid's Android-inspired UI toolkit. Packages: `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget`. See [Java API overview](/) for the full API index.
+Picodroid's Android-inspired UI toolkit. Packages: `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget`. See [Java API overview](/api/) for the full API index.
 
 The toolkit is backed by [LVGL](https://lvgl.io). Apps create an `Application`, start an `Activity`, and build a widget tree. On hardware, the display is driven via SPI (ST7789) with touch input (XPT2046). In the simulator, a graphical window (minifb) renders the UI with mouse-as-touch input.
 
@@ -13,12 +13,13 @@ Base class for all apps. Subclass it and override `onCreate()`.
 
 ```java
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class MyApp extends Application {
     public void onCreate() {
         // Console app: do work here
         // Display app: start an Activity
-        startActivity(new MyActivity());
+        startActivity(new Intent(MyActivity.class));
     }
 }
 ```
@@ -26,7 +27,7 @@ public class MyApp extends Application {
 | Method | Description |
 |--------|-------------|
 | `onCreate()` | Called by the runtime after instantiation. Override to initialize your app. |
-| `startActivity(Activity activity)` | Launches an Activity (native). The Activity's `onCreate()` is called after the display is ready. |
+| `startActivity(Intent intent)` | Launches the Activity named by the Intent's target class (`new Intent(MyActivity.class)`). The Activity's `onCreate()` is called after the display is ready. |
 
 ## `picodroid.app.Activity`
 
@@ -35,11 +36,11 @@ Base class for display screens. Subclass it, override `onCreate()`, build a widg
 ```java
 import picodroid.app.Activity;
 import picodroid.view.View;
-import picodroid.graphics.Display;
+import picodroid.debug.DisplayDebug;
 
 public class MyActivity extends Activity {
     public void onCreate() {
-        getDisplay().calibrate();     // optional: run touch calibration
+        DisplayDebug.calibrate();     // optional: run touch calibration (debug helper)
         // ... build widget tree ...
         setContentView(rootView);     // render the widget tree
     }
@@ -66,7 +67,7 @@ The content view installed in `onCreate` (or `onResume`) is **preserved across p
 
 | Method | Description |
 |--------|-------------|
-| `startActivity(Activity activity)` | Push a new Activity onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
+| `startActivity(Intent intent)` | Push the Activity named by `new Intent(TargetActivity.class)` onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
 | `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
 | `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
 | `getDisplay()` | Returns the `Display` singleton. |
@@ -84,12 +85,33 @@ Display display = Display.getInstance();
 int w = display.getWidth();      // e.g. 320
 int h = display.getHeight();     // e.g. 240
 
-display.calibrate();             // run 4-point touch calibration
 display.setContentView(root);    // set root widget
 display.update();                // refresh the display
-display.showFps();               // overlay a moving-average FPS counter (10-frame window)
-MotionEvent touch = display.pollTouch();  // poll for touch input (null if none)
 ```
+
+The `Display` surface is intentionally minimal and Android-shaped. Picodroid-only helpers
+(touch calibration, the FPS overlay, pull-mode touch polling) live on
+[`picodroid.debug.DisplayDebug`](#picodroiddebugdisplaydebug), not on `Display`.
+
+## `picodroid.debug.DisplayDebug`
+
+Picodroid-specific debug helpers that have no Android equivalent — kept off `Display` so its
+surface stays close to `android.view.Display`. All methods are `static`.
+
+```java
+import picodroid.debug.DisplayDebug;
+import picodroid.view.MotionEvent;
+
+DisplayDebug.calibrate();    // interactive 4-point touch calibration (embedded targets; blocks)
+DisplayDebug.showFps();      // toggle the live LVGL FPS overlay (call once in onCreate)
+MotionEvent touch = DisplayDebug.pollTouch();  // pull one raw touch sample (null if the queue is empty)
+```
+
+| Method | Description |
+|--------|-------------|
+| `static void calibrate()` | Run the interactive 4-point touch calibration. Blocks until the user finishes. |
+| `static void showFps()` | Show the live FPS overlay. Idempotent after the first call. |
+| `static MotionEvent pollTouch()` | Poll one raw touch sample; `null` if the queue is empty. The primary touch path is a per-View `OnTouchListener` (below) — `pollTouch` is the pull-mode alternative. |
 
 ## `picodroid.graphics.Color`
 
@@ -194,7 +216,9 @@ view.setSize(200, 50);              // width=200, height=50
 view.setBackgroundColor(Color.BLUE);
 view.setBackground(drawable);       // or apply a Drawable (see GradientDrawable)
 view.setVisibility(View.VISIBLE);   // VISIBLE, INVISIBLE, or GONE
+view.setEnabled(false);             // grey out / disable interaction
 view.animate().alpha(0f, 1f).setDuration(200).start();   // see ViewPropertyAnimator
+view.setOnClickListener(v -> doThing());   // View.OnClickListener (fires on tap or D-pad center)
 view.setOnTouchListener(listener);  // per-View touch dispatch
 view.close();                        // release the native widget
 ```
@@ -204,15 +228,70 @@ view.close();                        // release the native widget
 | `View.VISIBLE` | 0 | Widget is visible and takes up layout space |
 | `View.INVISIBLE` | 1 | Widget is invisible but still takes up layout space |
 | `View.GONE` | 2 | Widget is invisible and takes no layout space |
+| `View.MATCH_PARENT` | -1 | `LayoutParams` size: fill the parent |
+| `View.WRAP_CONTENT` | -2 | `LayoutParams` size: size to content |
+
+### Focus navigation
+
+On button-only devices (no touchscreen), key events route to whichever view is **focused**. Make a
+view focusable and give it focus so it receives D-pad / hardware-key input. Mirrors
+`android.view.View`.
+
+```java
+button.setFocusable(true);          // opt this view into the focus group
+button.requestFocus();              // take input focus now (returns false if not focusable)
+boolean f = button.isFocused();
+
+button.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+    public void onFocusChange(View v, boolean hasFocus) {
+        v.setBackgroundColor(hasFocus ? Color.YELLOW : Color.GRAY);
+    }
+});
+```
+
+| Method | Description |
+|--------|-------------|
+| `setFocusable(boolean)` | Opt this view into the per-Activity LVGL focus group. |
+| `requestFocus()` | Request input focus. Returns `false` if the view is not focusable. |
+| `isFocusable()` / `isFocused()` / `hasFocus()` | Focus-state queries. |
+| `setOnFocusChangeListener(OnFocusChangeListener)` | `onFocusChange(View v, boolean hasFocus)` fires on focus gain/loss. |
+
+See [Key events](#key-events) for handling the keys themselves, and
+[`examples/keydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/keydemo).
+
+## `picodroid.view.ViewGroup`
+
+Abstract base for every container that holds child views — `LinearLayout`, `FrameLayout`,
+`ScrollView`, `SwipeRefreshLayout`, and the adapter views. Extends `View`, so containers also have
+position/size/background/visibility. Mirrors `android.view.ViewGroup`.
+
+```java
+group.addView(child);                 // append a child
+group.addView(child, params);         // append with explicit LayoutParams
+int n = group.getChildCount();
+View first = group.getChildAt(0);
+group.removeView(child);
+group.removeAllViews();
+```
+
+`ViewGroup.LayoutParams` carries a child's requested `width`/`height`, using `MATCH_PARENT` (-1) or
+`WRAP_CONTENT` (-2):
+
+```java
+view.setLayoutParams(new ViewGroup.LayoutParams(
+    ViewGroup.LayoutParams.MATCH_PARENT,
+    ViewGroup.LayoutParams.WRAP_CONTENT));
+```
 
 ## `picodroid.view.MotionEvent`
 
-Represents a touch event from the display. Returned by `Display.pollTouch()`, or delivered to per-View `OnTouchListener`s.
+Represents a touch event from the display. Delivered to per-View `OnTouchListener`s (the primary path), or pulled via `DisplayDebug.pollTouch()`.
 
 ```java
+import picodroid.debug.DisplayDebug;
 import picodroid.view.MotionEvent;
 
-MotionEvent event = display.pollTouch();
+MotionEvent event = DisplayDebug.pollTouch();
 if (event != null) {
     int action = event.getAction();   // ACTION_DOWN, ACTION_UP, ACTION_MOVE, ACTION_LONG_PRESS
     int x = event.getX();
@@ -358,22 +437,32 @@ label.setTextColor(Color.WHITE);
 A clickable button with a text label.
 
 ```java
+import picodroid.view.View;
 import picodroid.widget.Button;
 
 Button btn = new Button("Tap Me!");
 btn.setSize(200, 50);
 btn.setText("New Label");
 
-// Event-driven click handling
-btn.setOnClickListener(new Runnable() {
-    public void run() {
+// Event-driven click handling — View.OnClickListener (onClick(View v))
+btn.setOnClickListener(new View.OnClickListener() {
+    public void onClick(View v) {
         Log.i("UI", "Button clicked!");
     }
 });
+// ...or a lambda, since OnClickListener is a single-method interface:
+btn.setOnClickListener(v -> Log.i("UI", "Button clicked!"));
 
 // Or poll-based
 boolean clicked = btn.wasClicked();
 ```
+
+> **Typed listeners (since v0.10.0):** widget callbacks are Android-style single-method
+> interfaces, not bare `Runnable`s. Each widget below names its interface — e.g.
+> `View.OnClickListener`, `CompoundButton.OnCheckedChangeListener`,
+> `SeekBar.OnSeekBarChangeListener`, `AdapterView.OnItemClickListener`,
+> `Spinner.OnItemSelectedListener`. Because they are single-method interfaces, a lambda works
+> wherever an anonymous class does.
 
 ### `picodroid.widget.LinearLayout`
 
@@ -394,11 +483,25 @@ layout.addView(button);
 | `LinearLayout.HORIZONTAL` | 0 |
 | `LinearLayout.VERTICAL` | 1 |
 
+### `picodroid.widget.CompoundButton`
+
+Abstract base for the two-state widgets below — `Switch`, `ToggleButton`, and `CheckBox`. Mirrors
+`android.widget.CompoundButton`. You don't instantiate it directly; it provides the shared checked
+API and listener that each subclass inherits:
+
+| Member | Description |
+|--------|-------------|
+| `boolean isChecked()` | Current checked state. |
+| `void setChecked(boolean)` | Set checked state (does not fire the listener). |
+| `void toggle()` | Flip the checked state. |
+| `setOnCheckedChangeListener(OnCheckedChangeListener)` | `onCheckedChanged(CompoundButton buttonView, boolean isChecked)` fires on user toggle. |
+
 ### `picodroid.widget.Switch`
 
 An on/off toggle switch.
 
 ```java
+import picodroid.widget.CompoundButton;
 import picodroid.widget.Switch;
 
 Switch sw = new Switch();
@@ -408,18 +511,23 @@ boolean on = sw.isChecked();
 sw.setChecked(true);
 sw.toggle();
 
-sw.setOnCheckedChangeListener(new Runnable() {
-    public void run() {
-        Log.i("UI", "Switch is now " + sw.isChecked());
+sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+        Log.i("UI", "Switch is now " + isChecked);
     }
 });
 ```
+
+`Switch` extends [`CompoundButton`](#picodroidwidgetcompoundbutton) (the shared base for
+`Switch` / `ToggleButton` / `CheckBox`), which is where `isChecked()` / `setChecked()` /
+`toggle()` / `setOnCheckedChangeListener()` come from.
 
 ### `picodroid.widget.ToggleButton`
 
 A button that toggles between two states with configurable text labels.
 
 ```java
+import picodroid.widget.CompoundButton;
 import picodroid.widget.ToggleButton;
 
 ToggleButton toggle = new ToggleButton("ON", "OFF");  // or new ToggleButton()
@@ -431,9 +539,9 @@ toggle.toggle();
 toggle.setTextOn("Enabled");
 toggle.setTextOff("Disabled");
 
-toggle.setOnCheckedChangeListener(new Runnable() {
-    public void run() {
-        Log.i("UI", "Toggle is now " + toggle.isChecked());
+toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+        Log.i("UI", "Toggle is now " + isChecked);
     }
 });
 ```
@@ -484,7 +592,8 @@ spinner.setSize(48, 48);
 
 ### `picodroid.widget.ListView`
 
-A scrollable list of text items.
+A scrollable list. Add plain text items directly, or back it with an `Adapter` for data-driven
+lists with stable item IDs and D-pad item selection.
 
 ```java
 import picodroid.widget.ListView;
@@ -496,20 +605,49 @@ list.addItem("Item 2");
 list.addItem("Item 3");
 ```
 
+**Adapter-backed (the Tier 2 `Adapter` pattern, since v0.10.0).** Bind an `ArrayAdapter` and
+receive typed click callbacks. Each item renders via its `toString()`:
+
+```java
+import picodroid.widget.ArrayAdapter;
+import picodroid.widget.ListView;
+
+String[] rows = { "Live", "History", "Settings" };
+ListView list = new ListView();
+list.setAdapter(new ArrayAdapter<String>(rows));
+
+// onItemClick(AdapterView<?> parent, View view, int position, long id) — usable as a lambda:
+list.setOnItemClickListener((parent, view, position, id) -> open(position));
+```
+
+> **The `Adapter` family.** `ListView` extends `AdapterView<Adapter>`. The pieces:
+> - `Adapter` — interface: `getCount()`, `getItem(int)`, `getItemId(int)`.
+> - `BaseAdapter` — abstract base with `notifyDataSetChanged()` (call after mutating data).
+> - `ArrayAdapter<T>` — concrete `BaseAdapter` over a `T[]`, or built incrementally with
+>   `add(T)` / `clear()`; renders each item's `toString()`. Constructors take an optional
+>   `Context` and/or `T[]`.
+> - `AdapterView<T>.setOnItemClickListener(OnItemClickListener)` — the 4-arg `onItemClick` above.
+>
+> On memory-constrained boards the LVGL renderer makes very long focusable lists expensive — keep
+> adapter-backed data lists modest in length.
+
 ### `picodroid.widget.CheckBox`
 
 A labelled checkable box.
 
 ```java
 import picodroid.widget.CheckBox;
+import picodroid.widget.CompoundButton;
 
 CheckBox cb = new CheckBox();
 cb.setText("Enable WiFi");
 cb.setChecked(true);
 boolean on = cb.isChecked();
 
-cb.setOnCheckedChangeListener(new Runnable() {
-    public void run() { Log.i("UI", "checked=" + cb.isChecked()); }
+cb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+        Log.i("UI", "checked=" + isChecked);
+    }
 });
 ```
 
@@ -524,8 +662,11 @@ SeekBar bar = new SeekBar(100);   // or `new SeekBar()` for default max
 bar.setProgress(25);
 int p = bar.getProgress();
 
-bar.setOnSeekBarChangeListener(new Runnable() {
-    public void run() { Log.i("UI", "progress=" + bar.getProgress()); }
+bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+    public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+        Log.i("UI", "progress=" + progress);
+    }
+    // onStartTrackingTouch(SeekBar) / onStopTrackingTouch(SeekBar) have default no-op bodies
 });
 ```
 
@@ -540,8 +681,10 @@ Spinner sp = new Spinner();
 sp.setItems("Red\nGreen\nBlue");
 int sel = sp.getSelectedItemPosition();
 
-sp.setOnItemSelectedListener(new Runnable() {
-    public void run() { Log.i("UI", "sel=" + sp.getSelectedItemPosition()); }
+sp.setOnItemSelectedListener(new Spinner.OnItemSelectedListener() {
+    public void onItemSelected(Spinner parent, int position) {
+        Log.i("UI", "sel=" + position);
+    }
 });
 ```
 
@@ -565,12 +708,13 @@ Fires when the user presses the keyboard's Done / Send key. Lets you commit the 
 
 ```java
 import picodroid.widget.EditText;
-import picodroid.view.OnEditorActionListener;
+import picodroid.widget.OnEditorActionListener;
+import picodroid.view.KeyEvent;
 
 input.setOnEditorActionListener(new OnEditorActionListener() {
-    public boolean onEditorAction(EditText v, int actionId) {
-        save(v.getText());
-        return true;   // true = consume; false = let default handler run too
+    public boolean onEditorAction(EditText v, int actionId, KeyEvent event) {
+        save(v.getText());   // event is null for the synthesized soft-keyboard OK
+        return true;         // true = consume; false = let default handler run too
     }
 });
 ```
@@ -580,7 +724,7 @@ input.setOnEditorActionListener(new OnEditorActionListener() {
 Tell the soft keyboard which character set to start with by passing an `EditorInfo` constant:
 
 ```java
-import picodroid.widget.EditorInfo;
+import picodroid.view.inputmethod.EditorInfo;
 
 input.setInputType(EditorInfo.TYPE_NUMBER);   // or TYPE_TEXT, TYPE_EMAIL, TYPE_PHONE, TYPE_PASSWORD
 ```
@@ -622,7 +766,8 @@ Brief, non-modal, auto-dismissing message bubble — Android-style.
 ```java
 import picodroid.widget.Toast;
 
-Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
+// First arg is a Context — `this` inside an Activity.
+Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();
 ```
 
 | Constant | Value | Default duration |
@@ -632,7 +777,7 @@ Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
 
 | Method | Description |
 |--------|-------------|
-| `Toast.makeText(String text, int duration)` | Static factory. |
+| `Toast.makeText(Context ctx, String text, int duration)` | Static factory. |
 | `show()` | Display the toast. |
 | `cancel()` | Dismiss before the timeout expires. |
 
@@ -641,13 +786,14 @@ Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
 Modal dialog with a title, message, and up to two buttons. Built via the nested `Builder`.
 
 ```java
+import picodroid.content.DialogInterface;
 import picodroid.widget.AlertDialog;
 
 new AlertDialog.Builder()
     .setTitle("Erase data?")
     .setMessage("This cannot be undone.")
-    .setPositiveButton("Erase", new Runnable() {
-        public void run() { eraseAll(); }
+    .setPositiveButton("Erase", new DialogInterface.OnClickListener() {
+        public void onClick(DialogInterface dialog, int which) { eraseAll(); }
     })
     .setNegativeButton("Cancel", null)
     .show();
@@ -657,8 +803,8 @@ new AlertDialog.Builder()
 |-----|-------------|
 | `setTitle(String)` | Dialog title (top bar). |
 | `setMessage(String)` | Body text. |
-| `setPositiveButton(String text, Runnable listener)` | Confirm button. `listener` may be null. |
-| `setNegativeButton(String text, Runnable listener)` | Dismiss button. `listener` may be null. |
+| `setPositiveButton(String text, DialogInterface.OnClickListener listener)` | Confirm button. `onClick(DialogInterface, int which)`; `listener` may be null. `which` is `DialogInterface.BUTTON_POSITIVE`. |
+| `setNegativeButton(String text, DialogInterface.OnClickListener listener)` | Dismiss button. `listener` may be null. `which` is `DialogInterface.BUTTON_NEGATIVE`. |
 | `create()` | Returns an `AlertDialog` without showing it. |
 | `show()` | Convenience: `create()` + `show()`. |
 
@@ -684,8 +830,8 @@ kb.setEditText(input);
 kb.setMode(Keyboard.MODE_TEXT_LOWER);
 kb.setPosition(0, 120);
 kb.setSize(320, 120);
-kb.setOnReadyListener(new Runnable() {
-    public void run() { kb.hide(); /* validate input here */ }
+kb.setOnReadyListener(new Keyboard.OnReadyListener() {
+    public void onReady(Keyboard keyboard) { keyboard.hide(); /* validate input here */ }
 });
 kb.show();
 ```
@@ -712,13 +858,14 @@ See [`examples/keyboarddemo/`](https://github.com/shivrajora/picodroid-rs/tree/m
 Toast-with-an-action. Brief, auto-dismissing message bubble that optionally carries a clickable lozenge ("Undo", "Retry", etc.).
 
 ```java
+import picodroid.view.View;
 import picodroid.widget.Snackbar;
 
-Snackbar.make("Item deleted")
-    .setAction("Undo", new Runnable() {
-        public void run() { restoreItem(); }
+// make(View parent, String text, int duration) — duration is passed here, not via setDuration
+Snackbar.make(rootView, "Item deleted", Snackbar.LENGTH_LONG)
+    .setAction("Undo", new View.OnClickListener() {
+        public void onClick(View v) { restoreItem(); }
     })
-    .setDuration(Snackbar.LENGTH_LONG)
     .show();
 ```
 
@@ -743,9 +890,9 @@ DatePicker dp = new DatePicker();
 dp.setSize(280, 220);
 dp.setDate(2026, 5, 7);   // year, month (1–12), day-of-month
 
-dp.setOnDateChangedListener(new Runnable() {
-    public void run() {
-        Log.i("UI", "picked " + dp.getYear() + "-" + dp.getMonth() + "-" + dp.getDay());
+dp.setOnDateChangedListener(new DatePicker.OnDateChangedListener() {
+    public void onDateChanged(DatePicker view, int year, int monthOfYear, int dayOfMonth) {
+        Log.i("UI", "picked " + year + "-" + monthOfYear + "-" + dayOfMonth);
     }
 });
 ```
@@ -763,9 +910,9 @@ TimePicker tp = new TimePicker();
 tp.setSize(220, 180);
 tp.setTime(14, 30);   // 2:30 pm in 24-hour mode
 
-tp.setOnTimeChangedListener(new Runnable() {
-    public void run() {
-        Log.i("UI", "picked " + tp.getHour() + ":" + tp.getMinute());
+tp.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
+    public void onTimeChanged(TimePicker view, int hourOfDay, int minute) {
+        Log.i("UI", "picked " + hourOfDay + ":" + minute);
     }
 });
 ```
@@ -790,20 +937,23 @@ Per-View swipe primitive — sits beside `OnTouchListener` and fires on a recogn
 
 ```java
 import picodroid.view.OnSwipeListener;
+import picodroid.view.View;
 
 view.setOnSwipeListener(new OnSwipeListener() {
-    public void onSwipe(int direction) {
+    public void onSwipe(View v, int direction) {
         switch (direction) {
-            case OnSwipeListener.SWIPE_UP:    /* ... */ break;
-            case OnSwipeListener.SWIPE_DOWN:  /* ... */ break;
-            case OnSwipeListener.SWIPE_LEFT:  /* ... */ break;
-            case OnSwipeListener.SWIPE_RIGHT: /* ... */ break;
+            case View.SWIPE_UP:    /* ... */ break;
+            case View.SWIPE_DOWN:  /* ... */ break;
+            case View.SWIPE_LEFT:  /* ... */ break;
+            case View.SWIPE_RIGHT: /* ... */ break;
         }
     }
 });
 ```
 
-Direction is decided from the largest dominant axis with a configurable minimum delta. Diagonal-only swipes do not fire.
+The `SWIPE_*` direction constants live on `View` (`View.SWIPE_LEFT` = 1, `SWIPE_RIGHT` = 2,
+`SWIPE_UP` = 4, `SWIPE_DOWN` = 8). Direction is decided from the largest dominant axis with a
+configurable minimum delta. Diagonal-only swipes do not fire.
 
 ### `picodroid.widget.SwipeRefreshLayout`
 
@@ -814,8 +964,8 @@ import picodroid.widget.SwipeRefreshLayout;
 
 SwipeRefreshLayout pull = new SwipeRefreshLayout();
 pull.addView(scrollableContent);
-pull.setOnRefreshListener(new Runnable() {
-    public void run() {
+pull.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+    public void onRefresh() {
         reload();
         pull.setRefreshing(false);   // dismiss the spinner when done
     }
@@ -833,10 +983,11 @@ A minimal app that creates a button and updates a label when tapped:
 package counter;
 
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class CounterApp extends Application {
     public void onCreate() {
-        startActivity(new CounterActivity());
+        startActivity(new Intent(CounterActivity.class));
     }
 }
 ```
@@ -846,7 +997,9 @@ public class CounterApp extends Application {
 package counter;
 
 import picodroid.app.Activity;
+import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
+import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -855,7 +1008,7 @@ public class CounterActivity extends Activity {
     private int count = 0;
 
     public void onCreate() {
-        getDisplay().calibrate();
+        DisplayDebug.calibrate();
 
         LinearLayout root = new LinearLayout();
         root.setOrientation(LinearLayout.VERTICAL);
@@ -868,8 +1021,8 @@ public class CounterActivity extends Activity {
 
         Button btn = new Button("Increment");
         btn.setSize(200, 50);
-        btn.setOnClickListener(new Runnable() {
-            public void run() {
+        btn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
                 count = count + 1;
                 label.setText("Count: " + count);
             }

@@ -39,10 +39,13 @@ String tr    = "  hi  ".trim();     // "hi"
 String upper = "pico".toUpperCase(); // "PICO"
 String lower = "PICO".toLowerCase(); // "pico"
 
-// Static factory
+// Static factory — valueOf covers int, long, boolean, char, float, double
 String vi = String.valueOf(42);       // "42"
 String vl = String.valueOf(9000L);    // "9000"
 String vb = String.valueOf(true);     // "true"
+String vc = String.valueOf('X');      // "X"
+String vf = String.valueOf(3.14f);    // "3.14"
+String vd = String.valueOf(2.71828);  // "2.71828"
 
 // Extended methods
 String[] parts = "a,b,c".split(",");           // ["a", "b", "c"]
@@ -50,7 +53,13 @@ String r       = "foo bar".replace(' ', '_'); // "foo_bar"
 String c       = "Hello, ".concat("World");    // "Hello, World"
 char[] chs     = "abc".toCharArray();          // {'a', 'b', 'c'}
 int    h       = "abc".hashCode();             // standard Java String hash
+
+// Formatted strings — String.format(String, Object...)
+String msg = String.format("Score: %d (%.1f%%)", 42, 87.5);  // "Score: 42 (87.5%)"
 ```
+
+`String.format` supports the conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with the flags
+`-` `0` `+` `(space)` `,` `#`, plus width and precision (e.g. `%-8s`, `%08.2f`).
 
 > **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
 >
@@ -68,6 +77,7 @@ StringBuilder sb = new StringBuilder("prefix="); // with initial content
 sb.append("text");    // append String
 sb.append(42);        // append int
 sb.append(3.14f);     // append float  (formats as "3.14")
+sb.append(2.71828);   // append double
 sb.append(100L);      // append long
 sb.append(true);      // append "true" or "false"
 sb.append('x');       // append char
@@ -176,7 +186,12 @@ map.put("two", Integer.valueOf(2));
 Integer v   = (Integer) map.get("one");      // 1
 boolean has = map.containsKey("two");        // true
 int     n   = map.size();                    // 2
+Integer d   = (Integer) map.getOrDefault("nope", Integer.valueOf(0));  // 0
 map.remove("one");
+
+// Iterate keys / values (keySet() and values() are Iterable)
+for (Object k : map.keySet())   { Log.i("TAG", (String) k); }
+for (Object val : map.values()) { Log.i("TAG", String.valueOf((Integer) val)); }
 
 HashSet set = new HashSet();
 set.add("a");
@@ -222,6 +237,13 @@ String[] words = { "echo", "alpha", "delta", "bravo" };
 Arrays.sort(words);                    // in-place stable mergesort
 String dump = Arrays.toString(words);  // "[alpha, bravo, delta, echo]"
 
+// Primitive sort (int/long/double/float/short/byte/char overloads), fill, copyOf
+int[] nums = { 3, 1, 2 };
+Arrays.sort(nums);                     // {1, 2, 3}
+int[] zeros = new int[4];
+Arrays.fill(zeros, 7);                 // {7, 7, 7, 7}
+int[] grown = Arrays.copyOf(nums, 5);  // {1, 2, 3, 0, 0}
+
 // Collections — operate on java.util.List (ArrayList implements it)
 ArrayList<Integer> nums = new ArrayList<Integer>();
 nums.add(3); nums.add(1); nums.add(2);
@@ -232,6 +254,9 @@ Collections.reverse(nums);  // [3, 2, 1]
 | Method | Description |
 |--------|-------------|
 | `Arrays.sort(Object[] a)` | In-place stable mergesort. Elements must implement `Comparable`. |
+| `Arrays.sort(int[] a)` | In-place sort of a primitive array (`long`/`double`/`float`/`short`/`byte`/`char` overloads too). |
+| `Arrays.fill(a, value)` | Fill every element with `value` (primitive overloads). |
+| `Arrays.copyOf(a, newLength)` | Copy, truncating or zero-padding to `newLength` (primitive overloads). |
 | `Arrays.toString(Object[] a)` | `"[a, b, c]"` rendering using each element's `toString`. |
 | `Collections.sort(List)` | Stable mergesort over a `List`. Elements must implement `Comparable`. |
 | `Collections.reverse(List)` | Reverse the list in place. |
@@ -272,7 +297,7 @@ boolean stable = (Direction.class == Direction.class);  // true
 
 ```java
 public interface AutoCloseable {
-    void close();
+    void close() throws Exception;
 }
 ```
 
@@ -306,6 +331,86 @@ switch (d) {
     case SOUTH: Log.i("TAG", "down");  break;
     default:    Log.i("TAG", "side");  break;
 }
+```
+
+## Boxed primitives (wrapper classes)
+
+`Integer`, `Long`, `Float`, `Double`, `Boolean`, and `Character` are available as object wrappers.
+Each supports `valueOf(primitive)`, the matching unboxing accessor, and `toString()`:
+
+```java
+Integer boxed = Integer.valueOf(42);
+int     back  = boxed.intValue();         // 42
+String  s     = boxed.toString();         // "42"
+
+Boolean   b = Boolean.valueOf(true);     boolean bv = b.booleanValue();
+Long      l = Long.valueOf(9000L);       long    lv = l.longValue();
+Float     f = Float.valueOf(3.14f);      float   fv = f.floatValue();
+Double    d = Double.valueOf(2.71828);   double  dv = d.doubleValue();
+Character c = Character.valueOf('X');     char    cv = c.charValue();
+```
+
+You rarely call these directly: `ArrayList<Integer>` and `HashMap` keys/values **autobox** through
+`valueOf` and auto-unbox through the `*Value()` accessors.
+
+## Exceptions
+
+`java.lang.Throwable`, `Exception`, and `RuntimeException` are supported, each with the standard
+no-arg and `(String message)` constructors. Standard subclasses such as `IllegalArgumentException`
+and `IllegalStateException` are also throwable with a message. Define your own by extending
+`Exception` (or `RuntimeException`), then `throw` / `catch` as usual — `catch` matches subclasses
+of the declared type:
+
+```java
+public class AppException extends Exception {
+    public AppException(String message) { super(message); }
+}
+
+try {
+    if (bad) throw new AppException("bad input");
+} catch (AppException e) {
+    Log.i("TAG", "caught an AppException");
+}
+```
+
+The message passed to a constructor is captured by the runtime and shown when a throw goes
+uncaught. **v1 caveats:** there is no `getMessage()` / `getCause()` accessor and no stack-trace API
+yet — the message is for runtime diagnostics, not programmatic inspection. See
+[`examples/exceptiondemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/exceptiondemo).
+
+## `java.util.Random`
+
+A seedable pseudo-random generator. A fixed seed gives a reproducible stream.
+
+```java
+import java.util.Random;
+
+Random r = new Random();          // or new Random(42L) for a fixed seed
+r.setSeed(42L);
+
+int     i  = r.nextInt();          // any int
+int     i2 = r.nextInt(100);       // 0..99
+long    l  = r.nextLong();
+boolean b  = r.nextBoolean();
+float   f  = r.nextFloat();        // [0.0, 1.0)
+double  d  = r.nextDouble();       // [0.0, 1.0)
+double  g  = r.nextGaussian();     // mean 0.0, stddev 1.0
+byte[]  buf = new byte[8];
+r.nextBytes(buf);                  // fill with random bytes
+```
+
+See [`examples/randomdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/randomdemo).
+
+## `java.lang.System` and `java.lang.Runnable`
+
+`System.currentTimeMillis()` returns wall-clock milliseconds (see
+[System & concurrency](/api/system/#javalangsystemcurrenttimemillis) for the full timing surface, including
+`SystemClock`). `java.lang.Runnable` is the standard `void run()` interface — used by
+`Thread`, `Executors`, and (historically) view callbacks:
+
+```java
+Runnable task = () -> Log.i("TAG", "ran");
+task.run();
 ```
 
 ---

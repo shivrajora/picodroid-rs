@@ -3,9 +3,9 @@ title: "Storage: Files and Preferences"
 description: "Files, Preferences, and the LittleFS-backed key-value store."
 ---
 
-On-device persistent storage. Packages: `picodroid.io` (raw files) and `picodroid.content` (typed key-value settings). See [Java API overview](/) for the full API index.
+On-device persistent storage. Packages: `picodroid.io` (raw files) and `picodroid.content` (typed key-value settings). See [Java API overview](/api/) for the full API index.
 
-Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region; under the simulator it is backed by a host file (`build/sim/littlefs.img`) so writes survive across `sim.sh` runs.
+Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region; under the simulator it is backed by a host file (`platforms/rp/target/sim-fs.img`, overridable via the `PICODROID_SIM_FS` env var) so writes survive across `sim.sh` runs.
 
 ## `picodroid.io` — Files
 
@@ -44,9 +44,9 @@ try (FileInputStream in = new FileInputStream(new File("/data/log.txt"))) {
 
 | Class | Selected methods |
 |-------|------------------|
-| `File` | `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `renameTo(File)` |
-| `FileInputStream` | `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
-| `FileOutputStream` | `write(byte[], int, int)`, `write(byte[])`, `write(int)`, `flush()`, `close()`; constructors `(File)`, `(String)`, `(String, boolean append)` |
+| `File` | constructor `File(String path)`; `getPath()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `renameTo(File)` |
+| `FileInputStream` | constructors `(File)`, `(String path)`; `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
+| `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)`, `flush()`, `close()` |
 
 ## `picodroid.content.Preferences`
 
@@ -71,6 +71,11 @@ if (prefs.contains("device_name")) {
     String name = prefs.getString("device_name", "");
 }
 ```
+
+| Class | Methods |
+|-------|---------|
+| `Preferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getBoolean(String, boolean def)`, `getAllKeys()`, `edit()` |
+| `Editor` | `putString`, `putInt`, `putLong`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()` |
 
 `commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `Preferences` instances are not thread-safe — synchronize externally if shared.
 

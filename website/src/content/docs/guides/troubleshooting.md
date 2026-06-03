@@ -7,7 +7,7 @@ Common pitfalls and their solutions.
 
 ## `cargo test` fails with target errors
 
-The default Cargo target is `thumbv6m-none-eabi` (bare-metal ARM), so bare `cargo test` will fail. Use the test script instead:
+The `picodroid` firmware crate is bare-metal and the workspace sets **no default Cargo target**, so bare `cargo test` can't pick a host triple and fails. Use the test script instead:
 
 ```bash
 ./scripts/test.sh
@@ -37,7 +37,7 @@ timeout 5 ./scripts/sim.sh --app blinky
 
 ## Clippy fails when run on the host
 
-Bare `cargo clippy` fails because the default target is bare-metal ARM. Use the feature flags:
+Bare `cargo clippy` fails because there's no default target set and the firmware crate needs an explicit target plus board feature flags. Use the feature flags:
 
 ```bash
 # RP2040

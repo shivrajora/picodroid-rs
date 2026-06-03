@@ -41,12 +41,24 @@ Under the hood this uses `xPortGetFreeHeapSize()`, `xPortGetMinimumEverFreeHeapS
 
 ## GDB
 
-For GDB debugging, run probe-rs in GDB server mode and connect with:
+GDB debugging is a two-terminal workflow. First, start probe-rs as a GDB server (it listens on `localhost:1337` by default):
 
 ```bash
 # RP2040
-arm-none-eabi-gdb target/thumbv6m-none-eabi/debug/picodroid
+probe-rs gdb --chip RP2040
 
 # RP2350
-arm-none-eabi-gdb target/thumbv8m.main-none-eabihf/debug/picodroid
+probe-rs gdb --chip RP2350
+```
+
+Then, in a second terminal, launch GDB against the ELF and connect to the server:
+
+```bash
+# RP2040
+arm-none-eabi-gdb target/thumbv6m-none-eabi/debug/picodroid \
+    -ex "target remote localhost:1337"
+
+# RP2350
+arm-none-eabi-gdb target/thumbv8m.main-none-eabihf/debug/picodroid \
+    -ex "target remote localhost:1337"
 ```

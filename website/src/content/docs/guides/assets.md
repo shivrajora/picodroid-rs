@@ -13,11 +13,11 @@ In your app's directory (e.g. `examples/imagedemo/`), declare the assets next to
 
 ```
 examples/imagedemo/
-  app.toml
+  PicodroidManifest.xml
+  build.gradle.kts
   assets/
-    icon.png
-    splash.png
-  src/main/java/imagedemo/ImageDemoApp.java
+    logo.png
+  java/imagedemo/ImageDemoApp.java
 ```
 
 `papk-pack` discovers anything under `assets/` and emits one entry per file into the PAPK ASST section.
@@ -30,7 +30,7 @@ PNG decoding happens **at pack time** on the host. The on-device firmware sees o
 import picodroid.widget.ImageView;
 
 ImageView img = new ImageView();
-img.setImageSource("icon.png");   // matches assets/icon.png in the manifest
+img.setImageSource("logo.png");   // matches assets/logo.png in the app directory
 ```
 
 The string is the asset's relative path under `assets/` — no leading slash, forward-slashes for subdirectories. The lookup is a hash on the asset name and runs in O(1) per `setImageSource`.
@@ -61,8 +61,8 @@ cargo run -p papk-info -- build/apks/imagedemo.papk
 
 ## Internals (for the curious)
 
-- ASST entries are stored as `[u32 name_hash][u16 width][u16 height][u32 byte_count][u8...]` triples followed by a string table.
-- The firmware-side resolver lives in `src/papk/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
+- The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data.
+- The firmware-side resolver lives in `platforms/rp/src/system/picodroid/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
 - The `assets/` directory must be under 256 KiB total per PAPK in v1.1; the framework reserves the remainder of the binary section for code.
 - Re-pack any PAPK that was built before v1.1 if you start using `setImageSource` — `pdb install` will reject the older format with `FrameworkVersionMismatch`.
 

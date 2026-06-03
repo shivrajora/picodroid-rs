@@ -32,7 +32,7 @@ The required public symbols and signatures are documented in `platforms/rp/src/h
 Symbols are tiered:
 
 - **Always required** (sim + every hardware family): `adc`, `display`, `gpio`, `i2c`, `pwm`, `spi`, `system_clock`, `touch`, `uart`.
-- **Hardware-only**: `boot`, `flash`, `pdb_uart`.
+- **Hardware-only**: `boot`, `flash`, `pdb_usb`.
 
 A new family port only needs the always-required tier to compile; hardware-only modules can stub-panic until the M2 milestone.
 
@@ -44,26 +44,28 @@ The rest of the codebase (`system/`, `pdb/`, `packagemanager/`) calls `crate::ha
 
 ## What a new port must provide
 
-Create a directory `src/hal/<family>/` containing a `mod.rs` that declares
-these ten public modules:
+Create a directory `platforms/<family>/src/hal/` containing a `mod.rs` that
+declares these public modules:
 
 ```rust
-// src/hal/<family>/mod.rs
+// platforms/<family>/src/hal/mod.rs
 pub mod adc;
 pub mod boot;
+pub mod display;
 pub mod flash;
 pub mod gpio;
 pub mod i2c;
-pub mod pdb_uart;
+pub mod pdb_usb;
 pub mod pwm;
 pub mod spi;
 pub mod system_clock;
+pub mod touch;
 pub mod uart;
 ```
 
 Each module must export the functions listed below with the exact signatures.
-The simplest way to start is to copy `src/hal/sim/` and replace the stubs with
-real hardware drivers.
+The simplest way to start is to copy `platforms/rp/src/hal/sim/` and replace the
+stubs with real hardware drivers.
 
 ### uart.rs
 
@@ -79,6 +81,7 @@ pub fn read_byte(uart_id: u8) -> i32;  // returns -1 if RX FIFO empty
 - `init` configures GPIO pins and applies a default 9600 8N1 configuration.
 - `write_byte` is blocking (polls TX FIFO).
 - `read_byte` is non-blocking (returns -1 when nothing is available).
+- The v1 contract (`contract.rs`) enforces only `init`, `write_byte`, and `read_byte`. `reconfigure` is not contract-checked but is needed to back the Java `UartDevice.set*` methods.
 
 ### gpio.rs
 
@@ -125,6 +128,7 @@ pub fn read(i2c_id: u8, address: u32, buf_idx: u16,
 - `i2c_id`: 0 or 1.
 - `set_speed`: standard (100 kHz) or fast (400 kHz).
 - Return value: number of bytes transferred, or -1 on NACK/abort.
+- **v1 contract:** `contract.rs` enforces `init`, `set_speed`, and the slice-based `write_slice` / `read_slice` (see [slice-based I/O](#i2c--slice-based-io) below). The `ArrayHeap`-based `write` / `read` shown here back the Java `I2cDevice` API; native drivers (e.g. BME688) use the slice form.
 
 ### pwm.rs
 
@@ -198,32 +202,37 @@ pub fn flash_trigger_reset() -> !;
 - `flash_trigger_reset`: trigger a full chip reset (typically via watchdog).
 
 All flash write/erase functions must run from RAM (not flash) and may need to
-disable XIP. See `src/hal/rp/flash.rs` for the RP family's approach.
+disable XIP. See `platforms/rp/src/hal/rp/flash.rs` for the RP family's approach.
 
 In addition to the PAPK region above, a port that wants to support
 `picodroid.io` / `picodroid.content.Preferences` on hardware must reserve a
 separate flash region for the LittleFS volume in its linker memory layout
-(see `memory.x` / `memory_rp2350.x` for the RP family) and expose it to the
+(the RP family's layout is generated at build time by `boards::place_memory_x` in `platforms/rp/build.rs`) and expose it to the
 filesystem driver. Sim builds back the same API with a host file image and
 do not need this.
 
-### pdb_uart.rs
+### pdb_usb.rs
+
+The PDB (Picodroid Debug Bridge) host transport. It was originally a dedicated
+UART (`pdb_uart`); it is now USB CDC-ACM, hence the module name.
 
 ```rust
 pub fn init();
 pub fn queue_read_byte() -> u8;
 pub fn queue_read_byte_timeout() -> Option<u8>;
 pub fn queue_read_u32_le() -> u32;
+pub fn write_bytes(data: &[u8]);
 pub fn drain_tx();
 ```
 
-- `init`: allocate the RX queue, configure the PDB UART, enable RX interrupts.
+- `init`: allocate the RX queue, bring up the USB CDC device, enable RX interrupts.
 - `queue_read_byte`: blocking read from the ISR-fed RX queue.
 - `queue_read_byte_timeout`: 2-second timeout, returns `None` on timeout.
-- `drain_tx`: spin until the TX shift register has finished transmitting.
-- You must also provide a `#[no_mangle] extern "C"` ISR that drains the UART
-  RX FIFO into the queue. The ISR name is chip-specific (e.g. `UART1_IRQ` on
-  RP, `UARTE0_UART0` on nRF52).
+- `write_bytes`: send a response frame back to the host.
+- `drain_tx`: spin until the TX path has finished transmitting.
+- You must also provide the USB interrupt handler that drains the CDC RX
+  endpoint into the queue. The mechanism is chip-specific (e.g. the
+  `USBCTRL_IRQ` handler on RP2040/RP2350).
 
 ## FreeRTOSConfig.h
 
@@ -243,7 +252,7 @@ Key settings that differ per family:
 
 Settings that are the same across all families (tick rate, stack sizes, hook
 enables, API includes) can be found in the existing RP config at
-`src/hal/rp/FreeRTOSConfig.h`.
+`platforms/rp/src/hal/rp/FreeRTOSConfig.h`.
 
 ## Cargo features
 
@@ -264,7 +273,7 @@ nrf52840-hal = { version = "...", optional = true }
 
 ## HAL dispatch
 
-Add a `#[cfg]` path entry in `src/hal/mod.rs`:
+Add a `#[cfg]` path entry in `platforms/rp/src/hal/mod.rs`:
 
 ```rust
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-nrf"))]
@@ -276,19 +285,21 @@ mod chip;
 
 Update `build.rs` to handle the new family:
 
-1. **Memory layout**: add `memory_nrf52840.x` at the repo root and select it
-   based on `CARGO_FEATURE_CHIP_NRF52840`.
+1. **Memory layout**: emit a `memory_<chip>.x` from `build.rs` and select it
+   based on `CARGO_FEATURE_CHIP_*`. The RP family generates its layout at build
+   time via `boards::place_memory_x` (see `platforms/rp/build.rs`) rather than
+   committing a file.
 2. **FreeRTOS port**: select the standard Cortex-M4F port
    (`portable/GCC/ARM_CM4F`) instead of the RP-specific SMP ports.
-3. **FreeRTOS config**: point `freertos_config()` to `src/hal/nrf52/`.
+3. **FreeRTOS config**: point `freertos_config()` to `platforms/<family>/src/hal/nrf52/`.
 4. **C shim**: the RP family needs `pico_shim_*.c` files (in
-   `src/hal/rp/port/`) that fake the pico-sdk C API expected by the
+   `platforms/rp/src/hal/rp/port/`) that fake the pico-sdk C API expected by the
    RP-specific FreeRTOS SMP ports. These shims are compiled into
    `libfreertos.a` and are never called from Rust — they exist purely to
    satisfy the C linker. Standard Cortex-M FreeRTOS ports (ARM_CM4F, ARM_CM33)
    use CMSIS directly and do **not** need a shim or shadow headers. If your
    MCU's FreeRTOS port depends on a vendor SDK, you may need to provide
-   similar stubs in `src/hal/<family>/port/`.
+   similar stubs in `platforms/<family>/src/hal/<family>/port/`.
 
 ## .cargo/config.toml
 
@@ -465,7 +476,7 @@ cargo run --target thumbv7em-none-eabihf \
 
 ## Reference implementation
 
-The RP family (`src/hal/rp/`) is the reference implementation. Study these
+The RP family (`platforms/rp/src/hal/rp/`) is the reference implementation. Study these
 files for patterns and conventions:
 
 | File | What it demonstrates |
@@ -474,4 +485,4 @@ files for patterns and conventions:
 | `gpio.rs` | Direct register access via PAC, RP2350 ISO bit handling |
 | `flash.rs` | XIP-disabled flash operations from RAM, core parking with inline asm |
 | `boot.rs` | Dual-core task creation, chip-specific boot blocks |
-| `pdb_uart.rs` | ISR → FreeRTOS queue pattern, NVIC interrupt setup |
+| `pdb_usb.rs` | USB CDC ISR → FreeRTOS queue pattern, NVIC interrupt setup |

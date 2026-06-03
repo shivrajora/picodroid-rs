@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Fifty-nine examples are included under `examples/`, organized by category.
+Fifty-three examples are included under `examples/`, organized by category.
 
 ## Getting Started
 
@@ -121,6 +121,8 @@ Benchmarks and stress tests for the JVM runtime and allocator. Reference: [Syste
 | Example | Class | Description |
 |---------|-------|-------------|
 | `benchmark` | `benchmark.Benchmark` | JVM performance benchmark: times int/long/float/double arithmetic, method dispatch, interface dispatch, object allocation, array ops, string ops, and control flow; logs per-category and total elapsed time |
+| `perfbench` | `perfbench.PerfBench` | Unified speed + memory benchmark — rolls execution-time and heap-usage measurements into a single composite SCORE for tracking runtime regressions |
+| `graphicsbench` | `graphicsbench.GraphicsBench` | LVGL render-pipeline benchmark — exercises the draw/refresh path across several test cases and reports a composite SCORE |
 | `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
 | `heapstress` | `heapstress.HeapStress` | Allocation/fragmentation stress test exercising the array arena allocator and emergency-GC path |
 | `tracedemo` | `tracedemo.TraceDemo` | Bytecode-level tracing harness — exercises the JVM's diagnostic trace mode for verifying interpreter behavior under controlled inputs |

@@ -36,7 +36,7 @@ See [`examples/clockdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main
 
 ## `picodroid.os.Runtime`
 
-GC introspection. All methods are static.
+GC and heap introspection. All methods are static.
 
 ```java
 import picodroid.os.Runtime;
@@ -45,7 +45,14 @@ long nanos  = Runtime.gcTimeNanos();  // total time spent in GC so far (ns)
 int  count  = Runtime.gcCount();      // number of GC cycles run
 int  freed  = Runtime.gcFreed();      // total heap entries freed across all cycles
 Runtime.resetGcStats();               // reset all three counters to zero
+
+long used = Runtime.usedMemory();     // current heap usage (bytes)
+long peak = Runtime.peakMemory();     // high-water heap usage so far (bytes)
+Runtime.resetPeakMemory();            // reset the peak counter to the current usage
 ```
+
+`usedMemory` / `peakMemory` / `resetPeakMemory` are handy for profiling — bracket a workload with
+`resetPeakMemory()` then read `peakMemory()` to capture its high-water allocation.
 
 ## `picodroid.concurrent.Thread`
 

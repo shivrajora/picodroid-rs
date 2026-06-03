@@ -3,20 +3,20 @@ title: "Java System API"
 description: "Java system APIs grouped by area: peripherals, storage, networking, sensors, UI, and more."
 ---
 
-Java system APIs live under `sdk/java/picodroid/` and mirror the Android API surface. Native implementations are in `src/system/picodroid/`.
+Java system APIs live under `sdk/java/picodroid/` and mirror the Android API surface. Native implementations are in `platforms/rp/src/system/picodroid/`.
 
 The reference is split by package family. Pick the area you need.
 
 | Area | Packages | Covers |
 |------|----------|--------|
-| [Core language](/api/core/) | `java.lang`, `java.util` | `String`, `StringBuilder`, `Math`, `ArrayList`, `HashMap` / `HashSet`, `Iterator` / for-each, enums, `Arrays` / `Collections` / `List` / `Comparable`, `Class`, `AutoCloseable` |
+| [Core language](/api/core/) | `java.lang`, `java.util` | `String` (incl. `String.format`), `StringBuilder`, `Math`, wrapper classes, exceptions, `Random`, `ArrayList`, `HashMap` / `HashSet`, `Iterator` / for-each, enums, `Arrays` / `Collections` / `List` / `Comparable`, `Class`, `AutoCloseable` |
 | [System & concurrency](/api/system/) | `picodroid.util`, `picodroid.os`, `picodroid.concurrent` | `Log`, `SystemClock`, `System.currentTimeMillis`, `Runtime` (GC stats), `Thread`, `Executors` (main-thread FIFO + background pool) |
 | [Services & DI](/api/services/) (Preview) | `picodroid.app`, `picodroid.content`, `picodroid.di` | `Service` / `IBinder` / `Notification`, `bindService` / `startService`, `ServiceConnection`, manual DI components (`ApplicationComponent`, `ActivitySingletonComponent`) |
 | [Peripherals](/api/peripherals/) | `picodroid.pio` | `PeripheralManager`, `Gpio`, `UartDevice`, `I2cDevice`, `SpiDevice`, `Pwm`, `Adc`, `AutoCloseable` idiom |
 | [Storage](/api/storage/) | `picodroid.io`, `picodroid.content` | `File` / `FileInputStream` / `FileOutputStream` (LittleFS), `Preferences` / `Editor` |
 | [Networking](/api/networking/) | `picodroid.net` | `Socket`, `ServerSocket`, `DatagramSocket`, `DatagramPacket`, `InetAddress`, `NetworkInfo`, `HttpUrlConnection` + `Url` (Pico 2 W on hardware; sim always works) |
 | [Sensors](/api/sensors/) | `picodroid.hardware` | `SensorManager`, `Sensor`, `SensorEvent`, `SensorEventListener` — BME688 (temperature / humidity / pressure / gas), LTR559 (light / proximity) |
-| [Graphics & UI](/api/ui/) | `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget` | `Application` / `Activity` full lifecycle + back stack, `Display`, `Color`, `Theme`, `GradientDrawable`, `View` (incl. `animate()` + per-View touch), `MotionEvent`, `GestureDetector`, `ViewPropertyAnimator`, `KeyEvent` / `OnKeyListener`, `OnSwipeListener`, 20+ widgets including `Toast`, `AlertDialog`, `Keyboard`, `DatePicker`, `TimePicker`, `Snackbar`, `SwipeRefreshLayout`, `ImageView` |
+| [Graphics & UI](/api/ui/) | `picodroid.app`, `picodroid.graphics`, `picodroid.view`, `picodroid.widget`, `picodroid.debug` | `Application` / `Activity` full lifecycle + back stack, `Display` / `DisplayDebug`, `Color`, `Theme`, `GradientDrawable`, `View` (incl. `animate()`, per-View touch, focus nav), `ViewGroup`, `MotionEvent`, `GestureDetector`, `ViewPropertyAnimator`, `KeyEvent` / `OnKeyListener`, `OnSwipeListener`, typed listener interfaces, the `Adapter` / `ArrayAdapter` pattern, 20+ widgets including `Toast`, `AlertDialog`, `Keyboard`, `DatePicker`, `TimePicker`, `Snackbar`, `SwipeRefreshLayout`, `ImageView` |
 
 ## Quick example
 

@@ -3,7 +3,7 @@ title: "Peripherals (PIO)"
 description: "GPIO, UART, I2C, SPI, PWM, and ADC drivers exposed through PeripheralManager."
 ---
 
-Hardware peripherals: GPIO, UART, I2C, SPI, PWM, ADC. All under `picodroid.pio.*`. See [Java API overview](/) for the full API index.
+Hardware peripherals: GPIO, UART, I2C, SPI, PWM, ADC. All under `picodroid.pio.*`. See [Java API overview](/api/) for the full API index.
 
 ## `picodroid.pio.PeripheralManager`
 
@@ -20,6 +20,18 @@ SpiDevice  spi  = pm.openSpiDevice("SPI0");
 Pwm pwm         = pm.openPwm("GP25");
 Adc adc         = pm.openAdcPin("GP26");
 ```
+
+| Method | Returns |
+|--------|---------|
+| `static PeripheralManager getInstance()` | the singleton |
+| `Gpio openGpio(String name)` | a GPIO handle |
+| `UartDevice openUartDevice(String name)` | a UART handle |
+| `I2cDevice openI2cDevice(String name)` | an I2C handle |
+| `SpiDevice openSpiDevice(String name)` | an SPI handle |
+| `Pwm openPwm(String name)` | a PWM handle |
+| `Adc openAdcPin(String name)` | an ADC handle |
+
+Every handle implements `AutoCloseable` — see below.
 
 ## Resource management (`AutoCloseable`)
 
@@ -50,6 +62,12 @@ gpio.setValue(false);   // drive low
 gpio.close();           // or use try-with-resources
 ```
 
+| Member | Description |
+|--------|-------------|
+| `DIRECTION_OUT_INITIALLY_HIGH` = 1 | `setDirection` constant: output, start high. |
+| `DIRECTION_OUT_INITIALLY_LOW` = 2 | `setDirection` constant: output, start low. |
+| `void setDirection(int)` / `void setValue(boolean)` / `void close()` | Configure direction, drive the pin, release it. |
+
 ## `picodroid.pio.UartDevice`
 
 ```java
@@ -59,9 +77,19 @@ uart.setBaudrate(115200);
 uart.setDataSize(8);
 uart.setParity(UartDevice.PARITY_NONE);
 uart.setStopBits(1);
+uart.setHardwareFlowControl(UartDevice.HW_FLOW_CONTROL_NONE);  // or HW_FLOW_CONTROL_AUTO_RTSCTS
 int b = uart.readByte();    // non-blocking; returns -1 if RX FIFO empty
 uart.writeByte(0x41);       // blocking write of single byte
 ```
+
+| Member | Description |
+|--------|-------------|
+| `PARITY_NONE` = 0 / `PARITY_EVEN` = 1 / `PARITY_ODD` = 2 | `setParity` modes. |
+| `HW_FLOW_CONTROL_NONE` = 0 / `HW_FLOW_CONTROL_AUTO_RTSCTS` = 1 | `setHardwareFlowControl` modes. |
+| `setBaudrate(int)`, `setDataSize(int)`, `setParity(int)`, `setStopBits(int)`, `setHardwareFlowControl(int)` | Line configuration. |
+| `int writeByte(int b)` | Blocking single-byte write. |
+| `int readByte()` | Non-blocking read; `-1` if the RX FIFO is empty. |
+| `void close()` | Release the UART. |
 
 ## `picodroid.pio.I2cDevice`
 
@@ -84,6 +112,14 @@ int read = i2c.read(0x48, buf, 2);      // returns bytes read, or -1 on NACK
 byte[] empty = new byte[0];
 int ack = i2c.write(0x48, empty, 0);
 ```
+
+| Member | Description |
+|--------|-------------|
+| `SPEED_STANDARD` = 100000 / `SPEED_FAST` = 400000 | `setSpeed` presets (Hz). |
+| `void setSpeed(int hz)` | Bus clock. |
+| `int write(int address, byte[] data, int len)` | Write `len` bytes; returns bytes written, or `-1` on NACK. |
+| `int read(int address, byte[] buf, int len)` | Read `len` bytes; returns bytes read, or `-1` on NACK. |
+| `void close()` | Release the bus. |
 
 ### I2C bus scan example
 
@@ -122,6 +158,14 @@ byte[] cmd = new byte[]{ (byte)0x02, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0
 spi.write(cmd, 5);
 ```
 
+| Member | Description |
+|--------|-------------|
+| `MODE_0` = 0 / `MODE_1` = 1 / `MODE_2` = 2 / `MODE_3` = 3 | CPOL/CPHA combinations for `setMode`. |
+| `void setFrequency(int hz)` / `void setMode(int)` | Clock and mode. |
+| `int transfer(byte[] tx, byte[] rx, int len)` | Full-duplex transfer; returns bytes transferred. |
+| `int write(byte[] data, int len)` | Write-only (RX discarded). |
+| `void close()` | Release the bus. |
+
 ## `picodroid.pio.Pwm`
 
 ```java
@@ -137,6 +181,13 @@ pwm.setEnabled(false);                  // stop PWM output
 pwm.close();                            // or use try-with-resources
 ```
 
+| Method | Description |
+|--------|-------------|
+| `void setPwmFrequencyHz(double)` | Carrier frequency in Hz. |
+| `void setPwmDutyCycle(double)` | Duty cycle, `0.0`–`100.0`. |
+| `void setEnabled(boolean)` | Start / stop output. |
+| `void close()` | Release the slice. |
+
 ## `picodroid.pio.Adc`
 
 ```java
@@ -147,6 +198,11 @@ Adc adc = pm.openAdcPin("GP26");
 double voltage = adc.readValue();       // single blocking read, returns volts
 adc.close();                            // or use try-with-resources
 ```
+
+| Method | Description |
+|--------|-------------|
+| `double readValue()` | Single blocking ADC conversion; returns volts. |
+| `void close()` | Release the channel. |
 
 Pins are GPIO numbers (e.g. GP26–GP29 on RP2040). `readValue()` performs a single ADC conversion and returns the voltage.
 

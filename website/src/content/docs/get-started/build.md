@@ -81,7 +81,7 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
-# Build firmware with the default example (blinky) for testbench_rp2350
+# Build firmware with the default example (helloworld) for testbench_rp2350
 ./scripts/build.sh
 
 # Flash to Pico and view RTT log output
@@ -106,7 +106,7 @@ Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 ./scripts/flash.sh --board testbench_rp2040
 ```
 
-For day-to-day work, the per-board cargo aliases (`cargo b-rp2040`, `cargo r-rp2350w`, etc.) skip the script and call `cargo` directly — see [Cargo aliases](/reference/cargo-aliases/).
+For day-to-day work, the per-board cargo aliases (`cargo b-testbench-rp2040`, `cargo r-testbench-rp2350w`, etc.) skip the script and call `cargo` directly — see [Cargo aliases](/reference/cargo-aliases/).
 
 ### Choosing an example
 

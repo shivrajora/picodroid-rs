@@ -51,7 +51,7 @@ plugins {
 }
 ```
 
-4. Build and flash — no changes to `settings.gradle.kts`, `Cargo.toml`, or `src/app.rs` needed:
+4. Build and flash — no changes to `settings.gradle.kts`, `Cargo.toml`, or `platforms/rp/src/app.rs` needed:
 
 ```bash
 ./scripts/build.sh --app myapp
@@ -100,10 +100,11 @@ For graphical apps, create an `Activity` subclass and launch it with `startActiv
 package myapp;
 
 import picodroid.app.Application;
+import picodroid.content.Intent;
 
 public class MyApp extends Application {
     public void onCreate() {
-        startActivity(new MyActivity());
+        startActivity(new Intent(MyActivity.class));
     }
 }
 ```
@@ -113,13 +114,14 @@ public class MyApp extends Application {
 package myapp;
 
 import picodroid.app.Activity;
+import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 public class MyActivity extends Activity {
     public void onCreate() {
-        getDisplay().calibrate();
+        DisplayDebug.calibrate();
 
         LinearLayout root = new LinearLayout();
         root.setOrientation(LinearLayout.VERTICAL);
@@ -139,14 +141,18 @@ The Activity's `onCreate()` is called after the display is initialized. Build a 
 
 ### Activity lifecycle and back stack
 
-Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Detail())` and pop it with `finish()`:
+Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Intent(DetailActivity.class))` and pop it with `finish()`:
 
 ```java
+import picodroid.content.Intent;
+import picodroid.view.View;
+import picodroid.widget.Button;
+
 public class HomeActivity extends Activity {
     public void onCreate() {
         Button btn = new Button("Open detail");
-        btn.setOnClickListener(new Runnable() {
-            public void run() { startActivity(new DetailActivity()); }
+        btn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(DetailActivity.class)); }
         });
         setContentView(btn);
     }
@@ -158,15 +164,18 @@ The widget tree set via `setContentView()` is **preserved across pause** — whe
 ### Toasts and dialogs
 
 ```java
+import picodroid.content.DialogInterface;
 import picodroid.widget.AlertDialog;
 import picodroid.widget.Toast;
 
-Toast.makeText("Saved.", Toast.LENGTH_SHORT).show();
+Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();   // first arg is a Context
 
 new AlertDialog.Builder()
     .setTitle("Erase data?")
     .setMessage("This cannot be undone.")
-    .setPositiveButton("Erase", new Runnable() { public void run() { eraseAll(); } })
+    .setPositiveButton("Erase", new DialogInterface.OnClickListener() {
+        public void onClick(DialogInterface dialog, int which) { eraseAll(); }
+    })
     .setNegativeButton("Cancel", null)
     .show();
 ```

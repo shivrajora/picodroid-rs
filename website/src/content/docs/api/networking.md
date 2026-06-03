@@ -3,7 +3,7 @@ title: "Networking: TCP, UDP, and HTTP"
 description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simulator loopback."
 ---
 
-`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`Url`, `HttpUrlConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/) for the full API index.
+`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`Url`, `HttpUrlConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
 
 Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and `network_type = "cyw43"` in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs (`NetworkInfo.isConnected()` returns `false`) and attempting to open a socket throws.
 

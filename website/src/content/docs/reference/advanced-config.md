@@ -13,32 +13,32 @@ LVGL is vendored in `vendor/lvgl/` and configured via the repo-root [`lv_conf.h`
 |---|---|---|
 | `LV_COLOR_DEPTH` | `16` | RGB565 framebuffers — matches ST7789 + minifb. |
 | `LV_DRAW_SW_SUPPORT_RGB565A8` | `1` | Anti-aliased scaled / rotated images via `ImageView.setScale`. Without it scaled images render aliased — see [LVGL release notes for 9.5.0](https://github.com/lvgl/lvgl/releases/tag/v9.5.0). |
-| `LV_USE_PNG` | `0` | PNG decoded at PAPK-pack time, never on-device. See [Bundled image assets](/guides/assets/). |
+| `LV_USE_LODEPNG` / `LV_USE_LIBPNG` | `0` | Both PNG decoders disabled — PNG is decoded at PAPK-pack time, never on-device. See [Bundled image assets](/guides/assets/). |
 | `LV_FONT_MONTSERRAT_*` | tuned per-board | Only the sizes the framework actually renders are pulled in. |
 
 Bumping LVGL: vendor at `vendor/lvgl`, then re-vet `lv_conf.h` against `vendor/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
 
 ## `Embed.toml`
 
-Used by `cargo embed` (probe-rs) for ARM debug. Selects the chip, RTT polling rate, and breakpoint set. Defaults work for testbench RP2040 / RP2350; override only if you're debugging a custom board with a non-standard probe wiring.
+Config for the `cargo embed` probe-rs subcommand, handy for interactive ARM debug sessions. Selects the chip, RTT polling rate, and breakpoint set. Defaults work for testbench RP2040 / RP2350; override only if you're debugging a custom board with a non-standard probe wiring.
 
 ```toml
 [default.general]
-chip = "RP235x"
+chip = "RP2040"
 
 [default.rtt]
 enabled = true
 up_mode = "NoBlockSkip"
 ```
 
-`./scripts/flash.sh` calls `cargo embed` under the hood, so most users never touch this file.
+Note that `./scripts/flash.sh` flashes via `cargo run` (the `probe-rs` runner configured in `.cargo/config.toml`), **not** `cargo embed` — so most users never touch this file.
 
 ## `.actrc`
 
 Lets you run the GitHub Actions workflows locally via the [`act`](https://github.com/nektos/act) tool, useful for catching workflow bugs before pushing to the repo:
 
 ```ini
--P ubuntu-22.04=catthehacker/ubuntu:act-22.04
+-P ubuntu-latest=catthehacker/ubuntu:act-22.04
 ```
 
 Install `act`:
@@ -58,7 +58,7 @@ act -W .github/workflows/ci_checks.yml -j build
 
 ## `scripts/test.sh` (host-target test wrapper)
 
-Bare `cargo test` fails because the workspace's default target is `thumbv6m-none-eabi` — there's no host harness for the firmware crate. `scripts/test.sh` switches the target to the host triple and rebuilds the APK first so any embedded test fixtures are fresh:
+Bare `cargo test` fails because the `picodroid` firmware crate is bare-metal (no host test harness) and there is no default cargo target set, so cargo can't pick a host triple on its own. `scripts/test.sh` runs the tests against the host triple and rebuilds the APK first so any embedded test fixtures are fresh:
 
 ```bash
 ./scripts/test.sh                # all crates

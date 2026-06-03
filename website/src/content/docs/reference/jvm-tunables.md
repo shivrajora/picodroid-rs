@@ -123,7 +123,7 @@ Doubles two fixed-size buffers in the platform native handler. Each entry is sma
 
 ## See also
 
-- [`[background_pool]`](/reference/porting-guide/#background_pool) — adjacent thread-pool tuning in the same `board.toml` schema.
+- [`[background_pool]`](/reference/porting-guide/#background_pool--optional-thread-pool-tuning) — adjacent thread-pool tuning in the same `board.toml` schema.
 - [`perfbench`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/perfbench) — the speed + memory composite-score benchmark used in the tuning workflow.
 - [`jvm/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/jvm/build.rs) — env-var reader for the three JVM-side knobs.
 - [`platforms/rp/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/build.rs) — `emit_jvm_config` for the two platform-side knobs.

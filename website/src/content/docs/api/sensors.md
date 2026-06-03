@@ -3,7 +3,7 @@ title: "Sensors"
 description: "SensorManager, SensorEventListener, and the BME688 / LTR559 driver bindings."
 ---
 
-`picodroid.hardware.*` — Android-compatible `SensorManager` for environmental sensors declared in [`board.toml`](/reference/porting-guide/#boardtoml-reference). Today the supported devices are the Bosch **BME688** (temperature, humidity, pressure, gas resistance) and the Lite-On **LTR559** (ambient light, proximity), both over I2C. See [Java API overview](/) for the full API index.
+`picodroid.hardware.*` — Android-compatible `SensorManager` for environmental sensors declared in [`board.toml`](/reference/porting-guide/#boardtoml-reference). Today the supported devices are the Bosch **BME688** (temperature, humidity, pressure, gas resistance) and the Lite-On **LTR559** (ambient light, proximity), both over I2C. See [Java API overview](/api/) for the full API index.
 
 Events are delivered on the main loop (no background task), so listeners run in the same thread as the Activity. Up to eight concurrent registrations are supported.
 
