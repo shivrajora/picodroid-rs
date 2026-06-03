@@ -58,6 +58,10 @@ impl GraphicsBackend for LvglBackend {
             "nativeRegisterKeyListener" => Some(view::register_key_listener(ctx.args, ctx.objects)),
             "nativeSetFocusable" => Some(view::set_focusable(ctx.args, ctx.objects)),
             "nativeRequestFocus" => Some(view::request_focus(ctx.args, ctx.objects)),
+            "nativeIsFocused" => Some(view::is_focused(ctx.args, ctx.objects)),
+            "nativeRegisterFocusChangeListener" => {
+                Some(view::register_focus_change_listener(ctx.args, ctx.objects))
+            }
             "nativeRegisterTouchListener" => {
                 Some(view::register_touch_listener(ctx.args, ctx.objects))
             }
@@ -196,6 +200,9 @@ impl GraphicsBackend for LvglBackend {
                 ctx.strings,
                 ctx.objects,
             )),
+            "nativeRegisterItemClickListener" => Some(
+                widgets::list_view_register_item_click_listener(ctx.args, ctx.objects),
+            ),
             _ => None,
         }
     }

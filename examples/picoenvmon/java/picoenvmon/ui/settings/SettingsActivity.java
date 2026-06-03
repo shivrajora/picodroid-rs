@@ -1,25 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.settings;
 
-import picodroid.app.Activity;
 import picodroid.graphics.Theme;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.util.Log;
 import picodroid.view.inputmethod.EditorInfo;
+import picodroid.widget.Button;
 import picodroid.widget.EditText;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.OnEditorActionListener;
+import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.Toast;
 import picoenvmon.data.ThresholdConfig;
 import picoenvmon.di.EnvActivityComponent;
 import picoenvmon.di.EnvAppComponent;
+import picoenvmon.ui.common.NavActivity;
 
 /**
- * Threshold-entry screen. Three EditTexts wired to a single OnEditorActionListener —
- * IME_ACTION_DONE commits the values to Preferences and finishes the screen.
+ * Threshold + units editor (reached from the Home hub). Three focusable {@link EditText} rows, a
+ * focusable °C/°F {@link Switch} (the new home for the units toggle, replacing the dead touch
+ * long-press), and an explicit Save {@link Button}. Under the standardized model A/B move focus
+ * between controls, X (ENTER) activates the focused one — open the keyboard on a field, flip the
+ * Switch, or commit on Save — and Y returns to the hub. IME DONE still commits as before.
  */
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends NavActivity {
 
   private EnvActivityComponent comp;
   private EditText tempField;
@@ -31,17 +35,10 @@ public class SettingsActivity extends Activity {
     comp = new EnvActivityComponent();
     getDisplay();
 
-    LinearLayout root = new LinearLayout();
-    root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
-    root.setPadding(8, 6, 8, 6);
-    root.setBackgroundColor(Theme.colorBackground);
-
-    GradientDrawable card = new GradientDrawable();
-    card.setColor(Theme.colorSurface).setCornerRadius(6).setStroke(1, Theme.colorOutline);
+    LinearLayout root = makeScreenRoot();
 
     TextView title = new TextView();
-    title.setText("Thresholds");
+    title.setText("Settings");
     title.setTextColor(Theme.colorPrimary);
     root.addView(title);
 
@@ -62,28 +59,55 @@ public class SettingsActivity extends Activity {
     humField.setOnEditorActionListener(save);
     luxField.setOnEditorActionListener(save);
 
-    TextView footer = new TextView();
-    footer.setText("Tap a field; OK = save");
-    footer.setTextColor(Theme.colorTextSecondary);
-    root.addView(footer);
+    root.addView(buildUnitsRow());
+    root.addView(buildSaveButton());
+
+    installHintBar(root, "A:Up  B:Down  X:Edit/Save  Y:Back");
 
     setContentView(root);
+  }
+
+  private LinearLayout buildUnitsRow() {
+    LinearLayout row = new LinearLayout();
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setSize(224, 28);
+    row.setPadding(4, 2, 4, 2);
+
+    TextView label = new TextView();
+    label.setText("Units °F");
+    label.setTextColor(Theme.colorTextSecondary);
+    label.setSize(160, 24);
+    row.addView(label);
+
+    Switch units = new Switch();
+    units.setChecked(comp.formatter().isFahrenheit());
+    units.setOnCheckedChangeListener(
+        (buttonView, isChecked) -> comp.formatter().setFahrenheit(isChecked));
+    row.addView(units);
+
+    return row;
+  }
+
+  private Button buildSaveButton() {
+    Button saveButton = new Button("Save");
+    saveButton.setOnClickListener(v -> commit());
+    return saveButton;
   }
 
   private EditText addRow(LinearLayout root, String label, int initialValue) {
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(224, 32);
+    row.setSize(224, 30);
     row.setPadding(4, 2, 4, 2);
 
     TextView lbl = new TextView();
     lbl.setText(label);
     lbl.setTextColor(Theme.colorTextSecondary);
-    lbl.setSize(110, 28);
+    lbl.setSize(110, 26);
     row.addView(lbl);
 
     EditText field = new EditText();
-    field.setSize(108, 28);
+    field.setSize(108, 26);
     field.setText(Integer.toString(initialValue));
     row.addView(field);
 

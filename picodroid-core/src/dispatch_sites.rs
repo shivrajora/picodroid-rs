@@ -56,6 +56,8 @@ pub const DATE_PICKER: usize = 25;
 pub const TIME_PICKER: usize = 26;
 pub const VIEW_SWIPE: usize = 27;
 pub const SWIPE_REFRESH: usize = 28;
+pub const LIST_VIEW_ITEM_CLICK: usize = 29;
+pub const VIEW_FOCUS_CHANGE: usize = 30;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -92,6 +94,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/TimePicker", "fireTimeChanged"),
     ("picodroid/view/View", "fireSwipe"),
     ("picodroid/widget/SwipeRefreshLayout", "fireRefresh"),
+    ("picodroid/widget/ListView", "fireItemClick"),
+    ("picodroid/view/View", "fireFocusChange"),
 ];
 
 #[cfg(test)]

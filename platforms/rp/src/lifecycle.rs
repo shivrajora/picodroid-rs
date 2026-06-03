@@ -387,11 +387,13 @@ fn dispatch_widget_events(
     dispatch_seek_bar_changes(jvm, heap, handler);
     dispatch_checkbox_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
+    dispatch_list_view_item_clicks(jvm, heap, handler);
     dispatch_alert_dialog_clicks(jvm, heap, handler);
     dispatch_snackbar_action_clicks(jvm, heap, handler);
     dispatch_date_picker_changes(jvm, heap, handler);
     dispatch_time_picker_changes(jvm, heap, handler);
     dispatch_swipe_events(jvm, heap, handler);
+    dispatch_view_focus_changes(jvm, heap, handler);
     dispatch_swipe_refresh(jvm, heap, handler);
     dispatch_keyboard_ready(jvm, heap, handler);
     dispatch_editor_actions(jvm, heap, handler);
@@ -914,6 +916,60 @@ fn dispatch_swipe_events(
                 dispatch_method(dispatch_sites::VIEW_SWIPE),
                 obj_ref,
                 &[Value::Int(rec.direction)],
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain ListView item-click events and invoke `ListView.fireItemClick(int
+/// position)` on the registered listener for each event. A row activated by
+/// ENTER (keypad) or a touch tap fires `LV_EVENT_CLICKED`; the Java side
+/// resolves the row View / item id from the adapter and calls the
+/// `AdapterView.OnItemClickListener`.
+#[cfg(not(test))]
+fn dispatch_list_view_item_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some(row) = widgets::drain_item_click_queue() {
+        if let Some((obj_ref, position)) = widgets::lookup_item_click(row) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::LIST_VIEW_ITEM_CLICK),
+                dispatch_method(dispatch_sites::LIST_VIEW_ITEM_CLICK),
+                obj_ref,
+                &[Value::Int(position)],
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain view focus-change events and invoke `View.fireFocusChange(boolean
+/// hasFocus)` on the registered listener for each event (boolean passed as
+/// 0/1 — the JVM stack representation of `Z`).
+#[cfg(not(test))]
+fn dispatch_view_focus_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::lvgl::events;
+    use pico_jvm::types::Value;
+
+    while let Some(rec) = events::drain_focus_change_event() {
+        if let Some(obj_ref) = events::lookup_focus_view_obj(rec.view_handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::VIEW_FOCUS_CHANGE),
+                dispatch_method(dispatch_sites::VIEW_FOCUS_CHANGE),
+                obj_ref,
+                &[Value::Int(if rec.has_focus { 1 } else { 0 })],
                 heap,
                 handler,
             );

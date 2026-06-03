@@ -147,6 +147,11 @@ pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
                 visit(r);
             }
         }
+        for &(_, r) in &VIEW_FOCUS_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
     }
 }
 
@@ -821,6 +826,147 @@ pub fn reset_view_swipe_listener_state() {
         VIEW_SWIPE_MAP_LEN = 0;
         SWIPE_QUEUE_HEAD = 0;
         SWIPE_QUEUE_TAIL = 0;
+    }
+}
+
+// ── View focus-change listener registry ─────────────────────────────────────
+//
+// Backs `android.view.View.OnFocusChangeListener`. Mirrors the swipe pattern:
+// a `(handle, obj_ref)` map keyed by raw `lv_obj_t*` plus a ring buffer of
+// `(handle, has_focus)` records fed by `LV_EVENT_FOCUSED`/`LV_EVENT_DEFOCUSED`
+// trampolines. The framework loop drains the queue and invokes
+// `View.fireFocusChange(boolean)` on the matching object. A view only emits
+// these once it is a member of the active Activity's keypad focus group
+// (setFocusable/requestFocus or an adapter row), which is exactly when Android
+// would deliver focus callbacks.
+
+const MAX_FOCUS_LISTENERS: usize = 32;
+
+#[derive(Copy, Clone)]
+pub struct FocusRecord {
+    pub view_handle: usize,
+    pub has_focus: bool,
+}
+
+const FOCUS_QUEUE_SIZE: usize = 16;
+static mut FOCUS_QUEUE: [FocusRecord; FOCUS_QUEUE_SIZE] = [FocusRecord {
+    view_handle: 0,
+    has_focus: false,
+}; FOCUS_QUEUE_SIZE];
+static mut FOCUS_QUEUE_HEAD: usize = 0;
+static mut FOCUS_QUEUE_TAIL: usize = 0;
+
+static mut VIEW_FOCUS_MAP: [(usize, u16); MAX_FOCUS_LISTENERS] = [(0, 0); MAX_FOCUS_LISTENERS];
+static mut VIEW_FOCUS_MAP_LEN: usize = 0;
+
+fn push_focus_event(handle: usize, has_focus: bool) {
+    unsafe {
+        let head = FOCUS_QUEUE_HEAD;
+        let next = (head + 1) % FOCUS_QUEUE_SIZE;
+        if next != FOCUS_QUEUE_TAIL {
+            FOCUS_QUEUE[head] = FocusRecord {
+                view_handle: handle,
+                has_focus,
+            };
+            FOCUS_QUEUE_HEAD = next;
+        }
+    }
+}
+
+unsafe extern "C" fn view_focused_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    push_focus_event(obj, true);
+}
+
+unsafe extern "C" fn view_defocused_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    push_focus_event(obj, false);
+}
+
+/// `View.nativeIsFocused()` backing — whether this view is the active keypad
+/// group's focused widget. Mirrors `android.view.View#isFocused`. Cheap:
+/// reuses the `lv_group_get_focused(group) == raw` check from
+/// [`request_view_focus`].
+pub fn view_is_focused(id: i32) -> bool {
+    let raw = super::handle_table::lookup(id);
+    if raw.is_null() {
+        return false;
+    }
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return false;
+        }
+        lv_group_get_focused(group) == raw
+    }
+}
+
+/// `View.setOnFocusChangeListener` backing: record the Java `View` as the
+/// focus-change target and attach the LVGL FOCUSED/DEFOCUSED trampolines.
+/// Idempotent — re-registration just refreshes the obj_ref slot.
+pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
+    let raw_obj = super::handle_table::lookup(id);
+    if raw_obj.is_null() {
+        return;
+    }
+    let raw_ptr = raw_obj as usize;
+    unsafe {
+        for entry in &mut VIEW_FOCUS_MAP[..VIEW_FOCUS_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if VIEW_FOCUS_MAP_LEN < MAX_FOCUS_LISTENERS {
+            VIEW_FOCUS_MAP[VIEW_FOCUS_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_FOCUS_MAP_LEN += 1;
+        } else {
+            return;
+        }
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(view_focused_cb),
+            LV_EVENT_FOCUSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(view_defocused_cb),
+            LV_EVENT_DEFOCUSED,
+            core::ptr::null_mut(),
+        );
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_focus_change_event() -> Option<FocusRecord> {
+    unsafe {
+        if FOCUS_QUEUE_TAIL == FOCUS_QUEUE_HEAD {
+            return None;
+        }
+        let r = FOCUS_QUEUE[FOCUS_QUEUE_TAIL];
+        FOCUS_QUEUE_TAIL = (FOCUS_QUEUE_TAIL + 1) % FOCUS_QUEUE_SIZE;
+        Some(r)
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &VIEW_FOCUS_MAP[..VIEW_FOCUS_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+pub fn reset_view_focus_listener_state() {
+    unsafe {
+        VIEW_FOCUS_MAP_LEN = 0;
+        FOCUS_QUEUE_HEAD = 0;
+        FOCUS_QUEUE_TAIL = 0;
     }
 }
 

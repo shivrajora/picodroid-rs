@@ -248,6 +248,31 @@ pub fn register_click_listener(
     Ok(None)
 }
 
+/// `View.nativeIsFocused()` — whether this view is the active keypad group's
+/// focused widget. Returns 1 if focused, 0 otherwise. Mirrors
+/// `android.view.View#isFocused`.
+pub fn is_focused(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let focused = lvgl_events::view_is_focused(id);
+    Ok(Some(Value::Int(if focused { 1 } else { 0 })))
+}
+
+/// `View.nativeRegisterFocusChangeListener()` — records this View as a
+/// focus-change target and attaches the LVGL FOCUSED/DEFOCUSED callbacks so the
+/// framework loop can dispatch `View.fireFocusChange(boolean)`.
+pub fn register_focus_change_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_events::register_view_focus_change_listener(id, obj_ref);
+    Ok(None)
+}
+
 /// `View.performClick()` — synthesize a click event on this view.
 pub fn perform_click(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
@@ -278,4 +303,9 @@ pub fn reset_touch_listener_state() {
 /// Reset the swipe-listener registry between app runs.
 pub fn reset_swipe_listener_state() {
     lvgl_events::reset_view_swipe_listener_state();
+}
+
+/// Reset the focus-change-listener registry between app runs.
+pub fn reset_focus_change_listener_state() {
+    lvgl_events::reset_view_focus_listener_state();
 }

@@ -80,7 +80,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
 /// `builtin_dispatch_classes_subset_of_names` test asserts every class here is
 /// also in [`BUILTIN_CLASS_NAMES`] so canonicalisation cannot drift.
 const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
-    ("java/lang/Object", dispatch_init_only),
+    ("java/lang/Object", dispatch_object),
     ("java/lang/Class", class_obj::dispatch),
     ("java/lang/Throwable", dispatch_throwable),
     ("java/lang/Exception", dispatch_init_only),
@@ -131,6 +131,31 @@ fn dispatch_init_only(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
+        _ => None,
+    }
+}
+
+/// `java/lang/Object` dispatcher: `<init>` plus a `toString` that mirrors Java's
+/// `String.toString()` (returns `this`). Because the builtin `String` has no
+/// class-file method table, an `invokevirtual toString()` on a value whose
+/// static type is `Object`/`String` resolves to `Object.toString` here — so
+/// returning the receiver unchanged when it is already a string reference makes
+/// the idiomatic `Adapter`/`AdapterView` item rendering (`getItem(i).toString()`)
+/// and `"" + obj` work. Non-string receivers keep the previous behaviour
+/// (unimplemented → caller sees `NoSuchMethod`).
+fn dispatch_object(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    match method_name {
+        "<init>" => {
+            capture_throwable_message(ctx);
+            Some(Ok(None))
+        }
+        "toString" => match ctx.args.first() {
+            Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
+            _ => None,
+        },
         _ => None,
     }
 }

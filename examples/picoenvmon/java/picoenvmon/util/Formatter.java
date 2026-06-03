@@ -9,6 +9,10 @@ public class Formatter {
     fahrenheit = !fahrenheit;
   }
 
+  public void setFahrenheit(boolean fahrenheit) {
+    this.fahrenheit = fahrenheit;
+  }
+
   public boolean isFahrenheit() {
     return fahrenheit;
   }

@@ -27,6 +27,7 @@ public class View {
   OnTouchListener onTouchListener;
   OnSwipeListener onSwipeListener;
   OnClickListener onClickListener;
+  OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
 
@@ -41,6 +42,15 @@ public class View {
    */
   public interface OnClickListener {
     void onClick(View v);
+  }
+
+  /**
+   * Focus-change callback. Mirrors {@code android.view.View.OnFocusChangeListener} — fires when
+   * this view gains or loses input focus (on a hardware-button device, as PREV/NEXT move the keypad
+   * focus highlight between focusable views).
+   */
+  public interface OnFocusChangeListener {
+    void onFocusChange(View v, boolean hasFocus);
   }
 
   /**
@@ -87,6 +97,39 @@ public class View {
   }
 
   /**
+   * Returns whether this view currently has input focus. Mirrors {@code
+   * android.view.View#isFocused()} — true iff this view is the active keypad focus group's focused
+   * widget.
+   */
+  public boolean isFocused() {
+    return nativeIsFocused();
+  }
+
+  /**
+   * Returns whether this view (or a descendant) has input focus. Mirrors {@code
+   * android.view.View#hasFocus()}. Picodroid focuses leaf widgets directly, so this is equivalent
+   * to {@link #isFocused()}.
+   */
+  public boolean hasFocus() {
+    return nativeIsFocused();
+  }
+
+  /**
+   * Register a focus-change listener. Mirrors {@code android.view.View#setOnFocusChangeListener}.
+   * The view must also be {@link #setFocusable(boolean) focusable} (or an adapter row) to ever
+   * receive focus and fire this callback.
+   */
+  public void setOnFocusChangeListener(OnFocusChangeListener listener) {
+    this.onFocusChangeListener = listener;
+    nativeRegisterFocusChangeListener();
+  }
+
+  /** Returns the registered focus-change listener, or {@code null}. */
+  public OnFocusChangeListener getOnFocusChangeListener() {
+    return onFocusChangeListener;
+  }
+
+  /**
    * Apply a {@link Drawable} as this view's background — used for rounded corners, gradients, and
    * stroke outlines. The drawable is dispatched virtually so subclasses (e.g. a future {@code
    * StateListDrawable}) can swap their fill on press/focus without changing the call site.
@@ -126,6 +169,10 @@ public class View {
 
   private native boolean nativeRequestFocus();
 
+  private native boolean nativeIsFocused();
+
+  private native void nativeRegisterFocusChangeListener();
+
   private native void nativeRegisterTouchListener();
 
   private native void nativeRegisterSwipeListener();
@@ -153,6 +200,12 @@ public class View {
   void fireSwipe(int direction) {
     if (onSwipeListener != null) {
       onSwipeListener.onSwipe(this, direction);
+    }
+  }
+
+  void fireFocusChange(boolean hasFocus) {
+    if (onFocusChangeListener != null) {
+      onFocusChangeListener.onFocusChange(this, hasFocus);
     }
   }
 

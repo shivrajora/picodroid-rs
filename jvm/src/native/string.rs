@@ -11,6 +11,15 @@ pub(crate) fn dispatch(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
+        // ── String — identity ────────────────────────────────────────
+        // `String.toString()` returns `this`. Covers an invokevirtual that
+        // resolves to the String class directly (the Object-typed receiver
+        // path is handled by `dispatch_object`).
+        "toString" => match ctx.args.first() {
+            Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
+            _ => Some(Err(JvmError::InvalidReference)),
+        },
+
         // ── String — static formatter ────────────────────────────────
         "format" => super::string_format::format(ctx),
 

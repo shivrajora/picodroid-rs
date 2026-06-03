@@ -1,43 +1,52 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.history;
 
-import picodroid.app.Activity;
 import picodroid.app.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.util.Log;
 import picodroid.widget.AlertDialog;
+import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
-import picodroid.widget.ScrollView;
+import picodroid.widget.ListView;
 import picodroid.widget.TextView;
 import picoenvmon.di.EnvActivityComponent;
 import picoenvmon.di.EnvAppComponent;
 import picoenvmon.service.SensorLoggerService;
+import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.Formatter;
 
 /**
- * Bound-service consumer. Connects to {@link SensorLoggerService} on enter, snapshots its
- * temperature ring buffer, and renders one row per sample inside a ScrollView.
+ * Temperature history (reached from the Home hub). Binds {@link SensorLoggerService}, snapshots its
+ * temperature ring buffer, and renders one focusable {@link ListView} row per sample. Under the
+ * standardized model A/B move the row highlight, X opens an info dialog for the highlighted sample
+ * (BACK/Y dismisses it), and Y returns to the hub. The info dialog is now an explicit on-demand
+ * action rather than firing unconditionally on connect.
  */
-public class HistoryActivity extends Activity implements ServiceConnection {
+public class HistoryActivity extends NavActivity implements ServiceConnection {
+
+  /**
+   * Max focusable rows rendered. Each {@code lv_list} button row consumes the board's small (48 KB)
+   * LVGL render pool, and the full ring (60) leaves too little headroom for the draw tasks needed
+   * to render them — so we show only the most recent window. Comfortably within the safe bound on
+   * this board; raising it risks a render-pool stall.
+   */
+  private static final int MAX_ROWS = 12;
 
   private EnvActivityComponent comp;
-  private LinearLayout list;
+  private ListView list;
   private TextView statusLine;
-  private boolean dialogShown;
+  private final float[] samples = new float[SensorLoggerService.RING_CAPACITY];
+  private int sampleCount;
+  private int firstShown;
 
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "History.onCreate");
     comp = new EnvActivityComponent();
     getDisplay();
 
-    LinearLayout root = new LinearLayout();
-    root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
-    root.setPadding(8, 6, 8, 6);
-    root.setBackgroundColor(Theme.colorBackground);
+    LinearLayout root = makeScreenRoot();
 
     TextView title = new TextView();
     title.setText("Temp history");
@@ -49,19 +58,12 @@ public class HistoryActivity extends Activity implements ServiceConnection {
     statusLine.setTextColor(Theme.colorTextSecondary);
     root.addView(statusLine);
 
-    ScrollView scroll = new ScrollView();
-    scroll.setSize(224, 188);
+    list = new ListView();
+    list.setSize(224, 170);
+    list.setOnItemClickListener((parent, view, position, id) -> showSampleDialog(position));
+    root.addView(list);
 
-    GradientDrawable card = new GradientDrawable();
-    card.setColor(Theme.colorSurface).setCornerRadius(6).setStroke(1, Theme.colorOutline);
-    scroll.setBackground(card);
-
-    list = new LinearLayout();
-    list.setOrientation(LinearLayout.VERTICAL);
-    list.setSize(224, 220);
-    list.setPadding(6, 4, 6, 4);
-    scroll.addView(list);
-    root.addView(scroll);
+    installHintBar(root, "A:Up  B:Down  X:Info  Y:Back");
 
     setContentView(root);
 
@@ -79,32 +81,43 @@ public class HistoryActivity extends Activity implements ServiceConnection {
   @Override
   public void onServiceConnected(IBinder binder) {
     SensorLoggerService svc = ((SensorLoggerService.LocalBinder) binder).service;
-    float[] out = new float[SensorLoggerService.RING_CAPACITY];
-    int n = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, out);
-    Log.i(EnvAppComponent.TAG, "History bound, samples=" + n);
-    statusLine.setText(n == 0 ? "No samples yet" : (n + " samples"));
+    sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples);
+    Log.i(EnvAppComponent.TAG, "History bound, samples=" + sampleCount);
+
+    // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring index.
+    firstShown = sampleCount > MAX_ROWS ? sampleCount - MAX_ROWS : 0;
+    if (sampleCount == 0) {
+      statusLine.setText("No samples yet");
+    } else if (firstShown > 0) {
+      statusLine.setText(sampleCount + " samples (recent " + MAX_ROWS + ")");
+    } else {
+      statusLine.setText(sampleCount + " samples");
+    }
 
     Formatter f = comp.formatter();
-    for (int i = 0; i < n; i++) {
-      TextView row = new TextView();
-      row.setText("[" + i + "] " + f.formatTemp(out[i]));
-      row.setTextColor(Theme.colorText);
-      list.addView(row);
+    ArrayAdapter<String> adapter = new ArrayAdapter<String>();
+    for (int i = firstShown; i < sampleCount; i++) {
+      adapter.add("[" + i + "] " + f.formatTemp(samples[i]));
     }
-
-    if (!dialogShown) {
-      dialogShown = true;
-      new AlertDialog.Builder()
-          .setTitle("History")
-          .setMessage("Showing last " + n + " temperature samples.")
-          .setPositiveButton(
-              "OK", (dialog, which) -> Log.i(EnvAppComponent.TAG, "history dialog dismissed"))
-          .show();
-    }
+    list.setAdapter(adapter);
   }
 
   @Override
   public void onServiceDisconnected() {
     Log.i(EnvAppComponent.TAG, "History service disconnected");
+  }
+
+  private void showSampleDialog(int position) {
+    // position is the row index within the rendered window; map back to the real sample index.
+    int idx = firstShown + position;
+    if (idx < 0 || idx >= sampleCount) {
+      return;
+    }
+    Formatter f = comp.formatter();
+    new AlertDialog.Builder()
+        .setTitle("Sample " + idx)
+        .setMessage("Temperature: " + f.formatTemp(samples[idx]))
+        .setPositiveButton("OK", (dialog, which) -> {})
+        .show();
   }
 }

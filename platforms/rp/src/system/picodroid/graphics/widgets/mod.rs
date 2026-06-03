@@ -75,7 +75,12 @@ pub use linear_layout::{
     linear_layout_native_create, linear_layout_set_gravity, linear_layout_set_orientation,
     linear_layout_set_spacing,
 };
-pub use list_view::{list_view_add_item, list_view_native_create};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use list_view::{drain_item_click_queue, lookup_item_click};
+pub use list_view::{
+    list_view_add_item, list_view_native_create, list_view_register_item_click_listener,
+    reset_list_view_state,
+};
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
     progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,

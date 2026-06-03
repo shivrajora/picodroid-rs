@@ -190,9 +190,11 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     crate::system::picodroid::graphics::widgets::reset_animation_state();
     crate::system::picodroid::graphics::widgets::reset_keyboard_state();
     crate::system::picodroid::graphics::widgets::reset_edit_text_state();
+    crate::system::picodroid::graphics::widgets::reset_list_view_state();
     crate::system::picodroid::graphics::view::reset_key_listener_state();
     crate::system::picodroid::graphics::view::reset_touch_listener_state();
     crate::system::picodroid::graphics::view::reset_swipe_listener_state();
+    crate::system::picodroid::graphics::view::reset_focus_change_listener_state();
     crate::system::picodroid::graphics::lvgl::events::reset_key_event_queue();
     crate::system::picodroid::graphics::lvgl::events::reset_activity_groups();
     crate::system::picodroid::graphics::lvgl::handle_table::reset();

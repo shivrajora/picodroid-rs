@@ -139,6 +139,11 @@ pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 8;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
 pub const LV_EVENT_GESTURE: lv_event_code_t = 16;
+/// Fired when a Widget receives keypad/group focus, and when it loses it.
+/// Positions 19/20 in the v9.5.0 enum (…KEY(17), ROTARY(18), FOCUSED(19),
+/// DEFOCUSED(20), LEAVE…). Used to back `View.OnFocusChangeListener`.
+pub const LV_EVENT_FOCUSED: lv_event_code_t = 19;
+pub const LV_EVENT_DEFOCUSED: lv_event_code_t = 20;
 pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 35;
 /// Fired when a multi-step interaction "completes" — used by lv_keyboard
 /// when the user taps the OK / Enter key. Position 38 in the v9.5.0
@@ -308,6 +313,7 @@ pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
 // (1 << 0) and reserved slots, so values differ from v9.2.2.
 pub const LV_STATE_CHECKED: u32 = 1 << 2;
+pub const LV_STATE_FOCUSED: u32 = 1 << 3;
 pub const LV_STATE_DISABLED: u32 = 1 << 9;
 
 // ---------------------------------------------------------------------------
