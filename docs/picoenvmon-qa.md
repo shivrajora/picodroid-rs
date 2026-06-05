@@ -15,7 +15,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 | # | Severity | Area | Issue | Status |
 |---|----------|------|-------|--------|
 | 1 | 🔴 Critical | JVM GC / navigation | After the first GC, every newly-opened Activity throws `NoSuchMethod` and renders broken | **Fixed** — unrooted `Display` singleton (see below) |
-| 2 | 🟠 High | Live / Switch | Logger toggle (X) never fires `OnCheckedChangeListener`; the logging service never starts/stops | Open |
+| 2 | 🟠 High | Live / Switch | Logger toggle (X) never fires `OnCheckedChangeListener`; the logging service never starts/stops | **Fixed** — same swept-obj_ref cause as #1 |
 | 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | Open |
 | 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | Open |
 | 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | Open |
@@ -85,20 +85,19 @@ hook (`gc_retains_object_via_extra_roots` / `gc_collects_object_when_extra_roots
 
 ---
 
-## 2. 🟠 High — Logger toggle never starts/stops the service (Live)
+## 2. 🟠 High — Logger toggle never starts/stops the service (Live) — FIXED
 
-Pressing **X** on the focused Logger `Switch` toggles it *visually* (off→on→off) but the
-`OnCheckedChangeListener` **never fires**: across 3 toggles there was no `Logger started` /
-`Logger stopped` (from `LiveActivity.setLogger`) and no `foreground started` (from
-`SensorLoggerService.onStartCommand`). The foreground logging service is therefore never actually
-started. This is *pre-GC* and distinct from bug #1.
+Pressing **X** on the focused Logger `Switch` toggled it *visually* but the `OnCheckedChangeListener`
+never fired, so the foreground logging service never started/stopped.
 
-The wiring looks correct on paper — `register_listener` → `value_changed_cb` queues on
-`LV_EVENT_VALUE_CHANGED` → `dispatch_switch_checked_changes` → `fireCheckedChanged` — and LVGL does
-emit `VALUE_CHANGED` on keypad-ENTER for a checkable widget, so the exact break point is unconfirmed.
-The Settings units `Switch` uses the same path. **Follow-up:** instrument the
-`dispatch_switch_checked_changes` drain / `lookup_sw_checked_change_obj` to find whether the event is
-queued, looked up, and dispatched.
+**Same root cause as #1, confirmed by tracing.** The `value_changed_cb` *did* queue and the drain ran,
+but the Java `Switch` object's obj_ref was in the **unrooted Switch listener map**, so a GC during
+Live's heavy allocation swept it; its slot was reused, and `fireCheckedChanged` then dispatched
+`onCheckedChanged` on a wrong-class object — failing silently (`let _ = invoke_instance(...)`). The
+widget-map rooting added in the GC-fix commit keeps the `Switch` alive, so the listener now fires.
+Verified: 5 consecutive toggles → 5 `Logger started`/`stopped` + `foreground started`/stopped
+transitions, including the first deliberate toggle on a freshly-opened Live. (The Settings units
+`Switch` shares this path and is likewise fixed.)
 
 ## 3. 🟠 High — History never shows data; Info dialog unreachable
 
