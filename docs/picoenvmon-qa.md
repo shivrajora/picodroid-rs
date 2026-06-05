@@ -20,7 +20,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 | 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | **Fixed** — ASCII in the 3 rendered strings |
 | 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | **Fixed** — one-line EditText + numeric inputType |
 | 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | **Fixed** — shortened the hint |
-| 7 | ⚪ Nit | Home | Menu highlight is teal on first render, blue after any navigation | Open |
+| 7 | ⚪ Nit | Home | Menu highlight is teal on first render, blue after any navigation | **Fixed** — also style LV_STATE_FOCUS_KEY |
 
 ---
 
@@ -146,10 +146,13 @@ The Settings legend `"A:Up  B:Down  X:Edit/Save  Y:Back"` overflowed the 224 px 
 `"A:Up  B:Down  X:Edit  Y:Back"` — the same length as the others, so the whole legend fits. The Save
 button is self-labelled, so dropping "/Save" loses nothing. **Verified:** "Y:Back" now renders fully.
 
-## 7. ⚪ Nit — Home highlight color inconsistency
+## 7. ⚪ Nit — Home highlight color inconsistency — FIXED
 
-The Home menu's selected row is teal (`colorPrimary`) on first render but blue (the keypad-focus
-style) after any navigation. Cosmetic; pick one consistently.
+The Home menu's focused row was teal (`colorPrimary`) on first render but blue after any navigation.
+The ListView row only overrode the highlight for `LV_STATE_FOCUSED`; keypad navigation also adds
+`LV_STATE_FOCUS_KEY`, which the default theme paints blue, so it took over once the user moved. Now
+the row sets the teal fill for **both** `LV_STATE_FOCUSED` and `LV_STATE_FOCUS_KEY` (new FFI constant),
+so the highlight stays teal throughout. **Verified:** teal on first render and after navigating.
 
 ---
 

@@ -83,10 +83,15 @@ pub(in crate::system::picodroid::graphics) fn add_item(id: i32, text: &str) {
         // Make the keypad-focus highlight unmistakable: the default theme's
         // focused style is too subtle on dark backgrounds, and a no-touch
         // 4-button device relies entirely on seeing which row ENTER will
-        // activate. Fill the focused row with the accent color.
-        let focus_sel = LV_PART_MAIN | LV_STATE_FOCUSED;
-        lv_obj_set_style_bg_color(row, lv_color_hex(FOCUS_HIGHLIGHT_RGB), focus_sel);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, focus_sel);
+        // activate. Fill the focused row with the accent color. Cover BOTH
+        // LV_STATE_FOCUSED and LV_STATE_FOCUS_KEY: keypad navigation adds
+        // FOCUS_KEY, and without overriding it the default theme repaints the
+        // row blue after the first move (teal on first render, blue after).
+        for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
+            let sel = LV_PART_MAIN | state;
+            lv_obj_set_style_bg_color(row, lv_color_hex(FOCUS_HIGHLIGHT_RGB), sel);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, sel);
+        }
     }
 }
 

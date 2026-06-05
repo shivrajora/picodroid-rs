@@ -318,6 +318,10 @@ pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 // (1 << 0) and reserved slots, so values differ from v9.2.2.
 pub const LV_STATE_CHECKED: u32 = 1 << 2;
 pub const LV_STATE_FOCUSED: u32 = 1 << 3;
+// Set (in addition to LV_STATE_FOCUSED) when focus arrives via a keypad/encoder
+// indev rather than a pointer. The default theme styles this state separately
+// (blue), so widgets that override the focus highlight must cover it too.
+pub const LV_STATE_FOCUS_KEY: u32 = 1 << 4;
 pub const LV_STATE_DISABLED: u32 = 1 << 9;
 
 // ---------------------------------------------------------------------------
