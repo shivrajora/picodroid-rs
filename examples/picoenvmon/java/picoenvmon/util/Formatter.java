@@ -42,7 +42,8 @@ public class Formatter {
   /** Quick IAQ index from a gas-resistance reading. Higher gas resistance → cleaner air. */
   public String formatGasIaq(float gasOhm) {
     if (gasOhm <= 0f) {
-      return "—";
+      // ASCII placeholder — the bundled font has no em-dash (U+2014) glyph.
+      return "--";
     }
     int iaq = iaqFromGas(gasOhm);
     return Integer.toString(iaq) + " IAQ";

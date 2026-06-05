@@ -17,7 +17,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 | 1 | 🔴 Critical | JVM GC / navigation | After the first GC, every newly-opened Activity throws `NoSuchMethod` and renders broken | **Fixed** — unrooted `Display` singleton (see below) |
 | 2 | 🟠 High | Live / Switch | Logger toggle (X) never fires `OnCheckedChangeListener`; the logging service never starts/stops | **Fixed** — same swept-obj_ref cause as #1 |
 | 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | **Fixed** — via #2 (logger persists) + clearer empty state |
-| 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | Open |
+| 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | **Fixed** — ASCII in the 3 rendered strings |
 | 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | Open |
 | 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | Open |
 | 7 | ⚪ Nit | Home | Menu highlight is teal on first render, blue after any navigation | Open |
@@ -115,12 +115,14 @@ with Y. Also softened the empty state to point at the Logger toggle
 (A live in-place refresh while History is foreground was considered but rejected: rebuilding the
 `ListView` resets the D-pad focus to the top each tick, breaking row navigation.)
 
-## 4. 🟡 Low — Missing-glyph tofu for `—` and `…`
+## 4. 🟡 Low — Missing-glyph tofu for `—` and `…` — FIXED
 
-The em-dash `—` (U+2014) and ellipsis `…` (U+2026) render as `□`. Sites: Live tile placeholder
-(`valueView.setText("—")`), `Formatter.formatGasIaq` fallback (`"—"`), and History's
-`"Connecting…"` status. The bundled font lacks those codepoints (`°` U+00B0 renders fine). Use ASCII
-(`-`, `...`) or add the glyphs to the font subset.
+The em-dash `—` (U+2014) and ellipsis `…` (U+2026) rendered as `□`: the bundled LVGL Montserrat
+subset has neither codepoint (`°` U+00B0 is present). Only three *rendered* strings used them — the
+Live tile placeholder, `Formatter.formatGasIaq`'s fallback, and History's `"Connecting…"`; the rest
+are in Javadoc/comments, which never render. Replaced those three with ASCII (`--`, `Connecting...`).
+(Adding the glyphs to the font subset was the alternative but costs flash on this heap-tight board and
+needs the font toolchain — not worth it for two characters.)
 
 ## 5. 🟡 Low — EditText clears its value on edit; QWERTY for a numeric field
 

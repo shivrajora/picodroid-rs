@@ -54,7 +54,8 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     root.addView(title);
 
     statusLine = new TextView();
-    statusLine.setText("Connecting…");
+    // ASCII "..." — the bundled font has no ellipsis (U+2026) glyph.
+    statusLine.setText("Connecting...");
     statusLine.setTextColor(Theme.colorTextSecondary);
     root.addView(statusLine);
 

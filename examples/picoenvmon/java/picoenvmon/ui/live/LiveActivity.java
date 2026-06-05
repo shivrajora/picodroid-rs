@@ -144,7 +144,9 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     tile.addView(labelView);
 
     TextView valueView = new TextView();
-    valueView.setText("—");
+    // ASCII "--" placeholder: the bundled LVGL Montserrat subset has no em-dash
+    // (U+2014) glyph, so "—" renders as a missing-glyph box.
+    valueView.setText("--");
     valueView.setTextColor(Theme.colorText);
     valueView.setSize(112, 20);
     tile.addView(valueView);
