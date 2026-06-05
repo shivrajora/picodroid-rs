@@ -251,3 +251,19 @@ pub fn reset_toggle_button_state() {
         QUEUE_TAIL = 0;
     }
 }
+
+/// Visit the Java `ToggleButton` object ref of every toggle button registered
+/// for a checked-change listener so the GC keeps it alive. A `ToggleButton`
+/// referenced only by this native map (no Java field; `addView` keeps it alive
+/// only natively) would otherwise be swept on the first GC, its slot reused, and
+/// a later dispatch resolves a dead ref → `NoSuchMethod`. See
+/// `widgets::button::visit_click_listener_roots`.
+pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &HANDLE_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}

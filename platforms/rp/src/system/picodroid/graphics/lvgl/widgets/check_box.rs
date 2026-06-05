@@ -125,3 +125,19 @@ pub fn reset_check_box_state() {
         QUEUE_TAIL = 0;
     }
 }
+
+/// Visit the Java `CheckBox` object ref of every checkbox registered for a
+/// checked-change listener so the GC keeps it alive. A `CheckBox` referenced
+/// only by this native map (no Java field; `addView` keeps it alive only
+/// natively) would otherwise be swept on the first GC, its slot reused, and a
+/// later dispatch resolves a dead ref → `NoSuchMethod`. See
+/// `widgets::button::visit_click_listener_roots`.
+pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &HANDLE_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}

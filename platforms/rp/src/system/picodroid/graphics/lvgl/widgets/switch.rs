@@ -125,3 +125,20 @@ pub fn reset_switch_state() {
         QUEUE_TAIL = 0;
     }
 }
+
+/// Visit the Java `Switch` object ref of every switch registered for a
+/// checked-change listener so the GC keeps it alive. A `Switch` referenced only
+/// by this native map — e.g. a local in an Activity's `onCreate` that the app
+/// never stored in a field, and that `addView` keeps alive only natively — would
+/// otherwise be swept on the first GC; its `u16` slot is then reused by a later
+/// allocation and the next Activity's dispatch resolves a dead ref →
+/// `NoSuchMethod`. See `widgets::button::visit_click_listener_roots`.
+pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &HANDLE_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}

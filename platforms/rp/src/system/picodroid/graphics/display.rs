@@ -24,10 +24,36 @@ static DISPLAY_INSTANCE: AtomicU16 = AtomicU16::new(u16::MAX);
 /// JVM owns the only frontend), same contract as the prior `usize` cell.
 static mut CURRENT_ROOT_ID: i32 = 0;
 
+/// Root the singleton `Display` object during GC so it is never swept.
+///
+/// `get_instance` caches the Display's heap slot in `DISPLAY_INSTANCE` and hands
+/// the same `ObjectRef` back on every call. Nothing on the Java side keeps a
+/// field to it, so without this root the GC frees it; its slot is then reused by
+/// an unrelated object (e.g. a transient `SensorEvent`), and the next
+/// `getInstance()` returns that wrong-class object — every following
+/// `Activity.setContentView` (which calls `Display.getInstance().setContentView`)
+/// then resolves `setContentView` on the wrong class and throws `NoSuchMethod`.
+/// Called from `PicodroidNativeHandler::gc_visit_roots`.
+pub fn visit_gc_roots(visit: &mut dyn FnMut(Value)) {
+    let existing = DISPLAY_INSTANCE.load(Ordering::Relaxed);
+    if existing != u16::MAX {
+        visit(Value::ObjectRef(existing));
+    }
+}
+
 /// `Display.getInstance()` — initialises the display hardware + LVGL on first call.
 pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
     let existing = DISPLAY_INSTANCE.load(Ordering::Relaxed);
-    if existing != u16::MAX && objects.is_live(existing) {
+    // The slot must still be live AND still be a Display: a missed GC root (or a
+    // future regression) could let the slot be swept and reused by another
+    // class, in which case we must re-allocate rather than hand back garbage.
+    if existing != u16::MAX
+        && objects.is_live(existing)
+        && objects.class_name(existing)
+            == Some(crate::shrink_names::shrink_class(
+                "picodroid/graphics/Display",
+            ))
+    {
         return Ok(Some(Value::ObjectRef(existing)));
     }
 

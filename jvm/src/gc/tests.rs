@@ -1433,3 +1433,59 @@ fn gcstate_reused_across_cycles_does_not_leak_marks() {
     );
     assert_eq!(freed2, 1);
 }
+
+#[test]
+fn gc_retains_object_via_extra_roots() {
+    // The native handler keeps Views referenced only by its listener maps alive
+    // by visiting them through the `extra_roots` hook (see
+    // PicodroidNativeHandler::gc_visit_roots, and the per-widget
+    // visit_*_listener_roots fns). This guards that mechanism: an object
+    // reachable from NO frame/field/static survives iff `extra_roots` visits it —
+    // the exact contract the widget listener-map roots depend on.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let idx = objects.alloc("ListenerOnlyView").unwrap();
+
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |visit| visit(Value::ObjectRef(idx)),
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(idx));
+}
+
+#[test]
+fn gc_collects_object_when_extra_roots_omits_it() {
+    // Contrast to gc_retains_object_via_extra_roots: the same listener-only
+    // object IS swept when the extra-roots hook does not visit it — the
+    // missing-GC-root bug this fix addresses (a Switch/EditText reachable only
+    // through an unvisited native listener map).
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let idx = objects.alloc("ListenerOnlyView").unwrap();
+
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 1);
+    assert!(!objects.is_live(idx));
+}

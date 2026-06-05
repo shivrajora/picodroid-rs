@@ -148,6 +148,22 @@ pub fn reset_edit_text_state() {
     }
 }
 
+/// Visit the Java `EditText` object ref of every textarea registered for an
+/// editor-action listener so the GC keeps it alive. An `EditText` referenced
+/// only by this native map (no Java field; `addView` keeps it alive only
+/// natively) would otherwise be swept on the first GC, its slot reused, and a
+/// later dispatch resolves a dead ref → `NoSuchMethod`. See
+/// `widgets::button::visit_click_listener_roots`.
+pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &EDITOR_ACTION_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}
+
 pub(in crate::system::picodroid::graphics) fn set_text(id: i32, text: &str) {
     let mut buf = [0u8; 128];
     let len = text.len().min(127);

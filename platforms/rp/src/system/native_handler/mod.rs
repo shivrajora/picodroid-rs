@@ -253,9 +253,20 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             widgets::button::visit_click_listener_roots(&mut root);
             widgets::list_view::visit_item_click_listener_roots(&mut root);
             widgets::alert_dialog::visit_dialog_obj_roots(&mut root);
+            // Compound-button + EditText listener maps: same unrooted-View hazard
+            // as the click/item-click maps above. A Switch/CheckBox/ToggleButton
+            // or EditText kept alive only by its native listener map (a local in
+            // onCreate, never stored in a Java field) is otherwise swept on the
+            // first GC, its slot reused, and the next Activity's onCreate hits a
+            // dead ref → NoSuchMethod.
+            widgets::switch::visit_checked_change_listener_roots(&mut root);
+            widgets::check_box::visit_checked_change_listener_roots(&mut root);
+            widgets::toggle_button::visit_checked_change_listener_roots(&mut root);
+            widgets::edit_text::visit_editor_action_listener_roots(&mut root);
         }
 
         // Delegate to sub-modules that own their own native object refs.
+        crate::system::picodroid::graphics::display::visit_gc_roots(&mut *visit);
         crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);
         crate::service_lifecycle::visit_gc_roots(&mut *visit);
     }
