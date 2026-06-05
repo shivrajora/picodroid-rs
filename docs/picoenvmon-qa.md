@@ -16,7 +16,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 |---|----------|------|-------|--------|
 | 1 | 🔴 Critical | JVM GC / navigation | After the first GC, every newly-opened Activity throws `NoSuchMethod` and renders broken | **Fixed** — unrooted `Display` singleton (see below) |
 | 2 | 🟠 High | Live / Switch | Logger toggle (X) never fires `OnCheckedChangeListener`; the logging service never starts/stops | **Fixed** — same swept-obj_ref cause as #1 |
-| 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | Open |
+| 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | **Fixed** — via #2 (logger persists) + clearer empty state |
 | 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | Open |
 | 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | Open |
 | 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | Open |
@@ -99,18 +99,21 @@ Verified: 5 consecutive toggles → 5 `Logger started`/`stopped` + `foreground s
 transitions, including the first deliberate toggle on a freshly-opened Live. (The Settings units
 `Switch` shares this path and is likewise fixed.)
 
-## 3. 🟠 High — History never shows data; Info dialog unreachable
+## 3. 🟠 High — History never shows data; Info dialog unreachable — FIXED
 
-History always displays **"No samples yet"** (verified after 14 s with the service running). It
-snapshots the ring buffer **once**, in `onServiceConnected`, at the moment it binds — when the
-freshly-created service has 0 samples — and never refreshes
-([HistoryActivity.java:84](../examples/picoenvmon/java/picoenvmon/ui/history/HistoryActivity.java#L84)).
-Because the service is only ever *bound* (never started in the foreground — see bug #2) it is
-destroyed on screen-leave and its ring buffer resets, so samples can never accumulate across screens.
-Consequently the **X → Info `AlertDialog`** path can't be exercised (no rows to select).
+History always displayed **"No samples yet"** because the `SensorLoggerService` was only ever *bound*
+(it died on screen-leave, resetting its ring buffer), so `onServiceConnected`'s one-shot snapshot
+always read 0 samples. The root cause was bug #2: the Logger toggle was broken, so the service could
+never be promoted to a persistent foreground/started service.
 
-Fixing bug #2 (so the foreground logger can run and persist) plus periodically refreshing the list (or
-re-snapshotting on resume) would address this.
+With bug #2 fixed, the intended flow works: turn on **Logger** in Live → the service runs in the
+foreground and survives screen changes → opening **History** binds the *same* running service and its
+snapshot returns the accumulated ring. **Verified:** `History bound, samples=60`, the list renders the
+recent 12 rows, and **X → Info `AlertDialog`** ("Sample N / Temperature: …") now opens and dismisses
+with Y. Also softened the empty state to point at the Logger toggle
+([HistoryActivity.java](../examples/picoenvmon/java/picoenvmon/ui/history/HistoryActivity.java)).
+(A live in-place refresh while History is foreground was considered but rejected: rebuilding the
+`ListView` resets the D-pad focus to the top each tick, breaking row navigation.)
 
 ## 4. 🟡 Low — Missing-glyph tofu for `—` and `…`
 

@@ -87,7 +87,10 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring index.
     firstShown = sampleCount > MAX_ROWS ? sampleCount - MAX_ROWS : 0;
     if (sampleCount == 0) {
-      statusLine.setText("No samples yet");
+      // The ring fills only while the SensorLoggerService runs, and it survives
+      // screen changes only as a started/foreground service, so point the user at
+      // the Logger toggle in Live. Kept short to fit the status line width.
+      statusLine.setText("No data - enable Logger");
     } else if (firstShown > 0) {
       statusLine.setText(sampleCount + " samples (recent " + MAX_ROWS + ")");
     } else {
