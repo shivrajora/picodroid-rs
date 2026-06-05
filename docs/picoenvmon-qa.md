@@ -19,7 +19,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 | 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | **Fixed** — via #2 (logger persists) + clearer empty state |
 | 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | **Fixed** — ASCII in the 3 rendered strings |
 | 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | **Fixed** — one-line EditText + numeric inputType |
-| 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | Open |
+| 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | **Fixed** — shortened the hint |
 | 7 | ⚪ Nit | Home | Menu highlight is teal on first render, blue after any navigation | Open |
 
 ---
@@ -139,11 +139,12 @@ now picks `LV_KEYBOARD_MODE_NUMBER` vs the text layout for the field it binds. `
 marks its three integer fields numeric. **Verified:** the Temp Hi field keeps "30" on edit and the
 soft keyboard opens as a digit pad (1/2/3/…).
 
-## 6. 🟡 Low — Settings hint bar clipped
+## 6. 🟡 Low — Settings hint bar clipped — FIXED
 
-The Settings legend `"A:Up  B:Down  X:Edit/Save  Y:Back"` overflows the 224 px `ButtonHintBar` and
-"Y:Back" is clipped to "Y:B". The other screens' shorter legends fit. Shorten the Settings hint or
-widen/scale the bar.
+The Settings legend `"A:Up  B:Down  X:Edit/Save  Y:Back"` overflowed the 224 px `ButtonHintBar` and
+"Y:Back" clipped to "Y:B" (the other screens use a single-word X hint like "X:Open"). Shortened it to
+`"A:Up  B:Down  X:Edit  Y:Back"` — the same length as the others, so the whole legend fits. The Save
+button is self-labelled, so dropping "/Save" loses nothing. **Verified:** "Y:Back" now renders fully.
 
 ## 7. ⚪ Nit — Home highlight color inconsistency
 

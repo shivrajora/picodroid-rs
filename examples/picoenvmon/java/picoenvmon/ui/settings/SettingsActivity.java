@@ -63,7 +63,10 @@ public class SettingsActivity extends NavActivity {
     root.addView(buildUnitsRow());
     root.addView(buildSaveButton());
 
-    installHintBar(root, "A:Up  B:Down  X:Edit/Save  Y:Back");
+    // Keep this the same length as the other screens' hints so the whole
+    // legend fits the 224 px ButtonHintBar (the longer "X:Edit/Save" clipped
+    // "Y:Back" to "Y:B"). The Save button is self-labelled, so "X:Edit" is enough.
+    installHintBar(root, "A:Up  B:Down  X:Edit  Y:Back");
 
     setContentView(root);
   }
