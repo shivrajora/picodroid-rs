@@ -66,6 +66,24 @@ pub fn edit_text_set_show_keyboard_on_touch(
     Ok(None)
 }
 
+/// `EditText.setInputType(int type)` — mark the field numeric when the Android
+/// `TYPE_CLASS_NUMBER` (low nibble == 2) class is requested, so the shared
+/// system keyboard opens in digit-pad mode for it.
+pub fn edit_text_set_input_type(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let type_bits = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    // android.text.InputType: TYPE_MASK_CLASS = 0x0F, TYPE_CLASS_NUMBER = 0x02.
+    let numeric = (type_bits & 0x0F) == 0x02;
+    lvgl_edit_text::set_numeric(id, numeric);
+    Ok(None)
+}
+
 /// `EditText.nativeRegisterEditorActionListener()` — instance method.
 /// Records this EditText's Java `obj_ref` so the system keyboard's OK key
 /// can dispatch `fireEditorAction` back to it.

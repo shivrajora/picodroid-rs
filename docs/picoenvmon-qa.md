@@ -18,7 +18,7 @@ switch), **History** (temp sample list), **Settings** (3 threshold fields + unit
 | 2 | 🟠 High | Live / Switch | Logger toggle (X) never fires `OnCheckedChangeListener`; the logging service never starts/stops | **Fixed** — same swept-obj_ref cause as #1 |
 | 3 | 🟠 High | History | List never shows data; X→Info dialog unreachable | **Fixed** — via #2 (logger persists) + clearer empty state |
 | 4 | 🟡 Low | Fonts | Em-dash `—` and ellipsis `…` render as tofu (`□`) | **Fixed** — ASCII in the 3 rendered strings |
-| 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | Open |
+| 5 | 🟡 Low | Settings / EditText | Field clears its displayed value when edited; QWERTY keyboard on a numeric field | **Fixed** — one-line EditText + numeric inputType |
 | 6 | 🟡 Low | Settings | Hint bar overflows: "Y:Back" clipped to "Y:B" | Open |
 | 7 | ⚪ Nit | Home | Menu highlight is teal on first render, blue after any navigation | Open |
 
@@ -124,12 +124,20 @@ are in Javadoc/comments, which never render. Replaced those three with ASCII (`-
 (Adding the glyphs to the font subset was the alternative but costs flash on this heap-tight board and
 needs the font toolchain — not worth it for two characters.)
 
-## 5. 🟡 Low — EditText clears its value on edit; QWERTY for a numeric field
+## 5. 🟡 Low — EditText clears its value on edit; QWERTY for a numeric field — FIXED
 
-Pressing **X** on the "Temp Hi" field opens the on-screen keyboard but the field goes blank (its `30`
-disappears). On Save the value falls back to the original (`tempHi=3000`), so there's no data loss in
-this case, but the displayed/edited value is lost. The keyboard is also a full QWERTY for a numeric
-field (no numeric input type).
+The field never actually cleared — tracing showed its text became `"30\n"`. The `EditText` SDK is
+documented as *"Single-line text input,"* but `create()` never called `lv_textarea_set_one_line`, so
+the textarea was multi-line; the keypad **X** (= ENTER) that opens the keyboard *also inserts a
+newline*, moving the cursor to an empty second line so the field looks blank (and `parseOr("30\n")`
+falls back). Fixed by honoring the documented contract: `edit_text::create` now sets one-line, so
+ENTER no longer inserts and "30" stays put.
+
+For the QWERTY-on-numeric half, added Android-style input types: a `picodroid.text.InputType`
+(`TYPE_CLASS_NUMBER`), `EditText.setInputType(int)`, a per-field numeric flag, and `show_system_for`
+now picks `LV_KEYBOARD_MODE_NUMBER` vs the text layout for the field it binds. `SettingsActivity`
+marks its three integer fields numeric. **Verified:** the Temp Hi field keeps "30" on edit and the
+soft keyboard opens as a digit pad (1/2/3/…).
 
 ## 6. 🟡 Low — Settings hint bar clipped
 

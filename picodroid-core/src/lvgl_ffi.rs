@@ -663,6 +663,7 @@ extern "C" {
     pub fn lv_textarea_set_text(obj: *mut lv_obj_t, txt: *const c_char);
     pub fn lv_textarea_get_text(obj: *const lv_obj_t) -> *const c_char;
     pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, txt: *const c_char);
+    pub fn lv_textarea_set_one_line(obj: *mut lv_obj_t, en: bool);
 
     // Keyboard widget
     pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

@@ -41,6 +41,13 @@ public class EditText extends View {
   public native void setShowKeyboardOnTouch(boolean enabled);
 
   /**
+   * Set the input type, mirroring {@code android.widget.TextView.setInputType}. Only the class is
+   * honored: {@link picodroid.text.InputType#TYPE_CLASS_NUMBER} makes the system keyboard open in
+   * digit-pad mode for this field; anything else uses the default text layout.
+   */
+  public native void setInputType(int type);
+
+  /**
    * Register a listener for the system keyboard's OK / Enter key. Pass {@code null} to clear; in
    * that case the keyboard falls back to its default auto-dismiss behavior.
    */

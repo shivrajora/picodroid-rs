@@ -35,6 +35,59 @@ fn is_autoshow_disabled(raw_ptr: usize) -> bool {
     false
 }
 
+// ── Numeric-input registry (raw lv_obj_t* of EditTexts that want a number pad) ──
+//
+// Populated by `EditText.setInputType(TYPE_CLASS_NUMBER)`. The shared system
+// keyboard reads this in `show_system_for` to pick LV_KEYBOARD_MODE_NUMBER vs
+// the default text layout for the field it's binding to.
+
+const MAX_NUMERIC_FIELDS: usize = 16;
+static mut NUMERIC_FIELDS: [usize; MAX_NUMERIC_FIELDS] = [0; MAX_NUMERIC_FIELDS];
+static mut NUMERIC_FIELDS_LEN: usize = 0;
+
+/// Whether the textarea at `raw_ptr` was marked numeric (digits-only keypad).
+pub(in crate::system::picodroid::graphics) fn is_numeric(raw_ptr: usize) -> bool {
+    unsafe {
+        for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
+            if *entry == raw_ptr {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Mark/clear the EditText `id` as numeric. Idempotent in both directions.
+pub(in crate::system::picodroid::graphics) fn set_numeric(id: i32, numeric: bool) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        if numeric {
+            for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
+                if *entry == raw_ptr {
+                    return;
+                }
+            }
+            if NUMERIC_FIELDS_LEN < MAX_NUMERIC_FIELDS {
+                NUMERIC_FIELDS[NUMERIC_FIELDS_LEN] = raw_ptr;
+                NUMERIC_FIELDS_LEN += 1;
+            }
+        } else {
+            let mut i = 0;
+            while i < NUMERIC_FIELDS_LEN {
+                if NUMERIC_FIELDS[i] == raw_ptr {
+                    NUMERIC_FIELDS[i] = NUMERIC_FIELDS[NUMERIC_FIELDS_LEN - 1];
+                    NUMERIC_FIELDS_LEN -= 1;
+                    return;
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
 // ── EditorActionListener registry (raw lv_obj_t* → Java EditText obj_ref) ───
 //
 // Populated by [`register_editor_action_listener`], called from
@@ -95,6 +148,11 @@ unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
 pub(in crate::system::picodroid::graphics) fn create() -> i32 {
     let ptr = unsafe { lv_textarea_create(lifecycle::screen_ptr()) };
     unsafe {
+        // EditText is documented as single-line. Without this the textarea is
+        // multi-line, and on a keypad board the ENTER (X) that opens the soft
+        // keyboard also inserts a newline — the cursor jumps to an empty second
+        // line and the field looks cleared (its text becomes e.g. "30\n").
+        lv_textarea_set_one_line(ptr, true);
         lv_obj_add_event_cb(
             ptr,
             Some(textarea_pressed_cb),
@@ -145,6 +203,7 @@ pub fn reset_edit_text_state() {
     unsafe {
         AUTOSHOW_DISABLED_LEN = 0;
         EDITOR_ACTION_MAP_LEN = 0;
+        NUMERIC_FIELDS_LEN = 0;
     }
 }
 

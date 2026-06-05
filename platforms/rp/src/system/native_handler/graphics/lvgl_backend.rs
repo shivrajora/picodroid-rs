@@ -365,6 +365,7 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "setInputType" => Some(widgets::edit_text_set_input_type(ctx.args, ctx.objects)),
             "nativeRegisterEditorActionListener" => Some(
                 widgets::edit_text_register_editor_action_listener(ctx.args, ctx.objects),
             ),

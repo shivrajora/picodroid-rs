@@ -161,6 +161,16 @@ pub fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
     unsafe {
         let kb = ensure_system_keyboard();
         lv_keyboard_set_textarea(kb, ta);
+        // Pick the keypad layout for the field being bound. EditTexts flagged
+        // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
+        // else gets the default text layout. Set every show because the system
+        // keyboard is shared across fields.
+        let mode = if super::edit_text::is_numeric(ta as usize) {
+            LV_KEYBOARD_MODE_NUMBER
+        } else {
+            LV_KEYBOARD_MODE_TEXT_LOWER
+        };
+        lv_keyboard_set_mode(kb, mode);
         SYSTEM_KEYBOARD_BOUND_ET = et_obj_ref;
         // Visibility flag must be cleared *before* starting the y-anim,
         // otherwise the first frame paints at the off-screen y position

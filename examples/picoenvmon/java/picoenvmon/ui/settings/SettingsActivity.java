@@ -2,6 +2,7 @@
 package picoenvmon.ui.settings;
 
 import picodroid.graphics.Theme;
+import picodroid.text.InputType;
 import picodroid.util.Log;
 import picodroid.view.inputmethod.EditorInfo;
 import picodroid.widget.Button;
@@ -108,6 +109,8 @@ public class SettingsActivity extends NavActivity {
 
     EditText field = new EditText();
     field.setSize(108, 26);
+    // Threshold rows are all integers — give them the digit-pad keyboard.
+    field.setInputType(InputType.TYPE_CLASS_NUMBER);
     field.setText(Integer.toString(initialValue));
     row.addView(field);
 
