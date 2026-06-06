@@ -47,6 +47,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
+    root.setSpacing(4);
 
     TextView title = new TextView();
     title.setText("Live");
@@ -106,8 +107,9 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     TextView label = new TextView();
     label.setText("Logger");
     label.setTextColor(Theme.colorTextSecondary);
-    label.setSize(160, 24);
-    row.addView(label);
+    // weight=1 lets the label fill the row and pushes the Switch flush right at its natural
+    // size (mirrors android:layout_weight="1"), so the switch is no longer clipped.
+    row.addView(label, new LinearLayout.LayoutParams(0, 24, 1f));
 
     Switch toggle = new Switch();
     toggle.setOnCheckedChangeListener((buttonView, isChecked) -> setLogger(isChecked));
@@ -133,7 +135,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
     LinearLayout tile = new LinearLayout();
     tile.setOrientation(LinearLayout.HORIZONTAL);
-    tile.setSize(224, 28);
+    tile.setSize(224, 26);
     tile.setPadding(8, 4, 8, 4);
     tile.setBackground(bg);
 

@@ -37,6 +37,7 @@ public class SettingsActivity extends NavActivity {
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
+    root.setSpacing(4);
 
     TextView title = new TextView();
     title.setText("Settings");
@@ -80,8 +81,9 @@ public class SettingsActivity extends NavActivity {
     TextView label = new TextView();
     label.setText("Units °F");
     label.setTextColor(Theme.colorTextSecondary);
-    label.setSize(160, 24);
-    row.addView(label);
+    // weight=1 lets the label fill the row and pushes the Switch flush right at its natural
+    // size (mirrors android:layout_weight="1"), so the switch is no longer clipped.
+    row.addView(label, new LinearLayout.LayoutParams(0, 24, 1f));
 
     Switch units = new Switch();
     units.setChecked(comp.formatter().isFahrenheit());
