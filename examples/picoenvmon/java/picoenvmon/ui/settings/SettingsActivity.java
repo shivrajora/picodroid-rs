@@ -2,6 +2,7 @@
 package picoenvmon.ui.settings;
 
 import picodroid.graphics.Theme;
+import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.text.InputType;
 import picodroid.util.Log;
 import picodroid.view.inputmethod.EditorInfo;
@@ -75,8 +76,13 @@ public class SettingsActivity extends NavActivity {
   private LinearLayout buildUnitsRow() {
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(224, 28);
-    row.setPadding(4, 2, 4, 2);
+    // The Switch knob is drawn ~4 px larger than its track (LVGL theme), so it needs vertical
+    // headroom or it clips top/bottom. Two things steal that headroom: the row's 2 px theme
+    // border and its padding. A borderless background (stroke 0) zeroes the border, and zero
+    // vertical padding plus a 34 px height give the full circle room to render.
+    row.setSize(224, 34);
+    row.setPadding(4, 0, 4, 0);
+    row.setBackground(new GradientDrawable().setColor(Theme.colorBackground));
 
     TextView label = new TextView();
     label.setText("Units °F");
