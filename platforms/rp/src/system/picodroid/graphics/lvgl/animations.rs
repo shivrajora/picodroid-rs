@@ -115,6 +115,41 @@ pub fn cancel(handle: i32) {
     }
 }
 
+/// Cancel every animation whose target view is `root` or a descendant of it.
+/// MUST be called from the view-delete path *before* the LVGL objects are
+/// freed, while each slot's handle still resolves to a live object.
+///
+/// This is the safety net that the per-frame [`apply`] null-check cannot be on
+/// 32-bit (RP2040/RP2350): there a `nativeHandle` *is* the raw `lv_obj_t*`
+/// (see `handle_table`), so a deleted view's handle never becomes null — it
+/// dangles. Ticking such a slot dereferences freed LVGL memory, and the freed
+/// object's display reads back NULL, tripping LVGL's `LV_ASSERT_NULL(disp)` →
+/// `while(1)` hang (observed: backing out of the picoenvmon Live screen while a
+/// `flashOnBreach` tile alpha animation was still running). 64-bit/sim never
+/// hit this because its handle table invalidates deleted slots to null.
+pub fn cancel_subtree(root: *mut lv_obj_t) {
+    if root.is_null() {
+        return;
+    }
+    unsafe {
+        for slot in &mut ANIM_SLOTS[..] {
+            if !slot.active {
+                continue;
+            }
+            // Walk up from the animated object; if we reach `root` it is in the
+            // subtree being deleted. Resolved now, before lv_obj_delete frees it.
+            let mut cur = handle_table::lookup(slot.handle);
+            while !cur.is_null() {
+                if cur == root {
+                    *slot = EMPTY_ANIM;
+                    break;
+                }
+                cur = lv_obj_get_parent(cur);
+            }
+        }
+    }
+}
+
 /// Called once per frame from `LvglGfx::tick(ms)` — advances each active
 /// slot, applies the interpolated value, and clears slots whose deadline
 /// has passed.

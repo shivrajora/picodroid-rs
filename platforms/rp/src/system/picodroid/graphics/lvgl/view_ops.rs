@@ -120,6 +120,10 @@ pub(in crate::system::picodroid::graphics) fn delete(h: Handle) {
     if o.is_null() {
         return; // already deleted (stale handle)
     }
+    // Drop any animations on this view or its descendants before freeing them,
+    // or the next animation tick would dereference dangling handles (see
+    // animations::cancel_subtree — the picodroid Live-screen back-out hang).
+    super::animations::cancel_subtree(o);
     unsafe { lv_obj_delete(o) };
 }
 
@@ -147,6 +151,8 @@ pub(in crate::system::picodroid::graphics) fn remove_child(_parent: Handle, chil
     if c.is_null() {
         return; // already deleted (stale handle)
     }
+    // Cancel animations on the removed view/subtree before it is freed.
+    super::animations::cancel_subtree(c);
     unsafe { lv_obj_delete(c) };
 }
 
@@ -155,6 +161,10 @@ pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
     if o.is_null() {
         return; // stale handle — nothing to clean
     }
+    // The children (and their descendants) are about to be freed — cancel any
+    // animations on them first so a later tick can't follow a dangling handle.
+    // Conservatively also drops an animation on `o` itself (rare; `o` survives).
+    super::animations::cancel_subtree(o);
     unsafe { lv_obj_clean(o) };
 }
 
