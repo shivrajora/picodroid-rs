@@ -16,9 +16,10 @@ import picoenvmon.ui.settings.SettingsActivity;
 
 /**
  * Root hub: a selectable menu of destinations under the standardized 4-button navigation model. A/B
- * move the highlight, X opens the highlighted screen, Y exits the app. The live 5-tile sensor
- * dashboard lives in {@link LiveActivity}; History and Settings are siblings. Adding a screen later
- * is one more {@code LABELS}/{@code DESTINATIONS} entry plus the new Activity.
+ * move the highlight, X opens the highlighted screen; Y is intentionally disabled here so the root
+ * hub can't be backed out of (which would exit the app). The live 5-tile sensor dashboard lives in
+ * {@link LiveActivity}; History and Settings are siblings. Adding a screen later is one more {@code
+ * LABELS}/{@code DESTINATIONS} entry plus the new Activity.
  */
 public class HomeActivity extends NavActivity {
 
@@ -52,8 +53,14 @@ public class HomeActivity extends NavActivity {
         (parent, view, position, id) -> startActivity(new Intent(DESTINATIONS[position])));
     root.addView(menu);
 
-    installHintBar(root, "A:Up  B:Down  X:Open  Y:Back");
+    installHintBar(root, "A:Up  B:Down  X:Open");
 
     setContentView(root);
+  }
+
+  // Root hub: Back has nowhere to return to, so swallow it instead of finishing (which would exit
+  // the app). Deliberately does not call super.onBackPressed().
+  public void onBackPressed() {
+    // no-op
   }
 }
