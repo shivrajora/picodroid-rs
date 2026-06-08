@@ -120,10 +120,11 @@ pub(in crate::system::picodroid::graphics) fn delete(h: Handle) {
     if o.is_null() {
         return; // already deleted (stale handle)
     }
-    // Drop any animations on this view or its descendants before freeing them,
-    // or the next animation tick would dereference dangling handles (see
-    // animations::cancel_subtree — the picodroid Live-screen back-out hang).
+    // Drop dangling references into this subtree before its objects are freed:
+    // animations keyed by handle (the Live-screen back-out hang) and the system
+    // keyboard's bound-textarea pointer (the Settings re-open segfault).
     super::animations::cancel_subtree(o);
+    super::widgets::keyboard::unbind_if_deleting(o);
     unsafe { lv_obj_delete(o) };
 }
 
@@ -151,8 +152,9 @@ pub(in crate::system::picodroid::graphics) fn remove_child(_parent: Handle, chil
     if c.is_null() {
         return; // already deleted (stale handle)
     }
-    // Cancel animations on the removed view/subtree before it is freed.
+    // Drop dangling refs (animations + bound keyboard textarea) before freeing.
     super::animations::cancel_subtree(c);
+    super::widgets::keyboard::unbind_if_deleting(c);
     unsafe { lv_obj_delete(c) };
 }
 
@@ -161,10 +163,13 @@ pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
     if o.is_null() {
         return; // stale handle — nothing to clean
     }
-    // The children (and their descendants) are about to be freed — cancel any
-    // animations on them first so a later tick can't follow a dangling handle.
-    // Conservatively also drops an animation on `o` itself (rare; `o` survives).
+    // The children (and their descendants) are about to be freed — drop any
+    // dangling refs into them first (animations keyed by handle, and the system
+    // keyboard's bound textarea). Conservatively also covers `o` itself, which
+    // survives lv_obj_clean — harmless (an animation/keyboard bound to `o` is
+    // re-established on next use).
     super::animations::cancel_subtree(o);
+    super::widgets::keyboard::unbind_if_deleting(o);
     unsafe { lv_obj_clean(o) };
 }
 

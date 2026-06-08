@@ -66,6 +66,13 @@ static mut SYSTEM_KEYBOARD_VISIBLE: bool = false;
 /// Java `ObjectRef` of the EditText that triggered the most recent show.
 /// Read by [`drain_editor_action`] after the OK key fires.
 static mut SYSTEM_KEYBOARD_BOUND_ET: u16 = 0;
+/// Raw `lv_textarea` the keyboard is currently bound to (mirrors LVGL's internal
+/// `kb->ta`). The keyboard outlives any one Activity (it is parented to the
+/// screen, not the content view), so when that textarea's Activity is torn down
+/// this must be cleared *before* the textarea is freed — otherwise the next
+/// `lv_keyboard_set_textarea` defocuses a dangling textarea (use-after-free).
+/// See [`unbind_if_deleting`].
+static mut SYSTEM_KEYBOARD_BOUND_TA: *mut lv_obj_t = core::ptr::null_mut();
 
 /// Pending editor-action record drained from the JVM event pump in
 /// `lifecycle::dispatch_editor_actions`. Single-slot: the OK key can only
@@ -161,10 +168,11 @@ pub fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
     unsafe {
         let kb = ensure_system_keyboard();
         lv_keyboard_set_textarea(kb, ta);
-        // Pick the keypad layout for the field being bound. EditTexts flagged
-        // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
-        // else gets the default text layout. Set every show because the system
-        // keyboard is shared across fields.
+        SYSTEM_KEYBOARD_BOUND_TA = ta; // mirror kb->ta for use-after-delete cleanup
+                                       // Pick the keypad layout for the field being bound. EditTexts flagged
+                                       // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
+                                       // else gets the default text layout. Set every show because the system
+                                       // keyboard is shared across fields.
         let mode = if super::edit_text::is_numeric(ta as usize) {
             LV_KEYBOARD_MODE_NUMBER
         } else {
@@ -213,6 +221,42 @@ pub fn hide_system() -> bool {
         SYSTEM_KEYBOARD_BOUND_ET = 0;
         events::detach_screen_press_hook();
         true
+    }
+}
+
+/// Drop the system keyboard's textarea binding when that textarea (or an
+/// ancestor) is about to be deleted. MUST run from the view-delete path
+/// *before* the LVGL objects are freed, while the textarea is still valid.
+///
+/// The keyboard is parented to the screen, so it outlives the Activity whose
+/// field it was bound to; that field is freed on the Activity's teardown while
+/// `kb->ta` still points at it. The next `show_system_for` then calls
+/// `lv_keyboard_set_textarea`, which defocuses the *previous* textarea — a
+/// use-after-free segfault (lv_keyboard_set_textarea → lv_obj_remove_state →
+/// lv_event_send over a freed event list). Unbinding here, while the textarea
+/// is still alive, defuses it. Mirrors [`super::super::animations::cancel_subtree`].
+pub fn unbind_if_deleting(root: *mut lv_obj_t) {
+    if root.is_null() {
+        return;
+    }
+    unsafe {
+        let kb = SYSTEM_KEYBOARD;
+        let ta = SYSTEM_KEYBOARD_BOUND_TA;
+        if kb.is_null() || ta.is_null() {
+            return;
+        }
+        // Walk up from the bound textarea; if we reach `root` it is in the
+        // subtree being deleted, so unbind it now (still alive == safe).
+        let mut cur = ta;
+        while !cur.is_null() {
+            if cur == root {
+                lv_keyboard_set_textarea(kb, core::ptr::null_mut());
+                SYSTEM_KEYBOARD_BOUND_TA = core::ptr::null_mut();
+                let _ = hide_system();
+                return;
+            }
+            cur = lv_obj_get_parent(cur);
+        }
     }
 }
 
@@ -324,6 +368,7 @@ pub fn reset_keyboard_state() {
         SYSTEM_KEYBOARD_HANDLE = 0;
         SYSTEM_KEYBOARD_VISIBLE = false;
         SYSTEM_KEYBOARD_BOUND_ET = 0;
+        SYSTEM_KEYBOARD_BOUND_TA = core::ptr::null_mut();
         PENDING_EDITOR_ACTION = None;
     }
     // Same lifetime as the system keyboard — the screen press hook is
