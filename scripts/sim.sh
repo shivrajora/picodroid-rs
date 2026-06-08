@@ -15,6 +15,7 @@ source "$SCRIPT_DIR/lib.sh"
 BOARD="testbench_rp2350"
 APP="helloworld"
 HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
+SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-}"
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
 
@@ -27,6 +28,9 @@ Options:
   -a, --app <app>           App to run (default: helloworld)
   -r, --release             Build in release mode
   -l, --heap-limit <KB>     Limit sim heap to KB kilobytes (simulates MCU)
+  -S, --sanitize-handles    Abort with a backtrace on a use-after-delete LVGL
+                            handle access — surfaces dangling-handle bugs the
+                            sim otherwise hides (sets PICODROID_HANDLE_SANITIZER=1)
       --shrink              Apply the active release class-name shrink map
                             (off by default; see docs/shrinker.md)
   -h, --help                Show this help message
@@ -41,6 +45,7 @@ Examples:
   $(basename "$0")
   $(basename "$0") -a blinky
   $(basename "$0") -b pico_enviro_mon -a helloworld
+  $(basename "$0") -b pico_enviro_mon -a picoenvmon --sanitize-handles
 EOF
 }
 
@@ -66,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       HEAP_LIMIT_KB="$2"
       shift 2
       ;;
+    -S|--sanitize-handles)
+      SANITIZE_HANDLES=1
+      shift
+      ;;
     --shrink)
       export PICODROID_SHRINK=1
       shift
@@ -90,6 +99,9 @@ APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
+fi
+if [[ -n "$SANITIZE_HANDLES" ]]; then
+  ENV_VARS+=(PICODROID_HANDLE_SANITIZER="$SANITIZE_HANDLES")
 fi
 if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
   ENV_VARS+=(PICODROID_SHRINK=1)

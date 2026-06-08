@@ -12,6 +12,10 @@
 #   ./scripts/sim-remote.sh                          # default app
 #   ./scripts/sim-remote.sh --app displaydemo
 #   ./scripts/sim-remote.sh --app gesturedemo --release
+#   ./scripts/sim-remote.sh --app picoenvmon --sanitize-handles  # any sim.sh flag
+#
+# (Every flag is passed straight through to scripts/sim.sh — see its --help for
+#  the full list, e.g. -b/--board, -l/--heap-limit, -S/--sanitize-handles.)
 #
 # Open the printed http://localhost:6080/vnc.html?... URL in your browser.
 #
