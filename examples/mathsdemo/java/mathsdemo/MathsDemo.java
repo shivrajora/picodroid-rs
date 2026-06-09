@@ -41,12 +41,22 @@ public class MathsDemo extends Application {
         TAG,
         "i2f(10)="
             + (int) fi
+            + " i2c(10)="
+            + ci
+            + " i2s(10)="
+            + si
             + " l2f(100L)="
             + (int) lf
+            + " l2d(100L)="
+            + (int) ld
             + " f2l(3.14f)="
             + fl
+            + " f2d(3.14f)="
+            + (int) fd
             + " d2l(3.14)="
-            + dl);
+            + dl
+            + " d2f(3.14)="
+            + (int) df);
 
     // ── Long arithmetic ────────────────────────────────────────────────────
     long la = 100L, lb = 30L;

@@ -275,6 +275,9 @@ public class CollectionsDemo extends Application {
     check("for-each values sum=60", valSum == 60);
   }
 
+  // The loop element is intentionally unused: this verifies that iterating an empty list
+  // runs the body zero times.
+  @SuppressWarnings("UnusedVariable")
   static void testIteratorOnEmpty() {
     ArrayList list = new ArrayList();
     int count = 0;

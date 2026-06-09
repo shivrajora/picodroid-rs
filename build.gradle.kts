@@ -71,9 +71,10 @@ subprojects {
         dependencies {
             "errorprone"("com.google.errorprone:error_prone_core:2.36.0")
         }
-        // One-shot sweep that inserts every missing @Override in place:
+        // One-shot sweep that applies the auto-fixable checks in place (insert missing
+        // @Override, strip unused imports):
         //   ./gradlew compileJava -Pep.patch
-        // Leave it off for normal builds, where MissingOverride is a hard error.
+        // Leave it off for normal builds, where the checks below are hard errors.
         val epPatch = project.hasProperty("ep.patch")
         tasks.withType<JavaCompile>().configureEach {
             options.release.set(8)
@@ -82,19 +83,36 @@ subprojects {
             // default (source,lines,vars) so .class bytes match the legacy
             // scripts/build-apk.sh output.
             options.debugOptions.debugLevel = "source,lines"
-            // Enforce only @Override; every other Error Prone check is left off so
-            // unrelated patterns can't break the build. @Override is source-retention,
-            // so this never changes the emitted .class bytes.
             options.errorprone {
-                disableAllChecks.set(true)
                 if (epPatch) {
+                    // Auto-fix sweep — stay surgical (only the patchable checks run) so
+                    // nothing else can fail the compile before the patches are written.
+                    disableAllChecks.set(true)
                     check("MissingOverride", CheckSeverity.WARN)
+                    check("RemoveUnusedImports", CheckSeverity.WARN)
                     errorproneArgs.addAll(
-                        "-XepPatchChecks:MissingOverride",
+                        "-XepPatchChecks:MissingOverride,RemoveUnusedImports",
                         "-XepPatchLocation:IN_PLACE",
                     )
                 } else {
+                    // Error Prone's default ERROR tier (curated, ~zero-false-positive
+                    // real-bug detectors: FormatString, EqualsHashCode, ReturnValueIgnored,
+                    // ArrayToString, ComparisonOutOfRange, BoxedPrimitiveEquality, …) now
+                    // fails the build. Default WARNING checks still print but don't fail.
+                    //
+                    // Subset-aware: picodroid's String has no toUpperCase(Locale) overload,
+                    // so this default warning would be an unfixable false positive.
+                    check("StringCaseLocaleUsage", CheckSeverity.OFF)
+
+                    // Curated readability/safety checks promoted to build-failing. @Override
+                    // and unused imports are source-only (no .class byte change) and
+                    // auto-fixable via the -Pep.patch sweep above.
                     check("MissingOverride", CheckSeverity.ERROR)
+                    check("ReferenceEquality", CheckSeverity.ERROR) // no == on object refs
+                    check("RemoveUnusedImports", CheckSeverity.ERROR)
+                    check("FallThrough", CheckSeverity.ERROR) // switch fall-through
+                    check("OperatorPrecedence", CheckSeverity.ERROR) // ambiguous & / == / ?:
+                    check("UnusedVariable", CheckSeverity.ERROR) // dead locals/fields
                 }
             }
         }

@@ -151,7 +151,10 @@ public class StringDemo extends Application {
   static void testHashCode() {
     check("hashCode empty=0", "".hashCode() == 0);
     check("hashCode abc=96354", "abc".hashCode() == 96354);
-    check("hashCode consistent", "test".hashCode() == "test".hashCode());
+    // Build an equal-but-distinct instance at runtime so this checks the real property
+    // (equal contents -> equal hashCode), not a literal compared with itself.
+    String dynamic = "te".concat("st");
+    check("hashCode consistent", dynamic.hashCode() == "test".hashCode());
   }
 
   static void testReplaceChar() {
@@ -244,6 +247,10 @@ public class StringDemo extends Application {
     check("mixed formatters", s.equals("name=pico count=42 hex=0x00ab done=true"));
   }
 
+  // Deliberately malformed format (missing the second %d argument) to verify String.format
+  // throws at runtime; the result is intentionally discarded. FormatString would otherwise
+  // reject it at compile time, and ReturnValueIgnored would flag the unused result.
+  @SuppressWarnings({"FormatString", "ReturnValueIgnored"})
   static void testFormatErrors() {
     boolean caught = false;
     try {
