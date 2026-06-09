@@ -24,6 +24,7 @@ import picodroid.widget.ToggleButton;
  * eba57c3 killed.
  */
 public class CallbackTestActivity extends Activity {
+  @Override
   public void onCreate() {
     // Force display init. getDisplay() lazily brings up the LVGL engine; widget
     // constructors below parent to the screen and crash if it's still null.

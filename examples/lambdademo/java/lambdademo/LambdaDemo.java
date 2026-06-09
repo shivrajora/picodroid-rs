@@ -5,6 +5,7 @@ import picodroid.app.Application;
 import picodroid.util.Log;
 
 public class LambdaDemo extends Application {
+  @Override
   public void onCreate() {
     run();
   }

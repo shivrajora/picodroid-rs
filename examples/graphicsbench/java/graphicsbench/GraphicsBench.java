@@ -77,6 +77,7 @@ public class GraphicsBench extends Application {
   static int sinkInt;
   static Object sinkObj;
 
+  @Override
   public void onCreate() {
     // run_application does not pre-init the display, so bring up LVGL first. Idempotent.
     display = Display.getInstance();

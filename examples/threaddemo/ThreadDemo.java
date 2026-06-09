@@ -6,6 +6,7 @@ import picodroid.concurrent.Thread;
 import picodroid.util.Log;
 
 public class ThreadDemo extends Application {
+  @Override
   public void onCreate() {
     Log.i("Main", "Starting threads");
     Thread t1 = new Thread(new Task1());

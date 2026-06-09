@@ -15,6 +15,7 @@ public class GcStress extends Application {
   static Object sink;
   static Node retained;
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "=== GC Stress Test ===");
     long total = 0;

@@ -19,6 +19,7 @@ public class DragDemoActivity extends Activity {
   private TextView status;
   private int moveCount;
 
+  @Override
   public void onCreate() {
     getDisplay();
 

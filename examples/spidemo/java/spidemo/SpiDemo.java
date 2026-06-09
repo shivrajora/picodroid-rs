@@ -14,6 +14,7 @@ import picodroid.util.Log;
  * received bytes will be 0x00.
  */
 public class SpiDemo extends Application {
+  @Override
   public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     SpiDevice spi = pm.openSpiDevice("SPI0");

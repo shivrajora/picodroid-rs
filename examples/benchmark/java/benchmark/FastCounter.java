@@ -6,6 +6,7 @@ public class FastCounter extends Counter {
     super();
   }
 
+  @Override
   public int increment() {
     count = count + 2;
     return count;

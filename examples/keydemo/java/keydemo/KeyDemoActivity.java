@@ -15,6 +15,7 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
   private static final String TAG = "KeyDemo";
   private TextView status;
 
+  @Override
   public void onCreate() {
     // Force display init before constructing any widgets.
     getDisplay();
@@ -45,6 +46,7 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
     setContentView(root);
   }
 
+  @Override
   public boolean onKey(View v, KeyEvent event) {
     String action = event.getAction() == KeyEvent.ACTION_DOWN ? "DOWN" : "UP";
     status.setText(action + " keyCode=" + event.getKeyCode());

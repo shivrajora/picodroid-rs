@@ -7,6 +7,7 @@ import picodroid.graphics.Color;
 import picodroid.graphics.Theme;
 
 public class DisplayDemoApp extends Application {
+  @Override
   public void onCreate() {
     // Custom dark palette — Activities reference Theme.color* directly so
     // tweaking these here changes the whole app at once. Demonstrates the

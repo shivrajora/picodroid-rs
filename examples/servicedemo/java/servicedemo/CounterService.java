@@ -16,11 +16,13 @@ public class CounterService extends Service {
   private int count = 0;
   private int startCount = 0;
 
+  @Override
   public void onCreate() {
     binder.service = this;
     Log.i("CounterService", "onCreate");
   }
 
+  @Override
   public int onStartCommand(Intent intent, int startId) {
     startCount++;
     int step = (intent != null) ? intent.getIntExtra("step", 1) : 1;
@@ -34,16 +36,19 @@ public class CounterService extends Service {
     return START_STICKY;
   }
 
+  @Override
   public IBinder onBind(Intent intent) {
     Log.i("CounterService", "onBind");
     return binder;
   }
 
+  @Override
   public boolean onUnbind(Intent intent) {
     Log.i("CounterService", "onUnbind");
     return false;
   }
 
+  @Override
   public void onDestroy() {
     Log.i("CounterService", "onDestroy count=" + count);
     stopForeground(true);

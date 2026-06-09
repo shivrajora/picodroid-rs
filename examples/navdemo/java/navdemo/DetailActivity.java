@@ -9,6 +9,7 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 public class DetailActivity extends Activity {
+  @Override
   public void onCreate() {
     Log.i("NavDemo", "Detail.onCreate");
 
@@ -36,14 +37,17 @@ public class DetailActivity extends Activity {
     setContentView(root);
   }
 
+  @Override
   public void onResume() {
     Log.i("NavDemo", "Detail.onResume");
   }
 
+  @Override
   public void onPause() {
     Log.i("NavDemo", "Detail.onPause");
   }
 
+  @Override
   public void onDestroy() {
     Log.i("NavDemo", "Detail.onDestroy");
   }

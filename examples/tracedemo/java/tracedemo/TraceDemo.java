@@ -21,6 +21,7 @@ import picodroid.util.Log;
  */
 public class TraceDemo extends Application {
 
+  @Override
   public void onCreate() {
     Log.i("TraceDemo", "starting — about to throw an uncaught exception");
     outer();

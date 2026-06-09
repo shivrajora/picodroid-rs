@@ -6,6 +6,7 @@ public class SlowCounter extends Counter {
     super();
   }
 
+  @Override
   public int increment() {
     count = count + 1;
     return count;

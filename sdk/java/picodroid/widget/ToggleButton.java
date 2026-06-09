@@ -24,8 +24,10 @@ public class ToggleButton extends CompoundButton {
 
   private static native int nativeCreateWithText(String textOn, String textOff);
 
+  @Override
   public native boolean isChecked();
 
+  @Override
   public native void setChecked(boolean checked);
 
   public native void toggle();

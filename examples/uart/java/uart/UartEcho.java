@@ -7,6 +7,7 @@ import picodroid.pio.UartDevice;
 import picodroid.util.Log;
 
 public class UartEcho extends Application {
+  @Override
   public void onCreate() {
     PeripheralManager mgr = PeripheralManager.getInstance();
     UartDevice uart = mgr.openUartDevice("UART0");

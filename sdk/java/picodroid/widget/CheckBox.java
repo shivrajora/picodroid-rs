@@ -16,7 +16,9 @@ public class CheckBox extends CompoundButton {
 
   public native void setText(String text);
 
+  @Override
   public native boolean isChecked();
 
+  @Override
   public native void setChecked(boolean checked);
 }

@@ -11,6 +11,7 @@ import picodroid.widget.TextView;
 public class GestureDemoActivity extends Activity {
   private TextView status;
 
+  @Override
   public void onCreate() {
     GestureActivityComponent c = new GestureActivityComponent();
     GestureAppComponent app = c.appComponent();

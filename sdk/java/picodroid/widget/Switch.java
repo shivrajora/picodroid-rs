@@ -14,8 +14,10 @@ public class Switch extends CompoundButton {
 
   private static native int nativeCreate();
 
+  @Override
   public native boolean isChecked();
 
+  @Override
   public native void setChecked(boolean checked);
 
   public native void toggle();

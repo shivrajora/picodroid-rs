@@ -16,6 +16,7 @@ import picodroid.util.Log;
 public class BytecodeCoverage extends Application {
   private static final String TAG = "ByteCov";
 
+  @Override
   public void onCreate() {
     run();
   }

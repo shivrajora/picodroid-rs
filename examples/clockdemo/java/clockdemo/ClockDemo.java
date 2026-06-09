@@ -8,6 +8,7 @@ import picodroid.util.Log;
 public class ClockDemo extends Application {
   private static final String TAG = "ClockDemo";
 
+  @Override
   public void onCreate() {
     long ms = System.currentTimeMillis();
     long ns = SystemClock.elapsedRealtimeNanos();

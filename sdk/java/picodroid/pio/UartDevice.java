@@ -32,5 +32,6 @@ public class UartDevice implements AutoCloseable {
   /** Read a single byte. Returns -1 if the RX FIFO is empty. */
   public native int readByte();
 
+  @Override
   public native void close();
 }

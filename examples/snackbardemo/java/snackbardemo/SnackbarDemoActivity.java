@@ -14,6 +14,7 @@ public class SnackbarDemoActivity extends Activity {
 
   private int undoCount = 0;
 
+  @Override
   public void onCreate() {
     getDisplay();
     Log.i(TAG, "Display ready");

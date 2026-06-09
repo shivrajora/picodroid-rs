@@ -12,15 +12,18 @@ import picodroid.widget.TextView;
 public class HomeActivity extends Activity {
   private int buildCount = 0;
 
+  @Override
   public void onCreate() {
     Log.i("NavDemo", "Home.onCreate");
     buildUi();
   }
 
+  @Override
   public void onResume() {
     Log.i("NavDemo", "Home.onResume");
   }
 
+  @Override
   public void onPause() {
     Log.i("NavDemo", "Home.onPause");
   }

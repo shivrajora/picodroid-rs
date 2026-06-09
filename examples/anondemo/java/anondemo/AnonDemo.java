@@ -5,6 +5,7 @@ import picodroid.app.Application;
 import picodroid.util.Log;
 
 public class AnonDemo extends Application {
+  @Override
   public void onCreate() {
     run();
   }
@@ -13,6 +14,7 @@ public class AnonDemo extends Application {
     // 1. Anonymous class implementing an interface
     Greeter hello =
         new Greeter() {
+          @Override
           public String greet() {
             return "Hello from anonymous class!";
           }
@@ -23,6 +25,7 @@ public class AnonDemo extends Application {
     int year = 2026;
     Greeter withCapture =
         new Greeter() {
+          @Override
           public String greet() {
             return "Year=" + year;
           }
@@ -32,12 +35,14 @@ public class AnonDemo extends Application {
     // 3. Multiple anonymous classes
     Greeter a =
         new Greeter() {
+          @Override
           public String greet() {
             return "I am A";
           }
         };
     Greeter b =
         new Greeter() {
+          @Override
           public String greet() {
             return "I am B";
           }

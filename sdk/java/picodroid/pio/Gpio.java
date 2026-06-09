@@ -16,5 +16,6 @@ public class Gpio implements AutoCloseable {
 
   public native void setValue(boolean value);
 
+  @Override
   public native void close();
 }

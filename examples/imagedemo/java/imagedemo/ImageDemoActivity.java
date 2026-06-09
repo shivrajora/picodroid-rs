@@ -10,6 +10,7 @@ import picodroid.widget.TextView;
 
 /** Smoke test for bundled image assets in the papk. */
 public class ImageDemoActivity extends Activity {
+  @Override
   public void onCreate() {
     Log.i("ImageDemo", "loading bundled asset 'logo.png'");
 

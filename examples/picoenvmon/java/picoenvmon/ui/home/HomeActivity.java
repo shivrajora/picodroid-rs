@@ -32,6 +32,7 @@ public class HomeActivity extends NavActivity {
   // item-click listener map — defense-in-depth against the unfielded-callback-view sweep.
   private ListView menu;
 
+  @Override
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "Home.onCreate");
     getDisplay();
@@ -60,6 +61,7 @@ public class HomeActivity extends NavActivity {
 
   // Root hub: Back has nowhere to return to, so swallow it instead of finishing (which would exit
   // the app). Deliberately does not call super.onBackPressed().
+  @Override
   public void onBackPressed() {
     // no-op
   }

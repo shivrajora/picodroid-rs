@@ -9,6 +9,7 @@ import picoenvmon.di.EnvAppComponent;
 import picoenvmon.ui.home.HomeActivity;
 
 public class EnvApp extends Application {
+  @Override
   public void onCreate() {
     Theme.colorBackground = Color.argb(255, 14, 20, 24);
     Theme.colorSurface = Color.argb(255, 24, 36, 44);

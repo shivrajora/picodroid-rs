@@ -5,6 +5,7 @@ import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 public class Task2 implements Runnable {
+  @Override
   public void run() {
     while (true) {
       Log.i("T2", "tock");

@@ -12,6 +12,7 @@ import picodroid.util.Log;
  * exercising every Service v1 lifecycle path in one non-UI run.
  */
 public class ServiceDemoApp extends Application {
+  @Override
   public void onCreate() {
     Log.i("ServiceDemoApp", "begin");
 
@@ -22,11 +23,13 @@ public class ServiceDemoApp extends Application {
     // 2. bindService — onBind fires, then onServiceConnected on the connection.
     ServiceConnection conn =
         new ServiceConnection() {
+          @Override
           public void onServiceConnected(IBinder binder) {
             CounterService svc = ((CounterService.LocalBinder) binder).service;
             Log.i("ServiceDemoApp", "bound, peek=" + svc.peek());
           }
 
+          @Override
           public void onServiceDisconnected() {
             Log.i("ServiceDemoApp", "disconnected");
           }

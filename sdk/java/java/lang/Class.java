@@ -21,6 +21,7 @@ public final class Class<T> {
 
   public native String getName();
 
+  @Override
   public String toString() {
     return "class " + getName();
   }

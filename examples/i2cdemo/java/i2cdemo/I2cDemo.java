@@ -14,6 +14,7 @@ import picodroid.util.Log;
  * silently.
  */
 public class I2cDemo extends Application {
+  @Override
   public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     I2cDevice i2c = pm.openI2cDevice("I2C0");

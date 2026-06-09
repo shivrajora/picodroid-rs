@@ -4,6 +4,7 @@ package interfacedemo;
 import picodroid.app.Application;
 
 public class InterfaceDemo extends Application {
+  @Override
   public void onCreate() {
     run();
   }

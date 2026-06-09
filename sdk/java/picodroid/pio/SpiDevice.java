@@ -31,5 +31,6 @@ public class SpiDevice implements AutoCloseable {
    */
   public native int write(byte[] data, int len);
 
+  @Override
   public native void close();
 }

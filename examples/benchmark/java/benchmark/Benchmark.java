@@ -24,6 +24,7 @@ public class Benchmark extends Application {
   static double sinkDouble;
   static Object sinkObj;
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "--- picodroid JVM benchmark ---");
     long total = 0;

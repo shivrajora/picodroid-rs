@@ -17,6 +17,7 @@ public class SensorDemoActivity extends Activity implements SensorEventListener 
   private int eventCount = 0;
   private TextView tempLabel;
 
+  @Override
   public void onCreate() {
     getDisplay();
 
@@ -51,6 +52,7 @@ public class SensorDemoActivity extends Activity implements SensorEventListener 
     setContentView(root);
   }
 
+  @Override
   public void onSensorChanged(SensorEvent event) {
     eventCount++;
     float temp = event.values[0];
@@ -58,5 +60,6 @@ public class SensorDemoActivity extends Activity implements SensorEventListener 
     Log.i(TAG, "temp=" + temp + "C (event #" + eventCount + ")");
   }
 
+  @Override
   public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 }

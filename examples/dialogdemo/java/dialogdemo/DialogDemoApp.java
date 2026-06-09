@@ -5,6 +5,7 @@ import picodroid.app.Application;
 import picodroid.content.Intent;
 
 public class DialogDemoApp extends Application {
+  @Override
   public void onCreate() {
     new DialogAppComponent();
     startActivity(new Intent(DialogDemoActivity.class));

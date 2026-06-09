@@ -14,6 +14,7 @@ public class AnimDemoActivity extends Activity {
   private boolean tileMoved = false;
   private boolean tileFaded = false;
 
+  @Override
   public void onCreate() {
     getDisplay();
 

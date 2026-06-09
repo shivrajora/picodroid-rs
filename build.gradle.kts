@@ -1,3 +1,14 @@
+import net.ltgt.gradle.errorprone.CheckSeverity
+import net.ltgt.gradle.errorprone.errorprone
+
+plugins {
+    // Adds the `errorprone` config + `options.errorprone {}` DSL. Declared here with
+    // `apply false` so the plugin is on the classpath for every Java subproject below,
+    // where it's actually applied. On JDK 16+ the plugin forks javac and injects the
+    // required --add-exports/--add-opens flags automatically.
+    id("net.ltgt.errorprone") version "4.1.0" apply false
+}
+
 allprojects {
     repositories {
         mavenCentral()
@@ -52,10 +63,18 @@ tasks.register("newApp") {
 
 subprojects {
     plugins.withType<JavaPlugin> {
+        apply(plugin = "net.ltgt.errorprone")
         extensions.configure<JavaPluginExtension> {
             sourceCompatibility = JavaVersion.VERSION_1_8
             targetCompatibility = JavaVersion.VERSION_1_8
         }
+        dependencies {
+            "errorprone"("com.google.errorprone:error_prone_core:2.36.0")
+        }
+        // One-shot sweep that inserts every missing @Override in place:
+        //   ./gradlew compileJava -Pep.patch
+        // Leave it off for normal builds, where MissingOverride is a hard error.
+        val epPatch = project.hasProperty("ep.patch")
         tasks.withType<JavaCompile>().configureEach {
             options.release.set(8)
             options.compilerArgs.addAll(listOf("-Xlint:-options"))
@@ -63,6 +82,21 @@ subprojects {
             // default (source,lines,vars) so .class bytes match the legacy
             // scripts/build-apk.sh output.
             options.debugOptions.debugLevel = "source,lines"
+            // Enforce only @Override; every other Error Prone check is left off so
+            // unrelated patterns can't break the build. @Override is source-retention,
+            // so this never changes the emitted .class bytes.
+            options.errorprone {
+                disableAllChecks.set(true)
+                if (epPatch) {
+                    check("MissingOverride", CheckSeverity.WARN)
+                    errorproneArgs.addAll(
+                        "-XepPatchChecks:MissingOverride",
+                        "-XepPatchLocation:IN_PLACE",
+                    )
+                } else {
+                    check("MissingOverride", CheckSeverity.ERROR)
+                }
+            }
         }
     }
 }

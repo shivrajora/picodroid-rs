@@ -10,6 +10,7 @@ import picodroid.widget.TextView;
 import picodroid.widget.Toast;
 
 public class DialogDemoActivity extends Activity {
+  @Override
   public void onCreate() {
     DialogActivityComponent c = new DialogActivityComponent();
 

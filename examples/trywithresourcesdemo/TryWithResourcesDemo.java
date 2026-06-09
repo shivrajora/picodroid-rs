@@ -7,6 +7,7 @@ import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 
 public class TryWithResourcesDemo extends Application {
+  @Override
   public void onCreate() {
     run();
   }

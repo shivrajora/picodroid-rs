@@ -14,6 +14,7 @@ import picodroid.widget.TimePicker;
 public class PickerDemoActivity extends Activity {
   private static final String TAG = "PickerDemo";
 
+  @Override
   public void onCreate() {
     getDisplay();
     Log.i(TAG, "Display ready");

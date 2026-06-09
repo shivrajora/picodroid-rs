@@ -13,6 +13,7 @@ public class Counter implements Countable {
     return count;
   }
 
+  @Override
   public int count() {
     return count;
   }

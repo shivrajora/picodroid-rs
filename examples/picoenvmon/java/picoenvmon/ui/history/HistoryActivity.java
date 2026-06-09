@@ -41,6 +41,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   private int sampleCount;
   private int firstShown;
 
+  @Override
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "History.onCreate");
     comp = new EnvActivityComponent();
@@ -71,6 +72,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     bindService(new Intent(SensorLoggerService.class), this);
   }
 
+  @Override
   public void onDestroy() {
     try {
       unbindService(this);

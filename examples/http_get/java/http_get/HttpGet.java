@@ -24,6 +24,7 @@ import picodroid.util.Log;
 public class HttpGet extends Application {
   private static final String TAG = "HttpGet";
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "--- picodroid http demo ---");
 

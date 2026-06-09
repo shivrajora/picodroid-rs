@@ -47,6 +47,7 @@ public class PerfBench extends Application {
   static double sinkDouble;
   static Object sinkObj;
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "=== perfbench (speed + memory composite score) ===");
 

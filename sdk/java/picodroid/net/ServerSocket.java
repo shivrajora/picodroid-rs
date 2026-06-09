@@ -21,6 +21,7 @@ public class ServerSocket implements AutoCloseable {
    */
   public native Socket accept();
 
+  @Override
   public native void close();
 
   private static native int nativeListen(int port);

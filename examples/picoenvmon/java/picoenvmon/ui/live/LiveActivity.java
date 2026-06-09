@@ -41,6 +41,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private final LinearLayout[] tileRoots = new LinearLayout[NUM_TILES];
   private final TextView[] tileValues = new TextView[NUM_TILES];
 
+  @Override
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "Live.onCreate");
     comp = new EnvActivityComponent();
@@ -76,6 +77,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     bindService(new Intent(SensorLoggerService.class), this);
   }
 
+  @Override
   public void onDestroy() {
     if (service != null) {
       service.removeSmoothedListener(this);

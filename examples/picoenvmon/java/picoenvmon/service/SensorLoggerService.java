@@ -74,6 +74,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
       new SmoothedSensorListener[MAX_SMOOTHED_LISTENERS];
   private long lastEmitMs;
 
+  @Override
   public void onCreate() {
     binder.service = this;
     EnvAppComponent app = (EnvAppComponent) EnvAppComponent.current();
@@ -103,6 +104,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     }
   }
 
+  @Override
   public int onStartCommand(Intent intent, int startId) {
     if (!started) {
       started = true;
@@ -117,10 +119,12 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     return START_STICKY;
   }
 
+  @Override
   public IBinder onBind(Intent intent) {
     return binder;
   }
 
+  @Override
   public void onDestroy() {
     Log.i(TAG, "onDestroy");
     if (sensorManager != null) {

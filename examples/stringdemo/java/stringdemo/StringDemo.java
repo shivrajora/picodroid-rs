@@ -21,6 +21,7 @@ public class StringDemo extends Application {
     }
   }
 
+  @Override
   public void onCreate() {
     run();
   }

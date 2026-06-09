@@ -20,6 +20,7 @@ public class EnumDemo extends Application {
     }
   }
 
+  @Override
   public void onCreate() {
     run();
   }

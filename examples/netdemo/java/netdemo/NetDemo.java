@@ -20,6 +20,7 @@ import picodroid.util.Log;
 public class NetDemo extends Application {
   private static final String TAG = "NetDemo";
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "--- picodroid network demo ---");
 

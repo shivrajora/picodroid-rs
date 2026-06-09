@@ -15,6 +15,7 @@ import picodroid.util.Log;
  * the duty cycle changes are logged to the console.
  */
 public class PwmDemo extends Application {
+  @Override
   public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     Pwm pwm = pm.openPwm("GP25");

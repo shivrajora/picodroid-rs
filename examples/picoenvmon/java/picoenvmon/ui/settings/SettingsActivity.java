@@ -32,6 +32,7 @@ public class SettingsActivity extends NavActivity {
   private EditText humField;
   private EditText luxField;
 
+  @Override
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "Settings.onCreate");
     comp = new EnvActivityComponent();

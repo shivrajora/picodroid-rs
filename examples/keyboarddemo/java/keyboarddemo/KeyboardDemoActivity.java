@@ -14,6 +14,7 @@ import picodroid.widget.TextView;
 public class KeyboardDemoActivity extends Activity {
   private TextView echo;
 
+  @Override
   public void onCreate() {
     getDisplay();
     Log.i("KeyboardDemo", "ready");

@@ -27,5 +27,6 @@ public class I2cDevice implements AutoCloseable {
    */
   public native int read(int address, byte[] buf, int len);
 
+  @Override
   public native void close();
 }

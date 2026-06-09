@@ -19,6 +19,7 @@ public class ClinitDemo extends Application {
     Y = 100;
   }
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "Field init: X = " + X);
     Log.i(TAG, "Static block: Y = " + Y);

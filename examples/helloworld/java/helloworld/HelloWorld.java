@@ -5,6 +5,7 @@ import picodroid.app.Application;
 import picodroid.util.Log;
 
 public class HelloWorld extends Application {
+  @Override
   public void onCreate() {
     Log.i("HelloWorld", "hi " + ("Hello, World!" + " bye ") + 42 + test(123));
   }

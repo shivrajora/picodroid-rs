@@ -16,6 +16,7 @@ import picodroid.widget.TextView;
  * {@code MAIN-1..3} and {@code BG-1} must all appear in stdout under both shrink modes.
  */
 public class ExecutorDemoActivity extends Activity {
+  @Override
   public void onCreate() {
     getDisplay();
 

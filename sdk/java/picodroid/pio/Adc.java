@@ -10,5 +10,6 @@ public class Adc implements AutoCloseable {
 
   public native double readValue();
 
+  @Override
   public native void close();
 }

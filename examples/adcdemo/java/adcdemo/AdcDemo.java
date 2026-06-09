@@ -14,6 +14,7 @@ import picodroid.util.Log;
  * mid-scale voltage (1.65 V) is returned.
  */
 public class AdcDemo extends Application {
+  @Override
   public void onCreate() {
     PeripheralManager pm = PeripheralManager.getInstance();
     Adc adc = pm.openAdcPin("GP26");

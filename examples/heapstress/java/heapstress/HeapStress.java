@@ -23,6 +23,7 @@ public class HeapStress extends Application {
   static Object sink;
   static Node retained;
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "=== Heap Fragmentation Stress Test ===");
     long total = 0;

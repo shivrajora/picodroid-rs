@@ -14,6 +14,7 @@ public class ExceptionDemo extends Application {
     Log.i("ExceptionDemo", "no exception");
   }
 
+  @Override
   public void onCreate() {
     run();
   }

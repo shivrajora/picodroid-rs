@@ -21,5 +21,6 @@ public class Pwm implements AutoCloseable {
   /** Sets the PWM output frequency in Hertz. Must be called before setEnabled(true). */
   public native void setPwmFrequencyHz(double freqHz);
 
+  @Override
   public native void close();
 }

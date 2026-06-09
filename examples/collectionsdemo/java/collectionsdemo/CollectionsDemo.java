@@ -46,6 +46,7 @@ public class CollectionsDemo extends Application {
     }
   }
 
+  @Override
   public void onCreate() {
     run();
   }

@@ -23,6 +23,7 @@ public class DatagramSocket implements AutoCloseable {
   /** Set receive timeout in milliseconds (0 = infinite). */
   public native void setTimeout(int millis);
 
+  @Override
   public native void close();
 
   private static native int nativeCreate(int localPort);

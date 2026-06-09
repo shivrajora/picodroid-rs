@@ -14,6 +14,7 @@ public class SwipeDemoActivity extends Activity {
 
   private int refreshCount = 0;
 
+  @Override
   public void onCreate() {
     getDisplay();
     Log.i(TAG, "Display ready");

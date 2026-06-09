@@ -7,6 +7,7 @@ import picodroid.util.Log;
 public class MathsDemo extends Application {
   private static final String TAG = "MathsDemo";
 
+  @Override
   public void onCreate() {
     run();
   }

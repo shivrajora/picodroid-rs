@@ -8,6 +8,7 @@ import picodroid.util.Log;
 public class RandomDemo extends Application {
   private static final String TAG = "RandomDemo";
 
+  @Override
   public void onCreate() {
     // Deterministic sequence: same seed must give the same draws every run.
     Random r = new Random(42L);

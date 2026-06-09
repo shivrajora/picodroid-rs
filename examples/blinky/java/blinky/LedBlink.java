@@ -8,6 +8,7 @@ import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 
 public class LedBlink extends Application {
+  @Override
   public void onCreate() {
     Log.i("HelloWorld", "Hello, World!");
 

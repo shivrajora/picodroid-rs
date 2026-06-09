@@ -23,6 +23,7 @@ import picodroid.widget.TextView;
 import picodroid.widget.ToggleButton;
 
 public class DisplayDemoActivity extends Activity {
+  @Override
   public void onCreate() {
     getDisplay();
     DisplayDebug.calibrate();

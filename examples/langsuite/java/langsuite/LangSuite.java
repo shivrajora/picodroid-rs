@@ -13,6 +13,7 @@ import picodroid.util.Log;
 public class LangSuite extends Application {
   private static final String TAG = "LangSuite";
 
+  @Override
   public void onCreate() {
     Log.i(TAG, "=== LangSuite start ===");
 

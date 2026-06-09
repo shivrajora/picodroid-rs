@@ -12,6 +12,7 @@ import picodroid.util.Log;
  * works correctly.
  */
 public class SyncDemo extends Application {
+  @Override
   public void onCreate() {
     run();
   }
