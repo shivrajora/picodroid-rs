@@ -300,3 +300,15 @@ int  freed = Runtime.gcFreed();      // entries freed across all cycles
 long ns    = Runtime.gcTimeNanos();  // cumulative time spent in GC
 Runtime.resetGcStats();              // zero all counters
 ```
+
+## Where next
+
+Once your first app runs, work through these in order:
+
+1. [Tutorial: a multi-screen app with a back stack](/tutorials/multi-screen-app/) — Activities, navigation, and lifecycle in a real app.
+2. [Tutorial: a background service bound from an Activity](/tutorials/background-service/) — long-lived work that survives screen changes.
+3. [Embedded gotchas](/guides/embedded-gotchas/) — the Android idioms that behave differently here. Read this before you write much UI.
+4. [System limits & memory budgets](/reference/limits/) — how much your app can do before it runs out of room.
+5. [Debugging](/guides/debugging/) — symptom-driven playbooks for when something goes wrong.
+
+For touchless hardware-button boards, also read [Button-only navigation](/guides/button-navigation/). The full manifest schema lives in the [Manifest reference](/reference/manifest/).

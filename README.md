@@ -94,16 +94,19 @@ See [Build & flash](website/src/content/docs/get-started/build.md) for prerequis
 
 ## Documentation
 
-The full docs are an Astro Starlight site under [`website/`](website/) — once the GitHub Pages workflow ships, they're hosted at `https://shivrajora.github.io/picodroid-rs/`. The same content also renders on GitHub directly:
+The full docs are an Astro Starlight site under [`website/`](website/) — once the GitHub Pages workflow ships, they're hosted at `https://shivrajora.github.io/picodroid-rs/`. The same content also renders on GitHub directly.
+
+**New to Picodroid? Read in this order:** [Build & flash](website/src/content/docs/get-started/build.md) → [Your first app](website/src/content/docs/get-started/first-app.md) → [Multi-screen tutorial](website/src/content/docs/tutorials/multi-screen-app.md) → [Embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md) → [Limits & memory budgets](website/src/content/docs/reference/limits.md).
 
 - [Get started → Build & flash](website/src/content/docs/get-started/build.md) — prerequisites, build, flash, board/app selection
 - [Get started → Host simulator](website/src/content/docs/get-started/simulator.md) — run apps without hardware
 - [Get started → Hot-swap with pdb](website/src/content/docs/get-started/hot-swap.md) — push PAPKs over USB CDC
 - [Get started → Your first app](website/src/content/docs/get-started/first-app.md) — Application/Activity lifecycle and supported language features
+- [Tutorials](website/src/content/docs/tutorials/multi-screen-app.md) — guided builds: a [multi-screen app](website/src/content/docs/tutorials/multi-screen-app.md) and a [background service](website/src/content/docs/tutorials/background-service.md)
 - [ESP32-S3 quickstart](website/src/content/docs/get-started/esp32s3.md) — Lilygo T-Deck Plus M1 (compile-only)
 - [Java API](website/src/content/docs/api.md) — split by area: [core](website/src/content/docs/api/core.md), [system](website/src/content/docs/api/system.md), [services](website/src/content/docs/api/services.md), [peripherals](website/src/content/docs/api/peripherals.md), [storage](website/src/content/docs/api/storage.md), [networking](website/src/content/docs/api/networking.md), [sensors](website/src/content/docs/api/sensors.md), [UI](website/src/content/docs/api/ui.md)
-- [Bundled image assets](website/src/content/docs/guides/assets.md) — PAPK 1.1 ASST, `ImageView.setImageSource`
-- [Class-name shrinker](website/src/content/docs/reference/shrinker.md) — opt-in (`--shrink`) release-tied, append-only maps
+- [Guides](website/src/content/docs/guides/embedded-gotchas.md) — [embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md), [button-only navigation](website/src/content/docs/guides/button-navigation.md), [debugging](website/src/content/docs/guides/debugging.md), [bundled image assets](website/src/content/docs/guides/assets.md)
+- [Reference](website/src/content/docs/reference/limits.md) — [limits & memory budgets](website/src/content/docs/reference/limits.md), the [manifest schema](website/src/content/docs/reference/manifest.md), the [class-name shrinker](website/src/content/docs/reference/shrinker.md)
 - [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.9.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 

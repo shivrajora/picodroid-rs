@@ -7,7 +7,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 Picodroid is a stripped-down Android-shaped runtime that fits on a Raspberry Pi Pico. App code is written in Java, compiled to bytecode, and interpreted by a lightweight JVM built in Rust running on bare-metal embedded hardware.
 
-If you're new, work through the **Get started** section in order: pick your board, build and flash the default app, learn the lifecycle, then copy whichever **Example** is closest to what you want to build.
+If you're new, follow this path: [Build & flash](/get-started/build/) → [Your first app](/get-started/first-app/) → [Multi-screen tutorial](/tutorials/multi-screen-app/) → [Embedded gotchas](/guides/embedded-gotchas/) → [Limits & memory budgets](/reference/limits/). Then copy whichever [Example](/examples/) is closest to what you want to build.
 
 ## Two paths in
 
@@ -25,10 +25,11 @@ If you're new, work through the **Get started** section in order: pick your boar
 ## What's in here
 
 - **Get started** — install the toolchain, build, flash, and run the simulator.
-- **Examples** — 53 example apps grouped by category. Pick one close to what you want.
+- **Tutorials** — guided, end-to-end builds: a multi-screen app and a background service.
+- **Examples** — 55 example apps grouped by category. Pick one close to what you want.
 - **Java API** — what the framework exposes to your app, by area: peripherals, storage, networking, sensors, services, UI.
-- **Guides** — debugging, troubleshooting, bundled image assets, theming.
-- **Reference** — cargo aliases, the class-name shrinker, the porting guide, advanced configuration.
+- **Guides** — embedded gotchas, button-only navigation, debugging, troubleshooting, bundled image assets, theming.
+- **Reference** — limits & memory budgets, the manifest schema, the class-name shrinker, the porting guide, JVM tunables.
 - **Project** — architecture, release notes, contributing, licensing.
 
 Search (top-right) is full-text — type `Snackbar`, `T-Deck`, `setImageSource`, or `BackgroundExecutor` and you'll land on the relevant page.

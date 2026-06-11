@@ -5,7 +5,7 @@ description: "How to set up the toolchain, run pre-commit, and contribute to Pic
 
 ## Getting Set Up
 
-See [docs/getting-started.md](/get-started/build/) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).
+See [Build & flash](/get-started/build/) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).
 
 Quick version:
 
@@ -100,19 +100,21 @@ public class MyApp extends Application {
 ./scripts/flash.sh --app myapp      # flash to hardware
 ```
 
-5. Add your app to `docs/examples.md` in the appropriate category.
+5. Add your app to the [Examples](/examples/) catalog in the appropriate category.
 
-See [docs/writing-apps.md](/get-started/first-app/) for supported language features and the full Java API.
+See [Your first app](/get-started/first-app/) for supported language features and the full Java API.
 
 ## Adding a New Native Java Method
 
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `src/system/` under the appropriate module
-2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [docs/shrinker.md](/reference/shrinker/) for details.
+2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [Class-name shrinker](/reference/shrinker/) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
-5. Update the relevant `docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
+5. Update the relevant [API reference](/api/) page (e.g. [Peripherals](/api/peripherals/) for a new PIO method, [Graphics & UI](/api/ui/) for a new widget) with the new API surface
+
+> **Docs are mirrored.** This page is a copy of the repository's root `CONTRIBUTING.md` — edit both together so they don't drift. Likewise, if you change a board memory value (`board.toml`, `FreeRTOSConfig.h`, or the MCU `.toml`s), re-check [Limits & memory budgets](/reference/limits/), which quotes those numbers.
 
 ## Cutting a New Release
 

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="tutorial_service" version="1.0">
+    <application application="tutorial_service/TutorialServiceApp" />
+</manifest>

@@ -62,6 +62,13 @@ export default defineConfig({
             { label: 'Your first app', slug: 'get-started/first-app' },
           ],
         },
+        {
+          label: 'Tutorials',
+          items: [
+            { label: 'Multi-screen app', slug: 'tutorials/multi-screen-app' },
+            { label: 'Background service', slug: 'tutorials/background-service' },
+          ],
+        },
         { label: 'Examples', slug: 'examples' },
         {
           label: 'Java API',
@@ -80,6 +87,8 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
+            { label: 'Embedded gotchas', slug: 'guides/embedded-gotchas' },
+            { label: 'Button-only navigation', slug: 'guides/button-navigation' },
             { label: 'Debugging', slug: 'guides/debugging' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
             { label: 'Bundled image assets', slug: 'guides/assets' },
@@ -89,6 +98,8 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
+            { label: 'Limits & memory budgets', slug: 'reference/limits' },
+            { label: 'Manifest', slug: 'reference/manifest' },
             { label: 'Cargo aliases', slug: 'reference/cargo-aliases' },
             { label: 'Class-name shrinker', slug: 'reference/shrinker' },
             { label: 'Advanced configuration', slug: 'reference/advanced-config' },

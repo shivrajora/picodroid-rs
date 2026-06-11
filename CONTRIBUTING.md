@@ -99,7 +99,9 @@ public class MyApp extends Application {
 
 5. Add your app to [website/src/content/docs/examples.md](website/src/content/docs/examples.md) in the appropriate category.
 
-See [website/src/content/docs/get-started/first-app.md](website/src/content/docs/get-started/first-app.md) for supported language features and the full Java API.
+`./gradlew newApp -Pname=myapp` scaffolds steps 1–3 for you. See [website/src/content/docs/reference/manifest.md](website/src/content/docs/reference/manifest.md) for the full manifest schema and entry-point styles, and [website/src/content/docs/get-started/first-app.md](website/src/content/docs/get-started/first-app.md) for supported language features and the full Java API.
+
+> **Docs are mirrored.** `website/src/content/docs/project/contributing.md` is a copy of this file — edit both together. If you change a board memory value (`board.toml`, `FreeRTOSConfig.h`, or the MCU `.toml`s), also re-check [website/src/content/docs/reference/limits.md](website/src/content/docs/reference/limits.md), which quotes those numbers.
 
 ## Adding a New Native Java Method
 

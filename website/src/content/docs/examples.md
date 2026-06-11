@@ -3,7 +3,18 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Fifty-three examples are included under `examples/`, organized by category.
+Fifty-five examples are included under `examples/`, organized by category.
+
+New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
+
+## Tutorials
+
+Companion apps for the step-by-step [Tutorials](/tutorials/multi-screen-app/). Build them with the guide open alongside.
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `tutorial_screens` | `tutorial_screens.TutorialScreensApp` | A Home hub that pushes Counter and About screens — Activities, the back stack, lifecycle, and view preservation. Follow [Multi-screen app](/tutorials/multi-screen-app/). |
+| `tutorial_service` | `tutorial_service.TutorialServiceApp` | An uptime-logging Service that survives navigation, bound from a viewer screen for live snapshots. Follow [Background service](/tutorials/background-service/). |
 
 ## Getting Started
 
@@ -62,7 +73,7 @@ Executors and cross-thread dispatch. Reference: [api/system.md → Executors](/a
 
 ## Services
 
-Background components with lifecycle independent of any Activity. Reference: see `picodroid.app.Service`, `IBinder`, `Notification`, and the binding APIs on `Context`.
+Background components with lifecycle independent of any Activity. Reference: [Services & DI](/api/services/); for a guided build see the [Background service tutorial](/tutorials/background-service/).
 
 | Example | Class | Description |
 |---------|-------|-------------|
@@ -96,11 +107,11 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 
 ## Graphics and Display
 
-Full graphical UI with touch input, demonstrating the Activity lifecycle and LVGL widget system. Reference: [Graphics & UI](/api/ui/).
+Full graphical UI with touch input, demonstrating the Activity lifecycle and LVGL widget system. Reference: [Graphics & UI](/api/ui/); see also [Embedded gotchas](/guides/embedded-gotchas/) for the UI pitfalls these apps avoid.
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, a moving-average FPS overlay (`Display.showFps()`), and a themed-widgets section using a custom `Theme` palette with `GradientDrawable` (gradient header, surface card, pill / ghost buttons) |
+| `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, a moving-average FPS overlay (`DisplayDebug.showFps()`), and a themed-widgets section using a custom `Theme` palette with `GradientDrawable` (gradient header, surface card, pill / ghost buttons) |
 | `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: installs an `OnKeyListener` on a focusable `Button` and displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
 | `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
 | `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
@@ -116,7 +127,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 
 ## Performance and Testing
 
-Benchmarks and stress tests for the JVM runtime and allocator. Reference: [System & concurrency](/api/system/) (`Runtime.gcCount()`, `Runtime.gcTimeNanos()`).
+Benchmarks and stress tests for the JVM runtime and allocator. Reference: [System & concurrency](/api/system/) (`Runtime.gcCount()`, `Runtime.gcTimeNanos()`); for the numbers these probe, see [Limits & memory budgets](/reference/limits/) and [JVM tunables](/reference/jvm-tunables/).
 
 | Example | Class | Description |
 |---------|-------|-------------|

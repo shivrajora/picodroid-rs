@@ -336,29 +336,38 @@ On single-core MCUs:
 
 Every physical board ships a `board.toml` under `boards/<name>/`. The build script parses it and emits Rust `cfg`s and `const`s — do not edit `boards/*/mod.rs` to configure a display or sensor, configure it here. All coordinates are RP2040/RP2350 GPIO numbers.
 
+:::tip[App developers: what board.toml means for you]
+You don't edit `board.toml` to write an app, but it determines what your app can do on a given board. A few keys are worth knowing: `lv_mem_kb` sets the LVGL render pool (smaller pools cap how many focusable list rows fit — see [Limits & memory budgets](/reference/limits/)); the presence of a `[touch]` section vs. `[[button]]` entries decides whether the board is touch- or button-driven (see [Button-only navigation](/guides/button-navigation/)); `idle_timeout_ms` controls display sleep; and `[jvm]` tunes the heap/GC tradeoff ([JVM tunables](/reference/jvm-tunables/)).
+:::
+
 ### Top-level properties
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `mcu` | string | yes | `"rp2040"` or `"rp2350"` |
+| `mcu` | string | yes | `"rp2040"`, `"rp2350"`, or `"esp32s3"` (the schema is family-agnostic). |
 | `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + driver). |
-| `network_type` | string | no | Required if `has_network = true`. Only `"cyw43"` is supported today. |
+| `network_type` | string | no | Needed for a working network build when `has_network = true` (not parser-enforced). Only `"cyw43"` is supported today. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
-| `lv_mem_kb` | int | no | LVGL heap size in KiB. |
+| `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
+| `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
+| `linker_script` | string | no | Path to a custom `memory.x` (defaults to `mcus/<family>/<mcu>.x`). |
 
 ### `[display]` — display controller (ST7789 over SPI)
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `driver` | string | Currently only `"st7789"`. |
+| `driver` | string | Documentation-only; the HAL hardcodes ST7789. |
 | `spi_id` | int | SPI peripheral ID (0 or 1). |
 | `spi_freq` | int | SPI clock in Hz (e.g. `62500000`). |
+| `spi_sck`, `spi_mosi`, `spi_miso` | int | Optional SPI pad overrides; default to the chip's SPI pins (e.g. SPI0 SCK=GP2/MOSI=GP3 on RP2350). The Enviro+ Pack uses these to route SPI0 to GP18/GP19. |
 | `pin_dc`, `pin_cs`, `pin_bl` | int | Data/command, chip-select, backlight GPIOs. |
 | `pin_rst` | int | Reset pin (optional; some displays don't expose one). |
-| `width`, `height` | int | Panel dimensions in pixels. |
+| `width`, `height` | int | Panel dimensions in pixels (**required** when `[display]` is present). |
 | `madctl` | int (hex) | ST7789 memory-access-control register (controls rotation / mirroring). |
-| `band_height` | int | LVGL partial-render band in pixels. |
-| `scroll_limit` | int | LVGL scroll hysteresis threshold. |
+| `band_height` | int | LVGL partial-render band in pixels (**required**). |
+| `scroll_limit` | int | LVGL scroll hysteresis threshold (**required**). |
+
+Omit the whole `[display]` section for a headless board; the build then falls back to safe 320×240 defaults and leaves `has_display` unset.
 
 ### `[touch]` — touch controller (XPT2046 over SPI)
 
@@ -374,7 +383,7 @@ Every physical board ships a `board.toml` under `boards/<name>/`. The build scri
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `kind` | string | Driver selector. Currently only `"bme688"`. |
+| `kind` | string | Driver selector: `"bme688"` or `"ltr559"`. |
 | `bus` | string | `"I2C0"` or `"I2C1"`. |
 | `addr` | int | 7-bit I2C address (decimal or hex). |
 
@@ -388,7 +397,7 @@ Each entry here becomes a `Sensor` visible to [`SensorManager`](/api/sensors/).
 | `lv_key` | string | One of `"PREV"`, `"NEXT"`, `"ENTER"`, `"ESC"` — drives LVGL focus navigation. |
 | `keycode` | int | Android `KeyEvent.KEYCODE_*` value delivered to Java listeners. |
 
-Declaring at least one `[[button]]` enables the 60-second idle display sleep + wake-on-button feature. See [api/ui.md → Key events](/api/ui/#key-events).
+Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
 
 ### `[background_pool]` — optional thread-pool tuning
 
@@ -452,7 +461,7 @@ pub fn display_sleep();  // backlight off → DISPOFF → SLPIN
 pub fn display_wake();   // SLPOUT (120 ms delay) → DISPON → backlight on
 ```
 
-Called from the lifecycle event loop after `IDLE_TIMEOUT_MS` (60 s) with no input, and again on the next GPIO edge. The wake-triggering edges are consumed before they reach LVGL / Java listeners.
+Called from the lifecycle event loop after `IDLE_TIMEOUT_MS` (the `idle_timeout_ms` board key, default 60 s) with no input, and again on the next GPIO edge. The wake-triggering edges are consumed before they reach LVGL / Java listeners.
 
 ## Verification
 
