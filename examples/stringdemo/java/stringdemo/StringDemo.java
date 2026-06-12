@@ -283,6 +283,11 @@ public class StringDemo extends Application {
     check("Integer.valueOf str", Integer.valueOf("17").intValue() == 17);
     check("Long.valueOf str", Long.valueOf("99").longValue() == 99L);
     check("Double.valueOf str", Double.valueOf("0.25").doubleValue() == 0.25);
+    check("parseByte 100", Byte.parseByte("100") == 100);
+    check("parseShort -300", Short.parseShort("-300") == -300);
+    check("Short.valueOf str", Short.valueOf("300").shortValue() == 300);
+    Byte boxedByte = 5;
+    check("Byte autobox", boxedByte.byteValue() == 5);
   }
 
   static void testParseErrors() {
@@ -309,5 +314,13 @@ public class StringDemo extends Application {
       caught = true;
     }
     check("parseDouble junk throws NFE", caught);
+
+    caught = false;
+    try {
+      Byte.parseByte("128"); // Byte.MAX_VALUE + 1
+    } catch (NumberFormatException e) {
+      caught = true;
+    }
+    check("parseByte range throws NFE", caught);
   }
 }

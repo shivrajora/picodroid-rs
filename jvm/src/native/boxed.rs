@@ -147,6 +147,58 @@ pub(crate) fn dispatch_character(
     boxed_dispatch!("java/lang/Character", Value::Int(0), ctx, method_name)
 }
 
+pub(crate) fn dispatch_byte(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    if method_name == "toString" {
+        return Some(integer_to_string(ctx));
+    }
+    if method_name == "parseByte" {
+        return Some(parse_ranged(ctx, i8::MIN as i32, i8::MAX as i32));
+    }
+    if method_name == "valueOf" && is_string_arg(ctx) {
+        return Some(
+            parse_ranged(ctx, i8::MIN as i32, i8::MAX as i32)
+                .and_then(|v| box_value("java/lang/Byte", v.unwrap_or(Value::Int(0)), ctx)),
+        );
+    }
+    boxed_dispatch!("java/lang/Byte", Value::Int(0), ctx, method_name)
+}
+
+pub(crate) fn dispatch_short(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    if method_name == "toString" {
+        return Some(integer_to_string(ctx));
+    }
+    if method_name == "parseShort" {
+        return Some(parse_ranged(ctx, i16::MIN as i32, i16::MAX as i32));
+    }
+    if method_name == "valueOf" && is_string_arg(ctx) {
+        return Some(
+            parse_ranged(ctx, i16::MIN as i32, i16::MAX as i32)
+                .and_then(|v| box_value("java/lang/Short", v.unwrap_or(Value::Int(0)), ctx)),
+        );
+    }
+    boxed_dispatch!("java/lang/Short", Value::Int(0), ctx, method_name)
+}
+
+/// `Byte.parseByte` / `Short.parseShort`: parse as i32, then range-check —
+/// out-of-range is a NumberFormatException, exactly as in Java.
+fn parse_ranged(
+    ctx: &mut NativeContext<'_>,
+    min: i32,
+    max: i32,
+) -> Result<Option<Value>, JvmError> {
+    let v = parse_int(ctx)?;
+    if v < min || v > max {
+        return Err(number_format_exception(ctx));
+    }
+    Ok(Some(Value::Int(v)))
+}
+
 // ── toString helpers ───────────────────────────────────────────────────────
 //
 // Each one accepts both calling conventions:
