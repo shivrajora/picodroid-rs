@@ -11,6 +11,7 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Spinner;
 import picodroid.widget.Switch;
+import picodroid.widget.Toast;
 import picodroid.widget.ToggleButton;
 
 /**
@@ -81,6 +82,12 @@ public class CallbackTestActivity extends Activity {
         });
     root.addView(sp);
     sp.performItemSelected();
+
+    Toast toast = Toast.makeText(this, "cbt", Toast.LENGTH_SHORT);
+    toast.setDuration(Toast.LENGTH_LONG);
+    if (toast.getDuration() == Toast.LENGTH_LONG) {
+      Log.i("CBT", "TOAST_DURATION");
+    }
 
     setContentView(root);
     Log.i("CBT", "SETUP_DONE");

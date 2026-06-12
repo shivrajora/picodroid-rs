@@ -44,3 +44,11 @@ pub fn toast_native_cancel(args: &[Value]) -> Result<Option<Value>, JvmError> {
     lvgl_toast::cancel(id);
     Ok(None)
 }
+
+/// `Toast.nativeSetDuration(int handle, int duration)`
+pub fn toast_native_set_duration(args: &[Value]) -> Result<Option<Value>, JvmError> {
+    let id = arg_int(args, 0)?;
+    let duration = arg_int(args, 1)?;
+    lvgl_toast::set_duration(id, duration);
+    Ok(None)
+}

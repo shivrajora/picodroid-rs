@@ -111,6 +111,25 @@ pub(in crate::system::picodroid::graphics) fn cancel(id: i32) {
     unsafe { lv_obj_delete(toast) };
 }
 
+/// Update the auto-dismiss duration of a not-yet-shown toast. An armed
+/// (already showing) toast keeps its original deadline — the new duration
+/// applies if `show()` arms it again, matching the Java-side javadoc.
+pub(in crate::system::picodroid::graphics) fn set_duration(id: i32, duration: i32) {
+    let toast = handle_table::lookup(id);
+    if toast.is_null() {
+        return;
+    }
+    let ms = duration_to_ms(duration);
+    unsafe {
+        for slot in &mut TOAST_SLOTS[..] {
+            if slot.handle == toast as usize {
+                slot.duration_ms = ms;
+                return;
+            }
+        }
+    }
+}
+
 /// Called from `LvglGfx::tick(ms)` each frame. Advances the internal clock
 /// and deletes any toasts whose deadline has passed.
 pub fn tick(ms: u32) {

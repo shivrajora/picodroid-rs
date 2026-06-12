@@ -8,6 +8,7 @@ public class Toast {
   public static final int LENGTH_LONG = 1;
 
   private final int nativeHandle;
+  private int duration;
 
   private Toast(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -19,7 +20,24 @@ public class Toast {
    * but the parameter is captured for future-proofing.
    */
   public static Toast makeText(Context ctx, String text, int duration) {
-    return new Toast(nativeCreate(text, duration));
+    Toast toast = new Toast(nativeCreate(text, duration));
+    toast.duration = duration;
+    return toast;
+  }
+
+  /** Mirrors {@code android.widget.Toast#getDuration()}. */
+  public int getDuration() {
+    return duration;
+  }
+
+  /**
+   * Mirrors {@code android.widget.Toast#setDuration(int)} — {@link #LENGTH_SHORT} or {@link
+   * #LENGTH_LONG}. Takes effect the next time {@link #show()} arms the auto-dismiss; a toast
+   * already on screen keeps its original deadline.
+   */
+  public void setDuration(int duration) {
+    this.duration = duration;
+    nativeSetDuration(nativeHandle, duration);
   }
 
   public void show() {
@@ -35,4 +53,6 @@ public class Toast {
   private static native void nativeShow(int nativeHandle);
 
   private static native void nativeCancel(int nativeHandle);
+
+  private static native void nativeSetDuration(int nativeHandle, int duration);
 }

@@ -407,6 +407,7 @@ impl GraphicsBackend for LvglBackend {
             "nativeCreate" => Some(widgets::toast_native_create(ctx.args, ctx.strings)),
             "nativeShow" => Some(widgets::toast_native_show(ctx.args)),
             "nativeCancel" => Some(widgets::toast_native_cancel(ctx.args)),
+            "nativeSetDuration" => Some(widgets::toast_native_set_duration(ctx.args)),
             _ => None,
         }
     }

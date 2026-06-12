@@ -135,7 +135,10 @@ pub use time_picker::{
     time_picker_native_create, time_picker_register_listener, time_picker_set_is_24hour,
     time_picker_set_time,
 };
-pub use toast::{reset_toast_state, toast_native_cancel, toast_native_create, toast_native_show};
+pub use toast::{
+    reset_toast_state, toast_native_cancel, toast_native_create, toast_native_set_duration,
+    toast_native_show,
+};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
 pub use toggle_button::{
