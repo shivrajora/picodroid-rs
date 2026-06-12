@@ -4,6 +4,7 @@ package collectionsdemo;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -60,6 +61,7 @@ public class CollectionsDemo extends Application {
     testArrayListAutoboxing();
     testArraysSortObjects();
     testCollectionsSortAndReverse();
+    testComparatorSorts();
     testExplicitIterator();
     testForEachArrayList();
     testForEachHashMapKeys();
@@ -243,6 +245,46 @@ public class CollectionsDemo extends Application {
     Collections.reverse(list);
     check("Collections.reverse [0] = zeta", list.get(0).name.equals("zeta"));
     check("Collections.reverse [2] = yota", list.get(2).name.equals("yota"));
+  }
+
+  /** Named comparator class — exercises invokeinterface on java.util.Comparator. */
+  static class ByName implements Comparator<Item> {
+    @Override
+    public int compare(Item a, Item b) {
+      return a.name.compareTo(b.name);
+    }
+  }
+
+  static void testComparatorSorts() {
+    // Arrays.sort(T[], Comparator) with a lambda — exercises invokedynamic
+    // SAM synthesis against the new interface.
+    Item[] items = {
+      new Item("alpha", 30), new Item("bravo", 10), new Item("charlie", 50), new Item("delta", 20),
+    };
+    Arrays.sort(items, (x, y) -> y.score - x.score);
+    check("Arrays.sort Comparator desc [0]", items[0].name.equals("charlie"));
+    check("Arrays.sort Comparator desc [3]", items[3].name.equals("bravo"));
+
+    // null comparator = natural (Comparable) ordering, per the JDK contract.
+    Arrays.sort(items, null);
+    check("Arrays.sort null Comparator natural [0]", items[0].name.equals("bravo"));
+
+    // Stability: equal keys keep their relative order.
+    Item[] ties = {
+      new Item("first", 7), new Item("second", 7), new Item("third", 3),
+    };
+    Arrays.sort(ties, (x, y) -> x.score - y.score);
+    check("Comparator sort stable [1]", ties[1].name.equals("first"));
+    check("Comparator sort stable [2]", ties[2].name.equals("second"));
+
+    // Collections.sort(List, Comparator) with a named class — by name.
+    ArrayList<Item> list = new ArrayList<Item>();
+    list.add(new Item("zeta", 90));
+    list.add(new Item("yota", 5));
+    list.add(new Item("xena", 60));
+    Collections.sort(list, new ByName());
+    check("Collections.sort Comparator [0] = xena", list.get(0).name.equals("xena"));
+    check("Collections.sort Comparator [2] = zeta", list.get(2).name.equals("zeta"));
   }
 
   // ── java.util.Iterator + enhanced for-each ───────────────────────────────

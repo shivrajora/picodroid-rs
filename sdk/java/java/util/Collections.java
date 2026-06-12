@@ -25,6 +25,26 @@ public final class Collections {
     }
   }
 
+  /**
+   * Sorts a list using the supplied comparator ({@code null} = natural ordering, per the JDK).
+   * Stable. Same copy-out/sort/write-back strategy as {@link #sort(List)}.
+   */
+  @SuppressWarnings("unchecked")
+  public static <T> void sort(List<T> list, Comparator<? super T> c) {
+    int n = list.size();
+    if (n < 2) {
+      return;
+    }
+    Object[] arr = new Object[n];
+    for (int i = 0; i < n; i++) {
+      arr[i] = list.get(i);
+    }
+    Arrays.sort(arr, (Comparator<Object>) c);
+    for (int i = 0; i < n; i++) {
+      list.set(i, (T) arr[i]);
+    }
+  }
+
   /** Reverses a list in place. */
   public static void reverse(List list) {
     int n = list.size();

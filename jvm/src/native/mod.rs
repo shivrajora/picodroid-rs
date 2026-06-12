@@ -75,6 +75,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/util/Collections",
     "java/util/List",
     "java/lang/Comparable",
+    "java/util/Comparator",
 ];
 
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:

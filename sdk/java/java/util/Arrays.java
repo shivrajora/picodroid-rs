@@ -109,6 +109,56 @@ public final class Arrays {
     }
   }
 
+  /**
+   * Sorts using the supplied comparator. Stable per Java spec. A {@code null} comparator means
+   * natural (Comparable) ordering, mirroring the JDK.
+   */
+  public static <T> void sort(T[] a, Comparator<? super T> c) {
+    if (c == null) {
+      sort((Object[]) a);
+      return;
+    }
+    if (a == null || a.length < 2) {
+      return;
+    }
+    Object[] aux = new Object[a.length];
+    int n = a.length;
+    for (int width = 1; width < n; width *= 2) {
+      for (int i = 0; i < n; i += 2 * width) {
+        int mid = i + width;
+        if (mid > n) {
+          mid = n;
+        }
+        int hi = i + 2 * width;
+        if (hi > n) {
+          hi = n;
+        }
+        merge(a, aux, i, mid, hi, c);
+      }
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> void merge(
+      T[] a, Object[] aux, int lo, int mid, int hi, Comparator<? super T> c) {
+    for (int k = lo; k < hi; k++) {
+      aux[k] = a[k];
+    }
+    int i = lo;
+    int j = mid;
+    for (int k = lo; k < hi; k++) {
+      if (i >= mid) {
+        a[k] = (T) aux[j++];
+      } else if (j >= hi) {
+        a[k] = (T) aux[i++];
+      } else if (c.compare((T) aux[i], (T) aux[j]) <= 0) {
+        a[k] = (T) aux[i++];
+      } else {
+        a[k] = (T) aux[j++];
+      }
+    }
+  }
+
   public static String toString(Object[] a) {
     if (a == null) {
       return "null";
