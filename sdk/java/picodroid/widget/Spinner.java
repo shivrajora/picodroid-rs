@@ -4,8 +4,6 @@ package picodroid.widget;
 import picodroid.content.Context;
 
 public class Spinner extends AdapterView<Adapter> {
-  private OnItemSelectedListener onItemSelectedListener;
-
   public Spinner() {
     super(nativeCreate());
   }
@@ -31,8 +29,8 @@ public class Spinner extends AdapterView<Adapter> {
    */
   public native void performItemSelected();
 
-  public void setOnItemSelectedListener(OnItemSelectedListener listener) {
-    this.onItemSelectedListener = listener;
+  @Override
+  protected void registerNativeItemSelected() {
     nativeRegisterItemSelectedListener();
   }
 
@@ -58,17 +56,9 @@ public class Spinner extends AdapterView<Adapter> {
 
   void fireItemSelected() {
     if (onItemSelectedListener != null) {
-      onItemSelectedListener.onItemSelected(this, getSelectedItemPosition());
+      int position = getSelectedItemPosition();
+      long id = adapter != null ? adapter.getItemId(position) : position;
+      onItemSelectedListener.onItemSelected(this, null, position, id);
     }
-  }
-
-  /**
-   * Picodroid's lighter-weight equivalent of {@code AdapterView.OnItemSelectedListener}. Until the
-   * adapter pattern is fully wired through native rendering the {@code position} is read straight
-   * from the underlying roller; the full Android signature ({@code View, long id}) will be
-   * reintroduced when the adapter milestone ships.
-   */
-  public interface OnItemSelectedListener {
-    void onItemSelected(Spinner parent, int position);
   }
 }

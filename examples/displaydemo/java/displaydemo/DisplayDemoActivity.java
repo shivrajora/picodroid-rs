@@ -10,6 +10,7 @@ import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.AdapterView;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.ImageView;
@@ -150,20 +151,26 @@ public class DisplayDemoActivity extends Activity {
     spinner.setItems("Red\nGreen\nBlue\nYellow");
     spinner.setSize(200, 40);
     spinner.setOnItemSelectedListener(
-        (parent, pos) -> {
-          if (pos == 0) {
-            spinnerLabel.setText("Color: Red");
-            spinnerLabel.setTextColor(Color.RED);
-          } else if (pos == 1) {
-            spinnerLabel.setText("Color: Green");
-            spinnerLabel.setTextColor(Color.GREEN);
-          } else if (pos == 2) {
-            spinnerLabel.setText("Color: Blue");
-            spinnerLabel.setTextColor(Color.BLUE);
-          } else {
-            spinnerLabel.setText("Color: Yellow");
-            spinnerLabel.setTextColor(Color.YELLOW);
+        new AdapterView.OnItemSelectedListener() {
+          @Override
+          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+            if (position == 0) {
+              spinnerLabel.setText("Color: Red");
+              spinnerLabel.setTextColor(Color.RED);
+            } else if (position == 1) {
+              spinnerLabel.setText("Color: Green");
+              spinnerLabel.setTextColor(Color.GREEN);
+            } else if (position == 2) {
+              spinnerLabel.setText("Color: Blue");
+              spinnerLabel.setTextColor(Color.BLUE);
+            } else {
+              spinnerLabel.setText("Color: Yellow");
+              spinnerLabel.setTextColor(Color.YELLOW);
+            }
           }
+
+          @Override
+          public void onNothingSelected(AdapterView<?> parent) {}
         });
     root.addView(spinner);
 

@@ -3,6 +3,8 @@ package callbacktest;
 
 import picodroid.app.Activity;
 import picodroid.util.Log;
+import picodroid.view.View;
+import picodroid.widget.AdapterView;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.LinearLayout;
@@ -67,7 +69,16 @@ public class CallbackTestActivity extends Activity {
     Spinner sp = new Spinner();
     sp.setItems("a\nb");
     sp.setSize(100, 30);
-    sp.setOnItemSelectedListener((parent, position) -> Log.i("CBT", "SPINNER"));
+    sp.setOnItemSelectedListener(
+        new AdapterView.OnItemSelectedListener() {
+          @Override
+          public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+            Log.i("CBT", "SPINNER");
+          }
+
+          @Override
+          public void onNothingSelected(AdapterView<?> parent) {}
+        });
     root.addView(sp);
     sp.performItemSelected();
 

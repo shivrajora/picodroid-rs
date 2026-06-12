@@ -461,8 +461,9 @@ boolean clicked = btn.wasClicked();
 > interfaces, not bare `Runnable`s. Each widget below names its interface — e.g.
 > `View.OnClickListener`, `CompoundButton.OnCheckedChangeListener`,
 > `SeekBar.OnSeekBarChangeListener`, `AdapterView.OnItemClickListener`,
-> `Spinner.OnItemSelectedListener`. Because they are single-method interfaces, a lambda works
-> wherever an anonymous class does.
+> `AdapterView.OnItemSelectedListener`. Single-method interfaces accept a lambda wherever an
+> anonymous class does; multi-method interfaces (like `OnItemSelectedListener`, which also
+> declares `onNothingSelected`) need an anonymous class — exactly as on Android.
 
 ### `picodroid.widget.LinearLayout`
 
@@ -681,10 +682,12 @@ Spinner sp = new Spinner();
 sp.setItems("Red\nGreen\nBlue");
 int sel = sp.getSelectedItemPosition();
 
-sp.setOnItemSelectedListener(new Spinner.OnItemSelectedListener() {
-    public void onItemSelected(Spinner parent, int position) {
-        Log.i("UI", "sel=" + position);
+sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+        Log.i("UI", "sel=" + position);   // view is null: rows render natively
     }
+
+    public void onNothingSelected(AdapterView<?> parent) {}
 });
 ```
 
