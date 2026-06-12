@@ -7,6 +7,16 @@ public final class SensorManager {
   public static final int SENSOR_DELAY_UI = 2;
   public static final int SENSOR_DELAY_NORMAL = 3;
 
+  /**
+   * Accuracy values for {@link SensorEvent#accuracy}, matching {@code
+   * android.hardware.SensorManager.SENSOR_STATUS_*}.
+   */
+  public static final int SENSOR_STATUS_UNRELIABLE = 0;
+
+  public static final int SENSOR_STATUS_ACCURACY_LOW = 1;
+  public static final int SENSOR_STATUS_ACCURACY_MEDIUM = 2;
+  public static final int SENSOR_STATUS_ACCURACY_HIGH = 3;
+
   private static SensorManager instance;
 
   SensorManager() {}
