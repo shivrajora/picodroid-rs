@@ -104,7 +104,7 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/Toast" => be.dispatch_toast(method_name, ctx),
         "picodroid/widget/Snackbar" => be.dispatch_snackbar(method_name, ctx),
         "picodroid/widget/SwipeRefreshLayout" => be.dispatch_swipe_refresh_layout(method_name, ctx),
-        "picodroid/widget/AlertDialog" => be.dispatch_alert_dialog(method_name, ctx),
+        "picodroid/app/AlertDialog" => be.dispatch_alert_dialog(method_name, ctx),
         "picodroid/widget/Keyboard" => be.dispatch_keyboard(method_name, ctx),
         "picodroid/view/ViewPropertyAnimator" => be.dispatch_view_animator(method_name, ctx),
         "picodroid/graphics/drawable/GradientDrawable" => {

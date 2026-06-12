@@ -781,13 +781,13 @@ Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();
 | `show()` | Display the toast. |
 | `cancel()` | Dismiss before the timeout expires. |
 
-### `picodroid.widget.AlertDialog`
+### `picodroid.app.AlertDialog`
 
 Modal dialog with a title, message, and up to two buttons. Built via the nested `Builder`.
 
 ```java
 import picodroid.content.DialogInterface;
-import picodroid.widget.AlertDialog;
+import picodroid.app.AlertDialog;
 
 new AlertDialog.Builder()
     .setTitle("Erase data?")

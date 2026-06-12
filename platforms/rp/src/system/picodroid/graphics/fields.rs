@@ -52,7 +52,7 @@ pub mod key_event {
     pub const KEY_CODE: usize = 1;
 }
 
-/// `picodroid.widget.AlertDialog` is **not** a View subclass — slot numbering
+/// `picodroid.app.AlertDialog` is **not** a View subclass — slot numbering
 /// starts from its own first declared field.
 #[allow(dead_code)]
 pub mod alert_dialog {

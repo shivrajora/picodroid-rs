@@ -165,7 +165,7 @@ The widget tree set via `setContentView()` is **preserved across pause** — whe
 
 ```java
 import picodroid.content.DialogInterface;
-import picodroid.widget.AlertDialog;
+import picodroid.app.AlertDialog;
 import picodroid.widget.Toast;
 
 Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();   // first arg is a Context

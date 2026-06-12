@@ -74,7 +74,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     // which then calls `r.run()` via bytecode so lambda proxies resolve
     // through the interpreter's invokeinterface path.
     ("picodroid/concurrent/Executors", "dispatchRunnable"),
-    ("picodroid/widget/AlertDialog", "fireButtonClick"),
+    ("picodroid/app/AlertDialog", "fireButtonClick"),
     ("picodroid/app/Activity", "onCreate"),
     ("picodroid/app/Activity", "onStart"),
     ("picodroid/app/Activity", "onResume"),

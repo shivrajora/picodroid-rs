@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Java-binding shim for `picodroid.widget.AlertDialog`.
+//! Java-binding shim for `picodroid.app.AlertDialog`.
 
 use pico_jvm::heap::StringTable;
 use pico_jvm::types::{JvmError, Value};

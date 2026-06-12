@@ -3,7 +3,7 @@ package dialogdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
-import picodroid.widget.AlertDialog;
+import picodroid.app.AlertDialog;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;

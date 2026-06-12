@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package picodroid.widget;
+package picodroid.app;
 
 import picodroid.content.Context;
 import picodroid.content.DialogInterface;

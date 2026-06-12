@@ -6,7 +6,7 @@ import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
 import picodroid.util.Log;
-import picodroid.widget.AlertDialog;
+import picodroid.app.AlertDialog;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;

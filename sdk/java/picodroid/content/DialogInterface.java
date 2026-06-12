@@ -4,7 +4,7 @@ package picodroid.content;
 /**
  * Interface for dialog hosts that can be dismissed and notify a click on one of their buttons.
  * Mirrors {@code android.content.DialogInterface}. Implemented by {@link
- * picodroid.widget.AlertDialog}; passed to {@link OnClickListener#onClick} so listeners can call
+ * picodroid.app.AlertDialog}; passed to {@link OnClickListener#onClick} so listeners can call
  * {@link #dismiss()} or read state without holding a typed reference to the concrete dialog.
  */
 public interface DialogInterface {
