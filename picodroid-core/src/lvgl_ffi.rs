@@ -414,6 +414,14 @@ extern "C" {
     /// See [`lv_obj_set_x`].
     pub fn lv_obj_set_y(obj: *mut lv_obj_t, y: i32);
     pub fn lv_obj_set_size(obj: *mut lv_obj_t, w: i32, h: i32);
+    // Laid-out geometry readback for the View.getWidth/getHeight/getLeft/
+    // getTop getters. Reads are only valid after a layout pass —
+    // `lv_obj_update_layout` forces one (cheap no-op when nothing is dirty).
+    pub fn lv_obj_get_x(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_get_y(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_get_width(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_get_height(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_update_layout(obj: *const lv_obj_t);
     pub fn lv_obj_center(obj: *mut lv_obj_t);
     pub fn lv_obj_set_style_bg_color(
         obj: *mut lv_obj_t,

@@ -143,6 +143,10 @@ impl Gfx for LvglGfx {
         view_ops::set_flex_grow(h, weight);
     }
 
+    fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32) {
+        view_ops::frame(h)
+    }
+
     // ── events ──────────────────────────────────────────────────────────────
 
     fn add_event_listener(&mut self, _h: Handle, _kind: EventKind, _cb: EventListener) {

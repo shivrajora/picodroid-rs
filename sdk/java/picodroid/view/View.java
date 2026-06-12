@@ -36,6 +36,14 @@ public class View {
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
 
+  // App-set state cached for the getters, mirroring Android (where these live
+  // in View's own flag/property fields, not the renderer): the framework
+  // hiding a covered Activity's tree does NOT change a child's visibility.
+  int visibility = VISIBLE;
+  boolean enabled = true;
+  float alpha = 1.0f;
+
+
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
   }
@@ -220,13 +228,77 @@ public class View {
 
   public native void setBackgroundColor(int argb);
 
-  public native void setVisibility(int visibility);
+  /** Set visibility to one of {@link #VISIBLE}, {@link #INVISIBLE}, or {@link #GONE}. */
+  public void setVisibility(int visibility) {
+    this.visibility = visibility;
+    nativeSetVisibility(visibility);
+  }
+
+  /** Returns the last app-set visibility. Mirrors {@code android.view.View#getVisibility()}. */
+  public int getVisibility() {
+    return visibility;
+  }
 
   public native void setPadding(int left, int top, int right, int bottom);
 
-  public native void setEnabled(boolean enabled);
+  public void setEnabled(boolean enabled) {
+    this.enabled = enabled;
+    nativeSetEnabled(enabled);
+  }
 
-  public native void setAlpha(float alpha);
+  /** Returns the enabled state set via {@link #setEnabled}. Mirrors Android. */
+  public boolean isEnabled() {
+    return enabled;
+  }
+
+  public void setAlpha(float alpha) {
+    this.alpha = alpha;
+    nativeSetAlpha(alpha);
+  }
+
+  /**
+   * Returns the alpha set via {@link #setAlpha}. Mirrors {@code android.view.View#getAlpha()}.
+   * Alpha driven by a running {@link ViewPropertyAnimator} is not reflected here until the next
+   * {@link #setAlpha} call.
+   */
+  public float getAlpha() {
+    return alpha;
+  }
+
+  /**
+   * Left edge of this view relative to its parent, in pixels, after layout. Mirrors {@code
+   * android.view.View#getLeft()}.
+   */
+  public native int getLeft();
+
+  /** Top edge of this view relative to its parent, in pixels, after layout. Mirrors Android. */
+  public native int getTop();
+
+  /** Laid-out width in pixels. Mirrors {@code android.view.View#getWidth()}. */
+  public native int getWidth();
+
+  /** Laid-out height in pixels. Mirrors {@code android.view.View#getHeight()}. */
+  public native int getHeight();
+
+  /**
+   * Horizontal position, {@code getLeft()} as a float. Mirrors {@code android.view.View#getX()};
+   * picodroid has no translationX, so X and left coincide.
+   */
+  public float getX() {
+    return getLeft();
+  }
+
+  /** Vertical position, {@code getTop()} as a float. See {@link #getX()}. */
+  public float getY() {
+    return getTop();
+  }
+
+
+  private native void nativeSetVisibility(int visibility);
+
+  private native void nativeSetEnabled(boolean enabled);
+
+  private native void nativeSetAlpha(float alpha);
 
   public native void close();
 

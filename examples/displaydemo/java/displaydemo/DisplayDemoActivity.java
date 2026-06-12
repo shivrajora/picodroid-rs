@@ -214,6 +214,26 @@ public class DisplayDemoActivity extends Activity {
     root.addView(ghost);
 
     setContentView(scroll);
+
+    // Property read-back: laid-out geometry and the cached state getters.
+    Log.i(
+        "DisplayDemo",
+        "btn frame="
+            + btn.getLeft()
+            + ","
+            + btn.getTop()
+            + " "
+            + btn.getWidth()
+            + "x"
+            + btn.getHeight());
+    btn.setEnabled(false);
+    Log.i(
+        "DisplayDemo",
+        "readback enabled=" + btn.isEnabled() + " vis=" + (title.getVisibility() == View.VISIBLE));
+    btn.setEnabled(true);
+    title.setAlpha(0.5f);
+    Log.i("DisplayDemo", "readback alpha-half=" + (title.getAlpha() == 0.5f));
+    title.setAlpha(1.0f);
   }
 
   /** Quick-and-dirty 70%-brightness shade for the gradient end stop. */

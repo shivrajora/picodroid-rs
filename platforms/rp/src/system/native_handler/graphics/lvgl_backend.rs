@@ -45,10 +45,19 @@ impl GraphicsBackend for LvglBackend {
             "setPosition" => Some(view::set_position(ctx.args, ctx.objects)),
             "setSize" => Some(view::set_size(ctx.args, ctx.objects)),
             "setBackgroundColor" => Some(view::set_bg_color(ctx.args, ctx.objects)),
-            "setVisibility" => Some(view::set_visibility(ctx.args, ctx.objects)),
+            // setVisibility/setEnabled/setAlpha became Java wrappers (they
+            // cache the value for the matching getter) around nativeSet*; the
+            // bare names stay accepted so pre-rename PAPKs keep working.
+            "nativeSetVisibility" | "setVisibility" => {
+                Some(view::set_visibility(ctx.args, ctx.objects))
+            }
             "setPadding" => Some(view::set_padding(ctx.args, ctx.objects)),
-            "setEnabled" => Some(view::set_enabled(ctx.args, ctx.objects)),
-            "setAlpha" => Some(view::set_alpha(ctx.args, ctx.objects)),
+            "nativeSetEnabled" | "setEnabled" => Some(view::set_enabled(ctx.args, ctx.objects)),
+            "nativeSetAlpha" | "setAlpha" => Some(view::set_alpha(ctx.args, ctx.objects)),
+            "getLeft" => Some(view::get_left(ctx.args, ctx.objects)),
+            "getTop" => Some(view::get_top(ctx.args, ctx.objects)),
+            "getWidth" => Some(view::get_width(ctx.args, ctx.objects)),
+            "getHeight" => Some(view::get_height(ctx.args, ctx.objects)),
             "close" => Some(view::close(ctx.args, ctx.objects)),
             "performClick" => Some(view::perform_click(ctx.args, ctx.objects)),
             "nativeSetFlexGrow" => Some(view::set_flex_grow(ctx.args, ctx.objects)),

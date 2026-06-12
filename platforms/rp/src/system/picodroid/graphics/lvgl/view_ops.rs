@@ -173,6 +173,21 @@ pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
     unsafe { lv_obj_clean(o) };
 }
 
+/// Laid-out geometry (x, y, width, height) in parent-relative pixels. Forces
+/// a layout pass first so reads right after addView/setSize see final values.
+pub(in crate::system::picodroid::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
+    let o = obj(h);
+    unsafe {
+        lv_obj_update_layout(o);
+        (
+            lv_obj_get_x(o),
+            lv_obj_get_y(o),
+            lv_obj_get_width(o),
+            lv_obj_get_height(o),
+        )
+    }
+}
+
 pub(in crate::system::picodroid::graphics) fn set_flex_grow(h: Handle, weight: i32) {
     let w = if weight < 0 {
         0

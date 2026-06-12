@@ -125,6 +125,34 @@ pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Val
     Ok(None)
 }
 
+/// Shared body for `View.nativeGetLeft/GetTop/GetWidth/GetHeight` — reads the
+/// laid-out frame (forcing a layout pass) and returns one component.
+fn frame_component(
+    args: &[Value],
+    objects: &ObjectHeap,
+    pick: fn((i32, i32, i32, i32)) -> i32,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let frame = with_gfx(|g| g.frame(Handle::from_java(id)));
+    Ok(Some(Value::Int(pick(frame))))
+}
+
+pub fn get_left(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    frame_component(args, objects, |f| f.0)
+}
+
+pub fn get_top(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    frame_component(args, objects, |f| f.1)
+}
+
+pub fn get_width(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    frame_component(args, objects, |f| f.2)
+}
+
+pub fn get_height(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    frame_component(args, objects, |f| f.3)
+}
+
 /// `View.setPadding(int left, int top, int right, int bottom)`
 pub fn set_padding(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;

@@ -126,6 +126,11 @@ pub trait Gfx {
     /// to fill remaining space along the layout's main axis.
     fn set_flex_grow(&mut self, h: Handle, weight: i32);
 
+    /// Laid-out geometry (x, y, width, height) in parent-relative pixels,
+    /// after forcing any pending layout pass. Backs View.getWidth/getHeight/
+    /// getLeft/getTop.
+    fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32);
+
     // ── events ──────────────────────────────────────────────────────────────
 
     /// Register a push-mode listener. Today's Java path uses
