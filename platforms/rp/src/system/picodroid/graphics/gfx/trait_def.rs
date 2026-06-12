@@ -13,7 +13,8 @@
 use super::handle::Handle;
 
 /// Visibility of a widget. Mirrors Android's `View.VISIBLE` / `INVISIBLE` /
-/// `GONE` ordering (0/1/2).
+/// `GONE` states; the Java-int decode (0/4/8, Android's values) lives in
+/// `graphics::view::set_visibility`.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Visibility {
     Visible,

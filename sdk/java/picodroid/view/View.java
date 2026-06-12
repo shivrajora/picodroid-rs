@@ -4,9 +4,14 @@ package picodroid.view;
 import picodroid.graphics.drawable.Drawable;
 
 public class View {
-  public static final int VISIBLE = 0;
-  public static final int INVISIBLE = 1;
-  public static final int GONE = 2;
+  /** This view is visible. Matches Android's value. */
+  public static final int VISIBLE = 0x00000000;
+
+  /** This view is invisible but still takes up layout space. Matches Android's value. */
+  public static final int INVISIBLE = 0x00000004;
+
+  /** This view is invisible and takes no layout space. Matches Android's value. */
+  public static final int GONE = 0x00000008;
 
   /**
    * Mirrors Android's {@code ViewGroup.LayoutParams.WRAP_CONTENT}. Passed to {@link #setSize}, the

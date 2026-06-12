@@ -111,12 +111,14 @@ pub fn set_bg_color(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value
 }
 
 /// `View.setVisibility(int visibility)` — Android constants
-/// (0=VISIBLE, 1=INVISIBLE, 2=GONE).
+/// (0=VISIBLE, 4=INVISIBLE, 8=GONE). The pre-v0.11 SDK shipped 1/2 for
+/// INVISIBLE/GONE; those values are still accepted so a PAPK built against
+/// the old constants keeps working on newer firmware.
 pub fn set_visibility(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     let v = match arg_int(args, 1)? {
         0 => Visibility::Visible,
-        1 => Visibility::Invisible,
+        1 | 4 => Visibility::Invisible,
         _ => Visibility::Gone,
     };
     with_gfx(|g| g.set_visibility(Handle::from_java(id), v));
