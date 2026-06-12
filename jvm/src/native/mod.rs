@@ -122,6 +122,19 @@ fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
     ctx.objects.register_exception_message(obj_idx, msg_idx);
 }
 
+/// `getMessage()` on any Throwable-family receiver: surface the message
+/// recorded by [`capture_throwable_message`] at construction, or `null` for
+/// exceptions built without a String message — Android's exact contract.
+fn throwable_get_message(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
+        return Err(JvmError::InvalidReference);
+    };
+    Ok(Some(match ctx.objects.get_exception_message(obj_idx) {
+        Some(msg_idx) => Value::Reference(msg_idx),
+        None => Value::Null,
+    }))
+}
+
 fn dispatch_init_only(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -131,6 +144,7 @@ fn dispatch_init_only(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
+        "getMessage" => Some(throwable_get_message(ctx)),
         _ => None,
     }
 }
@@ -169,6 +183,7 @@ fn dispatch_throwable(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
+        "getMessage" => Some(throwable_get_message(ctx)),
         "addSuppressed" => Some(Ok(None)),
         _ => None,
     }

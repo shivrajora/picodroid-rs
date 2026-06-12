@@ -34,11 +34,12 @@ pub fn shared_heap() -> &'static mut SharedJvmHeap {
 }
 
 // ── Native handler ────────────────────────────────────────────────────────────
-// Routes picodroid.util.Log.i to esp-println (USB-Serial-JTAG on the ESP32-S3,
-// readable via `espflash --monitor`).  Returns None for every other native call
-// so the JVM falls through to BuiltinHandler (java/lang/String, StringBuilder,
-// Math, etc.).  Platform-specific handlers (GPIO, Display, Thread) are added
-// in subsequent milestones.
+// Routes picodroid.util.Log.{v,d,i,w,e} to esp-println (USB-Serial-JTAG on the
+// ESP32-S3, readable via `espflash --monitor`); every level shares one line
+// format since esp-println has no severity channels.  Returns None for every
+// other native call so the JVM falls through to BuiltinHandler
+// (java/lang/String, StringBuilder, Math, etc.).  Platform-specific handlers
+// (GPIO, Display, Thread) are added in subsequent milestones.
 
 struct EspNativeHandler;
 
@@ -49,14 +50,16 @@ impl NativeMethodHandler for EspNativeHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
-        if class_name == "picodroid/util/Log" && method_name == "i" {
-            return Some(log_i(ctx));
+        if class_name == "picodroid/util/Log"
+            && matches!(method_name, "v" | "d" | "i" | "w" | "e")
+        {
+            return Some(log_line(ctx));
         }
         None
     }
 }
 
-fn log_i(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+fn log_line(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let tag = resolve_string(ctx.args.first().copied().unwrap_or(Value::Null), ctx)?;
     let msg = resolve_string(ctx.args.get(1).copied().unwrap_or(Value::Null), ctx)?;
     #[cfg(target_arch = "xtensa")]
@@ -176,14 +179,14 @@ mod tests {
         let args: [Value; 0] = [];
         let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
         assert!(h.dispatch("java/lang/String", "length", &mut ctx).is_none());
-        assert!(h.dispatch("picodroid/util/Log", "w", &mut ctx).is_none());
+        assert!(h.dispatch("picodroid/util/Log", "wtf", &mut ctx).is_none());
         assert!(h.dispatch("", "", &mut ctx).is_none());
     }
 
-    /// Log.i is the one method ESP handles directly. With both args resolved
-    /// to interned strings it returns `Ok(None)` (no return value). On host
-    /// it's a no-op (xtensa-only `esp_println::println!`), but the handshake
-    /// with the JVM still has to succeed.
+    /// Log.{v,d,i,w,e} are the methods ESP handles directly. With both args
+    /// resolved to interned strings each returns `Ok(None)` (no return value).
+    /// On host it's a no-op (xtensa-only `esp_println::println!`), but the
+    /// handshake with the JVM still has to succeed.
     #[test]
     fn log_i_with_valid_string_args_returns_ok_none() {
         let mut h = EspNativeHandler;
@@ -194,8 +197,10 @@ mod tests {
         let msg = strings.intern(b"hello world").expect("intern msg");
         let args = [Value::Reference(tag), Value::Reference(msg)];
         let mut ctx = make_ctx(&mut strings, &mut objects, &mut arrays, &args);
-        let result = h.dispatch("picodroid/util/Log", "i", &mut ctx);
-        assert!(matches!(result, Some(Ok(None))));
+        for level in ["v", "d", "i", "w", "e"] {
+            let result = h.dispatch("picodroid/util/Log", level, &mut ctx);
+            assert!(matches!(result, Some(Ok(None))));
+        }
     }
 
     /// Log.i with a non-Reference arg (e.g. Null where a String was expected)

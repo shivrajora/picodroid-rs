@@ -247,10 +247,23 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         // Arms that need access to `self` stay here.
+        use crate::system::picodroid::util::log::{self, LogLevel};
         match (class_name, method_name) {
-            ("picodroid/util/Log", "i") => Some(
-                crate::system::picodroid::util::log::log_i(ctx.args, ctx.strings).map(|_| None),
-            ),
+            ("picodroid/util/Log", "v") => {
+                Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
+            }
+            ("picodroid/util/Log", "d") => {
+                Some(log::log(LogLevel::Debug, ctx.args, ctx.strings).map(|_| None))
+            }
+            ("picodroid/util/Log", "i") => {
+                Some(log::log(LogLevel::Info, ctx.args, ctx.strings).map(|_| None))
+            }
+            ("picodroid/util/Log", "w") => {
+                Some(log::log(LogLevel::Warn, ctx.args, ctx.strings).map(|_| None))
+            }
+            ("picodroid/util/Log", "e") => {
+                Some(log::log(LogLevel::Error, ctx.args, ctx.strings).map(|_| None))
+            }
             ("picodroid/os/Runtime", "gcTimeNanos") => {
                 Some(Ok(Some(Value::Long(self.gc_time_ns as i64))))
             }
