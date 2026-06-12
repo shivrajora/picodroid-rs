@@ -43,6 +43,12 @@ public class View {
   boolean enabled = true;
   float alpha = 1.0f;
 
+  /** Android's "no ID" sentinel, {@code android.view.View#NO_ID}. */
+  public static final int NO_ID = -1;
+
+  int id = NO_ID;
+  Object tag;
+
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -291,6 +297,29 @@ public class View {
   /** Vertical position, {@code getTop()} as a float. See {@link #getX()}. */
   public float getY() {
     return getTop();
+  }
+
+  /**
+   * Set this view's identifier. Mirrors {@code android.view.View#setId(int)}; picodroid has no R
+   * resource compiler, so apps define their own ID constants.
+   */
+  public void setId(int id) {
+    this.id = id;
+  }
+
+  /** Returns this view's identifier, or {@link #NO_ID}. Mirrors Android. */
+  public int getId() {
+    return id;
+  }
+
+  /** Attach an arbitrary tag object. Mirrors {@code android.view.View#setTag(Object)}. */
+  public void setTag(Object tag) {
+    this.tag = tag;
+  }
+
+  /** Returns the tag set via {@link #setTag}, or {@code null}. Mirrors Android. */
+  public Object getTag() {
+    return tag;
   }
 
 
