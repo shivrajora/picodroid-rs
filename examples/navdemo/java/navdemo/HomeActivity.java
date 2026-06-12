@@ -15,6 +15,9 @@ public class HomeActivity extends Activity {
   @Override
   public void onCreate() {
     Log.i("NavDemo", "Home.onCreate");
+    // Launched by NavDemoApp via an explicit Intent, so getIntent() is non-null
+    // (it is null only for a manifest `activity=` boot with no app-side launch).
+    Log.i("NavDemo", "Home intent null=" + (getIntent() == null));
     buildUi();
   }
 
@@ -49,7 +52,7 @@ public class HomeActivity extends Activity {
     openBtn.setOnClickListener(
         v -> {
           Log.i("NavDemo", "Home: launching Detail");
-          startActivity(new Intent(DetailActivity.class));
+          startActivity(new Intent(DetailActivity.class).putExtra("origin", "home"));
         });
     root.addView(openBtn);
 

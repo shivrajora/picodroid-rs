@@ -12,6 +12,8 @@ public class DetailActivity extends Activity {
   @Override
   public void onCreate() {
     Log.i("NavDemo", "Detail.onCreate");
+    // The launching Intent (extras included) is available for our lifetime.
+    Log.i("NavDemo", "Detail origin=" + getIntent().getStringExtra("origin"));
 
     getDisplay();
 

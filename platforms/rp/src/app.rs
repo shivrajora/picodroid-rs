@@ -303,7 +303,7 @@ pub fn run_jvm_with(apk_data: &[u8]) {
             .objects
             .alloc(static_name)
             .expect("OOM allocating Activity");
-        crate::lifecycle::run_activity(&mut jvm, static_name, obj_ref, heap, &mut handler);
+        crate::lifecycle::run_activity(&mut jvm, static_name, obj_ref, None, heap, &mut handler);
     } else {
         let main_class = apk
             .main_class()

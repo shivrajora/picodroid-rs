@@ -74,11 +74,14 @@ pub(crate) fn run_application(
     // never push an Activity — drained ops still run, then we tear down
     // surviving services and exit cleanly.
     use crate::system::native_handler::PendingOp;
-    let mut activity_push: Option<&'static str> = None;
+    let mut activity_push: Option<(&'static str, Option<u16>)> = None;
     while let Some(op) = handler.take_next_pending_op() {
         match op {
-            PendingOp::Activity(PendingActivityOp::Push { class_name }) => {
-                activity_push = Some(class_name);
+            PendingOp::Activity(PendingActivityOp::Push {
+                class_name,
+                intent_ref,
+            }) => {
+                activity_push = Some((class_name, intent_ref));
                 break;
             }
             PendingOp::Activity(PendingActivityOp::Pop) => {
@@ -90,7 +93,7 @@ pub(crate) fn run_application(
         }
     }
 
-    if let Some(act_class) = activity_push {
+    if let Some((act_class, act_intent)) = activity_push {
         let act_ref = match instantiate_component(jvm, act_class, heap, handler) {
             Some(r) => r,
             None => {
@@ -99,7 +102,7 @@ pub(crate) fn run_application(
                 return;
             }
         };
-        run_activity(jvm, act_class, act_ref, heap, handler);
+        run_activity(jvm, act_class, act_ref, act_intent, heap, handler);
     } else {
         // Service-only app or app that did nothing in onCreate — process
         // any further queued ops, then run final teardown so live Services
@@ -167,6 +170,7 @@ pub(crate) fn run_activity(
     jvm: &mut Jvm,
     initial_class: &'static str,
     initial_ref: u16,
+    initial_intent: Option<u16>,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
@@ -187,7 +191,7 @@ pub(crate) fn run_activity(
     // launches just return the cached singleton.
     let _ = display::get_instance(&mut heap.objects);
 
-    if bootstrap_activity(jvm, initial_class, initial_ref, heap, handler).is_break() {
+    if bootstrap_activity(jvm, initial_class, initial_ref, initial_intent, heap, handler).is_break() {
         return;
     }
 
@@ -307,10 +311,11 @@ fn bootstrap_activity(
     jvm: &mut Jvm,
     initial_class: &'static str,
     initial_ref: u16,
+    initial_intent: Option<u16>,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    if !handler.push_activity(initial_ref, initial_class) {
+    if !handler.push_activity(initial_ref, initial_class, initial_intent) {
         log_error!("activity stack overflow on bootstrap: {}", initial_class);
         return LifecycleControl::Break;
     }
@@ -514,6 +519,7 @@ fn restore_top_view(handler: &mut crate::system::native_handler::PicodroidNative
 fn handle_push_op(
     jvm: &mut Jvm,
     new_class: &'static str,
+    new_intent: Option<u16>,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
@@ -544,7 +550,7 @@ fn handle_push_op(
         }
         park_top_view(handler);
     }
-    if !handler.push_activity(new_ref, new_class) {
+    if !handler.push_activity(new_ref, new_class, new_intent) {
         log_error!("activity stack overflow on push: {}", new_class);
         // Rollback: unpark prev's view so it isn't left hidden forever.
         if prev.is_some() {
@@ -667,9 +673,10 @@ fn process_pending_op(
         PendingOp::Service(s) => {
             crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler)
         }
-        PendingOp::Activity(PendingActivityOp::Push { class_name }) => {
-            handle_push_op(jvm, class_name, heap, handler)
-        }
+        PendingOp::Activity(PendingActivityOp::Push {
+            class_name,
+            intent_ref,
+        }) => handle_push_op(jvm, class_name, intent_ref, heap, handler),
         PendingOp::Activity(PendingActivityOp::Pop) => handle_pop_op(jvm, heap, handler),
     }
 }

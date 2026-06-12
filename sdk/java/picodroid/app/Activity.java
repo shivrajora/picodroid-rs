@@ -62,10 +62,17 @@ public class Activity extends Context {
    * Launch the Activity named by {@code intent}'s target class on top of this one. The new Activity
    * goes through onCreate → onStart → onResume; this Activity goes through onPause → onStop. The
    * two are interleaved in the Android-canonical order (this.onPause first, this.onStop after the
-   * new top fully resumes). The framework instantiates the target via its no-arg constructor;
-   * Intent extras are not yet exposed via {@code getIntent()}.
+   * new top fully resumes). The framework instantiates the target via its no-arg constructor; the
+   * Intent (extras included) is retained and available to the target via {@link #getIntent()}.
    */
   public native void startActivity(Intent intent);
+
+  /**
+   * Return the Intent that launched this Activity, or {@code null} for the app's boot Activity
+   * (which the framework starts without an app-visible Intent). Mirrors {@code
+   * android.app.Activity#getIntent()} — read extras via {@code getIntent().getStringExtra(...)}.
+   */
+  public native Intent getIntent();
 
   public PackageManager getPackageManager() {
     return PackageManager.getInstance();

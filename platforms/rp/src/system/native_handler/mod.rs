@@ -96,8 +96,13 @@ impl PicodroidNativeHandler {
     /// drops the push if the stack is full — apps can't sensibly recover
     /// from a 9-deep nav stack on an MCU, so we'd rather fail soft than
     /// thread a Result through `dispatch`.
-    pub fn push_activity(&mut self, obj_ref: u16, class_name: &'static str) -> bool {
-        self.activity_stack.push(obj_ref, class_name)
+    pub fn push_activity(
+        &mut self,
+        obj_ref: u16,
+        class_name: &'static str,
+        intent_ref: Option<u16>,
+    ) -> bool {
+        self.activity_stack.push(obj_ref, class_name, intent_ref)
     }
 
     /// Pop the top activity off the stack. Returns the popped entry, or
@@ -148,11 +153,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         for (obj_ref, _class) in self.activity_stack.iter() {
             visit(Value::ObjectRef(obj_ref));
         }
+        // ...and each entry's retained launch Intent, which backs
+        // Activity.getIntent() for the entry's whole lifetime.
+        for intent_ref in self.activity_stack.iter_intents() {
+            visit(Value::ObjectRef(intent_ref));
+        }
 
         // Pending ops: the Service `intent` / `conn` / `owner_activity`
-        // references must survive until [`take_next_pending_op`] runs the
-        // op. The Activity::Push variant carries only a class-name string
-        // (no heap ref) and needs no rooting.
+        // references and the Activity Push `intent_ref` must survive until
+        // [`take_next_pending_op`] runs the op.
         self.pending_ops
             .visit_object_refs(&mut |r| visit(Value::ObjectRef(r)));
 
@@ -313,6 +322,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                                 unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
                             self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
                                 class_name: static_name,
+                                intent_ref: Some(*intent_ref),
                             }));
                         }
                     }
@@ -325,6 +335,19 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // exactly the top, and that's the documented Android behavior
             // ("a paused Activity finishing itself" doesn't happen unless
             // the app is misbehaving anyway).
+            (_, "getIntent") => {
+                // args[0] = this (an Activity). Returns the Intent retained on
+                // the stack entry at push time, or null for the boot Activity
+                // — Android's contract.
+                let intent = match ctx.args.first() {
+                    Some(Value::ObjectRef(obj)) => self.activity_stack.intent_of(*obj),
+                    _ => None,
+                };
+                Some(Ok(Some(match intent {
+                    Some(r) => Value::ObjectRef(r),
+                    None => Value::Null,
+                })))
+            }
             (_, "finish") => {
                 self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
                 Some(Ok(None))

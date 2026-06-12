@@ -31,8 +31,14 @@ pub enum PendingActivityOp {
     /// `Application.startActivity(intent)` or `Activity.startActivity(intent)`
     /// — push a new Activity of the named class on top of the stack. The
     /// framework allocates the instance and runs its no-arg constructor; the
-    /// current top, if any, is paused first.
-    Push { class_name: &'static str },
+    /// current top, if any, is paused first. `intent_ref` is the launching
+    /// Intent, retained on the stack entry so `Activity.getIntent()` can
+    /// return it for the Activity's whole lifetime (`None` for the boot
+    /// Activity, which Android also launches without an app-visible Intent).
+    Push {
+        class_name: &'static str,
+        intent_ref: Option<u16>,
+    },
     /// `Activity.finish()` — pop the current top off the stack. If the
     /// stack is left empty, [`run_activity`] returns and the app exits.
     Pop,
@@ -84,6 +90,9 @@ pub const MAX_PENDING_OPS: usize = PENDING_OP_QUEUE_DEPTH;
 struct ActivityStackEntry {
     obj_ref: u16,
     class_name: &'static str,
+    /// Intent that launched this Activity (`getIntent()`'s return value);
+    /// `None` for the boot Activity. Rooted by the GC visitor below.
+    intent_ref: Option<u16>,
     /// Java `nativeHandle` of the content view installed by this Activity's
     /// most recent `setContentView`. `0` = no view set yet, or the view has
     /// been freed. Snapshotted from `display::CURRENT_ROOT_ID` on push (so
@@ -117,17 +126,34 @@ impl ActivityStack {
         Some((entry.obj_ref, entry.class_name))
     }
 
-    pub fn push(&mut self, obj_ref: u16, class_name: &'static str) -> bool {
+    pub fn push(
+        &mut self,
+        obj_ref: u16,
+        class_name: &'static str,
+        intent_ref: Option<u16>,
+    ) -> bool {
         if self.len >= MAX_ACTIVITY_STACK {
             return false;
         }
         self.entries[self.len] = Some(ActivityStackEntry {
             obj_ref,
             class_name,
+            intent_ref,
             root_handle: 0,
         });
         self.len += 1;
         true
+    }
+
+    /// The Intent that launched the Activity identified by `obj_ref`, for
+    /// `getIntent()`. Searches the whole stack: a paused Activity below the
+    /// top may legitimately call getIntent from a callback.
+    pub fn intent_of(&self, obj_ref: u16) -> Option<u16> {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .find(|e| e.obj_ref == obj_ref)
+            .and_then(|e| e.intent_ref)
     }
 
     /// Pops the top entry. Returns `(obj_ref, class_name, saved_root_handle)`,
@@ -166,6 +192,16 @@ impl ActivityStack {
         self.entries[..self.len]
             .iter()
             .filter_map(|e| e.as_ref().map(|x| (x.obj_ref, x.class_name)))
+    }
+
+    /// Live entries' retained Intent refs, for the GC visit-roots path —
+    /// without this, the Intent backing a paused Activity's `getIntent()`
+    /// would be swept on the first GC after launch.
+    pub fn iter_intents(&self) -> impl Iterator<Item = u16> + '_ {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .filter_map(|e| e.intent_ref)
     }
 }
 
@@ -230,7 +266,12 @@ impl PendingOpQueue {
     pub fn visit_object_refs(&self, visit: &mut dyn FnMut(u16)) {
         for op in self.entries[..self.len].iter().flatten() {
             match op {
-                PendingOp::Activity(_) => {}
+                PendingOp::Activity(PendingActivityOp::Push { intent_ref, .. }) => {
+                    if let Some(r) = intent_ref {
+                        visit(*r);
+                    }
+                }
+                PendingOp::Activity(PendingActivityOp::Pop) => {}
                 PendingOp::Service(svc) => match *svc {
                     PendingServiceOp::Start { intent_ref, .. } => {
                         visit(intent_ref);
@@ -281,24 +322,24 @@ mod tests {
     #[test]
     fn push_then_current_returns_pushed() {
         let mut s = ActivityStack::new();
-        assert!(s.push(7, A));
+        assert!(s.push(7, A, None));
         assert_eq!(s.current(), Some((7, A)));
     }
 
     #[test]
     fn current_returns_top_of_stack() {
         let mut s = ActivityStack::new();
-        s.push(1, A);
-        s.push(2, B);
-        s.push(3, C);
+        s.push(1, A, None);
+        s.push(2, B, None);
+        s.push(3, C, None);
         assert_eq!(s.current(), Some((3, C)));
     }
 
     #[test]
     fn pop_uncovers_parent() {
         let mut s = ActivityStack::new();
-        s.push(1, A);
-        s.push(2, B);
+        s.push(1, A, None);
+        s.push(2, B, None);
         let popped = s.pop();
         assert_eq!(popped, Some((2, B, 0)));
         assert_eq!(s.current(), Some((1, A)));
@@ -314,9 +355,9 @@ mod tests {
     fn push_when_full_returns_false_without_corruption() {
         let mut s = ActivityStack::new();
         for i in 0..MAX_ACTIVITY_STACK as u16 {
-            assert!(s.push(i, A), "push {} should fit", i);
+            assert!(s.push(i, A, None), "push {} should fit", i);
         }
-        assert!(!s.push(99, B), "push past MAX_ACTIVITY_STACK must fail");
+        assert!(!s.push(99, B, None), "push past MAX_ACTIVITY_STACK must fail");
         assert_eq!(s.current(), Some((MAX_ACTIVITY_STACK as u16 - 1, A)));
     }
 
@@ -326,7 +367,7 @@ mod tests {
     fn push_pop_round_trip_is_symmetric() {
         let mut s = ActivityStack::new();
         for i in 0..MAX_ACTIVITY_STACK as u16 {
-            s.push(i, A);
+            s.push(i, A, None);
         }
         for _ in 0..MAX_ACTIVITY_STACK {
             assert!(s.pop().is_some());
@@ -340,7 +381,7 @@ mod tests {
     #[test]
     fn set_current_root_handle_updates_top_entry() {
         let mut s = ActivityStack::new();
-        s.push(1, A);
+        s.push(1, A, None);
         s.set_current_root_handle(42);
         assert_eq!(s.current_root_handle(), 42);
     }
@@ -359,9 +400,9 @@ mod tests {
     #[test]
     fn pushing_child_preserves_parent_root_handle() {
         let mut s = ActivityStack::new();
-        s.push(1, A);
+        s.push(1, A, None);
         s.set_current_root_handle(11);
-        s.push(2, B);
+        s.push(2, B, None);
         assert_eq!(s.current_root_handle(), 0);
         s.pop();
         assert_eq!(s.current_root_handle(), 11);
@@ -372,7 +413,7 @@ mod tests {
     #[test]
     fn pop_returns_saved_root_handle() {
         let mut s = ActivityStack::new();
-        s.push(7, A);
+        s.push(7, A, None);
         s.set_current_root_handle(123);
         assert_eq!(s.pop(), Some((7, A, 123)));
     }
@@ -380,9 +421,9 @@ mod tests {
     #[test]
     fn iter_walks_bottom_to_top() {
         let mut s = ActivityStack::new();
-        s.push(1, A);
-        s.push(2, B);
-        s.push(3, C);
+        s.push(1, A, None);
+        s.push(2, B, None);
+        s.push(3, C, None);
         let v: alloc::vec::Vec<_> = s.iter().collect();
         assert_eq!(v, alloc::vec![(1, A), (2, B), (3, C)]);
     }
@@ -394,19 +435,21 @@ mod tests {
         let mut q = PendingOpQueue::new();
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
+            intent_ref: None,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: B,
+            intent_ref: None,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
         match q.take_next() {
-            Some(PendingOp::Activity(PendingActivityOp::Push { class_name })) => {
+            Some(PendingOp::Activity(PendingActivityOp::Push { class_name, .. })) => {
                 assert_eq!(class_name, A)
             }
             other => panic!("expected first Push(A), got {:?}", other),
         }
         match q.take_next() {
-            Some(PendingOp::Activity(PendingActivityOp::Push { class_name })) => {
+            Some(PendingOp::Activity(PendingActivityOp::Push { class_name, .. })) => {
                 assert_eq!(class_name, B)
             }
             other => panic!("expected second Push(B), got {:?}", other),
@@ -444,6 +487,7 @@ mod tests {
         let mut q = PendingOpQueue::new();
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
+            intent_ref: None,
         }));
         q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: B }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
@@ -468,6 +512,7 @@ mod tests {
         let mut q = PendingOpQueue::new();
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
+            intent_ref: None,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
