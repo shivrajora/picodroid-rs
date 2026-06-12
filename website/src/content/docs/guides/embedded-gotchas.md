@@ -192,13 +192,13 @@ Symptom: opening an `https://` connection throws at `connect()` time.
 
 ```java
 // WRONG: HTTPS URL — throws UnsupportedOperationException("HTTPS not yet supported").
-HttpUrlConnection c = new Url("https://api.example.com").openConnection();
+HttpURLConnection c = new URL("https://api.example.com").openConnection();
 c.connect();
 ```
 
 ```java
 // RIGHT: plain HTTP, with GET / POST / PUT only.
-HttpUrlConnection c = new Url("http://api.example.com").openConnection();
+HttpURLConnection c = new URL("http://api.example.com").openConnection();
 c.setRequestMethod("GET");
 c.connect();
 ```

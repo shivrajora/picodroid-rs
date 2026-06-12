@@ -9,7 +9,7 @@ package picodroid.net;
  * time with {@link UnsupportedOperationException}.
  *
  * <pre>{@code
- * HttpUrlConnection c = new Url("http://example.com/").openConnection();
+ * HttpURLConnection c = new URL("http://example.com/").openConnection();
  * c.connect();
  * if (c.getResponseCode() == 200) {
  *   HttpInputStream in = c.getInputStream();
@@ -20,14 +20,14 @@ package picodroid.net;
  * c.disconnect();
  * }</pre>
  */
-public class HttpUrlConnection implements AutoCloseable {
-  private Url url;
+public class HttpURLConnection implements AutoCloseable {
+  private URL url;
   private String method;
   private boolean doOutput;
   private int fixedLength;
   private int handle;
 
-  public HttpUrlConnection(Url url) {
+  public HttpURLConnection(URL url) {
     this.url = url;
     this.method = "GET";
     this.doOutput = false;
@@ -58,7 +58,7 @@ public class HttpUrlConnection implements AutoCloseable {
     this.fixedLength = len;
   }
 
-  public Url getUrl() {
+  public URL getURL() {
     return url;
   }
 

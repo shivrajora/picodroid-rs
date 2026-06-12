@@ -151,9 +151,9 @@ Three common causes:
 2. **I2C wiring mismatch.** The BME688 driver uses the `bus` + `addr` from `board.toml`. Verify the sensor ACKs on that bus with [`examples/i2cdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/i2cdemo).
 3. **Registration cap.** `SensorManager` allows up to 8 concurrent registrations. Call `unregisterListener()` from `onPause()` / `onDestroy()`-equivalent paths to avoid leaking slots across app swaps.
 
-## `HttpUrlConnection` hangs or throws at `connect()`
+## `HttpURLConnection` hangs or throws at `connect()`
 
-- `HTTPS URLs are rejected` — `HttpUrlConnection` is HTTP/1.1 only; no TLS. Use the raw socket API if you need TLS and are willing to bundle it.
+- `HTTPS URLs are rejected` — `HttpURLConnection` is HTTP/1.1 only; no TLS. Use the raw socket API if you need TLS and are willing to bundle it.
 - `setFixedLengthStreamingMode() required for output` — for POST/PUT, call `setDoOutput(true)` **and** `setFixedLengthStreamingMode(n)` with the exact body byte count before `connect()`.
 - Hangs are usually DNS-resolution failures against an unreachable host. There is no per-operation timeout parameter yet; check that the `Host` header resolves from the device's network.
-- `Connection: close` is always sent — keep-alive / pipelining is not supported, so one `HttpUrlConnection` = one request.
+- `Connection: close` is always sent — keep-alive / pipelining is not supported, so one `HttpURLConnection` = one request.

@@ -87,17 +87,17 @@ pub fn dispatch(
             Some(crate::system::picodroid::net::network_info::get_ip_address_native())
         }
 
-        // ── HttpUrlConnection ───────────────────────────────────────────
-        ("picodroid/net/HttpUrlConnection", "nativeConnect") => Some(
+        // ── HttpURLConnection ───────────────────────────────────────────
+        ("picodroid/net/HttpURLConnection", "nativeConnect") => Some(
             crate::system::picodroid::net::http_connection::native_connect(ctx.args, ctx.strings),
         ),
-        ("picodroid/net/HttpUrlConnection", "nativeReadResponseCode") => Some(
+        ("picodroid/net/HttpURLConnection", "nativeReadResponseCode") => Some(
             crate::system::picodroid::net::http_connection::native_read_response_code(ctx.args),
         ),
-        ("picodroid/net/HttpUrlConnection", "nativeContentLength") => {
+        ("picodroid/net/HttpURLConnection", "nativeContentLength") => {
             Some(crate::system::picodroid::net::http_connection::native_content_length(ctx.args))
         }
-        ("picodroid/net/HttpUrlConnection", "nativeDisconnect") => {
+        ("picodroid/net/HttpURLConnection", "nativeDisconnect") => {
             Some(crate::system::picodroid::net::http_connection::native_disconnect(ctx.args))
         }
 

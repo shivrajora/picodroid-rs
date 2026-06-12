@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native implementations for picodroid.net.HttpUrlConnection / HttpInputStream
+//! Native implementations for picodroid.net.HttpURLConnection / HttpInputStream
 //! / HttpOutputStream.
 //!
 //! The Java class is a thin shim; all protocol logic lives here.  An
@@ -101,7 +101,7 @@ fn handle_from_obj(args: &[Value], objects: &ObjectHeap, field: usize) -> Result
     }
 }
 
-// ── HttpUrlConnection.nativeConnect (static) ─────────────────────────────────
+// ── HttpURLConnection.nativeConnect (static) ─────────────────────────────────
 
 /// Java signature: `nativeConnect(String host, int port, String path,
 /// String method, int bodyLength) -> int`.
@@ -173,7 +173,7 @@ pub fn native_connect(args: &[Value], strings: &StringTable) -> Result<Option<Va
     Ok(Some(Value::Int(handle)))
 }
 
-// ── HttpUrlConnection.nativeReadResponseCode (static) ────────────────────────
+// ── HttpURLConnection.nativeReadResponseCode (static) ────────────────────────
 
 pub fn native_read_response_code(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let handle = as_int(args.first())?;
@@ -184,7 +184,7 @@ pub fn native_read_response_code(args: &[Value]) -> Result<Option<Value>, JvmErr
     Ok(Some(Value::Int(conn.status_code)))
 }
 
-// ── HttpUrlConnection.nativeContentLength (static) ───────────────────────────
+// ── HttpURLConnection.nativeContentLength (static) ───────────────────────────
 
 pub fn native_content_length(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let handle = as_int(args.first())?;
@@ -198,7 +198,7 @@ pub fn native_content_length(args: &[Value]) -> Result<Option<Value>, JvmError> 
     Ok(Some(Value::Int(len)))
 }
 
-// ── HttpUrlConnection.nativeDisconnect (static) ──────────────────────────────
+// ── HttpURLConnection.nativeDisconnect (static) ──────────────────────────────
 
 pub fn native_disconnect(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let handle = as_int(args.first())?;

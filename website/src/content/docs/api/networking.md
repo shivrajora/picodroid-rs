@@ -3,7 +3,7 @@ title: "Networking: TCP, UDP, and HTTP"
 description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simulator loopback."
 ---
 
-`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`Url`, `HttpUrlConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
+`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`URL`, `HttpURLConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
 
 Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and `network_type = "cyw43"` in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs (`NetworkInfo.isConnected()` returns `false`) and attempting to open a socket throws.
 
@@ -74,7 +74,7 @@ s.close();
 
 ## HTTP client
 
-`Url` + `HttpUrlConnection` — a small Android-style HTTP/1.1 client layered on the TCP socket API. DNS resolution happens at `connect()` time.
+`URL` + `HttpURLConnection` — a small Android-style HTTP/1.1 client layered on the TCP socket API. DNS resolution happens at `connect()` time.
 
 Constraints:
 
@@ -87,10 +87,10 @@ Constraints:
 
 ```java
 import picodroid.net.HttpInputStream;
-import picodroid.net.HttpUrlConnection;
-import picodroid.net.Url;
+import picodroid.net.HttpURLConnection;
+import picodroid.net.URL;
 
-HttpUrlConnection c = new Url("http://example.com/api/time").openConnection();
+HttpURLConnection c = new URL("http://example.com/api/time").openConnection();
 try {
     c.connect();
     if (c.getResponseCode() == 200) {
@@ -106,10 +106,10 @@ try {
 }
 ```
 
-`HttpUrlConnection` implements `AutoCloseable`, so a `try`-with-resources block is equivalent:
+`HttpURLConnection` implements `AutoCloseable`, so a `try`-with-resources block is equivalent:
 
 ```java
-try (HttpUrlConnection c = new Url("http://example.com/").openConnection()) {
+try (HttpURLConnection c = new URL("http://example.com/").openConnection()) {
     c.connect();
     // ...
 }
@@ -119,11 +119,11 @@ try (HttpUrlConnection c = new Url("http://example.com/").openConnection()) {
 
 ```java
 import picodroid.net.HttpOutputStream;
-import picodroid.net.HttpUrlConnection;
-import picodroid.net.Url;
+import picodroid.net.HttpURLConnection;
+import picodroid.net.URL;
 
 byte[] body = "hello".getBytes();
-HttpUrlConnection c = new Url("http://example.com/ingest").openConnection();
+HttpURLConnection c = new URL("http://example.com/ingest").openConnection();
 try {
     c.setRequestMethod("POST");
     c.setDoOutput(true);
@@ -140,10 +140,10 @@ try {
 
 `Host:` is set automatically from the URL (including port if non-standard). To add your own headers, the current API only accepts the method, path, and content-length — no per-request header map yet.
 
-### `Url`
+### `URL`
 
 ```java
-Url u = new Url("http://192.168.1.10:8080/status?id=42");
+URL u = new URL("http://192.168.1.10:8080/status?id=42");
 u.getProtocol();   // "http"
 u.getHost();       // "192.168.1.10"
 u.getPort();       // 8080 (80 if omitted, 443 for https)

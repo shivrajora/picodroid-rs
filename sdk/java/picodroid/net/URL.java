@@ -8,13 +8,13 @@ package picodroid.net;
  * and dotted-quad IPv4 literals are both allowed; DNS resolution happens later, at connect time.
  * Query strings belong in the path — there is no separate query accessor.
  */
-public class Url {
+public class URL {
   private String protocol;
   private String host;
   private int port;
   private String path;
 
-  public Url(String spec) {
+  public URL(String spec) {
     if (spec == null) {
       throw new IllegalArgumentException("url is null");
     }
@@ -81,8 +81,8 @@ public class Url {
   }
 
   /** Open an HTTP connection to this URL. The connection is not opened until {@code connect()}. */
-  public HttpUrlConnection openConnection() {
-    return new HttpUrlConnection(this);
+  public HttpURLConnection openConnection() {
+    return new HttpURLConnection(this);
   }
 
   // Local decimal parser — Integer.parseInt isn't wired up in the picodroid JVM.

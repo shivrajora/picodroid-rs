@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
-/** Writes the request body of an {@link HttpUrlConnection}. Close the parent connection to free. */
+/** Writes the request body of an {@link HttpURLConnection}. Close the parent connection to free. */
 public class HttpOutputStream implements AutoCloseable {
   private int handle;
 
@@ -23,6 +23,6 @@ public class HttpOutputStream implements AutoCloseable {
 
   @Override
   public void close() {
-    // Resource is owned by the parent HttpUrlConnection.
+    // Resource is owned by the parent HttpURLConnection.
   }
 }

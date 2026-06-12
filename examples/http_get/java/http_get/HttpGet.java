@@ -4,9 +4,9 @@ package http_get;
 import picodroid.app.Application;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpOutputStream;
-import picodroid.net.HttpUrlConnection;
+import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
-import picodroid.net.Url;
+import picodroid.net.URL;
 import picodroid.util.Log;
 
 /**
@@ -39,7 +39,7 @@ public class HttpGet extends Application {
 
   private void doGet() {
     Log.i(TAG, "GET http://127.0.0.1:8000/");
-    HttpUrlConnection c = new Url("http://127.0.0.1:8000/").openConnection();
+    HttpURLConnection c = new URL("http://127.0.0.1:8000/").openConnection();
     try {
       c.connect();
       int code = c.getResponseCode();
@@ -61,7 +61,7 @@ public class HttpGet extends Application {
   private void doPost() {
     byte[] body = new byte[] {'h', 'e', 'l', 'l', 'o'};
     Log.i(TAG, "POST http://127.0.0.1:8000/ body=" + body.length + "B");
-    HttpUrlConnection c = new Url("http://127.0.0.1:8000/").openConnection();
+    HttpURLConnection c = new URL("http://127.0.0.1:8000/").openConnection();
     try {
       c.setRequestMethod("POST");
       c.setDoOutput(true);

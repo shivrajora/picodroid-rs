@@ -53,7 +53,7 @@ TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--bo
 | Example | Class | Description |
 |---------|-------|-------------|
 | `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response |
-| `http_get` | `http_get.HttpGet` | Android-style `HttpUrlConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream` |
+| `http_get` | `http_get.HttpGet` | Android-style `HttpURLConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream` |
 
 ## Sensors
 
