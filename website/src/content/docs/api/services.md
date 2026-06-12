@@ -17,7 +17,7 @@ A long-running background component with a lifecycle independent of any `Activit
 package myapp;
 
 import picodroid.app.Service;
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.util.Log;
 
@@ -72,7 +72,7 @@ On picodroid the OS never kills a running service, so `onStartCommand`'s return 
 > `onRebind` callback, but the re-bind path is not yet dispatched — a subsequent bind runs
 > `onBind` again. Don't rely on `onRebind` firing yet.
 
-## `picodroid.app.IBinder`
+## `picodroid.os.IBinder`
 
 Marker **interface** for the object handed back from `onBind`. Implement it with your own `LocalBinder` that carries a reference to the service (no IPC stub generation in v1 — `LocalBinder` is just a Java reference handed across `bindService`):
 
@@ -129,7 +129,7 @@ The `Context` (your `Application` or `Activity`) drives the service lifecycle:
 ```java
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 
 Intent i = new Intent(CounterService.class);
 

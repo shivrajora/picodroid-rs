@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.history;
 
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;

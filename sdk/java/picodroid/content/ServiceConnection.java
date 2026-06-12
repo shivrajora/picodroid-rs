@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 
 /**
  * Callback interface passed to {@link Context#bindService} and notified when the bound Service is

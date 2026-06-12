@@ -2,7 +2,7 @@
 package tutorial_service;
 
 import picodroid.app.Activity;
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Color;

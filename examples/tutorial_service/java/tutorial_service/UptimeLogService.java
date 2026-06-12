@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package tutorial_service;
 
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.concurrent.Thread;

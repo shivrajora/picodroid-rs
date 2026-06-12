@@ -2,7 +2,7 @@
 package servicedemo;
 
 import picodroid.app.Application;
-import picodroid.app.IBinder;
+import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.util.Log;

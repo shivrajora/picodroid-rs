@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package picodroid.app;
+package picodroid.os;
 
 /**
  * Marker interface for the object returned by {@link Service#onBind}. Apps subclass it to expose a

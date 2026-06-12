@@ -2,6 +2,7 @@
 package picodroid.app;
 
 import picodroid.content.Intent;
+import picodroid.os.IBinder;
 
 /**
  * Background component analogous to {@code android.app.Service}. A Service has a lifecycle

@@ -38,7 +38,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/app/Application",
     "picodroid/app/Activity",
     "picodroid/app/Service",
-    "picodroid/app/IBinder",
+    "picodroid/os/IBinder",
     "picodroid/app/Notification",
     "picodroid/app/NotificationManager",
     "picodroid/content/Context",
