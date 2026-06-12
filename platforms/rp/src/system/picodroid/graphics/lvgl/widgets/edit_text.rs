@@ -153,6 +153,20 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
         // keyboard also inserts a newline — the cursor jumps to an empty second
         // line and the field looks cleared (its text becomes e.g. "30\n").
         lv_textarea_set_one_line(ptr, true);
+        // The theme styles textareas as card+pad_small (10 px pad + 2 px border
+        // per side), so an app-set height like 26 px leaves ~2 px of content for
+        // a 16 px font line. That vertical overflow draws a scrollbar and feeds
+        // a self-sustaining bounce: scroll_to_cusor_pos re-runs on every
+        // STYLE_CHANGED, and each animated scroll toggles LV_STATE_SCROLLED,
+        // which fires STYLE_CHANGED again (lv_textarea.c:1010, lv_obj.c:1009).
+        // pad_ver = 3 makes a 26 px field hold exactly one Montserrat-14 line
+        // (26 - 2*3 - 2*2 = 16 = line height), vertically centered, with both
+        // scroll checks quiet. Heights below 22 px would overflow again.
+        lv_obj_set_style_pad_top(ptr, 3, 0);
+        lv_obj_set_style_pad_bottom(ptr, 3, 0);
+        // Android EditText never draws scrollbars. SCROLLABLE itself stays set:
+        // horizontal scroll-to-cursor must keep working for long one-line text.
+        lv_obj_set_scrollbar_mode(ptr, LV_SCROLLBAR_MODE_OFF);
         lv_obj_add_event_cb(
             ptr,
             Some(textarea_pressed_cb),
