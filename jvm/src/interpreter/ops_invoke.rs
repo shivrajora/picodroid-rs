@@ -336,6 +336,26 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         descriptor: &str,
         args: &[Value],
     ) -> Result<Option<Value>, JvmError> {
+        // `Object.getClass()` resolves here rather than in a handler: it needs
+        // the class-object cache (not part of NativeContext) so that
+        // `obj.getClass() == MyClass.class` identity holds against `ldc`.
+        if method_name == "getClass" && descriptor == "()Ljava/lang/Class;" {
+            let name: Option<&'static str> = match args.first().copied() {
+                Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
+                Some(Value::Reference(_)) => Some("java/lang/String"),
+                _ => None,
+            };
+            if let Some(name) = name {
+                return helpers::class_object_for_name(
+                    self.classes,
+                    self.strings,
+                    self.objects,
+                    self.class_objects,
+                    name.as_bytes(),
+                )
+                .map(Some);
+            }
+        }
         let mut ctx = NativeContext {
             descriptor,
             args,

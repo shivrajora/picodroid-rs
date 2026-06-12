@@ -113,6 +113,22 @@ fn resolve_class_literal(
         .iter()
         .find(|c| c.class_name() == Some(name_bytes))
         .ok_or(JvmError::ClassNotFound)?;
+    class_object_for_name(classes, strings, objects, class_objects, name_bytes)
+}
+
+/// Return the canonical `java.lang.Class` instance for `name_bytes`,
+/// allocating and caching on first sighting. Shared by `ldc CONSTANT_Class`
+/// (which additionally requires the class to be loaded) and
+/// `Object.getClass()` (whose receiver may be a builtin like
+/// `java/util/ArrayList` with no class file) — both must hand out the same
+/// `ObjectRef` so `obj.getClass() == MyClass.class` holds.
+pub(super) fn class_object_for_name(
+    classes: &[ClassFile],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    class_objects: &mut ClassObjectCache,
+    name_bytes: &'static [u8],
+) -> Result<Value, JvmError> {
     // Intern the name once — `StringTable::intern` deduplicates by content,
     // so the index is canonical across all class files and threads.
     let name_idx = strings.intern(name_bytes).ok_or(JvmError::StackOverflow)?;
