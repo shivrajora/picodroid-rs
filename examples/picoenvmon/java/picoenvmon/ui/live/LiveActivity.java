@@ -8,6 +8,7 @@ import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.hardware.Sensor;
 import picodroid.util.Log;
+import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.Switch;
 import picodroid.widget.TextView;
@@ -116,7 +117,10 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     label.setTextColor(Theme.colorTextSecondary);
     // weight=1 lets the label fill the row and pushes the Switch flush right at its natural
     // size (mirrors android:layout_weight="1"), so the switch is no longer clipped.
-    row.addView(label, new LinearLayout.LayoutParams(0, 24, 1f));
+    // WRAP_CONTENT height lets the row's flex cross-axis centering center the glyphs —
+    // a fixed-height label draws its text top-aligned inside its own box.
+    row.addView(
+        label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
     Switch toggle = new Switch();
     toggle.setOnCheckedChangeListener((buttonView, isChecked) -> setLogger(isChecked));
@@ -146,10 +150,13 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     tile.setPadding(8, 4, 8, 4);
     tile.setBackground(bg);
 
+    // Fixed widths keep the label/value columns aligned across tiles; WRAP_CONTENT
+    // heights let the tile's flex cross-axis centering actually center the glyphs
+    // (a fixed-height label draws its text top-aligned inside its own box).
     TextView labelView = new TextView();
     labelView.setText(label);
     labelView.setTextColor(Theme.colorTextSecondary);
-    labelView.setSize(96, 20);
+    labelView.setSize(96, View.WRAP_CONTENT);
     tile.addView(labelView);
 
     TextView valueView = new TextView();
@@ -157,7 +164,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     // (U+2014) glyph, so "—" renders as a missing-glyph box.
     valueView.setText("--");
     valueView.setTextColor(Theme.colorText);
-    valueView.setSize(112, 20);
+    valueView.setSize(112, View.WRAP_CONTENT);
     tile.addView(valueView);
 
     parent.addView(tile);
