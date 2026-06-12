@@ -48,6 +48,8 @@ public class StringDemo extends Application {
     testFormatAutoboxing();
     testFormatMixed();
     testFormatErrors();
+    testParsePrimitives();
+    testParseErrors();
 
     String passStr = String.valueOf(passed);
     String failStr = String.valueOf(failed);
@@ -262,5 +264,50 @@ public class StringDemo extends Application {
       caught = true;
     }
     check("err caught for too-few args", caught);
+  }
+
+  static void testParsePrimitives() {
+    check("parseInt 42", Integer.parseInt("42") == 42);
+    check("parseInt -7", Integer.parseInt("-7") == -7);
+    check("parseInt +123", Integer.parseInt("+123") == 123);
+    check("parseInt MAX", Integer.parseInt("2147483647") == 2147483647);
+    check("parseLong big", Long.parseLong("4294967296") == 4294967296L);
+    check("parseLong -1", Long.parseLong("-1") == -1L);
+    check("parseDouble 1.5", Double.parseDouble("1.5") == 1.5);
+    check("parseDouble exp", Double.parseDouble("2.5e2") == 250.0);
+    check("parseDouble suffix", Double.parseDouble("3.25d") == 3.25);
+    check("parseDouble trims", Double.parseDouble(" 4.5 ") == 4.5);
+    check("parseFloat 0.5f", Float.parseFloat("0.5f") == 0.5f);
+    check("parseBoolean true", Boolean.parseBoolean("TrUe"));
+    check("parseBoolean other", !Boolean.parseBoolean("yes"));
+    check("Integer.valueOf str", Integer.valueOf("17").intValue() == 17);
+    check("Long.valueOf str", Long.valueOf("99").longValue() == 99L);
+    check("Double.valueOf str", Double.valueOf("0.25").doubleValue() == 0.25);
+  }
+
+  static void testParseErrors() {
+    boolean caught = false;
+    try {
+      Integer.parseInt("12ab");
+    } catch (NumberFormatException e) {
+      caught = true;
+    }
+    check("parseInt 12ab throws NFE", caught);
+
+    caught = false;
+    try {
+      Integer.parseInt("2147483648"); // MAX_VALUE + 1
+    } catch (NumberFormatException e) {
+      caught = true;
+    }
+    check("parseInt overflow throws NFE", caught);
+
+    caught = false;
+    try {
+      Double.parseDouble("not-a-number");
+    } catch (NumberFormatException e) {
+      caught = true;
+    }
+    check("parseDouble junk throws NFE", caught);
   }
 }
