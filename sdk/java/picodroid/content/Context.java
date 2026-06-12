@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
+import picodroid.app.NotificationManager;
 import picodroid.hardware.SensorManager;
 
 /**
@@ -14,12 +15,18 @@ import picodroid.hardware.SensorManager;
 public class Context {
   public static final String SENSOR_SERVICE = "sensor";
 
+  /** Name for {@link #getSystemService}: retrieves the {@link NotificationManager}. */
+  public static final String NOTIFICATION_SERVICE = "notification";
+
   /**
    * Resolve a system service by name. Subclasses may extend; the base handles the well-known set.
    */
   public Object getSystemService(String name) {
     if (SENSOR_SERVICE.equals(name)) {
       return SensorManager.getInstance();
+    }
+    if (NOTIFICATION_SERVICE.equals(name)) {
+      return NotificationManager.getInstance();
     }
     return null;
   }

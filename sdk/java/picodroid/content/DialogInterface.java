@@ -14,6 +14,13 @@ public interface DialogInterface {
   /** Identifies the negative (cancel) button. Matches Android's value. */
   int BUTTON_NEGATIVE = -2;
 
+  /**
+   * Identifies the neutral button. Matches Android's value. Defined for source compatibility;
+   * {@code AlertDialog.Builder.setNeutralButton} is not implemented yet, so no v1 dialog ever
+   * delivers this constant.
+   */
+  int BUTTON_NEUTRAL = -3;
+
   void dismiss();
 
   void cancel();
