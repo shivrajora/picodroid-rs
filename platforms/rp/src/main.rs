@@ -59,6 +59,12 @@ mod native_handler_state_tests;
 #[cfg(test)]
 #[path = "system/picodroid/graphics/lvgl/key_filter.rs"]
 mod lvgl_key_filter_tests;
+// Native-class registry + its cross-check: every SDK class declaring a
+// `native` method must appear in the registry, or virtual dispatch fails at
+// runtime with NoSuchMethod. Same `#[path]` rationale as the modules above.
+#[cfg(test)]
+#[path = "system/native_handler/class_registry.rs"]
+mod native_class_registry_tests;
 
 // Family-rp hardware imports (Cortex-M-specific via cortex-m-rt + the
 // generic-FreeRTOS rust bindings).
