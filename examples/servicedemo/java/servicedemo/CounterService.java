@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package servicedemo;
 
-import picodroid.os.IBinder;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.content.Intent;
+import picodroid.os.IBinder;
 import picodroid.util.Log;
 
 public class CounterService extends Service {

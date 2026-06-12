@@ -2,10 +2,10 @@
 package tutorial_service;
 
 import picodroid.app.Activity;
-import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Color;
+import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
