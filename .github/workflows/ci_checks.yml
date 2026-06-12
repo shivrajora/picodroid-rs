@@ -43,6 +43,10 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.rust }}
+      # No-ops when the cached ~/.cargo/bin already holds the binary.
       - run: cargo install flip-link
       - name: Build helloworld APK
         run: bash scripts/build-apk.sh --app helloworld
@@ -64,6 +68,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
       - run: bash scripts/test.sh
   linting:
     name: Linting
@@ -78,6 +83,9 @@ jobs:
         with:
           components: clippy
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      - name: Check hil-tests.conf against the source tree
+        run: bash scripts/check-hil-conf.sh
       - name: Build helloworld APK
         run: bash scripts/build-apk.sh --app helloworld
       # TestBench RP2040
@@ -86,6 +94,48 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
       # Simulator (host target)
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
+  examples:
+    name: Compile All Example APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Every example, both shrink modes — an SDK signature change that breaks
+      # any app (or a shrink-map gap) fails here instead of shipping silently.
+      - name: Assemble all PAPKs (no-shrink)
+        run: ./gradlew assemblePapk --console=plain
+      - name: Assemble all PAPKs (shrink)
+        run: PICODROID_SHRINK=1 ./gradlew assemblePapk --console=plain
+  sim-smoke:
+    name: Sim Smoke Tests
+    runs-on: ubuntu-latest
+    env:
+      # Abort loudly on any use-after-delete handle lookup (off by default;
+      # see platforms/rp/.../lvgl/handle_table.rs).
+      PICODROID_HANDLE_SANITIZER: '1'
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Install JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-jdk-headless libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Headless end-to-end runs of a small representative subset, both shrink
+      # modes (sim-run default). Full matrix stays on the nightly cron; this
+      # job closes the push -> 3 AM detection window for the JVM, GC-stress,
+      # stdlib (langsuite), and widget-callback dispatch paths.
+      - name: Run sim smoke subset
+        run: |
+          for app in helloworld gcstress langsuite callbacktest; do
+            bash scripts/sim-run.sh --app "$app" --no-email
+          done
   formatting:
     name: Formatting
     runs-on: ubuntu-latest
