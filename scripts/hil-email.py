@@ -69,6 +69,78 @@ def parse_results(results_path):
     return entries
 
 
+def load_history(results_path):
+    """Load prior runs' results from sibling files, newest first.
+
+    Results files are named `YYYY-MM-DD_HHhMMmSSs_<sha>.txt`, so lexical order
+    is chronological order. Returns a list of (date, {app: status}) tuples for
+    every run strictly older than the current one.
+    """
+    cur = Path(results_path).resolve()
+    history = []
+    for f in sorted(cur.parent.glob("*.txt"), reverse=True):
+        if f.name >= cur.name:
+            continue
+        run_map = {app: status for status, app in parse_results(f)}
+        history.append((f.name[:10], run_map))
+    return history
+
+
+def classify_failures(entries, history):
+    """Split current failures into new-vs-known, and find recoveries.
+
+    A failure is "known" if the most recent prior run that *included* the app
+    also failed it; its value is (since_date, open_ended) where since_date
+    starts the contiguous failing streak and open_ended means the streak
+    covers all recorded history (so it may be older still). Runs that don't
+    mention the app (partial `--app` invocations) are skipped rather than
+    treated as evidence either way. "Recovered" lists apps that last failed
+    and PASS now. Without history, every failure counts as new.
+
+    The point: a permanently-red suite must not look the same as a fresh
+    regression — that disguise hid a month of red nightlies in 2026-05/06.
+    """
+    cur_failing = sorted(app for status, app in entries if status in ("FAIL", "ERROR"))
+    cur_map = {app: status for status, app in entries}
+
+    def walk_streak(app):
+        """Date of the oldest run in the app's contiguous failing streak."""
+        since = None
+        saw_all_history = True
+        for date, run_map in history:
+            if app not in run_map:
+                continue
+            if run_map[app] in ("FAIL", "ERROR"):
+                since = date
+            else:
+                saw_all_history = False
+                break
+        return since, saw_all_history
+
+    new_fails = []
+    known_fails = {}  # app -> (since_date, open_ended)
+    for app in cur_failing:
+        since, open_ended = walk_streak(app)
+        if since is None:
+            new_fails.append(app)
+        else:
+            known_fails[app] = (since, open_ended)
+
+    # Recovered: PASSes now, and the most recent prior run including the app
+    # failed it.
+    recovered = []
+    for app, status in cur_map.items():
+        if status != "PASS":
+            continue
+        for _, run_map in history:
+            if app in run_map:
+                if run_map[app] in ("FAIL", "ERROR"):
+                    recovered.append(app)
+                break
+    recovered.sort()
+    return new_fails, known_fails, recovered
+
+
 def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
     """Read the last N lines of an app's log (RTT or PDB)."""
     run_dir = Path(log_dir) / run_id
@@ -93,7 +165,48 @@ def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
     return "\n".join(tail)
 
 
-def build_html(entries, log_dir, run_id, sha, suite="HIL"):
+def format_known_since(since, open_ended):
+    """Human-readable streak start for a known failure."""
+    if since is None:
+        return "failing since unknown"
+    return f"failing since {since}" + (" or earlier" if open_ended else "")
+
+
+def build_triage_html(new_fails, known_fails, recovered):
+    """Build the new-vs-known triage section shown above the results table."""
+    parts = []
+    if new_fails:
+        items = "".join(f"<li><strong>{app}</strong></li>" for app in new_fails)
+        parts.append(
+            f'<div style="background:#ffebee;border-left:4px solid #c62828;'
+            f'padding:10px 14px;margin-top:12px;">'
+            f'<strong style="color:#c62828;">NEW failures (not in previous run)</strong>'
+            f'<ul style="margin:6px 0 0;">{items}</ul></div>'
+        )
+    if known_fails:
+        items = "".join(
+            f"<li>{app} <span style=\"color:#9e9e9e;\">— "
+            f"{format_known_since(since, open_ended)}</span></li>"
+            for app, (since, open_ended) in sorted(known_fails.items())
+        )
+        parts.append(
+            f'<div style="background:#fff3e0;border-left:4px solid #e65100;'
+            f'padding:10px 14px;margin-top:12px;">'
+            f'<strong style="color:#e65100;">Known failures</strong>'
+            f'<ul style="margin:6px 0 0;">{items}</ul></div>'
+        )
+    if recovered:
+        items = "".join(f"<li>{app}</li>" for app in recovered)
+        parts.append(
+            f'<div style="background:#e8f5e9;border-left:4px solid #2e7d32;'
+            f'padding:10px 14px;margin-top:12px;">'
+            f'<strong style="color:#2e7d32;">Recovered since previous run</strong>'
+            f'<ul style="margin:6px 0 0;">{items}</ul></div>'
+        )
+    return "".join(parts)
+
+
+def build_html(entries, log_dir, run_id, sha, suite="HIL", triage_html=""):
     """Build an HTML email body with colour-coded results."""
     colors = {
         "PASS": "#2e7d32",
@@ -159,7 +272,7 @@ def build_html(entries, log_dir, run_id, sha, suite="HIL"):
       {counts['PASS']} passed, {counts['FAIL']} failed, {counts['ERROR']} errors, {counts['SKIP']} skipped
     </p>
   </div>
-
+{triage_html}
   <table style="width:100%;border-collapse:collapse;margin-top:12px;">
     <tr style="background:#fafafa;">
       <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #ddd;">App</th>
@@ -212,11 +325,16 @@ def main():
     parser.add_argument("--sha", required=True, help="Git commit SHA")
     parser.add_argument("--suite", default="HIL", help="Test suite name (e.g. HIL, sim)")
     parser.add_argument("--to", default=DEFAULT_RECIPIENT, help="Recipient email address")
+    parser.add_argument(
+        "--no-send",
+        action="store_true",
+        help="Print the subject and triage summary instead of sending (no credentials needed)",
+    )
     args = parser.parse_args()
 
-    gmail_user, gmail_password = load_credentials()
-    recipient = args.to if args.to else gmail_user
     entries = parse_results(args.results)
+    history = load_history(args.results)
+    new_fails, known_fails, recovered = classify_failures(entries, history)
 
     counts = {"PASS": 0, "FAIL": 0, "ERROR": 0, "SKIP": 0}
     for status, _ in entries:
@@ -225,10 +343,34 @@ def main():
 
     all_passed = counts["FAIL"] == 0 and counts["ERROR"] == 0
     suite = args.suite.upper()
-    status_str = "PASS" if all_passed else "FAIL"
+    # Subject triage: a fresh regression must read differently from a suite
+    # that has been red for weeks — and a recovery is worth celebrating.
+    if new_fails:
+        status_str = f"{len(new_fails)} NEW FAIL"
+    elif not all_passed:
+        status_str = "FAIL (known)"
+    elif recovered:
+        status_str = f"PASS ({len(recovered)} recovered)"
+    else:
+        status_str = "PASS"
     subject = f"[picodroid {suite}] {status_str}: {counts['PASS']}/{total_run} passed ({args.sha})"
 
-    html = build_html(entries, args.log_dir, args.run_id, args.sha, suite=suite)
+    if args.no_send:
+        print(subject)
+        for app in new_fails:
+            print(f"  NEW FAIL:  {app}")
+        for app, (since, open_ended) in sorted(known_fails.items()):
+            print(f"  KNOWN:     {app} — {format_known_since(since, open_ended)}")
+        for app in recovered:
+            print(f"  RECOVERED: {app}")
+        return
+
+    gmail_user, gmail_password = load_credentials()
+    recipient = args.to if args.to else gmail_user
+    triage_html = build_triage_html(new_fails, known_fails, recovered)
+    html = build_html(
+        entries, args.log_dir, args.run_id, args.sha, suite=suite, triage_html=triage_html
+    )
     send_email(recipient, subject, html, gmail_user, gmail_password)
 
 
