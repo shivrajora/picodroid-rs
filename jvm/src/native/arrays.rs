@@ -201,6 +201,82 @@ fn dispatch_copy_of(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErr
     Ok(Some(Value::ArrayRef(new_arr)))
 }
 
+// ── System.arraycopy ─────────────────────────────────────────────────────
+
+/// `java/lang/System` builtin: only `arraycopy` lives here (array machinery);
+/// `currentTimeMillis` stays with the platform handler, which dispatches
+/// before the builtins.
+pub(crate) fn dispatch_system(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    match method_name {
+        "arraycopy" => Some(dispatch_arraycopy(ctx)),
+        _ => None,
+    }
+}
+
+/// `System.arraycopy(src, srcPos, dest, destPos, length)` with Java's
+/// contract: bad ranges throw IndexOutOfBoundsException, mismatched element
+/// types throw ArrayStoreException, and overlapping self-copies behave like
+/// memmove (the overlap region is read before it is overwritten).
+fn dispatch_arraycopy(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let src = match ctx.args.first().copied() {
+        Some(Value::ArrayRef(i)) => i,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let dest = match ctx.args.get(2).copied() {
+        Some(Value::ArrayRef(i)) => i,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let (src_pos, dest_pos, len) = match (
+        ctx.args.get(1).copied(),
+        ctx.args.get(3).copied(),
+        ctx.args.get(4).copied(),
+    ) {
+        (Some(Value::Int(a)), Some(Value::Int(b)), Some(Value::Int(c))) => (a, b, c),
+        _ => return Err(JvmError::InvalidReference),
+    };
+
+    let src_type = ctx.arrays.atype(src).ok_or(JvmError::InvalidReference)?;
+    let dest_type = ctx.arrays.atype(dest).ok_or(JvmError::InvalidReference)?;
+    if src_type != dest_type {
+        return Err(throw_named(ctx, "java/lang/ArrayStoreException"));
+    }
+    let src_len = ctx.arrays.length(src).ok_or(JvmError::InvalidReference)? as i64;
+    let dest_len = ctx.arrays.length(dest).ok_or(JvmError::InvalidReference)? as i64;
+    if src_pos < 0
+        || dest_pos < 0
+        || len < 0
+        || src_pos as i64 + len as i64 > src_len
+        || dest_pos as i64 + len as i64 > dest_len
+    {
+        return Err(throw_named(ctx, "java/lang/IndexOutOfBoundsException"));
+    }
+
+    let (src_pos, dest_pos, len) = (src_pos as usize, dest_pos as usize, len as usize);
+    let wide = src_type == ATYPE_LONG || src_type == ATYPE_DOUBLE;
+    let backward = src == dest && dest_pos > src_pos;
+    for k in 0..len {
+        let i = if backward { len - 1 - k } else { k };
+        if wide {
+            let v = ctx.arrays.load64(src, src_pos + i).unwrap_or(0);
+            let _ = ctx.arrays.store64(dest, dest_pos + i, v);
+        } else {
+            let v = ctx.arrays.load(src, src_pos + i).unwrap_or(0);
+            let _ = ctx.arrays.store(dest, dest_pos + i, v);
+        }
+    }
+    Ok(None)
+}
+
+fn throw_named(ctx: &mut NativeContext<'_>, class: &'static str) -> JvmError {
+    match ctx.objects.alloc(class) {
+        Some(idx) => JvmError::Exception(idx),
+        None => JvmError::StackOverflow,
+    }
+}
+
 // ── toString ─────────────────────────────────────────────────────────────
 
 fn dispatch_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {

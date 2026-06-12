@@ -119,6 +119,36 @@ public class CollectionsDemo extends Application {
     int[] filled = new int[5];
     Arrays.fill(filled, 42);
     check("fill all 42", filled[0] == 42 && filled[2] == 42 && filled[4] == 42);
+
+    testSystemArraycopy();
+  }
+
+  static void testSystemArraycopy() {
+    int[] from = {10, 20, 30, 40, 50};
+    int[] to = new int[5];
+    System.arraycopy(from, 1, to, 0, 3);
+    check("arraycopy basic", to[0] == 20 && to[1] == 30 && to[2] == 40 && to[3] == 0);
+
+    long[] wide = {1L, 2L, 3L};
+    long[] wideTo = new long[3];
+    System.arraycopy(wide, 0, wideTo, 0, 3);
+    check("arraycopy long", wideTo[0] == 1L && wideTo[2] == 3L);
+
+    // Overlapping self-copy must behave like memmove in both directions.
+    int[] shift = {1, 2, 3, 4, 5};
+    System.arraycopy(shift, 0, shift, 1, 4); // shift right
+    check("arraycopy overlap right", shift[1] == 1 && shift[2] == 2 && shift[4] == 4);
+    int[] shl = {1, 2, 3, 4, 5};
+    System.arraycopy(shl, 1, shl, 0, 4); // shift left
+    check("arraycopy overlap left", shl[0] == 2 && shl[3] == 5);
+
+    boolean caught = false;
+    try {
+      System.arraycopy(from, 3, to, 0, 5); // runs past src end
+    } catch (IndexOutOfBoundsException e) {
+      caught = true;
+    }
+    check("arraycopy bounds throws", caught);
   }
 
   // ── java.util.ArrayList ──────────────────────────────────────────────────

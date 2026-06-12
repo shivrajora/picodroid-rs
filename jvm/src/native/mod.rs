@@ -108,6 +108,10 @@ const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
     ("java/util/Random", random::dispatch),
     ("java/util/Arrays", arrays::dispatch),
     ("java/lang/Math", math::dispatch),
+    // System is otherwise canonicalisation-only (currentTimeMillis lives in
+    // the platform handler, which dispatches first); arraycopy is pure array
+    // machinery, so it belongs to the builtins.
+    ("java/lang/System", arrays::dispatch_system),
 ];
 
 /// If the receiver is a Throwable being constructed with a String first arg
