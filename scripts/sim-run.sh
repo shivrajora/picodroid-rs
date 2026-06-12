@@ -113,8 +113,14 @@ run_test() {
 
   # Build sim binary (release). PICODROID_SHRINK must match the APK's mode
   # or verify_compat will reject at load time.
+  #
+  # The build-time PICODROID_APK_PATH is a constant marker, not the real
+  # path: sim binaries load the .papk at startup from the *runtime* env var
+  # (see build_support/papk.rs::embed_apk), and the framework-class embed
+  # only keys on the var being set. A stable value means the first build per
+  # mode is the only real build — switching apps is a cargo no-op.
   sim_log "  Building sim binary..."
-  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
     --release \

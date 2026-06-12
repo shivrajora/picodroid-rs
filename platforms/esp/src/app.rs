@@ -91,11 +91,11 @@ pub fn run_jvm() {
             .expect("failed to load framework class");
     }
 
-    if APK_DATA.is_empty() {
+    if apk_data().is_empty() {
         return;
     }
 
-    let apk = match Papk::parse(APK_DATA) {
+    let apk = match Papk::parse(apk_data()) {
         Ok(a) => a,
         Err(_) => return,
     };

@@ -168,12 +168,17 @@ pub fn embed_framework_classes(out: &Path, root: &Path) {
         println!("cargo:rerun-if-changed={}", f.display());
     }
     // The Gradle build config itself is an input — changes to how :sdk is
-    // configured must re-trigger class regeneration.
+    // configured must re-trigger class regeneration. Track buildSrc by its
+    // sources only: the whole directory would include buildSrc/build and
+    // buildSrc/.gradle, which the `:sdk:compileJava` invocation below itself
+    // touches — making every subsequent cargo build see a stale fingerprint
+    // and recompile this crate forever.
     for p in [
         "settings.gradle.kts",
         "build.gradle.kts",
         "sdk/build.gradle.kts",
-        "buildSrc",
+        "buildSrc/build.gradle.kts",
+        "buildSrc/src",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(p).display());
     }
@@ -316,30 +321,61 @@ fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
     fs::write(out.join("framework_unshrink.rs"), body).unwrap();
 }
 
-/// Embed a pre-built `.papk` file into the firmware as `APK_DATA`.
-/// For ARM targets the APK lives in the PAPK_FLASH region (see
-/// [`embed_papk_flash_init`]), so this emits an empty stub there.
+/// Generate the `apk_data()` accessor for the app `.papk`.
+///
+/// Three shapes:
+/// - ARM embedded / no `PICODROID_APK_PATH`: empty slice (the APK lives in
+///   the PAPK_FLASH region, see [`embed_papk_flash_init`], or there is none).
+/// - Host simulator (`sim` feature): the APK is read from disk at startup —
+///   runtime `PICODROID_APK_PATH` wins, falling back to the build-time path.
+///   No cargo rerun directives are emitted in this branch, so Java-only
+///   rebuilds of the same `.papk` never dirty the Rust build.
+/// - Other host builds (e.g. `cargo test`, ESP inline embed): `include_bytes!`
+///   of the build-time path, as before.
 pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
+    let is_sim = env::var("CARGO_FEATURE_SIM").is_ok();
+
+    if is_sim && !is_arm_embedded {
+        // Deliberately no rerun-if-changed / rerun-if-env-changed here:
+        // neither the .papk bytes nor the env var's build-time value affect
+        // the generated code beyond the fallback string.
+        let fallback = env::var("PICODROID_APK_PATH").unwrap_or_default();
+        let generated = format!(
+            "/// Sim builds load the APK from disk at startup; the runtime\n\
+             /// `PICODROID_APK_PATH` env var wins over the build-time fallback.\n\
+             pub fn apk_data() -> &'static [u8] {{\n\
+             \x20   static APK: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();\n\
+             \x20   APK.get_or_init(|| {{\n\
+             \x20       let path = std::env::var(\"PICODROID_APK_PATH\")\n\
+             \x20           .unwrap_or_else(|_| {fallback:?}.to_string());\n\
+             \x20       if path.is_empty() {{\n\
+             \x20           panic!(\"no APK: set PICODROID_APK_PATH to a .papk built by ./scripts/build-apk.sh\");\n\
+             \x20       }}\n\
+             \x20       let bytes = std::fs::read(&path)\n\
+             \x20           .unwrap_or_else(|e| panic!(\"cannot read APK at '{{path}}': {{e}}\"));\n\
+             \x20       eprintln!(\"[sim] APK loaded from {{path}} ({{}} bytes)\", bytes.len());\n\
+             \x20       &*::std::boxed::Box::leak(bytes.into_boxed_slice())\n\
+             \x20   }})\n\
+             }}\n"
+        );
+        fs::write(out.join("apk_data.rs"), generated).unwrap();
+        return;
+    }
+
     println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
+
+    const EMPTY: &[u8] = b"pub fn apk_data() -> &'static [u8] {\n    &[]\n}\n";
 
     let apk_path = match env::var("PICODROID_APK_PATH") {
         Ok(p) => p,
         Err(_) => {
-            fs::write(
-                out.join("apk_data.rs"),
-                b"pub static APK_DATA: &[u8] = &[];\n",
-            )
-            .unwrap();
+            fs::write(out.join("apk_data.rs"), EMPTY).unwrap();
             return;
         }
     };
 
     if is_arm_embedded {
-        fs::write(
-            out.join("apk_data.rs"),
-            b"pub static APK_DATA: &[u8] = &[];\n",
-        )
-        .unwrap();
+        fs::write(out.join("apk_data.rs"), EMPTY).unwrap();
         return;
     }
 
@@ -353,7 +389,7 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
         .unwrap_or_else(|e| panic!("Cannot resolve APK path '{apk_path}': {e}"));
 
     let generated = format!(
-        "pub static APK_DATA: &[u8] = include_bytes!({path:?});\n",
+        "pub fn apk_data() -> &'static [u8] {{\n    include_bytes!({path:?})\n}}\n",
         path = abs_apk_path.display().to_string(),
     );
     fs::write(out.join("apk_data.rs"), generated).unwrap();
