@@ -645,7 +645,10 @@ fn handle_pop_op(
     // set_content_view's prev-delete branch).
     if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
         restore_top_view(handler);
+        // Android's stopped->foreground edge: onRestart precedes onStart when
+        // returning after a child Activity finished above this one.
         for site in [
+            dispatch_sites::ACTIVITY_ON_RESTART,
             dispatch_sites::ACTIVITY_ON_START,
             dispatch_sites::ACTIVITY_ON_RESUME,
         ] {

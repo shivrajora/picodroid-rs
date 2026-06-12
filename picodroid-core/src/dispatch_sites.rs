@@ -59,6 +59,10 @@ pub const SWIPE_REFRESH: usize = 28;
 pub const LIST_VIEW_ITEM_CLICK: usize = 29;
 pub const VIEW_FOCUS_CHANGE: usize = 30;
 pub const NUMBER_PICKER_STEP: usize = 31;
+/// `onRestart` — runs between onStop-state and onStart when an Activity
+/// returns to the foreground after the one above it finished (Android's
+/// stopped→restarted edge). Appended so earlier indices stay stable.
+pub const ACTIVITY_ON_RESTART: usize = 32;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -98,6 +102,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/ListView", "fireItemClick"),
     ("picodroid/view/View", "fireFocusChange"),
     ("picodroid/widget/NumberPicker", "fireStep"),
+    ("picodroid/app/Activity", "onRestart"),
 ];
 
 #[cfg(test)]

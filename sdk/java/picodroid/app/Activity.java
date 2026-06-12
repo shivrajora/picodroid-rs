@@ -29,6 +29,15 @@ public class Activity extends Context {
     // Subclass overrides
   }
 
+  /**
+   * Called when this Activity returns to the foreground after being stopped (the Activity above it
+   * finished), before {@link #onStart}. Mirrors Android's stopped → restarted edge; not called on
+   * the first launch.
+   */
+  public void onRestart() {
+    // Subclass overrides
+  }
+
   /** Called when another Activity is being launched on top of this one. */
   public void onPause() {
     // Subclass overrides
