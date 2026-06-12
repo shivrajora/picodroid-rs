@@ -33,7 +33,10 @@ public abstract class ViewGroup extends View {
       picodroid.widget.LinearLayout.LayoutParams lp =
           (picodroid.widget.LinearLayout.LayoutParams) params;
       if (lp.weight > 0) {
-        child.nativeSetFlexGrow((int) lp.weight);
+        // Weights are relative, so a fixed x10 scale preserves fractional
+        // ratios (1.5f : 1f -> 15 : 10) that a plain int cast would destroy.
+        // LVGL's flex-grow is u8, capping effective weights at 25.5.
+        child.nativeSetFlexGrow(Math.max(1, Math.round(lp.weight * 10)));
       }
     }
   }
