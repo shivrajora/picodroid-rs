@@ -21,6 +21,16 @@ if ! bash "$REPO_ROOT/scripts/lint-md.sh"; then
   exit 1
 fi
 
+echo "==> Checking hil-tests.conf against the source tree..."
+if ! bash "$REPO_ROOT/scripts/check-hil-conf.sh"; then
+  echo ""
+  echo "ERROR: hil-tests.conf references apps or log tags that no longer"
+  echo "       exist. Update the affected rows (or ALLOW_TAGS in"
+  echo "       scripts/check-hil-conf.sh) so the nightly suites don't go"
+  echo "       permanently red."
+  exit 1
+fi
+
 echo "==> Type-checking all Java apps (gradle compileJava)..."
 if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
   echo ""
