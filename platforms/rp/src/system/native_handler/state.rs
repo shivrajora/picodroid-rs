@@ -357,7 +357,10 @@ mod tests {
         for i in 0..MAX_ACTIVITY_STACK as u16 {
             assert!(s.push(i, A, None), "push {} should fit", i);
         }
-        assert!(!s.push(99, B, None), "push past MAX_ACTIVITY_STACK must fail");
+        assert!(
+            !s.push(99, B, None),
+            "push past MAX_ACTIVITY_STACK must fail"
+        );
         assert_eq!(s.current(), Some((MAX_ACTIVITY_STACK as u16 - 1, A)));
     }
 

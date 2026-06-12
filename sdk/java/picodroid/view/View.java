@@ -49,7 +49,6 @@ public class View {
   int id = NO_ID;
   Object tag;
 
-
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
   }
@@ -321,7 +320,6 @@ public class View {
   public Object getTag() {
     return tag;
   }
-
 
   private native void nativeSetVisibility(int visibility);
 

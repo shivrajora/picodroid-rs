@@ -191,7 +191,16 @@ pub(crate) fn run_activity(
     // launches just return the cached singleton.
     let _ = display::get_instance(&mut heap.objects);
 
-    if bootstrap_activity(jvm, initial_class, initial_ref, initial_intent, heap, handler).is_break() {
+    if bootstrap_activity(
+        jvm,
+        initial_class,
+        initial_ref,
+        initial_intent,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
         return;
     }
 
