@@ -143,7 +143,7 @@ impl GraphicsBackend for LvglBackend {
             "nativeCreateIndeterminate" => {
                 Some(widgets::progress_bar_native_create_indeterminate(ctx.args))
             }
-            "setProgress" => Some(widgets::progress_bar_set_progress(ctx.args, ctx.objects)),
+            "nativeSetProgress" => Some(widgets::progress_bar_set_progress(ctx.args, ctx.objects)),
             "setTint" => Some(widgets::progress_bar_set_tint(ctx.args, ctx.objects)),
             _ => None,
         }

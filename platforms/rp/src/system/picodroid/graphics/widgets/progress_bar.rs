@@ -28,7 +28,10 @@ pub fn progress_bar_native_create_indeterminate(args: &[Value]) -> Result<Option
     ))))
 }
 
-/// `ProgressBar.setProgress(int value)`
+/// `ProgressBar.nativeSetProgress(int value)` — the public `setProgress`
+/// wrapper caches the value Java-side (so `getProgress()` is immediate
+/// while the lv_bar animates) and skips the call entirely when
+/// indeterminate.
 pub fn progress_bar_set_progress(
     args: &[Value],
     objects: &ObjectHeap,

@@ -120,6 +120,17 @@ public class DisplayDemoActivity extends Activity {
     busy.setSize(40, 40);
     root.addView(busy);
 
+    progress.setProgress(40);
+    busy.setProgress(99); // ignored: indeterminate
+    Log.i(
+        "DisplayDemo",
+        "readback progress="
+            + progress.getProgress()
+            + " busy="
+            + busy.getProgress()
+            + " indet="
+            + busy.isIndeterminate());
+
     // -- ImageView showing a bundled PNG asset --
     ImageView img = new ImageView();
     img.setSize(48, 48);
