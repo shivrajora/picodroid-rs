@@ -387,17 +387,112 @@ fn push_key_event_raw(pin: u8, rising: bool) {
     }
 }
 
+// ── Keypad edit mode (NumberPicker stepping) ────────────────────────────────
+//
+// One EditMode instance filters every key edge *before* it fans out to the
+// LVGL indev and the Java queue below — the single interception point that
+// keeps both paths consistent (see edit_mode.rs for the protocol).
+
+#[cfg(has_buttons)]
+static mut EDIT_MODE: super::edit_mode::EditMode = super::edit_mode::EditMode::new();
+
+/// Mirror an edit-mode transition onto the widget: LV_STATE_EDITED drives the
+/// theme-matching secondary outline. The carried pointer is the currently
+/// focused widget, so it is live.
+#[cfg(has_buttons)]
+fn apply_edit_transition(t: super::edit_mode::Transition) {
+    use super::edit_mode::Transition;
+    match t {
+        Transition::None => {}
+        Transition::Entered(obj) => unsafe {
+            lv_obj_add_state(obj as *mut lv_obj_t, LV_STATE_EDITED);
+        },
+        Transition::Exited(obj) => unsafe {
+            lv_obj_remove_state(obj as *mut lv_obj_t, LV_STATE_EDITED);
+        },
+    }
+}
+
+/// Called from the NumberPicker DEFOCUSED/DELETE trampolines: abandon keypad
+/// edit mode if `raw_obj` is the widget being edited. The trampoline clears
+/// LV_STATE_EDITED itself (the object is live there); this only drops the
+/// filter state so PREV/NEXT go back to navigating.
+#[cfg(has_buttons)]
+pub fn notify_picker_gone(raw_obj: usize) {
+    unsafe {
+        let em = &raw mut EDIT_MODE;
+        (*em).notify_gone(raw_obj);
+    }
+}
+
+#[cfg(not(has_buttons))]
+pub fn notify_picker_gone(_raw_obj: usize) {}
+
+/// Clear edit-mode state between app runs. Called from the `app.rs` reset
+/// block alongside the other widget-state resets.
+#[cfg(has_buttons)]
+pub fn reset_edit_mode() {
+    unsafe {
+        let em = &raw mut EDIT_MODE;
+        *em = super::edit_mode::EditMode::new();
+    }
+}
+
+#[cfg(not(has_buttons))]
+pub fn reset_edit_mode() {}
+
+/// The active group's focused widget as a raw pointer (0 if none), plus
+/// whether it is a registered NumberPicker — the edit-mode filter's inputs.
+#[cfg(has_buttons)]
+fn focused_obj_for_edit_mode() -> (usize, bool) {
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return (0, false);
+        }
+        let focused = lv_group_get_focused(group) as usize;
+        (
+            focused,
+            super::widgets::number_picker::is_number_picker(focused),
+        )
+    }
+}
+
 #[cfg(has_buttons)]
 unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
     let d = unsafe { &mut *data };
     if let Some(event) = hal::gpio::drain_gpio_event() {
-        push_key_event_raw(event.pin, event.rising);
-
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)
             .map(|&(_, k, _)| k);
-        if let Some(k) = key {
+
+        // Run mapped keys through the edit-mode filter; unmapped pins keep
+        // the historical behavior (Java queue only, nothing for the indev).
+        let decision = match key {
+            Some(k) => {
+                let (focused, is_picker) = focused_obj_for_edit_mode();
+                let (decision, transition) = unsafe {
+                    let em = &raw mut EDIT_MODE;
+                    (*em).filter(k, !event.rising, focused, is_picker)
+                };
+                apply_edit_transition(transition);
+                decision
+            }
+            None => super::edit_mode::Decision {
+                lvgl_key: None,
+                forward_java: true,
+                step: None,
+            },
+        };
+
+        if decision.forward_java {
+            push_key_event_raw(event.pin, event.rising);
+        }
+        if let Some((obj, direction)) = decision.step {
+            super::widgets::number_picker::push_step(obj, direction);
+        }
+        if let Some(k) = decision.lvgl_key {
             d.key = k;
             d.state = if event.rising {
                 LV_INDEV_STATE_RELEASED

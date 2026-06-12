@@ -192,6 +192,26 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_number_picker(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::number_picker_native_create()),
+            "nativeSetText" => Some(widgets::number_picker_set_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
+            "nativeRegisterPicker" => Some(widgets::number_picker_register_picker(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
     fn dispatch_list_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::list_view_native_create()),

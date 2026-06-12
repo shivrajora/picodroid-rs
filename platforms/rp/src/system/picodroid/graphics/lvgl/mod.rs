@@ -12,6 +12,7 @@ use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility}
 pub mod animations;
 pub mod calibration;
 pub mod drawable;
+pub mod edit_mode;
 pub mod events;
 pub mod fps_overlay;
 pub mod handle_table;

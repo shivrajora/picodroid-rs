@@ -43,6 +43,7 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/SwipeRefreshLayout"
             | "picodroid/widget/EditText"
             | "picodroid/widget/Keyboard"
+            | "picodroid/widget/NumberPicker"
     )
 }
 
@@ -90,6 +91,7 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/Switch" => be.dispatch_switch(method_name, ctx),
         "picodroid/widget/ToggleButton" => be.dispatch_toggle_button(method_name, ctx),
         "picodroid/widget/ListView" => be.dispatch_list_view(method_name, ctx),
+        "picodroid/widget/NumberPicker" => be.dispatch_number_picker(method_name, ctx),
         "picodroid/widget/SeekBar" => be.dispatch_seek_bar(method_name, ctx),
         "picodroid/widget/CheckBox" => be.dispatch_check_box(method_name, ctx),
         "picodroid/widget/ImageView" => be.dispatch_image_view(method_name, ctx),

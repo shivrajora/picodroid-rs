@@ -58,6 +58,7 @@ pub const VIEW_SWIPE: usize = 27;
 pub const SWIPE_REFRESH: usize = 28;
 pub const LIST_VIEW_ITEM_CLICK: usize = 29;
 pub const VIEW_FOCUS_CHANGE: usize = 30;
+pub const NUMBER_PICKER_STEP: usize = 31;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -96,6 +97,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/SwipeRefreshLayout", "fireRefresh"),
     ("picodroid/widget/ListView", "fireItemClick"),
     ("picodroid/view/View", "fireFocusChange"),
+    ("picodroid/widget/NumberPicker", "fireStep"),
 ];
 
 #[cfg(test)]

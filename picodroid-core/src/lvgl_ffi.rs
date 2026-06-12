@@ -188,6 +188,13 @@ pub const LV_DIR_BOTTOM: lv_dir_t = 1 << 3;
 pub const LV_DIR_HOR: lv_dir_t = LV_DIR_LEFT | LV_DIR_RIGHT;
 pub const LV_DIR_VER: lv_dir_t = LV_DIR_TOP | LV_DIR_BOTTOM;
 
+/// Scrollbar visibility mode. Values verified against
+/// vendor/lvgl/src/core/lv_obj_scroll.h:31-36. Plain C enum → 1 byte under
+/// `-fshort-enums` (see build_support/lvgl.rs), same as `lv_dir_t` above.
+/// Only OFF is exposed for now: EditText hides scrollbars to match Android.
+pub type lv_scrollbar_mode_t = u8;
+pub const LV_SCROLLBAR_MODE_OFF: lv_scrollbar_mode_t = 0;
+
 /// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
 /// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
 /// hour/minute lists feel continuous.
@@ -322,6 +329,11 @@ pub const LV_STATE_FOCUSED: u32 = 1 << 3;
 // indev rather than a pointer. The default theme styles this state separately
 // (blue), so widgets that override the focus highlight must cover it too.
 pub const LV_STATE_FOCUS_KEY: u32 = 1 << 4;
+// Set while a widget is being edited (keypad/encoder edit mode). The framework
+// toggles it on NumberPicker during keypad edit mode for the theme-matching
+// secondary outline; EDITED (1 << 5) outranks FOCUS_KEY in style specificity,
+// so the edit outline wins while both states are set.
+pub const LV_STATE_EDITED: u32 = 1 << 5;
 pub const LV_STATE_DISABLED: u32 = 1 << 9;
 
 // ---------------------------------------------------------------------------
@@ -427,6 +439,11 @@ extern "C" {
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
     // drags don't trigger elastic over-pull or a transient scrollbar.
     pub fn lv_obj_set_scroll_dir(obj: *mut lv_obj_t, dir: lv_dir_t);
+
+    // Control scrollbar drawing independently of scrollability. OFF on
+    // EditText: the object stays scrollable (horizontal scroll-to-cursor
+    // for long one-line text) but never draws a scrollbar, like Android.
+    pub fn lv_obj_set_scrollbar_mode(obj: *mut lv_obj_t, mode: lv_scrollbar_mode_t);
 
     // Flex layout
     pub fn lv_obj_set_flex_flow(obj: *mut lv_obj_t, flow: lv_flex_flow_t);
@@ -537,6 +554,36 @@ extern "C" {
         value: i32,
         selector: lv_style_selector_t,
     );
+    // Outline style — drawn outside the object's border. Used by NumberPicker
+    // to replicate the theme's outline_primary/outline_secondary focus/edit
+    // feedback, which the default theme applies to group-default widgets but
+    // not to plain lv_obj containers.
+    pub fn lv_obj_set_style_outline_width(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_outline_pad(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_outline_opa(
+        obj: *mut lv_obj_t,
+        value: u8,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_outline_color(
+        obj: *mut lv_obj_t,
+        value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+
+    // Active theme's primary/secondary accent colors (lv_theme.h). `obj` picks
+    // the display whose theme is consulted; pass the widget being styled.
+    pub fn lv_theme_get_color_primary(obj: *mut lv_obj_t) -> lv_color_t;
+    pub fn lv_theme_get_color_secondary(obj: *mut lv_obj_t) -> lv_color_t;
+
     pub fn lv_obj_set_style_pad_row(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
     pub fn lv_obj_set_style_pad_column(
         obj: *mut lv_obj_t,

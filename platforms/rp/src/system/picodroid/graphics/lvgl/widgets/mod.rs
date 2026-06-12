@@ -16,6 +16,7 @@ pub mod image_view;
 pub mod keyboard;
 pub mod linear_layout;
 pub mod list_view;
+pub mod number_picker;
 pub mod progress_bar;
 pub mod scroll_view;
 pub mod seek_bar;

@@ -16,6 +16,7 @@ mod image_view;
 mod keyboard;
 mod linear_layout;
 mod list_view;
+mod number_picker;
 mod progress_bar;
 mod scroll_view;
 mod seek_bar;
@@ -80,6 +81,12 @@ pub use list_view::{drain_item_click_queue, lookup_item_click};
 pub use list_view::{
     list_view_add_item, list_view_native_create, list_view_register_item_click_listener,
     reset_list_view_state,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use number_picker::{drain_np_step_queue, lookup_picker_obj};
+pub use number_picker::{
+    number_picker_native_create, number_picker_register_picker, number_picker_set_text,
+    reset_number_picker_state,
 };
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,

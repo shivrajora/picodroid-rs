@@ -384,6 +384,7 @@ fn dispatch_widget_events(
     dispatch_clicks(jvm, heap, handler);
     dispatch_checked_changes(jvm, heap, handler);
     dispatch_switch_checked_changes(jvm, heap, handler);
+    dispatch_number_picker_steps(jvm, heap, handler);
     dispatch_seek_bar_changes(jvm, heap, handler);
     dispatch_checkbox_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
@@ -743,6 +744,35 @@ fn dispatch_switch_checked_changes(
                 dispatch_class(dispatch_sites::SWITCH),
                 dispatch_method(dispatch_sites::SWITCH),
                 obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+// ── NumberPicker keypad-step dispatch ───────────────────────────────────────
+
+/// Drain the NumberPicker step queue and invoke `fireStep(int direction)` on
+/// each matching picker. Steps are queued by the keypad edit-mode filter
+/// (events.rs) when PREV/NEXT are pressed while a picker is being edited; the
+/// Java side owns clamping, label refresh, and the OnValueChangeListener.
+#[cfg(not(test))]
+fn dispatch_number_picker_steps(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some((handle, direction)) = widgets::drain_np_step_queue() {
+        if let Some(obj_ref) = widgets::lookup_picker_obj(handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::NUMBER_PICKER_STEP),
+                dispatch_method(dispatch_sites::NUMBER_PICKER_STEP),
+                obj_ref,
+                &[Value::Int(direction)],
                 heap,
                 handler,
             );
