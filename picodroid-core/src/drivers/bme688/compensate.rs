@@ -30,7 +30,7 @@ pub fn pressure(raw: u32, c: &CalibData, t_fine: i32) -> u32 {
 
     let mut press: u32 = if var1 != 0 {
         let p = 1048576u32.wrapping_sub(raw);
-        let p = ((p.wrapping_sub((var2 as u32) >> 12)) * 3125) as u32;
+        let p = p.wrapping_sub((var2 as u32) >> 12) * 3125;
         if p >= 0x8000_0000 {
             (p / (var1 as u32)) << 1
         } else {
@@ -69,14 +69,8 @@ pub fn humidity(raw: u16, c: &CalibData, t_fine: i32) -> u32 {
     let var4 = var4 >> 4;
     let var5 = ((var3 >> 14) * (var3 >> 14)) >> 10;
     let var6 = (var4 * var5) >> 1;
-    let mut comp_hum = (((var3 + var6) >> 10) * 1000) >> 12;
-
-    if comp_hum > 100_000 {
-        comp_hum = 100_000;
-    } else if comp_hum < 0 {
-        comp_hum = 0;
-    }
-    comp_hum as u32
+    let comp_hum = (((var3 + var6) >> 10) * 1000) >> 12;
+    comp_hum.clamp(0, 100_000) as u32
 }
 
 /// Compensate gas resistance. Returns Ohms.
@@ -96,9 +90,10 @@ pub fn gas(raw: u16, gas_range: u8, c: &CalibData) -> u32 {
         1000000, 500000, 250000, 125000,
     ];
 
-    let var1 = (1340 + (5 * (c.range_sw_err as i64))) * LOOKUP_K1[gas_range as usize] as i64 >> 16;
+    let var1 =
+        ((1340 + (5 * (c.range_sw_err as i64))) * (LOOKUP_K1[gas_range as usize] as i64)) >> 16;
     let var2 = ((raw as i64) << 15) - 16_777_216 + var1;
-    let var3 = LOOKUP_K2[gas_range as usize] as i64 * var1 >> 9;
+    let var3 = ((LOOKUP_K2[gas_range as usize] as i64) * var1) >> 9;
     let gas_res = (var3 + (var2 >> 1)) / var2;
 
     gas_res.max(0) as u32

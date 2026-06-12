@@ -10,7 +10,10 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
+// Sim builds still include the table (the sensor cfgs are board-driven) but
+// only the hardware sampling paths consume it — sim sensors are synthesized.
 #[cfg(any(sensor_bme688, sensor_ltr559))]
+#[cfg_attr(feature = "sim", allow(dead_code))]
 mod sensor_table {
     include!(concat!(env!("OUT_DIR"), "/sensor_table.rs"));
 }

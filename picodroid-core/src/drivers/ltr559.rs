@@ -99,13 +99,13 @@ fn compute_lux_milli(ch0: u16, ch1: u16) -> u32 {
     // lux × 1000 = (a*ch0 - b*ch1) / 10
     let lux_milli = if ratio_milli < 450 {
         // 17743 * ch0 + 11059 * ch1, ÷ 10000 → lux. Multiply by 1000 → milli-lux.
-        ((17743 * ch0 + 11059 * ch1) / 10) as i64
+        (17743 * ch0 + 11059 * ch1) / 10
     } else if ratio_milli < 640 {
         // 42785 * ch0 - 19548 * ch1
-        ((42785 * ch0 - 19548 * ch1) / 10) as i64
+        (42785 * ch0 - 19548 * ch1) / 10
     } else if ratio_milli < 850 {
         // 5926 * ch0 + 1185 * ch1
-        ((5926 * ch0 + 1185 * ch1) / 10) as i64
+        (5926 * ch0 + 1185 * ch1) / 10
     } else {
         0
     };
