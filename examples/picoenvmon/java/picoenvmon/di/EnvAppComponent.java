@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.di;
 
-import picodroid.content.Preferences;
+import picodroid.content.SharedPreferences;
 import picodroid.di.ApplicationComponent;
 import picodroid.util.Log;
 import picoenvmon.data.ThresholdConfig;
@@ -12,14 +12,14 @@ public class EnvAppComponent extends ApplicationComponent {
   public static final String TAG = "PicoEnvMon";
   public static final String PREFS_NAME = "picoenvmon";
 
-  private final Preferences prefs;
+  private final SharedPreferences prefs;
   private final ThresholdConfig thresholds;
   private final Formatter formatter;
   private RgbLed rgbLed;
 
   public EnvAppComponent() {
     super();
-    this.prefs = Preferences.open(PREFS_NAME);
+    this.prefs = SharedPreferences.open(PREFS_NAME);
     this.thresholds = new ThresholdConfig();
     this.thresholds.load(prefs);
     this.formatter = new Formatter();
@@ -33,7 +33,7 @@ public class EnvAppComponent extends ApplicationComponent {
             + thresholds.luxLo);
   }
 
-  public Preferences prefs() {
+  public SharedPreferences prefs() {
     return prefs;
   }
 

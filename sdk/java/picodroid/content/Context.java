@@ -19,6 +19,12 @@ public class Context {
   public static final String NOTIFICATION_SERVICE = "notification";
 
   /**
+   * File-creation mode for {@link #getSharedPreferences}: accessible only to this app. Picodroid is
+   * single-app, so this is the only mode and the value exists for Android source compatibility.
+   */
+  public static final int MODE_PRIVATE = 0;
+
+  /**
    * Resolve a system service by name. Subclasses may extend; the base handles the well-known set.
    */
   public Object getSystemService(String name) {
@@ -29,6 +35,16 @@ public class Context {
       return NotificationManager.getInstance();
     }
     return null;
+  }
+
+  /**
+   * Retrieve a {@link SharedPreferences} for the given name, the standard Android idiom: {@code
+   * context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt(...).apply()}.
+   * {@code mode} is accepted for source compatibility; only {@link #MODE_PRIVATE} semantics exist
+   * on this single-app platform.
+   */
+  public SharedPreferences getSharedPreferences(String name, int mode) {
+    return SharedPreferences.open(name);
   }
 
   /**

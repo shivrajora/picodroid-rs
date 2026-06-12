@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.service;
 
-import picodroid.os.IBinder;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.content.Intent;
@@ -9,6 +8,7 @@ import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
+import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picoenvmon.data.SensorRingBuffer;
 import picoenvmon.data.ThresholdConfig;

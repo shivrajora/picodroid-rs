@@ -39,12 +39,12 @@ Hardware interaction through the `picodroid.pio.PeripheralManager` API. Referenc
 
 ## Filesystem and Preferences
 
-On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-style key-value API (`picodroid.content.Preferences`). Reference: [Storage](/api/storage/).
+On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-style key-value API (`picodroid.content.SharedPreferences`). Reference: [Storage](/api/storage/).
 
 | Example | Class | Description |
 |---------|-------|-------------|
 | `bootcount` | `bootcount.BootCount` | Persists a boot counter across reboots using `picodroid.io.File` / `FileInputStream` / `FileOutputStream` |
-| `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `boolean`) via `Preferences.open()` / `edit().commit()` |
+| `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `boolean`) via `SharedPreferences.open()` / `edit().commit()` |
 
 ## Networking
 

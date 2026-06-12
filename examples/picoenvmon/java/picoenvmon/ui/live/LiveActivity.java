@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.live;
 
-import picodroid.os.IBinder;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.hardware.Sensor;
+import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;

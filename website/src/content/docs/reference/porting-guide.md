@@ -205,7 +205,7 @@ All flash write/erase functions must run from RAM (not flash) and may need to
 disable XIP. See `platforms/rp/src/hal/rp/flash.rs` for the RP family's approach.
 
 In addition to the PAPK region above, a port that wants to support
-`picodroid.io` / `picodroid.content.Preferences` on hardware must reserve a
+`picodroid.io` / `picodroid.content.SharedPreferences` on hardware must reserve a
 separate flash region for the LittleFS volume in its linker memory layout
 (the RP family's layout is generated at build time by `boards::place_memory_x` in `platforms/rp/build.rs`) and expose it to the
 filesystem driver. Sim builds back the same API with a host file image and
