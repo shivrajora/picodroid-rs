@@ -7,9 +7,9 @@ package picodroid.view;
  * developer muscle memory ({@code Gravity.CENTER}, {@code Gravity.END}) carry over verbatim.
  *
  * <p>Pass to {@link picodroid.widget.LinearLayout#setGravity(int)} to align children along the
- * layout's main axis. The framework decodes the Android bit layout natively (LEFT/TOP → flex
- * start, RIGHT/BOTTOM → flex end, CENTER bits → flex center); {@link #START}/{@link #END} carry
- * the same axis bits as LEFT/RIGHT, so they resolve identically on this LTR-only platform.
+ * layout's main axis. The framework decodes the Android bit layout natively (LEFT/TOP → flex start,
+ * RIGHT/BOTTOM → flex end, CENTER bits → flex center); {@link #START}/{@link #END} carry the same
+ * axis bits as LEFT/RIGHT, so they resolve identically on this LTR-only platform.
  */
 public final class Gravity {
   private Gravity() {}
@@ -54,8 +54,8 @@ public final class Gravity {
   public static final int START = 0x00800003;
 
   /**
-   * Push object to the end of its container. Matches Android's relative-direction value;
-   * picodroid is LTR-only, so this behaves exactly like {@link #RIGHT}.
+   * Push object to the end of its container. Matches Android's relative-direction value; picodroid
+   * is LTR-only, so this behaves exactly like {@link #RIGHT}.
    */
   public static final int END = 0x00800005;
 }
