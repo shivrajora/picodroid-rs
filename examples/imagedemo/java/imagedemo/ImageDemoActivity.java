@@ -30,6 +30,15 @@ public class ImageDemoActivity extends Activity {
     image.setScaleType(ImageView.SCALE_FIT_CENTER);
     root.addView(image);
 
+    // Unscaled, centered (Android ScaleType.CENTER): a 60px box around the
+    // intrinsic-size logo, clipping if the asset is larger.
+    ImageView centered = new ImageView();
+    centered.setSize(60, 60);
+    centered.setImageSource("logo.png");
+    centered.setScaleType(ImageView.SCALE_CENTER);
+    root.addView(centered);
+    Log.i("ImageDemo", "scale-center applied");
+
     setContentView(root);
     Log.i("ImageDemo", "ImageDemo ready");
   }

@@ -6,11 +6,12 @@ use crate::lvgl_ffi::*;
 use super::super::handle_table;
 use super::super::lifecycle;
 
-// Java-side `ImageView.SCALE_*` constants. Kept in sync by the test below.
+// Java-side `ImageView.SCALE_*` constants — keep in sync with ImageView.java.
 const JAVA_SCALE_FIT_CENTER: i32 = 0;
 const JAVA_SCALE_CENTER_CROP: i32 = 1;
 const JAVA_SCALE_FIT_XY: i32 = 2;
 const JAVA_SCALE_TILE: i32 = 3;
+const JAVA_SCALE_CENTER: i32 = 4;
 
 pub(in crate::system::picodroid::graphics) fn create() -> i32 {
     let ptr = unsafe { lv_image_create(lifecycle::screen_ptr()) };
@@ -27,6 +28,7 @@ pub(in crate::system::picodroid::graphics) fn set_scale_type(id: i32, scale_type
         JAVA_SCALE_CENTER_CROP => LV_IMAGE_ALIGN_COVER,
         JAVA_SCALE_FIT_XY => LV_IMAGE_ALIGN_STRETCH,
         JAVA_SCALE_TILE => LV_IMAGE_ALIGN_TILE,
+        JAVA_SCALE_CENTER => LV_IMAGE_ALIGN_CENTER,
         // Anything else falls back to plain centering — matches LVGL's
         // default and is the least-surprising behavior for an out-of-range
         // ordinal.

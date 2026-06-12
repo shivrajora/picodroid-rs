@@ -18,6 +18,14 @@ public class ImageView extends View {
   /** Tile the image across the view's area (LVGL TILE). */
   public static final int SCALE_TILE = 3;
 
+  /**
+   * Center the image at its intrinsic size with no scaling — may clip if larger than the view (LVGL
+   * CENTER). Mirrors Android's {@code ScaleType.CENTER}. ({@code FIT_START} is not supported:
+   * LVGL's directional aligns don't auto-scale, so it would need intrinsic-size math — see the
+   * compatibility matrix.)
+   */
+  public static final int SCALE_CENTER = 4;
+
   /** Native zoom unit: {@code 256} = 1.0×. */
   public static final int SCALE_1X = 256;
 
