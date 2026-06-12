@@ -48,6 +48,24 @@ public class GestureDetector implements OnTouchListener {
     void onFling(MotionEvent down, MotionEvent up, float velocityX, float velocityY);
   }
 
+  /**
+   * Convenience base class mirroring {@code GestureDetector.SimpleOnGestureListener} on Android:
+   * every {@link OnGestureListener} method gets an empty default body, so subclasses override only
+   * the gestures they care about. Picodroid's v1 gesture vocabulary is {@code onSingleTap}/{@code
+   * onLongPress}/{@code onFling}; Android's wider set ({@code onDown}, {@code onScroll}, {@code
+   * onShowPress}, ...) is reserved for when those gestures exist.
+   */
+  public abstract static class SimpleOnGestureListener implements OnGestureListener {
+    @Override
+    public void onSingleTap(MotionEvent e) {}
+
+    @Override
+    public void onLongPress(MotionEvent e) {}
+
+    @Override
+    public void onFling(MotionEvent down, MotionEvent up, float velocityX, float velocityY) {}
+  }
+
   private final OnGestureListener listener;
 
   // State carried between DOWN and UP — single touch only in v1.

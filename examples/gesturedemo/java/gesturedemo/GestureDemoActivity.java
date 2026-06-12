@@ -45,9 +45,11 @@ public class GestureDemoActivity extends Activity {
     surface.setText("touch me");
     surface.setSize(220, 120);
     surface.setBackgroundColor(Color.argb(255, 60, 60, 80));
+    // SimpleOnGestureListener (vs the raw interface) exercises the abstract
+    // base class: subclass through a class-typed supertype, not invokeinterface.
     surface.setOnTouchListener(
         new GestureDetector(
-            new GestureDetector.OnGestureListener() {
+            new GestureDetector.SimpleOnGestureListener() {
               @Override
               public void onSingleTap(MotionEvent e) {
                 app.info("tap");
