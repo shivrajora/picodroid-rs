@@ -94,7 +94,7 @@ static mut ITEM_QUEUE_TAIL: usize = 0;
 const NEWLINE_SEP: &[u8] = b"\n\0";
 const MAP_TERMINATOR: &[u8] = b"\0";
 
-const MAX_LIST_DIALOGS: usize = 2;
+const MAX_LIST_DIALOGS: usize = 4;
 
 struct ListSlot {
     dialog_handle: usize,
@@ -117,7 +117,12 @@ const EMPTY_LIST_SLOT: ListSlot = ListSlot {
     map: Vec::new(),
 };
 
-static mut LIST_SLOTS: [ListSlot; MAX_LIST_DIALOGS] = [EMPTY_LIST_SLOT, EMPTY_LIST_SLOT];
+static mut LIST_SLOTS: [ListSlot; MAX_LIST_DIALOGS] = [
+    EMPTY_LIST_SLOT,
+    EMPTY_LIST_SLOT,
+    EMPTY_LIST_SLOT,
+    EMPTY_LIST_SLOT,
+];
 
 /// Map of `(matrix ptr → dialog scrim ptr)` so the VALUE_CHANGED trampoline
 /// can find the owning dialog (and its list slot) from the fired matrix.
@@ -449,6 +454,14 @@ pub(in crate::system::picodroid::graphics) fn create_with_list(
         item_strs.push(b.into_boxed_slice());
     }
     if item_strs.is_empty() {
+        return create(title, message, positive_text, negative_text, neutral_text);
+    }
+    // No free LIST_SLOT means we couldn't keep the matrix map alive — LVGL
+    // holds the `*const *const c_char` we hand it, so dropping the storage
+    // would dangle. Fall back to a plain (buttons-only) dialog rather than
+    // risk a use-after-free when more than MAX_LIST_DIALOGS stack.
+    let has_free_slot = unsafe { LIST_SLOTS[..].iter().any(|s| s.dialog_handle == 0) };
+    if !has_free_slot {
         return create(title, message, positive_text, negative_text, neutral_text);
     }
     let n_items = item_strs.len();

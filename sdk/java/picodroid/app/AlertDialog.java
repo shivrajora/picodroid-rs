@@ -29,6 +29,10 @@ public class AlertDialog implements DialogInterface {
   // List state (populated for setItems / setSingleChoiceItems variants).
   private int listMode = LIST_MODE_ITEMS;
   private DialogInterface.OnClickListener itemsListener;
+  // Multi-choice state: the caller's boolean[] is mutated in place (Android
+  // semantics) and the typed listener fires per toggle.
+  private DialogInterface.OnMultiChoiceClickListener multiChoiceListener;
+  private boolean[] checkedItems;
 
   private AlertDialog(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -90,9 +94,16 @@ public class AlertDialog implements DialogInterface {
       if (itemsListener != null) {
         itemsListener.onClick(this, position);
       }
+    } else { // LIST_MODE_MULTI
+      // Mirror the new checked state into the caller's array (Android mutates
+      // the passed boolean[]) and fire the typed listener; dialog stays open.
+      if (checkedItems != null && position >= 0 && position < checkedItems.length) {
+        checkedItems[position] = checked;
+      }
+      if (multiChoiceListener != null) {
+        multiChoiceListener.onClick(this, position, checked);
+      }
     }
-    // LIST_MODE_MULTI is handled by an override added with the multi-choice
-    // variant; this base routing leaves it to that subclass logic.
   }
 
   private static native int nativeCreate(
@@ -160,6 +171,8 @@ public class AlertDialog implements DialogInterface {
     private int listMode = LIST_MODE_ITEMS;
     private int checkedMask;
     private DialogInterface.OnClickListener itemsListener;
+    private DialogInterface.OnMultiChoiceClickListener multiChoiceListener;
+    private boolean[] checkedItems;
 
     public Builder() {}
 
@@ -207,6 +220,46 @@ public class AlertDialog implements DialogInterface {
       return this;
     }
 
+    /**
+     * Mirrors {@code AlertDialog.Builder#setSingleChoiceItems}: a radio-style list with {@code
+     * checkedItem} initially selected ({@code -1} for none). Tapping a row selects it (the dialog
+     * stays open) and reports the index to {@code listener.onClick(dialog, position)}.
+     */
+    public Builder setSingleChoiceItems(
+        String[] items, int checkedItem, DialogInterface.OnClickListener listener) {
+      this.itemsJoined = joinItems(items);
+      this.listMode = LIST_MODE_SINGLE;
+      this.checkedMask = checkedItem >= 0 ? (1 << checkedItem) : 0;
+      this.itemsListener = listener;
+      return this;
+    }
+
+    /**
+     * Mirrors {@code AlertDialog.Builder#setMultiChoiceItems}: a checkbox list. {@code
+     * checkedItems} seeds the initial state and — as on Android — is mutated in place as rows
+     * toggle; {@code listener.onClick(dialog, which, isChecked)} fires per toggle. Pass {@code
+     * null} for {@code checkedItems} to start all-unchecked.
+     */
+    public Builder setMultiChoiceItems(
+        String[] items,
+        boolean[] checkedItems,
+        DialogInterface.OnMultiChoiceClickListener listener) {
+      this.itemsJoined = joinItems(items);
+      this.listMode = LIST_MODE_MULTI;
+      this.checkedItems = checkedItems;
+      this.multiChoiceListener = listener;
+      int mask = 0;
+      if (checkedItems != null) {
+        for (int i = 0; i < checkedItems.length && i < MAX_LIST_ITEMS; i++) {
+          if (checkedItems[i]) {
+            mask |= (1 << i);
+          }
+        }
+      }
+      this.checkedMask = mask;
+      return this;
+    }
+
     public AlertDialog create() {
       AlertDialog d;
       if (itemsJoined != null) {
@@ -223,6 +276,8 @@ public class AlertDialog implements DialogInterface {
                     checkedMask));
         d.listMode = listMode;
         d.itemsListener = itemsListener;
+        d.multiChoiceListener = multiChoiceListener;
+        d.checkedItems = checkedItems;
       } else {
         d =
             new AlertDialog(

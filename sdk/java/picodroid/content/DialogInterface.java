@@ -14,11 +14,7 @@ public interface DialogInterface {
   /** Identifies the negative (cancel) button. Matches Android's value. */
   int BUTTON_NEGATIVE = -2;
 
-  /**
-   * Identifies the neutral button. Matches Android's value. Defined for source compatibility;
-   * {@code AlertDialog.Builder.setNeutralButton} is not implemented yet, so no v1 dialog ever
-   * delivers this constant.
-   */
+  /** Identifies the neutral button. Matches Android's value. */
   int BUTTON_NEUTRAL = -3;
 
   void dismiss();
@@ -28,6 +24,15 @@ public interface DialogInterface {
   /** Click callback for a dialog button. {@code which} is one of the {@code BUTTON_*} constants. */
   interface OnClickListener {
     void onClick(DialogInterface dialog, int which);
+  }
+
+  /**
+   * Click callback for a multi-choice list row. Mirrors {@code
+   * android.content.DialogInterface.OnMultiChoiceClickListener}: {@code which} is the row index and
+   * {@code isChecked} its new state.
+   */
+  interface OnMultiChoiceClickListener {
+    void onClick(DialogInterface dialog, int which, boolean isChecked);
   }
 
   /** Notification when a dialog is dismissed (via button, BACK key, or {@link #dismiss()}). */

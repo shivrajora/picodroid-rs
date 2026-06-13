@@ -80,7 +80,36 @@ public class DialogDemoActivity extends Activity {
                 new String[] {"Red", "Green", "Blue"},
                 (dialog, which) -> c.appComponent().info("picked item " + which))
             .show();
+    // Item-list dispatch (and dismiss) runs on the next event-loop tick, so
+    // leave the dialogs up — dismissing now would unregister them before the
+    // queued click is delivered. The plain-items dialog auto-dismisses in its
+    // own fireItemClick; the choice dialogs stay open (Android behavior).
     startup.performItemClick(2); // selects "Blue" → "picked item 2"
+
+    // Single-choice: select a row, dialog stays open, listener reports index.
+    AlertDialog single =
+        new AlertDialog.Builder()
+            .setTitle("Pick a size")
+            .setSingleChoiceItems(
+                new String[] {"S", "M", "L"},
+                0,
+                (dialog, which) -> c.appComponent().info("single picked " + which))
+            .show();
+    single.performItemClick(2); // "single picked 2"
+
+    // Multi-choice: the passed boolean[] is mutated in place; toggling row 1
+    // (initially false) checks it and fires the typed listener.
+    boolean[] toppings = new boolean[] {true, false, false};
+    AlertDialog multi =
+        new AlertDialog.Builder()
+            .setTitle("Toppings")
+            .setMultiChoiceItems(
+                new String[] {"Cheese", "Onion", "Olives"},
+                toppings,
+                (dialog, which, isChecked) ->
+                    c.appComponent().info("multi " + which + "=" + isChecked))
+            .show();
+    multi.performItemClick(1); // checks Onion → "multi 1=true"
 
     setContentView(root);
   }
