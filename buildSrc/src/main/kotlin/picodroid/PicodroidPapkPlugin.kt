@@ -74,12 +74,24 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val compileJava = target.tasks.named("compileJava", JavaCompile::class.java)
         val classesOutputDir = compileJava.flatMap { it.destinationDirectory }
 
-        val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
-            val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
+        // compatAliases routes app bytecode through class-shrink to rewrite
+        // android/* references to the real picodroid/* classes, even when name
+        // shrinking is off. The tool composes aliasing ahead of shrinking, so
+        // one shrinkClasses pass handles both.
+        val compatAliases = (target.findProperty("picodroid.compatAliases") as? String)
+            ?.let { it.equals("true", ignoreCase = true) || it == "1" } ?: false
+        val shrinkActive = frameworkMapVersion != ShrinkMapResolver.UNRELEASED
+
+        val packClassesInput = if (shrinkActive || compatAliases) {
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 dependsOn(compileJava)
                 inputDir.set(classesOutputDir)
-                this.mapFile.set(mapFile)
+                if (shrinkActive) {
+                    this.mapFile.set(ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion))
+                }
+                if (compatAliases) {
+                    compatAliasesFile.set(repoRoot.resolve("sdk/compat-aliases.toml"))
+                }
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
                 repoRootPath.set(repoRoot.absolutePath)

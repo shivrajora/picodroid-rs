@@ -1,0 +1,510 @@
+# android.* -> picodroid.* compatibility aliases (schema v1).
+#
+# Lets app bytecode that imports android.* resolve to the real picodroid
+# classes: class-shrink applies these BEFORE the shrink rewrite (composed
+# into one map). Generated from the compiled SDK classes — every public
+# picodroid class gets an android-prefixed alias (anonymous inner classes
+# excluded). Regenerate after adding/removing/renaming an SDK class; the
+# class-shrink drift test fails if a top-level SDK class has no alias here.
+schema = 1
+
+[[class]]
+from = "android/app/Activity"
+to   = "picodroid/app/Activity"
+
+[[class]]
+from = "android/app/AlertDialog"
+to   = "picodroid/app/AlertDialog"
+
+[[class]]
+from = "android/app/AlertDialog$Builder"
+to   = "picodroid/app/AlertDialog$Builder"
+
+[[class]]
+from = "android/app/Application"
+to   = "picodroid/app/Application"
+
+[[class]]
+from = "android/app/Notification"
+to   = "picodroid/app/Notification"
+
+[[class]]
+from = "android/app/Notification$Builder"
+to   = "picodroid/app/Notification$Builder"
+
+[[class]]
+from = "android/app/NotificationManager"
+to   = "picodroid/app/NotificationManager"
+
+[[class]]
+from = "android/app/Service"
+to   = "picodroid/app/Service"
+
+[[class]]
+from = "android/concurrent/BackgroundExecutor"
+to   = "picodroid/concurrent/BackgroundExecutor"
+
+[[class]]
+from = "android/concurrent/Executor"
+to   = "picodroid/concurrent/Executor"
+
+[[class]]
+from = "android/concurrent/Executors"
+to   = "picodroid/concurrent/Executors"
+
+[[class]]
+from = "android/concurrent/MainExecutor"
+to   = "picodroid/concurrent/MainExecutor"
+
+[[class]]
+from = "android/concurrent/Thread"
+to   = "picodroid/concurrent/Thread"
+
+[[class]]
+from = "android/content/Context"
+to   = "picodroid/content/Context"
+
+[[class]]
+from = "android/content/DialogInterface"
+to   = "picodroid/content/DialogInterface"
+
+[[class]]
+from = "android/content/DialogInterface$OnClickListener"
+to   = "picodroid/content/DialogInterface$OnClickListener"
+
+[[class]]
+from = "android/content/DialogInterface$OnDismissListener"
+to   = "picodroid/content/DialogInterface$OnDismissListener"
+
+[[class]]
+from = "android/content/DialogInterface$OnMultiChoiceClickListener"
+to   = "picodroid/content/DialogInterface$OnMultiChoiceClickListener"
+
+[[class]]
+from = "android/content/Intent"
+to   = "picodroid/content/Intent"
+
+[[class]]
+from = "android/content/pm/PackageManager"
+to   = "picodroid/content/pm/PackageManager"
+
+[[class]]
+from = "android/content/ServiceConnection"
+to   = "picodroid/content/ServiceConnection"
+
+[[class]]
+from = "android/content/SharedPreferences"
+to   = "picodroid/content/SharedPreferences"
+
+[[class]]
+from = "android/content/SharedPreferences$Editor"
+to   = "picodroid/content/SharedPreferences$Editor"
+
+[[class]]
+from = "android/debug/DisplayDebug"
+to   = "picodroid/debug/DisplayDebug"
+
+[[class]]
+from = "android/di/ActivitySingletonComponent"
+to   = "picodroid/di/ActivitySingletonComponent"
+
+[[class]]
+from = "android/di/ApplicationComponent"
+to   = "picodroid/di/ApplicationComponent"
+
+[[class]]
+from = "android/graphics/Color"
+to   = "picodroid/graphics/Color"
+
+[[class]]
+from = "android/graphics/Display"
+to   = "picodroid/graphics/Display"
+
+[[class]]
+from = "android/graphics/drawable/Drawable"
+to   = "picodroid/graphics/drawable/Drawable"
+
+[[class]]
+from = "android/graphics/drawable/GradientDrawable"
+to   = "picodroid/graphics/drawable/GradientDrawable"
+
+[[class]]
+from = "android/graphics/drawable/GradientDrawable$Orientation"
+to   = "picodroid/graphics/drawable/GradientDrawable$Orientation"
+
+[[class]]
+from = "android/graphics/Theme"
+to   = "picodroid/graphics/Theme"
+
+[[class]]
+from = "android/hardware/Sensor"
+to   = "picodroid/hardware/Sensor"
+
+[[class]]
+from = "android/hardware/SensorEvent"
+to   = "picodroid/hardware/SensorEvent"
+
+[[class]]
+from = "android/hardware/SensorEventListener"
+to   = "picodroid/hardware/SensorEventListener"
+
+[[class]]
+from = "android/hardware/SensorManager"
+to   = "picodroid/hardware/SensorManager"
+
+[[class]]
+from = "android/io/File"
+to   = "picodroid/io/File"
+
+[[class]]
+from = "android/io/FileInputStream"
+to   = "picodroid/io/FileInputStream"
+
+[[class]]
+from = "android/io/FileOutputStream"
+to   = "picodroid/io/FileOutputStream"
+
+[[class]]
+from = "android/net/DatagramPacket"
+to   = "picodroid/net/DatagramPacket"
+
+[[class]]
+from = "android/net/DatagramSocket"
+to   = "picodroid/net/DatagramSocket"
+
+[[class]]
+from = "android/net/HttpInputStream"
+to   = "picodroid/net/HttpInputStream"
+
+[[class]]
+from = "android/net/HttpOutputStream"
+to   = "picodroid/net/HttpOutputStream"
+
+[[class]]
+from = "android/net/HttpURLConnection"
+to   = "picodroid/net/HttpURLConnection"
+
+[[class]]
+from = "android/net/InetAddress"
+to   = "picodroid/net/InetAddress"
+
+[[class]]
+from = "android/net/NetworkInfo"
+to   = "picodroid/net/NetworkInfo"
+
+[[class]]
+from = "android/net/ServerSocket"
+to   = "picodroid/net/ServerSocket"
+
+[[class]]
+from = "android/net/Socket"
+to   = "picodroid/net/Socket"
+
+[[class]]
+from = "android/net/URL"
+to   = "picodroid/net/URL"
+
+[[class]]
+from = "android/os/IBinder"
+to   = "picodroid/os/IBinder"
+
+[[class]]
+from = "android/os/Runtime"
+to   = "picodroid/os/Runtime"
+
+[[class]]
+from = "android/os/SystemClock"
+to   = "picodroid/os/SystemClock"
+
+[[class]]
+from = "android/pio/Adc"
+to   = "picodroid/pio/Adc"
+
+[[class]]
+from = "android/pio/Gpio"
+to   = "picodroid/pio/Gpio"
+
+[[class]]
+from = "android/pio/I2cDevice"
+to   = "picodroid/pio/I2cDevice"
+
+[[class]]
+from = "android/pio/PeripheralManager"
+to   = "picodroid/pio/PeripheralManager"
+
+[[class]]
+from = "android/pio/Pwm"
+to   = "picodroid/pio/Pwm"
+
+[[class]]
+from = "android/pio/SpiDevice"
+to   = "picodroid/pio/SpiDevice"
+
+[[class]]
+from = "android/pio/UartDevice"
+to   = "picodroid/pio/UartDevice"
+
+[[class]]
+from = "android/text/InputType"
+to   = "picodroid/text/InputType"
+
+[[class]]
+from = "android/text/TextWatcher"
+to   = "picodroid/text/TextWatcher"
+
+[[class]]
+from = "android/util/Log"
+to   = "picodroid/util/Log"
+
+[[class]]
+from = "android/view/animation/AccelerateDecelerateInterpolator"
+to   = "picodroid/view/animation/AccelerateDecelerateInterpolator"
+
+[[class]]
+from = "android/view/animation/AccelerateInterpolator"
+to   = "picodroid/view/animation/AccelerateInterpolator"
+
+[[class]]
+from = "android/view/animation/DecelerateInterpolator"
+to   = "picodroid/view/animation/DecelerateInterpolator"
+
+[[class]]
+from = "android/view/animation/Interpolator"
+to   = "picodroid/view/animation/Interpolator"
+
+[[class]]
+from = "android/view/animation/LinearInterpolator"
+to   = "picodroid/view/animation/LinearInterpolator"
+
+[[class]]
+from = "android/view/GestureDetector"
+to   = "picodroid/view/GestureDetector"
+
+[[class]]
+from = "android/view/GestureDetector$OnGestureListener"
+to   = "picodroid/view/GestureDetector$OnGestureListener"
+
+[[class]]
+from = "android/view/GestureDetector$SimpleOnGestureListener"
+to   = "picodroid/view/GestureDetector$SimpleOnGestureListener"
+
+[[class]]
+from = "android/view/Gravity"
+to   = "picodroid/view/Gravity"
+
+[[class]]
+from = "android/view/inputmethod/EditorInfo"
+to   = "picodroid/view/inputmethod/EditorInfo"
+
+[[class]]
+from = "android/view/KeyEvent"
+to   = "picodroid/view/KeyEvent"
+
+[[class]]
+from = "android/view/MotionEvent"
+to   = "picodroid/view/MotionEvent"
+
+[[class]]
+from = "android/view/OnKeyListener"
+to   = "picodroid/view/OnKeyListener"
+
+[[class]]
+from = "android/view/OnSwipeListener"
+to   = "picodroid/view/OnSwipeListener"
+
+[[class]]
+from = "android/view/OnTouchListener"
+to   = "picodroid/view/OnTouchListener"
+
+[[class]]
+from = "android/view/View"
+to   = "picodroid/view/View"
+
+[[class]]
+from = "android/view/View$OnClickListener"
+to   = "picodroid/view/View$OnClickListener"
+
+[[class]]
+from = "android/view/View$OnFocusChangeListener"
+to   = "picodroid/view/View$OnFocusChangeListener"
+
+[[class]]
+from = "android/view/View$OnLongClickListener"
+to   = "picodroid/view/View$OnLongClickListener"
+
+[[class]]
+from = "android/view/ViewGroup"
+to   = "picodroid/view/ViewGroup"
+
+[[class]]
+from = "android/view/ViewGroup$LayoutParams"
+to   = "picodroid/view/ViewGroup$LayoutParams"
+
+[[class]]
+from = "android/view/ViewPropertyAnimator"
+to   = "picodroid/view/ViewPropertyAnimator"
+
+[[class]]
+from = "android/widget/Adapter"
+to   = "picodroid/widget/Adapter"
+
+[[class]]
+from = "android/widget/AdapterView"
+to   = "picodroid/widget/AdapterView"
+
+[[class]]
+from = "android/widget/AdapterView$OnItemClickListener"
+to   = "picodroid/widget/AdapterView$OnItemClickListener"
+
+[[class]]
+from = "android/widget/AdapterView$OnItemSelectedListener"
+to   = "picodroid/widget/AdapterView$OnItemSelectedListener"
+
+[[class]]
+from = "android/widget/ArrayAdapter"
+to   = "picodroid/widget/ArrayAdapter"
+
+[[class]]
+from = "android/widget/BaseAdapter"
+to   = "picodroid/widget/BaseAdapter"
+
+[[class]]
+from = "android/widget/Button"
+to   = "picodroid/widget/Button"
+
+[[class]]
+from = "android/widget/CheckBox"
+to   = "picodroid/widget/CheckBox"
+
+[[class]]
+from = "android/widget/CompoundButton"
+to   = "picodroid/widget/CompoundButton"
+
+[[class]]
+from = "android/widget/CompoundButton$OnCheckedChangeListener"
+to   = "picodroid/widget/CompoundButton$OnCheckedChangeListener"
+
+[[class]]
+from = "android/widget/DatePicker"
+to   = "picodroid/widget/DatePicker"
+
+[[class]]
+from = "android/widget/DatePicker$OnDateChangedListener"
+to   = "picodroid/widget/DatePicker$OnDateChangedListener"
+
+[[class]]
+from = "android/widget/EditText"
+to   = "picodroid/widget/EditText"
+
+[[class]]
+from = "android/widget/FrameLayout"
+to   = "picodroid/widget/FrameLayout"
+
+[[class]]
+from = "android/widget/FrameLayout$LayoutParams"
+to   = "picodroid/widget/FrameLayout$LayoutParams"
+
+[[class]]
+from = "android/widget/ImageView"
+to   = "picodroid/widget/ImageView"
+
+[[class]]
+from = "android/widget/Keyboard"
+to   = "picodroid/widget/Keyboard"
+
+[[class]]
+from = "android/widget/Keyboard$OnReadyListener"
+to   = "picodroid/widget/Keyboard$OnReadyListener"
+
+[[class]]
+from = "android/widget/LinearLayout"
+to   = "picodroid/widget/LinearLayout"
+
+[[class]]
+from = "android/widget/LinearLayout$LayoutParams"
+to   = "picodroid/widget/LinearLayout$LayoutParams"
+
+[[class]]
+from = "android/widget/ListView"
+to   = "picodroid/widget/ListView"
+
+[[class]]
+from = "android/widget/NumberPicker"
+to   = "picodroid/widget/NumberPicker"
+
+[[class]]
+from = "android/widget/NumberPicker$OnValueChangeListener"
+to   = "picodroid/widget/NumberPicker$OnValueChangeListener"
+
+[[class]]
+from = "android/widget/OnEditorActionListener"
+to   = "picodroid/widget/OnEditorActionListener"
+
+[[class]]
+from = "android/widget/ProgressBar"
+to   = "picodroid/widget/ProgressBar"
+
+[[class]]
+from = "android/widget/RadioButton"
+to   = "picodroid/widget/RadioButton"
+
+[[class]]
+from = "android/widget/RadioGroup"
+to   = "picodroid/widget/RadioGroup"
+
+[[class]]
+from = "android/widget/RadioGroup$OnCheckedChangeListener"
+to   = "picodroid/widget/RadioGroup$OnCheckedChangeListener"
+
+[[class]]
+from = "android/widget/ScrollView"
+to   = "picodroid/widget/ScrollView"
+
+[[class]]
+from = "android/widget/SeekBar"
+to   = "picodroid/widget/SeekBar"
+
+[[class]]
+from = "android/widget/SeekBar$OnSeekBarChangeListener"
+to   = "picodroid/widget/SeekBar$OnSeekBarChangeListener"
+
+[[class]]
+from = "android/widget/Snackbar"
+to   = "picodroid/widget/Snackbar"
+
+[[class]]
+from = "android/widget/Spinner"
+to   = "picodroid/widget/Spinner"
+
+[[class]]
+from = "android/widget/SwipeRefreshLayout"
+to   = "picodroid/widget/SwipeRefreshLayout"
+
+[[class]]
+from = "android/widget/SwipeRefreshLayout$OnRefreshListener"
+to   = "picodroid/widget/SwipeRefreshLayout$OnRefreshListener"
+
+[[class]]
+from = "android/widget/Switch"
+to   = "picodroid/widget/Switch"
+
+[[class]]
+from = "android/widget/TextView"
+to   = "picodroid/widget/TextView"
+
+[[class]]
+from = "android/widget/TimePicker"
+to   = "picodroid/widget/TimePicker"
+
+[[class]]
+from = "android/widget/TimePicker$OnTimeChangedListener"
+to   = "picodroid/widget/TimePicker$OnTimeChangedListener"
+
+[[class]]
+from = "android/widget/Toast"
+to   = "picodroid/widget/Toast"
+
+[[class]]
+from = "android/widget/ToggleButton"
+to   = "picodroid/widget/ToggleButton"
+
