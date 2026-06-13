@@ -36,9 +36,57 @@ fn dispatch_method(idx: usize) -> &'static str {
 #[cfg(all(not(feature = "sim"), has_buttons))]
 include!(concat!(env!("OUT_DIR"), "/sleep_config.rs"));
 
-#[cfg(all(not(feature = "sim"), has_buttons))]
 fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
+}
+
+// ── Slow-handler watchdog ────────────────────────────────────────────────────
+
+/// Default slow-handler threshold: 50 ms ≈ 3 frames of the 16 ms UI tick.
+/// Android's 5 s ANR is the wrong scale for a 16 ms MCU loop — a handler that
+/// overruns a few frames is already a visible stutter.
+const SLOW_HANDLER_DEFAULT_MS: u64 = 50;
+
+/// Resolve the watchdog threshold in ms (0 disables it). The device uses the
+/// compile-time default; the sim honors `PICODROID_SLOW_HANDLER_MS` so it can
+/// be tuned or turned off without a rebuild.
+fn slow_handler_threshold_ms() -> u64 {
+    #[cfg(feature = "sim")]
+    if let Ok(v) = std::env::var("PICODROID_SLOW_HANDLER_MS") {
+        return v.trim().parse().unwrap_or(SLOW_HANDLER_DEFAULT_MS);
+    }
+    SLOW_HANDLER_DEFAULT_MS
+}
+
+/// Warn — rate-limited to once a second — when `span` ran for at least
+/// `slow_ms` since `start_ms`. The main loop is single-threaded, so a slow
+/// handler directly stalls the UI tick; surfacing it points at the freeze.
+/// Two clock reads on the fast (not-slow) path. `last_warn_ms` carries the
+/// rate-limit state between calls.
+fn warn_if_slow(span: &str, start_ms: u64, slow_ms: u64, last_warn_ms: &mut u64) {
+    if slow_ms == 0 {
+        return;
+    }
+    let elapsed = now_ms().saturating_sub(start_ms);
+    if elapsed < slow_ms {
+        return;
+    }
+    let now = now_ms();
+    if now.saturating_sub(*last_warn_ms) < 1000 {
+        return;
+    }
+    *last_warn_ms = now;
+    #[cfg(not(feature = "sim"))]
+    defmt::warn!(
+        "slow handler: {=str} took {=u64} ms (>= {=u64} ms) — stalls the UI tick",
+        span,
+        elapsed,
+        slow_ms
+    );
+    #[cfg(feature = "sim")]
+    eprintln!(
+        "[sim] slow handler: {span} took {elapsed} ms (>= {slow_ms} ms) — stalls the UI tick"
+    );
 }
 
 // ── Application lifecycle ────────────────────────────────────────────────────
@@ -218,6 +266,12 @@ pub(crate) fn run_activity(
     #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut sleeping: bool = false;
 
+    // Slow-handler watchdog: a handler that overruns the threshold stalls the
+    // single-threaded UI tick. Resolve the threshold once; track the last-warn
+    // time for the 1/s rate limit.
+    let slow_handler_ms = slow_handler_threshold_ms();
+    let mut last_slow_warn_ms: u64 = 0;
+
     loop {
         if handler.interrupted() {
             break;
@@ -249,7 +303,16 @@ pub(crate) fn run_activity(
             MainTask::LvglTick => {
                 with_gfx(|g| g.tick(16));
                 crate::system::picodroid::graphics::lvgl::fps_overlay::update();
+                // Watch only the Java dispatch, not g.tick's render above —
+                // rendering legitimately varies and would be a false positive.
+                let span_start = now_ms();
                 dispatch_widget_events(jvm, heap, handler);
+                warn_if_slow(
+                    "widget events",
+                    span_start,
+                    slow_handler_ms,
+                    &mut last_slow_warn_ms,
+                );
 
                 crate::hal::display::update_window();
                 if !crate::hal::display::is_window_open() {
@@ -277,12 +340,19 @@ pub(crate) fn run_activity(
                 // metadata. Calling Runnable.run directly from Rust finds
                 // the abstract interface method with no bytecode and
                 // silently no-ops.
+                let span_start = now_ms();
                 let _ = jvm.invoke_static_with_args(
                     dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
                     dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
                     &[pico_jvm::types::Value::ObjectRef(r)],
                     heap,
                     handler,
+                );
+                warn_if_slow(
+                    "Runnable",
+                    span_start,
+                    slow_handler_ms,
+                    &mut last_slow_warn_ms,
                 );
             }
             MainTask::Wake => {
@@ -295,6 +365,7 @@ pub(crate) fn run_activity(
         // dispatch above (a button click handler called startActivity,
         // a Runnable called finish(), etc.).
         let mut should_exit = false;
+        let span_start = now_ms();
         while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
                 should_exit = true;
@@ -306,6 +377,14 @@ pub(crate) fn run_activity(
                 break;
             }
         }
+        // onCreate building a large UI is the classic startup freeze; the drain
+        // is where that work runs.
+        warn_if_slow(
+            "pending-op drain",
+            span_start,
+            slow_handler_ms,
+            &mut last_slow_warn_ms,
+        );
         if should_exit {
             break;
         }
