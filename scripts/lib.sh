@@ -236,9 +236,16 @@ build_firmware() {
   # Step 2: Build the firmware, embedding the APK.
   local jobs
   jobs=$(cpu_count)
+  # Debug-profile FIRMWARE images build with release-grade runtime checks:
+  # debug-assertions cost ~37 KB and overflow-checks ~4 KB of flash, which
+  # overflows the RP2040's 896K program region. Sim builds (sim.sh, host
+  # target) keep both checks — the sim is where invariant debugging happens.
+  # HIL builds firmware in --release and is unaffected.
   # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
   PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
     --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+    --config 'profile.dev.debug-assertions=false' \
+    --config 'profile.dev.overflow-checks=false' \
     -p "$PACKAGE" \
     --jobs "$jobs" \
     --target "$TARGET" \
