@@ -105,8 +105,12 @@ public class GestureDetector implements OnTouchListener {
       if (down == null) {
         return false; // UP without prior DOWN — touch likely cancelled
       }
-      int dx = event.getX() - down.getX();
-      int dy = event.getY() - down.getY();
+      // Use screen-absolute (raw) coordinates for all displacement math:
+      // getX/getY are now view-relative, so if the target view moves between
+      // DOWN and UP (e.g. a drag-repositioned tile) the relative deltas would
+      // be wrong; raw coordinates are stable regardless of view position.
+      int dx = event.getRawX() - down.getRawX();
+      int dy = event.getRawY() - down.getRawY();
       int absDx = dx < 0 ? -dx : dx;
       int absDy = dy < 0 ? -dy : dy;
       // Approximate distance with Chebyshev — exact pixel distance would
@@ -129,8 +133,8 @@ public class GestureDetector implements OnTouchListener {
         // flick whose speed comes from the final frames reads as fast.
         // Tap / fling classification (above) still uses DOWN→UP so a
         // slow drift can't be reclassified as a fling on a fast lift.
-        int sdx = event.getX() - slopeStart.getX();
-        int sdy = event.getY() - slopeStart.getY();
+        int sdx = event.getRawX() - slopeStart.getRawX();
+        int sdy = event.getRawY() - slopeStart.getRawY();
         long durationMs = event.getEventTime() - slopeStart.getEventTime();
         if (durationMs <= 0) {
           durationMs = 1; // avoid div-by-zero on freakishly fast events

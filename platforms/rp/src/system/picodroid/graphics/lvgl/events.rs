@@ -538,8 +538,15 @@ const ACTION_LONG_PRESS: i32 = 3;
 pub struct TouchRecord {
     pub view_handle: usize,
     pub action: i32,
+    /// Screen-absolute touch point (LVGL `lv_indev_get_point`).
     pub x: i32,
     pub y: i32,
+    /// Screen-absolute top-left of the target view at event time. The
+    /// dispatcher subtracts this from `(x, y)` to produce Android's
+    /// view-relative `getX()`/`getY()`, keeping `(x, y)` as `getRawX()`/
+    /// `getRawY()`.
+    pub origin_x: i32,
+    pub origin_y: i32,
     pub time_ms: u64,
 }
 
@@ -548,6 +555,8 @@ const EMPTY_TOUCH: TouchRecord = TouchRecord {
     action: 0,
     x: 0,
     y: 0,
+    origin_x: 0,
+    origin_y: 0,
     time_ms: 0,
 };
 
@@ -599,11 +608,22 @@ unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Option<TouchRec
     }
     let mut p = lv_point_t { x: 0, y: 0 };
     unsafe { lv_indev_get_point(indev, &mut p as *mut lv_point_t) };
+    // Capture the target's screen-absolute origin so the dispatcher can make
+    // getX/getY view-relative (Android) while keeping getRawX/getRawY screen.
+    let mut coords = lv_area_t {
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+    };
+    unsafe { lv_obj_get_coords(target, &mut coords as *mut lv_area_t) };
     Some(TouchRecord {
         view_handle: target as usize,
         action,
         x: p.x,
         y: p.y,
+        origin_x: coords.x1,
+        origin_y: coords.y1,
         time_ms: now_ms_for_touch(),
     })
 }

@@ -40,11 +40,16 @@ pub mod display {
 
 pub mod motion_event {
     pub const ACTION: usize = 0;
+    /// View-relative X / Y (Android's getX/getY).
     pub const X: usize = 1;
     pub const Y: usize = 2;
     /// Tick-clock millis. This JVM uses one slot per field regardless of
     /// type, so a `long` field gets the next sequential slot.
     pub const EVENT_TIME: usize = 3;
+    /// Screen-absolute X / Y (Android's getRawX/getRawY). Declared after
+    /// eventTime in MotionEvent.java so these slots come last.
+    pub const RAW_X: usize = 4;
+    pub const RAW_Y: usize = 5;
 }
 
 pub mod key_event {

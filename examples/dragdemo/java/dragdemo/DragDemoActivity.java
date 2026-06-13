@@ -71,8 +71,10 @@ public class DragDemoActivity extends Activity {
           @Override
           public boolean onTouch(View v, MotionEvent event) {
             int action = event.getAction();
-            int x = event.getX();
-            int y = event.getY();
+            // Raw (screen-absolute) coords: the tile is positioned in screen
+            // space, and getX/getY are now view-relative to the root.
+            int x = event.getRawX();
+            int y = event.getRawY();
             if (action == MotionEvent.ACTION_DOWN) {
               moveCount = 0;
               moveTileTo(x, y);

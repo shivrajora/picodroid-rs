@@ -52,14 +52,15 @@ public class GestureDemoActivity extends Activity {
             new GestureDetector.SimpleOnGestureListener() {
               @Override
               public void onSingleTap(MotionEvent e) {
+                // getX/getY are view-relative to the touch surface.
                 app.info("tap");
-                status.setText("Tap @ (" + e.getX() + ", " + e.getY() + ")");
+                status.setText("Tap @ rel(" + e.getX() + ", " + e.getY() + ")");
               }
 
               @Override
               public void onLongPress(MotionEvent e) {
                 app.info("long-press");
-                status.setText("Long press @ (" + e.getX() + ", " + e.getY() + ")");
+                status.setText("Long press @ rel(" + e.getX() + ", " + e.getY() + ")");
               }
 
               @Override

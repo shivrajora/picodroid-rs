@@ -1160,16 +1160,27 @@ fn dispatch_touch_events(
                 Value::Int(rec.action),
             ),
             (
+                // getX/getY are view-relative: screen point minus the
+                // target's screen-absolute origin (Android semantics).
                 crate::system::picodroid::graphics::fields::motion_event::X,
-                Value::Int(rec.x),
+                Value::Int(rec.x - rec.origin_x),
             ),
             (
                 crate::system::picodroid::graphics::fields::motion_event::Y,
-                Value::Int(rec.y),
+                Value::Int(rec.y - rec.origin_y),
             ),
             (
                 crate::system::picodroid::graphics::fields::motion_event::EVENT_TIME,
                 Value::Long(rec.time_ms as i64),
+            ),
+            (
+                // getRawX/getRawY stay screen-absolute.
+                crate::system::picodroid::graphics::fields::motion_event::RAW_X,
+                Value::Int(rec.x),
+            ),
+            (
+                crate::system::picodroid::graphics::fields::motion_event::RAW_Y,
+                Value::Int(rec.y),
             ),
         ] {
             if heap.objects.set_field(event_obj, slot, value).is_none() {

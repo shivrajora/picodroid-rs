@@ -433,6 +433,11 @@ extern "C" {
     pub fn lv_obj_get_y(obj: *const lv_obj_t) -> i32;
     pub fn lv_obj_get_width(obj: *const lv_obj_t) -> i32;
     pub fn lv_obj_get_height(obj: *const lv_obj_t) -> i32;
+    /// Fill `coords` with the object's screen-absolute bounding box (x1/y1 =
+    /// top-left). Unlike `lv_obj_get_x` (parent-relative), this gives the
+    /// absolute origin needed to convert a screen touch point to
+    /// view-relative MotionEvent coordinates.
+    pub fn lv_obj_get_coords(obj: *const lv_obj_t, coords: *mut lv_area_t);
     pub fn lv_obj_update_layout(obj: *const lv_obj_t);
     pub fn lv_obj_center(obj: *mut lv_obj_t);
     pub fn lv_obj_set_style_bg_color(
