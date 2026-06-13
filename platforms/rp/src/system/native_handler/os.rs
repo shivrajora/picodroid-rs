@@ -110,8 +110,19 @@ pub fn dispatch(
 
                     #[cfg(feature = "sim")]
                     {
-                        // Threading not supported in sim mode; skip.
-                        let _ = class_name;
+                        // Threading is a no-op in the simulator — there's no
+                        // FreeRTOS to host the task. Warn loudly (naming the
+                        // Runnable) so a dev doesn't read the silence as "it
+                        // ran": on device this spawns a real task and the
+                        // Runnable executes. Erroring would misrepresent device
+                        // behavior worse than a no-op, and running it
+                        // synchronously here would invert concurrency ordering
+                        // and can deadlock on the main queue — so: warn + skip.
+                        eprintln!(
+                            "[sim] Thread.start: {class_name}.run() will NOT run — \
+                             threads are a no-op in the simulator (on device they \
+                             run as a FreeRTOS task)"
+                        );
                     }
                 }
             }
