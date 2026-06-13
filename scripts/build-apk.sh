@@ -60,7 +60,15 @@ mkdir -p "$(dirname "$OUTPUT")"
 
 # Shrinking flag is propagated through PICODROID_SHRINK env var — the
 # plugin reads it directly, so no -P needed.
-(cd "$REPO_ROOT" && ./gradlew ":examples:$APP:assemblePapk" --console=plain)
+#
+# PICODROID_SKIP_GRADLE=1 skips the Gradle invocation and reuses an
+# already-built papk. The Gradle :sim/:install tasks set this: they
+# `dependsOn(assemblePapk)`, so the outer build already produced the papk —
+# invoking ./gradlew again from inside a running build would deadlock on the
+# project lock.
+if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
+  (cd "$REPO_ROOT" && ./gradlew ":examples:$APP:assemblePapk" --console=plain)
+fi
 
 GRADLE_PAPK="$APP_DIR/build/papk/${APP}.papk"
 if [[ ! -f "$GRADLE_PAPK" ]]; then

@@ -118,6 +118,30 @@ class PicodroidPapkPlugin : Plugin<Project> {
             dependsOn(packPapk)
         }
         target.tasks.named("assemble") { dependsOn(assemblePapk) }
+
+        // Per-app run tasks. `sim` builds the papk (via assemblePapk) then runs
+        // it in the host simulator; `install` pushes the papk to a connected
+        // device with `pdb install`. Both reuse the Gradle-built papk rather
+        // than rebuilding it (sim.sh would otherwise re-enter ./gradlew and
+        // deadlock — see PICODROID_SKIP_GRADLE in scripts/build-apk.sh).
+        target.tasks.register("sim", RunAppTask::class.java) {
+            group = "picodroid"
+            description = "Build and run ${target.name} in the host simulator"
+            dependsOn(assemblePapk)
+            mode.set("sim")
+            appName.set(target.name)
+            repoRootPath.set(target.rootDir.absolutePath)
+        }
+        target.tasks.register("install", RunAppTask::class.java) {
+            group = "picodroid"
+            description = "Build ${target.name} and push its papk to a connected device"
+            dependsOn(assemblePapk)
+            mode.set("install")
+            appName.set(target.name)
+            repoRootPath.set(target.rootDir.absolutePath)
+            this.hostTarget.set(hostTarget)
+            papkPath.set(packPapk.flatMap { it.outputFile }.map { it.asFile.absolutePath })
+        }
     }
 
     private fun isShrinkEnabled(project: Project): Boolean {
