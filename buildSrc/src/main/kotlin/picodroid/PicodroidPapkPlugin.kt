@@ -7,6 +7,7 @@ import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
+import java.io.File
 
 /**
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
@@ -22,6 +23,19 @@ class PicodroidPapkPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         target.plugins.apply(JavaPlugin::class.java)
 
+        // Roots are configurable so an app project can build out-of-tree
+        // against a picodroid checkout it isn't a subproject of:
+        //   picodroid.repoRoot       — the picodroid source tree (holds tools/,
+        //                              sdk/shrink-maps/, platforms/, scripts/).
+        //                              Default: this build's root project dir.
+        //   picodroid.sdkProjectPath — Gradle path of the :sdk project to
+        //                              compile against. Default ":sdk".
+        // No publishing/template is involved — only path indirection.
+        val repoRoot: File = (target.findProperty("picodroid.repoRoot") as? String)
+            ?.let { target.file(it) }
+            ?: target.rootProject.rootDir
+        val sdkProjectPath = (target.findProperty("picodroid.sdkProjectPath") as? String) ?: ":sdk"
+
         val javaExt = target.extensions.getByType(JavaPluginExtension::class.java)
         javaExt.sourceSets.getByName("main") {
             // Match scripts/build-apk.sh's `find APP_DIR -name '*.java'`:
@@ -36,7 +50,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
 
         target.dependencies.add(
             JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME,
-            target.dependencies.project(mapOf("path" to ":sdk"))
+            target.dependencies.project(mapOf("path" to sdkProjectPath))
         )
 
         // App jars are not published; skip the default jar task.
@@ -47,7 +61,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
 
         val shrinkEnabled = isShrinkEnabled(target)
         val frameworkMapVersion = target.rootProject.extra("picodroid.frameworkMapVersion") {
-            ShrinkMapResolver.resolve(target.rootDir, shrinkEnabled)
+            ShrinkMapResolver.resolve(repoRoot, shrinkEnabled)
         }
         // hostTarget is only needed by ClassShrinkTask + PapkPackTask — resolve
         // lazily via Provider so we don't shell out to rustc during plugin
@@ -61,13 +75,14 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val classesOutputDir = compileJava.flatMap { it.destinationDirectory }
 
         val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
-            val mapFile = ShrinkMapResolver.mapFile(target.rootDir, frameworkMapVersion)
+            val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 dependsOn(compileJava)
                 inputDir.set(classesOutputDir)
                 this.mapFile.set(mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
+                repoRootPath.set(repoRoot.absolutePath)
             }
             shrinkTask.flatMap { it.outputDir }
         } else {
@@ -110,6 +125,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             }
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)
+            repoRootPath.set(repoRoot.absolutePath)
         }
 
         val assemblePapk = target.tasks.register("assemblePapk") {
@@ -130,7 +146,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             dependsOn(assemblePapk)
             mode.set("sim")
             appName.set(target.name)
-            repoRootPath.set(target.rootDir.absolutePath)
+            repoRootPath.set(repoRoot.absolutePath)
         }
         target.tasks.register("install", RunAppTask::class.java) {
             group = "picodroid"
@@ -138,7 +154,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             dependsOn(assemblePapk)
             mode.set("install")
             appName.set(target.name)
-            repoRootPath.set(target.rootDir.absolutePath)
+            repoRootPath.set(repoRoot.absolutePath)
             this.hostTarget.set(hostTarget)
             papkPath.set(packPapk.flatMap { it.outputFile }.map { it.asFile.absolutePath })
         }

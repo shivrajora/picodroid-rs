@@ -48,12 +48,17 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val hostTarget: Property<String>
 
+    /** picodroid source tree (holds tools/); configurable for out-of-tree builds. */
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
     @TaskAction
     fun run() {
         val out = outputFile.get().asFile
         out.parentFile.mkdirs()
 
-        val manifest = project.rootDir.resolve("tools/papk-pack/Cargo.toml")
+        val repoRoot = java.io.File(repoRootPath.get())
+        val manifest = repoRoot.resolve("tools/papk-pack/Cargo.toml")
         val args = mutableListOf(
             "cargo", "run", "--quiet",
             "--target", hostTarget.get(),
@@ -72,7 +77,7 @@ abstract class PapkPackTask : DefaultTask() {
         )
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
 
-        val pb = ProcessBuilder(args).directory(project.rootDir)
+        val pb = ProcessBuilder(args).directory(repoRoot)
         ProcessRun.runOrThrow(pb, "papk-pack")
     }
 }

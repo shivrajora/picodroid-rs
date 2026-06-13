@@ -27,13 +27,18 @@ abstract class ClassShrinkTask : DefaultTask() {
     @get:Input
     abstract val hostTarget: Property<String>
 
+    /** picodroid source tree (holds tools/); configurable for out-of-tree builds. */
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
     @TaskAction
     fun run() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
         out.mkdirs()
 
-        val classShrinkManifest = project.rootDir.resolve("tools/class-shrink/Cargo.toml")
+        val repoRoot = java.io.File(repoRootPath.get())
+        val classShrinkManifest = repoRoot.resolve("tools/class-shrink/Cargo.toml")
         val pb = ProcessBuilder(
             "cargo", "run", "--quiet",
             "--target", hostTarget.get(),
@@ -43,7 +48,7 @@ abstract class ClassShrinkTask : DefaultTask() {
             "--in", inputDir.get().asFile.absolutePath,
             "--out", out.absolutePath,
             "--map", mapFile.get().asFile.absolutePath,
-        ).directory(project.rootDir)
+        ).directory(repoRoot)
         ProcessRun.runOrThrow(pb, "class-shrink shrink-dir")
     }
 }
