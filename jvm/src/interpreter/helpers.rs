@@ -256,6 +256,39 @@ pub(super) fn field_slot(
     None
 }
 
+/// Superclass edges for classfile-less builtin classes — enough of the
+/// `java.lang` throwable hierarchy for catch-matching and `instanceof` to
+/// work on builtin exceptions. Without this, `catch (Throwable)` /
+/// `catch (Exception)` never matched a thrown `RuntimeException` (or any
+/// user exception whose super chain bottoms out in a builtin), which
+/// silently disabled javac's synthetic try-with-resources cleanup and
+/// every catch-all handler.
+pub(super) fn builtin_super(name: &str) -> Option<&'static str> {
+    match name {
+        "java/lang/Throwable" => Some("java/lang/Object"),
+        "java/lang/Exception" | "java/lang/Error" => Some("java/lang/Throwable"),
+        "java/lang/RuntimeException" => Some("java/lang/Exception"),
+        "java/lang/IllegalArgumentException"
+        | "java/lang/NullPointerException"
+        | "java/lang/IllegalStateException"
+        | "java/lang/ArithmeticException"
+        | "java/lang/ClassCastException"
+        | "java/lang/UnsupportedOperationException"
+        | "java/lang/IndexOutOfBoundsException" => Some("java/lang/RuntimeException"),
+        "java/lang/NumberFormatException" | "java/util/IllegalFormatException" => {
+            Some("java/lang/IllegalArgumentException")
+        }
+        "java/lang/ArrayIndexOutOfBoundsException"
+        | "java/lang/StringIndexOutOfBoundsException" => {
+            Some("java/lang/IndexOutOfBoundsException")
+        }
+        "java/lang/ExceptionInInitializerError" | "java/lang/StackOverflowError" => {
+            Some("java/lang/Error")
+        }
+        _ => None,
+    }
+}
+
 /// Returns true if `runtime_class` is the same as, a subclass of, or
 /// implements `target_class` (checked at each level of the superclass chain).
 pub(super) fn is_instance_of(
@@ -273,7 +306,16 @@ pub(super) fn is_instance_of(
             .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
         {
             Some(i) => i,
-            None => return false,
+            None => {
+                // No classfile — follow the builtin throwable hierarchy.
+                match builtin_super(current) {
+                    Some(s) => {
+                        current = s;
+                        continue;
+                    }
+                    None => return false,
+                }
+            }
         };
         // Check implemented interfaces at this level
         let cf = &classes[ci];

@@ -348,6 +348,48 @@ fn athrow_subclass_caught_by_superclass() {
     );
 }
 
+/// Classfile-less builtin throwables resolve through the builtin hierarchy:
+/// catch (Throwable) / catch (Exception) must match a RuntimeException even
+/// though none of those classes have classfiles. Regression for javac's
+/// synthetic try-with-resources cleanup (a generated catch (Throwable))
+/// silently never firing.
+#[test]
+fn builtin_throwable_hierarchy_resolves_without_classfiles() {
+    use crate::interpreter::helpers::is_instance_of;
+    let classes: [crate::class_file::ClassFile; 0] = [];
+    assert!(is_instance_of(
+        &classes,
+        "java/lang/RuntimeException",
+        "java/lang/Throwable"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/lang/RuntimeException",
+        "java/lang/Exception"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/lang/NumberFormatException",
+        "java/lang/IllegalArgumentException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/lang/NullPointerException",
+        "java/lang/RuntimeException"
+    ));
+    // Object-ward only — and unrelated targets still fail.
+    assert!(!is_instance_of(
+        &classes,
+        "java/lang/Throwable",
+        "java/lang/Exception"
+    ));
+    assert!(!is_instance_of(
+        &classes,
+        "java/lang/RuntimeException",
+        "java/lang/Error"
+    ));
+}
+
 /// Throw a Base exception inside a try that only catches Child (subclass).
 ///
 /// is_instance_of(classes, "Base", "Child") must return false — the
