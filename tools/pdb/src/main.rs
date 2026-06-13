@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 mod devices;
 mod install;
+mod logcat;
 mod papk_meta;
 mod protocol;
 mod sysmon;
@@ -15,6 +16,13 @@ Commands:
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
   sysmon                     Show system monitor stats (heap, tasks, CPU%)
+  logcat --stdin [opts]      Filter picodroid logs on stdin by tag/level
+
+logcat options:
+  --stdin                    Read already-decoded log text from stdin
+  --tag <T>                  Keep only lines tagged <T> ([T] or 'T:')
+  --level <V|D|I|W|E>        Keep only lines at this level or higher
+  e.g.  ./scripts/sim.sh --app foo | pdb logcat --stdin --tag Foo --level W
 
 install options:
   --skip-host-check          Skip the host-side compat pre-flight (HIL test
@@ -69,6 +77,14 @@ fn main() {
         "sysmon" => {
             let port_name = require_port(port.as_deref());
             sysmon::run(&port_name);
+        }
+
+        "logcat" => {
+            // Pure stdin/stdout text filter — no device port needed.
+            let code = logcat::run(&args[idx..]);
+            if code != 0 {
+                process::exit(code);
+            }
         }
 
         "install" => {
