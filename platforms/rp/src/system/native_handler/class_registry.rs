@@ -72,6 +72,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/widget/CompoundButton",
     "picodroid/widget/SeekBar",
     "picodroid/widget/CheckBox",
+    "picodroid/widget/RadioButton",
     "picodroid/widget/ScrollView",
     "picodroid/widget/FrameLayout",
     "picodroid/widget/Spinner",

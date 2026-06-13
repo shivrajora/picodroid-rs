@@ -8,6 +8,8 @@ import picodroid.widget.AdapterView;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.RadioButton;
+import picodroid.widget.RadioGroup;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Spinner;
 import picodroid.widget.Switch;
@@ -99,6 +101,29 @@ public class CallbackTestActivity extends Activity {
         });
     root.addView(sp);
     sp.performItemSelected();
+
+    // RadioGroup mutual exclusion: check r1, then r2 — by the time the
+    // second event dispatches, exactly one button (r2) must be checked.
+    RadioGroup rg = new RadioGroup();
+    RadioButton r1 = new RadioButton();
+    r1.setText("a");
+    RadioButton r2 = new RadioButton();
+    r2.setText("b");
+    RadioButton r3 = new RadioButton();
+    r3.setText("c");
+    rg.addView(r1);
+    rg.addView(r2);
+    rg.addView(r3);
+    rg.setOnCheckedChangeListener(
+        (group, checkedId) -> {
+          Log.i("CBT", "RADIO_CHANGED");
+          if (checkedId == r2.getId() && !r1.isChecked() && r2.isChecked() && !r3.isChecked()) {
+            Log.i("CBT", "RADIO_EXCLUSIVE");
+          }
+        });
+    root.addView(rg);
+    r1.performCheckedChange();
+    r2.performCheckedChange();
 
     Toast toast = Toast.makeText(this, "cbt", Toast.LENGTH_SHORT);
     toast.setDuration(Toast.LENGTH_LONG);

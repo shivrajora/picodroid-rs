@@ -69,6 +69,9 @@ pub const SEEK_BAR_TRACKING: usize = 33;
 /// Textarea content changes → `TextWatcher.afterTextChanged`, fanned out by
 /// `EditText.fireTextChanged()` (which re-reads getText() itself).
 pub const EDIT_TEXT_TEXT_CHANGED: usize = 34;
+/// RadioButton checked changes — same CompoundButton fan-out as
+/// CheckBox/Switch/ToggleButton; RadioGroup exclusion runs in Java.
+pub const RADIO_BUTTON: usize = 35;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -111,6 +114,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/Activity", "onRestart"),
     ("picodroid/widget/SeekBar", "fireTrackingTouch"),
     ("picodroid/widget/EditText", "fireTextChanged"),
+    ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
 ];
 
 #[cfg(test)]

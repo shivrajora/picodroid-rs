@@ -235,6 +235,9 @@ pub type lv_style_selector_t = u32;
 /// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
 pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
+/// `lv_area.h`: special radius value meaning "fully rounded" — the standard
+/// recipe for a radio-style circular checkbox indicator.
+pub const LV_RADIUS_CIRCLE: i32 = 0x7FFF;
 
 /// Inner-alignment mode for `lv_image`. Verified against
 /// `vendor/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid

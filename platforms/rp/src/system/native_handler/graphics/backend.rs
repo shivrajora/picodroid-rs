@@ -66,6 +66,12 @@ pub trait GraphicsBackend {
     ) -> DispatchResult;
     fn dispatch_seek_bar(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_check_box(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
+
+    fn dispatch_radio_button(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
     fn dispatch_image_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_scroll_view(&mut self, method: &str, ctx: &mut NativeContext<'_>)
         -> DispatchResult;

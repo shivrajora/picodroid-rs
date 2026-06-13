@@ -280,6 +280,31 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_radio_button(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            "nativeCreate" => Some(widgets::radio_button_native_create()),
+            "setText" => Some(widgets::radio_button_set_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
+            "isChecked" => Some(widgets::radio_button_is_checked(ctx.args, ctx.objects)),
+            "setChecked" => Some(widgets::radio_button_set_checked(ctx.args, ctx.objects)),
+            "nativeRegisterCheckedChangeListener" => Some(
+                widgets::radio_button_register_checked_change_listener(ctx.args, ctx.objects),
+            ),
+            "performCheckedChange" => Some(widgets::radio_button_perform_checked_change(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
     fn dispatch_image_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::image_view_native_create()),

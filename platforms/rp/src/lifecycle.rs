@@ -403,6 +403,7 @@ fn dispatch_widget_events(
     dispatch_seek_bar_tracking(jvm, heap, handler);
     dispatch_edit_text_changes(jvm, heap, handler);
     dispatch_checkbox_changes(jvm, heap, handler);
+    dispatch_radio_button_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
     dispatch_list_view_item_clicks(jvm, heap, handler);
     dispatch_alert_dialog_clicks(jvm, heap, handler);
@@ -818,6 +819,29 @@ fn dispatch_checkbox_changes(
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::CHECKBOX),
                 dispatch_method(dispatch_sites::CHECKBOX),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain the checkbox checked-change queue and invoke `fireCheckedChanged()` on
+/// each matching RadioButton.
+#[cfg(not(test))]
+fn dispatch_radio_button_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_rb_checked_change_queue() {
+        if let Some(obj_ref) = widgets::lookup_rb_checked_change_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::RADIO_BUTTON),
+                dispatch_method(dispatch_sites::RADIO_BUTTON),
                 obj_ref,
                 heap,
                 handler,

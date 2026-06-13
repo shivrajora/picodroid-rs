@@ -18,6 +18,7 @@ mod linear_layout;
 mod list_view;
 mod number_picker;
 mod progress_bar;
+mod radio_button;
 mod scroll_view;
 mod seek_bar;
 mod snackbar;
@@ -93,6 +94,13 @@ pub use number_picker::{
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
     progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
+};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
+pub use radio_button::{
+    radio_button_is_checked, radio_button_native_create, radio_button_perform_checked_change,
+    radio_button_register_checked_change_listener, radio_button_set_checked, radio_button_set_text,
+    reset_radio_button_state,
 };
 pub use scroll_view::scroll_view_native_create;
 #[cfg_attr(feature = "sim", allow(unused_imports))]

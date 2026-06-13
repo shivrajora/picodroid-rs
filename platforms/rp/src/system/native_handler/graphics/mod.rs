@@ -35,6 +35,8 @@ fn is_view(class_name: &str) -> bool {
             | "picodroid/widget/ImageView"
             | "picodroid/widget/SeekBar"
             | "picodroid/widget/CheckBox"
+            | "picodroid/widget/RadioButton"
+            | "picodroid/widget/RadioGroup"
             | "picodroid/widget/ScrollView"
             | "picodroid/widget/FrameLayout"
             | "picodroid/widget/Spinner"
@@ -60,6 +62,7 @@ fn is_view_group(class_name: &str) -> bool {
             | "picodroid/widget/ScrollView"
             | "picodroid/widget/SwipeRefreshLayout"
             | "picodroid/widget/Spinner"
+            | "picodroid/widget/RadioGroup"
             | "picodroid/widget/ListView"
     )
 }
@@ -94,6 +97,7 @@ fn dispatch_with<B: GraphicsBackend>(
         "picodroid/widget/NumberPicker" => be.dispatch_number_picker(method_name, ctx),
         "picodroid/widget/SeekBar" => be.dispatch_seek_bar(method_name, ctx),
         "picodroid/widget/CheckBox" => be.dispatch_check_box(method_name, ctx),
+        "picodroid/widget/RadioButton" => be.dispatch_radio_button(method_name, ctx),
         "picodroid/widget/ImageView" => be.dispatch_image_view(method_name, ctx),
         "picodroid/widget/ScrollView" => be.dispatch_scroll_view(method_name, ctx),
         "picodroid/widget/FrameLayout" => be.dispatch_frame_layout(method_name, ctx),
