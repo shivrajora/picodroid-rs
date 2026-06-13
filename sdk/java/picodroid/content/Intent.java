@@ -28,7 +28,9 @@ public final class Intent {
   private int n;
 
   public Intent(Class<?> targetClass) {
-    this.targetClassName = targetClass.getName();
+    // getName() returns the Java-spec dot-form; the native lifecycle ops
+    // resolve classes by internal slash-form, so normalize here.
+    this.targetClassName = targetClass.getName().replace('.', '/');
   }
 
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */
