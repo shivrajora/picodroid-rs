@@ -8,6 +8,15 @@ import picodroid.graphics.Display;
 import picodroid.view.View;
 
 public class Activity extends Context {
+  /** Standard activity result: the operation succeeded. Matches Android's value. */
+  public static final int RESULT_OK = -1;
+
+  /** Standard activity result: the operation was canceled (the default). Matches Android. */
+  public static final int RESULT_CANCELED = 0;
+
+  /** First user-definable result code. Matches Android. */
+  public static final int RESULT_FIRST_USER = 1;
+
   /** Called once when the Activity is first created. Build the UI tree here. */
   public void onCreate() {
     // Subclass overrides
@@ -75,6 +84,36 @@ public class Activity extends Context {
    * Intent (extras included) is retained and available to the target via {@link #getIntent()}.
    */
   public native void startActivity(Intent intent);
+
+  /**
+   * Launch an Activity expecting a result. Mirrors {@code
+   * android.app.Activity#startActivityForResult}. When the launched Activity finishes, its result
+   * (set via {@link #setResult}) is delivered to {@link #onActivityResult} on this Activity — after
+   * {@code onRestart}'s restore but before {@code onResume}, the Android ordering.
+   */
+  public native void startActivityForResult(Intent intent, int requestCode);
+
+  /**
+   * Set the result this Activity reports to its launcher. Mirrors {@code
+   * android.app.Activity#setResult(int)}; the default if never called is {@link #RESULT_CANCELED}.
+   */
+  public native void setResult(int resultCode);
+
+  /**
+   * Set the result code and an Intent of result data. Mirrors {@code
+   * android.app.Activity#setResult(int, Intent)}. The Intent's extras are readable in the
+   * launcher's {@link #onActivityResult}.
+   */
+  public native void setResult(int resultCode, Intent data);
+
+  /**
+   * Called on the launching Activity when an Activity it started for a result finishes. Mirrors
+   * {@code android.app.Activity#onActivityResult}. Default no-op; override to read the result.
+   * {@code data} is {@code null} unless the child called {@code setResult(int, Intent)}.
+   */
+  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    // Subclass overrides
+  }
 
   /**
    * Return the Intent that launched this Activity, or {@code null} for the app's boot Activity

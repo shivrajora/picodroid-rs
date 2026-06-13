@@ -77,6 +77,9 @@ pub const RADIO_BUTTON: usize = 35;
 pub const ALERT_DIALOG_ITEM: usize = 36;
 /// View long-press (LV_EVENT_LONG_PRESSED) → `View.fireLongClick()`.
 pub const VIEW_LONG_CLICK: usize = 37;
+/// `onActivityResult(int requestCode, int resultCode, Intent data)` — delivered
+/// to the launching Activity when a for-result child finishes (before onRestart).
+pub const ACTIVITY_ON_ACTIVITY_RESULT: usize = 38;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -122,6 +125,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
     ("picodroid/app/AlertDialog", "fireItemClick"),
     ("picodroid/view/View", "fireLongClick"),
+    ("picodroid/app/Activity", "onActivityResult"),
 ];
 
 #[cfg(test)]

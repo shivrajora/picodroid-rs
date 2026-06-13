@@ -11,6 +11,7 @@ import picodroid.widget.TextView;
 
 public class HomeActivity extends Activity {
   private int buildCount = 0;
+  private boolean probeLaunched = false;
 
   @Override
   public void onCreate() {
@@ -19,6 +20,27 @@ public class HomeActivity extends Activity {
     // (it is null only for a manifest `activity=` boot with no app-side launch).
     Log.i("NavDemo", "Home intent null=" + (getIntent() == null));
     buildUi();
+    // One-shot for-result round-trip: launch a probe that immediately reports
+    // RESULT_OK + finishes; the result lands in onActivityResult below.
+    if (!probeLaunched) {
+      probeLaunched = true;
+      startActivityForResult(new Intent(ResultProbeActivity.class), 7);
+    }
+  }
+
+  @Override
+  public void onRestart() {
+    Log.i("NavDemo", "Home.onRestart");
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    // Delivered AFTER restore but BEFORE onRestart (Android order — the
+    // onRestart log lands after this one).
+    int answer = data == null ? -1 : data.getIntExtra("answer", -1);
+    Log.i(
+        "NavDemo",
+        "Home.onActivityResult req=" + requestCode + " code=" + resultCode + " answer=" + answer);
   }
 
   @Override

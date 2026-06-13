@@ -38,6 +38,12 @@ pub enum PendingActivityOp {
     Push {
         class_name: &'static str,
         intent_ref: Option<u16>,
+        /// `Some(code)` for `startActivityForResult`; `None` for plain
+        /// `startActivity`. Carried onto the new stack entry.
+        request_code: Option<i32>,
+        /// obj_ref of the launching Activity (0 for an Application-level
+        /// boot launch). The result delivery guard checks this on pop.
+        caller_ref: u16,
     },
     /// `Activity.finish()` — pop the current top off the stack. If the
     /// stack is left empty, [`run_activity`] returns and the app exits.
@@ -99,6 +105,21 @@ struct ActivityStackEntry {
     /// the view survives while a child Activity is on top) and restored
     /// back into `CURRENT_ROOT_ID` on pop.
     root_handle: i32,
+    /// `Some(code)` when this Activity was launched via
+    /// `startActivityForResult` — the request code delivered to the caller's
+    /// `onActivityResult` when this Activity finishes. `None` for a plain
+    /// `startActivity`.
+    request_code: Option<i32>,
+    /// obj_ref of the Activity that launched this one with a request code.
+    /// The result is delivered only when this caller is the one uncovered on
+    /// pop (the A→B→C guard — B finishing must not deliver to C).
+    caller_ref: u16,
+    /// Result code set via `setResult` (default `RESULT_CANCELED` == 0, the
+    /// Android default for a finished Activity that never called setResult).
+    result_code: i32,
+    /// Result Intent set via `setResult(int, Intent)`. Rooted by the GC
+    /// visitor below until delivered on pop.
+    result_intent_ref: Option<u16>,
 }
 
 /// Fixed-capacity LIFO of Activity entries. Push fails soft (returns
@@ -131,6 +152,8 @@ impl ActivityStack {
         obj_ref: u16,
         class_name: &'static str,
         intent_ref: Option<u16>,
+        request_code: Option<i32>,
+        caller_ref: u16,
     ) -> bool {
         if self.len >= MAX_ACTIVITY_STACK {
             return false;
@@ -140,9 +163,44 @@ impl ActivityStack {
             class_name,
             intent_ref,
             root_handle: 0,
+            request_code,
+            caller_ref,
+            // RESULT_CANCELED — Android's default when an Activity finishes
+            // without calling setResult.
+            result_code: 0,
+            result_intent_ref: None,
         });
         self.len += 1;
         true
+    }
+
+    /// Record a result on the Activity identified by `obj_ref` (`setResult`).
+    /// Searches the whole stack so a paused Activity can set its result.
+    pub fn set_result(&mut self, obj_ref: u16, code: i32, intent_ref: Option<u16>) {
+        if let Some(entry) = self.entries[..self.len]
+            .iter_mut()
+            .flatten()
+            .find(|e| e.obj_ref == obj_ref)
+        {
+            entry.result_code = code;
+            entry.result_intent_ref = intent_ref;
+        }
+    }
+
+    /// The top entry's result delivery info `(request_code, caller_ref,
+    /// result_code, result_intent_ref)`, or `None` when the top wasn't
+    /// launched for-result. Read before `pop` so `handle_pop_op` can deliver
+    /// `onActivityResult` to the uncovered caller.
+    pub fn top_result(&self) -> Option<(i32, u16, i32, Option<u16>)> {
+        let entry = self.entries[..self.len].last()?.as_ref()?;
+        entry.request_code.map(|rc| {
+            (
+                rc,
+                entry.caller_ref,
+                entry.result_code,
+                entry.result_intent_ref,
+            )
+        })
     }
 
     /// The Intent that launched the Activity identified by `obj_ref`, for
@@ -202,6 +260,16 @@ impl ActivityStack {
             .iter()
             .flatten()
             .filter_map(|e| e.intent_ref)
+    }
+
+    /// Live entries' pending result Intent refs, for the GC visit-roots path
+    /// — a result Intent set via `setResult` must survive until it is
+    /// delivered to the caller's `onActivityResult` on pop.
+    pub fn iter_result_intents(&self) -> impl Iterator<Item = u16> + '_ {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .filter_map(|e| e.result_intent_ref)
     }
 }
 
@@ -322,24 +390,24 @@ mod tests {
     #[test]
     fn push_then_current_returns_pushed() {
         let mut s = ActivityStack::new();
-        assert!(s.push(7, A, None));
+        assert!(s.push(7, A, None, None, 0));
         assert_eq!(s.current(), Some((7, A)));
     }
 
     #[test]
     fn current_returns_top_of_stack() {
         let mut s = ActivityStack::new();
-        s.push(1, A, None);
-        s.push(2, B, None);
-        s.push(3, C, None);
+        s.push(1, A, None, None, 0);
+        s.push(2, B, None, None, 0);
+        s.push(3, C, None, None, 0);
         assert_eq!(s.current(), Some((3, C)));
     }
 
     #[test]
     fn pop_uncovers_parent() {
         let mut s = ActivityStack::new();
-        s.push(1, A, None);
-        s.push(2, B, None);
+        s.push(1, A, None, None, 0);
+        s.push(2, B, None, None, 0);
         let popped = s.pop();
         assert_eq!(popped, Some((2, B, 0)));
         assert_eq!(s.current(), Some((1, A)));
@@ -355,10 +423,10 @@ mod tests {
     fn push_when_full_returns_false_without_corruption() {
         let mut s = ActivityStack::new();
         for i in 0..MAX_ACTIVITY_STACK as u16 {
-            assert!(s.push(i, A, None), "push {} should fit", i);
+            assert!(s.push(i, A, None, None, 0), "push {} should fit", i);
         }
         assert!(
-            !s.push(99, B, None),
+            !s.push(99, B, None, None, 0),
             "push past MAX_ACTIVITY_STACK must fail"
         );
         assert_eq!(s.current(), Some((MAX_ACTIVITY_STACK as u16 - 1, A)));
@@ -370,7 +438,7 @@ mod tests {
     fn push_pop_round_trip_is_symmetric() {
         let mut s = ActivityStack::new();
         for i in 0..MAX_ACTIVITY_STACK as u16 {
-            s.push(i, A, None);
+            s.push(i, A, None, None, 0);
         }
         for _ in 0..MAX_ACTIVITY_STACK {
             assert!(s.pop().is_some());
@@ -384,7 +452,7 @@ mod tests {
     #[test]
     fn set_current_root_handle_updates_top_entry() {
         let mut s = ActivityStack::new();
-        s.push(1, A, None);
+        s.push(1, A, None, None, 0);
         s.set_current_root_handle(42);
         assert_eq!(s.current_root_handle(), 42);
     }
@@ -403,9 +471,9 @@ mod tests {
     #[test]
     fn pushing_child_preserves_parent_root_handle() {
         let mut s = ActivityStack::new();
-        s.push(1, A, None);
+        s.push(1, A, None, None, 0);
         s.set_current_root_handle(11);
-        s.push(2, B, None);
+        s.push(2, B, None, None, 0);
         assert_eq!(s.current_root_handle(), 0);
         s.pop();
         assert_eq!(s.current_root_handle(), 11);
@@ -416,7 +484,7 @@ mod tests {
     #[test]
     fn pop_returns_saved_root_handle() {
         let mut s = ActivityStack::new();
-        s.push(7, A, None);
+        s.push(7, A, None, None, 0);
         s.set_current_root_handle(123);
         assert_eq!(s.pop(), Some((7, A, 123)));
     }
@@ -424,9 +492,9 @@ mod tests {
     #[test]
     fn iter_walks_bottom_to_top() {
         let mut s = ActivityStack::new();
-        s.push(1, A, None);
-        s.push(2, B, None);
-        s.push(3, C, None);
+        s.push(1, A, None, None, 0);
+        s.push(2, B, None, None, 0);
+        s.push(3, C, None, None, 0);
         let v: alloc::vec::Vec<_> = s.iter().collect();
         assert_eq!(v, alloc::vec![(1, A), (2, B), (3, C)]);
     }
@@ -439,10 +507,14 @@ mod tests {
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
             intent_ref: None,
+            request_code: None,
+            caller_ref: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: B,
             intent_ref: None,
+            request_code: None,
+            caller_ref: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
         match q.take_next() {
@@ -491,6 +563,8 @@ mod tests {
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
             intent_ref: None,
+            request_code: None,
+            caller_ref: 0,
         }));
         q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: B }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
@@ -516,6 +590,8 @@ mod tests {
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: A,
             intent_ref: None,
+            request_code: None,
+            caller_ref: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();

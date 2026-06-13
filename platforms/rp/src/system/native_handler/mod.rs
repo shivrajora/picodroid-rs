@@ -101,8 +101,52 @@ impl PicodroidNativeHandler {
         obj_ref: u16,
         class_name: &'static str,
         intent_ref: Option<u16>,
+        request_code: Option<i32>,
+        caller_ref: u16,
     ) -> bool {
-        self.activity_stack.push(obj_ref, class_name, intent_ref)
+        self.activity_stack
+            .push(obj_ref, class_name, intent_ref, request_code, caller_ref)
+    }
+
+    /// `Activity.setResult` — record the result on the calling Activity's
+    /// stack entry, delivered to its launcher's `onActivityResult` on pop.
+    pub fn set_activity_result(&mut self, obj_ref: u16, code: i32, intent_ref: Option<u16>) {
+        self.activity_stack.set_result(obj_ref, code, intent_ref);
+    }
+
+    /// Shared body of `startActivity` / `startActivityForResult`: resolve the
+    /// Intent's target class and enqueue a Push op carrying the result-launch
+    /// metadata. `args[1]` is the Intent ObjectRef.
+    fn enqueue_activity_push(
+        &mut self,
+        ctx: &NativeContext<'_>,
+        request_code: Option<i32>,
+        caller_ref: u16,
+    ) {
+        if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
+            if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(*intent_ref, 0) {
+                if let Some(class_name) = ctx.strings.resolve(name_idx) {
+                    // SAFETY: targetClassName originates from `Class.getName()`,
+                    // whose returned string-table slot is backed by Flash bytes
+                    // for the lifetime of the JVM (see jvm/src/heap.rs).
+                    let static_name: &'static str =
+                        unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
+                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                        class_name: static_name,
+                        intent_ref: Some(*intent_ref),
+                        request_code,
+                        caller_ref,
+                    }));
+                }
+            }
+        }
+    }
+
+    /// The top Activity's pending-result tuple `(request_code, caller_ref,
+    /// result_code, result_intent_ref)`, or `None` when it wasn't launched
+    /// for-result. Read by `handle_pop_op` before popping.
+    pub fn top_activity_result(&self) -> Option<(i32, u16, i32, Option<u16>)> {
+        self.activity_stack.top_result()
     }
 
     /// Pop the top activity off the stack. Returns the popped entry, or
@@ -156,6 +200,11 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         // ...and each entry's retained launch Intent, which backs
         // Activity.getIntent() for the entry's whole lifetime.
         for intent_ref in self.activity_stack.iter_intents() {
+            visit(Value::ObjectRef(intent_ref));
+        }
+        // ...and any pending setResult Intent, which must survive until it is
+        // delivered to the caller's onActivityResult on pop.
+        for intent_ref in self.activity_stack.iter_result_intents() {
             visit(Value::ObjectRef(intent_ref));
         }
 
@@ -311,25 +360,37 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
             (_, "startActivity") => {
-                // args[0] = this (Application or Activity), args[1] = Intent ObjectRef.
-                // The Intent's `targetClassName` (slot 0, a String Reference) names the
-                // Activity to launch; the framework allocates and runs <init> when the
-                // pending op is processed in lifecycle.rs.
-                if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
-                    if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(*intent_ref, 0)
-                    {
-                        if let Some(class_name) = ctx.strings.resolve(name_idx) {
-                            // SAFETY: targetClassName originates from `Class.getName()`,
-                            // whose returned string-table slot is backed by Flash bytes
-                            // for the lifetime of the JVM (see jvm/src/heap.rs).
-                            let static_name: &'static str =
-                                unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
-                            self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
-                                class_name: static_name,
-                                intent_ref: Some(*intent_ref),
-                            }));
-                        }
-                    }
+                self.enqueue_activity_push(ctx, None, 0);
+                Some(Ok(None))
+            }
+            (_, "startActivityForResult") => {
+                // args[0] = this (Activity), args[1] = Intent, args[2] = int requestCode.
+                // The receiver is the caller that will get onActivityResult.
+                let caller_ref = match ctx.args.first() {
+                    Some(Value::ObjectRef(r)) => *r,
+                    _ => 0,
+                };
+                let request_code = match ctx.args.get(2) {
+                    Some(Value::Int(c)) => *c,
+                    _ => 0,
+                };
+                self.enqueue_activity_push(ctx, Some(request_code), caller_ref);
+                Some(Ok(None))
+            }
+            (_, "setResult") => {
+                // args[0] = this (Activity), args[1] = int resultCode,
+                // optional args[2] = Intent. Recorded on the caller's stack
+                // entry, delivered to its launcher on finish.
+                if let Some(Value::ObjectRef(obj)) = ctx.args.first() {
+                    let code = match ctx.args.get(1) {
+                        Some(Value::Int(c)) => *c,
+                        _ => 0,
+                    };
+                    let intent_ref = match ctx.args.get(2) {
+                        Some(Value::ObjectRef(r)) => Some(*r),
+                        _ => None,
+                    };
+                    self.set_activity_result(*obj, code, intent_ref);
                 }
                 Some(Ok(None))
             }

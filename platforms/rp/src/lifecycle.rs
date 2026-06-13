@@ -80,6 +80,9 @@ pub(crate) fn run_application(
             PendingOp::Activity(PendingActivityOp::Push {
                 class_name,
                 intent_ref,
+                // The boot Activity is never launched for-result, so its
+                // request_code/caller_ref are ignored.
+                ..
             }) => {
                 activity_push = Some((class_name, intent_ref));
                 break;
@@ -324,7 +327,8 @@ fn bootstrap_activity(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    if !handler.push_activity(initial_ref, initial_class, initial_intent) {
+    // The bootstrap Activity is never launched for-result.
+    if !handler.push_activity(initial_ref, initial_class, initial_intent, None, 0) {
         log_error!("activity stack overflow on bootstrap: {}", initial_class);
         return LifecycleControl::Break;
     }
@@ -487,6 +491,48 @@ fn invoke_lifecycle(
     }
 }
 
+/// Like [`invoke_lifecycle`] but for a callback taking extra arguments
+/// (onActivityResult). Same subclass-first / framework-default fallback.
+#[cfg(not(test))]
+fn invoke_lifecycle_with_args(
+    jvm: &mut Jvm,
+    subclass: &'static str,
+    fallback_idx: usize,
+    obj_ref: u16,
+    extra_args: &[pico_jvm::types::Value],
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    let method = dispatch_method(fallback_idx);
+    match jvm
+        .invoke_instance_with_args_returning(subclass, method, obj_ref, extra_args, heap, handler)
+    {
+        Ok(_) => return LifecycleControl::Continue,
+        Err(JvmError::MethodNotFound) => { /* fall through to framework default */ }
+        Err(JvmError::Interrupted) => return LifecycleControl::Break,
+        Err(e) => {
+            log_error!("Activity lifecycle error: {}", e);
+            return LifecycleControl::Continue;
+        }
+    }
+    let fallback_class = dispatch_class(fallback_idx);
+    match jvm.invoke_instance_with_args_returning(
+        fallback_class,
+        method,
+        obj_ref,
+        extra_args,
+        heap,
+        handler,
+    ) {
+        Ok(_) => LifecycleControl::Continue,
+        Err(JvmError::Interrupted) => LifecycleControl::Break,
+        Err(e) => {
+            log_error!("Activity lifecycle fallback error: {}", e);
+            LifecycleControl::Continue
+        }
+    }
+}
+
 /// Park the current top Activity's content view: hide it and snapshot the
 /// handle into its stack entry, then clear CURRENT_ROOT_ID so the next
 /// `setContentView` lands on a clean slate.
@@ -534,10 +580,13 @@ fn restore_top_view(handler: &mut crate::system::native_handler::PicodroidNative
 /// any), push the new Activity, drive onCreate→onStart→onResume on it, then
 /// trailing onStop on the previous top per Android ordering.
 #[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
 fn handle_push_op(
     jvm: &mut Jvm,
     new_class: &'static str,
     new_intent: Option<u16>,
+    request_code: Option<i32>,
+    caller_ref: u16,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
@@ -568,7 +617,7 @@ fn handle_push_op(
         }
         park_top_view(handler);
     }
-    if !handler.push_activity(new_ref, new_class, new_intent) {
+    if !handler.push_activity(new_ref, new_class, new_intent, request_code, caller_ref) {
         log_error!("activity stack overflow on push: {}", new_class);
         // Rollback: unpark prev's view so it isn't left hidden forever.
         if prev.is_some() {
@@ -624,6 +673,9 @@ fn handle_pop_op(
         Some(t) => t,
         None => return LifecycleControl::Continue, // already empty
     };
+    // Snapshot the finishing Activity's result BEFORE the pop (it lives on the
+    // entry being removed). Delivered to the uncovered caller below.
+    let pending_result = handler.top_activity_result();
     for site in [
         dispatch_sites::ACTIVITY_ON_PAUSE,
         dispatch_sites::ACTIVITY_ON_STOP,
@@ -663,6 +715,36 @@ fn handle_pop_op(
     // set_content_view's prev-delete branch).
     if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
         restore_top_view(handler);
+        // Result delivery (AOSP order): deliverResults precedes
+        // performResume→performRestart, so onActivityResult lands AFTER
+        // restore_top_view but BEFORE onRestart. Guarded by caller_ref ==
+        // the uncovered Activity, so a deeper finish (A→B→C, C finishes to B)
+        // never misdelivers A's result to C.
+        if let Some((request_code, caller_ref, result_code, result_intent)) = pending_result {
+            if caller_ref == new_top_ref {
+                let intent_arg = match result_intent {
+                    Some(r) => pico_jvm::types::Value::ObjectRef(r),
+                    None => pico_jvm::types::Value::Null,
+                };
+                if invoke_lifecycle_with_args(
+                    jvm,
+                    new_top_class,
+                    dispatch_sites::ACTIVITY_ON_ACTIVITY_RESULT,
+                    new_top_ref,
+                    &[
+                        pico_jvm::types::Value::Int(request_code),
+                        pico_jvm::types::Value::Int(result_code),
+                        intent_arg,
+                    ],
+                    heap,
+                    handler,
+                )
+                .is_break()
+                {
+                    return LifecycleControl::Break;
+                }
+            }
+        }
         // Android's stopped->foreground edge: onRestart precedes onStart when
         // returning after a child Activity finished above this one.
         for site in [
@@ -697,7 +779,17 @@ fn process_pending_op(
         PendingOp::Activity(PendingActivityOp::Push {
             class_name,
             intent_ref,
-        }) => handle_push_op(jvm, class_name, intent_ref, heap, handler),
+            request_code,
+            caller_ref,
+        }) => handle_push_op(
+            jvm,
+            class_name,
+            intent_ref,
+            request_code,
+            caller_ref,
+            heap,
+            handler,
+        ),
         PendingOp::Activity(PendingActivityOp::Pop) => handle_pop_op(jvm, heap, handler),
     }
 }
