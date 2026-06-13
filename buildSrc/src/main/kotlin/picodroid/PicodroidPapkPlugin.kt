@@ -82,6 +82,19 @@ class PicodroidPapkPlugin : Plugin<Project> {
             ?.let { it.equals("true", ignoreCase = true) || it == "1" } ?: false
         val shrinkActive = frameworkMapVersion != ShrinkMapResolver.UNRELEASED
 
+        // With aliasing on, put the generated android.* stub jar on the app's
+        // compileOnly classpath so `import android.view.View` resolves at
+        // compile time. The stubs never ship — app bytecode references android/*
+        // and class-shrink rewrites those to picodroid/* (the real classes).
+        if (compatAliases) {
+            target.dependencies.add(
+                JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME,
+                target.dependencies.project(
+                    mapOf("path" to sdkProjectPath, "configuration" to "androidStubsElements")
+                )
+            )
+        }
+
         val packClassesInput = if (shrinkActive || compatAliases) {
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 dependsOn(compileJava)
