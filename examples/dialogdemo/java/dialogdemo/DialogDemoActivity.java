@@ -50,6 +50,7 @@ public class DialogDemoActivity extends Activity {
               .setPositiveButton("OK", (dialog, which) -> c.appComponent().info("user confirmed"))
               .setNegativeButton(
                   "Cancel", (dialog, which) -> c.appComponent().info("user cancelled"))
+              .setNeutralButton("Later", (dialog, which) -> c.appComponent().info("user deferred"))
               .show();
         });
     root.addView(dialogBtn);

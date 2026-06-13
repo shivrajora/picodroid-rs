@@ -9,10 +9,12 @@ public class AlertDialog implements DialogInterface {
   // `which == DialogInterface.BUTTON_POSITIVE` keep working.
   static final int WHICH_POSITIVE_INTERNAL = 0;
   static final int WHICH_NEGATIVE_INTERNAL = 1;
+  static final int WHICH_NEUTRAL_INTERNAL = 2;
 
   private final int nativeHandle;
   private DialogInterface.OnClickListener positiveListener;
   private DialogInterface.OnClickListener negativeListener;
+  private DialogInterface.OnClickListener neutralListener;
 
   private AlertDialog(int nativeHandle) {
     this.nativeHandle = nativeHandle;
@@ -40,12 +42,18 @@ public class AlertDialog implements DialogInterface {
    * DialogInterface.BUTTON_POSITIVE} / {@code BUTTON_NEGATIVE} values before invoking the listener.
    */
   void fireButtonClick(int whichInternal) {
-    DialogInterface.OnClickListener l =
-        (whichInternal == WHICH_POSITIVE_INTERNAL) ? positiveListener : negativeListener;
-    int which =
-        (whichInternal == WHICH_POSITIVE_INTERNAL)
-            ? DialogInterface.BUTTON_POSITIVE
-            : DialogInterface.BUTTON_NEGATIVE;
+    DialogInterface.OnClickListener l;
+    int which;
+    if (whichInternal == WHICH_POSITIVE_INTERNAL) {
+      l = positiveListener;
+      which = DialogInterface.BUTTON_POSITIVE;
+    } else if (whichInternal == WHICH_NEGATIVE_INTERNAL) {
+      l = negativeListener;
+      which = DialogInterface.BUTTON_NEGATIVE;
+    } else {
+      l = neutralListener;
+      which = DialogInterface.BUTTON_NEUTRAL;
+    }
     if (l != null) {
       l.onClick(this, which);
     }
@@ -53,7 +61,7 @@ public class AlertDialog implements DialogInterface {
   }
 
   private static native int nativeCreate(
-      String title, String message, String positiveText, String negativeText);
+      String title, String message, String positiveText, String negativeText, String neutralText);
 
   private static native void nativeShow(int nativeHandle);
 
@@ -68,6 +76,8 @@ public class AlertDialog implements DialogInterface {
     private DialogInterface.OnClickListener positiveListener;
     private String negativeText;
     private DialogInterface.OnClickListener negativeListener;
+    private String neutralText;
+    private DialogInterface.OnClickListener neutralListener;
 
     public Builder() {}
 
@@ -95,6 +105,13 @@ public class AlertDialog implements DialogInterface {
       return this;
     }
 
+    /** Mirrors {@code AlertDialog.Builder#setNeutralButton}; placed leftmost, Android-style. */
+    public Builder setNeutralButton(String text, DialogInterface.OnClickListener listener) {
+      this.neutralText = text;
+      this.neutralListener = listener;
+      return this;
+    }
+
     public AlertDialog create() {
       AlertDialog d =
           new AlertDialog(
@@ -102,9 +119,11 @@ public class AlertDialog implements DialogInterface {
                   title,
                   message,
                   positiveText == null ? "" : positiveText,
-                  negativeText == null ? "" : negativeText));
+                  negativeText == null ? "" : negativeText,
+                  neutralText == null ? "" : neutralText));
       d.positiveListener = positiveListener;
       d.negativeListener = negativeListener;
+      d.neutralListener = neutralListener;
       d.nativeRegisterButtonClickListener();
       return d;
     }

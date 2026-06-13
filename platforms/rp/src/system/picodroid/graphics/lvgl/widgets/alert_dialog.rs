@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! LVGL impl of `AlertDialog` — a modal dialog with title/message and up to
-//! two buttons (positive / negative).
+//! three buttons (neutral / negative / positive, left to right — Android's
+//! placement).
 //!
 //! Composition (z-order, bottom→top):
 //! - `scrim` — fullscreen `lv_obj_t` parented to the active screen, with
@@ -23,6 +24,7 @@ use super::super::lifecycle;
 
 const BUTTON_POSITIVE: i32 = 0;
 const BUTTON_NEGATIVE: i32 = 1;
+const BUTTON_NEUTRAL: i32 = 2;
 
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
@@ -168,6 +170,7 @@ pub(in crate::system::picodroid::graphics) fn create(
     message: &str,
     positive_text: &str,
     negative_text: &str,
+    neutral_text: &str,
 ) -> i32 {
     let scr = lifecycle::screen_ptr();
     let scrim = unsafe { lv_obj_create(scr) };
@@ -236,11 +239,34 @@ pub(in crate::system::picodroid::graphics) fn create(
 
         let scrim_ptr = scrim as usize;
 
+        // Three buttons share the 176px row only at a narrower width; with
+        // one or two, keep the roomier 80px Android-ish buttons.
+        let n_buttons = (!positive_text.is_empty()) as i32
+            + (!negative_text.is_empty()) as i32
+            + (!neutral_text.is_empty()) as i32;
+        let btn_w = if n_buttons >= 3 { 54 } else { 80 };
+
+        if !neutral_text.is_empty() {
+            // Android places the neutral action leftmost in the row.
+            let neu_btn = lv_button_create(btn_row);
+            lv_obj_set_size(neu_btn, btn_w, 36);
+            let neu_label = lv_label_create(neu_btn);
+            set_label_text(neu_label, neutral_text);
+            lv_obj_center(neu_label);
+            lv_obj_add_event_cb(
+                neu_btn,
+                Some(dialog_button_click_cb),
+                LV_EVENT_CLICKED,
+                core::ptr::null_mut(),
+            );
+            register_button(neu_btn as usize, scrim_ptr, BUTTON_NEUTRAL);
+        }
+
         if !negative_text.is_empty() {
             // Order matters: in flex-row layout, negative goes left of
             // positive (matches Material guidelines and Android convention).
             let neg_btn = lv_button_create(btn_row);
-            lv_obj_set_size(neg_btn, 80, 36);
+            lv_obj_set_size(neg_btn, btn_w, 36);
             let neg_label = lv_label_create(neg_btn);
             set_label_text(neg_label, negative_text);
             lv_obj_center(neg_label);
@@ -255,7 +281,7 @@ pub(in crate::system::picodroid::graphics) fn create(
 
         if !positive_text.is_empty() {
             let pos_btn = lv_button_create(btn_row);
-            lv_obj_set_size(pos_btn, 80, 36);
+            lv_obj_set_size(pos_btn, btn_w, 36);
             let pos_label = lv_label_create(pos_btn);
             set_label_text(pos_label, positive_text);
             lv_obj_center(pos_label);

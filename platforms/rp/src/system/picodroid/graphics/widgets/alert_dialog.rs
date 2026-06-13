@@ -21,7 +21,7 @@ fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
     }
 }
 
-/// `AlertDialog.nativeCreate(String title, String message, String pos, String neg) -> int`
+/// `AlertDialog.nativeCreate(String title, String message, String pos, String neg, String neu) -> int`
 pub fn alert_dialog_native_create(
     args: &[Value],
     strings: &StringTable,
@@ -30,8 +30,9 @@ pub fn alert_dialog_native_create(
     let message = extract_string_at(args, 1, strings).unwrap_or("");
     let pos = extract_string_at(args, 2, strings).unwrap_or("");
     let neg = extract_string_at(args, 3, strings).unwrap_or("");
+    let neu = extract_string_at(args, 4, strings).unwrap_or("");
     Ok(Some(Value::Int(lvgl_dialog::create(
-        title, message, pos, neg,
+        title, message, pos, neg, neu,
     ))))
 }
 
