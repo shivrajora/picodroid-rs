@@ -28,7 +28,16 @@ pub(crate) fn dispatch(
                     if desc.starts_with("(C)") {
                         // append(char): emit the character as a single byte.
                         // Multi-byte Unicode chars are not supported on this platform.
-                        let ch = (*n as u8).max(0x20); // replace non-printable with space
+                        // Whitespace controls (`\t \n \r`) pass through verbatim —
+                        // Java's append('\n') must yield a newline (StringBuilder
+                        // line-joining, AlertDialog item lists); only other
+                        // sub-0x20 controls become a space to avoid garbage glyphs.
+                        let b = *n as u8;
+                        let ch = if b >= 0x20 || b == b'\n' || b == b'\t' || b == b'\r' {
+                            b
+                        } else {
+                            b' '
+                        };
                         ctx.objects.sb_append_bytes(&[ch]);
                     } else if desc.starts_with("(Z)") {
                         // append(boolean)

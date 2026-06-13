@@ -670,6 +670,41 @@ fn sb_append_char() {
 }
 
 #[test]
+fn sb_append_char_newline_passes_through() {
+    // Java's append('\n') must yield a real newline (line-joining,
+    // AlertDialog item lists) — not a space (regression for the old
+    // `.max(0x20)` that turned every sub-0x20 control into a space).
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'a' as i32)),
+    )
+    .unwrap();
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'\n' as i32)),
+    )
+    .unwrap();
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'b' as i32)),
+    )
+    .unwrap();
+    // A bell (0x07) is still scrubbed to a space.
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(0x07)),
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "a\nb ");
+}
+
+#[test]
 fn sb_append_bool_true() {
     let mut ctx = SbCtx::new();
     ctx.call("<init>", "()V", None).unwrap();
