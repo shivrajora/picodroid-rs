@@ -73,6 +73,10 @@ public class GestureDemoActivity extends Activity {
                 status.setText("Fling " + dir + " (vx=" + (int) vx + ", vy=" + (int) vy + ")");
               }
             }));
+    // GestureDetector.onTouch returns true (consumes the stream), so this
+    // click must be suppressed when the surface is tapped — Android's
+    // contract. If "surface-click-LEAK" ever logs, suppression broke.
+    surface.setOnClickListener(v -> app.info("surface-click-LEAK"));
     root.addView(surface);
 
     // A second tile wired to View.OnLongClickListener directly (the LVGL
@@ -87,6 +91,9 @@ public class GestureDemoActivity extends Activity {
           app.info("tile long-clicked");
           return true;
         });
+    // No onTouch consumer on this tile, so a short tap's click fires normally
+    // (the suppression baseline — proves the reorder didn't break clicks).
+    tile.setOnClickListener(v -> app.info("tile-click-ok"));
     root.addView(tile);
     if (tile.performLongClick()) {
       app.info("long-click consumed");

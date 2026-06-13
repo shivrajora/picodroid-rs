@@ -395,8 +395,12 @@ fn dispatch_widget_events(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
-    dispatch_clicks(jvm, heap, handler);
+    // Android order: onTouch precedes onClick. Touch + long-press run first
+    // so a consumed gesture can suppress the same-tick synthetic click (LVGL
+    // enqueues the UP touch, the LONG_PRESSED, and the CLICKED in one g.tick).
+    dispatch_touch_events(jvm, heap, handler);
     dispatch_long_clicks(jvm, heap, handler);
+    dispatch_clicks(jvm, heap, handler);
     dispatch_checked_changes(jvm, heap, handler);
     dispatch_switch_checked_changes(jvm, heap, handler);
     dispatch_number_picker_steps(jvm, heap, handler);
@@ -417,7 +421,6 @@ fn dispatch_widget_events(
     dispatch_swipe_refresh(jvm, heap, handler);
     dispatch_keyboard_ready(jvm, heap, handler);
     dispatch_editor_actions(jvm, heap, handler);
-    dispatch_touch_events(jvm, heap, handler);
     dispatch_key_events(jvm, heap, handler);
     crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
 }
@@ -707,9 +710,15 @@ fn dispatch_clicks(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
+    use crate::system::picodroid::graphics::lvgl::events;
     use crate::system::picodroid::graphics::widgets;
 
     while let Some(handle) = widgets::drain_click_queue() {
+        // Suppress this click if onTouch or a long-press consumed the gesture
+        // (set earlier this tick by dispatch_touch_events / dispatch_long_clicks).
+        if events::take_click_suppressed(handle) {
+            continue;
+        }
         if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
             // fireClick() is a package-private method on View that invokes
             // onClickListener.onClick(this); any view subclass with a
@@ -736,15 +745,24 @@ fn dispatch_long_clicks(
 ) {
     use crate::system::picodroid::graphics::widgets;
 
+    use crate::system::picodroid::graphics::lvgl::events;
+
     while let Some(handle) = widgets::drain_long_click_queue() {
         if let Some(obj_ref) = widgets::lookup_long_click_obj(handle) {
-            let _ = jvm.invoke_instance(
+            // A consumed long click (fireLongClick returns true) suppresses
+            // the subsequent click — LVGL fires CLICKED after LONG_PRESSED,
+            // so this matches Android. An unhandled long press still clicks.
+            let ret = jvm.invoke_instance_with_args_returning(
                 dispatch_class(dispatch_sites::VIEW_LONG_CLICK),
                 dispatch_method(dispatch_sites::VIEW_LONG_CLICK),
                 obj_ref,
+                &[],
                 heap,
                 handler,
             );
+            if matches!(ret, Ok(Some(pico_jvm::types::Value::Int(v))) if v != 0) {
+                events::set_click_suppressed(handle);
+            }
         }
     }
 }
@@ -1141,7 +1159,15 @@ fn dispatch_touch_events(
     use crate::system::picodroid::graphics::lvgl::events;
     use pico_jvm::types::Value;
 
+    // MotionEvent.ACTION_DOWN value (see MotionEvent.java).
+    const ACTION_DOWN: i32 = 0;
+
     while let Some(rec) = events::drain_touch_event() {
+        // ACTION_DOWN starts a fresh gesture — clear any stale suppress flag.
+        if rec.action == ACTION_DOWN {
+            events::clear_click_suppressed(rec.view_handle);
+        }
+
         let view_ref = match events::lookup_touch_view_obj(rec.view_handle) {
             Some(r) => r,
             None => continue,
@@ -1192,7 +1218,9 @@ fn dispatch_touch_events(
             continue;
         }
 
-        let _ = jvm.invoke_instance_with_args(
+        // fireTouch returns the onTouchListener's boolean. A consumed touch
+        // (true) suppresses the synthetic click for this gesture (Android).
+        let ret = jvm.invoke_instance_with_args_returning(
             dispatch_class(dispatch_sites::VIEW_TOUCH),
             dispatch_method(dispatch_sites::VIEW_TOUCH),
             view_ref,
@@ -1200,6 +1228,12 @@ fn dispatch_touch_events(
             heap,
             handler,
         );
+        // Consuming any event of the gesture suppresses the click; the
+        // DOWN-reset above re-arms it each fresh gesture.
+        let consumed = matches!(ret, Ok(Some(Value::Int(v))) if v != 0);
+        if consumed {
+            events::set_click_suppressed(rec.view_handle);
+        }
     }
 }
 

@@ -767,8 +767,63 @@ pub fn reset_view_touch_listener_state() {
         VIEW_TOUCH_MAP_LEN = 0;
         TOUCH_QUEUE_HEAD = 0;
         TOUCH_QUEUE_TAIL = 0;
+        CLICK_SUPPRESS_LEN = 0;
     }
     reset_pressing_coalesce();
+}
+
+// ── Click-suppression flags (Android: consumed onTouch / consumed long-press
+//    suppress the synthetic click) ───────────────────────────────────────────
+//
+// Per-widget handle (raw lv_obj_t*) flags — no Java refs, so no GC rooting.
+// Set when onTouch or onLongClick returns true; cleared on ACTION_DOWN (start
+// of a fresh gesture) and consumed (check-and-clear) by the click dispatcher.
+
+const MAX_SUPPRESS: usize = 32;
+static mut CLICK_SUPPRESS: [usize; MAX_SUPPRESS] = [0; MAX_SUPPRESS];
+static mut CLICK_SUPPRESS_LEN: usize = 0;
+
+/// Mark `handle`'s next synthetic click as suppressed (onTouch / long-press
+/// consumed the gesture).
+pub fn set_click_suppressed(handle: usize) {
+    unsafe {
+        for &h in &CLICK_SUPPRESS[..CLICK_SUPPRESS_LEN] {
+            if h == handle {
+                return;
+            }
+        }
+        if CLICK_SUPPRESS_LEN < MAX_SUPPRESS {
+            CLICK_SUPPRESS[CLICK_SUPPRESS_LEN] = handle;
+            CLICK_SUPPRESS_LEN += 1;
+        }
+    }
+}
+
+/// Clear `handle`'s suppress flag — called on ACTION_DOWN to start each
+/// gesture clean.
+pub fn clear_click_suppressed(handle: usize) {
+    unsafe {
+        let len = CLICK_SUPPRESS_LEN;
+        if let Some(i) = CLICK_SUPPRESS[..len].iter().position(|&h| h == handle) {
+            CLICK_SUPPRESS[i] = CLICK_SUPPRESS[len - 1];
+            CLICK_SUPPRESS_LEN = len - 1;
+        }
+    }
+}
+
+/// Check-and-clear: returns whether the next click for `handle` should be
+/// suppressed, consuming the flag. Called by the click dispatcher.
+pub fn take_click_suppressed(handle: usize) -> bool {
+    unsafe {
+        let len = CLICK_SUPPRESS_LEN;
+        if let Some(i) = CLICK_SUPPRESS[..len].iter().position(|&h| h == handle) {
+            CLICK_SUPPRESS[i] = CLICK_SUPPRESS[len - 1];
+            CLICK_SUPPRESS_LEN = len - 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 // ── Screen-level press hook (single-slot, used by soft keyboard dismiss) ────
