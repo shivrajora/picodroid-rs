@@ -54,6 +54,32 @@ parser's own exception propagates, there is no custom Picodroid message. This is
 XXE / billion-laughs hardening: no external entities, no DTD. Just don't put a
 DOCTYPE in your manifest.
 
+### Editor validation (XSD)
+
+`schema/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above —
+required `package`, optional `version`, and the exactly-one-of
+`main-class` / `activity` / `application` entry point — for editor validation and
+autocomplete. It is **not** wired into the build; the Gradle parser remains the
+authoritative check (the one-of rule is already enforced there), so the schema
+can't drift the build.
+
+Referencing it is opt-in per file via `xsi:noNamespaceSchemaLocation`. The
+`helloworld` example and the `newApp` template do so:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="myapp" version="1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="../../schema/PicodroidManifest.xsd">
+    <application application="myapp/MyApp" />
+</manifest>
+```
+
+Manifests without the reference stay valid — the build never reads it. The
+one-of constraint uses an XSD 1.1 assertion, so the live red-squiggle for "two
+entry points set" needs a 1.1-aware validator (IntelliJ / Android Studio); other
+editors still get structure and attribute autocomplete.
+
 ## Entry-point styles
 
 The `<application>` element must set **exactly one** of three attributes, and

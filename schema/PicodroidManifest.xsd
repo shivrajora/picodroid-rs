@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  XSD for PicodroidManifest.xml.
+
+  Mirrors buildSrc/src/main/kotlin/picodroid/ManifestSchema.kt, which is the
+  authoritative validator at build time — this schema is for editor / IDE
+  validation and autocomplete only and is NOT wired into the build (the
+  "exactly one entry point" rule is already enforced there).
+
+  The one-of-three constraint uses an XSD 1.1 xs:assert, so validate with a
+  1.1-aware tool (IntelliJ / Android Studio, or a Xerces/Saxon-based checker).
+  Existing manifests without an xsi:schemaLocation stay valid; the reference is
+  opt-in per file.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           vc:minVersion="1.1"
+           elementFormDefault="unqualified">
+
+  <xs:element name="manifest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="application" type="ApplicationType" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+      <!-- App package id, e.g. "helloworld" or "com.acme.app". Required. -->
+      <xs:attribute name="package" type="xs:string" use="required"/>
+      <!-- Optional; a blank/absent version defaults to "1.0" at build time. -->
+      <xs:attribute name="version" type="xs:string" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!--
+    The entry point: exactly one of main-class / activity / application names
+    the class the runtime launches.
+  -->
+  <xs:complexType name="ApplicationType">
+    <xs:attribute name="main-class" type="xs:string" use="optional"/>
+    <xs:attribute name="activity" type="xs:string" use="optional"/>
+    <xs:attribute name="application" type="xs:string" use="optional"/>
+    <xs:assert test="count(@main-class | @activity | @application) = 1"/>
+  </xs:complexType>
+
+</xs:schema>
