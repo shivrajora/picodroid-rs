@@ -67,11 +67,20 @@ public abstract class Service {
   }
 
   /**
-   * Last client unbound. Return {@code true} to receive {@link #onRebind} on the next bind (not yet
-   * implemented).
+   * Last client unbound. Return {@code true} to receive {@link #onRebind} when a new client binds
+   * (the Service is not destroyed in the meantime). Mirrors {@code android.app.Service#onUnbind}.
    */
   public boolean onUnbind(Intent intent) {
     return false;
+  }
+
+  /**
+   * A new client bound after {@link #onUnbind} returned {@code true}. Mirrors {@code
+   * android.app.Service#onRebind} — {@code onBind} is NOT called again; the cached IBinder is
+   * reused. Default no-op.
+   */
+  public void onRebind(Intent intent) {
+    // Subclass overrides
   }
 
   public void onDestroy() {
@@ -80,6 +89,14 @@ public abstract class Service {
 
   /** Stop this Service. Equivalent to {@code Context.stopService(new Intent(thisClass))}. */
   public final native void stopSelf();
+
+  /**
+   * Stop this Service only if {@code startId} matches the most recent {@link #onStartCommand} call.
+   * Mirrors {@code android.app.Service#stopSelfResult(int)}: returns {@code true} and stops if it
+   * was the latest start request, {@code false} (and keeps running) if a newer start arrived — the
+   * safe way to stop a Service that may have been restarted.
+   */
+  public final native boolean stopSelfResult(int startId);
 
   /**
    * Promote this Service to foreground state with a persistent notification. Picodroid renders the

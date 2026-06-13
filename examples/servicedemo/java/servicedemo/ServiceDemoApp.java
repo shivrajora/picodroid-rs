@@ -36,10 +36,27 @@ public class ServiceDemoApp extends Application {
         };
     bindService(new Intent(CounterService.class), conn);
 
-    // 3. unbind, then stop. After stop, the service is destroyed (no clients,
-    // not started). onDestroy + foreground-notification cancel both fire.
+    // 3. unbind — onUnbind returns true, so the next bind triggers onRebind
+    // (not onBind). The Service stays alive (still started).
     unbindService(conn);
-    stopService(new Intent(CounterService.class));
+
+    // 4. bind again — onRebind fires, the cached binder is reused. In
+    // onServiceConnected, exercise stopSelfResult: a stale startId keeps the
+    // Service running (false), the latest one stops it (true).
+    ServiceConnection conn2 =
+        new ServiceConnection() {
+          @Override
+          public void onServiceConnected(IBinder binder) {
+            CounterService svc = ((CounterService.LocalBinder) binder).service;
+            Log.i("ServiceDemoApp", "stale=" + svc.tryStop(1));
+            Log.i("ServiceDemoApp", "latest=" + svc.tryStop(2));
+          }
+
+          @Override
+          public void onServiceDisconnected() {}
+        };
+    bindService(new Intent(CounterService.class), conn2);
+    unbindService(conn2);
 
     Log.i("ServiceDemoApp", "end");
   }

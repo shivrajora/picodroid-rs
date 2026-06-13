@@ -80,6 +80,8 @@ pub const VIEW_LONG_CLICK: usize = 37;
 /// `onActivityResult(int requestCode, int resultCode, Intent data)` — delivered
 /// to the launching Activity when a for-result child finishes (before onRestart).
 pub const ACTIVITY_ON_ACTIVITY_RESULT: usize = 38;
+/// `Service.onRebind(Intent)` — a client rebinds after onUnbind returned true.
+pub const SERVICE_ON_REBIND: usize = 39;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -126,6 +128,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/app/AlertDialog", "fireItemClick"),
     ("picodroid/view/View", "fireLongClick"),
     ("picodroid/app/Activity", "onActivityResult"),
+    ("picodroid/app/Service", "onRebind"),
 ];
 
 #[cfg(test)]

@@ -39,6 +39,10 @@ struct ServiceEntry {
     bind_count: u16,
     foreground_id: Option<i32>,
     next_start_id: i32,
+    /// Set when `onUnbind` returned `true` and the bind count hit 0 — the
+    /// next bind invokes `onRebind` (reusing the cached binder) instead of
+    /// `onBind`. Cleared on rebind or destroy.
+    rebind_pending: bool,
 }
 
 /// One live `ServiceConnection`. Owner is the Activity that called
@@ -257,6 +261,7 @@ fn ensure_registered(
         bind_count: 0,
         foreground_id: None,
         next_start_id: 0,
+        rebind_pending: false,
     });
     if invoke_lifecycle(
         jvm,
@@ -295,6 +300,19 @@ fn process_start(
     )
 }
 
+/// Whether `start_id` is the most recent `onStartCommand` id issued to the
+/// Service of `class_name` — the `stopSelfResult` guard. False if the Service
+/// isn't started, was never registered, or a newer start has since arrived.
+pub(crate) fn is_latest_start_id(class_name: &str, start_id: i32) -> bool {
+    match registry_find(class_name) {
+        Some(slot) => registry()[slot]
+            .as_ref()
+            .map(|e| e.started && start_id >= 1 && e.next_start_id == start_id)
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
 fn process_stop(
     jvm: &mut Jvm,
     class_name: &'static str,
@@ -326,13 +344,29 @@ fn process_bind(
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
     // First bind triggers onBind; subsequent ones reuse the cached IBinder.
-    let (obj_ref, first_bind) = {
+    // A bind while rebind_pending (onUnbind returned true earlier) invokes
+    // onRebind instead and reuses the cached binder — Android's contract.
+    let (obj_ref, first_bind, rebinding) = {
         let entry = registry()[slot].as_mut().unwrap();
         let first = entry.bind_count == 0;
+        let rebinding = first && entry.rebind_pending;
         entry.bind_count = entry.bind_count.saturating_add(1);
-        (entry.obj_ref, first)
+        entry.rebind_pending = false;
+        (entry.obj_ref, first, rebinding)
     };
-    if first_bind {
+    if rebinding {
+        // Reuse the cached binder; deliver onRebind(intent), not onBind.
+        // onRebind is void — invoke via the bool helper and ignore the result.
+        let _ = invoke_service_returning_bool(
+            jvm,
+            class_name,
+            obj_ref,
+            intent_ref,
+            dispatch_sites::SERVICE_ON_REBIND,
+            heap,
+            handler,
+        );
+    } else if first_bind {
         match invoke_service_returning_object(
             jvm,
             class_name,
@@ -415,9 +449,9 @@ fn process_unbind(
             let e = registry()[svc_slot].as_ref().unwrap();
             (e.obj_ref, e.class_name)
         };
-        // We don't carry an Intent for unbind — pass null. Service.onUnbind
-        // returning true (rebind requested) is recorded but rebind is v2.
-        let _ = invoke_service_returning_bool(
+        // We don't carry an Intent for unbind — pass null. onUnbind returning
+        // true requests onRebind on the next bind (Android contract).
+        let rebind = invoke_service_returning_bool(
             jvm,
             class_name,
             obj_ref,
@@ -426,6 +460,9 @@ fn process_unbind(
             heap,
             handler,
         );
+        if let Some(e) = registry()[svc_slot].as_mut() {
+            e.rebind_pending = rebind;
+        }
     }
     maybe_destroy(jvm, svc_slot, heap, handler)
 }

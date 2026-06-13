@@ -37,6 +37,7 @@ pub(super) fn dispatch(
     let _ = class_name;
     match method_name {
         "stopSelf" => Some(handle_stop_self(handler, ctx)),
+        "stopSelfResult" => Some(handle_stop_self_result(handler, ctx)),
         "startForeground" => Some(handle_start_foreground(handler, ctx)),
         "stopForeground" => Some(handle_stop_foreground(handler, ctx)),
         _ => None,
@@ -131,6 +132,30 @@ fn handle_stop_self(
         }
     }
     Ok(None)
+}
+
+/// `Service.stopSelfResult(int startId)` — stop only if `startId` is the most
+/// recent onStartCommand id. Returns the boolean Android promises.
+fn handle_stop_self_result(
+    handler: &mut PicodroidNativeHandler,
+    ctx: &NativeContext<'_>,
+) -> Result<Option<Value>, JvmError> {
+    let this_ref = match ctx.args.first() {
+        Some(Value::ObjectRef(r)) => *r,
+        _ => return Ok(Some(Value::Int(0))),
+    };
+    let start_id = match ctx.args.get(1) {
+        Some(Value::Int(c)) => *c,
+        _ => return Ok(Some(Value::Int(0))),
+    };
+    let Some(class_name) = obj_class_name(ctx, this_ref) else {
+        return Ok(Some(Value::Int(0)));
+    };
+    let stop = crate::service_lifecycle::is_latest_start_id(class_name, start_id);
+    if stop {
+        handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name }));
+    }
+    Ok(Some(Value::Int(stop as i32)))
 }
 
 /// `Service.startForeground(int id, Notification n)` is processed

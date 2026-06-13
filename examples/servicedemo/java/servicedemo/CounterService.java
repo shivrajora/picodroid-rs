@@ -45,7 +45,13 @@ public class CounterService extends Service {
   @Override
   public boolean onUnbind(Intent intent) {
     Log.i("CounterService", "onUnbind");
-    return false;
+    // Request onRebind on the next bind instead of a fresh onBind.
+    return true;
+  }
+
+  @Override
+  public void onRebind(Intent intent) {
+    Log.i("CounterService", "onRebind");
   }
 
   @Override
@@ -56,5 +62,10 @@ public class CounterService extends Service {
 
   public int peek() {
     return count;
+  }
+
+  /** Exposes stopSelfResult to the bound client for the E2 demo. */
+  public boolean tryStop(int startId) {
+    return stopSelfResult(startId);
   }
 }
