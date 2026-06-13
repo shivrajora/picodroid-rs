@@ -38,6 +38,7 @@ fn default_field_count_for_native(class_name: &str) -> usize {
     }
 }
 
+#[derive(Clone)]
 pub struct JvmObject {
     /// Index into [`ObjectHeap::class_table`]. Resolves back to the canonical
     /// `&'static str` class name via [`ObjectHeap::class_name`]; storing only
@@ -307,6 +308,16 @@ impl ObjectHeap {
             }
         }
         Some(idx)
+    }
+
+    /// Shallow-copy `idx` per `Object.clone()`: a new object of the same
+    /// class whose field slots are copied verbatim — reference-typed fields
+    /// share their referents (Java-spec shallow semantics). The high-water
+    /// `field_count` carries over, so uninitialised-slot reads behave like
+    /// the original's. Returns `None` for an invalid or GC-freed index.
+    pub fn clone_object(&mut self, idx: u16) -> Option<u16> {
+        let copy = self.objects.get(idx as usize)?.as_ref()?.clone();
+        Some(self.place_in_slot(copy))
     }
 
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
@@ -598,6 +609,31 @@ mod tests {
         assert_eq!(heap.get_field(0, 0), Some(Value::Null));
         assert_eq!(heap.get_field(0, 1), Some(Value::Null));
         assert_eq!(heap.get_field(0, 2), Some(Value::Int(5)));
+    }
+
+    #[test]
+    fn clone_object_shallow_copies_fields() {
+        let mut heap = ObjectHeap::new();
+        let src = heap.alloc("Point").unwrap();
+        heap.set_field(src, 0, Value::Int(3));
+        heap.set_field(src, 1, Value::ArrayRef(7)); // reference field
+
+        let copy = heap.clone_object(src).unwrap();
+        assert_ne!(src, copy, "clone must be a distinct object");
+        assert_eq!(heap.class_name(copy), Some("Point"));
+        assert_eq!(heap.get_field(copy, 0), Some(Value::Int(3)));
+        // Shallow: the reference field shares its referent.
+        assert_eq!(heap.get_field(copy, 1), Some(Value::ArrayRef(7)));
+
+        // Mutating the copy leaves the original untouched.
+        heap.set_field(copy, 0, Value::Int(99));
+        assert_eq!(heap.get_field(src, 0), Some(Value::Int(3)));
+    }
+
+    #[test]
+    fn clone_object_invalid_index_returns_none() {
+        let mut heap = ObjectHeap::new();
+        assert_eq!(heap.clone_object(42), None);
     }
 
     #[test]

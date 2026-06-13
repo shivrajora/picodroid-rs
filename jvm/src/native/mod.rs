@@ -76,6 +76,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/util/List",
     "java/lang/Comparable",
     "java/util/Comparator",
+    "java/lang/Cloneable",
 ];
 
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
@@ -177,6 +178,24 @@ fn dispatch_object(
         }
         "toString" => match ctx.args.first() {
             Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
+            _ => None,
+        },
+        // Object.clone(): shallow copy per the Java spec — field slots are
+        // copied verbatim, so reference fields share their referents. The
+        // fresh object is returned straight onto the caller's operand stack
+        // (stack-rooted; GC only runs between opcodes), so no extra rooting
+        // is needed. Documented divergence: the Cloneable marker is NOT
+        // checked — native dispatch has no view of the interface table — so
+        // clone() on a non-Cloneable succeeds instead of throwing
+        // CloneNotSupportedException (consistent with the unchecked array
+        // clone above).
+        "clone" => match ctx.args.first() {
+            Some(Value::ObjectRef(idx)) => Some(
+                ctx.objects
+                    .clone_object(*idx)
+                    .map(|new_idx| Some(Value::ObjectRef(new_idx)))
+                    .ok_or(JvmError::InvalidReference),
+            ),
             _ => None,
         },
         _ => None,

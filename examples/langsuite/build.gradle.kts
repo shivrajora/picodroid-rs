@@ -10,6 +10,7 @@ sourceSets {
         java {
             srcDir("../anondemo/java")
             srcDir("../bytecodecoverage/java")
+            srcDir("../clonedemo/java")
             srcDir("../collectionsdemo/java")
             srcDir("../enumdemo/java")
             srcDir("../exceptiondemo/java")
