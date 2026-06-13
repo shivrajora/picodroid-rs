@@ -278,6 +278,29 @@ pub fn register_click_listener(
     Ok(None)
 }
 
+/// `View.nativeRegisterLongClickListener()` — instance method; records `this`
+/// as the long-click target and wires the LVGL long-press trampoline.
+pub fn register_long_click_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_button::register_long_click_listener(id, obj_ref);
+    Ok(None)
+}
+
+/// `View.performLongClickNative()` — synthesize an LVGL long-press for
+/// scripted tests (the public `performLongClick` is pure Java).
+pub fn perform_long_press(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    lvgl_button::perform_long_press(id);
+    Ok(None)
+}
+
 /// `View.nativeIsFocused()` — whether this view is the active keypad group's
 /// focused widget. Returns 1 if focused, 0 otherwise. Mirrors
 /// `android.view.View#isFocused`.

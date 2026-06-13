@@ -75,6 +75,8 @@ pub const RADIO_BUTTON: usize = 35;
 /// AlertDialog list-item clicks (setItems / setSingleChoiceItems /
 /// setMultiChoiceItems) → `AlertDialog.fireItemClick(int position, boolean checked)`.
 pub const ALERT_DIALOG_ITEM: usize = 36;
+/// View long-press (LV_EVENT_LONG_PRESSED) → `View.fireLongClick()`.
+pub const VIEW_LONG_CLICK: usize = 37;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -119,6 +121,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/EditText", "fireTextChanged"),
     ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
     ("picodroid/app/AlertDialog", "fireItemClick"),
+    ("picodroid/view/View", "fireLongClick"),
 ];
 
 #[cfg(test)]

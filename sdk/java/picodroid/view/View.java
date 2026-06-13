@@ -32,6 +32,7 @@ public class View {
   OnTouchListener onTouchListener;
   OnSwipeListener onSwipeListener;
   OnClickListener onClickListener;
+  OnLongClickListener onLongClickListener;
   OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
@@ -63,6 +64,15 @@ public class View {
   }
 
   /**
+   * Long-click callback. Mirrors {@code android.view.View.OnLongClickListener} — fires when a press
+   * is held past LVGL's long-press threshold (~400 ms). Returning {@code true} consumes the event;
+   * a consumed long-click suppresses the subsequent click (see {@link #performLongClick()}).
+   */
+  public interface OnLongClickListener {
+    boolean onLongClick(View v);
+  }
+
+  /**
    * Focus-change callback. Mirrors {@code android.view.View.OnFocusChangeListener} — fires when
    * this view gains or loses input focus (on a hardware-button device, as PREV/NEXT move the keypad
    * focus highlight between focusable views).
@@ -78,6 +88,16 @@ public class View {
   public void setOnClickListener(OnClickListener listener) {
     this.onClickListener = listener;
     nativeRegisterClickListener();
+  }
+
+  /**
+   * Register a long-click listener. Like {@link #setOnClickListener}, attaching one flips this
+   * View's LVGL CLICKABLE flag so a held press generates {@code LV_EVENT_LONG_PRESSED}. Pass {@code
+   * null} to clear (the native registration is idempotent).
+   */
+  public void setOnLongClickListener(OnLongClickListener listener) {
+    this.onLongClickListener = listener;
+    nativeRegisterLongClickListener();
   }
 
   public void setOnKeyListener(OnKeyListener listener) {
@@ -181,6 +201,8 @@ public class View {
 
   private native void nativeRegisterClickListener();
 
+  private native void nativeRegisterLongClickListener();
+
   private native void nativeRegisterKeyListener();
 
   private native void nativeSetFocusable(boolean focusable);
@@ -199,6 +221,17 @@ public class View {
     if (onClickListener != null) {
       onClickListener.onClick(this);
     }
+  }
+
+  /**
+   * Invoked from the native event loop on a long press. Returns whether the listener consumed it
+   * (false when none is set), mirroring {@code View.OnLongClickListener.onLongClick}'s contract.
+   */
+  boolean fireLongClick() {
+    if (onLongClickListener != null) {
+      return onLongClickListener.onLongClick(this);
+    }
+    return false;
   }
 
   boolean fireKey(KeyEvent event) {
@@ -355,6 +388,19 @@ public class View {
    * flows, accessibility, and headless end-to-end tests.
    */
   public native void performClick();
+
+  /**
+   * Synthesize a long-click. Mirrors {@code android.view.View#performLongClick()} — invokes the
+   * registered {@link OnLongClickListener} directly (no input synthesis) and returns whether it
+   * consumed the event. Pure Java: a long click is a listener call, so no native round-trip is
+   * needed.
+   */
+  public boolean performLongClick() {
+    return fireLongClick();
+  }
+
+  /** Synthesize an LVGL long-press event for scripted tests of the real-input path. */
+  native void performLongClickNative();
 
   /**
    * Returns a fresh {@link ViewPropertyAnimator} for this view. Mirrors {@code View.animate()} in

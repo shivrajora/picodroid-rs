@@ -29,6 +29,18 @@ const MAX_CLICK_VIEWS: usize = 32;
 static mut VIEW_CLICK_MAP: [(usize, u16); MAX_CLICK_VIEWS] = [(0, 0); MAX_CLICK_VIEWS];
 static mut VIEW_CLICK_MAP_LEN: usize = 0;
 
+// ── Long-click pathway (LV_EVENT_LONG_PRESSED) ──────────────────────────────
+//
+// Parallel to the click pathway above. A view with an OnLongClickListener
+// registers here; LVGL emits LV_EVENT_LONG_PRESSED ~400 ms into a press.
+
+static mut LONG_CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
+static mut LONG_CLICK_QUEUE_HEAD: usize = 0;
+static mut LONG_CLICK_QUEUE_TAIL: usize = 0;
+
+static mut VIEW_LONG_CLICK_MAP: [(usize, u16); MAX_CLICK_VIEWS] = [(0, 0); MAX_CLICK_VIEWS];
+static mut VIEW_LONG_CLICK_MAP_LEN: usize = 0;
+
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
 unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
@@ -39,6 +51,18 @@ unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
         if next != CLICK_QUEUE_TAIL {
             CLICK_QUEUE[head] = obj as usize;
             CLICK_QUEUE_HEAD = next;
+        }
+    }
+}
+
+unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) };
+    unsafe {
+        let head = LONG_CLICK_QUEUE_HEAD;
+        let next = (head + 1) % CLICK_QUEUE_SIZE;
+        if next != LONG_CLICK_QUEUE_TAIL {
+            LONG_CLICK_QUEUE[head] = obj as usize;
+            LONG_CLICK_QUEUE_HEAD = next;
         }
     }
 }
@@ -120,6 +144,84 @@ pub(in crate::system::picodroid::graphics) fn register_click_listener(id: i32, o
     }
 }
 
+/// Register a Java `View` as the long-click target for `id`. Attaches the
+/// `LV_EVENT_LONG_PRESSED` trampoline and flips CLICKABLE on first
+/// registration, mirroring [`register_click_listener`].
+pub(in crate::system::picodroid::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    unsafe {
+        for entry in &mut VIEW_LONG_CLICK_MAP[..VIEW_LONG_CLICK_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return;
+            }
+        }
+        if VIEW_LONG_CLICK_MAP_LEN < MAX_CLICK_VIEWS {
+            VIEW_LONG_CLICK_MAP[VIEW_LONG_CLICK_MAP_LEN] = (raw_ptr, obj_ref);
+            VIEW_LONG_CLICK_MAP_LEN += 1;
+            let obj = raw_ptr as *mut lv_obj_t;
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(
+                obj,
+                Some(view_long_click_cb),
+                LV_EVENT_LONG_PRESSED,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+}
+
+/// Synthetically fire `LV_EVENT_LONG_PRESSED` on the underlying widget — the
+/// real-input counterpart of `View.performLongClick` is pure Java, but this
+/// drives the LVGL long-press path for scripted tests.
+pub(in crate::system::picodroid::graphics) fn perform_long_press(id: i32) {
+    unsafe {
+        lv_obj_send_event(
+            handle_table::lookup(id),
+            LV_EVENT_LONG_PRESSED,
+            core::ptr::null_mut(),
+        );
+    }
+}
+
+/// Drain one long-click event (raw `lv_obj_t*`) from the queue.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_long_click_queue() -> Option<usize> {
+    unsafe {
+        if LONG_CLICK_QUEUE_TAIL == LONG_CLICK_QUEUE_HEAD {
+            return None;
+        }
+        let handle = LONG_CLICK_QUEUE[LONG_CLICK_QUEUE_TAIL];
+        LONG_CLICK_QUEUE_TAIL = (LONG_CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
+        Some(handle)
+    }
+}
+
+/// Look up the Java `View` object index for a long-clickable widget's pointer.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &VIEW_LONG_CLICK_MAP[..VIEW_LONG_CLICK_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+/// GC roots for the long-click map — same unrooted-View hazard as
+/// [`visit_click_listener_roots`].
+pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &VIEW_LONG_CLICK_MAP[..] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}
+
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_click_queue() -> Option<usize> {
@@ -151,6 +253,9 @@ pub fn reset_button_state() {
         VIEW_CLICK_MAP_LEN = 0;
         CLICK_QUEUE_HEAD = 0;
         CLICK_QUEUE_TAIL = 0;
+        VIEW_LONG_CLICK_MAP_LEN = 0;
+        LONG_CLICK_QUEUE_HEAD = 0;
+        LONG_CLICK_QUEUE_TAIL = 0;
     }
 }
 

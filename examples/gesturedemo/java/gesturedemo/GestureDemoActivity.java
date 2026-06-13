@@ -74,6 +74,23 @@ public class GestureDemoActivity extends Activity {
             }));
     root.addView(surface);
 
+    // A second tile wired to View.OnLongClickListener directly (the LVGL
+    // long-press path, separate from GestureDetector). performLongClick()
+    // exercises the pure-Java synthesis for a deterministic headless check.
+    TextView tile = new TextView();
+    tile.setText("hold me");
+    tile.setSize(220, 40);
+    tile.setBackgroundColor(Color.argb(255, 80, 60, 60));
+    tile.setOnLongClickListener(
+        v -> {
+          app.info("tile long-clicked");
+          return true;
+        });
+    root.addView(tile);
+    if (tile.performLongClick()) {
+      app.info("long-click consumed");
+    }
+
     setContentView(root);
   }
 }

@@ -396,6 +396,7 @@ fn dispatch_widget_events(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     dispatch_clicks(jvm, heap, handler);
+    dispatch_long_clicks(jvm, heap, handler);
     dispatch_checked_changes(jvm, heap, handler);
     dispatch_switch_checked_changes(jvm, heap, handler);
     dispatch_number_picker_steps(jvm, heap, handler);
@@ -716,6 +717,30 @@ fn dispatch_clicks(
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::BUTTON),
                 dispatch_method(dispatch_sites::BUTTON),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain the long-press queue and invoke `View.fireLongClick()` on each
+/// matching view (LV_EVENT_LONG_PRESSED → OnLongClickListener). The boolean
+/// return is consumed by D4's click-suppression; here it is ignored.
+#[cfg(not(test))]
+fn dispatch_long_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_long_click_queue() {
+        if let Some(obj_ref) = widgets::lookup_long_click_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::VIEW_LONG_CLICK),
+                dispatch_method(dispatch_sites::VIEW_LONG_CLICK),
                 obj_ref,
                 heap,
                 handler,

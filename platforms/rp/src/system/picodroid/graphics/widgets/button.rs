@@ -13,7 +13,9 @@ use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_button::reset_button_state;
 #[cfg_attr(feature = "sim", allow(unused_imports))]
-pub use lvgl_button::{drain_click_queue, lookup_button_obj};
+pub use lvgl_button::{
+    drain_click_queue, drain_long_click_queue, lookup_button_obj, lookup_long_click_obj,
+};
 
 /// `Button.nativeCreate(String text)`
 pub fn button_native_create(
