@@ -372,9 +372,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             return result;
         }
         // Walk the superclass chain: the method may be inherited from a native
-        // base class (e.g. enumdemo/Color extends java/lang/Enum).
+        // base class (e.g. enumdemo/Color extends java/lang/Enum). When the
+        // chain leaves the loaded classfiles, follow the builtin throwable
+        // hierarchy — getMessage()/getCause() on an alloc-by-name exception
+        // (NumberFormatException, ExceptionInInitializerError, ...) resolves
+        // through java/lang/RuntimeException / Throwable's dispatcher.
         let mut current = class_name;
-        while let Some(super_str) = find_super_class(self.classes, current) {
+        loop {
+            let super_str = match find_super_class(self.classes, current) {
+                Some(s) => s,
+                None => match helpers::builtin_super(current) {
+                    Some(s) => s,
+                    None => break,
+                },
+            };
             if let Some(result) = self
                 .handler
                 .dispatch(super_str, method_name, &mut ctx)

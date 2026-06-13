@@ -319,3 +319,191 @@ fn invokestatic_triggers_clinit() {
     let result = run_multi(&[CLASS_E, CLASS_CALLER], 1, &[]);
     assert_eq!(result.unwrap(), Some(Value::Int(99)));
 }
+
+// ── Throwing <clinit> → ExceptionInInitializerError (JVMS §5.5) ──────────
+//
+// Class "G" extends java/lang/Object.
+//   <clinit>()V:  new RuntimeException, dup, invokespecial <init>, athrow
+//   m()I:         getstatic G.x, ireturn   (getstatic triggers <clinit>)
+//
+// CP (cp_count=19):
+//   #1 Class->#2 (G)            #2 Utf8 "G"
+//   #3 Class->#4                #4 Utf8 "java/lang/Object"
+//   #5 Utf8 "<clinit>"          #6 Utf8 "()V"
+//   #7 Utf8 "Code"              #8 Fieldref ->#1,#9 (G.x)
+//   #9 NameAndType->#10,#11     #10 Utf8 "x"        #11 Utf8 "I"
+//   #12 Utf8 "m"                #13 Utf8 "()I"
+//   #14 Class->#15              #15 Utf8 "java/lang/RuntimeException"
+//   #16 Methodref->#14,#17      #17 NameAndType->#18,#6
+//   #18 Utf8 "<init>"
+static CLASS_CLINIT_THROWS: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // cp_count=19
+    0x00, 0x13, // #1 Class -> #2
+    0x07, 0x00, 0x02, // #2 Utf8 "G"
+    0x01, 0x00, 0x01, b'G', // #3 Class -> #4
+    0x07, 0x00, 0x04, // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #5 Utf8 "<clinit>"
+    0x01, 0x00, 0x08, b'<', b'c', b'l', b'i', b'n', b'i', b't', b'>', // #6 Utf8 "()V"
+    0x01, 0x00, 0x03, b'(', b')', b'V', // #7 Utf8 "Code"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #8 Fieldref -> #1, #9
+    0x09, 0x00, 0x01, 0x00, 0x09, // #9 NameAndType -> #10, #11
+    0x0C, 0x00, 0x0A, 0x00, 0x0B, // #10 Utf8 "x"
+    0x01, 0x00, 0x01, b'x', // #11 Utf8 "I"
+    0x01, 0x00, 0x01, b'I', // #12 Utf8 "m"
+    0x01, 0x00, 0x01, b'm', // #13 Utf8 "()I"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #14 Class -> #15
+    0x07, 0x00, 0x0F, // #15 Utf8 "java/lang/RuntimeException"
+    0x01, 0x00, 0x1A, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'R', b'u', b'n',
+    b't', b'i', b'm', b'e', b'E', b'x', b'c', b'e', b'p', b't', b'i', b'o',
+    b'n', // #16 Methodref -> #14, #17
+    0x0A, 0x00, 0x0E, 0x00, 0x11, // #17 NameAndType -> #18, #6
+    0x0C, 0x00, 0x12, 0x00, 0x06, // #18 Utf8 "<init>"
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>',
+    // access=0x0001, this=#1, super=#3, interfaces=0, fields=0
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, // methods_count=2
+    0x00, 0x02, // --- Method 0: <clinit>()V — throws RuntimeException ---
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
+    // Code attr: name=#7, length=20 (2+2+4+8+2+2)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x14, // max_stack=2, max_locals=0, code_length=8
+    0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    // new #14, dup, invokespecial #16, athrow
+    0xBB, 0x00, 0x0E, 0x59, 0xB7, 0x00, 0x10, 0xBF,
+    // exception_table_length=0, code_attributes_count=0
+    0x00, 0x00, 0x00, 0x00, // --- Method 1: m()I ---
+    0x00, 0x08, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x01, // Code attr: name=#7, length=16
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x10, // max_stack=1, max_locals=0, code_length=4
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, // getstatic #8, ireturn
+    0xB2, 0x00, 0x08, 0xAC, // exception_table_length=0, code_attributes_count=0
+    0x00, 0x00, 0x00, 0x00, // class attributes_count=0
+    0x00, 0x00,
+];
+
+// Class "H": same throwing <clinit>, but m()I catches java/lang/Error and
+// returns 2 — proves the EIIE wrapper is delivered to the handler and that
+// catch-type matching resolves EIIE -> Error through the builtin hierarchy.
+//
+// CP = CLASS_CLINIT_THROWS layout + #19 Class->#20, #20 Utf8 "java/lang/Error"
+static CLASS_CLINIT_THROWS_CAUGHT: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // cp_count=21
+    0x00, 0x15, // #1 Class -> #2
+    0x07, 0x00, 0x02, // #2 Utf8 "H"
+    0x01, 0x00, 0x01, b'H', // #3 Class -> #4
+    0x07, 0x00, 0x04, // #4 Utf8 "java/lang/Object"
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #5 Utf8 "<clinit>"
+    0x01, 0x00, 0x08, b'<', b'c', b'l', b'i', b'n', b'i', b't', b'>', // #6 Utf8 "()V"
+    0x01, 0x00, 0x03, b'(', b')', b'V', // #7 Utf8 "Code"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #8 Fieldref -> #1, #9
+    0x09, 0x00, 0x01, 0x00, 0x09, // #9 NameAndType -> #10, #11
+    0x0C, 0x00, 0x0A, 0x00, 0x0B, // #10 Utf8 "x"
+    0x01, 0x00, 0x01, b'x', // #11 Utf8 "I"
+    0x01, 0x00, 0x01, b'I', // #12 Utf8 "m"
+    0x01, 0x00, 0x01, b'm', // #13 Utf8 "()I"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #14 Class -> #15
+    0x07, 0x00, 0x0F, // #15 Utf8 "java/lang/RuntimeException"
+    0x01, 0x00, 0x1A, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'R', b'u', b'n',
+    b't', b'i', b'm', b'e', b'E', b'x', b'c', b'e', b'p', b't', b'i', b'o',
+    b'n', // #16 Methodref -> #14, #17
+    0x0A, 0x00, 0x0E, 0x00, 0x11, // #17 NameAndType -> #18, #6
+    0x0C, 0x00, 0x12, 0x00, 0x06, // #18 Utf8 "<init>"
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', // #19 Class -> #20
+    0x07, 0x00, 0x14, // #20 Utf8 "java/lang/Error"
+    0x01, 0x00, 0x0F, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'E', b'r', b'r',
+    b'o', b'r', // access=0x0001, this=#1, super=#3, interfaces=0, fields=0
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, // methods_count=2
+    0x00, 0x02, // --- Method 0: <clinit>()V — throws RuntimeException ---
+    0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code attr: name=#7, length=20
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x14, // max_stack=2, max_locals=0, code_length=8
+    0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    // new #14, dup, invokespecial #16, athrow
+    0xBB, 0x00, 0x0E, 0x59, 0xB7, 0x00, 0x10, 0xBF,
+    // exception_table_length=0, code_attributes_count=0
+    0x00, 0x00, 0x00, 0x00,
+    // --- Method 1: m()I — getstatic in a try { } catch (Error) ---
+    0x00, 0x08, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x01,
+    // Code attr: name=#7, length=27 (2+2+4+7+2+8+2)
+    0x00, 0x07, 0x00, 0x00, 0x00, 0x1B, // max_stack=1, max_locals=0, code_length=7
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
+    // 0: getstatic #8 ; 3: ireturn ; 4: pop ; 5: iconst_2 ; 6: ireturn
+    0xB2, 0x00, 0x08, 0xAC, 0x57, 0x05, 0xAC,
+    // exception_table_length=1: start=0 end=4 handler=4 catch=#19 (Error)
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x13,
+    // code_attributes_count=0
+    0x00, 0x00, // class attributes_count=0
+    0x00, 0x00,
+];
+
+#[test]
+fn clinit_throw_wraps_in_exception_in_initializer_error() {
+    let cf = ClassFile::parse(CLASS_CLINIT_THROWS).expect("parse failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
+    let mut handler = NoopHandler;
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
+        &mut handler,
+        0,
+        1, // m() — getstatic triggers the throwing <clinit>
+        &[],
+    );
+    match result {
+        Err(JvmError::UncaughtException {
+            exception_class, ..
+        }) => {
+            assert_eq!(exception_class, "java/lang/ExceptionInInitializerError");
+        }
+        other => panic!("expected uncaught EIIE, got {other:?}"),
+    }
+}
+
+#[test]
+fn clinit_throw_eiie_caught_by_error_handler() {
+    // m()'s catch(java/lang/Error) must receive the wrapper — proves both
+    // the wrap and that EIIE -> Error resolves via the builtin hierarchy.
+    let cf = ClassFile::parse(CLASS_CLINIT_THROWS_CAUGHT).expect("parse failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
+    let mut handler = NoopHandler;
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
+        &mut handler,
+        0,
+        1,
+        &[],
+    );
+    assert_eq!(result.unwrap(), Some(Value::Int(2)));
+
+    // The wrapper's cause must be the original RuntimeException, recorded
+    // in the cause side table for Throwable.getCause().
+    let eiie = (0..objects.slot_count() as u16)
+        .find(|&i| objects.class_name(i) == Some("java/lang/ExceptionInInitializerError"))
+        .expect("EIIE object exists");
+    let cause = objects.get_exception_cause(eiie).expect("cause recorded");
+    assert_eq!(
+        objects.class_name(cause),
+        Some("java/lang/RuntimeException")
+    );
+}

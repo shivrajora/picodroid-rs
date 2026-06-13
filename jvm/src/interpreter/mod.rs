@@ -183,18 +183,75 @@ fn find_exception_handler(
 /// When no handler is found the error includes a stack trace captured from the
 /// frame stack before unwinding.
 fn handle_exception<H: NativeMethodHandler>(
-    ex: &Executor<'_, H>,
+    ex: &mut Executor<'_, H>,
     frames: &mut Vec<Frame>,
     obj_idx: u16,
 ) -> Result<(), JvmError> {
-    // First pass: search for a handler without popping frames.
-    let handler_frame_idx = (0..frames.len()).rev().find(|&i| {
-        let f = &frames[i];
-        let cf = &ex.classes[f.class_idx];
-        let method = &cf.methods()[f.method_idx];
-        find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).is_some()
-    });
+    let mut obj_idx = obj_idx;
+    loop {
+        // First pass: search for a handler without popping frames.
+        let handler_frame_idx = (0..frames.len()).rev().find(|&i| {
+            let f = &frames[i];
+            let cf = &ex.classes[f.class_idx];
+            let method = &cf.methods()[f.method_idx];
+            find_exception_handler(cf, method, f.inst_pc, obj_idx, ex.objects, ex.classes).is_some()
+        });
 
+        // JVMS §5.5: a non-Error exception escaping a `<clinit>` frame is
+        // wrapped in ExceptionInInitializerError. Look for the outermost
+        // clinit frame the unwind to the chosen handler (or to uncaught)
+        // would cross; wrap there, drop the clinit frame, and continue the
+        // handler search below it with the wrapper. Errors — including a
+        // wrapper minted by a nested clinit — cross unwrapped, which also
+        // bounds this loop: each wrap removes at least one frame and the
+        // wrapper itself is an Error.
+        let unwind_floor = handler_frame_idx.map_or(0, |i| i + 1);
+        let crossed_clinit = (unwind_floor..frames.len()).find(|&i| {
+            let f = &frames[i];
+            let cf = &ex.classes[f.class_idx];
+            let method = &cf.methods()[f.method_idx];
+            cf.cp_utf8(method.name_index) == Some(b"<clinit>")
+        });
+        if let Some(clinit_idx) = crossed_clinit {
+            let exc_class = ex.objects.class_name(obj_idx).unwrap_or("");
+            let is_error = helpers::is_instance_of(ex.classes, exc_class, "java/lang/Error");
+            if !is_error {
+                if let Some(wrapper) = ex.objects.alloc("java/lang/ExceptionInInitializerError") {
+                    ex.objects.register_exception_cause(wrapper, obj_idx);
+                    // Synthesize "<original class>: <msg>" so uncaught traces
+                    // stay readable without calling getCause().
+                    let mut msg: Vec<u8> = Vec::with_capacity(exc_class.len() + 32);
+                    msg.extend_from_slice(exc_class.as_bytes());
+                    if let Some(mi) = ex.objects.get_exception_message(obj_idx) {
+                        if let Some(s) = ex.strings.resolve(mi) {
+                            msg.extend_from_slice(b": ");
+                            msg.extend_from_slice(s.as_bytes());
+                        }
+                    }
+                    if let Some(midx) = ex.strings.intern_dyn(&msg) {
+                        ex.objects.register_exception_message(wrapper, midx);
+                    }
+                    frames.truncate(clinit_idx);
+                    obj_idx = wrapper;
+                    continue;
+                }
+                // Allocation failed mid-unwind (OOM): propagate the original
+                // unwrapped rather than lose the exception entirely.
+            }
+        }
+
+        return deliver_exception(ex, frames, obj_idx, handler_frame_idx);
+    }
+}
+
+/// Deliver `obj_idx` to the handler at `handler_frame_idx`, or build the
+/// uncaught-exception error when there is none.
+fn deliver_exception<H: NativeMethodHandler>(
+    ex: &Executor<'_, H>,
+    frames: &mut Vec<Frame>,
+    obj_idx: u16,
+    handler_frame_idx: Option<usize>,
+) -> Result<(), JvmError> {
     if let Some(idx) = handler_frame_idx {
         // Found a handler — truncate to that frame and set up for execution.
         frames.truncate(idx + 1);
@@ -400,7 +457,7 @@ pub fn execute<H: NativeMethodHandler>(
         match r {
             Ok(()) => {}
             Err(JvmError::Exception(obj_idx)) => {
-                handle_exception(&ex, &mut frames, obj_idx)?;
+                handle_exception(&mut ex, &mut frames, obj_idx)?;
             }
             Err(e) => return Err(e),
         }

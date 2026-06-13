@@ -137,6 +137,11 @@ pub struct ObjectHeap {
     /// Throwables while the owner is live (after a try-with-resources body
     /// completes they are typically reachable only through this table).
     pub(super) suppressed: Vec<(u16, Vec<u16>)>,
+    /// Sparse list of `(throwable_obj_idx, cause_obj_idx)` — the storage
+    /// behind `Throwable.getCause()`. Written when the interpreter wraps a
+    /// clinit throw in ExceptionInInitializerError. Same GC contract as
+    /// `suppressed`: traced on owner mark, dropped on owner sweep.
+    pub(super) exception_causes: Vec<(u16, u16)>,
 }
 
 impl ObjectHeap {
@@ -152,6 +157,7 @@ impl ObjectHeap {
             iter_states: Vec::new(),
             exception_messages: Vec::new(),
             suppressed: Vec::new(),
+            exception_causes: Vec::new(),
         }
     }
 
@@ -205,6 +211,31 @@ impl ObjectHeap {
     /// Drop the suppressed list for a freed Throwable. Called from GC sweep.
     pub fn free_suppressed(&mut self, owner: u16) {
         self.suppressed.retain(|(o, _)| *o != owner);
+    }
+
+    /// Record `cause` as `owner`'s cause (`Throwable.getCause()`). Replaces
+    /// any existing entry, mirroring `register_exception_message`.
+    pub fn register_exception_cause(&mut self, owner: u16, cause: u16) {
+        for entry in self.exception_causes.iter_mut() {
+            if entry.0 == owner {
+                entry.1 = cause;
+                return;
+            }
+        }
+        self.exception_causes.push((owner, cause));
+    }
+
+    /// Look up the cause recorded for `owner`, if any.
+    pub fn get_exception_cause(&self, owner: u16) -> Option<u16> {
+        self.exception_causes
+            .iter()
+            .find(|(o, _)| *o == owner)
+            .map(|(_, c)| *c)
+    }
+
+    /// Drop the cause entry for a freed Throwable. Called from GC sweep.
+    pub fn free_exception_cause(&mut self, owner: u16) {
+        self.exception_causes.retain(|(o, _)| *o != owner);
     }
 }
 

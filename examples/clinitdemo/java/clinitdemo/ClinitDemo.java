@@ -31,6 +31,20 @@ public class ClinitDemo extends Application {
     int x2 = X;
     Log.i(TAG, "Second access: X = " + x2);
 
+    // A throwing <clinit> must surface as ExceptionInInitializerError with
+    // the original exception as the cause (JVMS §5.5).
+    try {
+      int v = Doomed.VALUE;
+      Log.i(TAG, "EIIE: FAIL — no exception, VALUE = " + v);
+    } catch (ExceptionInInitializerError e) {
+      Throwable cause = e.getCause();
+      if (cause != null && "clinit boom".equals(cause.getMessage())) {
+        Log.i(TAG, "EIIE caught, cause ok");
+      } else {
+        Log.i(TAG, "EIIE: FAIL — cause = " + cause);
+      }
+    }
+
     Log.i(TAG, "All clinit tests passed!");
   }
 }

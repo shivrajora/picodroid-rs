@@ -192,6 +192,19 @@ fn throwable_get_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>
     Ok(Some(Value::ArrayRef(arr)))
 }
 
+/// `Throwable.getCause()`: the cause recorded in the side table (today only
+/// written by the interpreter's ExceptionInInitializerError wrapping), or
+/// null — Android/Java's contract for a cause-less throwable.
+fn throwable_get_cause(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
+        return Err(JvmError::InvalidReference);
+    };
+    Ok(Some(match ctx.objects.get_exception_cause(owner) {
+        Some(cause) => Value::ObjectRef(cause),
+        None => Value::Null,
+    }))
+}
+
 fn dispatch_init_only(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -204,6 +217,7 @@ fn dispatch_init_only(
         "getMessage" => Some(throwable_get_message(ctx)),
         "addSuppressed" => Some(throwable_add_suppressed(ctx)),
         "getSuppressed" => Some(throwable_get_suppressed(ctx)),
+        "getCause" => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }
@@ -267,6 +281,7 @@ fn dispatch_throwable(
         // addSuppressed(this) throws IllegalArgumentException.
         "addSuppressed" => Some(throwable_add_suppressed(ctx)),
         "getSuppressed" => Some(throwable_get_suppressed(ctx)),
+        "getCause" => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }

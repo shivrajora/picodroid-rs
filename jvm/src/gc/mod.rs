@@ -209,6 +209,9 @@ pub fn collect(
                 for &t in objects.suppressed_list(idx) {
                     work.push(GcRef::Object(t));
                 }
+                if let Some(cause) = objects.get_exception_cause(idx) {
+                    work.push(GcRef::Object(cause));
+                }
             }
             GcRef::Array(idx) => {
                 if is_marked(arr_marks, idx) {
@@ -264,6 +267,7 @@ pub fn collect(
             objects.iter_free(i);
             objects.free_exception_message(i);
             objects.free_suppressed(i);
+            objects.free_exception_cause(i);
             objects.free(i);
             freed += 1;
         }
