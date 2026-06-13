@@ -63,6 +63,9 @@ pub const NUMBER_PICKER_STEP: usize = 31;
 /// returns to the foreground after the one above it finished (Android's
 /// stopped→restarted edge). Appended so earlier indices stay stable.
 pub const ACTIVITY_ON_RESTART: usize = 32;
+/// SeekBar press/release edges → `OnSeekBarChangeListener.onStartTrackingTouch`
+/// / `onStopTrackingTouch`, fanned out by `fireTrackingTouch(boolean)`.
+pub const SEEK_BAR_TRACKING: usize = 33;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -103,6 +106,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/view/View", "fireFocusChange"),
     ("picodroid/widget/NumberPicker", "fireStep"),
     ("picodroid/app/Activity", "onRestart"),
+    ("picodroid/widget/SeekBar", "fireTrackingTouch"),
 ];
 
 #[cfg(test)]

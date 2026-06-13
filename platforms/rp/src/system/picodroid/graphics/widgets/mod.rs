@@ -94,11 +94,12 @@ pub use progress_bar::{
 };
 pub use scroll_view::scroll_view_native_create;
 #[cfg_attr(feature = "sim", allow(unused_imports))]
-pub use seek_bar::{drain_seek_change_queue, lookup_seek_bar_obj};
+pub use seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue, lookup_seek_bar_obj};
 pub use seek_bar::{
     reset_seek_bar_state, seek_bar_get_progress, seek_bar_native_create,
     seek_bar_native_create_with_max, seek_bar_perform_progress_change,
-    seek_bar_register_change_listener, seek_bar_set_max, seek_bar_set_progress,
+    seek_bar_perform_tracking_touch, seek_bar_register_change_listener, seek_bar_set_max,
+    seek_bar_set_progress,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use snackbar::{drain_snackbar_click_queue, lookup_snackbar_obj};

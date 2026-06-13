@@ -63,9 +63,26 @@ public class CallbackTestActivity extends Activity {
 
     SeekBar sb = new SeekBar(100);
     sb.setSize(200, 20);
-    sb.setOnSeekBarChangeListener((bar, progress, fromUser) -> Log.i("CBT", "SEEKBAR"));
+    sb.setOnSeekBarChangeListener(
+        new SeekBar.OnSeekBarChangeListener() {
+          @Override
+          public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            Log.i("CBT", "SEEKBAR");
+          }
+
+          @Override
+          public void onStartTrackingTouch(SeekBar seekBar) {
+            Log.i("CBT", "SEEKBAR_TRACK_START");
+          }
+
+          @Override
+          public void onStopTrackingTouch(SeekBar seekBar) {
+            Log.i("CBT", "SEEKBAR_TRACK_STOP");
+          }
+        });
     root.addView(sb);
     sb.performProgressChange();
+    sb.performTrackingTouch();
 
     Spinner sp = new Spinner();
     sp.setItems("a\nb");

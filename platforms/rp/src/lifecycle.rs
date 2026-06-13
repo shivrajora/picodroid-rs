@@ -400,6 +400,7 @@ fn dispatch_widget_events(
     dispatch_switch_checked_changes(jvm, heap, handler);
     dispatch_number_picker_steps(jvm, heap, handler);
     dispatch_seek_bar_changes(jvm, heap, handler);
+    dispatch_seek_bar_tracking(jvm, heap, handler);
     dispatch_checkbox_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
     dispatch_list_view_item_clicks(jvm, heap, handler);
@@ -1333,6 +1334,31 @@ fn dispatch_seek_bar_changes(
                 dispatch_class(dispatch_sites::SEEK_BAR),
                 dispatch_method(dispatch_sites::SEEK_BAR),
                 obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain the seek bar press/release queue and invoke `fireTrackingTouch(boolean)`
+/// on each matching SeekBar — onStartTrackingTouch / onStopTrackingTouch.
+#[cfg(not(test))]
+fn dispatch_seek_bar_tracking(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some((handle, started)) = widgets::drain_seek_tracking_queue() {
+        if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::SEEK_BAR_TRACKING),
+                dispatch_method(dispatch_sites::SEEK_BAR_TRACKING),
+                obj_ref,
+                &[Value::Int(started as i32)],
                 heap,
                 handler,
             );

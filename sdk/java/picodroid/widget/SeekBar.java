@@ -35,6 +35,12 @@ public class SeekBar extends View {
    */
   public native void performProgressChange();
 
+  /**
+   * Synthetically fire a press/release pair for headless testing — drives
+   * onStartTrackingTouch/onStopTrackingTouch through the real LVGL event path.
+   */
+  public native void performTrackingTouch();
+
   public void setOnSeekBarChangeListener(OnSeekBarChangeListener listener) {
     this.onSeekBarChangeListener = listener;
     nativeRegisterChangeListener();
@@ -48,10 +54,22 @@ public class SeekBar extends View {
     }
   }
 
+  /** Fans the LVGL press/release edge out to the tracking callbacks. */
+  void fireTrackingTouch(boolean start) {
+    if (onSeekBarChangeListener != null) {
+      if (start) {
+        onSeekBarChangeListener.onStartTrackingTouch(this);
+      } else {
+        onSeekBarChangeListener.onStopTrackingTouch(this);
+      }
+    }
+  }
+
   /**
-   * Mirrors {@code android.widget.SeekBar.OnSeekBarChangeListener}. Picodroid currently fires only
-   * {@link #onProgressChanged}; {@link #onStartTrackingTouch} and {@link #onStopTrackingTouch}
-   * default to no-op and are reserved for future LVGL press/release wiring.
+   * Mirrors {@code android.widget.SeekBar.OnSeekBarChangeListener}: {@link #onProgressChanged}
+   * fires on value changes, {@link #onStartTrackingTouch}/{@link #onStopTrackingTouch} on the LVGL
+   * press/release edges. The tracking methods keep default no-op bodies so single-method lambdas
+   * remain valid.
    */
   public interface OnSeekBarChangeListener {
     void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser);

@@ -247,6 +247,10 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            "performTrackingTouch" => Some(widgets::seek_bar_perform_tracking_touch(
+                ctx.args,
+                ctx.objects,
+            )),
             "performProgressChange" => Some(widgets::seek_bar_perform_progress_change(
                 ctx.args,
                 ctx.objects,
