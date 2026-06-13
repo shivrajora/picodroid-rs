@@ -78,6 +78,25 @@ class PicodroidPapkPlugin : Plugin<Project> {
         // when the dir actually exists, otherwise skip the flag entirely so
         // legacy v1.0 papks are emitted unchanged for apps without assets.
         val appAssetsDir = target.projectDir.resolve("assets")
+
+        // When the app has assets, generate an AssetConstants.java so app code
+        // can reference bundled files by a compile-checked constant instead of
+        // a bare string literal. The generated source lives under build/ —
+        // which the main srcDir excludes (exclude("build/**")) — so it must be
+        // added as a SECOND srcDir, with compileJava depending on it.
+        if (appAssetsDir.isDirectory) {
+            val generatedSrcDir = target.layout.buildDirectory.dir("generated/picodroid-src")
+            val genAssets = target.tasks.register(
+                "generateAssetConstants", GenerateAssetConstantsTask::class.java
+            ) {
+                assetsDir.set(appAssetsDir)
+                packageName.set(manifest.packageName)
+                outputDir.set(generatedSrcDir)
+            }
+            javaExt.sourceSets.getByName("main").java.srcDir(genAssets.flatMap { it.outputDir })
+            compileJava.configure { dependsOn(genAssets) }
+        }
+
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
             classesDir.set(packClassesInput)
             packageName.set(target.name)

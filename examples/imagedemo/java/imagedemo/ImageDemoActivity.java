@@ -12,7 +12,10 @@ import picodroid.widget.TextView;
 public class ImageDemoActivity extends Activity {
   @Override
   public void onCreate() {
-    Log.i("ImageDemo", "loading bundled asset 'logo.png'");
+    // AssetConstants is generated at build time from this app's assets/ dir;
+    // AssetConstants.LOGO == "logo.png" (compile-checked, no stringly-typed
+    // asset name to typo).
+    Log.i("ImageDemo", "loading bundled asset '" + AssetConstants.LOGO + "'");
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
@@ -26,7 +29,7 @@ public class ImageDemoActivity extends Activity {
 
     ImageView image = new ImageView();
     image.setSize(160, 160);
-    image.setImageSource("logo.png");
+    image.setImageSource(AssetConstants.LOGO);
     image.setScaleType(ImageView.SCALE_FIT_CENTER);
     root.addView(image);
 
@@ -34,7 +37,7 @@ public class ImageDemoActivity extends Activity {
     // intrinsic-size logo, clipping if the asset is larger.
     ImageView centered = new ImageView();
     centered.setSize(60, 60);
-    centered.setImageSource("logo.png");
+    centered.setImageSource(AssetConstants.LOGO);
     centered.setScaleType(ImageView.SCALE_CENTER);
     root.addView(centered);
     Log.i("ImageDemo", "scale-center applied");

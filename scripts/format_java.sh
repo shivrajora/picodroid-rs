@@ -31,7 +31,9 @@ MODE="${1:-check}"
 
 if [[ "$MODE" == "check" ]]; then
   echo "==> Checking Java formatting..."
-  if ! find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
+  # Prune build/ dirs: generated sources (e.g. AssetConstants.java) live under
+  # build/generated and are not hand-maintained, so they aren't format-gated.
+  if ! find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
     echo ""
     echo "ERROR: Java formatting check failed."
     echo "       Run './scripts/format_java.sh format' to fix, then re-stage your changes."
@@ -40,7 +42,7 @@ if [[ "$MODE" == "check" ]]; then
   echo "==> Java formatting OK."
 elif [[ "$MODE" == "format" ]]; then
   echo "==> Formatting Java files..."
-  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
+  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
   echo "==> Done."
 else
   echo "Usage: $0 [check|format]"
