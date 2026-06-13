@@ -56,8 +56,26 @@ impl StringTable {
     /// Intern a UTF-8 byte slice (must have `'static` lifetime, e.g. from Flash).
     /// Returns the Reference index (u16).  Deduplicates identical static strings.
     pub fn intern(&mut self, s: &'static [u8]) -> Option<u16> {
-        // Deduplicate against existing static entries only.
+        // Deduplicate against existing static entries.
         for i in 0..self.dyn_start {
+            let existing =
+                unsafe { core::slice::from_raw_parts(self.ptrs[i], self.lens[i] as usize) };
+            if existing == s {
+                return Some(i as u16);
+            }
+        }
+        // Also deduplicate against live dynamic entries. Once any dynamic
+        // string exists, repeat interns of the same static bytes land in the
+        // dynamic region (fallback below); callers that need a stable index
+        // per content — the Class-object cache keys on the interned class
+        // name — would otherwise get a fresh index (and mint a fresh,
+        // permanently GC-rooted Class object) on every getClass() call after
+        // the app's first string concat.
+        for di in 0..self.dyn_bufs.len() {
+            if self.dyn_bufs[di].is_none() {
+                continue; // GC-freed slot — its ptr is dangling
+            }
+            let i = self.dyn_start + di;
             let existing =
                 unsafe { core::slice::from_raw_parts(self.ptrs[i], self.lens[i] as usize) };
             if existing == s {
@@ -218,6 +236,38 @@ mod tests {
         let idx_second = table.intern(HELLO);
         assert!(idx_first.is_some());
         assert_eq!(idx_first, idx_second);
+    }
+
+    #[test]
+    fn intern_deduplicates_after_dynamic_entries_exist() {
+        let mut table = StringTable::new();
+        let hello = table.intern(HELLO);
+        table.intern_dyn(b"a + b"); // open the dynamic region
+
+        // Static-region entries still dedupe.
+        assert_eq!(table.intern(HELLO), hello);
+
+        // Content first interned after the dyn region opened lands in the
+        // dynamic region — and must come back with the SAME index on repeat
+        // interns (the Class-object cache keys on this index; regression for
+        // getClass() minting a fresh Class object per call).
+        let world_first = table.intern(WORLD);
+        let world_second = table.intern(WORLD);
+        assert!(world_first.is_some());
+        assert_eq!(world_first, world_second);
+    }
+
+    #[test]
+    fn intern_skips_freed_dynamic_slots_when_deduping() {
+        let mut table = StringTable::new();
+        table.intern(HELLO);
+        let dyn_idx = table.intern_dyn(FOO).unwrap();
+        table.free_dyn(dyn_idx);
+        // The freed slot's pointer is dangling; dedup must skip it and the
+        // re-intern lands in a (reused) dynamic slot without crashing.
+        let foo_again = table.intern(FOO);
+        assert!(foo_again.is_some());
+        assert_eq!(table.resolve(foo_again.unwrap()), Some("foo"));
     }
 
     #[test]
