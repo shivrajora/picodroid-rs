@@ -197,6 +197,18 @@ pub fn collect(
                         push_ref(work, v);
                     }
                 }
+
+                // Throwable side tables: the constructor message and any
+                // suppressed exceptions live in ObjectHeap side tables, not
+                // fields — trace them while their owner is live. Suppressed
+                // Throwables in particular are usually reachable ONLY through
+                // the table once the recording catch block's locals go dead.
+                if let Some(msg) = objects.get_exception_message(idx) {
+                    work.push(GcRef::String(msg));
+                }
+                for &t in objects.suppressed_list(idx) {
+                    work.push(GcRef::Object(t));
+                }
             }
             GcRef::Array(idx) => {
                 if is_marked(arr_marks, idx) {
@@ -251,6 +263,7 @@ pub fn collect(
             objects.free_lambda(i);
             objects.iter_free(i);
             objects.free_exception_message(i);
+            objects.free_suppressed(i);
             objects.free(i);
             freed += 1;
         }

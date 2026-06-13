@@ -131,6 +131,12 @@ pub struct ObjectHeap {
     /// Sparse list of `(throwable_obj_idx, string_table_idx)` pairs holding
     /// the message arg passed to `Throwable.<init>(String)` / subclasses.
     pub(super) exception_messages: Vec<(u16, u16)>,
+    /// Sparse list of `(throwable_obj_idx, suppressed obj indices)` — the
+    /// storage behind `Throwable.addSuppressed`/`getSuppressed`. Entries are
+    /// dropped when the owner is swept; the GC mark phase traces the listed
+    /// Throwables while the owner is live (after a try-with-resources body
+    /// completes they are typically reachable only through this table).
+    pub(super) suppressed: Vec<(u16, Vec<u16>)>,
 }
 
 impl ObjectHeap {
@@ -145,6 +151,7 @@ impl ObjectHeap {
             lambda_proxies: Vec::new(),
             iter_states: Vec::new(),
             exception_messages: Vec::new(),
+            suppressed: Vec::new(),
         }
     }
 
@@ -172,6 +179,32 @@ impl ObjectHeap {
     /// Drop the message entry for a freed Throwable. Called from GC sweep.
     pub fn free_exception_message(&mut self, obj_idx: u16) {
         self.exception_messages.retain(|(idx, _)| *idx != obj_idx);
+    }
+
+    /// Append a suppressed exception to `owner`'s list. Storage behind
+    /// `Throwable.addSuppressed` — see the `suppressed` field docs.
+    pub fn add_suppressed(&mut self, owner: u16, throwable: u16) {
+        for (o, list) in self.suppressed.iter_mut() {
+            if *o == owner {
+                list.push(throwable);
+                return;
+            }
+        }
+        self.suppressed.push((owner, alloc::vec![throwable]));
+    }
+
+    /// The suppressed-exception list recorded for `owner` (empty when none).
+    pub fn suppressed_list(&self, owner: u16) -> &[u16] {
+        self.suppressed
+            .iter()
+            .find(|(o, _)| *o == owner)
+            .map(|(_, list)| list.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Drop the suppressed list for a freed Throwable. Called from GC sweep.
+    pub fn free_suppressed(&mut self, owner: u16) {
+        self.suppressed.retain(|(o, _)| *o != owner);
     }
 }
 

@@ -145,6 +145,53 @@ fn throwable_get_message(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, J
     }))
 }
 
+/// Allocate `class` and wrap it as a thrown Java exception (the pattern
+/// established for NumberFormatException: alloc-by-name; exact-name catch
+/// works).
+fn throw_named(ctx: &mut NativeContext<'_>, class: &'static str) -> JvmError {
+    match ctx.objects.alloc(class) {
+        Some(idx) => JvmError::Exception(idx),
+        None => JvmError::StackOverflow,
+    }
+}
+
+/// `Throwable.addSuppressed(Throwable)`: record in the ObjectHeap side table.
+fn throwable_add_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
+        return Err(JvmError::InvalidReference);
+    };
+    match ctx.args.get(1).copied() {
+        Some(Value::ObjectRef(t)) if t == owner => {
+            Err(throw_named(ctx, "java/lang/IllegalArgumentException"))
+        }
+        Some(Value::ObjectRef(t)) => {
+            ctx.objects.add_suppressed(owner, t);
+            Ok(None)
+        }
+        Some(Value::Null) | None => Err(throw_named(ctx, "java/lang/NullPointerException")),
+        Some(_) => Err(JvmError::InvalidReference),
+    }
+}
+
+/// `Throwable.getSuppressed()`: the recorded Throwables as a `Throwable[]`
+/// (empty array when none — never null, per the Java contract).
+fn throwable_get_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
+        return Err(JvmError::InvalidReference);
+    };
+    let list: alloc::vec::Vec<u16> = ctx.objects.suppressed_list(owner).to_vec();
+    let arr = ctx
+        .arrays
+        .alloc(crate::array_heap::ATYPE_REF, list.len() as u16)
+        .ok_or(JvmError::StackOverflow)?;
+    for (i, &t) in list.iter().enumerate() {
+        // ObjectRefs are stored untagged in ATYPE_REF arrays (see the GC's
+        // tag scheme); aaload turns them back into Value::ObjectRef.
+        ctx.arrays.store(arr, i, t as i32);
+    }
+    Ok(Some(Value::ArrayRef(arr)))
+}
+
 fn dispatch_init_only(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -155,6 +202,8 @@ fn dispatch_init_only(
             Some(Ok(None))
         }
         "getMessage" => Some(throwable_get_message(ctx)),
+        "addSuppressed" => Some(throwable_add_suppressed(ctx)),
+        "getSuppressed" => Some(throwable_get_suppressed(ctx)),
         _ => None,
     }
 }
@@ -212,7 +261,12 @@ fn dispatch_throwable(
             Some(Ok(None))
         }
         "getMessage" => Some(throwable_get_message(ctx)),
-        "addSuppressed" => Some(Ok(None)),
+        // addSuppressed stores for real (try-with-resources emits these
+        // calls when close() throws); getSuppressed returns the recorded
+        // array. Java contract honored: addSuppressed(null) throws NPE,
+        // addSuppressed(this) throws IllegalArgumentException.
+        "addSuppressed" => Some(throwable_add_suppressed(ctx)),
+        "getSuppressed" => Some(throwable_get_suppressed(ctx)),
         _ => None,
     }
 }

@@ -73,6 +73,96 @@ fn gc_retains_object_in_frame_local() {
 }
 
 #[test]
+fn gc_traces_suppressed_through_live_owner() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
+    let suppressed = objects.alloc("java/lang/RuntimeException").unwrap();
+    objects.add_suppressed(owner, suppressed);
+
+    // Only the owner is rooted; the suppressed Throwable is reachable
+    // solely through the side table — exactly the post-try-with-resources
+    // shape (the catch block's locals are gone).
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(owner)], 4, 4).unwrap();
+    let frames = [frame];
+
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(suppressed));
+    assert_eq!(objects.suppressed_list(owner), &[suppressed]);
+}
+
+#[test]
+fn gc_drops_suppressed_table_with_owner() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
+    let suppressed = objects.alloc("java/lang/RuntimeException").unwrap();
+    objects.add_suppressed(owner, suppressed);
+
+    let frames = [];
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 2);
+    assert!(!objects.is_live(owner));
+    assert!(!objects.is_live(suppressed));
+    assert!(objects.suppressed_list(owner).is_empty());
+}
+
+#[test]
+fn gc_traces_exception_message_through_live_owner() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    // A dynamically-built message ("x = " + v) is reachable only through
+    // the message side table once the construction expression is done.
+    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
+    let msg = strings.intern_dyn(b"dynamic message").unwrap();
+    objects.register_exception_message(owner, msg);
+
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(owner)], 4, 4).unwrap();
+    let frames = [frame];
+
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 0);
+    assert_eq!(strings.resolve(msg), Some("dynamic message"));
+}
+
+#[test]
 fn gc_retains_object_in_frame_stack() {
     let mut objects = ObjectHeap::new();
     let mut arrays = ArrayHeap::new();
