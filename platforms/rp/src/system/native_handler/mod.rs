@@ -176,6 +176,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             events::visit_view_listener_roots(&mut root);
             widgets::button::visit_click_listener_roots(&mut root);
             widgets::button::visit_long_click_listener_roots(&mut root);
+            crate::system::picodroid::graphics::lvgl::animations::visit_end_action_roots(&mut root);
             widgets::list_view::visit_item_click_listener_roots(&mut root);
             widgets::alert_dialog::visit_dialog_obj_roots(&mut root);
             // Compound-button + EditText listener maps: same unrooted-View hazard

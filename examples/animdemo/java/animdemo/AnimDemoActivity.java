@@ -4,6 +4,7 @@ package animdemo;
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.util.Log;
+import picodroid.view.animation.AccelerateDecelerateInterpolator;
 import picodroid.widget.Button;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
@@ -88,5 +89,15 @@ public class AnimDemoActivity extends Activity {
     root.addView(tile);
 
     setContentView(root);
+
+    // Startup animation exercising an interpolator + withEndAction end-to-end:
+    // the tile eases across and "endaction fired" logs once the slot retires
+    // (drained through the Executors bridge). Deterministic for HIL/sim.
+    tile.animate()
+        .x(20, 100)
+        .setDuration(120)
+        .setInterpolator(new AccelerateDecelerateInterpolator())
+        .withEndAction(() -> Log.i("AnimDemo", "endaction fired"))
+        .start();
   }
 }

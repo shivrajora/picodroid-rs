@@ -41,7 +41,12 @@ pub use alert_dialog::{
     drain_click_queue as drain_dialog_click_queue,
     drain_item_click_queue as drain_dialog_item_click_queue, lookup_dialog_obj,
 };
-pub use animator::{animator_native_cancel, animator_native_start, reset_animation_state};
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use animator::drain_completed_end_action;
+pub use animator::{
+    animator_native_cancel, animator_native_set_end_action, animator_native_start,
+    reset_animation_state,
+};
 pub use button::{button_native_create, button_set_text, reset_button_state};
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use button::{

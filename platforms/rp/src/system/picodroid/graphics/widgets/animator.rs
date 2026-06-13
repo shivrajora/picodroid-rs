@@ -8,6 +8,8 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::animations;
 
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use animations::drain_completed_end_action;
 pub use animations::reset_animation_state;
 
 #[inline]
@@ -18,14 +20,26 @@ fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
     }
 }
 
-/// `ViewPropertyAnimator.nativeStart(int handle, int property, int from, int to, int durationMs)`
+/// `ViewPropertyAnimator.nativeStart(int handle, int property, int from, int to, int durationMs, int interpolator)`
 pub fn animator_native_start(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let handle = arg_int(args, 0)?;
     let property = arg_int(args, 1)?;
     let from = arg_int(args, 2)?;
     let to = arg_int(args, 3)?;
     let duration_ms = arg_int(args, 4)?.max(0) as u32;
-    animations::start(handle, property, from, to, duration_ms);
+    let interpolator = arg_int(args, 5)?;
+    animations::start(handle, property, from, to, duration_ms, interpolator);
+    Ok(None)
+}
+
+/// `ViewPropertyAnimator.nativeSetEndAction(int handle, Runnable action)`
+pub fn animator_native_set_end_action(args: &[Value]) -> Result<Option<Value>, JvmError> {
+    let handle = arg_int(args, 0)?;
+    let obj_ref = match args.get(1) {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    animations::set_end_action(handle, obj_ref);
     Ok(None)
 }
 

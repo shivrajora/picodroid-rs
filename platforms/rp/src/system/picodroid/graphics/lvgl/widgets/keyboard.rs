@@ -193,6 +193,7 @@ pub fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
             SYSTEM_KEYBOARD_OFFSCREEN_Y,
             SYSTEM_KEYBOARD_REST_Y,
             SYSTEM_KEYBOARD_SLIDE_DURATION_MS,
+            /* INTERP_LINEAR */ 0,
         );
         SYSTEM_KEYBOARD_VISIBLE = true;
         // Attach press-outside dismiss after the EditText's PRESSED event

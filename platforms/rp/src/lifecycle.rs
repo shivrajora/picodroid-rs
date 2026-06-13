@@ -421,6 +421,7 @@ fn dispatch_widget_events(
     dispatch_swipe_refresh(jvm, heap, handler);
     dispatch_keyboard_ready(jvm, heap, handler);
     dispatch_editor_actions(jvm, heap, handler);
+    dispatch_animation_end_actions(jvm, heap, handler);
     dispatch_key_events(jvm, heap, handler);
     crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
 }
@@ -731,6 +732,29 @@ fn dispatch_clicks(
                 handler,
             );
         }
+    }
+}
+
+/// Drain completed animation end-actions (withEndAction Runnables) and run
+/// each through the Executors bytecode bridge — lambda proxies only resolve
+/// via that static dispatch, never a direct Runnable.run invoke.
+#[cfg(not(test))]
+fn dispatch_animation_end_actions(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some(runnable_ref) = widgets::drain_completed_end_action() {
+        let _ = jvm.invoke_static_with_args(
+            dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
+            dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
+            &[Value::ObjectRef(runnable_ref)],
+            heap,
+            handler,
+        );
     }
 }
 

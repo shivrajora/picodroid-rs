@@ -491,6 +491,7 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeStart" => Some(widgets::animator_native_start(ctx.args)),
+            "nativeSetEndAction" => Some(widgets::animator_native_set_end_action(ctx.args)),
             "nativeCancel" => Some(widgets::animator_native_cancel(ctx.args)),
             _ => None,
         }
