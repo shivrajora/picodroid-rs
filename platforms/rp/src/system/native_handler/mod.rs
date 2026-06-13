@@ -187,6 +187,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             widgets::check_box::visit_checked_change_listener_roots(&mut root);
             widgets::toggle_button::visit_checked_change_listener_roots(&mut root);
             widgets::edit_text::visit_editor_action_listener_roots(&mut root);
+            widgets::edit_text::visit_text_changed_listener_roots(&mut root);
             // NumberPicker registers every instance (not just listener
             // holders): the obj_ref is the fireStep dispatch target.
             widgets::number_picker::visit_picker_roots(&mut root);

@@ -16,6 +16,8 @@ import picodroid.view.View;
 public class EditText extends View {
 
   private OnEditorActionListener editorActionListener;
+  private picodroid.text.TextWatcher[] watchers;
+  private int watcherCount;
 
   public EditText() {
     super(nativeCreate());
@@ -69,4 +71,55 @@ public class EditText extends View {
   }
 
   private native void nativeRegisterEditorActionListener();
+
+  /**
+   * Mirrors {@code android.widget.TextView#addTextChangedListener}. Only {@code afterTextChanged}
+   * fires on picodroid — see {@link picodroid.text.TextWatcher} for the divergences. As on Android,
+   * {@link #setText} also triggers the watcher.
+   */
+  public void addTextChangedListener(picodroid.text.TextWatcher watcher) {
+    if (watcher == null) {
+      return;
+    }
+    if (watchers == null) {
+      watchers = new picodroid.text.TextWatcher[2];
+    }
+    if (watcherCount == watchers.length) {
+      picodroid.text.TextWatcher[] bigger = new picodroid.text.TextWatcher[watchers.length * 2];
+      System.arraycopy(watchers, 0, bigger, 0, watcherCount);
+      watchers = bigger;
+    }
+    watchers[watcherCount++] = watcher;
+    nativeRegisterTextChangedListener();
+  }
+
+  /** Mirrors {@code android.widget.TextView#removeTextChangedListener}. */
+  public void removeTextChangedListener(picodroid.text.TextWatcher watcher) {
+    for (int i = 0; i < watcherCount; i++) {
+      if (watchers[i] == watcher) {
+        for (int j = i; j < watcherCount - 1; j++) {
+          watchers[j] = watchers[j + 1];
+        }
+        watchers[--watcherCount] = null;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Invoked from native code when the textarea content changed. Re-reads the current text once and
+   * fans it out — the native queue carries only the widget handle, so a burst of keystrokes
+   * coalesces into one callback with the final text.
+   */
+  void fireTextChanged() {
+    if (watcherCount == 0) {
+      return;
+    }
+    String text = getText();
+    for (int i = 0; i < watcherCount; i++) {
+      watchers[i].afterTextChanged(text);
+    }
+  }
+
+  private native void nativeRegisterTextChangedListener();
 }

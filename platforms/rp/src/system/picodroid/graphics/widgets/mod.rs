@@ -54,10 +54,12 @@ pub use date_picker::{
 #[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
 pub use drawable::gradient_drawable_apply;
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 pub use edit_text::{
     edit_text_get_text, edit_text_native_create, edit_text_register_editor_action_listener,
-    edit_text_set_hint, edit_text_set_input_type, edit_text_set_show_keyboard_on_touch,
-    edit_text_set_text, reset_edit_text_state,
+    edit_text_register_text_changed_listener, edit_text_set_hint, edit_text_set_input_type,
+    edit_text_set_show_keyboard_on_touch, edit_text_set_text, reset_edit_text_state,
 };
 pub use frame_layout::frame_layout_native_create;
 pub use image_view::{

@@ -9,6 +9,8 @@ use super::super::lvgl::widgets::edit_text as lvgl_edit_text;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_edit_text::reset_edit_text_state;
+#[cfg_attr(feature = "sim", allow(unused_imports))]
+pub use lvgl_edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 
 pub fn edit_text_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_edit_text::create())))
@@ -87,6 +89,19 @@ pub fn edit_text_set_input_type(
 /// `EditText.nativeRegisterEditorActionListener()` — instance method.
 /// Records this EditText's Java `obj_ref` so the system keyboard's OK key
 /// can dispatch `fireEditorAction` back to it.
+pub fn edit_text_register_text_changed_listener(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    lvgl_edit_text::register_text_changed_listener(id, obj_ref);
+    Ok(None)
+}
+
 pub fn edit_text_register_editor_action_listener(
     args: &[Value],
     objects: &ObjectHeap,

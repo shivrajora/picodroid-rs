@@ -133,6 +133,109 @@ pub(in crate::system::picodroid::graphics) fn register_editor_action_listener(
     }
 }
 
+// ── TextWatcher registry (raw lv_obj_t* → Java EditText obj_ref) + queue ────
+//
+// Populated by [`register_text_changed_listener`], called from
+// `EditText.addTextChangedListener`. The LV_EVENT_VALUE_CHANGED callback is
+// installed lazily on first registration so unwatched fields never enqueue.
+
+const MAX_TEXT_WATCHERS: usize = 16;
+static mut TEXT_WATCH_MAP: [(usize, u16); MAX_TEXT_WATCHERS] = [(0, 0); MAX_TEXT_WATCHERS];
+static mut TEXT_WATCH_MAP_LEN: usize = 0;
+
+const TEXT_QUEUE_SIZE: usize = 16;
+static mut TEXT_QUEUE: [usize; TEXT_QUEUE_SIZE] = [0; TEXT_QUEUE_SIZE];
+static mut TEXT_Q_HEAD: usize = 0;
+static mut TEXT_Q_TAIL: usize = 0;
+
+unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
+    let ta = unsafe { lv_event_get_target_obj(e) };
+    if ta.is_null() {
+        return;
+    }
+    unsafe {
+        // Coalesce: the Java side re-reads the final text at dispatch time,
+        // so collapsing a burst of per-keystroke events into one queue entry
+        // is lossless and keeps fast typing from overflowing the ring.
+        let mut i = TEXT_Q_TAIL;
+        while i != TEXT_Q_HEAD {
+            if TEXT_QUEUE[i] == ta as usize {
+                return;
+            }
+            i = (i + 1) % TEXT_QUEUE_SIZE;
+        }
+        let next = (TEXT_Q_HEAD + 1) % TEXT_QUEUE_SIZE;
+        if next != TEXT_Q_TAIL {
+            TEXT_QUEUE[TEXT_Q_HEAD] = ta as usize;
+            TEXT_Q_HEAD = next;
+        }
+    }
+}
+
+pub(in crate::system::picodroid::graphics) fn register_text_changed_listener(
+    id: i32,
+    obj_ref: u16,
+) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        for entry in &mut TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
+            if entry.0 == raw_ptr {
+                entry.1 = obj_ref;
+                return; // event cb already installed
+            }
+        }
+        if TEXT_WATCH_MAP_LEN < MAX_TEXT_WATCHERS {
+            TEXT_WATCH_MAP[TEXT_WATCH_MAP_LEN] = (raw_ptr, obj_ref);
+            TEXT_WATCH_MAP_LEN += 1;
+            lv_obj_add_event_cb(
+                raw_ptr as *mut lv_obj_t,
+                Some(textarea_value_changed_cb),
+                LV_EVENT_VALUE_CHANGED,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_text_changed_queue() -> Option<usize> {
+    unsafe {
+        if TEXT_Q_TAIL == TEXT_Q_HEAD {
+            return None;
+        }
+        let h = TEXT_QUEUE[TEXT_Q_TAIL];
+        TEXT_Q_TAIL = (TEXT_Q_TAIL + 1) % TEXT_QUEUE_SIZE;
+        Some(h)
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
+    unsafe {
+        for entry in &TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
+            if entry.0 == handle {
+                return Some(entry.1);
+            }
+        }
+    }
+    None
+}
+
+/// GC roots for the TextWatcher map — same contract as
+/// [`visit_editor_action_listener_roots`].
+pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe {
+        for &(_, r) in &TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
+            if r != 0 {
+                visit(r);
+            }
+        }
+    }
+}
+
 unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
     let ta = unsafe { lv_event_get_target_obj(e) };
     if ta.is_null() {
@@ -218,6 +321,9 @@ pub fn reset_edit_text_state() {
         AUTOSHOW_DISABLED_LEN = 0;
         EDITOR_ACTION_MAP_LEN = 0;
         NUMERIC_FIELDS_LEN = 0;
+        TEXT_WATCH_MAP_LEN = 0;
+        TEXT_Q_HEAD = 0;
+        TEXT_Q_TAIL = 0;
     }
 }
 

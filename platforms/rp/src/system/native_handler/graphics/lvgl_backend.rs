@@ -379,6 +379,9 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_edit_text(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::edit_text_native_create()),
+            "nativeRegisterTextChangedListener" => Some(
+                widgets::edit_text_register_text_changed_listener(ctx.args, ctx.objects),
+            ),
             "setText" => Some(widgets::edit_text_set_text(
                 ctx.args,
                 ctx.strings,

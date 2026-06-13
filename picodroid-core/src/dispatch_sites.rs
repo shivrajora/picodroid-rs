@@ -66,6 +66,9 @@ pub const ACTIVITY_ON_RESTART: usize = 32;
 /// SeekBar press/release edges → `OnSeekBarChangeListener.onStartTrackingTouch`
 /// / `onStopTrackingTouch`, fanned out by `fireTrackingTouch(boolean)`.
 pub const SEEK_BAR_TRACKING: usize = 33;
+/// Textarea content changes → `TextWatcher.afterTextChanged`, fanned out by
+/// `EditText.fireTextChanged()` (which re-reads getText() itself).
+pub const EDIT_TEXT_TEXT_CHANGED: usize = 34;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -107,6 +110,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/NumberPicker", "fireStep"),
     ("picodroid/app/Activity", "onRestart"),
     ("picodroid/widget/SeekBar", "fireTrackingTouch"),
+    ("picodroid/widget/EditText", "fireTextChanged"),
 ];
 
 #[cfg(test)]

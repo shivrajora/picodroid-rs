@@ -401,6 +401,7 @@ fn dispatch_widget_events(
     dispatch_number_picker_steps(jvm, heap, handler);
     dispatch_seek_bar_changes(jvm, heap, handler);
     dispatch_seek_bar_tracking(jvm, heap, handler);
+    dispatch_edit_text_changes(jvm, heap, handler);
     dispatch_checkbox_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
     dispatch_list_view_item_clicks(jvm, heap, handler);
@@ -1333,6 +1334,30 @@ fn dispatch_seek_bar_changes(
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SEEK_BAR),
                 dispatch_method(dispatch_sites::SEEK_BAR),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain the textarea content-change queue and invoke `fireTextChanged()` on
+/// each matching EditText — TextWatcher.afterTextChanged. The queue carries
+/// only handles; the Java side re-reads the final text once per dispatch.
+#[cfg(not(test))]
+fn dispatch_edit_text_changes(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_text_changed_queue() {
+        if let Some(obj_ref) = widgets::lookup_text_watch_obj(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::EDIT_TEXT_TEXT_CHANGED),
+                dispatch_method(dispatch_sites::EDIT_TEXT_TEXT_CHANGED),
                 obj_ref,
                 heap,
                 handler,

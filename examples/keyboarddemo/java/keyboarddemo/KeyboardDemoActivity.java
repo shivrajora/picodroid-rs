@@ -54,6 +54,19 @@ public class KeyboardDemoActivity extends Activity {
         });
     root.addView(auto);
 
+    // TextWatcher: live character count, plus a deterministic setText-fires-
+    // watcher check (Android semantics — programmatic changes notify too).
+    TextView counter = new TextView();
+    counter.setText("len=0");
+    counter.setTextColor(Color.CYAN);
+    root.addView(counter);
+    auto.addTextChangedListener(
+        s -> {
+          counter.setText("len=" + s.length());
+          Log.i("KeyboardDemo", "afterTextChanged: \"" + s + "\"");
+        });
+    auto.setText("seed");
+
     // EditText #2: opted out of the system keyboard. The "Type" button
     // below constructs an explicit Keyboard, binds it, and shows it.
     EditText manual = new EditText();
