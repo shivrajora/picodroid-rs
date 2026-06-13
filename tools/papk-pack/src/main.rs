@@ -9,6 +9,8 @@
 //!     --classes-dir build/classes/helloworld \
 //!     --output build/apks/helloworld.papk
 
+mod classcheck;
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -125,8 +127,13 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    if main_class.is_none() && activity.is_none() && application.is_none() {
+    let entry_flags =
+        main_class.is_some() as u8 + activity.is_some() as u8 + application.is_some() as u8;
+    if entry_flags == 0 {
         return Err("either --main-class, --activity, or --application is required".into());
+    }
+    if entry_flags > 1 {
+        return Err("exactly one of --main-class, --activity, or --application may be set".into());
     }
 
     Ok(Args {
@@ -163,6 +170,72 @@ fn print_usage() {
 }
 
 // ── Class file discovery ──────────────────────────────────────────────────────
+
+/// Validate the manifest entry point against the packed classes. Errors when
+/// the named class is absent (or — for a main-class — lacks `static main`);
+/// warns (not errors) when an activity/application lacks `onCreate`, since
+/// inheriting the framework default is legal.
+fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let (entry, kind) = if let Some(c) = &args.main_class {
+        (c, "main-class")
+    } else if let Some(c) = &args.activity {
+        (c, "activity")
+    } else if let Some(c) = &args.application {
+        (c, "application")
+    } else {
+        return Ok(());
+    };
+
+    let found = classes.iter().find(|(name, _)| name == entry);
+    let bytes = match found {
+        Some((_, b)) => b,
+        None => {
+            let mut names: Vec<&str> = classes.iter().map(|(n, _)| n.as_str()).collect();
+            names.sort_unstable();
+            return Err(format!(
+                "manifest {kind} '{entry}' is not among the packed classes.\n  \
+                 Packed: {}",
+                names.join(", ")
+            ));
+        }
+    };
+
+    match kind {
+        "main-class" => {
+            // A main-class must declare `public static void main(String[])`.
+            // `Some(false)` = parsed and absent; `None` (unparseable) degrades
+            // gracefully — we don't reject a class we merely failed to read.
+            if matches!(
+                classcheck::class_has_method(
+                    bytes,
+                    "main",
+                    "([Ljava/lang/String;)V",
+                    classcheck::ACC_STATIC,
+                ),
+                Some(false)
+            ) {
+                return Err(format!(
+                    "main-class '{entry}' has no `static void main(String[])` — \
+                     the app would fail to start on device"
+                ));
+            }
+        }
+        _ => {
+            // onCreate is optional (the framework default is a no-op), so a
+            // missing one is only a hint.
+            if matches!(
+                classcheck::class_has_method(bytes, "onCreate", "", 0),
+                Some(false)
+            ) {
+                eprintln!(
+                    "Warning: {kind} '{entry}' declares no onCreate() — it will \
+                     inherit the framework default (a no-op). Intentional?"
+                );
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Recursively collects all .class files under `dir`.
 /// Returns (jvm_name, file_bytes) pairs, where jvm_name uses forward slashes
@@ -478,6 +551,16 @@ fn main() {
             "Warning: no .class files found in '{}'",
             args.classes_dir.display()
         );
+    }
+
+    // Validate the manifest entry point against the packed classes — catches
+    // a typo'd `activity=`/`main-class=`/`application=` at build time instead
+    // of a runtime NoSuchMethod on device. App class files keep their own
+    // names under shrinking (only framework refs are rewritten), so the entry
+    // class is present under its original name; no unshrink mapping needed.
+    if let Err(msg) = validate_entry_point(&args, &classes) {
+        eprintln!("Error: {msg}");
+        std::process::exit(1);
     }
 
     let assets: Vec<Asset> = match &args.assets_dir {
