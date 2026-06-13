@@ -69,6 +69,21 @@ CI uses the same wrapper, so passing locally is a strong predictor of green CI.
 
 If you're chasing a specific failure, `scripts/test.sh -- --nocapture <test_name>` forwards args through to `cargo test` exactly like a normal invocation.
 
+## Out-of-tree app builds
+
+App projects under `examples/` build as subprojects of the picodroid repo by default. To build an app that lives outside the repo against a picodroid checkout, point two Gradle properties at it:
+
+```bash
+./gradlew :myapp:assemblePapk \
+    -Ppicodroid.repoRoot=/path/to/picodroid-rs \
+    -Ppicodroid.sdkProjectPath=:sdk
+```
+
+- `picodroid.repoRoot` — the picodroid source tree (holds `tools/`, `sdk/`, `scripts/`). Default: the build's root project dir.
+- `picodroid.sdkProjectPath` — Gradle path of the `:sdk` project to compile against. Default `:sdk`.
+
+This is path indirection only — there is no published Maven artifact or project template; the app still composes the picodroid build (e.g. via an included build).
+
 ## See also
 
 - [Cargo aliases](/reference/cargo-aliases/) — board-specific build commands.

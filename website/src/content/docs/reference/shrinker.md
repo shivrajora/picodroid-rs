@@ -136,6 +136,28 @@ sides of the build call it:
 | non-zero    | `0.0.0`     | No        | PAPK's original refs don't exist in shrunk firmware. |
 | anything    | unversioned (legacy, pre-M1) | Only if firmware is `0.0.0` (`FrameworkVersionMissing` otherwise) | Backward compat. |
 
+## android.* aliasing (`--compat-aliases`)
+
+Apps written against `android.*` imports compile to `android/*` bytecode
+references that no loaded class matches. `shrink-dir --compat-aliases
+<file.toml>` rewrites those to the real `picodroid/*` classes, using
+`sdk/compat-aliases.toml` (`android/<path>` → `picodroid/<path>` for every
+public SDK class, regenerated from the compiled classes; a drift test fails if
+a top-level SDK class lacks an alias).
+
+**Aliasing runs *before* shrinking, composed into one constant-pool pass.**
+Order matters: `android/*` names are not shrink-map keys, so aliasing after a
+shrink pass would leave them pointing at unshrunk names. The composed map sends
+each `android` name straight to its final (possibly shrunk) name —
+`android/view/View` → `picodroid/view/View` → `a/A` in one step — so a single
+rewrite handles both. `--map` is optional, so the alias pass also works with
+shrinking off (an alias-only build).
+
+Gradle wires this through `picodroid.compatAliases=true`, which routes app
+classes through `shrinkClasses` even when shrinking is off. See the
+[compatibility matrix](/reference/compatibility-matrix/#android-import-compatibility)
+and `examples/androidport`.
+
 ## Native dispatch — reverse translation
 
 Every `(class, method)` match arm in `platforms/rp/src/system/native_handler/**`

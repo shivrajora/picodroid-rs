@@ -180,7 +180,7 @@ new AlertDialog.Builder()
     .show();
 ```
 
-See [api/ui.md → Toast](/api/ui/#picodroidwidgettoast), [→ AlertDialog](/api/ui/#picodroidwidgetalertdialog), and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
+See [api/ui.md → Toast](/api/ui/#picodroidwidgettoast), [→ AlertDialog](/api/ui/#picodroidappalertdialog), and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
 
 ### Theme and drawables
 

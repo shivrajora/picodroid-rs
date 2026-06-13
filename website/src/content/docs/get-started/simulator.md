@@ -26,6 +26,25 @@ If you're driving the sim from a script (e.g. for end-to-end tests), prefer `xdo
 - **GPIO / PWM / ADC / UART** — stubbed; reads return zero, writes log to stdout. Use the sim for app-logic verification, not bus-level work.
 - **Touch** — the sim feeds minifb mouse position through the **same `Xpt2046` driver** that runs on hardware (so calibration / `swap_xy` behave identically), rather than stubbing it.
 - **Sensors / I2C** — the sim answers I2C sensor reads with a fake BME688 (and synthesizes LTR559 readings) instead of returning zeros, so sensor-driven UI works on the host. The real drivers still run on-device.
+- **Threads** — `Thread.start()` is a **no-op in the sim** (there's no FreeRTOS) and logs a warning naming the Runnable, so its body never runs. On device it spawns a real task. Use `Executors.mainExecutor()`/`backgroundExecutor()` for work that must run in both.
+
+## Slow-handler watchdog
+
+The main loop warns when a single handler — widget-event dispatch, a posted Runnable, or the pending-op drain (a big `onCreate`) — overruns the threshold and stalls the UI tick. The default is 50 ms; set `PICODROID_SLOW_HANDLER_MS` to tune it (`0` disables) without a rebuild:
+
+```bash
+PICODROID_SLOW_HANDLER_MS=20 ./scripts/sim.sh --app myapp
+```
+
+It ships on device too, where the threshold is the compile-time default.
+
+## Filtering logs
+
+`pdb logcat --stdin` filters the sim's `[Tag] msg` output (or piped, already-decoded device logs) by tag and level:
+
+```bash
+./scripts/sim.sh --app myapp | pdb logcat --stdin --tag MyApp --level W
+```
 
 ## Filesystem persistence
 

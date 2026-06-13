@@ -99,6 +99,7 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'Limits & memory budgets', slug: 'reference/limits' },
+            { label: 'Android compatibility matrix', slug: 'reference/compatibility-matrix' },
             { label: 'Manifest', slug: 'reference/manifest' },
             { label: 'Cargo aliases', slug: 'reference/cargo-aliases' },
             { label: 'Class-name shrinker', slug: 'reference/shrinker' },
