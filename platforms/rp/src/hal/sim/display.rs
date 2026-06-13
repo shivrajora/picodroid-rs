@@ -45,12 +45,22 @@ static mut MOUSE_PRESSED: bool = false;
 static mut MOUSE_X: u16 = 0;
 static mut MOUSE_Y: u16 = 0;
 
+/// Scripted-touch override (control channel `touch down|move|up`). While
+/// active it replaces the mouse sample in [`mouse_state`], so scripted
+/// touches run the exact same XPT2046-emulation pipeline as real mouse
+/// input. Atomics: the control channel reader runs on its own thread.
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering as AtomOrd};
+static TOUCH_OVERRIDE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static TOUCH_OVERRIDE_PRESSED: AtomicBool = AtomicBool::new(false);
+/// Packed (x << 16) | y so position updates are a single atomic store.
+static TOUCH_OVERRIDE_POS: AtomicU32 = AtomicU32::new(0);
+
 // ── Public API (matches hal::display contract) ──────────────────────────────
 
 pub fn init() {
-    // The button control channel works even headless (no window needed), so
+    // The control channel works even headless (no window needed), so
     // start it before the window/headless branch below.
-    #[cfg(has_buttons)]
+    #[cfg(any(has_buttons, has_touch))]
     spawn_control_channel();
 
     // Headless mode: requested explicitly, or no DISPLAY/WAYLAND_DISPLAY in
@@ -259,6 +269,14 @@ pub fn is_window_open() -> bool {
 /// Returns `(pressed, x, y)` — the most recent mouse state sampled by
 /// `update_window()`.
 pub fn mouse_state() -> (bool, u16, u16) {
+    if TOUCH_OVERRIDE_ACTIVE.load(AtomOrd::Relaxed) {
+        let packed = TOUCH_OVERRIDE_POS.load(AtomOrd::Relaxed);
+        return (
+            TOUCH_OVERRIDE_PRESSED.load(AtomOrd::Relaxed),
+            (packed >> 16) as u16,
+            (packed & 0xFFFF) as u16,
+        );
+    }
     unsafe { (MOUSE_PRESSED, MOUSE_X, MOUSE_Y) }
 }
 
@@ -338,35 +356,89 @@ fn name_to_pin(tok: &str) -> Option<u8> {
     }
 }
 
-/// Parse and apply one control-channel line: `down|up|press|tap <button>`.
-#[cfg(has_buttons)]
+/// Parse and apply one control-channel line: `down|up|press|tap <button>` or
+/// `touch down <x> <y>` / `touch move <x> <y>` / `touch up`.
+#[cfg(any(has_buttons, has_touch))]
 fn handle_control_line(line: &str) {
     let mut it = line.split_whitespace();
-    let (Some(cmd), Some(btn)) = (it.next(), it.next()) else {
-        return; // blank line or missing argument — ignore
+    let Some(cmd) = it.next() else {
+        return; // blank line — ignore
     };
-    let Some(pin) = name_to_pin(btn) else {
-        println!("[sim] control channel: unknown button '{btn}'");
+
+    if cmd.eq_ignore_ascii_case("touch") {
+        handle_touch_command(&mut it);
+        return;
+    }
+
+    #[cfg(has_buttons)]
+    {
+        let Some(btn) = it.next() else {
+            return; // missing argument — ignore
+        };
+        let Some(pin) = name_to_pin(btn) else {
+            println!("[sim] control channel: unknown button '{btn}'");
+            return;
+        };
+        match cmd.to_ascii_lowercase().as_str() {
+            "down" => crate::hal::gpio::inject(pin, false),
+            "up" => crate::hal::gpio::inject(pin, true),
+            "press" | "tap" => {
+                crate::hal::gpio::inject(pin, false);
+                // Let a PRESSED frame render before the release so focus-highlight
+                // movement is visible and the two edges land in distinct ticks.
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                crate::hal::gpio::inject(pin, true);
+            }
+            other => println!("[sim] control channel: unknown command '{other}'"),
+        }
+    }
+    #[cfg(not(has_buttons))]
+    {
+        println!("[sim] control channel: unknown command '{cmd}' (no buttons on this board)");
+    }
+}
+
+/// `touch down <x> <y>` — press at (x, y); `touch move <x> <y>` — drag while
+/// pressed; `touch up` — release and hand control back to the mouse. The
+/// override feeds [`mouse_state`], so the scripted press runs the full
+/// XPT2046-emulation pipeline (median filter, calibration) like real input.
+#[cfg(any(has_buttons, has_touch))]
+fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
+    let Some(sub) = it.next() else {
+        println!("[sim] control channel: touch needs down|move|up");
         return;
     };
-    match cmd.to_ascii_lowercase().as_str() {
-        "down" => crate::hal::gpio::inject(pin, false),
-        "up" => crate::hal::gpio::inject(pin, true),
-        "press" | "tap" => {
-            crate::hal::gpio::inject(pin, false);
-            // Let a PRESSED frame render before the release so focus-highlight
-            // movement is visible and the two edges land in distinct ticks.
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            crate::hal::gpio::inject(pin, true);
+    let parse_xy = |it: &mut core::str::SplitWhitespace<'_>| -> Option<(u16, u16)> {
+        let x = it.next()?.parse::<u16>().ok()?;
+        let y = it.next()?.parse::<u16>().ok()?;
+        Some((x.min(WIDTH - 1), y.min(HEIGHT - 1)))
+    };
+    match sub.to_ascii_lowercase().as_str() {
+        "down" | "move" => {
+            let Some((x, y)) = parse_xy(it) else {
+                println!("[sim] control channel: touch {sub} needs <x> <y>");
+                return;
+            };
+            TOUCH_OVERRIDE_POS.store(((x as u32) << 16) | y as u32, AtomOrd::Relaxed);
+            TOUCH_OVERRIDE_PRESSED.store(true, AtomOrd::Relaxed);
+            TOUCH_OVERRIDE_ACTIVE.store(true, AtomOrd::Relaxed);
         }
-        other => println!("[sim] control channel: unknown command '{other}'"),
+        "up" => {
+            TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
+            // Keep the override active for a few frames so the release edge
+            // is observed from the scripted position, then return control to
+            // the mouse.
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            TOUCH_OVERRIDE_ACTIVE.store(false, AtomOrd::Relaxed);
+        }
+        other => println!("[sim] control channel: unknown touch subcommand '{other}'"),
     }
 }
 
 /// Spawn the background reader that turns text commands into button edges.
 /// Reads stdin by default, or the FIFO named by `PICODROID_SIM_CTRL_FIFO`.
 /// Works headless — the deterministic path for scripted / CI button sequences.
-#[cfg(has_buttons)]
+#[cfg(any(has_buttons, has_touch))]
 fn spawn_control_channel() {
     use std::io::BufRead;
     std::thread::spawn(|| {
@@ -393,7 +465,8 @@ fn spawn_control_channel() {
         }
     });
     println!(
-        "[sim] button control channel ready — \
-         commands: 'down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>'"
+        "[sim] control channel ready — commands: \
+         'down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>', \
+         'touch down|move <x> <y>', 'touch up'"
     );
 }
