@@ -417,7 +417,24 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
                 Some(Ok(None))
             }
-            _ => None,
+            _ => {
+                // True native miss: no sub-dispatcher or arm above claimed this
+                // (class, method). The JVM turns our None into NoSuchMethod; if
+                // it's a known Android idiom picodroid omits, log the picodroid
+                // alternative first (devs live in the sim, so println there).
+                if let Some(hint) = class_registry::api_hint(class_name, method_name) {
+                    #[cfg(not(feature = "sim"))]
+                    defmt::warn!(
+                        "no native {=str}.{=str} — {=str}",
+                        class_name,
+                        method_name,
+                        hint
+                    );
+                    #[cfg(feature = "sim")]
+                    eprintln!("[sim] no native {class_name}.{method_name} — {hint}");
+                }
+                None
+            }
         }
     }
 

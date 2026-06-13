@@ -104,11 +104,108 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     "picodroid/hardware/SensorManager",
 ];
 
+/// (class, method) → one-line hint pointing at the picodroid equivalent for an
+/// Android idiom that picodroid deliberately omits. Consulted on a native-miss
+/// (the dispatch fall-through in [`super`]'s `dispatch`) so the NoSuchMethod a
+/// ported app would otherwise see comes with an actionable alternative instead
+/// of a bare class/method name. Keep it terse — it lives in flash. Class names
+/// are the un-shrunk `picodroid/*` form (the miss site un-shrinks first).
+pub const API_HINTS: &[(&str, &str, &str)] = &[
+    (
+        "picodroid/app/Activity",
+        "runOnUiThread",
+        "use getMainExecutor().execute(Runnable)",
+    ),
+    (
+        "picodroid/app/Activity",
+        "findViewById",
+        "no resource IDs — keep your View references, or use View.setTag/getTag",
+    ),
+    (
+        "picodroid/view/View",
+        "findViewById",
+        "no resource IDs — keep your View references, or use setTag/getTag",
+    ),
+    (
+        "picodroid/view/View",
+        "post",
+        "use getMainExecutor().execute(Runnable)",
+    ),
+    (
+        "picodroid/view/View",
+        "postDelayed",
+        "no Handler — use ViewPropertyAnimator timers or getMainExecutor()",
+    ),
+    (
+        "picodroid/app/Activity",
+        "getSystemService",
+        "services are exposed directly: getDisplay(), new NotificationManager(this), ...",
+    ),
+    (
+        "picodroid/app/Activity",
+        "getLayoutInflater",
+        "no XML layouts — build Views programmatically",
+    ),
+    (
+        "picodroid/app/Activity",
+        "getResources",
+        "no Resources — bundle files under assets/ and use the generated AssetConstants",
+    ),
+    (
+        "picodroid/content/Context",
+        "getResources",
+        "no Resources — bundle files under assets/ and use the generated AssetConstants",
+    ),
+    (
+        "picodroid/content/Context",
+        "registerReceiver",
+        "no BroadcastReceiver — use a bound Service or a direct callback",
+    ),
+    (
+        "picodroid/content/Context",
+        "getSystemService",
+        "services are exposed directly: getDisplay(), new NotificationManager(this), ...",
+    ),
+];
+
+/// Hint for a missing native `(class, method)`, or `None` if there is no
+/// curated alternative. See [`API_HINTS`].
+pub fn api_hint(class: &str, method: &str) -> Option<&'static str> {
+    API_HINTS
+        .iter()
+        .find(|(c, m, _)| *c == class && *m == method)
+        .map(|(_, _, hint)| *hint)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::PICODROID_NATIVE_CLASSES;
+    use super::{api_hint, API_HINTS, PICODROID_NATIVE_CLASSES};
     use pico_jvm::class_file::ClassFile;
     use pico_jvm::native::BUILTIN_CLASS_NAMES;
+
+    #[test]
+    fn api_hint_lookup() {
+        assert_eq!(
+            api_hint("picodroid/app/Activity", "runOnUiThread"),
+            Some("use getMainExecutor().execute(Runnable)")
+        );
+        // Unknown (class, method) → no hint.
+        assert_eq!(api_hint("picodroid/app/Activity", "onCreate"), None);
+        assert_eq!(api_hint("picodroid/widget/TextView", "setText"), None);
+    }
+
+    /// A hint that names a non-existent picodroid class can never fire (the
+    /// miss site un-shrinks to a real loaded name first), so it would be dead
+    /// weight. Every hint's class must be a registered native class.
+    #[test]
+    fn api_hint_classes_are_registered() {
+        for (class, method, _) in API_HINTS {
+            assert!(
+                PICODROID_NATIVE_CLASSES.contains(class),
+                "API_HINTS references unregistered class {class:?} (method {method:?})"
+            );
+        }
+    }
 
     /// JVMS §4.6 `ACC_NATIVE` method access flag.
     const ACC_NATIVE: u16 = 0x0100;
