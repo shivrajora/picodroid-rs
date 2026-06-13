@@ -239,6 +239,15 @@ pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
 /// recipe for a radio-style circular checkbox indicator.
 pub const LV_RADIUS_CIRCLE: i32 = 0x7FFF;
 
+// Button-matrix control flags (`lv_buttonmatrix.h`). Only the subset the
+// AlertDialog choice lists need.
+/// Toggle `LV_STATE_CHECKED` on the button when clicked.
+pub const LV_BUTTONMATRIX_CTRL_CHECKABLE: u16 = 0x0080;
+/// The button is currently checked.
+pub const LV_BUTTONMATRIX_CTRL_CHECKED: u16 = 0x0100;
+/// Returned by `lv_buttonmatrix_get_selected_button` when no button is selected.
+pub const LV_BUTTONMATRIX_BUTTON_NONE: u32 = 0xFFFF;
+
 /// Inner-alignment mode for `lv_image`. Verified against
 /// `vendor/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid
 /// `ImageView` exposes a subset that maps to Android's `ScaleType` enum;
@@ -692,6 +701,23 @@ extern "C" {
     // Checkbox widget
     pub fn lv_checkbox_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_checkbox_set_text(obj: *mut lv_obj_t, txt: *const c_char);
+
+    // Button-matrix widget — one focusable lv_obj rendering a grid of
+    // buttons from a NUL-terminated `map` of `*const c_char` (with `"\n"`
+    // entries as row breaks and a final null entry). Backs AlertDialog's
+    // item / choice lists: a single widget regardless of row count dodges
+    // the >12-focusable-lv_list-rows renderer hang. The `map` array (and
+    // the CStrings it points at) must outlive the widget — callers own that
+    // storage. Selecting fires LV_EVENT_VALUE_CHANGED;
+    // `get_selected_button` returns `LV_BUTTONMATRIX_BUTTON_NONE` (0xFFFF)
+    // when nothing is selected.
+    pub fn lv_buttonmatrix_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub fn lv_buttonmatrix_set_map(obj: *mut lv_obj_t, map: *const *const c_char);
+    pub fn lv_buttonmatrix_set_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16);
+    pub fn lv_buttonmatrix_clear_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16);
+    pub fn lv_buttonmatrix_set_one_checked(obj: *mut lv_obj_t, en: bool);
+    pub fn lv_buttonmatrix_get_selected_button(obj: *const lv_obj_t) -> u32;
+    pub fn lv_buttonmatrix_has_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16) -> bool;
 
     // Dropdown widget
     pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

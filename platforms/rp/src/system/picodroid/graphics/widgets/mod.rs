@@ -31,12 +31,16 @@ mod toast;
 mod toggle_button;
 
 pub use alert_dialog::{
-    alert_dialog_native_create, alert_dialog_native_dismiss, alert_dialog_native_show,
+    alert_dialog_native_create, alert_dialog_native_create_with_list, alert_dialog_native_dismiss,
+    alert_dialog_native_perform_item_click, alert_dialog_native_show,
     alert_dialog_register_button_click_listener, dismiss_topmost_dialog, has_shown_dialog,
     reset_alert_dialog_state,
 };
 #[cfg_attr(feature = "sim", allow(unused_imports))]
-pub use alert_dialog::{drain_click_queue as drain_dialog_click_queue, lookup_dialog_obj};
+pub use alert_dialog::{
+    drain_click_queue as drain_dialog_click_queue,
+    drain_item_click_queue as drain_dialog_item_click_queue, lookup_dialog_obj,
+};
 pub use animator::{animator_native_cancel, animator_native_start, reset_animation_state};
 pub use button::{button_native_create, button_set_text, reset_button_state};
 #[cfg_attr(feature = "sim", allow(unused_imports))]

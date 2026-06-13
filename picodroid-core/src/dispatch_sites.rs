@@ -72,6 +72,9 @@ pub const EDIT_TEXT_TEXT_CHANGED: usize = 34;
 /// RadioButton checked changes — same CompoundButton fan-out as
 /// CheckBox/Switch/ToggleButton; RadioGroup exclusion runs in Java.
 pub const RADIO_BUTTON: usize = 35;
+/// AlertDialog list-item clicks (setItems / setSingleChoiceItems /
+/// setMultiChoiceItems) → `AlertDialog.fireItemClick(int position, boolean checked)`.
+pub const ALERT_DIALOG_ITEM: usize = 36;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -115,6 +118,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/widget/SeekBar", "fireTrackingTouch"),
     ("picodroid/widget/EditText", "fireTextChanged"),
     ("picodroid/widget/CompoundButton", "fireCheckedChanged"),
+    ("picodroid/app/AlertDialog", "fireItemClick"),
 ];
 
 #[cfg(test)]

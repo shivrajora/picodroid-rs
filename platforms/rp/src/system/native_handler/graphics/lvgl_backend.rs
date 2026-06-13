@@ -464,7 +464,14 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             "nativeCreate" => Some(widgets::alert_dialog_native_create(ctx.args, ctx.strings)),
+            "nativeCreateWithList" => Some(widgets::alert_dialog_native_create_with_list(
+                ctx.args,
+                ctx.strings,
+            )),
             "nativeShow" => Some(widgets::alert_dialog_native_show(ctx.args)),
+            "nativePerformItemClick" => {
+                Some(widgets::alert_dialog_native_perform_item_click(ctx.args))
+            }
             "nativeDismiss" => Some(widgets::alert_dialog_native_dismiss(ctx.args)),
             "nativeRegisterButtonClickListener" => Some(
                 widgets::alert_dialog_register_button_click_listener(ctx.args, ctx.objects),

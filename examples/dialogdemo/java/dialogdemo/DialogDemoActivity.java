@@ -55,6 +55,33 @@ public class DialogDemoActivity extends Activity {
         });
     root.addView(dialogBtn);
 
+    Button listBtn = new Button("Pick One");
+    listBtn.setSize(200, 40);
+    listBtn.setOnClickListener(
+        v -> {
+          AlertDialog d =
+              new AlertDialog.Builder()
+                  .setTitle("Pick a color")
+                  .setItems(
+                      new String[] {"Red", "Green", "Blue"},
+                      (dialog, which) -> c.appComponent().info("picked item " + which))
+                  .show();
+          // Headless verification: synthetically tap "Green" (index 1).
+          d.performItemClick(1);
+        });
+    root.addView(listBtn);
+
+    // Drive the list dialog once at startup so the HIL/sim run exercises the
+    // setItems path without needing pixel-accurate touch on the list row.
+    AlertDialog startup =
+        new AlertDialog.Builder()
+            .setTitle("Pick a color")
+            .setItems(
+                new String[] {"Red", "Green", "Blue"},
+                (dialog, which) -> c.appComponent().info("picked item " + which))
+            .show();
+    startup.performItemClick(2); // selects "Blue" → "picked item 2"
+
     setContentView(root);
   }
 }

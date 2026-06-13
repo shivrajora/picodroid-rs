@@ -407,6 +407,7 @@ fn dispatch_widget_events(
     dispatch_spinner_changes(jvm, heap, handler);
     dispatch_list_view_item_clicks(jvm, heap, handler);
     dispatch_alert_dialog_clicks(jvm, heap, handler);
+    dispatch_alert_dialog_item_clicks(jvm, heap, handler);
     dispatch_snackbar_action_clicks(jvm, heap, handler);
     dispatch_date_picker_changes(jvm, heap, handler);
     dispatch_time_picker_changes(jvm, heap, handler);
@@ -897,6 +898,32 @@ fn dispatch_alert_dialog_clicks(
                 dispatch_method(dispatch_sites::ALERT_DIALOG),
                 obj_ref,
                 &[Value::Int(which)],
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
+/// Drain list-dialog item clicks and invoke `fireItemClick(position, checked)`
+/// on each matching AlertDialog (plain items dismiss in Java; choice lists do
+/// not). The dialog's Java object is already rooted via DIALOG_OBJ_MAP.
+#[cfg(not(test))]
+fn dispatch_alert_dialog_item_clicks(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) {
+    use crate::system::picodroid::graphics::widgets;
+    use pico_jvm::types::Value;
+
+    while let Some((dialog_handle, position, checked)) = widgets::drain_dialog_item_click_queue() {
+        if let Some(obj_ref) = widgets::lookup_dialog_obj(dialog_handle) {
+            let _ = jvm.invoke_instance_with_args(
+                dispatch_class(dispatch_sites::ALERT_DIALOG_ITEM),
+                dispatch_method(dispatch_sites::ALERT_DIALOG_ITEM),
+                obj_ref,
+                &[Value::Int(position), Value::Int(checked as i32)],
                 heap,
                 handler,
             );
