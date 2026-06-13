@@ -2,7 +2,6 @@
 package picodroid
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
@@ -73,11 +72,7 @@ abstract class PapkPackTask : DefaultTask() {
         )
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
 
-        val pb = ProcessBuilder(args).directory(project.rootDir).inheritIO()
-        CargoEnv.sanitize(pb)
-        val rc = pb.start().waitFor()
-        if (rc != 0) {
-            throw GradleException("papk-pack failed (exit $rc)")
-        }
+        val pb = ProcessBuilder(args).directory(project.rootDir)
+        ProcessRun.runOrThrow(pb, "papk-pack")
     }
 }

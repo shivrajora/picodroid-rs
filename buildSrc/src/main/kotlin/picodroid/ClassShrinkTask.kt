@@ -2,7 +2,6 @@
 package picodroid
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
@@ -44,11 +43,7 @@ abstract class ClassShrinkTask : DefaultTask() {
             "--in", inputDir.get().asFile.absolutePath,
             "--out", out.absolutePath,
             "--map", mapFile.get().asFile.absolutePath,
-        ).directory(project.rootDir).inheritIO()
-        CargoEnv.sanitize(pb)
-        val rc = pb.start().waitFor()
-        if (rc != 0) {
-            throw GradleException("class-shrink shrink-dir failed (exit $rc)")
-        }
+        ).directory(project.rootDir)
+        ProcessRun.runOrThrow(pb, "class-shrink shrink-dir")
     }
 }
