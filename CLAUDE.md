@@ -4,6 +4,12 @@
 
 Picodroid brings Android-like Java app development to embedded systems. The Java API exposed to developers should stay as close to its Android counterpart as possible — class names, method signatures, semantics, and idioms should match `android.*` so that code and developer intuition transfer directly. When a design choice is forced by embedded constraints prefer the option that preserves the Android-facing API surface, even if the internal implementation diverges.
 
+## Apps import `picodroid.*`, never `android.*`
+
+Apps must import the SDK classes directly as `picodroid.*` (e.g. `import picodroid.view.View;`). Importing `android.*` is **not supported** — there is no `android.*` stub jar or alias layer, so `import android.view.View;` will neither compile nor load. Do not add one back, and do not write apps or examples that import `android.*`.
+
+This does not contradict the Project Goal: the goal means the picodroid API is *named* to mirror `android.*` (so `picodroid.view.View` matches `android.view.View` method-for-method and intuition transfers) — it does **not** mean apps import the `android` namespace.
+
 ## After Every Code Change
 
 Run these two checks without exception:

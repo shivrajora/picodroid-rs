@@ -9,10 +9,9 @@ force some divergences, and a few Android subsystems are intentionally absent.
 This page is the authoritative list of what's full, partial, renamed-only, or
 unsupported — and the picodroid alternative for every gap.
 
-The Java SDK lives under `picodroid.*`. Code can also be written against
-`android.*` imports and compiled through the [compat-aliases /
-stub-jar](#android-import-compatibility) path; either way the same divergences
-below apply.
+The SDK is imported as `picodroid.*` — every class below mirrors its `android.*`
+counterpart's name, so the API reads the same; you just import `picodroid.*`
+(e.g. `import picodroid.view.View;`). Apps always use `picodroid.*` imports.
 
 ## Status legend
 
@@ -127,17 +126,10 @@ below apply.
   app-defined `Interpolator` can't be up-called from the native tick, so it
   falls back to linear with a `Log.w`.
 
-## Android import compatibility
+## Imports
 
-Apps can be written against `android.*` imports instead of `picodroid.*`:
-
-- The build generates an `android.*` stub jar (a `picodroid.` → `android.`
-  rename of the SDK) so the imports compile.
-- The [class-shrinker](/reference/shrinker/)'s `--compat-aliases` pass rewrites
-  the resulting `android/*` bytecode references to the real `picodroid/*`
-  classes at pack time.
-
-Enable it with `picodroid.compatAliases=true` (see `examples/androidport`).
-**Scope: class-name aliasing only.** It does not provide `android.R`, the
-resources system, or any class that has no `picodroid.*` equivalent — those
-remain [Unsupported](#by-package) regardless of which import style you use.
+Always import the `picodroid.*` classes directly — e.g.
+`import picodroid.view.View;`, `import picodroid.widget.TextView;`. There is no
+`android.*` import compatibility layer: `import android.view.View;` will not
+compile or load. The package names below mirror Android's only so the API reads
+the same and intuition transfers; the namespace you import is `picodroid`.

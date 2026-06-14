@@ -70,27 +70,6 @@ impl ShrinkMap {
     pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
     }
-
-    /// Compose this shrink map with an `alias` map (e.g. `android/* →
-    /// picodroid/*`) applied FIRST, producing a single map that does both
-    /// rewrites in one constant-pool pass.
-    ///
-    /// For each `alias_from → alias_to`, the composed entry points
-    /// `alias_from` straight at `alias_to`'s final name: if this map shrinks
-    /// `alias_to`, the entry becomes `alias_from → shrunk`, otherwise
-    /// `alias_from → alias_to`. This map's own entries are kept, so both
-    /// `android/view/View` and `picodroid/view/View` resolve to the same final
-    /// name. Aliasing must precede shrinking — `android/*` names are not
-    /// shrink-map keys, so aliasing after a shrink pass would leave them
-    /// pointing at unshrunk names no loaded class matches.
-    pub fn composed_with_aliases(&self, alias: &ShrinkMap) -> ShrinkMap {
-        let mut out = self.clone();
-        for (from, to) in alias.iter_classes() {
-            let final_to = self.classes.get(to).map(String::as_str).unwrap_or(to);
-            out.classes.insert(from.to_string(), final_to.to_string());
-        }
-        out
-    }
 }
 
 /// Format a string as a TOML basic-string literal with `"` escaping.
@@ -247,93 +226,5 @@ mod tests {
     fn rejects_unknown_schema() {
         let text = "schema = 99\n";
         assert!(parse(text).is_err());
-    }
-
-    #[test]
-    fn compose_aliases_through_shrink() {
-        // shrink: picodroid/view/View -> a/A  (picodroid/widget/TextView unshrunk)
-        let mut shrink = ShrinkMap::new();
-        shrink
-            .classes
-            .insert("picodroid/view/View".into(), "a/A".into());
-
-        // alias: android/* -> picodroid/*
-        let mut alias = ShrinkMap::new();
-        alias
-            .classes
-            .insert("android/view/View".into(), "picodroid/view/View".into());
-        alias.classes.insert(
-            "android/widget/TextView".into(),
-            "picodroid/widget/TextView".into(),
-        );
-
-        let composed = shrink.composed_with_aliases(&alias);
-
-        // android name routes through the shrink to the final short name...
-        assert_eq!(composed.classes.get("android/view/View").unwrap(), "a/A");
-        // ...the picodroid name still maps to the same final name...
-        assert_eq!(composed.classes.get("picodroid/view/View").unwrap(), "a/A");
-        // ...and an aliased-but-unshrunk class lands on its picodroid name.
-        assert_eq!(
-            composed.classes.get("android/widget/TextView").unwrap(),
-            "picodroid/widget/TextView"
-        );
-    }
-
-    #[test]
-    fn compose_alias_only_when_shrink_empty() {
-        let shrink = ShrinkMap::new(); // shrinking off
-        let mut alias = ShrinkMap::new();
-        alias
-            .classes
-            .insert("android/util/Log".into(), "picodroid/util/Log".into());
-        let composed = shrink.composed_with_aliases(&alias);
-        assert_eq!(
-            composed.classes.get("android/util/Log").unwrap(),
-            "picodroid/util/Log"
-        );
-        assert_eq!(composed.classes.len(), 1);
-    }
-
-    /// Drift guard: every top-level public SDK class under sdk/java/picodroid
-    /// must have an `android/<pkg>/<Class>` alias in sdk/compat-aliases.toml.
-    /// Regenerate the toml (see its header) when this fails after adding an
-    /// SDK class. Walks the source tree so it needs no build.
-    #[test]
-    fn compat_aliases_cover_every_sdk_class() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .expect("repo root")
-            .to_path_buf();
-        let sdk_src = repo_root.join("sdk/java/picodroid");
-        let alias_file = repo_root.join("sdk/compat-aliases.toml");
-
-        let alias = ShrinkMap::load(&alias_file).expect("load compat-aliases.toml");
-
-        let mut missing = Vec::new();
-        let mut stack = vec![sdk_src.clone()];
-        while let Some(dir) = stack.pop() {
-            for entry in fs::read_dir(&dir).expect("read sdk dir") {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.extension().and_then(|e| e.to_str()) == Some("java") {
-                    let rel = path.strip_prefix(repo_root.join("sdk/java")).unwrap();
-                    // picodroid/<pkg>/<Class>.java -> internal name minus ".java"
-                    let internal = rel.with_extension("").to_string_lossy().replace('\\', "/");
-                    let android = internal.replacen("picodroid/", "android/", 1);
-                    if !alias.classes.contains_key(&android) {
-                        missing.push(android);
-                    }
-                }
-            }
-        }
-        missing.sort();
-        assert!(
-            missing.is_empty(),
-            "sdk/compat-aliases.toml is missing aliases for: {missing:?}\n\
-             Regenerate it (see the file header)."
-        );
     }
 }

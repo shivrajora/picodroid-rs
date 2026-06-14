@@ -74,37 +74,12 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val compileJava = target.tasks.named("compileJava", JavaCompile::class.java)
         val classesOutputDir = compileJava.flatMap { it.destinationDirectory }
 
-        // compatAliases routes app bytecode through class-shrink to rewrite
-        // android/* references to the real picodroid/* classes, even when name
-        // shrinking is off. The tool composes aliasing ahead of shrinking, so
-        // one shrinkClasses pass handles both.
-        val compatAliases = (target.findProperty("picodroid.compatAliases") as? String)
-            ?.let { it.equals("true", ignoreCase = true) || it == "1" } ?: false
-        val shrinkActive = frameworkMapVersion != ShrinkMapResolver.UNRELEASED
-
-        // With aliasing on, put the generated android.* stub jar on the app's
-        // compileOnly classpath so `import android.view.View` resolves at
-        // compile time. The stubs never ship — app bytecode references android/*
-        // and class-shrink rewrites those to picodroid/* (the real classes).
-        if (compatAliases) {
-            target.dependencies.add(
-                JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME,
-                target.dependencies.project(
-                    mapOf("path" to sdkProjectPath, "configuration" to "androidStubsElements")
-                )
-            )
-        }
-
-        val packClassesInput = if (shrinkActive || compatAliases) {
+        val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
+            val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 dependsOn(compileJava)
                 inputDir.set(classesOutputDir)
-                if (shrinkActive) {
-                    this.mapFile.set(ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion))
-                }
-                if (compatAliases) {
-                    compatAliasesFile.set(repoRoot.resolve("sdk/compat-aliases.toml"))
-                }
+                this.mapFile.set(mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
                 repoRootPath.set(repoRoot.absolutePath)

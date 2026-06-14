@@ -13,11 +13,10 @@
 //!       verbatim and only net-new classes get fresh short names (the
 //!       append-only rule). Deterministic: same input → same output.
 //!
-//!   shrink-dir --in <dir> --out <dir> [--map <file.toml>] [--compat-aliases <file.toml>]
-//!       Rewrite every .class file under --in and write results under --out.
-//!       --map shrinks framework names; --compat-aliases rewrites
-//!       android/* -> picodroid/* first (composed into one pass). Files
-//!       without renamed internal names keep their original name.
+//!   shrink-dir --in <dir> --out <dir> --map <file.toml>
+//!       Rewrite every .class file under --in using --map's classes and
+//!       write results under --out. Files without renamed internal names
+//!       keep their original name.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -160,7 +159,6 @@ fn cmd_shrink_dir(args: &[String]) -> ExitCode {
     let mut in_dir: Option<PathBuf> = None;
     let mut out_dir: Option<PathBuf> = None;
     let mut map_path: Option<PathBuf> = None;
-    let mut alias_path: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -174,10 +172,6 @@ fn cmd_shrink_dir(args: &[String]) -> ExitCode {
             }
             "--map" => {
                 map_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
-                i += 2;
-            }
-            "--compat-aliases" => {
-                alias_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
             }
             _ => {
@@ -200,35 +194,21 @@ fn cmd_shrink_dir(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    // At least one of --map / --compat-aliases must be given (an empty rewrite
-    // would just copy the input). --map may be omitted for an alias-only pass
-    // (compat aliases with shrinking off).
-    if map_path.is_none() && alias_path.is_none() {
-        eprintln!("Error: at least one of --map or --compat-aliases is required");
-        return ExitCode::from(1);
-    }
-    let shrink_map = match &map_path {
-        Some(p) => match ShrinkMap::load(p) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Error loading map: {e}");
-                return ExitCode::from(1);
-            }
-        },
-        None => ShrinkMap::new(),
+    let map_path = match map_path {
+        Some(p) => p,
+        None => {
+            eprintln!("Error: --map is required");
+            return ExitCode::from(1);
+        }
     };
-    // Compose android/* → picodroid/* aliasing BEFORE shrinking into one map.
-    let effective = match &alias_path {
-        Some(p) => match ShrinkMap::load(p) {
-            Ok(alias) => shrink_map.composed_with_aliases(&alias),
-            Err(e) => {
-                eprintln!("Error loading compat-aliases: {e}");
-                return ExitCode::from(1);
-            }
-        },
-        None => shrink_map,
+    let map = match ShrinkMap::load(&map_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error loading map: {e}");
+            return ExitCode::from(1);
+        }
     };
-    match shrink::shrink_directory(&in_dir, &out_dir, &effective) {
+    match shrink::shrink_directory(&in_dir, &out_dir, &map) {
         Ok(n) => {
             eprintln!("Shrunk {n} class files → {}", out_dir.display());
             ExitCode::SUCCESS
@@ -253,10 +233,7 @@ Subcommands:
       Generate a release map covering non-kept classes. Append-only
       when --base is provided (existing entries are preserved).
 
-  shrink-dir --in <dir> --out <dir> [--map <file.toml>] [--compat-aliases <file.toml>]
-      Rewrite every .class file under --in, writing results under --out at
-      their new internal names. --map shrinks framework class names;
-      --compat-aliases rewrites android/* -> picodroid/* and is applied
-      BEFORE shrinking (composed into one pass). At least one is required;
-      --map may be omitted for an alias-only pass.
+  shrink-dir --in <dir> --out <dir> --map <file.toml>
+      Rewrite every .class file under --in using --map's classes,
+      writing results under --out at their new internal names.
 ";
