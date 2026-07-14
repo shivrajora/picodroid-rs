@@ -48,14 +48,16 @@ jobs:
           key: ${{ matrix.os }}-${{ matrix.rust }}
       # No-ops when the cached ~/.cargo/bin already holds the binary.
       - run: cargo install flip-link
-      - name: Build helloworld APK
-        run: bash scripts/build-apk.sh --app helloworld
+      # Build via scripts/build.sh so device firmware images pick up the
+      # debug-profile flash-gate (debug-assertions/overflow-checks off, ~40 KB)
+      # that keeps the RP2040 image under its 896K FLASH ceiling. build.sh
+      # builds the helloworld APK itself before linking the firmware.
       # TestBench RP2040
-      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040
-      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040 --release
+      - run: bash scripts/build.sh --board testbench_rp2040 --app helloworld
+      - run: bash scripts/build.sh --board testbench_rp2040 --app helloworld --release
       # TestBench RP2350
-      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350
-      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 --release
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release
   testing:
     name: Testing
     runs-on: ubuntu-latest
