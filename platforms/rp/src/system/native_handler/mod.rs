@@ -126,17 +126,18 @@ impl PicodroidNativeHandler {
         if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
             if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(*intent_ref, 0) {
                 if let Some(class_name) = ctx.strings.resolve(name_idx) {
-                    // SAFETY: targetClassName originates from `Class.getName()`,
-                    // whose returned string-table slot is backed by Flash bytes
-                    // for the lifetime of the JVM (see jvm/src/heap.rs).
-                    let static_name: &'static str =
-                        unsafe { core::mem::transmute::<&str, &'static str>(class_name) };
-                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
-                        class_name: static_name,
-                        intent_ref: Some(*intent_ref),
-                        request_code,
-                        caller_ref,
-                    }));
+                    // targetClassName is `Class.getName().replace('.', '/')` — a
+                    // runtime dynamic String the GC can free — so canonicalize to
+                    // the loaded class file's Flash-backed name before storing it
+                    // in the enqueued op, rather than transmuting to `&'static`.
+                    if let Some(static_name) = ctx.canonical_class_name(class_name) {
+                        self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                            class_name: static_name,
+                            intent_ref: Some(*intent_ref),
+                            request_code,
+                            caller_ref,
+                        }));
+                    }
                 }
             }
         }

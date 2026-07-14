@@ -34,6 +34,7 @@ impl StrCtx {
         args: &[Value],
     ) -> Result<Option<Value>, JvmError> {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: desc,
             args,
             strings: &mut self.strings,
@@ -64,6 +65,7 @@ fn dispatch_math(
     let mut objects = ObjectHeap::new();
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor,
         args,
         strings: &mut strings,
@@ -596,6 +598,7 @@ impl SbCtx {
             Some(v) => alloc::vec![this, v],
         };
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: desc,
             args: &args,
             strings: &mut self.strings,
@@ -763,6 +766,7 @@ fn dispatch_boxed(
     let mut strings = StringTable::new();
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings: &mut strings,
@@ -903,6 +907,7 @@ fn dispatch_boxed_to_string(
 ) -> Result<Option<Value>, JvmError> {
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings,
@@ -1069,6 +1074,7 @@ fn dispatch_list(
     let mut strings = StringTable::new();
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings: &mut strings,
@@ -1241,6 +1247,7 @@ fn dispatch_map(
 ) -> Result<Option<Value>, JvmError> {
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings,
@@ -1261,6 +1268,7 @@ fn dispatch_set(
 ) -> Result<Option<Value>, JvmError> {
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings,
@@ -1942,6 +1950,7 @@ fn dispatch_iter(
     let mut strings = StringTable::new();
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings: &mut strings,
@@ -1964,6 +1973,7 @@ fn iterator_arraylist_empty() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[list],
             strings: &mut strings,
@@ -2016,6 +2026,7 @@ fn iterator_arraylist_basic() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[list],
             strings: &mut strings,
@@ -2069,6 +2080,7 @@ fn iterator_arraylist_single() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[list],
             strings: &mut strings,
@@ -2106,6 +2118,7 @@ fn iterator_next_past_end() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[list],
             strings: &mut strings,
@@ -2161,6 +2174,7 @@ fn iterator_hashmap_keys() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[keyset],
             strings: &mut strings,
@@ -2230,6 +2244,7 @@ fn iterator_hashmap_values() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "()Ljava/util/Iterator;",
             args: &[vals],
             strings: &mut strings,
@@ -2270,6 +2285,7 @@ fn dispatch_enum(
 ) -> Result<Option<Value>, JvmError> {
     let mut arrays = ArrayHeap::new();
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings,
@@ -2977,6 +2993,7 @@ impl RngCtx {
         let this_idx = objects.alloc("java/util/Random").unwrap();
         // Seed via the native <init>(J) so behavior matches a real instance.
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: "(J)V",
             args: &[Value::ObjectRef(this_idx), Value::Long(seed)],
             strings: &mut strings,
@@ -2999,6 +3016,7 @@ impl RngCtx {
         let mut args: alloc::vec::Vec<Value> = alloc::vec![Value::ObjectRef(self.this_idx)];
         args.extend_from_slice(extra);
         let mut ctx = NativeContext {
+            classes: &[],
             descriptor: desc,
             args: &args,
             strings: &mut self.strings,
@@ -3172,6 +3190,7 @@ fn arrays_dispatch(
     arrays: &mut ArrayHeap,
 ) -> Result<Option<Value>, JvmError> {
     let mut ctx = NativeContext {
+        classes: &[],
         descriptor: desc,
         args,
         strings,

@@ -50,14 +50,19 @@ fn intent_target_class(ctx: &NativeContext<'_>, intent_ref: u16) -> Option<&'sta
         _ => return None,
     };
     let s = ctx.strings.resolve(name_idx)?;
-    // SAFETY: the StringTable entry is Flash-backed for the lifetime of
-    // the JVM (see jvm/src/heap.rs).
-    Some(unsafe { core::mem::transmute::<&str, &'static str>(s) })
+    // The Intent's targetClassName is `Class.getName().replace('.', '/')` — a
+    // runtime dynamic String whose backing buffer the GC can free. It must NOT
+    // be transmuted to `&'static` and stored in the service registry / an
+    // enqueued op. Canonicalize to the loaded class file's Flash-backed name,
+    // which lives for the JVM's lifetime. Returns None for a class that isn't
+    // loaded (which could not be instantiated as a Service anyway).
+    ctx.canonical_class_name(s)
 }
 
 fn obj_class_name(ctx: &NativeContext<'_>, obj_ref: u16) -> Option<&'static str> {
-    let s = ctx.objects.class_name(obj_ref)?;
-    Some(unsafe { core::mem::transmute::<&str, &'static str>(s) })
+    // `class_name` returns the object's `class_table` entry, which is a
+    // genuinely-`'static` Flash-backed name (see `ObjectHeap::alloc_with_defaults`).
+    ctx.objects.class_name(obj_ref)
 }
 
 fn handle_start_service(

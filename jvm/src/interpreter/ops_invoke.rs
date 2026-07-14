@@ -362,6 +362,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             strings: self.strings,
             objects: self.objects,
             arrays: self.arrays,
+            classes: self.classes,
         };
         // Try the exact class first.
         if let Some(result) = self

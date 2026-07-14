@@ -163,6 +163,7 @@ mod tests {
             strings,
             objects,
             arrays,
+            classes: &[],
         }
     }
 

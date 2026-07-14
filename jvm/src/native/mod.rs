@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
     array_heap::ArrayHeap,
+    class_file::ClassFile,
     heap::StringTable,
     object_heap::ObjectHeap,
     types::{JvmError, MonitorKey, Value},
@@ -303,6 +304,34 @@ pub struct NativeContext<'a> {
     pub objects: &'a mut ObjectHeap,
     /// Array storage.
     pub arrays: &'a mut ArrayHeap,
+    /// Loaded class files.  Lets a handler canonicalize a class name to the
+    /// class file's genuinely-`'static` (Flash-backed) name via
+    /// [`NativeContext::canonical_class_name`] — required before storing a name
+    /// past the current call, since a `&str` from [`StringTable::resolve`] may
+    /// point into the GC-managed dynamic-string region.
+    pub classes: &'a [ClassFile],
+}
+
+impl NativeContext<'_> {
+    /// Resolve `name` to the loaded class file's genuinely-`'static`
+    /// (Flash-backed) class name, or `None` if no loaded class matches.
+    ///
+    /// Handlers that persist a class name beyond the current native call (into
+    /// `class_table`, a service registry, a pending op, …) must route it
+    /// through here rather than transmuting a [`StringTable::resolve`] result to
+    /// `&'static`: an Intent target-class name is commonly a runtime dynamic
+    /// String (e.g. `Class.getName().replace('.', '/')`) whose backing `Vec` the
+    /// GC can free, leaving any retained pointer dangling.
+    pub fn canonical_class_name(&self, name: &str) -> Option<&'static str> {
+        for cf in self.classes {
+            if let Some(n) = cf.class_name() {
+                if n == name.as_bytes() {
+                    return core::str::from_utf8(n).ok();
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Callback interface for resolving Java `native` methods at runtime.
