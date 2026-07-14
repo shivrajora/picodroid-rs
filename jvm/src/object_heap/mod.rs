@@ -325,12 +325,28 @@ impl ObjectHeap {
         let mut chain: Vec<usize> = Vec::new();
         let mut enum_base = false;
         let mut current: &str = class_name;
+        // Canonical, genuinely-`'static` (Flash-backed) name for the leaf class.
+        // `class_name` may be a transient pointer — e.g. a native caller can
+        // resolve an Intent's target-class name to a GC-managed dynamic String
+        // and transmute it to `&'static` — and interning that into `class_table`
+        // leaves a dangling entry once the dynamic String is swept. Adopting the
+        // loaded class file's own name keeps `class_table` pointing at Flash for
+        // the JVM's lifetime. Falls back to `class_name` for classes not present
+        // in `classes` (builtins/native), whose names are already `'static`.
+        let mut canonical_name: &'static str = class_name;
         loop {
             let ci = classes
                 .iter()
                 .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()));
             match ci {
                 Some(i) => {
+                    if chain.is_empty() {
+                        if let Some(n) = classes[i].class_name() {
+                            if let Ok(s) = core::str::from_utf8(n) {
+                                canonical_name = s;
+                            }
+                        }
+                    }
                     chain.push(i);
                     match classes[i].super_class_name() {
                         None => break,
@@ -357,7 +373,7 @@ impl ObjectHeap {
                 .iter()
                 .map(|&ci| classes[ci].fields().len())
                 .sum::<usize>();
-        let idx = self.alloc_with_field_count(class_name, n_fields)?;
+        let idx = self.alloc_with_field_count(canonical_name, n_fields)?;
 
         let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
         for ci in chain.iter() {
