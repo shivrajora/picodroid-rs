@@ -113,8 +113,13 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 # ── Start Xvfb ──────────────────────────────────────────────────────────────
+# -extension GLX: on hosts with the NVIDIA driver installed, Xvfb's GLX
+# extension init loads the NVIDIA EGL/GBM vendor libraries and segfaults in a
+# headless framebuffer (backtrace through libnvidia-egl-gbm → libEGL_nvidia →
+# swrast_dri, "Caught signal 11"). The sim uses minifb's X11 software-blit
+# backend and needs no GLX, so disabling it avoids the crash with no downside.
 echo "sim-remote: starting Xvfb on :$DISPLAY_NUM ($GEOMETRY)"
-Xvfb ":$DISPLAY_NUM" -screen 0 "$GEOMETRY" -nolisten tcp \
+Xvfb ":$DISPLAY_NUM" -screen 0 "$GEOMETRY" -nolisten tcp -extension GLX \
   >"${LOG_PREFIX}-xvfb.log" 2>&1 &
 XVFB_PID=$!
 
