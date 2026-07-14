@@ -29,6 +29,26 @@ use button_generated::BUTTONS;
 
 const NUM_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
 
+/// Enter a simulated-heap-cap bypass region for host-only minifb allocations
+/// (the full-screen window buffer, X11 image buffers) until the returned guard
+/// drops. See `sim_allocator::bypass`.
+///
+/// `sim_allocator` carries the `#[global_allocator]` and is only compiled with
+/// the `sim` feature, but this module also builds under `cfg(test)` so its unit
+/// tests run — there the cap doesn't exist, so the guard is a no-op.
+#[cfg(feature = "sim")]
+fn heap_cap_bypass() -> impl Drop {
+    crate::sim_allocator::bypass()
+}
+#[cfg(not(feature = "sim"))]
+fn heap_cap_bypass() -> impl Drop {
+    struct Noop;
+    impl Drop for Noop {
+        fn drop(&mut self) {}
+    }
+    Noop
+}
+
 // ── Statics (single-threaded sim — safe) ────────────────────────────────────
 
 static mut WINDOW: Option<Window> = None;
@@ -87,7 +107,15 @@ pub fn init() {
     // Treat window-creation failure the same as headless — never panic, so a
     // local run without a working display still boots the JVM and flushes
     // logs instead of aborting before any Log.i() fires.
-    let mut win = match Window::new("picodroid", WIDTH as usize, HEIGHT as usize, opts) {
+    //
+    // Bypass the simulated-heap cap while minifb allocates its full-screen
+    // backing buffer (≈900 KB at Scale::X2) — a host rendering artifact with no
+    // MCU counterpart. See `sim_allocator::bypass`.
+    let win_result = {
+        let _bypass = heap_cap_bypass();
+        Window::new("picodroid", WIDTH as usize, HEIGHT as usize, opts)
+    };
+    let mut win = match win_result {
         Ok(w) => w,
         Err(e) => {
             println!("[sim] Display: headless (window creation failed: {e})");
@@ -183,8 +211,14 @@ pub fn update_window() {
                 let ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
                 core::slice::from_raw_parts(ptr, NUM_PIXELS)
             };
-            win.update_with_buffer(buf, WIDTH as usize, HEIGHT as usize)
-                .unwrap_or(());
+            // Bypass the heap cap: minifb may reallocate its host-only backing
+            // buffer here (e.g. on an X11 ConfigureNotify). See
+            // `sim_allocator::bypass`.
+            {
+                let _bypass = heap_cap_bypass();
+                win.update_with_buffer(buf, WIDTH as usize, HEIGHT as usize)
+                    .unwrap_or(());
+            }
 
             // Sample mouse state for touch emulation
             MOUSE_PRESSED = win.get_mouse_down(MouseButton::Left);

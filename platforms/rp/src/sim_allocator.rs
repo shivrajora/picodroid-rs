@@ -7,10 +7,59 @@
 //! When unset, allocations are unlimited.
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[global_allocator]
 pub static GLOBAL: CappedAllocator = CappedAllocator::new();
+
+thread_local! {
+    /// Nonzero while the current thread is inside a [`bypass`] region. Reads and
+    /// writes must never re-enter the global allocator, so this is
+    /// `const`-initialized — a lazily-initialized TLS would allocate on first
+    /// touch and deadlock inside `alloc`. `Cell<u32>` has no destructor, so it
+    /// also stays accessible during thread teardown.
+    static BYPASS_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+/// RAII guard returned by [`bypass`]. While at least one guard is alive on the
+/// current thread, `CappedAllocator` neither counts allocations against the
+/// simulated heap nor enforces the limit on them.
+///
+/// This exists to exclude *host-only* artifacts — allocations that have no
+/// counterpart in the MCU JVM heap — from the simulated budget. The motivating
+/// case is the minifb window's full-screen backing buffer: at `Scale::X2` a
+/// 240×240 display becomes a 480×480 `Vec<u32>` (≈900 KB), which dwarfs a
+/// realistic MCU heap and would OOM the sim before the app runs. On real
+/// hardware there is no such framebuffer — LVGL renders into a small banded
+/// buffer streamed to the panel over SPI — so charging it to the JVM heap cap
+/// mismodels the device.
+///
+/// Balance rule: allocations made inside a bypass region must also be *freed*
+/// inside a bypass region (or leaked until process exit), so that `dealloc`
+/// never decrements the counter for bytes it never added. minifb satisfies
+/// this — its buffers are (re)allocated and freed entirely within the guarded
+/// `Window::new` / `update_with_buffer` calls, and the final window is leaked
+/// at exit. `dealloc` also saturates at zero as a defensive backstop.
+#[must_use]
+pub struct BypassGuard(());
+
+impl Drop for BypassGuard {
+    fn drop(&mut self) {
+        BYPASS_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// Enter a heap-cap bypass region on the current thread until the returned
+/// guard is dropped. See [`BypassGuard`]. Nesting is supported (depth-counted).
+pub fn bypass() -> BypassGuard {
+    BYPASS_DEPTH.with(|d| d.set(d.get() + 1));
+    BypassGuard(())
+}
+
+fn bypass_active() -> bool {
+    BYPASS_DEPTH.with(Cell::get) != 0
+}
 
 /// Snapshot the global allocator. Returns `(current_bytes, peak_bytes, limit_bytes)`.
 pub fn heap_stats() -> (usize, usize, usize) {
@@ -106,6 +155,11 @@ impl core::fmt::Write for StackWriter<'_> {
 
 unsafe impl GlobalAlloc for CappedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // Host-only allocation (see `bypass`): serve it uncounted and uncapped.
+        if bypass_active() {
+            return unsafe { System.alloc(layout) };
+        }
+
         let size = layout.size();
         let limit = heap_limit();
 
@@ -149,7 +203,18 @@ unsafe impl GlobalAlloc for CappedAllocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         unsafe { System.dealloc(ptr, layout) };
-        self.allocated.fetch_sub(layout.size(), Ordering::Relaxed);
+        // A free inside a bypass region matches a bypassed (uncounted) alloc, so
+        // leave the counter alone. `fetch_update` saturates at zero as a
+        // backstop against ever underflowing into a permanent spurious OOM.
+        if bypass_active() {
+            return;
+        }
+        let size = layout.size();
+        let _ = self
+            .allocated
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+                Some(cur.saturating_sub(size))
+            });
     }
 }
 
@@ -198,5 +263,53 @@ mod tests {
         assert_eq!(peak, 640);
 
         unsafe { GlobalAlloc::dealloc(&alloc, ptr_b, layout_b) };
+    }
+
+    #[test]
+    fn bypass_excludes_allocation_from_accounting() {
+        let alloc = CappedAllocator::new();
+        let layout = Layout::from_size_align(4096, 8).unwrap();
+
+        // Inside a bypass region an allocation succeeds but is not counted —
+        // this models minifb's host-only window buffer, which must not consume
+        // the simulated JVM heap budget. Freeing it while still bypassed leaves
+        // the counter balanced at zero.
+        {
+            let _bypass = bypass();
+            let p = unsafe { GlobalAlloc::alloc(&alloc, layout) };
+            assert!(!p.is_null());
+            let (current, peak, _) = alloc.heap_stats();
+            assert_eq!(current, 0, "bypassed alloc must not be counted");
+            assert_eq!(peak, 0, "bypassed alloc must not move the high-water mark");
+            unsafe { GlobalAlloc::dealloc(&alloc, p, layout) };
+            assert_eq!(alloc.heap_stats().0, 0, "bypassed free is balanced");
+        }
+
+        // The guard is dropped, so accounting resumes: a normal alloc is counted.
+        let counted = unsafe { GlobalAlloc::alloc(&alloc, layout) };
+        assert!(!counted.is_null());
+        assert_eq!(alloc.heap_stats().0, 4096, "unbypassed alloc is counted");
+        unsafe { GlobalAlloc::dealloc(&alloc, counted, layout) };
+        assert_eq!(alloc.heap_stats().0, 0);
+    }
+
+    #[test]
+    fn dealloc_saturates_at_zero() {
+        // Defensive backstop: if a bypass-allocated pointer is ever freed
+        // outside a bypass region, `dealloc` must floor the counter at zero
+        // rather than wrap around into a permanent spurious OOM.
+        let alloc = CappedAllocator::new();
+        let layout = Layout::from_size_align(4096, 8).unwrap();
+
+        let ptr = {
+            let _bypass = bypass();
+            unsafe { GlobalAlloc::alloc(&alloc, layout) }
+        };
+        assert!(!ptr.is_null());
+        assert_eq!(alloc.heap_stats().0, 0);
+
+        // Counter is 0; freeing 4096 unbypassed would underflow without the floor.
+        unsafe { GlobalAlloc::dealloc(&alloc, ptr, layout) };
+        assert_eq!(alloc.heap_stats().0, 0, "saturating_sub floors at zero");
     }
 }
