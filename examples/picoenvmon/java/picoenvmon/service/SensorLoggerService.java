@@ -282,4 +282,14 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   public float lastGas() {
     return lastGas;
   }
+
+  /**
+   * Whether the foreground logging pass is currently active — i.e. {@code startService} has run and
+   * {@code stopService} has not. A started Service outlives the unbind that happens when the Live
+   * screen is left, so a re-entering UI queries this to restore the Logger toggle to its true
+   * state.
+   */
+  public boolean isLogging() {
+    return started;
+  }
 }

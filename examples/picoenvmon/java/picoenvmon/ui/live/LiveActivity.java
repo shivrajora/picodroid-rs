@@ -38,6 +38,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private EnvActivityComponent comp;
   private SensorLoggerService service;
   private boolean serviceRunning;
+  private Switch loggerSwitch;
 
   private final LinearLayout[] tileRoots = new LinearLayout[NUM_TILES];
   private final TextView[] tileValues = new TextView[NUM_TILES];
@@ -94,6 +95,17 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   public void onServiceConnected(IBinder binder) {
     service = ((SensorLoggerService.LocalBinder) binder).service;
     service.addSmoothedListener(this);
+    // The bound Service is the source of truth for the logging state (Android LocalBinder pattern).
+    // A *started* logging Service outlives the unbind we do in onDestroy, so re-entering the Live
+    // screen reconnects to a service that may already be logging while the freshly built Switch
+    // still shows its default (off). Reflect the real state onto the toggle here.
+    //
+    // Update the model field *before* the widget: android.widget.CompoundButton#setChecked fires
+    // OnCheckedChangeListener, so setting serviceRunning first makes setLogger's
+    // `if (on == serviceRunning)` guard absorb the re-entrant callback — no spurious start/stop.
+    boolean logging = service.isLogging();
+    serviceRunning = logging;
+    loggerSwitch.setChecked(logging);
   }
 
   @Override
@@ -125,6 +137,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     Switch toggle = new Switch();
     toggle.setOnCheckedChangeListener((buttonView, isChecked) -> setLogger(isChecked));
     row.addView(toggle);
+    loggerSwitch = toggle;
 
     return row;
   }
