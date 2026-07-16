@@ -216,6 +216,15 @@ It picks a free X display and free VNC/web ports, then prints a banner with a no
 echo 'tap B' > /tmp/picodroid-sim-remote-<display>-ctrl
 ```
 
+The `<display>` number is chosen dynamically (`:99..:150`), so rather than look it
+up, use the `scripts/sim-ctrl.sh` wrapper — it auto-discovers the running sim's
+FIFO and forwards the command:
+
+```bash
+./scripts/sim-ctrl.sh tap B          # auto-discovers the single running sim
+./scripts/sim-ctrl.sh -d 100 tap B   # or target display :100 explicitly
+```
+
 The verb grammar is `down|up|press|tap <button>`:
 
 - `down` — press (active-low falling edge)

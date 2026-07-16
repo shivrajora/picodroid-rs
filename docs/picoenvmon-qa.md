@@ -172,7 +172,8 @@ so the highlight stays teal throughout. **Verified:** teal on first render and a
 
 - Drive input headless via the control FIFO printed by `sim-remote.sh`, e.g.
   `echo 'tap B' > /tmp/picodroid-sim-remote-<display>-ctrl` (verbs `tap|down|up|press`, keys
-  `A|B|X|Y|PREV|NEXT|ENTER|ESC`).
+  `A|B|X|Y|PREV|NEXT|ENTER|ESC`). The `scripts/sim-ctrl.sh` wrapper does the same without
+  the FIFO path: `./scripts/sim-ctrl.sh tap B` (auto-discovers the running sim's display).
 - Capture frames with `DISPLAY=:<n> scrot --window "$(xdotool search --name picodroid)" out.png`.
 - The app's `println!` output and lifecycle logs land in the `sim-remote` log
   (`/tmp/sim-remote.log` when launched as shown above).

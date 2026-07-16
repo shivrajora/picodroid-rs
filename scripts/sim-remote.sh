@@ -170,7 +170,8 @@ cat <<EOF
      ${URL}
    Keyboard: click the sim image once so the browser forwards keys.
    Buttons from a terminal (no browser focus needed):
-     echo 'tap B' > ${CTRL_FIFO}
+     ./scripts/sim-ctrl.sh tap B          # auto-discovers this FIFO
+     echo 'tap B' > ${CTRL_FIFO}          # or write the FIFO directly
      # A/B/X/Y or PREV/NEXT/ENTER/ESC; verbs: down|up|press|tap
    Display: :${DISPLAY_NUM}    VNC: localhost:${VNC_PORT}
    Logs:    ${LOG_PREFIX}-{xvfb,x11vnc,novnc}.log
