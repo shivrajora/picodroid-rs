@@ -76,6 +76,8 @@ pub mod heap;
 pub mod interpreter;
 pub mod native;
 pub mod object_heap;
+#[cfg(feature = "parity-metrics")]
+pub mod parity;
 pub mod static_fields;
 pub mod tunables;
 pub mod types;

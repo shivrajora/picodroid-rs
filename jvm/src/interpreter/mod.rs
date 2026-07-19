@@ -71,6 +71,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
     #[inline]
     pub fn bump_alloc_count(&mut self, n: u16) {
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_allocs(n as usize);
         self.gc_state.alloc_count = self.gc_state.alloc_count.saturating_add(n);
     }
 
@@ -339,6 +341,8 @@ pub fn execute<H: NativeMethodHandler>(
         if ex.insn_count == 0 && ex.handler.interrupted() {
             return Err(JvmError::Interrupted);
         }
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_insn();
 
         let frame = match frames.last_mut() {
             Some(f) => f,
