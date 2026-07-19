@@ -132,10 +132,12 @@ jobs:
       # Headless end-to-end runs of a small representative subset, both shrink
       # modes (sim-run default). Full matrix stays on the nightly cron; this
       # job closes the push -> 3 AM detection window for the JVM, GC-stress,
-      # stdlib (langsuite), and widget-callback dispatch paths.
+      # stdlib (langsuite), and widget-callback dispatch paths. picoenvmon
+      # rides the enviro-board smoke lane inside sim-run.sh (parity-audit
+      # LVG-01/BRD-01) so the shipping board's LVGL config is CI-simulated.
       - name: Run sim smoke subset
         run: |
-          for app in helloworld gcstress langsuite callbacktest; do
+          for app in helloworld gcstress langsuite callbacktest picoenvmon; do
             bash scripts/sim-run.sh --app "$app" --no-email
           done
   formatting:

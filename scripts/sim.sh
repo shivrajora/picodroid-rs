@@ -15,7 +15,11 @@ source "$SCRIPT_DIR/lib.sh"
 BOARD="testbench_rp2350"
 APP="helloworld"
 HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
-SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-}"
+# Handle sanitizer defaults ON (docs/parity-audit.md HAL-05/X3): the 64-bit
+# handle table silently absorbs use-after-delete lookups that dangle on real
+# 32-bit hardware, so surfacing them loudly is the parity-honest default.
+# Opt out with --no-sanitize-handles or PICODROID_HANDLE_SANITIZER=0.
+SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-1}"
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
 
@@ -27,10 +31,16 @@ Options:
   -b, --board <board>       Board to simulate (default: testbench_rp2350)
   -a, --app <app>           App to run (default: helloworld)
   -r, --release             Build in release mode
-  -l, --heap-limit <KB>     Limit sim heap to KB kilobytes (simulates MCU)
+  -l, --heap-limit <KB>     Override the sim heap cap in KB. Defaults to the
+                            simulated chip's FreeRTOS arena size (416 KB
+                            RP2350 / 128 KB RP2040); pass 0 to disable the
+                            cap entirely
   -S, --sanitize-handles    Abort with a backtrace on a use-after-delete LVGL
                             handle access — surfaces dangling-handle bugs the
-                            sim otherwise hides (sets PICODROID_HANDLE_SANITIZER=1)
+                            sim otherwise hides. ON by default (parity-audit
+                            HAL-05); kept as an explicit flag for clarity
+      --no-sanitize-handles Disable the handle sanitizer (or set
+                            PICODROID_HANDLE_SANITIZER=0)
       --shrink              Apply the active release class-name shrink map
                             (off by default; see docs/shrinker.md)
   -h, --help                Show this help message
@@ -73,6 +83,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -S|--sanitize-handles)
       SANITIZE_HANDLES=1
+      shift
+      ;;
+    --no-sanitize-handles)
+      SANITIZE_HANDLES=""
       shift
       ;;
     --shrink)

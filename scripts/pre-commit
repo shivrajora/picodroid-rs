@@ -31,6 +31,43 @@ if ! bash "$REPO_ROOT/scripts/check-hil-conf.sh"; then
   exit 1
 fi
 
+echo "==> Checking sim/family-rp cfg-gate hygiene..."
+# docs/parity-audit.md BLD-02/X2: sim builds keep `family-rp` ACTIVE (the
+# board feature chain), so a gate written as not(feature = "family-rp") does
+# NOT mean "not the simulator" — it selects the ESP/no-family path. The
+# existing occurrences are deliberate cross-family gates; a new one usually
+# wants `feature = "sim"` spelled out instead.
+FAMRP_GATES=$(grep -rn 'not(feature = "family-rp")' \
+  "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" | wc -l | tr -d ' ')
+if [[ "$FAMRP_GATES" != "4" ]]; then
+  grep -rn 'not(feature = "family-rp")' \
+    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true
+  echo ""
+  echo "ERROR: expected exactly 4 'not(feature = \"family-rp\")' cfg gates,"
+  echo "       found $FAMRP_GATES. Sim builds activate family-rp, so this"
+  echo "       pattern does not exclude the simulator. If the new gate is"
+  echo "       genuinely correct for sim builds too, bump the expected count"
+  echo "       in scripts/pre-commit and note it under BLD-02 in"
+  echo "       docs/parity-audit.md."
+  exit 1
+fi
+
+echo "==> Checking sim heap-cap constants against FreeRTOSConfig.h..."
+# docs/parity-audit.md M2: the sim's default heap cap mirrors the device
+# arena (configTOTAL_HEAP_SIZE). Both sides must move together.
+FRTC="$REPO_ROOT/platforms/rp/mcus/rp/FreeRTOSConfig.h"
+SIMALLOC="$REPO_ROOT/platforms/rp/src/sim_allocator.rs"
+for kb in 416 128; do
+  if ! grep -q "( $kb \* 1024 )" "$FRTC" || ! grep -q "$kb \* 1024" "$SIMALLOC"; then
+    echo ""
+    echo "ERROR: device heap size ${kb} KB not found in both FreeRTOSConfig.h"
+    echo "       and sim_allocator.rs (DEVICE_HEAP_BYTES). If you resized the"
+    echo "       FreeRTOS arena, update the sim default cap to match (and"
+    echo "       vice versa) — docs/parity-audit.md M2."
+    exit 1
+  fi
+done
+
 echo "==> Type-checking all Java apps (gradle compileJava)..."
 if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
   echo ""

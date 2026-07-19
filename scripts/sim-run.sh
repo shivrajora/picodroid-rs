@@ -136,10 +136,17 @@ run_test() {
   # Run the pre-built binary directly (avoids a redundant cargo build check).
   # PICODROID_SIM_HEADLESS=1 skips minifb window creation so Activity-based
   # tests (callbacktest, displaydemo) run under CI without an X server.
+  # Parity defaults (docs/parity-audit.md): the handle sanitizer aborts on
+  # use-after-delete lookups the 64-bit sim otherwise hides (HAL-05), and
+  # parity-strict turns silent sim no-ops (Thread.start, THR-01) into hard
+  # failures so an app whose code never ran cannot PASS. Both overridable
+  # from the environment.
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   sim_log "  Running (${timeout}s timeout)..."
   local exit_code=0
   if ! PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+       PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+       PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
        timeout "$timeout" "$bin" > "$log_file" 2>&1; then
     exit_code=$?
   fi
@@ -167,6 +174,64 @@ run_test() {
     tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
     check_no_crash "$log_file" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Board-matrix smoke (docs/parity-audit.md LVG-01/BRD-01): everything above
+# runs on the testbench board, but the shipping enviro app has a different
+# compile-time LVGL config (48 KB pool vs 64, 166 dpi vs 130, 240x240,
+# buttons-only/no-touch). Build and boot it on its real board so
+# board-conditional code is exercised in sim CI at all. The app loops
+# forever; a timeout kill after a verified boot is the expected outcome.
+run_enviro_smoke() {
+  local mode="$1"
+  local tag="picoenvmon-enviro[${mode}]"
+  local log_file="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.log"
+  local build_log="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.build.log"
+  local patterns='PicoEnvMon[]:] Home.onCreate'
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (board smoke, 25s) ---"
+
+  local -a apk_args=(--app picoenvmon)
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-pico-enviro-mon" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim, enviro board)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 25 "$bin" > "$log_file" 2>&1 || true
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
     echo "FAIL $tag" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi
@@ -213,6 +278,17 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
+    # Thread.start is a no-op in the sim (docs/parity-audit.md THR-01), so a
+    # threaddemo "PASS" would certify a run in which no thread ever executed.
+    # Under the parity-strict default the run aborts anyway; skip with an
+    # honest reason instead. Re-enable when M7 (real sim threads) lands.
+    if [[ "$app" == "threaddemo" && "${PICODROID_PARITY_STRICT:-1}" == "1" ]]; then
+      sim_log "SKIP $app[$MODE] (Thread.start no-op in sim — parity-strict, THR-01)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
   done < "$SIM_CONF"
 
@@ -235,6 +311,12 @@ for MODE in "${MODES[@]}"; do
       echo "FAIL heap-pressure[$MODE]" >> "$RESULTS_FILE"
       FAIL=$((FAIL + 1))
     fi
+  fi
+
+  # Enviro-board smoke: full runs and `--app picoenvmon` (the CI hook; the
+  # conf matrix has no picoenvmon row, so that invocation reaches only this).
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
+    run_enviro_smoke "$MODE"
   fi
 done
 
