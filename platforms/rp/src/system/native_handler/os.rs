@@ -55,7 +55,7 @@ pub fn dispatch(
                             crate::task_priority::android_to_freertos_priority(android_priority);
                         let task_result = freertos_rust::Task::new()
                             .name("jvm-t")
-                            .stack_size(4096)
+                            .stack_size(crate::boot_budget::JVM_THREAD_STACK_WORDS)
                             .priority(freertos_rust::TaskPriority(freertos_prio))
                             .core_affinity(0b01) // core 0 only
                             .start(move |_| {
@@ -118,11 +118,27 @@ pub fn dispatch(
                         // behavior worse than a no-op, and running it
                         // synchronously here would invert concurrency ordering
                         // and can deadlock on the main queue — so: warn + skip.
+                        //
+                        // Under PICODROID_PARITY_STRICT=1 (parity/CI lanes) the
+                        // no-op is a hard failure instead: an app whose threads
+                        // never ran must not report PASS (docs/parity-audit.md
+                        // THR-01; real sim threads are fix M7).
+                        if std::env::var("PICODROID_PARITY_STRICT").as_deref() == Ok("1") {
+                            panic!(
+                                "[sim] parity-strict: Thread.start({class_name}) is a \
+                                 no-op in the simulator — this app cannot be validated \
+                                 here (docs/parity-audit.md THR-01)"
+                            );
+                        }
                         eprintln!(
                             "[sim] Thread.start: {class_name}.run() will NOT run — \
                              threads are a no-op in the simulator (on device they \
                              run as a FreeRTOS task)"
                         );
+                        // Even without running the thread, charge what the
+                        // device would allocate for it (task stack + TCB from
+                        // the arena) so heap accounting stays honest (M4).
+                        crate::boot_budget::charge_thread_spawn();
                     }
                 }
             }
