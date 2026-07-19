@@ -295,5 +295,10 @@ pub fn collect(
     // ── Phase 4: compact array arena ─────────────────────────────────────
     arrays.compact_arena(&mut gc.arena_compact_buf);
 
+    // ── Phase 5: compact object fields arena (M6) ────────────────────────
+    // Reclaims spans left by swept objects and set_field lazy-grow moves.
+    // Reuses the same scratch buffer — phases run sequentially.
+    objects.compact_fields_arena(&mut gc.arena_compact_buf);
+
     freed
 }

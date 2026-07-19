@@ -347,9 +347,11 @@ comparison infrastructure.
   coarser than FreeRTOS time-slicing; instruction-level interleavings (and the races
   only they expose) remain HIL-only. THR-04's dual-core soundness question compounds
   this until X1 resolves it.
-- **Host object inflation until M6.** With M1's arena, sim OOMs strictly *earlier* than
-  device (24 B vs 12 B object slots) — conservative, but real capacity tuning near the
-  ceiling needs hardware until M6 deletes the difference.
+- **Residual host inflation after M6.** Object slots are now 12 B on every target
+  (OBJ-01 deleted), but `Frame` structs remain 80 B host vs 40 B device (OBJ-02) and
+  the string pointer table 8 B vs 4 B per entry (OBJ-03) — small, strict-direction
+  (sim OOMs first), and reported at device sizes; deleting them would mean
+  offset-encoding the frame Vecs and flash pointers, which is not currently worth it.
 - **Address determinism is not claimed.** M1 reproduces arena *layout behavior*
   (first-fit, fragmentation), not identical pointer values; traces compare stats
   streams, not addresses.
@@ -479,7 +481,17 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   `#error`s if it's absent, and `build.rs::emit_heap_config` generates the
   sim's `DEVICE_HEAP_BYTES` from the same key. The pre-commit constant
   cross-check is retired — there is no second copy left to drift.
-- **M6** (approved 2026-07-19) — see its entry below.
+- **M6** (approved 2026-07-19) — `JvmObject` is now a pointer-free descriptor
+  `{fields_off: u32, class_idx: u16, field_count: u8, fields_cap: u8}` whose
+  field slots live in an `ObjectHeap::fields_arena` (chunked 4 KB growth, no
+  Vec doubling), compacted by a new GC phase 5 that reuses the array-arena
+  scratch buffer. `Option<JvmObject>` is **12 B on every target**
+  (compile-asserted), deleting OBJ-01's host inflation at the source:
+  M5's reporting constants stopped being constants and became `size_of`
+  again, and M1's "sim OOMs earlier than device" interim caveat is gone.
+  Validated: 529 jvm tests, gcstress/heapstress under the capped arena, and
+  a full HIL re-run — graphicsbench counters and all 1000 band CRCs remain
+  exactly equal between the RP2350 and the sim with the new layout on both.
 
 Deferred, ask-first (recorded, not scheduled): M7 (real sim threads + GIL),
 X1 (SMP heap-safety soundness trace).

@@ -38,8 +38,16 @@ fn default_field_count_for_native(class_name: &str) -> usize {
     }
 }
 
-#[derive(Clone)]
+/// Pointer-free object descriptor: field storage lives in
+/// [`ObjectHeap::fields_arena`] and is addressed by offset, so the layout is
+/// identical (12 B per `Option<JvmObject>` slot) on 32-bit devices and
+/// 64-bit hosts — the OBJ-01 host-inflation divergence deleted at the
+/// source rather than compensated in reporting (docs/parity-audit.md M6).
+#[derive(Clone, Copy)]
 pub struct JvmObject {
+    /// Offset of this object's field span in [`ObjectHeap::fields_arena`].
+    /// Meaningless when `fields_cap == 0`. Updated by GC compaction.
+    fields_off: u32,
     /// Index into [`ObjectHeap::class_table`]. Resolves back to the canonical
     /// `&'static str` class name via [`ObjectHeap::class_name`]; storing only
     /// the index here saves 14 B per object versus a direct `&'static str`.
@@ -47,64 +55,18 @@ pub struct JvmObject {
     /// High-water mark of explicit `set_field` writes — preserves the JVMS
     /// "uninitialised slot reads as None" contract that the
     /// `alloc_without_defaults_still_leaves_slots_unset` regression test
-    /// in `interpreter/tests/fields.rs` enforces. May be less than `fields.len()`.
+    /// in `interpreter/tests/fields.rs` enforces. May be less than
+    /// `fields_cap`.
     field_count: u8,
-    /// Field storage, sized once at allocation. Lazily reallocated by
-    /// [`set_field`] if a caller writes past the initial capacity — should be
-    /// rare in production code (every native handler should pass the correct
-    /// `n_fields` to [`ObjectHeap::alloc_with_field_count`]).
-    fields: Box<[Value]>,
+    /// Allocated span length in the fields arena. `field_count` is u8, so
+    /// u8 capacity loses nothing.
+    fields_cap: u8,
 }
 
-// Compile-time guard against future regressions.  Niche-packed
-// `Option<JvmObject>` sits at 24 B — `Box<[Value]>`'s non-null pointer absorbs
-// the discriminant, so the option tag is free.  Loosen the bound only with
-// supporting measurement.
-const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() <= 24);
-
-impl JvmObject {
-    fn new_with_field_count(class_idx: u16, n_fields: usize) -> Self {
-        let fields = if n_fields == 0 {
-            Box::<[Value]>::default()
-        } else {
-            alloc::vec![Value::Null; n_fields].into_boxed_slice()
-        };
-        Self {
-            class_idx,
-            field_count: 0,
-            fields,
-        }
-    }
-
-    fn get_field(&self, field: usize) -> Option<Value> {
-        if field >= self.field_count as usize {
-            return None;
-        }
-        self.fields.get(field).copied()
-    }
-
-    fn set_field(&mut self, field: usize, v: Value) {
-        if field >= self.fields.len() {
-            // Lazy grow — kicks in when a caller writes past the count it
-            // declared at alloc time.  Reallocates the boxed slice; rare in
-            // production (debug builds can flag this via a heap counter).
-            let mut buf: Vec<Value> = self.fields.to_vec();
-            buf.resize(field + 1, Value::Null);
-            self.fields = buf.into_boxed_slice();
-        }
-        let needed = field + 1;
-        if needed > self.field_count as usize {
-            self.field_count = needed as u8;
-        }
-        self.fields[field] = v;
-    }
-
-    /// Returns the slice of populated fields (`field_count` long), used by
-    /// the GC tracer to walk an object's references.
-    fn fields_slice(&self) -> &[Value] {
-        &self.fields[..self.field_count as usize]
-    }
-}
+// Compile-time guard against future regressions: the descriptor is
+// pointer-free, so the slot size is 12 B on EVERY target — the property
+// M6 exists to provide. Loosen only with a parity-audit update.
+const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() == 12);
 
 /// Metadata for a lambda proxy object created by `invokedynamic`.
 pub struct LambdaProxy {
@@ -115,6 +77,14 @@ pub struct LambdaProxy {
 
 pub struct ObjectHeap {
     pub(super) objects: ChunkedObjects,
+    /// Backing storage for every object's field slots, addressed by
+    /// `JvmObject::{fields_off, fields_cap}`. Freed objects leave dead spans
+    /// that [`compact_fields_arena`](Self::compact_fields_arena) reclaims
+    /// after each GC sweep (the `ArrayHeap::arena` pattern). Grows in fixed
+    /// [`FIELDS_ARENA_CHUNK`] steps — never Vec doubling, which on a
+    /// fragmented FreeRTOS heap demands ever-larger contiguous blocks (the
+    /// recorded `alloc 90112 bytes failed` incident class).
+    pub(super) fields_arena: Vec<Value>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     pub(super) first_free: usize,
     /// Canonical `&'static str` per loaded class, indexed by
@@ -148,6 +118,7 @@ impl ObjectHeap {
     pub const fn new() -> Self {
         Self {
             objects: ChunkedObjects::new(),
+            fields_arena: Vec::new(),
             first_free: 0,
             class_table: Vec::new(),
             sb_stack: Vec::new(),
@@ -273,7 +244,44 @@ impl ObjectHeap {
                 return Some(idx as u16);
             }
         }
-        Some(self.place_in_slot(JvmObject::new_with_field_count(class_idx, n_fields)))
+        let fields_off = self.alloc_span(n_fields)?;
+        Some(self.place_in_slot(JvmObject {
+            fields_off,
+            class_idx,
+            field_count: 0,
+            fields_cap: n_fields as u8,
+        }))
+    }
+
+    /// Fixed growth step for [`fields_arena`](Self::fields_arena), in
+    /// `Value` slots (256 × 16 B = 4 KB per step). Chunked growth keeps the
+    /// arena's contiguous-block demands on the device allocator bounded and
+    /// constant, per the chunked_slots.rs precedent.
+    const FIELDS_ARENA_CHUNK: usize = 256;
+
+    /// Reserve a zero-initialised `n_fields`-slot span at the arena tail.
+    /// Returns its offset, or `None` on allocation failure (caller triggers
+    /// GC and retries, like every other JVM allocation) or when `n_fields`
+    /// exceeds the u8 capacity a descriptor can record.
+    fn alloc_span(&mut self, n_fields: usize) -> Option<u32> {
+        if n_fields == 0 {
+            return Some(0);
+        }
+        if n_fields > u8::MAX as usize {
+            return None;
+        }
+        let need = self.fields_arena.len() + n_fields;
+        if need > self.fields_arena.capacity() {
+            let short = need - self.fields_arena.capacity();
+            let grow = short.div_ceil(Self::FIELDS_ARENA_CHUNK) * Self::FIELDS_ARENA_CHUNK;
+            let additional = self.fields_arena.capacity() + grow - self.fields_arena.len();
+            if self.fields_arena.try_reserve_exact(additional).is_err() {
+                return None;
+            }
+        }
+        let off = self.fields_arena.len() as u32;
+        self.fields_arena.resize(need, Value::Null);
+        Some(off)
     }
 
     /// Look up `name` in [`class_table`] (linear scan), inserting it if
@@ -396,19 +404,54 @@ impl ObjectHeap {
     /// `field_count` carries over, so uninitialised-slot reads behave like
     /// the original's. Returns `None` for an invalid or GC-freed index.
     pub fn clone_object(&mut self, idx: u16) -> Option<u16> {
-        let copy = self.objects.get(idx as usize)?.as_ref()?.clone();
-        Some(self.place_in_slot(copy))
+        let src = *self.objects.get(idx as usize)?.as_ref()?;
+        let new_off = self.alloc_span(src.fields_cap as usize)?;
+        if src.fields_cap > 0 {
+            let from = src.fields_off as usize;
+            self.fields_arena
+                .copy_within(from..from + src.fields_cap as usize, new_off as usize);
+        }
+        Some(self.place_in_slot(JvmObject {
+            fields_off: new_off,
+            ..src
+        }))
     }
 
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
-        self.objects.get(idx as usize)?.as_ref()?.get_field(field)
+        let obj = self.objects.get(idx as usize)?.as_ref()?;
+        if field >= obj.field_count as usize {
+            return None;
+        }
+        self.fields_arena
+            .get(obj.fields_off as usize + field)
+            .copied()
     }
 
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
-        self.objects
-            .get_mut(idx as usize)?
-            .as_mut()?
-            .set_field(field, v);
+        let obj = *self.objects.get(idx as usize)?.as_ref()?;
+        if field >= obj.fields_cap as usize {
+            // Lazy grow — a caller wrote past the count it declared at alloc
+            // time (rare; native handlers should pass the right `n_fields`).
+            // Move the span to a fresh tail allocation; the old span becomes
+            // garbage until the next GC arena compaction.
+            let new_cap = field + 1;
+            let new_off = self.alloc_span(new_cap)?;
+            if obj.fields_cap > 0 {
+                let from = obj.fields_off as usize;
+                self.fields_arena
+                    .copy_within(from..from + obj.fields_cap as usize, new_off as usize);
+            }
+            let slot = self.objects.get_mut(idx as usize)?.as_mut()?;
+            slot.fields_off = new_off;
+            slot.fields_cap = new_cap as u8;
+        }
+        let slot = self.objects.get_mut(idx as usize)?.as_mut()?;
+        let needed = field + 1;
+        if needed > slot.field_count as usize {
+            slot.field_count = needed as u8;
+        }
+        let at = slot.fields_off as usize + field;
+        self.fields_arena[at] = v;
         Some(())
     }
 
@@ -498,36 +541,63 @@ impl ObjectHeap {
     /// Return the slice of populated fields for the object at `idx`, used by
     /// the GC tracer.  Empty when the slot is freed or out of bounds.
     pub fn fields_slice(&self, idx: u16) -> &[Value] {
-        self.objects
-            .get(idx as usize)
-            .and_then(|o| o.as_ref())
-            .map(|o| o.fields_slice())
-            .unwrap_or(&[])
+        match self.objects.get(idx as usize).and_then(|o| o.as_ref()) {
+            Some(o) => {
+                let start = o.fields_off as usize;
+                &self.fields_arena[start..start + o.field_count as usize]
+            }
+            None => &[],
+        }
+    }
+
+    /// Compact the fields arena by sliding live spans down over the garbage
+    /// left by swept objects and lazy-grow moves. Called by GC after sweep;
+    /// mirrors [`crate::array_heap::ArrayHeap::compact_arena`] and shares
+    /// its scratch buffer.
+    pub fn compact_fields_arena(&mut self, buf: &mut Vec<(usize, u32, u16)>) {
+        buf.clear();
+        for (i, slot) in self.objects.iter().enumerate() {
+            if let Some(obj) = slot.as_ref() {
+                if obj.fields_cap > 0 {
+                    buf.push((i, obj.fields_off, obj.fields_cap as u16));
+                }
+            }
+        }
+        buf.sort_unstable_by_key(|&(_, offset, _)| offset);
+
+        let mut write_pos: usize = 0;
+        for &(slot_idx, read_offset, cap) in buf.iter() {
+            let read_pos = read_offset as usize;
+            let count = cap as usize;
+            if read_pos != write_pos {
+                self.fields_arena
+                    .copy_within(read_pos..read_pos + count, write_pos);
+            }
+            if let Some(Some(obj)) = self.objects.get_mut(slot_idx) {
+                obj.fields_off = write_pos as u32;
+            }
+            write_pos += count;
+        }
+        self.fields_arena.truncate(write_pos);
     }
 
     /// Approximate bytes held live by this heap. Used by `perfbench` /
     /// `Runtime.usedMemory()` to track heap pressure across optimisation
-    /// changes. Sums the per-object slot size plus
-    /// `fields.len() * size_of::<Value>()` for the allocated field slice
-    /// (capacity, not high-water `field_count`, so we report what's actually
-    /// pinned in the allocator).
+    /// changes. Sums the per-object slot size plus the arena span capacity
+    /// (not high-water `field_count`, so we report what's actually pinned).
     ///
-    /// Reports DEVICE sizes on every platform: on a 64-bit host
-    /// `Option<JvmObject>` inflates to 24 B via the `Box<[Value]>` fat
-    /// pointer, and a host-sized figure would misreport what the same app
-    /// holds on a real 32-bit RP2040/RP2350 (docs/parity-audit.md
-    /// OBJ-01/M5). The cfg'd assert makes every device build re-verify the
-    /// constant.
+    /// Since M6 the descriptor is pointer-free, so host and device sizes are
+    /// identical by construction — `size_of` IS the device figure
+    /// (docs/parity-audit.md OBJ-01/M6).
     pub fn live_bytes(&self) -> usize {
-        const PER_OBJECT: usize = 12;
-        #[cfg(target_pointer_width = "32")]
-        const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() == PER_OBJECT);
+        const PER_OBJECT: usize = core::mem::size_of::<Option<JvmObject>>();
+        const _: () = assert!(PER_OBJECT == 12); // identical on all targets (M6)
         const PER_FIELD: usize = core::mem::size_of::<Value>();
         const _: () = assert!(PER_FIELD == 16); // identical on all targets (V1)
         let mut total = 0;
         for i in 0..self.objects.len() {
             if let Some(Some(obj)) = self.objects.get(i) {
-                total += PER_OBJECT + obj.fields.len() * PER_FIELD;
+                total += PER_OBJECT + obj.fields_cap as usize * PER_FIELD;
             }
         }
         total
