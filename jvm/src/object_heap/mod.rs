@@ -7,7 +7,6 @@ mod map_store;
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
 use crate::types::{default_for_descriptor, Value};
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Chunked-slot storage for `Option<JvmObject>`. See [`crate::chunked_slots`].
@@ -273,7 +272,9 @@ impl ObjectHeap {
         let need = self.fields_arena.len() + n_fields;
         if need > self.fields_arena.capacity() {
             let short = need - self.fields_arena.capacity();
-            let grow = short.div_ceil(Self::FIELDS_ARENA_CHUNK) * Self::FIELDS_ARENA_CHUNK;
+            // Manual div_ceil: the crate's MSRV (1.70) predates usize::div_ceil.
+            let grow = (short + Self::FIELDS_ARENA_CHUNK - 1) / Self::FIELDS_ARENA_CHUNK
+                * Self::FIELDS_ARENA_CHUNK;
             let additional = self.fields_arena.capacity() + grow - self.fields_arena.len();
             if self.fields_arena.try_reserve_exact(additional).is_err() {
                 return None;
