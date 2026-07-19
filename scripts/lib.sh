@@ -250,7 +250,7 @@ build_firmware() {
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$BOARD_FEATURE" \
+    --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
     "${EXTRA_BUILD_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"
 

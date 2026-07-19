@@ -67,6 +67,6 @@ PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS run \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
   --no-default-features \
-  --features "$BOARD_FEATURE" \
+  --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
   "${EXTRA_BUILD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
