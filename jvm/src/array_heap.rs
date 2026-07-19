@@ -246,6 +246,10 @@ impl ArrayHeap {
     /// changes.
     pub fn live_bytes(&self) -> usize {
         const PER_SLOT: usize = core::mem::size_of::<Option<JvmArray>>();
+        // Pointer-free layout: identical on 32-bit device and 64-bit host
+        // (verified across all targets — docs/parity-audit.md OBJ-05). If
+        // this assert moves, usedMemory parity needs re-auditing.
+        const _: () = assert!(PER_SLOT == 40);
         let mut total = 0;
         for i in 0..self.arrays.len() {
             if let Some(Some(arr)) = self.arrays.get(i) {

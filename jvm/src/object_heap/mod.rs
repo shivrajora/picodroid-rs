@@ -507,13 +507,23 @@ impl ObjectHeap {
 
     /// Approximate bytes held live by this heap. Used by `perfbench` /
     /// `Runtime.usedMemory()` to track heap pressure across optimisation
-    /// changes. Sums per-object `size_of::<Option<JvmObject>>()` plus
+    /// changes. Sums the per-object slot size plus
     /// `fields.len() * size_of::<Value>()` for the allocated field slice
     /// (capacity, not high-water `field_count`, so we report what's actually
     /// pinned in the allocator).
+    ///
+    /// Reports DEVICE sizes on every platform: on a 64-bit host
+    /// `Option<JvmObject>` inflates to 24 B via the `Box<[Value]>` fat
+    /// pointer, and a host-sized figure would misreport what the same app
+    /// holds on a real 32-bit RP2040/RP2350 (docs/parity-audit.md
+    /// OBJ-01/M5). The cfg'd assert makes every device build re-verify the
+    /// constant.
     pub fn live_bytes(&self) -> usize {
-        const PER_OBJECT: usize = core::mem::size_of::<Option<JvmObject>>();
+        const PER_OBJECT: usize = 12;
+        #[cfg(target_pointer_width = "32")]
+        const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() == PER_OBJECT);
         const PER_FIELD: usize = core::mem::size_of::<Value>();
+        const _: () = assert!(PER_FIELD == 16); // identical on all targets (V1)
         let mut total = 0;
         for i in 0..self.objects.len() {
             if let Some(Some(obj)) = self.objects.get(i) {
