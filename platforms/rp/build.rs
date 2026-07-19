@@ -27,7 +27,7 @@ mod jvm_defaults;
 use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 // File and Write are used by emit_sensor_config, emit_display_config, etc. below.
 
 fn main() {
@@ -139,7 +139,7 @@ fn mcu_heap_kb(mcu: &std::collections::HashMap<String, String>, mcu_toml_path: &
 /// build's `configTOTAL_HEAP_SIZE` (docs/parity-audit.md M2). Falls back to
 /// the RP2350 value for boardless host builds (`cargo test` without board
 /// features), where the constant is compiled but the cap never enforces.
-fn emit_heap_config(out: &PathBuf, board: &Option<config::BoardConfig>) {
+fn emit_heap_config(out: &Path, board: &Option<config::BoardConfig>) {
     let heap_bytes = match board {
         Some(bc) => {
             let mcu_name = config::resolve_active_mcu(&bc.props);
