@@ -97,7 +97,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // avoids the issue entirely.
     Task::new()
         .name("pdb")
-        .stack_size(2048)
+        .stack_size(crate::boot_budget::PDB_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_RT_1))
         .core_affinity(0b01) // core 0 only
         .start(move |_| crate::pdb::run_pdb_task())
@@ -109,7 +109,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     #[cfg(network_cyw43)]
     Task::new()
         .name("cyw43")
-        .stack_size(2048)
+        .stack_size(crate::boot_budget::CYW43_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_RT_2))
         .core_affinity(0b10) // core 1
         .start(move |_| super::wifi_task::run_cyw43_task())
@@ -120,15 +120,11 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // single-core safety assumption of SharedJvmState remains valid.
     // RP2350 (Cortex-M33, FPU) needs a larger stack than RP2040 (Cortex-M0+)
     // because each interrupt pushes an extended exception frame (~100 bytes)
-    // when the FPU has been used (configENABLE_FPU=1).
-    #[cfg(feature = "chip-rp2350")]
-    let jvm_stack: u16 = 8192;
-    #[cfg(not(feature = "chip-rp2350"))]
-    let jvm_stack: u16 = 4096;
-
+    // when the FPU has been used (configENABLE_FPU=1). Size lives in
+    // boot_budget so the sim pre-charges the identical amount (M4).
     Task::new()
         .name("jvm")
-        .stack_size(jvm_stack)
+        .stack_size(crate::boot_budget::JVM_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
         .core_affinity(0b01) // core 0 only
         .start(move |_| {

@@ -16,6 +16,9 @@ pub use picodroid_core::framework_classes;
 #[allow(dead_code)]
 #[cfg(not(test))]
 mod fs;
+// Shared boot memory budget (device task stacks / sim pre-charge — M4).
+#[cfg_attr(test, allow(dead_code))]
+mod boot_budget;
 #[allow(dead_code)]
 mod hal;
 #[cfg(not(test))]
@@ -29,8 +32,16 @@ mod pdb;
 #[cfg(not(test))]
 mod service_lifecycle;
 pub use picodroid_core::shrink_names;
-#[cfg(feature = "sim")]
+// Compiled for plain host tests too (not just sim) so the allocator-routing
+// tests run under scripts/test.sh; unarmed it is a pure pass-through to the
+// system allocator, so other tests are unaffected.
+#[cfg(any(test, feature = "sim"))]
+#[cfg_attr(all(test, not(feature = "sim")), allow(dead_code))]
 mod sim_allocator;
+// Pure-logic heap_4 port (no HAL deps): compiled for plain host tests too so
+// its semantics + hardware-oracle tests run under scripts/test.sh.
+#[cfg(any(test, feature = "sim"))]
+mod sim_heap4;
 mod system;
 pub use picodroid_core::task_priority;
 
@@ -103,6 +114,13 @@ fn main() -> ! {
 
 #[cfg(feature = "sim")]
 fn main() {
+    // Start device-heap accounting at the sim's "reset vector". Everything
+    // before this is host-runtime noise; everything after is charged to the
+    // heap_4 arena exactly as the device charges its FreeRTOS heap.
+    sim_allocator::arm();
+    // Charge the FreeRTOS boot structures (task stacks, TCBs, queues) the
+    // device allocates from this same arena — measured at ~85 KB on HW (V4).
+    boot_budget::precharge_boot_budget();
     sim_allocator::checkpoint("baseline");
 
     if let Err(e) = fs::init() {

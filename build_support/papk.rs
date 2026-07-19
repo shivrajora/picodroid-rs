@@ -340,12 +340,23 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
         // neither the .papk bytes nor the env var's build-time value affect
         // the generated code beyond the fallback string.
         let fallback = env::var("PICODROID_APK_PATH").unwrap_or_default();
+        // On device the APK lives in flash (XIP) and costs zero heap; the
+        // sim must not charge it to the simulated heap either
+        // (docs/parity-audit.md APK-01/M3). The RP sim exposes a heap-cap
+        // bypass for exactly this class of host-only allocation; the ESP
+        // crate has no capped allocator yet, so it gets a no-op.
+        let bypass_stmt = if env::var("CARGO_PKG_NAME").as_deref() == Ok("picodroid") {
+            "let _flash_xip = crate::sim_allocator::bypass();"
+        } else {
+            "// (no heap-cap bypass: this crate has no capped sim allocator)"
+        };
         let generated = format!(
             "/// Sim builds load the APK from disk at startup; the runtime\n\
              /// `PICODROID_APK_PATH` env var wins over the build-time fallback.\n\
              pub fn apk_data() -> &'static [u8] {{\n\
              \x20   static APK: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();\n\
              \x20   APK.get_or_init(|| {{\n\
+             \x20       {bypass_stmt}\n\
              \x20       let path = std::env::var(\"PICODROID_APK_PATH\")\n\
              \x20           .unwrap_or_else(|_| {fallback:?}.to_string());\n\
              \x20       if path.is_empty() {{\n\
@@ -353,7 +364,7 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
              \x20       }}\n\
              \x20       let bytes = std::fs::read(&path)\n\
              \x20           .unwrap_or_else(|e| panic!(\"cannot read APK at '{{path}}': {{e}}\"));\n\
-             \x20       eprintln!(\"[sim] APK loaded from {{path}} ({{}} bytes)\", bytes.len());\n\
+             \x20       eprintln!(\"[sim] APK loaded from {{path}} ({{}} bytes, flash-modeled: uncounted)\", bytes.len());\n\
              \x20       &*::std::boxed::Box::leak(bytes.into_boxed_slice())\n\
              \x20   }})\n\
              }}\n"

@@ -62,7 +62,7 @@ pub fn spawn() {
 
     Task::new()
         .name("fs")
-        .stack_size(2048)
+        .stack_size(crate::boot_budget::FS_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_FS_WORKER))
         .core_affinity(0b01)
         .start(|_| loop {

@@ -107,9 +107,17 @@ mod backing {
         }
         STOPPING.store(false, Ordering::SeqCst);
         PAUSED.store(false, Ordering::SeqCst);
+        // Host thread machinery has no device analog (the device tick is a
+        // FreeRTOS software timer whose cost enters via the boot budget), so
+        // keep pthread internals and this thread's own pacing state off the
+        // simulated heap (docs/parity-audit.md M1 routing).
+        #[cfg(feature = "sim")]
+        let _spawn_bypass = crate::sim_allocator::bypass();
         let h = thread::Builder::new()
             .name("lvgl-tick".into())
             .spawn(|| {
+                #[cfg(feature = "sim")]
+                let _bypass = crate::sim_allocator::bypass();
                 let period = Duration::from_millis(TICK_PERIOD_MS as u64);
                 let mut next = Instant::now() + period;
                 while !STOPPING.load(Ordering::SeqCst) {

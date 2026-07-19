@@ -475,7 +475,12 @@ fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
 #[cfg(any(has_buttons, has_touch))]
 fn spawn_control_channel() {
     use std::io::BufRead;
+    // Host-only I/O thread: keep pthread internals and the reader's buffers
+    // off the simulated heap (no device analog; the device side is a GPIO
+    // ISR with zero allocation).
+    let _spawn_bypass = heap_cap_bypass();
     std::thread::spawn(|| {
+        let _bypass = heap_cap_bypass();
         let reader: Box<dyn BufRead> = match std::env::var("PICODROID_SIM_CTRL_FIFO") {
             // Open the FIFO read+write so the reader itself holds a writer end:
             // reads then never hit EOF when an external `echo > fifo` writer
