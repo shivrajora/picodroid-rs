@@ -5,6 +5,10 @@ clock_hz = 150000000
 ram_kb = 520
 flash_kb = 4096
 core_count = 2
+# FreeRTOS heap arena (configTOTAL_HEAP_SIZE) — single source of truth.
+# Injected into the FreeRTOS C build AND the sim's default heap cap
+# (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
+heap_kb = 416
 size_tool = "arm-none-eabi-size"
 freertos_port = "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure"
 pico_shim = "src/hal/rp/port/pico_shim_rp2350.c"

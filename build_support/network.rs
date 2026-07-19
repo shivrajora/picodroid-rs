@@ -13,7 +13,12 @@ use std::path::Path;
 /// Compile the CYW43 WiFi driver (C sources from vendor/cyw43-driver).
 ///
 /// `repo_root` is the absolute path to the repository root.
-pub fn build_cyw43_driver(mcu_family: &str, freertos_config_dir: &str, repo_root: &Path) {
+pub fn build_cyw43_driver(
+    mcu_family: &str,
+    freertos_config_dir: &str,
+    repo_root: &Path,
+    heap_kb: u32,
+) {
     let cyw43_src = repo_root.join("vendor/cyw43-driver/src");
     if !cyw43_src.exists() {
         println!(
@@ -34,6 +39,10 @@ pub fn build_cyw43_driver(mcu_family: &str, freertos_config_dir: &str, repo_root
         .include(&port_dir)
         .include(&freertos_include)
         .include(freertos_config_dir)
+        .define(
+            "configTOTAL_HEAP_SIZE",
+            format!("({heap_kb} * 1024)").as_str(),
+        )
         .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
         .define("CYW43_USE_SPI", "1")
         .define("CYW43_LWIP", "0")
@@ -73,7 +82,12 @@ pub fn build_cyw43_driver(mcu_family: &str, freertos_config_dir: &str, repo_root
 /// Compile FreeRTOS+TCP (C sources from vendor/freertos-plus-tcp).
 ///
 /// `repo_root` is the absolute path to the repository root.
-pub fn build_freertos_tcp(mcu_family: &str, freertos_config_dir: &str, repo_root: &Path) {
+pub fn build_freertos_tcp(
+    mcu_family: &str,
+    freertos_config_dir: &str,
+    repo_root: &Path,
+    heap_kb: u32,
+) {
     let tcp_src = repo_root.join("vendor/freertos-plus-tcp/source");
     if !tcp_src.exists() {
         println!(
@@ -108,6 +122,10 @@ pub fn build_freertos_tcp(mcu_family: &str, freertos_config_dir: &str, repo_root
         .include(tcp_src.join("portable/Compiler/GCC"))
         .include(&freertos_include)
         .include(freertos_config_dir)
+        .define(
+            "configTOTAL_HEAP_SIZE",
+            format!("({heap_kb} * 1024)").as_str(),
+        )
         .include(&port_dir)
         .include(&cyw43_src)
         .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")

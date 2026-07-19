@@ -52,22 +52,6 @@ if [[ "$FAMRP_GATES" != "4" ]]; then
   exit 1
 fi
 
-echo "==> Checking sim heap-cap constants against FreeRTOSConfig.h..."
-# docs/parity-audit.md M2: the sim's default heap cap mirrors the device
-# arena (configTOTAL_HEAP_SIZE). Both sides must move together.
-FRTC="$REPO_ROOT/platforms/rp/mcus/rp/FreeRTOSConfig.h"
-SIMALLOC="$REPO_ROOT/platforms/rp/src/sim_allocator.rs"
-for kb in 416 128; do
-  if ! grep -q "( $kb \* 1024 )" "$FRTC" || ! grep -q "$kb \* 1024" "$SIMALLOC"; then
-    echo ""
-    echo "ERROR: device heap size ${kb} KB not found in both FreeRTOSConfig.h"
-    echo "       and sim_allocator.rs (DEVICE_HEAP_BYTES). If you resized the"
-    echo "       FreeRTOS arena, update the sim default cap to match (and"
-    echo "       vice versa) — docs/parity-audit.md M2."
-    exit 1
-  fi
-done
-
 echo "==> Type-checking all Java apps (gradle compileJava)..."
 if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
   echo ""

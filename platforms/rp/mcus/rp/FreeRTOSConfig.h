@@ -28,32 +28,36 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
-/* Heap: RP2040 128 KB (of 256 KB RAM), RP2350 416 KB (of 520 KB RAM).
+/* Heap: single-sourced from mcus/rp/<mcu>.toml `heap_kb` (RP2040 128 KB of
+ * 256 KB RAM, RP2350 416 KB of 520 KB RAM). build_support/freertos.rs
+ * injects -DconfigTOTAL_HEAP_SIZE into this C build, and
+ * platforms/rp/build.rs::emit_heap_config generates the same value for the
+ * simulator's default heap cap — resize it in the toml and every consumer
+ * moves together (docs/parity-audit.md M2).
  *
  * RP2350 history:
  * - 2026-04-22: 256 → 384 KB. The earlier 256 KB budget minus task stacks
  *   and framework init left <88 KB contiguous free, which gcstress's mid-run
- *   JVM `Vec` doublings (capacity 1024 of 88-byte JvmObject = ~90 KB) could
- *   no longer satisfy — seen as an `alloc 90112 bytes failed` panic.
+ *   JVM `Vec` doublings (capacity 1024 of then-88-byte JvmObject = ~90 KB)
+ *   could no longer satisfy — seen as an `alloc 90112 bytes failed` panic.
  * - 2026-05-10: 384 → 416 KB. picoenvmon's HomeActivity hit the same
  *   `90112 bytes failed` panic against a fragmented 384 KB heap, plus a
  *   secondary `49152 bytes failed` once `ObjectHeap`/`ArrayHeap.arrays`
  *   were chunked (jvm/src/chunked_slots.rs landed simultaneously to make
  *   the dominant Vecs grow by 5.6 KB chunks instead of doubling). +32 KB
- *   gives picoenvmon a clean boot. The same app runs on a 384 KB Rust
- *   heap in sim, confirming the budget shortfall is FreeRTOS overhead
- *   (TCBs + task stacks + queues, ~25-30 KB) eating into the heap on
- *   hardware that sim doesn't see.
+ *   gives picoenvmon a clean boot. Root cause measured 2026-07-18
+ *   (docs/parity-audit.md V4): FreeRTOS overhead — task stacks + TCBs +
+ *   queues — is ~85 KB, not the ~25-30 KB this comment once estimated, and
+ *   the then-uncapped sim never saw any of it.
  *
  * If you push this higher, re-measure `arm-none-eabi-size` first: total
- * static RAM must stay well below LENGTH(RAM) = 520 KB. At 416 KB heap +
- * ~76 KB other BSS = ~492 KB, leaving ~28 KB for the Cortex-M main stack —
- * still well above what cortex-m-rt + ISRs need pre-scheduler.
+ * static RAM must stay well below LENGTH(RAM). Measured 2026-07-18 on
+ * RP2350: BSS 509.6 KB of 520 KB leaves ~10 KB for the Cortex-M main stack
+ * — thinner than the ~28 KB previously claimed here, but still above what
+ * cortex-m-rt + ISRs need pre-scheduler.
  */
-#ifdef __ARM_ARCH_8M_MAIN__
-#define configTOTAL_HEAP_SIZE                   ( 416 * 1024 )
-#else
-#define configTOTAL_HEAP_SIZE                   ( 128 * 1024 )
+#ifndef configTOTAL_HEAP_SIZE
+#error "configTOTAL_HEAP_SIZE must be injected from mcus/rp/<mcu>.toml heap_kb (build_support/freertos.rs)"
 #endif
 
 /* Scheduler behaviour */

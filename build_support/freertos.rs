@@ -76,6 +76,19 @@ pub fn build(
         }
     }
 
+    // Heap arena size is single-sourced from the MCU toml (`heap_kb`) so the
+    // C build and the simulator's default cap can never drift apart
+    // (docs/parity-audit.md M2). FreeRTOSConfig.h #errors if this is absent.
+    let heap_kb: u32 = mcu
+        .get("heap_kb")
+        .unwrap_or_else(|| panic!("MCU toml missing 'heap_kb': {mcu_toml_path}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("MCU toml 'heap_kb' not a number ({mcu_toml_path}): {e}"));
+    b.get_cc().define(
+        "configTOTAL_HEAP_SIZE",
+        format!("({heap_kb} * 1024)").as_str(),
+    );
+
     b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 
     println!("cargo:rerun-if-changed={freertos_config_dir}/FreeRTOSConfig.h");

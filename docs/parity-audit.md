@@ -473,8 +473,16 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   it); **X2** pre-commit tripwire pins the four deliberate
   `not(feature = "family-rp")` gates.
 
-Deferred, ask-first (unchanged from §4): M2-final (toml single-source), M7 (real
-sim threads + GIL), X1 (SMP soundness trace), M6 (32-bit-clean object layout).
+- **M2-final** (approved 2026-07-19) — `heap_kb` in `mcus/rp/<mcu>.toml` is now
+  the single source: build_support/freertos.rs injects `configTOTAL_HEAP_SIZE`
+  into the FreeRTOS (and cyw43/FreeRTOS-TCP) C builds, FreeRTOSConfig.h
+  `#error`s if it's absent, and `build.rs::emit_heap_config` generates the
+  sim's `DEVICE_HEAP_BYTES` from the same key. The pre-commit constant
+  cross-check is retired — there is no second copy left to drift.
+- **M6** (approved 2026-07-19) — see its entry below.
+
+Deferred, ask-first (recorded, not scheduled): M7 (real sim threads + GIL),
+X1 (SMP heap-safety soundness trace).
 
 Additional honest limits discovered while implementing: parity counters use
 `AtomicUsize` (wrap at ~4.3e9 on device — keep scenes shorter); `parity-fbhash`
