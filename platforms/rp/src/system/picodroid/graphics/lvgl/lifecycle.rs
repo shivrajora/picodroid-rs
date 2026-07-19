@@ -102,6 +102,34 @@ pub(in crate::system::picodroid::graphics) fn screen_ptr() -> *mut lv_obj_t {
 
 // ── Display flush callback ──────────────────────────────────────────────────
 
+/// Flushed-band counters for the parity harness (docs/parity-audit.md P1):
+/// deterministic render work, asserted equal between sim and device.
+#[cfg(feature = "parity-metrics")]
+pub mod flush_stats {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    pub static BANDS: AtomicUsize = AtomicUsize::new(0);
+    pub static BYTES: AtomicUsize = AtomicUsize::new(0);
+    pub fn snapshot() -> (usize, usize) {
+        (BANDS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed))
+    }
+}
+
+/// CRC32 (IEEE, bitwise) of a flushed band. Table-free so the device build
+/// pays no flash for it; ~1-2 ms per 12.8 KB band on an M33 — acceptable in
+/// `parity-fbhash` test builds, which exist only for sequence comparison.
+#[cfg(feature = "parity-fbhash")]
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
 /// LVGL display flush callback — called by LVGL when a region is ready to
 /// send.
 ///
@@ -120,6 +148,32 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
     let h = (y2 - y1 + 1) as usize;
     let byte_count = w * h * 2; // RGB565 = 2 bytes per pixel
     let data = unsafe { core::slice::from_raw_parts(px_map, byte_count) };
+
+    #[cfg(feature = "parity-metrics")]
+    {
+        use core::sync::atomic::Ordering;
+        flush_stats::BANDS.fetch_add(1, Ordering::Relaxed);
+        flush_stats::BYTES.fetch_add(byte_count, Ordering::Relaxed);
+    }
+    // G1: hash the BE-RGB565 band bytes at the shared seam — before the
+    // sim's ARGB conversion — so sim and device hash identical data by
+    // construction (docs/parity-audit.md DSP-01/G1).
+    #[cfg(feature = "parity-fbhash")]
+    {
+        let crc = crc32(data);
+        #[cfg(not(feature = "sim"))]
+        defmt::info!(
+            "fbhash: {=u16},{=u16},{=u16},{=u16} {=u32:08x}",
+            x1,
+            y1,
+            x2,
+            y2,
+            crc
+        );
+        #[cfg(feature = "sim")]
+        println!("fbhash: {},{},{},{} {:08x}", x1, y1, x2, y2, crc);
+    }
+
     hal::display::write_pixels(data);
 
     unsafe { lv_display_flush_ready(disp) };

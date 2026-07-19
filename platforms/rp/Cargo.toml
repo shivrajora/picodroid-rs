@@ -8,6 +8,10 @@ license = "GPL-3.0-only"
 # Bare `cargo build` uses this default. To target a different board (or sim),
 # use the per-board cargo aliases — see docs/cargo-aliases.md.
 default = ["board-testbench-rp2350"]
+# Deterministic sim<->device execution counters + per-flush band CRCs for
+# the parity harness (docs/parity-audit.md P1/G1). Off in normal builds.
+parity-metrics = ["pico-jvm/parity-metrics"]
+parity-fbhash = []
 # Board selection (user-facing — pick exactly one for embedded builds)
 board-testbench-rp2040 = ["chip-rp2040"]
 board-testbench-rp2350 = ["chip-rp2350"]

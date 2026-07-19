@@ -320,6 +320,32 @@ pub fn run_jvm_with(apk_data: &[u8]) {
         }
     }
 
+    // Parity checkpoint (docs/parity-audit.md P1): deterministic work
+    // counters in an identical, greppable format on both sim (stdout) and
+    // device (defmt/RTT). Cross-environment checks assert these EQUAL.
+    #[cfg(feature = "parity-metrics")]
+    {
+        let (_, gcs, _) = handler.gc_stats();
+        let insns = pico_jvm::parity::insns();
+        let allocs = pico_jvm::parity::allocs();
+        let (bands, fbytes) =
+            crate::system::picodroid::graphics::lvgl::lifecycle::flush_stats::snapshot();
+        #[cfg(not(feature = "sim"))]
+        defmt::info!(
+            "parity: insns={=usize} allocs={=usize} gcs={=u32} bands={=usize} fbytes={=usize}",
+            insns,
+            allocs,
+            gcs,
+            bands,
+            fbytes
+        );
+        #[cfg(feature = "sim")]
+        println!(
+            "parity: insns={} allocs={} gcs={} bands={} fbytes={}",
+            insns, allocs, gcs, bands, fbytes
+        );
+    }
+
     #[cfg(feature = "sim")]
     {
         crate::sim_allocator::checkpoint("post-onCreate");
