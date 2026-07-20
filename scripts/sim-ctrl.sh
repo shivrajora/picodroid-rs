@@ -25,6 +25,8 @@
 # Verbs:   down | up | press | tap        (press/tap embed a 40ms press->release)
 # Buttons: A | B | X | Y | PREV | NEXT | ENTER | ESC | <gpio-pin>
 # Touch:   touch down|move <x> <y> | touch up
+# Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
+#          sim built with --mem-diag (docs/memory-diagnostics.md)
 #
 # The command is forwarded verbatim; the sim validates it and reports unknown
 # tokens on its own log ("[sim] control channel: unknown ...").
@@ -50,6 +52,7 @@ Commands (forwarded verbatim to the sim):
   down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>
   touch down|move <x> <y>
   touch up
+  memstats     ([memmon] snapshot; sim must be built with --mem-diag)
 
 Examples:
   $(basename "$0") tap A

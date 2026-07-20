@@ -35,6 +35,25 @@ directly shrinks the JVM heap budget that is already ~30 KB short for picoenvmon
 **Tradeoff:** legitimate feature growth trips thresholds — keep it report-only to avoid
 baseline-update fatigue.
 
+Stage 2 — **hard budget gate**: once the report has burned in, make `print_memory_usage`
+fail the build (non-zero exit) when flash or static RAM exceeds a per-board percentage of
+the region (mcu toml `flash_kb` / the linker script's program region). The RP2040 896 K
+ceiling becomes a CI wall instead of a printed number — today an overflow only surfaces as
+a link error with no margin trend (the rp2350+mem-diag pre-commit build already prints its
+cost; this would enforce it). **Tradeoff:** the same baseline-fatigue risk as above but
+sharper — gate on region percentage, not on deltas, so only genuine ceiling risk fails.
+
+### Nightly strict-sentinel memory soak
+
+`scripts/test-memdiag.sh` runs 30 s soaks per push; add a nightly 300 s+ variant (churny
+rows: `picoenvmon` Live, `animdemo`, `term`-category apps) under
+`PICODROID_MEMDIAG_STRICT=1` so slow leaks — under ~1 KB/min stays below the 4 KB/8-window
+trip at the default cadence — go red overnight instead of surfacing as a field OOM.
+Complements the GC-stress nightly variant above (that one forces collection frequency;
+this one watches the post-GC floor). **Tradeoff:** nightly wall-time; sentinel
+false-positives on apps with legitimate slow warm-up need per-row window/threshold tuning
+via `PICODROID_MEMDIAG_WINDOW_MS`.
+
 ### HIL board/app coverage *(deferred)*
 
 `scripts/hil-run.sh` hardcodes `BOARD="testbench_rp2350"`. Add a `--board` flag; add picoenvmon
@@ -131,6 +150,38 @@ For the churn hotspots (native_handler/mod.rs, lvgl_ffi.rs, lvgl_backend.rs, lif
 object_heap/mod.rs), turn recurring review questions into tests/lints (the registry cross-check
 and conf drift guard are the pattern); keep only what can't be automated as a short
 CONTRIBUTING checklist.
+
+## Memory-diagnostics follow-ups
+
+(The `mem-diag` feature — monitor, growth sentinel, offensive checks, histogram — landed
+2026-07; docs/memory-diagnostics.md. These extend it.)
+
+### StackOverflow-as-OOM per-window counter
+
+Count `Err(JvmError::StackOverflow)` returns (the JVM's catchable OOM stand-in, pervasive
+in native helpers) per `[memmon]` window. An OOM-retry storm — allocation failing, GC
+relieving, failing again — is a churn symptom the live-bytes floor cannot see (the floor
+stays flat while the allocator thrashes at the ceiling). One plain counter field bumped at
+the error-construction sites, drained per window like `alloc_total`. **Tradeoff:** the
+error is used for genuine stack-depth failures too; either split the variants (wide
+mechanical rename) or accept the conflation and document it.
+
+### Per-task stack-watermark trending in memmon
+
+`CMD_SYSMON` already reads per-task stack high-water via `uxTaskGetSystemState`
+(`pdb/sysmon.rs`); fold the minimum watermark into the periodic device `memmon:` line so a
+slowly-deepening stack is caught alongside heap growth (FreeRTOS overflow method 2 only
+fires after the fact). **Tradeoff:** `uxTaskGetSystemState` suspends the scheduler
+briefly every window — keep it to every Nth window or device-idle windows.
+
+### Device per-class allocation histogram
+
+The sim-only histogram answers "who churns" with class names; on device it would need a
+`mem-diag-histo` sub-feature (RP2350-only — RP2040 has no flash headroom) dumping
+class-table indices + counts over an extended CMD_SYSMON, with the host `pdb` tool
+resolving names from the papk. **Tradeoff:** protocol surface + a per-alloc branch and
+`4 B × class_count` RAM on device; the sim histogram covers most hunts since the JVM is
+execution-identical (parity P1) — only sensor/HW-driven allocation patterns differ.
 
 ## Long-term stability
 

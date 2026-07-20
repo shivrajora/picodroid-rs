@@ -36,3 +36,5 @@ This runs: Java formatting check, `cargo fmt`, clippy (RP2040 + RP2350), embedde
 Do not consider a code change complete until both of these pass.
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
+>
+> **When debugging memory (heap growth, churn, OOM, corruption):** opt-in monitors and offensive checks exist — see `docs/memory-diagnostics.md` (`./scripts/sim.sh --app <app> --mem-diag`).
