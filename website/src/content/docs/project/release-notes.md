@@ -3,7 +3,55 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.10.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.11.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## v0.11.0 — 2026-07-20
+
+The memory-diagnostics and Android-parity-completion release. Folds in a large SDK surface expansion (widget completion, Android-cased renames, package moves), a JVM correctness pass, and a full opt-in memory diagnostics suite built to make heap growth and steady-state churn visible in both the simulator and on real hardware.
+
+**Android parity — widget completion & renames**
+
+- `AlertDialog` moved to `picodroid.app` (matching `android.app.AlertDialog`); `IBinder` moved to `picodroid.os`; `Url`/`HttpUrlConnection` renamed to Java's `URL`/`HttpURLConnection` casing; `Preferences` became `SharedPreferences` with Android's full get/edit/commit idiom.
+- New widgets: `RadioButton` + `RadioGroup` with mutual exclusion, `NumberPicker` with keypad edit mode (replacing the picoenvmon Settings keyboard entry), `TextWatcher` with `afterTextChanged` on `EditText`, `GestureDetector.SimpleOnGestureListener`, the standard interpolator family (`Linear`/`Accelerate`/`Decelerate`/`AccelerateDecelerate`) plus animation end actions, `View.OnLongClickListener` + `performLongClick`, `AdapterView.OnItemSelectedListener`, view-relative `MotionEvent.getX/getY` and screen-absolute `getRawX/getRawY`.
+- Rounded out: `AlertDialog` neutral button (Android's 3-slot layout) and single-/multi-choice list variants, `SeekBar` press-edge tracking callbacks, `Service.onRebind`/`stopSelfResult`, `startActivityForResult` with Android's result-delivery order, `Activity.getIntent()`, the `onRestart` lifecycle callback, `View.setId/getId/setTag/getTag`, full `View` property getters, `picodroid.view.Gravity`, full `IME_ACTION_*`/`InputType` constant sets, Android sensor `TYPE_*`/`SENSOR_STATUS_*` constants, `DialogInterface.BUTTON_NEUTRAL`, `Log` severity ladder + `Throwable` overloads.
+- An `android.*` import-compatibility layer (stub jar + class-shrink alias rewriting) was landed, then reverted a few commits later — apps still import `picodroid.*` only; see the compat matrix notes in `docs/`.
+
+**JVM correctness**
+
+- `getClass()` no longer mints a fresh `Class` object per call after the first string concat (was breaking identity comparisons); `Class.getName()` returns Java's dot-form; the builtin `Throwable` hierarchy now matches for `catch`/`instanceof`; clinit throws are wrapped in `ExceptionInInitializerError`; `Throwable.addSuppressed`/`getSuppressed` now store/return.
+- `Object.clone()` shallow copy + `Cloneable` marker, `Object.getClass()` with `ldc`-literal identity, `java.util.Comparator` + `Collections.sort(List, Comparator)`, `Integer.parseInt` family, boxed `Byte`/`Short`, full-contract `System.arraycopy`.
+- `StringBuilder.append(char)` no longer scrubs `\n` to a space (was breaking `\n`-joined strings passed to native code).
+- 32-bit-clean object layout: fields arena + 12-byte slots everywhere, closing the last 64-bit assumption in object layout.
+- Fixed `MethodNotFound`/sensor-dispatch spam caused by `class_table` and `Intent` target-class names aliasing a GC-freed `dyn String`; both now canonicalize at the native boundary.
+
+**Robustness**
+
+- The `Display` singleton is now a GC root (was being swept and slot-reused, breaking all navigation with a post-first-GC `NoSuchMethod`).
+- A view's animations are canceled when the view is deleted; a soft keyboard unbinds from its textarea on delete; consumed `onTouch`/long-press now correctly suppress the synthetic click.
+- New handle use-after-delete sanitizer for the simulator (`--sanitize-handles`) and a method-class cross-check test against the native dispatch registry.
+
+**Memory diagnostics (new)**
+
+- Opt-in `--mem-diag` monitor: `[memmon]` heap-growth sentinel, per-class allocation histogram (`PICODROID_MEMDIAG_HISTO`), offensive heap checks (`PICODROID_MEMDIAG_OFFENSIVE`), and a `pdb` `CMD_SYSMON` extension that pulls the live JVM heap block over USB.
+- Plugged the input-driven heap leaks the new diagnostics surfaced: recycled `KeyEvent`/`MotionEvent` give zero-alloc steady-state key and touch dispatch; sensor delivery is now allocation-free with an emergency GC at the native boundary; runtime flash writes now restore fast XIP mode afterward.
+- Killed JVM string-churn copies via an `intern_dyn_owned` handoff and format-scratch reuse.
+- New steady-state flatness test, a soak-test harness (`scripts/test-memdiag.sh`), dedicated CI lanes, and a full guide at `docs/memory-diagnostics.md`.
+
+**Simulator ↔ MCU parity**
+
+- The simulator now models the device heap for real: a `heap_4` arena, a default heap cap, a flash-modeled APK, and boot pre-charge — closing most of the sim/hardware memory-behavior gap. Parity-strict `Thread.start`, parity-metrics execution counters, and a parity-bench ratio tracker round out the harness; see `docs/parity-audit.md`.
+- Fixed the host-only minifb window buffer being wrongly charged against the simulated heap cap (was causing spurious OOM at low `-l` limits).
+
+**picoenvmon polish**
+
+- History now shows recorded data with a clearer empty state; Settings moved from soft-keyboard entry to `NumberPicker` steppers; several layout/clipping fixes (Live/Settings tile spacing, Logger/Units switch knob, ListView focus highlight, Settings hint truncation); Back is disabled on the home hub so Y is the only exit.
+
+**Tooling**
+
+- Fixed a `class-shrink` short-name allocator bug found while cutting this release's map: two unrelated classes (`picodroid.os.IBinder`, `picodroid.text.InputType`) could be assigned the identical shrunk name when the raw-index allocator crossed a skipped Java-reserved-keyword boundary (`"do"`/`"DO"`) — the per-call skip-ahead wasn't reflected in the caller's counter. Fixed by threading a single shared raw-index counter through the allocator and deriving each release's starting index by inverting existing entries' shrunk names rather than trusting the map's entry count.
+- Error Prone enabled as a default bug net (plus `@Override` enforcement); CI now caches Rust/Gradle builds, compiles all example apps, and runs sim smoke on every push; nightly failure emails now diff against the previous run.
+
+Shrink map: **+25 classes (110 → 135)** — see the [shrinker reference](/reference/shrinker/) for the full per-class breakdown; v0.10.0 entries copied verbatim.
 
 ## v0.10.0 — 2026-06-02
 
