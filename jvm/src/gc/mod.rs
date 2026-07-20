@@ -70,6 +70,21 @@ pub struct GcState {
     /// Set when an allocator returned None (heap full). Cleared at the next
     /// GC. Like `alloc_count`, persists across `execute()` calls.
     pub need_gc: bool,
+    /// Cumulative JVM allocations since boot (objects, arrays, dyn strings),
+    /// for the mem-diag monitor's per-window churn deltas. Plain non-atomic
+    /// field: only the thread that owns the heap mutates it, and thumbv6m
+    /// has no atomic RMW. Distinct from `parity::ALLOCS` (atomic,
+    /// sim<->device equality-checked, never reset) — do not merge them.
+    #[cfg(feature = "mem-diag")]
+    pub alloc_total: u32,
+    /// live_bytes sum sampled right after the most recent GC sweep — the
+    /// leak-detection floor (excludes not-yet-collected garbage).
+    #[cfg(feature = "mem-diag")]
+    pub last_post_gc_live: u32,
+    /// Minimum post-GC live_bytes since the monitor last drained the window
+    /// (`u32::MAX` = no GC ran in the current window).
+    #[cfg(feature = "mem-diag")]
+    pub min_post_gc_live: u32,
 }
 
 impl GcState {
@@ -82,6 +97,47 @@ impl GcState {
             arena_compact_buf: Vec::new(),
             alloc_count: 0,
             need_gc: false,
+            #[cfg(feature = "mem-diag")]
+            alloc_total: 0,
+            #[cfg(feature = "mem-diag")]
+            last_post_gc_live: 0,
+            #[cfg(feature = "mem-diag")]
+            min_post_gc_live: u32::MAX,
+        }
+    }
+
+    /// Record the live_bytes sum right after a GC sweep (mem-diag monitor
+    /// floor tracking). Called at both GC sites: the interpreter safepoint
+    /// and `SharedJvmHeap::collect_now`.
+    #[cfg(feature = "mem-diag")]
+    pub fn note_post_gc_live(&mut self, bytes: usize) {
+        let b = bytes.min(u32::MAX as usize) as u32;
+        self.last_post_gc_live = b;
+        if b < self.min_post_gc_live {
+            self.min_post_gc_live = b;
+        }
+    }
+
+    /// Drain the current monitor window: returns the post-GC live floor for
+    /// the window that just ended and resets the windowed minimum. `None`
+    /// when no GC has run yet at all (caller should fall back to the raw
+    /// live_bytes sum, which is exact while nothing has been freed).
+    #[cfg(feature = "mem-diag")]
+    pub fn take_window_post_gc_floor(&mut self) -> Option<u32> {
+        let gc_ran_this_window = self.min_post_gc_live != u32::MAX;
+        let floor = if gc_ran_this_window {
+            self.min_post_gc_live
+        } else {
+            self.last_post_gc_live
+        };
+        self.min_post_gc_live = u32::MAX;
+        // last_post_gc_live == 0 with no window GC means no GC ever ran
+        // (a genuine post-GC live of 0 only happens on an empty heap, where
+        // the raw-live fallback reports the same thing).
+        if !gc_ran_this_window && self.last_post_gc_live == 0 {
+            None
+        } else {
+            Some(floor)
         }
     }
 

@@ -259,6 +259,8 @@ pub fn register_listener(
             let values_arr = arrays
                 .alloc(pico_jvm::array_heap::ATYPE_FLOAT, 1)
                 .ok_or(JvmError::StackOverflow)?;
+            #[cfg(feature = "mem-diag")]
+            crate::system::mem_diag::note_native_alloc(2); // event_obj + values_arr
             objects
                 .set_field(
                     event_obj,

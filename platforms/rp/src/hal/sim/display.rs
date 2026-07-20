@@ -399,6 +399,16 @@ fn handle_control_line(line: &str) {
         return; // blank line — ignore
     };
 
+    if cmd.eq_ignore_ascii_case("memstats") {
+        // Heap access belongs to the main task — just raise the request
+        // flag; the monitor prints the snapshot on the next 16 ms tick.
+        #[cfg(feature = "mem-diag")]
+        crate::system::mem_diag::request_memstats();
+        #[cfg(not(feature = "mem-diag"))]
+        println!("[sim] memstats: built without mem-diag (rebuild with sim.sh --mem-diag)");
+        return;
+    }
+
     if cmd.eq_ignore_ascii_case("touch") {
         handle_touch_command(&mut it);
         return;
@@ -506,6 +516,11 @@ fn spawn_control_channel() {
     println!(
         "[sim] control channel ready — commands: \
          'down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>', \
-         'touch down|move <x> <y>', 'touch up'"
+         'touch down|move <x> <y>', 'touch up'{}",
+        if cfg!(feature = "mem-diag") {
+            ", 'memstats'"
+        } else {
+            ""
+        }
     );
 }

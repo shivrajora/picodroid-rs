@@ -350,6 +350,11 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     #[cfg(feature = "sim")]
     {
         crate::sim_allocator::checkpoint("post-onCreate");
+        // Final memory snapshot: gives non-Activity apps (plain main-class
+        // runs with no tick loop) one [memmon] line, and Activity soaks a
+        // closing figure to grep.
+        #[cfg(feature = "mem-diag")]
+        crate::system::mem_diag::snapshot(heap, &handler);
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
         let (parsed, total) = jvm.count_parsed();
         println!(

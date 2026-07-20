@@ -74,6 +74,8 @@ pub mod frame;
 pub mod gc;
 pub mod heap;
 pub mod interpreter;
+#[cfg(feature = "mem-diag")]
+pub mod mem_diag;
 pub mod native;
 pub mod object_heap;
 #[cfg(feature = "parity-metrics")]
@@ -167,6 +169,12 @@ impl SharedJvmHeap {
         handler.report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
         self.gc_state.alloc_count = 0;
         self.gc_state.need_gc = false;
+        #[cfg(feature = "mem-diag")]
+        {
+            let post_gc_live =
+                self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
+            self.gc_state.note_post_gc_live(post_gc_live);
+        }
         freed
     }
 }

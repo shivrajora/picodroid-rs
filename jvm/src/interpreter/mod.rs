@@ -73,6 +73,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     pub fn bump_alloc_count(&mut self, n: u16) {
         #[cfg(feature = "parity-metrics")]
         crate::parity::count_allocs(n as usize);
+        #[cfg(feature = "mem-diag")]
+        {
+            self.gc_state.alloc_total = self.gc_state.alloc_total.wrapping_add(n as u32);
+        }
         self.gc_state.alloc_count = self.gc_state.alloc_count.saturating_add(n);
     }
 
@@ -456,6 +460,12 @@ pub fn execute<H: NativeMethodHandler>(
             ex.handler
                 .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
             ex.gc_state.alloc_count = 0;
+            #[cfg(feature = "mem-diag")]
+            {
+                let post_gc_live =
+                    ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
+                ex.gc_state.note_post_gc_live(post_gc_live);
+            }
         }
 
         match r {

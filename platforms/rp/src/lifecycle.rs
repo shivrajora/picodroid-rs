@@ -255,6 +255,12 @@ pub(crate) fn run_activity(
         return;
     }
 
+    // Growth sentinels arm once onCreate has completed — construction-time
+    // heap growth (class loading, widget trees) is legitimate; everything
+    // past this point is steady state as far as leak detection is concerned.
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::arm();
+
     // Framework event loop — pure dispatcher, mirroring Android's Looper.
     // The 16 ms LVGL cadence is provided by `tick_source` (a separate
     // FreeRTOS software timer on device, std::thread on sim) which posts
@@ -313,6 +319,11 @@ pub(crate) fn run_activity(
                     slow_handler_ms,
                     &mut last_slow_warn_ms,
                 );
+
+                // Memory monitor window cadence — after widget dispatch so
+                // each sample observes a settled frame.
+                #[cfg(feature = "mem-diag")]
+                crate::system::mem_diag::on_tick(heap, handler);
 
                 crate::hal::display::update_window();
                 if !crate::hal::display::is_window_open() {
@@ -1393,6 +1404,8 @@ fn ensure_recycled_motion_event(
             heap.objects.alloc_with_field_count(class, n_fields)?
         }
     };
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::note_native_alloc(1);
     *recycled_motion_event() = Some(idx);
     Some(idx)
 }
@@ -1666,6 +1679,8 @@ fn fire_view_key(
         Some(o) => o,
         None => return false,
     };
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::note_native_alloc(1);
     if heap
         .objects
         .set_field(

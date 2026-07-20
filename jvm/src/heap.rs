@@ -28,6 +28,11 @@ pub struct StringTable {
     dyn_bufs: ChunkedSlots<Vec<u8>>,
     /// Index into `ptrs`/`lens` where the first dynamic entry lives.
     dyn_start: usize,
+    /// Cumulative `intern_dyn` calls since boot — every StringBuilder
+    /// toString / String.format / concat sinks here, so this is the
+    /// mem-diag monitor's string-churn signal. Plain field (thumbv6m-safe).
+    #[cfg(feature = "mem-diag")]
+    dyn_intern_total: u32,
 }
 
 // SAFETY: the static pointers reference Flash data which is never mutated.
@@ -42,7 +47,15 @@ impl StringTable {
             lens: Vec::new(),
             dyn_bufs: ChunkedSlots::new(),
             dyn_start: 0,
+            #[cfg(feature = "mem-diag")]
+            dyn_intern_total: 0,
         }
+    }
+
+    /// Cumulative `intern_dyn` calls since boot (mem-diag churn metric).
+    #[cfg(feature = "mem-diag")]
+    pub fn dyn_intern_total(&self) -> u32 {
+        self.dyn_intern_total
     }
 }
 
@@ -101,6 +114,10 @@ impl StringTable {
     /// Reuses a freed (GC'd) slot when available; otherwise grows the table.
     /// Safe — this table owns the backing `Vec<u8>` for each dynamic entry.
     pub fn intern_dyn(&mut self, bytes: &[u8]) -> Option<u16> {
+        #[cfg(feature = "mem-diag")]
+        {
+            self.dyn_intern_total = self.dyn_intern_total.wrapping_add(1);
+        }
         // Look for a freed slot to reuse.
         for di in 0..self.dyn_bufs.len() {
             if self.dyn_bufs[di].is_none() {

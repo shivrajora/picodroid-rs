@@ -17,3 +17,10 @@ compat = { path = "../compat" }
 [features]
 # Deterministic sim<->device execution counters (docs/parity-audit.md P1).
 parity-metrics = []
+# Opt-in memory diagnostics: periodic heap monitor, steady-state growth
+# sentinel, churn counters, offensive heap checks (docs/memory-diagnostics.md).
+# Off by default — when absent, none of the diagnostic code exists in the
+# binary. Distinct from parity-metrics: parity counters are atomic,
+# sim<->device equality-checked, and never reset; mem-diag counters are plain
+# non-atomic fields (thumbv6m-safe) that reset per monitor window.
+mem-diag = []

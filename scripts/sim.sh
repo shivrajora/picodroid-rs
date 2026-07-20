@@ -20,6 +20,7 @@ HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 # 32-bit hardware, so surfacing them loudly is the parity-honest default.
 # Opt out with --no-sanitize-handles or PICODROID_HANDLE_SANITIZER=0.
 SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-1}"
+MEM_DIAG=""
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
 
@@ -43,6 +44,14 @@ Options:
                             PICODROID_HANDLE_SANITIZER=0)
       --shrink              Apply the active release class-name shrink map
                             (off by default; see docs/shrinker.md)
+  -m, --mem-diag            Compile in the memory diagnostics (mem-diag
+                            feature): periodic [memmon] heap monitor +
+                            steady-state growth sentinel (warn-only unless
+                            PICODROID_MEMDIAG_STRICT=1). Tunables via
+                            PICODROID_MEMDIAG_WINDOW_MS / _SENTINEL / _STRICT
+                            / _OFFENSIVE / _HISTO; on-demand snapshot via
+                            'sim-ctrl.sh memstats'. See
+                            docs/memory-diagnostics.md
   -h, --help                Show this help message
 
 Boards:
@@ -93,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       export PICODROID_SHRINK=1
       shift
       ;;
+    -m|--mem-diag)
+      MEM_DIAG=1
+      shift
+      ;;
     *)
       echo "Unknown option: $1" >&2
       usage
@@ -121,11 +134,21 @@ if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
   ENV_VARS+=(PICODROID_SHRINK=1)
 fi
 
+FEATURES="sim,$BOARD_FEATURE"
+if [[ -n "$MEM_DIAG" ]]; then
+  FEATURES="$FEATURES,mem-diag"
+  # Sensible defaults when diagnostics are compiled in: monitor is always
+  # active; the growth sentinel defaults ON in warn-only mode (override any
+  # of these by exporting the variable yourself; strict/offensive/histo stay
+  # opt-in). See docs/memory-diagnostics.md.
+  ENV_VARS+=(PICODROID_MEMDIAG_SENTINEL="${PICODROID_MEMDIAG_SENTINEL:-1}")
+fi
+
 # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
 env "${ENV_VARS[@]}" cargo $CARGO_PLUS run \
   --manifest-path "$MANIFEST_DIR/Cargo.toml" \
   -p "$PACKAGE" \
   --target "$HOST_TARGET" \
   --no-default-features \
-  --features "sim,$BOARD_FEATURE" \
+  --features "$FEATURES" \
   "${EXTRA_ARGS[@]}"
