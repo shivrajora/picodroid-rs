@@ -19,7 +19,11 @@ pub fn dispatch(
             ),
         ),
         ("picodroid/hardware/SensorManager", "registerListener") => Some(
-            crate::system::picodroid::hardware::sensors::register_listener(ctx.args, ctx.objects),
+            crate::system::picodroid::hardware::sensors::register_listener(
+                ctx.args,
+                ctx.objects,
+                ctx.arrays,
+            ),
         ),
         ("picodroid/hardware/SensorManager", "unregisterListener") => {
             Some(crate::system::picodroid::hardware::sensors::unregister_listener(ctx.args))

@@ -6,6 +6,7 @@
 //! will sample and queue events (deferred to a follow-up commit).
 
 use pico_jvm::{
+    array_heap::ArrayHeap,
     object_heap::ObjectHeap,
     types::{JvmError, Value},
 };
@@ -53,6 +54,14 @@ struct Registration {
     listener_obj: u16,
     sensor_type: i32,
     sensor_obj: u16,
+    /// Recycled SensorEvent delivered to this registration on every tick.
+    /// Allocated once at registerListener; deliver_event only rewrites
+    /// `values[0]` and `timestamp`, so steady-state delivery allocates
+    /// nothing. Matches Android, which documents that SensorManager may
+    /// reuse SensorEvent instances (listeners must copy values out).
+    event_obj: u16,
+    /// The float[1] backing `event_obj.values`.
+    values_arr: u16,
     period_ticks: u32,
     ticks_until_due: u32,
 }
@@ -116,6 +125,8 @@ pub fn visit_gc_roots(visit: &mut dyn FnMut(Value)) {
     for reg in st.registrations.iter().flatten() {
         visit(Value::ObjectRef(reg.listener_obj));
         visit(Value::ObjectRef(reg.sensor_obj));
+        visit(Value::ObjectRef(reg.event_obj));
+        visit(Value::ArrayRef(reg.values_arr));
     }
     for obj in st.sensor_objs.iter().flatten() {
         visit(Value::ObjectRef(*obj));
@@ -191,7 +202,11 @@ pub fn get_default_sensor(
     Ok(Some(Value::ObjectRef(obj)))
 }
 
-pub fn register_listener(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+pub fn register_listener(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+) -> Result<Option<Value>, JvmError> {
     // args[0] = this (SensorManager)
     // args[1] = SensorEventListener
     // args[2] = Sensor
@@ -227,12 +242,43 @@ pub fn register_listener(args: &[Value], objects: &ObjectHeap) -> Result<Option<
     }
 
     // Find empty slot
-    for slot in st.registrations.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(Registration {
+    for i in 0..MAX_REGISTRATIONS {
+        if st.registrations[i].is_none() {
+            // Allocate this registration's recycled SensorEvent up front,
+            // with its full field span so no set_field ever lazy-grows the
+            // fields arena. The immutable payload (sensor, values ref,
+            // accuracy) is written once here; deliver_event only rewrites
+            // values[0] and timestamp, so per-event delivery is allocation-
+            // free. Rooted via visit_gc_roots until unregisterListener.
+            let event_obj = objects
+                .alloc_with_field_count(
+                    crate::shrink_names::shrink_class("picodroid/hardware/SensorEvent"),
+                    event_fields::TIMESTAMP + 1,
+                )
+                .ok_or(JvmError::StackOverflow)?;
+            let values_arr = arrays
+                .alloc(pico_jvm::array_heap::ATYPE_FLOAT, 1)
+                .ok_or(JvmError::StackOverflow)?;
+            objects
+                .set_field(
+                    event_obj,
+                    event_fields::SENSOR,
+                    Value::ObjectRef(sensor_obj),
+                )
+                .ok_or(JvmError::StackOverflow)?;
+            objects
+                .set_field(event_obj, event_fields::VALUES, Value::ArrayRef(values_arr))
+                .ok_or(JvmError::StackOverflow)?;
+            objects
+                .set_field(event_obj, event_fields::ACCURACY, Value::Int(3))
+                .ok_or(JvmError::StackOverflow)?;
+
+            st.registrations[i] = Some(Registration {
                 listener_obj,
                 sensor_type,
                 sensor_obj,
+                event_obj,
+                values_arr,
                 period_ticks,
                 ticks_until_due: 0,
             });
@@ -334,10 +380,38 @@ pub fn drain_sensor_events(
         };
 
         let listener_obj = reg.listener_obj;
-        let sensor_obj = reg.sensor_obj;
+        let event_obj = reg.event_obj;
+        let values_arr = reg.values_arr;
 
         delivered += 1;
-        if let Err(e) = deliver_event(jvm, heap, handler, listener_obj, sensor_obj, value) {
+        let mut result = deliver_event(
+            jvm,
+            heap,
+            handler,
+            listener_obj,
+            event_obj,
+            values_arr,
+            value,
+        );
+        if matches!(result, Err(JvmError::StackOverflow)) {
+            // StackOverflow is the JVM's allocation-failure signal (here it
+            // can only come from inside the onSensorChanged call — delivery
+            // itself no longer allocates). This drain runs between bytecode
+            // executions, so no interpreter safepoint can run the emergency
+            // GC a failing opcode would get — collect with native-only roots
+            // and redeliver once.
+            heap.collect_now(handler);
+            result = deliver_event(
+                jvm,
+                heap,
+                handler,
+                listener_obj,
+                event_obj,
+                values_arr,
+                value,
+            );
+        }
+        if let Err(e) = result {
             #[cfg(not(feature = "sim"))]
             defmt::warn!("sensors: deliver_event err");
             #[cfg(feature = "sim")]
@@ -357,42 +431,14 @@ fn deliver_event(
     heap: &mut pico_jvm::SharedJvmHeap,
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
     listener_obj: u16,
-    sensor_obj: u16,
+    event_obj: u16,
+    values_arr: u16,
     value: f32,
 ) -> Result<(), JvmError> {
-    // Allocate SensorEvent
-    let event_obj = heap
-        .objects
-        .alloc(crate::shrink_names::shrink_class(
-            "picodroid/hardware/SensorEvent",
-        ))
-        .ok_or(JvmError::StackOverflow)?;
+    // Rewrite the recycled event's mutable payload (see Registration): only
+    // values[0] and timestamp change per tick, so delivery allocates nothing.
+    heap.arrays.store(values_arr, 0, value.to_bits() as i32);
 
-    // Set event.sensor
-    heap.objects
-        .set_field(
-            event_obj,
-            event_fields::SENSOR,
-            Value::ObjectRef(sensor_obj),
-        )
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Allocate float[1] for values
-    let arr = heap
-        .arrays
-        .alloc(pico_jvm::array_heap::ATYPE_FLOAT, 1)
-        .ok_or(JvmError::StackOverflow)?;
-    heap.arrays.store(arr, 0, value.to_bits() as i32);
-    heap.objects
-        .set_field(event_obj, event_fields::VALUES, Value::ArrayRef(arr))
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Set accuracy = 3 (ACCURACY_HIGH)
-    heap.objects
-        .set_field(event_obj, event_fields::ACCURACY, Value::Int(3))
-        .ok_or(JvmError::StackOverflow)?;
-
-    // Set timestamp
     let ts = crate::hal::system_clock::elapsed_realtime_nanos();
     heap.objects
         .set_field(event_obj, event_fields::TIMESTAMP, Value::Long(ts))

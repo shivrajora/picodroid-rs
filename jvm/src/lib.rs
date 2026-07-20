@@ -138,6 +138,37 @@ impl SharedJvmHeap {
     pub fn reset(&mut self) {
         *self = SharedJvmHeap::new();
     }
+
+    /// Runs a full GC cycle from *outside* the interpreter.
+    ///
+    /// Native code that allocates directly on the heap between bytecode
+    /// executions (e.g. the sensor-event drain loop) has no safepoint where
+    /// the interpreter's alloc-counter / `need_gc` emergency GC could run,
+    /// so a failed allocation there would otherwise never be relieved. No
+    /// bytecode frames exist at such a call site; the root set is static
+    /// fields, cached `Class` objects, and the handler's native roots.
+    ///
+    /// Returns the number of heap entries freed.
+    pub fn collect_now(&mut self, handler: &mut impl NativeMethodHandler) -> usize {
+        let pre_gc_used =
+            self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
+        let t0 = handler.clock_nanos();
+        let freed = gc::collect(
+            &[],
+            &mut self.objects,
+            &mut self.arrays,
+            &mut self.strings,
+            &self.statics,
+            &self.class_objects,
+            &mut self.gc_state,
+            |visit| handler.gc_visit_roots(visit),
+        );
+        let t1 = handler.clock_nanos();
+        handler.report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
+        self.gc_state.alloc_count = 0;
+        self.gc_state.need_gc = false;
+        freed
+    }
 }
 
 impl Default for SharedJvmHeap {
