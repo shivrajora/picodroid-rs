@@ -200,6 +200,24 @@ fn resolve_config(st: &mut MonitorState) {
     // a diagnostic must not halt a device).
 }
 
+/// True when the sentinel self-test ramp is requested
+/// (`PICODROID_MEMDIAG_SELFTEST=1`, sim only).
+#[cfg(feature = "sim")]
+fn selftest_enabled() -> bool {
+    use core::sync::atomic::{AtomicU8, Ordering};
+    // 0 = unread, 1 = off, 2 = on (PICODROID_HANDLE_SANITIZER pattern).
+    static CACHED: AtomicU8 = AtomicU8::new(0);
+    match CACHED.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = env_flag("PICODROID_MEMDIAG_SELFTEST", false);
+            CACHED.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
 /// True when the per-class alloc histogram is requested
 /// (`PICODROID_MEMDIAG_HISTO=1`, sim only).
 #[cfg(feature = "sim")]
@@ -251,7 +269,7 @@ fn print_histo_top(heap: &SharedJvmHeap) {
         .filter(|(_, &c)| c > 0)
         .map(|(i, &c)| (c, i as u16))
         .collect();
-    entries.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    entries.sort_unstable_by_key(|e| core::cmp::Reverse(e.0));
     print!("[memmon] histo top:");
     for (count, idx) in entries.iter().take(8) {
         let name = heap.objects.class_name_by_idx(*idx).unwrap_or("?");
@@ -277,11 +295,7 @@ struct NativeHeapSample {
 fn sample_native_heap() -> NativeHeapSample {
     let (cur, _peak, limit) = crate::sim_allocator::heap_stats();
     let (free, min_free, largest) = match crate::sim_allocator::heap4_stats() {
-        Some(h) => (
-            h.free_bytes as u32,
-            h.min_ever_free_bytes as u32,
-            h.largest_free_block as u32,
-        ),
+        Some(h) => (h.free_bytes, h.min_ever_free_bytes, h.largest_free_block),
         // Uncapped mode (-l 0): no arena, only the byte meter exists.
         None => (
             limit.saturating_sub(cur) as u32,
@@ -534,6 +548,16 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
     }
 
     if st.sentinel_on {
+        // Detector self-test (PICODROID_MEMDIAG_SELFTEST=1, sim only): feed
+        // the live sentinel a synthetic +2 KB/window ramp so a soak can
+        // assert the LEAK? path end-to-end (and strict mode's abort) without
+        // needing a deliberately leaky app.
+        #[cfg(feature = "sim")]
+        let floor = if selftest_enabled() {
+            floor + st.window_index * 2048
+        } else {
+            floor
+        };
         let live_trip = st.live_sentinel.push_window(floor);
         let native_trip = st.native_sentinel.push_window(native.used);
         let tripped = live_trip.is_some() || native_trip.is_some();

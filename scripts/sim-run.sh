@@ -313,6 +313,25 @@ for MODE in "${MODES[@]}"; do
     fi
   fi
 
+  # Memory-diagnostics soak (docs/memory-diagnostics.md): strict growth
+  # sentinel + offensive checks + detector self-test. Shrink-invariant, so
+  # one pass per cycle is enough.
+  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" ]]; then
+    TOTAL=$((TOTAL + 1))
+    sim_log "--- [$TOTAL] mem-diag soak ---"
+    memdiag_log="$RUN_LOG_DIR/mem-diag.log"
+    if bash "$SCRIPT_DIR/test-memdiag.sh" > "$memdiag_log" 2>&1; then
+      sim_log "  PASS"
+      echo "PASS mem-diag" >> "$RESULTS_FILE"
+      PASS=$((PASS + 1))
+    else
+      sim_log "  FAIL"
+      tail -10 "$memdiag_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+      echo "FAIL mem-diag" >> "$RESULTS_FILE"
+      FAIL=$((FAIL + 1))
+    fi
+  fi
+
   # Enviro-board smoke: full runs and `--app picoenvmon` (the CI hook; the
   # conf matrix has no picoenvmon row, so that invocation reaches only this).
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then

@@ -104,6 +104,21 @@ if ! PICODROID_APK_PATH="$APK_PATH" \
   exit 1
 fi
 
+echo "==> Running clippy (sim + mem-diag)..."
+# Keeps the opt-in memory diagnostics compiling and warning-clean
+# (docs/memory-diagnostics.md); firmware flash budget for mem-diag is
+# checked by the rp2350 build below.
+# shellcheck disable=SC2086
+if ! PICODROID_APK_PATH="$APK_PATH" \
+     cargo $CARGO_PLUS clippy \
+       --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+       -p "$PACKAGE" --jobs "$JOBS" --target "$HOST_TARGET" --no-default-features \
+       --features "sim,board-testbench-rp2350,mem-diag" -- --deny=warnings; then
+  echo ""
+  echo "ERROR: Clippy check failed (sim + mem-diag). Fix the warnings above before committing."
+  exit 1
+fi
+
 resolve_board tdeck_plus
 echo "==> Running clippy (tdeck_plus)..."
 # shellcheck disable=SC2086
@@ -122,6 +137,17 @@ echo "==> Building..."
 if ! bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2040 --app helloworld; then
   echo ""
   echo "ERROR: Build failed. Fix the errors above before committing."
+  exit 1
+fi
+
+echo "==> Building (rp2350 + mem-diag)..."
+# Proves the diagnostics firmware compiles + links (vPortGetHeapStats FFI,
+# thumb atomics discipline) and prints its flash cost. RP2040 + mem-diag is
+# a manual opt-in only — it sits ~0.1 KB under the 896K program region.
+if ! PICODROID_EXTRA_FEATURES=mem-diag \
+     bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2350 --app helloworld; then
+  echo ""
+  echo "ERROR: rp2350 + mem-diag build failed. Fix the errors above before committing."
   exit 1
 fi
 

@@ -994,6 +994,64 @@ fn gc_stress_persistent_state_reuse() {
     );
 }
 
+#[test]
+fn gc_stress_steady_state_flat() {
+    // The growth sentinel's contract in unit form (docs/memory-diagnostics.md):
+    // a steady-state workload — allocate a burst, retain one object, GC —
+    // must keep the post-GC live-bytes floor flat. Warm up for 10 cycles,
+    // then assert the remaining 90 never exceed the warmup floor by more
+    // than one fields-arena growth step (FIELDS_ARENA_CHUNK = 256 Values =
+    // 4096 B — the same threshold the runtime sentinel trips on).
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    let mut warmup_floor: usize = 0;
+    for cycle in 0u16..100 {
+        for _ in 0..30 {
+            objects.alloc("Steady").unwrap();
+        }
+        for _ in 0..8 {
+            arrays.alloc(10, 24).unwrap(); // arena-backed
+        }
+        for j in 0..6u16 {
+            strings
+                .intern_dyn(format!("s{}_{}", cycle, j).as_bytes())
+                .unwrap();
+        }
+
+        // Retain exactly one object per cycle (dropped next cycle) — live
+        // set is constant, everything else is garbage.
+        let last = objects.slot_count() as u16 - 1;
+        let frame = Frame::new(0, 0, &[Value::ObjectRef(last)], 4, 4).unwrap();
+        collect(
+            &[frame],
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &ClassObjectCache::new(),
+            &mut gc,
+            |_| {},
+        );
+
+        let live = objects.live_bytes() + arrays.live_bytes() + strings.live_bytes();
+        if cycle < 10 {
+            warmup_floor = warmup_floor.max(live);
+        } else {
+            assert!(
+                live <= warmup_floor + 4096,
+                "steady-state live floor grew: cycle {} live {} B vs warmup floor {} B",
+                cycle,
+                live,
+                warmup_floor
+            );
+        }
+    }
+}
+
 // ── HashMap / HashSet GC tests ──────────────────────────────────────────────
 
 #[test]
