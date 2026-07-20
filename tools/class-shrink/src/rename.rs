@@ -11,16 +11,24 @@
 //! before calling. Given identical input this allocator produces identical
 //! output across runs.
 
-/// Produce the `n`-th short suffix (0 → "A", 1 → "B", …, 25 → "Z", 26 → "AA").
-/// Using uppercase [A-Z] keeps Java-identifier validity and max density.
-/// Skips names that collide with Java reserved keywords.
-pub fn short_suffix(mut n: usize) -> String {
+/// Produce the next short suffix and advance `raw` to the following unused
+/// raw index. `raw` is the single shared counter across a whole allocation
+/// run: threading it through by mutable reference (rather than having each
+/// call independently skip ahead from its own `n`) is what keeps consecutive
+/// calls from re-landing on the same output when a reserved keyword is
+/// skipped. A prior version took `n: usize` by value and had each call
+/// re-derive its own skip-ahead from that call's `n`; two adjacent calls
+/// straddling a skipped keyword (e.g. raw index 118 = "DO") both resolved to
+/// the following index's name ("DP"), producing a silent short-name
+/// collision between two unrelated classes.
+pub fn short_suffix(raw: &mut usize) -> String {
     loop {
+        let n = *raw;
+        *raw += 1;
         let s = base26(n);
         if !is_java_reserved(&s) {
             return s;
         }
-        n += 1;
     }
 }
 
@@ -40,6 +48,24 @@ fn base26(mut n: usize) -> String {
     }
     chars.reverse();
     chars.iter().collect()
+}
+
+/// Invert `base26`: recover the raw index that produced `s`. Used to derive
+/// the next free raw index from a base map's existing suffixes rather than
+/// assuming it equals the entry count — that count-based shortcut silently
+/// undercounts the moment any past allocation crossed a skipped reserved
+/// keyword (see `short_suffix`), since a skip consumes a raw index without
+/// producing a map entry.
+pub fn base26_inverse(s: &str) -> Option<usize> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_uppercase()) {
+        return None;
+    }
+    let mut n: usize = 0;
+    for b in s.bytes() {
+        let digit = (b - b'A' + 1) as usize;
+        n = n.checked_mul(26)?.checked_add(digit)?;
+    }
+    Some(n - 1)
 }
 
 /// Java reserved words that must not be used as identifiers
@@ -129,13 +155,47 @@ mod tests {
     }
 
     #[test]
+    fn base26_inverse_round_trips() {
+        for n in 0..2000usize {
+            let s = base26(n);
+            assert_eq!(
+                base26_inverse(&s),
+                Some(n),
+                "round-trip failed for {n} → {s}"
+            );
+        }
+        assert_eq!(base26_inverse(""), None);
+        assert_eq!(base26_inverse("a"), None);
+        assert_eq!(base26_inverse("A1"), None);
+    }
+
+    #[test]
     fn uppercase_never_hits_java_keywords() {
         // Keywords are all lowercase, but the reserved check is
-        // case-insensitive to be extra safe against tooling quirks.
-        // Enumerate first 100 suffixes and confirm none are reserved.
-        for n in 0..100 {
-            let s = short_suffix(n);
-            assert!(!is_java_reserved(&s), "{n} → {s} collides with reserved");
+        // case-insensitive to be extra safe against tooling quirks. Drive a
+        // single shared counter (as cut_release does) across a range that
+        // spans every 2-letter reserved keyword ("DO" at raw index 118,
+        // "IF" at raw index 239) and confirm no output is ever reserved.
+        let mut raw = 0usize;
+        for _ in 0..300 {
+            let s = short_suffix(&mut raw);
+            assert!(!is_java_reserved(&s), "{s} collides with reserved");
+        }
+    }
+
+    #[test]
+    fn shared_counter_never_repeats_across_keyword_skips() {
+        // Regression test for the "DO"/"DP" collision: a single shared `raw`
+        // counter threaded across many calls must produce distinct outputs,
+        // even where the underlying base26 sequence has to skip a reserved
+        // keyword (previously this desynced the caller's per-call index from
+        // the allocator's internal skip-ahead, so two different calls landed
+        // on the same output string).
+        let mut raw = 0usize;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..300 {
+            let s = short_suffix(&mut raw);
+            assert!(seen.insert(s.clone()), "duplicate suffix produced: {s}");
         }
     }
 

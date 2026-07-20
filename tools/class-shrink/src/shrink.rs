@@ -137,9 +137,21 @@ pub fn cut_release(
     discovered.dedup();
 
     let mut map = base;
-    // Next free allocator index = current size of map (every existing entry
-    // consumed one slot).
-    let mut next = map.classes.len();
+    // Next free raw allocator index: one past the highest raw index already
+    // consumed by an existing map entry. Derived by inverting each entry's
+    // shrunk suffix back to its raw index (rather than assuming it equals
+    // `map.classes.len()`) because a reserved-keyword skip consumes a raw
+    // index without producing a map entry — the count-based shortcut
+    // silently undercounts once any past cut has crossed one. Threaded by
+    // mutable reference through short_suffix so a skip advances this shared
+    // counter instead of desyncing from a per-call copy.
+    let mut next = map
+        .classes
+        .values()
+        .filter_map(|shrunk| crate::rename::base26_inverse(shrunk.strip_prefix("a/")?))
+        .map(|raw| raw + 1)
+        .max()
+        .unwrap_or(0);
     for name in discovered {
         if keep.is_kept(&name) {
             continue;
@@ -147,10 +159,14 @@ pub fn cut_release(
         if map.classes.contains_key(&name) {
             continue;
         }
-        let suffix = crate::rename::short_suffix(next);
+        let suffix = crate::rename::short_suffix(&mut next);
         map.classes
             .insert(name, crate::rename::shrunk_name(&suffix));
-        next += 1;
+    }
+    // Never emit a map that isn't a 1:1 mapping — a duplicate shrunk name
+    // would silently corrupt any build using either colliding class.
+    if let Err(e) = map.verify_injective() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, e));
     }
     Ok(map)
 }

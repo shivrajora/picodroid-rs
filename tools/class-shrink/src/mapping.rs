@@ -70,6 +70,47 @@ impl ShrinkMap {
     pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
     }
+
+    /// Find shrunk names that more than one original class maps to.
+    ///
+    /// The map is keyed by original name, so duplicate *originals* are
+    /// impossible by construction — but a bug in the short-name allocator
+    /// (e.g. a desynced raw-index counter skipping a reserved keyword) can
+    /// assign the same *shrunk* name to two unrelated classes. That silently
+    /// corrupts any shrunk build using either class, so the shrink map must
+    /// be an injective (1:1) mapping. Returns each colliding shrunk name with
+    /// the sorted list of originals that claim it; empty means the map is
+    /// injective.
+    pub fn duplicate_targets(&self) -> Vec<(String, Vec<String>)> {
+        let mut by_target: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (from, to) in self.iter_classes() {
+            by_target.entry(to).or_default().push(from);
+        }
+        by_target
+            .into_iter()
+            .filter(|(_, froms)| froms.len() > 1)
+            .map(|(to, froms)| {
+                (
+                    to.to_string(),
+                    froms.iter().map(|s| s.to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// Assert the map is an injective original → shrunk mapping. Returns a
+    /// human-readable error listing every collision if not.
+    pub fn verify_injective(&self) -> Result<(), String> {
+        let dups = self.duplicate_targets();
+        if dups.is_empty() {
+            return Ok(());
+        }
+        let mut msg = String::from("shrink map has duplicate shrunk names (must be 1:1):");
+        for (to, froms) in &dups {
+            msg.push_str(&format!("\n  {to} <- {}", froms.join(", ")));
+        }
+        Err(msg)
+    }
 }
 
 /// Format a string as a TOML basic-string literal with `"` escaping.
@@ -226,5 +267,54 @@ mod tests {
     fn rejects_unknown_schema() {
         let text = "schema = 99\n";
         assert!(parse(text).is_err());
+    }
+
+    #[test]
+    fn duplicate_targets_are_detected() {
+        let mut m = ShrinkMap::new();
+        m.classes
+            .insert("picodroid/os/IBinder".into(), "a/DP".into());
+        m.classes
+            .insert("picodroid/text/InputType".into(), "a/DP".into());
+        m.classes.insert("picodroid/pio/Gpio".into(), "a/A".into());
+        let dups = m.duplicate_targets();
+        assert_eq!(dups.len(), 1);
+        assert_eq!(dups[0].0, "a/DP");
+        assert_eq!(
+            dups[0].1,
+            vec!["picodroid/os/IBinder", "picodroid/text/InputType"]
+        );
+        assert!(m.verify_injective().is_err());
+    }
+
+    #[test]
+    fn injective_map_passes() {
+        let mut m = ShrinkMap::new();
+        m.classes.insert("picodroid/pio/Gpio".into(), "a/A".into());
+        m.classes
+            .insert("picodroid/os/SystemClock".into(), "a/B".into());
+        assert!(m.duplicate_targets().is_empty());
+        assert!(m.verify_injective().is_ok());
+    }
+
+    /// Every committed release map must be a 1:1 mapping. This guards the
+    /// whole `sdk/shrink-maps/` history against the allocator-collision class
+    /// of bug in one place, for past and future maps alike.
+    #[test]
+    fn all_committed_maps_are_injective() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/shrink-maps");
+        let mut checked = 0;
+        for entry in fs::read_dir(&dir).expect("read sdk/shrink-maps") {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            let map =
+                ShrinkMap::load(&path).unwrap_or_else(|e| panic!("load {}: {e}", path.display()));
+            map.verify_injective()
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            checked += 1;
+        }
+        assert!(checked > 0, "no committed maps found in {}", dir.display());
     }
 }

@@ -17,6 +17,10 @@
 //!       Rewrite every .class file under --in using --map's classes and
 //!       write results under --out. Files without renamed internal names
 //!       keep their original name.
+//!
+//!   verify <map.toml> [<map.toml> ...]
+//!       Check each map is a 1:1 original → shrunk mapping (no duplicate
+//!       shrunk names). Exits non-zero and lists collisions on failure.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -35,6 +39,7 @@ fn main() -> ExitCode {
         "print-version" => cmd_print_version(&args[2..]),
         "cut-release" => cmd_cut_release(&args[2..]),
         "shrink-dir" => cmd_shrink_dir(&args[2..]),
+        "verify" => cmd_verify(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{}", USAGE);
             ExitCode::SUCCESS
@@ -220,6 +225,41 @@ fn cmd_shrink_dir(args: &[String]) -> ExitCode {
     }
 }
 
+fn cmd_verify(args: &[String]) -> ExitCode {
+    if args.is_empty() {
+        eprintln!("Error: verify needs at least one map file\n\n{USAGE}");
+        return ExitCode::from(1);
+    }
+    let mut failed = false;
+    for arg in args {
+        let path = PathBuf::from(arg);
+        let map = match ShrinkMap::load(&path) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Error loading {}: {e}", path.display());
+                failed = true;
+                continue;
+            }
+        };
+        match map.verify_injective() {
+            Ok(()) => eprintln!(
+                "ok: {} ({} classes, 1:1)",
+                path.display(),
+                map.classes.len()
+            ),
+            Err(e) => {
+                eprintln!("FAIL: {}: {e}", path.display());
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 const USAGE: &str = "\
 class-shrink — Java class-name shrinker for picodroid
 
@@ -236,4 +276,8 @@ Subcommands:
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,
       writing results under --out at their new internal names.
+
+  verify <map.toml> [<map.toml> ...]
+      Check each map is a 1:1 original -> shrunk mapping (no duplicate
+      shrunk names). Exits non-zero and lists collisions on failure.
 ";
