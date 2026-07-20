@@ -1341,6 +1341,62 @@ fn dispatch_time_picker_changes(
 
 // ── Touch-event dispatch ────────────────────────────────────────────────────
 
+/// Recycled MotionEvent handed to every `View.fireTouch` dispatch. Allocated
+/// on first touch with its full field span, rooted via [`visit_gc_roots`],
+/// cleared by [`reset_dispatch_event_state`] between app runs. All six fields
+/// are rewritten per event, so steady-state touch dispatch allocates nothing.
+/// Matches Android, whose MotionEvent.obtain()/recycle() pool reuses event
+/// instances (listeners must not retain them past the callback).
+///
+/// A fresh-per-event MotionEvent leaked: the allocations ran outside any
+/// interpreter safepoint (no GC pacing, no emergency GC on failure), and the
+/// default-0 field count lazy-grew the fields arena six times per event —
+/// ~250 tap gestures ratcheted the arena past 75 KB with zero GCs until its
+/// contiguous realloc failed, exactly the sensor-delivery OOM (1ac965f).
+static mut RECYCLED_MOTION_EVENT: Option<u16> = None;
+
+fn recycled_motion_event() -> &'static mut Option<u16> {
+    unsafe { &mut *core::ptr::addr_of_mut!(RECYCLED_MOTION_EVENT) }
+}
+
+/// Emit GC roots owned by the event dispatchers. Called from
+/// `PicodroidNativeHandler::gc_visit_roots`.
+pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
+    if let Some(idx) = *recycled_motion_event() {
+        visit(pico_jvm::types::Value::ObjectRef(idx));
+    }
+}
+
+/// Drop dispatcher-owned heap refs — call before running a new app, next to
+/// `SharedJvmHeap::reset()` (the old index would dangle into the new heap).
+pub fn reset_dispatch_event_state() {
+    *recycled_motion_event() = None;
+}
+
+/// Return the recycled MotionEvent, allocating it on first use. On
+/// allocation failure runs an emergency GC — no interpreter safepoint can
+/// relieve pressure out here — and retries once.
+#[cfg(not(test))]
+fn ensure_recycled_motion_event(
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> Option<u16> {
+    if let Some(idx) = *recycled_motion_event() {
+        return Some(idx);
+    }
+    let class = crate::shrink_names::shrink_class("picodroid/view/MotionEvent");
+    let n_fields = crate::system::picodroid::graphics::fields::motion_event::RAW_Y + 1;
+    let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
+        Some(i) => i,
+        None => {
+            heap.collect_now(handler);
+            heap.objects.alloc_with_field_count(class, n_fields)?
+        }
+    };
+    *recycled_motion_event() = Some(idx);
+    Some(idx)
+}
+
 /// Drain the touch-event queue and invoke `View.fireTouch(MotionEvent)` on
 /// the registered listener for each event. Each record carries action
 /// (DOWN / UP / LONG_PRESS), display-pixel position, and a tick-clock
@@ -1368,9 +1424,7 @@ fn dispatch_touch_events(
             None => continue,
         };
 
-        let event_obj = match heap.objects.alloc(crate::shrink_names::shrink_class(
-            "picodroid/view/MotionEvent",
-        )) {
+        let event_obj = match ensure_recycled_motion_event(heap, handler) {
             Some(o) => o,
             None => continue,
         };
@@ -1415,7 +1469,7 @@ fn dispatch_touch_events(
 
         // fireTouch returns the onTouchListener's boolean. A consumed touch
         // (true) suppresses the synthetic click for this gesture (Android).
-        let ret = jvm.invoke_instance_with_args_returning(
+        let mut ret = jvm.invoke_instance_with_args_returning(
             dispatch_class(dispatch_sites::VIEW_TOUCH),
             dispatch_method(dispatch_sites::VIEW_TOUCH),
             view_ref,
@@ -1423,6 +1477,19 @@ fn dispatch_touch_events(
             heap,
             handler,
         );
+        if matches!(ret, Err(pico_jvm::types::JvmError::StackOverflow)) {
+            // Allocation failure inside the listener's Java — collect with
+            // native-only roots (no safepoint runs out here) and retry once.
+            heap.collect_now(handler);
+            ret = jvm.invoke_instance_with_args_returning(
+                dispatch_class(dispatch_sites::VIEW_TOUCH),
+                dispatch_method(dispatch_sites::VIEW_TOUCH),
+                view_ref,
+                &[Value::ObjectRef(event_obj)],
+                heap,
+                handler,
+            );
+        }
         // Consuming any event of the gesture suppresses the click; the
         // DOWN-reset above re-arms it each fresh gesture.
         let consumed = matches!(ret, Ok(Some(Value::Int(v))) if v != 0);

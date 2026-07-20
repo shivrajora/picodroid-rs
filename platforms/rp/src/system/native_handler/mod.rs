@@ -250,6 +250,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         crate::system::picodroid::graphics::display::visit_gc_roots(&mut *visit);
         crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);
         crate::service_lifecycle::visit_gc_roots(&mut *visit);
+        crate::lifecycle::visit_gc_roots(&mut *visit);
     }
 
     fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {
