@@ -1370,10 +1370,25 @@ fn recycled_motion_event() -> &'static mut Option<u16> {
     unsafe { &mut *core::ptr::addr_of_mut!(RECYCLED_MOTION_EVENT) }
 }
 
+/// Recycled KeyEvent handed to every `View.fireKey` dispatch — the
+/// [`RECYCLED_MOTION_EVENT`] pattern applied to hardware keys. Allocated on
+/// first key with its full 2-field span (ACTION, KEY_CODE), both fields
+/// rewritten per event, so steady-state key dispatch allocates nothing.
+/// Listeners must not retain the event past the callback (Android's
+/// KeyEvent pool contract).
+static mut RECYCLED_KEY_EVENT: Option<u16> = None;
+
+fn recycled_key_event() -> &'static mut Option<u16> {
+    unsafe { &mut *core::ptr::addr_of_mut!(RECYCLED_KEY_EVENT) }
+}
+
 /// Emit GC roots owned by the event dispatchers. Called from
 /// `PicodroidNativeHandler::gc_visit_roots`.
 pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
     if let Some(idx) = *recycled_motion_event() {
+        visit(pico_jvm::types::Value::ObjectRef(idx));
+    }
+    if let Some(idx) = *recycled_key_event() {
         visit(pico_jvm::types::Value::ObjectRef(idx));
     }
 }
@@ -1382,6 +1397,7 @@ pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
 /// `SharedJvmHeap::reset()` (the old index would dangle into the new heap).
 pub fn reset_dispatch_event_state() {
     *recycled_motion_event() = None;
+    *recycled_key_event() = None;
 }
 
 /// Return the recycled MotionEvent, allocating it on first use. On
@@ -1672,15 +1688,10 @@ fn fire_view_key(
 ) -> bool {
     use pico_jvm::types::Value;
 
-    let event_obj = match heap
-        .objects
-        .alloc(crate::shrink_names::shrink_class("picodroid/view/KeyEvent"))
-    {
+    let event_obj = match ensure_recycled_key_event(heap, handler) {
         Some(o) => o,
         None => return false,
     };
-    #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::note_native_alloc(1);
     if heap
         .objects
         .set_field(
@@ -1704,7 +1715,7 @@ fn fire_view_key(
         return false;
     }
 
-    let ret = jvm.invoke_instance_with_args_returning(
+    let mut ret = jvm.invoke_instance_with_args_returning(
         dispatch_class(dispatch_sites::VIEW_KEY),
         dispatch_method(dispatch_sites::VIEW_KEY),
         view_ref,
@@ -1712,7 +1723,47 @@ fn fire_view_key(
         heap,
         handler,
     );
+    if matches!(ret, Err(pico_jvm::types::JvmError::StackOverflow)) {
+        // Allocation failure inside the listener's Java — collect with
+        // native-only roots (no safepoint runs out here) and retry once.
+        heap.collect_now(handler);
+        ret = jvm.invoke_instance_with_args_returning(
+            dispatch_class(dispatch_sites::VIEW_KEY),
+            dispatch_method(dispatch_sites::VIEW_KEY),
+            view_ref,
+            &[Value::ObjectRef(event_obj)],
+            heap,
+            handler,
+        );
+    }
     matches!(ret, Ok(Some(Value::Int(v))) if v != 0)
+}
+
+/// Return the recycled KeyEvent, allocating it on first use with its full
+/// field span (no lazy-grow ever). On allocation failure runs an emergency
+/// GC — no interpreter safepoint can relieve pressure out here — and
+/// retries once. Mirrors [`ensure_recycled_motion_event`].
+#[cfg(not(test))]
+fn ensure_recycled_key_event(
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+) -> Option<u16> {
+    if let Some(idx) = *recycled_key_event() {
+        return Some(idx);
+    }
+    let class = crate::shrink_names::shrink_class("picodroid/view/KeyEvent");
+    let n_fields = crate::system::picodroid::graphics::fields::key_event::KEY_CODE + 1;
+    let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
+        Some(i) => i,
+        None => {
+            heap.collect_now(handler);
+            heap.objects.alloc_with_field_count(class, n_fields)?
+        }
+    };
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::note_native_alloc(1);
+    *recycled_key_event() = Some(idx);
+    Some(idx)
 }
 
 // ── SeekBar value-changed dispatch ──────────────────────────────────────────
