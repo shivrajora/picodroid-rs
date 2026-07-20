@@ -173,6 +173,57 @@ fn resolve_config(st: &mut MonitorState) {
     // a diagnostic must not halt a device).
 }
 
+/// True when the per-class alloc histogram is requested
+/// (`PICODROID_MEMDIAG_HISTO=1`, sim only).
+#[cfg(feature = "sim")]
+fn histo_enabled() -> bool {
+    use core::sync::atomic::{AtomicU8, Ordering};
+    // 0 = unread, 1 = off, 2 = on (PICODROID_HANDLE_SANITIZER pattern).
+    static CACHED: AtomicU8 = AtomicU8::new(0);
+    match CACHED.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = env_flag("PICODROID_MEMDIAG_HISTO", false);
+            CACHED.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// Turn the ObjectHeap histogram on when the env flag asks for it. Called
+/// once at heap creation (before class loading) so every alloc is counted.
+#[cfg(feature = "sim")]
+pub fn apply_histo_flag(heap: &mut SharedJvmHeap) {
+    if histo_enabled() {
+        heap.objects.set_histo_enabled(true);
+    }
+}
+
+/// Print the top allocation classes (histogram must be enabled). Sim-only:
+/// sorting/formatting uses host std under `bypass()`.
+#[cfg(feature = "sim")]
+fn print_histo_top(heap: &SharedJvmHeap) {
+    if !histo_enabled() {
+        return;
+    }
+    let histo = heap.objects.alloc_histo();
+    let _b = crate::sim_allocator::bypass();
+    let mut entries: std::vec::Vec<(u32, u16)> = histo
+        .iter()
+        .enumerate()
+        .filter(|(_, &c)| c > 0)
+        .map(|(i, &c)| (c, i as u16))
+        .collect();
+    entries.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    print!("[memmon] histo top:");
+    for (count, idx) in entries.iter().take(8) {
+        let name = heap.objects.class_name_by_idx(*idx).unwrap_or("?");
+        print!(" {name}={count}");
+    }
+    println!();
+}
+
 // ── Native heap sampling ────────────────────────────────────────────────────
 
 struct NativeHeapSample {
@@ -478,23 +529,26 @@ pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
     };
     let native = sample_native_heap();
     let (_, gc_count, gc_freed) = handler.gc_stats();
-    let _b = crate::sim_allocator::bypass();
-    println!(
-        "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} alloc={} nalloc={} stri={} frag={}pm",
-        live,
-        obj,
-        arr,
-        strb,
-        floor,
-        native.used,
-        native.free,
-        native.min_free,
-        native.largest_free_block,
-        gc_count,
-        gc_freed,
-        heap.gc_state.alloc_total,
-        native_alloc_total(),
-        heap.strings.dyn_intern_total(),
-        frag_permille(&native),
-    );
+    {
+        let _b = crate::sim_allocator::bypass();
+        println!(
+            "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} alloc={} nalloc={} stri={} frag={}pm",
+            live,
+            obj,
+            arr,
+            strb,
+            floor,
+            native.used,
+            native.free,
+            native.min_free,
+            native.largest_free_block,
+            gc_count,
+            gc_freed,
+            heap.gc_state.alloc_total,
+            native_alloc_total(),
+            heap.strings.dyn_intern_total(),
+            frag_permille(&native),
+        );
+    }
+    print_histo_top(heap);
 }

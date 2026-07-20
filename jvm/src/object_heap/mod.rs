@@ -111,6 +111,17 @@ pub struct ObjectHeap {
     /// clinit throw in ExceptionInInitializerError. Same GC contract as
     /// `suppressed`: traced on owner mark, dropped on owner sweep.
     pub(super) exception_causes: Vec<(u16, u16)>,
+    /// Cumulative allocation count per `class_idx` — the mem-diag "WHO is
+    /// churning" histogram. Runtime-gated by [`Self::set_histo_enabled`]
+    /// (the sim enables it from `PICODROID_MEMDIAG_HISTO=1`); while disabled
+    /// the cost is one branch per alloc and the Vec stays empty. When
+    /// enabled its growth (4 B per loaded class) is charged to the heap
+    /// like any diagnostic overhead — the histogram is for attribution,
+    /// not for byte-exact parity runs.
+    #[cfg(feature = "mem-diag")]
+    alloc_histo: Vec<u32>,
+    #[cfg(feature = "mem-diag")]
+    histo_enabled: bool,
 }
 
 impl ObjectHeap {
@@ -128,7 +139,33 @@ impl ObjectHeap {
             exception_messages: Vec::new(),
             suppressed: Vec::new(),
             exception_causes: Vec::new(),
+            #[cfg(feature = "mem-diag")]
+            alloc_histo: Vec::new(),
+            #[cfg(feature = "mem-diag")]
+            histo_enabled: false,
         }
+    }
+
+    /// Enable/disable the per-class allocation histogram (mem-diag). The
+    /// platform layer turns this on from a runtime flag; it defaults off so
+    /// device mem-diag builds pay one branch per alloc and nothing else.
+    #[cfg(feature = "mem-diag")]
+    pub fn set_histo_enabled(&mut self, on: bool) {
+        self.histo_enabled = on;
+    }
+
+    /// The per-class allocation counts, indexed by `class_idx` (empty until
+    /// [`Self::set_histo_enabled`]). Resolve names via
+    /// [`Self::class_name_by_idx`].
+    #[cfg(feature = "mem-diag")]
+    pub fn alloc_histo(&self) -> &[u32] {
+        &self.alloc_histo
+    }
+
+    /// Canonical class name for a `class_idx`, if loaded.
+    #[cfg(feature = "mem-diag")]
+    pub fn class_name_by_idx(&self, idx: u16) -> Option<&'static str> {
+        self.class_table.get(idx as usize).copied()
     }
 
     /// Associate a message string (StringTable index) with a Throwable object.
@@ -303,6 +340,14 @@ impl ObjectHeap {
     /// Find a free slot (reusing GC-freed None entries before growing) and
     /// place `obj` in it. Returns the slot index.
     fn place_in_slot(&mut self, obj: JvmObject) -> u16 {
+        #[cfg(feature = "mem-diag")]
+        if self.histo_enabled {
+            let ci = obj.class_idx as usize;
+            if self.alloc_histo.len() <= ci {
+                self.alloc_histo.resize(ci + 1, 0);
+            }
+            self.alloc_histo[ci] = self.alloc_histo[ci].wrapping_add(1);
+        }
         while self.first_free < self.objects.len() {
             if self.objects[self.first_free].is_none() {
                 let idx = self.first_free;
