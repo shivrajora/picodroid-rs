@@ -152,10 +152,52 @@ impl StringTable {
         }
         let di = i - self.dyn_start;
         if di < self.dyn_bufs.len() {
+            // Offensive mode: scribble the bytes before the buffer drops so
+            // any dangling `&str` into this storage (the transmuted-'static
+            // dyn-string bug class) shows garbage instead of plausibly-valid
+            // stale text.
+            #[cfg(feature = "mem-diag")]
+            if crate::mem_diag::offensive() {
+                if let Some(buf) = self.dyn_bufs[di].as_mut() {
+                    buf.fill(crate::mem_diag::POISON_BYTE);
+                }
+            }
             self.dyn_bufs[di] = None;
             self.ptrs[i] = core::ptr::null();
             self.lens[i] = 0;
         }
+    }
+
+    /// Structural integrity sweep (mem-diag offensive mode): every live
+    /// dynamic entry's `(ptr, len)` must agree with its owning buffer, and
+    /// freed entries must be nulled.
+    #[cfg(feature = "mem-diag")]
+    pub fn integrity_check(&self) -> Result<(), &'static str> {
+        if !self.dyn_bufs.invariant_holds() {
+            return Err("StringTable: ChunkedSlots chunk/len invariant broken");
+        }
+        for di in 0..self.dyn_bufs.len() {
+            let i = self.dyn_start + di;
+            if i >= self.ptrs.len() {
+                return Err("StringTable: dyn_bufs longer than ptrs table");
+            }
+            match &self.dyn_bufs[di] {
+                Some(buf) => {
+                    if self.ptrs[i] != buf.as_ptr() {
+                        return Err("StringTable: live dyn ptr does not match its buffer");
+                    }
+                    if self.lens[i] as usize != buf.len() {
+                        return Err("StringTable: live dyn len does not match its buffer");
+                    }
+                }
+                None => {
+                    if !self.ptrs[i].is_null() {
+                        return Err("StringTable: freed dyn slot has non-null ptr");
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     // ── GC support ────────────────────────────────────────────────────────────

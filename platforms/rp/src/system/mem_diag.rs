@@ -191,12 +191,21 @@ fn histo_enabled() -> bool {
     }
 }
 
-/// Turn the ObjectHeap histogram on when the env flag asks for it. Called
-/// once at heap creation (before class loading) so every alloc is counted.
+/// Apply the runtime heap-diagnostic flags to a fresh heap. Called once at
+/// heap creation (before class loading) so every alloc is counted and the
+/// offensive checks cover the whole run.
 #[cfg(feature = "sim")]
-pub fn apply_histo_flag(heap: &mut SharedJvmHeap) {
+pub fn apply_heap_flags(heap: &mut SharedJvmHeap) {
     if histo_enabled() {
         heap.objects.set_histo_enabled(true);
+    }
+    if env_flag("PICODROID_MEMDIAG_OFFENSIVE", false) {
+        pico_jvm::mem_diag::set_offensive(true);
+        let _b = crate::sim_allocator::bypass();
+        println!(
+            "[memmon] offensive checks ON (poison-on-free, GC poison check, \
+             post-GC integrity sweep, allocator canaries)"
+        );
     }
 }
 

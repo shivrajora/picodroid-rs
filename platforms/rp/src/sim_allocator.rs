@@ -262,6 +262,38 @@ fn parse_env_limit() -> usize {
     }
 }
 
+/// Whether offensive-mode trailing canaries are on
+/// (`PICODROID_MEMDIAG_OFFENSIVE=1`). Every arena allocation gets 4 extra
+/// bytes holding a magic word right past the requested size, verified on
+/// free — catches payload overruns (LVGL C code included) that the byte
+/// counter and heap_4 header checks cannot see. Read once via libc::getenv:
+/// this runs inside the allocator, where std::env (which allocates) would
+/// recurse. Opt-in only — canaries shift block sizes, so byte-exact parity
+/// runs must leave this off.
+#[cfg(feature = "mem-diag")]
+fn canaries_enabled() -> bool {
+    // 0 = unread, 1 = off, 2 = on.
+    static STATE: AtomicUsize = AtomicUsize::new(0);
+    match STATE.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let name = b"PICODROID_MEMDIAG_OFFENSIVE\0";
+            let ptr = unsafe { libc::getenv(name.as_ptr() as *const libc::c_char) };
+            let on = !ptr.is_null()
+                && unsafe { std::ffi::CStr::from_ptr(ptr) }
+                    .to_str()
+                    .is_ok_and(|v| matches!(v, "1" | "on" | "true" | "yes"));
+            STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// Canary magic written past each arena allocation in offensive mode.
+#[cfg(feature = "mem-diag")]
+const CANARY: u32 = 0xDEAD_C0DE;
+
 /// Stack-only writer for emitting OOM diagnostics without re-entering the
 /// allocator (println/eprintln would recurse since the failing allocation
 /// arrives via the global allocator).
@@ -321,6 +353,16 @@ unsafe impl GlobalAlloc for CappedAllocator {
         let Ok(want) = u32::try_from(size) else {
             return std::ptr::null_mut(); // > 4 GB cannot fit a 32-bit arena
         };
+        // Offensive mode: reserve room for the trailing canary word.
+        #[cfg(feature = "mem-diag")]
+        let want = if canaries_enabled() {
+            match want.checked_add(4) {
+                Some(w) => w,
+                None => return std::ptr::null_mut(),
+            }
+        } else {
+            want
+        };
 
         let mut guard = self
             .arena
@@ -347,7 +389,14 @@ unsafe impl GlobalAlloc for CappedAllocator {
         match heap.malloc(want) {
             Some(off) => {
                 let base = self.arena_base.load(Ordering::Relaxed);
-                unsafe { (base as *mut u8).add(off as usize) }
+                let p = unsafe { (base as *mut u8).add(off as usize) };
+                #[cfg(feature = "mem-diag")]
+                if canaries_enabled() {
+                    // Trailing canary right past the requested size; the
+                    // matching check runs in `dealloc` before the free.
+                    unsafe { core::ptr::write_unaligned(p.add(size) as *mut u32, CANARY) };
+                }
+                p
             }
             None => {
                 // Emergency-GC path upstream (Rust try_reserve → Err → GC),
@@ -392,6 +441,24 @@ unsafe impl GlobalAlloc for CappedAllocator {
             let addr = ptr as usize;
             let len = self.arena_len.load(Ordering::Relaxed);
             if addr >= base && addr < base + len {
+                #[cfg(feature = "mem-diag")]
+                if canaries_enabled() {
+                    let c = unsafe {
+                        core::ptr::read_unaligned(
+                            (ptr as *const u8).add(layout.size()) as *const u32
+                        )
+                    };
+                    if c != CANARY {
+                        // No-alloc report + abort: the allocator lock isn't
+                        // held yet and println would recurse into alloc.
+                        let msg = b"[sim] FATAL: heap canary smashed - buffer overrun past \
+                                    allocation end (mem-diag offensive mode)\n";
+                        unsafe {
+                            libc::write(2, msg.as_ptr() as *const _, msg.len());
+                        }
+                        std::process::abort();
+                    }
+                }
                 let mut guard = self
                     .arena
                     .lock()

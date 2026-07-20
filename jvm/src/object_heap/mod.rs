@@ -577,11 +577,69 @@ impl ObjectHeap {
     pub fn free(&mut self, idx: u16) {
         let i = idx as usize;
         if let Some(slot) = self.objects.get_mut(i) {
+            // Offensive mode: poison the whole fields-arena span before it
+            // becomes garbage-awaiting-compaction. Any code that still reads
+            // through a stale span sees the pattern instead of plausible
+            // stale Values, and the GC mark phase panics if poison ever
+            // appears inside a LIVE object's fields (arena-compaction bug /
+            // use-after-free).
+            #[cfg(feature = "mem-diag")]
+            if crate::mem_diag::offensive() {
+                if let Some(obj) = slot.as_ref() {
+                    let start = obj.fields_off as usize;
+                    let end = start + obj.fields_cap as usize;
+                    if end <= self.fields_arena.len() {
+                        for v in &mut self.fields_arena[start..end] {
+                            *v = Value::Int(crate::mem_diag::POISON_I32);
+                        }
+                    }
+                }
+            }
             *slot = None;
             if i < self.first_free {
                 self.first_free = i;
             }
         }
+    }
+
+    /// Structural integrity sweep (mem-diag offensive mode): every live
+    /// object's arena span is in-bounds and non-overlapping, `first_free`
+    /// never skips a free slot, and the chunked slot store is consistent.
+    #[cfg(feature = "mem-diag")]
+    pub fn integrity_check(&self) -> Result<(), &'static str> {
+        if !self.objects.invariant_holds() {
+            return Err("ObjectHeap: ChunkedSlots chunk/len invariant broken");
+        }
+        for i in 0..self.first_free.min(self.objects.len()) {
+            if self.objects[i].is_none() {
+                return Err("ObjectHeap: free slot below first_free");
+            }
+        }
+        let arena_len = self.fields_arena.len();
+        for (i, slot) in self.objects.iter().enumerate() {
+            let Some(a) = slot.as_ref() else { continue };
+            if a.field_count > a.fields_cap {
+                return Err("ObjectHeap: field_count exceeds fields_cap");
+            }
+            let (a_start, a_len) = (a.fields_off as usize, a.fields_cap as usize);
+            if a_start + a_len > arena_len {
+                return Err("ObjectHeap: fields span out of arena bounds");
+            }
+            if a_len == 0 {
+                continue;
+            }
+            for slot_b in self.objects.iter().skip(i + 1) {
+                let Some(b) = slot_b.as_ref() else { continue };
+                let (b_start, b_len) = (b.fields_off as usize, b.fields_cap as usize);
+                if b_len == 0 {
+                    continue;
+                }
+                if a_start < b_start + b_len && b_start < a_start + a_len {
+                    return Err("ObjectHeap: overlapping fields-arena spans");
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Return the slice of populated fields for the object at `idx`, used by

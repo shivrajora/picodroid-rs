@@ -174,6 +174,13 @@ impl SharedJvmHeap {
             let post_gc_live =
                 self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
             self.gc_state.note_post_gc_live(post_gc_live);
+            if mem_diag::offensive() {
+                if let Err(m) =
+                    mem_diag::integrity_check(&self.objects, &self.arrays, &self.strings)
+                {
+                    panic!("mem-diag post-GC integrity violation: {m}");
+                }
+            }
         }
         freed
     }

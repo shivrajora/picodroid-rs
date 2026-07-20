@@ -182,6 +182,8 @@ pub fn collect(
     let arr_marks = &mut gc.arr_marks;
     let str_marks = &mut gc.str_marks;
     let work = &mut gc.work;
+    #[cfg(feature = "mem-diag")]
+    let offensive = crate::mem_diag::offensive();
 
     // ── Phase 1: scan roots ──────────────────────────────────────────────
 
@@ -224,6 +226,23 @@ pub fn collect(
 
                 // Scan object fields for outgoing references.
                 for v in objects.fields_slice(idx) {
+                    // Offensive mode: a live object's field must never hold
+                    // the poison pattern written into freed spans — seeing
+                    // it means use-after-free or an arena-compaction bug,
+                    // caught here at the moment of damage.
+                    #[cfg(feature = "mem-diag")]
+                    if offensive {
+                        if let Value::Int(x) = v {
+                            if *x == crate::mem_diag::POISON_I32 {
+                                panic!(
+                                    "mem-diag: live object {} ({}) field holds poison — \
+                                     use-after-free or fields-arena corruption",
+                                    idx,
+                                    objects.class_name(idx).unwrap_or("?")
+                                );
+                            }
+                        }
+                    }
                     push_ref(work, v);
                 }
 

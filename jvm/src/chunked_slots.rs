@@ -74,6 +74,19 @@ impl<T> ChunkedSlots<T> {
         idx
     }
 
+    /// Structural invariant (mem-diag integrity sweep): the chunk count is
+    /// exactly what `len` requires. Chunks are never freed or shrunk, so
+    /// ceil(len / CHUNK_SIZE) must equal the chunk count.
+    #[cfg(feature = "mem-diag")]
+    pub(crate) fn invariant_holds(&self) -> bool {
+        let expected = if self.len == 0 {
+            0
+        } else {
+            ((self.len - 1) >> CHUNK_SHIFT) + 1
+        };
+        self.chunks.len() == expected && self.len <= self.chunks.len() * CHUNK_SIZE
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &Option<T>> + '_ {
         self.chunks
             .iter()

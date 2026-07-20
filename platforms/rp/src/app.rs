@@ -231,10 +231,10 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     ));
     let heap = shared_heap();
     let mut handler = crate::system::native_handler::PicodroidNativeHandler::new();
-    // Per-class alloc histogram opt-in (PICODROID_MEMDIAG_HISTO=1) — enabled
-    // before any class loads so every allocation is attributed.
+    // Runtime heap-diagnostic flags (PICODROID_MEMDIAG_HISTO / _OFFENSIVE)
+    // — applied before any class loads so the whole run is covered.
     #[cfg(all(feature = "sim", feature = "mem-diag"))]
-    crate::system::mem_diag::apply_histo_flag(heap);
+    crate::system::mem_diag::apply_heap_flags(heap);
     #[cfg(feature = "sim")]
     crate::sim_allocator::checkpoint("post-jvm-new");
 

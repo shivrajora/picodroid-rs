@@ -13,6 +13,11 @@
 //! platform's clock). Two instances run in practice — one fed the JVM
 //! post-GC live-bytes floor, one fed native-arena used bytes.
 
+use crate::array_heap::ArrayHeap;
+use crate::heap::StringTable;
+use crate::object_heap::ObjectHeap;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 /// Consecutive windows inspected by the trip condition.
 pub const SENTINEL_WINDOWS: usize = 8;
 
@@ -141,6 +146,50 @@ impl Default for GrowthSentinel {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── Offensive heap checks ───────────────────────────────────────────────────
+
+/// Poison pattern written into freed storage when offensive checks are on.
+/// A live object field holding this exact value is (heuristically) evidence
+/// of use-after-free or an arena-compaction bug — the GC mark phase panics
+/// on sight of it.
+pub const POISON_I32: i32 = 0x5AFE_DEADu32 as i32;
+
+/// Byte pattern for poisoning freed dynamic-string buffers.
+pub const POISON_BYTE: u8 = 0xDE;
+
+/// Global offensive-checks switch. Set once at boot by the platform layer
+/// (the sim, from `PICODROID_MEMDIAG_OFFENSIVE=1`) before any JVM thread
+/// starts; read on free/GC paths. Load/store only — thumbv6m has no atomic
+/// RMW, and a plain read-mostly flag needs none.
+static OFFENSIVE: AtomicBool = AtomicBool::new(false);
+
+/// Enable/disable offensive heap checks (poison-on-free + GC poison check +
+/// post-GC integrity sweep). Call before the app runs.
+pub fn set_offensive(on: bool) {
+    OFFENSIVE.store(on, Ordering::Release);
+}
+
+/// Whether offensive heap checks are enabled.
+#[inline]
+pub fn offensive() -> bool {
+    OFFENSIVE.load(Ordering::Relaxed)
+}
+
+/// Cross-heap structural integrity sweep, run after each GC when offensive
+/// checks are on. Returns a description of the first violation found —
+/// callers escalate (the sim panics with it). Checks are O(live²) worst
+/// case on span overlap, which at real app sizes (hundreds of live objects)
+/// is well under a millisecond and only paid under the opt-in flag.
+pub fn integrity_check(
+    objects: &ObjectHeap,
+    arrays: &ArrayHeap,
+    strings: &StringTable,
+) -> Result<(), &'static str> {
+    objects.integrity_check()?;
+    arrays.integrity_check()?;
+    strings.integrity_check()
 }
 
 #[cfg(test)]

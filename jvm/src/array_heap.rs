@@ -267,11 +267,78 @@ impl ArrayHeap {
     pub fn free(&mut self, idx: u16) {
         let i = idx as usize;
         if let Some(slot) = self.arrays.get_mut(i) {
+            // Offensive mode: poison the freed payload (arena span or inline
+            // buffer) so stale reads surface as the pattern, not as
+            // plausible stale data. See `ObjectHeap::free`.
+            #[cfg(feature = "mem-diag")]
+            if crate::mem_diag::offensive() {
+                if let Some(arr) = slot.as_mut() {
+                    match &mut arr.data {
+                        ArrayData::Inline { buf, .. } => {
+                            buf.fill(crate::mem_diag::POISON_I32);
+                        }
+                        ArrayData::Arena { offset, len } => {
+                            let start = *offset as usize;
+                            let end = start + *len as usize;
+                            if end <= self.arena.len() {
+                                self.arena[start..end].fill(crate::mem_diag::POISON_I32);
+                            }
+                        }
+                    }
+                }
+            }
             *slot = None;
             if i < self.first_free {
                 self.first_free = i;
             }
         }
+    }
+
+    /// Structural integrity sweep (mem-diag offensive mode): live arena
+    /// spans in-bounds and non-overlapping, `first_free` consistent, chunk
+    /// store consistent. Mirrors `ObjectHeap::integrity_check`.
+    #[cfg(feature = "mem-diag")]
+    pub fn integrity_check(&self) -> Result<(), &'static str> {
+        if !self.arrays.invariant_holds() {
+            return Err("ArrayHeap: ChunkedSlots chunk/len invariant broken");
+        }
+        for i in 0..self.first_free.min(self.arrays.len()) {
+            if self.arrays[i].is_none() {
+                return Err("ArrayHeap: free slot below first_free");
+            }
+        }
+        let arena_len = self.arena.len();
+        let span = |arr: &JvmArray| -> Option<(usize, usize)> {
+            match &arr.data {
+                ArrayData::Arena { offset, len } => Some((*offset as usize, *len as usize)),
+                ArrayData::Inline { .. } => None,
+            }
+        };
+        for (i, slot) in self.arrays.iter().enumerate() {
+            let Some(a) = slot.as_ref() else { continue };
+            let Some((a_start, a_len)) = span(a) else {
+                continue;
+            };
+            if a_start + a_len > arena_len {
+                return Err("ArrayHeap: data span out of arena bounds");
+            }
+            if a_len == 0 {
+                continue;
+            }
+            for slot_b in self.arrays.iter().skip(i + 1) {
+                let Some(b) = slot_b.as_ref() else { continue };
+                let Some((b_start, b_len)) = span(b) else {
+                    continue;
+                };
+                if b_len == 0 {
+                    continue;
+                }
+                if a_start < b_start + b_len && b_start < a_start + a_len {
+                    return Err("ArrayHeap: overlapping arena spans");
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Return the raw data slice of the array at `idx` (for ATYPE_REF scanning).
