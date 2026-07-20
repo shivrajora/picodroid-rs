@@ -96,7 +96,7 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
 //      flash_exit_xip()          — configures SSI for serial SPI mode, exits XIP
 //      <erase or program>        — performs the flash operation
 //      flash_flush_cache()       — flushes XIP cache, clears CS IO-forcing
-//      flash_enter_cmd_xip()     — restores 03h-command XIP mode
+//      <restore fast XIP mode>   — see the macro's restore step below
 //    The raw ROM functions (flash_range_erase, flash_range_program) do NOT
 //    handle XIP internally — the pico-sdk C wrappers perform this sequence.
 //
@@ -110,9 +110,32 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
 ///
 /// This macro:
 /// 1. Imports `rom_data` (chip-cfg'd) and pre-resolves all ROM function pointers
-/// 2. Saves PRIMASK and disables interrupts
-/// 3. Runs: connect → exit_xip → caller's operation → flush → enter_xip
-/// 4. Restores interrupts if they were previously enabled
+/// 2. Captures the fast-XIP restore state (see below) while XIP still works
+/// 3. Saves PRIMASK and disables interrupts
+/// 4. Runs: connect → exit_xip → caller's operation → flush → restore fast XIP
+/// 5. Restores interrupts if they were previously enabled
+///
+/// # Restoring fast XIP mode
+/// `flash_exit_xip` drops the QSPI into the bootrom's generic serial-read
+/// XIP mode (`03h` command, 1-bit I/O, CLKDIV=12), and `flash_enter_cmd_xip`
+/// re-programs that same slow mode — it does NOT bring back the quad-I/O
+/// setup from boot.  Leaving it there makes every XIP cache miss ~14x slower
+/// (measured on RP2350: 128 KB XIP read 6.3 ms → 86.7 ms), which made the
+/// whole system crawl after the first runtime LittleFS write.  The pico-sdk
+/// wrappers restore the boot-time mode after every operation; we do the
+/// chip-specific equivalent:
+///
+/// - RP2350: the boot XIP mode lives entirely in the QMI window-0 registers —
+///   every bootrom-discovered mode keeps the flash chip itself in
+///   serial-command state (8-bit command prefix on each burst), so saving
+///   M0_TIMING / M0_RFMT / M0_RCMD before the operation and writing them back
+///   after `flash_flush_cache` reinstates the exact pre-op mode.
+/// - RP2040: boot2 puts the flash chip in EBh quad-I/O *continuous-read*
+///   mode, so chip-side state is lost on `flash_exit_xip` and a register
+///   restore is not enough.  Like the pico-sdk, we re-execute a RAM copy of
+///   boot2 (the 256-byte image at the start of flash): entered with LR != 0
+///   it reconfigures the SSI, re-enters continuous-read mode, and returns to
+///   the caller instead of chaining to the vector table.
 ///
 /// # Why a macro?
 /// Any helper called from a `#[link_section = ".data"]` function must be
@@ -131,7 +154,21 @@ macro_rules! with_xip_disabled {
         let exit_xip = rom_data::flash_exit_xip::ptr();
         let $op = rom_data::$op_fn::ptr();
         let flush = rom_data::flash_flush_cache::ptr();
-        let enter_xip = rom_data::flash_enter_cmd_xip::ptr();
+
+        // Capture the fast-XIP restore state (still XIP-enabled; raw
+        // pointers only, so the restore step below never calls into .text).
+        #[cfg(feature = "chip-rp2350")]
+        let (qmi_m0, saved_timing, saved_rfmt, saved_rcmd) = {
+            const QMI_M0_TIMING: usize = 0x0c;
+            let m0 = (rp235x_hal::pac::QMI::ptr() as usize + QMI_M0_TIMING) as *mut u32;
+            (m0, m0.read_volatile(), m0.add(1).read_volatile(), m0.add(2).read_volatile())
+        };
+        #[cfg(feature = "chip-rp2040")]
+        let boot2_copy = {
+            let mut copy = [0u32; 64];
+            core::ptr::copy_nonoverlapping(XIP_BASE as *const u32, copy.as_mut_ptr(), 64);
+            copy
+        };
 
         let primask: u32;
         core::arch::asm!(
@@ -145,7 +182,21 @@ macro_rules! with_xip_disabled {
         exit_xip();
         $body;
         flush();
-        enter_xip();
+
+        // Restore the boot-time fast XIP mode (replaces flash_enter_cmd_xip,
+        // whose 03h serial mode exit_xip has already left configured).
+        #[cfg(feature = "chip-rp2350")]
+        {
+            qmi_m0.write_volatile(saved_timing); // M0_TIMING
+            qmi_m0.add(1).write_volatile(saved_rfmt); // M0_RFMT
+            qmi_m0.add(2).write_volatile(saved_rcmd); // M0_RCMD
+        }
+        #[cfg(feature = "chip-rp2040")]
+        {
+            let boot2: extern "C" fn() =
+                core::mem::transmute(boot2_copy.as_ptr() as usize + 1);
+            boot2();
+        }
 
         if primask == 0 {
             core::arch::asm!("cpsie i", options(nomem, nostack));
