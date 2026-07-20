@@ -85,6 +85,32 @@ fn print_sysmon(payload: &[u8]) {
         "NAME", "STATE", "PRI", "BASE", "STK-HWM", "CPU%"
     );
 
+    // mem-diag firmware appends a 16-byte JVM block after the task entries
+    // (jvm_live, post-GC floor, alloc_total, largest free native block).
+    // Plain firmware sends exactly expected_len; print the block when present.
+    if payload.len() >= expected_len + 16 {
+        let b = &payload[expected_len..expected_len + 16];
+        let jvm_live = u32::from_le_bytes(b[0..4].try_into().unwrap());
+        let floor = u32::from_le_bytes(b[4..8].try_into().unwrap());
+        let alloc_total = u32::from_le_bytes(b[8..12].try_into().unwrap());
+        let largest_free = u32::from_le_bytes(b[12..16].try_into().unwrap());
+        println!();
+        println!("JVM (mem-diag firmware):");
+        println!(
+            "  Live bytes:     {jvm_live} ({:.1} KB)",
+            jvm_live as f64 / 1024.0
+        );
+        println!(
+            "  Post-GC floor:  {floor} bytes ({:.1} KB)",
+            floor as f64 / 1024.0
+        );
+        println!("  Allocs total:   {alloc_total}");
+        println!(
+            "  Largest free:   {largest_free} bytes ({:.1} KB)",
+            largest_free as f64 / 1024.0
+        );
+    }
+
     for i in 0..task_count {
         let base = 20 + i * 28;
         let entry = &payload[base..base + 28];

@@ -137,6 +137,33 @@ fn native_alloc_total() -> u32 {
 static MEMSTATS_REQUESTED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
+/// Device: latest window figures published for the PDB sysmon extension.
+/// Written by the main task (core 0) each window, read by the PDB task
+/// (core 1) — `AtomicU32` with plain `store`/`load` only, the
+/// `ACTIVE_JVM_THREADS` cross-core discipline (no RMW; staleness of up to
+/// one window is fine for telemetry).
+#[cfg(not(feature = "sim"))]
+mod published {
+    use core::sync::atomic::AtomicU32;
+    pub static LIVE: AtomicU32 = AtomicU32::new(0);
+    pub static FLOOR: AtomicU32 = AtomicU32::new(0);
+    pub static ALLOC_TOTAL: AtomicU32 = AtomicU32::new(0);
+    pub static LARGEST_FREE: AtomicU32 = AtomicU32::new(0);
+}
+
+/// Latest published window figures for the CMD_SYSMON mem-diag extension:
+/// `(jvm_live_bytes, post_gc_floor, alloc_total, largest_free_block)`.
+#[cfg(not(feature = "sim"))]
+pub fn published_snapshot() -> (u32, u32, u32, u32) {
+    use core::sync::atomic::Ordering;
+    (
+        published::LIVE.load(Ordering::Acquire),
+        published::FLOOR.load(Ordering::Acquire),
+        published::ALLOC_TOTAL.load(Ordering::Acquire),
+        published::LARGEST_FREE.load(Ordering::Acquire),
+    )
+}
+
 /// Called from the control-channel reader thread (`hal/sim/display.rs`).
 #[cfg(feature = "sim")]
 pub fn request_memstats() {
@@ -477,6 +504,16 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         native_alloc_delta,
         intern_delta,
     );
+
+    // Publish for the PDB sysmon pull channel (device only).
+    #[cfg(not(feature = "sim"))]
+    {
+        use core::sync::atomic::Ordering;
+        published::LIVE.store(live, Ordering::Release);
+        published::FLOOR.store(floor, Ordering::Release);
+        published::ALLOC_TOTAL.store(alloc_total, Ordering::Release);
+        published::LARGEST_FREE.store(native.largest_free_block, Ordering::Release);
+    }
 
     if gc_delta >= GC_PRESSURE_PER_WINDOW {
         #[cfg(feature = "sim")]

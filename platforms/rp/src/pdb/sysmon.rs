@@ -113,9 +113,15 @@ pub fn handle_sysmon(len: u32) {
     // Read previous snapshot for CPU % delta
     let prev = unsafe { &*core::ptr::addr_of!(PREV_SNAPSHOT) };
 
-    // Build response: 20-byte header + task_count * 28-byte entries
+    // Build response: 20-byte header + task_count * 28-byte entries.
+    // mem-diag builds append a 16-byte JVM block after the task entries
+    // (additive, like the CMD_PING greeting — old hosts ignore the tail);
+    // plain builds keep the buffer byte-identical to before.
     let resp_len = 20 + task_count * 28;
+    #[cfg(not(feature = "mem-diag"))]
     let mut resp = [0u8; 20 + MAX_TASKS * 28];
+    #[cfg(feature = "mem-diag")]
+    let mut resp = [0u8; 20 + MAX_TASKS * 28 + 16];
 
     // Header
     let uptime = unsafe { freertos_rs_xTaskGetTickCount() };
@@ -162,6 +168,20 @@ pub fn handle_sysmon(len: u32) {
         );
         resp[base + 24..base + 28].copy_from_slice(&cpu_pct_x10.to_le_bytes());
     }
+
+    // mem-diag JVM block: live bytes, post-GC floor, cumulative allocs,
+    // largest free native block — the main task publishes these each
+    // monitor window (`system::mem_diag::published_snapshot`).
+    #[cfg(feature = "mem-diag")]
+    let resp_len = {
+        let (live, floor, alloc_total, largest_free) =
+            crate::system::mem_diag::published_snapshot();
+        resp[resp_len..resp_len + 4].copy_from_slice(&live.to_le_bytes());
+        resp[resp_len + 4..resp_len + 8].copy_from_slice(&floor.to_le_bytes());
+        resp[resp_len + 8..resp_len + 12].copy_from_slice(&alloc_total.to_le_bytes());
+        resp[resp_len + 12..resp_len + 16].copy_from_slice(&largest_free.to_le_bytes());
+        resp_len + 16
+    };
 
     CdcTransport::send_pdbp_response(STATUS_OK, &resp[..resp_len]);
 
