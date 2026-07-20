@@ -180,7 +180,10 @@ pub(crate) fn dispatch(
                 match owned {
                     Err(e) => Some(Err(e)),
                     Ok(v) => {
-                        let r = ctx.strings.intern_dyn(&v).ok_or(JvmError::StackOverflow);
+                        let r = ctx
+                            .strings
+                            .intern_dyn_owned(v)
+                            .ok_or(JvmError::StackOverflow);
                         Some(r.map(|idx| Some(Value::Reference(idx))))
                     }
                 }
@@ -197,7 +200,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&owned)
+                    .intern_dyn_owned(owned)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             } else {
@@ -212,7 +215,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&upper)
+                    .intern_dyn_owned(upper)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             } else {
@@ -227,7 +230,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&lower)
+                    .intern_dyn_owned(lower)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             } else {
@@ -272,7 +275,7 @@ pub(crate) fn dispatch(
             if let Some(bytes) = result {
                 let r = ctx
                     .strings
-                    .intern_dyn(&bytes)
+                    .intern_dyn_owned(bytes)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             } else {
@@ -291,7 +294,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&combined)
+                    .intern_dyn_owned(combined)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             }
@@ -345,7 +348,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&replaced)
+                    .intern_dyn_owned(replaced)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             } else {
@@ -371,7 +374,7 @@ pub(crate) fn dispatch(
                 };
                 let r = ctx
                     .strings
-                    .intern_dyn(&replaced)
+                    .intern_dyn_owned(replaced)
                     .ok_or(JvmError::StackOverflow);
                 Some(r.map(|v| Some(Value::Reference(v))))
             }

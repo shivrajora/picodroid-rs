@@ -90,105 +90,110 @@ fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
     }
 }
 
-/// Turn any Value into bytes for `%s`.
-fn stringify(ctx: &NativeContext<'_>, v: Value) -> Vec<u8> {
+/// Turn any Value into bytes for `%s`, appending into the caller's cleared
+/// scratch buffer — `format()` reuses one buffer across all args instead of
+/// allocating a fresh Vec per conversion (device-heap churn in log-heavy
+/// loops).
+fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
+    dst.clear();
     match unbox(ctx, v) {
-        Value::Null => b"null".to_vec(),
-        Value::Reference(idx) => ctx
-            .strings
-            .resolve(idx)
-            .unwrap_or("null")
-            .as_bytes()
-            .to_vec(),
+        Value::Null => dst.extend_from_slice(b"null"),
+        Value::Reference(idx) => {
+            dst.extend_from_slice(ctx.strings.resolve(idx).unwrap_or("null").as_bytes())
+        }
         Value::Int(n) => {
             let mut tmp = [0u8; 12];
-            crate::object_heap::int_to_decimal_buf(n, &mut tmp).to_vec()
+            dst.extend_from_slice(crate::object_heap::int_to_decimal_buf(n, &mut tmp));
         }
         Value::Long(n) => {
             let mut tmp = [0u8; 21];
-            crate::object_heap::long_to_decimal_buf(n, &mut tmp).to_vec()
+            dst.extend_from_slice(crate::object_heap::long_to_decimal_buf(n, &mut tmp));
         }
         Value::Float(f) => {
             let mut tmp = [0u8; 32];
-            crate::object_heap::float_to_str_buf(f, &mut tmp).to_vec()
+            dst.extend_from_slice(crate::object_heap::float_to_str_buf(f, &mut tmp));
         }
         Value::Double(d) => {
             let mut tmp = [0u8; 32];
-            crate::object_heap::float_to_str_buf(d as f32, &mut tmp).to_vec()
+            dst.extend_from_slice(crate::object_heap::float_to_str_buf(d as f32, &mut tmp));
         }
         Value::ObjectRef(idx) => {
             let name = ctx.objects.class_name(idx).unwrap_or("Object");
-            let mut s = String::from(name);
-            s.push('@');
+            dst.extend_from_slice(name.as_bytes());
+            dst.push(b'@');
             let mut tmp = [0u8; 12];
-            let d = crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp);
-            s.push_str(core::str::from_utf8(d).unwrap_or(""));
-            s.into_bytes()
+            dst.extend_from_slice(crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp));
         }
         Value::ArrayRef(idx) => {
-            let mut s = String::from("[@");
+            dst.extend_from_slice(b"[@");
             let mut tmp = [0u8; 12];
-            let d = crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp);
-            s.push_str(core::str::from_utf8(d).unwrap_or(""));
-            s.into_bytes()
+            dst.extend_from_slice(crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp));
         }
     }
 }
 
-/// Render a signed decimal magnitude into bytes, applying the `,` grouping flag.
-fn decimal_digits(mag: u64, comma: bool) -> Vec<u8> {
-    let mut tmp: Vec<u8> = Vec::new();
+/// Render a signed decimal magnitude into the cleared scratch buffer,
+/// applying the `,` grouping flag. Digits are built in a stack buffer
+/// (u64 max = 20 digits) — no allocation at all.
+fn decimal_digits(mag: u64, comma: bool, dst: &mut Vec<u8>) {
+    dst.clear();
+    let mut tmp = [0u8; 20];
+    let mut i = tmp.len();
     let mut v = mag;
     if v == 0 {
-        tmp.push(b'0');
+        i -= 1;
+        tmp[i] = b'0';
     }
     while v > 0 {
-        tmp.push(b'0' + (v % 10) as u8);
+        i -= 1;
+        tmp[i] = b'0' + (v % 10) as u8;
         v /= 10;
     }
-    if comma {
-        let mut out: Vec<u8> = Vec::with_capacity(tmp.len() + tmp.len() / 3);
-        for (i, &d) in tmp.iter().enumerate() {
-            if i > 0 && i % 3 == 0 {
-                out.push(b',');
-            }
-            out.push(d);
+    let digits = &tmp[i..];
+    let n = digits.len();
+    for (k, &d) in digits.iter().enumerate() {
+        if comma && k > 0 && (n - k) % 3 == 0 {
+            dst.push(b',');
         }
-        tmp = out;
+        dst.push(d);
     }
-    tmp.reverse();
-    tmp
 }
 
-fn hex_digits(mut u: u64, upper: bool) -> Vec<u8> {
+fn hex_digits(mut u: u64, upper: bool, dst: &mut Vec<u8>) {
+    dst.clear();
     let lut: &[u8] = if upper {
         b"0123456789ABCDEF"
     } else {
         b"0123456789abcdef"
     };
-    let mut tmp: Vec<u8> = Vec::new();
+    let mut tmp = [0u8; 16];
+    let mut i = tmp.len();
     if u == 0 {
-        tmp.push(b'0');
+        i -= 1;
+        tmp[i] = b'0';
     }
     while u > 0 {
-        tmp.push(lut[(u & 0xf) as usize]);
+        i -= 1;
+        tmp[i] = lut[(u & 0xf) as usize];
         u >>= 4;
     }
-    tmp.reverse();
-    tmp
+    dst.extend_from_slice(&tmp[i..]);
 }
 
-fn oct_digits(mut u: u64) -> Vec<u8> {
-    let mut tmp: Vec<u8> = Vec::new();
+fn oct_digits(mut u: u64, dst: &mut Vec<u8>) {
+    dst.clear();
+    let mut tmp = [0u8; 22];
+    let mut i = tmp.len();
     if u == 0 {
-        tmp.push(b'0');
+        i -= 1;
+        tmp[i] = b'0';
     }
     while u > 0 {
-        tmp.push(b'0' + (u & 7) as u8);
+        i -= 1;
+        tmp[i] = b'0' + (u & 7) as u8;
         u >>= 3;
     }
-    tmp.reverse();
-    tmp
+    dst.extend_from_slice(&tmp[i..]);
 }
 
 /// Apply width/flags to a numeric body (sign already decided).
@@ -333,6 +338,9 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
     }
 
     let mut out: Vec<u8> = Vec::with_capacity(fmt_bytes.len());
+    // One conversion buffer reused across all args (stringify/digit helpers
+    // clear + refill it) — no per-arg Vec churn on the device heap.
+    let mut scratch: Vec<u8> = Vec::new();
     let mut arg_pos = 0usize;
     let mut i = 0usize;
 
@@ -358,13 +366,13 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
-                let mut bytes = stringify(ctx, v);
+                stringify(ctx, v, &mut scratch);
                 if spec.conv == b'S' {
-                    for c in bytes.iter_mut() {
+                    for c in scratch.iter_mut() {
                         c.make_ascii_uppercase();
                     }
                 }
-                pad_string(&bytes, &spec, &mut out);
+                pad_string(&scratch, &spec, &mut out);
             }
             b'b' | b'B' => {
                 if arg_pos >= args.len() {
@@ -381,13 +389,14 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     _ => true,
                 };
                 let s: &[u8] = if truthy { b"true" } else { b"false" };
-                let mut owned = s.to_vec();
+                scratch.clear();
+                scratch.extend_from_slice(s);
                 if spec.conv == b'B' {
-                    for c in owned.iter_mut() {
+                    for c in scratch.iter_mut() {
                         c.make_ascii_uppercase();
                     }
                 }
-                pad_string(&owned, &spec, &mut out);
+                pad_string(&scratch, &spec, &mut out);
             }
             b'c' | b'C' => {
                 if arg_pos >= args.len() {
@@ -399,8 +408,9 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     Value::Int(n) => n as u8,
                     _ => return Some(Err(fmt_err(ctx))),
                 };
-                let owned = alloc::vec![ch];
-                pad_string(&owned, &spec, &mut out);
+                scratch.clear();
+                scratch.push(ch);
+                pad_string(&scratch, &spec, &mut out);
             }
             b'd' => {
                 if arg_pos >= args.len() {
@@ -418,9 +428,9 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 } else {
                     signed as u64
                 };
-                let body = decimal_digits(mag, spec.comma);
+                decimal_digits(mag, spec.comma, &mut scratch);
                 let sign = numeric_sign(neg, &spec);
-                pad_numeric(sign, &body, &spec, &mut out);
+                pad_numeric(sign, &scratch, &spec, &mut out);
             }
             b'x' | b'X' => {
                 if arg_pos >= args.len() {
@@ -432,7 +442,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     Some(t) => t,
                     None => return Some(Err(fmt_err(ctx))),
                 };
-                let body = hex_digits(u, spec.conv == b'X');
+                hex_digits(u, spec.conv == b'X', &mut scratch);
                 // `#` prefix is counted toward width, so zero-pad sits between
                 // the prefix and the digits — treat it like a sign for padding.
                 let prefix: &[u8] = if spec.hash {
@@ -444,7 +454,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 } else {
                     b""
                 };
-                pad_numeric(prefix, &body, &spec, &mut out);
+                pad_numeric(prefix, &scratch, &spec, &mut out);
             }
             b'o' => {
                 if arg_pos >= args.len() {
@@ -456,13 +466,13 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     Some(t) => t,
                     None => return Some(Err(fmt_err(ctx))),
                 };
-                let body = oct_digits(u);
-                let prefix: &[u8] = if spec.hash && !body.starts_with(b"0") {
+                oct_digits(u, &mut scratch);
+                let prefix: &[u8] = if spec.hash && !scratch.starts_with(b"0") {
                     b"0"
                 } else {
                     b""
                 };
-                pad_numeric(prefix, &body, &spec, &mut out);
+                pad_numeric(prefix, &scratch, &spec, &mut out);
             }
             b'f' | b'e' | b'E' | b'g' | b'G' => {
                 if arg_pos >= args.len() {
@@ -512,7 +522,10 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
         }
     }
 
-    let r = ctx.strings.intern_dyn(&out).ok_or(JvmError::StackOverflow);
+    let r = ctx
+        .strings
+        .intern_dyn_owned(out)
+        .ok_or(JvmError::StackOverflow);
     Some(r.map(|idx| Some(Value::Reference(idx))))
 }
 

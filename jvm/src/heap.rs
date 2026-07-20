@@ -114,6 +114,16 @@ impl StringTable {
     /// Reuses a freed (GC'd) slot when available; otherwise grows the table.
     /// Safe — this table owns the backing `Vec<u8>` for each dynamic entry.
     pub fn intern_dyn(&mut self, bytes: &[u8]) -> Option<u16> {
+        self.intern_dyn_owned(bytes.to_vec())
+    }
+
+    /// Zero-copy variant of [`intern_dyn`] for callers that already own the
+    /// buffer (StringBuilder.toString, String.format, concat): the table
+    /// takes the `Vec` as-is instead of copying it — one full allocation +
+    /// copy saved per dynamic string. Any capacity slack from the builder's
+    /// growth rides along until the entry is GC-freed (live_bytes already
+    /// accounts by capacity).
+    pub fn intern_dyn_owned(&mut self, buf: Vec<u8>) -> Option<u16> {
         #[cfg(feature = "mem-diag")]
         {
             self.dyn_intern_total = self.dyn_intern_total.wrapping_add(1);
@@ -122,7 +132,6 @@ impl StringTable {
         for di in 0..self.dyn_bufs.len() {
             if self.dyn_bufs[di].is_none() {
                 let idx = (self.dyn_start + di) as u16;
-                let buf: Vec<u8> = bytes.to_vec();
                 // SAFETY: buf is moved into the slot below; the heap allocation
                 // for the bytes does not move when the Vec struct is moved.
                 self.ptrs[idx as usize] = buf.as_ptr();
@@ -132,7 +141,6 @@ impl StringTable {
             }
         }
         // No free slot — append a new entry.
-        let buf: Vec<u8> = bytes.to_vec();
         let idx = self.ptrs.len() as u16;
         // SAFETY: same as above — heap allocation stays fixed when Vec moves.
         self.ptrs.push(buf.as_ptr());

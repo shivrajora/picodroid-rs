@@ -77,7 +77,7 @@ pub(crate) fn dispatch(
             let bytes = ctx.objects.sb_pop();
             let str_ref = ctx
                 .strings
-                .intern_dyn(&bytes)
+                .intern_dyn_owned(bytes)
                 .ok_or(JvmError::StackOverflow);
             Some(str_ref.map(|r| Some(Value::Reference(r))))
         }

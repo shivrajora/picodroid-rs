@@ -320,7 +320,7 @@ fn dispatch_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
     out.push(b']');
     let idx = ctx
         .strings
-        .intern_dyn(&out)
+        .intern_dyn_owned(out)
         .ok_or(JvmError::StackOverflow)?;
     Ok(Some(Value::Reference(idx)))
 }

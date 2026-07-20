@@ -45,7 +45,7 @@ pub fn dispatch(
                 .bytes()
                 .map(|b| if b == b'/' { b'.' } else { b })
                 .collect();
-            let Some(idx) = ctx.strings.intern_dyn(&dotted) else {
+            let Some(idx) = ctx.strings.intern_dyn_owned(dotted) else {
                 return Some(Err(JvmError::StackOverflow));
             };
             let _ = ctx.objects.set_field(this, 1, Value::Reference(idx));

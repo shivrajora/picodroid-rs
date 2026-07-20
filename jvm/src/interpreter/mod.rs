@@ -234,7 +234,7 @@ fn handle_exception<H: NativeMethodHandler>(
                             msg.extend_from_slice(s.as_bytes());
                         }
                     }
-                    if let Some(midx) = ex.strings.intern_dyn(&msg) {
+                    if let Some(midx) = ex.strings.intern_dyn_owned(msg) {
                         ex.objects.register_exception_message(wrapper, midx);
                     }
                     frames.truncate(clinit_idx);
