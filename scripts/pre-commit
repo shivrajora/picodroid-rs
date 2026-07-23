@@ -140,6 +140,18 @@ if ! bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2040 --app helloworl
   exit 1
 fi
 
+# The --release firmware image is what HIL/CI flashes, and its section sizes
+# differ from debug (no LTO now, but a genuine opt profile). RP2040 is the
+# flash-constrained target, so link it in release too — this is the lane that
+# catches code growth spilling past the 896K program region before CI does.
+echo "==> Building (rp2040 --release, flash-gate)..."
+if ! bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2040 --app helloworld --release; then
+  echo ""
+  echo "ERROR: rp2040 --release build failed (likely the 896K FLASH ceiling)."
+  echo "       Shrink code/rodata or the embedded APK before committing."
+  exit 1
+fi
+
 echo "==> Building (rp2350 + mem-diag)..."
 # Proves the diagnostics firmware compiles + links (vPortGetHeapStats FFI,
 # thumb atomics discipline) and prints its flash cost. RP2040 + mem-diag is

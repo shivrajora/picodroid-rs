@@ -71,6 +71,19 @@ jobs:
         with:
           target: thumbv6m-none-eabi
       - uses: Swatinem/rust-cache@v2
+      # test.sh runs gradle to build the framework-embedding APK. Cache the
+      # Gradle home so we don't cold-fetch every dependency from Maven Central
+      # on each run — a cold fetch is what makes this lane flake on transient
+      # Maven Central 403s. restore-keys keeps deps warm even on a key miss.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
       - run: bash scripts/test.sh
   linting:
     name: Linting

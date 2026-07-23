@@ -241,11 +241,23 @@ build_firmware() {
   # overflows the RP2040's 896K program region. Sim builds (sim.sh, host
   # target) keep both checks — the sim is where invariant debugging happens.
   # HIL builds firmware in --release and is unaffected.
+  #
+  # Fat LTO (the profile.release default) grows the RP2040 image ~14 KB past
+  # that same 896K ceiling — for this codebase LTO inflates the binary rather
+  # than shrinking it, so a `--release` link overflows FLASH. Drop LTO for the
+  # flash-constrained thumbv6m (RP2040) target so release firmware links; the
+  # RP2350 (thumbv8m, 2816K FLASH) keeps fat LTO. This override is a no-op for
+  # debug builds, which use profile.dev.
+  local flash_gate=()
+  if [[ "$TARGET" == thumbv6m* ]]; then
+    flash_gate+=(--config 'profile.release.lto=false')
+  fi
   # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
   PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
     --manifest-path "$MANIFEST_DIR/Cargo.toml" \
     --config 'profile.dev.debug-assertions=false' \
     --config 'profile.dev.overflow-checks=false' \
+    "${flash_gate[@]}" \
     -p "$PACKAGE" \
     --jobs "$jobs" \
     --target "$TARGET" \
