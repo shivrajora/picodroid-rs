@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! SensorManager native method implementations.
 //!
-//! Manages sensor registrations and event delivery. For sim builds, sensors are
-//! polled synchronously from the main-loop tick. On hardware, a FreeRTOS task
-//! will sample and queue events (deferred to a follow-up commit).
+//! This module owns the JVM-facing side only: registrations, GC roots, and
+//! event delivery on the JVM main task. All sensor I²C runs on a dedicated
+//! sampler (FreeRTOS task on device, `std::thread` on sim — see
+//! [`sampler`]), which exchanges plain scalars with this module through the
+//! lock-free [`mailbox`]: readings in via seqlock cells the drain reads at
+//! each registration's due tick, demand out via control atomics published
+//! on register/unregister. No JVM heap reference ever crosses the task
+//! boundary.
 
 use pico_jvm::{
     array_heap::ArrayHeap,
@@ -11,12 +16,25 @@ use pico_jvm::{
     types::{JvmError, Value},
 };
 
-// Sim builds still include the table (the sensor cfgs are board-driven) but
-// only the hardware sampling paths consume it — sim sensors are synthesized.
-#[cfg(any(sensor_bme688, sensor_ltr559))]
-#[cfg_attr(feature = "sim", allow(dead_code))]
-mod sensor_table {
-    include!(concat!(env!("OUT_DIR"), "/sensor_table.rs"));
+#[cfg(any(any_sensor, feature = "sim", test))]
+pub mod mailbox;
+pub mod sampler;
+
+/// Latest BME688 cluster reading, as plain scalars (see `deliver_event`'s
+/// scaling for the Java-facing units).
+#[derive(Clone, Copy, Default)]
+pub struct EnvSnapshot {
+    pub temp_centi_c: i32,
+    pub hum_milli_pct: u32,
+    pub press_pa: u32,
+    pub gas_ohm: u32,
+}
+
+/// Latest LTR559 cluster reading.
+#[derive(Clone, Copy, Default)]
+pub struct OpticalSnapshot {
+    pub lux_milli: u32,
+    pub proximity_raw: u16,
 }
 
 // ── Sensor type IDs (must match picodroid.hardware.Sensor.java) ─────────────
@@ -69,7 +87,17 @@ struct Registration {
 struct SensorState {
     registrations: [Option<Registration>; MAX_REGISTRATIONS],
     sensor_objs: [Option<u16>; 6], // temp, hum, press, gas, light, proximity
-    tick_count: u64,
+    /// Live registration count — the drain's sensors-off fast path is a
+    /// single load+branch on this instead of scanning the slots. Invariant:
+    /// `active_regs == 0` implies `pending` is all-None (unregister and the
+    /// delivery pacer both clear pending for dead slots).
+    active_regs: u8,
+    /// Values snapshotted at each registration's due tick, parked until the
+    /// delivery pacer gets to them. Latest-wins: a new due tick overwrites an
+    /// undelivered value (Android's documented drop-under-backpressure).
+    pending: [Option<f32>; MAX_REGISTRATIONS],
+    /// Round-robin start slot for the delivery pacer, so no slot starves.
+    deliver_cursor: usize,
 }
 
 impl SensorState {
@@ -77,7 +105,9 @@ impl SensorState {
         Self {
             registrations: [const { None }; MAX_REGISTRATIONS],
             sensor_objs: [None; 6],
-            tick_count: 0,
+            active_regs: 0,
+            pending: [None; MAX_REGISTRATIONS],
+            deliver_cursor: 0,
         }
     }
 }
@@ -108,8 +138,6 @@ fn sensor_type_index(sensor_type: i32) -> Option<usize> {
         _ => None,
     }
 }
-
-const NUM_SENSOR_TYPES: usize = 6;
 
 // ── Native method implementations ───────────────────────────────────────────
 
@@ -237,6 +265,7 @@ pub fn register_listener(
         if reg.listener_obj == listener_obj && reg.sensor_type == sensor_type {
             reg.period_ticks = period_ticks;
             reg.ticks_until_due = 0;
+            publish_control(st);
             return Ok(Some(Value::Int(1))); // true
         }
     }
@@ -284,6 +313,8 @@ pub fn register_listener(
                 period_ticks,
                 ticks_until_due: 0,
             });
+            st.active_regs += 1;
+            publish_control(st);
             return Ok(Some(Value::Int(1))); // true
         }
     }
@@ -299,20 +330,80 @@ pub fn unregister_listener(args: &[Value]) -> Result<Option<Value>, JvmError> {
     };
 
     let st = state();
-    for slot in st.registrations.iter_mut() {
+    for (i, slot) in st.registrations.iter_mut().enumerate() {
         if let Some(reg) = slot {
             if reg.listener_obj == listener_obj {
                 *slot = None;
+                st.pending[i] = None;
+                st.active_regs = st.active_regs.saturating_sub(1);
             }
         }
     }
+    publish_control(st);
     Ok(None)
 }
 
+/// Clear all sensor native state across app restarts (pdb reinstall):
+/// stale `u16` refs from the previous app must not survive into a reset
+/// heap (they'd be fed to `visit_gc_roots` and delivery). Also publishes
+/// all-disabled demand so the sampler parks between apps.
+pub fn reset() {
+    let st = state();
+    st.registrations = [const { None }; MAX_REGISTRATIONS];
+    st.sensor_objs = [None; 6];
+    st.active_regs = 0;
+    st.pending = [None; MAX_REGISTRATIONS];
+    st.deliver_cursor = 0;
+    publish_control(st);
+}
+
+/// Push per-cluster demand (enabled + fastest requested period) to the
+/// sampler through the mailbox control plane, then kick it awake to
+/// re-read. Called on register/unregister/reset — never per tick.
+#[cfg(any(any_sensor, feature = "sim"))]
+fn publish_control(st: &SensorState) {
+    const TICK_MS: u32 = 16;
+    let mut env_min: Option<u32> = None;
+    let mut opt_min: Option<u32> = None;
+    for reg in st.registrations.iter().flatten() {
+        let period_ms = reg.period_ticks.max(1) * TICK_MS;
+        match sensor_type_index(reg.sensor_type) {
+            Some(idx) if idx < 4 => env_min = Some(env_min.map_or(period_ms, |m| m.min(period_ms))),
+            Some(_) => opt_min = Some(opt_min.map_or(period_ms, |m| m.min(period_ms))),
+            None => {}
+        }
+    }
+    mailbox::set_cluster_demand(
+        env_min.is_some(),
+        env_min.unwrap_or(0),
+        opt_min.is_some(),
+        opt_min.unwrap_or(0),
+    );
+    sampler::kick();
+}
+
+/// Sensor-less device builds: no sampler exists; the drain serves zeros
+/// from default snapshots at cadence.
+#[cfg(all(not(any_sensor), not(feature = "sim")))]
+fn publish_control(_st: &SensorState) {}
+
 // ── Main-loop event drain ───────────────────────────────────────────────────
+
+/// Max Java `onSensorChanged` deliveries per tick. One interpreted callback
+/// measured 5–8 ms on RP2350 — and an app doing real work inside one
+/// (picoenvmon's 1 Hz smoothed fan-out) ~37 ms — so delivering all five due
+/// registrations in a single tick was the bulk of a ~100 ms UI-tick stall.
+/// Due events park in `SensorState::pending` and drain one per 16 ms tick;
+/// at the NORMAL 192 ms period that leaves 12 ticks of headroom per cycle.
+const MAX_DELIVERIES_PER_TICK: u32 = 1;
 
 /// Poll sensors and deliver SensorEvent callbacks for any due registrations.
 /// Called once per main-loop tick (~16 ms).
+///
+/// Values are snapshotted into `pending` at each registration's due tick,
+/// then the delivery pacer below feeds them to Java at most
+/// [`MAX_DELIVERIES_PER_TICK`] per tick so a burst of due registrations
+/// can't stall the single-threaded UI tick.
 #[cfg(not(test))]
 pub fn drain_sensor_events(
     jvm: &mut pico_jvm::Jvm,
@@ -320,72 +411,116 @@ pub fn drain_sensor_events(
     handler: &mut crate::system::native_handler::PicodroidNativeHandler,
 ) {
     let st = state();
-    st.tick_count += 1;
 
-    // Collect which sensor types are due this tick
-    let mut types_due = [false; NUM_SENSOR_TYPES];
-    for reg in st.registrations.iter_mut().flatten() {
+    // Sensors-off fast path: one load + one branch per tick. active_regs==0
+    // implies pending is all-None (see SensorState invariant).
+    if st.active_regs == 0 {
+        return;
+    }
+
+    // Mark due registrations (per slot: each registration keeps its own
+    // cadence; a faster registration of the same type no longer drags
+    // slower ones along).
+    let mut due = [false; MAX_REGISTRATIONS];
+    let mut bme_needed = false;
+    let mut ltr_needed = false;
+    for (i, slot) in st.registrations.iter_mut().enumerate() {
+        let Some(reg) = slot else { continue };
         if reg.ticks_until_due == 0 {
-            if let Some(idx) = sensor_type_index(reg.sensor_type) {
-                types_due[idx] = true;
+            due[i] = true;
+            match sensor_type_index(reg.sensor_type) {
+                Some(idx) if idx < 4 => bme_needed = true,
+                Some(_) => ltr_needed = true,
+                None => {}
             }
             reg.ticks_until_due = reg.period_ticks;
         }
         reg.ticks_until_due = reg.ticks_until_due.saturating_sub(1);
     }
 
-    if !types_due.iter().any(|&d| d) {
+    if !due.iter().any(|&d| d) && !st.pending.iter().any(|p| p.is_some()) {
         return;
     }
 
-    // Sample each sensor cluster only if at least one of its types is due.
-    let bme_due = types_due[0..4].iter().any(|&d| d);
-    let ltr_due = types_due[4..6].iter().any(|&d| d);
-    #[cfg(not(feature = "sim"))]
-    defmt::debug!(
-        "sensors: drain tick={} bme_due={} ltr_due={}",
-        st.tick_count,
-        bme_due,
-        ltr_due
-    );
-    let env = if bme_due {
-        sample_bme688(st.tick_count)
+    // Read the latest sampler-published snapshots only if a due
+    // registration needs them this tick. `None` means the sampler hasn't
+    // published yet (first conversion still in flight) or the single
+    // seqlock read raced a publish — either way, defer and retry next tick.
+    let env = if bme_needed {
+        read_env_snapshot()
     } else {
-        SensorReading::default()
+        None
     };
-    let optical = if ltr_due {
-        sample_ltr559(st.tick_count)
+    let optical = if ltr_needed {
+        read_optical_snapshot()
     } else {
-        OpticalReading::default()
+        None
     };
 
-    // Deliver events for each due registration
-    let mut delivered = 0u32;
-    for i in 0..MAX_REGISTRATIONS {
-        let reg = match &st.registrations[i] {
-            Some(r) => r,
-            None => continue,
+    // Snapshot values for due registrations into the pending table.
+    for (i, _) in due.iter().enumerate().filter(|(_, &d)| d) {
+        let Some(reg) = &mut st.registrations[i] else {
+            continue;
         };
-        let type_idx = match sensor_type_index(reg.sensor_type) {
-            Some(idx) if types_due[idx] => idx,
+        let value = match sensor_type_index(reg.sensor_type) {
+            Some(idx @ 0..=3) => match &env {
+                Some(env) => match idx {
+                    0 => env.temp_centi_c as f32 / 100.0,
+                    1 => env.hum_milli_pct as f32 / 1000.0,
+                    2 => env.press_pa as f32 / 100.0, // hPa
+                    _ => env.gas_ohm as f32,
+                },
+                // First conversion still in flight — retry next tick rather
+                // than deliver zeros (a 0 °C / 0 % reading would trip the
+                // app's threshold alerts at startup).
+                None => {
+                    reg.ticks_until_due = 0;
+                    continue;
+                }
+            },
+            Some(idx @ (4 | 5)) => match &optical {
+                Some(o) => {
+                    if idx == 4 {
+                        o.lux_milli as f32 / 1000.0
+                    } else {
+                        o.proximity_raw as f32
+                    }
+                }
+                // Sampler hasn't published optical data yet — same defer
+                // as the env arm (no fabricated first value).
+                None => {
+                    reg.ticks_until_due = 0;
+                    continue;
+                }
+            },
             _ => continue,
         };
+        st.pending[i] = Some(value);
+    }
 
-        let value = match type_idx {
-            0 => env.temp_centi_c as f32 / 100.0,
-            1 => env.hum_milli_pct as f32 / 1000.0,
-            2 => env.press_pa as f32 / 100.0, // hPa
-            3 => env.gas_ohm as f32,
-            4 => optical.lux_milli as f32 / 1000.0,
-            5 => optical.proximity_raw as f32,
-            _ => continue,
+    // Delivery pacer: feed parked events to Java, round-robin from
+    // deliver_cursor, at most MAX_DELIVERIES_PER_TICK per tick.
+    let mut budget = MAX_DELIVERIES_PER_TICK;
+    for step in 0..MAX_REGISTRATIONS {
+        if budget == 0 {
+            break;
+        }
+        let i = (st.deliver_cursor + step) % MAX_REGISTRATIONS;
+        let Some(value) = st.pending[i] else { continue };
+        // Re-check the slot each iteration: a callback delivered below may
+        // have called unregisterListener on a later slot.
+        let Some(reg) = &st.registrations[i] else {
+            st.pending[i] = None;
+            continue;
         };
+        st.pending[i] = None;
+        budget -= 1;
+        st.deliver_cursor = i + 1;
 
         let listener_obj = reg.listener_obj;
         let event_obj = reg.event_obj;
         let values_arr = reg.values_arr;
 
-        delivered += 1;
         let mut result = deliver_event(
             jvm,
             heap,
@@ -421,10 +556,6 @@ pub fn drain_sensor_events(
             let _ = e;
         }
     }
-    #[cfg(not(feature = "sim"))]
-    defmt::debug!("sensors: drain delivered {} regs", delivered);
-    #[cfg(feature = "sim")]
-    let _ = delivered;
 }
 
 #[cfg(not(test))]
@@ -461,191 +592,26 @@ fn deliver_event(
     )
 }
 
-#[derive(Default)]
-struct SensorReading {
-    temp_centi_c: i32,
-    hum_milli_pct: u32,
-    press_pa: u32,
-    gas_ohm: u32,
+/// Latest env-cluster snapshot for the drain.
+#[cfg(all(not(test), any(any_sensor, feature = "sim")))]
+fn read_env_snapshot() -> Option<EnvSnapshot> {
+    mailbox::read_env()
 }
 
-/// Sim path: bypass the I²C fake (which compensates to zeros because its
-/// calibration registers are all zero) and emit a slow triangle wave around
-/// realistic indoor values. The wobble proves the UI is re-rendering on each
-/// sensor tick and lets threshold-breach animations be exercised without
-/// rebuilding (raise `Theme`-driven thresholds, watch the tile pulse).
-///
-/// Period: ~200 ticks (~3 s at the 16 ms main-loop cadence). Amplitudes are
-/// chosen to stay inside the default threshold band so steady-state is calm.
-#[cfg(all(not(test), feature = "sim"))]
-fn sample_bme688(tick: u64) -> SensorReading {
-    let phase = (tick % 200) as f32 / 100.0 - 1.0; // triangle in [-1, 1)
-    SensorReading {
-        temp_centi_c: (2200.0 + phase * 50.0) as i32, // 22.0 ± 0.5 °C
-        hum_milli_pct: (45_000.0 + phase * 2_000.0) as u32, // 45 ± 2 %
-        press_pa: (101_325.0 + phase * 100.0) as u32, // 1013.25 ± 1 hPa
-        gas_ohm: (50_000.0 + phase * 5_000.0) as u32, // 50 kΩ ± 5 kΩ
-    }
+/// Sensor-less device builds: no sampler exists — serve zeros at cadence,
+/// preserving the pre-task behavior on boards without `[[sensor]]` entries.
+#[cfg(all(not(test), not(any_sensor), not(feature = "sim")))]
+fn read_env_snapshot() -> Option<EnvSnapshot> {
+    Some(EnvSnapshot::default())
 }
 
-/// Hardware path: drive the real BME688 over I²C, oversampled to TPHG.
-#[cfg(all(not(test), not(feature = "sim")))]
-fn sample_bme688(_tick: u64) -> SensorReading {
-    #[cfg(sensor_bme688)]
-    {
-        use crate::drivers::bme688::I2cBus;
-
-        struct HalI2c {
-            bus_id: u8,
-        }
-        impl I2cBus for HalI2c {
-            fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
-                crate::hal::i2c::write_slice(self.bus_id, addr, data)
-            }
-            fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32 {
-                crate::hal::i2c::read_slice(self.bus_id, addr, buf)
-            }
-        }
-
-        static mut BME_DRIVER: Option<crate::drivers::bme688::Bme688<HalI2c>> = None;
-
-        let bme = unsafe {
-            // Go through a raw pointer rather than referencing the static
-            // directly, which would trip `static_mut_refs` (Rust 2024 compat).
-            let bme_ptr = &raw mut BME_DRIVER;
-            if (*bme_ptr).is_none() {
-                for cfg in sensor_table::SENSORS {
-                    if matches!(cfg.kind, sensor_table::SensorKind::Bme688) {
-                        crate::hal::i2c::init(cfg.bus_id);
-                        let bus = HalI2c { bus_id: cfg.bus_id };
-                        if let Ok(driver) = crate::drivers::bme688::Bme688::new(bus, cfg.addr) {
-                            *bme_ptr = Some(driver);
-                        }
-                        break;
-                    }
-                }
-            }
-            &mut *bme_ptr
-        };
-
-        match bme {
-            Some(driver) => {
-                use embedded_hal::delay::DelayNs;
-                #[cfg(not(feature = "sim"))]
-                defmt::debug!("bme: trigger");
-                let _ = driver.trigger_forced();
-                // BME688 forced-mode TPHG conversion is ~10–15 ms at 1x
-                // oversampling; gas heater adds variable extra time. Wait
-                // the typical worst case before polling so we don't tight-
-                // spin against an in-progress measurement.
-                #[cfg(feature = "sim")]
-                let mut delay = crate::hal::delay::SimDelay::new();
-                #[cfg(not(feature = "sim"))]
-                let mut delay = crate::hal::delay::RpDelay::new();
-                delay.delay_ms(20);
-                let ready = driver.poll_ready(5);
-                #[cfg(not(feature = "sim"))]
-                defmt::debug!("bme: poll_ready={}", ready);
-                if ready {
-                    let r = driver.read_compensated().unwrap_or_default();
-                    #[cfg(not(feature = "sim"))]
-                    defmt::debug!(
-                        "bme: temp={} hum={} press={} gas={}",
-                        r.temp_centi_c,
-                        r.hum_milli_pct,
-                        r.press_pa,
-                        r.gas_ohm
-                    );
-                    SensorReading {
-                        temp_centi_c: r.temp_centi_c,
-                        hum_milli_pct: r.hum_milli_pct,
-                        press_pa: r.press_pa,
-                        gas_ohm: r.gas_ohm,
-                    }
-                } else {
-                    SensorReading::default()
-                }
-            }
-            None => SensorReading::default(),
-        }
-    }
-    #[cfg(not(sensor_bme688))]
-    {
-        SensorReading::default()
-    }
+/// Latest optical-cluster snapshot for the drain.
+#[cfg(all(not(test), any(any_sensor, feature = "sim")))]
+fn read_optical_snapshot() -> Option<OpticalSnapshot> {
+    mailbox::read_optical()
 }
 
-#[derive(Default)]
-struct OpticalReading {
-    lux_milli: u32,
-    proximity_raw: u16,
-}
-
-/// Sim path: no LTR559 fake exists in the sim I²C responder (it only knows
-/// the BME688 at 0x77), so without this we'd permanently read 0 lx. Use the
-/// same triangle wave as the BME path for visual consistency.
-#[cfg(all(not(test), feature = "sim"))]
-fn sample_ltr559(tick: u64) -> OpticalReading {
-    let phase = (tick % 200) as f32 / 100.0 - 1.0;
-    OpticalReading {
-        lux_milli: (300_000.0 + phase * 50_000.0) as u32, // 300 ± 50 lx
-        proximity_raw: 0,
-    }
-}
-
-/// Hardware path: drive the real LTR559 over I²C for lux + proximity.
-#[cfg(all(not(test), not(feature = "sim")))]
-fn sample_ltr559(_tick: u64) -> OpticalReading {
-    #[cfg(sensor_ltr559)]
-    {
-        use crate::drivers::ltr559::I2cBus;
-
-        struct HalI2c {
-            bus_id: u8,
-        }
-        impl I2cBus for HalI2c {
-            fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
-                crate::hal::i2c::write_slice(self.bus_id, addr, data)
-            }
-            fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32 {
-                crate::hal::i2c::read_slice(self.bus_id, addr, buf)
-            }
-        }
-
-        static mut LTR_DRIVER: Option<crate::drivers::ltr559::Ltr559<HalI2c>> = None;
-
-        let drv = unsafe {
-            // Go through a raw pointer rather than referencing the static
-            // directly, which would trip `static_mut_refs` (Rust 2024 compat).
-            let ltr_ptr = &raw mut LTR_DRIVER;
-            if (*ltr_ptr).is_none() {
-                for cfg in sensor_table::SENSORS {
-                    if matches!(cfg.kind, sensor_table::SensorKind::Ltr559) {
-                        crate::hal::i2c::init(cfg.bus_id);
-                        let bus = HalI2c { bus_id: cfg.bus_id };
-                        if let Ok(d) = crate::drivers::ltr559::Ltr559::new(bus, cfg.addr) {
-                            *ltr_ptr = Some(d);
-                        }
-                        break;
-                    }
-                }
-            }
-            &mut *ltr_ptr
-        };
-
-        match drv {
-            Some(driver) => {
-                let r = driver.measure().unwrap_or_default();
-                OpticalReading {
-                    lux_milli: r.lux_milli,
-                    proximity_raw: r.proximity_raw,
-                }
-            }
-            None => OpticalReading::default(),
-        }
-    }
-    #[cfg(not(sensor_ltr559))]
-    {
-        OpticalReading::default()
-    }
+#[cfg(all(not(test), not(any_sensor), not(feature = "sim")))]
+fn read_optical_snapshot() -> Option<OpticalSnapshot> {
+    Some(OpticalSnapshot::default())
 }

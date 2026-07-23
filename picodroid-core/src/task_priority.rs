@@ -17,6 +17,10 @@ pub const PRIORITY_BG_3: u8 = 3;
 pub const PRIORITY_BG_4: u8 = 4;
 pub const PRIORITY_BG_5: u8 = 5;
 pub const PRIORITY_BG_6: u8 = 6;
+/// Sensor sampler task (alias of BG_6): below every JVM tier so it can never
+/// preempt the interpreter, one notch above the background executor pool so
+/// long Java background jobs don't add sampling jitter.
+pub const PRIORITY_SENSOR: u8 = PRIORITY_BG_6;
 pub const PRIORITY_BG_7: u8 = 7;
 pub const PRIORITY_BG_8: u8 = 8;
 pub const PRIORITY_BG_9: u8 = 9;

@@ -206,6 +206,11 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     crate::system::picodroid::graphics::lvgl::events::reset_activity_groups();
     crate::system::picodroid::graphics::lvgl::handle_table::reset();
     crate::system::picodroid::graphics::assets::clear();
+    // Sensor registrations hold u16 heap refs from the previous app; they
+    // must not survive into the reset heap (visit_gc_roots would walk
+    // them). Also publishes all-disabled demand so the sampler parks
+    // between apps.
+    crate::system::picodroid::hardware::sensors::reset();
     #[cfg(not(feature = "sim"))]
     crate::system::monitor_store::clear();
 

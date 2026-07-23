@@ -84,6 +84,13 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // this task processes its request.
     crate::fs::worker::spawn();
 
+    // Sensor sampler: owns all sensor I²C off the JVM/UI task. Spawned
+    // pre-scheduler so its i2c::init calls can't race Java I2cDevice users
+    // (init's check-then-act is not task-safe; per-transfer bus locks take
+    // over once initialised).
+    #[cfg(any_sensor)]
+    crate::system::picodroid::hardware::sensors::sampler::spawn();
+
     // Background thread pool: pre-spawns the workers that back
     // `Executors.backgroundExecutor()`. Each worker parks on the shared
     // work queue and lazily constructs its own Jvm on first submit so it

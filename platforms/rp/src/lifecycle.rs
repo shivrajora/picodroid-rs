@@ -298,6 +298,7 @@ pub(crate) fn run_activity(
             while crate::hal::gpio::drain_gpio_event().is_some() {}
             with_gfx(|g| g.wake());
             crate::system::executors::tick_source::resume();
+            crate::system::picodroid::hardware::sensors::sampler::resume();
             sleeping = false;
             last_input_ms = now_ms();
             continue;
@@ -338,6 +339,7 @@ pub(crate) fn run_activity(
                     if let Some(timeout) = IDLE_TIMEOUT_MS {
                         if now_ms() - last_input_ms >= timeout {
                             crate::system::executors::tick_source::pause();
+                            crate::system::picodroid::hardware::sensors::sampler::pause();
                             with_gfx(|g| g.sleep());
                             sleeping = true;
                         }

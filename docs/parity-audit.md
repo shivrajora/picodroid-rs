@@ -127,7 +127,7 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| HAL-01 | Sensors: sim emits synthetic triangle waves (BME688 22 °C ± 0.5 etc., LTR559 300 lx ± 50; `sensors.rs:432-441,539-546`); device drives real I²C hardware | IPB | Values differ (fine); *cadence* and event-delivery code is shared — value realism is the only loss | S3 | V | register-only |
+| HAL-01 | Sensors: the sim sampler thread publishes synthetic triangle waves (BME688 22 °C ± 0.5 etc., LTR559 300 lx ± 50; `sensors/sampler.rs` sim backing); the device sampler task drives real I²C hardware | IPB | Values differ (fine); *cadence*, the mailbox handoff, and the event-delivery path (`sensors/mod.rs` drain + `sensors/mailbox.rs`) are shared — value realism is the only loss | S3 | V | register-only |
 | HAL-02 | ADC constant 1.65 V; PWM/backlight/boot/delay println-or-no-op stubs | IS | Expected HAL stubbing, contract-enforced | S3 | V | — |
 | HAL-03 | UART `read_byte` always −1 in sim (no input path); device reads real UART | ACC | Any UART-consuming app silently gets no data in sim | S2 | V | wire FIFO control channel to UART (backlog) |
 | HAL-04 | `packagemanager`, `pdb`, PIO, boot handlers compiled out of sim *and* tests | IPB | PDB install/stop-JVM paths (a known 6-bug area) have zero sim coverage — HIL-only | S2 | V | register-only (HIL owns it) |

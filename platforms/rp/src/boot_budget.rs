@@ -32,6 +32,13 @@ pub const PDB_STACK_WORDS: u16 = 2048;
 pub const CYW43_STACK_WORDS: u16 = 2048;
 /// LittleFS worker task stack. Consumed by `fs/worker.rs`.
 pub const FS_STACK_WORDS: u16 = 2048;
+/// Sensor sampler task stack (sensor boards only). Consumed by
+/// `system/picodroid/hardware/sensors/sampler.rs`. Deepest chain is a
+/// driver call → I²C transfer + fixed-point compensation + defmt frame;
+/// 1024 words leaves multiples of headroom (verify via the one-shot
+/// stack-HWM debug log; bump to 1536 if headroom drops below ~25%).
+#[allow(dead_code)] // only read on any_sensor boards
+pub const SENSOR_STACK_WORDS: u16 = 1024;
 /// Per-`Thread.start` FreeRTOS task stack ("jvm-t"). Consumed by
 /// `system/native_handler/os.rs`; charged per spawn, not at boot.
 pub const JVM_THREAD_STACK_WORDS: u16 = 4096;
@@ -73,6 +80,11 @@ pub const BOOT_TASKS: &[BootTask] = &[
     BootTask {
         name: "fs",
         stack_words: FS_STACK_WORDS,
+    },
+    #[cfg(any_sensor)]
+    BootTask {
+        name: "sensor",
+        stack_words: SENSOR_STACK_WORDS,
     },
     BootTask {
         name: "jvm",

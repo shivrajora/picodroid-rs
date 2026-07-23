@@ -99,6 +99,18 @@ pico-jvm's reimplementation — the only JVM whose semantics matter runs these s
 
 ## Host-dev velocity
 
+### FreeRTOS-native mailbox for the sensor sampler
+
+`sensors/mailbox.rs` hands sampler readings to the JVM task through a hand-rolled seqlock
+(atomic load/store only — shared verbatim by device, sim, and host tests). FreeRTOS's
+purpose-built mailbox — a length-1 queue used via `xQueueOverwrite`/`xQueuePeek` — would
+replace the fence reasoning with a kernel primitive, but `freertos-rust-pd` 0.2.3 wraps
+neither call (its `Queue<T>` has only send/receive/len) and its `shim.c` FFI layer needs
+patching too, i.e. forking the crates.io dependency. The `read_env()`/`publish_env()` API
+boundary already isolates the swap; nothing else moves. **Tradeoff:** fork maintenance plus a
+`std` sim backing split (two mailbox implementations) vs. removing hand-rolled memory-ordering
+code; revisit if the fork gets vendored for other reasons.
+
 ### Thread support in sim
 
 `Thread.start()` is a documented no-op in sim
