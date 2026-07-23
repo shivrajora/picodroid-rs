@@ -11,6 +11,38 @@ mod inner {
     use crate::hal::output_pin::RpOutputPin;
     use crate::hal::spi_bus::RpSpiBus;
     use core::ptr::addr_of_mut;
+    use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    // ── Scripted-touch override (PDB `CMD_INPUT` tap/swipe) ──────────────────
+    //
+    // While active, `read_point()` returns these coordinates instead of the
+    // real panel sample, so an injected tap/swipe runs the exact same
+    // `touch_read_cb` → LVGL hit-test / gesture → Java `MotionEvent` pipeline
+    // as a real finger. Mirrors the sim's `TOUCH_OVERRIDE_*` mechanism in
+    // `hal::sim::display`. Atomics: the PDB task drives these from its own core.
+    static OVERRIDE_ACTIVE: AtomicBool = AtomicBool::new(false);
+    static OVERRIDE_PRESSED: AtomicBool = AtomicBool::new(false);
+    /// Packed `(x << 16) | y` so a move is a single atomic store.
+    static OVERRIDE_POS: AtomicU32 = AtomicU32::new(0);
+
+    /// Begin/continue a scripted touch at `(x, y)` (press or drag-move).
+    pub fn inject_override(x: u16, y: u16) {
+        OVERRIDE_POS.store(((x as u32) << 16) | y as u32, Ordering::Relaxed);
+        OVERRIDE_PRESSED.store(true, Ordering::Relaxed);
+        OVERRIDE_ACTIVE.store(true, Ordering::Relaxed);
+    }
+
+    /// Lift the scripted touch but keep the override engaged, so the RELEASE
+    /// edge is observed from the scripted position before real sampling resumes.
+    pub fn release_override() {
+        OVERRIDE_PRESSED.store(false, Ordering::Relaxed);
+    }
+
+    /// Disengage the override entirely; `read_point()` resumes real sampling.
+    pub fn clear_override() {
+        OVERRIDE_PRESSED.store(false, Ordering::Relaxed);
+        OVERRIDE_ACTIVE.store(false, Ordering::Relaxed);
+    }
 
     mod generated {
         include!(concat!(env!("OUT_DIR"), "/touch_config.rs"));
@@ -75,6 +107,13 @@ mod inner {
     }
 
     pub fn read_point() -> Option<(u16, u16)> {
+        if OVERRIDE_ACTIVE.load(Ordering::Relaxed) {
+            if OVERRIDE_PRESSED.load(Ordering::Relaxed) {
+                let p = OVERRIDE_POS.load(Ordering::Relaxed);
+                return Some(((p >> 16) as u16, (p & 0xFFFF) as u16));
+            }
+            return None;
+        }
         touch().read_point()
     }
 
@@ -109,6 +148,11 @@ mod inner {
     }
     pub fn set_calibration(_: u16, _: u16, _: u16, _: u16) {}
     pub fn set_rejection_range(_: u16, _: u16) {}
+    // No panel to drive — scripted-touch injection is a no-op (the PDB
+    // `CMD_INPUT` handler reports STATUS_ERR for tap/swipe on such boards).
+    pub fn inject_override(_: u16, _: u16) {}
+    pub fn release_override() {}
+    pub fn clear_override() {}
 }
 
 pub use inner::*;

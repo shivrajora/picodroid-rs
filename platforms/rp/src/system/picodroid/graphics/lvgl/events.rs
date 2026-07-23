@@ -40,6 +40,18 @@ pub fn pin_to_keycode(pin: u8) -> Option<i32> {
         .map(|&(_, _, k)| k)
 }
 
+/// Reverse of [`pin_to_keycode`]: find the GPIO pin of the first button
+/// declared with `keycode`. `None` if this board has no button for that
+/// keycode. Used by the PDB `CMD_INPUT` handler to resolve a host-sent Android
+/// keycode (`pdb input keyevent …`) to a pin for `hal::gpio::inject`.
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
+    BUTTONS
+        .iter()
+        .find(|&&(_, _, k)| k == keycode)
+        .map(|&(p, _, _)| p)
+}
+
 /// Pop one key event from the Java-visible queue, if any.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_key_event() -> Option<KeyEventRaw> {
@@ -1155,6 +1167,23 @@ mod tests {
     #[test]
     fn pin_to_keycode_returns_none_for_unmapped() {
         assert_eq!(pin_to_keycode(99), None);
+    }
+
+    #[cfg(has_buttons)]
+    #[test]
+    fn keycode_to_pin_roundtrips_declared_keycodes() {
+        // keycode → pin must resolve back to a button that carries that keycode
+        // (first-declared wins if a keycode is shared, matching the impl).
+        for &(_, _, keycode) in BUTTONS {
+            let pin = keycode_to_pin(keycode).expect("declared keycode resolves");
+            assert_eq!(pin_to_keycode(pin), Some(keycode));
+        }
+    }
+
+    #[test]
+    fn keycode_to_pin_returns_none_for_unmapped() {
+        // -1 is never a valid Android keycode, so no board declares it.
+        assert_eq!(keycode_to_pin(-1), None);
     }
 
     /// Handle `0` maps to a null `lv_obj` on both the 32-bit and 64-bit handle

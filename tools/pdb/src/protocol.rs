@@ -6,6 +6,22 @@ pub const FRAME_MAGIC: &[u8; 4] = b"PDBP";
 pub const CMD_PING: u8 = 0x00;
 pub const CMD_INSTALL: u8 = 0x01;
 pub const CMD_SYSMON: u8 = 0x02;
+/// Inject a synthetic input event — mirrors the device constant. See the
+/// device `pdb::protocol` and `pdb input` (Android `adb shell input` analog).
+pub const CMD_INPUT: u8 = 0x03;
+
+// ── CMD_INPUT payload subtypes (first payload byte) ──────────────────────────
+pub const INPUT_KEY: u8 = 0x01;
+pub const INPUT_TAP: u8 = 0x02;
+pub const INPUT_SWIPE: u8 = 0x03;
+
+/// CMD_INPUT KEY `meta` values. The CLI only emits `DOWN_UP`; `DOWN`/`UP`
+/// complete the wire contract (mirrors the device) for held-key use.
+pub const KEY_META_DOWN_UP: u8 = 0;
+#[allow(dead_code)]
+pub const KEY_META_DOWN: u8 = 1;
+#[allow(dead_code)]
+pub const KEY_META_UP: u8 = 2;
 pub const STATUS_OK: u8 = 0x00;
 pub const STATUS_READY: u8 = 0x01; // device erased flash, ready to receive data stream
 pub const STATUS_ERR: u8 = 0xFF;

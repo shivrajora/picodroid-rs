@@ -211,6 +211,21 @@ mod inner {
         touch().read_point()
     }
 
+    // Scripted-touch override (HAL contract parity with hardware). Delegates to
+    // the display's `TOUCH_OVERRIDE_*` machinery, which feeds `mouse_state()` →
+    // the full `FakeXptSpi` → `Xpt2046` pipeline. The device PDB `CMD_INPUT`
+    // handler is host-only code, so on sim these are exercised only if called
+    // directly, but they keep the sim/hardware HAL surface identical.
+    pub fn inject_override(x: u16, y: u16) {
+        super::super::display::set_touch_override(x, y);
+    }
+    pub fn release_override() {
+        super::super::display::touch_override_release();
+    }
+    pub fn clear_override() {
+        super::super::display::clear_touch_override();
+    }
+
     pub fn read_raw() -> Option<(u16, u16)> {
         touch().read_raw()
     }
@@ -309,6 +324,9 @@ mod inner {
     }
     pub fn set_calibration(_: u16, _: u16, _: u16, _: u16) {}
     pub fn set_rejection_range(_: u16, _: u16) {}
+    pub fn inject_override(_: u16, _: u16) {}
+    pub fn release_override() {}
+    pub fn clear_override() {}
 }
 
 pub use inner::*;

@@ -2,6 +2,8 @@
 #[cfg(not(any(test, feature = "sim")))]
 mod cdc_transport;
 #[cfg(not(any(test, feature = "sim")))]
+mod input;
+#[cfg(not(any(test, feature = "sim")))]
 pub mod pending;
 // Protocol constants (status codes, INSTALL_PEEK_BYTES) are unconditionally
 // available so non-pdb code (e.g. packagemanager::install) can reference

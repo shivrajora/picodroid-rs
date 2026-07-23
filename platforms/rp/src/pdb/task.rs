@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::cdc_transport::{CdcTransport, PdbCoreCoordinator};
 use super::protocol::{
-    crc32_frame, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR,
-    STATUS_OK,
+    crc32_frame, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL,
+    STATUS_ERR, STATUS_OK,
 };
 
 // ── Low-level helpers ─────────────────────────────────────────────────────────
@@ -77,6 +77,7 @@ pub fn run_pdb_task() -> ! {
                 crate::packagemanager::install::run_install(&mut transport, &mut coordinator, len);
             }
             CMD_SYSMON => super::sysmon::handle_sysmon(len),
+            CMD_INPUT => super::input::handle_input(len),
             _ => CdcTransport::send_pdbp_response(STATUS_ERR, b"unknown cmd"),
         }
     }

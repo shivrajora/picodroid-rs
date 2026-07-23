@@ -248,6 +248,17 @@ fn enqueue_gpio_event(pin: u8, rising: bool) {
     }
 }
 
+/// Enqueue a synthetic button edge, as if the GPIO IRQ had fired. Same sink
+/// the ISR feeds, so `keypad_read_cb` cannot tell injected from real input.
+/// Active-low convention (see `enqueue_gpio_event` / the sim's `inject`):
+/// `rising == false` is a PRESS, `rising == true` a RELEASE. Always inject a
+/// PRESS before its matching RELEASE or the phantom-release filter in
+/// `lvgl::events` drops the unpaired release. Used by the PDB `CMD_INPUT`
+/// handler to drive the device from the host (`pdb input keyevent …`).
+pub fn inject(pin: u8, rising: bool) {
+    enqueue_gpio_event(pin, rising);
+}
+
 pub fn drain_gpio_event() -> Option<GpioEvent> {
     unsafe {
         if GPIO_QUEUE_TAIL == GPIO_QUEUE_HEAD {

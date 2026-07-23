@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 mod devices;
+mod input;
 mod install;
 mod logcat;
 mod papk_meta;
@@ -16,6 +17,7 @@ Commands:
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
   sysmon                     Show system monitor stats (heap, tasks, CPU%)
+  input <cmd> [args]         Inject input (tap/swipe/keyevent) — see 'pdb input'
   logcat --stdin [opts]      Filter picodroid logs on stdin by tag/level
 
 logcat options:
@@ -77,6 +79,13 @@ fn main() {
         "sysmon" => {
             let port_name = require_port(port.as_deref());
             sysmon::run(&port_name);
+        }
+
+        "input" => {
+            // The remaining args are the input subcommand + its operands.
+            let sub_args = args[idx..].to_vec();
+            let port_name = require_port(port.as_deref());
+            input::run(&port_name, &sub_args);
         }
 
         "logcat" => {

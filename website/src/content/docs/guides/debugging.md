@@ -54,6 +54,34 @@ Under the hood this uses `xPortGetFreeHeapSize()`, `xPortGetMinimumEverFreeHeapS
 
 The min-ever-free figure is your heap high-water mark across the whole run; it is the single most useful number for chasing memory pressure (see [Out of memory / heap exhaustion](#out-of-memory--heap-exhaustion)).
 
+### Injecting input (pdb input)
+
+`pdb input` drives a real device from the host — the picodroid analog of
+`adb shell input tap|swipe|keyevent`. It is the hardware counterpart of the sim
+[control channel](#driving-the-simulator-headlessly): the same Android verbs,
+sent over the device's USB CDC port, so a script or an AI agent can exercise an
+app end-to-end without touching the board.
+
+```bash
+pdb input keyevent KEYCODE_DPAD_DOWN   # press+release a key (name or number, e.g. 20)
+pdb input dpad up                      # up|down|left|right|center — D-pad shorthand
+pdb input back                         # KEYCODE_BACK shorthand
+pdb input tap 120 80                   # touch tap at (x, y)
+pdb input swipe 40 60 200 60 300       # swipe (x1 y1)->(x2 y2) over [ms] (default 300)
+```
+
+The injection happens at the HAL layer on the device (a GPIO edge for keys, the
+touch sampler for tap/swipe), so the full on-device pipeline runs unchanged — the
+EditMode filter, LVGL focus navigation, `KeyEvent`/`MotionEvent` dispatch, and
+BACK routing all behave exactly as they do for a physical press. This mirrors
+Android's `InputManager.injectInputEvent`, where the on-device program builds the
+event and injection is privileged (here, reachable only over PDB).
+
+Keycode→pin resolution happens on the device against the board's button table,
+so the host stays board-agnostic — a keycode with no matching button returns
+`ERR (no such key)`, and `tap`/`swipe` on a board with no touchscreen returns
+`ERR (no touch panel)`. On success the command prints nothing and exits `0`.
+
 ### GDB
 
 GDB debugging is a two-terminal workflow. First, start probe-rs as a GDB server (it listens on `localhost:1337` by default):
@@ -170,7 +198,7 @@ It returns `false` when the listener or sensor argument is not a valid object, w
 
 **The listener was GC-swept.** A View, dialog, compound-button, or `EditText` listener whose only owner is a native map gets collected on the first GC and stops firing a few seconds in, with no error. This is the silent variant of the [NoSuchMethod playbook](#nosuchmethod--input-dies-after-a-while) — keep a Java field reference to the widget. See [Embedded gotchas](/guides/embedded-gotchas/).
 
-> Note: on the host simulator the hardware key/touch dispatcher never fires — `drain_gpio_event` always returns `None` in sim builds. Button input in the sim comes through the control channel below (which uses a different injection path that *does* work for `has_buttons` boards), not the hardware key path. End-to-end key verification on the hardware path requires a device.
+> Note: on the host simulator the hardware key/touch dispatcher never fires — `drain_gpio_event` always returns `None` in sim builds. Button input in the sim comes through the control channel below (which uses a different injection path that *does* work for `has_buttons` boards), not the hardware key path. End-to-end key verification on the hardware path requires a device — use [`pdb input`](#injecting-input-pdb-input) to drive that path over USB CDC.
 
 ### pdb install fails
 
@@ -231,7 +259,9 @@ The verb grammar is `down|up|press|tap <button>`:
 - `up` — release (rising edge)
 - `press` / `tap` — press, wait 40 ms, release (one clean tap)
 
-Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared button), the semantic names `PREV`/`UP`, `NEXT`/`DOWN`, `ENTER`/`OK`/`SELECT`, `ESC`/`BACK`, or a bare GPIO pin number. An unknown verb prints `[sim] control channel: unknown command '<x>'`; an unknown button prints `[sim] control channel: unknown button '<x>'`. At startup the sim prints a ready banner listing the accepted commands. (The control channel is only present on `has_buttons` boards.) For the navigation model these buttons drive, see [Button navigation](/guides/button-navigation/).
+Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared button), the semantic names `PREV`/`UP`, `NEXT`/`DOWN`, `ENTER`/`OK`/`SELECT`, `ESC`/`BACK`, or a bare GPIO pin number. An unknown verb prints `[sim] control channel: unknown command '<x>'`; an unknown button prints `[sim] control channel: unknown button '<x>'`. At startup the sim prints a ready banner listing the accepted commands. (The control channel is present on `has_buttons` and `has_touch` boards.) For the navigation model these buttons drive, see [Button navigation](/guides/button-navigation/).
+
+The control channel also accepts the same Android verbs as hardware [`pdb input`](#injecting-input-pdb-input) — `input keyevent <KEYCODE|n>`, `input dpad <dir>`, `input back`, `input tap <x> <y>`, and `input swipe <x1> <y1> <x2> <y2> [ms]`. Prefer these when you want one vocabulary that works identically in the sim and on a real device: rehearse a sequence headlessly in the sim, then run the exact same verbs via `pdb input` over USB CDC.
 
 **Capturing frames.** The sim window is named `picodroid`. Grab it with `scrot`:
 

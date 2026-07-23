@@ -300,6 +300,27 @@ pub fn is_window_open() -> bool {
     }
 }
 
+/// Engage the scripted-touch override at `(x, y)` (press or drag-move). While
+/// active it replaces the mouse sample in [`mouse_state`]. Shared by the
+/// control channel and the `hal::sim::touch` override shims (HAL contract).
+pub fn set_touch_override(x: u16, y: u16) {
+    TOUCH_OVERRIDE_POS.store(((x as u32) << 16) | y as u32, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE_PRESSED.store(true, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE_ACTIVE.store(true, AtomOrd::Relaxed);
+}
+
+/// Lift the scripted touch but keep the override engaged, so the RELEASE edge
+/// is observed from the scripted position before mouse sampling resumes.
+pub fn touch_override_release() {
+    TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
+}
+
+/// Disengage the override entirely; [`mouse_state`] returns to the real mouse.
+pub fn clear_touch_override() {
+    TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE_ACTIVE.store(false, AtomOrd::Relaxed);
+}
+
 /// Returns `(pressed, x, y)` — the most recent mouse state sampled by
 /// `update_window()`.
 pub fn mouse_state() -> (bool, u16, u16) {
@@ -414,6 +435,14 @@ fn handle_control_line(line: &str) {
         return;
     }
 
+    // `input …` — the same Android verbs the PDB `CMD_INPUT` handler accepts on
+    // real hardware (`pdb input tap|swipe|keyevent|dpad|back`), so a script or
+    // AI agent drives sim and device through one vocabulary.
+    if cmd.eq_ignore_ascii_case("input") {
+        handle_input_command(&mut it);
+        return;
+    }
+
     #[cfg(has_buttons)]
     {
         let Some(btn) = it.next() else {
@@ -463,19 +492,164 @@ fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
                 println!("[sim] control channel: touch {sub} needs <x> <y>");
                 return;
             };
-            TOUCH_OVERRIDE_POS.store(((x as u32) << 16) | y as u32, AtomOrd::Relaxed);
-            TOUCH_OVERRIDE_PRESSED.store(true, AtomOrd::Relaxed);
-            TOUCH_OVERRIDE_ACTIVE.store(true, AtomOrd::Relaxed);
+            set_touch_override(x, y);
         }
         "up" => {
-            TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
+            touch_override_release();
             // Keep the override active for a few frames so the release edge
             // is observed from the scripted position, then return control to
             // the mouse.
             std::thread::sleep(std::time::Duration::from_millis(80));
-            TOUCH_OVERRIDE_ACTIVE.store(false, AtomOrd::Relaxed);
+            clear_touch_override();
         }
         other => println!("[sim] control channel: unknown touch subcommand '{other}'"),
+    }
+}
+
+/// Resolve an `input keyevent` token to an Android keycode: a known
+/// `KEYCODE_*` name (with or without the prefix, case-insensitive) or a bare
+/// integer. Mirrors the host `pdb input` keycode table.
+#[cfg(has_buttons)]
+fn input_keycode(tok: &str) -> Option<i32> {
+    let up = tok.trim().to_ascii_uppercase();
+    let name = up.strip_prefix("KEYCODE_").unwrap_or(&up);
+    let code = match name {
+        "HOME" => 3,
+        "BACK" => 4,
+        "DPAD_UP" => 19,
+        "DPAD_DOWN" => 20,
+        "DPAD_LEFT" => 21,
+        "DPAD_RIGHT" => 22,
+        "DPAD_CENTER" => 23,
+        "ENTER" => 66,
+        "MENU" => 82,
+        _ => return tok.trim().parse::<i32>().ok(),
+    };
+    Some(code)
+}
+
+/// `input dpad <dir>` → Android keycode.
+#[cfg(has_buttons)]
+fn input_dpad_keycode(dir: &str) -> Option<i32> {
+    match dir.trim().to_ascii_lowercase().as_str() {
+        "up" => Some(19),
+        "down" => Some(20),
+        "left" => Some(21),
+        "right" => Some(22),
+        "center" | "enter" | "ok" => Some(23),
+        _ => None,
+    }
+}
+
+/// Inject a PRESS then RELEASE for `pin`, with a gap so the two edges land in
+/// distinct ticks — the same 40 ms the device handler uses.
+#[cfg(has_buttons)]
+fn inject_press_release(pin: u8) {
+    crate::hal::gpio::inject(pin, false);
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    crate::hal::gpio::inject(pin, true);
+}
+
+/// Android keycode → button pin via the generated `BUTTONS` table (same
+/// resolution the device does in `events::keycode_to_pin`, done locally here so
+/// the sim front-end never depends on the graphics module — which isn't
+/// compiled in the workspace `cargo test` config).
+#[cfg(has_buttons)]
+fn keycode_to_pin(code: i32) -> Option<u8> {
+    BUTTONS
+        .iter()
+        .find(|&&(_, _, k)| k == code)
+        .map(|&(p, _, _)| p)
+}
+
+/// Handle `input keyevent|dpad|back` — resolve to a button pin and inject a
+/// press/release. `verb` is the already-lowercased subcommand.
+#[cfg(has_buttons)]
+fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
+    let code = match verb {
+        "keyevent" => it.next().and_then(input_keycode),
+        "dpad" => it.next().and_then(input_dpad_keycode),
+        "back" => Some(4),
+        _ => None,
+    };
+    match code.and_then(keycode_to_pin) {
+        Some(pin) => inject_press_release(pin),
+        None => println!("[sim] control channel: input {verb} — no button for that keycode"),
+    }
+}
+
+/// Button-less board: `input keyevent|dpad|back` have nothing to drive.
+#[cfg(not(has_buttons))]
+fn handle_key_verb(verb: &str, _it: &mut core::str::SplitWhitespace<'_>) {
+    println!("[sim] control channel: input {verb} — no buttons on this board");
+}
+
+#[cfg(any(has_buttons, has_touch))]
+fn clamp_xy(x: u16, y: u16) -> (u16, u16) {
+    (x.min(WIDTH - 1), y.min(HEIGHT - 1))
+}
+
+/// Linear interpolation between two on-screen coordinates (mirror of the
+/// device swipe stepper).
+#[cfg(any(has_buttons, has_touch))]
+fn lerp(a: u16, b: u16, i: u32, n: u32) -> u16 {
+    let (a, b) = (a as i32, b as i32);
+    (a + (b - a) * i as i32 / n as i32) as u16
+}
+
+/// Parse and apply one `input …` line — the Android verb family:
+/// `keyevent <KEYCODE|n>`, `dpad <dir>`, `back`, `tap <x> <y>`,
+/// `swipe <x1> <y1> <x2> <y2> [ms]`.
+#[cfg(any(has_buttons, has_touch))]
+fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    let Some(sub) = it.next() else {
+        println!("[sim] control channel: input needs keyevent|dpad|back|tap|swipe");
+        return;
+    };
+    let parse_u16 =
+        |it: &mut core::str::SplitWhitespace<'_>| it.next().and_then(|s| s.parse().ok());
+
+    let verb = sub.to_ascii_lowercase();
+    match verb.as_str() {
+        "keyevent" | "dpad" | "back" => handle_key_verb(&verb, it),
+        "tap" => {
+            let (Some(x), Some(y)) = (parse_u16(it), parse_u16(it)) else {
+                println!("[sim] control channel: input tap needs <x> <y>");
+                return;
+            };
+            let (x, y) = clamp_xy(x, y);
+            set_touch_override(x, y);
+            sleep(Duration::from_millis(120));
+            touch_override_release();
+            sleep(Duration::from_millis(80));
+            clear_touch_override();
+        }
+        "swipe" => {
+            let (Some(x1), Some(y1), Some(x2), Some(y2)) =
+                (parse_u16(it), parse_u16(it), parse_u16(it), parse_u16(it))
+            else {
+                println!("[sim] control channel: input swipe needs <x1> <y1> <x2> <y2> [ms]");
+                return;
+            };
+            let dur: u32 = parse_u16(it).map(u32::from).unwrap_or(300);
+            let (x1, y1) = clamp_xy(x1, y1);
+            let (x2, y2) = clamp_xy(x2, y2);
+            const STEPS: u32 = 12;
+            let step_ms = (dur / STEPS).max(1);
+            set_touch_override(x1, y1);
+            sleep(Duration::from_millis(40));
+            for i in 1..=STEPS {
+                set_touch_override(lerp(x1, x2, i, STEPS), lerp(y1, y2, i, STEPS));
+                sleep(Duration::from_millis(step_ms as u64));
+            }
+            touch_override_release();
+            sleep(Duration::from_millis(80));
+            clear_touch_override();
+        }
+        other => println!("[sim] control channel: unknown input subcommand '{other}'"),
     }
 }
 
@@ -516,7 +690,8 @@ fn spawn_control_channel() {
     println!(
         "[sim] control channel ready — commands: \
          'down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>', \
-         'touch down|move <x> <y>', 'touch up'{}",
+         'touch down|move <x> <y>', 'touch up', \
+         'input keyevent|dpad|back|tap|swipe …' (Android-verb, matches 'pdb input'){}",
         if cfg!(feature = "mem-diag") {
             ", 'memstats'"
         } else {

@@ -39,6 +39,7 @@
 //! - `pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger)`
 //! - `pub fn disable_edge_irq(pin: u8)`
 //! - `pub fn init_gpio_irq()`
+//! - `pub fn inject(pin: u8, rising: bool)` — synthetic button edge (PDB CMD_INPUT)
 //! - `pub fn drain_gpio_event() -> Option<GpioEvent>`
 //! - `pub fn has_pending_event() -> bool`
 //! - `pub fn wait_for_button_event()`
@@ -66,6 +67,9 @@
 //! - `pub fn read_point() -> Option<(u16, u16)>`
 //! - `pub fn read_raw_unfiltered() -> (u16, u16)`
 //! - `pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16)`
+//! - `pub fn inject_override(x: u16, y: u16)` — scripted-touch press/move (PDB CMD_INPUT)
+//! - `pub fn release_override()` — lift scripted touch (RELEASE edge)
+//! - `pub fn clear_override()` — resume real sampling
 //!
 //! `uart`:
 //! - `pub fn init(uart_id: u8)`

@@ -45,6 +45,7 @@ fn _assert_always_required() {
     let _: fn(u8, gpio::EdgeTrigger) = gpio::enable_edge_irq;
     let _: fn(u8) = gpio::disable_edge_irq;
     let _: fn() = gpio::init_gpio_irq;
+    let _: fn(u8, bool) = gpio::inject;
     let _: fn() -> Option<gpio::GpioEvent> = gpio::drain_gpio_event;
     let _: fn() -> bool = gpio::has_pending_event;
     let _: fn() = gpio::wait_for_button_event;
@@ -74,6 +75,10 @@ fn _assert_always_required() {
     let _: fn() -> Option<(u16, u16)> = touch::read_point;
     let _: fn() -> (u16, u16) = touch::read_raw_unfiltered;
     let _: fn(u16, u16, u16, u16) = touch::set_calibration;
+    // scripted-touch injection (PDB CMD_INPUT tap/swipe)
+    let _: fn(u16, u16) = touch::inject_override;
+    let _: fn() = touch::release_override;
+    let _: fn() = touch::clear_override;
 
     // uart
     let _: fn(u8) = uart::init;
