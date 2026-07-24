@@ -230,6 +230,26 @@ impl ArrayHeap {
     // ── GC support ────────────────────────────────────────────────────────────
 
     /// Total number of slots (including freed `None` slots).
+    /// Allocated slot chunks (diagnostics / pre-reservation sizing).
+    pub fn slot_chunk_count(&self) -> usize {
+        self.arrays.chunk_count()
+    }
+
+    /// Current payload-arena capacity in `i32` slots.
+    pub fn arena_capacity(&self) -> usize {
+        self.arena.capacity()
+    }
+
+    /// Boot-time pre-reservation of slot chunks + payload-arena capacity —
+    /// see `ObjectHeap::prereserve` for the fragmentation rationale.
+    pub fn prereserve(&mut self, slot_chunks: usize, arena_values: usize) {
+        self.arrays.reserve_chunks(slot_chunks);
+        let target = arena_values.saturating_sub(self.arena.len());
+        if self.arena.capacity() < arena_values {
+            let _ = self.arena.try_reserve_exact(target);
+        }
+    }
+
     pub fn slot_count(&self) -> usize {
         self.arrays.len()
     }

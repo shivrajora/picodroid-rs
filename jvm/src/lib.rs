@@ -141,6 +141,26 @@ impl SharedJvmHeap {
         *self = SharedJvmHeap::new();
     }
 
+    /// Boot-time pre-reservation across the three heaps (PEM-3): claim
+    /// steady-state slot chunks and arena capacity while the native heap is
+    /// young and contiguous, so this permanent storage doesn't get
+    /// allocated mid-heap during Activity churn and strand the free space
+    /// around it. Values are board-tuned; zeros are no-ops. Best-effort —
+    /// a refused reservation leaves on-demand growth in place. Call again
+    /// after [`reset`], which drops the claim.
+    pub fn prereserve(
+        &mut self,
+        obj_chunks: usize,
+        fields_values: usize,
+        arr_chunks: usize,
+        arena_values: usize,
+        str_chunks: usize,
+    ) {
+        self.objects.prereserve(obj_chunks, fields_values);
+        self.arrays.prereserve(arr_chunks, arena_values);
+        self.strings.prereserve_dyn(str_chunks);
+    }
+
     /// Runs a full GC cycle from *outside* the interpreter.
     ///
     /// Native code that allocates directly on the heap between bytecode

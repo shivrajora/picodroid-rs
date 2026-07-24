@@ -83,6 +83,10 @@ struct MonitorState {
     prev_dyn_intern: u32,
     prev_gc_count: u32,
     prev_gc_freed: u32,
+    /// Last-reported storage fingerprint (chunk counts + arena capacities);
+    /// the `storage` line prints only when it changes, pinpointing exactly
+    /// which window mid-churn growth happened in (PEM-3 sizing data).
+    prev_storage: (usize, usize, usize, usize, usize),
 }
 
 impl MonitorState {
@@ -102,6 +106,7 @@ impl MonitorState {
             prev_dyn_intern: 0,
             prev_gc_count: 0,
             prev_gc_freed: 0,
+            prev_storage: (0, 0, 0, 0, 0),
         }
     }
 }
@@ -528,6 +533,35 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         native_alloc_delta,
         intern_delta,
     );
+
+    let storage = (
+        heap.objects.slot_chunk_count(),
+        heap.arrays.slot_chunk_count(),
+        heap.strings.dyn_chunk_count(),
+        heap.objects.fields_arena_capacity(),
+        heap.arrays.arena_capacity(),
+    );
+    if storage != st.prev_storage {
+        st.prev_storage = storage;
+        #[cfg(feature = "sim")]
+        {
+            let _b = crate::sim_allocator::bypass();
+            println!(
+                "[memmon] storage w={} obj_chunks={} arr_chunks={} str_chunks={} fields_cap={} arena_cap={}",
+                st.window_index, storage.0, storage.1, storage.2, storage.3, storage.4
+            );
+        }
+        #[cfg(not(feature = "sim"))]
+        defmt::info!(
+            "memmon: storage w={=u32} obj_chunks={=usize} arr_chunks={=usize} str_chunks={=usize} fields_cap={=usize} arena_cap={=usize}",
+            st.window_index,
+            storage.0,
+            storage.1,
+            storage.2,
+            storage.3,
+            storage.4
+        );
+    }
 
     // Publish for the PDB sysmon pull channel (device only).
     #[cfg(not(feature = "sim"))]

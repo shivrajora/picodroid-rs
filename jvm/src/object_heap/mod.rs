@@ -564,6 +564,29 @@ impl ObjectHeap {
     // ── GC support ───────────────────────────────────────────────────────────
 
     /// Total number of slots (including freed `None` slots).
+    /// Allocated slot chunks (diagnostics / pre-reservation sizing).
+    pub fn slot_chunk_count(&self) -> usize {
+        self.objects.chunk_count()
+    }
+
+    /// Current fields-arena capacity in `Value` slots.
+    pub fn fields_arena_capacity(&self) -> usize {
+        self.fields_arena.capacity()
+    }
+
+    /// Boot-time pre-reservation: claim slot chunks and fields-arena
+    /// capacity while the heap is young and contiguous, so steady-state
+    /// storage doesn't land mid-heap during Activity churn and strand the
+    /// free space around it (PEM-3). Best-effort; a failed reservation just
+    /// leaves on-demand growth in place.
+    pub fn prereserve(&mut self, slot_chunks: usize, fields_values: usize) {
+        self.objects.reserve_chunks(slot_chunks);
+        let target = fields_values.saturating_sub(self.fields_arena.len());
+        if self.fields_arena.capacity() < fields_values {
+            let _ = self.fields_arena.try_reserve_exact(target);
+        }
+    }
+
     pub fn slot_count(&self) -> usize {
         self.objects.len()
     }

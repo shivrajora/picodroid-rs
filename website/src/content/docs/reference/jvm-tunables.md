@@ -14,8 +14,13 @@ The Picodroid JVM exposes five compile-time knobs that let a board choose its ow
 | `inline_array_data` | 8 | 0..=32 | Per-array struct size ↔ arena churn | Arrays are mostly large | Most arrays are short (≤16 ints) |
 | `activity_stack_depth` | 8 | 1..=32 | UI nav nesting ↔ RAM | Single-screen app | Deep modal/wizard flows |
 | `pending_op_queue` | 8 | 1..=64 | Lifecycle-op throughput ↔ RAM | Quiet UI | App fires many `startService`/`startActivity` per frame |
+| `prereserve_obj_chunks` | 0 | 0..=64 | Boot-claimed slot storage ↔ boot-time heap use | Default (off) | Nav churn fragments the native heap |
+| `prereserve_arr_chunks` | 0 | 0..=64 | (as above, array slots) | Default (off) | (as above) |
+| `prereserve_str_chunks` | 0 | 0..=64 | (as above, dyn-string slots) | Default (off) | (as above) |
+| `prereserve_fields_values` | 0 | 0..=65536 | Boot-claimed fields-arena capacity (`Value` slots) | Default (off) | (as above) |
+| `prereserve_arena_values` | 0 | 0..=65536 | Boot-claimed array-arena capacity (`i32` slots) | Default (off) | (as above) |
 
-All five are compile-time `pub const`s, inlined at every use site. Zero RAM cost. Changing them changes the binary, not the running JVM.
+The first five are compile-time `pub const`s, inlined at every use site — zero RAM cost; changing them changes the binary, not the running JVM. The `prereserve_*` keys instead size a one-shot allocation at app start.
 
 ## Why these knobs exist
 
@@ -25,6 +30,7 @@ Each tunable started as a hardcoded constant tuned to one board; over time the p
 - **`slot_chunk_shift`** falls out of the `ChunkedSlots` refactor (commit `b43c413`) that unblocked picoenvmon on hardware. Before that, `Vec<Option<JvmObject>>` doubled its capacity on growth, eventually demanding a 90 KB contiguous block that the FreeRTOS heap could not serve once fragmented. Fixed-size chunks cap the worst-case request at `1 << shift × sizeof::<Option<JvmObject>>()`. Smaller chunks survive harsher fragmentation.
 - **`inline_array_data`** is the inline-vs-arena threshold in `ArrayHeap`. Small arrays live in the slot struct; larger arrays go to a shared arena. Raising the threshold pulls more arrays inline (fewer arena allocations, faster access for short arrays) at the cost of a bigger slot struct. Lowering it is the opposite trade.
 - **`activity_stack_depth`** and **`pending_op_queue`** size two fixed-capacity arrays on the RP native handler (Activity LIFO + lifecycle-op FIFO). The defaults cover any realistic Android-shaped UI; raise them only if you have nested modal flows or a single Activity that queues many `startService`/`startActivity` calls per frame.
+- **`prereserve_*`** came out of the 2026-07-23 memory-stress run (PEM-3): the JVM's permanent storage — slot chunks and arena capacity, which are never freed once grown — was being allocated *mid-heap during Activity churn*, splitting the largest free block roughly in half even though the storage itself is only tens of KB. Claiming the app's measured steady-state footprint at boot, while the heap is still contiguous, keeps it packed low. Size the values from the `[memmon] storage` line (mem-diag builds print it whenever a chunk count or arena capacity changes) after a representative navigation soak, plus one growth step of margin. Reservation is best-effort: on a heap too small to grant it, the app silently falls back to on-demand growth.
 
 Each one is a pure board-vs-board policy choice. The defaults match what the original hardcoded source said, so nothing changes for a board that doesn't opt in.
 

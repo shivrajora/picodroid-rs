@@ -57,6 +57,17 @@ impl StringTable {
     pub fn dyn_intern_total(&self) -> u32 {
         self.dyn_intern_total
     }
+
+    /// Allocated dyn-string slot chunks (diagnostics / pre-reservation).
+    pub fn dyn_chunk_count(&self) -> usize {
+        self.dyn_bufs.chunk_count()
+    }
+
+    /// Boot-time pre-reservation of dyn-string slot chunks — see
+    /// `ObjectHeap::prereserve` for the fragmentation rationale.
+    pub fn prereserve_dyn(&mut self, slot_chunks: usize) {
+        self.dyn_bufs.reserve_chunks(slot_chunks);
+    }
 }
 
 impl Default for StringTable {

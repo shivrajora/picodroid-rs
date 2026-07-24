@@ -74,17 +74,44 @@ impl<T> ChunkedSlots<T> {
         idx
     }
 
-    /// Structural invariant (mem-diag integrity sweep): the chunk count is
-    /// exactly what `len` requires. Chunks are never freed or shrunk, so
-    /// ceil(len / CHUNK_SIZE) must equal the chunk count.
+    /// Number of allocated chunks (grown or pre-reserved).
+    pub fn chunk_count(&self) -> usize {
+        self.chunks.len()
+    }
+
+    /// Pre-allocate chunks up to `total` so steady-state slot storage is
+    /// claimed contiguously at boot instead of landing mid-heap during
+    /// Activity churn and stranding the free space around it (the PEM-3
+    /// fragmentation mechanism). `push` fills pre-reserved chunks before
+    /// allocating new ones; a `total` at or below the current chunk count is
+    /// a no-op. Best-effort: stops silently if the allocator refuses (the
+    /// app then simply grows on demand as before).
+    pub fn reserve_chunks(&mut self, total: usize) {
+        while self.chunks.len() < total {
+            if self.chunks.try_reserve(1).is_err() {
+                return;
+            }
+            let mut v: Vec<Option<T>> = Vec::new();
+            if v.try_reserve_exact(CHUNK_SIZE).is_err() {
+                return;
+            }
+            v.resize_with(CHUNK_SIZE, || None);
+            self.chunks.push(v.into_boxed_slice());
+        }
+    }
+
+    /// Structural invariant (mem-diag integrity sweep): every slot in
+    /// `..len` is chunk-backed, and chunks are never freed — the chunk count
+    /// covers at least what `len` requires (it may exceed it after
+    /// [`reserve_chunks`]).
     #[cfg(feature = "mem-diag")]
     pub(crate) fn invariant_holds(&self) -> bool {
-        let expected = if self.len == 0 {
+        let required = if self.len == 0 {
             0
         } else {
             ((self.len - 1) >> CHUNK_SHIFT) + 1
         };
-        self.chunks.len() == expected && self.len <= self.chunks.len() * CHUNK_SIZE
+        self.chunks.len() >= required && self.len <= self.chunks.len() * CHUNK_SIZE
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Option<T>> + '_ {
@@ -276,6 +303,35 @@ mod tests {
         let a: ChunkedSlots<i32> = ChunkedSlots::default();
         let b: ChunkedSlots<i32> = ChunkedSlots::new();
         assert_eq!(a.len(), b.len());
+    }
+
+    #[test]
+    fn reserve_chunks_preallocates_and_push_fills_them() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        s.reserve_chunks(3);
+        assert_eq!(s.chunk_count(), 3);
+        assert_eq!(s.len(), 0);
+        for i in 0..(CHUNK_SIZE * 3) {
+            assert_eq!(s.push(Some(i as i32)), i);
+        }
+        // Pre-reserved chunks absorbed all pushes — no new allocation.
+        assert_eq!(s.chunk_count(), 3);
+        s.push(Some(0));
+        assert_eq!(s.chunk_count(), 4);
+        #[cfg(feature = "mem-diag")]
+        assert!(s.invariant_holds());
+    }
+
+    #[test]
+    fn reserve_chunks_at_or_below_current_is_noop() {
+        let mut s: ChunkedSlots<i32> = ChunkedSlots::new();
+        for _ in 0..=CHUNK_SIZE {
+            s.push(Some(1));
+        }
+        assert_eq!(s.chunk_count(), 2);
+        s.reserve_chunks(1);
+        assert_eq!(s.chunk_count(), 2);
+        assert_eq!(s.len(), CHUNK_SIZE + 1);
     }
 
     #[test]

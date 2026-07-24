@@ -36,3 +36,14 @@ pub const INLINE_ARRAY_DATA: JvmTunable = JvmTunable::new(8, 0, 32);
 // Platform-side knobs (consumed by platforms/rp/build.rs::emit_jvm_config).
 pub const ACTIVITY_STACK_DEPTH: JvmTunable = JvmTunable::new(8, 1, 32);
 pub const PENDING_OP_QUEUE: JvmTunable = JvmTunable::new(8, 1, 64);
+
+// Boot-time heap pre-reservation (platform-side; all default OFF). Sized per
+// board from a `[memmon] storage` steady-state measurement: claiming the
+// app's permanent slot chunks and arena capacity while the heap is young
+// keeps them from landing mid-heap during Activity churn and fragmenting
+// the free space (2026-07-23 stress-run PEM-3).
+pub const PRERESERVE_OBJ_CHUNKS: JvmTunable = JvmTunable::new(0, 0, 64);
+pub const PRERESERVE_ARR_CHUNKS: JvmTunable = JvmTunable::new(0, 0, 64);
+pub const PRERESERVE_STR_CHUNKS: JvmTunable = JvmTunable::new(0, 0, 64);
+pub const PRERESERVE_FIELDS_VALUES: JvmTunable = JvmTunable::new(0, 0, 65536);
+pub const PRERESERVE_ARENA_VALUES: JvmTunable = JvmTunable::new(0, 0, 65536);

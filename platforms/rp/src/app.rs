@@ -29,6 +29,11 @@ use crate::framework_classes::FRAMEWORK_CLASSES;
 #[cfg(not(test))]
 include!(concat!(env!("OUT_DIR"), "/framework_mapping_version.rs"));
 
+/// Boot-time heap pre-reservation sizes from board.toml `[jvm]` (PEM-3).
+mod prereserve_config {
+    include!(concat!(env!("OUT_DIR"), "/jvm_prereserve_config.rs"));
+}
+
 // ── Shared heap ──────────────────────────────────────────────────────────────
 //
 // All JVM threads share a single heap (objects, arrays, strings), matching the
@@ -175,8 +180,17 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     // even when called from Thread.start()-spawned child tasks.
     unsafe { *ACTIVE_APK.0.get() = (apk_data.as_ptr(), apk_data.len()) };
 
-    // Clear previous app's heap state before running a new app.
+    // Clear previous app's heap state before running a new app, then claim
+    // the board-tuned steady-state storage while the heap is young and
+    // contiguous (PEM-3 pre-reservation; zeros are no-ops).
     shared_heap().reset();
+    shared_heap().prereserve(
+        prereserve_config::PRERESERVE_OBJ_CHUNKS,
+        prereserve_config::PRERESERVE_FIELDS_VALUES,
+        prereserve_config::PRERESERVE_ARR_CHUNKS,
+        prereserve_config::PRERESERVE_ARENA_VALUES,
+        prereserve_config::PRERESERVE_STR_CHUNKS,
+    );
     crate::lifecycle::reset_dispatch_event_state();
     crate::system::picodroid::graphics::widgets::reset_button_state();
     crate::system::picodroid::graphics::widgets::reset_progress_bar_state();
