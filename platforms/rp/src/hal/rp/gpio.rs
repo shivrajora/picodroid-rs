@@ -224,13 +224,22 @@ pub struct GpioEvent {
     pub rising: bool,
 }
 
-const GPIO_QUEUE_SIZE: usize = 16;
+// Sized so edges queued while the UI task stalls on an Activity transition
+// (pending-op drains of 100-200 ms are routine; a first render can be longer)
+// survive until the next indev read. Scripted input arrives at ~2 edges per
+// 56 ms, so the old 16-slot ring overflowed — and dropped edges silently —
+// after ~400 ms of stall (2026-07-23 stress-run PEM-1).
+const GPIO_QUEUE_SIZE: usize = 64;
 static mut GPIO_QUEUE: [GpioEvent; GPIO_QUEUE_SIZE] = [GpioEvent {
     pin: 0,
     rising: false,
 }; GPIO_QUEUE_SIZE];
 static mut GPIO_QUEUE_HEAD: usize = 0;
 static mut GPIO_QUEUE_TAIL: usize = 0;
+// ISR-side drop tally, reported from `drain_gpio_event` (task context).
+// Single writer (ISR) / reader tolerates a stale read.
+static mut GPIO_DROPPED: u32 = 0;
+static mut GPIO_DROP_REPORTED: u32 = 0;
 
 fn enqueue_gpio_event(pin: u8, rising: bool) {
     unsafe {
@@ -244,6 +253,8 @@ fn enqueue_gpio_event(pin: u8, rising: bool) {
                 let mut ctx = InterruptContext::new();
                 sem.give_from_isr(&mut ctx);
             }
+        } else {
+            GPIO_DROPPED = GPIO_DROPPED.wrapping_add(1);
         }
     }
 }
@@ -261,6 +272,14 @@ pub fn inject(pin: u8, rising: bool) {
 
 pub fn drain_gpio_event() -> Option<GpioEvent> {
     unsafe {
+        let dropped = GPIO_DROPPED;
+        if dropped != GPIO_DROP_REPORTED {
+            GPIO_DROP_REPORTED = dropped;
+            defmt::warn!(
+                "gpio: event queue overflow — {} button edge(s) dropped since boot",
+                dropped
+            );
+        }
         if GPIO_QUEUE_TAIL == GPIO_QUEUE_HEAD {
             return None;
         }

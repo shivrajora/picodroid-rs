@@ -362,7 +362,10 @@ fn init_button_pins() {}
 
 // ── Java-visible key event queue (parallel to LVGL's internal queue) ────────
 
-const KEY_EVENT_QUEUE_SIZE: usize = 16;
+// Matches the deepened HAL GPIO edge queue: one indev read pass can forward
+// a whole stall's worth of batched PREV/NEXT edges here before the Java
+// dispatch drains them.
+const KEY_EVENT_QUEUE_SIZE: usize = 64;
 static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
     pin: 0,
     rising: false,
@@ -512,7 +515,17 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
                 LV_INDEV_STATE_PRESSED
             };
         }
-        d.continue_reading = hal::gpio::has_pending_event();
+        // An ENTER or ESC edge can activate a widget or trigger BACK, and the
+        // resulting Activity push/pop (with its keypad-group swap) only runs
+        // in the lifecycle drain *after* this read pass. Stop the pass at
+        // such an edge so the remaining queued edges are read next tick,
+        // against the screen the activation actually produced. Without this
+        // barrier, input arriving faster than a screen transition is consumed
+        // by the OLD screen's focus group (2026-07-23 stress-run PEM-1: a
+        // whole Settings choreography eaten by the hub). PREV/NEXT edges are
+        // screen-local and still batch freely.
+        let activation = matches!(key, Some(LV_KEY_ENTER) | Some(LV_KEY_ESC));
+        d.continue_reading = hal::gpio::has_pending_event() && !activation;
     } else {
         d.state = LV_INDEV_STATE_RELEASED;
         d.continue_reading = false;
