@@ -74,6 +74,18 @@ public class SensorLoggerService extends Service implements SensorEventListener 
       new SmoothedSensorListener[MAX_SMOOTHED_LISTENERS];
   private long lastEmitMs;
 
+  // ── Alert edge detection ─────────────────────────────────────────────────────
+  // Raw callbacks re-evaluate thresholds several times per second; logging every
+  // breached sample flooded the log and allocated a concat per line forever
+  // (~13 allocs/s at idle with default thresholds indoors). Latch per sensor and
+  // log only the transitions: once entering breach, once clearing. The latches
+  // live on the instance, which survives bind/unbind churn; a service restart
+  // re-logs at most one active breach per sensor.
+  private static final int ALERT_TEMP = 0;
+  private static final int ALERT_HUMIDITY = 1;
+  private static final int ALERT_LIGHT = 2;
+  private final boolean[] alertActive = new boolean[3];
+
   @Override
   public void onCreate() {
     binder.service = this;
@@ -151,19 +163,14 @@ public class SensorLoggerService extends Service implements SensorEventListener 
         applyLedFromIaq(v);
         break;
       case Sensor.TYPE_AMBIENT_TEMPERATURE:
-        if (thresholds.tempBreached(v)) {
-          Log.i(TAG, "ALERT: temperature breach: " + v + " C");
-        }
+        alertEdge(ALERT_TEMP, thresholds.tempBreached(v), "temperature breach", v, " C");
         break;
       case Sensor.TYPE_RELATIVE_HUMIDITY:
-        if (thresholds.humidityBreached(v)) {
-          Log.i(TAG, "ALERT: humidity below threshold: " + v + " m%");
-        }
+        alertEdge(
+            ALERT_HUMIDITY, thresholds.humidityBreached(v), "humidity below threshold", v, " m%");
         break;
       case Sensor.TYPE_LIGHT:
-        if (thresholds.luxBreached(v)) {
-          Log.i(TAG, "ALERT: light below threshold: " + v + " lx");
-        }
+        alertEdge(ALERT_LIGHT, thresholds.luxBreached(v), "light below threshold", v, " lx");
         break;
       default:
         break;
@@ -181,6 +188,19 @@ public class SensorLoggerService extends Service implements SensorEventListener 
         emitSmoothed();
         lastEmitMs = now;
       }
+    }
+  }
+
+  /**
+   * Log threshold alerts only on state transitions: one line on entering breach, one on clearing.
+   */
+  private void alertEdge(int idx, boolean breached, String what, float v, String unit) {
+    if (breached && !alertActive[idx]) {
+      alertActive[idx] = true;
+      Log.i(TAG, "ALERT: " + what + ": " + v + unit);
+    } else if (!breached && alertActive[idx]) {
+      alertActive[idx] = false;
+      Log.i(TAG, "ALERT cleared: " + what + ": " + v + unit);
     }
   }
 
