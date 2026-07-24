@@ -11,6 +11,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 use super::keyboard;
 
 // ── Auto-show opt-out registry ──────────────────────────────────────────────
@@ -96,19 +97,14 @@ pub(in crate::system::picodroid::graphics) fn set_numeric(id: i32, numeric: bool
 // keyboard's OK callback will skip editor-action dispatch.
 
 const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
-static mut EDITOR_ACTION_MAP: [(usize, u16); MAX_EDITOR_ACTION_LISTENERS] =
-    [(0, 0); MAX_EDITOR_ACTION_LISTENERS];
-static mut EDITOR_ACTION_MAP_LEN: usize = 0;
+static mut EDITOR_ACTION_MAP: PtrMap<MAX_EDITOR_ACTION_LISTENERS> = PtrMap::new();
 
 fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
     unsafe {
-        for entry in &EDITOR_ACTION_MAP[..EDITOR_ACTION_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                return entry.1;
-            }
-        }
+        map_ref(&raw const EDITOR_ACTION_MAP)
+            .lookup(raw_ptr)
+            .unwrap_or(0)
     }
-    0
 }
 
 pub(in crate::system::picodroid::graphics) fn register_editor_action_listener(
@@ -120,15 +116,8 @@ pub(in crate::system::picodroid::graphics) fn register_editor_action_listener(
         return;
     }
     unsafe {
-        for entry in &mut EDITOR_ACTION_MAP[..EDITOR_ACTION_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
-            }
-        }
-        if EDITOR_ACTION_MAP_LEN < MAX_EDITOR_ACTION_LISTENERS {
-            EDITOR_ACTION_MAP[EDITOR_ACTION_MAP_LEN] = (raw_ptr, obj_ref);
-            EDITOR_ACTION_MAP_LEN += 1;
+        if let Upsert::Full = map_mut(&raw mut EDITOR_ACTION_MAP).upsert(raw_ptr, obj_ref) {
+            warn_full("editor-action");
         }
     }
 }
@@ -140,8 +129,7 @@ pub(in crate::system::picodroid::graphics) fn register_editor_action_listener(
 // installed lazily on first registration so unwatched fields never enqueue.
 
 const MAX_TEXT_WATCHERS: usize = 16;
-static mut TEXT_WATCH_MAP: [(usize, u16); MAX_TEXT_WATCHERS] = [(0, 0); MAX_TEXT_WATCHERS];
-static mut TEXT_WATCH_MAP_LEN: usize = 0;
+static mut TEXT_WATCH_MAP: PtrMap<MAX_TEXT_WATCHERS> = PtrMap::new();
 
 const TEXT_QUEUE_SIZE: usize = 16;
 static mut TEXT_QUEUE: [usize; TEXT_QUEUE_SIZE] = [0; TEXT_QUEUE_SIZE];
@@ -181,21 +169,18 @@ pub(in crate::system::picodroid::graphics) fn register_text_changed_listener(
         return;
     }
     unsafe {
-        for entry in &mut TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return; // event cb already installed
+        match map_mut(&raw mut TEXT_WATCH_MAP).upsert(raw_ptr, obj_ref) {
+            // Event cb already installed.
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("text-watcher"),
+            Upsert::Inserted => {
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(textarea_value_changed_cb),
+                    LV_EVENT_VALUE_CHANGED,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if TEXT_WATCH_MAP_LEN < MAX_TEXT_WATCHERS {
-            TEXT_WATCH_MAP[TEXT_WATCH_MAP_LEN] = (raw_ptr, obj_ref);
-            TEXT_WATCH_MAP_LEN += 1;
-            lv_obj_add_event_cb(
-                raw_ptr as *mut lv_obj_t,
-                Some(textarea_value_changed_cb),
-                LV_EVENT_VALUE_CHANGED,
-                core::ptr::null_mut(),
-            );
         }
     }
 }
@@ -214,24 +199,42 @@ pub fn drain_text_changed_queue() -> Option<usize> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const TEXT_WATCH_MAP).lookup(handle) }
 }
 
 /// GC roots for the TextWatcher map — same contract as
 /// [`visit_editor_action_listener_roots`].
 pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe { map_ref(&raw const TEXT_WATCH_MAP).visit(visit) }
+}
+
+/// Purge the dying textarea from every per-widget registry in this module:
+/// the two listener maps plus the raw-ptr opt-out/numeric lists (a stale ptr
+/// there would apply this field's flags to a recycled address).
+unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
     unsafe {
-        for &(_, r) in &TEXT_WATCH_MAP[..TEXT_WATCH_MAP_LEN] {
-            if r != 0 {
-                visit(r);
-            }
+        map_mut(&raw mut EDITOR_ACTION_MAP).remove(obj);
+        map_mut(&raw mut TEXT_WATCH_MAP).remove(obj);
+        let list = &raw mut AUTOSHOW_DISABLED;
+        let len = &raw mut AUTOSHOW_DISABLED_LEN;
+        remove_from_list(&mut *list, &mut *len, obj);
+        let list = &raw mut NUMERIC_FIELDS;
+        let len = &raw mut NUMERIC_FIELDS_LEN;
+        remove_from_list(&mut *list, &mut *len, obj);
+    }
+}
+
+/// Swap-remove `ptr` from a raw-pointer opt-in list, zeroing the vacated tail.
+fn remove_from_list(list: &mut [usize], len: &mut usize, ptr: usize) {
+    let mut i = 0;
+    while i < *len {
+        if list[i] == ptr {
+            list[i] = list[*len - 1];
+            list[*len - 1] = 0;
+            *len -= 1;
+        } else {
+            i += 1;
         }
     }
 }
@@ -274,6 +277,12 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
             ptr,
             Some(textarea_pressed_cb),
             LV_EVENT_PRESSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            ptr,
+            Some(edit_text_delete_cb),
+            LV_EVENT_DELETE,
             core::ptr::null_mut(),
         );
     }
@@ -319,9 +328,9 @@ pub(in crate::system::picodroid::graphics) fn set_autoshow(id: i32, enabled: boo
 pub fn reset_edit_text_state() {
     unsafe {
         AUTOSHOW_DISABLED_LEN = 0;
-        EDITOR_ACTION_MAP_LEN = 0;
+        map_mut(&raw mut EDITOR_ACTION_MAP).reset();
         NUMERIC_FIELDS_LEN = 0;
-        TEXT_WATCH_MAP_LEN = 0;
+        map_mut(&raw mut TEXT_WATCH_MAP).reset();
         TEXT_Q_HEAD = 0;
         TEXT_Q_TAIL = 0;
     }
@@ -334,13 +343,7 @@ pub fn reset_edit_text_state() {
 /// later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &EDITOR_ACTION_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const EDITOR_ACTION_MAP).visit(visit) }
 }
 
 pub(in crate::system::picodroid::graphics) fn set_text(id: i32, text: &str) {

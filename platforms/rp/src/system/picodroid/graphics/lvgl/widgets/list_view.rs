@@ -21,6 +21,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 /// Accent fill (RGB888) for the keypad-focused list row — a material-teal that
 /// reads clearly as "selected" on both light and dark surfaces. The default
@@ -37,8 +38,15 @@ static mut ITEM_CLICK_QUEUE_TAIL: usize = 0;
 // ── ListView handle → Java object mapping (one entry per ListView) ──────────
 
 const MAX_LIST_LISTENERS: usize = 16;
-static mut LISTENER_MAP: [(usize, u16); MAX_LIST_LISTENERS] = [(0, 0); MAX_LIST_LISTENERS];
-static mut LISTENER_MAP_LEN: usize = 0;
+static mut LISTENER_MAP: PtrMap<MAX_LIST_LISTENERS> = PtrMap::new();
+
+// Keyed by the LIST object; its rows' trampolines die with the rows, and this
+// delete callback (attached at first registration) drops the map entry when
+// the list itself is deleted.
+unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut LISTENER_MAP).remove(obj) }
+}
 
 unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
     let row = unsafe { lv_event_get_target_obj(e) };
@@ -101,15 +109,17 @@ pub(in crate::system::picodroid::graphics) fn add_item(id: i32, text: &str) {
 pub(in crate::system::picodroid::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut LISTENER_MAP[..LISTENER_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut LISTENER_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("list-item-click"),
+            Upsert::Inserted => {
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(list_map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if LISTENER_MAP_LEN < MAX_LIST_LISTENERS {
-            LISTENER_MAP[LISTENER_MAP_LEN] = (raw_ptr, obj_ref);
-            LISTENER_MAP_LEN += 1;
         }
     }
 }
@@ -139,14 +149,7 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
         if list.is_null() {
             return None;
         }
-        let mut obj_ref = None;
-        for &(list_ptr, r) in &LISTENER_MAP[..LISTENER_MAP_LEN] {
-            if list_ptr == list as usize {
-                obj_ref = Some(r);
-                break;
-            }
-        }
-        let obj_ref = obj_ref?;
+        let obj_ref = map_ref(&raw const LISTENER_MAP).lookup(list as usize)?;
         let n = lv_obj_get_child_count(list) as i32;
         for i in 0..n {
             if lv_obj_get_child(list, i) == row_obj {
@@ -159,7 +162,7 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
 
 pub fn reset_list_view_state() {
     unsafe {
-        LISTENER_MAP_LEN = 0;
+        map_mut(&raw mut LISTENER_MAP).reset();
         ITEM_CLICK_QUEUE_HEAD = 0;
         ITEM_CLICK_QUEUE_TAIL = 0;
     }
@@ -171,11 +174,5 @@ pub fn reset_list_view_state() {
 /// after which its item-clicks silently stop dispatching. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_item_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &LISTENER_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const LISTENER_MAP).visit(visit) }
 }

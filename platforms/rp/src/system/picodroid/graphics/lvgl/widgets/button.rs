@@ -15,6 +15,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
@@ -26,8 +27,7 @@ static mut CLICK_QUEUE_TAIL: usize = 0;
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_CLICK_VIEWS: usize = 32;
-static mut VIEW_CLICK_MAP: [(usize, u16); MAX_CLICK_VIEWS] = [(0, 0); MAX_CLICK_VIEWS];
-static mut VIEW_CLICK_MAP_LEN: usize = 0;
+static mut VIEW_CLICK_MAP: PtrMap<MAX_CLICK_VIEWS> = PtrMap::new();
 
 // ── Long-click pathway (LV_EVENT_LONG_PRESSED) ──────────────────────────────
 //
@@ -38,8 +38,7 @@ static mut LONG_CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
 static mut LONG_CLICK_QUEUE_HEAD: usize = 0;
 static mut LONG_CLICK_QUEUE_TAIL: usize = 0;
 
-static mut VIEW_LONG_CLICK_MAP: [(usize, u16); MAX_CLICK_VIEWS] = [(0, 0); MAX_CLICK_VIEWS];
-static mut VIEW_LONG_CLICK_MAP_LEN: usize = 0;
+static mut VIEW_LONG_CLICK_MAP: PtrMap<MAX_CLICK_VIEWS> = PtrMap::new();
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
@@ -65,6 +64,16 @@ unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
             LONG_CLICK_QUEUE_HEAD = next;
         }
     }
+}
+
+unsafe extern "C" fn click_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_CLICK_MAP).remove(obj) }
+}
+
+unsafe extern "C" fn long_click_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_LONG_CLICK_MAP).remove(obj) }
 }
 
 // ── LVGL ops (plain-Rust; called from widgets/*.rs Java shims) ──────────────
@@ -118,28 +127,32 @@ pub(in crate::system::picodroid::graphics) fn perform_click(id: i32) {
 /// Register a Java `View` object as the click-listener target for the
 /// given handle. On the first registration for a widget, attaches the
 /// `LV_EVENT_CLICKED` trampoline and sets `LV_OBJ_FLAG_CLICKABLE` so any
-/// view (not just Button) becomes clickable.
+/// view (not just Button) becomes clickable, plus the `LV_EVENT_DELETE`
+/// unregistration hook. An update means the widget is still alive with its
+/// callbacks intact — a recycled address always takes the insert path
+/// because the old widget's delete callback removed its entry.
 pub(in crate::system::picodroid::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut VIEW_CLICK_MAP[..VIEW_CLICK_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut VIEW_CLICK_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("view-click"),
+            Upsert::Inserted => {
+                let obj = raw_ptr as *mut lv_obj_t;
+                lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(
+                    obj,
+                    Some(view_click_cb),
+                    LV_EVENT_CLICKED,
+                    core::ptr::null_mut(),
+                );
+                lv_obj_add_event_cb(
+                    obj,
+                    Some(click_map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if VIEW_CLICK_MAP_LEN < MAX_CLICK_VIEWS {
-            VIEW_CLICK_MAP[VIEW_CLICK_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_CLICK_MAP_LEN += 1;
-            // First registration for this widget — wire LVGL plumbing.
-            let obj = raw_ptr as *mut lv_obj_t;
-            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(
-                obj,
-                Some(view_click_cb),
-                LV_EVENT_CLICKED,
-                core::ptr::null_mut(),
-            );
         }
     }
 }
@@ -150,23 +163,25 @@ pub(in crate::system::picodroid::graphics) fn register_click_listener(id: i32, o
 pub(in crate::system::picodroid::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut VIEW_LONG_CLICK_MAP[..VIEW_LONG_CLICK_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut VIEW_LONG_CLICK_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("view-long-click"),
+            Upsert::Inserted => {
+                let obj = raw_ptr as *mut lv_obj_t;
+                lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(
+                    obj,
+                    Some(view_long_click_cb),
+                    LV_EVENT_LONG_PRESSED,
+                    core::ptr::null_mut(),
+                );
+                lv_obj_add_event_cb(
+                    obj,
+                    Some(long_click_map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if VIEW_LONG_CLICK_MAP_LEN < MAX_CLICK_VIEWS {
-            VIEW_LONG_CLICK_MAP[VIEW_LONG_CLICK_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_LONG_CLICK_MAP_LEN += 1;
-            let obj = raw_ptr as *mut lv_obj_t;
-            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(
-                obj,
-                Some(view_long_click_cb),
-                LV_EVENT_LONG_PRESSED,
-                core::ptr::null_mut(),
-            );
         }
     }
 }
@@ -200,26 +215,13 @@ pub fn drain_long_click_queue() -> Option<usize> {
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_LONG_CLICK_MAP[..VIEW_LONG_CLICK_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_LONG_CLICK_MAP).lookup(handle) }
 }
 
 /// GC roots for the long-click map — same unrooted-View hazard as
 /// [`visit_click_listener_roots`].
 pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &VIEW_LONG_CLICK_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const VIEW_LONG_CLICK_MAP).visit(visit) }
 }
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
@@ -238,22 +240,15 @@ pub fn drain_click_queue() -> Option<usize> {
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_CLICK_MAP[..VIEW_CLICK_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_CLICK_MAP).lookup(handle) }
 }
 
 pub fn reset_button_state() {
     unsafe {
-        VIEW_CLICK_MAP_LEN = 0;
+        map_mut(&raw mut VIEW_CLICK_MAP).reset();
         CLICK_QUEUE_HEAD = 0;
         CLICK_QUEUE_TAIL = 0;
-        VIEW_LONG_CLICK_MAP_LEN = 0;
+        map_mut(&raw mut VIEW_LONG_CLICK_MAP).reset();
         LONG_CLICK_QUEUE_HEAD = 0;
         LONG_CLICK_QUEUE_TAIL = 0;
     }
@@ -265,11 +260,5 @@ pub fn reset_button_state() {
 /// after which its click silently stops dispatching. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &VIEW_CLICK_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const VIEW_CLICK_MAP).visit(visit) }
 }

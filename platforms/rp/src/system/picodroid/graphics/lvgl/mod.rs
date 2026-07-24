@@ -18,6 +18,7 @@ pub mod fps_overlay;
 pub mod handle_table;
 pub mod key_filter;
 pub mod lifecycle;
+pub mod listener_map;
 pub mod view_ops;
 pub mod widgets;
 

@@ -23,6 +23,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 const BUTTON_POSITIVE: i32 = 0;
 const BUTTON_NEGATIVE: i32 = 1;
@@ -153,7 +154,16 @@ static mut BUTTON_MAP: [ButtonEntry; MAX_BUTTONS] = [EMPTY_BUTTON; MAX_BUTTONS];
 // ── Dialog → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_DIALOGS: usize = 8;
-static mut DIALOG_OBJ_MAP: [(usize, u16); MAX_DIALOGS] = [(0, 0); MAX_DIALOGS];
+static mut DIALOG_OBJ_MAP: PtrMap<MAX_DIALOGS> = PtrMap::new();
+
+/// Belt-and-braces unregistration for any path that deletes the scrim without
+/// going through [`dismiss`] (which already calls `unregister_dialog`).
+/// Attached to every scrim at create; double removal is a no-op.
+unsafe extern "C" fn scrim_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unregister_dialog(obj);
+    unregister_list(obj);
+}
 
 // ── Shown-dialog stack ──────────────────────────────────────────────────────
 //
@@ -293,6 +303,12 @@ unsafe fn build_dialog_shell(
 ) -> (*mut lv_obj_t, *mut lv_obj_t) {
     let scr = lifecycle::screen_ptr();
     let scrim = lv_obj_create(scr);
+    lv_obj_add_event_cb(
+        scrim,
+        Some(scrim_delete_cb),
+        LV_EVENT_DELETE,
+        core::ptr::null_mut(),
+    );
 
     // Modal scrim: fullscreen, dim, click-absorbing.
     lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
@@ -708,15 +724,8 @@ pub(in crate::system::picodroid::graphics) fn register_button_click_listener(
         return;
     }
     unsafe {
-        for entry in &mut DIALOG_OBJ_MAP[..] {
-            if entry.0 == scrim_ptr {
-                entry.1 = obj_ref;
-                return;
-            }
-            if entry.0 == 0 {
-                *entry = (scrim_ptr, obj_ref);
-                return;
-            }
+        if let Upsert::Full = map_mut(&raw mut DIALOG_OBJ_MAP).upsert(scrim_ptr, obj_ref) {
+            warn_full("alert-dialog");
         }
     }
 }
@@ -739,27 +748,14 @@ pub fn drain_click_queue() -> Option<(usize, i32)> {
 /// would otherwise be swept, after which its button click can't dispatch. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_dialog_obj_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &DIALOG_OBJ_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const DIALOG_OBJ_MAP).visit(visit) }
 }
 
 /// Look up the Java `AlertDialog` object index for a dialog's raw scrim
 /// pointer.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_dialog_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &DIALOG_OBJ_MAP[..] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const DIALOG_OBJ_MAP).lookup(handle) }
 }
 
 pub fn reset_alert_dialog_state() {
@@ -767,9 +763,7 @@ pub fn reset_alert_dialog_state() {
         for slot in &mut BUTTON_MAP[..] {
             *slot = EMPTY_BUTTON;
         }
-        for entry in &mut DIALOG_OBJ_MAP[..] {
-            *entry = (0, 0);
-        }
+        map_mut(&raw mut DIALOG_OBJ_MAP).reset();
         for slot in &mut CLICK_QUEUE[..] {
             *slot = EMPTY_CLICK;
         }
@@ -829,10 +823,6 @@ fn unregister_dialog(scrim_ptr: usize) {
                 *slot = EMPTY_BUTTON;
             }
         }
-        for entry in &mut DIALOG_OBJ_MAP[..] {
-            if entry.0 == scrim_ptr {
-                *entry = (0, 0);
-            }
-        }
+        map_mut(&raw mut DIALOG_OBJ_MAP).remove(scrim_ptr);
     }
 }

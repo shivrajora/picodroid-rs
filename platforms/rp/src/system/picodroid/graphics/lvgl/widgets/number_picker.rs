@@ -13,6 +13,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 const MAX_PICKERS: usize = 16;
 /// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
@@ -21,8 +22,7 @@ const MAX_PICKERS: usize = 16;
 /// edit-mode filter, and the obj_ref is the `fireStep` dispatch target.
 /// Entries are removed by the LV_EVENT_DELETE trampoline, so a recycled
 /// `lv_obj_t*` from a later Activity can't be misidentified as a picker.
-static mut PICKER_MAP: [(usize, u16); MAX_PICKERS] = [(0, 0); MAX_PICKERS];
-static mut PICKER_MAP_LEN: usize = 0;
+static mut PICKER_MAP: PtrMap<MAX_PICKERS> = PtrMap::new();
 
 const STEP_QUEUE_SIZE: usize = 16;
 static mut STEP_QUEUE: [(usize, i32); STEP_QUEUE_SIZE] = [(0, 0); STEP_QUEUE_SIZE];
@@ -44,17 +44,7 @@ unsafe extern "C" fn picker_defocused_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn picker_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let mut i = 0;
-        while i < PICKER_MAP_LEN {
-            if PICKER_MAP[i].0 == obj {
-                PICKER_MAP[i] = PICKER_MAP[PICKER_MAP_LEN - 1];
-                PICKER_MAP_LEN -= 1;
-            } else {
-                i += 1;
-            }
-        }
-    }
+    unsafe { map_mut(&raw mut PICKER_MAP).remove(obj) }
     super::super::events::notify_picker_gone(obj);
 }
 
@@ -145,15 +135,8 @@ pub(in crate::system::picodroid::graphics) fn register_picker(id: i32, obj_ref: 
         return;
     }
     unsafe {
-        for entry in &mut PICKER_MAP[..PICKER_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
-            }
-        }
-        if PICKER_MAP_LEN < MAX_PICKERS {
-            PICKER_MAP[PICKER_MAP_LEN] = (raw_ptr, obj_ref);
-            PICKER_MAP_LEN += 1;
+        if let Upsert::Full = map_mut(&raw mut PICKER_MAP).upsert(raw_ptr, obj_ref) {
+            warn_full("number-picker");
         }
     }
 }
@@ -162,14 +145,7 @@ pub(in crate::system::picodroid::graphics) fn register_picker(id: i32, obj_ref: 
 /// the keypad edit-mode filter on every ENTER press.
 #[cfg_attr(not(has_buttons), allow(dead_code))]
 pub fn is_number_picker(raw_ptr: usize) -> bool {
-    unsafe {
-        for entry in &PICKER_MAP[..PICKER_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                return true;
-            }
-        }
-    }
-    false
+    unsafe { map_ref(&raw const PICKER_MAP).lookup(raw_ptr).is_some() }
 }
 
 /// Queue one edit-mode step (+1/-1) for the picker at `raw_ptr`; drained by
@@ -199,19 +175,12 @@ pub fn drain_step_queue() -> Option<(usize, i32)> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &PICKER_MAP[..PICKER_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const PICKER_MAP).lookup(handle) }
 }
 
 pub fn reset_number_picker_state() {
     unsafe {
-        PICKER_MAP_LEN = 0;
+        map_mut(&raw mut PICKER_MAP).reset();
         STEP_QUEUE_HEAD = 0;
         STEP_QUEUE_TAIL = 0;
     }
@@ -224,11 +193,5 @@ pub fn reset_number_picker_state() {
 /// `fireStep` dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_picker_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &PICKER_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const PICKER_MAP).visit(visit) }
 }

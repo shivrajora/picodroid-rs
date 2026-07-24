@@ -15,6 +15,8 @@ use crate::hal;
 #[allow(unused_imports)]
 use crate::lvgl_ffi::*;
 
+use super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+
 // Board-specific button table generated from `[[button]]` in board.toml.
 // Entries: (pin, LV_KEY_*, android_keycode). Empty on boards without buttons.
 mod button_generated {
@@ -94,44 +96,44 @@ pub fn focused_view_obj() -> Option<u16> {
 // ── View key-listener registry (raw lv_obj_t* → Java View ObjectRef) ────────
 
 const MAX_KEY_LISTENERS: usize = 32;
-static mut VIEW_KEY_MAP: [(usize, u16); MAX_KEY_LISTENERS] = [(0, 0); MAX_KEY_LISTENERS];
-static mut VIEW_KEY_MAP_LEN: usize = 0;
+static mut VIEW_KEY_MAP: PtrMap<MAX_KEY_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn key_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_KEY_MAP).remove(obj) }
+}
 
 /// Record a Java `View` object as the key-listener target for the given
 /// `nativeHandle` id. The registry keys on the raw `lv_obj_t*` from the
 /// handle table because LVGL's focus group also exposes raw pointers.
+/// No key trampoline exists (the shared keypad indev feeds this map), but
+/// first registration still attaches the `LV_EVENT_DELETE` unregistration
+/// hook so a destroyed view's entry doesn't pin its Java graph.
 pub fn register_view_key_listener(id: i32, obj_ref: u16) {
     let raw_ptr = super::handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut VIEW_KEY_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("view-key"),
+            Upsert::Inserted => {
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(key_map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if VIEW_KEY_MAP_LEN < MAX_KEY_LISTENERS {
-            VIEW_KEY_MAP[VIEW_KEY_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_KEY_MAP_LEN += 1;
         }
     }
 }
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 fn lookup_view_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_KEY_MAP[..VIEW_KEY_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_KEY_MAP).lookup(handle) }
 }
 
 pub fn reset_view_key_listener_state() {
-    unsafe {
-        VIEW_KEY_MAP_LEN = 0;
-    }
+    unsafe { map_mut(&raw mut VIEW_KEY_MAP).reset() }
 }
 
 /// Visit the Java `View` object ref of every view registered for a key, touch,
@@ -144,26 +146,10 @@ pub fn reset_view_key_listener_state() {
 /// Called from `PicodroidNativeHandler::gc_visit_roots`.
 pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
     unsafe {
-        for &(_, r) in &VIEW_KEY_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-        for &(_, r) in &VIEW_TOUCH_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-        for &(_, r) in &VIEW_SWIPE_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-        for &(_, r) in &VIEW_FOCUS_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
+        map_ref(&raw const VIEW_KEY_MAP).visit(visit);
+        map_ref(&raw const VIEW_TOUCH_MAP).visit(visit);
+        map_ref(&raw const VIEW_SWIPE_MAP).visit(visit);
+        map_ref(&raw const VIEW_FOCUS_MAP).visit(visit);
     }
 }
 
@@ -550,8 +536,12 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
 // TextView and LinearLayout.
 
 const MAX_TOUCH_LISTENERS: usize = 32;
-static mut VIEW_TOUCH_MAP: [(usize, u16); MAX_TOUCH_LISTENERS] = [(0, 0); MAX_TOUCH_LISTENERS];
-static mut VIEW_TOUCH_MAP_LEN: usize = 0;
+static mut VIEW_TOUCH_MAP: PtrMap<MAX_TOUCH_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn touch_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_TOUCH_MAP).remove(obj) }
+}
 
 /// Action codes — must match the constants on `picodroid.view.MotionEvent`.
 const ACTION_DOWN: i32 = 0;
@@ -711,18 +701,14 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
     let raw_ptr = raw_obj as usize;
 
     unsafe {
-        for entry in &mut VIEW_TOUCH_MAP[..VIEW_TOUCH_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                // Already registered with LVGL — just refresh the obj_ref.
-                entry.1 = obj_ref;
+        match map_mut(&raw mut VIEW_TOUCH_MAP).upsert(raw_ptr, obj_ref) {
+            // Already registered with LVGL — the obj_ref was refreshed.
+            Upsert::Updated => return,
+            Upsert::Full => {
+                warn_full("view-touch");
                 return;
             }
-        }
-        if VIEW_TOUCH_MAP_LEN < MAX_TOUCH_LISTENERS {
-            VIEW_TOUCH_MAP[VIEW_TOUCH_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_TOUCH_MAP_LEN += 1;
-        } else {
-            return; // table full, silently drop
+            Upsert::Inserted => {}
         }
 
         // Make the widget clickable so the touch indev hit-tests it. This
@@ -758,6 +744,12 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
             LV_EVENT_PRESSING,
             core::ptr::null_mut(),
         );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(touch_map_delete_cb),
+            LV_EVENT_DELETE,
+            core::ptr::null_mut(),
+        );
     }
 }
 
@@ -777,19 +769,12 @@ pub fn drain_touch_event() -> Option<TouchRecord> {
 /// Look up the Java `View` object reference for a registered LVGL widget.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_TOUCH_MAP[..VIEW_TOUCH_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_TOUCH_MAP).lookup(handle) }
 }
 
 pub fn reset_view_touch_listener_state() {
     unsafe {
-        VIEW_TOUCH_MAP_LEN = 0;
+        map_mut(&raw mut VIEW_TOUCH_MAP).reset();
         TOUCH_QUEUE_HEAD = 0;
         TOUCH_QUEUE_TAIL = 0;
         CLICK_SUPPRESS_LEN = 0;
@@ -938,8 +923,12 @@ static mut SWIPE_QUEUE: [SwipeRecord; SWIPE_QUEUE_SIZE] = [SwipeRecord {
 static mut SWIPE_QUEUE_HEAD: usize = 0;
 static mut SWIPE_QUEUE_TAIL: usize = 0;
 
-static mut VIEW_SWIPE_MAP: [(usize, u16); MAX_SWIPE_LISTENERS] = [(0, 0); MAX_SWIPE_LISTENERS];
-static mut VIEW_SWIPE_MAP_LEN: usize = 0;
+static mut VIEW_SWIPE_MAP: PtrMap<MAX_SWIPE_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn swipe_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_SWIPE_MAP).remove(obj) }
+}
 
 unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
@@ -971,22 +960,24 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        for entry in &mut VIEW_SWIPE_MAP[..VIEW_SWIPE_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
+        match map_mut(&raw mut VIEW_SWIPE_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => return,
+            Upsert::Full => {
+                warn_full("view-swipe");
                 return;
             }
-        }
-        if VIEW_SWIPE_MAP_LEN < MAX_SWIPE_LISTENERS {
-            VIEW_SWIPE_MAP[VIEW_SWIPE_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_SWIPE_MAP_LEN += 1;
-        } else {
-            return;
+            Upsert::Inserted => {}
         }
         lv_obj_add_event_cb(
             raw_obj,
             Some(swipe_gesture_cb),
             LV_EVENT_GESTURE,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(swipe_map_delete_cb),
+            LV_EVENT_DELETE,
             core::ptr::null_mut(),
         );
     }
@@ -1006,19 +997,12 @@ pub fn drain_swipe_event() -> Option<SwipeRecord> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_SWIPE_MAP[..VIEW_SWIPE_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_SWIPE_MAP).lookup(handle) }
 }
 
 pub fn reset_view_swipe_listener_state() {
     unsafe {
-        VIEW_SWIPE_MAP_LEN = 0;
+        map_mut(&raw mut VIEW_SWIPE_MAP).reset();
         SWIPE_QUEUE_HEAD = 0;
         SWIPE_QUEUE_TAIL = 0;
     }
@@ -1051,8 +1035,12 @@ static mut FOCUS_QUEUE: [FocusRecord; FOCUS_QUEUE_SIZE] = [FocusRecord {
 static mut FOCUS_QUEUE_HEAD: usize = 0;
 static mut FOCUS_QUEUE_TAIL: usize = 0;
 
-static mut VIEW_FOCUS_MAP: [(usize, u16); MAX_FOCUS_LISTENERS] = [(0, 0); MAX_FOCUS_LISTENERS];
-static mut VIEW_FOCUS_MAP_LEN: usize = 0;
+static mut VIEW_FOCUS_MAP: PtrMap<MAX_FOCUS_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn focus_map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut VIEW_FOCUS_MAP).remove(obj) }
+}
 
 fn push_focus_event(handle: usize, has_focus: bool) {
     unsafe {
@@ -1106,17 +1094,13 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        for entry in &mut VIEW_FOCUS_MAP[..VIEW_FOCUS_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
+        match map_mut(&raw mut VIEW_FOCUS_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => return,
+            Upsert::Full => {
+                warn_full("view-focus");
                 return;
             }
-        }
-        if VIEW_FOCUS_MAP_LEN < MAX_FOCUS_LISTENERS {
-            VIEW_FOCUS_MAP[VIEW_FOCUS_MAP_LEN] = (raw_ptr, obj_ref);
-            VIEW_FOCUS_MAP_LEN += 1;
-        } else {
-            return;
+            Upsert::Inserted => {}
         }
         lv_obj_add_event_cb(
             raw_obj,
@@ -1128,6 +1112,12 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
             raw_obj,
             Some(view_defocused_cb),
             LV_EVENT_DEFOCUSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            raw_obj,
+            Some(focus_map_delete_cb),
+            LV_EVENT_DELETE,
             core::ptr::null_mut(),
         );
     }
@@ -1147,19 +1137,12 @@ pub fn drain_focus_change_event() -> Option<FocusRecord> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &VIEW_FOCUS_MAP[..VIEW_FOCUS_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const VIEW_FOCUS_MAP).lookup(handle) }
 }
 
 pub fn reset_view_focus_listener_state() {
     unsafe {
-        VIEW_FOCUS_MAP_LEN = 0;
+        map_mut(&raw mut VIEW_FOCUS_MAP).reset();
         FOCUS_QUEUE_HEAD = 0;
         FOCUS_QUEUE_TAIL = 0;
     }

@@ -6,6 +6,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 const QUEUE_SIZE: usize = 16;
 static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
@@ -13,8 +14,12 @@ static mut QUEUE_HEAD: usize = 0;
 static mut QUEUE_TAIL: usize = 0;
 
 const MAX_LISTENERS: usize = 32;
-static mut HANDLE_MAP: [(usize, u16); MAX_LISTENERS] = [(0, 0); MAX_LISTENERS];
-static mut HANDLE_MAP_LEN: usize = 0;
+static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut HANDLE_MAP).remove(obj) }
+}
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
@@ -34,6 +39,12 @@ pub(in crate::system::picodroid::graphics) fn create() -> i32 {
             cb,
             Some(value_changed_cb),
             LV_EVENT_VALUE_CHANGED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            cb,
+            Some(map_delete_cb),
+            LV_EVENT_DELETE,
             core::ptr::null_mut(),
         );
         cb
@@ -81,15 +92,8 @@ pub(in crate::system::picodroid::graphics) fn perform_checked_change(id: i32) {
 pub(in crate::system::picodroid::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut HANDLE_MAP[..HANDLE_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
-            }
-        }
-        if HANDLE_MAP_LEN < MAX_LISTENERS {
-            HANDLE_MAP[HANDLE_MAP_LEN] = (raw_ptr, obj_ref);
-            HANDLE_MAP_LEN += 1;
+        if let Upsert::Full = map_mut(&raw mut HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+            warn_full("checkbox-checked");
         }
     }
 }
@@ -108,19 +112,12 @@ pub fn drain_cb_checked_change_queue() -> Option<usize> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_cb_checked_change_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &HANDLE_MAP[..HANDLE_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
 }
 
 pub fn reset_check_box_state() {
     unsafe {
-        HANDLE_MAP_LEN = 0;
+        map_mut(&raw mut HANDLE_MAP).reset();
         QUEUE_HEAD = 0;
         QUEUE_TAIL = 0;
     }
@@ -133,11 +130,5 @@ pub fn reset_check_box_state() {
 /// later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &HANDLE_MAP[..] {
-            if r != 0 {
-                visit(r);
-            }
-        }
-    }
+    unsafe { map_ref(&raw const HANDLE_MAP).visit(visit) }
 }
