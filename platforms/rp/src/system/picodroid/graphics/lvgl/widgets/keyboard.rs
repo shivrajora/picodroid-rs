@@ -25,6 +25,7 @@ use super::super::animations;
 use super::super::events;
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 // ── READY event ring buffer (per-instance only) ─────────────────────────────
 
@@ -34,8 +35,12 @@ static mut READY_QUEUE_HEAD: usize = 0;
 static mut READY_QUEUE_TAIL: usize = 0;
 
 const MAX_KEYBOARDS: usize = 4;
-static mut KEYBOARD_HANDLE_MAP: [(usize, u16); MAX_KEYBOARDS] = [(0, 0); MAX_KEYBOARDS];
-static mut KEYBOARD_HANDLE_MAP_LEN: usize = 0;
+static mut KEYBOARD_HANDLE_MAP: PtrMap<MAX_KEYBOARDS> = PtrMap::new();
+
+unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut KEYBOARD_HANDLE_MAP).remove(obj) }
+}
 
 unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
@@ -317,15 +322,19 @@ pub(in crate::system::picodroid::graphics) fn register_ready_listener(id: i32, o
         return;
     }
     unsafe {
-        for entry in &mut KEYBOARD_HANDLE_MAP[..KEYBOARD_HANDLE_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut KEYBOARD_HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("keyboard-ready"),
+            Upsert::Inserted => {
+                // Unregister on widget delete so a recycled lv_obj address
+                // can't alias a dead widget's listener entry.
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if KEYBOARD_HANDLE_MAP_LEN < MAX_KEYBOARDS {
-            KEYBOARD_HANDLE_MAP[KEYBOARD_HANDLE_MAP_LEN] = (raw_ptr, obj_ref);
-            KEYBOARD_HANDLE_MAP_LEN += 1;
         }
     }
 }
@@ -347,19 +356,12 @@ pub fn drain_ready_queue() -> Option<usize> {
 /// Look up the Java `Keyboard` object index for a per-instance widget.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &KEYBOARD_HANDLE_MAP[..KEYBOARD_HANDLE_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const KEYBOARD_HANDLE_MAP).lookup(handle) }
 }
 
 pub fn reset_keyboard_state() {
     unsafe {
-        KEYBOARD_HANDLE_MAP_LEN = 0;
+        map_mut(&raw mut KEYBOARD_HANDLE_MAP).reset();
         READY_QUEUE_HEAD = 0;
         READY_QUEUE_TAIL = 0;
         // The screen tree is torn down by handle_table::reset on app

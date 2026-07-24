@@ -5,6 +5,7 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 
 const QUEUE_SIZE: usize = 16;
 static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
@@ -18,8 +19,12 @@ static mut TRACK_HEAD: usize = 0;
 static mut TRACK_TAIL: usize = 0;
 
 const MAX_LISTENERS: usize = 32;
-static mut HANDLE_MAP: [(usize, u16); MAX_LISTENERS] = [(0, 0); MAX_LISTENERS];
-static mut HANDLE_MAP_LEN: usize = 0;
+static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
+
+unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe { map_mut(&raw mut HANDLE_MAP).remove(obj) }
+}
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
@@ -118,15 +123,19 @@ pub(in crate::system::picodroid::graphics) fn perform_tracking_touch(id: i32) {
 pub(in crate::system::picodroid::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        for entry in &mut HANDLE_MAP[..HANDLE_MAP_LEN] {
-            if entry.0 == raw_ptr {
-                entry.1 = obj_ref;
-                return;
+        match map_mut(&raw mut HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("seek-bar"),
+            Upsert::Inserted => {
+                // Unregister on widget delete so a recycled lv_obj address
+                // can't alias a dead widget's listener entry.
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(map_delete_cb),
+                    LV_EVENT_DELETE,
+                    core::ptr::null_mut(),
+                );
             }
-        }
-        if HANDLE_MAP_LEN < MAX_LISTENERS {
-            HANDLE_MAP[HANDLE_MAP_LEN] = (raw_ptr, obj_ref);
-            HANDLE_MAP_LEN += 1;
         }
     }
 }
@@ -157,19 +166,12 @@ pub fn drain_seek_tracking_queue() -> Option<(usize, bool)> {
 
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_seek_bar_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &HANDLE_MAP[..HANDLE_MAP_LEN] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
 }
 
 pub fn reset_seek_bar_state() {
     unsafe {
-        HANDLE_MAP_LEN = 0;
+        map_mut(&raw mut HANDLE_MAP).reset();
         QUEUE_HEAD = 0;
         QUEUE_TAIL = 0;
         TRACK_HEAD = 0;
