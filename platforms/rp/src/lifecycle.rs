@@ -278,6 +278,18 @@ pub(crate) fn run_activity(
     let slow_handler_ms = slow_handler_threshold_ms();
     let mut last_slow_warn_ms: u64 = 0;
 
+    // Idle GC: the interpreter only collects when the allocation counter
+    // crosses GC_THRESHOLD at a safepoint, so garbage from a churn burst
+    // that ends short of the threshold sits unreclaimed for as long as the
+    // app stays idle — which matters exactly for heap-capped apps parking
+    // right after the burst. Mirror Android's idle-time GC: after ~2 s of
+    // ticks with a non-zero but unchanging allocation count, run one
+    // collection (which zeroes the counter, naturally latching this off
+    // until allocations resume).
+    const IDLE_GC_TICKS: u32 = 125; // ~2 s at the 16 ms tick cadence
+    let mut idle_ticks: u32 = 0;
+    let mut idle_alloc_count: u16 = 0;
+
     loop {
         if handler.interrupted() {
             break;
@@ -325,6 +337,21 @@ pub(crate) fn run_activity(
                 // each sample observes a settled frame.
                 #[cfg(feature = "mem-diag")]
                 crate::system::mem_diag::on_tick(heap, handler);
+
+                // Idle GC (see IDLE_GC_TICKS above): sub-threshold garbage is
+                // collected once allocations have stopped for ~2 s.
+                let ac = heap.gc_state.alloc_count;
+                if ac != 0 && ac == idle_alloc_count {
+                    idle_ticks += 1;
+                    if idle_ticks >= IDLE_GC_TICKS {
+                        heap.collect_now(handler);
+                        idle_ticks = 0;
+                        idle_alloc_count = 0;
+                    }
+                } else {
+                    idle_ticks = 0;
+                    idle_alloc_count = ac;
+                }
 
                 crate::hal::display::update_window();
                 if !crate::hal::display::is_window_open() {
