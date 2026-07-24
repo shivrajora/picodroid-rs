@@ -83,6 +83,19 @@ impl GrowthSentinel {
         }
     }
 
+    /// Re-baseline an already-armed sentinel: discard the ring and settle
+    /// again before recording a fresh baseline. Called on Activity
+    /// transitions so a later screen's legitimate construction growth is not
+    /// judged against the first screen's baseline (every native `LEAK?` in
+    /// the 2026-07-23 stress run was that false positive). A dormant
+    /// sentinel stays dormant — arming remains the platform's decision.
+    pub fn rearm(&mut self) {
+        if self.armed {
+            self.settle = SETTLE_WINDOWS;
+            self.len = 0;
+        }
+    }
+
     pub fn is_armed(&self) -> bool {
         self.armed
     }
@@ -273,6 +286,43 @@ mod tests {
         for _ in 0..50 {
             assert_eq!(s.push_window(30_000), None);
         }
+    }
+
+    #[test]
+    fn rearm_rebaselines_after_transition_growth() {
+        let mut s = armed_and_settled(10_000);
+        // A new Activity's construction raises the floor 30 KB — with rearm
+        // the sentinel settles onto the new level instead of tripping.
+        s.rearm();
+        assert_eq!(s.push_window(40_000), None); // settle 1
+        assert_eq!(s.push_window(40_000), None); // settle 2 -> new baseline
+        assert_eq!(s.baseline(), 40_000);
+        for _ in 0..50 {
+            assert_eq!(s.push_window(40_000), None);
+        }
+    }
+
+    #[test]
+    fn rearm_on_dormant_sentinel_is_noop() {
+        let mut s = GrowthSentinel::new();
+        s.rearm();
+        assert!(!s.is_armed());
+        for i in 0..20u32 {
+            assert_eq!(s.push_window(i * 10_000), None);
+        }
+    }
+
+    #[test]
+    fn leak_after_rearm_still_trips() {
+        let mut s = armed_and_settled(10_000);
+        s.rearm();
+        assert_eq!(s.push_window(40_000), None);
+        assert_eq!(s.push_window(40_000), None);
+        let mut tripped = false;
+        for i in 0..=(SENTINEL_WINDOWS as u32) {
+            tripped |= s.push_window(40_000 + i * 1_024).is_some();
+        }
+        assert!(tripped, "steady leak after rearm must still trip");
     }
 
     #[test]

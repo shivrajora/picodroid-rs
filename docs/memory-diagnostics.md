@@ -74,16 +74,26 @@ Special lines:
 ## The growth sentinel
 
 Watches two floors per window: the **post-GC JVM live floor** and the
-**native used floor**. Arms after the Activity's `onCreate` completes
+**native used floor**. Arms after the first Activity's `onCreate` completes
 (construction growth is legitimate) plus 2 settle windows, then trips when,
 over the last **8** windows, ≥ 7 deltas are rising AND the rise across the
 ring and above the armed baseline both exceed **4096 B** (one fields-arena
 growth step). A single-step rise that then stays flat (a lazily-built cache)
 never trips; a persisting leak re-trips every 8 windows.
 
+The **native** sentinel additionally re-baselines on every Activity push and
+pop (2 fresh settle windows, then a new baseline): raw native use
+legitimately steps with each screen's construction and teardown, and judging
+it against the first Activity's baseline made every later screen a false
+`LEAK?` on multi-screen apps. The cost is a deliberate ~3-window blind spot
+around each transition — acceptable for a steady-state drift detector. The
+JVM sentinel keeps its original arm-time baseline: its post-GC floor input
+does not step at transitions, so it stays maximally sensitive.
+
 The same contract in unit form: `gc_stress_steady_state_flat`
-(`jvm/src/gc/tests.rs`). The end-to-end detection path is exercised by the
-`PICODROID_MEMDIAG_SELFTEST=1` case in `scripts/test-memdiag.sh`.
+(`jvm/src/gc/tests.rs`) and the `rearm_*` cases in `jvm/src/mem_diag.rs`.
+The end-to-end detection path — both channels — is exercised by the
+`PICODROID_MEMDIAG_SELFTEST=1` cases in `scripts/test-memdiag.sh`.
 
 ## Offensive mode (`PICODROID_MEMDIAG_OFFENSIVE=1`, sim)
 

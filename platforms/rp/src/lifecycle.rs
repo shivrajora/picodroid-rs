@@ -745,6 +745,11 @@ fn handle_push_op(
             return LifecycleControl::Break;
         }
     }
+    // Native heap use legitimately steps with the new screen's construction;
+    // re-baseline the native growth sentinel so it watches for steady-state
+    // drift from here, not from the first Activity's arm point.
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::note_activity_transition();
     LifecycleControl::Continue
 }
 
@@ -849,6 +854,11 @@ fn handle_pop_op(
             }
         }
     }
+    // Mirror of the push-side re-baseline: the pop released a screen's worth
+    // of native allocations, another legitimate step the sentinel must not
+    // judge against a stale baseline.
+    #[cfg(feature = "mem-diag")]
+    crate::system::mem_diag::note_activity_transition();
     LifecycleControl::Continue
 }
 

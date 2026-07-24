@@ -115,6 +115,26 @@ fi
 
 snapshot_test "benchmark snapshot" benchmark "TOTAL:"
 
+# Detector self-test, both channels: the synthetic ramp feeds the live AND
+# native sentinels, and each must emit its own LEAK? line (non-strict so the
+# first trip doesn't abort before the other channel reports).
+echo "==> Self-test: live AND native sentinels must trip on the synthetic ramp"
+rc=0
+output=$(PICODROID_SIM_HEADLESS=1 \
+         PICODROID_MEMDIAG_SENTINEL=1 \
+         PICODROID_MEMDIAG_SELFTEST=1 \
+         timeout 60 \
+         bash "$SCRIPT_DIR/sim.sh" --app animdemo --mem-diag 2>&1) || rc=$?
+pkill -x picodroid 2>/dev/null || true
+if echo "$output" | grep -q "LEAK? live" && echo "$output" | grep -q "LEAK? native"; then
+  echo "    PASS (both channels tripped)"
+  PASS=$((PASS + 1))
+else
+  echo "    FAIL: expected both 'LEAK? live' and 'LEAK? native' (exit $rc)"
+  echo "$output" | grep -E "LEAK\?|memmon" | tail -5
+  FAIL=$((FAIL + 1))
+fi
+
 # Detector self-test: a synthetic +2 KB/window ramp MUST trip the sentinel
 # (LEAK? line) and strict mode MUST abort — proves the detection path
 # end-to-end, not just that healthy apps stay quiet.

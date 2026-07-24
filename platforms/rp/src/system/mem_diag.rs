@@ -433,6 +433,16 @@ pub fn arm() {
     st.native_sentinel.arm();
 }
 
+/// An Activity push/pop just completed. Re-baseline the NATIVE sentinel: raw
+/// `nused` legitimately steps with every screen's construction, so judging it
+/// against the first Activity's baseline made every later screen a false
+/// `LEAK?` (194 of them in the 2026-07-23 stress run). The JVM sentinel is
+/// fed the post-GC floor, which does not step at transitions — it keeps its
+/// original baseline and stays exactly as sensitive.
+pub fn note_activity_transition() {
+    state().native_sentinel.rearm();
+}
+
 /// Per-tick hook — called from the `MainTask::LvglTick` arm. Cheap between
 /// window boundaries (one increment + compare; plus a request-flag load on
 /// sim).
@@ -549,17 +559,22 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
 
     if st.sentinel_on {
         // Detector self-test (PICODROID_MEMDIAG_SELFTEST=1, sim only): feed
-        // the live sentinel a synthetic +2 KB/window ramp so a soak can
-        // assert the LEAK? path end-to-end (and strict mode's abort) without
-        // needing a deliberately leaky app.
+        // BOTH sentinels a synthetic +2 KB/window ramp so a soak can assert
+        // the live and native LEAK? paths end-to-end (and strict mode's
+        // abort) without needing a deliberately leaky app.
         #[cfg(feature = "sim")]
-        let floor = if selftest_enabled() {
-            floor + st.window_index * 2048
+        let (floor, native_used) = if selftest_enabled() {
+            (
+                floor + st.window_index * 2048,
+                native.used + st.window_index * 2048,
+            )
         } else {
-            floor
+            (floor, native.used)
         };
+        #[cfg(not(feature = "sim"))]
+        let native_used = native.used;
         let live_trip = st.live_sentinel.push_window(floor);
-        let native_trip = st.native_sentinel.push_window(native.used);
+        let native_trip = st.native_sentinel.push_window(native_used);
         let tripped = live_trip.is_some() || native_trip.is_some();
         if let Some(r) = live_trip {
             print_leak("live", &r);
