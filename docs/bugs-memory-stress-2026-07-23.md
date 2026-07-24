@@ -47,6 +47,16 @@ persistent pipe; a closed writer EOFs the channel permanently):
 
 ## PEM-1 — Keypad ENTER never fires `Button.setOnClickListener` (Settings unsavable on hardware) · **Critical, functional**
 
+> **Status (2026-07-24): fixed in `dd40ba5` (+ `3cdab95` for burst endurance).** The suspected
+> CLICKED-synthesis path was sound; the real causes were (a) the indev read pass draining
+> queued edges against the *old* screen's focus group while an ENTER-triggered Activity push
+> was still pending — burst input spanning a transition was consumed by the wrong screen —
+> plus a 16-edge GPIO queue that dropped silently during transition stalls, and (b) PEM-2's
+> recycled-address trampoline cliff killing visits 3+. Paced input always worked. The
+> headless-sim "fails on first open" evidence was an artifact of the control-channel FIFO
+> EOF gotcha. Verified on-device: the S5 burst scores 6/6 saves (was 0/6), sweep save fires,
+> and clicks survive a 40-visit hammer.
+
 ### Symptom
 
 Pressing X (DPAD_CENTER → LVGL ENTER) on a focused `picodroid.widget.Button`
@@ -124,6 +134,11 @@ framework-level unit is wanted.
 
 ## PEM-2 — Native listener maps are append-only; dead view graphs stay GC-pinned; silent callback loss on address reuse and map overflow · **Medium (memory) with Critical latent cliffs**
 
+> **Status (2026-07-24): fixed in `3cdab95`** (shared `PtrMap` + per-widget `LV_EVENT_DELETE`
+> unregistration across all rooted maps, loud overflow; `b59d833` extends the treatment to the
+> unrooted handle maps). On-device: hub post-GC floor constant at 6971 B across 6 Live + 6
+> Settings cycles (no ratchet), clicks alive on visit 41 of a Settings hammer.
+
 ### Symptom (measured)
 
 Matched-state hub floor (post-GC JVM live floor sampled at identical app state
@@ -194,6 +209,13 @@ still fire on the 40th visit (exercises address reuse), and floor stays flat.
 
 ## PEM-3 — Heap fragmentation degrades 2.6× under navigation stress and never recovers · **Medium**
 
+> **Status (2026-07-24): fixed in `3bcd72f`.** Re-measure after PEM-2/PEM-4 still failed the
+> gate (lblk 123-149 KB, frag ~430‰): the new `memmon: storage` line showed slot-chunk/arena
+> growth events landing exactly in the windows where lblk collapsed. Boot-time pre-reservation
+> (board-tuned `[jvm] prereserve_*` keys) claims the app's measured steady-state storage while
+> the heap is contiguous. On-device gate: storage never grows past boot, lblk byte-identical
+> across s7 rounds 2-3 + 240 s settle, final frag 34‰ (96.7 % of free space in one block).
+
 ### Symptom (measured, memmon fields)
 
 Over one ~40 min nav soak at steady total-free levels:
@@ -241,6 +263,10 @@ under ~100‰, with no monotonic step pattern across scenario boundaries.
 
 ## PEM-4 — `SensorLoggerService` ALERT path: unconditional per-second log/alloc churn, no edge detection · **Low-Medium**
 
+> **Status (2026-07-24): fixed in `e27848c`** (per-sensor breach latch; log on entering breach
+> and once on clearing). On-device: 5 min hub idle with logger on reads `alloc=+0 nalloc=+0`
+> in all 606 windows with zero GCs; a ~25 min soak produced 3 ALERT lines, all genuine edges.
+
 ### Symptom (measured)
 
 **11,319** `ALERT:` lines in ~63 min of logger-on time — exactly 3/s (3,773 each
@@ -279,6 +305,11 @@ appear only on threshold crossings.
 ---
 
 ## PEM-5 — mem-diag native growth sentinel never re-arms after the first Activity → LEAK? warnings are noise on multi-screen apps · **Low (diagnostics)**
+
+> **Status (2026-07-24): fixed in `ce9908c`** (native sentinel re-baselines on every Activity
+> push/pop; JVM sentinel untouched; selftest ramp now asserts both channels). On-device soak:
+> 2 native LEAK? lines vs 194 — both citing fresh post-transition baselines and flagging a
+> real ~10 KB native creep during Live dwells, i.e. signal, not noise.
 
 ### Symptom (measured)
 
@@ -325,11 +356,12 @@ deliberately-injected native leak (selftest-style ramp) still trips it.
 
 ## Minor observations (not scheduled bugs)
 
-- **OBS-1 — No idle GC:** GC is allocation-paced only; after input stops, dead
+- **OBS-1 — No idle GC:** *(fixed in `3a4ef3e`: one collection after ~2 s of zero-allocation
+  ticks, self-latching)* GC is allocation-paced only; after input stops, dead
   garbage (≈4 KB of strings in keydemo's case) sits unreclaimed indefinitely.
   Only matters for heap-capped apps that park idle right after a churn burst.
   Possible cheap fix: one GC after N consecutive zero-alloc windows.
-- **OBS-2 — `pdb sysmon` output interleaving:** the host CLI prints the task
+- **OBS-2 — `pdb sysmon` output interleaving:** *(fixed in `0000f51`)* the host CLI prints the task
   table header, then the JVM mem-diag block, then the task rows underneath it.
   Cosmetic ordering bug in `tools/pdb/src/sysmon.rs`.
 
