@@ -82,10 +82,6 @@ resolve_board() {
       PACKAGE="picodroid"
       CARGO_PLUS=""        # stable toolchain, no override needed
       ;;
-    esp)
-      PACKAGE="picodroid-esp"
-      CARGO_PLUS="+esp"   # Espressif nightly fork required for -Zbuild-std
-      ;;
     *)
       echo "Unknown platform: $PLATFORM" >&2; exit 1
       ;;
@@ -252,7 +248,7 @@ build_firmware() {
   if [[ "$TARGET" == thumbv6m* ]]; then
     flash_gate+=(--config 'profile.release.lto=false')
   fi
-  # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
+  # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or a "+toolchain" override)
   PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
     --manifest-path "$MANIFEST_DIR/Cargo.toml" \
     --config 'profile.dev.debug-assertions=false' \

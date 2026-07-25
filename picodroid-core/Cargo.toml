@@ -4,14 +4,12 @@ edition = "2021"
 version = "0.1.0"
 license = "GPL-3.0-only"
 
-# Feature convention: one feature per MCU family.
-# Adding a new family (e.g. family-stm32) requires:
-#   1. Add feature here
-#   2. Create picodroid-<family>/ sub-workspace with its own Cargo.lock
-#   3. Implement src/hal/contract.rs for the new target
+# Feature convention: one feature per MCU family (family-rp today).
+# The ESP32-S3 scaffold was removed 2026-07 (git history: platforms/esp/).
+# A future family adds its feature here plus a platforms/<family>/
+# workspace mirroring platforms/rp/ (HAL contract doc: platforms/rp/src/hal/mod.rs).
 [features]
-family-rp  = ["dep:freertos-rust"]
-family-esp = []
+family-rp  = []
 sim        = []
 # Board capability features — activated by the binary crate's board features and
 # forwarded here so picodroid-core can emit the matching rustc-cfgs.
@@ -30,8 +28,6 @@ embedded-hal  = "1.0"
 defmt         = "1"
 crc32fast     = { version = "1", default-features = false }
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
-# freertos-rust is safe here: pure Rust bindings to FreeRTOS C symbols, no riscv-rt dep.
-freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = true }
 
 [build-dependencies]
 class-shrink = { path = "../tools/class-shrink" }

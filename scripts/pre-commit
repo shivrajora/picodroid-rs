@@ -34,7 +34,7 @@ fi
 echo "==> Checking sim/family-rp cfg-gate hygiene..."
 # docs/parity-audit.md BLD-02/X2: sim builds keep `family-rp` ACTIVE (the
 # board feature chain), so a gate written as not(feature = "family-rp") does
-# NOT mean "not the simulator" — it selects the ESP/no-family path. The
+# NOT mean "not the simulator" — it selects the no-family path. The
 # existing occurrences are deliberate cross-family gates; a new one usually
 # wants `feature = "sim"` spelled out instead.
 FAMRP_GATES=$(grep -rn 'not(feature = "family-rp")' \
@@ -116,20 +116,6 @@ if ! PICODROID_APK_PATH="$APK_PATH" \
        --features "sim,board-testbench-rp2350,mem-diag" -- --deny=warnings; then
   echo ""
   echo "ERROR: Clippy check failed (sim + mem-diag). Fix the warnings above before committing."
-  exit 1
-fi
-
-resolve_board tdeck_plus
-echo "==> Running clippy (tdeck_plus)..."
-# shellcheck disable=SC2086
-if ! PICODROID_APK_PATH="$APK_PATH" \
-     cargo $CARGO_PLUS clippy \
-       --manifest-path "$MANIFEST_DIR/Cargo.toml" \
-       -p "$PACKAGE" --jobs "$JOBS" --target "$TARGET" --no-default-features \
-       --features "$BOARD_FEATURE" \
-       "${EXTRA_BUILD_ARGS[@]}" -- --deny=warnings; then
-  echo ""
-  echo "ERROR: Clippy check failed (tdeck_plus). Fix the warnings above before committing."
   exit 1
 fi
 

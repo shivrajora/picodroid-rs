@@ -15,14 +15,12 @@ The MCU sets the ceiling. RAM and flash are the two scarce resources; everything
 | `testbench_rp2350` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
 | `testbench_rp2350w` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
 | `pico_enviro_mon` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 48 KiB |
-| `tdeck_plus` | ESP32-S3 (Xtensa LX7) | 512 KB | 8 MB | 240 MHz | 2 | — (M1) | 64 KiB |
 
 Notes on the numbers:
 
 - The SRAM figure is what the linker assumes, not the chip's physical total. RP2040 declares 256 KB (its four 64 KB main banks); the two 4 KB scratch banks are excluded, so the chip's 264 KB physical SRAM is reported as 256 KB. RP2350's 520 KB matches physical.
 - The **FreeRTOS heap** (`configTOTAL_HEAP_SIZE`) is the single pool the JVM allocates from — see [How the Java heap works](#how-the-java-heap-works). It is selected by chip architecture in `FreeRTOSConfig.h`: 416 KB on the M33 (RP2350), 128 KB on the M0+ (RP2040).
 - **LVGL buffer** is the UI render pool (`lv_mem_kb`, default 64 KiB). Only `pico_enviro_mon` overrides it, down to 48 KiB to fit its tighter budget — which is why that board has a practical list-row cap (see [Runtime limits](#runtime-limits)).
-- **ESP32-S3 / `tdeck_plus` is Milestone 1**: there is no FreeRTOS yet. `start_tasks` calls the JVM directly, single-threaded, and the whole JVM runs from a **fixed static 256 KiB arena** rather than a FreeRTOS pool. `Thread.start` and the background pool are RP-only paths there. Treat the ESP board as experimental.
 
 ## How the Java heap works
 
@@ -40,8 +38,6 @@ A few mechanics worth knowing:
 - **One process-wide heap.** All JVM threads share a single `SharedJvmHeap` (objects, arrays, strings), matching the standard Java memory model. Background threads build their own interpreter state but allocate into the same shared pool.
 - **No-op OOM hook.** When `pvPortMalloc` returns NULL, the malloc-failed hook is intentionally a no-op so Rust's `try_reserve_exact` can return `Err` and trigger a GC on the next interpreter step. Non-fallible allocations still abort.
 - **Chunked slot allocator.** Object and array slot tables grow one fixed-size chunk at a time (`ChunkedSlots`) instead of doubling a single `Vec`. The default chunk is 64 slots (`slot_chunk_shift = 6`). This caps the worst-case contiguous request — single-digit KiB for most types, tens of KiB for arrays — so the FreeRTOS heap can satisfy growth even when fragmented. The doubling allocator it replaced once demanded a 90 KB contiguous block that the heap could not serve on `pico_enviro_mon`.
-
-On **ESP32-S3** there is no FreeRTOS pool: the JVM runs from a single static 256 KiB arena, single-threaded. Tune that figure when FreeRTOS/PSRAM land.
 
 ## Runtime limits
 
@@ -84,7 +80,7 @@ Most of these caps are board-level knobs:
 
 Every concrete number on this page comes from the build configuration, not from prose. If you change any of these files, re-grep this page so it stays accurate:
 
-- Per-MCU RAM/flash/clock/cores: [`platforms/rp/mcus/rp`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/mcus/rp) (`rp2040.toml`, `rp2350.toml`) and `platforms/esp/mcus/esp/esp32s3.toml`.
+- Per-MCU RAM/flash/clock/cores: [`platforms/rp/mcus/rp`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/mcus/rp) (`rp2040.toml`, `rp2350.toml`).
 - FreeRTOS heap and clock branches: [`platforms/rp/mcus/rp/FreeRTOSConfig.h`](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/mcus/rp/FreeRTOSConfig.h).
 - JVM tunable defaults and ranges: [`build_support/jvm_defaults.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/build_support/jvm_defaults.rs).
 - Per-board overrides (`lv_mem_kb`, `idle_timeout_ms`): each board's `board.toml` under [`platforms/rp/boards`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/boards).

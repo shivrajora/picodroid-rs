@@ -1,8 +1,8 @@
 # Simulator ↔ MCU Parity Audit
 
 Audited 2026-07-18 on `main` (2e8bbbc), RP2350 primary / RP2040 secondary.
-Scope: `platforms/rp` (the ESP32-S3 platform is a Milestone-1 bootstrap with no real
-display path and is excluded; see §6).
+Scope: `platforms/rp` (the ESP32-S3 Milestone-1 scaffold was excluded at audit time
+and has since been removed entirely, 2026-07; see §6).
 
 ## 1. Thesis and method
 
@@ -361,8 +361,8 @@ comparison infrastructure.
 - **PDB / package-manager / flash tooling** (HAL-04) has zero sim coverage by design.
 - **RTT capture window** after flashing bounds device-side trace length; long-scene
   graphics comparisons need the capture window extended.
-- **ESP32-S3**: the platform is a bootstrap (no real display, no FreeRTOS); nothing in
-  this audit's harness applies there yet.
+- **ESP32-S3**: the Milestone-1 scaffold was removed 2026-07 (git history:
+  `platforms/esp/`); nothing in this audit's harness ever applied there.
 
 ## Appendix A — experiment log (all run 2026-07-18, RP2350 testbench rig, `main` @ 2e8bbbc)
 

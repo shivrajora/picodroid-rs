@@ -3,7 +3,7 @@ title: "Build & flash (RP)"
 description: "Install the Rust + ARM + Java toolchains, build firmware, and flash a Raspberry Pi Pico."
 ---
 
-This page walks the Raspberry Pi Pico (RP2040 / RP2350) path. For ESP32-S3 / Lilygo T-Deck Plus, see [ESP32-S3 quickstart](/get-started/esp32s3/).
+This page walks the Raspberry Pi Pico (RP2040 / RP2350) path.
 
 ## Prerequisites
 
@@ -98,7 +98,6 @@ Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 | `--board testbench_rp2350` | RP2350 | Raspberry Pi Pico 2 |
 | `--board testbench_rp2350w` | RP2350 | Raspberry Pi Pico 2 W (adds WiFi via cyw43 + FreeRTOS+TCP) |
 | `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon (1.14" 240x135 ST7789, no touch) |
-| `--board tdeck_plus` | ESP32-S3 | Lilygo T-Deck Plus — see [ESP32-S3 quickstart](/get-started/esp32s3/) |
 
 ```bash
 # Build / flash for Pico (RP2040)

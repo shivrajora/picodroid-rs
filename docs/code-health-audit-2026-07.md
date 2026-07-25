@@ -342,6 +342,10 @@ single catalog of the native surface.
 
 ## 7. ESP removal plan (decision 2026-07-24)
 
+**Executed 2026-07-25** — all checklist items below landed (plus stragglers the checklist
+missed: the `resolve_board` esp branch in `scripts/lib.sh`, a `monitor_store.rs` doc
+comment, `docs/parity-audit.md` scope lines, and the `index.mdx` platform card).
+
 Footprint is small and contained — no git submodule, separate Cargo workspace, nothing in
 per-push CI beyond what `test.sh` runs. Checklist for the removal session:
 

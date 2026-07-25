@@ -110,8 +110,7 @@ The largest release yet. Bundles the licensing, multi-family, and lifecycle work
 
 **ESP32-S3 / Lilygo T-Deck Plus (M1)**
 
-- First Xtensa target lands as **Milestone 1** — compile-only. The firmware produces a valid `xtensa-esp32s3-none-elf` ELF and flashes via `espflash`, but FreeRTOS, networking, display, and the LVGL stack are no-ops at this milestone. See the [ESP32-S3 quickstart](/get-started/esp32s3/) and the full [toolchain reference](/reference/esp32s3-toolchain/).
-- New cargo aliases `b-tdeck-plus` / `r-tdeck-plus` register the Xtensa target — see [Cargo aliases](/reference/cargo-aliases/).
+- First Xtensa target lands as **Milestone 1** — compile-only. The firmware produces a valid `xtensa-esp32s3-none-elf` ELF and flashes via `espflash`, but FreeRTOS, networking, display, and the LVGL stack are no-ops at this milestone. *(ESP32-S3 support, including its quickstart/toolchain pages and cargo aliases, was removed in 2026-07 — retrieve `platforms/esp/` from git history if needed.)*
 
 **Lifecycle and dispatch**
 

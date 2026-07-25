@@ -56,7 +56,7 @@ Treat `src/` as a **reference implementation** of how to embed `pico-jvm` on Cor
 
 ## Multi-family seams
 
-Picodroid runs on RP2040 / RP2350 today and is in **Milestone 1 (compile-only) bring-up on ESP32-S3** for the Lilygo T-Deck Plus. The two families live side by side under `platforms/rp/` and `platforms/esp/`; cross-family shared code lives in `picodroid-core/`. The seams below are the contract for future ports.
+Picodroid runs on RP2040 / RP2350 today, under `platforms/rp/`, with cross-family shared code in `picodroid-core/`. An ESP32-S3 (Lilygo T-Deck Plus) Milestone-1 scaffold was removed in 2026-07 — retrieve it from git history (`platforms/esp/`) if a second family returns. The seams below remain the contract for future ports.
 
 ### Family routing
 
@@ -93,7 +93,7 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 
 Boards declare their MCU via `mcu = "..."` in `board.toml`; [build_support/config.rs](build_support/config.rs)::`resolve_active_mcu` reads it directly. Chip features only exist to gate dep crates.
 
-### RP-specific concerns deferred to future ESP-add work
+### RP-specific concerns kept isolated for any future family
 
 The following are deeply RP-specific and live entirely under [src/hal/rp/](src/hal/rp/). When a second hardware family is added, equivalent mechanisms (or replacements) will be derived for that family — the refactor's job was just to keep them isolated, not to abstract them.
 

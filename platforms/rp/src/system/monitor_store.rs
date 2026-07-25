@@ -5,7 +5,7 @@
 //! The mutex is shared across all threads via this global store, matching
 //! Java's per-object monitor semantics.
 //!
-//! On non-RP families (currently ESP32-S3) the JVM runs single-threaded so
+//! On no-family builds the JVM runs single-threaded so
 //! monitors are no-ops — `synchronized` blocks are still entered/exited but
 //! no actual mutex is created.
 

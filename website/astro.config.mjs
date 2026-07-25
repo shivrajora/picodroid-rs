@@ -56,7 +56,6 @@ export default defineConfig({
           label: 'Get started',
           items: [
             { label: 'Build & flash (RP)', slug: 'get-started/build' },
-            { label: 'ESP32-S3 quickstart', slug: 'get-started/esp32s3' },
             { label: 'Hot-swap with pdb', slug: 'get-started/hot-swap' },
             { label: 'Host simulator', slug: 'get-started/simulator' },
             { label: 'Your first app', slug: 'get-started/first-app' },
@@ -107,7 +106,6 @@ export default defineConfig({
             { label: 'JVM tunables', slug: 'reference/jvm-tunables' },
             { label: 'Porting guide', slug: 'reference/porting-guide' },
             { label: 'RP2350 SMP bugs', slug: 'reference/rp2350-freertos-smp-bugs' },
-            { label: 'ESP32-S3 toolchain', slug: 'reference/esp32s3-toolchain' },
           ],
         },
         {

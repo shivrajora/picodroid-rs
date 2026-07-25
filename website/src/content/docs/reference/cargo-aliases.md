@@ -22,22 +22,9 @@ scripts in `scripts/`.
 | `cargo b-pico-enviro-mon` | `cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon` |
 | `cargo b-sim` | `cargo build -p picodroid --no-default-features --features sim,board-testbench-rp2350` (host target) |
 
-## ESP family (ESP32-S3)
-
-The ESP family lives in its own workspace at `platforms/esp/` because `riscv-rt` (pulled in by `rp235x-hal`) conflicts with `xtensa-lx-rt`. Run the ESP aliases from inside that directory or pass `--manifest-path platforms/esp/Cargo.toml`.
-
-| Alias | Equivalent invocation |
-|---|---|
-| `cargo b-tdeck-plus` | `cargo build -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus` |
-| `cargo r-tdeck-plus` | `cargo run -Zbuild-std=core,alloc --target xtensa-esp32s3-none-elf --no-default-features --features board-tdeck-plus` (uses `espflash`) |
-
-The `-Zbuild-std=core,alloc` flag is required because there is no prebuilt `core`/`alloc` for the Xtensa target — cargo builds them from source. It needs the nightly Xtensa toolchain from `espup`.
-
-Requires the `xtensa-esp32s3-none-elf` Rust toolchain installed via `espup`. See [ESP32-S3 toolchain](/reference/esp32s3-toolchain/) for the full setup.
-
 ## `r-*` variants
 
-`r-*` variants run `cargo run` instead of `cargo build`. RP boards use the `probe-rs` runner configured as `runner = ...` under the matching `[target.*]` block in `.cargo/config.toml`. ESP boards use `espflash` configured the same way.
+`r-*` variants run `cargo run` instead of `cargo build`. RP boards use the `probe-rs` runner configured as `runner = ...` under the matching `[target.*]` block in `.cargo/config.toml`.
 
 ## Adding a new board
 

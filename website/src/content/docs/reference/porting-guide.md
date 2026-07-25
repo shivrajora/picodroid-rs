@@ -19,7 +19,6 @@ platforms/
       rp/               # chip-family implementations
       sim/              # Host simulator (no hardware)
       <your-family>/    # Your new MCU family
-  esp/              # ESP32-S3 (Espressif) — separate workspace
 mcus/<chip>.toml     # per-chip clock speeds, FreeRTOS config, build args
 boards/<board>.toml  # per-board pinout, display, touch, sensors
 picodroid-core/      # cross-family shared code (no HAL imports)
@@ -342,7 +341,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `mcu` | string | yes | `"rp2040"`, `"rp2350"`, or `"esp32s3"` (the schema is family-agnostic). |
+| `mcu` | string | yes | `"rp2040"` or `"rp2350"` (the schema is family-agnostic). |
 | `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + driver). |
 | `network_type` | string | no | Needed for a working network build when `has_network = true` (not parser-enforced). Only `"cyw43"` is supported today. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
