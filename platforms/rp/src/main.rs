@@ -70,6 +70,11 @@ mod native_handler_state_tests;
 #[cfg(test)]
 #[path = "system/picodroid/graphics/lvgl/key_filter.rs"]
 mod lvgl_key_filter_tests;
+// Pure per-pin contact debounce — collapses switch chatter bursts to their
+// first edge. Same `#[path]` rationale as the modules above.
+#[cfg(test)]
+#[path = "system/picodroid/graphics/lvgl/key_debounce.rs"]
+mod lvgl_key_debounce_tests;
 // Shared widget listener-map (PtrMap): upsert/remove/visit/reset semantics
 // that every LVGL listener registry relies on for GC-root correctness.
 #[cfg(test)]

@@ -369,6 +369,17 @@ static mut KEY_EVENT_QUEUE_TAIL: usize = 0;
 static mut KEY_PRESS_FILTER: super::key_filter::KeyPressFilter =
     super::key_filter::KeyPressFilter::new();
 
+/// Contact debounce — collapses each mechanical chatter burst to its first
+/// edge, comparing ISR-captured `GpioEvent::t_us` values. Runs in
+/// `keypad_read_cb` directly after the drain, ahead of the edit-mode filter
+/// and both fan-out paths (LVGL indev + Java queue), so every consumer sees
+/// the same debounced stream. Window rationale and tuning data live in
+/// `super::key_debounce`. Edges discarded by the lifecycle transition flush
+/// bypass this (they are dropped wholesale anyway; a chatter tail surviving
+/// a flush is bounded by the phantom-release filter).
+#[cfg(has_buttons)]
+static mut KEY_DEBOUNCE: super::key_debounce::KeyDebounce = super::key_debounce::KeyDebounce::new();
+
 #[cfg(has_buttons)]
 fn push_key_event_raw(pin: u8, rising: bool) {
     unsafe {
@@ -462,7 +473,23 @@ fn focused_obj_for_edit_mode() -> (usize, bool) {
 #[cfg(has_buttons)]
 unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
     let d = unsafe { &mut *data };
-    if let Some(event) = hal::gpio::drain_gpio_event() {
+    // Drain until the first edge that survives the contact debounce; chatter
+    // edges are consumed and discarded without ending the read pass.
+    let debounced = loop {
+        match hal::gpio::drain_gpio_event() {
+            Some(ev) => {
+                let accepted = unsafe {
+                    let deb = &raw mut KEY_DEBOUNCE;
+                    (*deb).accept(ev.pin, ev.t_us)
+                };
+                if accepted {
+                    break Some(ev);
+                }
+            }
+            None => break None,
+        }
+    };
+    if let Some(event) = debounced {
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)

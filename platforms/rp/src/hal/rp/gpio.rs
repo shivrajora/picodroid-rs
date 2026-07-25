@@ -222,6 +222,28 @@ extern "C" fn IO_IRQ_BANK0() {
 pub struct GpioEvent {
     pub pin: u8,
     pub rising: bool,
+    /// µs timestamp (wrapping, TIMERAWL low word) captured in the ISR at
+    /// enqueue time. The contact debounce in `lvgl::events` compares these
+    /// rather than a drain-time clock: edges can sit in this queue for
+    /// hundreds of ms while the UI task stalls on an Activity transition,
+    /// so only ISR-time deltas measure the switch itself.
+    pub t_us: u32,
+}
+
+// Raw 32-bit µs timestamp (TIMERAWL low word). A single volatile read —
+// ISR-safe, no hi/lo latch. Wraps every ~71.6 min, which is fine for the
+// wrapping_sub deltas the debounce performs on `GpioEvent::t_us`.
+fn now_us() -> u32 {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+    // SAFETY: read-only register access, no side effects.
+    let p = unsafe { pac::Peripherals::steal() };
+    #[cfg(feature = "chip-rp2350")]
+    return p.TIMER0.timerawl().read().bits();
+    #[cfg(feature = "chip-rp2040")]
+    p.TIMER.timerawl().read().bits()
 }
 
 // Sized so edges queued while the UI task stalls on an Activity transition
@@ -233,6 +255,7 @@ const GPIO_QUEUE_SIZE: usize = 64;
 static mut GPIO_QUEUE: [GpioEvent; GPIO_QUEUE_SIZE] = [GpioEvent {
     pin: 0,
     rising: false,
+    t_us: 0,
 }; GPIO_QUEUE_SIZE];
 static mut GPIO_QUEUE_HEAD: usize = 0;
 static mut GPIO_QUEUE_TAIL: usize = 0;
@@ -245,7 +268,11 @@ fn enqueue_gpio_event(pin: u8, rising: bool) {
     unsafe {
         let next = (GPIO_QUEUE_HEAD + 1) % GPIO_QUEUE_SIZE;
         if next != GPIO_QUEUE_TAIL {
-            GPIO_QUEUE[GPIO_QUEUE_HEAD] = GpioEvent { pin, rising };
+            GPIO_QUEUE[GPIO_QUEUE_HEAD] = GpioEvent {
+                pin,
+                rising,
+                t_us: now_us(),
+            };
             GPIO_QUEUE_HEAD = next;
             // Wake any task blocked in `wait_for_button_event()`. Latches if
             // nothing is currently waiting (binary semaphore).

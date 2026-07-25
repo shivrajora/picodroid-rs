@@ -16,6 +16,7 @@ pub mod edit_mode;
 pub mod events;
 pub mod fps_overlay;
 pub mod handle_table;
+pub mod key_debounce;
 pub mod key_filter;
 pub mod lifecycle;
 pub mod listener_map;

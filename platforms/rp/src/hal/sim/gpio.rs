@@ -81,6 +81,11 @@ pub fn init_gpio_irq() {}
 pub struct GpioEvent {
     pub pin: u8,
     pub rising: bool,
+    /// µs timestamp (wrapping) captured at inject time, mirroring the ISR
+    /// capture on hardware. The contact debounce in `lvgl::events` compares
+    /// these; synthetic edges must carry real host time or every event
+    /// after the first would land inside the debounce window and be eaten.
+    pub t_us: u32,
 }
 
 /// Synthetic button-edge queue. On hardware these edges come from the GPIO
@@ -95,10 +100,11 @@ static GPIO_EVENTS: Mutex<VecDeque<GpioEvent>> = Mutex::new(VecDeque::new());
 /// RELEASE. Always inject a PRESS before its matching RELEASE for a given pin,
 /// or the phantom-release filter in `lvgl::events` drops the unpaired release.
 pub fn inject(pin: u8, rising: bool) {
+    let t_us = (super::system_clock::elapsed_realtime_nanos() / 1_000) as u32;
     GPIO_EVENTS
         .lock()
         .unwrap()
-        .push_back(GpioEvent { pin, rising });
+        .push_back(GpioEvent { pin, rising, t_us });
 }
 
 pub fn drain_gpio_event() -> Option<GpioEvent> {
