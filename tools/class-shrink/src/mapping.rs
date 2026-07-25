@@ -297,6 +297,61 @@ mod tests {
         assert!(m.verify_injective().is_ok());
     }
 
+    /// Committed maps are append-only: every release map must contain its
+    /// predecessor's entries verbatim (vN+1 ⊇ vN), or PAPKs shrunk with vN
+    /// stop resolving on firmware that ships vN+1. `cut-release --base`
+    /// enforces this at generation time; this test re-enforces it over the
+    /// committed history so a hand-edit can't slip through review.
+    #[test]
+    fn committed_maps_are_append_only() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/shrink-maps");
+        // Collect (semver-triple, path) so v0.9.0 sorts before v0.10.0 —
+        // string order would not.
+        let mut versions: Vec<(Vec<u32>, std::path::PathBuf)> = fs::read_dir(&dir)
+            .expect("read sdk/shrink-maps")
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("toml"))
+            .map(|p| {
+                let stem = p.file_stem().unwrap().to_str().unwrap();
+                let triple: Vec<u32> = stem
+                    .strip_prefix('v')
+                    .unwrap_or_else(|| panic!("map name not vX.Y.Z: {stem}"))
+                    .split('.')
+                    .map(|n| n.parse().unwrap_or_else(|_| panic!("bad version: {stem}")))
+                    .collect();
+                (triple, p)
+            })
+            .collect();
+        versions.sort();
+        assert!(
+            versions.len() >= 2,
+            "need at least two committed maps to check append-only"
+        );
+        for pair in versions.windows(2) {
+            let (_, prev_path) = &pair[0];
+            let (_, next_path) = &pair[1];
+            let prev = ShrinkMap::load(prev_path).unwrap();
+            let next = ShrinkMap::load(next_path).unwrap();
+            let (prev_name, next_name) = (
+                prev_path.file_name().unwrap().to_str().unwrap(),
+                next_path.file_name().unwrap().to_str().unwrap(),
+            );
+            for (from, to) in prev.iter_classes() {
+                match next.classes.get(from) {
+                    Some(t) if t == to => {}
+                    Some(t) => panic!(
+                        "{next_name} remaps {from}: {to} ({prev_name}) -> {t}; \
+                         maps are append-only"
+                    ),
+                    None => panic!(
+                        "{next_name} drops {from} -> {to} present in {prev_name}; \
+                         maps are append-only"
+                    ),
+                }
+            }
+        }
+    }
+
     /// Every committed release map must be a 1:1 mapping. This guards the
     /// whole `sdk/shrink-maps/` history against the allocator-collision class
     /// of bug in one place, for past and future maps alike.
