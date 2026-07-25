@@ -207,15 +207,19 @@ touch/swipe/click/dialog maps). **Tradeoff:** fixed-capacity registry boilerplat
 small GC-walk overhead, and the registry itself is new unsafe-adjacent machinery — pair with
 the GC-stress nightly mode as the detection net while it lands.
 
-### Extend the LVGL header-parse drift guard
+### Extend the LVGL header-parse drift guard — DONE 2026-07-25
 
-Copy `lv_event_constants_match_vendored_header` (`picodroid-core/src/lvgl_ffi.rs`) — which
-parses the vendored header and asserts Rust constants match C ordinals — to the other
-hand-written constant families: `LV_OBJ_FLAG_*`, `LV_ALIGN_*`, `LV_STATE_*`, color formats. The
-event-code guard exists because LVGL 9.5.0 actually shifted enum values and caused infinite
-render loops; the other families have identical exposure and no guard. **Tradeoff:**
-header-parse tests are brittle to upstream formatting (the anchor self-tests mitigate); still
-far cheaper than bringing bindgen/clang into the two-toolchain build.
+Landed (audit P1-7): guards now cover `LV_KEY_*`, `LV_STATE_*`, `LV_PART_*`,
+`LV_OBJ_FLAG_*`, `LV_COLOR_FORMAT_*`, `LV_DIR_*`, `LV_FLEX_*`,
+`LV_IMAGE_ALIGN_*` (implicit-ordinal, underscore-member aware),
+`LV_BUTTONMATRIX_*`, and the `#define` constants (`LV_IMAGE_HEADER_MAGIC`,
+`LV_RADIUS_CIRCLE`, `LV_BUTTONMATRIX_BUTTON_NONE`), plus the previously
+unguarded `LV_EVENT_FOCUSED/DEFOCUSED/DELETE` rows and a mirrored RGB565
+guard in papk-pack (which bakes that byte into every image asset).
+Deliberate exemptions (alias/composite values and trivially-stable one-off
+families) are documented in the tests-module comment in
+`picodroid-core/src/lvgl_ffi.rs`. Note: the original list here named
+`LV_ALIGN_*`, but no such Rust constants exist — nothing to guard.
 
 ### Document concurrency divergences as checked invariants
 

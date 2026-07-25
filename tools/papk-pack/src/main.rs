@@ -31,7 +31,8 @@ const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
 const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
 
 /// LVGL `lv_color_format_t` value for native RGB565 little-endian. Verified
-/// against `vendor/lvgl/src/misc/lv_color_format.h` (`LV_COLOR_FORMAT_RGB565`).
+/// against `vendor/lvgl/src/misc/lv_color.h` (`LV_COLOR_FORMAT_RGB565`) —
+/// drift-guarded by the test module at the bottom of this file.
 const LV_COLOR_FORMAT_RGB565: u8 = 0x12;
 
 // ── CLI argument parsing ──────────────────────────────────────────────────────
@@ -616,5 +617,52 @@ fn main() {
             eprintln!("Error writing output: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod color_format_guard {
+    //! papk-pack bakes `LV_COLOR_FORMAT_RGB565` into every image asset it
+    //! writes; firmware feeds that byte straight to LVGL. This mirrors the
+    //! drift guard in picodroid-core/src/lvgl_ffi.rs (deliberately copied,
+    //! not shared — a host tool should not depend on the firmware core crate
+    //! for one constant).
+    use super::LV_COLOR_FORMAT_RGB565;
+
+    const LV_COLOR_HEADER: &str = include_str!("../../../vendor/lvgl/src/misc/lv_color.h");
+
+    fn lookup_assigned_hex(body: &str, name: &str) -> Option<u32> {
+        for line in body.lines() {
+            let trimmed = line.trim_start();
+            let Some(ident_end) = trimmed.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            else {
+                continue;
+            };
+            if &trimmed[..ident_end] != name {
+                continue;
+            }
+            let rhs = trimmed[ident_end..].split_once('=')?.1;
+            let rhs = rhs.split(',').next().unwrap_or(rhs).trim();
+            let hex = rhs.strip_prefix("0x").or_else(|| rhs.strip_prefix("0X"))?;
+            return u32::from_str_radix(hex, 16).ok();
+        }
+        None
+    }
+
+    #[test]
+    fn rgb565_matches_vendored_header() {
+        let close = LV_COLOR_HEADER
+            .find("} lv_color_format_t")
+            .expect("enum close");
+        let open = LV_COLOR_HEADER[..close]
+            .rfind("typedef enum")
+            .expect("enum open");
+        let body = &LV_COLOR_HEADER[open..close];
+        assert_eq!(
+            lookup_assigned_hex(body, "LV_COLOR_FORMAT_RGB565"),
+            Some(LV_COLOR_FORMAT_RGB565 as u32),
+            "papk-pack's RGB565 color-format byte drifted from vendored lv_color.h — \
+             every packed image asset would render corrupted."
+        );
     }
 }

@@ -235,8 +235,8 @@ pub type lv_style_selector_t = u32;
 /// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
 pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
-/// `lv_area.h`: special radius value meaning "fully rounded" — the standard
-/// recipe for a radio-style circular checkbox indicator.
+/// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
+/// standard recipe for a radio-style circular checkbox indicator.
 pub const LV_RADIUS_CIRCLE: i32 = 0x7FFF;
 
 // Button-matrix control flags (`lv_buttonmatrix.h`). Only the subset the
@@ -817,11 +817,14 @@ mod tests {
             (LV_EVENT_GESTURE, "LV_EVENT_GESTURE"),
             (LV_EVENT_VALUE_CHANGED, "LV_EVENT_VALUE_CHANGED"),
             (LV_EVENT_READY, "LV_EVENT_READY"),
+            (LV_EVENT_FOCUSED, "LV_EVENT_FOCUSED"),
+            (LV_EVENT_DEFOCUSED, "LV_EVENT_DEFOCUSED"),
+            (LV_EVENT_DELETE, "LV_EVENT_DELETE"),
         ] {
             let header_ord = lookup_event_ordinal(name)
                 .unwrap_or_else(|| panic!("{} not found in vendored lv_event.h", name));
             assert_eq!(
-                rust_const as u32, header_ord,
+                rust_const, header_ord,
                 "{}: Rust FFI ({}) drifted from vendored header ({}). \
                  The LVGL enum is implicit-ordinal — a single inserted variant \
                  shifts everything below it. Re-sync lvgl_ffi.rs to match the \
@@ -840,5 +843,479 @@ mod tests {
         assert_eq!(lookup_event_ordinal("LV_EVENT_PRESSED"), Some(1));
         assert_eq!(lookup_event_ordinal("LV_EVENT_PRESSING"), Some(2));
         assert_eq!(lookup_event_ordinal("LV_EVENT_DOES_NOT_EXIST"), None);
+    }
+
+    // ── Drift guards for the other hand-maintained constant families ────────
+    //
+    // Same threat model as the event guard: the vendored headers are the only
+    // source of truth, and a value shift (the v9.5.0 LV_STATE_* renumbering,
+    // an inserted enum variant) silently becomes wrong callbacks, wrong style
+    // bits, or corrupted papk assets. Deliberately unguarded, with rationale:
+    //  - composite/alias values (LV_DIR_HOR/VER, LV_FLEX_FLOW_COLUMN
+    //    = LV_FLEX_COLUMN, LV_COLOR_FORMAT_NATIVE): identifier RHS —
+    //    `eval_c_const` refuses them by design; the Rust side derives them
+    //    from guarded primitives or does not use them.
+    //  - trivially-stable one-off families (LV_INDEV_TYPE_*,
+    //    LV_KEYBOARD_MODE_*, LV_OPA_COVER, LV_DISPLAY_RENDER_MODE_*,
+    //    LV_GRAD_DIR_*, LV_SCROLLBAR_MODE_*): tiny enums whose upstream
+    //    reshuffling is near-inconceivable relative to parse maintenance.
+
+    const LV_GROUP_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_group.h");
+    const LV_OBJ_STYLE_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_obj_style.h");
+    const LV_OBJ_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_obj.h");
+    const LV_COLOR_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_color.h");
+    const LV_AREA_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_area.h");
+    const LV_FLEX_HEADER: &str = include_str!("../../vendor/lvgl/src/layouts/flex/lv_flex.h");
+    const LV_BTNMATRIX_HEADER: &str =
+        include_str!("../../vendor/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.h");
+    const LV_IMAGE_HEADER: &str = include_str!("../../vendor/lvgl/src/widgets/image/lv_image.h");
+    const LV_IMAGE_DSC_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_image_dsc.h");
+    const LV_DRAW_RECT_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_draw_rect.h");
+
+    /// Slice one enum body out of a header that may contain several enums:
+    /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the
+    /// nearest preceding `typedef enum`.
+    fn enum_body<'a>(header: &'a str, close_anchor: &str) -> Option<&'a str> {
+        let close = header.find(close_anchor)?;
+        let open = header[..close].rfind("typedef enum")?;
+        Some(&header[open..close])
+    }
+
+    /// Evaluate the C constant expressions these enums actually use: decimal,
+    /// 0x/0X hex, `A << B` with optional u/U/l/L suffix on A, one optional
+    /// layer of surrounding parens. Identifier RHS (`= LV_FOO`) and
+    /// OR-composites return None — deliberately: none of the guarded
+    /// constants need them, and a tiny evaluator stays auditable.
+    fn eval_c_const(expr: &str) -> Option<u32> {
+        let mut e = expr.trim();
+        if let Some(inner) = e.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+            e = inner.trim();
+        }
+        if let Some((lhs, rhs)) = e.split_once("<<") {
+            let base: u32 = lhs
+                .trim()
+                .trim_end_matches(['u', 'U', 'l', 'L'])
+                .parse()
+                .ok()?;
+            let shift: u32 = rhs.trim().parse().ok()?;
+            return base.checked_shl(shift);
+        }
+        if let Some(hex) = e.strip_prefix("0x").or_else(|| e.strip_prefix("0X")) {
+            return u32::from_str_radix(hex, 16).ok();
+        }
+        e.parse().ok()
+    }
+
+    /// Find `name` in an explicit-value enum body and evaluate its RHS.
+    /// First match wins. Note two intentional conflations: "name absent" and
+    /// "name found but RHS unparsable" both yield None (the guard tests panic
+    /// on None either way), and a matched line without `=` aborts the scan
+    /// via `?` rather than continuing — fine for every guarded name, which
+    /// all carry explicit values.
+    fn lookup_assigned_value(body: &str, name: &str) -> Option<u32> {
+        for line in body.lines() {
+            let trimmed = line.trim_start();
+            let Some(ident_end) = trimmed.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            else {
+                continue;
+            };
+            if &trimmed[..ident_end] != name {
+                continue;
+            }
+            let rhs = trimmed[ident_end..].split_once('=')?.1;
+            let rhs = rhs.split(',').next().unwrap_or(rhs);
+            let rhs = rhs.split("/*").next().unwrap_or(rhs);
+            return eval_c_const(rhs);
+        }
+        None
+    }
+
+    /// Ordinal lookup for implicit-value enums, generalizing
+    /// `lookup_event_ordinal`: members matching `prefix` OR starting with
+    /// `_` (private members like `_LV_IMAGE_ALIGN_AUTO_TRANSFORM` still
+    /// consume an ordinal) are counted; an explicit parsable `= N` resets
+    /// the counter to N, so mixed enums work too.
+    fn lookup_ordinal(body: &str, prefix: &str, name: &str) -> Option<u32> {
+        let mut ordinal: u32 = 0;
+        for line in body.lines() {
+            let trimmed = line.trim_start();
+            let Some(ident_end) = trimmed.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            else {
+                continue;
+            };
+            let ident = &trimmed[..ident_end];
+            if ident.is_empty() || !(ident.starts_with(prefix) || ident.starts_with('_')) {
+                continue;
+            }
+            if let Some((_, rhs)) = trimmed[ident_end..].split_once('=') {
+                let rhs = rhs.split(',').next().unwrap_or(rhs);
+                let rhs = rhs.split("/*").next().unwrap_or(rhs);
+                if let Some(v) = eval_c_const(rhs) {
+                    ordinal = v;
+                }
+            }
+            if ident == name {
+                return Some(ordinal);
+            }
+            ordinal += 1;
+        }
+        None
+    }
+
+    /// Look up a `#define NAME <value>` constant. Handles the parenthesized
+    /// form `(0x19)` via `eval_c_const`'s paren stripping.
+    fn lookup_define(header: &str, name: &str) -> Option<u32> {
+        for line in header.lines() {
+            let trimmed = line.trim_start();
+            let Some(rest) = trimmed.strip_prefix("#define ") else {
+                continue;
+            };
+            let rest = rest.trim_start();
+            let Some(after) = rest.strip_prefix(name) else {
+                continue;
+            };
+            // Reject prefix matches (e.g. NAME_FOO when looking for NAME).
+            if after
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            let value = after.split("/*").next().unwrap_or(after);
+            let value = value.split("//").next().unwrap_or(value);
+            return eval_c_const(value);
+        }
+        None
+    }
+
+    #[test]
+    fn lv_key_constants_match_vendored_header() {
+        let body = enum_body(LV_GROUP_HEADER, "} lv_key_t").expect("lv_key_t enum not found");
+        for (rust_const, name) in [
+            (LV_KEY_UP, "LV_KEY_UP"),
+            (LV_KEY_DOWN, "LV_KEY_DOWN"),
+            (LV_KEY_RIGHT, "LV_KEY_RIGHT"),
+            (LV_KEY_LEFT, "LV_KEY_LEFT"),
+            (LV_KEY_ESC, "LV_KEY_ESC"),
+            (LV_KEY_ENTER, "LV_KEY_ENTER"),
+            (LV_KEY_NEXT, "LV_KEY_NEXT"),
+            (LV_KEY_PREV, "LV_KEY_PREV"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_group.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_group.h — board button \
+                 tables (build.rs BUTTONS from board.toml lv_key) and keypad nav \
+                 route through these codes."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_state_constants_match_vendored_header() {
+        let body =
+            enum_body(LV_OBJ_STYLE_HEADER, "} lv_state_t").expect("lv_state_t enum not found");
+        for (rust_const, name) in [
+            (LV_STATE_CHECKED, "LV_STATE_CHECKED"),
+            (LV_STATE_FOCUSED, "LV_STATE_FOCUSED"),
+            (LV_STATE_FOCUS_KEY, "LV_STATE_FOCUS_KEY"),
+            (LV_STATE_EDITED, "LV_STATE_EDITED"),
+            (LV_STATE_DISABLED, "LV_STATE_DISABLED"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj_style.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_obj_style.h — these \
+                 state bits were renumbered once already (v9.5.0), which is \
+                 exactly the drift this guard exists to catch."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_part_constants_match_vendored_header() {
+        let body = enum_body(LV_OBJ_STYLE_HEADER, "} lv_part_t").expect("lv_part_t enum not found");
+        for (rust_const, name) in [
+            (LV_PART_MAIN, "LV_PART_MAIN"),
+            (LV_PART_INDICATOR, "LV_PART_INDICATOR"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj_style.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_obj_style.h — style \
+                 setters would target the wrong widget part."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_obj_flag_constants_match_vendored_header() {
+        let body = enum_body(LV_OBJ_HEADER, "} lv_obj_flag_t").expect("lv_obj_flag_t not found");
+        for (rust_const, name) in [
+            (LV_OBJ_FLAG_HIDDEN, "LV_OBJ_FLAG_HIDDEN"),
+            (LV_OBJ_FLAG_CLICKABLE, "LV_OBJ_FLAG_CLICKABLE"),
+            (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
+            (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_obj.h — visibility, \
+                 clickability and scroll behavior flags would silently target \
+                 the wrong bits."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_color_format_constants_match_vendored_header() {
+        let body =
+            enum_body(LV_COLOR_HEADER, "} lv_color_format_t").expect("lv_color_format_t not found");
+        for (rust_const, name) in [
+            (LV_COLOR_FORMAT_RGB888, "LV_COLOR_FORMAT_RGB888"),
+            (LV_COLOR_FORMAT_ARGB8888, "LV_COLOR_FORMAT_ARGB8888"),
+            (LV_COLOR_FORMAT_RGB565, "LV_COLOR_FORMAT_RGB565"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_color.h"));
+            assert_eq!(
+                rust_const as u32, header_val,
+                "{name}: Rust FFI drifted from vendored lv_color.h — papk-pack \
+                 bakes this byte into every image asset; drift means silently \
+                 corrupted rendering."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_image_align_constants_match_vendored_header() {
+        let body =
+            enum_body(LV_IMAGE_HEADER, "} lv_image_align_t").expect("lv_image_align_t not found");
+        for (rust_const, name) in [
+            (LV_IMAGE_ALIGN_CENTER, "LV_IMAGE_ALIGN_CENTER"),
+            (LV_IMAGE_ALIGN_STRETCH, "LV_IMAGE_ALIGN_STRETCH"),
+            (LV_IMAGE_ALIGN_TILE, "LV_IMAGE_ALIGN_TILE"),
+            (LV_IMAGE_ALIGN_CONTAIN, "LV_IMAGE_ALIGN_CONTAIN"),
+            (LV_IMAGE_ALIGN_COVER, "LV_IMAGE_ALIGN_COVER"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_IMAGE_ALIGN_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_image.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_image.h — this enum \
+                 is implicit-ordinal (with a private _AUTO_TRANSFORM member \
+                 consuming ordinal 10), so one inserted variant shifts \
+                 ImageView's ScaleType mapping."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_dir_constants_match_vendored_header() {
+        let body = enum_body(LV_AREA_HEADER, "} lv_dir_t").expect("lv_dir_t enum not found");
+        for (rust_const, name) in [
+            (LV_DIR_NONE, "LV_DIR_NONE"),
+            (LV_DIR_LEFT, "LV_DIR_LEFT"),
+            (LV_DIR_RIGHT, "LV_DIR_RIGHT"),
+            (LV_DIR_TOP, "LV_DIR_TOP"),
+            (LV_DIR_BOTTOM, "LV_DIR_BOTTOM"),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_area.h"));
+            assert_eq!(
+                rust_const as u32, header_val,
+                "{name}: Rust FFI drifted from vendored lv_area.h — gesture \
+                 direction decoding (swipe events) reads these bits. HOR/VER \
+                 composites are derived in Rust from these guarded primitives."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_flex_constants_match_vendored_header() {
+        let align =
+            enum_body(LV_FLEX_HEADER, "} lv_flex_align_t").expect("lv_flex_align_t not found");
+        for (rust_const, name) in [
+            (LV_FLEX_ALIGN_START, "LV_FLEX_ALIGN_START"),
+            (LV_FLEX_ALIGN_END, "LV_FLEX_ALIGN_END"),
+            (LV_FLEX_ALIGN_CENTER, "LV_FLEX_ALIGN_CENTER"),
+        ] {
+            let header_val = lookup_ordinal(align, "LV_FLEX_ALIGN_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_flex.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_flex.h — \
+                 LinearLayout gravity mapping routes through these."
+            );
+        }
+        let flow = enum_body(LV_FLEX_HEADER, "} lv_flex_flow_t").expect("lv_flex_flow_t not found");
+        let row = lookup_assigned_value(flow, "LV_FLEX_FLOW_ROW")
+            .expect("LV_FLEX_FLOW_ROW not found/parsable in vendored lv_flex.h");
+        assert_eq!(LV_FLEX_FLOW_ROW, row, "LV_FLEX_FLOW_ROW drifted");
+        // LV_FLEX_FLOW_COLUMN is `= LV_FLEX_COLUMN` (macro alias) in the
+        // header — unguardable by the deliberately-minimal evaluator. Its
+        // Rust value (0x01) is protected indirectly: ROW is guarded, and a
+        // COLUMN repack upstream would be a flex redesign, not a drift.
+    }
+
+    #[test]
+    fn lv_buttonmatrix_constants_match_vendored_header() {
+        let body = enum_body(LV_BTNMATRIX_HEADER, "} lv_buttonmatrix_ctrl_t")
+            .expect("lv_buttonmatrix_ctrl_t not found");
+        for (rust_const, name) in [
+            (
+                LV_BUTTONMATRIX_CTRL_CHECKABLE as u32,
+                "LV_BUTTONMATRIX_CTRL_CHECKABLE",
+            ),
+            (
+                LV_BUTTONMATRIX_CTRL_CHECKED as u32,
+                "LV_BUTTONMATRIX_CTRL_CHECKED",
+            ),
+        ] {
+            let header_val = lookup_assigned_value(body, name)
+                .unwrap_or_else(|| panic!("{name} not found/parsable in lv_buttonmatrix.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_buttonmatrix.h — \
+                 AlertDialog choice lists set these control bits."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_define_constants_match_vendored_headers() {
+        for (rust_const, name, header, header_name) in [
+            (
+                LV_BUTTONMATRIX_BUTTON_NONE,
+                "LV_BUTTONMATRIX_BUTTON_NONE",
+                LV_BTNMATRIX_HEADER,
+                "lv_buttonmatrix.h",
+            ),
+            (
+                LV_IMAGE_HEADER_MAGIC as u32,
+                "LV_IMAGE_HEADER_MAGIC",
+                LV_IMAGE_DSC_HEADER,
+                "lv_image_dsc.h",
+            ),
+            (
+                LV_RADIUS_CIRCLE as u32,
+                "LV_RADIUS_CIRCLE",
+                LV_DRAW_RECT_HEADER,
+                "lv_draw_rect.h",
+            ),
+        ] {
+            let header_val = lookup_define(header, name)
+                .unwrap_or_else(|| panic!("{name} #define not found/parsable in {header_name}"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored {header_name}."
+            );
+        }
+    }
+
+    /// Anchor tests — pin values that exist ONLY in the headers (not in
+    /// lvgl_ffi.rs) wherever possible, so a parser bug that echoed Rust-side
+    /// values could never pass vacuously.
+    #[test]
+    fn assigned_lookup_yields_known_values() {
+        let keys = enum_body(LV_GROUP_HEADER, "} lv_key_t").unwrap();
+        assert_eq!(lookup_assigned_value(keys, "LV_KEY_BACKSPACE"), Some(8));
+        assert_eq!(lookup_assigned_value(keys, "LV_KEY_DEL"), Some(127));
+        assert_eq!(lookup_assigned_value(keys, "LV_KEY_DOES_NOT_EXIST"), None);
+
+        let states = enum_body(LV_OBJ_STYLE_HEADER, "} lv_state_t").unwrap();
+        assert_eq!(lookup_assigned_value(states, "LV_STATE_DEFAULT"), Some(0));
+        assert_eq!(
+            lookup_assigned_value(states, "LV_STATE_HOVERED"),
+            Some(1 << 6)
+        );
+        assert_eq!(lookup_assigned_value(states, "LV_STATE_ANY"), Some(0xFFFF));
+
+        let parts = enum_body(LV_OBJ_STYLE_HEADER, "} lv_part_t").unwrap();
+        assert_eq!(
+            lookup_assigned_value(parts, "LV_PART_SCROLLBAR"),
+            Some(0x010000)
+        );
+        assert_eq!(lookup_assigned_value(parts, "LV_PART_KNOB"), Some(0x030000));
+
+        let flags = enum_body(LV_OBJ_HEADER, "} lv_obj_flag_t").unwrap();
+        assert_eq!(
+            lookup_assigned_value(flags, "LV_OBJ_FLAG_CLICK_FOCUSABLE"),
+            Some(1 << 2)
+        );
+        assert_eq!(
+            lookup_assigned_value(flags, "LV_OBJ_FLAG_ADV_HITTEST"),
+            Some(1 << 16)
+        );
+        // Composite RHS must refuse — documents the evaluator's limit.
+        assert_eq!(
+            lookup_assigned_value(flags, "LV_OBJ_FLAG_SCROLL_CHAIN"),
+            None
+        );
+
+        let cfs = enum_body(LV_COLOR_HEADER, "} lv_color_format_t").unwrap();
+        assert_eq!(
+            lookup_assigned_value(cfs, "LV_COLOR_FORMAT_ARGB2222"),
+            Some(0x18)
+        );
+        // Alias RHS (= LV_COLOR_FORMAT_YUV_START) must refuse.
+        assert_eq!(lookup_assigned_value(cfs, "LV_COLOR_FORMAT_I420"), None);
+    }
+
+    #[test]
+    fn ordinal_lookup_yields_known_values() {
+        let aligns = enum_body(LV_IMAGE_HEADER, "} lv_image_align_t").unwrap();
+        // Header-only names; RIGHT_MID=8 also proves counting crosses the
+        // whole implicit run, and STRETCH=11 (guarded above) proves the
+        // underscore-prefixed _AUTO_TRANSFORM consumed ordinal 10.
+        assert_eq!(
+            lookup_ordinal(aligns, "LV_IMAGE_ALIGN_", "LV_IMAGE_ALIGN_TOP_LEFT"),
+            Some(1)
+        );
+        assert_eq!(
+            lookup_ordinal(aligns, "LV_IMAGE_ALIGN_", "LV_IMAGE_ALIGN_RIGHT_MID"),
+            Some(8)
+        );
+        assert_eq!(
+            lookup_ordinal(aligns, "LV_IMAGE_ALIGN_", "LV_IMAGE_ALIGN_NOPE"),
+            None
+        );
+
+        let flex = enum_body(LV_FLEX_HEADER, "} lv_flex_align_t").unwrap();
+        assert_eq!(
+            lookup_ordinal(flex, "LV_FLEX_ALIGN_", "LV_FLEX_ALIGN_SPACE_EVENLY"),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn define_lookup_yields_known_values() {
+        // Parenthesized form (0x19) and plain forms both parse; prefix
+        // matches (a longer #define starting with the same name) refuse.
+        assert_eq!(
+            lookup_define(LV_IMAGE_DSC_HEADER, "LV_IMAGE_HEADER_MAGIC"),
+            Some(0x19)
+        );
+        assert_eq!(
+            lookup_define(LV_DRAW_RECT_HEADER, "LV_RADIUS_CIRCLE"),
+            Some(0x7FFF)
+        );
+        assert_eq!(lookup_define(LV_DRAW_RECT_HEADER, "LV_RADIUS_NOPE"), None);
+    }
+
+    #[test]
+    fn eval_c_const_handles_all_header_forms() {
+        assert_eq!(eval_c_const("17"), Some(17));
+        assert_eq!(eval_c_const("0x0F"), Some(0x0F));
+        assert_eq!(eval_c_const("0X18"), Some(0x18));
+        assert_eq!(eval_c_const("1 << 9"), Some(512));
+        assert_eq!(eval_c_const("(1u << 20)"), Some(1 << 20));
+        assert_eq!(eval_c_const("LV_OBJ_FLAG_LAYOUT_1"), None);
+        assert_eq!(eval_c_const("(A | B)"), None);
     }
 }
