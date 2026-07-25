@@ -271,11 +271,41 @@ fn tag_name(tag: u32) -> String {
 
 fn fmt_size(bytes: usize) -> String {
     if bytes >= 1024 * 1024 {
-        format!("{:.1} KiB", bytes as f64 / 1024.0)
+        format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
     } else if bytes >= 1024 {
         format!("{:.1} KiB", bytes as f64 / 1024.0)
     } else {
         format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_size_bytes_below_one_kib() {
+        assert_eq!(fmt_size(0), "0 B");
+        assert_eq!(fmt_size(1023), "1023 B");
+    }
+
+    #[test]
+    fn fmt_size_kib_range() {
+        assert_eq!(fmt_size(1024), "1.0 KiB");
+        assert_eq!(fmt_size(1536), "1.5 KiB");
+        assert_eq!(fmt_size(1024 * 1024 - 1), "1024.0 KiB");
+    }
+
+    #[test]
+    fn fmt_size_mib_range() {
+        assert_eq!(fmt_size(1024 * 1024), "1.0 MiB");
+        assert_eq!(fmt_size(2 * 1024 * 1024), "2.0 MiB");
+        assert_eq!(fmt_size(5 * 1024 * 1024 + 512 * 1024), "5.5 MiB");
+    }
+
+    #[test]
+    fn tag_name_decodes_le_bytes() {
+        assert_eq!(tag_name(u32::from_le_bytes(*b"MANI")), "MANI");
     }
 }
 
