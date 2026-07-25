@@ -90,7 +90,7 @@ fn parse_section_header(data: &[u8], offset: usize) -> Result<SectionHeader, Str
     })
 }
 
-fn section_data<'a>(data: &'a [u8], offset: usize, expected_tag: u32) -> Result<&'a [u8], String> {
+fn section_data(data: &[u8], offset: usize, expected_tag: u32) -> Result<&[u8], String> {
     let hdr = parse_section_header(data, offset)?;
     if hdr.tag != expected_tag {
         return Err(format!(
@@ -279,36 +279,6 @@ fn fmt_size(bytes: usize) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fmt_size_bytes_below_one_kib() {
-        assert_eq!(fmt_size(0), "0 B");
-        assert_eq!(fmt_size(1023), "1023 B");
-    }
-
-    #[test]
-    fn fmt_size_kib_range() {
-        assert_eq!(fmt_size(1024), "1.0 KiB");
-        assert_eq!(fmt_size(1536), "1.5 KiB");
-        assert_eq!(fmt_size(1024 * 1024 - 1), "1024.0 KiB");
-    }
-
-    #[test]
-    fn fmt_size_mib_range() {
-        assert_eq!(fmt_size(1024 * 1024), "1.0 MiB");
-        assert_eq!(fmt_size(2 * 1024 * 1024), "2.0 MiB");
-        assert_eq!(fmt_size(5 * 1024 * 1024 + 512 * 1024), "5.5 MiB");
-    }
-
-    #[test]
-    fn tag_name_decodes_le_bytes() {
-        assert_eq!(tag_name(u32::from_le_bytes(*b"MANI")), "MANI");
-    }
-}
-
 fn horizontal_rule(width: usize) -> String {
     "━".repeat(width)
 }
@@ -483,5 +453,35 @@ fn main() {
     if let Err(e) = run(Path::new(&args[1])) {
         eprintln!("Error: {e}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_size_bytes_below_one_kib() {
+        assert_eq!(fmt_size(0), "0 B");
+        assert_eq!(fmt_size(1023), "1023 B");
+    }
+
+    #[test]
+    fn fmt_size_kib_range() {
+        assert_eq!(fmt_size(1024), "1.0 KiB");
+        assert_eq!(fmt_size(1536), "1.5 KiB");
+        assert_eq!(fmt_size(1024 * 1024 - 1), "1024.0 KiB");
+    }
+
+    #[test]
+    fn fmt_size_mib_range() {
+        assert_eq!(fmt_size(1024 * 1024), "1.0 MiB");
+        assert_eq!(fmt_size(2 * 1024 * 1024), "2.0 MiB");
+        assert_eq!(fmt_size(5 * 1024 * 1024 + 512 * 1024), "5.5 MiB");
+    }
+
+    #[test]
+    fn tag_name_decodes_le_bytes() {
+        assert_eq!(tag_name(u32::from_le_bytes(*b"MANI")), "MANI");
     }
 }

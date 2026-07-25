@@ -258,7 +258,7 @@ fn collect_classes_inner(
         let path = entry.path();
         if path.is_dir() {
             collect_classes_inner(root, &path, out)?;
-        } else if path.extension().map_or(false, |e| e == "class") {
+        } else if path.extension().is_some_and(|e| e == "class") {
             let rel = path
                 .strip_prefix(root)
                 .expect("class file must be under root");
@@ -447,6 +447,9 @@ fn build_section_header(tag: u32, data_len: u32) -> Vec<u8> {
     hdr
 }
 
+// Argument bundling is deferred to the planned shared papk-format crate
+// (docs/code-health-audit-2026-07.md §6.1), which owns the manifest shape.
+#[allow(clippy::too_many_arguments)]
 fn build_papk(
     main_class: Option<&str>,
     activity: Option<&str>,

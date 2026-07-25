@@ -109,6 +109,8 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
       # Simulator (host target)
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
+      # Host tools (previously unlinted anywhere; a real bug hid in papk-info)
+      - run: cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink --all-targets --target "$(rustc -vV | awk '/^host:/ { print $2 }')" -- --deny=warnings
   examples:
     name: Compile All Example APKs
     runs-on: ubuntu-latest

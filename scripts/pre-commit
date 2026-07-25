@@ -163,8 +163,9 @@ if ! PICODROID_EXTRA_FEATURES=mem-diag \
   exit 1
 fi
 
-echo "==> Running clippy (pdb)..."
-if ! cargo clippy -p pdb --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
+echo "==> Running clippy (host tools)..."
+if ! cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
+     --all-targets --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
   echo ""
   echo "ERROR: Clippy check failed. Fix the warnings above before committing."
   exit 1
