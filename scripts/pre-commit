@@ -74,7 +74,9 @@ APK_PATH="$REPO_ROOT/build/apks/helloworld.papk"
 # Run clippy for each board target
 JOBS="$(cpu_count)"
 
-for board in testbench_rp2040 testbench_rp2350; do
+# testbench_rp2350w compiles the cyw43/network path and pico_enviro_mon the
+# sensor/has_buttons path — neither is reachable from the other boards' cfgs.
+for board in testbench_rp2040 testbench_rp2350 testbench_rp2350w pico_enviro_mon; do
   resolve_board "$board"
   echo "==> Running clippy ($board)..."
   # shellcheck disable=SC2086

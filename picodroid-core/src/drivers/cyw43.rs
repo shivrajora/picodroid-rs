@@ -97,8 +97,9 @@ pub struct Cyw43State {
 /// Initialise the CYW43439 driver and hardware.
 ///
 /// # Safety
+/// # Safety
 /// Must be called exactly once, before the FreeRTOS scheduler starts or
-/// from within a FreeRTOS task.
+/// from within a FreeRTOS task, and before any other function in this module.
 pub unsafe fn init() -> Result<(), i32> {
     let ret = cyw43_init(&raw mut cyw43_state, None);
     if ret != 0 {
@@ -108,16 +109,28 @@ pub unsafe fn init() -> Result<(), i32> {
 }
 
 /// Poll the driver — call from the CYW43 task loop.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn poll() {
     cyw43_poll(&raw mut cyw43_state);
 }
 
 /// Register the FreeRTOS task handle used for CYW43 event notification.
+///
+/// # Safety
+/// `task_handle` must be a valid FreeRTOS task handle that outlives all
+/// driver activity.
 pub unsafe fn set_poll_task(task_handle: *mut core::ffi::c_void) {
     cyw43_set_poll_task(task_handle);
 }
 
 /// Join a WiFi network with WPA2 authentication.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn wifi_join(ssid: &[u8], password: &[u8]) -> Result<(), i32> {
     let auth = if password.is_empty() {
         auth::OPEN
@@ -142,6 +155,10 @@ pub unsafe fn wifi_join(ssid: &[u8], password: &[u8]) -> Result<(), i32> {
 }
 
 /// Disconnect from the current WiFi network.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn wifi_leave() -> Result<(), i32> {
     let ret = cyw43_wifi_leave(&raw mut cyw43_state, itf::STA);
     if ret != 0 {
@@ -151,11 +168,19 @@ pub unsafe fn wifi_leave() -> Result<(), i32> {
 }
 
 /// Get the current link status for the STA interface.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn link_status() -> i32 {
     cyw43_tcpip_link_status(&raw const cyw43_state, itf::STA)
 }
 
 /// Get the WiFi RSSI (signal strength in dBm).
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn get_rssi() -> Result<i32, i32> {
     let mut rssi: i32 = 0;
     let ret = cyw43_wifi_get_rssi(&raw mut cyw43_state, &mut rssi);
@@ -166,6 +191,10 @@ pub unsafe fn get_rssi() -> Result<i32, i32> {
 }
 
 /// Get the MAC address for the STA interface.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task (the driver
+/// state is unsynchronized).
 pub unsafe fn get_mac() -> Result<[u8; 6], i32> {
     let mut mac = [0u8; 6];
     let ret = cyw43_wifi_get_mac(&raw mut cyw43_state, itf::STA, &mut mac);

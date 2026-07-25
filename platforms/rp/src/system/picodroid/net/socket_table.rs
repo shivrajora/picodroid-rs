@@ -26,6 +26,7 @@ pub fn remove(_id: i32) {}
 
 #[cfg(target_pointer_width = "32")]
 #[inline(always)]
+#[allow(dead_code)]
 pub fn reset() {}
 
 // ── 64-bit: indirection table ────────────────────────────────────────────────

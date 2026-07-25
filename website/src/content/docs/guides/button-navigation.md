@@ -201,7 +201,7 @@ field.setInputType(InputType.TYPE_CLASS_NUMBER);  // shows the digit keypad
 Fields flagged `TYPE_CLASS_NUMBER` get the numeric keypad layout; everything else gets the default text layout. Dismiss the soft keyboard with Y/BACK — on a keypad-only board it's the only way to close it (the keyboard is consumed first in the BACK routing order above, so the user stays on the same screen). See [UI components](/api/ui/) for the full `EditText` / keyboard surface.
 
 :::note[Contributors: pre-commit does not compile this path]
-`scripts/pre-commit` does **not** build `board-pico-enviro-mon`. Its board loop only iterates the testbench (touch) boards plus a sim build, so the entire `has_buttons` code path — keypad indev, per-Activity focus groups, the phantom-release IRQ filter — is not compiled by the standard suite. The pure-logic unit tests (e.g. the phantom-release filter) do run under `scripts/test.sh`, but they don't exercise the `has_buttons` cfg. To compile-check the button path, run clippy/check against `board-pico-enviro-mon` explicitly.
+`scripts/pre-commit` clippy-checks `board-pico-enviro-mon` on the ARM target (added 2026-07), so the `has_buttons` code path — keypad indev, per-Activity focus groups, the phantom-release IRQ filter — is compile-gated by the standard suite. The pure-logic unit tests (e.g. the phantom-release filter) run under `scripts/test.sh` but don't exercise the `has_buttons` cfg; behavioral coverage still needs the enviro sim smoke (`sim-run.sh`) or hardware.
 :::
 
 ## See also

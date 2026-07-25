@@ -130,7 +130,7 @@ pub fn native_connect(args: &[Value], strings: &StringTable) -> Result<Option<Va
 
     // Open and connect TCP socket.
     let sock = crate::hal::net::tcp_socket().map_err(|_| JvmError::InvalidReference)?;
-    if let Err(_) = crate::hal::net::tcp_connect(sock, addr, port) {
+    if crate::hal::net::tcp_connect(sock, addr, port).is_err() {
         crate::hal::net::close(sock);
         return Err(JvmError::InvalidReference);
     }
@@ -145,7 +145,7 @@ pub fn native_connect(args: &[Value], strings: &StringTable) -> Result<Option<Va
     pos += write_bytes(&mut buf, pos, path.as_bytes());
     pos += write_bytes(&mut buf, pos, b" HTTP/1.1\r\nHost: ");
     pos += write_bytes(&mut buf, pos, host.as_bytes());
-    if !(port == 80) {
+    if port != 80 {
         pos += write_bytes(&mut buf, pos, b":");
         pos += write_usize(&mut buf, pos, port as usize);
     }
@@ -234,8 +234,8 @@ pub fn native_output_write(
     while sent_total < len {
         let chunk = core::cmp::min(IO_CHUNK, len - sent_total);
         let mut buf = [0u8; IO_CHUNK];
-        for i in 0..chunk {
-            buf[i] = arrays
+        for (i, b) in buf.iter_mut().enumerate().take(chunk) {
+            *b = arrays
                 .load(arr_idx, off + sent_total + i)
                 .ok_or(JvmError::ArrayIndexOutOfBounds)? as i8 as u8;
         }
@@ -305,9 +305,9 @@ pub fn native_input_read(
             Ok(Some(Value::Int(-1)))
         }
         Ok(n) => {
-            for i in 0..n {
+            for (i, &b) in buf.iter().enumerate().take(n) {
                 arrays
-                    .store(arr_idx, off + i, buf[i] as i8 as i32)
+                    .store(arr_idx, off + i, b as i8 as i32)
                     .ok_or(JvmError::InvalidReference)?;
             }
             if conn.body_remaining != i64::MAX {
@@ -403,7 +403,7 @@ fn parse_head_bytes(head: &[u8]) -> Result<(i32, i64), JvmError> {
 }
 
 fn strip_cr(line: &[u8]) -> &[u8] {
-    if let Some((&b'\r', rest)) = line.split_last().map(|(l, r)| (l, r)) {
+    if let Some((&b'\r', rest)) = line.split_last() {
         rest
     } else {
         line

@@ -159,9 +159,13 @@ no-op *(roadmap)*); 15 of 24 rows are `hw`/`pdb`/`skip` categories that never ru
   firmware by any gate** (pre-commit builds rp2040/rp2350/tdeck; CI builds rp2040/rp2350;
   HIL hardcodes `testbench_rp2350` at `hil-run.sh:28`). Its `sensor-bme688`/`sensor-ltr559`
   hardware paths get no compile coverage anywhere. Known *(roadmap)* but still open.
+  **RESOLVED 2026-07-25:** ARM clippy lanes added to the pre-commit board loop and CI
+  linting for both this board and `testbench_rp2350w`.
 - **`board-testbench-rp2350w` (cyw43 network) is compiled by nothing automated** — feature
   exists in `platforms/rp/Cargo.toml:25`, referenced by zero scripts/CI. It can rot
-  silently; decide to gate it or delete it.
+  silently; decide to gate it or delete it. **RESOLVED 2026-07-25: gated** (kept — Pico 2 W
+  is a published board); enabling the gate required adding the missing `# Safety` docs the
+  rot had already accumulated in `drivers/cyw43.rs`.
 - **`papk-pack`, `papk-info`, `class-shrink` get clippy nowhere** (pre-commit clippies
   boards/sim/pdb; CI clippies `-p picodroid` only). Concrete cost already incurred: see
   §6.4.

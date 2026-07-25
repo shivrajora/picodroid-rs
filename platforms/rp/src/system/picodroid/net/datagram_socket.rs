@@ -56,8 +56,8 @@ pub fn send_native(
 
     let send_len = length.min(BUF_SIZE);
     let mut buf = [0u8; BUF_SIZE];
-    for i in 0..send_len {
-        buf[i] = arrays
+    for (i, b) in buf.iter_mut().enumerate().take(send_len) {
+        *b = arrays
             .load(arr_idx, i)
             .ok_or(JvmError::ArrayIndexOutOfBounds)? as u8;
     }
@@ -92,8 +92,8 @@ pub fn receive_native(
 
     // Copy received bytes into the packet's data array.
     let copy_len: usize = n.min(BUF_SIZE);
-    for i in 0..copy_len {
-        arrays.store(arr_idx, i, buf[i] as i32);
+    for (i, &b) in buf.iter().enumerate().take(copy_len) {
+        arrays.store(arr_idx, i, b as i32);
     }
 
     // Update packet fields.

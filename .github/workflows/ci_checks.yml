@@ -107,6 +107,10 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040 -- --deny=warnings
       # TestBench RP2350
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
+      # TestBench RP2350W — only automated compile of the cyw43/network path
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w -- --deny=warnings
+      # Pico Enviro Mon — only automated ARM compile of the sensor/has_buttons path
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon -- --deny=warnings
       # Simulator (host target)
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
       # Host tools (previously unlinted anywhere; a real bug hid in papk-info)

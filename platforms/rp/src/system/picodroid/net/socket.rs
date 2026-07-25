@@ -57,8 +57,8 @@ pub fn send_native(
     // Copy from JVM array into stack buffer.
     let send_len = len.min(BUF_SIZE);
     let mut buf = [0u8; BUF_SIZE];
-    for i in 0..send_len {
-        buf[i] = arrays
+    for (i, b) in buf.iter_mut().enumerate().take(send_len) {
+        *b = arrays
             .load(arr_idx, offset + i)
             .ok_or(JvmError::ArrayIndexOutOfBounds)? as u8;
     }
@@ -94,8 +94,8 @@ pub fn recv_native(
     match crate::hal::net::tcp_recv(ptr, &mut buf[..recv_len]) {
         Ok(n) => {
             // Copy received bytes into JVM array.
-            for i in 0..n {
-                arrays.store(arr_idx, offset + i, buf[i] as i32);
+            for (i, &b) in buf.iter().enumerate().take(n) {
+                arrays.store(arr_idx, offset + i, b as i32);
             }
             Ok(Some(Value::Int(n as i32)))
         }
