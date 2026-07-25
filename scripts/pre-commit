@@ -175,4 +175,15 @@ if ! bash "$REPO_ROOT/scripts/test-jvm-env.sh"; then
   exit 1
 fi
 
+# One behavioral Java lane so a pico-jvm semantics regression is caught
+# locally, not first by CI/nightly. langsuite is the widest self-checking
+# suite (14 sub-demos, log-token asserted, both shrink modes).
+echo "==> Running Java conformance suite (langsuite, sim)..."
+if ! bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
+  echo ""
+  echo "ERROR: langsuite failed in sim. A pico-jvm/stdlib behavior regressed;"
+  echo "       fix before committing."
+  exit 1
+fi
+
 echo "==> All checks passed."
