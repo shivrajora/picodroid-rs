@@ -22,17 +22,14 @@ pub fn is_stop_jvm() -> bool {
 }
 
 /// Set by pdb_task before CMD_INSTALL flash operations.  When jvm_task sees
-/// this after the JVM exits, it enters a RAM spin loop with interrupts disabled
-/// so core 0 does not access flash during erase/program.
+/// this after the JVM exits, it signals `CORE0_PARKED` and blocks on a
+/// FreeRTOS notification so it does not touch flash (XIP) while pdb_task —
+/// on the same core since the core-0 move — erases/programs.
 pub static FLASH_PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-/// Set by jvm_task (core 0) once it has entered the RAM spin loop.
+/// Set by jvm_task once it has signalled and blocked.
 /// pdb_task polls this before starting flash operations.
 pub static CORE0_PARKED: AtomicBool = AtomicBool::new(false);
-
-/// Set by pdb_task (core 1) when all flash operations are complete.
-/// Core 0's spin loop exits when it sees this flag.
-pub static CORE0_RELEASE: AtomicBool = AtomicBool::new(false);
 
 /// Tracks the number of currently-running JVM child threads (spawned via Thread.start()).
 /// jvm_task waits for this to reach zero before resetting the heap for a new app.

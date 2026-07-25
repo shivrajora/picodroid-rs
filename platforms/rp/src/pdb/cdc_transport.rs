@@ -41,9 +41,10 @@ impl CdcTransport {
 
 impl InstallTransport for CdcTransport {
     fn read_byte(&mut self) -> Result<u8, ReadError> {
-        // On RP2350 (configTICK_CORE=0), core 0 is parked during install so
-        // the FreeRTOS tick is frozen.  Use non-blocking queue poll + hardware
-        // timer instead of tick-based timeouts.
+        // On RP2350 (configTICK_CORE=0), each flash erase/program window
+        // (with_xip_disabled!) disables core 0 interrupts and freezes the
+        // FreeRTOS tick.  Use non-blocking queue poll + hardware timer
+        // instead of tick-based timeouts.
         #[cfg(feature = "chip-rp2350")]
         return crate::hal::pdb_usb::queue_read_byte_busywait(2_000_000).ok_or(ReadError::Timeout);
         #[cfg(not(feature = "chip-rp2350"))]

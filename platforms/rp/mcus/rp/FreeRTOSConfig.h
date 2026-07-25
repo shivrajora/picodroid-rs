@@ -109,12 +109,14 @@ extern uint32_t picodroid_get_runtime_counter(void);
 #ifdef __ARM_ARCH_8M_MAIN__
 /* RP2350: the community FreeRTOS SMP port does not start tasks on core 0
  * when configTICK_CORE=1.  Tick on core 0 means the scheduler freezes
- * while park_for_flash() disables core 0 interrupts; install-time code
- * uses a hardware timer alarm on core 1 to compensate. */
+ * during each flash erase/program window (with_xip_disabled! runs with
+ * core 0 interrupts disabled); install-time reads compensate with a
+ * hardware-timer busywait (pdb_usb::queue_read_byte_busywait). */
 #define configTICK_CORE                         0
 #else
-/* RP2040: core 1 drives the tick so park_for_flash() can disable core 0
- * interrupts without freezing the scheduler. */
+/* RP2040: core 1 drives the tick so flash operations (which disable
+ * core 0 interrupts inside with_xip_disabled!) do not freeze the
+ * scheduler. */
 #define configTICK_CORE                         1
 #endif
 #define configUSE_CORE_AFFINITY                 1

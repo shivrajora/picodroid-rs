@@ -202,7 +202,7 @@ compiled**:
 | `platforms/rp/src/dispatch_sites.rs` (144 ln) | **Divergent** — 8 sites behind core's twin (missing `SERVICE_ON_REBIND`, `ACTIVITY_ON_ACTIVITY_RESULT`, `VIEW_LONG_CLICK`, `ALERT_DIALOG_ITEM`); its 1 `#[test]` never runs. A maintainer editing it sees no effect — an active trap (bitten once already per memory). |
 | `platforms/rp/src/task_priority.rs` (63 ln) | **Divergent** — missing core's `PRIORITY_SENSOR`; 1 dead `#[test]` |
 | `platforms/rp/src/framework_classes.rs`, `shrink_names.rs` | Byte-identical dead copies |
-| `platforms/rp/src/hal/rp/timer_alarm.rs` (82 ln) | **Orphaned real code** — RP2350 core-1 park-detection via TIMER0, never declared in `hal/rp/mod.rs`, zero references crate-wide (verified), untouched since 2026-05-04. ARCHITECTURE.md still cites it as the live park-for-flash tick-compensation mechanism. **Investigate before deleting**: either the mechanism was replaced (then delete + fix the doc) or RP2350 tick compensation silently vanished (then re-wire). |
+| `platforms/rp/src/hal/rp/timer_alarm.rs` (82 ln) | **Orphaned real code — RESOLVED 2026-07-25: deleted.** Archaeology showed `f1c0b0d` (PDB task moved to core 0, 2026-04-12) deliberately retired the whole cross-core park design — it removed the `mod` declaration (and the `signal_park_from_isr` symbol the orphan calls) but forgot the file. Deleted along with the equally-dead `park_for_flash()` and `CORE0_RELEASE`; the six stale doc/comment sites describing the old design were rewritten in the same commit. |
 | `examples/androidport/` | Orphaned — zero tracked files, only gitignored build output |
 
 Also: headline test count for `platforms/rp` is 185 but **183 run** (2 live in dead files).

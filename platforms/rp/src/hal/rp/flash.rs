@@ -99,12 +99,6 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
 //      <restore fast XIP mode>   — see the macro's restore step below
 //    The raw ROM functions (flash_range_erase, flash_range_program) do NOT
 //    handle XIP internally — the pico-sdk C wrappers perform this sequence.
-//
-// 4. park_for_flash (core 0) uses read_volatile / write_volatile for all flag
-//    accesses, NOT AtomicBool::load/store.  On thumbv6m, AtomicBool operations
-//    may lower to __atomic_load_1 / __atomic_store_1 libcalls (in .text flash).
-//    Those libcalls fault when core 1's flash_exit_xip has disabled XIP.
-//    read_volatile/write_volatile lower to single ldrb/strb instructions only.
 
 /// Execute a flash operation with XIP disabled.
 ///
@@ -256,78 +250,6 @@ pub unsafe fn flash_commit_metadata(len: u32) {
     meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
     meta_page[8..12].copy_from_slice(&len.to_le_bytes());
     flash_program_range(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
-}
-
-// ── Park ─────────────────────────────────────────────────────────────────────
-
-/// Park the calling core in a RAM spin loop with interrupts disabled.
-///
-/// Called from jvm_task (core 0) so that core 0 does not access flash (via XIP)
-/// while the install task (core 1) erases or programs flash.
-///
-/// # Safety
-/// Must only be called from core 0 after the JVM and all child threads have
-/// exited.  Core 1 must eventually set `CORE0_RELEASE` to avoid permanent
-/// lockup.
-#[link_section = ".data"]
-#[inline(never)]
-pub unsafe fn park_for_flash() {
-    use crate::pdb::pending;
-
-    // Pre-compute flag addresses while XIP is still enabled
-    let parked_addr = pending::CORE0_PARKED.as_ptr() as usize;
-    let release_addr = pending::CORE0_RELEASE.as_ptr() as usize;
-    let park_req_addr = pending::FLASH_PARK_REQUESTED.as_ptr() as usize;
-
-    let primask: u32;
-    core::arch::asm!(
-        "mrs {0}, PRIMASK",
-        out(reg) primask,
-        options(nomem, nostack, preserves_flags)
-    );
-    core::arch::asm!("cpsid i", options(nomem, nostack));
-
-    // Signal core 1 we are parked.
-    core::arch::asm!(
-        "dmb sy",
-        "strb {val}, [{ptr}]",
-        "sev",
-        val = in(reg) 1u32,
-        ptr = in(reg) parked_addr,
-        options(nostack, preserves_flags)
-    );
-
-    // Spin until core 1 sets CORE0_RELEASE.
-    loop {
-        let val: u32;
-        core::arch::asm!(
-            "ldrb {val}, [{ptr}]",
-            "dmb sy",
-            val = out(reg) val,
-            ptr = in(reg) release_addr,
-            options(nostack, preserves_flags)
-        );
-        if val != 0 {
-            break;
-        }
-        core::arch::asm!("nop", options(nomem, nostack, preserves_flags));
-    }
-
-    // Clear all flags
-    core::arch::asm!(
-        "strb {z}, [{p1}]",
-        "strb {z}, [{p2}]",
-        "strb {z}, [{p3}]",
-        z  = in(reg) 0u32,
-        p1 = in(reg) parked_addr,
-        p2 = in(reg) release_addr,
-        p3 = in(reg) park_req_addr,
-        options(nostack, preserves_flags)
-    );
-
-    if primask == 0 {
-        core::arch::asm!("cpsie i", options(nomem, nostack));
-    }
 }
 
 // ── Reset ────────────────────────────────────────────────────────────────────

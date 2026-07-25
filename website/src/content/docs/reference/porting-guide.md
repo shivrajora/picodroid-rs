@@ -187,7 +187,6 @@ pub unsafe fn read_flash_papk() -> Option<&'static [u8]>;
 pub unsafe fn flash_erase_papk_region(papk_len: usize);
 pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool;
 pub unsafe fn flash_commit_metadata(len: u32);
-pub unsafe fn park_for_flash();
 pub fn flash_trigger_reset() -> !;
 ```
 
@@ -196,9 +195,6 @@ pub fn flash_trigger_reset() -> !;
 - `flash_erase_papk_region`: erase sectors needed for `papk_len` bytes + metadata.
 - `flash_write_page`: write a 256-byte page into the PAPK data region.
 - `flash_commit_metadata`: write the PapkBootMeta header (atomic commit).
-- `park_for_flash`: on dual-core MCUs, park the calling core in a RAM spin
-  loop while the other core writes flash. On single-core MCUs, this is a no-op
-  (flash writes simply disable interrupts).
 - `flash_trigger_reset`: trigger a full chip reset (typically via watchdog).
 
 All flash write/erase functions must run from RAM (not flash) and may need to
@@ -319,14 +315,16 @@ rustflags = [
 ## Single-core vs dual-core considerations
 
 picodroid's RP port uses a dual-core architecture: PDB on core 1, JVM on
-core 0. This affects `boot.rs` (core affinity) and `flash.rs` (core parking).
+core 0. This affects `boot.rs` (core affinity) and `flash.rs` (interrupt-disable
+windows during erase/program).
 
 On single-core MCUs:
 
 - **Task scheduling**: both PDB and JVM tasks run on the same core. PDB
   preempts JVM via higher FreeRTOS priority.
-- **Flash writes**: `park_for_flash()` is a no-op. Flash erase/write simply
-  disables interrupts, performs the operation, and re-enables.
+- **Flash writes**: flash erase/write simply disables interrupts, performs the
+  operation, and re-enables — the same `with_xip_disabled!` window the RP
+  family uses.
 - **`CoreCoordinator`**: `request_stop_and_park()` stops the JVM task;
   `wait_for_park()` returns immediately (single core = already "parked").
 - **No `configUSE_CORE_AFFINITY`**: omit `.core_affinity()` calls in

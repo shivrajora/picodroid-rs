@@ -21,20 +21,28 @@ directly reads `pxCurrentTCBs[get_core_num()]` from assembly), the SVC-based
 approach does not properly select a task for core 0 when it is not the tick core.
 
 **Workaround:** Use `configTICK_CORE=0` (tick on core 0). This means the tick
-freezes when `park_for_flash()` disables interrupts on core 0 — see bug #2.
+freezes during each flash erase/program window (`with_xip_disabled!` disables
+core 0 interrupts) — see bug #2.
 
-## 2. Tick freeze during park_for_flash stalls core 1
+## 2. Tick freeze during flash operations stalls the scheduler
 
-**Status:** Worked around (TIMER0 hardware alarm on core 1)
+**Status:** Superseded (PDB task moved to core 0; residual freeze handled by
+busywait reads)
 
-With `configTICK_CORE=0`, parking core 0 (`cpsid i`) freezes the FreeRTOS tick.
-Any tick-dependent operation on core 1 (timeouts, delays, queue receives) hangs
-permanently because the tick counter never advances.
+With `configTICK_CORE=0`, disabling interrupts on core 0 freezes the FreeRTOS
+tick, and any tick-dependent operation (timeouts, delays, queue receives)
+stops advancing for the duration.
 
-**Workaround:** A TIMER0 alarm ISR on core 1 (`src/hal/rp/timer_alarm.rs`) fires
-every 1 ms independently of FreeRTOS. When it detects `CORE0_PARKED`, it sends
-to a FreeRTOS queue from ISR context, waking the PDB task. The alarm is only
-armed during PDB install.
+The original design parked core 0 in a RAM spin loop (`park_for_flash()`) for
+the whole install while core 1 wrote flash, compensating with a TIMER0 alarm
+ISR on core 1 (`timer_alarm.rs`) that fired every 1 ms independently of
+FreeRTOS. Both mechanisms were retired when the PDB task moved to core 0
+(see bug #3): the JVM task now blocks on a FreeRTOS notification with
+interrupts enabled, so the tick keeps running between flash operations. The
+tick still freezes inside each erase/program window (`with_xip_disabled!`),
+so install-time reads use a hardware-timer busywait
+(`pdb_usb::queue_read_byte_busywait`) instead of tick-based timeouts, and a
+successful install ends in a chip reset.
 
 ## 3. Cross-core FreeRTOS IPC is unreliable
 
