@@ -39,7 +39,6 @@ picodroid-core = { path = "../../picodroid-core" }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
 compat = { path = "../../compat" }
-crc32fast = { version = "1", default-features = false }
 embedded-hal = { version = "1.0.0" }
 defmt = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }

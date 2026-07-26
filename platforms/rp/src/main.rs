@@ -19,6 +19,11 @@ mod fs;
 // Shared boot memory budget (device task stacks / sim pre-charge — M4).
 #[cfg_attr(test, allow(dead_code))]
 mod boot_budget;
+// Compact IEEE CRC-32 (64-byte table; replaces crc32fast's 16 KiB one).
+// Pure logic, always compiled so its tests run; only the hardware-only
+// pdb/packagemanager modules call it, hence dead in sim/test builds.
+#[cfg_attr(any(test, feature = "sim"), allow(dead_code))]
+mod crc32;
 #[allow(dead_code)]
 mod hal;
 #[cfg(not(test))]

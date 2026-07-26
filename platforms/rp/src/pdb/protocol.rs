@@ -42,7 +42,7 @@ pub const INSTALL_PEEK_BYTES: usize = 512;
 
 /// CRC32 over [cmd byte][4-byte len LE][payload] — protects all variable fields.
 pub fn crc32_frame(cmd: u8, len: u32, payload: &[u8]) -> u32 {
-    let mut h = crc32fast::Hasher::new();
+    let mut h = crate::crc32::Crc32::new();
     h.update(&[cmd]);
     h.update(&len.to_le_bytes());
     h.update(payload);

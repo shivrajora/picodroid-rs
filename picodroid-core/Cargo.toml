@@ -26,7 +26,6 @@ pico-jvm      = { path = "../jvm" }
 compat        = { path = "../compat", version = "0.1" }
 embedded-hal  = "1.0"
 defmt         = "1"
-crc32fast     = { version = "1", default-features = false }
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
 [build-dependencies]

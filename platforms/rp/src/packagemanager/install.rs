@@ -139,7 +139,7 @@ fn stream_and_verify(
     coordinator: &mut impl CoreCoordinator,
     len: u32,
 ) -> bool {
-    let mut crc_hasher = crc32fast::Hasher::new();
+    let mut crc_hasher = crate::crc32::Crc32::new();
     crc_hasher.update(&[CRC_TAG_INSTALL]);
     crc_hasher.update(&len.to_le_bytes());
 
