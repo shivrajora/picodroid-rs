@@ -396,6 +396,14 @@ grade. `picodroid-core` stays (rationale in §5).
 
 ## 9. Prioritized backlog for fix sessions
 
+> **Progress 2026-07-25 (fix session 1):** P0 items 1-4 all landed (stale twins
+> fc896b3, timer_alarm resolution 2bcc858, papk-info fix 7b8330b + tool clippy
+> lanes ec47b46, ESP removal 8300bf8, board gates 111234d). P1: item 5
+> (papk-format) landed in 4 commits 8ef0326/a643514/016aaea/7bbc8a7; item 7
+> (LVGL guards, expanded scope) c62eb3b; item 8 (shrink superset) 6da6a4a;
+> item 10 (Java gate) 3e82cdd. Items 6 and 9 have reviewed implementation
+> designs in docs/designs/ (47cdcdc) awaiting execution. P2 items all open.
+
 **P0 — correctness/safety now, all cheap:**
 
 1. Delete the 4 stale core-twins in `platforms/rp/src/` + `examples/androidport`;
