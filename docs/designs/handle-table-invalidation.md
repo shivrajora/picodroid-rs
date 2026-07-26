@@ -190,6 +190,38 @@ socket_table.rs and http_table.rs keep the unsafe cast pattern until the later g
 ## SCOPE
 Roughly one focused week in three staged commits: (1) view_ops null-guard sweep ~100 LOC, low risk, lands immediately; (2) unified generation table replacing the 64-bit path + feature-gated 32-bit switch + reregister_screen plumbing + unit tests, ~450-600 LOC across handle_table.rs/lifecycle.rs/app.rs (call sites need recompile only — signatures unchanged); (3) default flip after a nightly sim-run plus one HIL soak (picoenvmon nav + PDB reload), one-line feature change plus cast-path deletion a release later. Sizing must be validated with a real RP2350 link and a --mem-diag heap check before commit 2 merges.
 
+## EXECUTION LOG (2026-07-26)
+
+Commits 1–2 landed (`a1063ed` view_ops null-guard sweep, `3d441fb` unified
+generation-tagged table). All seven amendments applied: re-encode-equality
+decode, separate `NEXT` free-list array (`EMPTY = SLOTS`), screen pinned via
+new `register_pinned()` (no delete hook, survives `reset()` — no
+`reregister_screen()`), `handle-table-32` clippy legs for thumbv6m+thumbv8m
+plus an rp2040 feature-on build (flash gate) in pre-commit, slot counts
+decoupled 256 device (board-tunable `handle_slots`) / 1024 host, 9 unit
+tests incl. full-then-recover + all-slots-distinct, and the measurements
+below. **Commit 3 (default flip) is pending the nightly HIL soak.**
+
+Measurements:
+
+- `graphicsbench` peak **43 live** widgets (sim, instrumented); picoenvmon
+  hub ~6 — 256 device slots are generous.
+- Prerequisite discovered: the RP2040 debug flash gate had only ~136 B of
+  headroom (the d14919c-era ~40 KB was gone). Freed 16,652 B by replacing
+  `crc32fast`'s 16 KiB table with a 64-byte nibble-table CRC32 (`040ccb7`).
+- RP2040 (helloworld, debug) with `handle-table-32`: **+2,688 B text,
+  +1,024 B bss**. `lookup` is `inline(never)` — inlining it at ~99 call
+  sites cost 7.4 KB of flash.
+- RP2350 `pico_enviro_mon` (picoenvmon): **+1,024 B bss** feature-on
+  (506,472 → 507,496), well inside the ~26 KB static headroom measured at
+  baseline — the 128-slot fallback is not needed.
+- Per-widget delete-hook LVGL-heap cost (device-only new cost): ~12–16 B ×
+  ≤43 live ≈ **0.7 KB** of the 48 KB `lv_mem` arena by arithmetic; confirm
+  on hardware during the HIL soak (sim already paid this cost on the old
+  64-bit table, so `--mem-diag` in sim shows no delta by construction).
+- Sim validation (sanitizer on): graphicsbench PASSED; 4-cycle picoenvmon
+  nav soak through History/Live/Settings — zero sanitizer aborts.
+
 ## CRITIQUE VERDICT: needs_changes
 
 ### ISSUES
