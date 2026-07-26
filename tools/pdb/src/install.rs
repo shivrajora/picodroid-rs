@@ -6,7 +6,6 @@ use std::time::Duration;
 use std::io::Write;
 
 use crate::devices::find_by_vid_pid;
-use crate::papk_meta;
 use crate::protocol::{
     recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
     INSTALL_PEEK_BYTES, POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
@@ -177,12 +176,13 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // through: read_framework_map_version returned None, compat::check saw
     // None vs firmware 0.0.0 and accepted, and the stub got written to flash —
     // bricking the device on next boot.
-    if let Err(e) = papk_meta::validate_structure(&papk) {
+    if let Err(e) = papk_format::validate_structure(&papk) {
         refuse(&format!("PAPK file is not a valid PAPK: {e}"), &opts);
     }
 
     // ── Pre-flight compat check (host-side) ──────────────────────────────────
-    let papk_fmv = papk_meta::read_framework_map_version(&papk);
+    let papk_fmv =
+        papk_format::find_manifest_value(&papk, papk_format::keys::FRAMEWORK_MAP_VERSION);
     if !opts.skip_host_check {
         if let Err(e) = compat::check(papk_fmv, &device.framework_map_version) {
             let reason = format!(

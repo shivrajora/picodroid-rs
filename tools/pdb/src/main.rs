@@ -3,7 +3,6 @@ mod devices;
 mod input;
 mod install;
 mod logcat;
-mod papk_meta;
 mod protocol;
 mod sysmon;
 

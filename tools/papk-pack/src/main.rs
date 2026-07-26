@@ -15,20 +15,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-// ── PAPK format constants ─────────────────────────────────────────────────────
-
-const MAGIC: &[u8; 4] = b"PAPK";
-const VERSION_MAJOR: u16 = 1;
-// Bumped 0 → 1 when the `framework-map-version` manifest key was introduced
-// (M1 of class/method name shrinking). Binary layout is unchanged, so
-// VERSION_MAJOR stays at 1 and older parsers still walk the file.
-const VERSION_MINOR: u16 = 1;
-
-// Section tags (ASCII tag stored as little-endian u32)
-// "MANI" = 0x494E414D, "CLSS" = 0x53534C43, "ASST" = 0x54535341
-const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
-const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
-const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
+use papk_format::{AssetSpec, EntryPoint, ManifestSpec, PapkBuilder};
 
 /// LVGL `lv_color_format_t` value for native RGB565 little-endian. Verified
 /// against `vendor/lvgl/src/misc/lv_color.h` (`LV_COLOR_FORMAT_RGB565`) —
@@ -272,65 +259,6 @@ fn collect_classes_inner(
     Ok(())
 }
 
-// ── PAPK serialization ────────────────────────────────────────────────────────
-
-fn write_u16_le(buf: &mut Vec<u8>, v: u16) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn write_u32_le(buf: &mut Vec<u8>, v: u32) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn write_str_u16(buf: &mut Vec<u8>, s: &str) {
-    let bytes = s.as_bytes();
-    write_u16_le(buf, bytes.len() as u16);
-    buf.extend_from_slice(bytes);
-}
-
-/// Build the MANIFEST section data (key/value pairs).
-fn build_manifest_data(
-    main_class: Option<&str>,
-    activity: Option<&str>,
-    application: Option<&str>,
-    package_name: &str,
-    version: &str,
-    framework_map_version: &str,
-) -> Vec<u8> {
-    let mut data = Vec::new();
-    if let Some(mc) = main_class {
-        write_str_u16(&mut data, "main-class");
-        write_str_u16(&mut data, mc);
-    }
-    if let Some(act) = activity {
-        write_str_u16(&mut data, "activity");
-        write_str_u16(&mut data, act);
-    }
-    if let Some(app) = application {
-        write_str_u16(&mut data, "application");
-        write_str_u16(&mut data, app);
-    }
-    write_str_u16(&mut data, "package-name");
-    write_str_u16(&mut data, package_name);
-    write_str_u16(&mut data, "version");
-    write_str_u16(&mut data, version);
-    write_str_u16(&mut data, "framework-map-version");
-    write_str_u16(&mut data, framework_map_version);
-    data
-}
-
-/// Build the CLASSES section data.
-fn build_classes_data(classes: &[(String, Vec<u8>)]) -> Vec<u8> {
-    let mut data = Vec::new();
-    write_u32_le(&mut data, classes.len() as u32);
-    for (name, bytes) in classes {
-        write_str_u16(&mut data, name);
-        write_u32_le(&mut data, bytes.len() as u32);
-        data.extend_from_slice(bytes);
-    }
-    data
-}
-
 // ── Asset discovery and decode ───────────────────────────────────────────────
 
 /// One asset bundled into the ASSETS section.
@@ -411,115 +339,48 @@ fn decode_png_to_rgb565(path: &Path, name: String) -> Result<Asset, String> {
     })
 }
 
-/// Build the ASSETS section data. The data of each asset starts on a 4-byte
-/// boundary within the section and each record is followed by 0..3 pad bytes
-/// so the next record also starts on a 4-byte boundary.
-fn build_assets_data(assets: &[Asset]) -> Vec<u8> {
-    let mut data = Vec::new();
-    write_u32_le(&mut data, assets.len() as u32);
-    for a in assets {
-        write_str_u16(&mut data, &a.name);
-        write_u16_le(&mut data, a.width);
-        write_u16_le(&mut data, a.height);
-        data.push(a.cf);
-        data.push(0); // reserved0
-        write_u16_le(&mut data, 0u16); // stride: 0 = derive from width + cf
-        write_u32_le(&mut data, a.data.len() as u32);
-        // Pad to 4-byte boundary before the data.
-        while data.len() % 4 != 0 {
-            data.push(0);
-        }
-        data.extend_from_slice(&a.data);
-        // Pad to 4-byte boundary before the next record.
-        while data.len() % 4 != 0 {
-            data.push(0);
-        }
-    }
-    data
-}
+// ── PAPK serialization ────────────────────────────────────────────────────────
 
-/// Build a section header (16 bytes).
-fn build_section_header(tag: u32, data_len: u32) -> Vec<u8> {
-    let mut hdr = Vec::with_capacity(16);
-    write_u32_le(&mut hdr, tag);
-    write_u32_le(&mut hdr, data_len);
-    write_u32_le(&mut hdr, 0); // crc32: unchecked in v1
-    write_u32_le(&mut hdr, 0); // reserved
-    hdr
-}
-
-// Argument bundling is deferred to the planned shared papk-format crate
-// (docs/code-health-audit-2026-07.md §6.1), which owns the manifest shape.
-#[allow(clippy::too_many_arguments)]
+/// Map the parsed CLI arguments plus the collected classes/assets onto the
+/// shared `papk_format` writer. This is the single real build path — `main()`
+/// and the consumer-level integration test both go through it. The emitted
+/// bytes are identical to the historical hand-rolled writer (pinned by
+/// papk-format's golden-fixture tests).
 fn build_papk(
-    main_class: Option<&str>,
-    activity: Option<&str>,
-    application: Option<&str>,
-    package_name: &str,
-    version: &str,
-    framework_map_version: &str,
+    args: &Args,
     classes: &[(String, Vec<u8>)],
     assets: &[Asset],
-) -> Vec<u8> {
-    let manifest_data = build_manifest_data(
-        main_class,
-        activity,
-        application,
-        package_name,
-        version,
-        framework_map_version,
-    );
-    let classes_data = build_classes_data(classes);
-    let assets_data = if assets.is_empty() {
-        Vec::new()
+) -> Result<Vec<u8>, papk_format::BuildError> {
+    let entry = if let Some(mc) = args.main_class.as_deref() {
+        EntryPoint::MainClass(mc)
+    } else if let Some(act) = args.activity.as_deref() {
+        EntryPoint::Activity(act)
+    } else if let Some(app) = args.application.as_deref() {
+        EntryPoint::Application(app)
     } else {
-        build_assets_data(assets)
+        unreachable!("parse_args enforces exactly one entry-point flag")
     };
 
-    let manifest_hdr = build_section_header(TAG_MANIFEST, manifest_data.len() as u32);
-    let classes_hdr = build_section_header(TAG_CLASSES, classes_data.len() as u32);
-    let assets_hdr = build_section_header(TAG_ASSETS, assets_data.len() as u32);
-
-    // File header is 24 bytes.
-    // MANIFEST section starts immediately after.
-    let manifest_offset: u32 = 24;
-    let classes_offset: u32 =
-        manifest_offset + manifest_hdr.len() as u32 + manifest_data.len() as u32;
-    // 0 means "no ASSETS section". Legacy parsers see zero in the slot they
-    // formerly read as `reserved` and behave unchanged.
-    let assets_offset: u32 = if assets.is_empty() {
-        0
-    } else {
-        classes_offset + classes_hdr.len() as u32 + classes_data.len() as u32
-    };
-    let section_count: u32 = if assets.is_empty() { 2 } else { 3 };
-
-    let mut file = Vec::new();
-
-    // File header (24 bytes)
-    file.extend_from_slice(MAGIC);
-    write_u16_le(&mut file, VERSION_MAJOR);
-    write_u16_le(&mut file, VERSION_MINOR);
-    write_u32_le(&mut file, section_count);
-    write_u32_le(&mut file, manifest_offset);
-    write_u32_le(&mut file, classes_offset);
-    write_u32_le(&mut file, assets_offset);
-
-    // MANIFEST section
-    file.extend_from_slice(&manifest_hdr);
-    file.extend_from_slice(&manifest_data);
-
-    // CLASSES section
-    file.extend_from_slice(&classes_hdr);
-    file.extend_from_slice(&classes_data);
-
-    // ASSETS section (optional)
-    if !assets.is_empty() {
-        file.extend_from_slice(&assets_hdr);
-        file.extend_from_slice(&assets_data);
+    let mut builder = PapkBuilder::new(ManifestSpec {
+        entry,
+        package_name: &args.package_name,
+        version: &args.version,
+        framework_map_version: &args.framework_map_version,
+    });
+    for (name, bytes) in classes {
+        builder.class(name, bytes);
     }
-
-    file
+    for a in assets {
+        builder.asset(AssetSpec {
+            name: &a.name,
+            width: a.width,
+            height: a.height,
+            cf: a.cf,
+            stride: 0, // 0 = derive from width + cf
+            data: &a.data,
+        });
+    }
+    builder.build()
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -585,16 +446,13 @@ fn main() {
         None => Vec::new(),
     };
 
-    let papk = build_papk(
-        args.main_class.as_deref(),
-        args.activity.as_deref(),
-        args.application.as_deref(),
-        &args.package_name,
-        &args.version,
-        &args.framework_map_version,
-        &classes,
-        &assets,
-    );
+    let papk = match build_papk(&args, &classes, &assets) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error building PAPK: {e}");
+            std::process::exit(1);
+        }
+    };
 
     if let Some(parent) = args.output.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
@@ -617,6 +475,66 @@ fn main() {
             eprintln!("Error writing output: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod pack_integration {
+    //! Consumer-level check (papk-format design §(d)6): pack the checked-in
+    //! fixture `.class` through the real CLI build path (collect_classes →
+    //! validate_entry_point → build_papk) and assert the shared parser
+    //! accepts the output — papk-pack's writer path is no longer untested.
+    use super::*;
+
+    #[test]
+    fn packing_the_fixture_class_yields_a_parseable_papk() {
+        let fixtures = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../papk-format/tests/fixtures"
+        ));
+        let class_bytes = fs::read(fixtures.join("Main.class")).expect("fixture Main.class");
+
+        // Stage a classes-dir layout so collect_classes derives the JVM name
+        // from the path, exactly as the real CLI invocation does.
+        let work = std::env::temp_dir().join(format!("papk-pack-it-{}", std::process::id()));
+        let classes_dir = work.join("classes");
+        fs::create_dir_all(classes_dir.join("fixture")).unwrap();
+        fs::write(classes_dir.join("fixture/Main.class"), &class_bytes).unwrap();
+
+        let args = Args {
+            main_class: Some("fixture/Main".into()),
+            activity: None,
+            application: None,
+            package_name: "fixture".into(),
+            version: "1.0".into(),
+            framework_map_version: "0.0.0".into(),
+            classes_dir: classes_dir.clone(),
+            output: work.join("out.papk"),
+            assets_dir: None,
+        };
+
+        let classes = collect_classes(&args.classes_dir).unwrap();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].0, "fixture/Main");
+        validate_entry_point(&args, &classes).unwrap();
+
+        let papk = build_papk(&args, &classes, &[]).unwrap();
+        let parsed = papk_format::Papk::parse(&papk).expect("papk-pack output must parse");
+        assert_eq!(parsed.main_class(), Some("fixture/Main"));
+        assert_eq!(parsed.class_count(), Ok(1));
+        let entry = parsed.classes().unwrap().next().unwrap();
+        assert_eq!(entry.name, b"fixture/Main");
+        assert_eq!(entry.data, class_bytes.as_slice());
+        assert!(parsed.assets().unwrap().is_none());
+
+        // These are the exact inputs that produced the pre-refactor golden
+        // fixture (see fixtures/README.md), so the CLI mapping must still
+        // reproduce it byte-for-byte — a stale build/apks/*.papk stays
+        // reproducible.
+        let golden = fs::read(fixtures.join("minimal.papk")).expect("fixture minimal.papk");
+        assert_eq!(papk, golden);
+
+        fs::remove_dir_all(&work).ok();
     }
 }
 

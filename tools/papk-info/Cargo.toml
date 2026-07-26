@@ -8,3 +8,6 @@ description = "Displays the contents of a PAPK (Picodroid APK) file"
 [[bin]]
 name = "papk-info"
 path = "src/main.rs"
+
+[dependencies]
+papk-format = { path = "../../papk-format" }

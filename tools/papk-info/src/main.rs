@@ -2,145 +2,38 @@
 use std::path::Path;
 use std::{env, fs, process};
 
-// ── Binary format constants ────────────────────────────────────────────────────
+use papk_format::{FileHeader, Papk, PapkError, FILE_HEADER_LEN};
 
-const MAGIC: &[u8; 4] = b"PAPK";
-const FILE_HEADER_LEN: usize = 24;
-const SECTION_HEADER_LEN: usize = 16;
-const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
-const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
-const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
+// ── Row extraction (papk_format parser + declared-count checks) ────────────────
 
-// ── Low-level read helpers ─────────────────────────────────────────────────────
-
-fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
-    let b = data.get(offset..offset + 2)?;
-    Some(u16::from_le_bytes([b[0], b[1]]))
-}
-
-fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
-    let b = data.get(offset..offset + 4)?;
-    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-
-fn read_bytes_u16<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
-    let len = read_u16(data, *pos)? as usize;
-    *pos += 2;
-    let slice = data.get(*pos..*pos + len)?;
-    *pos += len;
-    Some(slice)
-}
-
-fn read_bytes_u32<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
-    let len = read_u32(data, *pos)? as usize;
-    *pos += 4;
-    let slice = data.get(*pos..*pos + len)?;
-    *pos += len;
-    Some(slice)
-}
-
-// ── PAPK parsing ──────────────────────────────────────────────────────────────
-
-struct FileHeader {
-    version_major: u16,
-    version_minor: u16,
-    section_count: u32,
-    manifest_offset: usize,
-    classes_offset: usize,
-    /// 0 = no ASSETS section (legacy v1.0, or v1.1 without --assets-dir).
-    assets_offset: usize,
-}
-
-struct SectionHeader {
-    tag: u32,
-    length: usize,
-}
-
-fn parse_file_header(data: &[u8]) -> Result<FileHeader, String> {
-    if data.len() < FILE_HEADER_LEN {
+/// Collect `(name, size)` rows from the CLASSES section.
+///
+/// `ClassIter` silently stops early when the section is truncated mid-record;
+/// papk-info is a diagnostic tool and must not print a short table for a
+/// corrupt file, so compare the yielded count against the declared count and
+/// error on shortfall (preserving the old hand-rolled reader's
+/// Err-on-truncation behavior).
+fn collect_class_rows(papk: &Papk) -> Result<Vec<(String, usize)>, String> {
+    let declared = papk
+        .class_count()
+        .map_err(|e| format!("CLASSES section: {e}"))?;
+    let rows: Vec<(String, usize)> = papk
+        .classes()
+        .map_err(|e| format!("CLASSES section: {e}"))?
+        .map(|c| (String::from_utf8_lossy(c.name).into_owned(), c.data.len()))
+        .collect();
+    if (rows.len() as u32) < declared {
         return Err(format!(
-            "File too short: {} bytes (need at least {FILE_HEADER_LEN})",
-            data.len()
+            "CLASSES section truncated: declared {declared} classes, found {}",
+            rows.len()
         ));
     }
-    if &data[0..4] != MAGIC {
-        return Err(format!(
-            "Not a PAPK file: expected magic {:?}, got {:?}",
-            MAGIC,
-            &data[0..4]
-        ));
-    }
-    Ok(FileHeader {
-        version_major: read_u16(data, 4).unwrap(),
-        version_minor: read_u16(data, 6).unwrap(),
-        section_count: read_u32(data, 8).unwrap(),
-        manifest_offset: read_u32(data, 12).unwrap() as usize,
-        classes_offset: read_u32(data, 16).unwrap() as usize,
-        assets_offset: read_u32(data, 20).unwrap() as usize,
-    })
+    Ok(rows)
 }
 
-fn parse_section_header(data: &[u8], offset: usize) -> Result<SectionHeader, String> {
-    if data.len() < offset + SECTION_HEADER_LEN {
-        return Err(format!("Truncated section header at offset {offset:#x}"));
-    }
-    Ok(SectionHeader {
-        tag: read_u32(data, offset).unwrap(),
-        length: read_u32(data, offset + 4).unwrap() as usize,
-    })
-}
-
-fn section_data(data: &[u8], offset: usize, expected_tag: u32) -> Result<&[u8], String> {
-    let hdr = parse_section_header(data, offset)?;
-    if hdr.tag != expected_tag {
-        return Err(format!(
-            "Unexpected section tag at {offset:#x}: expected {expected_tag:#010x}, got {:#010x}",
-            hdr.tag
-        ));
-    }
-    let start = offset + SECTION_HEADER_LEN;
-    let end = start + hdr.length;
-    data.get(start..end)
-        .ok_or_else(|| format!("Section data at {offset:#x} extends beyond file end"))
-}
-
-fn parse_manifest(data: &[u8]) -> Vec<(String, String)> {
-    let mut entries = Vec::new();
-    let mut pos = 0;
-    while pos < data.len() {
-        let Some(key) = read_bytes_u16(data, &mut pos) else {
-            break;
-        };
-        let Some(val) = read_bytes_u16(data, &mut pos) else {
-            break;
-        };
-        let key = String::from_utf8_lossy(key).into_owned();
-        let val = String::from_utf8_lossy(val).into_owned();
-        entries.push((key, val));
-    }
-    entries
-}
-
-fn parse_classes(data: &[u8]) -> Result<Vec<(String, usize)>, String> {
-    if data.len() < 4 {
-        return Err("Classes section too short".into());
-    }
-    let count = read_u32(data, 0).unwrap() as usize;
-    let mut pos = 4;
-    let mut classes = Vec::with_capacity(count);
-    for _ in 0..count {
-        let Some(name) = read_bytes_u16(data, &mut pos) else {
-            return Err("Truncated class name".into());
-        };
-        let Some(class_data) = read_bytes_u32(data, &mut pos) else {
-            return Err("Truncated class data".into());
-        };
-        classes.push((String::from_utf8_lossy(name).into_owned(), class_data.len()));
-    }
-    Ok(classes)
-}
-
-/// Decoded asset row for the dump table.
+/// Decoded asset row for the dump table (constructed from
+/// `papk_format::AssetEntry`).
+#[derive(Debug)]
 struct AssetInfo {
     name: String,
     width: u16,
@@ -149,42 +42,34 @@ struct AssetInfo {
     data_size: usize,
 }
 
-fn parse_assets(data: &[u8]) -> Result<Vec<AssetInfo>, String> {
-    if data.len() < 4 {
-        return Err("Assets section too short".into());
+/// Collect [`AssetInfo`] rows from the ASSETS section, or `None` if the papk
+/// has no ASSETS section. Same declared-vs-yielded shortfall check as
+/// [`collect_class_rows`].
+fn collect_asset_rows(papk: &Papk) -> Result<Option<Vec<AssetInfo>>, String> {
+    let Some(iter) = papk.assets().map_err(|e| format!("ASSETS section: {e}"))? else {
+        return Ok(None);
+    };
+    // `assets()` returned an iterator, so the declared count is readable too.
+    let declared = papk
+        .asset_count()
+        .map_err(|e| format!("ASSETS section: {e}"))?
+        .unwrap_or(0);
+    let rows: Vec<AssetInfo> = iter
+        .map(|a| AssetInfo {
+            name: String::from_utf8_lossy(a.name).into_owned(),
+            width: a.width,
+            height: a.height,
+            cf: a.cf,
+            data_size: a.data.len(),
+        })
+        .collect();
+    if (rows.len() as u32) < declared {
+        return Err(format!(
+            "ASSETS section truncated: declared {declared} assets, found {}",
+            rows.len()
+        ));
     }
-    let count = read_u32(data, 0).unwrap() as usize;
-    let mut pos = 4;
-    let mut out = Vec::with_capacity(count);
-    for _ in 0..count {
-        let Some(name) = read_bytes_u16(data, &mut pos) else {
-            return Err("Truncated asset name".into());
-        };
-        if pos + 12 > data.len() {
-            return Err("Truncated asset header".into());
-        }
-        let width = read_u16(data, pos).unwrap();
-        let height = read_u16(data, pos + 2).unwrap();
-        let cf = data[pos + 4];
-        let data_size = read_u32(data, pos + 8).unwrap() as usize;
-        pos += 12;
-        // Pad to 4-byte boundary before pixel data.
-        pos = (pos + 3) & !3;
-        if pos + data_size > data.len() {
-            return Err("Truncated asset pixel data".into());
-        }
-        pos += data_size;
-        // Pad to 4-byte boundary before next record.
-        pos = (pos + 3) & !3;
-        out.push(AssetInfo {
-            name: String::from_utf8_lossy(name).into_owned(),
-            width,
-            height,
-            cf,
-            data_size,
-        });
-    }
-    Ok(out)
+    Ok(Some(rows))
 }
 
 /// Translate an LVGL color format byte to a friendly label. Values match
@@ -345,7 +230,16 @@ fn run(path: &Path) -> Result<(), String> {
     println!("Total size: {} bytes", data.len());
 
     // ── File header ──────────────────────────────────────────────────────────
-    let hdr = parse_file_header(&data)?;
+    // FileHeader::parse checks magic + length only (no version_major bound),
+    // so the header of a future-versioned file still gets dumped.
+    let hdr = FileHeader::parse(&data).map_err(|e| match e {
+        PapkError::Truncated => format!(
+            "File too short: {} bytes (need at least {FILE_HEADER_LEN})",
+            data.len()
+        ),
+        PapkError::BadMagic => "Not a PAPK file: magic bytes are not 'PAPK'".to_string(),
+        other => format!("File header: {other}"),
+    })?;
     println!();
     println!("File Header  ({FILE_HEADER_LEN} bytes @ {:#x})", 0);
     println!("  magic           \"PAPK\"");
@@ -371,11 +265,34 @@ fn run(path: &Path) -> Result<(), String> {
         println!("  assets_off      —  (no ASSETS section)");
     }
 
+    // ── Full parse ───────────────────────────────────────────────────────────
+    // A future-major file stops here, after the header dump (accepted change
+    // vs the old hand-rolled reader, which walked sections of files whose
+    // version it did not understand).
+    let papk = Papk::parse(&data).map_err(|e| match e {
+        PapkError::UnsupportedVersion => format!(
+            "unsupported PAPK major version {} (papk-info supports {}) — \
+             stopping after the header dump",
+            hdr.version_major,
+            papk_format::SUPPORTED_VERSION_MAJOR
+        ),
+        other => format!("{other}"),
+    })?;
+
     // ── Manifest section ─────────────────────────────────────────────────────
-    let manifest_hdr = parse_section_header(&data, hdr.manifest_offset)?;
-    let manifest_data = section_data(&data, hdr.manifest_offset, TAG_MANIFEST)
+    let (manifest_hdr, _) = papk
+        .manifest_section()
         .map_err(|e| format!("MANIFEST section: {e}"))?;
-    let manifest_entries = parse_manifest(manifest_data);
+    let manifest_entries: Vec<(String, String)> = papk
+        .manifest()
+        .map_err(|e| format!("MANIFEST section: {e}"))?
+        .map(|e| {
+            (
+                String::from_utf8_lossy(e.key).into_owned(),
+                String::from_utf8_lossy(e.value).into_owned(),
+            )
+        })
+        .collect();
 
     println!();
     println!(
@@ -394,10 +311,10 @@ fn run(path: &Path) -> Result<(), String> {
     }
 
     // ── Classes section ──────────────────────────────────────────────────────
-    let classes_hdr = parse_section_header(&data, hdr.classes_offset)?;
-    let classes_data = section_data(&data, hdr.classes_offset, TAG_CLASSES)
+    let (classes_hdr, _) = papk
+        .classes_section()
         .map_err(|e| format!("CLASSES section: {e}"))?;
-    let classes = parse_classes(classes_data)?;
+    let classes = collect_class_rows(&papk)?;
 
     let total_bytecode: usize = classes.iter().map(|(_, s)| s).sum();
 
@@ -416,11 +333,11 @@ fn run(path: &Path) -> Result<(), String> {
     );
 
     // ── Assets section (optional) ────────────────────────────────────────────
-    if hdr.assets_offset != 0 {
-        let assets_hdr = parse_section_header(&data, hdr.assets_offset)?;
-        let assets_data = section_data(&data, hdr.assets_offset, TAG_ASSETS)
-            .map_err(|e| format!("ASSETS section: {e}"))?;
-        let assets = parse_assets(assets_data)?;
+    if let Some((assets_hdr, _)) = papk
+        .assets_section()
+        .map_err(|e| format!("ASSETS section: {e}"))?
+    {
+        let assets = collect_asset_rows(&papk)?.unwrap_or_default();
         let total_pixels: usize = assets.iter().map(|a| a.data_size).sum();
         println!();
         println!(
@@ -483,5 +400,53 @@ mod tests {
     #[test]
     fn tag_name_decodes_le_bytes() {
         assert_eq!(tag_name(u32::from_le_bytes(*b"MANI")), "MANI");
+    }
+
+    // ── Declared-vs-yielded shortfall checks (bytes doctored from the
+    //    papk-format golden fixtures) ─────────────────────────────────────────
+
+    static MINIMAL_FIXTURE: &[u8] =
+        include_bytes!("../../../papk-format/tests/fixtures/minimal.papk");
+    static WITH_ASSETS_FIXTURE: &[u8] =
+        include_bytes!("../../../papk-format/tests/fixtures/with-assets.papk");
+
+    #[test]
+    fn class_shortfall_is_an_error_not_a_short_table() {
+        // Inflate the declared class count: the iterator still yields only
+        // the one real class, and papk-info must error instead of printing a
+        // silently short table.
+        let mut bytes = MINIMAL_FIXTURE.to_vec();
+        let hdr = FileHeader::parse(&bytes).unwrap();
+        let count_off = hdr.classes_offset as usize + papk_format::SECTION_HEADER_LEN;
+        bytes[count_off..count_off + 4].copy_from_slice(&7u32.to_le_bytes());
+        let papk = Papk::parse(&bytes).unwrap();
+        let err = collect_class_rows(&papk).unwrap_err();
+        assert_eq!(
+            err,
+            "CLASSES section truncated: declared 7 classes, found 1"
+        );
+    }
+
+    #[test]
+    fn asset_shortfall_is_an_error_not_a_short_table() {
+        let mut bytes = WITH_ASSETS_FIXTURE.to_vec();
+        let hdr = FileHeader::parse(&bytes).unwrap();
+        let count_off = hdr.assets_offset as usize + papk_format::SECTION_HEADER_LEN;
+        bytes[count_off..count_off + 4].copy_from_slice(&3u32.to_le_bytes());
+        let papk = Papk::parse(&bytes).unwrap();
+        let err = collect_asset_rows(&papk).unwrap_err();
+        assert_eq!(err, "ASSETS section truncated: declared 3 assets, found 1");
+    }
+
+    #[test]
+    fn valid_fixture_rows_match_declared_counts() {
+        let papk = Papk::parse(WITH_ASSETS_FIXTURE).unwrap();
+        let classes = collect_class_rows(&papk).unwrap();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].0, "fixture/Main");
+        let assets = collect_asset_rows(&papk).unwrap().unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "gradient.png");
+        assert_eq!(assets[0].data_size, 128);
     }
 }

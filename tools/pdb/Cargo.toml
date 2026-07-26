@@ -13,3 +13,4 @@ path = "src/main.rs"
 serialport = "4"
 crc32fast = "1"
 compat = { path = "../../compat" }
+papk-format = { path = "../../papk-format" }
