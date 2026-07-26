@@ -261,6 +261,13 @@ pub mod uart {
 }
 
 #[cfg(has_network)]
+// Socket handles are opaque: `tcp_socket`/`udp_socket` mint them, callers
+// pass them straight back, and only the platform's network stack ever
+// dereferences one. Shared code cannot construct a socket pointer, so these
+// stay safe fns — the same shape the family HAL already had before the
+// extraction. Marking them `unsafe` would push `unsafe` blocks onto every
+// call site in system/picodroid/net without adding a checkable invariant.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub mod net {
     use core::ffi::c_void;
 

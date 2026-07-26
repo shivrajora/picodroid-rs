@@ -16,9 +16,9 @@
 //! bridge).
 //!
 //! The cfg predicate for that split is `any(test, feature = "sim")`, matching
-//! `hal/mod.rs`. It is deliberately **not** `not(feature = "family-rp")`: sim
-//! builds keep `family-rp` active through the board feature chain, so that
-//! spelling would select the wrong arm (docs/parity-audit.md BLD-02).
+//! `hal/mod.rs`. A negated `family-rp` gate would be wrong here: sim builds
+//! keep that feature active through the board feature chain, so it does not
+//! mean "not the simulator" (docs/parity-audit.md BLD-02).
 
 use picodroid_core::hal::types::{EdgeTrigger, GpioEvent, Pull};
 use picodroid_core::host::{NativeHeapStats, PlatformHooks};

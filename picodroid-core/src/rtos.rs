@@ -8,9 +8,9 @@
 //! replacement. It covers exactly what those files use — nothing
 //! speculative.
 //!
-//! Each of those files already carried an inline `mod backing` / `mod device`
-//! + `mod sim` split; this generalises that shape into something a second
-//! family can implement.
+//! Each of those files already carried an inline device/sim split (`mod
+//! backing`, or `mod device` beside `mod sim`); this generalises that shape
+//! into something a second family can implement.
 //!
 //! # Stack sizes are bytes
 //!

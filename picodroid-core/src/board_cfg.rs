@@ -65,71 +65,44 @@ pub mod buttons {
     include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
 }
 
-#[cfg(test)]
-mod tests {
-    //! The board-config channel's own guard rails. These run boardless under
-    //! `cargo test -p picodroid-core` and against the active board under the
-    //! workspace test run, so both paths stay honest.
+// ── Guard rails ──────────────────────────────────────────────────────────────
+//
+// Everything above is generated from board.toml, so every invariant worth
+// checking is a compile-time constant. These are `const` assertions rather
+// than tests on purpose: a malformed board fails the build it would break,
+// including a firmware build on a machine that never runs the test suite.
 
-    #[test]
-    fn display_geometry_is_sane() {
-        assert!(super::display::SCREEN_WIDTH > 0);
-        assert!(super::display::SCREEN_HEIGHT > 0);
-        assert!(super::display::BAND_HEIGHT > 0);
-        // A band must fit inside the screen, or the flush loop over-runs.
-        assert!(
-            super::display::BAND_HEIGHT <= super::display::SCREEN_HEIGHT as usize,
-            "BAND_HEIGHT {} exceeds SCREEN_HEIGHT {}",
-            super::display::BAND_HEIGHT,
-            super::display::SCREEN_HEIGHT
-        );
-    }
+const _: () = {
+    assert!(display::SCREEN_WIDTH > 0);
+    assert!(display::SCREEN_HEIGHT > 0);
+    assert!(display::BAND_HEIGHT > 0);
+    // A band must fit inside the screen, or the flush loop over-runs it.
+    assert!(display::BAND_HEIGHT <= display::SCREEN_HEIGHT as usize);
+};
 
-    #[test]
-    fn handle_slots_is_power_of_two() {
-        // The table decodes a slot index by mask; a non-power-of-two would
-        // silently alias handles onto the wrong slot.
-        assert!(super::handle_table::HANDLE_SLOTS.is_power_of_two());
-        assert!((32..=4096).contains(&super::handle_table::HANDLE_SLOTS));
-    }
+const _: () = {
+    // The handle table decodes a slot index by mask; a non-power-of-two
+    // would silently alias handles onto the wrong slot.
+    assert!(handle_table::HANDLE_SLOTS.is_power_of_two());
+    assert!(handle_table::HANDLE_SLOTS >= 32 && handle_table::HANDLE_SLOTS <= 4096);
+};
 
-    #[test]
-    fn jvm_state_depths_are_nonzero() {
-        assert!(super::jvm_state::ACTIVITY_STACK_DEPTH > 0);
-        assert!(super::jvm_state::PENDING_OP_QUEUE_DEPTH > 0);
-    }
+const _: () = {
+    assert!(jvm_state::ACTIVITY_STACK_DEPTH > 0);
+    assert!(jvm_state::PENDING_OP_QUEUE_DEPTH > 0);
+};
 
-    #[test]
-    fn background_pool_priority_in_bg_tier() {
-        assert!((1..=10).contains(&super::background_pool::POOL_PRIORITY));
-        assert!((1..=32).contains(&super::background_pool::POOL_THREADS));
-    }
+const _: () = {
+    // Workers live in the BG priority tier.
+    assert!(background_pool::POOL_PRIORITY >= 1 && background_pool::POOL_PRIORITY <= 10);
+    assert!(background_pool::POOL_THREADS >= 1 && background_pool::POOL_THREADS <= 32);
+};
 
-    #[test]
-    fn heap_arena_is_plausible() {
-        // Smallest supported part is the RP2040 at 128 KB.
-        assert!(super::heap::DEVICE_HEAP_BYTES >= 64 * 1024);
-    }
+// Smallest supported part is the RP2040 at 128 KB.
+const _: () = assert!(heap::DEVICE_HEAP_BYTES >= 64 * 1024);
 
-    #[test]
-    fn button_table_matches_capability_cfg() {
-        // has_buttons and a non-empty table are emitted from the same
-        // board.toml section; a mismatch means the generator drifted.
-        let declared = !super::buttons::BUTTONS.is_empty();
-        let cfg_on = cfg!(has_buttons);
-        assert_eq!(
-            declared, cfg_on,
-            "BUTTONS non-empty = {declared} but cfg(has_buttons) = {cfg_on}"
-        );
-    }
-
-    #[test]
-    fn sensor_table_matches_capability_cfg() {
-        let declared = !super::sensors::SENSORS.is_empty();
-        let cfg_on = cfg!(any_sensor);
-        assert_eq!(
-            declared, cfg_on,
-            "SENSORS non-empty = {declared} but cfg(any_sensor) = {cfg_on}"
-        );
-    }
-}
+// A capability cfg and its table are emitted from the same board.toml
+// section, so disagreement means the generator drifted — and the symptom
+// would be a board whose buttons or sensors silently do nothing.
+const _: () = assert!(buttons::BUTTONS.is_empty() != cfg!(has_buttons));
+const _: () = assert!(sensors::SENSORS.is_empty() != cfg!(any_sensor));
