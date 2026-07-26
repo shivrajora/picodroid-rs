@@ -8,6 +8,13 @@ pub mod dispatch_sites;
 #[allow(dead_code)]
 pub mod drivers;
 pub mod framework_classes;
+pub mod hal;
+pub mod host;
 pub mod lvgl_ffi;
+pub mod pd_log;
+pub mod rtos;
 pub mod shrink_names;
 pub mod task_priority;
+
+#[cfg(test)]
+mod test_platform;

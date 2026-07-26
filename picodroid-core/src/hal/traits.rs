@@ -1,0 +1,134 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! HAL CONTRACT v2 — the trait form.
+//!
+//! v1 (`platforms/rp/src/hal/mod.rs`) specified the contract as a doc-block
+//! listing free functions, enforced by dead `_assert_*` bindings in
+//! `hal/contract.rs`. That works inside one crate but a *module* cannot cross
+//! a crate boundary, which is exactly why the framework stayed trapped in the
+//! binary crate (commit `1b3602b`). v2 says the same thing as traits, which
+//! can.
+//!
+//! Signatures are lifted verbatim from v1's assertions, with two deliberate
+//! changes:
+//!
+//! * The display *constants* left the contract — they are board data, not
+//!   platform behaviour, and now come from [`crate::board_cfg::display`].
+//! * `Pull` / `EdgeTrigger` / `GpioEvent` / `NetError` moved to
+//!   [`crate::hal::types`], since shared code names them.
+//!
+//! Every method is an associated function: the platform registers a *type*,
+//! and all HAL state lives in that family's statics, exactly as it did when
+//! these were free functions.
+//!
+//! Implementations are wired up with the `set_hal_*!` macros, which generate
+//! the `#[no_mangle]` shims the facade calls. Because each shim body goes
+//! through `<T as Trait>::method`, an implementation whose signature drifts
+//! from the contract fails to compile at the registration site — the macro
+//! subsumes what `contract.rs` did.
+
+use core::ffi::c_void;
+
+use super::types::{EdgeTrigger, GpioEvent, NetError, Pull};
+
+/// Framebuffer output. Geometry lives in [`crate::board_cfg::display`].
+pub trait HalDisplay {
+    fn init();
+    fn set_window(x0: u16, y0: u16, x1: u16, y1: u16);
+    fn write_pixels(data: &[u8]);
+    fn set_backlight(on: bool);
+    fn display_sleep();
+    fn display_wake();
+    /// Push the current framebuffer to the panel/window.
+    fn update_window();
+    /// False once the simulator window is closed; always true on hardware.
+    fn is_window_open() -> bool;
+}
+
+/// Digital I/O and the button-edge interrupt queue.
+pub trait HalGpio {
+    fn set_direction(pin: u8, direction: i32);
+    fn set_value(pin: u8, high: bool);
+    fn set_input(pin: u8, pull: Pull);
+    fn read(pin: u8) -> bool;
+    fn enable_edge_irq(pin: u8, edge: EdgeTrigger);
+    fn disable_edge_irq(pin: u8);
+    fn init_gpio_irq();
+    /// Inject a synthetic edge (PDB `CMD_INPUT`, simulator keyboard).
+    fn inject(pin: u8, rising: bool);
+    fn drain_gpio_event() -> Option<GpioEvent>;
+    fn has_pending_event() -> bool;
+    /// Block until an edge arrives — the idle path's sleep point.
+    fn wait_for_button_event();
+}
+
+/// Monotonic time and coarse sleeping.
+pub trait HalClock {
+    fn sleep(ms: u32);
+    fn elapsed_realtime_nanos() -> i64;
+}
+
+/// Resistive touch panel, including the scripted-input overrides PDB uses.
+pub trait HalTouch {
+    fn init();
+    fn read_point() -> Option<(u16, u16)>;
+    fn read_raw_unfiltered() -> (u16, u16);
+    fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16);
+    /// Scripted press/move (PDB `CMD_INPUT` tap/swipe).
+    fn inject_override(x: u16, y: u16);
+    /// Lift a scripted touch, producing a RELEASE edge.
+    fn release_override();
+    /// Resume sampling the real panel.
+    fn clear_override();
+}
+
+pub trait HalI2c {
+    fn init(i2c_id: u8);
+    fn set_speed(i2c_id: u8, hz: u32);
+    fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32;
+    fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32;
+}
+
+pub trait HalAdc {
+    fn init(pin: u8);
+    fn read(pin: u8) -> f64;
+}
+
+pub trait HalPwm {
+    fn init(pin: u8);
+    fn apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool);
+}
+
+pub trait HalSpi {
+    fn init(spi_id: u8);
+    fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32);
+    fn write_raw(spi_id: u8, data: &[u8]);
+    fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]);
+}
+
+pub trait HalUart {
+    fn init(uart_id: u8);
+    fn write_byte(uart_id: u8, byte: u8);
+    fn read_byte(uart_id: u8) -> i32;
+}
+
+/// TCP/UDP sockets and link status. Required only when `cfg(has_network)`.
+///
+/// Sockets stay opaque `*mut c_void` handles owned by the platform stack —
+/// shared code only ever passes them back.
+pub trait HalNet {
+    fn tcp_socket() -> Result<*mut c_void, NetError>;
+    fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError>;
+    fn tcp_send(sock: *mut c_void, data: &[u8]) -> Result<usize, NetError>;
+    fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError>;
+    fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError>;
+    fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError>;
+    fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError>;
+    fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError>;
+    /// Blocking receive. Returns `(bytes_read, source_addr, source_port)`.
+    fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError>;
+    fn close(sock: *mut c_void);
+    fn set_recv_timeout(sock: *mut c_void, ms: u32);
+    fn is_network_up() -> bool;
+    fn get_ip_address() -> u32;
+    fn dns_resolve(hostname: &str) -> Result<u32, NetError>;
+}

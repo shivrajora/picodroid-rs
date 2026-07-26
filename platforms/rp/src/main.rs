@@ -26,6 +26,9 @@ mod boot_budget;
 mod crc32;
 #[allow(dead_code)]
 mod hal;
+// Binds picodroid-core's HAL / RTOS / platform-hook seam to this family.
+// The single file a new MCU family reimplements.
+mod glue;
 #[cfg(not(test))]
 mod lifecycle;
 #[cfg(not(test))]

@@ -64,15 +64,32 @@ pub struct BypassGuard(());
 
 impl Drop for BypassGuard {
     fn drop(&mut self) {
-        BYPASS_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        bypass_exit();
     }
 }
 
 /// Enter a heap-cap bypass region on the current thread until the returned
 /// guard is dropped. See [`BypassGuard`]. Nesting is supported (depth-counted).
 pub fn bypass() -> BypassGuard {
-    BYPASS_DEPTH.with(|d| d.set(d.get() + 1));
+    bypass_enter();
     BypassGuard(())
+}
+
+/// Unguarded half of [`bypass`], for callers that cannot hold an RAII guard.
+///
+/// This exists for `glue.rs`'s `PlatformHooks` impl: the shared crate's
+/// bypass guard lives in `picodroid-core`, so the seam is a pair of enter/
+/// exit calls rather than a guard handed across the crate boundary. Every
+/// `bypass_enter` must be matched by exactly one [`bypass_exit`]; prefer
+/// [`bypass`] whenever a guard will do.
+pub fn bypass_enter() {
+    BYPASS_DEPTH.with(|d| d.set(d.get() + 1));
+}
+
+/// Leave a region opened by [`bypass_enter`]. Saturating, so an unmatched
+/// exit cannot underflow the depth and silently disable accounting.
+pub fn bypass_exit() {
+    BYPASS_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
 }
 
 fn bypass_active() -> bool {
