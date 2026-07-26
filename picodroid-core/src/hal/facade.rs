@@ -171,11 +171,27 @@ pub mod touch {
 }
 
 pub mod i2c {
+    use pico_jvm::array_heap::ArrayHeap;
+
     extern "Rust" {
         fn __pd_hal_i2c_init(i2c_id: u8);
         fn __pd_hal_i2c_set_speed(i2c_id: u8, hz: u32);
         fn __pd_hal_i2c_write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32;
         fn __pd_hal_i2c_read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32;
+        fn __pd_hal_i2c_write(
+            i2c_id: u8,
+            address: u32,
+            data_idx: u16,
+            len: usize,
+            arrays: &ArrayHeap,
+        ) -> i32;
+        fn __pd_hal_i2c_read(
+            i2c_id: u8,
+            address: u32,
+            buf_idx: u16,
+            len: usize,
+            arrays: &mut ArrayHeap,
+        ) -> i32;
     }
 
     pub fn init(i2c_id: u8) {
@@ -189,6 +205,12 @@ pub mod i2c {
     }
     pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
         unsafe { __pd_hal_i2c_read_slice(i2c_id, address, buf) }
+    }
+    pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
+        unsafe { __pd_hal_i2c_write(i2c_id, address, data_idx, len, arrays) }
+    }
+    pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
+        unsafe { __pd_hal_i2c_read(i2c_id, address, buf_idx, len, arrays) }
     }
 }
 
@@ -221,11 +243,21 @@ pub mod pwm {
 }
 
 pub mod spi {
+    use pico_jvm::array_heap::ArrayHeap;
+
     extern "Rust" {
         fn __pd_hal_spi_init(spi_id: u8);
         fn __pd_hal_spi_reconfigure(spi_id: u8, freq_hz: u32, mode: u32);
         fn __pd_hal_spi_write_raw(spi_id: u8, data: &[u8]);
         fn __pd_hal_spi_transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]);
+        fn __pd_hal_spi_transfer(
+            spi_id: u8,
+            tx_idx: u16,
+            rx_idx: u16,
+            len: usize,
+            arrays: &mut ArrayHeap,
+        ) -> i32;
+        fn __pd_hal_spi_write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32;
     }
 
     pub fn init(spi_id: u8) {
@@ -240,6 +272,18 @@ pub mod spi {
     pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
         unsafe { __pd_hal_spi_transfer_raw(spi_id, tx, rx) }
     }
+    pub fn transfer(
+        spi_id: u8,
+        tx_idx: u16,
+        rx_idx: u16,
+        len: usize,
+        arrays: &mut ArrayHeap,
+    ) -> i32 {
+        unsafe { __pd_hal_spi_transfer(spi_id, tx_idx, rx_idx, len, arrays) }
+    }
+    pub fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
+        unsafe { __pd_hal_spi_write(spi_id, data_idx, len, arrays) }
+    }
 }
 
 pub mod uart {
@@ -247,6 +291,14 @@ pub mod uart {
         fn __pd_hal_uart_init(uart_id: u8);
         fn __pd_hal_uart_write_byte(uart_id: u8, byte: u8);
         fn __pd_hal_uart_read_byte(uart_id: u8) -> i32;
+        fn __pd_hal_uart_reconfigure(
+            uart_id: u8,
+            baudrate: i32,
+            data_size: i32,
+            parity: i32,
+            stop_bits: i32,
+            hw_flow: i32,
+        );
     }
 
     pub fn init(uart_id: u8) {
@@ -257,6 +309,18 @@ pub mod uart {
     }
     pub fn read_byte(uart_id: u8) -> i32 {
         unsafe { __pd_hal_uart_read_byte(uart_id) }
+    }
+    pub fn reconfigure(
+        uart_id: u8,
+        baudrate: i32,
+        data_size: i32,
+        parity: i32,
+        stop_bits: i32,
+        hw_flow: i32,
+    ) {
+        unsafe {
+            __pd_hal_uart_reconfigure(uart_id, baudrate, data_size, parity, stop_bits, hw_flow)
+        }
     }
 }
 

@@ -28,6 +28,8 @@
 
 use core::ffi::c_void;
 
+use pico_jvm::array_heap::ArrayHeap;
+
 use super::types::{EdgeTrigger, GpioEvent, NetError, Pull};
 
 /// Framebuffer output. Geometry lives in [`crate::board_cfg::display`].
@@ -86,6 +88,16 @@ pub trait HalI2c {
     fn set_speed(i2c_id: u8, hz: u32);
     fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32;
     fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32;
+    /// Transfer straight out of / into a JVM byte array, addressed by heap
+    /// index rather than a slice.
+    ///
+    /// The `_slice` pair above is for driver code inside this crate, which
+    /// already holds a borrow. These are for the `picodroid.pio` natives,
+    /// where the buffer is a Java array: taking `&ArrayHeap` lets the
+    /// platform bounds-check and copy in one place, instead of every native
+    /// materialising a temporary slice.
+    fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32;
+    fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32;
 }
 
 pub trait HalAdc {
@@ -103,12 +115,27 @@ pub trait HalSpi {
     fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32);
     fn write_raw(spi_id: u8, data: &[u8]);
     fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]);
+    /// JVM-array-addressed counterparts of the `_raw` pair — see
+    /// [`HalI2c::write`] for why the natives take `&ArrayHeap`.
+    fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32;
+    fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32;
 }
 
 pub trait HalUart {
     fn init(uart_id: u8);
     fn write_byte(uart_id: u8, byte: u8);
     fn read_byte(uart_id: u8) -> i32;
+    /// Apply a full line configuration at once. Each `picodroid.pio.Uart`
+    /// setter re-sends every field, so there is no partial-update path for a
+    /// platform to get wrong.
+    fn reconfigure(
+        uart_id: u8,
+        baudrate: i32,
+        data_size: i32,
+        parity: i32,
+        stop_bits: i32,
+        hw_flow: i32,
+    );
 }
 
 /// TCP/UDP sockets and link status. Required only when `cfg(has_network)`.

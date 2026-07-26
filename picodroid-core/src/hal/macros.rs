@@ -199,6 +199,26 @@ macro_rules! set_hal_i2c {
             ) -> i32 {
                 <$t as $crate::hal::HalI2c>::read_slice(i2c_id, address, buf)
             }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_i2c_write(
+                i2c_id: u8,
+                address: u32,
+                data_idx: u16,
+                len: usize,
+                arrays: &::pico_jvm::array_heap::ArrayHeap,
+            ) -> i32 {
+                <$t as $crate::hal::HalI2c>::write(i2c_id, address, data_idx, len, arrays)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_i2c_read(
+                i2c_id: u8,
+                address: u32,
+                buf_idx: u16,
+                len: usize,
+                arrays: &mut ::pico_jvm::array_heap::ArrayHeap,
+            ) -> i32 {
+                <$t as $crate::hal::HalI2c>::read(i2c_id, address, buf_idx, len, arrays)
+            }
         };
     };
 }
@@ -263,6 +283,25 @@ macro_rules! set_hal_spi {
             extern "Rust" fn __pd_hal_spi_transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
                 <$t as $crate::hal::HalSpi>::transfer_raw(spi_id, tx, rx)
             }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_spi_transfer(
+                spi_id: u8,
+                tx_idx: u16,
+                rx_idx: u16,
+                len: usize,
+                arrays: &mut ::pico_jvm::array_heap::ArrayHeap,
+            ) -> i32 {
+                <$t as $crate::hal::HalSpi>::transfer(spi_id, tx_idx, rx_idx, len, arrays)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_spi_write(
+                spi_id: u8,
+                data_idx: u16,
+                len: usize,
+                arrays: &::pico_jvm::array_heap::ArrayHeap,
+            ) -> i32 {
+                <$t as $crate::hal::HalSpi>::write(spi_id, data_idx, len, arrays)
+            }
         };
     };
 }
@@ -283,6 +322,19 @@ macro_rules! set_hal_uart {
             #[no_mangle]
             extern "Rust" fn __pd_hal_uart_read_byte(uart_id: u8) -> i32 {
                 <$t as $crate::hal::HalUart>::read_byte(uart_id)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_uart_reconfigure(
+                uart_id: u8,
+                baudrate: i32,
+                data_size: i32,
+                parity: i32,
+                stop_bits: i32,
+                hw_flow: i32,
+            ) {
+                <$t as $crate::hal::HalUart>::reconfigure(
+                    uart_id, baudrate, data_size, parity, stop_bits, hw_flow,
+                )
             }
         };
     };

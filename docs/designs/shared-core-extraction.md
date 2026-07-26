@@ -550,3 +550,27 @@ today on two paths that are deliberate counterparts, not stale twins:
 So the guard needs an explicit allowlist of those two, each with a comment
 saying why it is legitimate. A guard that has to be silenced by deleting it
 teaches nothing; one that names its exceptions keeps the rule enforceable.
+
+### A4 — `hardware/` defers to stage 6; five HAL functions added (Stage 5)
+
+§4 Stage 5 lists `hardware/` with pio/net/os/util. It cannot go yet:
+`sensors::drain_sensor_events` and `deliver_event` take
+`&mut PicodroidNativeHandler` to invoke Java listener callbacks, while
+`native_handler` dispatches into `sensors` — mutually dependent, so
+splitting them across crates is a circular crate dependency. Same shape as
+A1. `hardware/` moves with `native_handler` in stage 6; stage 5 is
+net/os/pio/util.
+
+Moving `pio` surfaced five HAL functions the seam did not carry:
+`i2c::{write,read}`, `spi::{transfer,write}` and `uart::reconfigure`. They
+differ from the `_slice`/`_raw` pairs already in the traits by taking
+`&ArrayHeap` and a heap index rather than a borrowed slice — the natives
+transfer straight out of a Java array, letting the platform bounds-check and
+copy in one place.
+
+None of the five appears in `hal/contract.rs`'s 72 assertions. That is the
+second gap found by converting the v1 doc-block contract into traits, after
+`udp_sendto`/`udp_recvfrom` in stage 2a: the assertions were hand-written
+and drifted from the surface actually in use, whereas a trait bound cannot.
+Evidence for retiring the trait-covered assertions in stage 9 rather than
+keeping both.

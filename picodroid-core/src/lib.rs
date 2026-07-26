@@ -16,10 +16,22 @@ pub mod hal;
 pub mod host;
 pub mod lvgl_ffi;
 pub mod monitor_store;
+// Board-gated: `has_network` comes from board.toml via this crate's build.rs.
+#[cfg(all(not(test), has_network))]
+pub mod net;
+// `cfg(not(test))` for the same reason it carried that gate in the binary
+// crate: these reach the JVM natives and the HAL, not pure logic.
+#[cfg(not(test))]
+pub mod os;
 pub mod pd_log;
+// Ungated: `peripheral_manager`'s ref-name parsing is pure logic and carries
+// host unit tests.
+pub mod pio;
 pub mod rtos;
 pub mod shrink_names;
 pub mod task_priority;
+#[cfg(not(test))]
+pub mod util;
 
 #[cfg(test)]
 mod test_platform;
