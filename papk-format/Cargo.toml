@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "papk-format"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "PAPK (Picodroid APK) container format: no_std zero-copy parser, alloc-gated writer. Single source of truth for the on-disk layout."
+
+[dependencies]
+compat = { path = "../compat" }
+
+[features]
+default = []
+write = [] # enables the alloc-based builder
