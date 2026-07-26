@@ -91,6 +91,12 @@ mod lvgl_listener_map_tests;
 #[cfg(test)]
 #[path = "system/native_handler/class_registry.rs"]
 mod native_class_registry_tests;
+// Generation-tagged widget handle table: pure slot/generation logic behind
+// an FFI seam (the LVGL delete-hook install is stubbed under test). Same
+// `#[path]` rationale as the modules above.
+#[cfg(test)]
+#[path = "system/picodroid/graphics/lvgl/handle_table.rs"]
+mod lvgl_handle_table_tests;
 
 // Family-rp hardware imports (Cortex-M-specific via cortex-m-rt + the
 // generic-FreeRTOS rust bindings).

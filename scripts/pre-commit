@@ -91,6 +91,36 @@ for board in testbench_rp2040 testbench_rp2350 testbench_rp2350w pico_enviro_mon
   fi
 done
 
+# Staged handle-table-32 arm (audit P1-9): the generational handle table is
+# default-off on 32-bit targets until the HIL soak flips it, so without these
+# legs its no_std/32-bit arm would be compiled by nothing until flip time.
+# Lint both widths; the rp2040 build below also LINKS it (the flash gate).
+# Remove these legs when handle-table-32 becomes a default feature.
+for board in testbench_rp2040 testbench_rp2350; do
+  resolve_board "$board"
+  echo "==> Running clippy ($board + handle-table-32)..."
+  # shellcheck disable=SC2086
+  if ! PICODROID_APK_PATH="$APK_PATH" \
+       cargo $CARGO_PLUS clippy \
+         --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+         -p "$PACKAGE" --jobs "$JOBS" --target "$TARGET" --no-default-features \
+         --features "$BOARD_FEATURE,handle-table-32" -- --deny=warnings; then
+    echo ""
+    echo "ERROR: Clippy check failed ($board + handle-table-32). Fix the warnings above before committing."
+    exit 1
+  fi
+done
+
+echo "==> Building (rp2040 + handle-table-32, staged-arm flash gate)..."
+if ! PICODROID_EXTRA_FEATURES=handle-table-32 \
+     bash "$REPO_ROOT/scripts/build.sh" --board testbench_rp2040 --app helloworld; then
+  echo ""
+  echo "ERROR: rp2040 + handle-table-32 build failed. The staged generational"
+  echo "       handle table's 32-bit arm no longer compiles/links; fix before"
+  echo "       committing (it becomes the default after the HIL soak)."
+  exit 1
+fi
+
 HOST_TARGET="$(host_target)"
 
 echo "==> Running clippy (sim)..."

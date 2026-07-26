@@ -31,6 +31,12 @@ chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
 family-rp = ["picodroid-core/family-rp"]
 # Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
 # by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
+# Staged generational handle table on 32-bit targets (audit P1-9): replaces
+# the zero-cost-cast nativeHandle path (which dangles after widget delete —
+# parity-audit HAL-05) with the same generation-tagged table the sim runs.
+# Default-off until the nightly HIL soak (picoenvmon nav + PDB reload)
+# passes; 64-bit builds always use the table regardless of this feature.
+handle-table-32 = []
 # Simulator mode (no hardware)
 sim = ["picodroid-core/sim"]
 

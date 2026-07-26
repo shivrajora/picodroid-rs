@@ -63,8 +63,11 @@ pub(in crate::system::picodroid::graphics) fn init(width: u16, height: u16) {
 
         // Cache a Handle for the screen so `LvglGfx::screen()` can return
         // a backend-neutral type. The screen pointer is stable post-init.
+        // Pinned: the screen is never deleted, must survive the between-app
+        // handle_table::reset() (PDB reload), and must not accumulate
+        // LV_EVENT_DELETE hooks — register_pinned covers all three.
         let scr = lv_screen_active();
-        SCREEN_HANDLE = Handle::from_java(handle_table::register(scr));
+        SCREEN_HANDLE = Handle::from_java(handle_table::register_pinned(scr));
     }
 }
 
