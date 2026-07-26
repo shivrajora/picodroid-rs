@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! LVGL impl of `EditText` (LVGL `lv_textarea`).
+//!
+//! Auto-show keyboard wiring lives here too: every textarea created
+//! through this module gets an `LV_EVENT_PRESSED` trampoline registered
+//! that — gated by the per-handle [`AUTOSHOW_DISABLED`] map — calls
+//! [`super::keyboard::show_system_for`] when the user taps it.
+
+use crate::lvgl_ffi::*;
+use core::ffi::c_char;
+
+use super::super::handle_table;
+use super::super::lifecycle;
+use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::keyboard;
+
+// ── Auto-show opt-out registry ──────────────────────────────────────────────
+//
+// Default is "auto-show enabled" — we track *opt-outs* (the negative
+// sense) so a freshly-created EditText behaves correctly without any
+// register call from the Java side. Only EditTexts that explicitly call
+// `setShowKeyboardOnTouch(false)` end up in this list.
+
+const MAX_AUTOSHOW_OPTOUTS: usize = 16;
+static mut AUTOSHOW_DISABLED: [usize; MAX_AUTOSHOW_OPTOUTS] = [0; MAX_AUTOSHOW_OPTOUTS];
+static mut AUTOSHOW_DISABLED_LEN: usize = 0;
+
+fn is_autoshow_disabled(raw_ptr: usize) -> bool {
+    unsafe {
+        for entry in &AUTOSHOW_DISABLED[..AUTOSHOW_DISABLED_LEN] {
+            if *entry == raw_ptr {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// ── Numeric-input registry (raw lv_obj_t* of EditTexts that want a number pad) ──
+//
+// Populated by `EditText.setInputType(TYPE_CLASS_NUMBER)`. The shared system
+// keyboard reads this in `show_system_for` to pick LV_KEYBOARD_MODE_NUMBER vs
+// the default text layout for the field it's binding to.
+
+const MAX_NUMERIC_FIELDS: usize = 16;
+static mut NUMERIC_FIELDS: [usize; MAX_NUMERIC_FIELDS] = [0; MAX_NUMERIC_FIELDS];
+static mut NUMERIC_FIELDS_LEN: usize = 0;
+
+/// Whether the textarea at `raw_ptr` was marked numeric (digits-only keypad).
+pub(in crate::graphics) fn is_numeric(raw_ptr: usize) -> bool {
+    unsafe {
+        for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
+            if *entry == raw_ptr {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Mark/clear the EditText `id` as numeric. Idempotent in both directions.
+pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        if numeric {
+            for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
+                if *entry == raw_ptr {
+                    return;
+                }
+            }
+            if NUMERIC_FIELDS_LEN < MAX_NUMERIC_FIELDS {
+                NUMERIC_FIELDS[NUMERIC_FIELDS_LEN] = raw_ptr;
+                NUMERIC_FIELDS_LEN += 1;
+            }
+        } else {
+            let mut i = 0;
+            while i < NUMERIC_FIELDS_LEN {
+                if NUMERIC_FIELDS[i] == raw_ptr {
+                    NUMERIC_FIELDS[i] = NUMERIC_FIELDS[NUMERIC_FIELDS_LEN - 1];
+                    NUMERIC_FIELDS_LEN -= 1;
+                    return;
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
+// ── EditorActionListener registry (raw lv_obj_t* → Java EditText obj_ref) ───
+//
+// Populated by [`register_editor_action_listener`], called from
+// `EditText.setOnEditorActionListener`. EditTexts without a listener have
+// no entry; their auto-show calls pass `obj_ref = 0`, and the system
+// keyboard's OK callback will skip editor-action dispatch.
+
+const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
+static mut EDITOR_ACTION_MAP: PtrMap<MAX_EDITOR_ACTION_LISTENERS> = PtrMap::new();
+
+fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
+    unsafe {
+        map_ref(&raw const EDITOR_ACTION_MAP)
+            .lookup(raw_ptr)
+            .unwrap_or(0)
+    }
+}
+
+pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        if let Upsert::Full = map_mut(&raw mut EDITOR_ACTION_MAP).upsert(raw_ptr, obj_ref) {
+            warn_full("editor-action");
+        }
+    }
+}
+
+// ── TextWatcher registry (raw lv_obj_t* → Java EditText obj_ref) + queue ────
+//
+// Populated by [`register_text_changed_listener`], called from
+// `EditText.addTextChangedListener`. The LV_EVENT_VALUE_CHANGED callback is
+// installed lazily on first registration so unwatched fields never enqueue.
+
+const MAX_TEXT_WATCHERS: usize = 16;
+static mut TEXT_WATCH_MAP: PtrMap<MAX_TEXT_WATCHERS> = PtrMap::new();
+
+const TEXT_QUEUE_SIZE: usize = 16;
+static mut TEXT_QUEUE: [usize; TEXT_QUEUE_SIZE] = [0; TEXT_QUEUE_SIZE];
+static mut TEXT_Q_HEAD: usize = 0;
+static mut TEXT_Q_TAIL: usize = 0;
+
+unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
+    let ta = unsafe { lv_event_get_target_obj(e) };
+    if ta.is_null() {
+        return;
+    }
+    unsafe {
+        // Coalesce: the Java side re-reads the final text at dispatch time,
+        // so collapsing a burst of per-keystroke events into one queue entry
+        // is lossless and keeps fast typing from overflowing the ring.
+        let mut i = TEXT_Q_TAIL;
+        while i != TEXT_Q_HEAD {
+            if TEXT_QUEUE[i] == ta as usize {
+                return;
+            }
+            i = (i + 1) % TEXT_QUEUE_SIZE;
+        }
+        let next = (TEXT_Q_HEAD + 1) % TEXT_QUEUE_SIZE;
+        if next != TEXT_Q_TAIL {
+            TEXT_QUEUE[TEXT_Q_HEAD] = ta as usize;
+            TEXT_Q_HEAD = next;
+        }
+    }
+}
+
+pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        match map_mut(&raw mut TEXT_WATCH_MAP).upsert(raw_ptr, obj_ref) {
+            // Event cb already installed.
+            Upsert::Updated => {}
+            Upsert::Full => warn_full("text-watcher"),
+            Upsert::Inserted => {
+                lv_obj_add_event_cb(
+                    raw_ptr as *mut lv_obj_t,
+                    Some(textarea_value_changed_cb),
+                    LV_EVENT_VALUE_CHANGED,
+                    core::ptr::null_mut(),
+                );
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn drain_text_changed_queue() -> Option<usize> {
+    unsafe {
+        if TEXT_Q_TAIL == TEXT_Q_HEAD {
+            return None;
+        }
+        let h = TEXT_QUEUE[TEXT_Q_TAIL];
+        TEXT_Q_TAIL = (TEXT_Q_TAIL + 1) % TEXT_QUEUE_SIZE;
+        Some(h)
+    }
+}
+
+#[cfg_attr(feature = "sim", allow(dead_code))]
+pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
+    unsafe { map_ref(&raw const TEXT_WATCH_MAP).lookup(handle) }
+}
+
+/// GC roots for the TextWatcher map — same contract as
+/// [`visit_editor_action_listener_roots`].
+pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe { map_ref(&raw const TEXT_WATCH_MAP).visit(visit) }
+}
+
+/// Purge the dying textarea from every per-widget registry in this module:
+/// the two listener maps plus the raw-ptr opt-out/numeric lists (a stale ptr
+/// there would apply this field's flags to a recycled address).
+unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
+    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
+    unsafe {
+        map_mut(&raw mut EDITOR_ACTION_MAP).remove(obj);
+        map_mut(&raw mut TEXT_WATCH_MAP).remove(obj);
+        let list = &raw mut AUTOSHOW_DISABLED;
+        let len = &raw mut AUTOSHOW_DISABLED_LEN;
+        remove_from_list(&mut *list, &mut *len, obj);
+        let list = &raw mut NUMERIC_FIELDS;
+        let len = &raw mut NUMERIC_FIELDS_LEN;
+        remove_from_list(&mut *list, &mut *len, obj);
+    }
+}
+
+/// Swap-remove `ptr` from a raw-pointer opt-in list, zeroing the vacated tail.
+fn remove_from_list(list: &mut [usize], len: &mut usize, ptr: usize) {
+    let mut i = 0;
+    while i < *len {
+        if list[i] == ptr {
+            list[i] = list[*len - 1];
+            list[*len - 1] = 0;
+            *len -= 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
+    let ta = unsafe { lv_event_get_target_obj(e) };
+    if ta.is_null() {
+        return;
+    }
+    if is_autoshow_disabled(ta as usize) {
+        return;
+    }
+    let obj_ref = lookup_editor_action_obj(ta as usize);
+    keyboard::show_system_for(ta, obj_ref);
+}
+
+pub(in crate::graphics) fn create() -> i32 {
+    let ptr = unsafe { lv_textarea_create(lifecycle::screen_ptr()) };
+    unsafe {
+        // EditText is documented as single-line. Without this the textarea is
+        // multi-line, and on a keypad board the ENTER (X) that opens the soft
+        // keyboard also inserts a newline — the cursor jumps to an empty second
+        // line and the field looks cleared (its text becomes e.g. "30\n").
+        lv_textarea_set_one_line(ptr, true);
+        // The theme styles textareas as card+pad_small (10 px pad + 2 px border
+        // per side), so an app-set height like 26 px leaves ~2 px of content for
+        // a 16 px font line. That vertical overflow draws a scrollbar and feeds
+        // a self-sustaining bounce: scroll_to_cusor_pos re-runs on every
+        // STYLE_CHANGED, and each animated scroll toggles LV_STATE_SCROLLED,
+        // which fires STYLE_CHANGED again (lv_textarea.c:1010, lv_obj.c:1009).
+        // pad_ver = 3 makes a 26 px field hold exactly one Montserrat-14 line
+        // (26 - 2*3 - 2*2 = 16 = line height), vertically centered, with both
+        // scroll checks quiet. Heights below 22 px would overflow again.
+        lv_obj_set_style_pad_top(ptr, 3, 0);
+        lv_obj_set_style_pad_bottom(ptr, 3, 0);
+        // Android EditText never draws scrollbars. SCROLLABLE itself stays set:
+        // horizontal scroll-to-cursor must keep working for long one-line text.
+        lv_obj_set_scrollbar_mode(ptr, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_event_cb(
+            ptr,
+            Some(textarea_pressed_cb),
+            LV_EVENT_PRESSED,
+            core::ptr::null_mut(),
+        );
+        lv_obj_add_event_cb(
+            ptr,
+            Some(edit_text_delete_cb),
+            LV_EVENT_DELETE,
+            core::ptr::null_mut(),
+        );
+    }
+    handle_table::register(ptr)
+}
+
+/// Toggle the auto-show-keyboard-on-touch behavior for `id`. Default
+/// after `create` is "enabled"; calling `set_autoshow(id, false)` adds
+/// the textarea to the opt-out registry, and `set_autoshow(id, true)`
+/// removes it. Idempotent in both directions.
+pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
+    let raw_ptr = handle_table::lookup(id) as usize;
+    if raw_ptr == 0 {
+        return;
+    }
+    unsafe {
+        if enabled {
+            // Remove from opt-out list. Compact in place.
+            let mut i = 0;
+            while i < AUTOSHOW_DISABLED_LEN {
+                if AUTOSHOW_DISABLED[i] == raw_ptr {
+                    AUTOSHOW_DISABLED[i] = AUTOSHOW_DISABLED[AUTOSHOW_DISABLED_LEN - 1];
+                    AUTOSHOW_DISABLED_LEN -= 1;
+                    return;
+                }
+                i += 1;
+            }
+        } else {
+            // Add to opt-out list (no-op if already present).
+            for entry in &AUTOSHOW_DISABLED[..AUTOSHOW_DISABLED_LEN] {
+                if *entry == raw_ptr {
+                    return;
+                }
+            }
+            if AUTOSHOW_DISABLED_LEN < MAX_AUTOSHOW_OPTOUTS {
+                AUTOSHOW_DISABLED[AUTOSHOW_DISABLED_LEN] = raw_ptr;
+                AUTOSHOW_DISABLED_LEN += 1;
+            }
+        }
+    }
+}
+
+pub fn reset_edit_text_state() {
+    unsafe {
+        AUTOSHOW_DISABLED_LEN = 0;
+        map_mut(&raw mut EDITOR_ACTION_MAP).reset();
+        NUMERIC_FIELDS_LEN = 0;
+        map_mut(&raw mut TEXT_WATCH_MAP).reset();
+        TEXT_Q_HEAD = 0;
+        TEXT_Q_TAIL = 0;
+    }
+}
+
+/// Visit the Java `EditText` object ref of every textarea registered for an
+/// editor-action listener so the GC keeps it alive. An `EditText` referenced
+/// only by this native map (no Java field; `addView` keeps it alive only
+/// natively) would otherwise be swept on the first GC, its slot reused, and a
+/// later dispatch resolves a dead ref → `NoSuchMethod`. See
+/// `widgets::button::visit_click_listener_roots`.
+pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
+    unsafe { map_ref(&raw const EDITOR_ACTION_MAP).visit(visit) }
+}
+
+pub(in crate::graphics) fn set_text(id: i32, text: &str) {
+    let mut buf = [0u8; 128];
+    let len = text.len().min(127);
+    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
+    buf[len] = 0;
+    unsafe { lv_textarea_set_text(handle_table::lookup(id), buf.as_ptr() as *const c_char) };
+}
+
+pub(in crate::graphics) fn set_hint(id: i32, hint: &str) {
+    let mut buf = [0u8; 128];
+    let len = hint.len().min(127);
+    buf[..len].copy_from_slice(&hint.as_bytes()[..len]);
+    buf[len] = 0;
+    unsafe {
+        lv_textarea_set_placeholder_text(handle_table::lookup(id), buf.as_ptr() as *const c_char)
+    };
+}
+
+/// Read the current textarea content into `dst` (capped at 256 bytes).
+/// Returns the byte length written, or `None` if the textarea is empty
+/// or LVGL returned a null pointer.
+pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
+    let cstr = unsafe { lv_textarea_get_text(handle_table::lookup(id)) };
+    if cstr.is_null() {
+        return None;
+    }
+    // c_char is i8 on x86_64 and u8 on ARM; cast unconditionally for portability.
+    #[allow(clippy::unnecessary_cast)]
+    let cstr = cstr as *const u8;
+    let mut len = 0usize;
+    unsafe {
+        while *cstr.add(len) != 0 && len < dst.len() {
+            len += 1;
+        }
+    }
+    for (i, slot) in dst[..len].iter_mut().enumerate() {
+        *slot = unsafe { *cstr.add(i) };
+    }
+    Some(len)
+}

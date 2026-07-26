@@ -1,9 +1,0 @@
-// SPDX-License-Identifier: GPL-3.0-only
-pub mod assets;
-pub mod display;
-pub mod fields;
-pub mod gfx;
-pub mod lvgl;
-pub mod view;
-pub mod view_group;
-pub mod widgets;

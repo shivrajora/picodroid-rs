@@ -6,15 +6,15 @@
 //! here, each provider's line moves from that list to this one in the same
 //! commit as its file, so the union never changes size.
 //!
-//! Why a registry at all — and why missing an entry is silent rather than
-//! loud — is explained in [`crate::gc_roots`].
+//! Why a registry at all — and why missing an entry fails silently rather
+//! than loudly — is explained in [`crate::gc_roots`].
 
 /// Providers registered by this crate.
 ///
 /// Rises by exactly the amount the platform crate's `EXPECTED_PROVIDERS`
-/// falls whenever a module moves. If only one of the two changes in a
-/// commit, a provider was dropped.
-pub const EXPECTED_PROVIDERS: usize = 1;
+/// falls whenever modules move. If only one of the two changes in a commit,
+/// a provider was dropped.
+pub const EXPECTED_PROVIDERS: usize = 14;
 
 /// Register every root provider owned by this crate.
 ///
@@ -25,9 +25,63 @@ pub const EXPECTED_PROVIDERS: usize = 1;
 /// [`crate::graphics::lvgl`] for why the LVGL-calling ones are gated.
 #[cfg(not(test))]
 pub fn register_all() {
-    // Animation end-actions hold the Runnable to fire on completion; nothing
-    // on the Java side references it for the duration of the animation.
-    crate::gc_roots::register_object_refs(
-        crate::graphics::lvgl::animations::visit_end_action_roots,
-    );
+    use crate::gc_roots::{register, register_object_refs};
+    use crate::graphics::lvgl::{animations, events, widgets};
+
+    // The Display singleton is cached by `getInstance`, so after the first
+    // call nothing on the Java side references it. Left unrooted it is swept
+    // on the first GC and its slot reused — which broke every navigation in
+    // picoenvmon with `NoSuchMethod` once a SensorEvent landed in the reused
+    // slot.
+    register(crate::graphics::display::visit_gc_roots);
+
+    // A View (or AlertDialog) referenced only by a native listener map —
+    // key/touch/swipe/click/dialog — and not by any Java field would
+    // otherwise be swept, after which dispatch resolves a live lv_obj to a
+    // dead ref and input silently dies (the keypad appears to "lose focus"
+    // a few seconds in, post-GC).
+    register_object_refs(events::visit_view_listener_roots);
+    register_object_refs(widgets::button::visit_click_listener_roots);
+    register_object_refs(widgets::button::visit_long_click_listener_roots);
+    register_object_refs(widgets::list_view::visit_item_click_listener_roots);
+    register_object_refs(widgets::alert_dialog::visit_dialog_obj_roots);
+
+    // Compound buttons and EditText: same hazard. One of these kept alive
+    // only by its listener map (a local in onCreate, never stored in a
+    // field) is swept on the first GC, its slot reused, and the next
+    // Activity's onCreate hits a dead ref → NoSuchMethod.
+    register_object_refs(widgets::switch::visit_checked_change_listener_roots);
+    register_object_refs(widgets::check_box::visit_checked_change_listener_roots);
+    register_object_refs(widgets::radio_button::visit_checked_change_listener_roots);
+    register_object_refs(widgets::toggle_button::visit_checked_change_listener_roots);
+    register_object_refs(widgets::edit_text::visit_editor_action_listener_roots);
+    register_object_refs(widgets::edit_text::visit_text_changed_listener_roots);
+
+    // NumberPicker registers every instance, not just listener holders: the
+    // obj_ref is the fireStep dispatch target.
+    register_object_refs(widgets::number_picker::visit_picker_roots);
+
+    // Animation end-actions hold the Runnable to fire on completion;
+    // nothing on the Java side references it for the animation's duration.
+    register_object_refs(animations::visit_end_action_roots);
+}
+
+/// Completeness guard — see [`gc_root_scan`] for what it catches and why it
+/// scans source rather than calling [`register_all`].
+///
+/// Shared with the platform crate's identical guard, so the two cannot
+/// drift. This crate holds the majority of the providers, so leaving it with
+/// only an unasserted constant would put most of the silent-sweep surface
+/// outside any check.
+#[cfg(test)]
+#[path = "../../test_support/gc_root_scan.rs"]
+mod gc_root_scan;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_root_provider_is_registered() {
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        super::gc_root_scan::check(&src_root, super::EXPECTED_PROVIDERS);
+    }
 }

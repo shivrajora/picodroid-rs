@@ -39,6 +39,9 @@ mem-diag        = []
 [dependencies]
 pico-jvm      = { path = "../jvm" }
 compat        = { path = "../compat", version = "0.1" }
+# Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST
+# section to build LVGL image descriptors.
+papk-format   = { path = "../papk-format" }
 embedded-hal  = "1.0"
 defmt         = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }

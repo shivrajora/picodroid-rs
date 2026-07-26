@@ -38,16 +38,18 @@ echo "==> Checking sim/family-rp cfg-gate hygiene..."
 # existing occurrences are deliberate cross-family gates; a new one usually
 # wants `feature = "sim"` spelled out instead.
 #
-# Was 4 until monitor_store moved to picodroid-core: its two gates selected
-# between real FreeRTOS mutexes and no-op stubs, and the RTOS seam made that
-# choice the platform's, so both disappeared rather than moving.
+# Was 4 until the shared-core extraction: monitor_store's two gates chose
+# between real FreeRTOS mutexes and no-op stubs, and lvgl/calibration's chose
+# between a real debug-bridge stop poll and `false`. The RTOS and
+# platform-hook seams make all three the platform's choice, so the gates were
+# deleted rather than moved.
 FAMRP_GATES=$(grep -rn 'not(feature = "family-rp")' \
   "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" | wc -l | tr -d ' ')
-if [[ "$FAMRP_GATES" != "2" ]]; then
+if [[ "$FAMRP_GATES" != "1" ]]; then
   grep -rn 'not(feature = "family-rp")' \
     "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true
   echo ""
-  echo "ERROR: expected exactly 2 'not(feature = \"family-rp\")' cfg gates,"
+  echo "ERROR: expected exactly 1 'not(feature = \"family-rp\")' cfg gate,"
   echo "       found $FAMRP_GATES. Sim builds activate family-rp, so this"
   echo "       pattern does not exclude the simulator. If the new gate is"
   echo "       genuinely correct for sim builds too, bump the expected count"

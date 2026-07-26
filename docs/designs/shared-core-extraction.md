@@ -484,5 +484,69 @@ this whole exercise:
 
 ## AMENDMENTS
 
-*(none yet — append here as execution diverges; amendments override the body
-above)*
+*(append here as execution diverges; amendments override the body above)*
+
+### A1 — Stages 4b and 4c merged (Stage 4b)
+
+The body plans 4b (LVGL engine) and 4c (widgets + Java-binding layer) as
+separate green stages. They landed as one commit because the dependency
+graph does not permit the split: `view_ops` calls into the keyboard and
+number-picker widgets, and those widgets call back into the engine. Splitting
+them would have required a `picodroid-core` → `platforms/rp` call, which is a
+circular crate dependency.
+
+The Java-binding layer (`view`, `display`, `assets`, `fields`, `view_group`,
+`widgets/`) moved in the same commit for a second reason: it is reached
+through ~113 `pub(in crate::graphics)` functions. `pub(in ...)` paths cannot
+span crates, so leaving the binding layer behind would have meant widening
+all of them to `pub` — discarding the visibility discipline that documents
+which functions are engine-internal.
+
+### A2 — GC-root guard is shared, and covers both crates (Stage 4b)
+
+§3.G specifies a guard that every `visit_*roots` definition "in both trees"
+is registered. Stages 2b–4a only implemented the platform half; the
+`picodroid-core` constant was asserted by nothing. That gap surfaced when
+`graphics/display.rs` moved here in this stage: its provider was still
+registered from the platform list (resolving through the
+`pub use picodroid_core::graphics;` re-export, so it compiled and the root
+was still visited), leaving the count wrong on both sides.
+
+The scanner now lives in `test_support/gc_root_scan.rs` and is
+`#[path]`-included by both crates' `gc_root_registration.rs` — one
+implementation, two `src` roots, mirroring `build_support/board_cfg.rs`. Two
+hand-maintained copies of a drift guard can themselves drift.
+
+`test_support/` is a new top-level directory, parallel to `build_support/`:
+non-crate Rust shared by `#[path]` include, but reached from `cfg(test)`
+modules rather than build scripts.
+
+Both failure paths are verified by deliberately breaking them, not by
+inspection: dropping a uniquely-named provider, and dropping one of four
+identically-named ones (`visit_checked_change_listener_roots`, defined in
+switch/check_box/radio_button/toggle_button — the case where an unqualified
+match would let one registration cover all four).
+
+Residual blind spot, for Stage 9: a source scan sees text, so a registration
+compiled out by a `cfg` still reads as present. None is cfg-gated today, but
+a board-capability gate (`has_buttons`, say) would slip through. Closing it
+is cheap — assert at the end of the platform's `register_all` that
+`gc_roots::provider_count()` equals the sum of the two constants, which
+checks what actually registered rather than what the source says. Deferred
+only to keep this commit's scope to the move; it costs a little RP2040 flash
+for the message, so land it with the flash delta measurement.
+
+### A3 — the Stage 9 shadow-twin guard needs an allowlist (Stage 4b)
+
+§4 Stage 9 specifies a guard that fails if any relative path exists under
+both `platforms/*/src/` and `picodroid-core/src/`. As written it would fail
+today on two paths that are deliberate counterparts, not stale twins:
+
+- `gc_root_registration.rs` — one list per crate is the design (§3.G).
+- `hal/mod.rs` — core's is the trait/facade surface, the platform's is the
+  rp-vs-sim routing. They share a name because they are two ends of the same
+  seam.
+
+So the guard needs an explicit allowlist of those two, each with a comment
+saying why it is legitimate. A guard that has to be silenced by deleting it
+teaches nothing; one that names its exceptions keeps the rule enforceable.
