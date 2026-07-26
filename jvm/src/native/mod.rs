@@ -80,6 +80,87 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/Cloneable",
 ];
 
+/// Every `(declaring class, method, descriptor)` the built-in handler serves
+/// for a class the *embedder's* SDK declares `native` — the JVM-side half of
+/// the method-level dispatch cross-check (audit P1-6). The platform test in
+/// `native_handler/method_tables.rs` unions this with its own per-module
+/// tables and diffs the result against the SDK's `ACC_NATIVE` methods in both
+/// directions, so a typo here or a missing arm below surfaces at build time
+/// instead of as a runtime `NoSuchMethod`.
+///
+/// Only rows whose class an SDK can plausibly declare `native` belong here
+/// (`java/util/Arrays`, `java/lang/Math`, …); internal builtins like
+/// `java/lang/String`, whose methods are implemented rather than declared
+/// `native` by the SDK, have no class file and are outside the diff by
+/// construction.
+pub const BUILTIN_SDK_HANDLED: &[(&str, &str, &str)] = &[
+    // java/lang/Class
+    ("java/lang/Class", "getName", "()Ljava/lang/String;"),
+    // java/lang/Math
+    ("java/lang/Math", "abs", "(D)D"),
+    ("java/lang/Math", "abs", "(F)F"),
+    ("java/lang/Math", "abs", "(I)I"),
+    ("java/lang/Math", "abs", "(J)J"),
+    ("java/lang/Math", "atan2", "(DD)D"),
+    ("java/lang/Math", "ceil", "(D)D"),
+    ("java/lang/Math", "cos", "(D)D"),
+    ("java/lang/Math", "exp", "(D)D"),
+    ("java/lang/Math", "floor", "(D)D"),
+    ("java/lang/Math", "log", "(D)D"),
+    ("java/lang/Math", "log10", "(D)D"),
+    ("java/lang/Math", "max", "(DD)D"),
+    ("java/lang/Math", "max", "(FF)F"),
+    ("java/lang/Math", "max", "(II)I"),
+    ("java/lang/Math", "max", "(JJ)J"),
+    ("java/lang/Math", "min", "(DD)D"),
+    ("java/lang/Math", "min", "(FF)F"),
+    ("java/lang/Math", "min", "(II)I"),
+    ("java/lang/Math", "min", "(JJ)J"),
+    ("java/lang/Math", "pow", "(DD)D"),
+    ("java/lang/Math", "round", "(D)J"),
+    ("java/lang/Math", "round", "(F)I"),
+    ("java/lang/Math", "sin", "(D)D"),
+    ("java/lang/Math", "sqrt", "(D)D"),
+    ("java/lang/Math", "tan", "(D)D"),
+    ("java/lang/Math", "toDegrees", "(D)D"),
+    ("java/lang/Math", "toRadians", "(D)D"),
+    // java/lang/System
+    (
+        "java/lang/System",
+        "arraycopy",
+        "(Ljava/lang/Object;ILjava/lang/Object;II)V",
+    ),
+    // java/util/Arrays
+    ("java/util/Arrays", "copyOf", "([BI)[B"),
+    ("java/util/Arrays", "copyOf", "([CI)[C"),
+    ("java/util/Arrays", "copyOf", "([DI)[D"),
+    ("java/util/Arrays", "copyOf", "([FI)[F"),
+    ("java/util/Arrays", "copyOf", "([II)[I"),
+    ("java/util/Arrays", "copyOf", "([JI)[J"),
+    ("java/util/Arrays", "copyOf", "([SI)[S"),
+    ("java/util/Arrays", "fill", "([BB)V"),
+    ("java/util/Arrays", "fill", "([CC)V"),
+    ("java/util/Arrays", "fill", "([DD)V"),
+    ("java/util/Arrays", "fill", "([FF)V"),
+    ("java/util/Arrays", "fill", "([II)V"),
+    ("java/util/Arrays", "fill", "([JJ)V"),
+    ("java/util/Arrays", "fill", "([SS)V"),
+    ("java/util/Arrays", "sort", "([B)V"),
+    ("java/util/Arrays", "sort", "([C)V"),
+    ("java/util/Arrays", "sort", "([D)V"),
+    ("java/util/Arrays", "sort", "([F)V"),
+    ("java/util/Arrays", "sort", "([I)V"),
+    ("java/util/Arrays", "sort", "([J)V"),
+    ("java/util/Arrays", "sort", "([S)V"),
+    ("java/util/Arrays", "toString", "([B)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([C)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([D)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([F)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([I)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([J)Ljava/lang/String;"),
+    ("java/util/Arrays", "toString", "([S)Ljava/lang/String;"),
+];
+
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
 /// changing this table changes the dispatch behaviour. The
 /// `builtin_dispatch_classes_subset_of_names` test asserts every class here is

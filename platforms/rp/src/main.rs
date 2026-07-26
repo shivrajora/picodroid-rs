@@ -91,6 +91,12 @@ mod lvgl_listener_map_tests;
 #[cfg(test)]
 #[path = "system/native_handler/class_registry.rs"]
 mod native_class_registry_tests;
+// Method-level native-dispatch cross-check: every SDK `native` method must
+// have a dispatch arm, and every declared arm must match a real SDK
+// declaration. The method-level counterpart of the class registry above.
+#[cfg(test)]
+#[path = "system/native_handler/method_tables.rs"]
+mod native_method_tables_tests;
 // Generation-tagged widget handle table: pure slot/generation logic behind
 // an FFI seam (the LVGL delete-hook install is stubbed under test). Same
 // `#[path]` rationale as the modules above.
