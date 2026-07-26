@@ -97,7 +97,10 @@ pub fn run_install(
             }
         }
     }
-    let papk_fmv = extract_framework_map_version(&peek_buf[..peeked]);
+    let papk_fmv = papk_format::find_manifest_value_in_prefix(
+        &peek_buf[..peeked],
+        papk_format::keys::FRAMEWORK_MAP_VERSION,
+    );
     if compat::check(papk_fmv, crate::app::FRAMEWORK_MAP_VERSION).is_err() {
         transport.report_error(InstallError::Incompat);
         coordinator.release();
@@ -212,124 +215,5 @@ impl<T: InstallTransport> InstallTransport for PrefixedTransport<'_, T> {
     }
     fn report_error(&mut self, error: InstallError) {
         self.inner.report_error(error);
-    }
-}
-
-/// Parse the `framework-map-version` value out of a buffered PAPK prelude.
-/// Returns `None` if the header is malformed, the manifest section is
-/// truncated within the buffer, or the key is absent.
-///
-/// Matches the format documented in [`pico_jvm::apk`] — file header at
-/// offset 0, manifest section header at the offset stored at file offset
-/// 12, manifest section data is a sequence of u16-length-prefixed key/value
-/// pairs.
-fn extract_framework_map_version(data: &[u8]) -> Option<&str> {
-    const HEADER_LEN: usize = 24;
-    const SECTION_HEADER_LEN: usize = 16;
-    if data.len() < HEADER_LEN || &data[0..4] != b"PAPK" {
-        return None;
-    }
-    let mani_off = u32::from_le_bytes([data[12], data[13], data[14], data[15]]) as usize;
-    let mani_data_start = mani_off.checked_add(SECTION_HEADER_LEN)?;
-    if mani_data_start > data.len() || mani_off + 4 > data.len() {
-        return None;
-    }
-    if &data[mani_off..mani_off + 4] != b"MANI" {
-        return None;
-    }
-    let mani_len = u32::from_le_bytes([
-        data[mani_off + 4],
-        data[mani_off + 5],
-        data[mani_off + 6],
-        data[mani_off + 7],
-    ]) as usize;
-    let mani_data_end = mani_data_start.checked_add(mani_len)?;
-    // It's OK if mani_data_end > data.len() — the key may simply be in the
-    // unscanned tail. Walk only what we've buffered.
-    let scan_end = mani_data_end.min(data.len());
-
-    let mut p = mani_data_start;
-    while p + 2 <= scan_end {
-        let klen = u16::from_le_bytes([data[p], data[p + 1]]) as usize;
-        p += 2;
-        if p + klen > scan_end {
-            return None;
-        }
-        let key = &data[p..p + klen];
-        p += klen;
-        if p + 2 > scan_end {
-            return None;
-        }
-        let vlen = u16::from_le_bytes([data[p], data[p + 1]]) as usize;
-        p += 2;
-        if p + vlen > scan_end {
-            return None;
-        }
-        let val = &data[p..p + vlen];
-        p += vlen;
-        if key == b"framework-map-version" {
-            return core::str::from_utf8(val).ok();
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::extract_framework_map_version;
-
-    /// Build a synthetic PAPK prelude with `entries` as manifest k/v pairs.
-    fn build_prelude(entries: &[(&str, &str)]) -> alloc::vec::Vec<u8> {
-        let mut manifest = alloc::vec::Vec::new();
-        for (k, v) in entries {
-            manifest.extend_from_slice(&(k.len() as u16).to_le_bytes());
-            manifest.extend_from_slice(k.as_bytes());
-            manifest.extend_from_slice(&(v.len() as u16).to_le_bytes());
-            manifest.extend_from_slice(v.as_bytes());
-        }
-        let mani_off: u32 = 24;
-        let mut out = alloc::vec::Vec::new();
-        out.extend_from_slice(b"PAPK");
-        out.extend_from_slice(&1u16.to_le_bytes()); // major
-        out.extend_from_slice(&1u16.to_le_bytes()); // minor
-        out.extend_from_slice(&2u32.to_le_bytes()); // sec count
-        out.extend_from_slice(&mani_off.to_le_bytes());
-        out.extend_from_slice(&(mani_off + 16 + manifest.len() as u32).to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
-                                                    // MANIFEST section header
-        out.extend_from_slice(b"MANI");
-        out.extend_from_slice(&(manifest.len() as u32).to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes()); // crc
-        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
-        out.extend_from_slice(&manifest);
-        out
-    }
-
-    extern crate alloc;
-
-    #[test]
-    fn extracts_present_key() {
-        let buf = build_prelude(&[("main-class", "x/Y"), ("framework-map-version", "0.1.0")]);
-        assert_eq!(extract_framework_map_version(&buf), Some("0.1.0"));
-    }
-
-    #[test]
-    fn returns_none_when_absent() {
-        let buf = build_prelude(&[("main-class", "x/Y")]);
-        assert_eq!(extract_framework_map_version(&buf), None);
-    }
-
-    #[test]
-    fn returns_none_for_bad_magic() {
-        let mut buf = build_prelude(&[("framework-map-version", "0.1.0")]);
-        buf[0] = 0xFF;
-        assert_eq!(extract_framework_map_version(&buf), None);
-    }
-
-    #[test]
-    fn returns_none_for_truncated_manifest() {
-        // Truncate so the manifest section header itself isn't fully present.
-        let buf = build_prelude(&[("framework-map-version", "0.1.0")]);
-        assert_eq!(extract_framework_map_version(&buf[..28]), None);
     }
 }

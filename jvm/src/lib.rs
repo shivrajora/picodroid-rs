@@ -58,14 +58,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! pico-jvm = "0.1"
+//! pico-jvm = "0.2"
 //! ```
 
 #![no_std]
 
 extern crate alloc;
 
-pub mod apk;
 pub mod array_heap;
 pub(crate) mod chunked_slots;
 pub mod class_file;

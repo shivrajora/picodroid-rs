@@ -3,7 +3,7 @@
 //!
 //! The same rule runs in two places:
 //!
-//! - **Device** (`pico-jvm`'s `Papk::verify_compat`) — at PAPK load time, so
+//! - **Device** (`papk-format`'s `Papk::verify_compat`) — at PAPK load time, so
 //!   a baked-in or hot-swapped PAPK that doesn't match the firmware's
 //!   `framework-map-version` is rejected before any class is loaded.
 //! - **Host** (`tools/pdb`'s `install` pre-flight) — refuses to push a bad

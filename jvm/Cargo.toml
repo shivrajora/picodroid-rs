@@ -1,6 +1,6 @@
 [package]
 name = "pico-jvm"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.70"
 license = "GPL-3.0-only"
@@ -12,7 +12,6 @@ readme = "README.md"
 
 [dependencies]
 libm = { version = "0.2", default-features = false }
-compat = { path = "../compat" }
 
 [features]
 # Deterministic sim<->device execution counters (docs/parity-audit.md P1).

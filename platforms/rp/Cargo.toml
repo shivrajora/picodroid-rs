@@ -36,7 +36,8 @@ sim = ["picodroid-core/sim"]
 
 [dependencies]
 picodroid-core = { path = "../../picodroid-core" }
-pico-jvm = { path = "../../jvm", version = "0.1" }
+pico-jvm = { path = "../../jvm" }
+papk-format = { path = "../../papk-format" }
 compat = { path = "../../compat" }
 crc32fast = { version = "1", default-features = false }
 embedded-hal = { version = "1.0.0" }

@@ -22,7 +22,7 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
-use pico_jvm::apk::Papk;
+use papk_format::Papk;
 
 struct RegistryCell {
     inner: UnsafeCell<Registry>,

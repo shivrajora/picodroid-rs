@@ -2,7 +2,7 @@
 #[cfg(not(test))]
 use alloc::boxed::Box;
 #[cfg(not(test))]
-use pico_jvm::apk::Papk;
+use papk_format::Papk;
 #[cfg(not(test))]
 use pico_jvm::types::JvmError;
 #[cfg(not(test))]

@@ -22,7 +22,7 @@ network-cyw43   = ["has-network"]
 has-network     = []
 
 [dependencies]
-pico-jvm      = { path = "../jvm",    version = "0.1" }
+pico-jvm      = { path = "../jvm" }
 compat        = { path = "../compat", version = "0.1" }
 embedded-hal  = "1.0"
 defmt         = "1"

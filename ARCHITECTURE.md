@@ -10,7 +10,8 @@ These crates have no picodroid-specific knowledge and could be picked up by a di
 
 | Crate | Path | Purpose |
 |---|---|---|
-| `pico-jvm` | [`jvm/`](jvm/) | `no_std` Java bytecode interpreter. Zero hardware deps. Native methods plug in via the [`NativeMethodHandler`](jvm/src/native/mod.rs) trait. See [`jvm/README.md`](jvm/README.md). |
+| `pico-jvm` | [`jvm/`](jvm/) | `no_std` Java bytecode interpreter. Zero hardware deps, zero container-format knowledge (PAPK parsing lives in `papk-format`). Native methods plug in via the [`NativeMethodHandler`](jvm/src/native/mod.rs) trait. See [`jvm/README.md`](jvm/README.md). |
+| `papk-format` | [`papk-format/`](papk-format/) | PAPK container format: `no_std` zero-copy parser + streaming scanners, `alloc`-gated writer (feature `write`). Single source of truth for the on-disk layout; consumed by firmware, build scripts, and every host tool. |
 | `compat` | [`compat/`](compat/) | PAPK ↔ firmware version compatibility check. `no_std`. Shared by device + host. See [`compat/README.md`](compat/README.md). |
 | `class-shrink` | [`tools/class-shrink/`](tools/class-shrink/) | Build-time Java class/method name shrinker. Host-only (uses `std`). See [`tools/class-shrink/README.md`](tools/class-shrink/README.md). |
 
