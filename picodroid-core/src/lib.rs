@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod board_cfg;
 pub mod dispatch_sites;
 #[allow(dead_code)]
 pub mod drivers;

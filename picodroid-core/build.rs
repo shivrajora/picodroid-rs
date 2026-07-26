@@ -3,12 +3,28 @@
 // picodroid-core only calls a subset of their functions.
 #![allow(dead_code, unused_imports, unused_variables)]
 //! picodroid-core build script.
-//! Generates framework_classes.rs and framework_unshrink.rs into OUT_DIR.
-//! Both picodroid (RP) and picodroid-esp reference picodroid-core as a path
-//! dependency, so this runs once per workspace and its OUT_DIR is shared.
+//!
+//! Emits `framework_classes.rs` / `framework_unshrink.rs`, plus every
+//! board-derived *neutral* artifact (JVM sizing, sensor table, button table,
+//! sleep, heap, background pool, handle table, display dimensions) and the
+//! board-capability cfgs.
+//!
+//! The board is discovered by searching `../platforms/*/boards/<name>` for
+//! the `board-*` feature the binary crate forwarded, so `cargo build -p
+//! picodroid` keeps working with no env vars while this crate stays
+//! independently buildable (boardless builds fall back to safe defaults).
+//! Generators live in `build_support/board_cfg.rs`, shared with each
+//! platform's build.rs — one implementation, two OUT_DIRs.
+//! See `docs/designs/shared-core-extraction.md` §3.D.
 
 #[path = "../build_support/config.rs"]
 mod config;
+
+#[path = "../build_support/board_cfg.rs"]
+mod board_cfg;
+
+#[path = "../build_support/jvm_defaults.rs"]
+mod jvm_defaults;
 
 #[path = "../build_support/papk.rs"]
 mod papk;
@@ -25,23 +41,33 @@ fn main() {
     papk::emit_framework_map_version(out, root);
     papk::embed_framework_classes(out, root);
 
-    // Declare all board-capability cfgs as known so rustc doesn't warn when
-    // picodroid-core code gates on them.  Actual cfg *values* are emitted
-    // below from Cargo features forwarded by the binary crate.
-    for cfg in &[
-        "any_sensor",
-        "sensor_bme688",
-        "sensor_ltr559",
-        "has_network",
-        "network_cyw43",
-        "has_display",
-        "has_touch",
-        "has_buttons",
-    ] {
-        println!("cargo:rustc-check-cfg=cfg({cfg})");
-    }
+    // Resolve the active board across platform families (None for boardless
+    // builds such as `cargo build -p picodroid-core`).
+    let board = board_cfg::resolve(&manifest_dir);
 
-    // Emit board-capability cfgs from Cargo features forwarded by the binary.
+    // A board that declares a capability must have the matching feature
+    // forwarded, or the driver would silently compile out.
+    board_cfg::assert_forwarded_features_match(&board);
+
+    // board.toml is the source of truth for capability cfgs and neutral
+    // generated config. `Pins::Elsewhere`: the family HAL owns the
+    // pin-bearing display/touch artifacts; we only need dimensions + cfgs.
+    board_cfg::emit_neutral(out, &board, board_cfg::Pins::Elsewhere);
+
+    if board.is_none() {
+        // Boardless build: no board.toml to read, so fall back to the
+        // forwarded Cargo features for capability cfgs. (With a board
+        // resolved, emit_neutral already emitted these from board.toml and
+        // assert_forwarded_features_match proved the two agree.)
+        emit_capability_cfgs_from_features();
+    }
+}
+
+/// Boardless fallback: derive capability cfgs from forwarded Cargo features.
+///
+/// All `rustc-check-cfg` declarations are emitted unconditionally by
+/// `board_cfg::emit_neutral`, so this only adds `rustc-cfg` values.
+fn emit_capability_cfgs_from_features() {
     if std::env::var("CARGO_FEATURE_SENSOR_BME688").is_ok() {
         println!("cargo:rustc-cfg=sensor_bme688");
         println!("cargo:rustc-cfg=any_sensor");

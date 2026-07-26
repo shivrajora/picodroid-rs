@@ -276,19 +276,20 @@ pub fn parse_toml(path: &str) -> HashMap<String, String> {
     map
 }
 
-/// Resolve the active board name by scanning `CARGO_FEATURE_BOARD_*` env
-/// vars and mapping each match to a `boards/<name>/` directory (Cargo
-/// uppercases feature names and replaces `-` with `_`, so the env-var suffix
-/// already matches our snake_case board directory names after lowercasing).
-/// Panics if more than one board feature is active.
-pub fn resolve_active_board() -> Option<String> {
+/// Scan `CARGO_FEATURE_BOARD_*` env vars for the active board name.
+///
+/// Cargo uppercases feature names and replaces `-` with `_`, so the env-var
+/// suffix already matches our snake_case board directory names after
+/// lowercasing. `has_board` decides whether a candidate name corresponds to a
+/// real board directory. Panics if more than one board feature is active.
+fn resolve_active_board_with(has_board: impl Fn(&str) -> bool) -> Option<String> {
     let mut found: Option<String> = None;
     for (key, _) in env::vars() {
         let Some(suffix) = key.strip_prefix("CARGO_FEATURE_BOARD_") else {
             continue;
         };
         let candidate = suffix.to_lowercase();
-        if !Path::new(&format!("boards/{candidate}")).is_dir() {
+        if !has_board(&candidate) {
             continue;
         }
         if let Some(prev) = &found {
@@ -303,6 +304,44 @@ pub fn resolve_active_board() -> Option<String> {
     found
 }
 
+/// Locate a board directory by name, searching the calling crate first and
+/// then every `platforms/<family>/boards/` in the repo.
+///
+/// `manifest_dir` is the calling crate's `CARGO_MANIFEST_DIR`. Platform
+/// crates (`platforms/rp`) match on the first arm; crates that sit one level
+/// below the repo root (`picodroid-core`) match on the second. This is what
+/// lets a shared crate's build script read the same `board.toml` the active
+/// platform crate is building against, without env vars or duplicated data.
+pub fn find_board_dir(manifest_dir: &Path, name: &str) -> Option<PathBuf> {
+    let local = manifest_dir.join("boards").join(name);
+    if local.is_dir() {
+        return Some(local);
+    }
+    // <manifest>/../platforms/*/boards/<name> — e.g. picodroid-core reaching
+    // platforms/rp/boards/testbench_rp2350.
+    let platforms = manifest_dir.parent()?.join("platforms");
+    let mut entries: Vec<PathBuf> = fs::read_dir(platforms)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    entries.sort(); // deterministic across filesystems
+    entries
+        .into_iter()
+        .map(|family| family.join("boards").join(name))
+        .find(|candidate| candidate.is_dir())
+}
+
+/// Resolve the active board to its directory, searching across platform
+/// families. Returns `(name, dir)`; `None` when no board feature is active
+/// (boardless host builds such as a bare `cargo build -p picodroid-core`).
+pub fn resolve_active_board_dir(manifest_dir: &Path) -> Option<(String, PathBuf)> {
+    let name = resolve_active_board_with(|n| find_board_dir(manifest_dir, n).is_some())?;
+    let dir = find_board_dir(manifest_dir, &name)
+        .unwrap_or_else(|| panic!("board directory vanished between probe and read: {name}"));
+    Some((name, dir))
+}
+
 /// Resolve the active MCU name from the board.toml's `mcu` field. Every
 /// `boards/*/board.toml` is required to declare this; chip-level Cargo
 /// features (`chip-rp2040`, `chip-rp2350`, …) exist only to gate dep crates.
@@ -313,20 +352,29 @@ pub fn resolve_active_mcu(board_cfg: &HashMap<String, String>) -> String {
         .expect("board.toml must declare 'mcu = \"<name>\"' (e.g. mcu = \"rp2350\")")
 }
 
-/// Find the MCU .toml file by searching mcus/<family>/<name>.toml.
-pub fn find_mcu_toml(mcu_name: &str) -> String {
-    let mcus_dir = Path::new("mcus");
-    if let Ok(entries) = fs::read_dir(mcus_dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let candidate = entry.path().join(format!("{mcu_name}.toml"));
+/// Find the MCU .toml file under `<platform_root>/mcus/<family>/<name>.toml`.
+///
+/// `platform_root` is the `platforms/<family>/` directory that owns the
+/// board — derived from the resolved board directory, so shared crates can
+/// read MCU definitions they do not own.
+pub fn find_mcu_toml_in(platform_root: &Path, mcu_name: &str) -> String {
+    let mcus_dir = platform_root.join("mcus");
+    if let Ok(entries) = fs::read_dir(&mcus_dir) {
+        let mut families: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        families.sort(); // deterministic across filesystems
+        for family in families {
+            if family.is_dir() {
+                let candidate = family.join(format!("{mcu_name}.toml"));
                 if candidate.exists() {
                     return candidate.to_string_lossy().into_owned();
                 }
             }
         }
     }
-    panic!("MCU definition not found: mcus/*/{mcu_name}.toml");
+    panic!(
+        "MCU definition not found: {}/*/{mcu_name}.toml",
+        mcus_dir.display()
+    );
 }
 
 /// Recursively collect all files with the given extension under `dir`.

@@ -170,3 +170,18 @@ pub use chip::net;
 
 // Compile-time HAL CONTRACT v1 enforcement. Never executed; type-checked only.
 mod contract;
+
+// Display geometry is generated twice from one board.toml: this family's
+// pin-bearing `display_config.rs`, and picodroid-core's neutral
+// `display_dims.rs` (which shared code sizes its band buffer from). Both come
+// from `build_support/board_cfg.rs`, but they land in different OUT_DIRs, so
+// assert they agree — a mismatch would mean shared code and the HAL disagree
+// about the framebuffer, which is a silent corruption, not a build error.
+// See docs/designs/shared-core-extraction.md §3.D.
+const _: () = {
+    use picodroid_core::board_cfg::display as shared;
+    assert!(display::WIDTH == shared::SCREEN_WIDTH);
+    assert!(display::HEIGHT == shared::SCREEN_HEIGHT);
+    assert!(display::BAND_HEIGHT == shared::BAND_HEIGHT);
+    assert!(display::SCROLL_LIMIT == shared::SCROLL_LIMIT);
+};

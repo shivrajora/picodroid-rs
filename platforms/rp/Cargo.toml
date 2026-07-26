@@ -10,19 +10,24 @@ license = "GPL-3.0-only"
 default = ["board-testbench-rp2350"]
 # Deterministic sim<->device execution counters + per-flush band CRCs for
 # the parity harness (docs/parity-audit.md P1/G1). Off in normal builds.
-parity-metrics = ["pico-jvm/parity-metrics"]
-parity-fbhash = []
+parity-metrics = ["pico-jvm/parity-metrics", "picodroid-core/parity-metrics"]
+parity-fbhash = ["picodroid-core/parity-fbhash"]
 # Opt-in memory diagnostics (docs/memory-diagnostics.md): periodic [memmon]
 # heap monitor, growth sentinel, churn counters, offensive heap checks.
 # Zero-cost when off (code is compiled out). Sim: ./scripts/sim.sh --mem-diag.
 # Firmware: PICODROID_EXTRA_FEATURES=mem-diag (RP2350-first; RP2040 is a
 # manual, flash-budget-checked opt-in).
-mem-diag = ["pico-jvm/mem-diag"]
-# Board selection (user-facing — pick exactly one for embedded builds)
-board-testbench-rp2040 = ["chip-rp2040"]
-board-testbench-rp2350 = ["chip-rp2350"]
-board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
-board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/network-cyw43"]
+mem-diag = ["pico-jvm/mem-diag", "picodroid-core/mem-diag"]
+# Board selection (user-facing — pick exactly one for embedded builds).
+# Each forwards a marker feature of the same name to picodroid-core so its
+# build.rs resolves the same board.toml and generates the neutral config from
+# it (docs/designs/shared-core-extraction.md §3.D). A board that declares a
+# sensor/network capability must also forward the matching capability feature;
+# board_cfg::assert_forwarded_features_match fails the build otherwise.
+board-testbench-rp2040 = ["chip-rp2040", "picodroid-core/board-testbench-rp2040"]
+board-testbench-rp2350 = ["chip-rp2350", "picodroid-core/board-testbench-rp2350"]
+board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
+board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350w", "picodroid-core/network-cyw43"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
@@ -36,7 +41,7 @@ family-rp = ["picodroid-core/family-rp"]
 # parity-audit HAL-05) with the same generation-tagged table the sim runs.
 # Default-off until the nightly HIL soak (picoenvmon nav + PDB reload)
 # passes; 64-bit builds always use the table regardless of this feature.
-handle-table-32 = []
+handle-table-32 = ["picodroid-core/handle-table-32"]
 # Simulator mode (no hardware)
 sim = ["picodroid-core/sim"]
 

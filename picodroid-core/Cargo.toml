@@ -6,11 +6,20 @@ license = "GPL-3.0-only"
 
 # Feature convention: one feature per MCU family (family-rp today).
 # The ESP32-S3 scaffold was removed 2026-07 (git history: platforms/esp/).
-# A future family adds its feature here plus a platforms/<family>/
-# workspace mirroring platforms/rp/ (HAL contract doc: platforms/rp/src/hal/mod.rs).
+# A future family adds its feature here plus a platforms/<family>/ crate
+# providing HAL/RTOS trait impls and one glue.rs — see
+# docs/designs/shared-core-extraction.md §5 for the full checklist.
 [features]
 family-rp  = []
 sim        = []
+# Board selection — forwarded by the binary crate's board-* features so this
+# crate's build.rs can resolve the same board.toml and generate the neutral
+# config (JVM sizing, sensor/button tables, display dims) from it.
+# Marker features only: no code gates on them, build.rs reads the env var.
+board-testbench-rp2040  = []
+board-testbench-rp2350  = []
+board-testbench-rp2350w = []
+board-pico-enviro-mon   = []
 # Board capability features — activated by the binary crate's board features and
 # forwarded here so picodroid-core can emit the matching rustc-cfgs.
 # Each new board capability (sensor, network type, etc.) needs a feature here
@@ -20,6 +29,12 @@ sensor-ltr559   = ["any-sensor"]
 any-sensor      = []
 network-cyw43   = ["has-network"]
 has-network     = []
+# Diagnostics / staged-rollout features, forwarded from the binary crate so
+# shared code compiles the same way the platform crate does.
+handle-table-32 = []
+parity-metrics  = []
+parity-fbhash   = []
+mem-diag        = []
 
 [dependencies]
 pico-jvm      = { path = "../jvm" }
