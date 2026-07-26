@@ -403,6 +403,19 @@ grade. `picodroid-core` stays (rationale in §5).
 > (LVGL guards, expanded scope) c62eb3b; item 8 (shrink superset) 6da6a4a;
 > item 10 (Java gate) 3e82cdd. Items 6 and 9 have reviewed implementation
 > designs in docs/designs/ (47cdcdc) awaiting execution. P2 items all open.
+>
+> **Progress 2026-07-26 (fix session 2):** **P1 is now closed.** Item 9
+> (handle table) landed in a1063ed (view_ops null-guard sweep) + 3d441fb
+> (generation-tagged table, 9 unit tests, `handle-table-32` pre-commit
+> legs) — the 32-bit device arm stays behind that default-off feature until
+> a nightly HIL soak, which is the one remaining step. Prerequisite:
+> 040ccb7 freed 16.6 KB of RP2040 flash (crc32fast's 16 KiB table → a
+> 64-byte nibble table), as the gate had ~136 B of headroom left. Item 6
+> (method cross-check) landed in 009503c: 306 declared triples vs 308 SDK
+> `ACC_NATIVE` methods, both directions, mutation-tested; it immediately
+> surfaced a live `NoSuchMethod` (`NotificationManager.notify`/`cancel`),
+> fixed in the follow-up. Measurements and status are recorded in the two
+> design docs and `docs/parity-audit.md` (HAL-05). P2 items all open.
 
 **P0 — correctness/safety now, all cheap:**
 

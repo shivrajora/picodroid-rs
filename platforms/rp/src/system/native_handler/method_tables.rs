@@ -268,6 +268,13 @@ pub const SENSORS_HANDLED: &[Row] = &[
 
 /// `native_handler/app_services.rs`
 pub const APP_SERVICES_HANDLED: &[Row] = &[
+    // picodroid/app/NotificationManager
+    ("picodroid/app/NotificationManager", "cancel", "(I)V"),
+    (
+        "picodroid/app/NotificationManager",
+        "notify",
+        "(ILpicodroid/app/Notification;)V",
+    ),
     // picodroid/app/Service
     (
         "picodroid/app/Service",
@@ -567,18 +574,7 @@ pub const PENDING_CLASSES: &[&str] = &[];
 /// platform. Every entry is a deliberate runtime `NoSuchMethod` — justify
 /// each in a comment (same discipline as `ALLOWED_UNREGISTERED` in
 /// `class_registry.rs`).
-pub const ALLOWED_UNHANDLED: &[Row] = &[
-    // Burn-in finding: declared by the SDK and promised by app_services.rs's
-    // module doc, but no dispatch arm exists — calling either is a live
-    // NoSuchMethod today. Allowlisted here only to land this cross-check;
-    // the very next commit implements them and removes these two rows.
-    ("picodroid/app/NotificationManager", "cancel", "(I)V"),
-    (
-        "picodroid/app/NotificationManager",
-        "notify",
-        "(ILpicodroid/app/Notification;)V",
-    ),
-];
+pub const ALLOWED_UNHANDLED: &[Row] = &[];
 
 #[cfg(test)]
 mod tests {

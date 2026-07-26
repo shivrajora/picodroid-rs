@@ -64,13 +64,20 @@ maintain.
 
 ## Test coverage
 
-### Method-level native registry cross-check (stage 2)
+### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**
 
-The landed check is class-level. Stage 2: have each dispatch handler export its
-`(method, descriptor)` list as const data and diff exactly against the SDK's `ACC_NATIVE`
-methods, both directions. Kills the remaining silent-NoSuchMethod surface (~294 native methods).
-**Tradeoff:** wide mechanical refactor of the handler modules — methods are currently matched
-inside opaque `match` arms; do it behind the existing test suite.
+The landed check was class-level; stage 2 extends it to methods. Each dispatch handler's
+`(class, method, descriptor)` triples are declared as const data in
+`platforms/rp/src/system/native_handler/method_tables.rs` (plus `BUILTIN_SDK_HANDLED` in
+`jvm/src/native/mod.rs`) and diffed against the SDK's 308 `ACC_NATIVE` methods in both
+directions, closing the silent-NoSuchMethod surface. It found one live instance on the
+first run (`NotificationManager.notify`/`cancel`).
+
+The tables are declared *parallel* to the `match` arms rather than generated from them, so
+the mechanical refactor the tradeoff warned about was avoided; the duplicate-row and
+both-direction assertions are what keep the two in step. Generating the arms from the same
+list (the X-macro phase in `docs/designs/method-level-native-registry.md`) remains open and
+would make drift structurally impossible rather than test-enforced.
 
 ### Scripted UI scenario tests via the control FIFO
 

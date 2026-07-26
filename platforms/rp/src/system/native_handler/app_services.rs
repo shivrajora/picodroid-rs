@@ -32,9 +32,18 @@ pub(super) fn dispatch(
         "unbindService" => return Some(handle_unbind_service(handler, ctx)),
         _ => {}
     }
+    // NotificationManager.{notify,cancel} — gated on the class because
+    // `notify` collides with `Object.notify()`, which the JVM's builtin
+    // handler owns.
+    if class_name == "picodroid/app/NotificationManager" {
+        return match method_name {
+            "notify" => Some(handle_notification_notify(ctx)),
+            "cancel" => Some(handle_notification_cancel(ctx)),
+            _ => None,
+        };
+    }
     // Service-specific methods — these arrive with the runtime Service
     // subclass as `class_name`, so we don't gate on it.
-    let _ = class_name;
     match method_name {
         "stopSelf" => Some(handle_stop_self(handler, ctx)),
         "stopSelfResult" => Some(handle_stop_self_result(handler, ctx)),
@@ -42,6 +51,33 @@ pub(super) fn dispatch(
         "stopForeground" => Some(handle_stop_foreground(handler, ctx)),
         _ => None,
     }
+}
+
+/// `NotificationManager.notify(int, Notification)` — post or replace the
+/// banner. Shares the tracker `Service.startForeground` posts through, so an
+/// app-posted notification and a foreground-service one can't both claim the
+/// slot; last writer wins, matching Android's id-keyed replace.
+fn handle_notification_notify(ctx: &NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::Int(notif_id)) = ctx.args.get(1) else {
+        return Ok(None);
+    };
+    let Some(Value::ObjectRef(notif_ref)) = ctx.args.get(2) else {
+        return Ok(None);
+    };
+    let title = read_string_field(ctx, *notif_ref, 0).unwrap_or("");
+    let text = read_string_field(ctx, *notif_ref, 1).unwrap_or("");
+    crate::system::notification::notify(*notif_id, title, text);
+    Ok(None)
+}
+
+/// `NotificationManager.cancel(int)` — clear the banner if it currently
+/// shows this id (a no-op otherwise, as on Android).
+fn handle_notification_cancel(ctx: &NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let Some(Value::Int(notif_id)) = ctx.args.get(1) else {
+        return Ok(None);
+    };
+    crate::system::notification::cancel(*notif_id);
+    Ok(None)
 }
 
 fn intent_target_class(ctx: &NativeContext<'_>, intent_ref: u16) -> Option<&'static str> {
