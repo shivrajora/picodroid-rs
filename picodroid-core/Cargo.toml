@@ -31,3 +31,4 @@ littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"
 
 [build-dependencies]
 class-shrink = { path = "../tools/class-shrink" }
+papk-format = { path = "../papk-format" }

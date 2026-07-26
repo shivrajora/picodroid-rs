@@ -399,6 +399,14 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
     let abs_apk_path = std::fs::canonicalize(&apk_path)
         .unwrap_or_else(|e| panic!("Cannot resolve APK path '{apk_path}': {e}"));
 
+    // A corrupt/truncated .papk baked in via include_bytes! would only
+    // surface as a parse failure at runtime; fail the build instead.
+    let apk_bytes =
+        fs::read(&abs_apk_path).unwrap_or_else(|e| panic!("Cannot read APK at '{apk_path}': {e}"));
+    if let Err(e) = papk_format::validate_structure(&apk_bytes) {
+        panic!("PICODROID_APK_PATH '{apk_path}' is not a structurally valid PAPK: {e}");
+    }
+
     let generated = format!(
         "pub fn apk_data() -> &'static [u8] {{\n    include_bytes!({path:?})\n}}\n",
         path = abs_apk_path.display().to_string(),
@@ -423,6 +431,11 @@ pub fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
     let apk_path = apk_path.unwrap();
     let apk_bytes =
         fs::read(&apk_path).unwrap_or_else(|e| panic!("Cannot read APK at '{apk_path}': {e}"));
+    // Refuse to bake a corrupt image into PAPK_FLASH — on device this would
+    // only surface as an install/boot failure with no host-side clue.
+    if let Err(e) = papk_format::validate_structure(&apk_bytes) {
+        panic!("PICODROID_APK_PATH '{apk_path}' is not a structurally valid PAPK: {e}");
+    }
     let apk_len = apk_bytes.len();
 
     // Layout matches read_flash_papk() on-device.
