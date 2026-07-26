@@ -271,6 +271,15 @@ ask-first items are marked.
   the device side; outcome may add a register row or a config change.
 - **X2 — cfg-gating lint**: pre-commit grep for `not(feature = "family-rp")`-style gates
   that should name `sim` explicitly (BLD-02 hazard).
+  - 2026-07-26: expected count lowered 4 → 2. `system/monitor_store.rs` moved to
+    `picodroid-core` during the shared-core extraction; its two gates chose between
+    real FreeRTOS recursive mutexes and no-op stubs, and the RTOS seam
+    (`picodroid_core::rtos`) makes that the platform's choice, so both gates were
+    deleted rather than relocated. No behaviour change: every `monitor_store` call
+    site is still `cfg(not(sim))`-gated (the native handler only overrides
+    `monitor_enter`/`monitor_exit` off-simulator), so the simulator continues not to
+    take monitors at all. Enabling them there is now a one-line change and would be
+    a genuine parity win — tracked as a follow-up, not done as part of a move.
 - **X3 — handle sanitizer on by default** in sim.sh and CI sim lanes (HAL-05); opt-out
   env stays for the rare legitimate case.
 

@@ -26,6 +26,8 @@
 //! runs: core affinity, stack sizing from the boot budget, and any
 //! debugger-visible task registration live in the platform's [`Rtos`] impl.
 
+use alloc::boxed::Box;
+
 /// What a task is for. The platform maps this to stack size, core affinity,
 /// and any bookkeeping it needs (e.g. registering JVM child tasks with a
 /// debug bridge so a stop request can reach them).
@@ -78,9 +80,19 @@ pub type RawSem = usize;
 /// the UI thread's idle point) and on `mutex_recursive_*` being reentrant
 /// from the same task, since Java `synchronized` re-enters.
 pub unsafe trait Rtos {
-    /// Spawn a task. `entry` is called on the new task with `arg`.
-    /// Returns false if the platform could not create it.
-    fn spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool;
+    /// Spawn a task running `body`. Returns false if the platform declined
+    /// or could not create it.
+    ///
+    /// A boxed closure rather than a bare `fn` pointer: the work a task
+    /// carries (a Java `Runnable`'s object ref and its class name, a worker
+    /// index) does not fit in a machine word, and both backings box their
+    /// entry point internally anyway, so this costs nothing extra.
+    ///
+    /// Declining is a legitimate answer. The simulator refuses
+    /// [`TaskKind::JvmChild`] because the object heap's safety rests on a
+    /// single-core cooperative-scheduling guarantee that host threads do not
+    /// provide.
+    fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
 
     fn queue_create(depth: usize) -> RawQueue;
     fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
@@ -95,17 +107,26 @@ pub unsafe trait Rtos {
     fn sem_give(s: RawSem);
     fn sem_take(s: RawSem, t: Timeout) -> bool;
 
-    /// Start the periodic UI tick. Singleton: called once at boot.
+    /// Start the periodic UI tick, or unpause it if already started.
+    /// Singleton: one tick source per process.
     fn tick_timer_start(period_ms: u32, cb: fn());
+    /// Stop posting ticks but stay ready to resume. The activity loop calls
+    /// this before entering display sleep, so a platform should genuinely
+    /// quiesce its timer here rather than filter at the callback — that is
+    /// what lets the chip reach a deeper idle state.
     fn tick_timer_pause();
     fn tick_timer_resume();
+    /// Tear the tick source down. Distinct from `pause`: a platform backing
+    /// the tick with a thread must join it here, or an app reload leaks one
+    /// tick thread per run.
+    fn tick_timer_stop();
 
     /// Block the calling task.
     fn delay_ms(ms: u32);
 }
 
 extern "Rust" {
-    fn __pd_rtos_spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool;
+    fn __pd_rtos_spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
     fn __pd_rtos_queue_create(depth: usize) -> RawQueue;
     fn __pd_rtos_queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
     fn __pd_rtos_queue_recv(q: RawQueue, t: Timeout) -> Option<u32>;
@@ -118,11 +139,14 @@ extern "Rust" {
     fn __pd_rtos_tick_timer_start(period_ms: u32, cb: fn());
     fn __pd_rtos_tick_timer_pause();
     fn __pd_rtos_tick_timer_resume();
+    fn __pd_rtos_tick_timer_stop();
     fn __pd_rtos_delay_ms(ms: u32);
 }
 
-pub fn spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool {
-    unsafe { __pd_rtos_spawn(spec, entry, arg) }
+/// Spawn a task running `body`. See [`Rtos::spawn`]; `false` means the
+/// platform declined or could not create it.
+pub fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
+    unsafe { __pd_rtos_spawn(spec, body) }
 }
 pub fn queue_create(depth: usize) -> RawQueue {
     unsafe { __pd_rtos_queue_create(depth) }
@@ -160,6 +184,9 @@ pub fn tick_timer_pause() {
 pub fn tick_timer_resume() {
     unsafe { __pd_rtos_tick_timer_resume() }
 }
+pub fn tick_timer_stop() {
+    unsafe { __pd_rtos_tick_timer_stop() }
+}
 pub fn delay_ms(ms: u32) {
     unsafe { __pd_rtos_delay_ms(ms) }
 }
@@ -174,8 +201,11 @@ macro_rules! set_rtos {
             use $crate::rtos::{RawMutex, RawQueue, RawSem, TaskSpec, Timeout};
 
             #[no_mangle]
-            extern "Rust" fn __pd_rtos_spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool {
-                <$t as $crate::rtos::Rtos>::spawn(spec, entry, arg)
+            extern "Rust" fn __pd_rtos_spawn(
+                spec: &TaskSpec,
+                body: ::alloc::boxed::Box<dyn FnOnce() + Send>,
+            ) -> bool {
+                <$t as $crate::rtos::Rtos>::spawn(spec, body)
             }
             #[no_mangle]
             extern "Rust" fn __pd_rtos_queue_create(depth: usize) -> RawQueue {
@@ -224,6 +254,10 @@ macro_rules! set_rtos {
             #[no_mangle]
             extern "Rust" fn __pd_rtos_tick_timer_resume() {
                 <$t as $crate::rtos::Rtos>::tick_timer_resume()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_tick_timer_stop() {
+                <$t as $crate::rtos::Rtos>::tick_timer_stop()
             }
             #[no_mangle]
             extern "Rust" fn __pd_rtos_delay_ms(ms: u32) {

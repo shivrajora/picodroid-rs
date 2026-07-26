@@ -95,6 +95,9 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // `Executors.backgroundExecutor()`. Each worker parks on the shared
     // work queue and lazily constructs its own Jvm on first submit so it
     // picks up the registered class loader from `run_jvm_with`.
+    // The loop each worker runs lives in the platform crate (it needs the
+    // app's class loader and shared heap), so install it before spawning.
+    crate::bg_worker::install();
     crate::system::executors::background_pool::spawn();
 
     // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).

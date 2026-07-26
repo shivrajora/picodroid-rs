@@ -88,137 +88,74 @@ fn decode(word: u32) -> MainTask {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Backing store: FreeRTOS queue on device, Mutex<VecDeque> in sim.
+// Backing store.
+//
+// This was two `mod backing` blocks — a FreeRTOS queue on device, a
+// `Mutex<VecDeque>` + `Condvar` in sim. Both are now the platform's
+// `Rtos::queue_*`, so one implementation serves every target. The
+// send-wakes-blocked-receiver property that `recv_blocking` depends on is
+// part of the `Rtos` contract.
 // ─────────────────────────────────────────────────────────────────────
 
-#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 mod backing {
-    use core::cell::UnsafeCell;
-    use freertos_rust::{Duration, Queue};
+    use core::sync::atomic::{AtomicUsize, Ordering};
 
     use super::CAPACITY;
+    use crate::rtos::{self, RawQueue, Timeout};
 
-    struct QueueCell(UnsafeCell<Option<Queue<u32>>>);
-    // SAFETY: installed exactly once in `init()` pre-scheduler; after that
-    // `Queue` itself is thread-safe via FreeRTOS primitives.
-    unsafe impl Sync for QueueCell {}
+    /// Platform queue handle; `0` means "not created yet".
+    static QUEUE: AtomicUsize = AtomicUsize::new(0);
 
-    static QUEUE: QueueCell = QueueCell(UnsafeCell::new(None));
-
-    fn queue_opt() -> Option<&'static Queue<u32>> {
-        // SAFETY: only mutated by `init()` pre-scheduler; read-only after.
-        unsafe { (*QUEUE.0.get()).as_ref() }
+    fn handle() -> Option<RawQueue> {
+        match QUEUE.load(Ordering::Acquire) {
+            0 => None,
+            q => Some(q),
+        }
     }
 
     pub fn init() {
-        // SAFETY: pre-scheduler single-threaded initialisation.
-        unsafe {
-            if (*QUEUE.0.get()).is_none() {
-                let q = Queue::<u32>::new(CAPACITY).expect("main queue alloc");
-                *QUEUE.0.get() = Some(q);
-            }
+        if let Some(q) = handle() {
+            // Re-init between app runs drains rather than recreates, so the
+            // handle stays valid for any task that already captured it.
+            while rtos::queue_recv(q, Timeout::None).is_some() {}
+            return;
         }
+        // Leaves QUEUE at 0 if the platform could not allocate, which
+        // `try_send` treats the same as "not initialised".
+        QUEUE.store(rtos::queue_create(CAPACITY), Ordering::Release);
     }
 
     pub fn try_send(word: u32) -> bool {
         // Apps that loop forever inside `Application.onCreate` (e.g. blinky)
-        // never reach `run_activity`, so the queue is never init'd. Cross-task
-        // posters such as `pdb::pending::notify_jvm` (called from pdb_task on
-        // core 1) must silently no-op rather than panic. Returning `false`
-        // matches the queue-full path and is harmless to all callers.
-        let Some(q) = queue_opt() else { return false };
-        // FreeRTOS Queue::send wakes any task blocked on Queue::receive,
-        // which is how `recv_blocking` gets woken sub-ms when a poster runs.
-        q.send(word, Duration::zero()).is_ok()
+        // never reach `run_activity`, so the queue is never created.
+        // Cross-task posters such as the debug bridge's wake nudge must
+        // silently no-op rather than panic. `false` matches the queue-full
+        // path and is harmless to every caller.
+        let Some(q) = handle() else { return false };
+        rtos::queue_send(q, word, Timeout::None)
     }
 
     #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
-        queue_opt()?.receive(Duration::zero()).ok()
+        rtos::queue_recv(handle()?, Timeout::None)
     }
 
     pub fn recv_blocking() -> u32 {
         // Only called from the UI thread, which always runs `init()` first.
-        let q = queue_opt().expect("main_queue not initialised");
+        let q = handle().expect("main_queue not initialised");
         loop {
-            if let Ok(w) = q.receive(Duration::infinite()) {
+            if let Some(w) = rtos::queue_recv(q, Timeout::Forever) {
                 return w;
             }
-            // `Duration::infinite()` shouldn't return Err in practice, but
-            // looping is the conservative choice — better than reporting a
-            // spurious LvglTick (encoded as 0) to the dispatcher.
+            // A blocking receive shouldn't fail, but looping is the
+            // conservative choice — better than reporting a spurious
+            // LvglTick (encoded as 0) to the dispatcher.
         }
     }
 }
 
-#[cfg(any(test, feature = "sim"))]
-mod backing {
-    use std::collections::VecDeque;
-    use std::sync::{Condvar, Mutex};
-
-    use super::CAPACITY;
-
-    struct SimQueue {
-        queue: Mutex<VecDeque<u32>>,
-        cv: Condvar,
-    }
-
-    static SIM_QUEUE: SimQueue = SimQueue {
-        queue: Mutex::new(VecDeque::new()),
-        cv: Condvar::new(),
-    };
-
-    pub fn init() {
-        SIM_QUEUE
-            .queue
-            .lock()
-            .expect("sim main_queue mutex poisoned")
-            .clear();
-    }
-
-    pub fn try_send(word: u32) -> bool {
-        let mut q = SIM_QUEUE
-            .queue
-            .lock()
-            .expect("sim main_queue mutex poisoned");
-        if q.len() < CAPACITY {
-            q.push_back(word);
-            drop(q);
-            // Wake `recv_blocking`, which provides the same send-wakes-receive
-            // semantics that FreeRTOS Queue::send gives us on device.
-            SIM_QUEUE.cv.notify_one();
-            true
-        } else {
-            false
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn try_recv() -> Option<u32> {
-        SIM_QUEUE
-            .queue
-            .lock()
-            .expect("sim main_queue mutex poisoned")
-            .pop_front()
-    }
-
-    pub fn recv_blocking() -> u32 {
-        let mut guard = SIM_QUEUE
-            .cv
-            .wait_while(
-                SIM_QUEUE
-                    .queue
-                    .lock()
-                    .expect("sim main_queue mutex poisoned"),
-                |q| q.is_empty(),
-            )
-            .expect("sim main_queue cv wait_while: mutex poisoned");
-        guard.pop_front().expect("queue non-empty after wait_while")
-    }
-}
-
-/// Initialise the queue backing store. Safe to call repeatedly; subsequent
-/// calls are no-ops on device and reset the sim queue.
+/// Initialise the queue backing store. Safe to call repeatedly: the first
+/// call creates the queue, later ones drain it so a re-run starts empty.
 pub fn init() {
     TICK_IN_QUEUE.0.set(false);
     backing::init();

@@ -314,6 +314,14 @@ mod rtos_impl {
         }
     }
 
+    struct TimerCell(core::cell::UnsafeCell<Option<Timer>>);
+    // SAFETY: mutated only by the UI thread before the timer is in active
+    // use; afterwards `Timer`'s own operations go through the FreeRTOS timer
+    // command queue and are themselves thread-safe.
+    unsafe impl Sync for TimerCell {}
+
+    static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
+
     /// Default stack for each task kind, in **bytes**. Sourced from the boot
     /// budget so the sim's pre-charge and the device's real allocation stay
     /// in step (docs/parity-audit.md M4).
@@ -330,32 +338,51 @@ mod rtos_impl {
     }
 
     unsafe impl Rtos for PlatformRtos {
-        fn spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool {
+        fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
             let stack_bytes = spec
                 .stack_bytes
                 .unwrap_or_else(|| default_stack_bytes(spec.kind));
             let words = (stack_bytes / 4) as u16;
             let prio = TaskPriority(spec.priority);
-            // Written as two whole chains rather than a shared binding:
-            // `TaskBuilder`'s setters borrow the temporary, so the chain
-            // cannot be split across a `let`. Pinning JVM work to core 0 is
-            // required by the interpreter's single-core heap assumption
-            // (documented in app.rs).
-            if spec.kind == TaskKind::JvmChild {
-                Task::new()
+
+            if spec.kind != TaskKind::JvmChild {
+                return Task::new()
                     .name(spec.name)
                     .stack_size(words)
                     .priority(prio)
-                    .core_affinity(0b01)
-                    .start(move |_| entry(arg))
-                    .is_ok()
-            } else {
-                Task::new()
-                    .name(spec.name)
-                    .stack_size(words)
-                    .priority(prio)
-                    .start(move |_| entry(arg))
-                    .is_ok()
+                    .start(move |_| body())
+                    .is_ok();
+            }
+
+            // JVM child tasks carry two extra obligations, both of which
+            // belong to this family rather than to shared code:
+            //
+            //  * Pin to core 0. The interpreter's heap safety rests on the
+            //    single-core assumption documented in app.rs.
+            //  * Register with the debug bridge, and deregister on exit, so
+            //    a stop request can reach the child and jvm_task's wait loop
+            //    unblocks. The spawn trampoline calls vTaskDelete(NULL)
+            //    after the body returns, reclaiming stack and TCB.
+            //
+            // Written as a whole chain because `TaskBuilder`'s setters
+            // borrow the temporary and cannot be split across a `let`.
+            let spawned = Task::new()
+                .name(spec.name)
+                .stack_size(words)
+                .priority(prio)
+                .core_affinity(0b01)
+                .start(move |_| {
+                    body();
+                    if let Ok(t) = Task::current() {
+                        crate::pdb::pending::deregister_child_task(t.raw_handle());
+                    }
+                });
+            match spawned {
+                Ok(child) => {
+                    crate::pdb::pending::register_child_task(child);
+                    true
+                }
+                Err(_) => false,
             }
         }
 
@@ -433,21 +460,51 @@ mod rtos_impl {
         }
 
         fn tick_timer_start(period_ms: u32, cb: fn()) {
-            // Leaked on purpose: the UI tick runs for the life of the
-            // process, and dropping a FreeRTOS timer while it is armed is a
-            // use-after-free.
-            if let Ok(timer) = Timer::new(Duration::ms(period_ms))
-                .set_auto_reload(true)
-                .create(move |_| cb())
-            {
-                if timer.start(Duration::ms(0)).is_ok() {
-                    core::mem::forget(timer);
+            // SAFETY: callers serialise on the UI thread (see run_activity).
+            unsafe {
+                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
+                    let _ = t.start(Duration::ms(0));
+                    return;
+                }
+                let timer = Timer::new(Duration::ms(period_ms))
+                    .set_name("lvgl-tick")
+                    .set_auto_reload(true)
+                    .create(move |_| cb())
+                    .expect("lvgl-tick timer alloc");
+                timer.start(Duration::ms(0)).expect("lvgl-tick start");
+                *TICK_TIMER.0.get() = Some(timer);
+            }
+        }
+
+        /// Genuinely stop the timer rather than filtering at the callback:
+        /// the activity loop pauses the tick before display sleep so the
+        /// chip can reach a deeper idle state, which only happens if nothing
+        /// is still firing.
+        fn tick_timer_pause() {
+            // SAFETY: see `tick_timer_start`.
+            unsafe {
+                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
+                    let _ = t.stop(Duration::ms(0));
                 }
             }
         }
 
-        fn tick_timer_pause() {}
-        fn tick_timer_resume() {}
+        fn tick_timer_resume() {
+            // SAFETY: see `tick_timer_start`.
+            unsafe {
+                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
+                    let _ = t.start(Duration::ms(0));
+                }
+            }
+        }
+
+        /// Stop the timer but keep the allocation: dropping a `Timer` blocks
+        /// the caller for up to 1 s on the timer command queue
+        /// (`freertos_rust::Timer::drop`). The tick is a process-wide
+        /// singleton, so holding the handle forever is the cheaper trade.
+        fn tick_timer_stop() {
+            Self::tick_timer_pause();
+        }
 
         fn delay_ms(ms: u32) {
             freertos_rust::CurrentTask::delay(Duration::ms(ms));
@@ -463,10 +520,19 @@ mod rtos_impl {
     //! round-trip through the seam's `usize` unchanged on a 64-bit host.
 
     use super::PlatformRtos;
-    use picodroid_core::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskSpec, Timeout};
+    use picodroid_core::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskKind, TaskSpec, Timeout};
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Condvar, Mutex};
     use std::time::Duration;
+
+    // Tick-source state. Separate from the queue/semaphore handles because
+    // the tick is a process singleton with a lifecycle (start/pause/stop),
+    // not something callers allocate.
+    static TICK_STARTED: AtomicBool = AtomicBool::new(false);
+    static TICK_PAUSED: AtomicBool = AtomicBool::new(false);
+    static TICK_STOPPING: AtomicBool = AtomicBool::new(false);
+    static TICK_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
     struct SimQueue {
         items: Mutex<VecDeque<u32>>,
@@ -495,14 +561,50 @@ mod rtos_impl {
     }
 
     unsafe impl Rtos for PlatformRtos {
-        fn spawn(spec: &TaskSpec, entry: fn(u32), arg: u32) -> bool {
-            let name = spec.name;
+        fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
+            // A JVM child task must NOT become a host thread. The object
+            // heap is not thread-safe; on device its safety comes from
+            // FreeRTOS cooperative scheduling on a single pinned core, which
+            // preemptive host threads do not provide. Running it here would
+            // trade a visible no-op for silent heap corruption.
+            //
+            // Erroring would misrepresent the device worse than skipping,
+            // and running it synchronously would invert concurrency ordering
+            // and can deadlock on the main queue — so warn, charge, skip.
+            if spec.kind == TaskKind::JvmChild {
+                // Parity/CI lanes treat the no-op as fatal: an app whose
+                // threads never ran must not report PASS
+                // (docs/parity-audit.md THR-01; real sim threads are fix M7).
+                if std::env::var("PICODROID_PARITY_STRICT").as_deref() == Ok("1") {
+                    panic!(
+                        "[sim] parity-strict: Thread.start({}) is a no-op in the \
+                         simulator — this app cannot be validated here \
+                         (docs/parity-audit.md THR-01)",
+                        spec.name
+                    );
+                }
+                eprintln!(
+                    "[sim] Thread.start: {}.run() will NOT run — threads are a \
+                     no-op in the simulator (on device they run as a FreeRTOS task)",
+                    spec.name
+                );
+                // Charge what the device would have allocated for the task
+                // (stack + TCB from the arena) so heap accounting stays
+                // honest even though nothing ran (M4). Only meaningful when
+                // the simulated arena exists; plain host test builds reach
+                // this arm too but have no arena to charge.
+                #[cfg(feature = "sim")]
+                crate::boot_budget::charge_thread_spawn();
+                drop(body);
+                return false;
+            }
+
             // Thread internals are host-only, with no device counterpart, so
             // they must not be charged to the simulated device heap.
             let _bypass = crate::sim_allocator::bypass();
             std::thread::Builder::new()
-                .name(name.into())
-                .spawn(move || entry(arg))
+                .name(spec.name.into())
+                .spawn(body)
                 .is_ok()
         }
 
@@ -694,17 +796,67 @@ mod rtos_impl {
         }
 
         fn tick_timer_start(period_ms: u32, cb: fn()) {
-            let _bypass = crate::sim_allocator::bypass();
-            let _ = std::thread::Builder::new()
+            if TICK_STARTED.swap(true, Ordering::SeqCst) {
+                // Already running — treat as an unpause.
+                TICK_PAUSED.store(false, Ordering::SeqCst);
+                return;
+            }
+            TICK_STOPPING.store(false, Ordering::SeqCst);
+            TICK_PAUSED.store(false, Ordering::SeqCst);
+            // Host thread machinery has no device analog (the device tick is
+            // a FreeRTOS software timer, whose cost enters via the boot
+            // budget), so keep pthread internals and this thread's pacing
+            // state off the simulated heap (docs/parity-audit.md M1).
+            let _spawn_bypass = crate::sim_allocator::bypass();
+            let handle = std::thread::Builder::new()
                 .name("lvgl-tick".into())
-                .spawn(move || loop {
-                    std::thread::sleep(Duration::from_millis(period_ms as u64));
-                    cb();
-                });
+                .spawn(move || {
+                    let _bypass = crate::sim_allocator::bypass();
+                    let period = Duration::from_millis(period_ms as u64);
+                    // Deadline-based rather than sleep-per-iteration, so a
+                    // slow callback does not make the tick drift.
+                    let mut next = std::time::Instant::now() + period;
+                    while !TICK_STOPPING.load(Ordering::SeqCst) {
+                        let now = std::time::Instant::now();
+                        if now < next {
+                            std::thread::sleep(next - now);
+                        }
+                        next = std::time::Instant::now() + period;
+                        if !TICK_PAUSED.load(Ordering::SeqCst)
+                            && !TICK_STOPPING.load(Ordering::SeqCst)
+                        {
+                            cb();
+                        }
+                    }
+                })
+                .expect("spawn lvgl-tick thread");
+            *TICK_HANDLE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handle);
         }
 
-        fn tick_timer_pause() {}
-        fn tick_timer_resume() {}
+        fn tick_timer_pause() {
+            TICK_PAUSED.store(true, Ordering::SeqCst);
+        }
+
+        fn tick_timer_resume() {
+            TICK_PAUSED.store(false, Ordering::SeqCst);
+        }
+
+        /// Signal and join. Unlike the device arm, which parks a singleton
+        /// timer, the host tick owns a thread — leaving it running would leak
+        /// one per app reload.
+        fn tick_timer_stop() {
+            TICK_STOPPING.store(true, Ordering::SeqCst);
+            let handle = TICK_HANDLE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take();
+            if let Some(h) = handle {
+                let _ = h.join();
+            }
+            TICK_STARTED.store(false, Ordering::SeqCst);
+        }
 
         fn delay_ms(ms: u32) {
             std::thread::sleep(Duration::from_millis(ms as u64));

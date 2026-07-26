@@ -44,102 +44,63 @@ pub fn dispatch(
                         .ok_or(JvmError::InvalidReference)
                         .ok()?;
 
-                    #[cfg(all(not(feature = "sim"), feature = "family-rp"))]
-                    {
-                        // Field 0 = target (Runnable), field 1 = priority (int).
-                        let android_priority = match ctx.objects.get_field(*thread_idx, 1) {
-                            Some(Value::Int(p)) => p,
-                            _ => 5, // Thread.NORM_PRIORITY fallback
-                        };
-                        let freertos_prio =
-                            crate::task_priority::android_to_freertos_priority(android_priority);
-                        let task_result = freertos_rust::Task::new()
-                            .name("jvm-t")
-                            .stack_size(crate::boot_budget::JVM_THREAD_STACK_WORDS)
-                            .priority(freertos_rust::TaskPriority(freertos_prio))
-                            .core_affinity(0b01) // core 0 only
-                            .start(move |_| {
-                                let mut jvm = pico_jvm::Jvm::new();
-                                // Don't unwrap: a class-load failure inside a child task
-                                // would `bkpt`-halt the whole MCU under panic-probe and
-                                // freeze USB CDC, leaving pdb unable to PING the device.
-                                // Log and bail instead so jvm_task and PDB stay alive.
-                                if let Err(e) = crate::app::load_classes(&mut jvm) {
-                                    defmt::error!(
-                                        "Thread.start: child-task class load failed for {}: {}",
-                                        class_name,
-                                        defmt::Display2Format(&e)
-                                    );
-                                } else {
-                                    let heap = crate::app::shared_heap();
-                                    let mut handler = super::PicodroidNativeHandler::new();
-                                    if let Err(e) = jvm.invoke_instance(
-                                        class_name,
-                                        "run",
-                                        runnable_obj_idx,
-                                        heap,
-                                        &mut handler,
-                                    ) {
-                                        defmt::error!(
-                                            "Thread.start: child-task {}.run() failed: {}",
-                                            class_name,
-                                            defmt::Display2Format(&e)
-                                        );
-                                    }
-                                }
-                                // Deregister before returning so jvm_task's wait loop unblocks.
-                                // The spawn_inner trampoline calls vTaskDelete(NULL) after
-                                // this closure returns, reclaiming the stack and TCB.
-                                if let Ok(t) = freertos_rust::Task::current() {
-                                    crate::pdb::pending::deregister_child_task(t.raw_handle());
-                                }
-                            });
-                        match task_result {
-                            Ok(child_task) => {
-                                crate::pdb::pending::register_child_task(child_task);
-                            }
-                            Err(e) => {
-                                defmt::error!(
-                                    "Thread.start: failed to spawn FreeRTOS task for {}: {:?}",
+                    // Field 0 = target (Runnable), field 1 = priority (int).
+                    let android_priority = match ctx.objects.get_field(*thread_idx, 1) {
+                        Some(Value::Int(p)) => p,
+                        _ => 5, // Thread.NORM_PRIORITY fallback
+                    };
+                    let spec = picodroid_core::rtos::TaskSpec {
+                        // The class name rides along as the task name so the
+                        // platform can identify the Runnable — the simulator
+                        // prints it when declining, and it shows up in the
+                        // debug bridge's task list on device.
+                        name: class_name,
+                        kind: picodroid_core::rtos::TaskKind::JvmChild,
+                        priority: crate::task_priority::android_to_freertos_priority(
+                            android_priority,
+                        ),
+                        stack_bytes: None, // platform's JvmChild default
+                    };
+
+                    // One call for every target. Core-0 pinning and the debug
+                    // bridge's child-task bookkeeping live in the platform's
+                    // Rtos::spawn; the simulator declines this task kind
+                    // outright (host threads cannot honour the interpreter's
+                    // single-core heap guarantee) and reports it there.
+                    picodroid_core::rtos::spawn(
+                        &spec,
+                        alloc::boxed::Box::new(move || {
+                            let mut jvm = pico_jvm::Jvm::new();
+                            // Don't unwrap: a class-load failure inside a child
+                            // task would `bkpt`-halt the whole MCU under
+                            // panic-probe and freeze USB CDC, leaving pdb unable
+                            // to PING the device. Log and bail instead so
+                            // jvm_task and PDB stay alive.
+                            if let Err(e) = crate::app::load_classes(&mut jvm) {
+                                picodroid_core::pd_error!(
+                                    "Thread.start: child-task class load failed for {}: {}",
                                     class_name,
-                                    defmt::Debug2Format(&e)
+                                    defmt::Display2Format(&e)
+                                );
+                                return;
+                            }
+                            let heap = crate::app::shared_heap();
+                            let mut handler = super::PicodroidNativeHandler::new();
+                            if let Err(e) = jvm.invoke_instance(
+                                class_name,
+                                "run",
+                                runnable_obj_idx,
+                                heap,
+                                &mut handler,
+                            ) {
+                                picodroid_core::pd_error!(
+                                    "Thread.start: child-task {}.run() failed: {}",
+                                    class_name,
+                                    defmt::Display2Format(&e)
                                 );
                             }
-                        }
-                    }
-
-                    #[cfg(feature = "sim")]
-                    {
-                        // Threading is a no-op in the simulator — there's no
-                        // FreeRTOS to host the task. Warn loudly (naming the
-                        // Runnable) so a dev doesn't read the silence as "it
-                        // ran": on device this spawns a real task and the
-                        // Runnable executes. Erroring would misrepresent device
-                        // behavior worse than a no-op, and running it
-                        // synchronously here would invert concurrency ordering
-                        // and can deadlock on the main queue — so: warn + skip.
-                        //
-                        // Under PICODROID_PARITY_STRICT=1 (parity/CI lanes) the
-                        // no-op is a hard failure instead: an app whose threads
-                        // never ran must not report PASS (docs/parity-audit.md
-                        // THR-01; real sim threads are fix M7).
-                        if std::env::var("PICODROID_PARITY_STRICT").as_deref() == Ok("1") {
-                            panic!(
-                                "[sim] parity-strict: Thread.start({class_name}) is a \
-                                 no-op in the simulator — this app cannot be validated \
-                                 here (docs/parity-audit.md THR-01)"
-                            );
-                        }
-                        eprintln!(
-                            "[sim] Thread.start: {class_name}.run() will NOT run — \
-                             threads are a no-op in the simulator (on device they \
-                             run as a FreeRTOS task)"
-                        );
-                        // Even without running the thread, charge what the
-                        // device would allocate for it (task stack + TCB from
-                        // the arena) so heap accounting stays honest (M4).
-                        crate::boot_budget::charge_thread_spawn();
-                    }
+                        }),
+                    );
                 }
             }
             Some(Ok(None))

@@ -56,7 +56,7 @@ pub use device::spawn;
 mod device {
     use core::cell::UnsafeCell;
 
-    use freertos_rust::{Duration, Semaphore, Task, TaskPriority};
+    use picodroid_core::rtos::{self, RawSem, TaskKind, TaskSpec, Timeout};
 
     use super::super::mailbox;
     use super::super::{EnvSnapshot, OpticalSnapshot};
@@ -79,13 +79,17 @@ mod device {
     /// stall sampling by this much.
     const MAX_WAIT_MS: u64 = 1000;
 
-    struct SemCell(UnsafeCell<Option<Semaphore>>);
-    // SAFETY: written once pre-scheduler; only shared references afterwards.
+    struct SemCell(UnsafeCell<RawSem>);
+    // SAFETY: written once pre-scheduler; only read afterwards.
     unsafe impl Sync for SemCell {}
-    static WAKE: SemCell = SemCell(UnsafeCell::new(None));
+    /// `0` until `spawn()` creates it.
+    static WAKE: SemCell = SemCell(UnsafeCell::new(0));
 
-    fn wake_sem() -> Option<&'static Semaphore> {
-        unsafe { (*WAKE.0.get()).as_ref() }
+    fn wake_sem() -> Option<RawSem> {
+        match unsafe { *WAKE.0.get() } {
+            0 => None,
+            s => Some(s),
+        }
     }
 
     /// Wake the task out of its pacing/parked wait. Callable from any task;
@@ -94,7 +98,7 @@ mod device {
     /// not lost.
     pub fn kick() {
         if let Some(s) = wake_sem() {
-            let _ = s.give();
+            rtos::sem_give(s);
         }
     }
 
@@ -106,18 +110,21 @@ mod device {
     pub fn spawn() {
         // SAFETY: pre-scheduler, single-threaded.
         unsafe {
-            *WAKE.0.get() = Some(Semaphore::new_binary().expect("sensor wake sem"));
+            *WAKE.0.get() = rtos::sem_binary_create();
         }
         for cfg in sensor_table::SENSORS {
             crate::hal::i2c::init(cfg.bus_id);
         }
-        Task::new()
-            .name("sensor")
-            .stack_size(crate::boot_budget::SENSOR_STACK_WORDS)
-            .priority(TaskPriority(crate::task_priority::PRIORITY_SENSOR))
-            .core_affinity(0b01) // core 0 with the JVM: no cross-core visibility hazard
-            .start(|_| run())
-            .expect("sensor task");
+        let spec = TaskSpec {
+            name: "sensor",
+            kind: TaskKind::Sensor,
+            priority: crate::task_priority::PRIORITY_SENSOR,
+            stack_bytes: None, // platform's Sensor default (boot budget)
+        };
+        assert!(
+            rtos::spawn(&spec, alloc::boxed::Box::new(run)),
+            "sensor task"
+        );
     }
 
     fn now_ms() -> u64 {
@@ -135,7 +142,7 @@ mod device {
                 // (one wasted conversion, no stuck state).
                 bme.abandon();
                 if let Some(s) = wake_sem() {
-                    let _ = s.take(Duration::infinite());
+                    rtos::sem_take(s, Timeout::Forever);
                 }
                 continue;
             }
@@ -158,7 +165,7 @@ mod device {
             // loop re-reads control.
             let delay = next_deadline.saturating_sub(now_ms()).clamp(1, MAX_WAIT_MS);
             if let Some(s) = wake_sem() {
-                let _ = s.take(Duration::ms(delay as u32));
+                rtos::sem_take(s, Timeout::Ms(delay as u32));
             }
         }
     }
