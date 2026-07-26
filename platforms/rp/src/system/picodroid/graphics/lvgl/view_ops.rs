@@ -31,7 +31,11 @@ fn argb_to_lv_color(argb: u32) -> lv_color_t {
 }
 
 pub(in crate::system::picodroid::graphics) fn set_pos(h: Handle, x: i32, y: i32) {
-    unsafe { lv_obj_set_pos(obj(h), x, y) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_set_pos(o, x, y) };
 }
 
 /// LVGL `LV_SIZE_CONTENT = LV_COORD_MAX | LV_COORD_TYPE_SPEC = (1<<30)-1`. Mirrors Java
@@ -51,12 +55,20 @@ fn translate_dim(v: i32) -> i32 {
 }
 
 pub(in crate::system::picodroid::graphics) fn set_size(h: Handle, w: i32, height: i32) {
-    unsafe { lv_obj_set_size(obj(h), translate_dim(w), translate_dim(height)) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_set_size(o, translate_dim(w), translate_dim(height)) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_bg_color(h: Handle, argb: u32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
     let color = argb_to_lv_color(argb);
-    unsafe { lv_obj_set_style_bg_color(obj(h), color, 0) };
+    unsafe { lv_obj_set_style_bg_color(o, color, 0) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_padding(
@@ -67,6 +79,9 @@ pub(in crate::system::picodroid::graphics) fn set_padding(
     bottom: i32,
 ) {
     let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
     unsafe {
         lv_obj_set_style_pad_left(o, left, 0);
         lv_obj_set_style_pad_top(o, top, 0);
@@ -77,6 +92,9 @@ pub(in crate::system::picodroid::graphics) fn set_padding(
 
 pub(in crate::system::picodroid::graphics) fn set_visibility(h: Handle, v: Visibility) {
     let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
     unsafe {
         match v {
             Visibility::Visible => lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN),
@@ -90,6 +108,9 @@ pub(in crate::system::picodroid::graphics) fn set_visibility(h: Handle, v: Visib
 
 pub(in crate::system::picodroid::graphics) fn set_enabled(h: Handle, on: bool) {
     let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
     unsafe {
         if on {
             lv_obj_remove_state(o, LV_STATE_DISABLED);
@@ -100,7 +121,11 @@ pub(in crate::system::picodroid::graphics) fn set_enabled(h: Handle, on: bool) {
 }
 
 pub(in crate::system::picodroid::graphics) fn set_alpha(h: Handle, alpha: u8) {
-    unsafe { lv_obj_set_style_opa(obj(h), alpha, 0) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_set_style_opa(o, alpha, 0) };
 }
 
 pub(in crate::system::picodroid::graphics) fn set_parent(h: Handle, parent: Handle) {
@@ -177,6 +202,9 @@ pub(in crate::system::picodroid::graphics) fn remove_all_children(h: Handle) {
 /// a layout pass first so reads right after addView/setSize see final values.
 pub(in crate::system::picodroid::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
     let o = obj(h);
+    if o.is_null() {
+        return (0, 0, 0, 0); // stale handle — no geometry to report
+    }
     unsafe {
         lv_obj_update_layout(o);
         (
@@ -196,5 +224,9 @@ pub(in crate::system::picodroid::graphics) fn set_flex_grow(h: Handle, weight: i
     } else {
         weight as u8
     };
-    unsafe { lv_obj_set_flex_grow(obj(h), w) };
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_set_flex_grow(o, w) };
 }
