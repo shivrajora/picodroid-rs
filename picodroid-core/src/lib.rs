@@ -8,6 +8,7 @@ pub mod dispatch_sites;
 #[allow(dead_code)]
 pub mod drivers;
 pub mod framework_classes;
+pub mod gc_roots;
 pub mod hal;
 pub mod host;
 pub mod lvgl_ffi;

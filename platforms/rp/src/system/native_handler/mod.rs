@@ -215,42 +215,12 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         self.pending_ops
             .visit_object_refs(&mut |r| visit(Value::ObjectRef(r)));
 
-        // View/dialog callback targets: a View (or AlertDialog) referenced only
-        // by a native listener map — key/touch/swipe/click/dialog — and not by a
-        // Java field would otherwise be swept by GC, after which dispatch
-        // resolves a live lv_obj to a dead ref and input silently drops (the
-        // keypad appears to "lose focus" a few seconds in, post-GC).
-        {
-            use crate::system::picodroid::graphics::lvgl::{events, widgets};
-            let mut root = |r: u16| visit(Value::ObjectRef(r));
-            events::visit_view_listener_roots(&mut root);
-            widgets::button::visit_click_listener_roots(&mut root);
-            widgets::button::visit_long_click_listener_roots(&mut root);
-            crate::system::picodroid::graphics::lvgl::animations::visit_end_action_roots(&mut root);
-            widgets::list_view::visit_item_click_listener_roots(&mut root);
-            widgets::alert_dialog::visit_dialog_obj_roots(&mut root);
-            // Compound-button + EditText listener maps: same unrooted-View hazard
-            // as the click/item-click maps above. A Switch/CheckBox/ToggleButton
-            // or EditText kept alive only by its native listener map (a local in
-            // onCreate, never stored in a Java field) is otherwise swept on the
-            // first GC, its slot reused, and the next Activity's onCreate hits a
-            // dead ref → NoSuchMethod.
-            widgets::switch::visit_checked_change_listener_roots(&mut root);
-            widgets::check_box::visit_checked_change_listener_roots(&mut root);
-            widgets::radio_button::visit_checked_change_listener_roots(&mut root);
-            widgets::toggle_button::visit_checked_change_listener_roots(&mut root);
-            widgets::edit_text::visit_editor_action_listener_roots(&mut root);
-            widgets::edit_text::visit_text_changed_listener_roots(&mut root);
-            // NumberPicker registers every instance (not just listener
-            // holders): the obj_ref is the fireStep dispatch target.
-            widgets::number_picker::visit_picker_roots(&mut root);
-        }
-
-        // Delegate to sub-modules that own their own native object refs.
-        crate::system::picodroid::graphics::display::visit_gc_roots(&mut *visit);
-        crate::system::picodroid::hardware::sensors::visit_gc_roots(&mut *visit);
-        crate::service_lifecycle::visit_gc_roots(&mut *visit);
-        crate::lifecycle::visit_gc_roots(&mut *visit);
+        // Everything else — native listener maps holding Views the Java heap
+        // does not reference, plus the modules that own their own object refs
+        // — reports itself through the registry rather than being enumerated
+        // here. See `crate::gc_root_registration` for the list and
+        // `picodroid_core::gc_roots` for why (audit P2-17).
+        picodroid_core::gc_roots::visit_all(&mut *visit);
     }
 
     fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {

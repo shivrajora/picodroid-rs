@@ -180,6 +180,13 @@ pub fn run_jvm_with(apk_data: &[u8]) {
     // even when called from Thread.start()-spawned child tasks.
     unsafe { *ACTIVE_APK.0.get() = (apk_data.as_ptr(), apk_data.len()) };
 
+    // Register GC root providers before the first class load — hence before
+    // any GC can run. Objects held only by native code (Views in listener
+    // maps, bound Services, the Display singleton) are invisible to the
+    // collector until this runs, and a GC before it would sweep them while
+    // live. Idempotent, so a PDB app reload re-entering here is fine.
+    crate::gc_root_registration::register_all();
+
     // Clear previous app's heap state before running a new app, then claim
     // the board-tuned steady-state storage while the heap is young and
     // contiguous (PEM-3 pre-reservation; zeros are no-ops).

@@ -29,6 +29,11 @@ mod hal;
 // Binds picodroid-core's HAL / RTOS / platform-hook seam to this family.
 // The single file a new MCU family reimplements.
 mod glue;
+// Registers this crate's GC root providers with picodroid_core::gc_roots.
+// Always compiled: the registration itself is cfg(not(test))-gated inside
+// (it names LVGL/HAL modules), but its completeness guard is a source scan
+// that must run under scripts/test.sh.
+mod gc_root_registration;
 #[cfg(not(test))]
 mod lifecycle;
 #[cfg(not(test))]
