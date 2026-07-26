@@ -82,21 +82,6 @@ mod hal_rp_spi_protocol_tests;
 #[cfg(test)]
 #[path = "system/native_handler/state.rs"]
 mod native_handler_state_tests;
-// Pure button-IRQ press-state filter — guards against the phantom-release
-// boot regression. Same `#[path]` rationale as the lifecycle state module.
-#[cfg(test)]
-#[path = "system/picodroid/graphics/lvgl/key_filter.rs"]
-mod lvgl_key_filter_tests;
-// Pure per-pin contact debounce — collapses switch chatter bursts to their
-// first edge. Same `#[path]` rationale as the modules above.
-#[cfg(test)]
-#[path = "system/picodroid/graphics/lvgl/key_debounce.rs"]
-mod lvgl_key_debounce_tests;
-// Shared widget listener-map (PtrMap): upsert/remove/visit/reset semantics
-// that every LVGL listener registry relies on for GC-root correctness.
-#[cfg(test)]
-#[path = "system/picodroid/graphics/lvgl/listener_map.rs"]
-mod lvgl_listener_map_tests;
 // Native-class registry + its cross-check: every SDK class declaring a
 // `native` method must appear in the registry, or virtual dispatch fails at
 // runtime with NoSuchMethod. Same `#[path]` rationale as the modules above.
@@ -109,12 +94,6 @@ mod native_class_registry_tests;
 #[cfg(test)]
 #[path = "system/native_handler/method_tables.rs"]
 mod native_method_tables_tests;
-// Generation-tagged widget handle table: pure slot/generation logic behind
-// an FFI seam (the LVGL delete-hook install is stubbed under test). Same
-// `#[path]` rationale as the modules above.
-#[cfg(test)]
-#[path = "system/picodroid/graphics/lvgl/handle_table.rs"]
-mod lvgl_handle_table_tests;
 
 // Family-rp hardware imports (Cortex-M-specific via cortex-m-rt + the
 // generic-FreeRTOS rust bindings).

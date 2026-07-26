@@ -9,19 +9,23 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
 
-pub mod animations;
 pub mod calibration;
-pub mod drawable;
-pub mod edit_mode;
 pub mod events;
 pub mod fps_overlay;
-pub mod handle_table;
-pub mod key_debounce;
-pub mod key_filter;
 pub mod lifecycle;
-pub mod listener_map;
 pub mod view_ops;
 pub mod widgets;
+
+// Moved to picodroid-core (they depend only on lvgl_ffi and each other) and
+// re-exported here so `super::handle_table` and friends keep resolving for
+// the modules still in this crate.
+pub use picodroid_core::graphics::lvgl::{animations, drawable, handle_table, listener_map};
+
+// Keypad-only. Their consumers in events.rs sit inside `cfg(has_buttons)`
+// regions, so a buttonless board (testbench_rp2040) would see these as
+// unused imports.
+#[cfg(has_buttons)]
+pub use picodroid_core::graphics::lvgl::{edit_mode, key_debounce, key_filter};
 
 /// Idempotency guard for [`LvglGfx::init`]. LVGL itself doesn't tolerate
 /// `lv_init()` twice; this flag latches on the first successful call so

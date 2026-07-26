@@ -26,6 +26,9 @@ mod board_cfg;
 #[path = "../build_support/jvm_defaults.rs"]
 mod jvm_defaults;
 
+#[path = "../build_support/lvgl.rs"]
+mod lvgl;
+
 #[path = "../build_support/papk.rs"]
 mod papk;
 
@@ -61,6 +64,21 @@ fn main() {
         // assert_forwarded_features_match proved the two agree.)
         emit_capability_cfgs_from_features();
     }
+
+    // LVGL's C sources are compiled here rather than by the platform crate,
+    // because this crate now contains code that calls `lv_*`. Without it,
+    // `cargo test -p picodroid-core` would fail to link — and independent
+    // testability is most of the reason for extracting the framework.
+    //
+    // The platform crate must NOT also compile LVGL: `cc` static libs
+    // propagate to the final binary through the dependency, so two builders
+    // would mean duplicate symbols. Ownership moved in one commit for
+    // exactly that reason.
+    //
+    // Board overrides (`lv_dpi`, `lv_mem_kb`) come from the same board.toml
+    // resolution above; boardless builds get lv_conf.h's defaults.
+    let lvgl_board_props = board.as_ref().map(|b| b.cfg.props.clone());
+    lvgl::build(out, &lvgl_board_props, root);
 }
 
 /// Boardless fallback: derive capability cfgs from forwarded Cargo features.

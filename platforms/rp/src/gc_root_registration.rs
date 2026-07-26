@@ -24,7 +24,7 @@
 /// by the same amount. A change here that is not matched there means a
 /// provider was dropped on the floor.
 #[cfg_attr(not(test), allow(dead_code))] // asserted by the guard below
-pub const EXPECTED_PROVIDERS: usize = 17;
+pub const EXPECTED_PROVIDERS: usize = 16;
 
 /// Register every root provider. Call before the first class load, and
 /// therefore before any GC can run.
@@ -44,7 +44,7 @@ pub fn register_all() {
 
     use picodroid_core::gc_roots;
 
-    use crate::system::picodroid::graphics::lvgl::{animations, events, widgets};
+    use crate::system::picodroid::graphics::lvgl::{events, widgets};
 
     static REGISTERED: AtomicBool = AtomicBool::new(false);
     if REGISTERED.load(Ordering::Relaxed) {
@@ -52,12 +52,14 @@ pub fn register_all() {
     }
     REGISTERED.store(true, Ordering::Relaxed);
 
+    // Providers owned by picodroid-core register themselves.
+    picodroid_core::gc_root_registration::register_all();
+
     // Widget/listener maps: the map *is* the only reference to these Views,
     // so the map is the root.
     gc_roots::register_object_refs(events::visit_view_listener_roots);
     gc_roots::register_object_refs(widgets::button::visit_click_listener_roots);
     gc_roots::register_object_refs(widgets::button::visit_long_click_listener_roots);
-    gc_roots::register_object_refs(animations::visit_end_action_roots);
     gc_roots::register_object_refs(widgets::list_view::visit_item_click_listener_roots);
     gc_roots::register_object_refs(widgets::alert_dialog::visit_dialog_obj_roots);
     gc_roots::register_object_refs(widgets::switch::visit_checked_change_listener_roots);

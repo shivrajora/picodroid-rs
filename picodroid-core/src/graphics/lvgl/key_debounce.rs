@@ -47,6 +47,12 @@ pub struct KeyDebounce {
     seen: u32,
 }
 
+impl Default for KeyDebounce {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyDebounce {
     pub const fn new() -> Self {
         Self {

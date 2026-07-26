@@ -44,5 +44,8 @@ defmt         = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
+# Compiles the vendored LVGL C sources; this crate owns that build because it
+# holds the code calling into them (see build.rs).
+cc = "1.0"
 class-shrink = { path = "../tools/class-shrink" }
 papk-format = { path = "../papk-format" }

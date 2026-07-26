@@ -34,6 +34,12 @@ pub struct PtrMap<const N: usize> {
     len: usize,
 }
 
+impl<const N: usize> Default for PtrMap<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize> PtrMap<N> {
     pub const fn new() -> Self {
         Self {
@@ -102,14 +108,27 @@ impl<const N: usize> PtrMap<N> {
 /// Access a `static mut PtrMap` through a raw pointer without materializing
 /// a reference to the static itself (`static_mut_refs`) or the inline
 /// `*&raw` pattern (`clippy::deref_addrof`): call as
-/// `map_mut(&raw mut MAP).upsert(..)`. Sound for the widget maps because
-/// they are only touched from the single UI task.
+/// `map_mut(&raw mut MAP).upsert(..)`.
+///
+/// # Safety
+///
+/// `map` must point to a live, initialised `PtrMap<N>` — in practice always
+/// a `static mut` in this crate, obtained via `&raw mut`. The returned
+/// `&'static mut` aliases that static, so the caller must not hold two of
+/// them at once. Sound for the widget maps because they are only ever
+/// touched from the single UI task.
 #[inline]
 pub unsafe fn map_mut<const N: usize>(map: *mut PtrMap<N>) -> &'static mut PtrMap<N> {
     unsafe { &mut *map }
 }
 
 /// Shared-access counterpart of [`map_mut`].
+///
+/// # Safety
+///
+/// Same contract as [`map_mut`], minus the exclusivity requirement: `map`
+/// must point to a live, initialised `PtrMap<N>`, and no `&mut` to it may be
+/// outstanding.
 #[inline]
 pub unsafe fn map_ref<const N: usize>(map: *const PtrMap<N>) -> &'static PtrMap<N> {
     unsafe { &*map }
@@ -117,9 +136,8 @@ pub unsafe fn map_ref<const N: usize>(map: *const PtrMap<N>) -> &'static PtrMap<
 
 /// Report a dropped registration ([`Upsert::Full`]). A full map means clicks
 /// or callbacks silently die, so this must be loud on both targets. The
-/// defmt arm is compiled out of host-test builds (this file is re-included
-/// via a `#[cfg(test)] #[path]` alias in main.rs, where no defmt global
-/// logger exists to link against).
+/// defmt arm is compiled out of host-test builds, where no defmt global
+/// logger exists to link against.
 #[cfg_attr(test, allow(unused_variables))]
 pub fn warn_full(map_name: &'static str) {
     #[cfg(feature = "sim")]

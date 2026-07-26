@@ -110,9 +110,10 @@ fn main() {
     // JVM-crate env vars (safety net for direct cargo invocations).
     board_cfg::emit_jvm_env_vars(&board);
 
-    // LVGL applies to both ARM and sim builds.
-    let board_props = board.as_ref().map(|b| b.cfg.props.clone());
-    lvgl::build(out, &board_props, &repo_root);
+    // LVGL is compiled by picodroid-core/build.rs, not here: that crate now
+    // holds the code calling `lv_*`, and the resulting static lib propagates
+    // to this binary through the dependency. Compiling it in both places
+    // would produce duplicate symbols.
 
     papk::emit_framework_map_version(out, &repo_root);
     papk::embed_framework_classes(out, &repo_root);
