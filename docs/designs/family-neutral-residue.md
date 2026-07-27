@@ -844,3 +844,81 @@ in seven subsequent attempts, and a power cycle cleared it — the leftover
 probe-claim failure the flash tooling already warns about. Recorded rather
 than omitted because "it did not reproduce" is a weaker claim than "it never
 happened", and the next person seeing it should know where to look first.
+
+### B8 — stage 3 closed: 3d, 3e, 3f (Stage 3)
+
+| | Scope | rp2040 `.text` |
+|---|---|---:|
+| 3d | PDB stack → core behind `PdbTransport` / `SysmonSource` | +380 |
+| 3e | one implementation of synthetic input | ~0 |
+| 3f | supervisor loop out of the HAL into `boot_tasks.rs` | −4 |
+
+**§3.B held; §3.D changed shape.** The transport trait is as specified. The
+sysmon split is not: the design has the platform fill a `SysmonSample` and
+core encode it, which is what landed, but it also predicted the encoder would
+be the interesting half. The interesting half turned out to be *where the
+previous sample lives*. It belongs to the protocol — the host asks "since
+when?" and the answer is "your last query" — not to whatever produced the
+numbers, so `PREV` sits in core beside the encoder rather than in the source.
+
+**The golden-bytes test needed a second pass, for the same reason 3c's did.**
+Swapping `current_priority` and `base_priority` — adjacent bytes, the classic
+silent layout drift — was not caught, because the fixture gave both fields the
+value 15. This is the *third* instance of one failure mode in this work: a
+fixture that cannot distinguish two things is not testing that they are
+distinct. Distinct values per field, and both that swap and a shifted header
+count byte now fail.
+
+**Four copies of input injection, not two.** §4's stage 3e names the PDB
+handler and the simulator's `input …` verb. It missed two more in the same
+file: the older by-name `press|tap <button>` verb had its own 40 ms
+press/release, and `touch up` its own 80 ms settle. `keycode_to_pin` had three
+copies, and — this is the part worth keeping — two of them *had* to exist,
+because the graphics event layer is `cfg(not(test))` and the simulator
+front-end is not, so neither could call the other's. It moved beside the
+generated `BUTTONS` table, which is always compiled. When a shared thing has
+copies on both sides of a cfg, the fix is usually to move it under the cfg
+rather than to pick a side.
+
+**D4 survived contact.** The supervisor loop moved out of `hal/rp/boot.rs`
+— where it never belonged, reaching into `fs::worker`, `pdb::pending` and
+`boot_budget` — into `boot_tasks.rs`, and stayed family-side. Nothing found
+during the move argued for hoisting it: the park half is still an answer to
+"this family executes from the flash being erased", and still has one data
+point. The module doc is now the checklist a second family gets.
+
+**`pdb/mod.rs` joins the twin allowlist**, third entry, same shape as
+`hal/mod.rs`: core's is the protocol, the family's wires four impls into it.
+
+### B9 — measurement and hardware, stages 1–3f
+
+| Section | Baseline (`59970bc`) | After 3f | Delta |
+|---|---:|---:|---:|
+| `.text` | 703,736 | 704,432 | **+696** |
+| `.rodata` | 195,728 | 196,312 | **+584** |
+
+**+1,280 bytes** against the ≤ ~2 KB budget. Attribution matters more than the
+total: +468 is 3b's stop-check crossing the host seam, +200 the A2 assertion,
+and +692 is 3d building a `SysmonSample` and then encoding it where the old
+code wrote straight to the wire buffer. The first two are correctness bought
+deliberately; the third is the price of the encoder being testable at all, and
+it buys the golden-bytes test that now guards the layout `tools/pdb` parses.
+`platforms/rp/src` is at **7,254 lines**, from 9,494.
+
+**HIL, `testbench_rp2350`.** Per stage, on the real board: 3d exercised every
+verb the rewrite touched — ping (the rebuilt greeting, max-PAPK now via the
+`PapkFlash` trait), sysmon twice (11 tasks decoding correctly, and the
+CPU-delta path reporting IDLE1 at 99.9% on an idle board), installs, input
+reaching the handler, and a device-side `STATUS_INCOMPAT` with the device
+still answering afterwards. 3f confirmed the task topology byte-identical to
+the pre-refactor baseline and three more clean installs, which is what
+exercises the park handshake. 3e was verified in the simulator on
+`pico_enviro_mon`, the board with both buttons and touch: scripted
+tap/swipe/keyevent/back drove navdemo through a full activity cycle
+(`onPause` → `onActivityResult req=7 answer=42` → `onRestart`) with no verb
+rejected.
+
+**Still owed: the rp2040 half of the stage-3 gate.** Only an rp2350 was
+attached for this work. The rp2040 differs where it matters least here (no
+tick-freeze busy-wait, so it takes the *simpler* `read_byte_timeout` arm) but
+it is also the flash-constrained part, and §4 asks for both.
