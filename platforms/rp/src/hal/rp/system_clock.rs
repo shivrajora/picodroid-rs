@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
+/// Block the calling task for `ms`.
+///
+/// Deliberately unconditional. This used to short-circuit on a pending
+/// debug-bridge stop request, which made it disagree with the simulator and
+/// made the behaviour an unwritten obligation on every other family. That
+/// check now lives in shared code, at the `SystemClock.sleep` native — see
+/// `picodroid_core::os::system_clock::sleep`.
 pub fn sleep(ms: u32) {
-    if crate::pdb::pending::is_stop_jvm() {
-        return;
-    }
     freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms));
 }
 
