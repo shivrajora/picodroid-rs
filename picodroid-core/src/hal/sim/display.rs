@@ -456,13 +456,10 @@ fn handle_control_line(line: &str) {
         match cmd.to_ascii_lowercase().as_str() {
             "down" => super::gpio::inject(pin, false),
             "up" => super::gpio::inject(pin, true),
-            "press" | "tap" => {
-                super::gpio::inject(pin, false);
-                // Let a PRESSED frame render before the release so focus-highlight
-                // movement is visible and the two edges land in distinct ticks.
-                std::thread::sleep(std::time::Duration::from_millis(40));
-                super::gpio::inject(pin, true);
-            }
+            // The gap lets a PRESSED frame render before the release, so
+            // focus-highlight movement is visible and the two edges land in
+            // distinct ticks — the same reason the device handler pauses.
+            "press" | "tap" => crate::input_inject::press_release::<SimSink>(pin),
             other => println!("[sim] control channel: unknown command '{other}'"),
         }
     }
@@ -499,8 +496,12 @@ fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
             touch_override_release();
             // Keep the override active for a few frames so the release edge
             // is observed from the scripted position, then return control to
-            // the mouse.
-            std::thread::sleep(std::time::Duration::from_millis(80));
+            // the mouse. Same settle the gesture helpers use — a different
+            // verb shape, but the identical reason, so it takes the shared
+            // constant rather than another literal.
+            std::thread::sleep(std::time::Duration::from_millis(
+                crate::input_inject::TOUCH_SETTLE_MS as u64,
+            ));
             clear_touch_override();
         }
         other => println!("[sim] control channel: unknown touch subcommand '{other}'"),
@@ -542,15 +543,6 @@ fn input_dpad_keycode(dir: &str) -> Option<i32> {
     }
 }
 
-/// Inject a PRESS then RELEASE for `pin`, with a gap so the two edges land in
-/// distinct ticks — the same 40 ms the device handler uses.
-#[cfg(has_buttons)]
-fn inject_press_release(pin: u8) {
-    super::gpio::inject(pin, false);
-    std::thread::sleep(std::time::Duration::from_millis(40));
-    super::gpio::inject(pin, true);
-}
-
 /// Android keycode → button pin. Shared with the graphics event layer and
 /// the PDB input handler; it sits beside the generated table because the
 /// three callers cannot reach each other's copies (see
@@ -569,7 +561,7 @@ fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
         _ => None,
     };
     match code.and_then(keycode_to_pin) {
-        Some(pin) => inject_press_release(pin),
+        Some(pin) => crate::input_inject::press_release::<SimSink>(pin),
         None => println!("[sim] control channel: input {verb} — no button for that keycode"),
     }
 }
@@ -585,12 +577,32 @@ fn clamp_xy(x: u16, y: u16) -> (u16, u16) {
     (x.min(WIDTH - 1), y.min(HEIGHT - 1))
 }
 
-/// Linear interpolation between two on-screen coordinates (mirror of the
-/// device swipe stepper).
+/// Injects straight into this module's siblings.
+///
+/// Deliberately not through [`crate::hal`]'s facade: inside this crate that
+/// would route out through the platform's registration and back into these
+/// same functions. The device-side handler uses the facade, which is correct
+/// there — see [`crate::input_inject`].
 #[cfg(any(has_buttons, has_touch))]
-fn lerp(a: u16, b: u16, i: u32, n: u32) -> u16 {
-    let (a, b) = (a as i32, b as i32);
-    (a + (b - a) * i as i32 / n as i32) as u16
+struct SimSink;
+
+#[cfg(any(has_buttons, has_touch))]
+impl crate::input_inject::InputSink for SimSink {
+    fn gpio_inject(pin: u8, rising: bool) {
+        super::gpio::inject(pin, rising)
+    }
+    fn touch_set(x: u16, y: u16) {
+        set_touch_override(x, y)
+    }
+    fn touch_release() {
+        touch_override_release()
+    }
+    fn touch_clear() {
+        clear_touch_override()
+    }
+    fn delay_ms(ms: u32) {
+        std::thread::sleep(std::time::Duration::from_millis(ms as u64))
+    }
 }
 
 /// Parse and apply one `input …` line — the Android verb family:
@@ -598,8 +610,7 @@ fn lerp(a: u16, b: u16, i: u32, n: u32) -> u16 {
 /// `swipe <x1> <y1> <x2> <y2> [ms]`.
 #[cfg(any(has_buttons, has_touch))]
 fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
-    use std::thread::sleep;
-    use std::time::Duration;
+    use crate::input_inject as inject;
 
     let Some(sub) = it.next() else {
         println!("[sim] control channel: input needs keyevent|dpad|back|tap|swipe");
@@ -617,11 +628,7 @@ fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
                 return;
             };
             let (x, y) = clamp_xy(x, y);
-            set_touch_override(x, y);
-            sleep(Duration::from_millis(120));
-            touch_override_release();
-            sleep(Duration::from_millis(80));
-            clear_touch_override();
+            inject::tap::<SimSink>(x, y);
         }
         "swipe" => {
             let (Some(x1), Some(y1), Some(x2), Some(y2)) =
@@ -630,20 +637,12 @@ fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
                 println!("[sim] control channel: input swipe needs <x1> <y1> <x2> <y2> [ms]");
                 return;
             };
-            let dur: u32 = parse_u16(it).map(u32::from).unwrap_or(300);
+            let dur: u32 = parse_u16(it)
+                .map(u32::from)
+                .unwrap_or(inject::SWIPE_DEFAULT_MS);
             let (x1, y1) = clamp_xy(x1, y1);
             let (x2, y2) = clamp_xy(x2, y2);
-            const STEPS: u32 = 12;
-            let step_ms = (dur / STEPS).max(1);
-            set_touch_override(x1, y1);
-            sleep(Duration::from_millis(40));
-            for i in 1..=STEPS {
-                set_touch_override(lerp(x1, x2, i, STEPS), lerp(y1, y2, i, STEPS));
-                sleep(Duration::from_millis(step_ms as u64));
-            }
-            touch_override_release();
-            sleep(Duration::from_millis(80));
-            clear_touch_override();
+            inject::swipe::<SimSink>(x1, y1, x2, y2, dur);
         }
         other => println!("[sim] control channel: unknown input subcommand '{other}'"),
     }

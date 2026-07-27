@@ -19,30 +19,35 @@ use pdb_protocol::{
 };
 
 use crate::board_cfg::buttons::keycode_to_pin;
+use crate::input_inject;
 
 use super::{send_response, PdbTransport};
 
 /// Max CMD_INPUT payload: SWIPE = 1 subtype + 4×i32 + u32 = 21 bytes. Rounded up.
 const MAX_PAYLOAD: usize = 24;
 
-/// Gap between a key PRESS and its RELEASE so the two edges land in distinct
-/// LVGL ticks (the keypad indev drains one edge per read). Mirrors the 40 ms
-/// the sim control channel sleeps between press and release.
-const KEY_EDGE_GAP_MS: u32 = 40;
+/// Injects through the HAL facade, which is the right route on hardware.
+/// (The simulator's front-end uses its own sink — see
+/// [`crate::input_inject`] for why the two differ.)
+struct HalSink;
 
-/// Hold time before a tap/swipe DOWN is released, and the post-release settle.
-/// `touch_read_cb` discards the first unsettled sample, so a press must survive
-/// ≥2 poll cycles (~16 ms/frame) to register as ACTION_DOWN.
-#[cfg(has_touch)]
-const TAP_HOLD_MS: u32 = 120;
-#[cfg(has_touch)]
-const TOUCH_SETTLE_MS: u32 = 80;
-/// Settle after the initial swipe press so DOWN registers before the first MOVE.
-#[cfg(has_touch)]
-const SWIPE_DOWN_SETTLE_MS: u32 = 40;
-/// Intermediate MOVE samples emitted across a swipe's duration.
-#[cfg(has_touch)]
-const SWIPE_STEPS: u32 = 12;
+impl input_inject::InputSink for HalSink {
+    fn gpio_inject(pin: u8, rising: bool) {
+        crate::hal::gpio::inject(pin, rising)
+    }
+    fn touch_set(x: u16, y: u16) {
+        crate::hal::touch::inject_override(x, y)
+    }
+    fn touch_release() {
+        crate::hal::touch::release_override()
+    }
+    fn touch_clear() {
+        crate::hal::touch::clear_override()
+    }
+    fn delay_ms(ms: u32) {
+        crate::rtos::delay_ms(ms)
+    }
+}
 
 pub fn handle(transport: &mut impl PdbTransport, len: u32) {
     // Drain the framed payload (bounded) + trailing CRC, keeping the byte
@@ -102,33 +107,15 @@ fn inject_key(args: &[u8]) -> (u8, &'static [u8]) {
     let Some(pin) = keycode_to_pin(keycode) else {
         return (STATUS_ERR, b"no such key");
     };
-    if meta != KEY_META_UP {
-        crate::hal::gpio::inject(pin, false); // PRESS
-    }
-    if meta == KEY_META_DOWN_UP {
-        crate::rtos::delay_ms(KEY_EDGE_GAP_MS);
-    }
-    if meta != KEY_META_DOWN {
-        crate::hal::gpio::inject(pin, true); // RELEASE
+    match meta {
+        KEY_META_DOWN => input_inject::press::<HalSink>(pin),
+        KEY_META_UP => input_inject::release::<HalSink>(pin),
+        _ => input_inject::press_release::<HalSink>(pin),
     }
     (STATUS_OK, b"")
 }
 
 // ── Touch injection ──────────────────────────────────────────────────────────
-
-/// Clamp a host-sent coordinate into `[0, max-1]`.
-#[cfg(has_touch)]
-fn clamp_coord(v: i32, max: u16) -> u16 {
-    v.clamp(0, (max.saturating_sub(1)) as i32) as u16
-}
-
-/// Linear interpolation between two on-screen coordinates (both valid `u16`,
-/// so the result stays in `[min(a,b), max(a,b)]` and the cast is lossless).
-#[cfg(has_touch)]
-fn lerp(a: u16, b: u16, i: u32, n: u32) -> u16 {
-    let (a, b) = (a as i32, b as i32);
-    (a + (b - a) * i as i32 / n as i32) as u16
-}
 
 /// TAP payload: `[x: i32 LE][y: i32 LE]`. Press → hold → release at one point.
 #[cfg(has_touch)]
@@ -136,13 +123,9 @@ fn inject_tap(args: &[u8]) -> (u8, &'static [u8]) {
     let (Some(x), Some(y)) = (rd_i32(args, 0), rd_i32(args, 4)) else {
         return (STATUS_ERR, b"tap: short payload");
     };
-    let x = clamp_coord(x, crate::hal::display::WIDTH);
-    let y = clamp_coord(y, crate::hal::display::HEIGHT);
-    crate::hal::touch::inject_override(x, y);
-    crate::rtos::delay_ms(TAP_HOLD_MS);
-    crate::hal::touch::release_override();
-    crate::rtos::delay_ms(TOUCH_SETTLE_MS);
-    crate::hal::touch::clear_override();
+    let x = input_inject::clamp_coord(x, crate::hal::display::WIDTH);
+    let y = input_inject::clamp_coord(y, crate::hal::display::HEIGHT);
+    input_inject::tap::<HalSink>(x, y);
     (STATUS_OK, b"")
 }
 
@@ -161,22 +144,15 @@ fn inject_swipe(args: &[u8]) -> (u8, &'static [u8]) {
     };
     let w = crate::hal::display::WIDTH;
     let h = crate::hal::display::HEIGHT;
-    let (x1, y1) = (clamp_coord(x1, w), clamp_coord(y1, h));
-    let (x2, y2) = (clamp_coord(x2, w), clamp_coord(y2, h));
-    let step_ms = (dur / SWIPE_STEPS).max(1);
-
-    crate::hal::touch::inject_override(x1, y1); // DOWN at start
-    crate::rtos::delay_ms(SWIPE_DOWN_SETTLE_MS);
-    for i in 1..=SWIPE_STEPS {
-        crate::hal::touch::inject_override(
-            lerp(x1, x2, i, SWIPE_STEPS),
-            lerp(y1, y2, i, SWIPE_STEPS),
-        );
-        crate::rtos::delay_ms(step_ms);
-    }
-    crate::hal::touch::release_override();
-    crate::rtos::delay_ms(TOUCH_SETTLE_MS);
-    crate::hal::touch::clear_override();
+    let (x1, y1) = (
+        input_inject::clamp_coord(x1, w),
+        input_inject::clamp_coord(y1, h),
+    );
+    let (x2, y2) = (
+        input_inject::clamp_coord(x2, w),
+        input_inject::clamp_coord(y2, h),
+    );
+    input_inject::swipe::<HalSink>(x1, y1, x2, y2, dur);
     (STATUS_OK, b"")
 }
 
