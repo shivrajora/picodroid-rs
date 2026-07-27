@@ -81,6 +81,14 @@ pub use chip::pdb_usb;
 #[allow(unused_imports)]
 pub use chip::net;
 
+// The cyw43 bring-up task. Device-only: the shared simulator has no such
+// module, and nothing in a simulator build would drive it. Exposed here
+// rather than reached as `hal::rp::…` because `chip` is private — the same
+// indirection every other peripheral goes through.
+#[cfg(all(network_cyw43, not(any(test, feature = "sim"))))]
+#[allow(unused_imports)]
+pub use chip::wifi_task;
+
 // Compile-time HAL CONTRACT v1 enforcement. Never executed; type-checked only.
 mod contract;
 

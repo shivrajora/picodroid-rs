@@ -19,6 +19,11 @@ mod fs;
 // Shared boot memory budget (device task stacks / sim pre-charge — M4).
 #[cfg_attr(test, allow(dead_code))]
 mod boot_budget;
+// Task topology + the JVM supervisor loop. Bin-layer rather than HAL: it
+// drives fs / pdb / boot_budget, and only sat under hal/rp because it starts
+// the scheduler next to clock_init.
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+mod boot_tasks;
 #[allow(dead_code)]
 mod hal;
 // Binds picodroid-core's HAL / RTOS / platform-hook seam to this family.
@@ -133,7 +138,7 @@ fn main() -> ! {
         defmt::warn!("[fs] init failed: {}", defmt::Display2Format(&e));
     }
 
-    hal::boot::start_tasks(boot_apk)
+    boot_tasks::start_tasks(boot_apk)
 }
 
 #[cfg(feature = "sim")]

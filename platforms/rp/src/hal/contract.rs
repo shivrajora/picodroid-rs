@@ -38,9 +38,9 @@
 fn _assert_hardware_only() {
     use super::{boot, flash};
 
-    // boot
+    // boot — `start_tasks` left for `crate::boot_tasks`; what remains here
+    // is the clock tree, which is genuinely the HAL's.
     let _: fn() = boot::clock_init;
-    let _: fn(&'static [u8]) -> ! = boot::start_tasks;
 
     // flash
     let _: usize = flash::PAPK_MAX_DATA_SIZE;
