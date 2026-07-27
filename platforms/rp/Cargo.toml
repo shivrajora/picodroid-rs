@@ -73,11 +73,10 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 [dev-dependencies]
 picodroid-core = { path = "../../picodroid-core", features = ["sim"] }
 
-# Host-only dep — the simulator's heap limiter needs raw allocation calls.
-# minifb moved to picodroid-core with hal/sim: a family crate should not need
-# a host GUI dependency to be simulatable.
-[target.'cfg(not(target_arch = "arm"))'.dependencies]
-libc = "0.2"
+# No host-only dependencies. minifb and libc both moved to picodroid-core
+# with the simulator: a family crate should need neither a host GUI nor a host
+# libc to be simulatable. The `#[global_allocator]` attribute stays in this
+# crate (it is only legal in a binary), but it forwards to core's instance.
 
 [build-dependencies]
 # Used to compile FreeRTOS-Kernel C source directly

@@ -7,9 +7,11 @@
 //! drifted from the originals before it was removed. A simulator that is
 //! shared cannot drift.
 //!
-//! Three modules stay platform-side: `boot`, `flash` and `pdb_usb` are stubs
-//! for genuinely family-specific machinery (reset vectors, XIP flash, the USB
-//! debug bridge), which no shared simulator can stand in for.
+//! `boot`, `flash` and `pdb_usb` are stubs for machinery no simulator can
+//! stand in for (reset vectors, XIP flash, the USB debug bridge). They were
+//! platform-side originally; between them they held one empty function and
+//! two constants, which is boilerplate every family would retype, so they
+//! live here too — a family with something real to say overrides them.
 //!
 //! Sibling modules here call each other directly (`super::gpio::inject`)
 //! rather than through [`crate::hal`]'s facade: the facade would route back
@@ -17,13 +19,20 @@
 //! functions, which is a round-trip that buys nothing.
 
 pub mod adc;
+pub mod allocator;
+pub mod boot;
 pub mod delay;
 pub mod display;
+pub mod flash;
 pub mod gpio;
+pub mod heap4;
 pub mod i2c;
 pub mod input_pin;
 pub mod output_pin;
+pub mod pdb_usb;
+pub mod platform;
 pub mod pwm;
+pub mod rtos;
 pub mod spi;
 pub mod spi_bus;
 pub mod system_clock;

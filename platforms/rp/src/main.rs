@@ -40,17 +40,50 @@ mod pdb;
 #[cfg(not(test))]
 pub use picodroid_core::service_lifecycle;
 pub use picodroid_core::shrink_names;
-// Compiled for plain host tests too (not just sim) so the allocator-routing
-// tests run under scripts/test.sh; unarmed it is a pure pass-through to the
-// system allocator, so other tests are unaffected.
+// The capped simulator heap and its heap_4 arena live in picodroid-core now;
+// only the `#[global_allocator]` attribute has to stay in a binary crate, so
+// this is a forwarder rather than a copy. Unarmed the allocator is a
+// pass-through to the system one, so plain host tests are unaffected.
 #[cfg(any(test, feature = "sim"))]
-#[cfg_attr(all(test, not(feature = "sim")), allow(dead_code))]
-mod sim_allocator;
-// Pure-logic heap_4 port (no HAL deps): compiled for plain host tests too so
-// its semantics + hardware-oracle tests run under scripts/test.sh.
-#[cfg(any(test, feature = "sim"))]
-mod sim_heap4;
+use picodroid_core::hal::sim::allocator as sim_allocator;
 pub use picodroid_core::task_priority;
+
+/// Routes every allocation to the simulator's capped allocator in
+/// picodroid-core.
+///
+/// A `#[global_allocator]` must be a `static` of the binary crate, so the
+/// instance cannot simply be core's. All four methods are forwarded rather
+/// than leaning on the trait defaults: the defaults would re-enter *this*
+/// type, which happens to be equivalent today only because `CappedAllocator`
+/// also takes them — forwarding explicitly keeps that a non-question if it
+/// ever overrides `realloc`.
+#[cfg(any(test, feature = "sim"))]
+struct SimGlobalAlloc;
+
+#[cfg(any(test, feature = "sim"))]
+unsafe impl core::alloc::GlobalAlloc for SimGlobalAlloc {
+    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        core::alloc::GlobalAlloc::alloc(&sim_allocator::GLOBAL, layout)
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
+        core::alloc::GlobalAlloc::dealloc(&sim_allocator::GLOBAL, ptr, layout)
+    }
+    unsafe fn realloc(
+        &self,
+        ptr: *mut u8,
+        layout: core::alloc::Layout,
+        new_size: usize,
+    ) -> *mut u8 {
+        core::alloc::GlobalAlloc::realloc(&sim_allocator::GLOBAL, ptr, layout, new_size)
+    }
+    unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
+        core::alloc::GlobalAlloc::alloc_zeroed(&sim_allocator::GLOBAL, layout)
+    }
+}
+
+#[cfg(any(test, feature = "sim"))]
+#[global_allocator]
+static SIM_GLOBAL: SimGlobalAlloc = SimGlobalAlloc;
 
 // Host-testable pure-logic slices of RP HAL drivers. The rest of `hal::rp`
 // is ARM-only and cfg-gated out on the host; these modules have no

@@ -43,10 +43,10 @@ echo "==> Checking for shadow twins across platforms/ and picodroid-core..."
 #                             (docs/designs/shared-core-extraction.md §3.G)
 #   hal/mod.rs              — core's is the trait/facade surface, the
 #                             family's is the rp-vs-sim routing
-#   hal/sim/mod.rs          — core's declares the shared simulator modules,
-#                             the family's re-exports them and adds its own
-#                             boot/flash/pdb_usb stubs
-TWIN_ALLOW='^(gc_root_registration\.rs|hal/mod\.rs|hal/sim/mod\.rs)$'
+#
+# hal/sim/mod.rs was a third exception until the simulator's last three stubs
+# moved to core; the family's copy is gone, so the pair is gone with it.
+TWIN_ALLOW='^(gc_root_registration\.rs|hal/mod\.rs)$'
 TWINS=$({ comm -12 \
     <(cd "$REPO_ROOT/platforms/rp/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
     <(cd "$REPO_ROOT/picodroid-core/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \

@@ -17,11 +17,12 @@
 
 /// Total providers this crate registers.
 ///
-/// Asserted by [`tests::every_root_provider_is_registered`]. When a module
-/// moves to `picodroid-core`, this drops by exactly the number of providers
-/// that went with it, and the core-side constant rises by the same amount. A
-/// change here that is not matched there means a provider was dropped.
-#[cfg_attr(not(test), allow(dead_code))] // asserted by the guard below
+/// Checked twice: against the source by
+/// [`tests::every_root_provider_is_registered`], and against what actually
+/// registered by the assertion in [`register_all`]. When a module moves to
+/// `picodroid-core`, this drops by exactly the number of providers that went
+/// with it, and the core-side constant rises by the same amount. A change
+/// here that is not matched there means a provider was dropped.
 pub const EXPECTED_PROVIDERS: usize = 0;
 
 /// Register this family's root providers. Reached from `boot::run_app` via
@@ -50,6 +51,25 @@ pub fn register_all() {
     // Empty rather than deleted: a family that adds a native module holding
     // Java object references registers it here, and the guard below keeps
     // that honest. picodroid-core registers its own before this runs.
+
+    // Closes the blind spot the source scanner cannot see (A2 of the
+    // shared-core extraction design, deferred there and landed here): the
+    // scanner reads text, so a `register` call compiled out by a `cfg` still
+    // reads as present. This counts what actually registered. Both halves of
+    // the union are checked at once because core registers first — that
+    // ordering is `run_app`'s, not an accident.
+    //
+    // A real `assert!`, not `debug_assert!`: device builds turn
+    // debug-assertions off to buy flash headroom (`scripts/lib.sh`), which is
+    // exactly the configuration this needs to hold in. A static message
+    // rather than `assert_eq!` so the cost is the string, not two operands'
+    // worth of formatting machinery.
+    assert!(
+        picodroid_core::gc_roots::provider_count()
+            == picodroid_core::gc_root_registration::EXPECTED_PROVIDERS + EXPECTED_PROVIDERS,
+        "GC root provider count mismatch: a cfg-gated registration was \
+         compiled out, so live objects will be swept"
+    );
 }
 
 /// Completeness guard — see [`gc_root_scan`] for what it catches and why it

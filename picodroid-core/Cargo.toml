@@ -45,11 +45,14 @@ papk-format   = { path = "../papk-format" }
 embedded-hal  = "1.0"
 defmt         = "1"
 
-# Host-only: the simulator's display window and its touch/key input come
-# from minifb. Moved here with hal/sim so a family crate needs no host GUI
-# dependency at all.
+# Host-only. minifb backs the simulator's display window and its touch/key
+# input; libc gives the heap limiter a `getenv` that does not allocate, which
+# it must not do while running inside the global allocator. Both moved here
+# with the simulator, so a family crate needs neither a host GUI dependency
+# nor a host libc to be simulatable.
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
+libc = "0.2"
 
 [build-dependencies]
 # Compiles the vendored LVGL C sources; this crate owns that build because it

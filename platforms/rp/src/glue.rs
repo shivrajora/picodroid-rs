@@ -21,6 +21,7 @@
 //! mean "not the simulator" (docs/parity-audit.md BLD-02).
 
 use picodroid_core::hal::types::{EdgeTrigger, GpioEvent, Pull};
+#[cfg(not(any(test, feature = "sim")))]
 use picodroid_core::host::{NativeHeapStats, PlatformHooks};
 
 /// This family, as seen through every HAL trait.
@@ -440,8 +441,14 @@ mod net_glue {
 }
 
 // ── RTOS ─────────────────────────────────────────────────────────────────────
+//
+// Device only. The simulator's RTOS is picodroid-core's, registered by the
+// `register_sim_platform!` invocation at the bottom of this file — host
+// threads, condvars and recursive mutexes are simulator policy, not family
+// policy, and every family reimplementing them is how they drift.
 
-/// This family's RTOS: FreeRTOS on device, `std` primitives in the simulator.
+/// This family's RTOS: FreeRTOS.
+#[cfg(not(any(test, feature = "sim")))]
 pub struct PlatformRtos;
 
 #[cfg(not(any(test, feature = "sim")))]
@@ -668,390 +675,28 @@ mod rtos_impl {
     }
 }
 
-#[cfg(any(test, feature = "sim"))]
-mod rtos_impl {
-    //! Host backing: `std` threads, channels, and mutexes.
-    //!
-    //! Handles are indices into leaked boxes rather than pointers, so they
-    //! round-trip through the seam's `usize` unchanged on a 64-bit host.
-
-    use super::PlatformRtos;
-    use picodroid_core::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskKind, TaskSpec, Timeout};
-    use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Condvar, Mutex};
-    use std::time::Duration;
-
-    // Tick-source state. Separate from the queue/semaphore handles because
-    // the tick is a process singleton with a lifecycle (start/pause/stop),
-    // not something callers allocate.
-    static TICK_STARTED: AtomicBool = AtomicBool::new(false);
-    static TICK_PAUSED: AtomicBool = AtomicBool::new(false);
-    static TICK_STOPPING: AtomicBool = AtomicBool::new(false);
-    static TICK_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
-
-    struct SimQueue {
-        items: Mutex<VecDeque<u32>>,
-        ready: Condvar,
-        depth: usize,
-    }
-
-    struct SimSem {
-        count: Mutex<u32>,
-        ready: Condvar,
-    }
-
-    /// Recursive mutex over a host thread. Tracked by owner + depth because
-    /// `std::sync::Mutex` is not reentrant and Java monitors re-enter.
-    struct SimMutex {
-        state: Mutex<(Option<std::thread::ThreadId>, u32)>,
-        ready: Condvar,
-    }
-
-    fn wait_deadline(t: Timeout) -> Option<Duration> {
-        match t {
-            Timeout::None => Some(Duration::ZERO),
-            Timeout::Ms(ms) => Some(Duration::from_millis(ms as u64)),
-            Timeout::Forever => None,
-        }
-    }
-
-    unsafe impl Rtos for PlatformRtos {
-        fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
-            // A JVM child task must NOT become a host thread. The object
-            // heap is not thread-safe; on device its safety comes from
-            // FreeRTOS cooperative scheduling on a single pinned core, which
-            // preemptive host threads do not provide. Running it here would
-            // trade a visible no-op for silent heap corruption.
-            //
-            // Erroring would misrepresent the device worse than skipping,
-            // and running it synchronously would invert concurrency ordering
-            // and can deadlock on the main queue — so warn, charge, skip.
-            if spec.kind == TaskKind::JvmChild {
-                // Parity/CI lanes treat the no-op as fatal: an app whose
-                // threads never ran must not report PASS
-                // (docs/parity-audit.md THR-01; real sim threads are fix M7).
-                if std::env::var("PICODROID_PARITY_STRICT").as_deref() == Ok("1") {
-                    panic!(
-                        "[sim] parity-strict: Thread.start({}) is a no-op in the \
-                         simulator — this app cannot be validated here \
-                         (docs/parity-audit.md THR-01)",
-                        spec.name
-                    );
-                }
-                eprintln!(
-                    "[sim] Thread.start: {}.run() will NOT run — threads are a \
-                     no-op in the simulator (on device they run as a FreeRTOS task)",
-                    spec.name
-                );
-                // Charge what the device would have allocated for the task
-                // (stack + TCB from the arena) so heap accounting stays
-                // honest even though nothing ran (M4). Only meaningful when
-                // the simulated arena exists; plain host test builds reach
-                // this arm too but have no arena to charge.
-                #[cfg(feature = "sim")]
-                crate::boot_budget::charge_thread_spawn();
-                drop(body);
-                return false;
-            }
-
-            // Thread internals are host-only, with no device counterpart, so
-            // they must not be charged to the simulated device heap.
-            let _bypass = crate::sim_allocator::bypass();
-            std::thread::Builder::new()
-                .name(spec.name.into())
-                .spawn(body)
-                .is_ok()
-        }
-
-        fn queue_create(depth: usize) -> RawQueue {
-            let _bypass = crate::sim_allocator::bypass();
-            Box::into_raw(Box::new(SimQueue {
-                items: Mutex::new(VecDeque::with_capacity(depth)),
-                ready: Condvar::new(),
-                depth,
-            })) as RawQueue
-        }
-
-        fn queue_send(q: RawQueue, word: u32, _t: Timeout) -> bool {
-            if q == 0 {
-                return false;
-            }
-            let queue = unsafe { &*(q as *const SimQueue) };
-            let mut items = queue
-                .items
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if items.len() >= queue.depth {
-                return false;
-            }
-            items.push_back(word);
-            queue.ready.notify_one();
-            true
-        }
-
-        fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
-            if q == 0 {
-                return None;
-            }
-            let queue = unsafe { &*(q as *const SimQueue) };
-            let mut items = queue
-                .items
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            loop {
-                if let Some(v) = items.pop_front() {
-                    return Some(v);
-                }
-                match wait_deadline(t) {
-                    Some(d) if d.is_zero() => return None,
-                    Some(d) => {
-                        let (guard, timed_out) = queue
-                            .ready
-                            .wait_timeout(items, d)
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        items = guard;
-                        if timed_out.timed_out() {
-                            return items.pop_front();
-                        }
-                    }
-                    None => {
-                        items = queue
-                            .ready
-                            .wait(items)
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    }
-                }
-            }
-        }
-
-        fn mutex_recursive_create() -> Option<RawMutex> {
-            let _bypass = crate::sim_allocator::bypass();
-            Some(Box::into_raw(Box::new(SimMutex {
-                state: Mutex::new((None, 0)),
-                ready: Condvar::new(),
-            })) as RawMutex)
-        }
-
-        fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
-            if m == 0 {
-                return false;
-            }
-            let mutex = unsafe { &*(m as *const SimMutex) };
-            let me = std::thread::current().id();
-            let mut state = mutex
-                .state
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            loop {
-                match state.0 {
-                    // Free, or already ours — recursion just deepens.
-                    None => {
-                        *state = (Some(me), 1);
-                        return true;
-                    }
-                    Some(owner) if owner == me => {
-                        state.1 += 1;
-                        return true;
-                    }
-                    Some(_) => match wait_deadline(t) {
-                        Some(d) if d.is_zero() => return false,
-                        Some(d) => {
-                            let (guard, timed_out) = mutex
-                                .ready
-                                .wait_timeout(state, d)
-                                .unwrap_or_else(|poisoned| poisoned.into_inner());
-                            state = guard;
-                            if timed_out.timed_out() && state.0.is_some() {
-                                return false;
-                            }
-                        }
-                        None => {
-                            state = mutex
-                                .ready
-                                .wait(state)
-                                .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        }
-                    },
-                }
-            }
-        }
-
-        fn mutex_recursive_unlock(m: RawMutex) {
-            if m == 0 {
-                return;
-            }
-            let mutex = unsafe { &*(m as *const SimMutex) };
-            let mut state = mutex
-                .state
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.1 > 1 {
-                state.1 -= 1;
-            } else {
-                *state = (None, 0);
-                mutex.ready.notify_one();
-            }
-        }
-
-        fn sem_binary_create() -> RawSem {
-            let _bypass = crate::sim_allocator::bypass();
-            Box::into_raw(Box::new(SimSem {
-                count: Mutex::new(0),
-                ready: Condvar::new(),
-            })) as RawSem
-        }
-
-        fn sem_give(s: RawSem) {
-            if s == 0 {
-                return;
-            }
-            let sem = unsafe { &*(s as *const SimSem) };
-            let mut count = sem
-                .count
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *count = 1; // binary
-            sem.ready.notify_one();
-        }
-
-        fn sem_take(s: RawSem, t: Timeout) -> bool {
-            if s == 0 {
-                return false;
-            }
-            let sem = unsafe { &*(s as *const SimSem) };
-            let mut count = sem
-                .count
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            loop {
-                if *count > 0 {
-                    *count = 0;
-                    return true;
-                }
-                match wait_deadline(t) {
-                    Some(d) if d.is_zero() => return false,
-                    Some(d) => {
-                        let (guard, timed_out) = sem
-                            .ready
-                            .wait_timeout(count, d)
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        count = guard;
-                        if timed_out.timed_out() && *count == 0 {
-                            return false;
-                        }
-                    }
-                    None => {
-                        count = sem
-                            .ready
-                            .wait(count)
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    }
-                }
-            }
-        }
-
-        fn tick_timer_start(period_ms: u32, cb: fn()) {
-            if TICK_STARTED.swap(true, Ordering::SeqCst) {
-                // Already running — treat as an unpause.
-                TICK_PAUSED.store(false, Ordering::SeqCst);
-                return;
-            }
-            TICK_STOPPING.store(false, Ordering::SeqCst);
-            TICK_PAUSED.store(false, Ordering::SeqCst);
-            // Host thread machinery has no device analog (the device tick is
-            // a FreeRTOS software timer, whose cost enters via the boot
-            // budget), so keep pthread internals and this thread's pacing
-            // state off the simulated heap (docs/parity-audit.md M1).
-            let _spawn_bypass = crate::sim_allocator::bypass();
-            let handle = std::thread::Builder::new()
-                .name("lvgl-tick".into())
-                .spawn(move || {
-                    let _bypass = crate::sim_allocator::bypass();
-                    let period = Duration::from_millis(period_ms as u64);
-                    // Deadline-based rather than sleep-per-iteration, so a
-                    // slow callback does not make the tick drift.
-                    let mut next = std::time::Instant::now() + period;
-                    while !TICK_STOPPING.load(Ordering::SeqCst) {
-                        let now = std::time::Instant::now();
-                        if now < next {
-                            std::thread::sleep(next - now);
-                        }
-                        next = std::time::Instant::now() + period;
-                        if !TICK_PAUSED.load(Ordering::SeqCst)
-                            && !TICK_STOPPING.load(Ordering::SeqCst)
-                        {
-                            cb();
-                        }
-                    }
-                })
-                .expect("spawn lvgl-tick thread");
-            *TICK_HANDLE
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handle);
-        }
-
-        fn tick_timer_pause() {
-            TICK_PAUSED.store(true, Ordering::SeqCst);
-        }
-
-        fn tick_timer_resume() {
-            TICK_PAUSED.store(false, Ordering::SeqCst);
-        }
-
-        /// Signal and join. Unlike the device arm, which parks a singleton
-        /// timer, the host tick owns a thread — leaving it running would leak
-        /// one per app reload.
-        fn tick_timer_stop() {
-            TICK_STOPPING.store(true, Ordering::SeqCst);
-            let handle = TICK_HANDLE
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .take();
-            if let Some(h) = handle {
-                let _ = h.join();
-            }
-            TICK_STARTED.store(false, Ordering::SeqCst);
-        }
-
-        fn delay_ms(ms: u32) {
-            std::thread::sleep(Duration::from_millis(ms as u64));
-        }
-    }
-}
-
+#[cfg(not(any(test, feature = "sim")))]
 picodroid_core::set_rtos!(PlatformRtos);
 
 // ── Platform hooks ───────────────────────────────────────────────────────────
+//
+// Device only, like the RTOS above. The simulator's hooks come from
+// `register_sim_platform!` below: its stop request is always false (no debug
+// bridge), and its heap controls are the simulator allocator's own.
 
+#[cfg(not(any(test, feature = "sim")))]
 pub struct PlatformHost;
 
+#[cfg(not(any(test, feature = "sim")))]
 impl PlatformHooks for PlatformHost {
     fn stop_requested() -> bool {
-        #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
-        {
-            crate::pdb::pending::is_stop_jvm()
-        }
-        #[cfg(not(all(not(any(test, feature = "sim")), feature = "family-rp")))]
-        {
-            false
-        }
+        crate::pdb::pending::is_stop_jvm()
     }
 
-    fn heap_bypass_enter() {
-        #[cfg(any(test, feature = "sim"))]
-        crate::sim_allocator::bypass_enter();
-    }
-
-    fn heap_bypass_exit() {
-        #[cfg(any(test, feature = "sim"))]
-        crate::sim_allocator::bypass_exit();
-    }
-
-    fn heap_checkpoint(_label: &str) {
-        #[cfg(any(test, feature = "sim"))]
-        crate::sim_allocator::checkpoint(_label);
-    }
+    /// No simulated heap on hardware — every allocation is the real one.
+    fn heap_bypass_enter() {}
+    fn heap_bypass_exit() {}
+    fn heap_checkpoint(_label: &str) {}
 
     /// This family owns no root providers today — every one lives in
     /// picodroid-core. The call is kept rather than the list deleted so that
@@ -1062,77 +707,64 @@ impl PlatformHooks for PlatformHost {
         crate::gc_root_registration::register_all();
     }
 
-    // Both bodies moved here verbatim from `mem_diag::sample_native_heap`,
-    // which carried the sim/device split itself. Neither is shared code: one
-    // is FreeRTOS FFI, the other reads the simulator's own allocator.
+    /// Moved here verbatim from `mem_diag::sample_native_heap`, which used to
+    /// carry the sim/device split itself. This half is FreeRTOS FFI; the
+    /// simulator's reads its own allocator, and lives in picodroid-core.
     fn native_heap_stats() -> NativeHeapStats {
-        #[cfg(any(test, feature = "sim"))]
-        {
-            // Two independent sources in the simulator: the byte meter that
-            // models the device arena (used vs. cap), and the heap_4 mirror
-            // that reports block-level detail. Uncapped runs (`-l 0`) have no
-            // arena, so free is derived from the meter and fragmentation
-            // reports as unavailable.
-            let (cur, _peak, limit) = crate::sim_allocator::heap_stats();
-            match crate::sim_allocator::heap4_stats() {
-                Some(h) => NativeHeapStats {
-                    used_bytes: cur,
-                    free_bytes: h.free_bytes as usize,
-                    min_ever_free_bytes: h.min_ever_free_bytes as usize,
-                    largest_free_block: h.largest_free_block as usize,
-                },
-                None => NativeHeapStats {
-                    used_bytes: cur,
-                    free_bytes: limit.saturating_sub(cur),
-                    min_ever_free_bytes: limit.saturating_sub(cur),
-                    largest_free_block: 0,
-                },
-            }
+        /// Mirror of FreeRTOS `HeapStats_t` (heap_4.c). Layout is fixed by
+        /// FreeRTOS; `size_t` = u32 on ARM32. The simulator's heap_4 port
+        /// mirrors the same numbers host-side.
+        #[repr(C)]
+        struct FreeRtosHeapStats {
+            available_heap_space_in_bytes: u32,
+            size_of_largest_free_block_in_bytes: u32,
+            size_of_smallest_free_block_in_bytes: u32,
+            number_of_free_blocks: u32,
+            minimum_ever_free_bytes_remaining: u32,
+            number_of_successful_allocations: u32,
+            number_of_successful_frees: u32,
         }
-        #[cfg(not(any(test, feature = "sim")))]
-        {
-            /// Mirror of FreeRTOS `HeapStats_t` (heap_4.c). Layout is fixed
-            /// by FreeRTOS; `size_t` = u32 on ARM32. The sim's
-            /// `sim_heap4::HeapStats` mirrors the same numbers host-side.
-            #[repr(C)]
-            struct FreeRtosHeapStats {
-                available_heap_space_in_bytes: u32,
-                size_of_largest_free_block_in_bytes: u32,
-                size_of_smallest_free_block_in_bytes: u32,
-                number_of_free_blocks: u32,
-                minimum_ever_free_bytes_remaining: u32,
-                number_of_successful_allocations: u32,
-                number_of_successful_frees: u32,
-            }
-            extern "C" {
-                fn xPortGetFreeHeapSize() -> u32;
-                fn xPortGetMinimumEverFreeHeapSize() -> u32;
-                fn vPortGetHeapStats(stats: *mut FreeRtosHeapStats);
-            }
-            // SAFETY: plain FreeRTOS accessors; vPortGetHeapStats fills the
-            // struct it is handed (layout mirrored above).
-            unsafe {
-                let free = xPortGetFreeHeapSize();
-                let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
-                vPortGetHeapStats(stats.as_mut_ptr());
-                let stats = stats.assume_init();
-                NativeHeapStats {
-                    used_bytes: heap_cfg::DEVICE_HEAP_BYTES.saturating_sub(free as usize),
-                    free_bytes: free as usize,
-                    min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
-                    largest_free_block: stats.size_of_largest_free_block_in_bytes as usize,
-                }
+        extern "C" {
+            fn xPortGetFreeHeapSize() -> u32;
+            fn xPortGetMinimumEverFreeHeapSize() -> u32;
+            fn vPortGetHeapStats(stats: *mut FreeRtosHeapStats);
+        }
+        // SAFETY: plain FreeRTOS accessors; vPortGetHeapStats fills the
+        // struct it is handed (layout mirrored above).
+        unsafe {
+            let free = xPortGetFreeHeapSize();
+            let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
+            vPortGetHeapStats(stats.as_mut_ptr());
+            let stats = stats.assume_init();
+            NativeHeapStats {
+                used_bytes: picodroid_core::board_cfg::heap::DEVICE_HEAP_BYTES
+                    .saturating_sub(free as usize),
+                free_bytes: free as usize,
+                min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
+                largest_free_block: stats.size_of_largest_free_block_in_bytes as usize,
             }
         }
     }
 }
 
-/// FreeRTOS `configTOTAL_HEAP_SIZE` for this board, so "used" can be
-/// reported as total-minus-free. The simulator gets the same number through
-/// `sim_allocator`, which includes the identical generated file.
 #[cfg(not(any(test, feature = "sim")))]
-mod heap_cfg {
-    include!(concat!(env!("OUT_DIR"), "/heap_config.rs"));
+picodroid_core::set_platform_hooks!(PlatformHost);
+
+// ── Simulator ────────────────────────────────────────────────────────────────
+
+/// Bill the boot budget for a `Thread.start` the simulator refuses to run.
+///
+/// A wrapper rather than passing `boot_budget::charge_thread_spawn` directly:
+/// that function is `cfg(feature = "sim")`, since a plain host test build has
+/// no arena to charge, and the cfg belongs next to the budget it guards.
+#[cfg(any(test, feature = "sim"))]
+fn charge_jvm_child_spawn() {
+    #[cfg(feature = "sim")]
+    crate::boot_budget::charge_thread_spawn();
 }
 
-picodroid_core::set_platform_hooks!(PlatformHost);
+#[cfg(any(test, feature = "sim"))]
+picodroid_core::register_sim_platform! {
+    gc_roots = crate::gc_root_registration::register_all,
+    charge_jvm_child_spawn = charge_jvm_child_spawn,
+}

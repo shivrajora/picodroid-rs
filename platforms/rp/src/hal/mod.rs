@@ -26,11 +26,15 @@
 //! generic drivers to this family's peripherals. They are not part of any
 //! cross-crate contract — name and shape are ours to change.
 
-// In sim mode OR test mode, use the simulator stubs.
+// In sim mode OR test mode, use the shared simulator.
 // (Tests run on the host where HAL crates like rp-pico are unavailable.)
+//
+// There is no `sim/` directory here any more. Every module it held is
+// picodroid-core's, including the `boot`/`flash`/`pdb_usb` stubs that used to
+// stay behind — between them one empty function and two constants, which is
+// not machinery a family has anything to say about.
 #[cfg(any(feature = "sim", test))]
-#[path = "sim/mod.rs"]
-mod chip;
+use picodroid_core::hal::sim as chip;
 
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 #[path = "rp/mod.rs"]

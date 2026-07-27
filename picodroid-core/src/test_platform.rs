@@ -19,10 +19,7 @@
 //! that need real behaviour should exercise the logic directly rather than
 //! through the seam.
 
-use std::collections::VecDeque;
-use std::sync::{Condvar, Mutex};
-use std::time::Duration;
-
+use crate::hal::sim::rtos as sim_rtos;
 use crate::hal::types::{EdgeTrigger, GpioEvent, Pull};
 use crate::host::{NativeHeapStats, PlatformHooks};
 use crate::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskSpec, Timeout};
@@ -320,35 +317,14 @@ mod net_stub {
 ///
 /// Queues, mutexes and semaphores are *real* — `executors::main_queue`'s
 /// tests exercise genuine FIFO and coalescing semantics, so inert stubs
-/// would make them vacuous. Task spawning and the tick timer stay no-ops:
-/// nothing in a test binary should start background work.
+/// would make them vacuous. They are the simulator's, from
+/// [`crate::hal::sim::rtos`]: this used to be a second implementation of the
+/// same primitives, kept in step by hand with the one in the platform crate.
 ///
-/// This duplicates a little of the simulator's `std` backing in the platform
-/// crate. That resolves at stage 8, when the sim HAL moves into this crate
-/// and both can share one implementation.
+/// What stays local is what a test binary genuinely wants differently from a
+/// simulator: spawning refuses outright, and the tick timer does nothing —
+/// nothing in a test binary should start background work.
 pub struct TestRtos;
-
-struct TestQueue {
-    items: Mutex<VecDeque<u32>>,
-    ready: Condvar,
-    depth: usize,
-}
-
-/// Recursive mutex: `std::sync::Mutex` is not reentrant, and Java monitors
-/// re-enter, so ownership and depth are tracked explicitly.
-struct TestMutex {
-    state: Mutex<(Option<std::thread::ThreadId>, u32)>,
-    ready: Condvar,
-}
-
-struct TestSem {
-    count: Mutex<u32>,
-    ready: Condvar,
-}
-
-fn lock_or_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 // SAFETY: the primitives below are backed by `std` synchronisation, which
 // provides the mutual exclusion and wakeup guarantees the trait requires.
@@ -360,168 +336,33 @@ unsafe impl Rtos for TestRtos {
     }
 
     fn queue_create(depth: usize) -> RawQueue {
-        Box::into_raw(Box::new(TestQueue {
-            items: Mutex::new(VecDeque::with_capacity(depth)),
-            ready: Condvar::new(),
-            depth,
-        })) as RawQueue
+        sim_rtos::queue_create(depth)
     }
-
-    fn queue_send(q: RawQueue, word: u32, _t: Timeout) -> bool {
-        if q == 0 {
-            return false;
-        }
-        let queue = unsafe { &*(q as *const TestQueue) };
-        let mut items = lock_or_recover(&queue.items);
-        if items.len() >= queue.depth {
-            return false;
-        }
-        items.push_back(word);
-        queue.ready.notify_one();
-        true
+    fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool {
+        sim_rtos::queue_send(q, word, t)
     }
-
     fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
-        if q == 0 {
-            return None;
-        }
-        let queue = unsafe { &*(q as *const TestQueue) };
-        let mut items = lock_or_recover(&queue.items);
-        loop {
-            if let Some(v) = items.pop_front() {
-                return Some(v);
-            }
-            match t {
-                Timeout::None => return None,
-                Timeout::Ms(ms) => {
-                    let (guard, timed_out) = queue
-                        .ready
-                        .wait_timeout(items, Duration::from_millis(ms as u64))
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    items = guard;
-                    if timed_out.timed_out() {
-                        return items.pop_front();
-                    }
-                }
-                Timeout::Forever => {
-                    items = queue
-                        .ready
-                        .wait(items)
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                }
-            }
-        }
+        sim_rtos::queue_recv(q, t)
     }
 
     fn mutex_recursive_create() -> Option<RawMutex> {
-        Some(Box::into_raw(Box::new(TestMutex {
-            state: Mutex::new((None, 0)),
-            ready: Condvar::new(),
-        })) as RawMutex)
+        sim_rtos::mutex_recursive_create()
     }
-
     fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
-        if m == 0 {
-            return false;
-        }
-        let mutex = unsafe { &*(m as *const TestMutex) };
-        let me = std::thread::current().id();
-        let mut state = lock_or_recover(&mutex.state);
-        loop {
-            match state.0 {
-                None => {
-                    *state = (Some(me), 1);
-                    return true;
-                }
-                // Already ours — recursion just deepens.
-                Some(owner) if owner == me => {
-                    state.1 += 1;
-                    return true;
-                }
-                Some(_) => match t {
-                    Timeout::None => return false,
-                    Timeout::Ms(ms) => {
-                        let (guard, timed_out) = mutex
-                            .ready
-                            .wait_timeout(state, Duration::from_millis(ms as u64))
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        state = guard;
-                        if timed_out.timed_out() && state.0.is_some() {
-                            return false;
-                        }
-                    }
-                    Timeout::Forever => {
-                        state = mutex
-                            .ready
-                            .wait(state)
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    }
-                },
-            }
-        }
+        sim_rtos::mutex_recursive_lock(m, t)
     }
-
     fn mutex_recursive_unlock(m: RawMutex) {
-        if m == 0 {
-            return;
-        }
-        let mutex = unsafe { &*(m as *const TestMutex) };
-        let mut state = lock_or_recover(&mutex.state);
-        if state.1 > 1 {
-            state.1 -= 1;
-        } else {
-            *state = (None, 0);
-            mutex.ready.notify_one();
-        }
+        sim_rtos::mutex_recursive_unlock(m)
     }
 
     fn sem_binary_create() -> RawSem {
-        Box::into_raw(Box::new(TestSem {
-            count: Mutex::new(0),
-            ready: Condvar::new(),
-        })) as RawSem
+        sim_rtos::sem_binary_create()
     }
-
     fn sem_give(s: RawSem) {
-        if s == 0 {
-            return;
-        }
-        let sem = unsafe { &*(s as *const TestSem) };
-        *lock_or_recover(&sem.count) = 1; // binary
-        sem.ready.notify_one();
+        sim_rtos::sem_give(s)
     }
-
     fn sem_take(s: RawSem, t: Timeout) -> bool {
-        if s == 0 {
-            return false;
-        }
-        let sem = unsafe { &*(s as *const TestSem) };
-        let mut count = lock_or_recover(&sem.count);
-        loop {
-            if *count > 0 {
-                *count = 0;
-                return true;
-            }
-            match t {
-                Timeout::None => return false,
-                Timeout::Ms(ms) => {
-                    let (guard, timed_out) = sem
-                        .ready
-                        .wait_timeout(count, Duration::from_millis(ms as u64))
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    count = guard;
-                    if timed_out.timed_out() && *count == 0 {
-                        return false;
-                    }
-                }
-                Timeout::Forever => {
-                    count = sem
-                        .ready
-                        .wait(count)
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                }
-            }
-        }
+        sim_rtos::sem_take(s, t)
     }
 
     fn tick_timer_start(_period_ms: u32, _cb: fn()) {}

@@ -1,0 +1,361 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Host backing for [`crate::rtos::Rtos`] — `std` threads, condvars and
+//! mutexes.
+//!
+//! Handles are pointers to leaked boxes, which round-trip through the seam's
+//! `usize` unchanged on a 64-bit host.
+//!
+//! These are free functions rather than an `Rtos` impl because two callers
+//! want different subsets: [`crate::register_sim_platform`] generates a full
+//! impl from all of them, while this crate's own test platform delegates the
+//! queue, mutex and semaphore primitives but keeps a spawn that refuses and a
+//! tick that does nothing. Before, those two lived in different crates and
+//! duplicated the primitives; `test_platform.rs` said the dedup was due when
+//! the simulator moved here, and this is it.
+//!
+//! Everything here is simulator policy, not family policy — the
+//! parity-strict refusal, the recursive-mutex bookkeeping Java monitors need,
+//! the drift-free tick. A family that behaved differently on any of them
+//! would have a parity bug, not a port.
+
+use alloc::boxed::Box;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::Duration;
+
+use super::allocator;
+use crate::rtos::{RawMutex, RawQueue, RawSem, TaskKind, TaskSpec, Timeout};
+
+// Tick-source state. Separate from the queue/semaphore handles because the
+// tick is a process singleton with a lifecycle (start/pause/stop), not
+// something callers allocate.
+static TICK_STARTED: AtomicBool = AtomicBool::new(false);
+static TICK_PAUSED: AtomicBool = AtomicBool::new(false);
+static TICK_STOPPING: AtomicBool = AtomicBool::new(false);
+static TICK_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+
+struct SimQueue {
+    items: Mutex<VecDeque<u32>>,
+    ready: Condvar,
+    depth: usize,
+}
+
+struct SimSem {
+    count: Mutex<u32>,
+    ready: Condvar,
+}
+
+/// Recursive mutex over a host thread. Tracked by owner + depth because
+/// `std::sync::Mutex` is not reentrant and Java monitors re-enter.
+struct SimMutex {
+    state: Mutex<(Option<std::thread::ThreadId>, u32)>,
+    ready: Condvar,
+}
+
+fn wait_deadline(t: Timeout) -> Option<Duration> {
+    match t {
+        Timeout::None => Some(Duration::ZERO),
+        Timeout::Ms(ms) => Some(Duration::from_millis(ms as u64)),
+        Timeout::Forever => None,
+    }
+}
+
+/// Spawn a host thread for `spec`, except for [`TaskKind::JvmChild`].
+///
+/// `charge_jvm_child` is called when a JVM child is refused, so the platform
+/// can bill its boot budget for the stack and TCB the device would have
+/// allocated. It is a parameter rather than a hook because the boot budget is
+/// chip-gated platform data that shared code has no business reading.
+pub fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>, charge_jvm_child: fn()) -> bool {
+    // A JVM child task must NOT become a host thread. The object heap is not
+    // thread-safe; on device its safety comes from FreeRTOS cooperative
+    // scheduling on a single pinned core, which preemptive host threads do
+    // not provide. Running it here would trade a visible no-op for silent
+    // heap corruption.
+    //
+    // Erroring would misrepresent the device worse than skipping, and running
+    // it synchronously would invert concurrency ordering and can deadlock on
+    // the main queue — so warn, charge, skip.
+    if spec.kind == TaskKind::JvmChild {
+        // Parity/CI lanes treat the no-op as fatal: an app whose threads
+        // never ran must not report PASS (docs/parity-audit.md THR-01; real
+        // sim threads are fix M7).
+        if std::env::var("PICODROID_PARITY_STRICT").as_deref() == Ok("1") {
+            panic!(
+                "[sim] parity-strict: Thread.start({}) is a no-op in the \
+                 simulator — this app cannot be validated here \
+                 (docs/parity-audit.md THR-01)",
+                spec.name
+            );
+        }
+        eprintln!(
+            "[sim] Thread.start: {}.run() will NOT run — threads are a \
+             no-op in the simulator (on device they run as a FreeRTOS task)",
+            spec.name
+        );
+        charge_jvm_child();
+        drop(body);
+        return false;
+    }
+
+    // Thread internals are host-only, with no device counterpart, so they
+    // must not be charged to the simulated device heap.
+    let _bypass = allocator::bypass();
+    std::thread::Builder::new()
+        .name(spec.name.into())
+        .spawn(body)
+        .is_ok()
+}
+
+pub fn queue_create(depth: usize) -> RawQueue {
+    let _bypass = allocator::bypass();
+    Box::into_raw(Box::new(SimQueue {
+        items: Mutex::new(VecDeque::with_capacity(depth)),
+        ready: Condvar::new(),
+        depth,
+    })) as RawQueue
+}
+
+pub fn queue_send(q: RawQueue, word: u32, _t: Timeout) -> bool {
+    if q == 0 {
+        return false;
+    }
+    let queue = unsafe { &*(q as *const SimQueue) };
+    let mut items = queue
+        .items
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if items.len() >= queue.depth {
+        return false;
+    }
+    items.push_back(word);
+    queue.ready.notify_one();
+    true
+}
+
+pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
+    if q == 0 {
+        return None;
+    }
+    let queue = unsafe { &*(q as *const SimQueue) };
+    let mut items = queue
+        .items
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    loop {
+        if let Some(v) = items.pop_front() {
+            return Some(v);
+        }
+        match wait_deadline(t) {
+            Some(d) if d.is_zero() => return None,
+            Some(d) => {
+                let (guard, timed_out) = queue
+                    .ready
+                    .wait_timeout(items, d)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                items = guard;
+                if timed_out.timed_out() {
+                    return items.pop_front();
+                }
+            }
+            None => {
+                items = queue
+                    .ready
+                    .wait(items)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+        }
+    }
+}
+
+pub fn mutex_recursive_create() -> Option<RawMutex> {
+    let _bypass = allocator::bypass();
+    Some(Box::into_raw(Box::new(SimMutex {
+        state: Mutex::new((None, 0)),
+        ready: Condvar::new(),
+    })) as RawMutex)
+}
+
+pub fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
+    if m == 0 {
+        return false;
+    }
+    let mutex = unsafe { &*(m as *const SimMutex) };
+    let me = std::thread::current().id();
+    let mut state = mutex
+        .state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    loop {
+        match state.0 {
+            // Free, or already ours — recursion just deepens.
+            None => {
+                *state = (Some(me), 1);
+                return true;
+            }
+            Some(owner) if owner == me => {
+                state.1 += 1;
+                return true;
+            }
+            Some(_) => match wait_deadline(t) {
+                Some(d) if d.is_zero() => return false,
+                Some(d) => {
+                    let (guard, timed_out) = mutex
+                        .ready
+                        .wait_timeout(state, d)
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state = guard;
+                    if timed_out.timed_out() && state.0.is_some() {
+                        return false;
+                    }
+                }
+                None => {
+                    state = mutex
+                        .ready
+                        .wait(state)
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                }
+            },
+        }
+    }
+}
+
+pub fn mutex_recursive_unlock(m: RawMutex) {
+    if m == 0 {
+        return;
+    }
+    let mutex = unsafe { &*(m as *const SimMutex) };
+    let mut state = mutex
+        .state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state.1 > 1 {
+        state.1 -= 1;
+    } else {
+        *state = (None, 0);
+        mutex.ready.notify_one();
+    }
+}
+
+pub fn sem_binary_create() -> RawSem {
+    let _bypass = allocator::bypass();
+    Box::into_raw(Box::new(SimSem {
+        count: Mutex::new(0),
+        ready: Condvar::new(),
+    })) as RawSem
+}
+
+pub fn sem_give(s: RawSem) {
+    if s == 0 {
+        return;
+    }
+    let sem = unsafe { &*(s as *const SimSem) };
+    let mut count = sem
+        .count
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *count = 1; // binary
+    sem.ready.notify_one();
+}
+
+pub fn sem_take(s: RawSem, t: Timeout) -> bool {
+    if s == 0 {
+        return false;
+    }
+    let sem = unsafe { &*(s as *const SimSem) };
+    let mut count = sem
+        .count
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    loop {
+        if *count > 0 {
+            *count = 0;
+            return true;
+        }
+        match wait_deadline(t) {
+            Some(d) if d.is_zero() => return false,
+            Some(d) => {
+                let (guard, timed_out) = sem
+                    .ready
+                    .wait_timeout(count, d)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                count = guard;
+                if timed_out.timed_out() && *count == 0 {
+                    return false;
+                }
+            }
+            None => {
+                count = sem
+                    .ready
+                    .wait(count)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+        }
+    }
+}
+
+pub fn tick_timer_start(period_ms: u32, cb: fn()) {
+    if TICK_STARTED.swap(true, Ordering::SeqCst) {
+        // Already running — treat as an unpause.
+        TICK_PAUSED.store(false, Ordering::SeqCst);
+        return;
+    }
+    TICK_STOPPING.store(false, Ordering::SeqCst);
+    TICK_PAUSED.store(false, Ordering::SeqCst);
+    // Host thread machinery has no device analog (the device tick is a
+    // FreeRTOS software timer, whose cost enters via the boot budget), so
+    // keep pthread internals and this thread's pacing state off the simulated
+    // heap (docs/parity-audit.md M1).
+    let _spawn_bypass = allocator::bypass();
+    let handle = std::thread::Builder::new()
+        .name("lvgl-tick".into())
+        .spawn(move || {
+            let _bypass = allocator::bypass();
+            let period = Duration::from_millis(period_ms as u64);
+            // Deadline-based rather than sleep-per-iteration, so a slow
+            // callback does not make the tick drift.
+            let mut next = std::time::Instant::now() + period;
+            while !TICK_STOPPING.load(Ordering::SeqCst) {
+                let now = std::time::Instant::now();
+                if now < next {
+                    std::thread::sleep(next - now);
+                }
+                next = std::time::Instant::now() + period;
+                if !TICK_PAUSED.load(Ordering::SeqCst) && !TICK_STOPPING.load(Ordering::SeqCst) {
+                    cb();
+                }
+            }
+        })
+        .expect("spawn lvgl-tick thread");
+    *TICK_HANDLE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handle);
+}
+
+pub fn tick_timer_pause() {
+    TICK_PAUSED.store(true, Ordering::SeqCst);
+}
+
+pub fn tick_timer_resume() {
+    TICK_PAUSED.store(false, Ordering::SeqCst);
+}
+
+/// Signal and join. Unlike a device arm, which parks a singleton timer, the
+/// host tick owns a thread — leaving it running would leak one per app
+/// reload.
+pub fn tick_timer_stop() {
+    TICK_STOPPING.store(true, Ordering::SeqCst);
+    let handle = TICK_HANDLE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    if let Some(h) = handle {
+        let _ = h.join();
+    }
+    TICK_STARTED.store(false, Ordering::SeqCst);
+}
+
+pub fn delay_ms(ms: u32) {
+    std::thread::sleep(Duration::from_millis(ms as u64));
+}
