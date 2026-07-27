@@ -2,7 +2,7 @@
 //! LVGL-backed [`GraphicsBackend`] implementation.
 //!
 //! Each method matches on the Java method name and delegates to the leaf
-//! handlers in `crate::system::picodroid::graphics::{display, view, widgets}`,
+//! handlers in `crate::graphics::{display, view, widgets}`,
 //! which own the LVGL FFI calls and `handle_table` routing. This indirection
 //! keeps LVGL-specific code isolated to the impl block.
 
@@ -10,7 +10,7 @@ use pico_jvm::NativeContext;
 
 use super::backend::{DispatchResult, GraphicsBackend};
 
-use crate::system::picodroid::graphics::{display, view, view_group, widgets};
+use crate::graphics::{display, view, view_group, widgets};
 
 pub struct LvglBackend;
 

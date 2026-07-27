@@ -64,7 +64,7 @@ pub(super) fn notify_jvm() {
     // iteration sees `handler.interrupted()` (i.e. STOP_JVM). Wake bypasses
     // tick coalescing, so it's safe to call from any task without violating
     // the tick-source-owns-`TICK_IN_QUEUE` invariant.
-    crate::system::executors::main_queue::enqueue_wake();
+    picodroid_core::executors::main_queue::enqueue_wake();
     // Wake core 0 from WFE if it is in the RP2350 poll loop.
     cortex_m::asm::sev();
 }

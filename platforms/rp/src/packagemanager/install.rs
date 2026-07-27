@@ -101,7 +101,7 @@ pub fn run_install(
         &peek_buf[..peeked],
         papk_format::keys::FRAMEWORK_MAP_VERSION,
     );
-    if compat::check(papk_fmv, crate::app::FRAMEWORK_MAP_VERSION).is_err() {
+    if compat::check(papk_fmv, picodroid_core::boot::FRAMEWORK_MAP_VERSION).is_err() {
         transport.report_error(InstallError::Incompat);
         coordinator.release();
         coordinator.cancel_park_request();

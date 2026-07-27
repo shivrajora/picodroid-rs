@@ -259,7 +259,7 @@ fn store_bytes_into_array(
 // picodroid-core without carrying `crate::fs` — and a future family supplies
 // storage by implementing one trait rather than editing this file.
 #[cfg(not(test))]
-use picodroid_core::hal::fs as backend;
+use crate::hal::fs as backend;
 
 #[cfg(test)]
 mod backend {

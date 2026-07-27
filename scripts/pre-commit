@@ -38,22 +38,32 @@ echo "==> Checking sim/family-rp cfg-gate hygiene..."
 # existing occurrences are deliberate cross-family gates; a new one usually
 # wants `feature = "sim"` spelled out instead.
 #
-# Was 4 until the shared-core extraction: monitor_store's two gates chose
-# between real FreeRTOS mutexes and no-op stubs, and lvgl/calibration's chose
-# between a real debug-bridge stop poll and `false`. The RTOS and
-# platform-hook seams make all three the platform's choice, so the gates were
-# deleted rather than moved.
-FAMRP_GATES=$(grep -rn 'not(feature = "family-rp")' \
-  "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" | wc -l | tr -d ' ')
-if [[ "$FAMRP_GATES" != "1" ]]; then
+# Was 4 before the shared-core extraction, now 0. Each of the four picked
+# between a real platform capability and a stub — FreeRTOS mutexes vs no-ops
+# (monitor_store x2), a debug-bridge stop poll vs `false` (lvgl/calibration,
+# then native_handler's `interrupted`). Every one of those is a question the
+# RTOS and platform-hook seams now answer, so the gates were deleted rather
+# than moved.
+#
+# The expected count is 0 because that is the end state, not a coincidence:
+# a new occurrence is shared code guessing at the platform instead of asking
+# it. If one is genuinely right, raise the count here and record it under
+# BLD-02 in docs/parity-audit.md.
+# `|| true` because the expected count is now 0: grep exits 1 when it matches
+# nothing, and under `set -euo pipefail` that would abort the whole script on
+# the very state this check is supposed to accept.
+FAMRP_GATES=$({ grep -rn 'not(feature = "family-rp")' \
+  "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true; } | wc -l | tr -d ' ')
+if [[ "$FAMRP_GATES" != "0" ]]; then
   grep -rn 'not(feature = "family-rp")' \
     "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true
   echo ""
-  echo "ERROR: expected exactly 1 'not(feature = \"family-rp\")' cfg gate,"
+  echo "ERROR: expected 0 'not(feature = \"family-rp\")' cfg gates,"
   echo "       found $FAMRP_GATES. Sim builds activate family-rp, so this"
-  echo "       pattern does not exclude the simulator. If the new gate is"
-  echo "       genuinely correct for sim builds too, bump the expected count"
-  echo "       in scripts/pre-commit and note it under BLD-02 in"
+  echo "       pattern does not exclude the simulator. Prefer a HAL/RTOS/host"
+  echo "       seam method, or spell the gate feature = \"sim\". If the new"
+  echo "       gate is genuinely correct, bump the expected count in"
+  echo "       scripts/pre-commit and note it under BLD-02 in"
   echo "       docs/parity-audit.md."
   exit 1
 fi

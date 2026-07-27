@@ -89,7 +89,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // (init's check-then-act is not task-safe; per-transfer bus locks take
     // over once initialised).
     #[cfg(any_sensor)]
-    crate::system::picodroid::hardware::sensors::sampler::spawn();
+    picodroid_core::hardware::sensors::sampler::spawn();
 
     // Background thread pool: pre-spawns the workers that back
     // `Executors.backgroundExecutor()`. Each worker parks on the shared
@@ -97,8 +97,8 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // picks up the registered class loader from `run_jvm_with`.
     // The loop each worker runs lives in the platform crate (it needs the
     // app's class loader and shared heap), so install it before spawning.
-    crate::bg_worker::install();
-    crate::system::executors::background_pool::spawn();
+    picodroid_core::bg_worker::install();
+    picodroid_core::executors::background_pool::spawn();
 
     // pdb listener on USB CDC. Priority 2 preempts jvm_task (priority 1).
     // Pinned to core 0: on RP2350, cross-core SRAM visibility between

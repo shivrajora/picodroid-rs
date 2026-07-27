@@ -11,11 +11,9 @@ pub fn dispatch(
 ) -> Option<Result<Option<Value>, JvmError>> {
     let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
-        ("picodroid/os/SystemClock", "sleep") => {
-            Some(crate::system::picodroid::os::system_clock::sleep(ctx.args))
-        }
+        ("picodroid/os/SystemClock", "sleep") => Some(crate::os::system_clock::sleep(ctx.args)),
         ("picodroid/os/SystemClock", "elapsedRealtimeNanos") => {
-            Some(crate::system::picodroid::os::system_clock::elapsed_realtime_nanos())
+            Some(crate::os::system_clock::elapsed_realtime_nanos())
         }
         ("java/lang/System", "currentTimeMillis") => {
             let nanos = crate::hal::system_clock::elapsed_realtime_nanos();
@@ -49,13 +47,13 @@ pub fn dispatch(
                         Some(Value::Int(p)) => p,
                         _ => 5, // Thread.NORM_PRIORITY fallback
                     };
-                    let spec = picodroid_core::rtos::TaskSpec {
+                    let spec = crate::rtos::TaskSpec {
                         // The class name rides along as the task name so the
                         // platform can identify the Runnable — the simulator
                         // prints it when declining, and it shows up in the
                         // debug bridge's task list on device.
                         name: class_name,
-                        kind: picodroid_core::rtos::TaskKind::JvmChild,
+                        kind: crate::rtos::TaskKind::JvmChild,
                         priority: crate::task_priority::android_to_freertos_priority(
                             android_priority,
                         ),
@@ -67,7 +65,7 @@ pub fn dispatch(
                     // Rtos::spawn; the simulator declines this task kind
                     // outright (host threads cannot honour the interpreter's
                     // single-core heap guarantee) and reports it there.
-                    picodroid_core::rtos::spawn(
+                    crate::rtos::spawn(
                         &spec,
                         alloc::boxed::Box::new(move || {
                             let mut jvm = pico_jvm::Jvm::new();
@@ -76,15 +74,15 @@ pub fn dispatch(
                             // panic-probe and freeze USB CDC, leaving pdb unable
                             // to PING the device. Log and bail instead so
                             // jvm_task and PDB stay alive.
-                            if let Err(e) = crate::app::load_classes(&mut jvm) {
-                                picodroid_core::pd_error!(
+                            if let Err(e) = crate::boot::load_classes(&mut jvm) {
+                                crate::pd_error!(
                                     "Thread.start: child-task class load failed for {}: {}",
                                     class_name,
                                     defmt::Display2Format(&e)
                                 );
                                 return;
                             }
-                            let heap = crate::app::shared_heap();
+                            let heap = crate::boot::shared_heap();
                             let mut handler = super::PicodroidNativeHandler::new();
                             if let Err(e) = jvm.invoke_instance(
                                 class_name,
@@ -93,7 +91,7 @@ pub fn dispatch(
                                 heap,
                                 &mut handler,
                             ) {
-                                picodroid_core::pd_error!(
+                                crate::pd_error!(
                                     "Thread.start: child-task {}.run() failed: {}",
                                     class_name,
                                     defmt::Display2Format(&e)

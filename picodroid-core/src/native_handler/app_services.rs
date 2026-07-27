@@ -66,7 +66,7 @@ fn handle_notification_notify(ctx: &NativeContext<'_>) -> Result<Option<Value>, 
     };
     let title = read_string_field(ctx, *notif_ref, 0).unwrap_or("");
     let text = read_string_field(ctx, *notif_ref, 1).unwrap_or("");
-    crate::system::notification::notify(*notif_id, title, text);
+    crate::notification::notify(*notif_id, title, text);
     Ok(None)
 }
 
@@ -76,7 +76,7 @@ fn handle_notification_cancel(ctx: &NativeContext<'_>) -> Result<Option<Value>, 
     let Some(Value::Int(notif_id)) = ctx.args.get(1) else {
         return Ok(None);
     };
-    crate::system::notification::cancel(*notif_id);
+    crate::notification::cancel(*notif_id);
     Ok(None)
 }
 

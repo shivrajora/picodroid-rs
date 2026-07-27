@@ -51,6 +51,16 @@ pub struct PicodroidNativeHandler {
     pending_ops: state::PendingOpQueue,
 }
 
+/// Required now that the type is public API of a library rather than
+/// internal to a binary — `clippy::new_without_default` only fires for
+/// public items, so the extraction is what surfaced it. Delegates to
+/// [`PicodroidNativeHandler::new`]; there is no second way to build one.
+impl Default for PicodroidNativeHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PicodroidNativeHandler {
     pub fn new() -> Self {
         Self {
@@ -219,8 +229,8 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         // does not reference, plus the modules that own their own object refs
         // — reports itself through the registry rather than being enumerated
         // here. See `crate::gc_root_registration` for the list and
-        // `picodroid_core::gc_roots` for why (audit P2-17).
-        picodroid_core::gc_roots::visit_all(&mut *visit);
+        // `crate::gc_roots` for why (audit P2-17).
+        crate::gc_roots::visit_all(&mut *visit);
     }
 
     fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {
@@ -281,7 +291,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         // Arms that need access to `self` stay here.
-        use crate::system::picodroid::util::log::{self, LogLevel};
+        use crate::util::log::{self, LogLevel};
         match (class_name, method_name) {
             ("picodroid/util/Log", "v") => {
                 Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
@@ -410,28 +420,30 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         }
     }
 
-    #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+    /// Polled at JVM safepoints so `pdb install` can stop a running app
+    /// cooperatively.
+    ///
+    /// This was three cfg arms — the debug bridge on device, `false` on a
+    /// device without it, and no override at all in the simulator. The
+    /// platform hook already draws exactly that distinction, so asking it is
+    /// both shorter and the only version that stays correct for a family
+    /// whose bridge works differently.
     fn interrupted(&self) -> bool {
-        crate::pdb::pending::is_stop_jvm()
-    }
-
-    #[cfg(all(not(any(test, feature = "sim")), not(feature = "family-rp")))]
-    fn interrupted(&self) -> bool {
-        false
+        crate::host::stop_requested()
     }
 
     #[cfg(not(feature = "sim"))]
     fn monitor_enter(&mut self, key: MonitorKey) -> Result<(), JvmError> {
-        crate::system::monitor_store::enter(key)
+        crate::monitor_store::enter(key)
     }
 
     #[cfg(not(feature = "sim"))]
     fn monitor_exit(&mut self, key: MonitorKey) -> Result<(), JvmError> {
-        crate::system::monitor_store::exit(key)
+        crate::monitor_store::exit(key)
     }
 
     #[cfg(not(feature = "sim"))]
     fn monitors_clear(&mut self) {
-        crate::system::monitor_store::clear();
+        crate::monitor_store::clear();
     }
 }

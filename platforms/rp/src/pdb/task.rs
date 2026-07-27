@@ -47,7 +47,7 @@ fn handle_ping(len: u32) {
     // strictly additive, so newer hosts read the version field while
     // older hosts ignore the trailing bytes. New hosts also detect "2.0"
     // and refuse to install, prompting an SWD reflash.
-    let fw_ver = crate::app::FRAMEWORK_MAP_VERSION.as_bytes();
+    let fw_ver = picodroid_core::boot::FRAMEWORK_MAP_VERSION.as_bytes();
     let mut buf = [0u8; 14 + 4 + 1 + 64];
     buf[..14].copy_from_slice(b"picodroid/2.1\0");
     buf[14..18].copy_from_slice(&(crate::hal::flash::PAPK_MAX_DATA_SIZE as u32).to_le_bytes());

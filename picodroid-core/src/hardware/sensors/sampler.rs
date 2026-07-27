@@ -56,7 +56,7 @@ pub use device::spawn;
 mod device {
     use core::cell::UnsafeCell;
 
-    use picodroid_core::rtos::{self, RawSem, TaskKind, TaskSpec, Timeout};
+    use crate::rtos::{self, RawSem, TaskKind, TaskSpec, Timeout};
 
     use super::super::mailbox;
     use super::super::{EnvSnapshot, OpticalSnapshot};
@@ -453,11 +453,11 @@ mod sim_backing {
             // stack enters via the boot budget); keep pthread internals off
             // the simulated heap (docs/parity-audit.md M1 routing), like
             // the lvgl-tick thread does.
-            let _spawn_bypass = crate::sim_allocator::bypass();
+            let _spawn_bypass = crate::host::heap_bypass();
             std::thread::Builder::new()
                 .name("sensor-sim".into())
                 .spawn(|| {
-                    let _bypass = crate::sim_allocator::bypass();
+                    let _bypass = crate::host::heap_bypass();
                     run();
                 })
                 .expect("spawn sensor-sim thread");

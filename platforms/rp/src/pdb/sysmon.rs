@@ -175,7 +175,7 @@ pub fn handle_sysmon(len: u32) {
     #[cfg(feature = "mem-diag")]
     let resp_len = {
         let (live, floor, alloc_total, largest_free) =
-            crate::system::mem_diag::published_snapshot();
+            picodroid_core::mem_diag::published_snapshot();
         resp[resp_len..resp_len + 4].copy_from_slice(&live.to_le_bytes());
         resp[resp_len + 4..resp_len + 8].copy_from_slice(&floor.to_le_bytes());
         resp[resp_len + 8..resp_len + 12].copy_from_slice(&alloc_total.to_le_bytes());

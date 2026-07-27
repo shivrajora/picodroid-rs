@@ -20,7 +20,7 @@ use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, SharedJvmHeap};
 
 use crate::dispatch_sites::{self, DISPATCH_SITES};
-use crate::system::native_handler::{PendingServiceOp, PicodroidNativeHandler};
+use crate::native_handler::{PendingServiceOp, PicodroidNativeHandler};
 
 const MAX_SERVICES: usize = 8;
 const MAX_CONNECTIONS: usize = 16;
@@ -165,7 +165,7 @@ pub(crate) fn set_foreground(class_name: &str, notif_id: i32, title: &str, text:
         None => return false,
     };
     registry()[slot].as_mut().unwrap().foreground_id = Some(notif_id);
-    crate::system::notification::notify(notif_id, title, text);
+    crate::notification::notify(notif_id, title, text);
     true
 }
 
@@ -176,7 +176,7 @@ pub(crate) fn clear_foreground(class_name: &str, remove: bool) {
         registry()[slot].as_mut().unwrap().foreground_id = None;
         if remove {
             if let Some(id) = id {
-                crate::system::notification::cancel(id);
+                crate::notification::cancel(id);
             }
         }
     }
@@ -483,7 +483,7 @@ fn maybe_destroy(
     // Cancel any outstanding foreground notification before tearing down.
     let foreground_id = registry()[slot].as_ref().unwrap().foreground_id;
     if let Some(id) = foreground_id {
-        crate::system::notification::cancel(id);
+        crate::notification::cancel(id);
     }
     registry()[slot] = None;
     invoke_lifecycle(

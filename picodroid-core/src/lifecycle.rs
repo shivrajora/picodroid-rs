@@ -99,9 +99,9 @@ pub(crate) fn run_application(
     jvm: &mut Jvm,
     application_class: &'static str,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::native_handler::PendingActivityOp;
+    use crate::native_handler::PendingActivityOp;
 
     let obj_ref = heap
         .objects
@@ -121,7 +121,7 @@ pub(crate) fn run_application(
     // and look for the first Activity push to drive. Service-only apps
     // never push an Activity — drained ops still run, then we tear down
     // surviving services and exit cleanly.
-    use crate::system::native_handler::PendingOp;
+    use crate::native_handler::PendingOp;
     let mut activity_push: Option<(&'static str, Option<u16>)> = None;
     while let Some(op) = handler.take_next_pending_op() {
         match op {
@@ -177,7 +177,7 @@ pub(crate) fn instantiate_component(
     jvm: &mut Jvm,
     class_name: &'static str,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
     let obj_ref = heap
         .objects
@@ -223,11 +223,11 @@ pub(crate) fn run_activity(
     initial_ref: u16,
     initial_intent: Option<u16>,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::executors::main_queue::{self, MainTask};
-    use crate::system::picodroid::graphics::display;
-    use crate::system::picodroid::graphics::lvgl::with_gfx;
+    use crate::executors::main_queue::{self, MainTask};
+    use crate::graphics::display;
+    use crate::graphics::lvgl::with_gfx;
     use pico_jvm::NativeMethodHandler;
 
     // Initialise the unified main-thread FIFO; harmless if the module was
@@ -259,14 +259,14 @@ pub(crate) fn run_activity(
     // heap growth (class loading, widget trees) is legitimate; everything
     // past this point is steady state as far as leak detection is concerned.
     #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::arm();
+    crate::mem_diag::arm();
 
     // Framework event loop — pure dispatcher, mirroring Android's Looper.
     // The 16 ms LVGL cadence is provided by `tick_source` (a separate
     // FreeRTOS software timer on device, std::thread on sim) which posts
     // `MainTask::LvglTick` to the same queue. Posters of user Runnables
     // wake `recv_blocking` directly via the queue's send semantics.
-    crate::system::executors::tick_source::start();
+    crate::executors::tick_source::start();
     #[cfg(all(not(feature = "sim"), has_buttons))]
     let mut last_input_ms: u64 = now_ms();
     #[cfg(all(not(feature = "sim"), has_buttons))]
@@ -309,8 +309,8 @@ pub(crate) fn run_activity(
             // LVGL focus navigation or Java OnKeyListener.
             while crate::hal::gpio::drain_gpio_event().is_some() {}
             with_gfx(|g| g.wake());
-            crate::system::executors::tick_source::resume();
-            crate::system::picodroid::hardware::sensors::sampler::resume();
+            crate::executors::tick_source::resume();
+            crate::hardware::sensors::sampler::resume();
             sleeping = false;
             last_input_ms = now_ms();
             continue;
@@ -321,7 +321,7 @@ pub(crate) fn run_activity(
         match main_queue::recv_blocking() {
             MainTask::LvglTick => {
                 with_gfx(|g| g.tick(16));
-                crate::system::picodroid::graphics::lvgl::fps_overlay::update();
+                crate::graphics::lvgl::fps_overlay::update();
                 // Watch only the Java dispatch, not g.tick's render above —
                 // rendering legitimately varies and would be a false positive.
                 let span_start = now_ms();
@@ -336,7 +336,7 @@ pub(crate) fn run_activity(
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.
                 #[cfg(feature = "mem-diag")]
-                crate::system::mem_diag::on_tick(heap, handler);
+                crate::mem_diag::on_tick(heap, handler);
 
                 // Idle GC (see IDLE_GC_TICKS above): sub-threshold garbage is
                 // collected once allocations have stopped for ~2 s.
@@ -365,8 +365,8 @@ pub(crate) fn run_activity(
                     }
                     if let Some(timeout) = IDLE_TIMEOUT_MS {
                         if now_ms() - last_input_ms >= timeout {
-                            crate::system::executors::tick_source::pause();
-                            crate::system::picodroid::hardware::sensors::sampler::pause();
+                            crate::executors::tick_source::pause();
+                            crate::hardware::sensors::sampler::pause();
                             with_gfx(|g| g.sleep());
                             sleeping = true;
                         }
@@ -430,7 +430,7 @@ pub(crate) fn run_activity(
         }
     }
 
-    crate::system::executors::tick_source::stop();
+    crate::executors::tick_source::stop();
     teardown_activity(jvm, heap, handler);
 }
 
@@ -444,7 +444,7 @@ fn bootstrap_activity(
     initial_ref: u16,
     initial_intent: Option<u16>,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     // The bootstrap Activity is never launched for-result.
     if !handler.push_activity(initial_ref, initial_class, initial_intent, None, 0) {
@@ -453,7 +453,7 @@ fn bootstrap_activity(
     }
     // Give this Activity its own keypad focus group before onCreate so its
     // focusable widgets join the right group (see events::push_activity_group).
-    crate::system::picodroid::graphics::lvgl::events::push_activity_group();
+    crate::graphics::lvgl::events::push_activity_group();
     for site in [
         dispatch_sites::ACTIVITY_ON_CREATE,
         dispatch_sites::ACTIVITY_ON_START,
@@ -477,10 +477,10 @@ fn bootstrap_activity(
 fn teardown_activity(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::gfx::Handle;
-    use crate::system::picodroid::graphics::lvgl::with_gfx;
+    use crate::graphics::gfx::Handle;
+    use crate::graphics::lvgl::with_gfx;
 
     while let Some((act_ref, act_class, root)) = handler.pop_activity() {
         for site in [
@@ -498,11 +498,11 @@ fn teardown_activity(
             with_gfx(|g| g.delete(Handle::from_java(root)));
         }
     }
-    let visible_root = crate::system::picodroid::graphics::display::current_root_id();
+    let visible_root = crate::graphics::display::current_root_id();
     if visible_root != 0 {
         with_gfx(|g| g.delete(Handle::from_java(visible_root)));
     }
-    crate::system::picodroid::graphics::display::set_current_root_id(0);
+    crate::graphics::display::set_current_root_id(0);
     // Tear down any Services still alive. Foreground/started/bound — all
     // get a final onDestroy and have their banners cleared.
     crate::service_lifecycle::destroy_all(jvm, heap, handler);
@@ -516,7 +516,7 @@ fn teardown_activity(
 fn dispatch_widget_events(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
     // Android order: onTouch precedes onClick. Touch + long-press run first
     // so a consumed gesture can suppress the same-tick synthetic click (LVGL
@@ -546,7 +546,7 @@ fn dispatch_widget_events(
     dispatch_editor_actions(jvm, heap, handler);
     dispatch_animation_end_actions(jvm, heap, handler);
     dispatch_key_events(jvm, heap, handler);
-    crate::system::picodroid::hardware::sensors::drain_sensor_events(jvm, heap, handler);
+    crate::hardware::sensors::drain_sensor_events(jvm, heap, handler);
 }
 
 // ── Lifecycle invocation + transition processing ─────────────────────────────
@@ -584,7 +584,7 @@ fn invoke_lifecycle(
     fallback_idx: usize,
     obj_ref: u16,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     let method = dispatch_method(fallback_idx);
     // First attempt: the receiver's runtime subclass. find_method_by_name
@@ -620,7 +620,7 @@ fn invoke_lifecycle_with_args(
     obj_ref: u16,
     extra_args: &[pico_jvm::types::Value],
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     let method = dispatch_method(fallback_idx);
     match jvm
@@ -656,10 +656,10 @@ fn invoke_lifecycle_with_args(
 /// handle into its stack entry, then clear CURRENT_ROOT_ID so the next
 /// `setContentView` lands on a clean slate.
 #[cfg(not(test))]
-fn park_top_view(handler: &mut crate::system::native_handler::PicodroidNativeHandler) {
-    use crate::system::picodroid::graphics::display;
-    use crate::system::picodroid::graphics::gfx::{Handle, Visibility};
-    use crate::system::picodroid::graphics::lvgl::with_gfx;
+fn park_top_view(handler: &mut crate::native_handler::PicodroidNativeHandler) {
+    use crate::graphics::display;
+    use crate::graphics::gfx::{Handle, Visibility};
+    use crate::graphics::lvgl::with_gfx;
 
     let prev_root = display::current_root_id();
     if prev_root != 0 {
@@ -674,7 +674,7 @@ fn park_top_view(handler: &mut crate::system::native_handler::PicodroidNativeHan
     // belongs to the Activity being covered, so dismissing all is correct —
     // the mirror of handle_pop_op's finish cleanup. See
     // project_picoenvmon_alertdialog_leak.
-    while crate::system::picodroid::graphics::widgets::dismiss_topmost_dialog() {}
+    while crate::graphics::widgets::dismiss_topmost_dialog() {}
 }
 
 /// Inverse of [`park_top_view`]: restore the top Activity's saved view
@@ -682,10 +682,10 @@ fn park_top_view(handler: &mut crate::system::native_handler::PicodroidNativeHan
 /// after a Pop uncovers the parent and as the rollback path when a Push
 /// hits the stack-overflow cap.
 #[cfg(not(test))]
-fn restore_top_view(handler: &mut crate::system::native_handler::PicodroidNativeHandler) {
-    use crate::system::picodroid::graphics::display;
-    use crate::system::picodroid::graphics::gfx::{Handle, Visibility};
-    use crate::system::picodroid::graphics::lvgl::with_gfx;
+fn restore_top_view(handler: &mut crate::native_handler::PicodroidNativeHandler) {
+    use crate::graphics::display;
+    use crate::graphics::gfx::{Handle, Visibility};
+    use crate::graphics::lvgl::with_gfx;
 
     let saved = handler.current_root_handle();
     if saved != 0 {
@@ -707,7 +707,7 @@ fn handle_push_op(
     request_code: Option<i32>,
     caller_ref: u16,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     // Framework owns instantiation: allocate the Activity and run its
     // no-arg constructor before the lifecycle callbacks.
@@ -746,7 +746,7 @@ fn handle_push_op(
     }
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
-    crate::system::picodroid::graphics::lvgl::events::push_activity_group();
+    crate::graphics::lvgl::events::push_activity_group();
     for site in [
         dispatch_sites::ACTIVITY_ON_CREATE,
         dispatch_sites::ACTIVITY_ON_START,
@@ -776,7 +776,7 @@ fn handle_push_op(
     // re-baseline the native growth sentinel so it watches for steady-state
     // drift from here, not from the first Activity's arm point.
     #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::note_activity_transition();
+    crate::mem_diag::note_activity_transition();
     LifecycleControl::Continue
 }
 
@@ -787,11 +787,11 @@ fn handle_push_op(
 fn handle_pop_op(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    use crate::system::picodroid::graphics::display;
-    use crate::system::picodroid::graphics::gfx::Handle;
-    use crate::system::picodroid::graphics::lvgl::with_gfx;
+    use crate::graphics::display;
+    use crate::graphics::gfx::Handle;
+    use crate::graphics::lvgl::with_gfx;
 
     let (top_ref, top_class) = match handler.current_activity() {
         Some(t) => t,
@@ -822,7 +822,7 @@ fn handle_pop_op(
     // deleted above, so it would otherwise outlive the Activity and leak onto
     // the one beneath as an input-absorbing modal — Android dismisses an
     // Activity's dialogs on destroy ("leaked window" prevention).
-    while crate::system::picodroid::graphics::widgets::dismiss_topmost_dialog() {}
+    while crate::graphics::widgets::dismiss_topmost_dialog() {}
     // Auto-unbind any Service connections this Activity owned — mirrors
     // Android's behaviour for an Activity destroyed while holding bindings.
     // Runs after the Activity's own onDestroy so the Activity can still call
@@ -832,7 +832,7 @@ fn handle_pop_op(
     // Tear down the popped Activity's keypad focus group and reactivate the
     // parent's (with its focus intact) — done after its view tree was deleted
     // above so the group is empty. No-op on boards without buttons.
-    crate::system::picodroid::graphics::lvgl::events::pop_activity_group();
+    crate::graphics::lvgl::events::pop_activity_group();
     // Restore the resumed parent's parked view, if any. Apps that build UI
     // in onCreate get their tree back without rebuilding; apps that rebuild
     // in onResume will replace it (the saved root will be deleted by
@@ -885,7 +885,7 @@ fn handle_pop_op(
     // of native allocations, another legitimate step the sentinel must not
     // judge against a stale baseline.
     #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::note_activity_transition();
+    crate::mem_diag::note_activity_transition();
     LifecycleControl::Continue
 }
 
@@ -895,11 +895,11 @@ fn handle_pop_op(
 #[cfg(not(test))]
 fn process_pending_op(
     jvm: &mut Jvm,
-    op: crate::system::native_handler::PendingOp,
+    op: crate::native_handler::PendingOp,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    use crate::system::native_handler::{PendingActivityOp, PendingOp};
+    use crate::native_handler::{PendingActivityOp, PendingOp};
 
     match op {
         PendingOp::Service(s) => {
@@ -930,10 +930,10 @@ fn process_pending_op(
 fn dispatch_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::lvgl::events;
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::lvgl::events;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_click_queue() {
         // Suppress this click if onTouch or a long-press consumed the gesture
@@ -963,9 +963,9 @@ fn dispatch_clicks(
 fn dispatch_animation_end_actions(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some(runnable_ref) = widgets::drain_completed_end_action() {
@@ -986,11 +986,11 @@ fn dispatch_animation_end_actions(
 fn dispatch_long_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
-    use crate::system::picodroid::graphics::lvgl::events;
+    use crate::graphics::lvgl::events;
 
     while let Some(handle) = widgets::drain_long_click_queue() {
         if let Some(obj_ref) = widgets::lookup_long_click_obj(handle) {
@@ -1020,9 +1020,9 @@ fn dispatch_long_clicks(
 fn dispatch_checked_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_checked_change_obj(handle) {
@@ -1045,9 +1045,9 @@ fn dispatch_checked_changes(
 fn dispatch_switch_checked_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_sw_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_sw_checked_change_obj(handle) {
@@ -1072,9 +1072,9 @@ fn dispatch_switch_checked_changes(
 fn dispatch_number_picker_steps(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some((handle, direction)) = widgets::drain_np_step_queue() {
@@ -1099,9 +1099,9 @@ fn dispatch_number_picker_steps(
 fn dispatch_checkbox_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_cb_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_cb_checked_change_obj(handle) {
@@ -1122,9 +1122,9 @@ fn dispatch_checkbox_changes(
 fn dispatch_radio_button_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_rb_checked_change_queue() {
         if let Some(obj_ref) = widgets::lookup_rb_checked_change_obj(handle) {
@@ -1147,9 +1147,9 @@ fn dispatch_radio_button_changes(
 fn dispatch_spinner_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_spinner_change_queue() {
         if let Some(obj_ref) = widgets::lookup_spinner_obj(handle) {
@@ -1174,9 +1174,9 @@ fn dispatch_spinner_changes(
 fn dispatch_alert_dialog_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some((dialog_handle, which)) = widgets::drain_dialog_click_queue() {
@@ -1200,9 +1200,9 @@ fn dispatch_alert_dialog_clicks(
 fn dispatch_alert_dialog_item_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some((dialog_handle, position, checked)) = widgets::drain_dialog_item_click_queue() {
@@ -1226,9 +1226,9 @@ fn dispatch_alert_dialog_item_clicks(
 fn dispatch_snackbar_action_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_snackbar_click_queue() {
         if let Some(obj_ref) = widgets::lookup_snackbar_obj(handle) {
@@ -1248,9 +1248,9 @@ fn dispatch_snackbar_action_clicks(
 fn dispatch_date_picker_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_date_picker_queue() {
         if let Some(obj_ref) = widgets::lookup_date_picker_obj(handle) {
@@ -1270,9 +1270,9 @@ fn dispatch_date_picker_changes(
 fn dispatch_swipe_refresh(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_refresh_queue() {
         if let Some(obj_ref) = widgets::lookup_refresh_obj(handle) {
@@ -1294,9 +1294,9 @@ fn dispatch_swipe_refresh(
 fn dispatch_swipe_events(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::lvgl::events;
+    use crate::graphics::lvgl::events;
     use pico_jvm::types::Value;
 
     while let Some(rec) = events::drain_swipe_event() {
@@ -1322,9 +1322,9 @@ fn dispatch_swipe_events(
 fn dispatch_list_view_item_clicks(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some(row) = widgets::drain_item_click_queue() {
@@ -1348,9 +1348,9 @@ fn dispatch_list_view_item_clicks(
 fn dispatch_view_focus_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::lvgl::events;
+    use crate::graphics::lvgl::events;
     use pico_jvm::types::Value;
 
     while let Some(rec) = events::drain_focus_change_event() {
@@ -1372,9 +1372,9 @@ fn dispatch_view_focus_changes(
 fn dispatch_time_picker_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_time_picker_queue() {
         if let Some(obj_ref) = widgets::lookup_time_picker_obj(handle) {
@@ -1445,13 +1445,13 @@ pub fn reset_dispatch_event_state() {
 #[cfg(not(test))]
 fn ensure_recycled_motion_event(
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
     if let Some(idx) = *recycled_motion_event() {
         return Some(idx);
     }
     let class = crate::shrink_names::shrink_class("picodroid/view/MotionEvent");
-    let n_fields = crate::system::picodroid::graphics::fields::motion_event::RAW_Y + 1;
+    let n_fields = crate::graphics::fields::motion_event::RAW_Y + 1;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
         None => {
@@ -1460,7 +1460,7 @@ fn ensure_recycled_motion_event(
         }
     };
     #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::note_native_alloc(1);
+    crate::mem_diag::note_native_alloc(1);
     *recycled_motion_event() = Some(idx);
     Some(idx)
 }
@@ -1473,9 +1473,9 @@ fn ensure_recycled_motion_event(
 fn dispatch_touch_events(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::lvgl::events;
+    use crate::graphics::lvgl::events;
     use pico_jvm::types::Value;
 
     // MotionEvent.ACTION_DOWN value (see MotionEvent.java).
@@ -1499,30 +1499,30 @@ fn dispatch_touch_events(
         let mut all_fields_set = true;
         for (slot, value) in [
             (
-                crate::system::picodroid::graphics::fields::motion_event::ACTION,
+                crate::graphics::fields::motion_event::ACTION,
                 Value::Int(rec.action),
             ),
             (
                 // getX/getY are view-relative: screen point minus the
                 // target's screen-absolute origin (Android semantics).
-                crate::system::picodroid::graphics::fields::motion_event::X,
+                crate::graphics::fields::motion_event::X,
                 Value::Int(rec.x - rec.origin_x),
             ),
             (
-                crate::system::picodroid::graphics::fields::motion_event::Y,
+                crate::graphics::fields::motion_event::Y,
                 Value::Int(rec.y - rec.origin_y),
             ),
             (
-                crate::system::picodroid::graphics::fields::motion_event::EVENT_TIME,
+                crate::graphics::fields::motion_event::EVENT_TIME,
                 Value::Long(rec.time_ms as i64),
             ),
             (
                 // getRawX/getRawY stay screen-absolute.
-                crate::system::picodroid::graphics::fields::motion_event::RAW_X,
+                crate::graphics::fields::motion_event::RAW_X,
                 Value::Int(rec.x),
             ),
             (
-                crate::system::picodroid::graphics::fields::motion_event::RAW_Y,
+                crate::graphics::fields::motion_event::RAW_Y,
                 Value::Int(rec.y),
             ),
         ] {
@@ -1580,9 +1580,9 @@ fn dispatch_touch_events(
 fn dispatch_key_events(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::lvgl::events;
+    use crate::graphics::lvgl::events;
 
     /// Mirrors `KeyEvent.ACTION_UP` and `KeyEvent.KEYCODE_BACK` on the
     /// Java side. Hard-coded because there's no enum bridge from Java to
@@ -1600,7 +1600,7 @@ fn dispatch_key_events(
         // 1) BACK release first tries to dismiss the system soft keyboard
         //    if it's visible. Consumed if so — Activity stays on screen.
         if keycode == KEYCODE_BACK && action == ACTION_UP {
-            use crate::system::picodroid::graphics::lvgl::widgets::keyboard;
+            use crate::graphics::lvgl::widgets::keyboard;
             if keyboard::hide_system() {
                 continue;
             }
@@ -1612,7 +1612,7 @@ fn dispatch_key_events(
         //     with no touch — and it stops the modal scrim from outliving its
         //     Activity. See project_picoenvmon_alertdialog_leak.
         if keycode == KEYCODE_BACK && action == ACTION_UP {
-            use crate::system::picodroid::graphics::widgets;
+            use crate::graphics::widgets;
             if widgets::has_shown_dialog() {
                 widgets::dismiss_topmost_dialog();
                 continue;
@@ -1664,14 +1664,14 @@ fn dispatch_key_events(
 /// Drain the per-instance Keyboard READY ring buffer and invoke
 /// `Keyboard.fireReady()` on each matching Java object. The system
 /// keyboard does *not* go through here — it self-hides on its own
-/// READY callback in [`crate::system::picodroid::graphics::lvgl::widgets::keyboard`].
+/// READY callback in [`crate::graphics::lvgl::widgets::keyboard`].
 #[cfg(not(test))]
 fn dispatch_keyboard_ready(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_keyboard_ready_queue() {
         if let Some(obj_ref) = widgets::lookup_keyboard_obj(handle) {
@@ -1691,14 +1691,14 @@ fn dispatch_keyboard_ready(
 /// Drain the system keyboard's pending editor-action and invoke
 /// `EditText.fireEditorAction(int)` on the bound Java object. Set by
 /// the system keyboard's OK callback in
-/// [`crate::system::picodroid::graphics::lvgl::widgets::keyboard`].
+/// [`crate::graphics::lvgl::widgets::keyboard`].
 #[cfg(not(test))]
 fn dispatch_editor_actions(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     if let Some(rec) = widgets::drain_editor_action() {
@@ -1723,7 +1723,7 @@ fn fire_view_key(
     keycode: i32,
     action: i32,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> bool {
     use pico_jvm::types::Value;
 
@@ -1735,7 +1735,7 @@ fn fire_view_key(
         .objects
         .set_field(
             event_obj,
-            crate::system::picodroid::graphics::fields::key_event::ACTION,
+            crate::graphics::fields::key_event::ACTION,
             Value::Int(action),
         )
         .is_none()
@@ -1746,7 +1746,7 @@ fn fire_view_key(
         .objects
         .set_field(
             event_obj,
-            crate::system::picodroid::graphics::fields::key_event::KEY_CODE,
+            crate::graphics::fields::key_event::KEY_CODE,
             Value::Int(keycode),
         )
         .is_none()
@@ -1785,13 +1785,13 @@ fn fire_view_key(
 #[cfg(not(test))]
 fn ensure_recycled_key_event(
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
     if let Some(idx) = *recycled_key_event() {
         return Some(idx);
     }
     let class = crate::shrink_names::shrink_class("picodroid/view/KeyEvent");
-    let n_fields = crate::system::picodroid::graphics::fields::key_event::KEY_CODE + 1;
+    let n_fields = crate::graphics::fields::key_event::KEY_CODE + 1;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
         None => {
@@ -1800,7 +1800,7 @@ fn ensure_recycled_key_event(
         }
     };
     #[cfg(feature = "mem-diag")]
-    crate::system::mem_diag::note_native_alloc(1);
+    crate::mem_diag::note_native_alloc(1);
     *recycled_key_event() = Some(idx);
     Some(idx)
 }
@@ -1813,9 +1813,9 @@ fn ensure_recycled_key_event(
 fn dispatch_seek_bar_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_seek_change_queue() {
         if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
@@ -1837,9 +1837,9 @@ fn dispatch_seek_bar_changes(
 fn dispatch_edit_text_changes(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_text_changed_queue() {
         if let Some(obj_ref) = widgets::lookup_text_watch_obj(handle) {
@@ -1860,9 +1860,9 @@ fn dispatch_edit_text_changes(
 fn dispatch_seek_bar_tracking(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::system::picodroid::graphics::widgets;
+    use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
     while let Some((handle, started)) = widgets::drain_seek_tracking_queue() {

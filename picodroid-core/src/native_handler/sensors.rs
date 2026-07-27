@@ -12,21 +12,13 @@ pub fn dispatch(
     let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         ("picodroid/hardware/SensorManager", "getDefaultSensor") => Some(
-            crate::system::picodroid::hardware::sensors::get_default_sensor(
-                ctx.args,
-                ctx.objects,
-                ctx.strings,
-            ),
+            crate::hardware::sensors::get_default_sensor(ctx.args, ctx.objects, ctx.strings),
         ),
         ("picodroid/hardware/SensorManager", "registerListener") => Some(
-            crate::system::picodroid::hardware::sensors::register_listener(
-                ctx.args,
-                ctx.objects,
-                ctx.arrays,
-            ),
+            crate::hardware::sensors::register_listener(ctx.args, ctx.objects, ctx.arrays),
         ),
         ("picodroid/hardware/SensorManager", "unregisterListener") => {
-            Some(crate::system::picodroid::hardware::sensors::unregister_listener(ctx.args))
+            Some(crate::hardware::sensors::unregister_listener(ctx.args))
         }
         _ => None,
     }

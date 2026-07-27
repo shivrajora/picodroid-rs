@@ -16,55 +16,29 @@
 //! thumbv6m (RP2040) has no atomic RMW instructions.
 //!
 //! Output rules: the monitor never allocates. Device output is `defmt` with
-//! scalar args; sim output is `println!` under [`crate::sim_allocator::bypass`]
+//! scalar args; sim output is `println!` under [`crate::host::heap_bypass`]
 //! so the report cannot perturb the arena numbers it is reporting.
 
 use pico_jvm::mem_diag::GrowthSentinel;
 use pico_jvm::SharedJvmHeap;
 
-use crate::system::native_handler::PicodroidNativeHandler;
+use crate::native_handler::PicodroidNativeHandler;
 
 /// Default monitor window when `PICODROID_MEMDIAG_WINDOW_MS` is unset (and
 /// the device value, which has no env). Keep >= 500 ms: the sampler shares
 /// the UI tick with the 50 ms slow-handler budget.
 const DEFAULT_WINDOW_MS: u32 = 1000;
 /// LVGL tick period the window cadence is derived from
-/// (`crate::system::executors::tick_source::TICK_PERIOD_MS`).
+/// (`crate::executors::tick_source::TICK_PERIOD_MS`).
 const TICK_MS: u32 = 16;
 /// GCs per window above which the distinct `GC-PRESSURE` alert fires —
 /// churn symptom even when the live floor stays flat (10 GCs/s at the
 /// default window = ~2560 allocs/s through the 256-alloc pacing threshold).
 const GC_PRESSURE_PER_WINDOW: u32 = 10;
 
-/// Simulated device heap size — same generated constant the sim allocator
-/// models; on device it equals FreeRTOS `configTOTAL_HEAP_SIZE` (both are
-/// generated from the mcu toml's `heap_kb`; see build.rs::emit_heap_config).
-#[cfg(not(feature = "sim"))]
-include!(concat!(env!("OUT_DIR"), "/heap_config.rs"));
-
-// ── FreeRTOS heap FFI (device only) ─────────────────────────────────────────
-
-/// Mirror of FreeRTOS `HeapStats_t` (heap_4.c). Field layout is fixed by
-/// FreeRTOS; `size_t` = u32 on ARM32. The sim's `sim_heap4::HeapStats` is
-/// the host-side mirror of the same numbers.
-#[cfg(not(feature = "sim"))]
-#[repr(C)]
-struct FreeRtosHeapStats {
-    available_heap_space_in_bytes: u32,
-    size_of_largest_free_block_in_bytes: u32,
-    size_of_smallest_free_block_in_bytes: u32,
-    number_of_free_blocks: u32,
-    minimum_ever_free_bytes_remaining: u32,
-    number_of_successful_allocations: u32,
-    number_of_successful_frees: u32,
-}
-
-#[cfg(not(feature = "sim"))]
-extern "C" {
-    fn xPortGetFreeHeapSize() -> u32;
-    fn xPortGetMinimumEverFreeHeapSize() -> u32;
-    fn vPortGetHeapStats(stats: *mut FreeRtosHeapStats);
-}
+// The device heap size constant and the FreeRTOS `HeapStats_t` FFI that used
+// to sit here moved to the platform's `PlatformHooks::native_heap_stats` —
+// see [`sample_native_heap`].
 
 // ── Monitor state (main task only) ──────────────────────────────────────────
 
@@ -251,7 +225,7 @@ pub fn apply_heap_flags(heap: &mut SharedJvmHeap) {
     }
     if env_flag("PICODROID_MEMDIAG_OFFENSIVE", false) {
         pico_jvm::mem_diag::set_offensive(true);
-        let _b = crate::sim_allocator::bypass();
+        let _b = crate::host::heap_bypass();
         println!(
             "[memmon] offensive checks ON (poison-on-free, GC poison check, \
              post-GC integrity sweep, allocator canaries)"
@@ -267,7 +241,7 @@ fn print_histo_top(heap: &SharedJvmHeap) {
         return;
     }
     let histo = heap.objects.alloc_histo();
-    let _b = crate::sim_allocator::bypass();
+    let _b = crate::host::heap_bypass();
     let mut entries: std::vec::Vec<(u32, u16)> = histo
         .iter()
         .enumerate()
@@ -296,42 +270,19 @@ struct NativeHeapSample {
     largest_free_block: u32,
 }
 
-#[cfg(feature = "sim")]
+/// Read the native heap through the platform hook.
+///
+/// Both arms of this used to live here — FreeRTOS accessors on device, the
+/// sim allocator's byte meter plus `heap_4` mirror in the simulator. Neither
+/// is shared code, so the split moved into `PlatformHooks`, and the monitor
+/// now formats one struct rather than reconciling two shapes.
 fn sample_native_heap() -> NativeHeapSample {
-    let (cur, _peak, limit) = crate::sim_allocator::heap_stats();
-    let (free, min_free, largest) = match crate::sim_allocator::heap4_stats() {
-        Some(h) => (h.free_bytes, h.min_ever_free_bytes, h.largest_free_block),
-        // Uncapped mode (-l 0): no arena, only the byte meter exists.
-        None => (
-            limit.saturating_sub(cur) as u32,
-            limit.saturating_sub(cur) as u32,
-            0,
-        ),
-    };
+    let s = crate::host::native_heap_stats();
     NativeHeapSample {
-        used: cur as u32,
-        free,
-        min_free,
-        largest_free_block: largest,
-    }
-}
-
-#[cfg(not(feature = "sim"))]
-fn sample_native_heap() -> NativeHeapSample {
-    // SAFETY: plain FreeRTOS accessors; vPortGetHeapStats fills the struct
-    // it is handed (layout mirrored from HeapStats_t above).
-    unsafe {
-        let free = xPortGetFreeHeapSize();
-        let min_free = xPortGetMinimumEverFreeHeapSize();
-        let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
-        vPortGetHeapStats(stats.as_mut_ptr());
-        let stats = stats.assume_init();
-        NativeHeapSample {
-            used: (DEVICE_HEAP_BYTES as u32).saturating_sub(free),
-            free,
-            min_free,
-            largest_free_block: stats.size_of_largest_free_block_in_bytes,
-        }
+        used: s.used_bytes as u32,
+        free: s.free_bytes as u32,
+        min_free: s.min_ever_free_bytes as u32,
+        largest_free_block: s.largest_free_block as u32,
     }
 }
 
@@ -364,7 +315,7 @@ fn print_report(
     let frag = frag_permille(native);
     #[cfg(feature = "sim")]
     {
-        let _b = crate::sim_allocator::bypass();
+        let _b = crate::host::heap_bypass();
         println!(
             "[memmon] w={} live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc=+{} freed=+{} alloc=+{} nalloc=+{} stri=+{} frag={}pm",
             window,
@@ -410,7 +361,7 @@ fn print_report(
 fn print_leak(kind: &'static str, r: &pico_jvm::mem_diag::LeakReport) {
     #[cfg(feature = "sim")]
     {
-        let _b = crate::sim_allocator::bypass();
+        let _b = crate::host::heap_bypass();
         println!(
             "[memmon] LEAK? {} floor rose +{} B over {} windows (baseline {} B, now {} B)",
             kind, r.delta, r.windows, r.baseline, r.now
@@ -458,7 +409,7 @@ pub fn on_tick(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         st.banner_shown = true;
         #[cfg(feature = "sim")]
         {
-            let _b = crate::sim_allocator::bypass();
+            let _b = crate::host::heap_bypass();
             println!(
                 "[memmon] memdiag: ACTIVE (window={}ms sentinel={} strict={})",
                 st.ticks_per_window * TICK_MS,
@@ -545,7 +496,7 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         st.prev_storage = storage;
         #[cfg(feature = "sim")]
         {
-            let _b = crate::sim_allocator::bypass();
+            let _b = crate::host::heap_bypass();
             println!(
                 "[memmon] storage w={} obj_chunks={} arr_chunks={} str_chunks={} fields_cap={} arena_cap={}",
                 st.window_index, storage.0, storage.1, storage.2, storage.3, storage.4
@@ -576,7 +527,7 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
     if gc_delta >= GC_PRESSURE_PER_WINDOW {
         #[cfg(feature = "sim")]
         {
-            let _b = crate::sim_allocator::bypass();
+            let _b = crate::host::heap_bypass();
             println!(
                 "[memmon] GC-PRESSURE {} GCs this window (alloc=+{} nalloc=+{}) — churn even if live is flat",
                 gc_delta, alloc_delta, native_alloc_delta
@@ -618,7 +569,7 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         }
         #[cfg(feature = "sim")]
         if tripped && st.strict {
-            let _b = crate::sim_allocator::bypass();
+            let _b = crate::host::heap_bypass();
             println!("[memmon] STRICT mode: aborting on sentinel trip");
             std::process::abort();
         }
@@ -649,7 +600,7 @@ pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
     let native = sample_native_heap();
     let (_, gc_count, gc_freed) = handler.gc_stats();
     {
-        let _b = crate::sim_allocator::bypass();
+        let _b = crate::host::heap_bypass();
         println!(
             "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} alloc={} nalloc={} stri={} frag={}pm",
             live,

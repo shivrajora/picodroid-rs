@@ -7,7 +7,7 @@ use pico_jvm::{
     NativeContext,
 };
 
-use crate::system::executors::{background_pool, main_queue};
+use crate::executors::{background_pool, main_queue};
 
 pub fn dispatch(
     class_name: &str,

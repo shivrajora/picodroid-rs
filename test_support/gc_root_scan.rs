@@ -94,10 +94,15 @@ fn registration_body(src_root: &Path) -> String {
 pub fn check(src_root: &Path, expected: usize) {
     let body = registration_body(src_root);
     let defined = defined_providers(src_root);
+    // Finding nothing is a broken scanner *only* if this crate is supposed to
+    // own providers. Once the extraction has moved them all to the other
+    // crate, `expected == 0` and an empty scan is the correct answer — the
+    // count assertion below still pins it, so a provider reappearing here
+    // unregistered is caught.
     assert!(
-        !defined.is_empty(),
-        "found no visit_*roots definitions under {} — the scanner is broken, \
-         not the code",
+        expected == 0 || !defined.is_empty(),
+        "found no visit_*roots definitions under {} but EXPECTED_PROVIDERS is \
+         {expected} — the scanner is broken, not the code",
         src_root.display()
     );
 

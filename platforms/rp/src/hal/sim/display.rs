@@ -424,7 +424,7 @@ fn handle_control_line(line: &str) {
         // Heap access belongs to the main task — just raise the request
         // flag; the monitor prints the snapshot on the next 16 ms tick.
         #[cfg(feature = "mem-diag")]
-        crate::system::mem_diag::request_memstats();
+        picodroid_core::mem_diag::request_memstats();
         #[cfg(not(feature = "mem-diag"))]
         println!("[sim] memstats: built without mem-diag (rebuild with sim.sh --mem-diag)");
         return;

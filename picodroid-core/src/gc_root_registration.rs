@@ -14,7 +14,7 @@
 /// Rises by exactly the amount the platform crate's `EXPECTED_PROVIDERS`
 /// falls whenever modules move. If only one of the two changes in a commit,
 /// a provider was dropped.
-pub const EXPECTED_PROVIDERS: usize = 14;
+pub const EXPECTED_PROVIDERS: usize = 17;
 
 /// Register every root provider owned by this crate.
 ///
@@ -25,7 +25,23 @@ pub const EXPECTED_PROVIDERS: usize = 14;
 /// [`crate::graphics::lvgl`] for why the LVGL-calling ones are gated.
 #[cfg(not(test))]
 pub fn register_all() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+
     use crate::gc_roots::{register, register_object_refs};
+
+    // Idempotent: `run_app` re-runs on a PDB app reload, and registering
+    // twice would both double-visit every root and exhaust
+    // `gc_roots::MAX_PROVIDERS` — which asserts rather than silently
+    // dropping. The providers are stateless `fn` pointers, so nothing needs
+    // re-registering when the app changes.
+    //
+    // A plain load/store rather than a compare-and-swap: thumbv6m has no
+    // CAS, and boot is single-threaded by construction.
+    static REGISTERED: AtomicBool = AtomicBool::new(false);
+    if REGISTERED.load(Ordering::Relaxed) {
+        return;
+    }
+    REGISTERED.store(true, Ordering::Relaxed);
     use crate::graphics::lvgl::{animations, events, widgets};
 
     // The Display singleton is cached by `getInstance`, so after the first
@@ -64,6 +80,14 @@ pub fn register_all() {
     // Animation end-actions hold the Runnable to fire on completion;
     // nothing on the Java side references it for the animation's duration.
     register_object_refs(animations::visit_end_action_roots);
+
+    // Sensor registrations hold the listener and the recycled SensorEvent;
+    // the Activity stack holds each live Activity object and its pending
+    // intents; bound services hold their connection objects. None of these
+    // is reachable from a Java field once native code is the only holder.
+    register(crate::hardware::sensors::visit_gc_roots);
+    register(crate::lifecycle::visit_gc_roots);
+    register(crate::service_lifecycle::visit_gc_roots);
 }
 
 /// Completeness guard — see [`gc_root_scan`] for what it catches and why it

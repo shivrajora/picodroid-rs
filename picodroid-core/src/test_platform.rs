@@ -545,6 +545,10 @@ impl PlatformHooks for TestHooks {
     fn native_heap_stats() -> NativeHeapStats {
         NativeHeapStats::default()
     }
+    /// Nothing to register: the test binary has no platform modules holding
+    /// Java object references, and `gc_root_registration::register_all` is
+    /// `cfg(not(test))` anyway.
+    fn register_gc_roots() {}
 }
 
 crate::set_platform_hooks!(TestHooks);

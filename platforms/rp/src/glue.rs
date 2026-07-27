@@ -1053,35 +1053,86 @@ impl PlatformHooks for PlatformHost {
         crate::sim_allocator::checkpoint(_label);
     }
 
+    /// This family owns no root providers today — every one lives in
+    /// picodroid-core. The call is kept rather than the list deleted so that
+    /// adding an RP-specific native module holding Java references is a
+    /// one-line change here, guarded by the completeness scan in
+    /// `gc_root_registration`.
+    fn register_gc_roots() {
+        crate::gc_root_registration::register_all();
+    }
+
+    // Both bodies moved here verbatim from `mem_diag::sample_native_heap`,
+    // which carried the sim/device split itself. Neither is shared code: one
+    // is FreeRTOS FFI, the other reads the simulator's own allocator.
     fn native_heap_stats() -> NativeHeapStats {
         #[cfg(any(test, feature = "sim"))]
         {
-            crate::sim_allocator::heap4_stats()
-                .map(|s| NativeHeapStats {
-                    free_bytes: s.free_bytes as usize,
-                    min_ever_free_bytes: s.min_ever_free_bytes as usize,
-                    alloc_count: s.successful_allocs as usize,
-                    free_count: s.successful_frees as usize,
-                })
-                .unwrap_or_default()
+            // Two independent sources in the simulator: the byte meter that
+            // models the device arena (used vs. cap), and the heap_4 mirror
+            // that reports block-level detail. Uncapped runs (`-l 0`) have no
+            // arena, so free is derived from the meter and fragmentation
+            // reports as unavailable.
+            let (cur, _peak, limit) = crate::sim_allocator::heap_stats();
+            match crate::sim_allocator::heap4_stats() {
+                Some(h) => NativeHeapStats {
+                    used_bytes: cur,
+                    free_bytes: h.free_bytes as usize,
+                    min_ever_free_bytes: h.min_ever_free_bytes as usize,
+                    largest_free_block: h.largest_free_block as usize,
+                },
+                None => NativeHeapStats {
+                    used_bytes: cur,
+                    free_bytes: limit.saturating_sub(cur),
+                    min_ever_free_bytes: limit.saturating_sub(cur),
+                    largest_free_block: 0,
+                },
+            }
         }
         #[cfg(not(any(test, feature = "sim")))]
         {
+            /// Mirror of FreeRTOS `HeapStats_t` (heap_4.c). Layout is fixed
+            /// by FreeRTOS; `size_t` = u32 on ARM32. The sim's
+            /// `sim_heap4::HeapStats` mirrors the same numbers host-side.
+            #[repr(C)]
+            struct FreeRtosHeapStats {
+                available_heap_space_in_bytes: u32,
+                size_of_largest_free_block_in_bytes: u32,
+                size_of_smallest_free_block_in_bytes: u32,
+                number_of_free_blocks: u32,
+                minimum_ever_free_bytes_remaining: u32,
+                number_of_successful_allocations: u32,
+                number_of_successful_frees: u32,
+            }
             extern "C" {
                 fn xPortGetFreeHeapSize() -> u32;
                 fn xPortGetMinimumEverFreeHeapSize() -> u32;
+                fn vPortGetHeapStats(stats: *mut FreeRtosHeapStats);
             }
-            // FreeRTOS's heap_4 does not expose alloc/free counters through
-            // these entry points; the memory monitor treats zero as "not
-            // reported" and falls back to the sysmon path.
-            NativeHeapStats {
-                free_bytes: unsafe { xPortGetFreeHeapSize() } as usize,
-                min_ever_free_bytes: unsafe { xPortGetMinimumEverFreeHeapSize() } as usize,
-                alloc_count: 0,
-                free_count: 0,
+            // SAFETY: plain FreeRTOS accessors; vPortGetHeapStats fills the
+            // struct it is handed (layout mirrored above).
+            unsafe {
+                let free = xPortGetFreeHeapSize();
+                let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
+                vPortGetHeapStats(stats.as_mut_ptr());
+                let stats = stats.assume_init();
+                NativeHeapStats {
+                    used_bytes: heap_cfg::DEVICE_HEAP_BYTES.saturating_sub(free as usize),
+                    free_bytes: free as usize,
+                    min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
+                    largest_free_block: stats.size_of_largest_free_block_in_bytes as usize,
+                }
             }
         }
     }
+}
+
+/// FreeRTOS `configTOTAL_HEAP_SIZE` for this board, so "used" can be
+/// reported as total-minus-free. The simulator gets the same number through
+/// `sim_allocator`, which includes the identical generated file.
+#[cfg(not(any(test, feature = "sim")))]
+mod heap_cfg {
+    include!(concat!(env!("OUT_DIR"), "/heap_config.rs"));
 }
 
 picodroid_core::set_platform_hooks!(PlatformHost);

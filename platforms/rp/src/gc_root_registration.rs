@@ -22,25 +22,24 @@
 /// that went with it, and the core-side constant rises by the same amount. A
 /// change here that is not matched there means a provider was dropped.
 #[cfg_attr(not(test), allow(dead_code))] // asserted by the guard below
-pub const EXPECTED_PROVIDERS: usize = 3;
+pub const EXPECTED_PROVIDERS: usize = 0;
 
-/// Register every root provider. Call before the first class load, and
-/// therefore before any GC can run.
+/// Register this family's root providers. Reached from `boot::run_app` via
+/// [`picodroid_core::host::PlatformHooks::register_gc_roots`], before the
+/// first class load and therefore before any GC can run.
 ///
-/// Idempotent: `run_jvm_with` re-runs on a PDB app reload, and registering
-/// twice would visit every root twice — harmless but wasteful. The providers
-/// themselves are stateless `fn` pointers, so nothing needs re-registering
-/// when the app changes. A plain load/store rather than a compare-and-swap:
-/// thumbv6m has no CAS, and boot is single-threaded by construction.
+/// Idempotent: `run_app` re-runs on a PDB app reload. Registering twice
+/// would double-visit every root and, past `gc_roots::MAX_PROVIDERS`, hit
+/// the registry-full assertion. The providers are stateless `fn` pointers,
+/// so nothing needs re-registering when the app changes. A plain load/store
+/// rather than a compare-and-swap: thumbv6m has no CAS, and boot is
+/// single-threaded by construction.
 ///
-/// `cfg(not(test))` because every module named below pulls in LVGL and the
-/// HAL. The completeness guard in this file's `tests` module is a source
-/// scan, so it still covers this list under `scripts/test.sh`.
-#[cfg(not(test))]
+/// No longer `cfg(not(test))`: with every provider moved to picodroid-core,
+/// the body names no LVGL or HAL module, and glue.rs calls it from an
+/// ungated hook impl.
 pub fn register_all() {
     use core::sync::atomic::{AtomicBool, Ordering};
-
-    use picodroid_core::gc_roots;
 
     static REGISTERED: AtomicBool = AtomicBool::new(false);
     if REGISTERED.load(Ordering::Relaxed) {
@@ -48,15 +47,9 @@ pub fn register_all() {
     }
     REGISTERED.store(true, Ordering::Relaxed);
 
-    // Providers owned by picodroid-core register themselves. Every LVGL
-    // listener map and the Display singleton now live there; what remains
-    // below is this crate's JVM-facing state.
-    picodroid_core::gc_root_registration::register_all();
-
-    // Modules that own their own native object references.
-    gc_roots::register(crate::system::picodroid::hardware::sensors::visit_gc_roots);
-    gc_roots::register(crate::service_lifecycle::visit_gc_roots);
-    gc_roots::register(crate::lifecycle::visit_gc_roots);
+    // Empty rather than deleted: a family that adds a native module holding
+    // Java object references registers it here, and the guard below keeps
+    // that honest. picodroid-core registers its own before this runs.
 }
 
 /// Completeness guard — see [`gc_root_scan`] for what it catches and why it

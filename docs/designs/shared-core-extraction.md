@@ -574,3 +574,81 @@ second gap found by converting the v1 doc-block contract into traits, after
 and drifted from the surface actually in use, whereas a trait bound cannot.
 Evidence for retiring the trait-covered assertions in stage 9 rather than
 keeping both.
+
+### A5 — stages 6 and 7 merged; the `system/` shim tree deleted (Stage 6)
+
+Third forced merge, and the clearest. `native_handler` reaches into
+`lifecycle`, `service_lifecycle` and `app` (8 references); those three reach
+back into `native_handler` 47 times. The thin direction could have been cut
+with function-pointer hooks, but both sides end up in picodroid-core
+regardless, so that indirection would have been permanent structure bought
+to split one commit. They moved together.
+
+Landed in two commits: the `HalFs` seam alone (stage 6a), then the move.
+
+**`crate::system::` is gone entirely.** The plan assumed re-export shims at
+the old paths, as earlier stages used. Once `native_handler` moved, only
+seven platform call sites still referred to `crate::system::…`, and the
+dispatch arms that motivated path preservation now live in picodroid-core
+pointing at `crate::graphics` directly. A shim tree inside the crate that no
+longer owns the code is cargo-culting, so those seven were repointed at
+`picodroid_core::…` and `platforms/rp/src/system/` deleted.
+
+**A double-registration bug, caught by a dead-code warning.** Moving
+`run_jvm_with` into `boot::run_app` silently rerouted GC-root registration:
+`run_app` called *picodroid-core's* `register_all`, so the platform's — which
+held the idempotence latch — became unreachable. `run_app` re-runs on PDB app
+reload, core's `register_all` had no latch, and 17 providers registered twice
+exceeds `MAX_PROVIDERS = 32`, which asserts. The fix is both halves: the latch
+moved into core's `register_all`, and `PlatformHooks` gained
+`register_gc_roots()` so a family's own providers are still reached. Core
+registers its own first, so a family that gets the hook wrong loses only its
+own providers, never the framework's. The method is required rather than
+defaulted — an empty body is then a decision rather than an unasked question.
+
+**BLD-02 reaches 0.** `native_handler::interrupted` was three cfg arms
+(debug bridge on device, `false` without one, no override in sim); the
+platform hook already draws exactly that line, so it collapsed to
+`host::stop_requested()`. That was the last `not(feature = "family-rp")`
+gate. `scripts/pre-commit` now expects zero and says why: a new occurrence is
+shared code guessing at the platform instead of asking it.
+
+`NativeHeapStats` was reshaped to the four values `mem_diag` actually prints
+(`used_bytes`, `free_bytes`, `min_ever_free_bytes`, `largest_free_block`),
+dropping `alloc_count`/`free_count`, which nothing read. Both arms of
+`sample_native_heap` — FreeRTOS FFI on device, the sim allocator's byte meter
+plus `heap_4` mirror — moved into the platform hook, so the monitor formats
+one struct instead of reconciling two shapes.
+
+`util/log.rs` keeps its own `feature = "sim"` arms rather than converting to
+`pd_log`: it is the `picodroid.util.Log` native and its simulator arm writes
+`[Tag] message` to **stdout**, which is what every example app emits and what
+the sim-test harness greps. `pd_log` writes to stderr. Four error sites in
+`boot.rs` keep hand-paired arms for a different reason — the papk error type
+implements `Debug`/`Display` but not `defmt::Format`, so a `pd_error!` would
+not compile on the device arm.
+
+**Exactly one crate may drive the JVM.** The RP2040 flash gate caught this:
+after the move the image overflowed FLASH by 24.6 KB, `.text` up 32.9 KB.
+The cause was not the moved code — the modules roughly broke even, and
+`graphics` shrank — but `pico_jvm`, up 35.5 KB. Symbol-level diff:
+**23 duplicated symbols, 37.9 KB**, led by `pico_jvm::interpreter::execute`
+codegen'd twice at 12.7 KB a copy. At the previous commit there was one
+trivial duplicate.
+
+The second instantiation was `bg_worker`, the background-pool worker loop.
+It builds a `Jvm` and invokes bytecode, and it had stayed in the platform
+crate because it needed the class loader and shared heap — which this stage
+moved. With `codegen-units = 1` and no LTO, two crates instantiating the
+interpreter get two copies of it. Moving `bg_worker` into picodroid-core
+turned a 24.6 KB overflow into `.text` **4.2 KB smaller than before the
+stage**, with duplicates back to one.
+
+Two things follow. For the porting guide: a family crate must not drive the
+JVM — it registers seams and hands off to `boot::run_app`. And LTO is not
+the escape hatch; measured on this build, `lto = "thin"` costs a further
+25 KB and `lto = "fat"` 13 KB over no LTO, so the existing
+"LTO makes the image bigger" note survives the crate split.
+
+After this stage `platforms/rp/src` is ~11.4k LOC, matching §5's predicted
+end state and file list.

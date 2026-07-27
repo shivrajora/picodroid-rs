@@ -289,7 +289,7 @@ pub fn register_listener(
                 .alloc(pico_jvm::array_heap::ATYPE_FLOAT, 1)
                 .ok_or(JvmError::StackOverflow)?;
             #[cfg(feature = "mem-diag")]
-            crate::system::mem_diag::note_native_alloc(2); // event_obj + values_arr
+            crate::mem_diag::note_native_alloc(2); // event_obj + values_arr
             objects
                 .set_field(
                     event_obj,
@@ -408,7 +408,7 @@ const MAX_DELIVERIES_PER_TICK: u32 = 1;
 pub fn drain_sensor_events(
     jvm: &mut pico_jvm::Jvm,
     heap: &mut pico_jvm::SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
     let st = state();
 
@@ -562,7 +562,7 @@ pub fn drain_sensor_events(
 fn deliver_event(
     jvm: &mut pico_jvm::Jvm,
     heap: &mut pico_jvm::SharedJvmHeap,
-    handler: &mut crate::system::native_handler::PicodroidNativeHandler,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
     listener_obj: u16,
     event_obj: u16,
     values_arr: u16,
