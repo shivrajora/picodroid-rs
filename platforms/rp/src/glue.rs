@@ -251,6 +251,111 @@ impl picodroid_core::hal::HalUart for Platform {
     }
 }
 
+/// LittleFS, on flash for device builds and a host-file image for the
+/// simulator — `crate::fs` already routes between the two, so this arm is
+/// shared. Each call re-resolves the path inside `with_fs`, whose closure
+/// borrows the filesystem for exactly the operation's duration; that is why
+/// [`HalFs`](picodroid_core::hal::HalFs) hands out no file handles.
+///
+/// `with_fs` returns `None` when the filesystem is unavailable, which folds
+/// into the same "failed" value the Java API reports.
+#[cfg(not(test))]
+impl picodroid_core::hal::HalFs for Platform {
+    fn exists(path: &str) -> bool {
+        crate::fs::with_fs(|fs| fs.exists(path)).unwrap_or(false)
+    }
+
+    fn is_file(path: &str) -> bool {
+        crate::fs::with_fs(|fs| {
+            matches!(
+                fs.stat(path).map(|m| m.file_type),
+                Ok(littlefs_rust::FileType::File)
+            )
+        })
+        .unwrap_or(false)
+    }
+
+    fn is_dir(path: &str) -> bool {
+        crate::fs::with_fs(|fs| {
+            matches!(
+                fs.stat(path).map(|m| m.file_type),
+                Ok(littlefs_rust::FileType::Dir)
+            )
+        })
+        .unwrap_or(false)
+    }
+
+    fn length(path: &str) -> i64 {
+        crate::fs::with_fs(|fs| fs.stat(path).map(|m| m.size as i64).unwrap_or(0)).unwrap_or(0)
+    }
+
+    fn delete(path: &str) -> bool {
+        crate::fs::with_fs(|fs| fs.remove(path).is_ok()).unwrap_or(false)
+    }
+
+    fn mkdir(path: &str) -> bool {
+        crate::fs::with_fs(|fs| fs.mkdir(path).is_ok()).unwrap_or(false)
+    }
+
+    fn rename(from: &str, to: &str) -> bool {
+        crate::fs::with_fs(|fs| fs.rename(from, to).is_ok()).unwrap_or(false)
+    }
+
+    fn truncate(path: &str) {
+        let _ = crate::fs::with_fs(|fs| fs.write_file(path, &[]));
+    }
+
+    fn read_at(path: &str, pos: u64, out: &mut alloc::vec::Vec<u8>, len: usize) -> i32 {
+        crate::fs::with_fs(|fs| {
+            let file = match fs.open(path, littlefs_rust::OpenFlags::READ) {
+                Ok(f) => f,
+                Err(_) => return -1i32,
+            };
+            if file
+                .seek(littlefs_rust::SeekFrom::Start(pos as u32))
+                .is_err()
+            {
+                return -1;
+            }
+            let mut tmp = alloc::vec![0u8; len];
+            match file.read(&mut tmp) {
+                Ok(n) => {
+                    out.extend_from_slice(&tmp[..n as usize]);
+                    n as i32
+                }
+                Err(_) => -1,
+            }
+        })
+        .unwrap_or(-1)
+    }
+
+    fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
+        crate::fs::with_fs(|fs| {
+            let file = match fs.open(
+                path,
+                littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE,
+            ) {
+                Ok(f) => f,
+                Err(_) => return -1i32,
+            };
+            if file
+                .seek(littlefs_rust::SeekFrom::Start(pos as u32))
+                .is_err()
+            {
+                return -1;
+            }
+            match file.write(data) {
+                Ok(n) => {
+                    let _ = file.sync();
+                    n as i32
+                }
+                Err(_) => -1,
+            }
+        })
+        .unwrap_or(-1)
+    }
+}
+
 picodroid_core::set_hal! {
     display = Platform,
     gpio    = Platform,
@@ -262,6 +367,12 @@ picodroid_core::set_hal! {
     spi     = Platform,
     uart    = Platform,
 }
+
+// Registered separately from the umbrella above: `crate::fs` is
+// `cfg(not(test))`, so the host-test build of this crate genuinely has no
+// filesystem to bind. Same shape as the network arm below.
+#[cfg(not(test))]
+picodroid_core::set_hal_fs!(Platform);
 
 #[cfg(has_network)]
 mod net_glue {

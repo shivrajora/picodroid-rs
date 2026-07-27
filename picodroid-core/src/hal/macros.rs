@@ -476,3 +476,62 @@ macro_rules! set_hal {
         $crate::set_hal_uart!($uart);
     };
 }
+
+/// Bind [`HalFs`](crate::hal::HalFs) to `$t`.
+///
+/// Separate from [`set_hal`] rather than folded into it, because storage is
+/// conditional the way networking is: a platform that has no filesystem in a
+/// given build simply does not invoke this. The RP crate's `mod fs` is
+/// `cfg(not(test))`, so its host-test build is exactly that case.
+#[macro_export]
+macro_rules! set_hal_fs {
+    ($t:ty) => {
+        const _: () = {
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_exists(path: &str) -> bool {
+                <$t as $crate::hal::HalFs>::exists(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_is_file(path: &str) -> bool {
+                <$t as $crate::hal::HalFs>::is_file(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_is_dir(path: &str) -> bool {
+                <$t as $crate::hal::HalFs>::is_dir(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_length(path: &str) -> i64 {
+                <$t as $crate::hal::HalFs>::length(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_delete(path: &str) -> bool {
+                <$t as $crate::hal::HalFs>::delete(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_mkdir(path: &str) -> bool {
+                <$t as $crate::hal::HalFs>::mkdir(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_rename(from: &str, to: &str) -> bool {
+                <$t as $crate::hal::HalFs>::rename(from, to)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_truncate(path: &str) {
+                <$t as $crate::hal::HalFs>::truncate(path)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_read_at(
+                path: &str,
+                pos: u64,
+                out: &mut ::alloc::vec::Vec<u8>,
+                len: usize,
+            ) -> i32 {
+                <$t as $crate::hal::HalFs>::read_at(path, pos, out, len)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
+                <$t as $crate::hal::HalFs>::write_at(path, pos, data)
+            }
+        };
+    };
+}

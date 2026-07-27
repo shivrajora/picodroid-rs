@@ -159,3 +159,32 @@ pub trait HalNet {
     fn get_ip_address() -> u32;
     fn dns_resolve(hostname: &str) -> Result<u32, NetError>;
 }
+
+/// Persistent storage behind `picodroid.io.File` and friends.
+///
+/// Deliberately path-in / value-out with no handle type: LittleFS on the
+/// device wants a borrow of its filesystem for the duration of each
+/// operation (`with_fs(|fs| …)`), and a `File` handle crossing the seam
+/// would either outlive that borrow or force the platform to keep a handle
+/// table. Every call re-resolves the path instead, which is what the natives
+/// did before the extraction.
+///
+/// Failures are folded into the return value the same way the Java API
+/// reports them — `false`, `0`, or `-1` — because `java.io.File`'s
+/// predicates cannot throw.
+pub trait HalFs {
+    fn exists(path: &str) -> bool;
+    fn is_file(path: &str) -> bool;
+    fn is_dir(path: &str) -> bool;
+    /// Size in bytes, or 0 if absent — matching `File.length()`.
+    fn length(path: &str) -> i64;
+    fn delete(path: &str) -> bool;
+    fn mkdir(path: &str) -> bool;
+    fn rename(from: &str, to: &str) -> bool;
+    fn truncate(path: &str);
+    /// Append up to `len` bytes from `pos` onto `out`. Returns bytes read,
+    /// 0 at EOF, or -1 on error.
+    fn read_at(path: &str, pos: u64, out: &mut alloc::vec::Vec<u8>, len: usize) -> i32;
+    /// Returns bytes written, or -1 on error. Creates the file if absent.
+    fn write_at(path: &str, pos: u64, data: &[u8]) -> i32;
+}

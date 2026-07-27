@@ -166,6 +166,85 @@ impl crate::hal::HalUart for TestHal {
     }
 }
 
+/// In-memory filesystem, so `File` natives are testable without LittleFS or
+/// a host image. This is the backend `native_handler/io.rs` carries in its
+/// own `cfg(test)` module today; it lands here so that when io.rs moves into
+/// this crate its tests keep a real backend to run against.
+impl crate::hal::HalFs for TestHal {
+    fn exists(path: &str) -> bool {
+        store().lock().expect("test fs poisoned").contains_key(path)
+    }
+    fn is_file(path: &str) -> bool {
+        <Self as crate::hal::HalFs>::exists(path)
+    }
+    fn is_dir(_path: &str) -> bool {
+        false
+    }
+    fn length(path: &str) -> i64 {
+        store()
+            .lock()
+            .expect("test fs poisoned")
+            .get(path)
+            .map(|v| v.len() as i64)
+            .unwrap_or(0)
+    }
+    fn delete(path: &str) -> bool {
+        store()
+            .lock()
+            .expect("test fs poisoned")
+            .remove(path)
+            .is_some()
+    }
+    fn mkdir(_path: &str) -> bool {
+        true
+    }
+    fn rename(from: &str, to: &str) -> bool {
+        let mut s = store().lock().expect("test fs poisoned");
+        if let Some(data) = s.remove(from) {
+            s.insert(to.to_string(), data);
+            true
+        } else {
+            false
+        }
+    }
+    fn truncate(path: &str) {
+        store()
+            .lock()
+            .expect("test fs poisoned")
+            .insert(path.to_string(), Vec::new());
+    }
+    fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
+        let s = store().lock().expect("test fs poisoned");
+        let Some(v) = s.get(path) else {
+            return -1;
+        };
+        let start = pos as usize;
+        if start >= v.len() {
+            return 0;
+        }
+        let end = (start + len).min(v.len());
+        out.extend_from_slice(&v[start..end]);
+        (end - start) as i32
+    }
+    fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
+        let mut s = store().lock().expect("test fs poisoned");
+        let entry = s.entry(path.to_string()).or_default();
+        let start = pos as usize;
+        if entry.len() < start + data.len() {
+            entry.resize(start + data.len(), 0);
+        }
+        entry[start..start + data.len()].copy_from_slice(data);
+        data.len() as i32
+    }
+}
+
+fn store() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>> {
+    static STORE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+    > = std::sync::OnceLock::new();
+    STORE.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()))
+}
+
 crate::set_hal! {
     display = TestHal,
     gpio    = TestHal,
@@ -177,6 +256,8 @@ crate::set_hal! {
     spi     = TestHal,
     uart    = TestHal,
 }
+
+crate::set_hal_fs!(TestHal);
 
 #[cfg(has_network)]
 mod net_stub {

@@ -416,3 +416,52 @@ pub mod net {
         unsafe { __pd_hal_net_dns_resolve(hostname) }
     }
 }
+
+/// Filesystem — see [`crate::hal::HalFs`] for why this is path-in / value-out.
+pub mod fs {
+    use alloc::vec::Vec;
+
+    extern "Rust" {
+        fn __pd_hal_fs_exists(path: &str) -> bool;
+        fn __pd_hal_fs_is_file(path: &str) -> bool;
+        fn __pd_hal_fs_is_dir(path: &str) -> bool;
+        fn __pd_hal_fs_length(path: &str) -> i64;
+        fn __pd_hal_fs_delete(path: &str) -> bool;
+        fn __pd_hal_fs_mkdir(path: &str) -> bool;
+        fn __pd_hal_fs_rename(from: &str, to: &str) -> bool;
+        fn __pd_hal_fs_truncate(path: &str);
+        fn __pd_hal_fs_read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32;
+        fn __pd_hal_fs_write_at(path: &str, pos: u64, data: &[u8]) -> i32;
+    }
+
+    pub fn exists(path: &str) -> bool {
+        unsafe { __pd_hal_fs_exists(path) }
+    }
+    pub fn is_file(path: &str) -> bool {
+        unsafe { __pd_hal_fs_is_file(path) }
+    }
+    pub fn is_dir(path: &str) -> bool {
+        unsafe { __pd_hal_fs_is_dir(path) }
+    }
+    pub fn length(path: &str) -> i64 {
+        unsafe { __pd_hal_fs_length(path) }
+    }
+    pub fn delete(path: &str) -> bool {
+        unsafe { __pd_hal_fs_delete(path) }
+    }
+    pub fn mkdir(path: &str) -> bool {
+        unsafe { __pd_hal_fs_mkdir(path) }
+    }
+    pub fn rename(from: &str, to: &str) -> bool {
+        unsafe { __pd_hal_fs_rename(from, to) }
+    }
+    pub fn truncate(path: &str) {
+        unsafe { __pd_hal_fs_truncate(path) }
+    }
+    pub fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
+        unsafe { __pd_hal_fs_read_at(path, pos, out, len) }
+    }
+    pub fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
+        unsafe { __pd_hal_fs_write_at(path, pos, data) }
+    }
+}

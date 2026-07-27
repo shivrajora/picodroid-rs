@@ -252,100 +252,14 @@ fn store_bytes_into_array(
     Ok(bytes.len())
 }
 
-// ── backend: real LittleFS for sim + hardware, in-memory map for unit tests ─
+// ── backend: the HalFs seam for sim + hardware, in-memory map for unit tests ─
 
+// The LittleFS body that used to live here is now this family's `HalFs` impl
+// in `glue.rs`. Routing through the seam means these natives move to
+// picodroid-core without carrying `crate::fs` — and a future family supplies
+// storage by implementing one trait rather than editing this file.
 #[cfg(not(test))]
-mod backend {
-    use alloc::vec::Vec;
-    use littlefs_rust::{OpenFlags, SeekFrom};
-
-    use crate::fs::with_fs;
-
-    pub fn exists(path: &str) -> bool {
-        with_fs(|fs| fs.exists(path)).unwrap_or(false)
-    }
-
-    pub fn is_file(path: &str) -> bool {
-        with_fs(|fs| {
-            matches!(
-                fs.stat(path).map(|m| m.file_type),
-                Ok(littlefs_rust::FileType::File)
-            )
-        })
-        .unwrap_or(false)
-    }
-
-    pub fn is_dir(path: &str) -> bool {
-        with_fs(|fs| {
-            matches!(
-                fs.stat(path).map(|m| m.file_type),
-                Ok(littlefs_rust::FileType::Dir)
-            )
-        })
-        .unwrap_or(false)
-    }
-
-    pub fn length(path: &str) -> i64 {
-        with_fs(|fs| fs.stat(path).map(|m| m.size as i64).unwrap_or(0)).unwrap_or(0)
-    }
-
-    pub fn delete(path: &str) -> bool {
-        with_fs(|fs| fs.remove(path).is_ok()).unwrap_or(false)
-    }
-
-    pub fn mkdir(path: &str) -> bool {
-        with_fs(|fs| fs.mkdir(path).is_ok()).unwrap_or(false)
-    }
-
-    pub fn rename(from: &str, to: &str) -> bool {
-        with_fs(|fs| fs.rename(from, to).is_ok()).unwrap_or(false)
-    }
-
-    pub fn truncate(path: &str) {
-        let _ = with_fs(|fs| fs.write_file(path, &[]));
-    }
-
-    pub fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
-        with_fs(|fs| {
-            let file = match fs.open(path, OpenFlags::READ) {
-                Ok(f) => f,
-                Err(_) => return -1i32,
-            };
-            if file.seek(SeekFrom::Start(pos as u32)).is_err() {
-                return -1;
-            }
-            let mut tmp = alloc::vec![0u8; len];
-            match file.read(&mut tmp) {
-                Ok(n) => {
-                    out.extend_from_slice(&tmp[..n as usize]);
-                    n as i32
-                }
-                Err(_) => -1,
-            }
-        })
-        .unwrap_or(-1)
-    }
-
-    pub fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
-        with_fs(|fs| {
-            let file = match fs.open(path, OpenFlags::WRITE | OpenFlags::CREATE) {
-                Ok(f) => f,
-                Err(_) => return -1i32,
-            };
-            if file.seek(SeekFrom::Start(pos as u32)).is_err() {
-                return -1;
-            }
-            match file.write(data) {
-                Ok(n) => {
-                    let _ = file.sync();
-                    n as i32
-                }
-                Err(_) => -1,
-            }
-        })
-        .unwrap_or(-1)
-    }
-}
+use picodroid_core::hal::fs as backend;
 
 #[cfg(test)]
 mod backend {
