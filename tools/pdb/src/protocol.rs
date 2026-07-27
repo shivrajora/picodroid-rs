@@ -1,52 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! Host side of PDBP: the wire constants and framing come from the shared
+//! `pdb-protocol` crate, this module adds the blocking `std` I/O around them.
+//!
+//! The constants used to be restated here and annotated "mirrors the device
+//! constant". They are now the same definitions the firmware compiles, so
+//! host and device cannot drift.
+
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
-pub const FRAME_MAGIC: &[u8; 4] = b"PDBP";
-pub const CMD_PING: u8 = 0x00;
-pub const CMD_INSTALL: u8 = 0x01;
-pub const CMD_SYSMON: u8 = 0x02;
-/// Inject a synthetic input event — mirrors the device constant. See the
-/// device `pdb::protocol` and `pdb input` (Android `adb shell input` analog).
-pub const CMD_INPUT: u8 = 0x03;
-
-// ── CMD_INPUT payload subtypes (first payload byte) ──────────────────────────
-pub const INPUT_KEY: u8 = 0x01;
-pub const INPUT_TAP: u8 = 0x02;
-pub const INPUT_SWIPE: u8 = 0x03;
-
-/// CMD_INPUT KEY `meta` values. The CLI only emits `DOWN_UP`; `DOWN`/`UP`
-/// complete the wire contract (mirrors the device) for held-key use.
-pub const KEY_META_DOWN_UP: u8 = 0;
-#[allow(dead_code)]
-pub const KEY_META_DOWN: u8 = 1;
-#[allow(dead_code)]
-pub const KEY_META_UP: u8 = 2;
-pub const STATUS_OK: u8 = 0x00;
-pub const STATUS_READY: u8 = 0x01; // device erased flash, ready to receive data stream
-pub const STATUS_ERR: u8 = 0xFF;
-pub const STATUS_TOO_LARGE: u8 = 0xFE;
-pub const STATUS_CRC_FAIL: u8 = 0xFD;
-/// Device refused the install: PAPK's framework-map-version is incompatible
-/// with the running firmware. Returned in install Phase A *before* any
-/// flash erase, so the existing PAPK on-device is unaffected.
-pub const STATUS_INCOMPAT: u8 = 0xFC;
-
-/// Number of PAPK bytes the host sends inline immediately after the install
-/// header (Phase A) — must match the device's `INSTALL_PEEK_BYTES`
-/// constant. Lets the device peek the manifest section before erasing
-/// flash. The remaining `papk_len - INSTALL_PEEK_BYTES` bytes (if any)
-/// stream after STATUS_READY.
-pub const INSTALL_PEEK_BYTES: usize = 512;
-
-/// CRC32 over [cmd byte][4-byte len LE][payload] — mirrors firmware crc32_frame.
-pub fn crc32_frame(cmd: u8, len: u32, payload: &[u8]) -> u32 {
-    let mut h = crc32fast::Hasher::new();
-    h.update(&[cmd]);
-    h.update(&len.to_le_bytes());
-    h.update(payload);
-    h.finalize()
-}
+pub use pdb_protocol::*;
 
 /// Send a standard PDBP request frame (magic + cmd + len + payload + CRC32).
 /// Used for CMD_PING and similar framed commands.
@@ -142,52 +105,9 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    // ── CRC correctness ───────────────────────────────────────────────────────
-
-    /// The device streaming handler feeds the PAPK to the CRC in 256-byte
-    /// chunks (page-sized writes).  Verify that the host's single-shot
-    /// `crc32_frame` produces the same value so installs never fail with
-    /// STATUS_CRC_FAIL due to a hasher mismatch.
-    #[test]
-    fn crc_single_shot_matches_chunked() {
-        let papk = b"PAPK0123456789abcdefghijklmnopqrstuvwxyz".repeat(20); // 800 bytes
-        let len = papk.len() as u32;
-
-        // Host: single-shot (what send_install_data computes)
-        let single_shot = crc32_frame(CMD_INSTALL, len, &papk);
-
-        // Device: incremental, 256-byte pages (mirrors task.rs streaming handler)
-        let mut h = crc32fast::Hasher::new();
-        h.update(&[CMD_INSTALL]);
-        h.update(&len.to_le_bytes());
-        for chunk in papk.chunks(256) {
-            h.update(chunk);
-        }
-        let chunked = h.finalize();
-
-        assert_eq!(single_shot, chunked);
-    }
-
-    #[test]
-    fn crc_is_deterministic() {
-        let a = crc32_frame(CMD_INSTALL, 6, b"foobar");
-        let b = crc32_frame(CMD_INSTALL, 6, b"foobar");
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn crc_differs_on_different_payload() {
-        let a = crc32_frame(CMD_INSTALL, 6, b"foobar");
-        let b = crc32_frame(CMD_INSTALL, 6, b"foobaz");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn crc_differs_on_different_cmd() {
-        let a = crc32_frame(CMD_PING, 6, b"foobar");
-        let b = crc32_frame(CMD_INSTALL, 6, b"foobar");
-        assert_ne!(a, b);
-    }
+    // CRC properties — single-shot vs the device's 256-byte chunking, and
+    // coverage of cmd/len/payload — are pinned in `pdb-protocol`, which both
+    // ends now compile. What is left here is the host's `std` framing.
 
     // ── send_install_header ───────────────────────────────────────────────────
 

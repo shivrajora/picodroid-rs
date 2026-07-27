@@ -11,6 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 serialport = "4"
-crc32fast = "1"
 compat = { path = "../../compat" }
 papk-format = { path = "../../papk-format" }
+pdb-protocol = { path = "../../pdb-protocol" }

@@ -2,12 +2,12 @@
 use core::sync::atomic::Ordering;
 
 use freertos_rust::{CurrentTask, Duration};
-
-use super::pending;
-use super::protocol::{
+use pdb_protocol::{
     FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
     STATUS_TOO_LARGE,
 };
+
+use super::pending;
 use crate::packagemanager::install::CoreCoordinator;
 use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
 

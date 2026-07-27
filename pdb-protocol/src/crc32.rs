@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Streaming IEEE CRC-32 over a 16-entry (64-byte) nibble table.
 //!
-//! Replaces the `crc32fast` dependency in firmware: its slicing-by-16
-//! implementation carries a 16 KiB lookup table in `.rodata` — ~1.8% of the
-//! RP2040's 896K program region — buying throughput this firmware never
-//! needs (PDB USB frames are small and PAPK install verification is a
-//! one-shot pass). The nibble table costs ~20 cycles/byte on an M0+, and
-//! the result is bit-identical to any IEEE CRC-32 (the host `pdb` tool's
-//! `crc32fast`, zlib, …), so device and host frames keep agreeing.
+//! Replaces the `crc32fast` dependency on both ends of the wire. In firmware
+//! that crate's slicing-by-16 implementation carries a 16 KiB lookup table in
+//! `.rodata` — ~1.8% of the RP2040's 896K program region — buying throughput
+//! this protocol never needs (PDB frames are small and PAPK install
+//! verification is a one-shot pass). The nibble table costs ~20 cycles/byte
+//! on an M0+.
+//!
+//! The host `pdb` CLI now uses this same implementation rather than its own
+//! hasher: the property that matters is that both ends produce identical
+//! bytes, and sharing the code makes that true by construction instead of by
+//! two independent implementations of the same standard. `known_vectors`
+//! still pins it to IEEE CRC-32 (zlib, `crc32fast`, …) so the format stays
+//! interoperable with anything else that speaks it.
 
 const POLY: u32 = 0xEDB8_8320; // IEEE, reflected
 
@@ -33,8 +39,8 @@ const fn build_table() -> [u32; 16] {
     table
 }
 
-/// Incremental IEEE CRC-32 hasher (drop-in for `crc32fast::Hasher` at the
-/// two firmware call sites: `new` → `update`* → `finalize`).
+/// Incremental IEEE CRC-32 hasher (drop-in for `crc32fast::Hasher`:
+/// `new` → `update`* → `finalize`).
 pub struct Crc32 {
     state: u32,
 }

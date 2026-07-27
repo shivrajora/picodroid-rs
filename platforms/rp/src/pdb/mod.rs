@@ -5,10 +5,6 @@ mod cdc_transport;
 mod input;
 #[cfg(not(any(test, feature = "sim")))]
 pub mod pending;
-// Protocol constants (status codes, INSTALL_PEEK_BYTES) are unconditionally
-// available so non-pdb code (e.g. packagemanager::install) can reference
-// them without a feature gate.
-pub(crate) mod protocol;
 #[cfg(not(any(test, feature = "sim")))]
 pub mod sysmon;
 #[cfg(not(any(test, feature = "sim")))]

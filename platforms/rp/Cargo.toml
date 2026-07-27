@@ -49,6 +49,7 @@ sim = ["picodroid-core/sim"]
 picodroid-core = { path = "../../picodroid-core" }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
+pdb-protocol = { path = "../../pdb-protocol" }
 compat = { path = "../../compat" }
 embedded-hal = { version = "1.0.0" }
 defmt = "1"

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use super::cdc_transport::{CdcTransport, PdbCoreCoordinator};
-use super::protocol::{
+use pdb_protocol::{
     crc32_frame, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL,
     STATUS_ERR, STATUS_OK,
 };
+
+use super::cdc_transport::{CdcTransport, PdbCoreCoordinator};
 
 // ── Low-level helpers ─────────────────────────────────────────────────────────
 

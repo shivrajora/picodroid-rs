@@ -3,9 +3,9 @@ use core::ffi::c_void;
 use core::mem::MaybeUninit;
 
 use freertos_rust::{freertos_rs_xTaskGetTickCount, FreeRtosUBaseType};
+use pdb_protocol::{crc32_frame, CMD_SYSMON, STATUS_CRC_FAIL, STATUS_OK};
 
 use super::cdc_transport::CdcTransport;
-use super::protocol::{crc32_frame, CMD_SYSMON, STATUS_CRC_FAIL, STATUS_OK};
 
 // ── FFI ─────────────────────────────────────────────────────────────────────
 

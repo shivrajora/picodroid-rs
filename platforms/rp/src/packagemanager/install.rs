@@ -3,16 +3,22 @@ use core::cell::UnsafeCell;
 
 use super::transport::{InstallError, InstallTransport, ReadError};
 
-/// CRC tag byte for install frames.  Included in the CRC computation so the
+/// CRC tag byte for install frames. Included in the CRC computation so the
 /// host and device agree on the integrity check regardless of transport.
-const CRC_TAG_INSTALL: u8 = 0x01;
+///
+/// Aliased rather than restated: the host seeds its hasher with `CMD_INSTALL`
+/// (`pdb_protocol::crc32_frame`), so the two are not merely equal by
+/// convention — a divergence would fail every install with `STATUS_CRC_FAIL`.
+/// The alias keeps this module reading transport-agnostically while the value
+/// stays single-sourced.
+const CRC_TAG_INSTALL: u8 = pdb_protocol::CMD_INSTALL;
 
 /// Bytes pre-buffered from the wire to inspect the PAPK header + manifest
-/// before deciding whether to erase flash. Must match the host's
-/// [`crate::pdb::protocol::INSTALL_PEEK_BYTES`] — the host inlines exactly
-/// this many bytes (or `papk_len`, whichever is smaller) right after the
-/// install header so the device can peek without the wire stalling.
-const PEEK_BUF_LEN: usize = crate::pdb::protocol::INSTALL_PEEK_BYTES;
+/// before deciding whether to erase flash. The host inlines exactly this many
+/// bytes (or `papk_len`, whichever is smaller) right after the install header
+/// so the device can peek without the wire stalling — both ends read the
+/// count from `pdb-protocol`, so they cannot disagree.
+const PEEK_BUF_LEN: usize = pdb_protocol::INSTALL_PEEK_BYTES;
 
 // ── 256-byte page buffer for streaming flash writes ───────────────────────────
 //
@@ -139,7 +145,7 @@ fn stream_and_verify(
     coordinator: &mut impl CoreCoordinator,
     len: u32,
 ) -> bool {
-    let mut crc_hasher = crate::crc32::Crc32::new();
+    let mut crc_hasher = pdb_protocol::Crc32::new();
     crc_hasher.update(&[CRC_TAG_INSTALL]);
     crc_hasher.update(&len.to_le_bytes());
 

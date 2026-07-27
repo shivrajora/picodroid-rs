@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "pdb-protocol"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "PDBP (Picodroid Debug Bridge Protocol) wire format: no_std, dependency-free constants, framing CRC and the compact IEEE CRC-32. Single source of truth shared by the device firmware and the host `pdb` CLI."
+
+[dependencies]

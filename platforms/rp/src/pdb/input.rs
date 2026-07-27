@@ -13,13 +13,13 @@
 //! delivered before replying.
 
 use freertos_rust::{CurrentTask, Duration};
-
-use super::cdc_transport::CdcTransport;
-use super::protocol::{
+use pdb_protocol::{
     crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_DOWN_UP,
     KEY_META_UP, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
 };
 use picodroid_core::graphics::lvgl::events::keycode_to_pin;
+
+use super::cdc_transport::CdcTransport;
 
 /// Max CMD_INPUT payload: SWIPE = 1 subtype + 4×i32 + u32 = 21 bytes. Rounded up.
 const MAX_PAYLOAD: usize = 24;
