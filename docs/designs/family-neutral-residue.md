@@ -702,3 +702,79 @@ does; until then Stage 7 notes it explicitly.
 ## AMENDMENTS
 
 *(append here as execution diverges; amendments override the body above)*
+
+### B1 — `CRC_TAG_INSTALL` was a third copy (Stage 1)
+
+§2 D1 names two copies of the wire constants. There was a third, and it was
+the load-bearing one: `install.rs`'s `CRC_TAG_INSTALL = 0x01`, defined locally
+so the install path could read transport-agnostically. The host seeds its
+hasher with `CMD_INSTALL`, so the two are not merely equal by convention —
+a divergence fails *every* install with `STATUS_CRC_FAIL`. It is now an alias
+of `pdb_protocol::CMD_INSTALL`, which keeps the local name and single-sources
+the value.
+
+The host's four CRC tests (`crc_single_shot_matches_chunked` and friends)
+moved into the crate rather than being deleted: they were asserting that two
+independent implementations of one standard agree, which is exactly the
+property that stops being a question once both ends compile the same code.
+What remains host-side is the `std` framing, which is genuinely the CLI's.
+
+**Flash, rp2040 `--release`:** `.text` −272, `.rodata` +64 (the 64-byte nibble
+table now emits in its own codegen unit). Net −208.
+
+### B2 — the sim glue is registered, not the sim HAL (Stage 2)
+
+§3.F specifies `register_sim_platform!` as expanding to `set_hal!` plus
+`set_rtos!` plus `set_platform_hooks!`. The `set_hal!` part is wrong and was
+dropped: a family's HAL impls are **not** cfg-split. They delegate to its own
+`hal` module, whose `mod chip` already selects the shared simulator, so one
+set of impls serves both arms and the platform's existing `set_hal!` covers
+the simulator too. Registering the HAL again from the macro would be a
+duplicate-symbol collision.
+
+So the macro covers exactly the two registrations that *were* duplicated:
+`Rtos` and `PlatformHooks`. That is a better statement of the boundary anyway
+— the HAL was never the thing families were copying.
+
+`glue.rs` goes from 1,138 lines to 769, and `platforms/rp/src` from 9,494 to
+7,852.
+
+### B3 — the A2 assertion needs `assert!`, not `debug_assert!` (Stage 2)
+
+A2 (of the predecessor) asks for a runtime `provider_count()` check and notes
+it "costs a little RP2040 flash for the message". The obvious spelling is
+`debug_assert!`, which would cost nothing — and would also never run: device
+builds pass `--config profile.dev.debug-assertions=false` (`scripts/lib.sh`)
+to buy back ~37 KB of flash, so the configuration the check exists to guard is
+precisely the one it would be compiled out of.
+
+It is therefore a real `assert!` with a `&'static str` message rather than
+`assert_eq!`, whose two operands would drag in formatting machinery for a
+number nobody reads. **Cost: +200 bytes** (`.text` +32, `.rodata` +168) —
+which is what A2 predicted, and why it asked for the measurement.
+
+### B4 — `CappedAllocator` needed a `Default` (Stage 2)
+
+Caught by clippy on the way in, and worth recording as a class rather than a
+line: `new_without_default` did not fire while the allocator lived in a binary
+crate, because the type was not reachable public API. Moving a type into a
+library subjects it to lints the binary never applied. Nothing else in this
+stage tripped one, but the next mover should expect it.
+
+### B5 — Stage 1 and 2 measured cumulative (Stages 1–2)
+
+| Section | Baseline (`59970bc`) | After stage 2 | Delta |
+|---|---:|---:|---:|
+| `.text` | 703,736 | 703,496 | **−240** |
+| `.rodata` | 195,728 | 195,960 | **+232** |
+
+Net **−8 bytes** against a ≤ ~2 KB budget, and +200 of the `.rodata` is the
+A2 assertion — i.e. the moves themselves are slightly net-negative and the
+only real spend was a deliberate one.
+
+Verification run for both stages: `./scripts/pre-commit` green, the four sim
+smokes (helloworld, benchmark, gcstress, blinky), and for stage 2 an
+explicit `-l 200` capped run, since the allocator's arming order and bypass
+coverage are what a cap exercises and the ordinary smokes would not notice a
+regression there. The twin guard's shortened allowlist was verified by
+planting a stale `hal/sim/mod.rs` and confirming the guard rejects it.
