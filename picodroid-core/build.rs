@@ -57,6 +57,21 @@ fn main() {
     // pin-bearing display/touch artifacts; we only need dimensions + cfgs.
     board_cfg::emit_neutral(out, &board, board_cfg::Pins::Elsewhere);
 
+    // The simulator HAL lives in this crate (stage 8), and it emulates the
+    // real panel and touch controller rather than faking their outputs — so
+    // it needs the same pin-bearing wiring the family HAL does, not just the
+    // neutral dimensions. Emitted from the shared generators in
+    // build_support, into this crate's OUT_DIR.
+    //
+    // `has_display` / `has_touch` get emitted twice as a result (once by
+    // emit_neutral above); duplicate `cargo:rustc-cfg` lines are harmless,
+    // and separating cfg emission from file emission purely to avoid that
+    // would complicate a generator four call sites share.
+    let board_display = board.as_ref().and_then(|b| b.cfg.display.clone());
+    let board_touch = board.as_ref().and_then(|b| b.cfg.touch.clone());
+    config::emit_display_config(out, &board_display);
+    config::emit_touch_config(out, &board_touch);
+
     if board.is_none() {
         // Boardless build: no board.toml to read, so fall back to the
         // forwarded Cargo features for capability cfgs. (With a board

@@ -652,3 +652,40 @@ the escape hatch; measured on this build, `lto = "thin"` costs a further
 
 After this stage `platforms/rp/src` is ~11.4k LOC, matching §5's predicted
 end state and file list.
+
+### A6 — the simulator HAL is shared (Stage 8)
+
+Fourteen of the seventeen `hal/sim/` modules move to
+`picodroid-core/src/hal/sim/`. `boot`, `flash` and `pdb_usb` stay: they stub
+genuinely family-specific machinery (reset entry, XIP flash, the USB debug
+bridge) that no shared simulator can stand in for. This is the step that
+deletes the porting guide's "copy `hal/sim/`" instruction — the mechanism
+that produced ESP's 17 drifting twins. `platforms/rp/src` drops to ~9.7k LOC
+and no longer depends on `minifb` at all: a family crate should not need a
+host GUI dependency to be simulatable.
+
+Three things the move surfaced:
+
+*Sibling calls, not seam round-trips.* `sim/display.rs` calls
+`hal::touch::read_point` and `hal::gpio::inject`. Inside the platform crate
+those were sibling calls within one sim HAL; in picodroid-core `crate::hal`
+means the *facade*, so they would have gone out through the platform's
+registration and straight back into these same functions. They are now
+`super::touch::` / `super::gpio::`.
+
+*The simulator wants pin-bearing config, and that is correct.* `sim/touch.rs`
+emulates a real XPT2046 — CS line, SPI frequency, calibration — rather than
+faking its outputs, so it needs the same `touch_config.rs` the hardware
+driver does. `emit_touch_config` therefore moved into `build_support/` and is
+now called by both build scripts into their own OUT_DIRs: one generator, two
+consumers, the `board_cfg.rs` rule. `sim/display.rs` went the other way — it
+had been including the pin-bearing `display_config.rs` for four geometry
+constants, and now reads the neutral `board_cfg::display`, because a host
+window has no backlight pin, reset pin or MADCTL.
+
+*`cfg(test)` does not cross a crate boundary, again.* The platform's own
+`cargo test` routes `mod chip` to the simulator HAL, but a dependency is
+never compiled with the dependent's `cfg(test)`, so `picodroid_core::hal::sim`
+did not exist there. Fixed with a `[dev-dependencies]` entry enabling
+picodroid-core's `sim` feature for test builds — the third instance of this
+same subtlety, after `HalFs` and the `native_handler` test shims.

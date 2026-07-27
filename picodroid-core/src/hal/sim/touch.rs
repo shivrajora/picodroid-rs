@@ -60,6 +60,12 @@ mod inner {
     /// back packed as `((rx[1] << 4) | (rx[2] >> 4))`.
     pub struct FakeXptSpi;
 
+    impl Default for FakeXptSpi {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl FakeXptSpi {
         pub const fn new() -> Self {
             Self

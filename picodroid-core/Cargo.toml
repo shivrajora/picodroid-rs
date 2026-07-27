@@ -46,6 +46,12 @@ embedded-hal  = "1.0"
 defmt         = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
+# Host-only: the simulator's display window and its touch/key input come
+# from minifb. Moved here with hal/sim so a family crate needs no host GUI
+# dependency at all.
+[target.'cfg(not(target_arch = "arm"))'.dependencies]
+minifb = "0.28"
+
 [build-dependencies]
 # Compiles the vendored LVGL C sources; this crate owns that build because it
 # holds the code calling into them (see build.rs).

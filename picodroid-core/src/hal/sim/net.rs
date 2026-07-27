@@ -4,6 +4,13 @@
 //! Provides the same public API as hal::rp::net so that Java Socket
 //! native methods work identically on the simulator and real hardware.
 
+// Sockets are opaque handles: shared net code receives one from `tcp_socket`
+// and hands it straight back, never dereferencing it. The pointer is only
+// ever resolved here, where it was created. Marking these `unsafe` would push
+// the keyword onto every caller for a contract they cannot violate — the same
+// reasoning `hal::facade::net` carries for the declarations these implement.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use core::ffi::c_void;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;

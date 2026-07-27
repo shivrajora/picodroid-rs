@@ -18,6 +18,11 @@
 
 pub mod types;
 
+// The host implementation of the hardware surface, shared by every family
+// rather than copied into each one — see the module docs for why.
+#[cfg(any(test, feature = "sim"))]
+pub mod sim;
+
 mod facade;
 mod macros;
 mod traits;

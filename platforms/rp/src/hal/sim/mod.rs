@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Simulator HAL — runs on the host for testing without hardware.
+//! Simulator HAL for this family.
+//!
+//! Almost all of it now lives in [`picodroid_core::hal::sim`] and is
+//! re-exported here, so `crate::hal::<module>` keeps resolving through the
+//! `mod chip` dispatch in the parent regardless of which half a module
+//! came from.
+//!
+//! What remains are the three stubs a shared simulator cannot supply,
+//! because they stand in for machinery that is specific to this family:
+//! reset/boot entry, XIP flash, and the USB debug bridge.
 
-pub mod adc;
-pub mod boot;
-pub mod delay;
-pub mod display;
-pub mod flash;
-pub mod gpio;
-pub mod i2c;
-pub mod input_pin;
-pub mod output_pin;
-pub mod pdb_usb;
-pub mod pwm;
-pub mod spi;
-pub mod spi_bus;
-pub mod system_clock;
-pub mod touch;
-pub mod uart;
+pub use picodroid_core::hal::sim::{
+    adc, delay, display, gpio, i2c, input_pin, output_pin, pwm, spi, spi_bus, system_clock, touch,
+    uart,
+};
 
 #[cfg(has_network)]
-pub mod net;
+pub use picodroid_core::hal::sim::net;
+
+pub mod boot;
+pub mod flash;
+pub mod pdb_usb;
