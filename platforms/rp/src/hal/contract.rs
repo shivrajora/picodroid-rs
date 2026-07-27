@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Compile-time assertions for the parts of the HAL that no trait covers.
 //!
-//! What remains here is `boot`, `flash` and `pdb_usb` — family-specific
-//! machinery with no shared counterpart, so nothing else checks their shape.
-//! The function below is dead code: it exists only to make the compiler
-//! verify those symbols and signatures are present.
+//! What remains here is `boot` and `flash` — family-specific machinery with
+//! no shared counterpart, so nothing else checks their shape. The function
+//! below is dead code: it exists only to make the compiler verify those
+//! symbols and signatures are present.
 //!
 //! # Why the rest is gone
 //!
@@ -25,12 +25,18 @@
 //! than dropped: the `display::WIDTH`/`HEIGHT`/`BAND_HEIGHT`/`SCROLL_LIMIT`
 //! constants by the drift assertion in [`super`], and the family `gpio`
 //! enums by `glue.rs`'s conversion functions.
+//!
+//! `pdb_usb` left for the same reason as the rest: its six functions are now
+//! exactly the `picodroid_core::pdb::PdbTransport` surface, and
+//! `pdb/platform.rs` implements it. The trait is the stronger check — it also
+//! pins the *semantics* the assertions could not, such as `read_byte_timeout`
+//! being the one that may return `None`.
 
 #![allow(dead_code, unused_imports, clippy::let_unit_value)]
 
 #[cfg(not(any(test, feature = "sim")))]
 fn _assert_hardware_only() {
-    use super::{boot, flash, pdb_usb};
+    use super::{boot, flash};
 
     // boot
     let _: fn() = boot::clock_init;
@@ -39,12 +45,4 @@ fn _assert_hardware_only() {
     // flash
     let _: usize = flash::PAPK_MAX_DATA_SIZE;
     let _: unsafe fn() -> Option<&'static [u8]> = flash::read_flash_papk;
-
-    // pdb_usb
-    let _: fn() = pdb_usb::init;
-    let _: fn() = pdb_usb::drain_tx;
-    let _: fn() -> u8 = pdb_usb::queue_read_byte;
-    let _: fn() -> Option<u8> = pdb_usb::queue_read_byte_timeout;
-    let _: fn() -> u32 = pdb_usb::queue_read_u32_le;
-    let _: fn(&[u8]) = pdb_usb::write_bytes;
 }

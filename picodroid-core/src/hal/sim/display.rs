@@ -551,17 +551,12 @@ fn inject_press_release(pin: u8) {
     super::gpio::inject(pin, true);
 }
 
-/// Android keycode → button pin via the generated `BUTTONS` table (same
-/// resolution the device does in `events::keycode_to_pin`, done locally here so
-/// the sim front-end never depends on the graphics module — which isn't
-/// compiled in the workspace `cargo test` config).
+/// Android keycode → button pin. Shared with the graphics event layer and
+/// the PDB input handler; it sits beside the generated table because the
+/// three callers cannot reach each other's copies (see
+/// [`crate::board_cfg::buttons::keycode_to_pin`]).
 #[cfg(has_buttons)]
-fn keycode_to_pin(code: i32) -> Option<u8> {
-    BUTTONS
-        .iter()
-        .find(|&&(_, _, k)| k == code)
-        .map(|&(p, _, _)| p)
-}
+use crate::board_cfg::buttons::keycode_to_pin;
 
 /// Handle `input keyevent|dpad|back` — resolve to a button pin and inject a
 /// press/release. `verb` is the already-lowercased subcommand.

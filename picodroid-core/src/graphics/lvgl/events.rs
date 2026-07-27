@@ -48,10 +48,7 @@ pub fn pin_to_keycode(pin: u8) -> Option<i32> {
 /// keycode (`pdb input keyevent …`) to a pin for `hal::gpio::inject`.
 #[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
-    BUTTONS
-        .iter()
-        .find(|&&(_, _, k)| k == keycode)
-        .map(|&(p, _, _)| p)
+    crate::board_cfg::buttons::keycode_to_pin(keycode)
 }
 
 /// Pop one key event from the Java-visible queue, if any.

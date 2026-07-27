@@ -2,9 +2,10 @@
 //! CMD_INPUT handler — inject synthetic button / touch input from the host.
 //!
 //! The picodroid analog of `adb shell input tap|swipe|keyevent`. The host sends
-//! a compact verb; this handler turns it into HAL-level input — a GPIO edge via
-//! [`crate::hal::gpio::inject`], or a touch sample via the `hal::touch` override
-//! — so the *whole* on-device pipeline runs exactly as it does for real input:
+//! a compact verb; this handler turns it into HAL-level input — a GPIO edge
+//! via [`crate::hal::gpio::inject`], or a touch sample via the `hal::touch`
+//! override — so the *whole* on-device pipeline runs exactly as it does for
+//! real input:
 //! EditMode filter, phantom-release filter, LVGL keypad indev + focus nav,
 //! `pin_to_keycode`, BACK routing, and touch hit-test / gesture / `MotionEvent`
 //! dispatch. Faithful to Android's `InputManager.injectInputEvent(…,
@@ -12,14 +13,14 @@
 //! (reachable only over PDB), and the handler blocks until the gesture is
 //! delivered before replying.
 
-use freertos_rust::{CurrentTask, Duration};
 use pdb_protocol::{
     crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_DOWN_UP,
     KEY_META_UP, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
 };
-use picodroid_core::graphics::lvgl::events::keycode_to_pin;
 
-use super::cdc_transport::CdcTransport;
+use crate::board_cfg::buttons::keycode_to_pin;
+
+use super::{send_response, PdbTransport};
 
 /// Max CMD_INPUT payload: SWIPE = 1 subtype + 4×i32 + u32 = 21 bytes. Rounded up.
 const MAX_PAYLOAD: usize = 24;
@@ -43,25 +44,25 @@ const SWIPE_DOWN_SETTLE_MS: u32 = 40;
 #[cfg(has_touch)]
 const SWIPE_STEPS: u32 = 12;
 
-pub fn handle_input(len: u32) {
+pub fn handle(transport: &mut impl PdbTransport, len: u32) {
     // Drain the framed payload (bounded) + trailing CRC, keeping the byte
     // stream in sync even if the payload is malformed or oversized.
     let mut payload = [0u8; MAX_PAYLOAD];
     let n = (len as usize).min(MAX_PAYLOAD);
     for b in payload.iter_mut().take(n) {
-        *b = crate::hal::pdb_usb::queue_read_byte();
+        *b = transport.read_byte();
     }
     for _ in MAX_PAYLOAD..len as usize {
-        let _ = crate::hal::pdb_usb::queue_read_byte(); // discard overflow
+        let _ = transport.read_byte(); // discard overflow
     }
-    let wire_crc = crate::hal::pdb_usb::queue_read_u32_le();
+    let wire_crc = transport.read_u32_le();
 
     if wire_crc != crc32_frame(CMD_INPUT, len, &payload[..n]) {
-        CdcTransport::send_pdbp_response(STATUS_CRC_FAIL, b"");
+        send_response(transport, STATUS_CRC_FAIL, b"");
         return;
     }
     if n == 0 {
-        CdcTransport::send_pdbp_response(STATUS_ERR, b"empty input");
+        send_response(transport, STATUS_ERR, b"empty input");
         return;
     }
 
@@ -72,7 +73,7 @@ pub fn handle_input(len: u32) {
         INPUT_SWIPE => inject_swipe(args),
         _ => (STATUS_ERR, b"bad input subtype"),
     };
-    CdcTransport::send_pdbp_response(status, msg);
+    send_response(transport, status, msg);
 }
 
 // ── Little-endian slice readers ──────────────────────────────────────────────
@@ -105,7 +106,7 @@ fn inject_key(args: &[u8]) -> (u8, &'static [u8]) {
         crate::hal::gpio::inject(pin, false); // PRESS
     }
     if meta == KEY_META_DOWN_UP {
-        CurrentTask::delay(Duration::ms(KEY_EDGE_GAP_MS));
+        crate::rtos::delay_ms(KEY_EDGE_GAP_MS);
     }
     if meta != KEY_META_DOWN {
         crate::hal::gpio::inject(pin, true); // RELEASE
@@ -138,9 +139,9 @@ fn inject_tap(args: &[u8]) -> (u8, &'static [u8]) {
     let x = clamp_coord(x, crate::hal::display::WIDTH);
     let y = clamp_coord(y, crate::hal::display::HEIGHT);
     crate::hal::touch::inject_override(x, y);
-    CurrentTask::delay(Duration::ms(TAP_HOLD_MS));
+    crate::rtos::delay_ms(TAP_HOLD_MS);
     crate::hal::touch::release_override();
-    CurrentTask::delay(Duration::ms(TOUCH_SETTLE_MS));
+    crate::rtos::delay_ms(TOUCH_SETTLE_MS);
     crate::hal::touch::clear_override();
     (STATUS_OK, b"")
 }
@@ -165,16 +166,16 @@ fn inject_swipe(args: &[u8]) -> (u8, &'static [u8]) {
     let step_ms = (dur / SWIPE_STEPS).max(1);
 
     crate::hal::touch::inject_override(x1, y1); // DOWN at start
-    CurrentTask::delay(Duration::ms(SWIPE_DOWN_SETTLE_MS));
+    crate::rtos::delay_ms(SWIPE_DOWN_SETTLE_MS);
     for i in 1..=SWIPE_STEPS {
         crate::hal::touch::inject_override(
             lerp(x1, x2, i, SWIPE_STEPS),
             lerp(y1, y2, i, SWIPE_STEPS),
         );
-        CurrentTask::delay(Duration::ms(step_ms));
+        crate::rtos::delay_ms(step_ms);
     }
     crate::hal::touch::release_override();
-    CurrentTask::delay(Duration::ms(TOUCH_SETTLE_MS));
+    crate::rtos::delay_ms(TOUCH_SETTLE_MS);
     crate::hal::touch::clear_override();
     (STATUS_OK, b"")
 }

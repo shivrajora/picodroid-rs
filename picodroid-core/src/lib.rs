@@ -56,6 +56,9 @@ pub mod notification;
 #[cfg(not(test))]
 pub mod os;
 pub mod pd_log;
+// Debug bridge protocol. Always compiled: it is a wire format with a host
+// counterpart, so its framing and encoders are exactly what wants tests.
+pub mod pdb;
 // Ungated: `peripheral_manager`'s ref-name parsing is pure logic and carries
 // host unit tests.
 pub mod pio;

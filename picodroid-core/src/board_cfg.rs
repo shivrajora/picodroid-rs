@@ -63,6 +63,23 @@ pub mod buttons {
     #[allow(unused_imports)]
     use crate::lvgl_ffi::*;
     include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
+
+    /// GPIO pin of the first button declared with `keycode`, or `None` if this
+    /// board has none.
+    ///
+    /// Lives beside the table rather than with any one caller because there
+    /// are three — the LVGL event layer, the simulator's control channel, and
+    /// the PDB `CMD_INPUT` handler — and the first two had each grown their
+    /// own copy. Both had to, in fact: the graphics module is `cfg(not(test))`
+    /// and the simulator front-end is not, so neither could use the other's.
+    /// The table is always compiled, so this is.
+    #[allow(dead_code)]
+    pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
+        BUTTONS
+            .iter()
+            .find(|&&(_, _, k)| k == keycode)
+            .map(|&(p, _, _)| p)
+    }
 }
 
 // ── Guard rails ──────────────────────────────────────────────────────────────
