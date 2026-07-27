@@ -13,10 +13,13 @@ pub const PAPK_FLASH_XIP_BASE: usize = 0x1030_0000;
 #[cfg(feature = "chip-rp2350")]
 pub const PAPK_FLASH_META_OFFSET: u32 = 0x0030_0000;
 
-pub const PAPK_BOOT_META_SIZE: usize = 4096; // one 4 KB erase sector
+// The boot-meta layout itself (magic, flags, len, sector size) belongs to
+// `papk_format::flash_image`, which the build script that bakes the initial
+// image also uses. Only where the sector *sits* on this family's flash is
+// ours to say.
+pub const PAPK_BOOT_META_SIZE: usize = papk_format::flash_image::META_SIZE;
 const PAPK_SLOT_OFFSET_FROM_META: usize = PAPK_BOOT_META_SIZE;
 
-pub const PAPK_FLASH_MAGIC: u32 = 0x5044_4231; // "PDB1"
 pub const PAPK_MAX_DATA_SIZE: usize = 1020 * 1024; // 1020 KB (1 MB slot minus 4 KB metadata sector)
 
 /// XIP base address for both supported chips.
@@ -66,18 +69,16 @@ pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
 /// Must only be called before the FreeRTOS scheduler starts (single-core,
 /// no concurrent flash writes possible).
 pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
-    let meta_ptr = PAPK_FLASH_XIP_BASE as *const u32;
-    let magic = *meta_ptr;
-    if magic != PAPK_FLASH_MAGIC {
-        return None;
-    }
-    // flags word at offset 4 (reserved for A/B; skip for now)
-    let len = *(meta_ptr.add(2)) as usize; // offset 8
-    if len == 0 || len > PAPK_MAX_DATA_SIZE {
-        return None;
-    }
+    // The header is XIP-mapped, so it can simply be read as bytes. Erased
+    // flash fails the magic check, which is how a never-installed device
+    // takes the `None` path.
+    let header = core::slice::from_raw_parts(
+        PAPK_FLASH_XIP_BASE as *const u8,
+        papk_format::flash_image::HEADER_LEN,
+    );
+    let meta = papk_format::flash_image::parse_meta(header, PAPK_MAX_DATA_SIZE)?;
     let data_ptr = (PAPK_FLASH_XIP_BASE + PAPK_SLOT_OFFSET_FROM_META) as *const u8;
-    Some(core::slice::from_raw_parts(data_ptr, len))
+    Some(core::slice::from_raw_parts(data_ptr, meta.len as usize))
 }
 
 // ── Flash operations (XIP-disabled) ──────────────────────────────────────────
@@ -244,11 +245,13 @@ pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool {
 }
 
 /// Write the PapkBootMeta header to sector 0, committing the install atomically.
+///
+/// The page is built here, while XIP is still enabled: `build_meta_page` is
+/// an ordinary `.text` call, and only `flash_program_range` below is
+/// RAM-resident and drops XIP — for the duration of the ROM call and no
+/// longer.
 pub unsafe fn flash_commit_metadata(len: u32) {
-    let mut meta_page = [0xFFu8; 256];
-    meta_page[0..4].copy_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
-    meta_page[4..8].copy_from_slice(&0u32.to_le_bytes()); // flags: slot=A, unverified
-    meta_page[8..12].copy_from_slice(&len.to_le_bytes());
+    let meta_page = papk_format::flash_image::build_meta_page(len);
     flash_program_range(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
 }
 

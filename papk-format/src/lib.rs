@@ -75,6 +75,8 @@
 #[cfg(any(test, feature = "write"))]
 extern crate alloc;
 
+pub mod flash_image;
+
 mod scan;
 pub use scan::{
     find_manifest_value, find_manifest_value_in_prefix, validate_structure, StructuralError,

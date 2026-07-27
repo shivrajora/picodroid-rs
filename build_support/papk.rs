@@ -438,14 +438,13 @@ pub fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
     }
     let apk_len = apk_bytes.len();
 
-    // Layout matches read_flash_papk() on-device.
-    const PAPK_FLASH_MAGIC: u32 = 0x5044_4231; // "PDB1"
-    const META_SIZE: usize = 4096;
-    let mut image = Vec::with_capacity(META_SIZE + apk_len);
-    image.extend_from_slice(&PAPK_FLASH_MAGIC.to_le_bytes());
-    image.extend_from_slice(&0u32.to_le_bytes()); // flags
-    image.extend_from_slice(&(apk_len as u32).to_le_bytes()); // len
-    image.resize(META_SIZE, 0xFF);
+    // Same boot-meta layout the device parses, from the same source — this
+    // used to be a hand-assembled copy under a comment claiming they matched.
+    use papk_format::flash_image;
+    let meta = flash_image::build_meta_page(apk_len as u32);
+    let mut image = Vec::with_capacity(flash_image::META_SIZE + apk_len);
+    image.extend_from_slice(&meta[..flash_image::HEADER_LEN]);
+    image.resize(flash_image::META_SIZE, 0xFF);
     image.extend_from_slice(&apk_bytes);
 
     let bin_path = out.join("papk_flash_init.bin");
