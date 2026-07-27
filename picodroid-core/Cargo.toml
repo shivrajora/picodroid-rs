@@ -39,6 +39,9 @@ mem-diag        = []
 [dependencies]
 pico-jvm      = { path = "../jvm" }
 compat        = { path = "../compat", version = "0.1" }
+# The install stream's integrity check is a PDBP concern: its hasher is seeded
+# with the CMD_INSTALL byte, and the host computes the same value.
+pdb-protocol  = { path = "../pdb-protocol" }
 # Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST
 # section to build LVGL image descriptors.
 papk-format   = { path = "../papk-format" }
@@ -53,6 +56,12 @@ defmt         = "1"
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
 libc = "0.2"
+
+[dev-dependencies]
+# The install path's compat gate is only exercisable against a real PAPK
+# manifest, so the tests build one rather than hand-rolling bytes that could
+# drift from the format.
+papk-format = { path = "../papk-format", features = ["write"] }
 
 [build-dependencies]
 # Compiles the vendored LVGL C sources; this crate owns that build because it

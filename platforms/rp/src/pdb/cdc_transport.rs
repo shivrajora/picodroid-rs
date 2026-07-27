@@ -8,8 +8,7 @@ use pdb_protocol::{
 };
 
 use super::pending;
-use crate::packagemanager::install::CoreCoordinator;
-use crate::packagemanager::transport::{InstallError, InstallTransport, ReadError};
+use picodroid_core::install::{CoreCoordinator, InstallError, InstallTransport, ReadError};
 
 /// PDBP-over-USB-CDC transport for PAPK install.
 ///

@@ -75,7 +75,13 @@ pub fn run_pdb_task() -> ! {
             CMD_INSTALL => {
                 let mut transport = CdcTransport;
                 let mut coordinator = PdbCoreCoordinator;
-                crate::packagemanager::install::run_install(&mut transport, &mut coordinator, len);
+                let mut flash = crate::packagemanager::RpPapkFlash;
+                picodroid_core::install::run_install(
+                    &mut transport,
+                    &mut coordinator,
+                    &mut flash,
+                    len,
+                );
             }
             CMD_SYSMON => super::sysmon::handle_sysmon(len),
             CMD_INPUT => super::input::handle_input(len),

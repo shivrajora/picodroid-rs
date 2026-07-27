@@ -18,10 +18,10 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 use crate::framework_classes::FRAMEWORK_CLASSES;
 use crate::host;
 
-// Active shrink-map version for this build, from the highest committed
-// sdk/shrink-maps/v<semver>.toml ≤ the workspace version; "0.0.0" (no
-// shrinking) when none exists. Defines: pub const FRAMEWORK_MAP_VERSION.
-include!(concat!(env!("OUT_DIR"), "/framework_mapping_version.rs"));
+/// Re-exported at the path it has always had. The constant itself now lives
+/// in [`crate::framework_map`], which is compiled unconditionally — this
+/// module is not, and the install path needs the version in test builds.
+pub use crate::framework_map::FRAMEWORK_MAP_VERSION;
 
 /// Boot-time heap pre-reservation sizes from board.toml `[jvm]` (PEM-3).
 mod prereserve_config {

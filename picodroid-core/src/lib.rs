@@ -18,6 +18,9 @@ pub mod dispatch_sites;
 pub mod drivers;
 pub mod executors;
 pub mod framework_classes;
+// Build artifact, no JVM/graphics deps — see the module docs for why it is
+// not inside `boot`.
+pub mod framework_map;
 pub mod gc_root_registration;
 pub mod gc_roots;
 pub mod graphics;
@@ -27,6 +30,11 @@ pub mod hal;
 // `cfg(not(test))`).
 pub mod hardware;
 pub mod host;
+// Always compiled, including under `cfg(test)`: the whole point of moving the
+// install path here is that it finally runs in a test binary. It was gated
+// out of every host build while it lived in the family crate, so the one code
+// path that can leave a device unbootable had no coverage at all.
+pub mod install;
 #[cfg(not(test))]
 pub mod lifecycle;
 pub mod lvgl_ffi;
