@@ -778,3 +778,69 @@ explicit `-l 200` capped run, since the allocator's arming order and bypass
 coverage are what a cap exercises and the ordinary smokes would not notice a
 regression there. The twin guard's shortened allowlist was verified by
 planting a stale `hal/sim/mod.rs` and confirming the guard rejects it.
+
+### B6 — stage 3 split into 3a/3b/3c; the rest still open (Stage 3)
+
+§4 anticipated stage 3 might split. It did, into commit-sized pieces that
+each end green, of which three have landed:
+
+| | Scope | rp2040 `.text` |
+|---|---|---:|
+| 3a | `papk_format::flash_image` | +80 |
+| 3b | sleep-parity fix | +468 |
+| 3c | install path → core behind `PapkFlash`, with tests | +12 |
+
+**Still open: 3d** (the PDB stack — `PdbTransport`, `SysmonSource`, the
+golden-bytes encoder test), **3e** (input-inject dedup), **3f** (supervisor
+relayering into `boot_tasks.rs`). §3.B and §3.D stand as written.
+
+**3b cost more than it looks.** Moving the stop check from the RP HAL to the
+shared `SystemClock.sleep` native turns an inlined read of a crate-local
+static into a real call across the host seam. +468 bytes is the price of the
+divergence being fixed rather than duplicated, and it is the largest single
+item in this work so far.
+
+**3c's tests found their own gap.** The first sabotage — hoisting the erase
+above the compat check, i.e. the bug that destroys a working install — was
+*not* caught. Every test PAPK was compat-clean, so nothing exercised the one
+rejection that happens after the park and before the erase. Two tests built on
+real PAPKs from `papk-format`'s writer close it. Recorded because the lesson
+generalises: a mock that always takes the happy path through a gate leaves
+that gate untested, and the sabotage is what reveals it.
+
+A second, subtler version of the same: the tests initially hardcoded the
+`"0.0.0"` sentinel and so passed under `cargo test` and failed under
+`scripts/test.sh`, which runs both shrink modes. They now derive from
+`FRAMEWORK_MAP_VERSION`.
+
+`FRAMEWORK_MAP_VERSION` itself moved out of `boot` into `framework_map`: it is
+a build artifact with no JVM or graphics dependency and was only behind
+`cfg(not(test))` because its host module is.
+
+### B7 — measurement and hardware, stages 1–3c
+
+| Section | Baseline (`59970bc`) | After 3c | Delta |
+|---|---:|---:|---:|
+| `.text` | 703,736 | 704,056 | **+320** |
+| `.rodata` | 195,728 | 195,968 | **+240** |
+
+**+560 bytes** against the ≤ ~2 KB budget, of which +468 is 3b's seam crossing
+and +200 the A2 assertion — i.e. the two deliberate correctness purchases
+exceed the total, and the moves themselves remain net-negative.
+`platforms/rp/src` is at 7,614 lines, from 9,494.
+
+**HIL, `testbench_rp2350`** (an rp2040 was not attached; the rp2040 half of
+§4's stage-3 gate is still owed). Flashed and booted after 3a and again after
+3c — booting at all exercises the boot-meta path on both the build script's
+side and `read_flash_papk`'s. Then, per stage: four consecutive `pdb install`
+runs clean after 3a, three after 3c; `sysmon` and `input` responsive;
+device-side `STATUS_INCOMPAT` rejection returning with flash intact and the
+device still running its previous app — the hardware counterpart of the test
+3c added. Board left on a known-good helloworld.
+
+One install failed to re-enumerate over USB after its post-install reset. It
+followed a `kill -9` of an attached `probe-rs` RTT session, did not reproduce
+in seven subsequent attempts, and a power cycle cleared it — the leftover
+probe-claim failure the flash tooling already warns about. Recorded rather
+than omitted because "it did not reproduce" is a weaker claim than "it never
+happened", and the next person seeing it should know where to look first.
