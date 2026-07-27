@@ -1,121 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Hardware Abstraction Layer — centralises all chip-specific code.
+//! Hardware Abstraction Layer for this family — every chip-specific symbol
+//! lives under here, behind one `#[cfg]` that selects `rp/` or `sim/`.
 //!
-//! A single `#[cfg]` dispatch selects the chip family module.  Each family
-//! (rp, esp, …) provides the same set of public free functions so that the
-//! rest of the crate can call `hal::uart::init()` etc. without knowing which
-//! chip is underneath.
+//! # Where the contract lives
 //!
-//! # HAL CONTRACT v1
+//! It is not written here any more. `picodroid_core::hal`'s traits are the
+//! contract (HAL CONTRACT v2), and `glue.rs` implements them by delegating
+//! to the modules below — so a signature that drifts fails to compile at the
+//! impl. What used to be a 117-line doc-block here, hand-kept in sync with a
+//! matching list of assertions in [`contract`], is now one machine-checked
+//! definition.
 //!
-//! Every chip family module (e.g. `src/hal/rp/`, `src/hal/sim/`, future
-//! `src/hal/esp/`) must expose the public symbols listed below. The
-//! [`contract`] sub-module turns this list into compile-time assertions —
-//! drift in any signature breaks `cargo test --no-run` and `cargo clippy`.
+//! That pairing had in fact fallen out of sync: converting it to traits
+//! turned up `net::udp_sendto`/`udp_recvfrom` and `i2c::{write,read}` /
+//! `spi::{transfer,write}` / `uart::reconfigure` all in live use by the
+//! natives and named in neither half.
 //!
-//! Symbols are grouped by the cfg under which they are required.
+//! [`contract`] still asserts `boot`, `flash` and `pdb_usb`: no trait covers
+//! those, because they have no shared counterpart to be a contract with.
 //!
-//! ## Always required (sim + every hardware family)
+//! # Family-private wiring
 //!
-//! `adc`:
-//! - `pub fn init(pin: u8)`
-//! - `pub fn read(pin: u8) -> f64`
-//!
-//! `display`:
-//! - `pub const WIDTH: u16`, `HEIGHT: u16`, `BAND_HEIGHT: usize`, `SCROLL_LIMIT: u8`
-//! - `pub fn init()`
-//! - `pub fn set_window(x0: u16, y0: u16, x1: u16, y1: u16)`
-//! - `pub fn write_pixels(data: &[u8])`
-//! - `pub fn set_backlight(on: bool)`
-//! - `pub fn display_sleep()`, `display_wake()`
-//! - `pub fn update_window()`, `is_window_open() -> bool`
-//!
-//! `gpio`:
-//! - `pub enum Pull`, `pub enum EdgeTrigger`, `pub struct GpioEvent`
-//! - `pub fn set_direction(pin: u8, direction: i32)`
-//! - `pub fn set_value(pin: u8, high: bool)`
-//! - `pub fn set_input(pin: u8, pull: Pull)`
-//! - `pub fn read(pin: u8) -> bool`
-//! - `pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger)`
-//! - `pub fn disable_edge_irq(pin: u8)`
-//! - `pub fn init_gpio_irq()`
-//! - `pub fn inject(pin: u8, rising: bool)` — synthetic button edge (PDB CMD_INPUT)
-//! - `pub fn drain_gpio_event() -> Option<GpioEvent>`
-//! - `pub fn has_pending_event() -> bool`
-//! - `pub fn wait_for_button_event()`
-//!
-//! `i2c`:
-//! - `pub fn init(i2c_id: u8)`, `pub fn set_speed(i2c_id: u8, hz: u32)`
-//! - `pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32`
-//! - `pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32`
-//!
-//! `pwm`:
-//! - `pub fn init(pin: u8)`
-//! - `pub fn apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool)`
-//!
-//! `spi`:
-//! - `pub fn init(spi_id: u8)`, `pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32)`
-//! - `pub fn write_raw(spi_id: u8, data: &[u8])`
-//! - `pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8])`
-//!
-//! `system_clock`:
-//! - `pub fn sleep(ms: u32)`
-//! - `pub fn elapsed_realtime_nanos() -> i64`
-//!
-//! `touch`:
-//! - `pub fn init()`
-//! - `pub fn read_point() -> Option<(u16, u16)>`
-//! - `pub fn read_raw_unfiltered() -> (u16, u16)`
-//! - `pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16)`
-//! - `pub fn inject_override(x: u16, y: u16)` — scripted-touch press/move (PDB CMD_INPUT)
-//! - `pub fn release_override()` — lift scripted touch (RELEASE edge)
-//! - `pub fn clear_override()` — resume real sampling
-//!
-//! `uart`:
-//! - `pub fn init(uart_id: u8)`
-//! - `pub fn write_byte(uart_id: u8, byte: u8)`
-//! - `pub fn read_byte(uart_id: u8) -> i32`
-//!
-//! ## Required only on hardware (gated by `not(any(test, feature = "sim"))`)
-//!
-//! `boot`:
-//! - `pub fn clock_init()`
-//! - `pub fn start_tasks(boot_apk: &'static [u8]) -> !`
-//!
-//! `flash`:
-//! - `pub const PAPK_MAX_DATA_SIZE: usize`
-//! - `pub unsafe fn read_flash_papk() -> Option<&'static [u8]>`
-//!
-//! `pdb_usb`:
-//! - `pub fn init()`, `drain_tx()`
-//! - `pub fn queue_read_byte() -> u8`
-//! - `pub fn queue_read_byte_timeout() -> Option<u8>`
-//! - `pub fn queue_read_u32_le() -> u32`
-//! - `pub fn write_bytes(data: &[u8])`
-//!
-//! Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`,
-//! gated on `chip-rp2350`) are NOT part of the family contract — they are
-//! conditionally compiled at the family-internal level and visible only at
-//! their gated call sites.
-//!
-//! ## Required only when `cfg(has_network)`
-//!
-//! `net`:
-//! - `pub struct NetError(pub i32)`
-//! - `pub fn tcp_socket() -> Result<*mut c_void, NetError>`
-//! - `pub fn tcp_connect(sock, addr, port)`, `tcp_send`, `tcp_recv`,
-//!   `tcp_listen`, `tcp_accept`
-//! - `pub fn udp_socket(local_port: u16)`, `udp_sendto`, `udp_recvfrom`
-//! - `pub fn close(sock)`, `set_recv_timeout(sock, ms)`
-//! - `pub fn is_network_up() -> bool`, `get_ip_address() -> u32`
-//! - `pub fn dns_resolve(hostname: &str) -> Result<u32, NetError>`
-//!
-//! ## Internal-only (used by family-internal driver wiring; not part of the
-//! cross-crate contract — name and shape are family-private)
-//!
-//! - `delay`, `input_pin`, `output_pin`, `spi_bus` — concrete types that
-//!   implement `embedded_hal` traits, consumed by `src/hal/<family>/`
-//!   internally to wire up `src/drivers/` generic drivers.
+//! `delay`, `input_pin`, `output_pin` and `spi_bus` are concrete
+//! `embedded_hal` implementations used to wire `picodroid_core::drivers`
+//! generic drivers to this family's peripherals. They are not part of any
+//! cross-crate contract — name and shape are ours to change.
 
 // In sim mode OR test mode, use the simulator stubs.
 // (Tests run on the host where HAL crates like rp-pico are unavailable.)

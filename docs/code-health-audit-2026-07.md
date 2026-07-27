@@ -17,6 +17,32 @@ input for follow-up sessions.
   2026-07-24 — "too complicated"). Section 7 is the removal plan; reusability findings are
   framed accordingly.
 
+## 0. Progress note — shared-core extraction executed (2026-07-26)
+
+This audit judged the platform-agnostic framework living inside
+`platforms/rp/src` to be "the known cost of a future second family, not a
+current work item" (§5). That cost has since been paid deliberately: see
+`docs/designs/shared-core-extraction.md` for the design and its amendments.
+
+`platforms/rp/src` went from ~35.6k LOC to ~9.7k; `picodroid-core` holds the
+JVM natives, the LVGL engine and widget set, the lifecycle, the boot path and
+the simulator. The boundary is HAL CONTRACT v2 — traits plus link-time
+registration — replacing v1's doc-block and hand-written assertions.
+
+Items this closed or moved on the way:
+
+- **P2-17 (GC root registry)** — delivered as an enabler, since splitting the
+  root cluster across crates without one risks silent premature collection.
+  Both crates now carry a source-scanning completeness guard.
+- **§5 reusability** — `[reusable] candidate` modules are now in a crate a
+  second consumer can depend on, rather than candidates in a binary.
+- **§6 API contracts** — the two gaps v1 had silently accumulated
+  (`net::udp_sendto`/`udp_recvfrom`, `i2c`/`spi`/`uart` array-addressed
+  transfers) are closed, and the trait bound makes the class of drift
+  impossible rather than merely detected.
+- **Four stale dead twins** noted in §1 are gone, and `scripts/pre-commit`
+  now fails on any new same-path file across the two trees.
+
 ## 1. Executive summary
 
 The codebase has a **strong spine and soft edges**. The execution core (`jvm`) is a

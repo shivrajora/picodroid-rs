@@ -8,63 +8,101 @@ add support for a new MCU family.
 
 ## Architecture overview
 
-Chip-specific code lives under `platforms/<family>/`. Each family is a separate cargo crate and (for ESP) potentially a separate workspace. The shared core that doesn't know what chip it's running on lives in `picodroid-core/`. The HAL surface is governed by **HAL CONTRACT v1** — a documented set of required public symbols and signatures that every family implements identically.
+Chip-specific code lives under `platforms/<family>/`, one cargo crate per
+family. Everything that does not know what chip it is running on — the JVM
+natives, the widget set, the LVGL engine, the lifecycle, the simulator — lives
+in `picodroid-core/`. The boundary between them is **HAL CONTRACT v2**: a set
+of Rust traits a family implements, bound at link time.
 
 ```text
 platforms/
-  rp/               # RP2040 + RP2350 (Raspberry Pi Pico family)
-    src/hal/
-      mod.rs            # HAL re-export point + the v1 contract docblock
-      contract.rs       # compile-time enforcement of v1 signatures
-      rp/               # chip-family implementations
-      sim/              # Host simulator (no hardware)
-      <your-family>/    # Your new MCU family
-mcus/<chip>.toml     # per-chip clock speeds, FreeRTOS config, build args
-boards/<board>.toml  # per-board pinout, display, touch, sensors
-picodroid-core/      # cross-family shared code (no HAL imports)
+  rp/                     # RP2040 + RP2350 (Raspberry Pi Pico family)
+    src/
+      glue.rs             # the one file that binds core's seam to this family
+      hal/
+        mod.rs            # #[cfg] routing between rp/ and sim/
+        contract.rs       # assertions for boot/flash/pdb_usb only
+        rp/               # this family's peripheral drivers
+        sim/              # three stubs; the rest of the simulator is shared
+      <your-family>/      # your new MCU family
+mcus/<chip>.toml          # per-chip clock speeds, FreeRTOS config, build args
+boards/<board>.toml       # per-board pinout, display, touch, sensors
+picodroid-core/           # everything else, including the simulator
 ```
 
-### HAL CONTRACT v1
+### HAL CONTRACT v2
 
-The required public symbols and signatures are documented in `platforms/rp/src/hal/mod.rs` (the docblock at the top) and enforced at compile time by `platforms/rp/src/hal/contract.rs`. Drift in any signature breaks `cargo clippy` for both targets.
+The contract is `picodroid_core::hal`'s traits — `HalDisplay`, `HalGpio`,
+`HalClock`, `HalTouch`, `HalI2c`, `HalAdc`, `HalPwm`, `HalSpi`, `HalUart`,
+`HalFs`, and `HalNet` under `cfg(has_network)`. You implement them for one
+type and register with `set_hal!`, which emits the `#[no_mangle]` shims that
+core's facade binds to. A signature that drifts fails to compile at your impl.
 
-Symbols are tiered:
+This replaced a hand-written doc-block plus a matching list of compile-time
+assertions. The two had silently fallen out of step: converting them to traits
+found `net::udp_sendto`/`udp_recvfrom` and `i2c::{write,read}` /
+`spi::{transfer,write}` / `uart::reconfigure` all in live use by the natives
+and named in neither half. A trait bound cannot fall behind that way.
 
-- **Always required** (sim + every hardware family): `adc`, `display`, `gpio`, `i2c`, `pwm`, `spi`, `system_clock`, `touch`, `uart`.
-- **Hardware-only**: `boot`, `flash`, `pdb_usb`.
-
-A new family port only needs the always-required tier to compile; hardware-only modules can stub-panic until the M2 milestone.
+`boot`, `flash` and `pdb_usb` have no traits, because they have no shared
+counterpart to form a contract with. `platforms/rp/src/hal/contract.rs` still
+asserts their shape.
 
 ### Family vs. board
 
-The HAL exposes chip-level capability; per-board configuration (display controller, touch controller, SPI bus assignment, etc.) lives in `boards/<board>.toml` and `mcus/<chip>.toml`. A new MCU port typically only needs a HAL implementation; a new board on an already-supported MCU only needs new TOML entries.
-
-The rest of the codebase (`system/`, `pdb/`, `packagemanager/`) calls `crate::hal::uart::init()`, `crate::hal::gpio::set_value()`, etc. without knowing which chip is underneath. This is a zero-cost abstraction: module-level free functions selected at compile time, no trait objects, no dynamic dispatch.
+The HAL exposes chip-level capability; per-board configuration (display
+controller, touch controller, SPI bus assignment) lives in
+`boards/<board>.toml` and `mcus/<chip>.toml`. A new board on an
+already-supported MCU needs only new TOML entries.
 
 ## What a new port must provide
 
-Create a directory `platforms/<family>/src/hal/` containing a `mod.rs` that
-declares these public modules:
+Six things, and no edits to `picodroid-core`:
 
-```rust
-// platforms/<family>/src/hal/mod.rs
-pub mod adc;
-pub mod boot;
-pub mod display;
-pub mod flash;
-pub mod gpio;
-pub mod i2c;
-pub mod pdb_usb;
-pub mod pwm;
-pub mod spi;
-pub mod system_clock;
-pub mod touch;
-pub mod uart;
-```
+1. **A binary crate** at `platforms/<family>/`, with `main.rs` providing the
+   entry point, the panic handler and the global allocator.
+2. **`boards/*.toml` and `mcus/*.toml`** for your hardware, plus the feature
+   chain (`board-* → chip-* → family-*`) forwarding the matching marker
+   features to `picodroid-core`.
+3. **Peripheral implementations** under `src/hal/<family>/` — the module
+   shapes listed below.
+4. **The HAL trait impls**, delegating to those modules.
+5. **An `Rtos` impl and a `PlatformHooks` impl** — task spawn, queues,
+   recursive mutexes, semaphores, a tick timer; and the debug-bridge stop
+   poll, heap-accounting hooks and GC-root registration.
+6. **One `glue.rs`** invoking `set_hal!`, `set_rtos!` and
+   `set_platform_hooks!`.
 
-Each module must export the functions listed below with the exact signatures.
-The simplest way to start is to copy `platforms/rp/src/hal/sim/` and replace the
-stubs with real hardware drivers.
+You get the simulator, the widget set, the LVGL engine, the lifecycle, the
+JVM natives, sensor plumbing and every registry guard for free.
+
+### Do not copy `hal/sim/`
+
+Earlier revisions of this guide told you to start by copying
+`platforms/rp/src/hal/sim/`. Do not. Fourteen of those seventeen modules now
+live in `picodroid-core/src/hal/sim/` and are shared by every family; only
+`boot`, `flash` and `pdb_usb` remain family-side, because they stub
+reset entry, XIP flash and the USB debug bridge.
+
+That instruction is why this section exists. The ESP32-S3 scaffold followed
+it, accumulated seventeen stub modules that drifted from their originals, and
+was removed. `scripts/pre-commit` now fails if any path exists under both
+`platforms/*/src` and `picodroid-core/src`.
+
+### Your crate must not drive the JVM
+
+Hand off to `picodroid_core::boot::run_app(apk_data)` and let core own every
+`Jvm`. A family crate that constructs its own `Jvm` and invokes bytecode gets
+the whole interpreter monomorphised a second time — measured at ~38 KB across
+23 duplicated symbols, `pico_jvm::interpreter::execute` alone 12.7 KB a copy,
+which overflowed the RP2040 flash ceiling. LTO does not rescue this: on that
+build `thin` costs a further 25 KB and `fat` 13 KB over no LTO.
+
+## Peripheral module shapes
+
+The signatures below are what the HAL traits require. Implement them as free
+functions in your family modules and delegate from your trait impls, as
+`platforms/rp/src/glue.rs` does.
 
 ### uart.rs
 
@@ -268,12 +306,27 @@ nrf52840-hal = { version = "...", optional = true }
 
 ## HAL dispatch
 
-Add a `#[cfg]` path entry in `platforms/rp/src/hal/mod.rs`:
+Your family gets its own crate, so this is a `#[cfg]` inside *your*
+`src/hal/mod.rs`, choosing between your peripherals and the shared simulator
+— not an entry added to the RP crate:
 
 ```rust
-#[cfg(all(not(any(feature = "sim", test)), feature = "family-nrf"))]
+// platforms/nrf/src/hal/mod.rs
+#[cfg(any(feature = "sim", test))]
+pub use picodroid_core::hal::sim::{adc, display, gpio, i2c, /* … */};
+
+#[cfg(not(any(feature = "sim", test)))]
 #[path = "nrf52/mod.rs"]
 mod chip;
+```
+
+Note that your crate's own `cargo test` runs on the host and will route to
+the shared simulator, but a dependency is never compiled with the dependent's
+`cfg(test)`. Enable picodroid-core's `sim` feature for test builds:
+
+```toml
+[dev-dependencies]
+picodroid-core = { path = "…", features = ["sim"] }
 ```
 
 ## Build system

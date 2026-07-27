@@ -44,7 +44,6 @@ compat        = { path = "../compat", version = "0.1" }
 papk-format   = { path = "../papk-format" }
 embedded-hal  = "1.0"
 defmt         = "1"
-littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
 # Host-only: the simulator's display window and its touch/key input come
 # from minifb. Moved here with hal/sim so a family crate needs no host GUI

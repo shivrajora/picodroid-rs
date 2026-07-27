@@ -31,6 +31,39 @@ if ! bash "$REPO_ROOT/scripts/check-hil-conf.sh"; then
   exit 1
 fi
 
+echo "==> Checking for shadow twins across platforms/ and picodroid-core..."
+# The extraction moved ~26k LOC out of platforms/rp/src. A move that leaves a
+# same-named file behind compiles fine and then silently diverges: commit
+# fc896b3 is the precedent, and ESP's removed scaffold accumulated 17 such
+# twins before anyone noticed. So: no relative path may exist under both
+# trees, except the ones below.
+#
+# The exceptions are two ends of one seam, not copies:
+#   gc_root_registration.rs — one provider list per crate is the design
+#                             (docs/designs/shared-core-extraction.md §3.G)
+#   hal/mod.rs              — core's is the trait/facade surface, the
+#                             family's is the rp-vs-sim routing
+#   hal/sim/mod.rs          — core's declares the shared simulator modules,
+#                             the family's re-exports them and adds its own
+#                             boot/flash/pdb_usb stubs
+TWIN_ALLOW='^(gc_root_registration\.rs|hal/mod\.rs|hal/sim/mod\.rs)$'
+TWINS=$({ comm -12 \
+    <(cd "$REPO_ROOT/platforms/rp/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
+    <(cd "$REPO_ROOT/picodroid-core/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
+  | grep -Ev "$TWIN_ALLOW" || true; })
+if [[ -n "$TWINS" ]]; then
+  echo ""
+  echo "ERROR: these paths exist under BOTH platforms/rp/src and"
+  echo "       picodroid-core/src:"
+  echo "$TWINS" | sed 's/^/         /'
+  echo ""
+  echo "       A file left behind by a move is a shadow twin: both copies"
+  echo "       compile, one is dead, and they drift apart silently. Delete"
+  echo "       the stale one. If the pair is genuinely two ends of a seam,"
+  echo "       add it to TWIN_ALLOW above with a comment saying why."
+  exit 1
+fi
+
 echo "==> Checking sim/family-rp cfg-gate hygiene..."
 # docs/parity-audit.md BLD-02/X2: sim builds keep `family-rp` ACTIVE (the
 # board feature chain), so a gate written as not(feature = "family-rp") does

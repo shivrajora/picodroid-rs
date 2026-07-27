@@ -689,3 +689,42 @@ never compiled with the dependent's `cfg(test)`, so `picodroid_core::hal::sim`
 did not exist there. Fixed with a `[dev-dependencies]` entry enabling
 picodroid-core's `sim` feature for test builds — the third instance of this
 same subtlety, after `HalFs` and the `native_handler` test shims.
+
+### A7 — guards, docs and the final measurement (Stage 9)
+
+**Flash delta, rp2040 (the constrained target), across the whole
+extraction** — `74cf8c9` to the final commit:
+
+| Section | Baseline | After | Delta |
+|---|---|---|---|
+| `.text` | 703,928 | 703,736 | **−192** |
+| `.rodata` | 195,872 | 195,728 | **−144** |
+
+−336 bytes against a budget of ≤ ~2 KB. Worth being clear about why that is
+not luck: without the `bg_worker` fix in A5 the same tree was +38 KB and
+would not link on rp2040 at all.
+
+**`contract.rs`: 130 lines to 50.** Only `boot`, `flash` and `pdb_usb`
+remain, which have no traits because they have no shared counterpart to form
+a contract with. Two things the retired assertions covered are checked
+elsewhere rather than dropped — the display constants by the drift assertion
+in `hal/mod.rs`, the family `gpio` enums by `glue.rs`'s converters. The
+117-line v1 doc-block above them is now a pointer at the traits.
+
+**Shadow-twin guard** in `scripts/pre-commit`, with an allowlist for the
+three real seam pairs A3 identified (`gc_root_registration.rs`,
+`hal/mod.rs`, `hal/sim/mod.rs`). Verified by planting a stale copy.
+
+**`littlefs-rust` dropped from picodroid-core** — unused once `HalFs` moved
+the LittleFS body to the platform, so the seam paid for itself twice.
+
+Docs: ARCHITECTURE.md's module map is split by crate and its boundary table
+gained the three rules this work established (a platform crate must not
+construct a `Jvm`; no same-path file in both trees; a native module holding
+Java refs must register a root provider). The porting guide's "copy
+`hal/sim/`" instruction is replaced by a section explaining why not.
+
+Still open, deliberately: `docs/parity-audit.md` records that the simulator
+still does not take real recursive monitors. The RTOS seam makes that a
+one-line change now, but it is a behaviour change rather than a move, so it
+stays out of this work.
