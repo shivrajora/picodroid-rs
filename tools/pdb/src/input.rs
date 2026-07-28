@@ -9,10 +9,9 @@
 use std::process;
 use std::time::Duration;
 
-use crate::protocol::{
-    recv_response, send_frame, status_str, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP,
-    KEY_META_DOWN_UP, STATUS_OK,
-};
+use crate::protocol::{recv_response, send_frame, status_str, CMD_INPUT, STATUS_OK};
+use pdb_protocol::input::{InputEvent, MAX_INPUT_PAYLOAD};
+use pdb_protocol::KEY_META_DOWN_UP;
 
 const BAUD_RATE: u32 = 115_200;
 /// Generous — a swipe blocks the device handler until the gesture completes.
@@ -68,32 +67,12 @@ fn dpad_keycode(dir: &str) -> Option<i32> {
     }
 }
 
-// ── Payload encoders ─────────────────────────────────────────────────────────
-
-fn encode_key(keycode: i32, meta: u8) -> Vec<u8> {
-    let mut p = Vec::with_capacity(6);
-    p.push(INPUT_KEY);
-    p.extend_from_slice(&keycode.to_le_bytes());
-    p.push(meta);
-    p
-}
-
-fn encode_tap(x: i32, y: i32) -> Vec<u8> {
-    let mut p = Vec::with_capacity(9);
-    p.push(INPUT_TAP);
-    p.extend_from_slice(&x.to_le_bytes());
-    p.extend_from_slice(&y.to_le_bytes());
-    p
-}
-
-fn encode_swipe(x1: i32, y1: i32, x2: i32, y2: i32, dur_ms: u32) -> Vec<u8> {
-    let mut p = Vec::with_capacity(21);
-    p.push(INPUT_SWIPE);
-    for v in [x1, y1, x2, y2] {
-        p.extend_from_slice(&v.to_le_bytes());
-    }
-    p.extend_from_slice(&dur_ms.to_le_bytes());
-    p
+/// Wire bytes of one event, via the shared encoder the device's decoder is
+/// tested against.
+fn payload_of(ev: InputEvent) -> Vec<u8> {
+    let mut buf = [0u8; MAX_INPUT_PAYLOAD];
+    let n = ev.encode(&mut buf);
+    buf[..n].to_vec()
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -121,7 +100,10 @@ fn build_payload(args: &[String]) -> Vec<u8> {
                 eprint!("{INPUT_USAGE}");
                 process::exit(1);
             };
-            encode_key(code, KEY_META_DOWN_UP)
+            payload_of(InputEvent::Key {
+                keycode: code,
+                meta: KEY_META_DOWN_UP,
+            })
         }
         "dpad" => {
             let Some(code) = rest.first().and_then(|a| dpad_keycode(a)) else {
@@ -129,25 +111,37 @@ fn build_payload(args: &[String]) -> Vec<u8> {
                 eprint!("{INPUT_USAGE}");
                 process::exit(1);
             };
-            encode_key(code, KEY_META_DOWN_UP)
+            payload_of(InputEvent::Key {
+                keycode: code,
+                meta: KEY_META_DOWN_UP,
+            })
         }
-        "back" => encode_key(4, KEY_META_DOWN_UP),
+        "back" => payload_of(InputEvent::Key {
+            keycode: 4,
+            meta: KEY_META_DOWN_UP,
+        }),
         "tap" => {
             let x = parse_int("x", rest.first());
             let y = parse_int("y", rest.get(1));
-            encode_tap(x, y)
+            payload_of(InputEvent::Tap { x, y })
         }
         "swipe" => {
             let x1 = parse_int("x1", rest.first());
             let y1 = parse_int("y1", rest.get(1));
             let x2 = parse_int("x2", rest.get(2));
             let y2 = parse_int("y2", rest.get(3));
-            let dur = rest
+            let duration_ms = rest
                 .get(4)
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(DEFAULT_SWIPE_MS)
                 .min(MAX_SWIPE_MS);
-            encode_swipe(x1, y1, x2, y2, dur)
+            payload_of(InputEvent::Swipe {
+                x1,
+                y1,
+                x2,
+                y2,
+                duration_ms,
+            })
         }
         "" => {
             eprint!("{INPUT_USAGE}");
@@ -218,31 +212,12 @@ mod tests {
         assert_eq!(dpad_keycode("sideways"), None);
     }
 
-    #[test]
-    fn key_payload_layout() {
-        // [INPUT_KEY][keycode i32 LE][meta]
-        let p = encode_key(19, KEY_META_DOWN_UP);
-        assert_eq!(p, vec![INPUT_KEY, 19, 0, 0, 0, KEY_META_DOWN_UP]);
-    }
-
-    #[test]
-    fn tap_payload_layout() {
-        let p = encode_tap(100, 200);
-        assert_eq!(p[0], INPUT_TAP);
-        assert_eq!(&p[1..5], &100i32.to_le_bytes());
-        assert_eq!(&p[5..9], &200i32.to_le_bytes());
-    }
-
-    #[test]
-    fn swipe_payload_layout_and_len() {
-        let p = encode_swipe(1, 2, 3, 4, 300);
-        assert_eq!(p.len(), 21);
-        assert_eq!(p[0], INPUT_SWIPE);
-        assert_eq!(&p[17..21], &300u32.to_le_bytes());
-    }
+    // Payload byte layouts are pinned in `pdb_protocol::input`, where the
+    // encoder now lives; what is left here is the CLI's verb → event mapping.
 
     #[test]
     fn build_payload_dispatches_by_verb() {
+        use pdb_protocol::{INPUT_KEY, INPUT_SWIPE, INPUT_TAP};
         let s = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         assert_eq!(build_payload(&s(&["back"]))[0], INPUT_KEY);
         assert_eq!(build_payload(&s(&["tap", "10", "20"]))[0], INPUT_TAP);

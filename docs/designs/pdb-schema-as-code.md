@@ -103,3 +103,4 @@ Baseline = family-neutral-residue B9 "after 3f".
 | Baseline (7b19a6a) | 704,432 | — | 196,312 | — |
 | A — greeting | 704,448 | +16 | 196,312 | 0 |
 | B — sysmon | 704,448 | 0 | 196,336 | +24 |
+| C — input | 704,544 | +96 | 196,344 | +8 |

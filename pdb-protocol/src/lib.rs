@@ -45,6 +45,7 @@
 
 pub mod crc32;
 pub mod greeting;
+pub mod input;
 pub mod sysmon;
 
 pub use crc32::Crc32;

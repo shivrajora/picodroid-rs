@@ -12,19 +12,21 @@
 //! WAIT_FOR_FINISH)`: the device builds the event, injection is privileged
 //! (reachable only over PDB), and the handler blocks until the gesture is
 //! delivered before replying.
+//!
+//! The payload bytes are `pdb_protocol::input`'s; what this module owns is
+//! everything a wire format cannot know — keycode→pin resolution, coordinate
+//! clamping, and whether this board has a touch panel at all.
 
+use pdb_protocol::input::{InputError, InputEvent, MAX_INPUT_PAYLOAD};
 use pdb_protocol::{
-    crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_DOWN_UP,
-    KEY_META_UP, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
+    crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_UP,
+    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
 };
 
 use crate::board_cfg::buttons::keycode_to_pin;
 use crate::input_inject;
 
 use super::{send_response, PdbTransport};
-
-/// Max CMD_INPUT payload: SWIPE = 1 subtype + 4×i32 + u32 = 21 bytes. Rounded up.
-const MAX_PAYLOAD: usize = 24;
 
 /// Injects through the HAL facade, which is the right route on hardware.
 /// (The simulator's front-end uses its own sink — see
@@ -52,12 +54,12 @@ impl input_inject::InputSink for HalSink {
 pub fn handle(transport: &mut impl PdbTransport, len: u32) {
     // Drain the framed payload (bounded) + trailing CRC, keeping the byte
     // stream in sync even if the payload is malformed or oversized.
-    let mut payload = [0u8; MAX_PAYLOAD];
-    let n = (len as usize).min(MAX_PAYLOAD);
+    let mut payload = [0u8; MAX_INPUT_PAYLOAD];
+    let n = (len as usize).min(MAX_INPUT_PAYLOAD);
     for b in payload.iter_mut().take(n) {
         *b = transport.read_byte();
     }
-    for _ in MAX_PAYLOAD..len as usize {
+    for _ in MAX_INPUT_PAYLOAD..len as usize {
         let _ = transport.read_byte(); // discard overflow
     }
     let wire_crc = transport.read_u32_le();
@@ -66,44 +68,31 @@ pub fn handle(transport: &mut impl PdbTransport, len: u32) {
         send_response(transport, STATUS_CRC_FAIL, b"");
         return;
     }
-    if n == 0 {
-        send_response(transport, STATUS_ERR, b"empty input");
-        return;
-    }
 
-    let args = &payload[1..n];
-    let (status, msg): (u8, &[u8]) = match payload[0] {
-        INPUT_KEY => inject_key(args),
-        INPUT_TAP => inject_tap(args),
-        INPUT_SWIPE => inject_swipe(args),
-        _ => (STATUS_ERR, b"bad input subtype"),
+    let (status, msg): (u8, &[u8]) = match InputEvent::decode(&payload[..n]) {
+        Ok(InputEvent::Key { keycode, meta }) => inject_key(keycode, meta),
+        Ok(InputEvent::Tap { x, y }) => inject_tap(x, y),
+        Ok(InputEvent::Swipe {
+            x1,
+            y1,
+            x2,
+            y2,
+            duration_ms,
+        }) => inject_swipe(x1, y1, x2, y2, duration_ms),
+        Err(InputError::Empty) => (STATUS_ERR, b"empty input"),
+        Err(InputError::Short(INPUT_KEY)) => (STATUS_ERR, b"key: short payload"),
+        Err(InputError::Short(INPUT_TAP)) => (STATUS_ERR, b"tap: short payload"),
+        Err(InputError::Short(INPUT_SWIPE)) => (STATUS_ERR, b"swipe: short payload"),
+        Err(_) => (STATUS_ERR, b"bad input subtype"),
     };
     send_response(transport, status, msg);
 }
 
-// ── Little-endian slice readers ──────────────────────────────────────────────
-
-fn rd_i32(b: &[u8], off: usize) -> Option<i32> {
-    let s = b.get(off..off + 4)?;
-    Some(i32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-}
-
-#[cfg(has_touch)]
-fn rd_u32(b: &[u8], off: usize) -> Option<u32> {
-    let s = b.get(off..off + 4)?;
-    Some(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-}
-
 // ── Key injection ────────────────────────────────────────────────────────────
 
-/// KEY payload: `[keycode: i32 LE][meta: u8]`. Resolves the Android keycode to a
-/// board button pin and injects edges. Active-low: PRESS = falling
-/// (`rising=false`), RELEASE = rising.
-fn inject_key(args: &[u8]) -> (u8, &'static [u8]) {
-    let Some(keycode) = rd_i32(args, 0) else {
-        return (STATUS_ERR, b"key: short payload");
-    };
-    let meta = args.get(4).copied().unwrap_or(KEY_META_DOWN_UP);
+/// Resolves the Android keycode to a board button pin and injects edges.
+/// Active-low: PRESS = falling (`rising=false`), RELEASE = rising.
+fn inject_key(keycode: i32, meta: u8) -> (u8, &'static [u8]) {
     let Some(pin) = keycode_to_pin(keycode) else {
         return (STATUS_ERR, b"no such key");
     };
@@ -117,31 +106,19 @@ fn inject_key(args: &[u8]) -> (u8, &'static [u8]) {
 
 // ── Touch injection ──────────────────────────────────────────────────────────
 
-/// TAP payload: `[x: i32 LE][y: i32 LE]`. Press → hold → release at one point.
+/// Press → hold → release at one point.
 #[cfg(has_touch)]
-fn inject_tap(args: &[u8]) -> (u8, &'static [u8]) {
-    let (Some(x), Some(y)) = (rd_i32(args, 0), rd_i32(args, 4)) else {
-        return (STATUS_ERR, b"tap: short payload");
-    };
+fn inject_tap(x: i32, y: i32) -> (u8, &'static [u8]) {
     let x = input_inject::clamp_coord(x, crate::hal::display::WIDTH);
     let y = input_inject::clamp_coord(y, crate::hal::display::HEIGHT);
     input_inject::tap::<HalSink>(x, y);
     (STATUS_OK, b"")
 }
 
-/// SWIPE payload: `[x1][y1][x2][y2][duration_ms: u32]` (all LE). Press at start,
-/// step interpolated MOVEs to the end over `duration_ms`, then release.
+/// Press at start, step interpolated MOVEs to the end over `duration_ms`,
+/// then release.
 #[cfg(has_touch)]
-fn inject_swipe(args: &[u8]) -> (u8, &'static [u8]) {
-    let (Some(x1), Some(y1), Some(x2), Some(y2), Some(dur)) = (
-        rd_i32(args, 0),
-        rd_i32(args, 4),
-        rd_i32(args, 8),
-        rd_i32(args, 12),
-        rd_u32(args, 16),
-    ) else {
-        return (STATUS_ERR, b"swipe: short payload");
-    };
+fn inject_swipe(x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) -> (u8, &'static [u8]) {
     let w = crate::hal::display::WIDTH;
     let h = crate::hal::display::HEIGHT;
     let (x1, y1) = (
@@ -152,16 +129,92 @@ fn inject_swipe(args: &[u8]) -> (u8, &'static [u8]) {
         input_inject::clamp_coord(x2, w),
         input_inject::clamp_coord(y2, h),
     );
-    input_inject::swipe::<HalSink>(x1, y1, x2, y2, dur);
+    input_inject::swipe::<HalSink>(x1, y1, x2, y2, duration_ms);
     (STATUS_OK, b"")
 }
 
 #[cfg(not(has_touch))]
-fn inject_tap(_args: &[u8]) -> (u8, &'static [u8]) {
+fn inject_tap(_x: i32, _y: i32) -> (u8, &'static [u8]) {
     (STATUS_ERR, b"no touch panel")
 }
 
 #[cfg(not(has_touch))]
-fn inject_swipe(_args: &[u8]) -> (u8, &'static [u8]) {
+fn inject_swipe(_x1: i32, _y1: i32, _x2: i32, _y2: i32, _duration_ms: u32) -> (u8, &'static [u8]) {
     (STATUS_ERR, b"no touch panel")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pdb::tests::MockPipe;
+    use alloc::vec::Vec;
+
+    /// A complete host-side CMD_INPUT frame body (payload + CRC), as
+    /// `tools/pdb` would put it on the wire after the magic/cmd/len header
+    /// the dispatch loop consumes before calling `handle`.
+    fn frame_body(payload: &[u8]) -> Vec<u8> {
+        let mut rx = Vec::from(payload);
+        rx.extend_from_slice(&crc32_frame(CMD_INPUT, payload.len() as u32, payload).to_le_bytes());
+        rx
+    }
+
+    fn response_of(payload: &[u8]) -> (u8, Vec<u8>) {
+        let mut p = MockPipe::new(frame_body(payload));
+        handle(&mut p, payload.len() as u32);
+        let n = u32::from_le_bytes(p.tx[5..9].try_into().unwrap()) as usize;
+        (p.tx[4], p.tx[9..9 + n].to_vec())
+    }
+
+    #[test]
+    fn a_bad_crc_is_rejected_before_decoding() {
+        let mut rx = Vec::from(&[INPUT_KEY, 4, 0, 0, 0, 0][..]);
+        rx.extend_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+        let mut p = MockPipe::new(rx);
+        handle(&mut p, 6);
+        assert_eq!(p.tx[4], STATUS_CRC_FAIL);
+    }
+
+    /// Host-encoded malformed payloads come back with the exact per-verb
+    /// messages — the decode errors carry their subtype so the wording
+    /// stays what it was when the parser lived here.
+    #[test]
+    fn decode_failures_answer_with_the_verbs_own_message() {
+        assert_eq!(
+            response_of(&[]),
+            (STATUS_ERR, Vec::from(&b"empty input"[..]))
+        );
+        assert_eq!(
+            response_of(&[INPUT_KEY, 1]),
+            (STATUS_ERR, Vec::from(&b"key: short payload"[..]))
+        );
+        assert_eq!(
+            response_of(&[INPUT_TAP, 1, 2, 3, 4]),
+            (STATUS_ERR, Vec::from(&b"tap: short payload"[..]))
+        );
+        assert_eq!(
+            response_of(&[INPUT_SWIPE]),
+            (STATUS_ERR, Vec::from(&b"swipe: short payload"[..]))
+        );
+        assert_eq!(
+            response_of(&[0x7F]),
+            (STATUS_ERR, Vec::from(&b"bad input subtype"[..]))
+        );
+    }
+
+    /// A shared-encoder keyevent for a keycode no board maps reaches the
+    /// handler's own policy answer — the wire round trip works end to end
+    /// without injecting anything.
+    #[test]
+    fn an_unmapped_keycode_is_the_handlers_answer_not_the_decoders() {
+        let mut buf = [0u8; MAX_INPUT_PAYLOAD];
+        let n = InputEvent::Key {
+            keycode: 999,
+            meta: pdb_protocol::KEY_META_DOWN_UP,
+        }
+        .encode(&mut buf);
+        assert_eq!(
+            response_of(&buf[..n]),
+            (STATUS_ERR, Vec::from(&b"no such key"[..]))
+        );
+    }
 }
