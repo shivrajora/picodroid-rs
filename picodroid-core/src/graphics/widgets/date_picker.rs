@@ -8,7 +8,6 @@ use super::super::lvgl::widgets::date_picker as lvgl_date_picker;
 use super::super::view::extract_native_handle;
 
 pub use lvgl_date_picker::reset_date_picker_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
 
 #[inline]

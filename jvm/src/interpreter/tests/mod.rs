@@ -95,7 +95,6 @@ fn alloc_object(objects: &mut ObjectHeap, name: &'static str) -> Value {
 ///
 /// The returned Vec must be `Box::leak`'d or kept alive for the duration
 /// of the test — the JVM keeps string/class-name references into the data.
-#[allow(dead_code)]
 fn build_class(max_stack: u16, max_locals: u16, code: &[u8]) -> alloc::vec::Vec<u8> {
     use alloc::vec::Vec;
     let mut out: Vec<u8> = Vec::new();
@@ -129,7 +128,6 @@ fn build_class(max_stack: u16, max_locals: u16, code: &[u8]) -> alloc::vec::Vec<
 /// Run a method built from a raw bytecode slice via `build_class`.
 /// Leaks the class bytes for the duration of the test — fine because these
 /// are #[test] functions with no lifetime concerns.
-#[allow(dead_code)]
 fn run_code(max_stack: u16, max_locals: u16, code: &[u8]) -> Result<Option<Value>, JvmError> {
     let bytes = build_class(max_stack, max_locals, code);
     let leaked: &'static [u8] = alloc::boxed::Box::leak(bytes.into_boxed_slice());

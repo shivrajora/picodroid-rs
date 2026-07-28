@@ -40,14 +40,12 @@ pub fn start() {
 /// Stop posting ticks but keep the source ready to resume. Used by the
 /// activity loop's low-power sleep branch (only reachable on boards with
 /// physical buttons), so this is dead on sim / touch-only builds.
-#[allow(dead_code)]
 pub fn pause() {
     rtos::tick_timer_pause();
 }
 
 /// Resume posting ticks after a [`pause`] call. See [`pause`] for why this
 /// is `#[allow(dead_code)]`.
-#[allow(dead_code)]
 pub fn resume() {
     rtos::tick_timer_resume();
 }

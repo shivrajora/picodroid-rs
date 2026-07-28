@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::toggle_button as lvgl_toggle_button;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_toggle_button::reset_toggle_button_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
 
 pub fn toggle_button_native_create() -> Result<Option<Value>, JvmError> {

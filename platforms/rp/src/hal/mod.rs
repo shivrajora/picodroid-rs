@@ -18,7 +18,9 @@
 //!
 //! [`contract`] still asserts `boot` and `flash`: no trait covers those,
 //! because they have no shared counterpart to be a contract with. (`pdb_usb`
-//! graduated to `picodroid_core::pdb::PdbTransport` in stage 3d.)
+//! graduated to `picodroid_core::pdb::PdbTransport` in stage 3d.) Both are
+//! re-exported below under a device-only `cfg`, matching `contract`'s own
+//! gate — the simulator has no reset vector and no XIP flash region.
 //!
 //! # Family-private wiring
 //!
@@ -31,9 +33,9 @@
 // (Tests run on the host where HAL crates like rp-pico are unavailable.)
 //
 // There is no `sim/` directory here any more. Every module it held is
-// picodroid-core's, including the `boot`/`flash`/`pdb_usb` stubs that used to
-// stay behind — between them one empty function and two constants, which is
-// not machinery a family has anything to say about.
+// picodroid-core's, including the `pdb_usb` stub that used to stay behind.
+// The `boot`/`flash` stubs that went with it are gone entirely: one empty
+// function and two constants that no simulator build could reach.
 #[cfg(any(feature = "sim", test))]
 use picodroid_core::hal::sim as chip;
 
@@ -42,44 +44,35 @@ use picodroid_core::hal::sim as chip;
 mod chip;
 
 // Peripheral drivers
-#[allow(unused_imports)]
 pub use chip::adc;
-#[allow(unused_imports)]
+#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
 pub use chip::delay;
-#[allow(unused_imports)]
 pub use chip::display;
-#[allow(unused_imports)]
 pub use chip::gpio;
-#[allow(unused_imports)]
 pub use chip::i2c;
-#[allow(unused_imports)]
+#[cfg_attr(any(feature = "sim", test, not(has_touch)), allow(unused_imports))]
 pub use chip::input_pin;
-#[allow(unused_imports)]
+#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
 pub use chip::output_pin;
-#[allow(unused_imports)]
 pub use chip::pwm;
-#[allow(unused_imports)]
 pub use chip::spi;
-#[allow(unused_imports)]
+#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
 pub use chip::spi_bus;
-#[allow(unused_imports)]
 pub use chip::system_clock;
-#[allow(unused_imports)]
 pub use chip::touch;
-#[allow(unused_imports)]
 pub use chip::uart;
 
-// Boot & flash (only meaningful on real hardware, but sim provides stubs
-// for module completeness — suppress unused warnings in sim/test builds)
-#[allow(unused_imports)]
-pub use chip::boot;
-#[allow(unused_imports)]
-pub use chip::flash;
-#[allow(unused_imports)]
+// Boot & flash: device-only. The shared simulator has no counterpart — a
+// reset vector and an XIP flash region are not things a host process has —
+// and the empty stubs that used to stand in for them were reachable from
+// nothing, so they are gone. Both consumers (`main`'s `#[entry]` and
+// `packagemanager`) carry this same gate.
+#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
 pub use chip::pdb_usb;
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
+pub use chip::{boot, flash};
 
 #[cfg(has_network)]
-#[allow(unused_imports)]
 pub use chip::net;
 
 // The cyw43 bring-up task. Device-only: the shared simulator has no such
@@ -87,7 +80,6 @@ pub use chip::net;
 // rather than reached as `hal::rp::…` because `chip` is private — the same
 // indirection every other peripheral goes through.
 #[cfg(all(network_cyw43, not(any(test, feature = "sim"))))]
-#[allow(unused_imports)]
 pub use chip::wifi_task;
 
 // Compile-time HAL CONTRACT v1 enforcement. Never executed; type-checked only.

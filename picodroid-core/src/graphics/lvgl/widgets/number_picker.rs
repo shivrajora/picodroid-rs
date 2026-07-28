@@ -143,14 +143,12 @@ pub(in crate::graphics) fn register_picker(id: i32, obj_ref: u16) {
 
 /// Whether the widget at `raw_ptr` is a registered NumberPicker. Consulted by
 /// the keypad edit-mode filter on every ENTER press.
-#[cfg_attr(not(has_buttons), allow(dead_code))]
 pub fn is_number_picker(raw_ptr: usize) -> bool {
     unsafe { map_ref(&raw const PICKER_MAP).lookup(raw_ptr).is_some() }
 }
 
 /// Queue one edit-mode step (+1/-1) for the picker at `raw_ptr`; drained by
 /// `lifecycle::dispatch_number_picker_steps` into `NumberPicker.fireStep`.
-#[cfg_attr(not(has_buttons), allow(dead_code))]
 pub fn push_step(raw_ptr: usize, direction: i32) {
     unsafe {
         let next = (STEP_QUEUE_HEAD + 1) % STEP_QUEUE_SIZE;
@@ -161,7 +159,6 @@ pub fn push_step(raw_ptr: usize, direction: i32) {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_step_queue() -> Option<(usize, i32)> {
     unsafe {
         if STEP_QUEUE_TAIL == STEP_QUEUE_HEAD {
@@ -173,7 +170,6 @@ pub fn drain_step_queue() -> Option<(usize, i32)> {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const PICKER_MAP).lookup(handle) }
 }

@@ -60,7 +60,6 @@ pub struct StackTraceEntry {
 
 /// Errors that can occur during JVM execution.
 #[derive(Debug, PartialEq)]
-#[allow(dead_code)]
 pub enum JvmError {
     /// A referenced class was not found in the loaded class set.
     ClassNotFound,

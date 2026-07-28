@@ -29,6 +29,8 @@ pub struct Xpt2046<SPI, CS> {
     cal_y_min: u16,
     cal_y_max: u16,
     /// Noise rejection: raw values below this on either axis → no touch.
+    /// Fixed at construction; there is no runtime setter because nothing
+    /// ever needed to retune it after `new`.
     reject_lo: u16,
     /// Noise rejection: raw values above this on either axis → no touch.
     reject_hi: u16,
@@ -108,14 +110,6 @@ where
         self.cal_x_max = cal_x_max;
         self.cal_y_min = cal_y_min;
         self.cal_y_max = cal_y_max;
-    }
-
-    /// Update noise-rejection thresholds at runtime.
-    ///
-    /// Raw values outside `lo..=hi` on either axis are treated as "no touch".
-    pub fn set_rejection_range(&mut self, lo: u16, hi: u16) {
-        self.reject_lo = lo;
-        self.reject_hi = hi;
     }
 
     /// Enable or disable raw X/Y axis swapping.

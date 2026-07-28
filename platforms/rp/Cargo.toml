@@ -46,11 +46,11 @@ handle-table-32 = ["picodroid-core/handle-table-32"]
 sim = ["picodroid-core/sim"]
 
 [dependencies]
+# No `compat` / `pdb-protocol` here: this crate names neither. Both still
+# reach the binary through picodroid-core, which does use them.
 picodroid-core = { path = "../../picodroid-core" }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
-pdb-protocol = { path = "../../pdb-protocol" }
-compat = { path = "../../compat" }
 embedded-hal = { version = "1.0.0" }
 defmt = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }

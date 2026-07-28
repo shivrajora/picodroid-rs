@@ -22,7 +22,6 @@ const CMD_CASET: u8 = 0x2A;
 const CMD_RASET: u8 = 0x2B;
 const CMD_RAMWR: u8 = 0x2C;
 
-#[allow(dead_code)]
 pub struct St7789<SPI, DC, CS, RST, BL, D> {
     spi: SPI,
     dc: DC,
@@ -78,14 +77,6 @@ where
         let _ = self.cs.set_low();
         let _ = self.dc.set_low(); // command mode
         let _ = self.spi.write(&[cmd]);
-        let _ = self.cs.set_high();
-    }
-
-    #[allow(dead_code)]
-    fn write_data(&mut self, data: &[u8]) {
-        let _ = self.cs.set_low();
-        let _ = self.dc.set_high(); // data mode
-        let _ = self.spi.write(data);
         let _ = self.cs.set_high();
     }
 
@@ -196,12 +187,10 @@ where
         self.write_command(CMD_DISPON);
     }
 
-    #[allow(dead_code)]
     pub fn width(&self) -> u16 {
         self.width
     }
 
-    #[allow(dead_code)]
     pub fn height(&self) -> u16 {
         self.height
     }

@@ -3,34 +3,23 @@
 //!
 //! The bulk of the driver is compiled from C (vendor/cyw43-driver) via build.rs.
 //! This module provides safe Rust functions for initialisation, polling, and
-//! WiFi operations (join, disconnect, link status, RSSI).
+//! joining a network.
+//!
+//! The surface here is use-driven, not a complete mirror of `cyw43.h`. It
+//! once wrapped disconnect / link-status / RSSI and carried the full
+//! `CYW43_AUTH_*`, `CYW43_ITF_*` and `CYW43_LINK_*` vocabularies; none of it
+//! ever acquired a caller, so it was removed. Re-add a constant when the
+//! call that needs it arrives, rather than restoring the set wholesale.
 
 /// CYW43 authentication modes (matches CYW43_AUTH_* in cyw43.h).
-#[allow(dead_code)]
 pub mod auth {
     pub const OPEN: u32 = 0;
-    pub const WPA_TKIP: u32 = 0x00200002;
     pub const WPA2_AES: u32 = 0x00400004;
-    pub const WPA2_MIXED: u32 = 0x00400006;
 }
 
 /// CYW43 interface IDs.
-#[allow(dead_code)]
 pub mod itf {
     pub const STA: i32 = 0;
-    pub const AP: i32 = 1;
-}
-
-/// Link status values.
-#[allow(dead_code)]
-pub mod link {
-    pub const DOWN: i32 = 0;
-    pub const JOIN: i32 = 1;
-    pub const NOIP: i32 = 2;
-    pub const UP: i32 = 3;
-    pub const FAIL: i32 = -1;
-    pub const NONET: i32 = -2;
-    pub const BADAUTH: i32 = -3;
 }
 
 // C FFI bindings — hand-written (no bindgen dependency).
@@ -62,29 +51,11 @@ extern "C" {
         channel: u32,
     ) -> i32;
 
-    /// Leave the current WiFi network.
-    fn cyw43_wifi_leave(self_: *mut Cyw43State, itf: i32) -> i32;
-
-    /// Get WiFi link status for an interface.
-    fn cyw43_tcpip_link_status(self_: *const Cyw43State, itf: i32) -> i32;
-
-    /// Get the WiFi RSSI (signal strength in dBm).
-    fn cyw43_wifi_get_rssi(self_: *mut Cyw43State, rssi: *mut i32) -> i32;
-
     /// Get the MAC address.
     fn cyw43_wifi_get_mac(self_: *mut Cyw43State, itf: i32, mac: *mut [u8; 6]) -> i32;
 
     /// Set the CYW43 poll task handle (defined in cyw43_port.c).
     fn cyw43_set_poll_task(task: *mut core::ffi::c_void);
-
-    /// Send a raw Ethernet frame.
-    fn cyw43_send_ethernet(
-        self_: *mut Cyw43State,
-        itf: i32,
-        len: usize,
-        buf: *const u8,
-        is_pbuf: bool,
-    ) -> i32;
 }
 
 /// Opaque CYW43 driver state — sized to match the C struct.
@@ -152,42 +123,6 @@ pub unsafe fn wifi_join(ssid: &[u8], password: &[u8]) -> Result<(), i32> {
         return Err(ret);
     }
     Ok(())
-}
-
-/// Disconnect from the current WiFi network.
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
-pub unsafe fn wifi_leave() -> Result<(), i32> {
-    let ret = cyw43_wifi_leave(&raw mut cyw43_state, itf::STA);
-    if ret != 0 {
-        return Err(ret);
-    }
-    Ok(())
-}
-
-/// Get the current link status for the STA interface.
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
-pub unsafe fn link_status() -> i32 {
-    cyw43_tcpip_link_status(&raw const cyw43_state, itf::STA)
-}
-
-/// Get the WiFi RSSI (signal strength in dBm).
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
-pub unsafe fn get_rssi() -> Result<i32, i32> {
-    let mut rssi: i32 = 0;
-    let ret = cyw43_wifi_get_rssi(&raw mut cyw43_state, &mut rssi);
-    if ret != 0 {
-        return Err(ret);
-    }
-    Ok(rssi)
 }
 
 /// Get the MAC address for the STA interface.

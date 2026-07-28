@@ -8,7 +8,6 @@ use super::super::lvgl::widgets::time_picker as lvgl_time_picker;
 use super::super::view::extract_native_handle;
 
 pub use lvgl_time_picker::reset_time_picker_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 
 #[inline]

@@ -31,11 +31,8 @@ pub struct PicodroidNativeHandler {
     gc_count: u32,
     gc_freed: u32,
     /// Cumulative counters (never reset) for sim summary output.
-    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     total_gc_time_ns: u64,
-    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     total_gc_count: u32,
-    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     total_gc_freed: u32,
     /// Live-bytes high-water mark exposed to Java via `Runtime.peakMemory()`.
     /// Updated from `report_gc` (pre-sweep sample, catches GC-trigger peaks)
@@ -181,7 +178,6 @@ impl PicodroidNativeHandler {
     }
 
     /// Returns cumulative (gc_time_ns, gc_count, gc_freed) for the entire run.
-    #[cfg_attr(not(feature = "sim"), allow(dead_code))]
     pub fn gc_stats(&self) -> (u64, u32, u32) {
         (
             self.total_gc_time_ns,

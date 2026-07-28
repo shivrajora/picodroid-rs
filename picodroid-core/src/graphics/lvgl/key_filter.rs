@@ -3,7 +3,6 @@
 // never call into it from `events.rs`. The dead_code lint can't see the
 // has_buttons-gated callsite, so suppress it at module scope rather than
 // duplicating the cfg gate on every item.
-#![cfg_attr(not(any(has_buttons, test)), allow(dead_code))]
 //! Press-state filter for the button IRQ path.
 //!
 //! GPIOs that were in an indeterminate state during `enable_edge_irq` arming

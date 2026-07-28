@@ -487,6 +487,7 @@ pub fn queue_read_byte() -> u8 {
 }
 
 /// Read one byte with a 2-second timeout.
+#[cfg_attr(feature = "chip-rp2350", allow(dead_code))]
 pub fn queue_read_byte_timeout() -> Option<u8> {
     let b = rx_queue().receive(Duration::ms(2000)).ok();
     if b.is_some() {
@@ -545,11 +546,6 @@ pub fn write_bytes(data: &[u8]) {
             );
         }
     }
-}
-
-/// Write a single byte to the USB CDC bulk IN endpoint.
-pub fn write_byte(byte: u8) {
-    write_bytes(&[byte]);
 }
 
 /// Wait until the last USB IN transfer has completed.

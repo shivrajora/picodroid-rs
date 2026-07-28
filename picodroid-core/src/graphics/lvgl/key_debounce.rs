@@ -3,7 +3,6 @@
 // never call into it from `events.rs`. The dead_code lint can't see the
 // has_buttons-gated callsite, so suppress it at module scope rather than
 // duplicating the cfg gate on every item.
-#![cfg_attr(not(any(has_buttons, test)), allow(dead_code))]
 //! Per-pin contact-debounce for the button edge queue.
 //!
 //! Sized from a 2026-07-24 tuning session on Pico Enviro+ Pack hardware

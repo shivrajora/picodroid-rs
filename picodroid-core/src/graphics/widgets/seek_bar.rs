@@ -8,7 +8,6 @@ use super::super::lvgl::widgets::seek_bar as lvgl_seek_bar;
 use super::super::view::extract_native_handle;
 
 pub use lvgl_seek_bar::reset_seek_bar_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue, lookup_seek_bar_obj};
 
 pub fn seek_bar_native_create() -> Result<Option<Value>, JvmError> {

@@ -5,7 +5,7 @@
 //! Opaque LVGL types (lv_display_t, lv_obj_t, etc.) are represented as
 //! `core::ffi::c_void` behind raw pointers.
 
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types)]
 
 use core::ffi::c_void;
 // `c_char` is only referenced by the real LVGL `extern "C"` block below, which
@@ -109,7 +109,7 @@ pub const LV_INDEV_STATE_RELEASED: lv_indev_state_t = 0;
 pub const LV_INDEV_STATE_PRESSED: lv_indev_state_t = 1;
 
 pub type lv_indev_type_t = u8;
-pub const LV_INDEV_TYPE_NONE: lv_indev_type_t = 0;
+// No LV_INDEV_TYPE_NONE (0): we only ever register real input devices.
 pub const LV_INDEV_TYPE_POINTER: lv_indev_type_t = 1;
 pub const LV_INDEV_TYPE_KEYPAD: lv_indev_type_t = 2;
 
@@ -223,8 +223,7 @@ pub struct lv_calendar_date_t {
 /// deferred until apps need custom layouts.
 pub type lv_keyboard_mode_t = u32;
 pub const LV_KEYBOARD_MODE_TEXT_LOWER: lv_keyboard_mode_t = 0;
-pub const LV_KEYBOARD_MODE_TEXT_UPPER: lv_keyboard_mode_t = 1;
-pub const LV_KEYBOARD_MODE_SPECIAL: lv_keyboard_mode_t = 2;
+// 1 = TEXT_UPPER and 2 = SPECIAL exist in LVGL but no caller selects them.
 pub const LV_KEYBOARD_MODE_NUMBER: lv_keyboard_mode_t = 3;
 
 pub type lv_style_selector_t = u32;
@@ -503,7 +502,6 @@ extern "C" {
     pub fn lv_color_hex(c: u32) -> lv_color_t;
 
     // Events
-    pub fn lv_event_get_code(e: *mut lv_event_t) -> lv_event_code_t;
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
     /// The `user_data` passed to `lv_obj_add_event_cb` for the descriptor whose
     /// callback is currently running. The handle table rides the slot id here so

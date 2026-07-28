@@ -15,12 +15,6 @@ pub struct RpSpiBus {
 }
 
 impl RpSpiBus {
-    /// Initialize the SPI peripheral and configure it at `freq_hz`, MODE_0.
-    /// Uses chip-default pins for the bus.
-    pub fn new_init(spi_id: u8, freq_hz: u32) -> Self {
-        Self::new_init_with_pins(spi_id, freq_hz, None, None, None)
-    }
-
     /// Initialize the SPI peripheral on the given pad set. `None` for any pin
     /// falls back to the chip default for that bus. Used by display init when
     /// the board.toml specifies non-default SPI pads (e.g. Pimoroni Pico
@@ -38,6 +32,7 @@ impl RpSpiBus {
     }
 
     /// Create a handle to an already-initialized SPI bus (no hardware init).
+    #[cfg_attr(not(has_touch), allow(dead_code))]
     pub fn handle(spi_id: u8) -> Self {
         Self { spi_id }
     }

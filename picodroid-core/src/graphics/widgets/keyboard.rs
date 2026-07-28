@@ -8,7 +8,6 @@ use super::super::lvgl::widgets::keyboard as lvgl_keyboard;
 use super::super::view::{extract_handle_at, extract_native_handle};
 
 pub use lvgl_keyboard::reset_keyboard_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_keyboard::{drain_editor_action, drain_ready_queue, lookup_keyboard_obj};
 
 #[inline]

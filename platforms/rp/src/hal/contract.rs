@@ -32,7 +32,7 @@
 //! pins the *semantics* the assertions could not, such as `read_byte_timeout`
 //! being the one that may return `None`.
 
-#![allow(dead_code, unused_imports, clippy::let_unit_value)]
+#![allow(clippy::let_unit_value)]
 
 #[cfg(not(any(test, feature = "sim")))]
 fn _assert_hardware_only() {

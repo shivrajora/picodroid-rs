@@ -44,9 +44,19 @@ mod inner {
         OVERRIDE_ACTIVE.store(false, Ordering::Relaxed);
     }
 
+    // board.toml lists every pin/geometry field the panel has; a given build
+    // consumes only the subset its code path touches. Scoped here rather than
+    // over the whole HAL module so real rot outside the generated table stays
+    // visible.
+    #[allow(dead_code)]
     mod generated {
         include!(concat!(env!("OUT_DIR"), "/touch_config.rs"));
     }
+    // board.toml lists every pin/geometry field the panel has; a given build
+    // consumes only the subset its code path touches. Scoped here rather than
+    // over the whole HAL module so real rot outside the generated table stays
+    // visible.
+    #[allow(dead_code)]
     mod display_generated {
         include!(concat!(env!("OUT_DIR"), "/display_config.rs"));
     }
@@ -117,20 +127,12 @@ mod inner {
         touch().read_point()
     }
 
-    pub fn read_raw() -> Option<(u16, u16)> {
-        touch().read_raw()
-    }
-
     pub fn read_raw_unfiltered() -> (u16, u16) {
         touch().read_raw_unfiltered()
     }
 
     pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16) {
         touch().set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max);
-    }
-
-    pub fn set_rejection_range(lo: u16, hi: u16) {
-        touch().set_rejection_range(lo, hi);
     }
 }
 
@@ -140,14 +142,10 @@ mod inner {
     pub fn read_point() -> Option<(u16, u16)> {
         None
     }
-    pub fn read_raw() -> Option<(u16, u16)> {
-        None
-    }
     pub fn read_raw_unfiltered() -> (u16, u16) {
         (0, 0)
     }
     pub fn set_calibration(_: u16, _: u16, _: u16, _: u16) {}
-    pub fn set_rejection_range(_: u16, _: u16) {}
     // No panel to drive — scripted-touch injection is a no-op (the PDB
     // `CMD_INPUT` handler reports STATUS_ERR for tap/swipe on such boards).
     pub fn inject_override(_: u16, _: u16) {}

@@ -7,30 +7,11 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    /// `OnKeyListener` reference — accessed from Java only (fireKey reads it).
-    #[allow(dead_code)]
-    pub const ON_KEY_LISTENER: usize = 1;
-}
-
-#[allow(dead_code)]
-pub mod button {
-    // Inherits slots 0 (nativeHandle), 1 (onKeyListener) from View.
-    /// `Runnable` callback (`ObjectRef`) — accessed from Java only.
-    pub const ON_CLICK_LISTENER: usize = 2;
-}
-
-#[allow(dead_code)]
-pub mod linear_layout {
-    // Inherits slots 0 (nativeHandle), 1 (onKeyListener) from View.
-    /// Orientation: 0 = HORIZONTAL, 1 = VERTICAL — stored from Java only.
-    pub const ORIENTATION: usize = 2;
-}
-
-#[allow(dead_code)]
-pub mod toggle_button {
-    // Inherits slots 0 (nativeHandle), 1 (onKeyListener) from View.
-    /// `Runnable` callback (`ObjectRef`) — accessed from Java only.
-    pub const ON_CHECKED_CHANGE_LISTENER: usize = 2;
+    // Slot 1 is `onKeyListener`; a View subclass's own fields therefore start
+    // at slot 2 (Button.onClickListener, LinearLayout.orientation and
+    // ToggleButton.onCheckedChangeListener each sit there). None of those are
+    // named in this file — they are read and written from Java only, so no
+    // Rust code ever needs their index.
 }
 
 pub mod display {
@@ -59,22 +40,18 @@ pub mod key_event {
 
 /// `picodroid.app.AlertDialog` is **not** a View subclass — slot numbering
 /// starts from its own first declared field.
-#[allow(dead_code)]
 pub mod alert_dialog {
     /// Scrim handle returned by `lvgl::widgets::alert_dialog::create`.
     pub const NATIVE_HANDLE: usize = 0;
-    /// `Runnable` for the positive button — read from Java only.
-    pub const POSITIVE_LISTENER: usize = 1;
-    /// `Runnable` for the negative button — read from Java only.
-    pub const NEGATIVE_LISTENER: usize = 2;
+    // Slots 1 and 2 are the positive / negative button `Runnable`s, read
+    // from Java only. A new field starts at slot 3.
 }
 
 /// `picodroid.widget.Snackbar` is **not** a View subclass — slot numbering
 /// starts from its own first declared field.
-#[allow(dead_code)]
 pub mod snackbar {
     /// Bar handle returned by `lvgl::widgets::snackbar::create`.
     pub const NATIVE_HANDLE: usize = 0;
-    /// `Runnable` for the action lozenge — read from Java only.
-    pub const ACTION_LISTENER: usize = 1;
+    // Slot 1 is the action lozenge's `Runnable`, read from Java only. A new
+    // field starts at slot 2.
 }

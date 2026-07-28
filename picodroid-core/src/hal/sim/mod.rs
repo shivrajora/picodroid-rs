@@ -7,11 +7,12 @@
 //! drifted from the originals before it was removed. A simulator that is
 //! shared cannot drift.
 //!
-//! `boot`, `flash` and `pdb_usb` are stubs for machinery no simulator can
-//! stand in for (reset vectors, XIP flash, the USB debug bridge). They were
-//! platform-side originally; between them they held one empty function and
-//! two constants, which is boilerplate every family would retype, so they
-//! live here too — a family with something real to say overrides them.
+//! `pdb_usb` is a stub for machinery no simulator can stand in for (the USB
+//! debug bridge). There are deliberately no `boot` / `flash` stubs beside
+//! it: an empty `clock_init` and two flash constants that no simulator build
+//! could reach were shape parity and nothing more, so `crate::hal`'s
+//! re-exports of those two are gated to device builds instead. A family
+//! whose simulator models a real flash region defines its own module.
 //!
 //! Sibling modules here call each other directly (`super::gpio::inject`)
 //! rather than through [`crate::hal`]'s facade: the facade would route back
@@ -20,10 +21,8 @@
 
 pub mod adc;
 pub mod allocator;
-pub mod boot;
 pub mod delay;
 pub mod display;
-pub mod flash;
 pub mod gpio;
 pub mod heap4;
 pub mod i2c;

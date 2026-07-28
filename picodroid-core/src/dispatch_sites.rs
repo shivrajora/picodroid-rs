@@ -19,7 +19,6 @@
 
 // Indices read by `lifecycle.rs::dispatch_*`; unused from test builds, where
 // `mod lifecycle` is cfg'd out but the const table is still iterated.
-#![allow(dead_code)]
 
 pub const BUTTON: usize = 0;
 pub const TOGGLE_BUTTON: usize = 1;

@@ -21,7 +21,6 @@ pub use crate::board_cfg::display::SCROLL_LIMIT;
 // `has_buttons` is unset and none of the button code below compiles).
 #[cfg(has_buttons)]
 mod button_generated {
-    #[allow(unused_imports)]
     use crate::lvgl_ffi::*;
     include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
 }
@@ -549,6 +548,7 @@ fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
 
 /// Button-less board: `input keyevent|dpad|back` have nothing to drive.
 #[cfg(not(has_buttons))]
+#[cfg_attr(test, allow(dead_code))]
 fn handle_key_verb(verb: &str, _it: &mut core::str::SplitWhitespace<'_>) {
     println!("[sim] control channel: input {verb} — no buttons on this board");
 }

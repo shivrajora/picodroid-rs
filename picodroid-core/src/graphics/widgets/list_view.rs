@@ -12,7 +12,6 @@ pub use lvgl_list_view::reset_list_view_state;
 // `visit_item_click_listener_roots` is reached directly via the lvgl path in
 // `gc_visit_roots` (mirroring `button::visit_click_listener_roots`), so it is
 // not re-exported here.
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_list_view::{drain_item_click_queue, lookup_item_click};
 
 pub fn list_view_native_create() -> Result<Option<Value>, JvmError> {

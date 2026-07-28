@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::spinner as lvgl_spinner;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_spinner::reset_spinner_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_spinner::{drain_spinner_change_queue, lookup_spinner_obj};
 
 pub fn spinner_native_create() -> Result<Option<Value>, JvmError> {

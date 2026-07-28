@@ -179,7 +179,6 @@ pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16)
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_text_changed_queue() -> Option<usize> {
     unsafe {
         if TEXT_Q_TAIL == TEXT_Q_HEAD {
@@ -191,7 +190,6 @@ pub fn drain_text_changed_queue() -> Option<usize> {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const TEXT_WATCH_MAP).lookup(handle) }
 }

@@ -701,7 +701,6 @@ pub(in crate::graphics) fn perform_item_click(id: i32, position: i32) {
 
 /// Drain one item-click event from a list dialog. Returns
 /// `(dialog_handle, position, checked)`.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_item_click_queue() -> Option<(usize, i32, bool)> {
     unsafe {
         if ITEM_QUEUE_TAIL == ITEM_QUEUE_HEAD {
@@ -728,7 +727,6 @@ pub(in crate::graphics) fn register_button_click_listener(id: i32, obj_ref: u16)
 }
 
 /// Drain one click event from the queue. Returns (dialog_handle, which).
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_click_queue() -> Option<(usize, i32)> {
     unsafe {
         if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
@@ -750,7 +748,6 @@ pub fn visit_dialog_obj_roots(visit: &mut dyn FnMut(u16)) {
 
 /// Look up the Java `AlertDialog` object index for a dialog's raw scrim
 /// pointer.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_dialog_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const DIALOG_OBJ_MAP).lookup(handle) }
 }

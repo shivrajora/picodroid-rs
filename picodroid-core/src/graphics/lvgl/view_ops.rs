@@ -157,13 +157,10 @@ pub(in crate::graphics) fn child_count(h: Handle) -> i32 {
     unsafe { lv_obj_get_child_count(o as *const lv_obj_t) as i32 }
 }
 
-pub(in crate::graphics) fn child_at(_h: Handle, _index: i32) -> Handle {
-    // No reverse map (raw lv_obj_t* → Java View ObjectRef) exists today, so
-    // we can't return the child's original Handle here. The Java side throws
-    // UnsupportedOperationException before reaching native, so this only
-    // exists to satisfy the trait surface. See ViewGroup.getChildAt javadoc.
-    Handle::NULL
-}
+// There is no `child_at`: no reverse map (raw lv_obj_t* → Java View
+// ObjectRef) exists, so it could only ever return Handle::NULL.
+// `ViewGroup.getChildAt` throws UnsupportedOperationException on the Java
+// side rather than reaching native — see its javadoc.
 
 pub(in crate::graphics) fn remove_child(_parent: Handle, child: Handle) {
     // LVGL's delete walks the tree to detach from the parent automatically.

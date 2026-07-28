@@ -44,20 +44,23 @@ pub const SENSOR_STACK_WORDS: u16 = 1024;
 pub const JVM_THREAD_STACK_WORDS: u16 = 4096;
 /// FreeRTOS idle/timer service stacks (`configMINIMAL_STACK_SIZE` /
 /// `configTIMER_TASK_STACK_DEPTH` in FreeRTOSConfig.h).
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub const MINIMAL_STACK_WORDS: u16 = 128;
 
 /// Estimated TCB_t allocation per task (SMP build with core affinity).
 /// Calibrated, not measured field-by-field — see module doc.
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub const TCB_EST_BYTES: u32 = 120;
 /// Boot-time queues and misc kernel structures (main queue, background-pool
 /// queue, fs queue, timer command queue). Calibrated bucket — see module doc.
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub const QUEUES_MISC_BYTES: u32 = 2048;
 
 /// One boot-time FreeRTOS task: a stack allocation plus a TCB.
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub struct BootTask {
     /// Read by the sim pre-charge diagnostics; device builds only consume
     /// the per-task constants directly.
-    #[allow(dead_code)]
     pub name: &'static str,
     pub stack_words: u16,
 }
@@ -67,6 +70,7 @@ pub struct BootTask {
 /// The background pool's worker count/stack come from its generated board
 /// config; the values here must match `background_pool_config.rs`
 /// (POOL_THREADS = 4, POOL_STACK_BYTES = 4096).
+#[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub const BOOT_TASKS: &[BootTask] = &[
     BootTask {
         name: "pdb",

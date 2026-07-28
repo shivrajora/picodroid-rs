@@ -182,7 +182,6 @@ unsafe fn maybe_fire_end_action(handle: i32) {
 }
 
 /// Drain one completed end-action Runnable obj_ref, if any.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_completed_end_action() -> Option<u16> {
     unsafe {
         if COMPLETION_TAIL == COMPLETION_HEAD {

@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::check_box as lvgl_check_box;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_check_box::reset_check_box_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
 
 pub fn check_box_native_create() -> Result<Option<Value>, JvmError> {

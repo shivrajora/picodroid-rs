@@ -11,11 +11,6 @@ pub struct SimSpiBus {
 }
 
 impl SimSpiBus {
-    pub fn new_init(spi_id: u8, _freq_hz: u32) -> Self {
-        super::spi::init(spi_id);
-        Self { spi_id }
-    }
-
     pub fn new_init_with_pins(
         spi_id: u8,
         _freq_hz: u32,

@@ -8,7 +8,6 @@ use super::super::lvgl::widgets::switch as lvgl_switch;
 use super::super::view::extract_native_handle;
 
 pub use lvgl_switch::reset_switch_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};
 
 pub fn switch_native_create() -> Result<Option<Value>, JvmError> {

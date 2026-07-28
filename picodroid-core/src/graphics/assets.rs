@@ -112,7 +112,6 @@ pub fn lookup(name: &str) -> Option<*const lv_image_dsc_t> {
 /// Number of registered assets — exposed for sim smoke tests and debug
 /// output. Allowed to be dead in production builds; exists so app code can
 /// log a startup line that confirms the bundle parsed.
-#[allow(dead_code)]
 pub fn count() -> usize {
     registry().entries.len()
 }

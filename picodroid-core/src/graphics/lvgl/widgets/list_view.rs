@@ -125,7 +125,6 @@ pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
 }
 
 /// Drain one item-click event (raw row `lv_obj_t*`) from the queue.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_item_click_queue() -> Option<usize> {
     unsafe {
         if ITEM_CLICK_QUEUE_TAIL == ITEM_CLICK_QUEUE_HEAD {
@@ -141,7 +140,6 @@ pub fn drain_item_click_queue() -> Option<usize> {
 /// Returns `None` if the row's parent list has no registered item-click
 /// listener, or the row is no longer a child of its list. The position is the
 /// row's index among the list's children, recovered by scan.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
     unsafe {
         let row_obj = row as *mut lv_obj_t;

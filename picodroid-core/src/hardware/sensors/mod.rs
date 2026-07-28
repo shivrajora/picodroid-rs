@@ -395,6 +395,7 @@ fn publish_control(_st: &SensorState) {}
 /// registrations in a single tick was the bulk of a ~100 ms UI-tick stall.
 /// Due events park in `SensorState::pending` and drain one per 16 ms tick;
 /// at the NORMAL 192 ms period that leaves 12 ticks of headroom per cycle.
+#[cfg_attr(test, allow(dead_code))]
 const MAX_DELIVERIES_PER_TICK: u32 = 1;
 
 /// Poll sensors and deliver SensorEvent callbacks for any due registrations.

@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::edit_text as lvgl_edit_text;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_edit_text::reset_edit_text_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 
 pub fn edit_text_native_create() -> Result<Option<Value>, JvmError> {

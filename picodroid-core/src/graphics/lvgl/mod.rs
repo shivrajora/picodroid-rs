@@ -5,9 +5,11 @@
 //! `lv_color_t`; the rest of the graphics layer goes through [`Gfx`] and
 //! opaque [`Handle`]s.
 
+#[cfg_attr(test, allow(unused_imports))]
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use super::gfx::{EventKind, EventListener, EventRecord, Gfx, Handle, Visibility};
+#[cfg_attr(test, allow(unused_imports))]
+use super::gfx::{Gfx, Handle, Visibility};
 
 // `lvgl_ffi`'s `extern "C"` block is `cfg(not(test))`, so its drift-check
 // tests can run without linking LVGL. Every module that calls an LVGL
@@ -148,10 +150,6 @@ impl Gfx for LvglGfx {
         view_ops::child_count(h)
     }
 
-    fn child_at(&self, h: Handle, index: i32) -> Handle {
-        view_ops::child_at(h, index)
-    }
-
     fn remove_child(&mut self, parent: Handle, child: Handle) {
         view_ops::remove_child(parent, child);
     }
@@ -166,16 +164,6 @@ impl Gfx for LvglGfx {
 
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32) {
         view_ops::frame(h)
-    }
-
-    // ── events ──────────────────────────────────────────────────────────────
-
-    fn add_event_listener(&mut self, _h: Handle, _kind: EventKind, _cb: EventListener) {
-        unimplemented!("LvglGfx::add_event_listener: ported in step 5 of the plan")
-    }
-
-    fn poll_event(&mut self) -> Option<EventRecord> {
-        unimplemented!("LvglGfx::poll_event: ported in step 5 of the plan")
     }
 }
 
@@ -196,7 +184,6 @@ static mut GFX: LvglGfx = LvglGfx::new();
 /// callback — the trampoline would re-borrow and panic. Trampolines must
 /// read directly from the per-handle slot tables in `lvgl/events.rs`.
 #[cfg(not(test))]
-#[allow(dead_code)] // wired up as widgets migrate (steps 6+)
 pub fn with_gfx<R>(f: impl FnOnce(&mut dyn Gfx) -> R) -> R {
     // SAFETY: single-threaded access to a `'static mut` singleton; same
     // contract as the existing global state in `engine.rs` (SCREEN_HOLDER,

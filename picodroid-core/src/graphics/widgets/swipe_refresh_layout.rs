@@ -11,7 +11,6 @@ use super::super::lvgl::widgets::swipe_refresh_layout as lvgl_swipe_refresh;
 use super::super::view::extract_native_handle;
 
 pub use lvgl_swipe_refresh::reset_swipe_refresh_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_swipe_refresh::{drain_refresh_queue, lookup_refresh_obj};
 
 pub fn swipe_refresh_native_create() -> Result<Option<Value>, JvmError> {

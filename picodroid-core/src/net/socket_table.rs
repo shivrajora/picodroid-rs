@@ -26,7 +26,6 @@ pub fn remove(_id: i32) {}
 
 #[cfg(target_pointer_width = "32")]
 #[inline(always)]
-#[allow(dead_code)]
 pub fn reset() {}
 
 // ── 64-bit: indirection table ────────────────────────────────────────────────
@@ -71,7 +70,6 @@ pub fn remove(id: i32) {
 }
 
 #[cfg(target_pointer_width = "64")]
-#[allow(dead_code)]
 pub fn reset() {
     unsafe {
         let handles = &raw mut HANDLES;

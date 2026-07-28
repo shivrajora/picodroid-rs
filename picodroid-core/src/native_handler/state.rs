@@ -40,6 +40,7 @@ pub enum PendingActivityOp {
         intent_ref: Option<u16>,
         /// `Some(code)` for `startActivityForResult`; `None` for plain
         /// `startActivity`. Carried onto the new stack entry.
+        #[cfg_attr(test, allow(dead_code))]
         request_code: Option<i32>,
         /// obj_ref of the launching Activity (0 for an Application-level
         /// boot launch). The result delivery guard checks this on pop.
@@ -59,15 +60,18 @@ pub enum PendingServiceOp {
     /// `Context.startService(intent)` — `onCreate` (first time) then
     /// `onStartCommand`.
     Start {
+        #[cfg_attr(test, allow(dead_code))]
         class_name: &'static str,
         intent_ref: u16,
     },
     /// `Context.stopService(intent)` or `Service.stopSelf()` — clear the
     /// started flag; if no clients are bound, run `onDestroy`.
+    #[cfg_attr(test, allow(dead_code))]
     Stop { class_name: &'static str },
     /// `Context.bindService(intent, conn)` — `onCreate` (first time) then
     /// `onBind`, then deliver the IBinder to `conn.onServiceConnected`.
     Bind {
+        #[cfg_attr(test, allow(dead_code))]
         class_name: &'static str,
         intent_ref: u16,
         conn_ref: u16,
@@ -98,6 +102,7 @@ struct ActivityStackEntry {
     class_name: &'static str,
     /// Intent that launched this Activity (`getIntent()`'s return value);
     /// `None` for the boot Activity. Rooted by the GC visitor below.
+    #[cfg_attr(test, allow(dead_code))]
     intent_ref: Option<u16>,
     /// Java `nativeHandle` of the content view installed by this Activity's
     /// most recent `setContentView`. `0` = no view set yet, or the view has
@@ -176,6 +181,7 @@ impl ActivityStack {
 
     /// Record a result on the Activity identified by `obj_ref` (`setResult`).
     /// Searches the whole stack so a paused Activity can set its result.
+    #[cfg_attr(test, allow(dead_code))]
     pub fn set_result(&mut self, obj_ref: u16, code: i32, intent_ref: Option<u16>) {
         if let Some(entry) = self.entries[..self.len]
             .iter_mut()
@@ -307,6 +313,7 @@ impl PendingOpQueue {
     /// True if any queued op is an Activity transition (push/pop). The key
     /// dispatcher uses this to stop feeding input to a departing Activity once
     /// it has launched or finished within the current frame.
+    #[cfg_attr(test, allow(dead_code))]
     pub fn has_pending_activity(&self) -> bool {
         self.entries[..self.len]
             .iter()

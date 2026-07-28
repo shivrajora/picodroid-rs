@@ -19,7 +19,9 @@ const TAG_FIELDREF: u8 = 9;
 const TAG_METHODREF: u8 = 10;
 const TAG_NAME_AND_TYPE: u8 = 12;
 const TAG_METHOD_HANDLE: u8 = 15;
-const TAG_METHOD_TYPE: u8 = 16;
+// No TAG_METHOD_TYPE (16): nothing resolves a CONSTANT_MethodType entry.
+// `parse_cp` still skips one by raw tag value, like every other tag it does
+// not name.
 const TAG_INVOKE_DYNAMIC: u8 = 18;
 
 /// One entry in the BootstrapMethods class attribute.
@@ -45,7 +47,6 @@ pub struct ExceptionEntry {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct MethodInfo {
     pub name_index: u16,
     pub descriptor_index: u16,

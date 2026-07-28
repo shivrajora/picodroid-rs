@@ -2,13 +2,19 @@
 //! Backend-agnostic graphics trait.
 //!
 //! `Gfx` abstracts the engine lifecycle plus the cross-widget setters that
-//! every widget calls. Per-widget operations live on the sibling `*Ops`
-//! sub-traits in `gfx::widget_ops` and are reached via factory methods on
-//! `Gfx`.
+//! every widget calls.
 //!
 //! Today's only impl is `LvglGfx` in `super::super::lvgl`. The trait surface
 //! is intentionally backend-neutral: no `lv_obj_t` / `lv_event_t` / RGB565
 //! assumptions cross this boundary.
+//!
+//! Widget *events* do not come through here. An earlier design put a
+//! push/pull event model on this trait (`EventKind`, `EventPayload`,
+//! `add_event_listener`, `poll_event`); the LVGL backend never implemented
+//! it, and the path that shipped instead is the `lv_event_t` trampoline in
+//! `lvgl/events.rs` writing into the per-handle tables in
+//! `lvgl/listener_map.rs`. The unbuilt surface was deleted rather than left
+//! compiling — see the dead-code audit for the reasoning.
 
 use super::handle::Handle;
 
@@ -21,48 +27,6 @@ pub enum Visibility {
     Invisible,
     Gone,
 }
-
-/// Backend-neutral event kinds delivered to widget listeners.
-///
-/// LVGL-specific constants (`LV_EVENT_*`) stay inside the LVGL impl; the
-/// translation lives in exactly one file (`lvgl/events.rs`). See
-/// [project_lvgl_ffi_constants.md](../../../../../../../.claude/projects/-home-shiv-projects-picodroid-rs/memory/project_lvgl_ffi_constants.md)
-/// for why centralizing this matters across LVGL version bumps.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum EventKind {
-    Click,
-    Press,
-    Release,
-    ValueChanged,
-    Focus,
-    Blur,
-    KeyDown,
-}
-
-/// Payload delivered to a `fn(EventPayload)` listener registered via
-/// [`Gfx::add_event_listener`]. Plain data — no allocation, no closure.
-#[derive(Copy, Clone, Debug)]
-pub struct EventPayload {
-    pub handle: Handle,
-    pub kind: EventKind,
-    /// Auxiliary integer (e.g. value-changed: new int value; key-down:
-    /// keycode). Backend interprets per `kind`.
-    pub aux: i32,
-}
-
-/// One pull-mode event drained from the backend's ring buffer. Identical
-/// shape to [`EventPayload`] today; kept distinct so push/pull paths can
-/// diverge later without breaking either.
-#[derive(Copy, Clone, Debug)]
-pub struct EventRecord {
-    pub handle: Handle,
-    pub kind: EventKind,
-    pub aux: i32,
-}
-
-/// Listener function signature. Plain `fn` — no captures, no `Box<dyn Fn>`,
-/// no allocation. Per-handle state is keyed in the backend's slot table.
-pub type EventListener = fn(EventPayload);
 
 /// Engine-level graphics trait. Handle type is the concrete [`Handle`]
 /// newtype (no associated type / no generics) — call sites see a single
@@ -108,10 +72,13 @@ pub trait Gfx {
     // ── ViewGroup ops ───────────────────────────────────────────────────────
 
     /// Number of children currently parented to `h`.
+    ///
+    /// There is deliberately no `child_at`: no reverse map from a raw
+    /// backend object back to the Java `View` ObjectRef exists, so it could
+    /// only ever return null. `ViewGroup.getChildAt` throws
+    /// `UnsupportedOperationException` on the Java side instead of reaching
+    /// native.
     fn child_count(&self, h: Handle) -> i32;
-
-    /// Child at `index`, or [`Handle::NULL`] if out of range.
-    fn child_at(&self, h: Handle, index: i32) -> Handle;
 
     /// Detach and delete `child`. The Java side calls this from {@code
     /// ViewGroup.removeView}; LVGL's parent-aware delete walks the tree so
@@ -131,22 +98,8 @@ pub trait Gfx {
     /// getLeft/getTop.
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32);
 
-    // ── events ──────────────────────────────────────────────────────────────
-
-    /// Register a push-mode listener. Today's Java path uses
-    /// [`Self::poll_event`] instead — see `lvgl/events.rs` for how the LVGL
-    /// trampoline routes to one or the other based on registration.
-    fn add_event_listener(&mut self, h: Handle, kind: EventKind, cb: EventListener);
-
-    /// Drain one event from the backend's ring buffer. Returns `None` when
-    /// the queue is empty.
-    fn poll_event(&mut self) -> Option<EventRecord>;
-
-    // ── widget factories ────────────────────────────────────────────────────
-    //
-    // Per-widget `*Ops` sub-traits and their factories (`fn label(...) ->
-    // (Handle, &mut dyn LabelOps)`) are added to this trait per-widget as
-    // each widget is migrated in step 7 of the plan. Keeping the trait
-    // skeleton minimal here avoids dead trait methods before their impls
-    // exist. See `gfx::widget_ops` for sub-trait stubs.
+    // Per-widget operations are not on this trait. Each widget module under
+    // `graphics/widgets/` calls its LVGL counterpart in
+    // `graphics/lvgl/widgets/` directly; only the ops every widget shares
+    // (above) are abstracted here.
 }

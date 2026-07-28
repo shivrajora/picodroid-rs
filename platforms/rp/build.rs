@@ -24,8 +24,9 @@ mod boards;
 #[path = "../../build_support/freertos.rs"]
 mod freertos;
 
-#[path = "../../build_support/lvgl.rs"]
-mod lvgl;
+// No `mod lvgl`: LVGL's C sources are compiled by picodroid-core/build.rs,
+// and the resulting static lib reaches this binary through the dependency.
+// See the note at the bottom of `main`.
 
 #[path = "../../build_support/network.rs"]
 mod network;
@@ -37,8 +38,6 @@ mod papk;
 mod jvm_defaults;
 
 use std::env;
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {

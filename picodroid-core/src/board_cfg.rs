@@ -60,7 +60,7 @@ pub mod sensors {
 /// the simulator's keyboard emulation reads the same table — so it stays
 /// shared, with pins opaque to this crate.
 pub mod buttons {
-    #[allow(unused_imports)]
+    #[cfg_attr(not(has_buttons), allow(unused_imports))]
     use crate::lvgl_ffi::*;
     include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
 
@@ -73,7 +73,6 @@ pub mod buttons {
     /// own copy. Both had to, in fact: the graphics module is `cfg(not(test))`
     /// and the simulator front-end is not, so neither could use the other's.
     /// The table is always compiled, so this is.
-    #[allow(dead_code)]
     pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
         BUTTONS
             .iter()

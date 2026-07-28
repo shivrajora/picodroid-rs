@@ -12,7 +12,6 @@
 
 #[cfg(has_buttons)]
 use crate::hal;
-#[allow(unused_imports)]
 use crate::lvgl_ffi::*;
 
 use super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
@@ -20,7 +19,7 @@ use super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
 // Board-specific button table generated from `[[button]]` in board.toml.
 // Entries: (pin, LV_KEY_*, android_keycode). Empty on boards without buttons.
 mod button_generated {
-    #[allow(unused_imports)]
+    #[cfg_attr(not(has_buttons), allow(unused_imports))]
     use super::*;
     include!(concat!(env!("OUT_DIR"), "/button_config.rs"));
 }
@@ -46,13 +45,11 @@ pub fn pin_to_keycode(pin: u8) -> Option<i32> {
 /// declared with `keycode`. `None` if this board has no button for that
 /// keycode. Used by the PDB `CMD_INPUT` handler to resolve a host-sent Android
 /// keycode (`pdb input keyevent …`) to a pin for `hal::gpio::inject`.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
     crate::board_cfg::buttons::keycode_to_pin(keycode)
 }
 
 /// Pop one key event from the Java-visible queue, if any.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_key_event() -> Option<KeyEventRaw> {
     unsafe {
         if KEY_EVENT_QUEUE_TAIL == KEY_EVENT_QUEUE_HEAD {
@@ -75,7 +72,6 @@ pub fn reset_key_event_queue() {
 /// Return the Java `View` object reference for LVGL's currently focused
 /// widget, if one is registered as a key listener via
 /// [`register_view_key_listener`].
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn focused_view_obj() -> Option<u16> {
     unsafe {
         let group = lv_group_get_default();
@@ -124,7 +120,6 @@ pub fn register_view_key_listener(id: i32, obj_ref: u16) {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 fn lookup_view_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_KEY_MAP).lookup(handle) }
 }
@@ -778,7 +773,6 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
 }
 
 /// Pop one touch event from the queue, if any.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_touch_event() -> Option<TouchRecord> {
     unsafe {
         if TOUCH_QUEUE_TAIL == TOUCH_QUEUE_HEAD {
@@ -791,7 +785,6 @@ pub fn drain_touch_event() -> Option<TouchRecord> {
 }
 
 /// Look up the Java `View` object reference for a registered LVGL widget.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_TOUCH_MAP).lookup(handle) }
 }
@@ -870,7 +863,6 @@ pub fn take_click_suppressed(handle: usize) -> bool {
 // Single-slot is sufficient: the keyboard is the only consumer today and
 // the plan explicitly defers generalizing until a second one appears.
 
-#[allow(unused_imports)]
 use crate::lvgl_ffi::{
     lv_event_cb_t, lv_obj_add_event_cb, lv_obj_remove_event_cb, lv_screen_active, LV_EVENT_PRESSED,
 };
@@ -886,7 +878,6 @@ static mut SCREEN_PRESS_HOOK: lv_event_cb_t = None;
 /// lint correctly warns that fn-pointer equality isn't reliable across
 /// codegen units. Detach-then-re-attach is two cheap LVGL list
 /// operations and is unconditionally correct.
-#[cfg_attr(test, allow(dead_code))]
 pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
     unsafe {
         if let Some(prev) = SCREEN_PRESS_HOOK {
@@ -905,7 +896,6 @@ pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
 }
 
 /// Detach the screen-level press hook, if one is attached.
-#[cfg_attr(test, allow(dead_code))]
 pub fn detach_screen_press_hook() {
     unsafe {
         if let Some(prev) = SCREEN_PRESS_HOOK {
@@ -1007,7 +997,6 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_swipe_event() -> Option<SwipeRecord> {
     unsafe {
         if SWIPE_QUEUE_TAIL == SWIPE_QUEUE_HEAD {
@@ -1019,7 +1008,6 @@ pub fn drain_swipe_event() -> Option<SwipeRecord> {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_SWIPE_MAP).lookup(handle) }
 }
@@ -1147,7 +1135,6 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_focus_change_event() -> Option<FocusRecord> {
     unsafe {
         if FOCUS_QUEUE_TAIL == FOCUS_QUEUE_HEAD {
@@ -1159,7 +1146,6 @@ pub fn drain_focus_change_event() -> Option<FocusRecord> {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_FOCUS_MAP).lookup(handle) }
 }

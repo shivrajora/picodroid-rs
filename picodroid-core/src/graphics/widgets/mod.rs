@@ -36,19 +36,16 @@ pub use alert_dialog::{
     alert_dialog_register_button_click_listener, dismiss_topmost_dialog, has_shown_dialog,
     reset_alert_dialog_state,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use alert_dialog::{
     drain_click_queue as drain_dialog_click_queue,
     drain_item_click_queue as drain_dialog_item_click_queue, lookup_dialog_obj,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use animator::drain_completed_end_action;
 pub use animator::{
     animator_native_cancel, animator_native_set_end_action, animator_native_start,
     reset_animation_state,
 };
 pub use button::{button_native_create, button_set_text, reset_button_state};
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use button::{
     drain_click_queue, drain_long_click_queue, lookup_button_obj, lookup_long_click_obj,
 };
@@ -57,16 +54,13 @@ pub use check_box::{
     check_box_register_checked_change_listener, check_box_set_checked, check_box_set_text,
     reset_check_box_state,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
 pub use date_picker::{
     date_picker_get_day, date_picker_get_month, date_picker_get_year, date_picker_native_create,
     date_picker_register_listener, date_picker_set_date, reset_date_picker_state,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
 pub use drawable::gradient_drawable_apply;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 pub use edit_text::{
     edit_text_get_text, edit_text_native_create, edit_text_register_editor_action_listener,
@@ -78,7 +72,6 @@ pub use image_view::{
     image_view_native_create, image_view_set_scale, image_view_set_scale_type, image_view_set_src,
     image_view_set_tint,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use keyboard::{
     drain_editor_action, drain_ready_queue as drain_keyboard_ready_queue, lookup_keyboard_obj,
 };
@@ -90,13 +83,11 @@ pub use linear_layout::{
     linear_layout_native_create, linear_layout_set_gravity, linear_layout_set_orientation,
     linear_layout_set_spacing,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use list_view::{drain_item_click_queue, lookup_item_click};
 pub use list_view::{
     list_view_add_item, list_view_native_create, list_view_register_item_click_listener,
     reset_list_view_state,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use number_picker::{drain_np_step_queue, lookup_picker_obj};
 pub use number_picker::{
     number_picker_native_create, number_picker_register_picker, number_picker_set_text,
@@ -106,7 +97,6 @@ pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
     progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
 pub use radio_button::{
     radio_button_is_checked, radio_button_native_create, radio_button_perform_checked_change,
@@ -114,7 +104,6 @@ pub use radio_button::{
     reset_radio_button_state,
 };
 pub use scroll_view::scroll_view_native_create;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue, lookup_seek_bar_obj};
 pub use seek_bar::{
     reset_seek_bar_state, seek_bar_get_progress, seek_bar_native_create,
@@ -122,25 +111,21 @@ pub use seek_bar::{
     seek_bar_perform_tracking_touch, seek_bar_register_change_listener, seek_bar_set_max,
     seek_bar_set_progress,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use snackbar::{drain_snackbar_click_queue, lookup_snackbar_obj};
 pub use snackbar::{
     reset_snackbar_state, snackbar_native_create, snackbar_native_dismiss,
     snackbar_native_set_action, snackbar_native_show, snackbar_register_action_click_listener,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use spinner::{drain_spinner_change_queue, lookup_spinner_obj};
 pub use spinner::{
     reset_spinner_state, spinner_get_selected, spinner_native_create,
     spinner_perform_item_selected, spinner_register_item_selected_listener, spinner_set_items,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use swipe_refresh_layout::{drain_refresh_queue, lookup_refresh_obj};
 pub use swipe_refresh_layout::{
     reset_swipe_refresh_state, swipe_refresh_native_create, swipe_refresh_register_listener,
     swipe_refresh_set_refreshing,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};
 pub use switch::{
     reset_switch_state, switch_is_checked, switch_native_create, switch_perform_checked_change,
@@ -150,7 +135,6 @@ pub use text_view::{
     text_view_native_create, text_view_set_include_font_padding, text_view_set_text,
     text_view_set_text_color,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 pub use time_picker::{
     reset_time_picker_state, time_picker_get_hour, time_picker_get_minute, time_picker_is_24hour,
@@ -161,7 +145,6 @@ pub use toast::{
     reset_toast_state, toast_native_cancel, toast_native_create, toast_native_set_duration,
     toast_native_show,
 };
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
 pub use toggle_button::{
     reset_toggle_button_state, toggle_button_is_checked, toggle_button_native_create,

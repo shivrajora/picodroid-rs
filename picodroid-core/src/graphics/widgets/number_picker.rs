@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::number_picker as lvgl_number_picker;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_number_picker::reset_number_picker_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_number_picker::{drain_step_queue as drain_np_step_queue, lookup_picker_obj};
 
 /// `NumberPicker.nativeCreate()`

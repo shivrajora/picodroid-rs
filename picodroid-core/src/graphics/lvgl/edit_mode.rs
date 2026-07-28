@@ -3,7 +3,6 @@
 // never call into it from `events.rs`. The dead_code lint can't see the
 // has_buttons-gated callsite, so suppress it at module scope rather than
 // duplicating the cfg gate on every item (same pattern as `key_filter.rs`).
-#![cfg_attr(not(any(has_buttons, test)), allow(dead_code))]
 //! Keypad edit mode for value widgets (NumberPicker).
 //!
 //! LVGL's keypad indev hard-disables group editing mode ("Editing is not used

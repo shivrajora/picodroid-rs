@@ -7,6 +7,7 @@
 use core::convert::Infallible;
 use embedded_hal::digital::{ErrorType, InputPin};
 
+#[cfg_attr(not(has_touch), allow(dead_code))]
 pub struct RpInputPin {
     pin: u8,
 }
@@ -14,6 +15,7 @@ pub struct RpInputPin {
 impl RpInputPin {
     /// Configure a GPIO pin as input.
     /// `pull_up`: true → enable internal pull-up (needed for open-drain signals like XPT2046 PENIRQ).
+    #[cfg_attr(not(has_touch), allow(dead_code))]
     pub fn new(pin: u8, pull_up: bool) -> Self {
         #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::pac;

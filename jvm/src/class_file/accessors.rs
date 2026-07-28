@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{
     BootstrapMethod, ClassFile, FieldInfo, MethodInfo, TAG_CLASS, TAG_FIELDREF, TAG_INVOKE_DYNAMIC,
-    TAG_METHODREF, TAG_METHOD_HANDLE, TAG_METHOD_TYPE, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,
+    TAG_METHODREF, TAG_METHOD_HANDLE, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,
 };
 
 impl ClassFile {
@@ -298,19 +298,6 @@ impl ClassFile {
         let ref_kind = data[off];
         let ref_idx = u16::from_be_bytes([data[off + 1], data[off + 2]]);
         Some((ref_kind, ref_idx))
-    }
-
-    /// Resolves a CONSTANT_MethodType CP entry to its descriptor Utf8 index.
-    #[allow(dead_code)]
-    pub fn cp_method_type(&self, index: u16) -> Option<u16> {
-        let p = self.parsed();
-        let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_METHOD_TYPE) {
-            return None;
-        }
-        let off = p.cp_offsets[i];
-        let data = self.data();
-        Some(u16::from_be_bytes([data[off], data[off + 1]]))
     }
 
     /// Resolves a CONSTANT_InvokeDynamic CP entry to

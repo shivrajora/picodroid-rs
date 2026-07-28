@@ -200,7 +200,6 @@ pub(in crate::graphics) fn perform_long_press(id: i32) {
 }
 
 /// Drain one long-click event (raw `lv_obj_t*`) from the queue.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_long_click_queue() -> Option<usize> {
     unsafe {
         if LONG_CLICK_QUEUE_TAIL == LONG_CLICK_QUEUE_HEAD {
@@ -213,7 +212,6 @@ pub fn drain_long_click_queue() -> Option<usize> {
 }
 
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_LONG_CLICK_MAP).lookup(handle) }
 }
@@ -225,7 +223,6 @@ pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
 }
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_click_queue() -> Option<usize> {
     unsafe {
         if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
@@ -238,7 +235,6 @@ pub fn drain_click_queue() -> Option<usize> {
 }
 
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const VIEW_CLICK_MAP).lookup(handle) }
 }

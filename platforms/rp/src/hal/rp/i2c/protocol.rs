@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pure I2C logic: register-bit constants, SCL timing math, transfer state.
+//! Pure I2C logic: register-bit constants and SCL timing math.
 //!
 //! No `rp-pico`/`rp235x-hal`/FreeRTOS deps — host-compilable and unit-testable.
+//!
+//! There is no transfer-state type here. The driver in `mod.rs` keeps no
+//! state machine in the ISR — the task owns the transfer and the ISR only
+//! masks interrupts and posts a semaphore — so the `I2cOp` / `I2cXferState`
+//! pair the old bespoke IRQ flow needed went away with it.
 
 // IC_CON bit masks
 pub const IC_CON_MASTER_MODE: u32 = 1 << 0;
+#[cfg_attr(not(test), allow(dead_code))]
 pub const IC_CON_SPEED_STD: u32 = 1 << 1; // SPEED=01 (standard, 100 kHz)
 pub const IC_CON_SPEED_FAST: u32 = 1 << 2; // SPEED=10 (fast, 400 kHz)
 pub const IC_CON_RESTART_EN: u32 = 1 << 5;
@@ -27,35 +33,6 @@ pub const FIFO_DEPTH: u8 = 16;
 
 /// Maximum bytes per interrupt-driven I2C transaction.
 pub const MAX_XFER_LEN: usize = 64;
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum I2cOp {
-    Idle,
-    Write,
-    Read,
-}
-
-pub struct I2cXferState {
-    pub op: I2cOp,
-    pub buf: [u8; MAX_XFER_LEN],
-    pub len: usize,
-    pub tx_idx: usize, // write: next byte to push; read: next read cmd to issue
-    pub rx_idx: usize, // read: next byte to store
-    pub result: i32,   // set by ISR: len on success, -1 on abort
-}
-
-impl I2cXferState {
-    pub const fn new() -> Self {
-        Self {
-            op: I2cOp::Idle,
-            buf: [0; MAX_XFER_LEN],
-            len: 0,
-            tx_idx: 0,
-            rx_idx: 0,
-            result: 0,
-        }
-    }
-}
 
 /// Compute SCL high/low counts for the given peripheral clock and bus speed.
 /// Duty cycle is 40% high / 60% low.
@@ -132,39 +109,6 @@ mod tests {
                 assert_eq!(a & b, 0);
             }
         }
-    }
-
-    // ── I2cXferState::new ─────────────────────────────────────────────────
-
-    #[test]
-    fn new_state_is_idle() {
-        let s = I2cXferState::new();
-        assert!(s.op == I2cOp::Idle);
-        assert_eq!(s.len, 0);
-        assert_eq!(s.tx_idx, 0);
-        assert_eq!(s.rx_idx, 0);
-        assert_eq!(s.result, 0);
-    }
-
-    #[test]
-    fn new_state_buf_is_zeroed_and_sized() {
-        let s = I2cXferState::new();
-        assert_eq!(s.buf.len(), MAX_XFER_LEN);
-        assert!(s.buf.iter().all(|&b| b == 0));
-    }
-
-    #[test]
-    fn i2c_op_variants_distinct() {
-        assert!(I2cOp::Idle != I2cOp::Write);
-        assert!(I2cOp::Write != I2cOp::Read);
-        assert!(I2cOp::Idle != I2cOp::Read);
-    }
-
-    #[test]
-    fn i2c_op_copy() {
-        let a = I2cOp::Read;
-        let b = a;
-        assert!(a == b);
     }
 
     // ── scl_counts ────────────────────────────────────────────────────────

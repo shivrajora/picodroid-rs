@@ -162,7 +162,6 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_refresh_queue() -> Option<usize> {
     unsafe {
         if QUEUE_TAIL == QUEUE_HEAD {
@@ -174,7 +173,6 @@ pub fn drain_refresh_queue() -> Option<usize> {
     }
 }
 
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
 }

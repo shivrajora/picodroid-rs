@@ -14,7 +14,6 @@ pub mod board_cfg;
 #[cfg(not(test))]
 pub mod boot;
 pub mod dispatch_sites;
-#[allow(dead_code)]
 pub mod drivers;
 pub mod executors;
 pub mod framework_classes;

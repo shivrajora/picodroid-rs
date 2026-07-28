@@ -8,7 +8,6 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::animations;
 
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use animations::drain_completed_end_action;
 pub use animations::reset_animation_state;
 

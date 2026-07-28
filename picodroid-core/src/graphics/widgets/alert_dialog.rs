@@ -10,7 +10,6 @@ use super::super::view::extract_string_at;
 
 pub use lvgl_dialog::reset_alert_dialog_state;
 pub use lvgl_dialog::{dismiss_topmost_dialog, has_shown_dialog};
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_dialog::{drain_click_queue, drain_item_click_queue, lookup_dialog_obj};
 
 #[inline]

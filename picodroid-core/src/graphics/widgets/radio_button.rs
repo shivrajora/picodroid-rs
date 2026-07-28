@@ -9,7 +9,6 @@ use super::super::lvgl::widgets::radio_button as lvgl_radio_button;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_radio_button::reset_radio_button_state;
-#[cfg_attr(feature = "sim", allow(unused_imports))]
 pub use lvgl_radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
 
 pub fn radio_button_native_create() -> Result<Option<Value>, JvmError> {

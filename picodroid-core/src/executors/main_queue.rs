@@ -135,7 +135,6 @@ mod backing {
         rtos::queue_send(q, word, Timeout::None)
     }
 
-    #[allow(dead_code)]
     pub fn try_recv() -> Option<u32> {
         rtos::queue_recv(handle()?, Timeout::None)
     }
@@ -197,7 +196,6 @@ pub fn enqueue_runnable(obj_ref: u16) -> bool {
 /// `#[allow(dead_code)]` because the sole caller (`pdb::pending::notify_jvm`)
 /// is gated out of sim builds; the sim still exercises this through the
 /// unit tests below.
-#[allow(dead_code)]
 pub fn enqueue_wake() -> bool {
     backing::try_send(encode(MainTask::Wake))
 }
@@ -209,7 +207,6 @@ pub fn enqueue_wake() -> bool {
 /// The activity loop uses [`recv_blocking`] in steady state; `try_recv`
 /// is retained for tests and as a non-blocking peek primitive that
 /// future callers may need (e.g. a draining shutdown helper).
-#[allow(dead_code)]
 pub fn try_recv() -> Option<MainTask> {
     let word = backing::try_recv()?;
     let task = decode(word);

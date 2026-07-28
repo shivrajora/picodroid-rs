@@ -4,6 +4,11 @@
 //! Display constants and pin mappings come from the build.rs-generated
 //! `display_config.rs`, driven by the `[display]` section in board.toml.
 
+// board.toml lists every pin/geometry field the panel has; a given build
+// consumes only the subset its code path touches. Scoped here rather than
+// over the whole HAL module so real rot outside the generated table stays
+// visible.
+#[allow(dead_code)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/display_config.rs"));
 }

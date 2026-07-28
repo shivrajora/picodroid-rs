@@ -280,7 +280,6 @@ pub fn tick(ms: u32) {
 }
 
 /// Drain one queued action click (raw bar `lv_obj_t*` value).
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_click_queue() -> Option<usize> {
     unsafe {
         if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
@@ -293,7 +292,6 @@ pub fn drain_click_queue() -> Option<usize> {
 }
 
 /// Look up the Java `Snackbar` ObjectRef for a bar's raw pointer.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_snackbar_obj(handle: usize) -> Option<u16> {
     unsafe {
         for entry in &SNACKBAR_OBJ_MAP[..] {

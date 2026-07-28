@@ -501,7 +501,6 @@ impl ObjectHeap {
         Some(())
     }
 
-    #[allow(dead_code)]
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
         let class_idx = self.objects.get(idx as usize)?.as_ref()?.class_idx;
         self.class_table.get(class_idx as usize).copied()
@@ -728,18 +727,6 @@ impl ObjectHeap {
             }
         }
         total
-    }
-
-    /// Return the top StringBuilder buffer contents as a raw pointer and length.
-    ///
-    /// # Safety
-    /// The returned pointer is valid until the next call to `sb_append_bytes`,
-    /// `sb_append_int`, or `sb_push`, any of which may reallocate the buffer.
-    pub fn sb_contents(&self) -> (*const u8, usize) {
-        match self.sb_stack.last() {
-            Some(buf) => (buf.as_ptr(), buf.len()),
-            None => (core::ptr::null(), 0),
-        }
     }
 }
 

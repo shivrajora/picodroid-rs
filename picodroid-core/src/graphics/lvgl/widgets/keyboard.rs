@@ -271,7 +271,6 @@ pub fn unbind_if_deleting(root: *mut lv_obj_t) {
 
 /// Pop the pending editor-action, if any. The JVM event pump in
 /// `lifecycle.rs` consumes this every tick.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_editor_action() -> Option<EditorActionRecord> {
     // Manual take() — `Option::take` would require &mut to a mutable
     // static, which trips Rust 2024's `static_mut_refs` lint. The record
@@ -344,7 +343,6 @@ pub(in crate::graphics) fn register_ready_listener(id: i32, obj_ref: u16) {
 
 /// Drain one READY event (raw `lv_obj_t*` value) from the per-instance
 /// queue. Returns `None` when empty.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn drain_ready_queue() -> Option<usize> {
     unsafe {
         if READY_QUEUE_TAIL == READY_QUEUE_HEAD {
@@ -357,7 +355,6 @@ pub fn drain_ready_queue() -> Option<usize> {
 }
 
 /// Look up the Java `Keyboard` object index for a per-instance widget.
-#[cfg_attr(feature = "sim", allow(dead_code))]
 pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
     unsafe { map_ref(&raw const KEYBOARD_HANDLE_MAP).lookup(handle) }
 }
