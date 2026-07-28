@@ -10,6 +10,7 @@ use crate::protocol::{
     recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
     INSTALL_PEEK_BYTES, POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
 };
+use pdb_protocol::greeting::{Greeting, GreetingError, LEGACY_VERSION, VERSION_PREFIX};
 
 const BAUD_RATE: u32 = 115_200;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -24,11 +25,6 @@ const STREAM_TIMEOUT: Duration = Duration::from_secs(10);
 /// Initial delay before polling PING after STATUS_OK.
 /// Covers JVM graceful exit + MCU reboot + USB re-enumeration (~500 ms).
 const REBOOT_DELAY: Duration = Duration::from_secs(4);
-
-/// Legacy greeting from firmware that predates the
-/// `framework-map-version` advertisement. Hard-refused — the user must
-/// reflash via SWD before pdb can guarantee install compatibility.
-const LEGACY_GREETING: &str = "picodroid/2.0";
 
 /// Behavior knobs for `install::run`. Mostly used by HIL tests.
 #[derive(Default)]
@@ -48,51 +44,35 @@ struct DeviceInfo {
     framework_map_version: String,
 }
 
-/// Parse the new (picodroid/2.1) PING greeting payload.
-///
-/// Layout:
-///   [14] version-string sentinel ("picodroid/2.1\0")
-///   [4]  max_papk_bytes (u32 LE)
-///   [1]  framework_map_version_len
-///   [N]  framework-map-version bytes
+/// Interpret a PING greeting. The layout lives in `pdb_protocol::greeting`
+/// (shared with the firmware's encoder); what stays here is policy — which
+/// versions are refused, and with what message.
 fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
-    if payload.len() < 18 {
-        return Err(format!("PING payload too short ({} bytes)", payload.len()));
-    }
-    let version = std::str::from_utf8(&payload[..14])
-        .unwrap_or("?")
-        .trim_end_matches('\0')
-        .to_string();
-    let max_papk =
-        u32::from_le_bytes([payload[14], payload[15], payload[16], payload[17]]) as usize;
+    let g = Greeting::parse(payload).map_err(|e| match e {
+        GreetingError::TooShort(n) => format!("PING payload too short ({n} bytes)"),
+        GreetingError::MissingFmv => "PING payload missing framework_map_version field".into(),
+        GreetingError::TruncatedFmv => "PING payload truncated in framework_map_version".into(),
+        GreetingError::FmvNotUtf8 => "framework_map_version is not UTF-8".into(),
+    })?;
 
-    if version == LEGACY_GREETING {
+    if g.is_legacy() {
+        // Hard-refused — the user must reflash via SWD before pdb can
+        // guarantee install compatibility.
         return Err(format!(
-            "Firmware advertises {LEGACY_GREETING:?}, which predates the \
+            "Firmware advertises {LEGACY_VERSION:?}, which predates the \
              framework-map-version protocol field.\n\
              pdb cannot verify install compatibility against this firmware.\n\
              Reflash firmware via SWD (./scripts/flash.sh) to install over USB."
         ));
     }
-    if !version.starts_with("picodroid/") {
-        return Err(format!("unrecognized firmware greeting: {version:?}"));
+    if !g.version.starts_with(VERSION_PREFIX) {
+        return Err(format!("unrecognized firmware greeting: {:?}", g.version));
     }
-
-    if payload.len() < 19 {
-        return Err("PING payload missing framework_map_version field".into());
-    }
-    let fmv_len = payload[18] as usize;
-    if payload.len() < 19 + fmv_len {
-        return Err("PING payload truncated in framework_map_version".into());
-    }
-    let fmv = std::str::from_utf8(&payload[19..19 + fmv_len])
-        .map_err(|e| format!("framework_map_version is not UTF-8: {e}"))?
-        .to_string();
 
     Ok(DeviceInfo {
-        version,
-        max_papk,
-        framework_map_version: fmv,
+        version: g.version.to_string(),
+        max_papk: g.max_papk as usize,
+        framework_map_version: g.framework_map_version.to_string(),
     })
 }
 

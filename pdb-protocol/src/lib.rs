@@ -44,6 +44,7 @@
 #![no_std]
 
 pub mod crc32;
+pub mod greeting;
 
 pub use crc32::Crc32;
 

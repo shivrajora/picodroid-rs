@@ -31,8 +31,8 @@ pub use framing::send_response;
 pub use sysmon::{SysmonSample, SysmonSource, TaskSample, MAX_TASKS};
 
 use pdb_protocol::{
-    crc32_frame, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC, STATUS_CRC_FAIL,
-    STATUS_ERR, STATUS_OK,
+    crc32_frame, greeting, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC,
+    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
 };
 
 use crate::install::{CoreCoordinator, PapkFlash};
@@ -100,23 +100,6 @@ fn wait_for_magic(transport: &mut impl PdbTransport) -> bool {
     false
 }
 
-/// Greeting payload for `CMD_PING`.
-///
-/// Additive by design, with the version string as the sentinel: a
-/// `picodroid/2.0` host read only the first 18 bytes, so appending the
-/// framework-map-version left it working. Newer hosts read the tail, and
-/// detect `2.0` to refuse an install that would need an SWD reflash. Keep
-/// additions at the end for the same reason.
-fn ping_greeting(max_papk: u32, buf: &mut [u8; 19 + 64]) -> usize {
-    let fw_ver = crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes();
-    buf[..14].copy_from_slice(b"picodroid/2.1\0");
-    buf[14..18].copy_from_slice(&max_papk.to_le_bytes());
-    let ver_len = fw_ver.len().min(64);
-    buf[18] = ver_len as u8;
-    buf[19..19 + ver_len].copy_from_slice(&fw_ver[..ver_len]);
-    19 + ver_len
-}
-
 fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u32) {
     // A framed command with an empty payload: consume the trailing CRC so the
     // stream stays aligned whether or not it matches.
@@ -125,8 +108,14 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         send_response(transport, STATUS_CRC_FAIL, b"");
         return;
     }
-    let mut buf = [0u8; 19 + 64];
-    let total = ping_greeting(flash.max_data_size() as u32, &mut buf);
+    // The greeting layout is `pdb_protocol::greeting`'s; this build supplies
+    // the two facts only it knows — slot capacity and framework-map-version.
+    let mut buf = [0u8; greeting::GREETING_MAX];
+    let total = greeting::encode(
+        flash.max_data_size() as u32,
+        crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
+        &mut buf,
+    );
     send_response(transport, STATUS_OK, &buf[..total]);
 }
 
@@ -223,21 +212,43 @@ mod tests {
         assert!(!wait_for_magic(&mut p));
     }
 
-    /// The greeting is what every host reads first, and its prefix is frozen:
-    /// the version string sits at a fixed offset and the max-PAPK word right
-    /// after it, because a `picodroid/2.0` host reads exactly 18 bytes.
+    struct MockFlash;
+    unsafe impl PapkFlash for MockFlash {
+        fn max_data_size(&self) -> usize {
+            0x000F_C000
+        }
+        unsafe fn erase_region(&mut self, _papk_len: usize) {}
+        unsafe fn write_page(&mut self, _page_index: u32, _page: &[u8; 256]) -> bool {
+            true
+        }
+        unsafe fn commit_metadata(&mut self, _len: u32) {}
+        fn trigger_reset(&mut self) -> ! {
+            unreachable!("no reset in a ping test")
+        }
+    }
+
+    /// The greeting bytes themselves are pinned in `pdb_protocol::greeting`;
+    /// what this build must still prove is the wiring — that `handle_ping`
+    /// answers with *this* firmware's framework-map-version and the flash
+    /// slot's real capacity, in a frame the host-side parser accepts.
     #[test]
     fn greeting_layout_is_stable() {
-        let mut buf = [0u8; 19 + 64];
-        let n = ping_greeting(1020 * 1024, &mut buf);
+        let crc = crc32_frame(CMD_PING, 0, &[]);
+        let mut pipe = MockPipe::new(crc.to_le_bytes().to_vec());
+        handle_ping(&mut pipe, &MockFlash, 0);
 
-        assert_eq!(&buf[..14], b"picodroid/2.1\0");
-        assert_eq!(&buf[14..18], &(1020u32 * 1024).to_le_bytes());
-        let ver_len = buf[18] as usize;
-        assert_eq!(n, 19 + ver_len);
+        assert_eq!(&pipe.tx[..4], FRAME_MAGIC);
+        assert_eq!(pipe.tx[4], STATUS_OK);
+        let len = u32::from_le_bytes(pipe.tx[5..9].try_into().unwrap()) as usize;
+        let payload = &pipe.tx[9..9 + len];
+
+        let g = greeting::Greeting::parse(payload).unwrap();
+        assert_eq!(g.version, greeting::PROTOCOL_VERSION);
+        assert_eq!(g.max_papk as usize, MockFlash.max_data_size());
         assert_eq!(
-            &buf[19..19 + ver_len],
-            crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes()
+            g.framework_map_version,
+            crate::framework_map::FRAMEWORK_MAP_VERSION
         );
+        assert!(!g.is_legacy());
     }
 }
