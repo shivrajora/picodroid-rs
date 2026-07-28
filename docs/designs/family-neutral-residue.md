@@ -922,3 +922,14 @@ rejected.
 attached for this work. The rp2040 differs where it matters least here (no
 tick-freeze busy-wait, so it takes the *simpler* `read_byte_timeout` arm) but
 it is also the flash-constrained part, and §4 asks for both.
+
+### B10 — PDB payload layouts are typed now (2026-07-27)
+
+Follow-on work, designed and executed from
+`docs/designs/pdb-schema-as-code.md`: the three hand-mirrored payload
+layouts (ping greeting, sysmon response, input events) and the keycode name
+table moved into `pdb-protocol` as typed encode/decode pairs with golden and
+round-trip tests. Affects Stage 7 only as a simplification — the porting
+guide's protocol sections can now say "the wire layouts are types in
+`pdb-protocol`" instead of describing bytes, and the sysmon golden-bytes
+guard named in §7 lives in `pdb-protocol` (still a workspace test).

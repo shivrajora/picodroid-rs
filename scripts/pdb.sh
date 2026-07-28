@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
-# Picodroid Debug Bridge — push apps to a device over UART.
+# Picodroid Debug Bridge — talk to a device over USB CDC.
 #
-# Usage: ./scripts/pdb.sh <command> [args...]
+# Thin launcher for the `pdb` binary (tools/pdb); all commands, flags and
+# help live there, so this wrapper cannot drift out of date. Run with no
+# arguments (or -h/--help) for the full usage.
 #
 # Examples:
 #   ./scripts/pdb.sh devices
+#   ./scripts/pdb.sh ping
+#   ./scripts/pdb.sh install build/apks/blinky.papk
+#   ./scripts/pdb.sh sysmon
+#   ./scripts/pdb.sh input keyevent KEYCODE_DPAD_UP
 #   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 ping
-#   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 install build/apks/blinky.papk
-#   ./scripts/pdb.sh -s /dev/cu.usbmodem1402 sysmon
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
-  cat <<EOF
-Usage: $(basename "$0") <command> [args...]
-
-Commands:
-  devices                         List available serial ports
-  -s <port> ping                  Ping a connected device
-  -s <port> install <file.papk>   Hot-swap an app onto the device
-  -s <port> sysmon                Show system monitor stats (heap, tasks, CPU%)
-
-Examples:
-  ./scripts/pdb.sh devices
-  ./scripts/pdb.sh -s /dev/cu.usbmodem1402 ping
-  ./scripts/pdb.sh -s /dev/cu.usbmodem1402 install build/apks/blinky.papk
-  ./scripts/pdb.sh -s /dev/cu.usbmodem1402 sysmon
-EOF
-  exit 0
+# No arguments: show the binary's help (and exit 0, as the wrapper always has).
+if [[ $# -eq 0 ]]; then
+  set -- --help
 fi
 
 HOST_TARGET="$(host_target)"

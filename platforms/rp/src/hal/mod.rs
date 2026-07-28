@@ -16,8 +16,9 @@
 //! `spi::{transfer,write}` / `uart::reconfigure` all in live use by the
 //! natives and named in neither half.
 //!
-//! [`contract`] still asserts `boot`, `flash` and `pdb_usb`: no trait covers
-//! those, because they have no shared counterpart to be a contract with.
+//! [`contract`] still asserts `boot` and `flash`: no trait covers those,
+//! because they have no shared counterpart to be a contract with. (`pdb_usb`
+//! graduated to `picodroid_core::pdb::PdbTransport` in stage 3d.)
 //!
 //! # Family-private wiring
 //!

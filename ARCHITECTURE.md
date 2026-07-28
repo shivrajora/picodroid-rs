@@ -57,7 +57,7 @@ in `platforms/rp/` is this family and nothing else.
 | [`hal/rp/`](platforms/rp/src/hal/rp/) | RP2040/RP2350 peripheral implementations | `[hardware]` |
 | [`hal/sim/`](platforms/rp/src/hal/sim/) | Three stubs only — `boot`, `flash`, `pdb_usb` | `[hardware]` |
 | [`fs/`](platforms/rp/src/fs/) | LittleFS wrapper behind the `HalFs` seam | `[reusable]` candidate |
-| [`pdb/`](platforms/rp/src/pdb/) | Picodroid Debug Bridge (USB-CDC protocol + sysmon) | `[picodroid]` |
+| [`pdb/`](platforms/rp/src/pdb/) | Debug-bridge family glue: CDC transport, park coordinator, FreeRTOS sysmon source. The protocol itself lives in [`picodroid-core/src/pdb/`](picodroid-core/src/pdb/), its wire layouts in [`pdb-protocol/`](pdb-protocol/) | `[picodroid]` |
 | [`packagemanager/`](platforms/rp/src/packagemanager/) | Hot-reload PAPK install over USB | `[picodroid]` |
 | [`sim_allocator.rs`](platforms/rp/src/sim_allocator.rs) / [`sim_heap4.rs`](platforms/rp/src/sim_heap4.rs) | Simulated device heap cap and `heap_4` port | `[picodroid]` |
 | [`boards/`](platforms/rp/src/boards/) | Per-board feature glue (memory layout, capability cfgs) | `[picodroid]` |
@@ -92,8 +92,8 @@ The contract is the trait set in [`picodroid_core::hal`](picodroid-core/src/hal/
 
 This replaced v1's hand-written doc-block plus matching assertion list. The two had fallen out of step: converting to traits found `net::udp_sendto`/`udp_recvfrom` and `i2c::{write,read}` / `spi::{transfer,write}` / `uart::reconfigure` in live use by the natives and named in neither half.
 
-- **Trait-covered**: everything above.
-- **Assertion-covered** (no trait, no shared counterpart): `boot::clock_init`, `boot::start_tasks`, `flash::read_flash_papk`, `pdb_usb::*` — still checked by [contract.rs](platforms/rp/src/hal/contract.rs).
+- **Trait-covered**: everything above, plus the debug bridge and install path — `PdbTransport`, `SysmonSource`, `CoreCoordinator` and `PapkFlash` in [`picodroid_core::pdb`](picodroid-core/src/pdb/mod.rs) / [`picodroid_core::install`](picodroid-core/src/install/orchestrator.rs) replaced the former `pdb_usb::*` assertion block.
+- **Assertion-covered** (no trait, no shared counterpart): `boot::clock_init`, `flash::read_flash_papk` — still checked by [contract.rs](platforms/rp/src/hal/contract.rs). (`boot::start_tasks` left for `boot_tasks.rs` in stage 3f.)
 - **Family-private**: `delay`, `input_pin`, `output_pin`, `spi_bus` wire `picodroid-core`'s generic drivers to a family's peripherals; name and shape are the family's own.
 
 Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-only) are conditionally compiled at the family-internal level.
