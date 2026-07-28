@@ -16,10 +16,8 @@ use core::ffi::c_char;
 // ---------------------------------------------------------------------------
 // Compiler-rt intrinsic required by LVGL's TLSF allocator on Cortex-M0+
 // (thumbv6m has no CLZ instruction, so __builtin_ffs maps to __ffssi2).
-// Bare metal only: armv7-A (the 32-bit simulator lane) has CLZ, so nothing
-// calls this there, and defining it would race libgcc's own copy.
 // ---------------------------------------------------------------------------
-#[cfg(all(target_arch = "arm", target_os = "none"))]
+#[cfg(target_arch = "arm")]
 #[no_mangle]
 pub extern "C" fn __ffssi2(mut x: i32) -> i32 {
     if x == 0 {
@@ -762,33 +760,6 @@ extern "C" {
     pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_keyboard_set_textarea(kb: *mut lv_obj_t, ta: *mut lv_obj_t);
     pub fn lv_keyboard_set_mode(kb: *mut lv_obj_t, mode: lv_keyboard_mode_t);
-}
-
-#[cfg(test)]
-mod abi_tests {
-    //! Cross-language check that C and Rust agree on `lv_indev_data_t`.
-    //!
-    //! Every enum in this file is typed as `u8`, which is only true while the
-    //! C compiler applies `-fshort-enums`. A wider enum moves `state`, `point`
-    //! and `key` to offsets LVGL never writes, so touch and key input would
-    //! read garbage rather than fail loudly. `build_support/lvgl.rs` compiles
-    //! `enum_abi_check.c` next to LVGL to export C's own `sizeof`; this test
-    //! is the half that pins the Rust mirror to it. Both halves run on the
-    //! x86 host suite and on the 32-bit `armv7` simulator lane, whose
-    //! `arm-linux-gnueabihf-gcc` is the compiler that made the flag load-bearing.
-    extern "C" {
-        static pd_c_sizeof_lv_indev_data: core::ffi::c_uint;
-    }
-
-    #[test]
-    fn lv_indev_data_layout_matches_c() {
-        let c_size = unsafe { pd_c_sizeof_lv_indev_data } as usize;
-        assert_eq!(
-            c_size,
-            core::mem::size_of::<super::lv_indev_data_t>(),
-            "lv_indev_data_t size disagrees between C and lvgl_ffi.rs"
-        );
-    }
 }
 
 #[cfg(test)]

@@ -50,12 +50,8 @@ fn main() {
         .parent()
         .unwrap()
         .to_path_buf();
-    // Bare metal (no OS) is what "embedded" means here, and target_os says so
-    // directly. The old `target_arch in {arm, xtensa}` test called the 32-bit
-    // simulator lane (armv7-unknown-linux-gnueabihf under qemu) embedded, which
-    // would place a memory.x, compile FreeRTOS, and embed the APK in flash
-    // instead of loading it from a path at runtime.
-    let is_embedded = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("none");
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let is_embedded = matches!(target_arch.as_str(), "arm" | "xtensa");
 
     // Parse board config for the active board (both ARM and sim).
     let board = board_cfg::resolve(&manifest_dir);

@@ -18,15 +18,6 @@ rustflags = [
   "-C", "link-arg=-Tdefmt.x",
 ]
 
-[target.armv7-unknown-linux-gnueabihf]
-# 32-bit ARM simulator lane (`scripts/sim.sh --arch arm32`). Not a device
-# target: this is the host simulator built for 32-bit ARM Linux and executed
-# under qemu-user, so the sim runs with the device's pointer width and
-# instruction set. No flip-link or linker scripts — it is an ordinary hosted
-# binary. Needs qemu-user-static + gcc-arm-linux-gnueabihf.
-linker = "arm-linux-gnueabihf-gcc"
-runner = "qemu-arm-static -L /usr/arm-linux-gnueabihf"
-
 # Per-board build/run aliases. Bare `cargo build` no longer has a default
 # target so it errors clearly — pick a board explicitly via these aliases or
 # the wrapper scripts in scripts/. See docs/cargo-aliases.md.
@@ -50,5 +41,3 @@ DEFMT_LOG = "debug"
 # Cross-compilers used by freertos-cargo-build (cc crate) to compile FreeRTOS C source
 CC_thumbv6m-none-eabi = "arm-none-eabi-gcc"
 "CC_thumbv8m.main-none-eabihf" = "arm-none-eabi-gcc"
-# Same, for the 32-bit simulator lane: LVGL and minifb's scalar.c are C.
-CC_armv7-unknown-linux-gnueabihf = "arm-linux-gnueabihf-gcc"

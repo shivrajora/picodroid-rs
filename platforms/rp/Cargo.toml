@@ -55,11 +55,8 @@ embedded-hal = { version = "1.0.0" }
 defmt = "1"
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
-# RP-family (Cortex-M) embedded deps. Keyed on target_os = "none" rather than
-# target_arch = "arm" so the 32-bit simulator lane (armv7-unknown-linux-gnueabihf
-# under qemu) does not drag in cortex-m-rt and panic-probe, whose lang items
-# collide with std.
-[target.'cfg(target_os = "none")'.dependencies]
+# RP-family (Cortex-M) embedded deps.
+[target.'cfg(target_arch = "arm")'.dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 freertos-rust = { version = "0.2.3", package = "freertos-rust-pd" }

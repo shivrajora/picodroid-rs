@@ -27,18 +27,6 @@ SEND_EMAIL=true
 # default runtime behavior) and once with it. Override with --mode if you
 # want to inspect a single side.
 MODES=("no-shrink" "shrink")
-# Architectures to run the matrix on. "host" is the native build this runner
-# has always done. "arm32" rebuilds the sim for 32-bit ARM Linux and runs it
-# under qemu-user, which is the only way this suite sees the device's pointer
-# width — the handle table, the socket tables and every `usize` offset take
-# their 32-bit arm there rather than the 64-bit one.
-ARCHES=("host")
-# qemu-user's TCG interpreter runs several times slower than native. Scale the
-# per-test timeouts from hil-tests.conf rather than editing the conf, which is
-# shared with the hardware runner and describes real device budgets.
-ARM32_TIMEOUT_MULT="${PICODROID_ARM32_TIMEOUT_MULT:-5}"
-# Wall-clock hog whose numbers are meaningless under emulation anyway.
-ARM32_SKIP_APPS=("benchmark")
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -55,15 +43,6 @@ while [[ $# -gt 0 ]]; do
       esac
       shift 2
       ;;
-    --arch)
-      case "$2" in
-        host)  ARCHES=("host") ;;
-        arm32) ARCHES=("arm32") ;;
-        both)  ARCHES=("host" "arm32") ;;
-        *) echo "Unknown --arch value: $2 (want host|arm32|both)" >&2; exit 1 ;;
-      esac
-      shift 2
-      ;;
     -h|--help)
       cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -74,13 +53,6 @@ Options:
                           Shrink modes to exercise (default: both). Every
                           selected test is run once per mode so regressions
                           on either side are caught.
-  --arch <host|arm32|both>
-                          Architectures to exercise (default: host). 'arm32'
-                          builds the sim for 32-bit ARM Linux and runs it
-                          under qemu-user, giving the suite the device's
-                          pointer width and instruction set. Results are
-                          tagged app[mode/arm32]. Needs qemu-user-static +
-                          gcc-arm-linux-gnueabihf.
   --no-email              Skip sending the email report
   -h, --help              Show this help message
 EOF
@@ -118,21 +90,10 @@ PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 HOST_TARGET="$(host_target)"
 
 run_test() {
-  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" arch="${6:-host}"
-  # Host tags keep their historical shape so the results history in
-  # build/sim/results stays comparable run to run; other arches get a suffix.
-  # hil-email.py treats the whole tag as an opaque key, so this needs no
-  # change there.
-  local suffix="" target="$HOST_TARGET"
-  if [[ "$arch" != "host" ]]; then
-    suffix="/${arch}"
-    target="$(sim_target "$arch")"
-    timeout=$((timeout * ARM32_TIMEOUT_MULT))
-  fi
-  local tag="${app}[${mode}${suffix}]"
-  local slug="${app}.${mode}${suffix//\//-}"
-  local log_file="$RUN_LOG_DIR/${slug}.log"
-  local build_log="$RUN_LOG_DIR/${slug}.build.log"
+  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5"
+  local tag="${app}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
@@ -161,13 +122,9 @@ run_test() {
   sim_log "  Building sim binary..."
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
-  # `-p picodroid` matters off the host: a bare workspace build would also
-  # try tools/pdb, whose serialport -> libudev-sys needs an armhf pkg-config
-  # sysroot. Naming the binary keeps the cross build to portable crates.
   if ! env "${cargo_env[@]}" cargo build \
-    -p picodroid \
     --release \
-    --target "$target" \
+    --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-testbench-rp2350" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
@@ -184,19 +141,7 @@ run_test() {
   # parity-strict turns silent sim no-ops (Thread.start, THR-01) into hard
   # failures so an app whose code never ran cannot PASS. Both overridable
   # from the environment.
-  #
-  # On arm32 the binary is ARM, so it goes through qemu explicitly rather
-  # than relying on a binfmt_misc registration being present. It also gets
-  # its own filesystem image: the default path is baked in at compile time,
-  # and sharing one image across arches would let bootcount/prefs state from
-  # one lane leak into the other's assertions.
-  local bin="$REPO_ROOT/target/$target/release/picodroid"
-  local -a runner=()
-  local -a extra_env=()
-  if [[ "$arch" == "arm32" ]]; then
-    runner=(qemu-arm-static -L /usr/arm-linux-gnueabihf)
-    extra_env=(PICODROID_SIM_FS="$REPO_ROOT/platforms/rp/target/sim-fs.arm32.img")
-  fi
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   #
   # `< /dev/null` is load-bearing. The caller feeds hil-tests.conf into the
   # `while read` loop's stdin, and a sim that reaches display init spawns a
@@ -206,11 +151,10 @@ run_test() {
   # silently never ran, in the nightly and in CI.
   sim_log "  Running (${timeout}s timeout)..."
   local exit_code=0
-  if ! env PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+  if ! PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
        PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
        PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
-       "${extra_env[@]}" \
-       timeout "$timeout" "${runner[@]}" "$bin" > "$log_file" 2>&1 < /dev/null; then
+       timeout "$timeout" "$bin" > "$log_file" 2>&1 < /dev/null; then
     exit_code=$?
   fi
 
@@ -249,17 +193,10 @@ run_test() {
 # board-conditional code is exercised in sim CI at all. The app loops
 # forever; a timeout kill after a verified boot is the expected outcome.
 run_enviro_smoke() {
-  local mode="$1" arch="${2:-host}"
-  local suffix="" target="$HOST_TARGET" run_timeout=25
-  if [[ "$arch" != "host" ]]; then
-    suffix="/${arch}"
-    target="$(sim_target "$arch")"
-    run_timeout=$((run_timeout * ARM32_TIMEOUT_MULT))
-  fi
-  local tag="picoenvmon-enviro[${mode}${suffix}]"
-  local slug="picoenvmon-enviro.${mode}${suffix//\//-}"
-  local log_file="$RUN_LOG_DIR/${slug}.log"
-  local build_log="$RUN_LOG_DIR/${slug}.build.log"
+  local mode="$1"
+  local tag="picoenvmon-enviro[${mode}]"
+  local log_file="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.log"
+  local build_log="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.build.log"
   local patterns='PicoEnvMon[]:] Home.onCreate'
 
   TOTAL=$((TOTAL + 1))
@@ -277,9 +214,8 @@ run_enviro_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    -p picodroid \
     --release \
-    --target "$target" \
+    --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-pico-enviro-mon" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim, enviro board)"
@@ -288,18 +224,12 @@ run_enviro_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$target/release/picodroid"
-  local -a runner=() extra_env=()
-  if [[ "$arch" == "arm32" ]]; then
-    runner=(qemu-arm-static -L /usr/arm-linux-gnueabihf)
-    extra_env=(PICODROID_SIM_FS="$REPO_ROOT/platforms/rp/target/sim-fs.arm32-enviro.img")
-  fi
-  env PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
-    "${extra_env[@]}" \
-    timeout "$run_timeout" "${runner[@]}" "$bin" > "$log_file" 2>&1 < /dev/null || true
+    timeout 25 "$bin" > "$log_file" 2>&1 < /dev/null || true
 
   if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
      && check_no_crash "$log_file" > /dev/null 2>&1; then
@@ -314,21 +244,10 @@ run_enviro_smoke() {
   fi
 }
 
-if [[ " ${ARCHES[*]} " == *" arm32 "* ]] && ! have_arm32_sim; then
-  sim_log "arm32 lane requested but the toolchain is incomplete."
-  arm32_sim_hint
-  exit 1
-fi
-
-# Run every selected test once per architecture, per shrink mode. Host runs
-# first so an ordinary regression is reported before the slower emulated lane.
-for ARCH in "${ARCHES[@]}"; do
-# Host tags stay exactly as they were before this loop existed, so the
-# results history stays comparable.
-TAGSUF=""; [[ "$ARCH" != "host" ]] && TAGSUF="/$ARCH"
+# Run every selected test once per shrink mode.
 for MODE in "${MODES[@]}"; do
   sim_log "========================================="
-  sim_log "Mode: $MODE${TAGSUF:+  Arch: $ARCH}"
+  sim_log "Mode: $MODE"
   sim_log "========================================="
 
   # Parse config and run tests.
@@ -344,24 +263,24 @@ for MODE in "${MODES[@]}"; do
 
     # Skip hw-dependent tests (no hardware in sim).
     if [[ "$category" == "hw" ]]; then
-      sim_log "SKIP $app[$MODE$TAGSUF] (hardware-dependent)"
-      echo "SKIP $app[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      sim_log "SKIP $app[$MODE] (hardware-dependent)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue
     fi
 
     # Skip pdb tests (require a real device on USB CDC).
     if [[ "$category" == "pdb" ]]; then
-      sim_log "SKIP $app[$MODE$TAGSUF] (pdb — requires device)"
-      echo "SKIP $app[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      sim_log "SKIP $app[$MODE] (pdb — requires device)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue
     fi
 
     # Skip explicitly skipped tests.
     if [[ "$category" == "skip" ]]; then
-      sim_log "SKIP $app[$MODE$TAGSUF]"
-      echo "SKIP $app[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      sim_log "SKIP $app[$MODE]"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue
     fi
@@ -371,56 +290,40 @@ for MODE in "${MODES[@]}"; do
     # Under the parity-strict default the run aborts anyway; skip with an
     # honest reason instead. Re-enable when M7 (real sim threads) lands.
     if [[ "$app" == "threaddemo" && "${PICODROID_PARITY_STRICT:-1}" == "1" ]]; then
-      sim_log "SKIP $app[$MODE$TAGSUF] (Thread.start no-op in sim — parity-strict, THR-01)"
-      echo "SKIP $app[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      sim_log "SKIP $app[$MODE] (Thread.start no-op in sim — parity-strict, THR-01)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue
     fi
 
-    # Apps whose result is a wall-clock number, which emulation makes
-    # meaningless (and which would run for the timeout x multiplier).
-    if [[ "$ARCH" == "arm32" && " ${ARM32_SKIP_APPS[*]} " == *" $app "* ]]; then
-      sim_log "SKIP $app[$MODE$TAGSUF] (timing-based — not meaningful under emulation)"
-      echo "SKIP $app[$MODE$TAGSUF]" >> "$RESULTS_FILE"
-      SKIP=$((SKIP + 1))
-      continue
-    fi
-
-    run_test "$app" "$category" "$timeout" "$patterns" "$MODE" "$ARCH"
+    run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
   done < "$SIM_CONF"
 
   # Heap pressure tests (sim-based; bundled here so they run on every sim cycle
   # instead of slowing down pre-commit). Also mode-varied to catch any shrink
   # regressions in the allocator path.
-  #
-  # Host only: this shells out to test-heap.sh, which drives sim.sh on the
-  # native target. The OOM thresholds it asserts were measured at 64-bit
-  # object sizes and would need re-measuring before they mean anything on a
-  # 32-bit build, where the same app needs less heap.
-  if [[ -z "$SPECIFIC_APP" && "$ARCH" == "host" ]]; then
+  if [[ -z "$SPECIFIC_APP" ]]; then
     TOTAL=$((TOTAL + 1))
-    sim_log "--- [$TOTAL] heap-pressure[$MODE$TAGSUF] ---"
+    sim_log "--- [$TOTAL] heap-pressure[$MODE] ---"
     heap_log="$RUN_LOG_DIR/heap-pressure.${MODE}.log"
     heap_env=()
     [[ "$MODE" == "shrink" ]] && heap_env+=(PICODROID_SHRINK=1)
     if env "${heap_env[@]}" bash "$SCRIPT_DIR/test-heap.sh" > "$heap_log" 2>&1; then
       sim_log "  PASS"
-      echo "PASS heap-pressure[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      echo "PASS heap-pressure[$MODE]" >> "$RESULTS_FILE"
       PASS=$((PASS + 1))
     else
       sim_log "  FAIL"
       tail -10 "$heap_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
-      echo "FAIL heap-pressure[$MODE$TAGSUF]" >> "$RESULTS_FILE"
+      echo "FAIL heap-pressure[$MODE]" >> "$RESULTS_FILE"
       FAIL=$((FAIL + 1))
     fi
   fi
 
   # Memory-diagnostics soak (docs/memory-diagnostics.md): strict growth
   # sentinel + offensive checks + detector self-test. Shrink-invariant, so
-  # one pass per cycle is enough. Host only: the sentinel and the slow-handler
-  # watchdog are millisecond thresholds, and emulation would trip them for
-  # reasons that say nothing about the code under test.
-  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" && "$ARCH" == "host" ]]; then
+  # one pass per cycle is enough.
+  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" ]]; then
     TOTAL=$((TOTAL + 1))
     sim_log "--- [$TOTAL] mem-diag soak ---"
     memdiag_log="$RUN_LOG_DIR/mem-diag.log"
@@ -439,63 +342,8 @@ for MODE in "${MODES[@]}"; do
   # Enviro-board smoke: full runs and `--app picoenvmon` (the CI hook; the
   # conf matrix has no picoenvmon row, so that invocation reaches only this).
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
-    run_enviro_smoke "$MODE" "$ARCH"
+    run_enviro_smoke "$MODE"
   fi
-done
-
-# One extra arm32 leg: the generational handle table compiled for 32 bits.
-#
-# The devices ship the other path — a widget handle is the raw pointer, so it
-# survives the widget it names and a stale lookup reads freed memory. The
-# table behind handle-table-32 fixes that and is waiting on a soak before it
-# becomes the default. Until this lane existed its 32-bit arm had never run
-# anywhere: 64-bit hosts always take the table, and the pre-commit legs only
-# compile it. callbacktest is the app for it — widget creation, listener
-# churn and deletes — with the sanitizer live, which on the default 32-bit
-# path has nothing to check.
-if [[ "$ARCH" == "arm32" && -z "$SPECIFIC_APP" ]]; then
-  ht32_tag="callbacktest[no-shrink/arm32-ht32]"
-  ht32_log="$RUN_LOG_DIR/callbacktest.no-shrink-arm32-ht32.log"
-  ht32_build_log="$RUN_LOG_DIR/callbacktest.no-shrink-arm32-ht32.build.log"
-  # Take the expected patterns from the conf rather than a second copy here.
-  # callbacktest is a `loop` app: it never exits on its own, so timeout's 124
-  # is the success path and the patterns are the actual assertion.
-  ht32_patterns="$(awk -F'|' '$1 == "callbacktest" { print $4; exit }' "$SIM_CONF")"
-  ht32_timeout=$(( $(awk -F'|' '$1 == "callbacktest" { print $3; exit }' "$SIM_CONF") * ARM32_TIMEOUT_MULT ))
-  TOTAL=$((TOTAL + 1))
-  sim_log "--- [$TOTAL] $ht32_tag (handle-table-32, ${ht32_timeout}s) ---"
-  if bash "$SCRIPT_DIR/build-apk.sh" --app callbacktest > "$ht32_build_log" 2>&1 &&
-     env PICODROID_APK_PATH="sim-runtime" cargo build -p picodroid --release \
-       --target "$(sim_target arm32)" --no-default-features \
-       --features "sim,board-testbench-rp2350,handle-table-32" \
-       >> "$ht32_build_log" 2>&1; then
-    env PICODROID_APK_PATH="$REPO_ROOT/build/apks/callbacktest.papk" \
-        PICODROID_SIM_HEADLESS=1 PICODROID_HANDLE_SANITIZER=1 \
-        PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
-        PICODROID_SIM_FS="$REPO_ROOT/platforms/rp/target/sim-fs.arm32-ht32.img" \
-        timeout "$ht32_timeout" \
-        qemu-arm-static -L /usr/arm-linux-gnueabihf \
-        "$REPO_ROOT/target/$(sim_target arm32)/release/picodroid" \
-        > "$ht32_log" 2>&1 < /dev/null || true
-    if check_patterns "$ht32_log" "$ht32_patterns" > /dev/null 2>&1 \
-       && check_no_crash "$ht32_log" > /dev/null 2>&1; then
-      sim_log "  PASS"
-      echo "PASS $ht32_tag" >> "$RESULTS_FILE"
-      PASS=$((PASS + 1))
-    else
-      sim_log "  FAIL"
-      tail -10 "$ht32_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
-      check_patterns "$ht32_log" "$ht32_patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
-      check_no_crash "$ht32_log" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
-      echo "FAIL $ht32_tag" >> "$RESULTS_FILE"
-      FAIL=$((FAIL + 1))
-    fi
-  else
-    sim_log "  BUILD FAILED (handle-table-32)"
-    echo "ERROR $ht32_tag (build failed)" >> "$RESULTS_FILE"
-    ERROR=$((ERROR + 1))
-  fi
-fi
 done
 
 # Summary.

@@ -86,12 +86,6 @@ Note `hal/sim/display.rs` also reads `display_config.rs` + `button_config.rs`
 Six movable files (plus `app.rs`), against a dependency declared only under
 `[target.'cfg(target_arch = "arm")'.dependencies]` of the binary crate:
 
-> **Amended 2026-07-28**: that gate is now
-> `[target.'cfg(target_os = "none")'.dependencies]`. The predicates are
-> equivalent for thumbv6m/thumbv8m — firmware is byte-identical — but the
-> simulator also builds for `armv7-unknown-linux-gnueabihf` now (the 32-bit
-> qemu lane), which is ARM *with* an OS. See parity-audit.md Appendix C.
-
 | File | Uses |
 |---|---|
 | `system/executors/tick_source.rs` | `Timer`, `Duration` |

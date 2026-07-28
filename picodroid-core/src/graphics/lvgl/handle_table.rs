@@ -359,13 +359,9 @@ mod imp {
 
     // ── Tests (host-run via the `#[path]` shim in main.rs) ─────────────────
     //
-    // A native `cargo test` exercises only the 64-bit pointer width. The
-    // 32-bit arm of this same code is compiled + linted by the
-    // `handle-table-32` pre-commit legs, behaviorally covered by the HIL
-    // soak, and run on a development machine by
-    // `scripts/test.sh --arch arm32` (32-bit ARM under qemu), which is where
-    // these tests first executed against 32-bit handles and the board's
-    // HANDLE_SLOTS rather than the 64-bit path's fixed 1024.
+    // Host `cargo test` exercises only the 64-bit pointer width; the 32-bit
+    // arm of this same code is compiled + linted by the `handle-table-32`
+    // pre-commit legs and behaviorally covered by the HIL soak.
     #[cfg(test)]
     mod tests {
         use super::*;

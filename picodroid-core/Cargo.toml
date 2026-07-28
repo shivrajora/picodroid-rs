@@ -48,16 +48,12 @@ papk-format   = { path = "../papk-format" }
 embedded-hal  = "1.0"
 defmt         = "1"
 
-# Hosted-OS only. minifb backs the simulator's display window and its touch/key
+# Host-only. minifb backs the simulator's display window and its touch/key
 # input; libc gives the heap limiter a `getenv` that does not allocate, which
 # it must not do while running inside the global allocator. Both moved here
 # with the simulator, so a family crate needs neither a host GUI dependency
 # nor a host libc to be simulatable.
-#
-# Keyed on target_os, not target_arch: the simulator also builds for
-# armv7-unknown-linux-gnueabihf (the 32-bit qemu lane), which is ARM but has an
-# OS and needs both of these. Bare metal is target_os = "none".
-[target.'cfg(not(target_os = "none"))'.dependencies]
+[target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
 libc = "0.2"
 

@@ -300,14 +300,9 @@ family-nrf = []
 Add the HAL crate as an optional, target-gated dependency:
 
 ```toml
-[target.'cfg(target_os = "none")'.dependencies]
+[target.'cfg(target_arch = "arm")'.dependencies]
 nrf52840-hal = { version = "...", optional = true }
 ```
-
-Gate on `target_os = "none"` (bare metal), not `target_arch = "arm"`. The
-simulator can be built for 32-bit ARM Linux to match the device's pointer
-width (`scripts/sim.sh --arch arm32`), and that target is ARM but hosted — an
-arch-based gate would pull cortex-m and a panic handler into a `std` binary.
 
 ## HAL dispatch
 

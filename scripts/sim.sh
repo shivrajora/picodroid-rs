@@ -22,7 +22,7 @@ HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-1}"
 MEM_DIAG=""
 EXTRA_ARGS=()
-SIM_ARCH="host"
+HOST_TARGET="$(host_target)"
 
 usage() {
   cat <<EOF
@@ -44,17 +44,6 @@ Options:
                             PICODROID_HANDLE_SANITIZER=0)
       --shrink              Apply the active release class-name shrink map
                             (off by default; see docs/shrinker.md)
-      --arch <host|arm32>   Architecture to build and run the sim for
-                            (default: host). 'arm32' cross-compiles to
-                            32-bit ARM Linux and runs under qemu-user, so the
-                            sim gets the device's pointer width and
-                            instruction set. Runs headless by default. NOTE:
-                            at 32 bits the default handle path is the
-                            device's raw-pointer cast, where the handle
-                            sanitizer has nothing to check — that IS the
-                            device behavior being modeled. Build with
-                            handle-table-32 for the generational table.
-                            Needs qemu-user-static + gcc-arm-linux-gnueabihf
   -m, --mem-diag            Compile in the memory diagnostics (mem-diag
                             feature): periodic [memmon] heap monitor +
                             steady-state growth sentinel (warn-only unless
@@ -113,10 +102,6 @@ while [[ $# -gt 0 ]]; do
       export PICODROID_SHRINK=1
       shift
       ;;
-    --arch)
-      SIM_ARCH="$2"
-      shift 2
-      ;;
     -m|--mem-diag)
       MEM_DIAG=1
       shift
@@ -129,19 +114,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-SIM_TARGET="$(sim_target "$SIM_ARCH")" || exit 1
-if [[ "$SIM_ARCH" != "host" ]]; then
-  if ! have_arm32_sim; then
-    echo "--arch $SIM_ARCH requested but the toolchain is incomplete." >&2
-    arm32_sim_hint
-    exit 1
-  fi
-  # Headless by default: there are no armhf X11 libraries in the cross
-  # sysroot, so a windowed run would only fall back to headless anyway —
-  # this way the logs say so up front instead of after a failed open.
-  export PICODROID_SIM_HEADLESS="${PICODROID_SIM_HEADLESS:-1}"
-fi
-
 resolve_board "$BOARD"
 
 # Step 1: Build the APK for the selected app.
@@ -150,8 +122,7 @@ bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
 APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 
 # Step 2: Compile and run the simulator with the APK embedded.
-# The sim targets the host, or armv7 Linux under qemu with --arch arm32 — either
-# way a hosted target, so do not pass EXTRA_BUILD_ARGS (no -Zbuild-std here).
+# Sim always targets the host — do not pass EXTRA_BUILD_ARGS (no -Zbuild-std for host).
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
@@ -177,7 +148,7 @@ fi
 env "${ENV_VARS[@]}" cargo $CARGO_PLUS run \
   --manifest-path "$MANIFEST_DIR/Cargo.toml" \
   -p "$PACKAGE" \
-  --target "$SIM_TARGET" \
+  --target "$HOST_TARGET" \
   --no-default-features \
   --features "$FEATURES" \
   "${EXTRA_ARGS[@]}"

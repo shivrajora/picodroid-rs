@@ -8,40 +8,6 @@ host_target() {
   rustc -vV | awk '/^host:/ { print $2 }'
 }
 
-# The simulator's cargo target triple for a given --arch value.
-#
-#   host   native build, what every sim invocation used before this existed
-#   arm32  32-bit ARM Linux, run under qemu-user (see .cargo/config.toml)
-#
-# arm32 exists because the devices are 32-bit ARM and the native simulator is
-# 64-bit x86: pointer width and instruction set are the two axes the simulator
-# could never model. It is what makes the device's handle-table path (where a
-# widget handle *is* the pointer, so it dangles after delete) reachable on a
-# development machine rather than only on real hardware.
-sim_target() {
-  case "${1:-host}" in
-    host)  host_target ;;
-    arm32) echo "armv7-unknown-linux-gnueabihf" ;;
-    *)     echo "Unknown sim arch: '${1}' (expected host or arm32)" >&2; return 1 ;;
-  esac
-}
-
-# True when the arm32 simulator lane can actually build and run here.
-have_arm32_sim() {
-  command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1 &&
-    command -v qemu-arm-static >/dev/null 2>&1 &&
-    rustup target list --installed 2>/dev/null | grep -qx 'armv7-unknown-linux-gnueabihf'
-}
-
-# Install hint for the arm32 lane, printed when have_arm32_sim fails.
-arm32_sim_hint() {
-  cat >&2 <<'EOF'
-The arm32 simulator lane needs a cross toolchain and an emulator:
-  sudo apt-get install -y qemu-user-static gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
-  rustup target add armv7-unknown-linux-gnueabihf
-EOF
-}
-
 # Prints a timestamped log line to stdout.
 timestamp_log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -77,10 +43,7 @@ check_patterns() {
 check_no_crash() {
   local log_file="$1"
   local marker found=0
-  # 'uncaught target signal' is qemu-user's wording for a guest fault: the
-  # arm32 lane never prints SIGSEGV, so without it an emulated crash would
-  # pass as long as the expected line was logged first.
-  for marker in 'panicked' 'HardFault' 'SIGSEGV' 'CRASH' 'uncaught target signal'; do
+  for marker in 'panicked' 'HardFault' 'SIGSEGV' 'CRASH'; do
     if grep -qE "$marker" "$log_file" 2>/dev/null; then
       echo "  CRASH MARKER: $marker"
       found=1
