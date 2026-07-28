@@ -3,6 +3,7 @@ use std::process;
 use std::time::Duration;
 
 use crate::protocol::{recv_response, send_frame, status_str, CMD_SYSMON, STATUS_OK};
+use pdb_protocol::sysmon::{state_name, SysmonError, SysmonView};
 
 const BAUD_RATE: u32 = 115_200;
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,13 +26,13 @@ pub fn run(port_name: &str) {
     }
 
     match recv_response(port.as_mut()) {
-        Ok((STATUS_OK, payload)) => {
-            if payload.len() < 20 {
-                eprintln!("error: SYSMON response too short ({} bytes)", payload.len());
+        Ok((STATUS_OK, payload)) => match SysmonView::parse(&payload) {
+            Ok(v) => print_sysmon(&v),
+            Err(SysmonError::TooShort(n)) => {
+                eprintln!("error: SYSMON response too short ({n} bytes)");
                 process::exit(1);
             }
-            print_sysmon(&payload);
-        }
+        },
         Ok((status, _)) => {
             eprintln!("error: SYSMON returned {}", status_str(status));
             process::exit(1);
@@ -43,12 +44,12 @@ pub fn run(port_name: &str) {
     }
 }
 
-fn print_sysmon(payload: &[u8]) {
-    let uptime_ticks = u32::from_le_bytes(payload[0..4].try_into().unwrap());
-    let free_heap = u32::from_le_bytes(payload[4..8].try_into().unwrap());
-    let min_free_heap = u32::from_le_bytes(payload[8..12].try_into().unwrap());
-    let total_run_time = u32::from_le_bytes(payload[12..16].try_into().unwrap());
-    let task_count = payload[16] as usize;
+fn print_sysmon(v: &SysmonView) {
+    let uptime_ticks = v.uptime_ticks();
+    let free_heap = v.free_heap();
+    let min_free_heap = v.min_free_heap();
+    let total_run_time = v.total_run_time();
+    let task_count = v.task_count();
 
     let uptime_s = uptime_ticks as f64 / 1000.0;
     println!("Uptime:         {uptime_ticks} ticks ({uptime_s:.1}s)");
@@ -69,12 +70,11 @@ fn print_sysmon(payload: &[u8]) {
         return;
     }
 
-    let expected_len = 20 + task_count * 28;
-    if payload.len() < expected_len {
+    if v.payload_len() < v.expected_len() {
         eprintln!(
             "warning: expected {} bytes for {task_count} tasks, got {}",
-            expected_len,
-            payload.len()
+            v.expected_len(),
+            v.payload_len()
         );
         return;
     }
@@ -86,36 +86,21 @@ fn print_sysmon(payload: &[u8]) {
     );
 
     for i in 0..task_count {
-        let base = 20 + i * 28;
-        let entry = &payload[base..base + 28];
+        let Some(t) = v.task(i) else { break };
 
-        let name_bytes = &entry[0..16];
-        let name_end = name_bytes.iter().position(|&b| b == 0).unwrap_or(16);
-        let name = std::str::from_utf8(&name_bytes[..name_end]).unwrap_or("?");
-
-        let state = match entry[16] {
-            0 => "Running",
-            1 => "Ready",
-            2 => "Blocked",
-            3 => "Suspended",
-            4 => "Deleted",
-            _ => "Unknown",
-        };
-
-        let current_pri = entry[17];
-        let base_pri = entry[18];
-        let stack_hwm = u16::from_le_bytes([entry[20], entry[21]]);
-        let cpu_pct_x10 = u32::from_le_bytes(entry[24..28].try_into().unwrap());
-
-        let cpu_str = if cpu_pct_x10 == 0xFFFF_FFFF {
-            "N/A".to_string()
-        } else {
-            format!("{:.1}%", cpu_pct_x10 as f64 / 10.0)
+        let cpu_str = match t.cpu_permille() {
+            None => "N/A".to_string(),
+            Some(x) => format!("{:.1}%", x as f64 / 10.0),
         };
 
         println!(
             "  {:<16} {:<10} {:>3}  {:>4}  {:>5}w  {:>6}",
-            name, state, current_pri, base_pri, stack_hwm, cpu_str
+            t.name(),
+            state_name(t.state()),
+            t.current_priority(),
+            t.base_priority(),
+            t.stack_high_water(),
+            cpu_str
         );
     }
 
@@ -123,26 +108,24 @@ fn print_sysmon(payload: &[u8]) {
     // (jvm_live, post-GC floor, alloc_total, largest free native block).
     // Plain firmware sends exactly expected_len; print the block when
     // present — after the task table, so the rows sit under their header.
-    if payload.len() >= expected_len + 16 {
-        let b = &payload[expected_len..expected_len + 16];
-        let jvm_live = u32::from_le_bytes(b[0..4].try_into().unwrap());
-        let floor = u32::from_le_bytes(b[4..8].try_into().unwrap());
-        let alloc_total = u32::from_le_bytes(b[8..12].try_into().unwrap());
-        let largest_free = u32::from_le_bytes(b[12..16].try_into().unwrap());
+    if let Some(d) = v.mem_diag() {
         println!();
         println!("JVM (mem-diag firmware):");
         println!(
-            "  Live bytes:     {jvm_live} ({:.1} KB)",
-            jvm_live as f64 / 1024.0
+            "  Live bytes:     {} ({:.1} KB)",
+            d.live,
+            d.live as f64 / 1024.0
         );
         println!(
-            "  Post-GC floor:  {floor} bytes ({:.1} KB)",
-            floor as f64 / 1024.0
+            "  Post-GC floor:  {} bytes ({:.1} KB)",
+            d.floor,
+            d.floor as f64 / 1024.0
         );
-        println!("  Allocs total:   {alloc_total}");
+        println!("  Allocs total:   {}", d.alloc_total);
         println!(
-            "  Largest free:   {largest_free} bytes ({:.1} KB)",
-            largest_free as f64 / 1024.0
+            "  Largest free:   {} bytes ({:.1} KB)",
+            d.largest_free,
+            d.largest_free as f64 / 1024.0
         );
     }
 }
