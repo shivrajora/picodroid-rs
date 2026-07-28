@@ -105,3 +105,25 @@ Baseline = family-neutral-residue B9 "after 3f".
 | B — sysmon | 704,448 | 0 | 196,336 | +24 |
 | C — input | 704,544 | +96 | 196,344 | +8 |
 | D — keycodes | 704,544 | 0 | 196,344 | 0 |
+
+**+112 `.text` / +32 `.rodata` = +144 bytes total.** Attribution: A is the
+encoder deriving its NUL padding from the version const instead of a baked
+literal; C is the typed `InputEvent` decode replacing the raw slice readers.
+Wire bytes byte-identical throughout — no version bump.
+
+## 5. Verification (2026-07-27, all stages landed)
+
+Every stage: full pre-commit suite + three-app sim smoke. Stages C/D:
+scripted `input` verbs through the sim control channel on `pico_enviro_mon`
+drove navdemo through a full activity cycle (`onActivityResult req=7
+answer=42`), the stage-3e recipe.
+
+**HIL, `testbench_rp2350`, both shrink modes, at stage E (`3191e97`):**
+15 PASS / 0 FAIL / 1 SKIP (`install-reject-future[no-shrink]`, skipped by
+design) — boot, ping, sysmon, install, and all four reject rows. Live by
+hand: `pdb devices` auto-detected the board via the shared greeting parser;
+sysmon twice showed the CPU-delta path (IDLE1 96.8% on an idle board) with
+the task table decoding through `SysmonView`; `pdb input keyevent` round-
+tripped to the handler's clean `no such key` refusal (testbench has no
+buttons). The rp2040 half of the family-neutral-residue stage-3 HIL gate
+remains owed — only the rp2350 testbench was attached, as in B9.
