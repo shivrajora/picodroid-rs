@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::protocol::{recv_response, send_frame, status_str, CMD_INPUT, STATUS_OK};
 use pdb_protocol::input::{InputEvent, MAX_INPUT_PAYLOAD};
+use pdb_protocol::keycodes::{self, dpad_keycode};
 use pdb_protocol::KEY_META_DOWN_UP;
 
 const BAUD_RATE: u32 = 115_200;
@@ -30,41 +31,12 @@ Usage: pdb input <command> [args]
   swipe <x1> <y1> <x2> <y2> [ms]   Swipe from (x1,y1) to (x2,y2) over [ms] (default 300)
 ";
 
-/// Android `KeyEvent` keycode names these boards can plausibly carry. Accepted
-/// with or without the `KEYCODE_` prefix, case-insensitively; a bare integer is
-/// also accepted (forwarded verbatim, like Android's `input keyevent 19`).
-const KEYCODES: &[(&str, i32)] = &[
-    ("HOME", 3),
-    ("BACK", 4),
-    ("DPAD_UP", 19),
-    ("DPAD_DOWN", 20),
-    ("DPAD_LEFT", 21),
-    ("DPAD_RIGHT", 22),
-    ("DPAD_CENTER", 23),
-    ("ENTER", 66),
-    ("MENU", 82),
-];
-
 /// Resolve a keyevent argument to an Android keycode: a known name (with or
-/// without `KEYCODE_`) or a bare integer.
+/// without `KEYCODE_`, case-insensitive — the shared table the sim's control
+/// channel also uses) or a bare integer (forwarded verbatim, like Android's
+/// `input keyevent 19`).
 fn keycode_from_arg(arg: &str) -> Option<i32> {
-    let up = arg.trim().to_ascii_uppercase();
-    let name = up.strip_prefix("KEYCODE_").unwrap_or(&up);
-    if let Some(&(_, code)) = KEYCODES.iter().find(|&&(n, _)| n == name) {
-        return Some(code);
-    }
-    arg.trim().parse::<i32>().ok()
-}
-
-fn dpad_keycode(dir: &str) -> Option<i32> {
-    match dir.trim().to_ascii_lowercase().as_str() {
-        "up" => Some(19),
-        "down" => Some(20),
-        "left" => Some(21),
-        "right" => Some(22),
-        "center" | "enter" | "ok" => Some(23),
-        _ => None,
-    }
+    keycodes::keycode_from_name(arg).or_else(|| arg.trim().parse::<i32>().ok())
 }
 
 /// Wire bytes of one event, via the shared encoder the device's decoder is
@@ -117,7 +89,7 @@ fn build_payload(args: &[String]) -> Vec<u8> {
             })
         }
         "back" => payload_of(InputEvent::Key {
-            keycode: 4,
+            keycode: keycodes::KEYCODE_BACK,
             meta: KEY_META_DOWN_UP,
         }),
         "tap" => {
@@ -196,20 +168,13 @@ pub fn run(port_name: &str, args: &[String]) {
 mod tests {
     use super::*;
 
+    // Name and dpad resolution are pinned in `pdb_protocol::keycodes`; the
+    // bare-integer fallback is this CLI's own convenience.
     #[test]
-    fn keycode_name_variants_resolve() {
+    fn keycode_arg_accepts_names_and_bare_integers() {
         assert_eq!(keycode_from_arg("KEYCODE_DPAD_UP"), Some(19));
-        assert_eq!(keycode_from_arg("dpad_up"), Some(19)); // no prefix, lowercase
-        assert_eq!(keycode_from_arg("BACK"), Some(4));
         assert_eq!(keycode_from_arg("23"), Some(23)); // bare integer
         assert_eq!(keycode_from_arg("nope"), None);
-    }
-
-    #[test]
-    fn dpad_directions_map() {
-        assert_eq!(dpad_keycode("up"), Some(19));
-        assert_eq!(dpad_keycode("CENTER"), Some(23));
-        assert_eq!(dpad_keycode("sideways"), None);
     }
 
     // Payload byte layouts are pinned in `pdb_protocol::input`, where the

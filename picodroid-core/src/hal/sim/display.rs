@@ -510,37 +510,18 @@ fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
 
 /// Resolve an `input keyevent` token to an Android keycode: a known
 /// `KEYCODE_*` name (with or without the prefix, case-insensitive) or a bare
-/// integer. Mirrors the host `pdb input` keycode table.
+/// integer. The name table is `pdb_protocol::keycodes` — the same one the
+/// host `pdb input` resolves with, so scripts move between the two front-ends
+/// unchanged.
 #[cfg(has_buttons)]
 fn input_keycode(tok: &str) -> Option<i32> {
-    let up = tok.trim().to_ascii_uppercase();
-    let name = up.strip_prefix("KEYCODE_").unwrap_or(&up);
-    let code = match name {
-        "HOME" => 3,
-        "BACK" => 4,
-        "DPAD_UP" => 19,
-        "DPAD_DOWN" => 20,
-        "DPAD_LEFT" => 21,
-        "DPAD_RIGHT" => 22,
-        "DPAD_CENTER" => 23,
-        "ENTER" => 66,
-        "MENU" => 82,
-        _ => return tok.trim().parse::<i32>().ok(),
-    };
-    Some(code)
+    pdb_protocol::keycodes::keycode_from_name(tok).or_else(|| tok.trim().parse::<i32>().ok())
 }
 
 /// `input dpad <dir>` → Android keycode.
 #[cfg(has_buttons)]
 fn input_dpad_keycode(dir: &str) -> Option<i32> {
-    match dir.trim().to_ascii_lowercase().as_str() {
-        "up" => Some(19),
-        "down" => Some(20),
-        "left" => Some(21),
-        "right" => Some(22),
-        "center" | "enter" | "ok" => Some(23),
-        _ => None,
-    }
+    pdb_protocol::keycodes::dpad_keycode(dir)
 }
 
 /// Android keycode → button pin. Shared with the graphics event layer and
@@ -557,7 +538,7 @@ fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
     let code = match verb {
         "keyevent" => it.next().and_then(input_keycode),
         "dpad" => it.next().and_then(input_dpad_keycode),
-        "back" => Some(4),
+        "back" => Some(pdb_protocol::keycodes::KEYCODE_BACK),
         _ => None,
     };
     match code.and_then(keycode_to_pin) {

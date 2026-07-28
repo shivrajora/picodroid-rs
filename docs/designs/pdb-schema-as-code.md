@@ -104,3 +104,4 @@ Baseline = family-neutral-residue B9 "after 3f".
 | A — greeting | 704,448 | +16 | 196,312 | 0 |
 | B — sysmon | 704,448 | 0 | 196,336 | +24 |
 | C — input | 704,544 | +96 | 196,344 | +8 |
+| D — keycodes | 704,544 | 0 | 196,344 | 0 |
