@@ -26,6 +26,9 @@ mod board_cfg;
 #[path = "../build_support/jvm_defaults.rs"]
 mod jvm_defaults;
 
+#[path = "../build_support/freertos_host.rs"]
+mod freertos_host;
+
 #[path = "../build_support/lvgl.rs"]
 mod lvgl;
 
@@ -94,6 +97,14 @@ fn main() {
     // resolution above; boardless builds get lv_conf.h's defaults.
     let lvgl_board_props = board.as_ref().map(|b| b.cfg.props.clone());
     lvgl::build(out, &lvgl_board_props, root);
+
+    // The simulator's kernel: the real FreeRTOS + POSIX port, compiled for the
+    // host. Owned here for the same reason LVGL is — this crate holds the code
+    // that calls into it (hal/sim/rtos_freertos.rs) and the allocator shims the
+    // kernel links against.
+    if std::env::var("CARGO_FEATURE_SIM").is_ok() {
+        freertos_host::build(root, &manifest_dir.join("freertos-host"));
+    }
 }
 
 /// Boardless fallback: derive capability cfgs from forwarded Cargo features.

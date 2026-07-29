@@ -118,16 +118,17 @@ boundary already isolates the swap; nothing else moves. **Tradeoff:** fork maint
 `std` sim backing split (two mailbox implementations) vs. removing hand-rolled memory-ordering
 code; revisit if the fork gets vendored for other reasons.
 
-### Thread support in sim
+### Thread support in sim — DONE 2026-07-28
 
-`Thread.start()` is a documented no-op in sim
-(`platforms/rp/src/system/native_handler/os.rs`), so thread-spawning code paths are
-hardware-only — threaddemo's workers never run under sim, and its conf row can only assert the
-weak "Starting threads" pattern. Spawning a std::thread with a child JVM (mirroring the
-FreeRTOS task path) would let sim exercise threading and allow stronger test assertions.
-**Tradeoff:** host threads are truly concurrent while the device is single-core cooperative —
-sim could surface races that can't happen on hardware (or mask ones that can); scope it to
-logic coverage, not concurrency fidelity.
+Resolved, and not by the std::thread route sketched here: the simulator now compiles the real
+FreeRTOS kernel (POSIX port) and runs `Thread.start()` as a real task
+(`docs/designs/freertos-host-sim.md`, parity-audit M7/THR-01). The tradeoff this entry worried
+about — host threads being truly concurrent where the device is cooperative — is answered by
+construction, since the scheduler *is* the device's and runs one task at a time. threaddemo's
+conf row now asserts its workers' output rather than just "Starting threads".
+
+What remains hardware-only is core count: the POSIX port is single-core where the chip is
+dual-core, so genuinely parallel races still need a board.
 
 ### Framebuffer screenshot dump
 

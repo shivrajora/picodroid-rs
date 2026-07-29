@@ -33,6 +33,15 @@ use alloc::boxed::Box;
 /// debug bridge so a stop request can reach them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskKind {
+    /// The task the framework itself runs inside — the interpreter, the UI
+    /// loop, the activity lifecycle.
+    ///
+    /// Only the simulator creates this through the seam ([`crate::sim_boot`]).
+    /// A device's boot code creates its JVM task directly, because it also
+    /// pins it to a core and wraps it in a supervisor loop that no seam should
+    /// have to describe; the kind exists so both take their stack size from
+    /// the same place.
+    Jvm,
     /// A Java `Thread` started by app code.
     JvmChild,
     /// A worker in the background executor pool.
@@ -88,10 +97,11 @@ pub unsafe trait Rtos {
     /// index) does not fit in a machine word, and both backings box their
     /// entry point internally anyway, so this costs nothing extra.
     ///
-    /// Declining is a legitimate answer. The simulator refuses
+    /// Declining is a legitimate answer. The `cargo test` backing refuses
     /// [`TaskKind::JvmChild`] because the object heap's safety rests on a
     /// single-core cooperative-scheduling guarantee that host threads do not
-    /// provide.
+    /// provide, and no scheduler is running there. The simulator proper runs
+    /// the real FreeRTOS kernel and accepts it.
     fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
 
     fn queue_create(depth: usize) -> RawQueue;

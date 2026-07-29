@@ -51,24 +51,33 @@ pub fn native_heap_stats() -> NativeHeapStats {
 ///   for the same reason [`crate::host::PlatformHooks::register_gc_roots`] is:
 ///   a family with no native modules holding Java references should write that
 ///   down deliberately rather than have the question go unasked.
-/// - `charge_jvm_child_spawn` — called when the simulator refuses a
-///   `Thread.start`, so the family can bill its boot budget for the stack and
-///   TCB the device would have allocated. A parameter rather than a hook
-///   because the boot budget is chip-gated platform data; routing it through
-///   the seam would export it to shared code for no reason.
+/// - `charge_task_spawn` — bill the family's boot budget for the stack and TCB
+///   the device would have allocated for this task, and return that stack size
+///   in bytes. A parameter rather than a hook because the boot budget is
+///   chip-gated platform data; routing it through the seam would export it to
+///   shared code for no reason. The return value is how stack *sizing* stays
+///   with the platform too (`crate::rtos`): the FreeRTOS backing creates a real
+///   task from the same number it charges, so the two cannot disagree. The
+///   `cargo test` backing calls it only for the `Thread.start` it refuses, and
+///   discards the number.
+/// - `release_task_spawn` — undo that charge when the task's body returns.
+///   Only the kernel backing has an exit to call it from; under the `cargo
+///   test` backing nothing ran, so nothing is released.
 ///
 /// ```ignore
 /// #[cfg(any(test, feature = "sim"))]
 /// picodroid_core::register_sim_platform! {
 ///     gc_roots = crate::gc_root_registration::register_all,
-///     charge_jvm_child_spawn = crate::boot_budget::charge_thread_spawn,
+///     charge_task_spawn = crate::boot_budget::charge_task_spawn,
+///     release_task_spawn = crate::boot_budget::release_task_spawn,
 /// }
 /// ```
 #[macro_export]
 macro_rules! register_sim_platform {
     (
         gc_roots = $gc_roots:path,
-        charge_jvm_child_spawn = $charge:path $(,)?
+        charge_task_spawn = $charge:path,
+        release_task_spawn = $release:path $(,)?
     ) => {
         const _: () = {
             use $crate::hal::sim::rtos;
@@ -79,7 +88,7 @@ macro_rules! register_sim_platform {
 
             unsafe impl $crate::rtos::Rtos for SimPlatform {
                 fn spawn(spec: &TaskSpec, body: ::alloc::boxed::Box<dyn FnOnce() + Send>) -> bool {
-                    rtos::spawn(spec, body, $charge)
+                    rtos::spawn(spec, body, $charge, $release)
                 }
                 fn queue_create(depth: usize) -> RawQueue {
                     rtos::queue_create(depth)

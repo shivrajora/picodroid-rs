@@ -176,8 +176,10 @@ What exists instead is genuinely engineered:
 Honest weaknesses: per-push CI runs **5 of ~24** runnable apps (the rest wait for
 nightly); **pre-commit never runs the Java behavioral suite** (compileJava only, so a
 Java semantics regression isn't caught locally); several conf rows assert only that a line
-printed, not its value; `threaddemo` is unverifiable in sim (`Thread.start()` is a sim
-no-op *(roadmap)*); 15 of 24 rows are `hw`/`pdb`/`skip` categories that never run in sim CI.
+printed, not its value; 15 of 24 rows are `hw`/`pdb`/`skip` categories that never run in sim
+CI. (`threaddemo` *was* unverifiable in sim; the simulator runs the real FreeRTOS kernel as of
+2026-07-28, so its workers execute and its row asserts their output —
+`docs/designs/freertos-host-sim.md`.)
 
 ### 3.4 Gate gaps (compile/lint lanes)
 

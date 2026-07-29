@@ -3,10 +3,11 @@
 
 extern crate alloc;
 
-// Background-pool worker loop. Device-only, and deliberately in this crate:
-// it drives a `Jvm`, and a second JVM-driving crate duplicates the whole
-// interpreter (see the module docs).
-#[cfg(not(any(test, feature = "sim")))]
+// Background-pool worker loop. Deliberately in this crate: it drives a `Jvm`,
+// and a second JVM-driving crate duplicates the whole interpreter (see the
+// module docs). Device and simulator both run it — the simulator spawns the
+// same four worker tasks the device does (`sim_boot.rs`).
+#[cfg(not(test))]
 pub mod bg_worker;
 pub mod board_cfg;
 // App startup: shared heap, class loaders, `run_app`. Needs the JVM natives
@@ -68,6 +69,11 @@ pub mod rtos;
 #[cfg(not(test))]
 pub mod service_lifecycle;
 pub mod shrink_names;
+// Simulator boot topology — the host's `boot_tasks.rs`. Family policy
+// arrives as `BootLeaves`; see the module docs and
+// docs/designs/family-neutral-residue.md B11.
+#[cfg(all(feature = "sim", not(test)))]
+pub mod sim_boot;
 pub mod task_priority;
 #[cfg(not(test))]
 pub mod util;

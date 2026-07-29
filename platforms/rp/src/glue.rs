@@ -485,26 +485,16 @@ mod rtos_impl {
 
     static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
 
-    /// Default stack for each task kind, in **bytes**. Sourced from the boot
-    /// budget so the sim's pre-charge and the device's real allocation stay
-    /// in step (docs/parity-audit.md M4).
-    ///
-    /// The seam speaks bytes and FreeRTOS counts words; the ×4 here and the
-    /// ÷4 in `spawn` are the entirety of that conversion, kept in one file so
-    /// a family whose RTOS counts bytes natively simply drops it.
-    fn default_stack_bytes(kind: TaskKind) -> u32 {
-        match kind {
-            TaskKind::JvmChild => crate::boot_budget::JVM_THREAD_STACK_WORDS as u32 * 4,
-            TaskKind::BgWorker => picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
-            TaskKind::Sensor => crate::boot_budget::SENSOR_STACK_WORDS as u32 * 4,
-        }
-    }
-
     unsafe impl Rtos for PlatformRtos {
         fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
+            // Default stack sizes live in `boot_budget` so this allocation and
+            // the simulator's model of it are one number, not two that agree
+            // today (docs/parity-audit.md M4). The seam speaks bytes and
+            // FreeRTOS counts words; the ÷4 just below is the whole of that
+            // conversion, and a family whose RTOS counts bytes drops it.
             let stack_bytes = spec
                 .stack_bytes
-                .unwrap_or_else(|| default_stack_bytes(spec.kind));
+                .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind));
             let words = (stack_bytes / 4) as u16;
             let prio = TaskPriority(spec.priority);
 
@@ -752,19 +742,72 @@ picodroid_core::set_platform_hooks!(PlatformHost);
 
 // ── Simulator ────────────────────────────────────────────────────────────────
 
-/// Bill the boot budget for a `Thread.start` the simulator refuses to run.
+/// Bill the boot budget for a task the simulator is creating (or, under the
+/// test backing, for the `Thread.start` it refuses to run), and report the
+/// stack size in bytes the device would have given it.
 ///
-/// A wrapper rather than passing `boot_budget::charge_thread_spawn` directly:
+/// A wrapper rather than passing `boot_budget::charge_task_spawn` directly:
 /// that function is `cfg(feature = "sim")`, since a plain host test build has
-/// no arena to charge, and the cfg belongs next to the budget it guards.
+/// no arena to charge, and the cfg belongs next to the budget it guards. The
+/// stack size is still answered in that build, because it is policy rather
+/// than accounting.
 #[cfg(any(test, feature = "sim"))]
-fn charge_jvm_child_spawn() {
+fn charge_task_spawn(spec: &picodroid_core::rtos::TaskSpec) -> u32 {
     #[cfg(feature = "sim")]
-    crate::boot_budget::charge_thread_spawn();
+    {
+        crate::boot_budget::charge_task_spawn(spec)
+    }
+    #[cfg(not(feature = "sim"))]
+    {
+        spec.stack_bytes
+            .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind))
+    }
+}
+
+/// Undo [`charge_task_spawn`] when the task's body returns. See
+/// `boot_budget::release_task_spawn`; a no-op wherever there is no arena.
+#[cfg(any(test, feature = "sim"))]
+fn release_task_spawn(spec: &picodroid_core::rtos::TaskSpec) {
+    #[cfg(feature = "sim")]
+    crate::boot_budget::release_task_spawn(spec);
+    #[cfg(not(feature = "sim"))]
+    let _ = spec;
 }
 
 #[cfg(any(test, feature = "sim"))]
 picodroid_core::register_sim_platform! {
     gc_roots = crate::gc_root_registration::register_all,
-    charge_jvm_child_spawn = charge_jvm_child_spawn,
+    charge_task_spawn = charge_task_spawn,
+    release_task_spawn = release_task_spawn,
+}
+
+/// Boot the simulator: hand `picodroid_core::sim_boot` this family's three
+/// leaves and let it own the sequence.
+///
+/// The sequence itself is not ours — it names the background pool, the JVM
+/// task and the scheduler handoff, none of which is RP-specific, so it lives
+/// with the simulator in `picodroid-core`
+/// (`docs/designs/family-neutral-residue.md` B11). What is ours is here.
+#[cfg(feature = "sim")]
+pub(crate) fn run_sim() {
+    picodroid_core::sim_boot::run(picodroid_core::sim_boot::BootLeaves {
+        run_app: crate::app::run_jvm,
+        extra_boot_tasks: sim_boot_tasks,
+        report_boot_budget: crate::boot_budget::report_boot_budget,
+    })
+}
+
+/// The one boot task this family still owns in the simulator: the LittleFS
+/// worker, which serialises all filesystem access onto a single task exactly
+/// as on device.
+///
+/// Charged here rather than inside `worker::spawn`, which is shared with the
+/// device build and has no business knowing about the arena model.
+///
+/// Temporary, and so is `BootLeaves::extra_boot_tasks` with it: `fs` moves to
+/// `picodroid-core` at residue Stage 5 (§3.H), and this function goes with it.
+#[cfg(feature = "sim")]
+fn sim_boot_tasks() {
+    crate::boot_budget::charge_boot_task(crate::boot_budget::FS_STACK_WORDS, "fs");
+    crate::fs::worker::spawn();
 }

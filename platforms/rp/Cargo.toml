@@ -42,8 +42,9 @@ family-rp = ["picodroid-core/family-rp"]
 # Default-off until the nightly HIL soak (picoenvmon nav + PDB reload)
 # passes; 64-bit builds always use the table regardless of this feature.
 handle-table-32 = ["picodroid-core/handle-table-32"]
-# Simulator mode (no hardware)
-sim = ["picodroid-core/sim"]
+# Simulator mode (no hardware). Runs the real FreeRTOS kernel on the host —
+# see picodroid-core's `sim` feature and docs/designs/freertos-host-sim.md.
+sim = ["picodroid-core/sim", "dep:freertos-rust"]
 
 [dependencies]
 # No `compat` / `pdb-protocol` here: this crate names neither. Both still
@@ -73,7 +74,14 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 [dev-dependencies]
 picodroid-core = { path = "../../picodroid-core", features = ["sim"] }
 
-# No host-only dependencies. minifb and libc both moved to picodroid-core
+# Host-side FreeRTOS, for the simulator. Same fork, same version and same
+# package as the ARM declaration above, so host and device drive one set of
+# bindings; the kernel C itself is compiled by picodroid-core's build.rs,
+# which owns the simulator.
+[target.'cfg(not(target_arch = "arm"))'.dependencies]
+freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = true }
+
+# No other host-only dependencies. minifb and libc both moved to picodroid-core
 # with the simulator: a family crate should need neither a host GUI nor a host
 # libc to be simulatable. The `#[global_allocator]` attribute stays in this
 # crate (it is only legal in a binary), but it forwards to core's instance.

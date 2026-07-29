@@ -70,9 +70,9 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| THR-01 | `Thread.start()` in sim prints a warning and **never runs the Runnable** (`native_handler/os.rs:111-126`); device spawns a real FreeRTOS task with a fresh `Jvm` on the shared heap (16 KB stack from the arena) | IPB (documented) | Any threaded app is untestable in sim: its logic silently doesn't execute, its allocations never happen, its bugs (races, ordering, heap pressure) are invisible | **S1** | V | M7 |
-| THR-02 | `BackgroundExecutor`: device = pre-spawned FreeRTOS worker pool with own `Jvm`s (`executors/background_pool.rs:24-132`); sim = `submit()` re-queued onto the main/UI queue (`:134-149`) | IPB | Background work serializes with UI in sim: no interleaving, no parallel heap pressure, latency hidden | **S1** | V | M7 |
-| THR-03 | `synchronized` monitors are real recursive mutexes in both (sim compiles the `family-rp` path) but sim is effectively single-threaded, so contention/deadlock never occurs | IPB | Deadlocks reachable on device cannot manifest in sim (follows from THR-01/02) | S2 | V | follows M7 |
+| THR-01 | ~~`Thread.start()` in sim never runs the Runnable~~ **RESOLVED 2026-07-28 (M7)**: the simulator runs the real FreeRTOS kernel, so `Thread.start` spawns a real task with a fresh `Jvm` on the shared heap, charges 16 KB + TCB at spawn and releases on exit — as the device does. The refusal survives only in the `cargo test` backing (`hal/sim/rtos.rs`), which has no scheduler | none | — | resolved | V | M7 — landed |
+| THR-02 | ~~`BackgroundExecutor` re-queues onto the main/UI queue in sim~~ **RESOLVED 2026-07-28 (M7)**: `sim_boot.rs` spawns the same four `jvm-bg` worker tasks on the same queue the device uses | none | — | resolved | V | M7 — landed |
+| THR-03 | `synchronized` monitors are the **kernel's** recursive mutexes in both, and several tasks really contend them in sim now (follows THR-01/02). What remains is core count: contention is single-core in sim, dual-core on device | IPB (narrowed) | Deadlocks needing genuine parallelism are still hardware-only | S3 | V | follows X1 |
 | THR-04 | Device FreeRTOS config declares SMP 2 cores (`configNUMBER_OF_CORES 2`) while heap safety rests on a "one JVM task at a time" single-core-pinning argument (`native_handler/concurrent.rs:34-59`, `hal/rp/boot.rs:120`) | — | Device-side soundness question flagged by the audit, not fully traced; if JVM tasks can truly interleave across cores, the sim (and the heap!) model is weaker than assumed | S2 | I | investigate (X1) |
 
 ### Time / tick (TIM)
@@ -256,13 +256,21 @@ ask-first items are marked.
 - **M2-final (ask-first).** Single-source `heap_kb` in `mcus/rp/*.toml` → build.rs emits
   the C `configTOTAL_HEAP_SIZE` define and a rustc-env for M1/M2, retiring the duplicated
   constant. Touches build_support + header + tomls.
-- **M7 — Thread.start runs for real (ask-first).** Sim spawns a host thread mirroring
-  the device closure (fresh `Jvm` on the shared heap), charges 16 KB + TCB from the
-  arena at spawn, frees on exit, under a process-wide JVM lock released at the device's
-  yield points (sleep, queue waits, tick boundaries) to approximate single-core
-  preemption. Requires auditing sim-HAL single-threaded statics. Same pass upgrades
-  `background_pool` to real workers. Fallback if declined: `parity-strict` mode makes
-  `Thread.start` a hard failure so parity CI can never silently pass a threaded app.
+- **M7 — Thread.start runs for real. LANDED 2026-07-28, and it is now the
+  only simulator** (`docs/designs/freertos-host-sim.md`). Taken at the kernel rather
+  than with a GIL: the simulator compiles and runs the *real* FreeRTOS kernel in-process
+  via the vendored POSIX port, so "exactly one task runs at a time" is the scheduler's
+  guarantee and not an approximation. `Thread.start` spawns a real task, charged 16 KB +
+  TCB at spawn and released on exit; `background_pool` becomes the device's four real
+  workers; `synchronized` uses kernel recursive mutexes; the LVGL tick is a FreeRTOS
+  software timer. Kernel objects are host-sized and so stay off the modeled arena — the
+  device bytes still enter through `boot_budget`, now charged at real task creation
+  rather than pre-charged, and asserted equal to the device figure at boot. The
+  The host-thread backing was retired as a simulator runtime in the same pass:
+  it survives only as the `cargo test` backing, because the test harness runs
+  cases on parallel threads with no scheduler and the kernel segfaults under
+  that (measured). `parity-strict` is therefore inert in the simulator and
+  meaningful only in that test build.
 - **M6 — 32-bit-clean object layout (ask-first, last, own design).** Replace
   `Box<[Value]>`/`*const u8` with u32 offsets into heap-owned storage (the ChunkedSlots
   pattern), making host sizes ≡ device sizes and deleting OBJ-01/02/03 outright rather
@@ -357,10 +365,14 @@ comparison infrastructure.
   misses, DMA/SPI transfer time (DSP-03), ISR jitter: a sim wall-clock number predicts
   nothing about device wall-clock. Only counter equality (P1) and tracked ratios (P2)
   are meaningful. Anyone benchmarking "how fast" must use hardware.
-- **Preemption granularity.** Even after M7, a host GIL released at yield points is
-  coarser than FreeRTOS time-slicing; instruction-level interleavings (and the races
-  only they expose) remain HIL-only. THR-04's dual-core soundness question compounds
-  this until X1 resolves it.
+- **Preemption granularity.** The simulator now has the real preemption model —
+  FreeRTOS preempts on its 1 kHz SIGALRM tick and at every kernel call — but on **one**
+  core, because the POSIX port is single-core while the device runs
+  `configNUMBER_OF_CORES 2`. Cross-core interleavings
+  (and the races only they expose) remain HIL-only, and single-core is the conservative
+  side: the simulator will not manufacture an interleaving hardware cannot produce, but
+  hardware can produce ones it will not show you. THR-04's dual-core soundness question
+  compounds this until X1 resolves it.
 - **Residual host inflation after M6.** Object slots are now 12 B on every target
   (OBJ-01 deleted), but `Frame` structs remain 80 B host vs 40 B device (OBJ-02) and
   the string pointer table 8 B vs 4 B per entry (OBJ-03) — small, strict-direction
@@ -507,8 +519,10 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   a full HIL re-run — graphicsbench counters and all 1000 band CRCs remain
   exactly equal between the RP2350 and the sim with the new layout on both.
 
-Deferred, ask-first (recorded, not scheduled): M7 (real sim threads + GIL),
-X1 (SMP heap-safety soundness trace).
+Deferred, ask-first (recorded, not scheduled): X1 (SMP heap-safety soundness
+trace). M7 landed 2026-07-28 — not as the GIL sketched above but as the real
+kernel under the POSIX port, and as the simulator's only backing; see
+`docs/designs/freertos-host-sim.md` and the amended M7 entry in §4.
 
 Additional honest limits discovered while implementing: parity counters use
 `AtomicUsize` (wrap at ~4.3e9 on device — keep scenes shorter); `parity-fbhash`

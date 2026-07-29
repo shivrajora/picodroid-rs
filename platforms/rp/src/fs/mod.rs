@@ -28,7 +28,10 @@ pub mod error;
 pub mod storage;
 #[cfg(feature = "sim")]
 pub mod storage_host;
-#[cfg(all(not(feature = "sim"), feature = "family-rp"))]
+// Device topology the simulator adopts too, now that it runs the real kernel —
+// see the "Runtime concurrency" note above and
+// docs/designs/freertos-host-sim.md §1.2.
+#[cfg(feature = "family-rp")]
 pub mod worker;
 
 pub use error::FsError;
@@ -165,11 +168,21 @@ where
     {
         Some(worker::submit(f))
     }
-    // sim (host): run closure synchronously (single-threaded).
+    // sim (host): the device's worker task, once the scheduler owns the
+    // process. Before that — `fs::init` and anything else on the way up —
+    // there is no task to submit from and no concurrency to serialise, so the
+    // synchronous path is both correct and the only option.
+    //
     // Note: sim builds use board-testbench-rp2350 which activates family-rp,
     // so we must gate on `sim` explicitly rather than `not(family-rp)`.
     #[cfg(feature = "sim")]
     {
-        cell::with(f)
+        if freertos_rust::FreeRtosUtils::scheduler_state()
+            == freertos_rust::FreeRtosSchedulerState::Running
+        {
+            Some(worker::submit(f))
+        } else {
+            cell::with(f)
+        }
     }
 }

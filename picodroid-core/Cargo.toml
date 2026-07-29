@@ -11,7 +11,16 @@ license = "GPL-3.0-only"
 # docs/designs/shared-core-extraction.md §5 for the full checklist.
 [features]
 family-rp  = []
-sim        = []
+# Host simulator. Runs the *real* FreeRTOS kernel (POSIX port) in-process, so
+# tasks, recursive mutexes, the tick and `Thread.start` are the device's rather
+# than a host-thread model of them (docs/designs/freertos-host-sim.md).
+#
+# `cargo test` is the one exception, and it is not a choice: the harness runs
+# cases on parallel threads with no scheduler started, so the kernel's task
+# APIs dereference a current task that does not exist and the process
+# segfaults. This crate's own test build therefore keeps the host-thread
+# backing — see hal/sim/mod.rs.
+sim        = ["dep:freertos-rust"]
 # Board selection — forwarded by the binary crate's board-* features so this
 # crate's build.rs can resolve the same board.toml and generate the neutral
 # config (JVM sizing, sensor/button tables, display dims) from it.
@@ -56,6 +65,10 @@ defmt         = "1"
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
 libc = "0.2"
+# The simulator's FreeRTOS kernel bindings. Same fork the device build uses, so
+# host and device drive one set of them; its `links = "freertos"` metadata is
+# also what exports DEP_FREERTOS_SHIM to build.rs.
+freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = true }
 
 [dev-dependencies]
 # The install path's compat gate is only exercisable against a real PAPK

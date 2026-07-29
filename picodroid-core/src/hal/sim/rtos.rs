@@ -2,6 +2,20 @@
 //! Host backing for [`crate::rtos::Rtos`] — `std` threads, condvars and
 //! mutexes.
 //!
+//! # This is the `cargo test` backing, not a simulator runtime
+//!
+//! Simulator *runs* use the real FreeRTOS kernel ([`super::rtos_freertos`]);
+//! this file is compiled only when this crate is itself the test target. The
+//! reason is measured rather than stylistic: the test harness runs cases
+//! concurrently on threads it owns and never starts a scheduler, so the
+//! kernel's task APIs dereference a "current task" that does not exist and the
+//! process segfaults. A backing made of host primitives has no such
+//! precondition.
+//!
+//! What that costs is visible in `spawn` below: with no scheduler there is
+//! nothing to make a Java thread safe, so it is refused. Tests that need real
+//! threading belong in the simulator, not here.
+//!
 //! Handles are pointers to leaked boxes, which round-trip through the seam's
 //! `usize` unchanged on a 64-bit host.
 //!
@@ -13,7 +27,7 @@
 //! duplicated the primitives; `test_platform.rs` said the dedup was due when
 //! the simulator moved here, and this is it.
 //!
-//! Everything here is simulator policy, not family policy — the
+//! Everything here is test-harness policy, not family policy — the
 //! parity-strict refusal, the recursive-mutex bookkeeping Java monitors need,
 //! the drift-free tick. A family that behaved differently on any of them
 //! would have a parity bug, not a port.
@@ -63,11 +77,24 @@ fn wait_deadline(t: Timeout) -> Option<Duration> {
 
 /// Spawn a host thread for `spec`, except for [`TaskKind::JvmChild`].
 ///
-/// `charge_jvm_child` is called when a JVM child is refused, so the platform
-/// can bill its boot budget for the stack and TCB the device would have
+/// `charge_task` is called when a JVM child is refused, so the platform can
+/// bill its boot budget for the stack and TCB the device would have
 /// allocated. It is a parameter rather than a hook because the boot budget is
-/// chip-gated platform data that shared code has no business reading.
-pub fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>, charge_jvm_child: fn()) -> bool {
+/// chip-gated platform data that shared code has no business reading. Its
+/// return value — the device-modeled stack size — is only meaningful to the
+/// FreeRTOS backing, which sizes a real task from it; here the charge is the
+/// whole point and the number is discarded.
+///
+/// `release_task` is unused in this backing and exists so the two `rtos`
+/// modules stay interchangeable: nothing is released because nothing ran.
+/// A refused `Thread.start` has no exit to hook, and the host threads this
+/// *does* spawn model device tasks that live for the process.
+pub fn spawn(
+    spec: &TaskSpec,
+    body: Box<dyn FnOnce() + Send>,
+    charge_task: fn(&TaskSpec) -> u32,
+    _release_task: fn(&TaskSpec),
+) -> bool {
     // A JVM child task must NOT become a host thread. The object heap is not
     // thread-safe; on device its safety comes from FreeRTOS cooperative
     // scheduling on a single pinned core, which preemptive host threads do
@@ -94,7 +121,7 @@ pub fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>, charge_jvm_child: 
              no-op in the simulator (on device they run as a FreeRTOS task)",
             spec.name
         );
-        charge_jvm_child();
+        charge_task(spec);
         drop(body);
         return false;
     }

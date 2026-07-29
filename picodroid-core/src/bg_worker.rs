@@ -43,7 +43,7 @@ fn worker_body(worker_id: u32) {
         if jvm.is_none() {
             let mut j = pico_jvm::Jvm::new();
             if let Err(e) = crate::boot::load_classes(&mut j) {
-                defmt::error!(
+                crate::pd_error!(
                     "background_pool[{}]: class load failed: {}",
                     worker_id,
                     defmt::Display2Format(&e)
@@ -66,7 +66,7 @@ fn worker_body(worker_id: u32) {
             heap,
             &mut handler,
         ) {
-            defmt::error!(
+            crate::pd_error!(
                 "background_pool[{}]: Runnable.run() failed: {}",
                 worker_id,
                 defmt::Display2Format(&e)

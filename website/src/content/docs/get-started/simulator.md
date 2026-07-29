@@ -11,7 +11,7 @@ Run any app on the host machine without hardware using the simulator:
 ./scripts/sim.sh --app uart --release
 ```
 
-The simulator builds with `--features sim` and runs natively on the host. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. File I/O (`picodroid.io`) and `picodroid.content.SharedPreferences` are backed by a host-file LittleFS image so writes persist across sim runs. Networking (`picodroid.net`) is backed by the host network stack. Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input.
+The simulator builds with `--features sim` and runs natively on the host, with the **real FreeRTOS kernel** compiled in (its POSIX port) — so tasks, `synchronized`, the UI tick and `Thread.start` are the device's scheduler rather than a host-thread model of it. Hardware calls (GPIO, UART, I2C, SPI, ADC, PWM) are stubbed with logged output. File I/O (`picodroid.io`) and `picodroid.content.SharedPreferences` are backed by a host-file LittleFS image so writes persist across sim runs. Networking (`picodroid.net`) is backed by the host network stack. Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input.
 
 ## Running a UI demo
 
@@ -26,7 +26,21 @@ If you're driving the sim from a script (e.g. for end-to-end tests), prefer `xdo
 - **GPIO / PWM / ADC / UART** — stubbed; reads return zero, writes log to stdout. Use the sim for app-logic verification, not bus-level work.
 - **Touch** — the sim feeds minifb mouse position through the **same `Xpt2046` driver** that runs on hardware (so calibration / `swap_xy` behave identically), rather than stubbing it.
 - **Sensors / I2C** — the sim answers I2C sensor reads with a fake BME688 (and synthesizes LTR559 readings) instead of returning zeros, so sensor-driven UI works on the host. The real drivers still run on-device.
-- **Threads** — `Thread.start()` is a **no-op in the sim** (there's no FreeRTOS) and logs a warning naming the Runnable, so its body never runs. On device it spawns a real task. Use `Executors.mainExecutor()`/`backgroundExecutor()` for work that must run in both.
+- **Threads** — `Thread.start()` runs, as a real FreeRTOS task, and `Executors.backgroundExecutor()` gets the same four worker tasks the device has. The difference that remains is **cores**: the simulator's kernel is single-core where the chip has two, so races that need genuine parallelism are still hardware-only. Sleeps quantise to the 1 ms tick, as on device.
+
+## Threads and the scheduler
+
+Because the kernel is real, threaded apps behave here the way they do on the board:
+
+```bash
+./scripts/sim.sh --app threaddemo
+```
+
+Each Java thread is a FreeRTOS task with the device's 16 KiB stack charged from the simulated heap and released when it exits, `synchronized` uses the kernel's recursive mutexes, and the filesystem runs on the same worker task the device uses.
+
+Two caveats. The kernel is **single-core**, where the chip is dual-core, so cross-core interleavings remain hardware-only — the simulator will not invent a race the hardware cannot produce, but the hardware can produce ones it will not show you. And a thread whose `run()` returns leaves its (host-side, uncounted) task parked rather than freeing it, so an app churning tens of thousands of threads will run the host out of them.
+
+See `docs/designs/freertos-host-sim.md` for the design.
 
 ## Slow-handler watchdog
 

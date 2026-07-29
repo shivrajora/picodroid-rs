@@ -137,10 +137,11 @@ run_test() {
   # PICODROID_SIM_HEADLESS=1 skips minifb window creation so Activity-based
   # tests (callbacktest, displaydemo) run under CI without an X server.
   # Parity defaults (docs/parity-audit.md): the handle sanitizer aborts on
-  # use-after-delete lookups the 64-bit sim otherwise hides (HAL-05), and
-  # parity-strict turns silent sim no-ops (Thread.start, THR-01) into hard
-  # failures so an app whose code never ran cannot PASS. Both overridable
-  # from the environment.
+  # use-after-delete lookups the 64-bit sim otherwise hides (HAL-05).
+  # PICODROID_PARITY_STRICT is inert here now that the simulator runs the real
+  # kernel and `Thread.start` with it (THR-01 closed, M7) — it is still passed
+  # because the flag survives in the `cargo test` backing, where a spawn is
+  # still refused. Both overridable from the environment.
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
   #
   # `< /dev/null` is load-bearing. The caller feeds hil-tests.conf into the
@@ -280,17 +281,6 @@ for MODE in "${MODES[@]}"; do
     # Skip explicitly skipped tests.
     if [[ "$category" == "skip" ]]; then
       sim_log "SKIP $app[$MODE]"
-      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
-      SKIP=$((SKIP + 1))
-      continue
-    fi
-
-    # Thread.start is a no-op in the sim (docs/parity-audit.md THR-01), so a
-    # threaddemo "PASS" would certify a run in which no thread ever executed.
-    # Under the parity-strict default the run aborts anyway; skip with an
-    # honest reason instead. Re-enable when M7 (real sim threads) lands.
-    if [[ "$app" == "threaddemo" && "${PICODROID_PARITY_STRICT:-1}" == "1" ]]; then
-      sim_log "SKIP $app[$MODE] (Thread.start no-op in sim — parity-strict, THR-01)"
       echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue

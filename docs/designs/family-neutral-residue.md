@@ -933,3 +933,59 @@ round-trip tests. Affects Stage 7 only as a simplification — the porting
 guide's protocol sections can now say "the wire layouts are types in
 `pdb-protocol`" instead of describing bytes, and the sysmon golden-bytes
 guard named in §7 lives in `pdb-protocol` (still a workspace test).
+
+### B11 — the FreeRTOS simulator added one new residue file (2026-07-28)
+
+`docs/designs/freertos-host-sim.md` landed the same day and made the simulator
+run the real kernel. Most of what it touched in `platforms/rp` is where §5 says
+it belongs, and one thing is not.
+
+Where it belongs, no action:
+
+- `main.rs` and `glue.rs` — §5, and the new `charge_task_spawn` /
+  `release_task_spawn` pair is D6's macro-parameter pattern applied to a second
+  leaf, not a new mechanism.
+- `boot_budget.rs`'s constants and `BOOT_TASKS` (now carrying a `sim_real`
+  flag) — §5's "chip-gated stack policy is this family's memory model".
+
+Already scheduled, so the additions ride along:
+
+- `boot_budget.rs`'s accounting engine grew a tracked-charge/release side and a
+  `report_boot_budget` assertion. **Stage 6** already names this split —
+  "the accounting engine, including the `black_box` subtlety a re-deriving
+  family would get wrong, moves". More moves now than when that was written.
+- `fs/mod.rs` gained a `with_fs` arm that submits to the worker task once the
+  scheduler is up. **Stage 5 / §3.H** moves the file; the arm goes with it, and
+  `spawn_worker()` is already in §3.H's signature list.
+
+**New residue, found and MOVED the same day: `sim_boot.rs`.** Simulator boot
+topology — fs worker, background pool, the JVM task, the child-drain wait, and
+`start_scheduler` — was written into the family crate while the rest of the
+simulator lives in `picodroid-core`. Roughly 80 of its 110 lines named nothing
+family-specific, so a second family's simulator would have copied it verbatim:
+§0's criterion exactly. No guard caught it — the shadow-twin check compares
+filenames across the two trees and this file had no twin.
+
+It now lives at `picodroid-core/src/sim_boot.rs`, taking family policy as a
+`BootLeaves` struct of three `fn` pointers — D6's pattern, one level up from
+the macro. `platforms/rp/src/glue.rs` gained a ~30-line `run_sim()` holding
+the leaves; `platforms/rp/src/sim_boot.rs` is deleted.
+
+Two things worth keeping from how it was done:
+
+- **The JVM task goes through the `Rtos` seam**, via a new `TaskKind::Jvm`.
+  That was what made the move cheap rather than hook-heavy: stack sizing and
+  the arena charge already flow through `default_stack_bytes` and
+  `charge_task_spawn`, so core needed neither a `jvm_stack_words` field nor a
+  charge callback — two fields that would otherwise have been permanent. Only
+  one exhaustive `match` on `TaskKind` exists in the tree, so the variant cost
+  two lines. Device boot still creates its JVM task directly (core affinity
+  plus the D4 supervisor loop), but now takes its size from the same place.
+- **`BootLeaves::extra_boot_tasks` is the temporary hook**, and it is
+  explicitly labelled as such in both the struct and `glue.rs`. Its only
+  caller spawns the LittleFS worker. **Stage 5 deletes it**: §3.H moves `fs`
+  into this crate with `spawn_worker()` already in its signature list, at
+  which point `BootLeaves` drops to two fields and `glue.rs::sim_boot_tasks`
+  goes away. That is the one piece of debt this move takes on knowingly.
+
+Recorded because leaving it unrecorded is how §0's list got to four items.

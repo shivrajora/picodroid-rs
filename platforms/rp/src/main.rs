@@ -153,7 +153,11 @@ fn main() {
     }
     sim_allocator::checkpoint("post-fs-init");
 
-    app::run_jvm();
+    // Hand this thread to `xPortStartScheduler` and run the JVM as a task,
+    // exactly as the device does — so everything above has to be the work the
+    // device also does pre-scheduler (fs mount, allocator arming), and
+    // everything below only runs once the JVM task has ended the scheduler.
+    glue::run_sim();
 
     sim_allocator::checkpoint("final");
 
