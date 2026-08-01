@@ -18,6 +18,9 @@ pub mod dispatch_sites;
 pub mod drivers;
 pub mod executors;
 pub mod framework_classes;
+// LittleFS, opt-in per family. See the feature's note in Cargo.toml.
+#[cfg(all(feature = "littlefs", not(test)))]
+pub mod fs;
 // Build artifact, no JVM/graphics deps — see the module docs for why it is
 // not inside `boot`.
 pub mod framework_map;

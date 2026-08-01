@@ -23,6 +23,10 @@
 //! doc's D6): stack sizing and the boot-budget model are chip-gated data this
 //! crate has no business reading.
 //!
+//! It carried a third leaf, `extra_boot_tasks`, whose only caller spawned the
+//! LittleFS worker. Stage 5 moved `fs` into this crate, so the sequence now
+//! spawns that worker itself and the hook is gone — as B11 said it would be.
+//!
 //! # What this is *not*
 //!
 //! A device's `start_tasks` also creates a debug-bridge listener and a WiFi
@@ -50,15 +54,6 @@ pub struct BootLeaves {
     /// (`platforms/rp/src/app.rs`).
     pub run_app: fn(),
 
-    /// Create any boot tasks the family owns, before the scheduler starts.
-    /// Each must charge its own boot-budget entry, as this sequence's do.
-    ///
-    /// **Temporary.** Its only caller spawns the LittleFS worker task, and
-    /// `fs` moves into this crate at `family-neutral-residue.md` Stage 5
-    /// (§3.H, which already lists `spawn_worker()`). This field goes with it,
-    /// and `BootLeaves` loses a third of its surface.
-    pub extra_boot_tasks: fn(),
-
     /// Assert the boot budget adds up, once every task exists. Chip-gated
     /// arithmetic, so the family owns it.
     pub report_boot_budget: fn(),
@@ -69,9 +64,12 @@ pub struct BootLeaves {
 /// Returns when the JVM task has finished the app and ended the scheduler —
 /// one app per process, as `sim-run.sh` already assumes.
 pub fn run(leaves: BootLeaves) {
-    // Family boot tasks first, matching the device's order: the filesystem
-    // worker has to exist before anything can ask it for a file.
-    (leaves.extra_boot_tasks)();
+    // The filesystem worker first, matching the device's order: it has to
+    // exist before anything can ask it for a file. Its stack charge rides the
+    // same `charge_task_spawn` every other task's does, because it is created
+    // through the `Rtos` seam rather than beside it.
+    #[cfg(feature = "littlefs")]
+    crate::fs::spawn_worker();
 
     // No sensor task. A device sampler exists to drive real I²C parts, and
     // there are none here; the simulator keeps its own backing, which

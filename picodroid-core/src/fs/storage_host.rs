@@ -5,6 +5,11 @@
 //! [`READ_SIZE`]) so the image format is byte-for-byte compatible with a
 //! flash dump — the same bytes could, in principle, be written to the
 //! device's `FS_FLASH` region.
+//!
+//! The default image path follows this crate, so it moved from
+//! `platforms/rp/target/sim-fs.img` to `picodroid-core/target/sim-fs.img`
+//! when the filesystem did. `PICODROID_SIM_FS` overrides it, which is what
+//! tests should use rather than sharing the developer's working image.
 
 use std::env;
 use std::fs::{File, OpenOptions};
@@ -91,6 +96,20 @@ fn resolve_path() -> PathBuf {
     p.push("target");
     p.push("sim-fs.img");
     p
+}
+
+impl super::FsBackingStore for HostFileStorage {
+    fn block_count(&self) -> u32 {
+        self.block_count
+    }
+
+    fn geometry(&self) -> super::FsGeometry {
+        super::FsGeometry {
+            block: BLOCK_SIZE as u32,
+            prog: PROG_SIZE as u32,
+            read: READ_SIZE as u32,
+        }
+    }
 }
 
 impl LfsStorage for HostFileStorage {

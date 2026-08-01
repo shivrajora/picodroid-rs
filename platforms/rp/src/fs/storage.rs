@@ -29,10 +29,6 @@ impl FlashStorage {
         }
     }
 
-    pub fn block_count(&self) -> u32 {
-        self.block_count
-    }
-
     fn resolve(&self, block: u32, offset: u32, len: usize) -> Result<u32, LfsError> {
         if block >= self.block_count || (offset as usize) + len > BLOCK_SIZE {
             return Err(LfsError::Invalid);
@@ -44,6 +40,20 @@ impl FlashStorage {
 impl Default for FlashStorage {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl picodroid_core::fs::FsBackingStore for FlashStorage {
+    fn block_count(&self) -> u32 {
+        self.block_count
+    }
+
+    fn geometry(&self) -> picodroid_core::fs::FsGeometry {
+        picodroid_core::fs::FsGeometry {
+            block: BLOCK_SIZE as u32,
+            prog: PROG_SIZE as u32,
+            read: READ_SIZE as u32,
+        }
     }
 }
 

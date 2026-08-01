@@ -49,11 +49,14 @@ sim = ["picodroid-core/sim", "dep:freertos-rust"]
 [dependencies]
 # No `compat` / `pdb-protocol` here: this crate names neither. Both still
 # reach the binary through picodroid-core, which does use them.
-picodroid-core = { path = "../../picodroid-core" }
+picodroid-core = { path = "../../picodroid-core", features = ["littlefs"] }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
 embedded-hal = { version = "1.0.0" }
 defmt = "1"
+# Still direct: `fs/storage.rs` implements `littlefs_rust::Storage` for the
+# flash region. Everything else LittleFS moved to picodroid-core's `littlefs`
+# feature, which this crate turns on just above.
 littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"] }
 
 # RP-family (Cortex-M) embedded deps.

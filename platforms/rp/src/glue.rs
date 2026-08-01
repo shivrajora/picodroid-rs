@@ -252,111 +252,6 @@ impl picodroid_core::hal::HalUart for Platform {
     }
 }
 
-/// LittleFS, on flash for device builds and a host-file image for the
-/// simulator — `crate::fs` already routes between the two, so this arm is
-/// shared. Each call re-resolves the path inside `with_fs`, whose closure
-/// borrows the filesystem for exactly the operation's duration; that is why
-/// [`HalFs`](picodroid_core::hal::HalFs) hands out no file handles.
-///
-/// `with_fs` returns `None` when the filesystem is unavailable, which folds
-/// into the same "failed" value the Java API reports.
-#[cfg(not(test))]
-impl picodroid_core::hal::HalFs for Platform {
-    fn exists(path: &str) -> bool {
-        crate::fs::with_fs(|fs| fs.exists(path)).unwrap_or(false)
-    }
-
-    fn is_file(path: &str) -> bool {
-        crate::fs::with_fs(|fs| {
-            matches!(
-                fs.stat(path).map(|m| m.file_type),
-                Ok(littlefs_rust::FileType::File)
-            )
-        })
-        .unwrap_or(false)
-    }
-
-    fn is_dir(path: &str) -> bool {
-        crate::fs::with_fs(|fs| {
-            matches!(
-                fs.stat(path).map(|m| m.file_type),
-                Ok(littlefs_rust::FileType::Dir)
-            )
-        })
-        .unwrap_or(false)
-    }
-
-    fn length(path: &str) -> i64 {
-        crate::fs::with_fs(|fs| fs.stat(path).map(|m| m.size as i64).unwrap_or(0)).unwrap_or(0)
-    }
-
-    fn delete(path: &str) -> bool {
-        crate::fs::with_fs(|fs| fs.remove(path).is_ok()).unwrap_or(false)
-    }
-
-    fn mkdir(path: &str) -> bool {
-        crate::fs::with_fs(|fs| fs.mkdir(path).is_ok()).unwrap_or(false)
-    }
-
-    fn rename(from: &str, to: &str) -> bool {
-        crate::fs::with_fs(|fs| fs.rename(from, to).is_ok()).unwrap_or(false)
-    }
-
-    fn truncate(path: &str) {
-        let _ = crate::fs::with_fs(|fs| fs.write_file(path, &[]));
-    }
-
-    fn read_at(path: &str, pos: u64, out: &mut alloc::vec::Vec<u8>, len: usize) -> i32 {
-        crate::fs::with_fs(|fs| {
-            let file = match fs.open(path, littlefs_rust::OpenFlags::READ) {
-                Ok(f) => f,
-                Err(_) => return -1i32,
-            };
-            if file
-                .seek(littlefs_rust::SeekFrom::Start(pos as u32))
-                .is_err()
-            {
-                return -1;
-            }
-            let mut tmp = alloc::vec![0u8; len];
-            match file.read(&mut tmp) {
-                Ok(n) => {
-                    out.extend_from_slice(&tmp[..n as usize]);
-                    n as i32
-                }
-                Err(_) => -1,
-            }
-        })
-        .unwrap_or(-1)
-    }
-
-    fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
-        crate::fs::with_fs(|fs| {
-            let file = match fs.open(
-                path,
-                littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE,
-            ) {
-                Ok(f) => f,
-                Err(_) => return -1i32,
-            };
-            if file
-                .seek(littlefs_rust::SeekFrom::Start(pos as u32))
-                .is_err()
-            {
-                return -1;
-            }
-            match file.write(data) {
-                Ok(n) => {
-                    let _ = file.sync();
-                    n as i32
-                }
-                Err(_) => -1,
-            }
-        })
-        .unwrap_or(-1)
-    }
-}
-
 picodroid_core::set_hal! {
     display = Platform,
     gpio    = Platform,
@@ -369,11 +264,14 @@ picodroid_core::set_hal! {
     uart    = Platform,
 }
 
-// Registered separately from the umbrella above: `crate::fs` is
+// Registered separately from the umbrella above: `picodroid_core::fs` is
 // `cfg(not(test))`, so the host-test build of this crate genuinely has no
 // filesystem to bind. Same shape as the network arm below.
+//
+// The impl itself is shared — this family's only filesystem decision is which
+// backing store to mount, which `crate::fs::init` makes.
 #[cfg(not(test))]
-picodroid_core::set_hal_fs!(Platform);
+picodroid_core::set_hal_fs!(picodroid_core::fs::LittleFsHal);
 
 #[cfg(has_network)]
 mod net_glue {
@@ -500,6 +398,23 @@ mod rtos_impl {
                 .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind));
             let words = (stack_bytes / 4) as u16;
             let prio = TaskPriority(spec.priority);
+
+            // The filesystem worker must be pinned to core 0, because its
+            // flash writes disable XIP and this family executes from that
+            // same flash. Losing the pin is invisible everywhere it would be
+            // convenient to notice — the simulator's port is single-core, and
+            // a dual-core device only corrupts under a write racing an
+            // instruction fetch — so it is spelled out here rather than left
+            // to `spawn`'s general arm.
+            if spec.kind == TaskKind::FsWorker {
+                return Task::new()
+                    .name(spec.name)
+                    .stack_size(words)
+                    .priority(prio)
+                    .core_affinity(0b01)
+                    .start(move |_| body())
+                    .is_ok();
+            }
 
             if spec.kind != TaskKind::JvmChild {
                 return Task::new()
@@ -852,22 +767,6 @@ picodroid_core::register_sim_platform! {
 pub(crate) fn run_sim() {
     picodroid_core::sim_boot::run(picodroid_core::sim_boot::BootLeaves {
         run_app: crate::app::run_jvm,
-        extra_boot_tasks: sim_boot_tasks,
         report_boot_budget: crate::boot_budget::report_boot_budget,
     })
-}
-
-/// The one boot task this family still owns in the simulator: the LittleFS
-/// worker, which serialises all filesystem access onto a single task exactly
-/// as on device.
-///
-/// Charged here rather than inside `worker::spawn`, which is shared with the
-/// device build and has no business knowing about the arena model.
-///
-/// Temporary, and so is `BootLeaves::extra_boot_tasks` with it: `fs` moves to
-/// `picodroid-core` at residue Stage 5 (§3.H), and this function goes with it.
-#[cfg(feature = "sim")]
-fn sim_boot_tasks() {
-    crate::boot_budget::charge_boot_task(crate::boot_budget::FS_STACK_WORDS, "fs");
-    crate::fs::worker::spawn();
 }

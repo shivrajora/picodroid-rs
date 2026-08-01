@@ -188,6 +188,7 @@ pub fn default_stack_bytes(kind: picodroid_core::rtos::TaskKind) -> u32 {
         TaskKind::JvmChild => JVM_THREAD_STACK_WORDS as u32 * 4,
         TaskKind::BgWorker => picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
         TaskKind::Sensor => SENSOR_STACK_WORDS as u32 * 4,
+        TaskKind::FsWorker => FS_STACK_WORDS as u32 * 4,
     }
 }
 
@@ -339,16 +340,6 @@ pub fn report_boot_budget() {
          created, or was created with a different stack size than the table \
          says (docs/parity-audit.md M4)."
     );
-}
-
-/// Charge one boot task the simulator is about to create for real.
-///
-/// The counterpart of the pre-charge above, for the two tasks created outside
-/// the [`picodroid_core::rtos`] seam (`fs`, `jvm`). Tasks that do go through
-/// the seam are charged by [`charge_task_spawn`].
-#[cfg(feature = "sim")]
-pub fn charge_boot_task(stack_words: u16, name: &str) {
-    model::charge(stack_words as u32 * 4 + TCB_EST_BYTES, name, false);
 }
 
 /// Sim only: charge one task spawn the way the device does — stack plus TCB

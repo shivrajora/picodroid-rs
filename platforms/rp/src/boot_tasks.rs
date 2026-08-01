@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Task topology and the JVM supervisor loop.
 //!
-//! This is bin-layer code, not HAL. It reaches into `crate::fs::worker`,
+//! This is bin-layer code, not HAL. It reaches into `picodroid_core::fs`,
 //! `crate::pdb::pending` and `crate::boot_budget`, none of which a hardware
 //! abstraction has any business knowing; it lived under `hal/rp/` only
 //! because it starts the scheduler next to `clock_init`.
@@ -41,7 +41,7 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // Must be spawned after fs::init() (done in main) and before the
     // scheduler starts; any Java thread calling fs::with_fs blocks until
     // this task processes its request.
-    crate::fs::worker::spawn();
+    picodroid_core::fs::spawn_worker();
 
     // Sensor sampler: owns all sensor I²C off the JVM/UI task. Spawned
     // pre-scheduler so its i2c::init calls can't race Java I2cDevice users

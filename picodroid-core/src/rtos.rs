@@ -48,6 +48,13 @@ pub enum TaskKind {
     BgWorker,
     /// The sensor sampling task.
     Sensor,
+    /// The filesystem's serial worker
+    /// ([`crate::executors::serial_worker`]).
+    ///
+    /// A platform whose filesystem writes need a particular core — because
+    /// they disable execute-in-place on the one they run from, as the RP
+    /// family's do — pins this task, and every caller inherits that for free.
+    FsWorker,
 }
 
 /// How long a blocking operation may wait.

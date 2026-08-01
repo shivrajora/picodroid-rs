@@ -21,6 +21,12 @@ family-rp  = []
 # segfaults. This crate's own test build therefore keeps the host-thread
 # backing — see hal/sim/mod.rs.
 sim        = ["dep:freertos-rust"]
+# LittleFS, for families whose storage is raw NOR flash. Default OFF, which is
+# the point: `hal::HalFs` stays the only contract this crate imposes, so a
+# family backed by FAT or NVS implements that trait and links none of `fs/`.
+# A family that opts in supplies an `fs::FsBackingStore` and registers
+# `fs::LittleFsHal` (docs/designs/family-neutral-residue.md D2).
+littlefs   = ["dep:littlefs-rust"]
 # Board selection — forwarded by the binary crate's board-* features so this
 # crate's build.rs can resolve the same board.toml and generate the neutral
 # config (JVM sizing, sensor/button tables, display dims) from it.
@@ -56,6 +62,8 @@ pdb-protocol  = { path = "../pdb-protocol" }
 papk-format   = { path = "../papk-format" }
 embedded-hal  = "1.0"
 defmt         = "1"
+# Optional, behind `littlefs` — see that feature's note.
+littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"], optional = true }
 
 # Host-only. minifb backs the simulator's display window and its touch/key
 # input; libc gives the heap limiter a `getenv` that does not allocate, which
