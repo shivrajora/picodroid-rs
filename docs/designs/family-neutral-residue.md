@@ -989,3 +989,119 @@ Two things worth keeping from how it was done:
   goes away. That is the one piece of debt this move takes on knowingly.
 
 Recorded because leaving it unrecorded is how §0's list got to four items.
+
+### B12 — `Rtos` gained seven, not six (Stage 4)
+
+§3.E and D5 specify six additions. Seven landed. The extra one is
+`scheduler_running() -> bool`, and it is not scope creep — it is a consumer
+D5 could not see, because the code that needs it did not exist when D5 was
+written.
+
+The obvious spelling of "am I somewhere I can submit to a worker?" is
+`task_current() != 0`, and it is **wrong on FreeRTOS**. `prvAddNewTaskToReadyList`
+assigns `pxCurrentTCB` at the first *task creation*, not at scheduler start
+(`third_party/FreeRTOS-Kernel/tasks.c:2060`), so from the moment the first
+task is created — which is boot, before `start_scheduler` — `task_current`
+returns a live handle for a task that cannot run. A `with_fs` that trusted it
+would enqueue work no one dequeues and block on a notification no running task
+could send: a boot hang, on device, in code that passes every host test.
+
+B11 is what created the consumer. It recorded that `fs/mod.rs` "gained a
+`with_fs` arm that submits to the worker task once the scheduler is up" and
+that the arm would move at Stage 5 — but the arm's *predicate* was
+`freertos_rust::FreeRtosUtils::scheduler_state()`, which cannot move into a
+family-neutral crate. Either the seam answers the question or the arm stays
+family-side; D5's "nothing else" was written before that arm existed.
+
+Also in this stage, unplanned and worth a line: the `cargo test` backing's
+queue became generic (`SimQueue<T>`), so the word and pointer queues are one
+implementation rather than two copies of the same wait/timeout dance. The
+duplicate would have been ~40 lines of exactly the shape §0 exists to prevent.
+
+**Both new guards were sabotage-checked**, per the lesson B6/B8 recorded three
+times. Truncating `queue_send_ptr` through `u32` fails on `usize::MAX`; making
+`task_wait_notification` decrement instead of clear fails the two-notifies
+assertion. A fixture that could not tell those apart would have passed against
+the exact bugs the triple exists to prevent.
+
+**Flash, rp2040 `--release`:** `.text` +96, `.rodata` +32. **+128** — the six
+`#[no_mangle]` shims, which cannot be inlined away.
+
+### B13 — Stage 5 landed whole; D2's fallback was not needed
+
+**D2's recorded fallback is declined, on evidence rather than optimism.**
+`littlefs_rust::Storage` is `&mut self`, no generics, no associated types, so
+it is object-safe; `FsBackingStore: Storage` stays object-safe with
+`block_count` and `geometry` added. `Filesystem<S>` takes `S` by value at
+`mount` and lends it through `&self`. `Box<dyn FsBackingStore + Send>` does not
+fight it. The whole `fs` module moved, as §3.H specified.
+
+**§3.H's signature was wrong in one detail.** It gives
+`with_fs(f: impl FnOnce(&mut Filesystem) -> R)`. It has to be `&Fs`, where
+`pub type Fs = Filesystem<DynStorage>`: littlefs's operations take `&self` and
+hand out `File<'_, S>` borrows, which is what `HalFs::read_at` depends on.
+`&mut` does not compile. The alias matters as much as the borrow — without it
+every closure would have to name `DynStorage`, an artefact of the static.
+
+**The trap in this stage was core affinity, and it is invisible.** The old
+`fs::worker::spawn` set `.core_affinity(0b01)` inline; routing the worker
+through the `Rtos` seam loses that unless `PlatformRtos::spawn` grows an
+`FsWorker` arm, because affinity was previously applied only to `JvmChild`.
+Nothing would have caught it: the simulator's POSIX port is single-core, and
+a device only corrupts when a flash write races an instruction fetch on the
+other core. It is now a named arm with the reason written above it.
+
+**Two deletions the stage produced rather than planned:**
+
+- `boot_budget::charge_boot_task` is gone. Its doc said it existed "for the
+  two tasks created outside the `rtos` seam (`fs`, `jvm`)"; B11 moved `jvm`
+  through the seam and this stage moved `fs`, so its reason for existing was
+  fully consumed. The fs worker's stack is now charged by `charge_task_spawn`
+  like every other task's — confirmed by the sim's boot-budget assertion
+  reconciling exactly (`charged 70320 B of 70320 B`).
+- `BootLeaves::extra_boot_tasks` and `glue.rs::sim_boot_tasks`, as B11 said
+  they would be. `BootLeaves` is down to two fields.
+
+**One behaviour change worth knowing:** the simulator's default image path
+follows the crate, so it moved from `platforms/rp/target/sim-fs.img` to
+`picodroid-core/target/sim-fs.img`. `PICODROID_SIM_FS` overrides it and is
+what tests should use.
+
+`fs/mod.rs` joins the twin allowlist, fourth entry, same shape as `hal/mod.rs`
+and `pdb/mod.rs`: core's is LittleFS, the family's picks the backing store.
+
+### B14 — measurement and hardware, stages 4–5
+
+| Section | Baseline (`59970bc`) | After stage 5 | Delta |
+|---|---:|---:|---:|
+| `.text` | 703,736 | 704,456 | **+720** |
+| `.rodata` | 195,728 | 196,448 | **+720** |
+
+**+1,440 bytes** against the ≤ ~2 KB budget. Stage 5 by itself is **+32**
+(`.text` −72, `.rodata` +104): the `DynStorage` vtable is nearly free because
+it replaced monomorphised code, and the seam crossings replaced direct calls
+that were already crossing a crate boundary. The two deliberate purchases from
+earlier stages (3b's +468, A2's +200) still exceed the total.
+`platforms/rp/src` is at **7,006 lines**, from 9,494 (7,254 at B9).
+
+**Simulator.** The four smokes, plus the persistence check §4 asks for:
+`bootcount` on a fresh isolated image (`PICODROID_SIM_FS`) three consecutive
+runs, reading `Boot #1`, `#2`, `#3`. That smoke distinguishes what it should —
+a filesystem that silently failed would report `Boot #1` every run.
+
+Separately verified, because the persistence smoke would pass without it: an
+instrumented `with_fs` confirmed all three of `bootcount`'s calls take the
+**worker** path, not the pre-scheduler inline one. Otherwise Stage 5a's worker
+would have been dead code behind a passing test.
+
+**HIL, `testbench_rp2350`.** `bootcount` flashed twice, reading `Boot #229`
+then `#230` — the increment is the hardware File-I/O check §4 asks for, and it
+exercises read (`exists` + `read_at`) and write (`write_at`) through the whole
+new path: `LittleFsHal` → `with_fs` → `SerialWorker` → `Filesystem<DynStorage>`
+→ the family's `FlashStorage`. Board left on a known-good helloworld, which
+booted and logged normally.
+
+**Still owed, unchanged from B9:** the rp2040 half of the stage-3 gate, and now
+of this one. Only an rp2350 was attached. RP2040 is the flash-constrained part
+and the one whose second core makes the affinity arm above load-bearing, so
+this is the more interesting gap than it was at B9.
