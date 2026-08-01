@@ -22,7 +22,7 @@
 use crate::hal::sim::rtos as sim_rtos;
 use crate::hal::types::{EdgeTrigger, GpioEvent, Pull};
 use crate::host::{NativeHeapStats, PlatformHooks};
-use crate::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskSpec, Timeout};
+use crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, Rtos, TaskSpec, Timeout};
 
 pub struct TestHal;
 
@@ -345,6 +345,29 @@ unsafe impl Rtos for TestRtos {
         sim_rtos::queue_recv(q, t)
     }
 
+    fn task_current() -> RawTask {
+        sim_rtos::task_current()
+    }
+    fn scheduler_running() -> bool {
+        sim_rtos::scheduler_running()
+    }
+    fn task_notify(t: RawTask) {
+        sim_rtos::task_notify(t)
+    }
+    fn task_wait_notification(t: Timeout) -> bool {
+        sim_rtos::task_wait_notification(t)
+    }
+
+    fn queue_create_ptr(depth: usize) -> RawQueue {
+        sim_rtos::queue_create_ptr(depth)
+    }
+    fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+        sim_rtos::queue_send_ptr(q, val, t)
+    }
+    fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+        sim_rtos::queue_recv_ptr(q, t)
+    }
+
     fn mutex_recursive_create() -> Option<RawMutex> {
         sim_rtos::mutex_recursive_create()
     }
@@ -488,6 +511,40 @@ mod tests {
         assert_eq!(rtos::queue_recv(q, Timeout::None), Some(1));
         assert_eq!(rtos::queue_recv(q, Timeout::None), Some(2));
         assert!(rtos::queue_recv(q, Timeout::None).is_none());
+
+        // The pointer queue must not truncate. `usize::MAX` is the value that
+        // distinguishes a real pointer-width queue from one backed by a `u32`
+        // on a 64-bit host — a fixture that could not tell those apart would
+        // pass against exactly the bug this triple exists to avoid.
+        let qp = rtos::queue_create_ptr(2);
+        assert!(rtos::queue_recv_ptr(qp, Timeout::None).is_none());
+        assert!(rtos::queue_send_ptr(qp, usize::MAX, Timeout::None));
+        assert!(rtos::queue_send_ptr(qp, 1, Timeout::None));
+        assert!(
+            !rtos::queue_send_ptr(qp, 2, Timeout::None),
+            "send past depth must fail rather than grow the queue"
+        );
+        assert_eq!(rtos::queue_recv_ptr(qp, Timeout::None), Some(usize::MAX));
+        assert_eq!(rtos::queue_recv_ptr(qp, Timeout::None), Some(1));
+        assert!(rtos::queue_recv_ptr(qp, Timeout::None).is_none());
+
+        // Notifications. A handle is available (this is a task context as far
+        // as the backing is concerned), notifying self wakes self, and taking
+        // clears rather than decrements.
+        let me = rtos::task_current();
+        assert_ne!(me, 0, "the calling thread must have a notification slot");
+        assert!(
+            !rtos::task_wait_notification(Timeout::None),
+            "starts unsignalled"
+        );
+        rtos::task_notify(me);
+        rtos::task_notify(me);
+        assert!(rtos::task_wait_notification(Timeout::None));
+        assert!(
+            !rtos::task_wait_notification(Timeout::None),
+            "taking clears the count — two notifies do not buy two wakes"
+        );
+        rtos::task_notify(0); // no task context: must be a no-op, not a crash
 
         // Recursion depth must be tracked: Java monitors re-enter.
         let m = rtos::mutex_recursive_create().expect("stub mutex");

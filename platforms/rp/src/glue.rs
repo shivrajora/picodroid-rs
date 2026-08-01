@@ -465,9 +465,12 @@ mod rtos_impl {
     // `MutexInnerImpl` is the trait carrying create/take/give for
     // `MutexRecursive` — the same import monitor_store.rs needs.
     use freertos_rust::{
-        Duration, MutexInnerImpl, MutexRecursive, Queue, Semaphore, Task, TaskPriority, Timer,
+        CurrentTask, Duration, MutexInnerImpl, MutexRecursive, Queue, Semaphore, Task,
+        TaskPriority, Timer,
     };
-    use picodroid_core::rtos::{RawMutex, RawQueue, RawSem, Rtos, TaskKind, TaskSpec, Timeout};
+    use picodroid_core::rtos::{
+        RawMutex, RawQueue, RawSem, RawTask, Rtos, TaskKind, TaskSpec, Timeout,
+    };
 
     fn to_duration(t: Timeout) -> Duration {
         match t {
@@ -559,6 +562,63 @@ mod rtos_impl {
                 return None;
             }
             let queue = unsafe { &*(q as *const Queue<u32>) };
+            queue.receive(to_duration(t)).ok()
+        }
+
+        fn task_current() -> RawTask {
+            // `Err` means no task context — pre-scheduler code, or an
+            // interrupt. The seam spells that 0 so callers need no cfg.
+            Task::current()
+                .map(|t| t.raw_handle() as RawTask)
+                .unwrap_or(0)
+        }
+
+        fn scheduler_running() -> bool {
+            freertos_rust::FreeRtosUtils::scheduler_state()
+                == freertos_rust::FreeRtosSchedulerState::Running
+        }
+
+        fn task_notify(t: RawTask) {
+            if t == 0 {
+                return;
+            }
+            // SAFETY: `t` is a handle `task_current` returned for a task that
+            // is still live — the seam's contract, and every caller keeps the
+            // notified task alive by construction (it is blocked waiting for
+            // this notification). `Task` is a bare handle wrapper with no
+            // `Drop`, so reconstructing one here neither owns nor deletes the
+            // task.
+            let task = unsafe { Task::from_raw_handle(t as *const core::ffi::c_void) };
+            task.notify(freertos_rust::TaskNotification::Increment);
+        }
+
+        fn task_wait_notification(t: Timeout) -> bool {
+            // `clear = true`: the seam's contract is "look again", not a
+            // credit counter — see `Rtos::task_wait_notification`. A zero
+            // return is the timeout.
+            CurrentTask::take_notification(true, to_duration(t)) != 0
+        }
+
+        fn queue_create_ptr(depth: usize) -> RawQueue {
+            match Queue::<usize>::new(depth) {
+                Ok(q) => Box::into_raw(Box::new(q)) as RawQueue,
+                Err(_) => 0,
+            }
+        }
+
+        fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+            if q == 0 {
+                return false;
+            }
+            let queue = unsafe { &*(q as *const Queue<usize>) };
+            queue.send(val, to_duration(t)).is_ok()
+        }
+
+        fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+            if q == 0 {
+                return None;
+            }
+            let queue = unsafe { &*(q as *const Queue<usize>) };
             queue.receive(to_duration(t)).ok()
         }
 

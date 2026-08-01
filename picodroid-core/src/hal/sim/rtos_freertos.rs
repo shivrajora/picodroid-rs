@@ -52,7 +52,7 @@ use freertos_rust::{
     Duration, MutexInnerImpl, MutexRecursive, Queue, Semaphore, Task, TaskPriority, Timer,
 };
 
-use crate::rtos::{RawMutex, RawQueue, RawSem, TaskSpec, Timeout};
+use crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, TaskSpec, Timeout};
 
 extern "C" {
     /// Runs the scheduler on the calling thread. Unlike a device port this
@@ -237,6 +237,59 @@ pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
     }
     // SAFETY: see `queue_send`.
     let queue = unsafe { &*(q as *const Queue<u32>) };
+    queue.receive(to_duration(t)).ok()
+}
+
+pub fn task_current() -> RawTask {
+    // Pre-scheduler, or one of the host-service threads the kernel does not
+    // own (the control-channel reader): no task context, spelled 0.
+    Task::current()
+        .map(|t| t.raw_handle() as RawTask)
+        .unwrap_or(0)
+}
+
+pub fn scheduler_running() -> bool {
+    freertos_rust::FreeRtosUtils::scheduler_state()
+        == freertos_rust::FreeRtosSchedulerState::Running
+}
+
+pub fn task_notify(t: RawTask) {
+    if t == 0 {
+        return;
+    }
+    // SAFETY: `t` is a live handle from `task_current` — the seam's contract.
+    // `Task` wraps a handle and has no `Drop`, so this neither owns nor
+    // deletes the task. Identical to the device arm.
+    let task = unsafe { Task::from_raw_handle(t as *const core::ffi::c_void) };
+    task.notify(freertos_rust::TaskNotification::Increment);
+}
+
+pub fn task_wait_notification(t: Timeout) -> bool {
+    freertos_rust::CurrentTask::take_notification(true, to_duration(t)) != 0
+}
+
+pub fn queue_create_ptr(depth: usize) -> RawQueue {
+    match Queue::<usize>::new(depth) {
+        Ok(q) => Box::into_raw(Box::new(q)) as RawQueue,
+        Err(_) => 0,
+    }
+}
+
+pub fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+    if q == 0 {
+        return false;
+    }
+    // SAFETY: see `queue_send`.
+    let queue = unsafe { &*(q as *const Queue<usize>) };
+    queue.send(val, to_duration(t)).is_ok()
+}
+
+pub fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+    if q == 0 {
+        return None;
+    }
+    // SAFETY: see `queue_send`.
+    let queue = unsafe { &*(q as *const Queue<usize>) };
     queue.receive(to_duration(t)).ok()
 }
 

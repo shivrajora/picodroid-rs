@@ -39,7 +39,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use super::allocator;
-use crate::rtos::{RawMutex, RawQueue, RawSem, TaskKind, TaskSpec, Timeout};
+use crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, TaskKind, TaskSpec, Timeout};
 
 // Tick-source state. Separate from the queue/semaphore handles because the
 // tick is a process singleton with a lifecycle (start/pause/stop), not
@@ -49,10 +49,39 @@ static TICK_PAUSED: AtomicBool = AtomicBool::new(false);
 static TICK_STOPPING: AtomicBool = AtomicBool::new(false);
 static TICK_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
-struct SimQueue {
-    items: Mutex<VecDeque<u32>>,
+/// Generic in the element type so the word and pointer queues are one
+/// implementation. They differ only in what they carry, and a second copy of
+/// the wait/timeout dance is exactly the kind of twin that drifts.
+struct SimQueue<T> {
+    items: Mutex<VecDeque<T>>,
     ready: Condvar,
     depth: usize,
+}
+
+/// Per-thread notification slot — this backing's stand-in for a FreeRTOS
+/// direct-to-task notification.
+///
+/// The count is a count, not a flag, for the reason the seam gives: two
+/// notifiers racing must not collapse into one wake. Taking it clears the
+/// count rather than decrementing, matching `take_notification(clear = true)`
+/// on both kernel arms.
+struct Notif {
+    count: Mutex<u32>,
+    ready: Condvar,
+}
+
+thread_local! {
+    /// Leaked so a `RawTask` stays valid for the process, which is the seam's
+    /// contract: a handle may be notified by another thread after the owner
+    /// has stopped waiting on it. Threads in a test binary are few and the
+    /// slot is two words.
+    static SELF_NOTIF: &'static Notif = {
+        let _bypass = allocator::bypass();
+        Box::leak(Box::new(Notif {
+            count: Mutex::new(0),
+            ready: Condvar::new(),
+        }))
+    };
 }
 
 struct SimSem {
@@ -135,20 +164,23 @@ pub fn spawn(
         .is_ok()
 }
 
-pub fn queue_create(depth: usize) -> RawQueue {
+fn q_create<T>(depth: usize) -> RawQueue {
     let _bypass = allocator::bypass();
-    Box::into_raw(Box::new(SimQueue {
+    Box::into_raw(Box::new(SimQueue::<T> {
         items: Mutex::new(VecDeque::with_capacity(depth)),
         ready: Condvar::new(),
         depth,
     })) as RawQueue
 }
 
-pub fn queue_send(q: RawQueue, word: u32, _t: Timeout) -> bool {
+/// # Safety
+///
+/// `q` must be 0 or a handle from `q_create::<T>` with the same `T`.
+unsafe fn q_send<T>(q: RawQueue, val: T, _t: Timeout) -> bool {
     if q == 0 {
         return false;
     }
-    let queue = unsafe { &*(q as *const SimQueue) };
+    let queue = unsafe { &*(q as *const SimQueue<T>) };
     let mut items = queue
         .items
         .lock()
@@ -156,16 +188,19 @@ pub fn queue_send(q: RawQueue, word: u32, _t: Timeout) -> bool {
     if items.len() >= queue.depth {
         return false;
     }
-    items.push_back(word);
+    items.push_back(val);
     queue.ready.notify_one();
     true
 }
 
-pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
+/// # Safety
+///
+/// See [`q_send`].
+unsafe fn q_recv<T>(q: RawQueue, t: Timeout) -> Option<T> {
     if q == 0 {
         return None;
     }
-    let queue = unsafe { &*(q as *const SimQueue) };
+    let queue = unsafe { &*(q as *const SimQueue<T>) };
     let mut items = queue
         .items
         .lock()
@@ -194,6 +229,94 @@ pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
             }
         }
     }
+}
+
+pub fn queue_create(depth: usize) -> RawQueue {
+    q_create::<u32>(depth)
+}
+
+pub fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool {
+    // SAFETY: `q` came from `queue_create`, which is `q_create::<u32>`.
+    unsafe { q_send(q, word, t) }
+}
+
+pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
+    // SAFETY: see `queue_send`.
+    unsafe { q_recv(q, t) }
+}
+
+pub fn task_current() -> RawTask {
+    SELF_NOTIF.with(|n| (*n as *const Notif) as RawTask)
+}
+
+/// Always false: this backing exists precisely because `cargo test` never
+/// starts a scheduler. Callers that branch on it take their inline path,
+/// which is the correct one for a test binary.
+pub fn scheduler_running() -> bool {
+    false
+}
+
+pub fn task_notify(t: RawTask) {
+    if t == 0 {
+        return;
+    }
+    // SAFETY: `t` came from `task_current`, whose slot is leaked for the
+    // process — so this is valid even if the notified thread has since exited.
+    let notif = unsafe { &*(t as *const Notif) };
+    let mut count = notif
+        .count
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *count = count.saturating_add(1);
+    notif.ready.notify_one();
+}
+
+pub fn task_wait_notification(t: Timeout) -> bool {
+    SELF_NOTIF.with(|notif| {
+        let mut count = notif
+            .count
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        loop {
+            if *count > 0 {
+                *count = 0;
+                return true;
+            }
+            match wait_deadline(t) {
+                Some(d) if d.is_zero() => return false,
+                Some(d) => {
+                    let (guard, timed_out) = notif
+                        .ready
+                        .wait_timeout(count, d)
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    count = guard;
+                    if timed_out.timed_out() && *count == 0 {
+                        return false;
+                    }
+                }
+                None => {
+                    count = notif
+                        .ready
+                        .wait(count)
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                }
+            }
+        }
+    })
+}
+
+pub fn queue_create_ptr(depth: usize) -> RawQueue {
+    q_create::<usize>(depth)
+}
+
+pub fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+    // SAFETY: `q` came from `queue_create_ptr`, which is `q_create::<usize>`.
+    unsafe { q_send(q, val, t) }
+}
+
+pub fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+    // SAFETY: see `queue_send_ptr`.
+    unsafe { q_recv(q, t) }
 }
 
 pub fn mutex_recursive_create() -> Option<RawMutex> {

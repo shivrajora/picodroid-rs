@@ -81,7 +81,7 @@ macro_rules! register_sim_platform {
     ) => {
         const _: () = {
             use $crate::hal::sim::rtos;
-            use $crate::rtos::{RawMutex, RawQueue, RawSem, TaskSpec, Timeout};
+            use $crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, TaskSpec, Timeout};
 
             /// The shared simulator, as the platform registers it.
             struct SimPlatform;
@@ -98,6 +98,27 @@ macro_rules! register_sim_platform {
                 }
                 fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
                     rtos::queue_recv(q, t)
+                }
+                fn task_current() -> RawTask {
+                    rtos::task_current()
+                }
+                fn scheduler_running() -> bool {
+                    rtos::scheduler_running()
+                }
+                fn task_notify(t: RawTask) {
+                    rtos::task_notify(t)
+                }
+                fn task_wait_notification(t: Timeout) -> bool {
+                    rtos::task_wait_notification(t)
+                }
+                fn queue_create_ptr(depth: usize) -> RawQueue {
+                    rtos::queue_create_ptr(depth)
+                }
+                fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+                    rtos::queue_send_ptr(q, val, t)
+                }
+                fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+                    rtos::queue_recv_ptr(q, t)
                 }
                 fn mutex_recursive_create() -> Option<RawMutex> {
                     rtos::mutex_recursive_create()

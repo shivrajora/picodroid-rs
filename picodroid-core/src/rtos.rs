@@ -80,6 +80,12 @@ pub type RawQueue = usize;
 pub type RawMutex = usize;
 pub type RawSem = usize;
 
+/// A task, as something another task can wake. `0` means "no task context" —
+/// [`Rtos::task_current`] returns it when called before the scheduler runs or
+/// from a host thread the RTOS does not own, and [`Rtos::task_notify`] ignores
+/// it. Callers therefore never have to special-case pre-scheduler code.
+pub type RawTask = usize;
+
 /// The RTOS services shared code needs.
 ///
 /// # Safety
@@ -107,6 +113,49 @@ pub unsafe trait Rtos {
     fn queue_create(depth: usize) -> RawQueue;
     fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
     fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32>;
+
+    /// Handle of the calling task, or 0 if there is no task context.
+    fn task_current() -> RawTask;
+
+    /// Whether the scheduler has started and is running tasks.
+    ///
+    /// Shared code needs this to tell "I am early in boot, nothing else can
+    /// run, do the work inline" from "there are tasks, go through the worker"
+    /// — [`crate::fs::with_fs`] is the caller. [`Rtos::task_current`] cannot
+    /// answer it: FreeRTOS assigns a current task at the first *task
+    /// creation*, not at scheduler start, so it reports a live handle during
+    /// boot and a caller that trusted it would block for a notification no
+    /// running task could send.
+    fn scheduler_running() -> bool;
+
+    /// Increment `t`'s notification count, waking it if it is blocked in
+    /// [`Rtos::task_wait_notification`]. A no-op when `t` is 0.
+    ///
+    /// Increment rather than set, because the notification is a wakeup and
+    /// not a value: two notifiers racing must not collapse into one wake.
+    fn task_notify(t: RawTask);
+
+    /// Block until the calling task's notification count is non-zero, then
+    /// clear it and return true. False means `t` elapsed first.
+    ///
+    /// Clearing rather than decrementing matches how the framework uses it:
+    /// every waiter re-checks the condition it actually cares about (a
+    /// counter, a flag) after waking, so a notification is "look again", not
+    /// a credit to be spent one at a time.
+    fn task_wait_notification(t: Timeout) -> bool;
+
+    /// Pointer-width sibling of [`Rtos::queue_create`] and friends.
+    ///
+    /// A parallel triple rather than widening the existing one: `main_queue`
+    /// and `background_pool` deliberately pack their work into a `u32` word,
+    /// and widening would cost them memory on every entry for no gain. What
+    /// these three carry instead is a *pointer*, which `u32` would silently
+    /// truncate on a 64-bit host — so the simulator, not the device, is the
+    /// reason the distinction has to exist in the seam rather than in a cast
+    /// at the call site.
+    fn queue_create_ptr(depth: usize) -> RawQueue;
+    fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
+    fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize>;
 
     /// Create a *recursive* mutex — Java monitors re-enter.
     fn mutex_recursive_create() -> Option<RawMutex>;
@@ -140,6 +189,13 @@ extern "Rust" {
     fn __pd_rtos_queue_create(depth: usize) -> RawQueue;
     fn __pd_rtos_queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
     fn __pd_rtos_queue_recv(q: RawQueue, t: Timeout) -> Option<u32>;
+    fn __pd_rtos_task_current() -> RawTask;
+    fn __pd_rtos_scheduler_running() -> bool;
+    fn __pd_rtos_task_notify(t: RawTask);
+    fn __pd_rtos_task_wait_notification(t: Timeout) -> bool;
+    fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue;
+    fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
+    fn __pd_rtos_queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize>;
     fn __pd_rtos_mutex_recursive_create() -> Option<RawMutex>;
     fn __pd_rtos_mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool;
     fn __pd_rtos_mutex_recursive_unlock(m: RawMutex);
@@ -166,6 +222,33 @@ pub fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool {
 }
 pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
     unsafe { __pd_rtos_queue_recv(q, t) }
+}
+/// Handle of the calling task; 0 if there is no task context. See
+/// [`Rtos::task_current`].
+pub fn task_current() -> RawTask {
+    unsafe { __pd_rtos_task_current() }
+}
+/// Whether the scheduler is running. See [`Rtos::scheduler_running`].
+pub fn scheduler_running() -> bool {
+    unsafe { __pd_rtos_scheduler_running() }
+}
+/// Wake `t`. See [`Rtos::task_notify`]; a no-op when `t` is 0.
+pub fn task_notify(t: RawTask) {
+    unsafe { __pd_rtos_task_notify(t) }
+}
+/// Block until notified. See [`Rtos::task_wait_notification`]; false means
+/// the timeout elapsed.
+pub fn task_wait_notification(t: Timeout) -> bool {
+    unsafe { __pd_rtos_task_wait_notification(t) }
+}
+pub fn queue_create_ptr(depth: usize) -> RawQueue {
+    unsafe { __pd_rtos_queue_create_ptr(depth) }
+}
+pub fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+    unsafe { __pd_rtos_queue_send_ptr(q, val, t) }
+}
+pub fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+    unsafe { __pd_rtos_queue_recv_ptr(q, t) }
 }
 pub fn mutex_recursive_create() -> Option<RawMutex> {
     unsafe { __pd_rtos_mutex_recursive_create() }
@@ -208,7 +291,7 @@ pub fn delay_ms(ms: u32) {
 macro_rules! set_rtos {
     ($t:ty) => {
         const _: () = {
-            use $crate::rtos::{RawMutex, RawQueue, RawSem, TaskSpec, Timeout};
+            use $crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, TaskSpec, Timeout};
 
             #[no_mangle]
             extern "Rust" fn __pd_rtos_spawn(
@@ -228,6 +311,34 @@ macro_rules! set_rtos {
             #[no_mangle]
             extern "Rust" fn __pd_rtos_queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
                 <$t as $crate::rtos::Rtos>::queue_recv(q, t)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_task_current() -> RawTask {
+                <$t as $crate::rtos::Rtos>::task_current()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_scheduler_running() -> bool {
+                <$t as $crate::rtos::Rtos>::scheduler_running()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_task_notify(t: RawTask) {
+                <$t as $crate::rtos::Rtos>::task_notify(t)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_task_wait_notification(t: Timeout) -> bool {
+                <$t as $crate::rtos::Rtos>::task_wait_notification(t)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue {
+                <$t as $crate::rtos::Rtos>::queue_create_ptr(depth)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+                <$t as $crate::rtos::Rtos>::queue_send_ptr(q, val, t)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+                <$t as $crate::rtos::Rtos>::queue_recv_ptr(q, t)
             }
             #[no_mangle]
             extern "Rust" fn __pd_rtos_mutex_recursive_create() -> Option<RawMutex> {
