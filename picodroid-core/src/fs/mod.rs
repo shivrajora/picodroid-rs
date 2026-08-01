@@ -111,8 +111,20 @@ mod cell {
     use core::cell::UnsafeCell;
 
     pub(super) struct FsCell(UnsafeCell<Option<Fs>>);
-    // SAFETY: `install` runs pre-scheduler, single-threaded; every runtime
-    // access goes through the fs worker task, and only that task calls `with`.
+    // SAFETY: `with` is reachable from exactly two places, and neither can
+    // overlap the other or itself:
+    //
+    //   * `with_fs`'s pre-scheduler arm, where nothing else is running yet —
+    //     the same window `install` uses;
+    //   * the fs worker task, which dequeues one request at a time.
+    //
+    // The simulator is included in that, not an exception to it: it runs the
+    // same kernel and the same worker, and the only consumer of the `HalFs`
+    // facade is `native_handler::io`'s Java File natives, which run on JVM,
+    // JVM-child and background-pool tasks — all kernel tasks, all of which
+    // reach here through the worker. The host-service threads that live
+    // outside the kernel (the control-channel reader) never touch the
+    // filesystem.
     unsafe impl Sync for FsCell {}
 
     pub(super) static FS: FsCell = FsCell(UnsafeCell::new(None));

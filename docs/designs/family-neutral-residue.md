@@ -1062,6 +1062,23 @@ other core. It is now a named arm with the reason written above it.
 - `BootLeaves::extra_boot_tasks` and `glue.rs::sim_boot_tasks`, as B11 said
   they would be. `BootLeaves` is down to two fields.
 
+**The simulator's separate cell went too, and that was not the plan.** §3.H
+does not ask for it, and the stated plan at the start of this stage was to keep
+both cells here and collapse in Stage 6 with evidence. The collapse happened
+here instead, so the evidence belongs here rather than being owed.
+
+`cell::with` is reachable from exactly two places: `with_fs`'s pre-scheduler
+arm, single-threaded by construction, and the fs worker task, which dequeues
+one request at a time. The only consumer of the `HalFs` facade is
+`native_handler::io`'s Java File natives, which run on JVM, JVM-child and
+background-pool tasks — all kernel tasks, all reaching the filesystem through
+`WORKER.submit`. The host-service threads outside the kernel (the
+control-channel reader) never touch `fs`. So the sim's `std::sync::Mutex` arm
+was guarding against a caller that does not exist, and one `UnsafeCell` is
+correct for both arms. Recorded rather than left implicit because "the
+simulator dropped a lock" is exactly the sentence a future reader needs to be
+able to find.
+
 **One behaviour change worth knowing:** the simulator's default image path
 follows the crate, so it moved from `platforms/rp/target/sim-fs.img` to
 `picodroid-core/target/sim-fs.img`. `PICODROID_SIM_FS` overrides it and is
