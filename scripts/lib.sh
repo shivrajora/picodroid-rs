@@ -118,6 +118,23 @@ resolve_board() {
   RAM_MAX=$(( ram_kb * 1024 ))
   FLASH_MAX=$(( flash_kb * 1024 ))
 
+  # Program-image ceiling: LENGTH(FLASH) from the MCU linker script. The
+  # image links into the FLASH region, not the whole chip — measuring
+  # against total flash hid a 99%-full rp2040 program region behind "43%"
+  # (docs/bugs-rp2040-flash-2026-08-01.md, adjacent hazard). Falls back to
+  # FLASH_MAX when the script or region is missing (e.g. no linker script).
+  # The LENGTH expression ("896K - 0x100") is rewritten into bash arithmetic.
+  PROGRAM_FLASH_MAX="$FLASH_MAX"
+  local mcu_ld="${mcu_toml%.toml}.x" flash_expr
+  if [[ -f "$mcu_ld" ]]; then
+    flash_expr=$(grep -E '^[[:space:]]*FLASH[[:space:]]' "$mcu_ld" | head -1 \
+      | sed -E 's/.*LENGTH[[:space:]]*=[[:space:]]*//; s|/\*.*||; s/([0-9]+)K/(\1*1024)/g; s/([0-9]+)M/(\1*1048576)/g')
+    if [[ -n "$flash_expr" ]]; then
+      PROGRAM_FLASH_MAX=$(bash -c "echo \$(( $flash_expr ))" 2>/dev/null) \
+        || PROGRAM_FLASH_MAX="$FLASH_MAX"
+    fi
+  fi
+
   # Optional extra cargo flags (e.g. -Zbuild-std=core,alloc for ESP nightly builds).
   # Guard with grep -q to avoid failing under set -e when the key is absent.
   # Use [^=]*= (not .*=) so the sed strips only up to the FIRST '=', preserving
@@ -133,6 +150,14 @@ resolve_board() {
   if grep -q '^size_tool' "$mcu_toml" 2>/dev/null; then
     SIZE_TOOL=$(grep '^size_tool' "$mcu_toml" | sed 's/^[^=]*= *//' | tr -d '"')
   fi
+
+  # probe-rs --chip argument for this MCU (HIL scripts). Empty when the MCU
+  # has no probe-rs support wired up here; callers must check before use.
+  case "$mcu" in
+    rp2040) PROBE_CHIP="RP2040" ;;
+    rp2350) PROBE_CHIP="RP235x" ;;
+    *)      PROBE_CHIP="" ;;
+  esac
 
   apply_jvm_env "$board_toml"
 }
@@ -215,7 +240,8 @@ print_memory_usage() {
   local flash=$(( TEXT + DATA ))
   local ram=$(( DATA + BSS ))
 
-  printf "  Flash: %d / %d bytes (%d%%)\n" "$flash" "$FLASH_MAX" "$(( flash * 100 / FLASH_MAX ))"
+  printf "  Flash: %d / %d bytes (%d%% of program region; chip total %d)\n" \
+    "$flash" "$PROGRAM_FLASH_MAX" "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$FLASH_MAX"
   printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
   echo ""
 }

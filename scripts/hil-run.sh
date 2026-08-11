@@ -79,6 +79,11 @@ if [[ "$PLATFORM" == "esp" ]]; then
   exit 1
 fi
 
+if [[ -z "$PROBE_CHIP" ]]; then
+  echo "ERROR: no probe-rs chip mapping for this board's MCU (see resolve_board in lib.sh)." >&2
+  exit 1
+fi
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 hil_log() { timestamp_log "$@"; }
@@ -165,7 +170,7 @@ run_pdb_test() {
   # After an RTT test, probe-rs may leave the MCU halted. Reset the device
   # so it boots normally and the USB CDC port enumerates.
   hil_log "  Resetting device..."
-  probe-rs reset --chip RP235x --protocol swd 2>/dev/null || true
+  probe-rs reset --chip "$PROBE_CHIP" --protocol swd 2>/dev/null || true
   sleep 3  # wait for USB CDC enumeration
 
   # Early SKIP for install-reject-future when not in shrink mode — do this
@@ -521,7 +526,7 @@ run_test() {
   local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
   hil_log "  Flashing and capturing RTT..."
   setsid timeout "$effective_timeout" \
-    probe-rs run --chip RP235x --protocol swd "$elf" \
+    probe-rs run --chip "$PROBE_CHIP" --protocol swd "$elf" \
     > "$log_file" 2>&1 &
   local run_pid=$!
 
