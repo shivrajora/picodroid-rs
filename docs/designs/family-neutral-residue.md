@@ -1155,16 +1155,14 @@ commit *before* stage 4, verified by rebuilding and reflashing that baseline:
    device stops enumerating over USB. It recovers with an SWD reflash.
 
 Both are on the runtime-flash path — LittleFS writes and the installer's erase
-— and both are exactly where a dual-core XIP-disable hazard would show. That is
-a hypothesis, not a diagnosis; `IDLE1` is `Ready` on core 1 in the sysmon dump
-above, which is the thing to look at first. The rp2350 does not reproduce
-either (B7/B9 recorded clean installs there), which is consistent with the two
-chips' differing SMP ports rather than with anything in this design.
+— and neither reproduces on RP2350.
 
 **These are not this doc's work to fix**, and are recorded here only because
-this gate is what surfaced them; they want their own investigation. The
-attribution is the load-bearing part: the gate was owed precisely so that a
-stage-5 filesystem regression could not hide on the flash-constrained,
-genuinely-dual-core member of the family, and it did not find one.
+this gate is what surfaced them. They have their own file, with repro commands,
+the attribution evidence, a falsifiable hypothesis and first checks:
+`docs/bugs-rp2040-flash-2026-08-01.md`. The attribution is the load-bearing part
+here: the gate was owed precisely so that a stage-5 filesystem regression could
+not hide on the flash-constrained, genuinely-dual-core member of the family, and
+it did not find one.
 
 The gate itself is no longer owed.
