@@ -1122,3 +1122,49 @@ booted and logged normally.
 of this one. Only an rp2350 was attached. RP2040 is the flash-constrained part
 and the one whose second core makes the affinity arm above load-bearing, so
 this is the more interesting gap than it was at B9.
+
+### B15 — the rp2040 gate, finally run: two pre-existing defects, no regression
+
+An rp2040 was attached and the half of the gate owed since B7 was run against
+`dcb377c`. Stages 4 and 5 are clean on it. The gate also found two failures
+that are **not** from this work, and it is the first time anything has looked.
+
+**Passing on `testbench_rp2040`:**
+
+| Check | Result |
+|---|---|
+| `helloworld` boot + RTT | passes |
+| `pdb ping` | `picodroid/2.1`, max PAPK 1020 KB |
+| `pdb sysmon` | 11 tasks decode; **`fs` present: PRI 22/22, `Blocked`, 1994w stack free of 2048** |
+
+That sysmon row is the one that matters for Stage 5. It is direct evidence on
+real dual-core silicon that the worker is created through the seam with the
+right priority band and stack, and parks on its queue — the topology §3.G
+specifies, on the chip whose second core makes the `FsWorker` affinity arm
+load-bearing.
+
+**Failing on `testbench_rp2040`, and failing identically at `e44b879`** — the
+commit *before* stage 4, verified by rebuilding and reflashing that baseline:
+
+1. **`bootcount` produces no output at all.** Not a log line, not a panic, for
+   90 s. `helloworld` on the same board and same build is fine, and a merely
+   *broken* filesystem would still print `Boot #1` (a failed read returns 0 and
+   a failed write is ignored), so it hangs inside the File I/O rather than
+   failing it.
+2. **`pdb install` times out waiting for READY during erase**, after which the
+   device stops enumerating over USB. It recovers with an SWD reflash.
+
+Both are on the runtime-flash path — LittleFS writes and the installer's erase
+— and both are exactly where a dual-core XIP-disable hazard would show. That is
+a hypothesis, not a diagnosis; `IDLE1` is `Ready` on core 1 in the sysmon dump
+above, which is the thing to look at first. The rp2350 does not reproduce
+either (B7/B9 recorded clean installs there), which is consistent with the two
+chips' differing SMP ports rather than with anything in this design.
+
+**These are not this doc's work to fix**, and are recorded here only because
+this gate is what surfaced them; they want their own investigation. The
+attribution is the load-bearing part: the gate was owed precisely so that a
+stage-5 filesystem regression could not hide on the flash-constrained,
+genuinely-dual-core member of the family, and it did not find one.
+
+The gate itself is no longer owed.
