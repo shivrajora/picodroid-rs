@@ -27,6 +27,12 @@ pub const PRIORITY_RT_1: u8 = 21; // pdb task lives here
 pub const PRIORITY_RT_2: u8 = 22; // cyw43 WiFi task lives here
 pub const PRIORITY_FS_WORKER: u8 = 22; // fs worker task (alias of RT_2)
 
+pub const PRIORITY_RT_10: u8 = 30;
+/// RP2040 core-1 flash parker (alias of RT_10): top of the RT band so a park
+/// request preempts anything schedulable on core 1; only the FreeRTOS timer
+/// task (31) sits above, and it blocks again within microseconds.
+pub const PRIORITY_FLASH_PARK: u8 = PRIORITY_RT_10;
+
 /// Convert an Android-compatible thread priority (1–10) to a FreeRTOS priority.
 /// Clamps out-of-range values to [`PRIORITY_JVM_MIN`]..[`PRIORITY_JVM_MAX`].
 pub fn android_to_freertos_priority(android_priority: i32) -> u8 {

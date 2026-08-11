@@ -72,6 +72,16 @@ pub use chip::pdb_usb;
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::{boot, flash};
 
+// RP2040 core-1 flash parking (see rp/core1_park.rs). Device-only for the
+// same reason as `flash`, and chip-gated because RP2350's tick already runs
+// on the core that disables XIP.
+#[cfg(all(
+    not(any(feature = "sim", test)),
+    feature = "family-rp",
+    feature = "chip-rp2040"
+))]
+pub use chip::core1_park;
+
 #[cfg(has_network)]
 pub use chip::net;
 

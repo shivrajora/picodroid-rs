@@ -38,6 +38,12 @@ static inline volatile uint32_t *hw_clr_alias(volatile uint32_t *reg) {
 #define CORE1_STACK_WORDS  512u  /* 2 KiB for core 1's initial scheduler stack */
 static uint32_t core1_stack[CORE1_STACK_WORDS];
 
+/* RAM vector table (defined under "IRQ management" below).  Declared here
+ * because multicore_launch_core1 must hand it to core 1 at launch. */
+#define VT_ENTRIES  256u
+static uint32_t ram_vector_table[VT_ENTRIES] __attribute__((aligned(1024)));
+static void ensure_ram_vt(void);
+
 /* ---- FIFO helpers ---- */
 
 void multicore_fifo_clear_irq(void) {
@@ -100,13 +106,22 @@ static void fifo_launch_raw(uint32_t vtor, uint32_t sp, uint32_t entry) {
 
 void multicore_launch_core1(void (*entry)(void)) {
     uint32_t *sp   = &core1_stack[CORE1_STACK_WORDS]; /* top of stack */
-    uint32_t  vtor = SCB_VTOR;
+
+    /* VTOR is per-core, and irq_set_exclusive_handler only writes the RAM
+     * table.  Switch core 0 to the RAM table now and launch core 1 pointing
+     * at the same table, so the FIFO handlers each core installs afterwards
+     * (port.c xPortStartSchedulerOnCore) are live on BOTH cores.  Launching
+     * with whatever core 0's VTOR held at the time left one core on the
+     * flash table, where its SIO FIFO slot is the cortex-m-rt DefaultHandler
+     * infinite loop: the first cross-core yield IPI wedged that core at the
+     * lowest IRQ priority, blocking its tick and PendSV forever. */
+    ensure_ram_vt();
 
     /* Disable the FIFO IRQ on core 0 during the handshake so we can poll
      * the FIFO directly without racing with an interrupt handler. */
     irq_set_enabled(SIO_IRQ_PROC0, 0);
 
-    fifo_launch_raw(vtor, (uint32_t)sp, (uint32_t)entry);
+    fifo_launch_raw((uint32_t)ram_vector_table, (uint32_t)sp, (uint32_t)entry);
 
     /* Do NOT re-enable SIO_IRQ_PROC0 here.  FreeRTOS port.c will install
      * prvFIFOInterruptHandler via irq_set_exclusive_handler and then call
@@ -117,10 +132,10 @@ void multicore_launch_core1(void (*entry)(void)) {
 
 /* RAM vector table – required so irq_set_exclusive_handler can write at runtime.
  * We copy the flash vector table on first use and redirect VTOR here.
+ * Storage is declared above multicore_launch_core1, which initialises the
+ * table before launching core 1 and passes it as core 1's boot VTOR.
  * Alignment: VTOR requires alignment to a power-of-2 >= (entries * 4).
  * 256 entries * 4 = 1024 bytes, so aligned(1024) is correct. */
-#define VT_ENTRIES  256u
-static uint32_t ram_vector_table[VT_ENTRIES] __attribute__((aligned(1024)));
 static int vt_initialized = 0;
 
 static void ensure_ram_vt(void) {

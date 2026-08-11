@@ -39,6 +39,12 @@ pub const PDB_STACK_WORDS: u16 = 2048;
 pub const CYW43_STACK_WORDS: u16 = 2048;
 /// LittleFS worker task stack. Consumed by `fs/worker.rs`.
 pub const FS_STACK_WORDS: u16 = 2048;
+/// RP2040 core-1 flash parker task stack. Consumed by `boot_tasks.rs`.
+/// The task only blocks on a notification and spins in a `.data` loop
+/// (`hal/rp/core1_park.rs`); 256 words covers the freertos-rust trampoline
+/// with a wide margin.
+#[cfg(feature = "chip-rp2040")]
+pub const FLASHPARK_STACK_WORDS: u16 = 256;
 /// Sensor sampler task stack (sensor boards only). Consumed by
 /// `system/picodroid/hardware/sensors/sampler.rs`. Deepest chain is a
 /// driver call → I²C transfer + fixed-point compensation + defmt frame;
@@ -89,6 +95,15 @@ pub struct BootTask {
 /// (POOL_THREADS = 4, POOL_STACK_BYTES = 4096).
 #[cfg_attr(not(feature = "sim"), allow(dead_code))]
 pub const BOOT_TASKS: &[BootTask] = &[
+    #[cfg(feature = "chip-rp2040")]
+    BootTask {
+        name: "flashpark",
+        stack_words: FLASHPARK_STACK_WORDS,
+        // No simulator counterpart: host flash has no XIP window to park
+        // for.  (Unreachable in practice — the sim never sets chip-rp2040 —
+        // but the flag documents the intent.)
+        sim_real: false,
+    },
     BootTask {
         name: "pdb",
         stack_words: PDB_STACK_WORDS,

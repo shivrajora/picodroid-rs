@@ -203,11 +203,28 @@ macro_rules! with_xip_disabled {
 //
 // These take flash-relative offsets (0 = XIP base) and are the single point
 // where XIP is disabled.  PAPK and LittleFS helpers sit on top of them.
+//
+// On RP2040 each primitive first parks core 1 (see `core1_park`): the tick
+// runs there, and an exception entry during the XIP-off window would fetch
+// the vector table from disconnected flash and lock the core up (RP40-1/-2).
+// The public wrappers stay in .text — the park handshake runs with XIP on —
+// and only the inner `_xip_off` halves are RAM-resident.
 
 /// Erase `len` bytes of flash starting at `flash_offset` (both 4 KB-aligned).
+///
+/// # Safety
+/// See module rules above; additionally, at most one flash operation may be
+/// in flight at a time (fs-worker serialisation / install JVM park uphold
+/// this today — `core1_park` documents the invariant).
+pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
+    #[cfg(feature = "chip-rp2040")]
+    let _park = super::core1_park::park_core1_for_flash();
+    flash_erase_range_xip_off(flash_offset, len);
+}
+
 #[link_section = ".data"]
 #[inline(never)]
-pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
+unsafe fn flash_erase_range_xip_off(flash_offset: u32, len: usize) {
     with_xip_disabled!(flash_range_erase, |erase| {
         erase(flash_offset, len, FLASH_SECTOR_SIZE as u32, 0x20)
     });
@@ -215,9 +232,18 @@ pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
 
 /// Program `data` into flash at `flash_offset`.  Both the offset and `data.len()`
 /// must be multiples of `FLASH_PAGE_SIZE` (256 bytes).
+///
+/// # Safety
+/// See [`flash_erase_range`].
+pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize) {
+    #[cfg(feature = "chip-rp2040")]
+    let _park = super::core1_park::park_core1_for_flash();
+    flash_program_range_xip_off(flash_offset, data, len);
+}
+
 #[link_section = ".data"]
 #[inline(never)]
-pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize) {
+unsafe fn flash_program_range_xip_off(flash_offset: u32, data: *const u8, len: usize) {
     with_xip_disabled!(flash_range_program, |program| {
         program(flash_offset, data, len)
     });

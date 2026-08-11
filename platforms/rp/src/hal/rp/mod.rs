@@ -8,6 +8,8 @@
 pub mod adc;
 pub mod boot;
 pub mod clock;
+#[cfg(feature = "chip-rp2040")]
+pub mod core1_park;
 pub mod delay;
 pub mod display;
 pub mod dma;

@@ -37,6 +37,24 @@ use crate::task_priority;
 ///   - PDB task on core 0 (priority 2) — listens for USB CDC installs
 ///   - JVM task on core 0 (priority 1) — runs the app
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
+    // RP2040 only: core-1 flash parker.  Runtime flash erase/program must
+    // stop core 1 first — the tick runs there (configTICK_CORE=1), and an
+    // exception entry during the XIP-off window fetches vectors from
+    // disconnected flash and locks the core up (RP40-1/-2).  Created first
+    // and registered before the scheduler starts so every runtime flash
+    // path finds it; see hal/rp/core1_park.rs for the handshake.
+    #[cfg(feature = "chip-rp2040")]
+    {
+        let parker = Task::new()
+            .name("flashpark")
+            .stack_size(crate::boot_budget::FLASHPARK_STACK_WORDS)
+            .priority(TaskPriority(task_priority::PRIORITY_FLASH_PARK))
+            .core_affinity(0b10) // core 1 only
+            .start(move |_| crate::hal::core1_park::run_parker_task())
+            .unwrap();
+        crate::hal::core1_park::set_parker_task(parker);
+    }
+
     // fs-worker: serialises all LittleFS access onto one core-0-pinned task.
     // Must be spawned after fs::init() (done in main) and before the
     // scheduler starts; any Java thread calling fs::with_fs blocks until

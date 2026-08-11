@@ -417,10 +417,19 @@ mod rtos_impl {
             }
 
             if spec.kind != TaskKind::JvmChild {
+                // Pinned to core 0 like everything else on this family: the
+                // sensor sampler and the jvm-bg workers run Java against the
+                // shared single-core JVM heap, and two equal-priority workers
+                // scheduled onto both cores would race it.  Core 1 is
+                // reserved for the wifi task and the RP2040 flash parker —
+                // the only tasks that opt out of this pin, and now that
+                // RP2040 sets configRUN_MULTIPLE_PRIORITIES=1 an unpinned
+                // task here really would migrate.
                 return Task::new()
                     .name(spec.name)
                     .stack_size(words)
                     .priority(prio)
+                    .core_affinity(0b01)
                     .start(move |_| body())
                     .is_ok();
             }
