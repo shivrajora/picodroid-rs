@@ -19,6 +19,12 @@
 #define ipconfigDHCP_REGISTER_HOSTNAME          (1)
 #define ipconfigUSE_DNS                         (1)
 #define ipconfigUSE_DNS_CACHE                   (1)
+/* Parse IP-literal "hostnames" (e.g. "192.168.1.215") inside
+ * FreeRTOS_gethostbyname instead of sending them to a DNS server.  This
+ * option has NO default in FreeRTOSIPConfigDefaults.h — leaving it unset
+ * compiles the literal-parse path out entirely and every URL that uses a
+ * raw IP fails to "resolve". */
+#define ipconfigINCLUDE_FULL_INET_ADDR          (1)
 #define ipconfigDNS_CACHE_ENTRIES               (4)
 #define ipconfigDNS_REQUEST_ATTEMPTS            (4)
 
@@ -42,8 +48,17 @@
 #define ipconfigMAX_ARP_AGE                     (150)
 
 /* ---- Buffer allocation ---- */
-/* Use BufferAllocation_2.c (heap-based, works with FreeRTOS heap_4) */
-#define ipconfigBUFFER_PADDING                  (8)
+/* Use BufferAllocation_2.c (heap-based, works with FreeRTOS heap_4).
+ *
+ * Do NOT override ipconfigBUFFER_PADDING: the default is
+ * 8 + ipconfigPACKET_FILLER_SIZE = 10, and every byte matters.  Each
+ * buffer's first 4 bytes hold the NetworkBufferDescriptor_t* stamp and
+ * the stack ALSO writes an IPv4/IPv6 discriminator byte at
+ * payload - 48 = ethbuf - 6.  With padding 10 that byte lands after the
+ * stamp; with padding 8 it lands INSIDE the stamp (byte 2), corrupting
+ * the descriptor pointer and hard-faulting the first zero-copy send
+ * (DHCP discover).  Padding 10 also keeps the IP header 4-byte aligned
+ * (10 + 14-byte Ethernet header = 24). */
 #define ipconfigPACKET_FILLER_SIZE              (2)
 
 /* ---- TCP window ---- */

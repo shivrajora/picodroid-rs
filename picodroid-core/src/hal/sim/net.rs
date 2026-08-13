@@ -46,6 +46,22 @@ fn u32_to_ipv4(addr: u32) -> Ipv4Addr {
     Ipv4Addr::from(addr.to_be_bytes())
 }
 
+/// Run a blocking std::net call, retrying on EINTR.
+///
+/// The sim scheduler drives FreeRTOS ticks with SIGALRM; a signal landing
+/// while a socket call blocks makes it fail with ErrorKind::Interrupted,
+/// which the device HAL has no equivalent for — retry instead of
+/// surfacing a spurious -1 to Java.
+fn retry_eintr<T>(mut f: impl FnMut() -> std::io::Result<T>) -> Result<T, NetError> {
+    loop {
+        match f() {
+            Ok(v) => return Ok(v),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(NetError(-1)),
+        }
+    }
+}
+
 // ── TCP ──────────────────────────────────────────────────────────────────────
 
 pub fn tcp_socket() -> Result<*mut c_void, NetError> {
@@ -70,7 +86,7 @@ pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
     use std::io::Write;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream)) => stream.write(buf).map_err(|_| NetError(-1)),
+        SimSocket::TcpClient(Some(ref mut stream)) => retry_eintr(|| stream.write(buf)),
         _ => Err(NetError(-1)),
     }
 }
@@ -79,7 +95,7 @@ pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
     use std::io::Read;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream)) => stream.read(buf).map_err(|_| NetError(-1)),
+        SimSocket::TcpClient(Some(ref mut stream)) => retry_eintr(|| stream.read(buf)),
         _ => Err(NetError(-1)),
     }
 }
@@ -101,7 +117,7 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpListener(ref listener) => {
-            let (stream, _addr) = listener.accept().map_err(|_| NetError(-1))?;
+            let (stream, _addr) = retry_eintr(|| listener.accept())?;
             Ok(box_socket(SimSocket::TcpClient(Some(stream))))
         }
         _ => Err(NetError(-1)),
@@ -121,8 +137,7 @@ pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result
     match s {
         SimSocket::Udp(ref udp) => {
             let ip = u32_to_ipv4(addr);
-            udp.send_to(buf, SocketAddrV4::new(ip, port))
-                .map_err(|_| NetError(-1))
+            retry_eintr(|| udp.send_to(buf, SocketAddrV4::new(ip, port)))
         }
         _ => Err(NetError(-1)),
     }
@@ -132,7 +147,7 @@ pub fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u1
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::Udp(ref udp) => {
-            let (n, src) = udp.recv_from(buf).map_err(|_| NetError(-1))?;
+            let (n, src) = retry_eintr(|| udp.recv_from(buf))?;
             match src {
                 std::net::SocketAddr::V4(v4) => {
                     let octets = v4.ip().octets();

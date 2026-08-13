@@ -26,16 +26,24 @@ static BaseType_t xInterfaceUp = pdFALSE;
 /* Reference to the global CYW43 driver state (allocated in cyw43.c) */
 extern cyw43_t cyw43_state;
 
-/* The network interface descriptor */
-static NetworkInterface_t xCYW43Interface;
+/* The interface descriptor registered with FreeRTOS+TCP.  Set by
+ * pxCYW43_FillInterfaceDescriptor (the storage lives in net_init.c);
+ * RX frames must be stamped with THIS descriptor or endpoint lookup
+ * returns NULL and every received frame is dropped. */
+static NetworkInterface_t *pxRegisteredInterface = NULL;
 
 /* ---- Interface function pointers ---- */
 
 static BaseType_t xCYW43_Init(NetworkInterface_t *pxInterface) {
     (void)pxInterface;
-    /* CYW43 init is handled by the Rust cyw43_task.
-     * By the time FreeRTOS+TCP starts, WiFi should be associated. */
-    if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
+    /* CYW43 init is handled by the Rust cyw43_task; the IP task retries
+     * this every few seconds until it returns pdTRUE, so returning
+     * pdFALSE before the association completes is fine.
+     *
+     * Note: cyw43_tcpip_link_status forwards cyw43_wifi_link_status,
+     * whose "associated" value is CYW43_LINK_JOIN — CYW43_LINK_UP is an
+     * lwIP-layer state this port never reaches. */
+    if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN) {
         xInterfaceUp = pdTRUE;
     }
     return xInterfaceUp;
@@ -70,7 +78,7 @@ static BaseType_t xCYW43_Output(NetworkInterface_t *pxInterface,
 
 static BaseType_t xCYW43_GetPhyLinkStatus(NetworkInterface_t *pxInterface) {
     (void)pxInterface;
-    return (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP)
+    return (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN)
                ? pdTRUE
                : pdFALSE;
 }
@@ -92,6 +100,7 @@ NetworkInterface_t *pxCYW43_FillInterfaceDescriptor(
     pxInterface->pfGetPhyLinkStatus = xCYW43_GetPhyLinkStatus;
 
     FreeRTOS_AddNetworkInterface(pxInterface);
+    pxRegisteredInterface = pxInterface;
 
     return pxInterface;
 }
@@ -117,6 +126,11 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
         return;
     }
 
+    /* Frames can arrive before the interface is registered with the stack */
+    if (pxRegisteredInterface == NULL) {
+        return;
+    }
+
     /* Allocate a FreeRTOS+TCP network buffer */
     NetworkBufferDescriptor_t *pxBuffer = pxGetNetworkBufferWithDescriptor(len, 0);
     if (pxBuffer == NULL) {
@@ -126,8 +140,8 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
     /* Copy the Ethernet frame into the network buffer */
     memcpy(pxBuffer->pucEthernetBuffer, buf, len);
     pxBuffer->xDataLength = len;
-    pxBuffer->pxInterface = &xCYW43Interface;
-    pxBuffer->pxEndPoint = FreeRTOS_FirstEndPoint(&xCYW43Interface);
+    pxBuffer->pxInterface = pxRegisteredInterface;
+    pxBuffer->pxEndPoint = FreeRTOS_FirstEndPoint(pxRegisteredInterface);
 
     /* Hand the buffer to the IP task */
     IPStackEvent_t xEvent;

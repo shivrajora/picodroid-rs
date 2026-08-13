@@ -56,6 +56,10 @@ void picodroid_net_stack_init(const uint8_t mac[6]) {
 
 /* ---- Required callbacks ---- */
 
+/* Rust defmt shim (platforms/rp wifi_task.rs).  ip is in network byte
+ * order within a little-endian u32: first octet = low byte. */
+extern void picodroid_net_ip_event(uint32_t up, uint32_t ip_nbo);
+
 /*
  * Called by FreeRTOS+TCP when the network goes up or down.
  * Required when ipconfigUSE_NETWORK_EVENT_HOOK == 1.
@@ -64,9 +68,11 @@ void vApplicationIPNetworkEventHook_Multi(
     eIPCallbackEvent_t eNetworkEvent,
     struct xNetworkEndPoint *pxEndPoint)
 {
-    (void)pxEndPoint;
-    (void)eNetworkEvent;
-    /* TODO: log assigned IP address on eNetworkUp for debugging. */
+    uint32_t ip = 0;
+    if (pxEndPoint != NULL) {
+        ip = pxEndPoint->ipv4_settings.ulIPAddress;
+    }
+    picodroid_net_ip_event((eNetworkEvent == eNetworkUp) ? 1u : 0u, ip);
 }
 
 /*
