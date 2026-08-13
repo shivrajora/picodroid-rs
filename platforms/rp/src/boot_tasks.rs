@@ -37,13 +37,13 @@ use crate::task_priority;
 ///   - PDB task on core 0 (priority 2) — listens for USB CDC installs
 ///   - JVM task on core 0 (priority 1) — runs the app
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
-    // RP2040 only: core-1 flash parker.  Runtime flash erase/program must
-    // stop core 1 first — the tick runs there (configTICK_CORE=1), and an
-    // exception entry during the XIP-off window fetches vectors from
-    // disconnected flash and locks the core up (RP40-1/-2).  Created first
-    // and registered before the scheduler starts so every runtime flash
-    // path finds it; see hal/rp/core1_park.rs for the handshake.
-    #[cfg(feature = "chip-rp2040")]
+    // Core-1 flash parker.  Runtime flash erase/program must stop core 1
+    // first: any exception it takes during the XIP-off window fetches
+    // vectors and handler code from disconnected flash and locks the core
+    // up (RP40-1/-2 on rp2040 via the tick, which runs there; on rp2350 via
+    // the PendSV that core 0's yield IPI raises).  Created first and
+    // registered before the scheduler starts so every runtime flash path
+    // finds it; see hal/rp/core1_park.rs for the handshake.
     {
         let parker = Task::new()
             .name("flashpark")
@@ -92,13 +92,24 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
 
     // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
     // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
-    // Pinned to core 1 alongside PDB — keeps core 0 free for JVM/UI.
+    //
+    // Pinned to core 0, like every task on this family except the parker.  It
+    // ran on core 1 until 2026-08-13 ("keeps core 0 free for JVM/UI"), which
+    // was safe only because configRUN_MULTIPLE_PRIORITIES=0 stopped it from
+    // ever truly overlapping a different-priority core-0 task.  Enabling real
+    // SMP for the flash parker removed that accident and DHCP stopped binding
+    // whenever the app kept core 0 busy: link up, endpoint stuck at 0.0.0.0,
+    // no recovery (reproduced 4/4 with blinky, fixed 1/1 by this pin).
+    //
+    // The underlying race in the driver/+TCP glue is real and still unfixed —
+    // this pin restores the serialisation that was hiding it, and core 1 is
+    // now the parker's alone, which is also what makes the park window safe.
     #[cfg(network_cyw43)]
     Task::new()
         .name("cyw43")
         .stack_size(crate::boot_budget::CYW43_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_RT_2))
-        .core_affinity(0b10) // core 1
+        .core_affinity(0b01) // core 0 only
         .start(move |_| crate::hal::wifi_task::run_cyw43_task())
         .unwrap();
 

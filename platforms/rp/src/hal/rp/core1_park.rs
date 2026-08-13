@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! RP2040 core-1 parking for runtime flash operations.
+//! Core-1 parking for runtime flash operations.
 //!
 //! `with_xip_disabled!` (flash.rs) masks interrupts on the **calling core
-//! only**.  On RP2040 the FreeRTOS tick runs on core 1 (`configTICK_CORE=1`),
-//! so during any erase/program window — 45 ms per sector, seconds for a PAPK
-//! slot — core 1 is guaranteed to take a SysTick.  Exception entry reads the
-//! vector table and handler code from flash, which the ROM routine has just
-//! disconnected: the fetch bus-faults, the HardFault vector fetch faults too,
-//! and core 1 goes into LOCKUP — taking the tick, and with it the whole
-//! scheduler, down permanently.  That is bugs RP40-1 and RP40-2
-//! (docs/bugs-rp2040-flash-2026-08-01.md).
+//! only**.  Whatever core 1 does during an erase/program window — 45 ms per
+//! sector, seconds for a PAPK slot — it does against disconnected flash.  An
+//! exception entry is the fatal case: it reads the vector table and handler
+//! code from flash the ROM routine has just turned off, the fetch bus-faults,
+//! the HardFault vector fetch faults too, and core 1 goes into LOCKUP — still
+//! holding whatever FreeRTOS spinlock it had, so core 0 wedges at its next
+//! critical section.  Both chips get there, by different routes:
+//!
+//! - **RP2040** runs the tick on core 1 (`configTICK_CORE=1`), so a SysTick
+//!   inside the window is guaranteed.  Bugs RP40-1 and RP40-2.
+//! - **RP2350** runs the tick on core 0, but core 0's yields reach core 1 as
+//!   doorbell IPIs, and the resulting PendSV runs `vTaskSwitchContext` from
+//!   flash.  Rarer — it needs a yield to land in the window — which is why it
+//!   read as flaky (5/10 `pdb install` cycles) rather than deterministic, and
+//!   why it stayed hidden until `d66882b` made those IPIs actually fire.
+//!
+//! Both are one bug; see docs/bugs-rp2040-flash-2026-08-01.md.
 //!
 //! The fix is the pico-sdk `flash_safe_execute` lockout pattern, expressed as
 //! a FreeRTOS task: a top-real-time-priority task pinned to core 1 blocks on
@@ -19,11 +28,10 @@
 //! flash fetches, no exception entries — until core 0 (XIP restored) clears
 //! the request.  Both flags live in SRAM, which stays accessible throughout.
 //!
-//! RP2350 does not take this path: its tick is on core 0 (already masked by
-//! `with_xip_disabled!`), its gate passes without parking, and its differing
-//! port would make this unverifiable until an RP2350 board is on the bench.
-//! The residual hazard there (core 1's *current task* falling out of XIP
-//! cache mid-window) is recorded in the bug doc.
+//! This requires `configRUN_MULTIPLE_PRIORITIES=1` (FreeRTOSConfig.h): the
+//! kernel default of 0 bars the priority-22 fs task from core 0 while the
+//! priority-30 parker holds core 1, and the park request can then never be
+//! cleared.
 //!
 //! # Single-flash-op invariant
 //! Callers of [`park_core1_for_flash`] must not overlap.  This is the same

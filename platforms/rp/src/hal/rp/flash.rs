@@ -204,11 +204,13 @@ macro_rules! with_xip_disabled {
 // These take flash-relative offsets (0 = XIP base) and are the single point
 // where XIP is disabled.  PAPK and LittleFS helpers sit on top of them.
 //
-// On RP2040 each primitive first parks core 1 (see `core1_park`): the tick
-// runs there, and an exception entry during the XIP-off window would fetch
-// the vector table from disconnected flash and lock the core up (RP40-1/-2).
-// The public wrappers stay in .text — the park handshake runs with XIP on —
-// and only the inner `_xip_off` halves are RAM-resident.
+// Each primitive first parks core 1 (see `core1_park`): an exception entry
+// during the XIP-off window would fetch the vector table and handler code
+// from disconnected flash and lock the core up (RP40-1/-2).  Both chips get
+// there, by different routes — rp2040's tick runs on core 1, and rp2350's
+// core 1 takes a PendSV whenever core 0 yields.  The public wrappers stay in
+// .text — the park handshake runs with XIP on — and only the inner
+// `_xip_off` halves are RAM-resident.
 
 /// Erase `len` bytes of flash starting at `flash_offset` (both 4 KB-aligned).
 ///
@@ -217,7 +219,6 @@ macro_rules! with_xip_disabled {
 /// in flight at a time (fs-worker serialisation / install JVM park uphold
 /// this today — `core1_park` documents the invariant).
 pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
-    #[cfg(feature = "chip-rp2040")]
     let _park = super::core1_park::park_core1_for_flash();
     flash_erase_range_xip_off(flash_offset, len);
 }
@@ -236,7 +237,6 @@ unsafe fn flash_erase_range_xip_off(flash_offset: u32, len: usize) {
 /// # Safety
 /// See [`flash_erase_range`].
 pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize) {
-    #[cfg(feature = "chip-rp2040")]
     let _park = super::core1_park::park_core1_for_flash();
     flash_program_range_xip_off(flash_offset, data, len);
 }

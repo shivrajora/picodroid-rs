@@ -118,22 +118,27 @@ extern uint32_t picodroid_get_runtime_counter(void);
  * core 0 interrupts inside with_xip_disabled!) do not freeze the
  * scheduler. */
 #define configTICK_CORE                         1
-/* RP2040 runs the core-1 flash parker (hal/rp/core1_park.rs): a priority-30
- * task pinned to core 1 that spins in RAM while core 0 erases/programs
- * flash.  The kernel default configRUN_MULTIPLE_PRIORITIES=0 forbids tasks
- * of *different* priorities running on both cores at once, so the moment
- * the parker ran, the priority-22 fs task was barred from core 0 and could
- * never clear the park request — a mutual deadlock by scheduler policy
- * (docs/bugs-rp2040-flash-2026-08-01.md).  Enable true SMP here.  Every
- * task on this family except the parker is pinned to core 0 (boot_tasks.rs
- * and glue.rs spawn arms), including — via the affinity below — the timer
- * service, whose lvgl-tick callback shares state with the UI task; so the
- * only concurrency this actually unlocks is parker-vs-core-0, which is the
- * point.  RP2350 keeps the kernel default: its tick core is 0, it has no
- * parker, and its gate-passing behaviour should not change untested. */
+#endif
+/* Both chips run the core-1 flash parker (hal/rp/core1_park.rs): a
+ * priority-30 task pinned to core 1 that spins in RAM while core 0
+ * erases/programs flash.  The kernel default configRUN_MULTIPLE_PRIORITIES=0
+ * forbids tasks of *different* priorities running on both cores at once, so
+ * the moment the parker ran, the priority-22 fs task was barred from core 0
+ * and could never clear the park request — a mutual deadlock by scheduler
+ * policy (docs/bugs-rp2040-flash-2026-08-01.md).  Enable true SMP.  Every
+ * task on this family except the parker and the Pico 2 W cyw43 task is
+ * pinned to core 0 (boot_tasks.rs and glue.rs spawn arms), including — via
+ * the affinity below — the timer service, whose lvgl-tick callback shares
+ * state with the UI task.
+ *
+ * RP2350 needs this for the same reason RP2040 did, one step removed: its
+ * tick is on core 0, but core 0's yields reach core 1 as doorbell IPIs, and
+ * a PendSV taken inside the XIP-off window runs vTaskSwitchContext from
+ * disconnected flash — bus fault, HardFault handler also in flash, LOCKUP,
+ * with the task spinlock still held (see the 2026-08-12 section of the bug
+ * doc).  Latent until d66882b made those IPIs actually fire. */
 #define configRUN_MULTIPLE_PRIORITIES           1
 #define configTIMER_SERVICE_TASK_CORE_AFFINITY  ( 1 << 0 )
-#endif
 #define configUSE_CORE_AFFINITY                 1
 /* Hardware spinlock IDs reserved for FreeRTOS (spinlocks 26 and 27 = PICO_SPINLOCK_ID_OS1/OS2) */
 #define configSMP_SPINLOCK_0                    26
