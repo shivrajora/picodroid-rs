@@ -32,19 +32,30 @@ static inline volatile uint32_t *hw_clr_alias(volatile uint32_t *reg) {
 }
 
 /* RP2350 SIO doorbell registers.
- * Verified against RP2350 TRM section 3.1.3 "SIO Register Summary"
- * and pico-sdk v2 src/rp2350/hardware/regs/sio.h.
+ *
+ * The doorbell block sits AFTER the spinlock bank (0x100-0x17C), at
+ * SIO_BASE + 0x180.  The 0x0D0-0x0DC range this shim originally used is
+ * INTERP1 lane-pop territory, where writes are silently discarded — every
+ * doorbell ring was a no-op, so core 1 (whose scheduler is driven solely
+ * by doorbell IPIs; only core 0 has the tick) never woke a ready task.
  *
  * DOORBELL_OUT: core X writes to ring a doorbell on the OTHER core.
  * DOORBELL_IN:  core X reads/clears doorbells pending on THIS core. */
-#define SIO_DOORBELL_OUT_SET  (*(volatile uint32_t *)(SIO_BASE + 0x0D0u))
-#define SIO_DOORBELL_OUT_CLR  (*(volatile uint32_t *)(SIO_BASE + 0x0D4u))
-#define SIO_DOORBELL_IN_SET   (*(volatile uint32_t *)(SIO_BASE + 0x0D8u))
-#define SIO_DOORBELL_IN_CLR   (*(volatile uint32_t *)(SIO_BASE + 0x0DCu))
+#define SIO_DOORBELL_OUT_SET  (*(volatile uint32_t *)(SIO_BASE + 0x180u))
+#define SIO_DOORBELL_OUT_CLR  (*(volatile uint32_t *)(SIO_BASE + 0x184u))
+#define SIO_DOORBELL_IN_SET   (*(volatile uint32_t *)(SIO_BASE + 0x188u))
+#define SIO_DOORBELL_IN_CLR   (*(volatile uint32_t *)(SIO_BASE + 0x18Cu))
 
-/* RP2350 SIO bell IRQs (one per core, separate from RP2040-style FIFO IRQs) */
-#define SIO_IRQ_BELL0  26u   /* doorbell interrupt for core 0 */
-#define SIO_IRQ_BELL1  27u   /* doorbell interrupt for core 1 */
+/* RP2350 SIO bell IRQ.  Unlike the RP2040's two distinct FIFO IRQ numbers
+ * (SIO_IRQ_PROC0=15 / SIO_IRQ_PROC1=16), the RP2350's SIO interrupt lines
+ * are per-core BANKED on a single number: IRQ 26 is SIO_IRQ_BELL on BOTH
+ * cores (each core's NVIC sees its own doorbell on 26).  IRQ 27 is
+ * SIO_IRQ_FIFO_NS — the Non-Secure FIFO view — and never fires here, so
+ * the original "26 + cpuid" computation left core 1 listening on a dead
+ * line: pending doorbells were never taken and cross-core yields to
+ * core 1 were silently lost (core-1-affinitized tasks wedged in the
+ * ready list forever). */
+#define SIO_IRQ_BELL   26u   /* doorbell interrupt, per-core banked */
 
 /* ---- Core 1 stack ---- */
 
@@ -126,7 +137,7 @@ void multicore_launch_core1(void (*entry)(void)) {
     ensure_ram_vt();
 
     /* Disable core 0's bell IRQ during handshake to avoid races. */
-    irq_set_enabled(SIO_IRQ_BELL0, 0);
+    irq_set_enabled(SIO_IRQ_BELL, 0);
 
     fifo_launch_raw((uint32_t)ram_vector_table, (uint32_t)sp, (uint32_t)entry);
 
@@ -216,12 +227,12 @@ void multicore_doorbell_set_other_core(int8_t db_num) {
 }
 
 /* Return the NVIC IRQ number for the doorbell interrupt on the CURRENT core.
- * RP2350 has two bell IRQs: SIO_IRQ_BELL0=26 (core 0), SIO_IRQ_BELL1=27 (core 1).
- * The db_num parameter selects the individual doorbell bit within one IRQ; all
- * bits share the same per-core IRQ on RP2350, so db_num is unused here. */
+ * Per-core banked: IRQ 26 on both cores (see SIO_IRQ_BELL comment above).
+ * The db_num parameter selects the individual doorbell bit within the IRQ;
+ * all bits share the one bell IRQ, so it is unused here. */
 uint32_t multicore_doorbell_irq_num(int8_t db_num) {
     (void)db_num;
-    return SIO_IRQ_BELL0 + sio_hw->cpuid;
+    return SIO_IRQ_BELL;
 }
 
 /* ---- Run-time stats counter ---- */

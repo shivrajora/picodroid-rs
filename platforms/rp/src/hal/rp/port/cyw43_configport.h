@@ -36,12 +36,16 @@
 #define CYW43_ENABLE_BLUETOOTH (0)
 
 /* ---- Logging — route to defmt via Rust shim ---- */
-/* For now, suppress all output to avoid pulling in stdio */
-#define CYW43_PRINTF(...) (void)0
+/* No stdio on this target: cyw43_port.c formats with a minimal printf
+ * subset (%s %c %d %i %u %x %X, width/zero-pad, 'l' modifier) into a
+ * stack buffer and forwards the result to the Rust defmt shim.  VDEBUG
+ * stays muted: it is per-packet chatty. */
+void picodroid_cyw43_log_fmt(const char *fmt, ...);
+#define CYW43_PRINTF(...) picodroid_cyw43_log_fmt(__VA_ARGS__)
 #define CYW43_VDEBUG(...) (void)0
-#define CYW43_DEBUG(...) (void)0
-#define CYW43_INFO(...) (void)0
-#define CYW43_WARN(...) (void)0
+#define CYW43_DEBUG(...) picodroid_cyw43_log_fmt(__VA_ARGS__)
+#define CYW43_INFO(...) picodroid_cyw43_log_fmt(__VA_ARGS__)
+#define CYW43_WARN(...) picodroid_cyw43_log_fmt(__VA_ARGS__)
 
 /* ---- Timing ---- */
 
@@ -72,10 +76,21 @@ void cyw43_hal_pin_high(int pin);
 #define CYW43_PIN_WL_REG_ON     (23)
 #define CYW43_PIN_WL_DATA_OUT   (24)
 #define CYW43_PIN_WL_DATA_IN    (24)
-#define CYW43_PIN_WL_IRQ        (24)
+/* IMPORTANT: this must be WL_HOST_WAKE, not WL_IRQ.  The driver's gSPI bus
+ * config sets INTERRUPT_POLARITY_HIGH (chip drives DATA/IRQ high when a
+ * packet is pending), and cyw43_ll.c treats WL_HOST_WAKE as active-high but
+ * WL_IRQ as active-low.  Defining WL_IRQ inverts the RX poll gate: the
+ * driver skips polling exactly when the chip has work (pico-sdk also uses
+ * WL_HOST_WAKE for this pin). */
+#define CYW43_PIN_WL_HOST_WAKE  (24)
 #define CYW43_PIN_WL_CS         (25)
 #define CYW43_PIN_WL_CLK        (29)
 #define CYW43_PIN_WL_SDIO_1     (24)  /* Data pin (alias for SDIO mode compat) */
+
+/* Keep the driver's default ioctl timeout (500 ms).  Do NOT shorten it —
+ * some ioctls (e.g. CLM finalization) legitimately take hundreds of ms;
+ * a shorter timeout silently breaks the country/regulatory setup and
+ * every join then fails with NONET. */
 
 /* ---- MAC address source ---- */
 /* Use OTP-fused MAC address from CYW43 chip */
@@ -87,8 +102,9 @@ void cyw43_hal_pin_high(int pin);
 #define CYW43_HAL_MAC_BDADDR    (2)
 
 /* MAC HAL entry points implemented in cyw43_port.c. `idx` is a CYW43_HAL_MAC_*
- * selector; the LAA variant derives a deterministic locally-administered MAC
- * from the RP2350 flash unique id when OTP has no MAC configured. */
+ * selector. get_mac surfaces the OTP MAC (read into cyw43_state.mac during
+ * set-up) once available; both fall back to a fixed locally-administered
+ * placeholder before set-up or on a blank-OTP board. */
 void cyw43_hal_get_mac(int idx, uint8_t mac[6]);
 void cyw43_hal_generate_laa_mac(int idx, uint8_t mac[6]);
 

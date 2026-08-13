@@ -22,21 +22,35 @@ pub mod itf {
     pub const STA: i32 = 0;
 }
 
+/// CYW43_COUNTRY('X', 'X', 0) — worldwide regulatory domain.
+pub const COUNTRY_WORLDWIDE: u32 = ('X' as u32) | (('X' as u32) << 8);
+
+/// CYW43_CHANNEL_NONE: join on whatever channel the AP uses.  NOTE: 0 is NOT
+/// "any channel" — it pins the join to invalid chanspec channel 0.
+pub const CHANNEL_NONE: u32 = 0xffff_ffff;
+
 // C FFI bindings — hand-written (no bindgen dependency).
 extern "C" {
     /// Opaque CYW43 driver state (allocated as a global in the C driver).
     pub static mut cyw43_state: Cyw43State;
 
-    /// Initialise the CYW43 driver.  Must be called before any WiFi operations.
-    /// `country` is a two-character ISO 3166-1 code (e.g., b"XX").
-    fn cyw43_init(
-        self_: *mut Cyw43State,
-        send_cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, i32, usize, *const u8)>,
-    ) -> i32;
+    /// Reset driver state (no hardware access; cannot fail).
+    fn cyw43_init(self_: *mut Cyw43State);
 
-    /// Poll the CYW43 driver — processes pending WiFi events and RX packets.
-    /// Must be called regularly from the CYW43 task.
-    fn cyw43_poll(self_: *mut Cyw43State);
+    /// Driver-owned dispatch hook: NULL until `cyw43_ensure_up` has loaded the
+    /// WiFi firmware, then points at the internal poll function.  This is a
+    /// function-pointer *variable* in cyw43_ctrl.c, not a function — it must be
+    /// read and called through, never imported as a function symbol.
+    static mut cyw43_poll: Option<unsafe extern "C" fn()>;
+
+    /// Power the chip, download firmware+CLM, and bring an interface up.
+    /// Errors are internal (void return); observe success via get_mac/join.
+    fn cyw43_wifi_set_up(self_: *mut Cyw43State, itf: i32, up: bool, country: u32);
+
+    /// Driver lock (recursive mutex in cyw43_port.c).  The poll dispatch and
+    /// any code touching driver state must run under it.
+    fn cyw43_thread_enter();
+    fn cyw43_thread_exit();
 
     /// Join a WiFi network (STA mode).
     /// Returns 0 on success, negative on error.
@@ -65,27 +79,36 @@ pub struct Cyw43State {
     _opaque: [u8; 4096], // Conservative upper bound; actual size is smaller
 }
 
-/// Initialise the CYW43439 driver and hardware.
+/// Initialise the CYW43439 driver state (no hardware access yet).
 ///
-/// # Safety
 /// # Safety
 /// Must be called exactly once, before the FreeRTOS scheduler starts or
 /// from within a FreeRTOS task, and before any other function in this module.
-pub unsafe fn init() -> Result<(), i32> {
-    let ret = cyw43_init(&raw mut cyw43_state, None);
-    if ret != 0 {
-        return Err(ret);
-    }
-    Ok(())
+pub unsafe fn init() {
+    cyw43_init(&raw mut cyw43_state);
 }
 
-/// Poll the driver — call from the CYW43 task loop.
+/// Power up the chip, download WiFi firmware + CLM, and bring the STA
+/// interface up.  Void in C; a failure surfaces as get_mac/join failing.
 ///
 /// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
+/// [`init`] must have been called; call only from the CYW43 task.
+pub unsafe fn wifi_set_up(interface: i32, up: bool, country: u32) {
+    cyw43_wifi_set_up(&raw mut cyw43_state, interface, up, country);
+}
+
+/// Poll the driver — call from the CYW43 task loop.  A no-op until the
+/// driver has installed its poll hook (after firmware load).
+///
+/// # Safety
+/// [`init`] must have been called; call only from the CYW43 task.  Takes the
+/// driver lock: the IP task's TX path contends on the same driver state.
 pub unsafe fn poll() {
-    cyw43_poll(&raw mut cyw43_state);
+    if let Some(f) = cyw43_poll {
+        cyw43_thread_enter();
+        f();
+        cyw43_thread_exit();
+    }
 }
 
 /// Register the FreeRTOS task handle used for CYW43 event notification.
@@ -117,7 +140,7 @@ pub unsafe fn wifi_join(ssid: &[u8], password: &[u8]) -> Result<(), i32> {
         password.as_ptr(),
         auth,
         core::ptr::null(), // bssid (any)
-        0,                 // channel (any)
+        CHANNEL_NONE,      // channel: use the AP's channel
     );
     if ret != 0 {
         return Err(ret);

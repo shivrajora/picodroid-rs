@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include "cyw43.h"
 
 #include "FreeRTOS.h"
@@ -16,16 +17,18 @@
 /* ---- Hardware timer (RP2350 TIMER0 at 1 MHz) ---- */
 
 #define TIMER_BASE  0x400B0000u
-#define TIMER_TIMELR (*(volatile uint32_t *)(TIMER_BASE + 0x08))
-#define TIMER_TIMEHR (*(volatile uint32_t *)(TIMER_BASE + 0x0C))
+/* Use the RAW (unlatched) counter registers: safe for concurrent readers on
+ * both cores, unlike the TIMELR/TIMEHR latched pair. */
+#define TIMER_TIMERAWH (*(volatile uint32_t *)(TIMER_BASE + 0x24))
+#define TIMER_TIMERAWL (*(volatile uint32_t *)(TIMER_BASE + 0x28))
 
 static uint64_t get_time_us(void) {
     uint32_t lo, hi;
     /* Read high then low then high again to handle rollover */
     do {
-        hi = TIMER_TIMEHR;
-        lo = TIMER_TIMELR;
-    } while (hi != TIMER_TIMEHR);
+        hi = TIMER_TIMERAWH;
+        lo = TIMER_TIMERAWL;
+    } while (hi != TIMER_TIMERAWH);
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -60,7 +63,8 @@ uint32_t cyw43_hal_ticks_ms(void) {
 
 #define SIO_GPIO_OUT_SET_ADDR  (*(volatile uint32_t *)(0xD0000000u + 0x018))
 #define SIO_GPIO_OUT_CLR_ADDR  (*(volatile uint32_t *)(0xD0000000u + 0x020))
-#define SIO_GPIO_IN_ADDR       (*(volatile uint32_t *)(0xD0000000u + 0x008))
+/* RP2350 GPIO_IN lives at +0x004 (+0x008 is GPIO_HI_IN for GPIOs 32-47). */
+#define SIO_GPIO_IN_ADDR       (*(volatile uint32_t *)(0xD0000000u + 0x004))
 
 void cyw43_hal_pin_config(int pin, int mode, int pull, int alt) {
     (void)pin; (void)mode; (void)pull; (void)alt;
@@ -72,8 +76,153 @@ void cyw43_hal_pin_config_irq_falling(int pin, int enable) {
     /* TODO: Configure IRQ on WL_D for async event notification */
 }
 
+/*
+ * Note: cyw43_cb_read_host_interrupt_pin is provided by the vendored
+ * driver (cyw43_ctrl.c) via the CYW43_PIN_WL_HOST_WAKE path (active-high,
+ * matching INTERRUPT_POLARITY_HIGH); it level-reads
+ * WL_D/GP24 through cyw43_hal_pin_read below.  The SPI transport leaves
+ * that pin as input between transactions so the read sees the
+ * chip-driven level, not our own output latch.
+ */
+
 int cyw43_hal_pin_read(int pin) {
     return (SIO_GPIO_IN_ADDR & (1u << pin)) ? 1 : 0;
+}
+
+/* ---- Driver log formatting ---- */
+
+/* Rust defmt shim: logs the (already formatted) NUL-terminated string. */
+extern void picodroid_cyw43_log_str(const char *msg);
+
+/* Minimal printf subset for CYW43_PRINTF/DEBUG/INFO/WARN: handles
+ * %% %c %s %d %i %u %x %X with optional '-', '0', width, and 'l'
+ * modifiers — everything the vendored driver's messages use.  No
+ * floating point, no heap. */
+static void fmt_putc(char *buf, size_t cap, size_t *pos, char c) {
+    if (*pos + 1 < cap) {
+        buf[*pos] = c;
+    }
+    (*pos)++;
+}
+
+static void fmt_number(char *buf, size_t cap, size_t *pos, unsigned long v,
+                       int base, int is_signed, int upper, int width,
+                       int zero_pad, int left) {
+    char tmp[16];
+    int n = 0, neg = 0;
+    if (is_signed && (long)v < 0) {
+        neg = 1;
+        v = (unsigned long)(-(long)v);
+    }
+    do {
+        int d = (int)(v % (unsigned)base);
+        tmp[n++] = (char)(d < 10 ? '0' + d : (upper ? 'A' : 'a') + d - 10);
+        v /= (unsigned)base;
+    } while (v != 0 && n < (int)sizeof(tmp));
+    if (neg) {
+        tmp[n++] = '-';
+    }
+    int pad = width - n;
+    if (!left) {
+        while (pad-- > 0) {
+            fmt_putc(buf, cap, pos, zero_pad ? '0' : ' ');
+        }
+    }
+    while (n > 0) {
+        fmt_putc(buf, cap, pos, tmp[--n]);
+    }
+    if (left) {
+        while (pad-- > 0) {
+            fmt_putc(buf, cap, pos, ' ');
+        }
+    }
+}
+
+void picodroid_cyw43_log_fmt(const char *fmt, ...) {
+    char buf[160];
+    size_t pos = 0;
+    va_list ap;
+    va_start(ap, fmt);
+    for (const char *p = fmt; *p != '\0'; p++) {
+        if (*p != '%') {
+            /* defmt adds its own newline; drop trailing ones */
+            if (*p != '\n') {
+                fmt_putc(buf, sizeof(buf), &pos, *p);
+            }
+            continue;
+        }
+        p++;
+        if (*p == '%') {
+            fmt_putc(buf, sizeof(buf), &pos, '%');
+            continue;
+        }
+        int left = 0, zero_pad = 0, width = 0, longs = 0;
+        while (*p == '-' || *p == '0') {
+            if (*p == '-') left = 1; else zero_pad = 1;
+            p++;
+        }
+        while (*p >= '0' && *p <= '9') {
+            width = width * 10 + (*p - '0');
+            p++;
+        }
+        while (*p == 'l') {
+            longs++;
+            p++;
+        }
+        switch (*p) {
+            case 'c':
+                fmt_putc(buf, sizeof(buf), &pos, (char)va_arg(ap, int));
+                break;
+            case 's': {
+                const char *s = va_arg(ap, const char *);
+                if (s == NULL) s = "(null)";
+                int len = (int)strlen(s);
+                int pad = width - len;
+                if (!left) while (pad-- > 0) fmt_putc(buf, sizeof(buf), &pos, ' ');
+                /* Map newlines to '|' so multiline strings (e.g. clmver)
+                 * survive the single-line defmt log. */
+                for (; *s; s++) fmt_putc(buf, sizeof(buf), &pos, (*s == '\n' || *s == '\r') ? '|' : *s);
+                if (left) while (pad-- > 0) fmt_putc(buf, sizeof(buf), &pos, ' ');
+                break;
+            }
+            case 'd':
+            case 'i':
+                fmt_number(buf, sizeof(buf), &pos,
+                           longs ? (unsigned long)va_arg(ap, long)
+                                 : (unsigned long)(long)va_arg(ap, int),
+                           10, 1, 0, width, zero_pad, left);
+                break;
+            case 'u':
+                fmt_number(buf, sizeof(buf), &pos,
+                           longs ? va_arg(ap, unsigned long)
+                                 : (unsigned long)va_arg(ap, unsigned int),
+                           10, 0, 0, width, zero_pad, left);
+                break;
+            case 'x':
+            case 'X':
+                fmt_number(buf, sizeof(buf), &pos,
+                           longs ? va_arg(ap, unsigned long)
+                                 : (unsigned long)va_arg(ap, unsigned int),
+                           16, 0, (*p == 'X'), width, zero_pad, left);
+                break;
+            case 'p':
+                fmt_number(buf, sizeof(buf), &pos,
+                           (unsigned long)(uintptr_t)va_arg(ap, void *),
+                           16, 0, 0, 8, 1, 0);
+                break;
+            case '\0':
+                p--; /* trailing '%': stop cleanly */
+                break;
+            default:
+                /* Unknown specifier: emit it raw so nothing is lost */
+                fmt_putc(buf, sizeof(buf), &pos, '%');
+                fmt_putc(buf, sizeof(buf), &pos, *p);
+                break;
+        }
+    }
+    va_end(ap);
+    buf[(pos < sizeof(buf) - 1) ? pos : sizeof(buf) - 1] = '\0';
+    picodroid_cyw43_log_str(buf);
 }
 
 void cyw43_hal_pin_low(int pin) {
@@ -142,17 +291,24 @@ void cyw43_yield(void) {
 /* ---- MAC address (LAA fallback when OTP is empty) ---- */
 
 /*
- * The CYW43 driver calls cyw43_hal_get_mac before OTP is read and
- * cyw43_hal_generate_laa_mac only if the OTP is unprogrammed (see
- * cyw43_ll.c:1774–1786). Production CYW43439 silicon on Pico 2 W ships
- * with OTP-fused MACs, so in practice the OTP read always wins; we
- * return a fixed locally-administered MAC here as a link-only
- * placeholder and for the rare dev board with blank OTP.
+ * During cyw43_ensure_up the driver reads the OTP MAC into
+ * cyw43_state.mac (cyw43_ctrl.c, CYW43_USE_OTP_MAC path) and then
+ * queries it back through this hook — "cyw43_hal_get_mac can get this
+ * from cyw43_state.mac" per the driver comment.  Surface the OTP value
+ * once populated; fall back to a fixed locally-administered MAC before
+ * set-up or on the rare dev board with blank OTP.
  */
 static const uint8_t placeholder_mac[6] = { 0x02, 'P', 'I', 'C', 'O', 'W' };
 
 void cyw43_hal_get_mac(int idx, uint8_t mac[6]) {
     (void)idx;
+    const uint8_t *otp = cyw43_state.mac;
+    for (int i = 0; i < 6; i++) {
+        if (otp[i] != 0) {
+            memcpy(mac, otp, 6);
+            return;
+        }
+    }
     memcpy(mac, placeholder_mac, 6);
 }
 
