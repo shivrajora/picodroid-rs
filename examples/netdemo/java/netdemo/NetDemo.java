@@ -5,6 +5,7 @@ import picodroid.app.Application;
 import picodroid.net.InetAddress;
 import picodroid.net.NetworkInfo;
 import picodroid.net.Socket;
+import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
@@ -20,13 +21,22 @@ import picodroid.util.Log;
 public class NetDemo extends Application {
   private static final String TAG = "NetDemo";
 
+  /** How long to wait for the network before giving up (WiFi join + DHCP). */
+  private static final int NETWORK_WAIT_MS = 30000;
+
   @Override
   public void onCreate() {
     Log.i(TAG, "--- picodroid network demo ---");
 
-    // Check network status.
+    // On hardware the app starts before WiFi association and DHCP finish;
+    // poll until the network is up instead of checking once.
+    int waited = 0;
+    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
+      SystemClock.sleep(500);
+      waited += 500;
+    }
     boolean connected = NetworkInfo.isConnected();
-    Log.i(TAG, "Network connected: " + connected);
+    Log.i(TAG, "Network connected: " + connected + " (waited " + waited + " ms)");
 
     if (!connected) {
       Log.i(TAG, "Network not available.");

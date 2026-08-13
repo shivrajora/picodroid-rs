@@ -60,6 +60,21 @@ pub fn build_cyw43_driver(
         ));
     }
 
+    // The vendored driver must be picodroid's fork (shivrajora/cyw43-driver,
+    // `picodroid` branch — see .gitmodules): it carries required gSPI
+    // bring-up fixes (F2 boot gate, STATUS_ENABLE bus config, event-mask
+    // bsscfg index, ioctl error-status logging).  A checkout pinned to
+    // plain upstream fails WiFi bring-up at runtime, so fail the build
+    // early with instructions instead.
+    {
+        let ll = cyw43_src.join("cyw43_ll.c");
+        let text = std::fs::read_to_string(&ll).expect("read vendored cyw43_ll.c");
+        assert!(
+            text.contains("PICODROID"),
+            "vendor/cyw43-driver is the unpatched upstream — run `git submodule sync && git submodule update --init vendor/cyw43-driver` to fetch the picodroid fork"
+        );
+    }
+
     let driver_sources = ["cyw43_ctrl.c", "cyw43_ll.c", "cyw43_spi.c", "cyw43_stats.c"];
     for src in &driver_sources {
         let p = cyw43_src.join(src);

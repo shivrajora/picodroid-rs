@@ -7,6 +7,7 @@ import picodroid.net.HttpOutputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
 import picodroid.net.URL;
+import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
@@ -24,10 +25,23 @@ import picodroid.util.Log;
 public class HttpGet extends Application {
   private static final String TAG = "HttpGet";
 
+  /** How long to wait for the network before giving up (WiFi join + DHCP). */
+  private static final int NETWORK_WAIT_MS = 30000;
+
+  /** Server base URL — adjust to a reachable host when testing on hardware. */
+  private static final String BASE_URL = "http://127.0.0.1:8000/";
+
   @Override
   public void onCreate() {
     Log.i(TAG, "--- picodroid http demo ---");
 
+    // On hardware the app starts before WiFi association and DHCP finish;
+    // poll until the network is up instead of checking once.
+    int waited = 0;
+    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
+      SystemClock.sleep(500);
+      waited += 500;
+    }
     if (!NetworkInfo.isConnected()) {
       Log.i(TAG, "No network. Aborting.");
       return;
@@ -38,8 +52,8 @@ public class HttpGet extends Application {
   }
 
   private void doGet() {
-    Log.i(TAG, "GET http://127.0.0.1:8000/");
-    HttpURLConnection c = new URL("http://127.0.0.1:8000/").openConnection();
+    Log.i(TAG, "GET " + BASE_URL);
+    HttpURLConnection c = new URL(BASE_URL).openConnection();
     try {
       c.connect();
       int code = c.getResponseCode();
@@ -60,8 +74,8 @@ public class HttpGet extends Application {
 
   private void doPost() {
     byte[] body = new byte[] {'h', 'e', 'l', 'l', 'o'};
-    Log.i(TAG, "POST http://127.0.0.1:8000/ body=" + body.length + "B");
-    HttpURLConnection c = new URL("http://127.0.0.1:8000/").openConnection();
+    Log.i(TAG, "POST " + BASE_URL + " body=" + body.length + "B");
+    HttpURLConnection c = new URL(BASE_URL).openConnection();
     try {
       c.setRequestMethod("POST");
       c.setDoOutput(true);
