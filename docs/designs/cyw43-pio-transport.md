@@ -14,7 +14,7 @@ open), why PIO is the structural answer, and what porting it actually involves.
 |---|---|
 | Flash/XIP core-1 lockup (RP2350) | **Fixed**, committed `d445785` |
 | cyw43 pinned to core 0 | **Workaround in `main`** — the thing to undo |
-| Bug A — chip bring-up fails on core 1 (`F2 not ready`) | **Fixed in working tree**, uncommitted |
+| Bug A — chip bring-up fails on core 1 (`F2 not ready`) | Cause identified; **fix attempted and reverted** — see below |
 | Bug B — RX never delivers, join stalls | **Open** — primary work |
 | PIO transport | **Not started** — this design |
 
@@ -53,18 +53,51 @@ frames past what the chip tolerates with CS held low — the same failure mode
 `d66882b`'s PRIMASK guard fixed for context switches, arriving from the other
 core instead.
 
-**Fix (in tree).** `CYW43_SPI_RAM_FUNC` in `cyw43_bus_spi.c` puts
-`cyw43_spi_transfer`, `spi_write_word`, `spi_read_word`, `load_be32`,
-`store_be32` in `.data.cyw43_spi` (copied to SRAM at boot). Verified by symbol
-address — `cyw43_spi_transfer` at `0x20000b9c`. After it: chip boots with core 0
-fully loaded, real OTP MAC, join requested, `tx_ok=3`.
+**Fix attempted, then REVERTED — do not simply re-apply it.** `CYW43_SPI_RAM_FUNC`
+(`__attribute__((section(".data.cyw43_spi"), noinline, optimize("no-var-tracking-assignments"))))`)
+on `cyw43_spi_transfer`, `spi_write_word`, `spi_read_word`, `load_be32`,
+`store_be32`.
 
-Note the attribute needs `optimize("no-var-tracking-assignments")` — plain
-`section(".data")` on a function trips a GCC debug-info bug under `-g`
-(`Error: leb128 operand is an undefined symbol: .LVU518` ×100).
+It **worked** with cyw43 on core 1: chip booted with core 0 fully loaded, real
+OTP MAC, join requested, `tx_ok=3`, no `F2 not ready`. That is what establishes
+the diagnosis above, and it is solid.
 
-**Keep this regardless of PIO.** It removes real timing fragility. If PIO lands
-and replaces the bit-bang entirely, it goes away with it.
+It **crashes at boot** with cyw43 on core 0 — the configuration currently in
+`main`:
+
+```
+Firmware exited unexpectedly: Exception
+```
+
+Reproducible; reverting restores a clean boot with working WiFi on the same
+hardware (`LED=191`, `ip 192.168.4.94`). Verified it is the fix and not stale
+flash state by erasing first, and not a build artifact by stash/unstash A-B.
+
+**Mechanism not established.** What is known:
+
+- Symbols do land in SRAM (`cyw43_spi_transfer` at `0x20000b9c` via `nm`).
+- The section is real and loaded — `.data` is `ALLOC, LOAD, CODE` with a flash
+  LMA, so the boot copy covers it.
+- `.data` grows **1804 → 2252 B** (+448) and its VMA shifts **`0x20000800` →
+  `0x20000400`**. That downward VMA move is unexplained and is the most
+  interesting thread to pull.
+- This board is at **99% RAM** (527768 / 532480, ~4.7 KB free), so it has almost
+  no margin for anything that grows a RAM section — though +448 B alone should
+  not overflow, and the linker did not error.
+- The `size` output the build script prints did **not** change between the two
+  builds, so it is not a reliable check here — compare `objdump -h` section
+  sizes instead.
+
+Why configuration-dependent? Unknown, and worth understanding before trusting
+any RAM-placement approach: the same binary change boots on core 1 and faults on
+core 0.
+
+**Implication for PIO.** A PIO transport removes the need for this entirely — the
+state machine does not execute CPU instructions, so nothing needs to be
+RAM-resident for timing. That is another point in PIO's favour over patching the
+bit-bang. If RAM placement is revisited anyway, use the exact section the linker
+copies, verify with `objdump -h` rather than the build script's RAM figure, and
+test **both** core assignments.
 
 ## Bug B — RX never delivers (OPEN, primary work)
 
@@ -321,16 +354,23 @@ fault. Leftover `probe-rs` holds the USB claim → "Failed to open probe".
 
 ## Current working-tree state (as of writing)
 
-`main` is at `d445785` with cyw43 pinned to **core 0** (the workaround).
-Uncommitted, and needing triage before this work starts:
+The working tree is **clean**; everything below is described so it can be
+recreated, not recovered.
 
-- `cyw43_bus_spi.c` — **the Bug A RAM fix. Keep**, or supersede with PIO.
-- `boot_tasks.rs` — cyw43 flipped back to core 1, marked `// DEBUG: core 1`.
-  This is the target end state, but the comment block above it still describes
-  the core-0 workaround and must be rewritten when it lands for real.
-- `NetworkInterface_CYW43.c` — 7 instrumentation counters. **Scaffolding**; strip
-  before committing, or keep behind a debug feature if the new session finds them
-  useful.
+`main` has cyw43 pinned to **core 0** (the workaround). Nothing from the
+investigation is committed except this doc — the Bug A RAM fix was reverted for
+the boot crash described above, and the instrumentation was stripped.
+
+To pick this up, recreate:
+
+- **The counters.** `volatile uint32_t instr_tx_ok, instr_tx_fail, instr_rx_ok,
+  instr_rx_drop_nobuf, instr_rx_drop_queue, instr_rx_noiface;` in
+  `NetworkInterface_CYW43.c`, incremented in `xCYW43_Output` (after the send) and
+  at each early-return in `cyw43_cb_process_ethernet`. Read over gdb, never
+  logged — see the recipes above.
+- **The core-1 pin.** `.core_affinity(0b10)` on the cyw43 task in
+  `boot_tasks.rs`. The comment block above it currently documents the core-0
+  workaround and must be rewritten when core 1 lands for real.
 
 ## Related
 
