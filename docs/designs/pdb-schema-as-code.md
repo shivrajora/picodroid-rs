@@ -105,6 +105,10 @@ Baseline = family-neutral-residue B9 "after 3f".
 | B — sysmon | 704,448 | 0 | 196,336 | +24 |
 | C — input | 704,544 | +96 | 196,344 | +8 |
 | D — keycodes | 704,544 | 0 | 196,344 | 0 |
+| E — truth-telling (`3191e97`) | 704,544 | 0 | 196,344 | 0 |
+
+*(Stage E is scripts/docs only — +0 B by construction, covered by the total
+below; row added 2026-08-14 so the table does not read truncated.)*
 
 **+112 `.text` / +32 `.rodata` = +144 bytes total.** Attribution: A is the
 encoder deriving its NUL padding from the version const instead of a baked
@@ -126,4 +130,6 @@ sysmon twice showed the CPU-delta path (IDLE1 96.8% on an idle board) with
 the task table decoding through `SysmonView`; `pdb input keyevent` round-
 tripped to the handler's clean `no such key` refusal (testbench has no
 buttons). The rp2040 half of the family-neutral-residue stage-3 HIL gate
-remains owed — only the rp2350 testbench was attached, as in B9.
+remains owed — only the rp2350 testbench was attached, as in B9. *[2026-08-14:
+since closed — residue B15 (`d559976`) ran the rp2040 gate; "The gate itself
+is no longer owed."]*

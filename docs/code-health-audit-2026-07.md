@@ -16,6 +16,8 @@ input for follow-up sessions.
 - **Decision incorporated:** ESP32-S3 support will be **removed for now** (owner decision,
   2026-07-24 — "too complicated"). Section 7 is the removal plan; reusability findings are
   framed accordingly.
+- **Scope note (2026-08-14):** the 2026-08 networking surface (cyw43 PIO gSPI transport,
+  FreeRTOS+TCP glue, WiFi bring-up) post-dates this audit and is unassessed here.
 
 ## 0. Progress note — shared-core extraction executed (2026-07-26)
 
@@ -414,6 +416,8 @@ grade. `picodroid-core` stays (rationale in §5).
   `docs/porting-guide.md` moved to the website; `PICODROID_NATIVE_CLASSES` is cited in
   `native_handler/mod.rs` but lives in `native_handler/class_registry.rs`; it cites the
   orphaned `timer_alarm.rs` as live. Refresh alongside the ESP edit (§7.5).
+  **Progress 2026-08-14:** `timer_alarm.rs` has since been deleted (`2bcc858`, P0-1b) and
+  ARCHITECTURE.md was path-refreshed (`3191e97`); the README half of P2-15 remains open.
 - **README coverage is inconsistent with the reusability story:** exactly the three
   Tier-1 crates have READMEs (`jvm`, `compat`, `class-shrink`) — good signal — but
   `picodroid-core`, `platforms/rp`, and `pdb` have none.
@@ -443,7 +447,8 @@ grade. `picodroid-core` stays (rationale in §5).
 > `ACC_NATIVE` methods, both directions, mutation-tested; it immediately
 > surfaced a live `NoSuchMethod` (`NotificationManager.notify`/`cancel`),
 > fixed in the follow-up. Measurements and status are recorded in the two
-> design docs and `docs/parity-audit.md` (HAL-05). P2 items all open.
+> design docs and `docs/parity-audit.md` (HAL-05). P2 items open except
+> P2-17, delivered as an extraction enabler (see §0).
 
 **P0 — correctness/safety now, all cheap:**
 

@@ -21,7 +21,6 @@ rustflags = [
 # Per-board build/run aliases. Bare `cargo build` no longer has a default
 # target so it errors clearly — pick a board explicitly via these aliases or
 # the wrapper scripts in scripts/. See docs/cargo-aliases.md.
-# ESP32-S3 (T-Deck Plus): use `cargo b-tdeck-plus` from platforms/esp/.
 [alias]
 # Hardware builds (`cargo build -p picodroid --target ... --no-default-features --features ...`)
 b-testbench-rp2040 = "build -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040"

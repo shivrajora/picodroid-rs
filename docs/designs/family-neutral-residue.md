@@ -454,6 +454,15 @@ Every stage ends green: `./scripts/pre-commit` printing
 that touches device-compiled code records the rp2040 release `.text`/`.rodata`
 delta; cumulative budget ≤ ~2 KB, as before.
 
+## Status (2026-08-14)
+
+Stages 0–5 are executed: stage 1 (`7c9e32e`), stage 2 (`973f729`), stages
+3a–3c (`fcad46d` / `2ad75b4` / `9bd7253`), stages 3d–3f (`853ae9a` /
+`62f66e4` / `bd5ebc5`), stage 4 (`94d59e4`), stage 5 (`725a2b7`). Stages 6
+(misc HAL sweep — `hal/event_ring.rs` was never created) and 7 (guards, docs,
+measurement) are pending. Amendments B1–B15 below record the drift between
+this body and what landed; B16 re-scopes Phase N.
+
 | # | Stage | Scope | Platform LOC |
 |---|---|---|---:|
 | 0 | Design doc | This file. | — |
@@ -1166,3 +1175,16 @@ not hide on the flash-constrained, genuinely-dual-core member of the family, and
 it did not find one.
 
 The gate itself is no longer owed.
+
+### B16 — Phase N's scope was overtaken by the WiFi bring-up (2026-08-14)
+
+§6 "Phase N — networking (deferred, D3)" was written against the ~820 lines §1
+measured. The 2026-08 WiFi bring-up (`d66882b`, `e7210a8`, `b87396d`,
+`ac4bd74`) landed substantial new family-side networking surface that the
+estimate predates: `hal/rp/pio_spi.rs` (~21 KB of Rust — the PIO gSPI
+transport), `hal/rp/wifi_task.rs`, and grown cyw43 port glue. None of §6's
+four pre-made decisions has been executed — `hal/freertos_tcp.rs` was never
+created — and decision 1's file inventory no longer matches the tree (the
+bit-bang `cyw43_bus_spi.c` is deleted; the transport is Rust now). Phase N's
+scope must be re-measured against the post-`ac4bd74` tree before execution
+rather than executed from §6's numbers.

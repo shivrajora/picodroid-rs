@@ -35,6 +35,11 @@ directly shrinks the JVM heap budget that is already ~30 KB short for picoenvmon
 **Tradeoff:** legitimate feature growth trips thresholds — keep it report-only to avoid
 baseline-update fatigue.
 
+*2026-08-11 (`2eb9b19`):* premise partly overtaken — the build report now measures flash
+against `LENGTH(FLASH)` of the program region (99% real usage was previously reported as
+43% of chip total), so the number warns before a link failure. The checked-in baseline /
+trend tracking remains open.
+
 Stage 2 — **hard budget gate**: once the report has burned in, make `print_memory_usage`
 fail the build (non-zero exit) when flash or static RAM exceeds a per-board percentage of
 the region (mcu toml `flash_kb` / the linker script's program region). The RP2040 896 K
@@ -62,13 +67,19 @@ stop being skipped on hardware. **Tradeoff:** more nightly HIL wall-time (alread
 per-board runs may need alternating nights); key injection adds a debug-only code path to
 maintain.
 
+*2026-08-11 (`2eb9b19`):* the script is now chip-agnostic — `resolve_board` sets
+`PROBE_CHIP` from the board's MCU, so it can drive `testbench_rp2040` — but
+`BOARD=` is still hardcoded; the `--board` flag remains open. Also wanted here:
+networking rows (netdemo, ideally http_get) — that half is NET-7 in
+`docs/networking-followups-2026-08.md`.
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**
 
 The landed check was class-level; stage 2 extends it to methods. Each dispatch handler's
 `(class, method, descriptor)` triples are declared as const data in
-`platforms/rp/src/system/native_handler/method_tables.rs` (plus `BUILTIN_SDK_HANDLED` in
+`picodroid-core/src/native_handler/method_tables.rs` (plus `BUILTIN_SDK_HANDLED` in
 `jvm/src/native/mod.rs`) and diffed against the SDK's 308 `ACC_NATIVE` methods in both
 directions, closing the silent-NoSuchMethod surface. It found one live instance on the
 first run (`NotificationManager.notify`/`cancel`).
@@ -90,7 +101,7 @@ sync on log tokens, never sleeps, and keep it to ~5 invariant scenarios, not cov
 
 ### Lifecycle state-machine and store unit tests
 
-(a) `platforms/rp/src/lifecycle.rs` is a 10-commit churn hotspot with two High-severity
+(a) `picodroid-core/src/lifecycle.rs` is a 10-commit churn hotspot with two High-severity
 historical fixes and no direct tests — extract the push/pop/dialog-stack state machine behind a
 small trait (no LVGL) and unit-test its invariants. (b) Direct tests for
 `jvm/src/native/{hashmap,hashset,string_builder}.rs` and the `object_heap` list/map stores
@@ -108,7 +119,7 @@ pico-jvm's reimplementation — the only JVM whose semantics matter runs these s
 
 ### FreeRTOS-native mailbox for the sensor sampler
 
-`sensors/mailbox.rs` hands sampler readings to the JVM task through a hand-rolled seqlock
+`picodroid-core/src/hardware/sensors/mailbox.rs` hands sampler readings to the JVM task through a hand-rolled seqlock
 (atomic load/store only — shared verbatim by device, sim, and host tests). FreeRTOS's
 purpose-built mailbox — a length-1 queue used via `xQueueOverwrite`/`xQueuePeek` — would
 replace the fence reasoning with a kernel primitive, but `freertos-rust-pd` 0.2.3 wraps
@@ -158,7 +169,7 @@ doc rot — document test-enforced invariants and name the test, not narrative.
 
 ### Encapsulate the LVGL event-registry statics
 
-`platforms/rp/src/system/picodroid/graphics/lvgl/events.rs` holds ~46 unsafe blocks of raw
+`picodroid-core/src/graphics/lvgl/events.rs` holds ~46 unsafe blocks of raw
 `static mut` arrays; the phantom-BACK boot bug (de5fd11, uninitialized `KEY_PRESSED_MASK`)
 lived exactly in this pattern. Wrap behind one checked-index accessor with a single documented
 unsafe core. **Tradeoff:** churn in a regression-critical file — land integration coverage
@@ -205,7 +216,7 @@ execution-identical (parity P1) — only sensor/HW-driven allocation patterns di
 
 ## Long-term stability
 
-### GC root registration that can't be forgotten
+### GC root registration that can't be forgotten — DONE 2026-07-26
 
 Replace "remember to edit `gc_visit_roots` when adding a native listener map" with a central
 root-provider registry: each native-side map/singleton holding JVM refs registers a visitor at
@@ -214,6 +225,11 @@ serious bug class in the history (a59dc53 Display singleton, d3e052d VIEW_KEY_MA
 touch/swipe/click/dialog maps). **Tradeoff:** fixed-capacity registry boilerplate in no_std, a
 small GC-walk overhead, and the registry itself is new unsafe-adjacent machinery — pair with
 the GC-stress nightly mode as the detection net while it lands.
+
+Delivered as audit P2-17 (`23fa075`), pulled forward as a shared-core-extraction enabler:
+native maps/singletons register root providers, `gc_visit_roots` iterates the registry, and
+both crates carry a source-scanning completeness guard so an unregistered JVM-ref-holding
+module fails the tests rather than silently losing roots.
 
 ### Extend the LVGL header-parse drift guard — DONE 2026-07-25
 
@@ -232,7 +248,7 @@ families) are documented in the tests-module comment in
 ### Document concurrency divergences as checked invariants
 
 An ARCHITECTURE.md section listing what sim deliberately cannot catch — dual-core visibility
-(cyw43/pdb on core 1), single-core safety assumptions around `ACTIVE_APK`, no-op `delay_ns`,
+(cyw43 on core 1 as of `ac4bd74`; pdb runs on core 0), single-core safety assumptions around `ACTIVE_APK`, no-op `delay_ns`,
 no ISR preemption — plus cheap hardware-side `debug_assert!` core-affinity checks where the
 assumptions are load-bearing, naming HIL as the owning test layer per item. **Tradeoff:**
 documentation is not detection; this consciously accepts the class as HIL-only until JVM

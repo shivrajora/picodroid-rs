@@ -77,11 +77,12 @@ void vApplicationIPNetworkEventHook_Multi(
 
 /*
  * Provide a random number for TCP sequence numbers, DHCP transaction IDs, etc.
- * Uses the RP2350 hardware TRNG (TRNG block at 0x400F0000).
+ * Timer-seeded LCG — NOT cryptographic: each call mixes the hardware timer's
+ * low word into the LCG state. Wiring up the RP2350 hardware TRNG instead is
+ * the open follow-up NET-6 in docs/networking-followups-2026-08.md.
  */
 BaseType_t xApplicationGetRandomNumber(uint32_t *pulNumber) {
-    /* RP2350 TRNG: read from TRNG_RND_SOURCE_ENABLE and TRNG_RND_OUTPUT
-     * registers.  For bring-up, fall back to a simple timer-based PRNG. */
+    /* Timer-seeded LCG state (see the comment above; the TRNG is NET-6). */
     static uint32_t ulState = 0x12345678;
 
     /* Mix in the hardware timer for entropy. */

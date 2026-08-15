@@ -107,9 +107,9 @@ public class MyApp extends Application {
 
 When adding a new native method that the JVM dispatches to Rust:
 
-1. Add the native implementation in `src/system/` under the appropriate module
-2. Register the method in the `NativeMethodHandler` dispatch in `src/system/`. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
-3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/helpers.rs` — otherwise virtual dispatch will silently break
+1. Add the native implementation in `picodroid-core/src/native_handler/` under the appropriate module
+2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
+3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/interpreter/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
 5. Update the relevant `website/src/content/docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
 

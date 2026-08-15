@@ -46,9 +46,9 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence (sim / device) | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| MEM-01 | Sim heap = `AtomicUsize` byte counter over glibc (`sim_allocator.rs:156-218`); device = FreeRTOS heap_4 first-fit free list w/ coalescing over a fixed arena (`build_support/freertos.rs:56`). No arena, no contiguity, no fragmentation in sim | IPB | App OOMs on device via fragmentation ("free bytes but no contiguous block") at a point where sim sails through — the exact recorded 2026 incident class | **S1** | V | M1 |
+| MEM-01 | Sim heap = `AtomicUsize` byte counter over glibc (`picodroid-core/src/hal/sim/allocator.rs`); device = FreeRTOS heap_4 first-fit free list w/ coalescing over a fixed arena (`build_support/freertos.rs:56`). No arena, no contiguity, no fragmentation in sim | IPB | App OOMs on device via fragmentation ("free bytes but no contiguous block") at a point where sim sails through — the exact recorded 2026 incident class | **S1** | V | M1 |
 | MEM-02 | Sim counts raw `layout.size()`; device pays +8 B header, 8 B round-up, 16 B min block per alloc | IPB | Undercount — measured only **+0.26 % at peak** for benchmark/picoenvmon (V5), so this alone is minor; header modeling without an arena is not worth doing | S3 | V (V5) | M1 |
-| MEM-03 | Sim heap **unlimited by default** (`PICODROID_HEAP_LIMIT_KB` unset → `usize::MAX`, `sim_allocator.rs:126-137`; `sim.sh` only sets it with `-l`) vs device hard 416 KB (RP2350) / 128 KB (RP2040) | IPB | Default sim run can never OOM; all day-to-day development happens with infinite memory | **S1** | V | M2 |
+| MEM-03 | Sim heap **unlimited by default** (`PICODROID_HEAP_LIMIT_KB` unset → `usize::MAX`, `picodroid-core/src/hal/sim/allocator.rs`; `sim.sh` only sets it with `-l`) vs device hard 416 KB (RP2350) / 128 KB (RP2040) | IPB | Default sim run can never OOM; all day-to-day development happens with infinite memory | **S1** | V | M2 |
 | MEM-04 | FreeRTOS TCBs + all task stacks + queues allocated from the same device arena (`configSUPPORT_DYNAMIC_ALLOCATION 1`); sim models none of it. V4 measured **~82-85 KB** of non-app overhead (416 KB arena → 336.5 KB free with blinky idle) — ~3× the "~25-30 KB" config-comment estimate | IPB | Effective JVM budget on RP2350 is **~331 KB, not 416 KB**; sim budget is the full cap. Root cause of the 2026-05-10 +32 KB heap bump | **S1** | V (V4) | M4 |
 | MEM-05 | `freertos-rust` allocator passes only `size` to `pvPortMalloc`, dropping `layout.align()`; heap_4 returns 8-aligned always. Sim honors any alignment via glibc | ACC | An align>16 allocation would be *misaligned on device only*. **V5 measured zero align>8 allocations** in benchmark + picoenvmon, so latent today | S3 | V (V5) | M1 (sim aborts loudly on align>8) |
 | MEM-06 | Emergency GC (`need_gc` on allocation failure) fires on heap_4 exhaustion/fragmentation on device vs byte-cap (or never, per MEM-03) in sim; threshold GC (256 allocs) is parity-identical shared code | IPB | Different emergency-collection points in app terms; consequence of MEM-01/03, disappears with M1+M2 | S2 | V | M1+M2 |
@@ -70,17 +70,18 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| THR-01 | ~~`Thread.start()` in sim never runs the Runnable~~ **RESOLVED 2026-07-28 (M7)**: the simulator runs the real FreeRTOS kernel, so `Thread.start` spawns a real task with a fresh `Jvm` on the shared heap, charges 16 KB + TCB at spawn and releases on exit — as the device does. The refusal survives only in the `cargo test` backing (`hal/sim/rtos.rs`), which has no scheduler | none | — | resolved | V | M7 — landed |
+| THR-01 | ~~`Thread.start()` in sim never runs the Runnable~~ **RESOLVED 2026-07-28 (M7)**: the simulator runs the real FreeRTOS kernel, so `Thread.start` spawns a real task with a fresh `Jvm` on the shared heap, charges 16 KB + TCB at spawn and releases on exit — as the device does. The refusal survives only in the `cargo test` backing (`picodroid-core/src/hal/sim/rtos.rs`), which has no scheduler | none | — | resolved | V | M7 — landed |
 | THR-02 | ~~`BackgroundExecutor` re-queues onto the main/UI queue in sim~~ **RESOLVED 2026-07-28 (M7)**: `sim_boot.rs` spawns the same four `jvm-bg` worker tasks on the same queue the device uses | none | — | resolved | V | M7 — landed |
 | THR-03 | `synchronized` monitors are the **kernel's** recursive mutexes in both, and several tasks really contend them in sim now (follows THR-01/02). What remains is core count: contention is single-core in sim, dual-core on device | IPB (narrowed) | Deadlocks needing genuine parallelism are still hardware-only | S3 | V | follows X1 |
-| THR-04 | Device FreeRTOS config declares SMP 2 cores (`configNUMBER_OF_CORES 2`) while heap safety rests on a "one JVM task at a time" single-core-pinning argument (`native_handler/concurrent.rs:34-59`, `hal/rp/boot.rs:120`) | — | Device-side soundness question flagged by the audit, not fully traced; if JVM tasks can truly interleave across cores, the sim (and the heap!) model is weaker than assumed | S2 | I | investigate (X1) |
+| THR-04 | Device FreeRTOS config declares SMP 2 cores (`configNUMBER_OF_CORES 2`) while heap safety rests on a "one JVM task at a time" single-core-pinning argument (`native_handler/concurrent.rs:34-59`, `hal/rp/boot.rs:120`). **2026-08-14:** `d445785` set `configRUN_MULTIPLE_PRIORITIES=1` on RP2350 (real SMP — different-priority tasks now genuinely run on both cores), so the single-core-safety argument no longer applies as stated; what remains is the explicit core-0 pinning of every JVM-adjacent task (`glue.rs` spawn arms, same commit) | — | Device-side soundness question flagged by the audit, not fully traced; if JVM tasks can truly interleave across cores, the sim (and the heap!) model is weaker than assumed | S2 | I | investigate (X1) |
+| THR-05 | ~~Device `HalClock::sleep` returned early when a debugger requested a JVM stop; the sim's did not — an unwritten obligation on every family's `sleep`, surfaced by the family-neutral residue audit~~ **RESOLVED 2026-07-27 (`2ad75b4`, family-neutral stage 3b)**: the stop check moved into the shared `SystemClock.sleep` native and the device's hand-rolled early return was deleted, so `Thread.sleep` honours a debugger stop on every platform by construction | none | — | resolved | V | family-neutral 3b — landed |
 
 ### Time / tick (TIM)
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
 | TIM-01 | LVGL tick = fixed 16 ms step on both; backing = FreeRTOS software timer (device) vs `std::thread` + `Instant` pacing (sim) (`executors/tick_source.rs:25-128`). Animation *phase* is deterministic and parity-identical; wall-clock pacing differs | IS/IPB | Frame-count-deterministic behavior is a genuine parity asset; only real-time pacing diverges | S3 | V | — |
-| TIM-02 | `elapsed_realtime_nanos`: hardware TIMER from boot vs host `Instant` from **first call** (`hal/sim/system_clock.rs`) | ACC | Small time-base skew: sim t=0 is first-use, not boot | S3 | V | one-line fix (init epoch at sim main start) |
+| TIM-02 | `elapsed_realtime_nanos`: hardware TIMER from boot vs host `Instant` from **first call** (`picodroid-core/src/hal/sim/system_clock.rs`) | ACC | Small time-base skew: sim t=0 is first-use, not boot | S3 | V | one-line fix (init epoch at sim main start) |
 | TIM-03 | `System.currentTimeMillis` = uptime (not epoch) on **both** targets (`native_handler/os.rs:20-23`) | IS | Android-fidelity quirk, but parity-consistent — register note only | — | V | — |
 | TIM-04 | `SimDelay::delay_ns` is a no-op; device busy-waits on the cycle counter | IPB | Driver timing paths run instantaneous in sim (mostly device-only code anyway) | S3 | V | register-only |
 | TIM-05 | Tick/sensor callback cadence differs in wall-clock terms → the shared `alloc_count` GC threshold (256) is crossed at different app-visible moments | IPB | GC pauses land at different points in app terms even though trigger logic is identical | S3 | D | P1 counters make it observable |
@@ -106,7 +107,7 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| DSP-01 | Render path **shared end-to-end**: one `lv_conf.h` (RGB565, `LV_COLOR_16_SWAP 1`, SW renderer), same partial-band draw buffer, same `flush_cb`; sim converts the finished BE-RGB565 band to ARGB8888 into a host `FRAMEBUF`, minifb 2× upscale strictly after (`hal/sim/display.rs:145-175,101-105`) | IS | The framebuffer bytes the harness should hash are device-identical by construction — the graphics tier's foundation | — | V | G1 exploits this |
+| DSP-01 | Render path **shared end-to-end**: one `lv_conf.h` (RGB565, `LV_COLOR_16_SWAP 1`, SW renderer), same partial-band draw buffer, same `flush_cb`; sim converts the finished BE-RGB565 band to ARGB8888 into a host `FRAMEBUF`, minifb 2× upscale strictly after (`picodroid-core/src/hal/sim/display.rs`) | IS | The framebuffer bytes the harness should hash are device-identical by construction — the graphics tier's foundation | — | V | G1 exploits this |
 | DSP-02 | ST7789 command stream not modeled: sim `set_window` stores 4 ints; device sends CASET/RASET/RAMWR + init (COLMOD/MADCTL/INVON, `drivers/st7789.rs:102-156`) | IPB | Wrong MADCTL rotation or inversion looks correct in sim, wrong on glass | S3 | V | G2 (cmd log), else register-only |
 | DSP-03 | Pixel transport cost: device pushes ~12.8 KB bands over 62.5 MHz SPI via DMA with completion blocking (`hal/rp/spi/mod.rs:364-401`); sim `write_pixels` is a memcpy-speed conversion | IPB | Render-bound benchmarks in sim omit the dominant device cost; graphicsbench numbers not comparable across environments | S2 | V | P2 ratio-tracking; register the gap |
 | DSP-04 | Sim cannot tear (atomic full-FB blit at 60 fps); device has no TE sync and can | IPB | Tearing artifacts invisible in sim | S3 | V | register-only |
@@ -119,7 +120,7 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| TCH-01 | Sim synthesizes XPT2046 12-bit ADC codes from mouse/FIFO and runs them through the **same driver** (median filter, calibration, ±2 LSB jitter, `hal/sim/touch.rs:57-204`); buttons converge on the same `GpioEvent` queue (`hal/sim/gpio.rs:97-102` vs `hal/rp/gpio.rs:185-249`) | IS | Downstream input pipeline byte-identical; a genuine parity asset | — | V | — |
+| TCH-01 | Sim synthesizes XPT2046 12-bit ADC codes from mouse/FIFO and runs them through the **same driver** (median filter, calibration, ±2 LSB jitter, `picodroid-core/src/hal/sim/touch.rs`); buttons converge on the same `GpioEvent` queue (`picodroid-core/src/hal/sim/gpio.rs` vs `hal/rp/gpio.rs:185-249`) | IS | Downstream input pipeline byte-identical; a genuine parity asset | — | V | — |
 | TCH-02 | 4-point touch calibration compiled out of sim entirely (`lvgl/calibration.rs`) | IPB | Calibration UI/logic untestable in sim | S3 | V | register-only |
 | TCH-03 | Real-world electrical noise (phantom IRQ edges — the GP15 incident) only approximated by injected sequences | IPB | IRQ-storm/bounce classes need HIL or scripted-noise injection | S3 | V | register-only |
 
@@ -161,6 +162,12 @@ G-graphics, X-cross-cutting).
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
 | BRD-01 | CI sim lane: only `board-testbench-rp2350`. Enviro (buttons-only, no touch, 240×240, 48 KB LVGL) never CI-simulated (see LVG-01); RP2040-class boards never sim'd at all | ACC | Board-conditional code (`has_buttons`-only paths, per-board tunables) reaches hardware without ever running in sim CI | **S1** | V (V3) | G3 |
+
+### Networking (NET) — *added 2026-08-14, after the Pico 2 W bring-up*
+
+| ID | Divergence (sim / device) | Class | Symptom | Sev | Conf | Fix |
+|---|---|---|---|---|---|---|
+| NET-01 | Device net stack = cyw43 driver + FreeRTOS+TCP over the PIO gSPI transport (`platforms/rp/src/hal/rp/{net.rs,pio_spi.rs,wifi_task.rs}` + the port C glue); sim (`picodroid-core/src/hal/sim/net.rs`) uses the host OS stack. No sim counterpart to join/DHCP timing, FreeRTOS+TCP buffer/descriptor limits, or its error-code mapping | IPB | Behavior differences — timing, buffer exhaustion, error codes — are currently untracked; a networking app can pass in sim and fail on device in ways no register row names | S2 | V | register-only today; follow-ups tracked in `docs/networking-followups-2026-08.md` |
 
 ## 3. Ranked findings (S1s, in order of expected pain)
 
@@ -220,7 +227,8 @@ ask-first items are marked.
   overrides. Uncapped runs require an explicit `-l 0`. V2 says current apps fit with wide
   margin — nothing breaks.
 - **M1 — the flagship: a real arena (Rust port of heap_4 with 32-bit arithmetic).**
-  New `platforms/rp/src/sim_heap4.rs`: `#[repr(align(8))] static ARENA` of
+  New `platforms/rp/src/sim_heap4.rs` (today `picodroid-core/src/hal/sim/heap4.rs`):
+  `#[repr(align(8))] static ARENA` of
   `DEVICE_HEAP_BYTES`; in-arena 8-byte block headers (`{next_off: u32, size_and_flag:
   u32}` — u32 deliberately, because compiling the vendored C on a 64-bit host doubles
   `BlockLink_t` and changes every accounting constant); faithful first-fit, split iff
@@ -240,7 +248,8 @@ ask-first items are marked.
   arena space, so sim OOMs somewhat earlier than device until M6 lands — strict-direction
   (conservative) and accepted; decided at check-in.
 - **M4 — boot-overhead pre-charge from a shared budget table.** New
-  `hal/boot_budget.rs`: `BOOT_TASKS: &[BootTask { name, stack_words, .. }]` consumed by
+  `hal/boot_budget.rs` (today `platforms/rp/src/boot_budget.rs`):
+  `BOOT_TASKS: &[BootTask { name, stack_words, .. }]` consumed by
   *both* device boot (`hal/rp/boot.rs` / `os.rs` stack literals become these consts —
   single source by construction) and sim boot, which performs **real arena allocations**
   in boot order (modeling the long-lived low-address blocks first-fit behavior depends
@@ -277,6 +286,12 @@ ask-first items are marked.
   than compensating. jvm-crate-wide.
 - **X1 — investigate THR-04** (SMP-2-core config vs single-core heap-safety argument) on
   the device side; outcome may add a register row or a config change.
+  - 2026-08-14: the premise moved under it — `d445785` enabled
+    `configRUN_MULTIPLE_PRIORITIES=1` on RP2350 (the core-1 flash parker
+    requires it), so real SMP is on and "one JVM task at a time" now rests on
+    every JVM-adjacent task being explicitly core-0-pinned rather than on
+    scheduler policy. X1 is more urgent, not less; the THR-04 row records the
+    change.
 - **X2 — cfg-gating lint**: pre-commit grep for `not(feature = "family-rp")`-style gates
   that should name `sim` explicitly (BLD-02 hazard).
   - 2026-07-26: expected count lowered 4 → 2. `system/monitor_store.rs` moved to
@@ -451,9 +466,11 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   `build_support/papk.rs`; ESP crate gets a documented no-op since it has no capped
   allocator). Log line now says `flash-modeled: uncounted`.
 - **M2-interim** — cap ON by default: `DEVICE_HEAP_BYTES` (416 K/128 K by chip feature)
-  in `sim_allocator.rs`; `-l 0` = uncapped; pre-commit cross-checks the constants
+  in `sim_allocator.rs` (today `picodroid-core/src/hal/sim/allocator.rs`);
+  `-l 0` = uncapped; pre-commit cross-checks the constants
   against FreeRTOSConfig.h.
-- **M1** — `platforms/rp/src/sim_heap4.rs`: bit-faithful heap_4 port (u32 in-arena
+- **M1** — `platforms/rp/src/sim_heap4.rs` (today `picodroid-core/src/hal/sim/heap4.rs`):
+  bit-faithful heap_4 port (u32 in-arena
   headers, first-fit, split-iff->16, two-sided coalescing, `HeapStats` mirror).
   `sim_allocator.rs` reworked: `arm()` at sim main, pre-arm passthrough,
   pointer-range dealloc routing (bypass balance rule retired), align>8 loud abort,
@@ -462,7 +479,8 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   semantics tests. Host thread internals (lvgl-tick, control-channel) bypassed.
   Gotcha for posterity: leaked pre-charge allocations must pass through
   `black_box` — optimized builds legally elide unused mallocs.
-- **M4** — `boot_budget.rs`: shared task table (device spawn sites consume the
+- **M4** — `boot_budget.rs` (today `platforms/rp/src/boot_budget.rs`): shared
+  task table (device spawn sites consume the
   constants; sim performs real arena allocations in boot order + charges
   `Thread.start` 16 KB+TCB at call time). Sim boot now reads 83.2 KB at
   post-fs-init vs the device's 89.5 KB steady state — within ~5 %, calibrated by

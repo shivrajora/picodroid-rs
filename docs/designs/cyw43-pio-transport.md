@@ -74,7 +74,10 @@ Symptom as first seen: link reports up, endpoint stuck at **0.0.0.0**, no
 recovery over 3 minutes — but only when the app keeps core 0 busy. `blinky`
 failed 4/4; `netdemo`, which mostly waits, bound normally every time.
 
-## Bug A — chip bring-up corrupts (FIXED, uncommitted)
+## Bug A — chip bring-up corrupts (fix later reverted — mooted by the PIO transport)
+
+*[2026-08-14: the RAM-placement fix described below was reverted (`6d41225`);
+the PIO transport (`ac4bd74`) removed the need for it entirely.]*
 
 ```
 cyw43: F2 not ready
@@ -103,7 +106,7 @@ OTP MAC, join requested, `tx_ok=3`, no `F2 not ready`. That is what establishes
 the diagnosis above, and it is solid.
 
 It **crashes at boot** with cyw43 on core 0 — the configuration currently in
-`main`:
+`main` *[2026-08-14: no longer — `main` runs cyw43 on core 1 since `ac4bd74`]*:
 
 ```
 Firmware exited unexpectedly: Exception
@@ -139,7 +142,7 @@ bit-bang. If RAM placement is revisited anyway, use the exact section the linker
 copies, verify with `objdump -h` rather than the build script's RAM figure, and
 test **both** core assignments.
 
-## Bug B — RX never delivers (OPEN, primary work)
+## Bug B — RX never delivers (gone with the PIO transport — never reproduced after `ac4bd74`)
 
 With the chip up and cyw43 on core 1, read from a live failing device by gdb:
 
@@ -160,6 +163,10 @@ Join-state bits (from the 2026-08 bring-up): `0x1` ACTIVE, `+0x200` AUTH,
 
 ### Not yet root-caused. Leading candidates
 
+*[2026-08-14: no longer applicable — the PIO transport settled it. Candidate 2
+(read-path timing) was evidently the cause; 1 and 3 were verified healthy via
+the counters. See the Outcome section.]*
+
 1. **Host-wake gate.** GP24 is *both* the shared data line and the active-high
    `WL_HOST_WAKE` IRQ. If the "chip has work" read is wrong when sampled from
    core 1, the driver never fetches packets. `d66882b` already fixed one
@@ -173,7 +180,9 @@ Join-state bits (from the 2026-08 bring-up): `0x1` ACTIVE, `+0x200` AUTH,
 
 **First diagnostic in the new session:** add a counter for *poll invocations* and
 for the host-wake pin read, then compare core-1 vs core-0. That single
-measurement separates candidate 3 from 1 and 2, and 1 from 2.
+measurement separates candidate 3 from 1 and 2, and 1 from 2. *[2026-08-14:
+these marching orders were carried out and are done — the counters are now
+standing instrumentation (see Outcome); do not start here again.]*
 
 ## Why PIO is the structural answer
 
@@ -250,10 +259,13 @@ transport is a drop-in replacement for one file.
 ### Resources are free
 
 - **All three PIO blocks are unused.** Nothing in `platforms/rp/src` touches PIO
-  today (verified by grep). PIO0 is the natural choice.
+  today (verified by grep). PIO0 is the natural choice. *[2026-08-14: no longer
+  true — PIO0 SM0 plus DMA channels 4/5 are now the gSPI transport.]*
 - **`rp235x-hal` 0.4 ships `pio.rs`**, and `pio` / `pio-proc` / `pio-parser` are
   already in the cargo cache as transitive deps — so `pio_proc::pio_asm!` can
-  assemble the program at compile time with no new build step.
+  assemble the program at compile time with no new build step. *[2026-08-14: at
+  pio 0.3.0 the macro is `pio::pio_asm!`, in the `pio` crate — as the Outcome
+  section says.]*
 - **SPI1 is the display**, SPI0 is free on `testbench_rp2350w`. Not needed, but
   relevant if anyone reconsiders hardware SPI.
 - `platforms/rp/src/hal/rp/dma.rs` exists but is display-oriented
@@ -262,7 +274,8 @@ transport is a drop-in replacement for one file.
 ### Implementation options
 
 **Option 1 — Rust transport (recommended).** Implement the PIO program with
-`pio_proc::pio_asm!` and drive it via `rp235x-hal`'s PIO API, exposing the 5
+`pio_proc::pio_asm!` *[2026-08-14: shipped as `pio::pio_asm!`, see above]* and
+drive it via `rp235x-hal`'s PIO API, exposing the 5
 functions as `#[no_mangle] extern "C"`. Pros: uses the HAL we already depend on,
 type-safe state-machine setup, no new build tooling, matches how the rest of the
 port is written. Cons: PIO program must be hand-translated from pico-sdk's
@@ -274,7 +287,8 @@ line-by-line comparable with pico-sdk, easiest to re-sync on upstream changes.
 Cons: grows the shim substantially (pio_sm_config, instruction encoding, DMA);
 duplicates what `rp235x-hal` already provides.
 
-**Option 3 — keep bit-bang, RAM-resident only.** Already done (Bug A fix). Not
+**Option 3 — keep bit-bang, RAM-resident only.** Already done (Bug A fix)
+*[2026-08-14: reverted, `6d41225`]*. Not
 sufficient on its own — Bug B remains, and the timing fragility is mitigated, not
 removed.
 
@@ -399,6 +413,11 @@ Everything described in this doc has landed: the PIO transport
 (permanent — see the Outcome section at the top). The gdb recipes above read
 them by name; `INSTR_CYW43_POLLS` is a Rust `AtomicU32`, so cast it in gdb
 batch scripts (`*(unsigned int *)&INSTR_CYW43_POLLS`).
+
+One honest gap: acceptance criteria 5–6 (the full HIL suite at 49 PASS / 0 FAIL
+and a green `./scripts/pre-commit`) were not re-run for the PIO landing itself —
+only the ad-hoc validation recorded in the Outcome section was. `d445785`'s
+49 PASS / 0 FAIL run covers the adjacent flash-park change.
 
 ## Related
 

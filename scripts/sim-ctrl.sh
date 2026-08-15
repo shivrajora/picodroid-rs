@@ -25,6 +25,10 @@
 # Verbs:   down | up | press | tap        (press/tap embed a 40ms press->release)
 # Buttons: A | B | X | Y | PREV | NEXT | ENTER | ESC | <gpio-pin>
 # Touch:   touch down|move <x> <y> | touch up
+# Input:   input keyevent <KEYCODE|n> | input dpad <up|down|left|right|center>
+#          | input back | input tap <x> <y>
+#          | input swipe <x1> <y1> <x2> <y2> [ms]
+#          (Android-faithful synthetic input; mirrors `pdb input ...`)
 # Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
 #
@@ -52,6 +56,11 @@ Commands (forwarded verbatim to the sim):
   down|up|press|tap <A|B|X|Y|PREV|NEXT|ENTER|ESC|pin>
   touch down|move <x> <y>
   touch up
+  input keyevent <KEYCODE|n>
+  input dpad <up|down|left|right|center>
+  input back
+  input tap <x> <y>
+  input swipe <x1> <y1> <x2> <y2> [ms]
   memstats     ([memmon] snapshot; sim must be built with --mem-diag)
 
 Examples:

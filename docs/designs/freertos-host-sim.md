@@ -589,10 +589,12 @@ Owed:
    gap that would most plausibly hide a defect today.
 3. **`sim-remote`** under the kernel is unverified, though windowed
    `displaydemo` works (A8), so it is very likely fine.
-4. **`BootLeaves::extra_boot_tasks`** — the one temporary hook. `sim_boot`
+4. ~~**`BootLeaves::extra_boot_tasks`** — the one temporary hook. `sim_boot`
    moved to `picodroid-core` (residue B11) and takes family policy as three
    `fn` pointers; the third exists only to spawn the LittleFS worker and is
-   deleted by residue Stage 5, which moves `fs` into core.
+   deleted by residue Stage 5, which moves `fs` into core.~~ Done as
+   predicted: residue Stage 5 / amendment B13 (`725a2b7`) moved `fs` into
+   core and deleted the hook — `BootLeaves` is down to two fields.
 
 Standing caveat: **macOS**. The simulator now takes the main thread for the
 scheduler, and Cocoa wants the window there. Untested — this project simulates

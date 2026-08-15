@@ -20,10 +20,10 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 
 | Layer | Technology |
 |-------|-----------|
-| Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz) or Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz) |
+| Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz), Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz), or Pico 2 W (RP2350 + CYW43439 WiFi) |
 | RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
 | Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
-| Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI — incl. `Toast` / `AlertDialog` / `Keyboard`), `picodroid.view.{KeyEvent, GestureDetector, ViewPropertyAnimator}`, `picodroid.graphics.{Theme, drawable.GradientDrawable}`, `picodroid.app.Activity` (full lifecycle + back stack), `picodroid.io` (LittleFS files), `picodroid.content.Preferences`, `picodroid.net` (TCP/UDP + `HttpUrlConnection` over WiFi on Pico 2 W), `picodroid.hardware.SensorManager` (BME688), `picodroid.concurrent.Thread` / `Executors`, etc. |
+| Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI — incl. `Toast` / `AlertDialog` / `Keyboard`), `picodroid.view.{KeyEvent, GestureDetector, ViewPropertyAnimator}`, `picodroid.graphics.{Theme, drawable.GradientDrawable}`, `picodroid.app.Activity` (full lifecycle + back stack), `picodroid.io` (LittleFS files), `picodroid.content.SharedPreferences`, `picodroid.net` (TCP/UDP + `HttpURLConnection` over WiFi on Pico 2 W), `picodroid.hardware.SensorManager` (BME688), `picodroid.concurrent.Thread` / `Executors`, etc. |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
 ### Architecture
@@ -35,8 +35,9 @@ graph TD
     end
 
     subgraph FreeRTOS["FreeRTOS SMP — both cores"]
-        PDB["pdb task<br/><i>priority 2, core 1</i>"]
-        JVM_TASK["jvm task<br/><i>priority 1, core 0</i>"]
+        PDB["pdb task<br/><i>core 0</i>"]
+        JVM_TASK["jvm task + fs/sensor/bg workers<br/><i>core 0</i>"]
+        CORE1["flash parker · cyw43 WiFi (Pico 2 W)<br/><i>core 1</i>"]
     end
 
     subgraph JVM["JVM Interpreter (jvm/ crate)"]
@@ -64,8 +65,10 @@ Apps can be hot-swapped at runtime via `pdb install` without reflashing the firm
 
 ## Hardware
 
-- Raspberry Pi Pico (RP2040) or Raspberry Pi Pico 2 (RP2350)
+- Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 (RP2350), or Raspberry Pi Pico 2 W (RP2350 + CYW43439)
 - An SWD debug probe: [Raspberry Pi Debug Probe](https://www.raspberrypi.com/products/debug-probe/), Picoprobe, J-Link, or any CMSIS-DAP adapter
+
+On the Pico 2 W the `picodroid.net` stack runs over WiFi end-to-end — WPA2 join, DHCP, TCP/UDP sockets, and HTTP — validated on hardware. See [WiFi & networking setup](website/src/content/docs/get-started/networking.md) for build-time credentials and the required cyw43 submodule fork.
 
 ## Quick Start
 
@@ -88,6 +91,8 @@ Check device health (heap, tasks, CPU usage) at any time:
 cargo run -p pdb -- -s /dev/cu.usbmodem102 sysmon
 ```
 
+The serial device is `/dev/ttyACM*` on Linux and `/dev/cu.usbmodem*` on macOS.
+
 Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input when run in the simulator.
 
 See [Build & flash](website/src/content/docs/get-started/build.md) for prerequisites, chip selection, app selection, and UF2 flashing.
@@ -106,7 +111,7 @@ The full docs are an Astro Starlight site under [`website/`](website/) — once 
 - [Java API](website/src/content/docs/api.md) — split by area: [core](website/src/content/docs/api/core.md), [system](website/src/content/docs/api/system.md), [services](website/src/content/docs/api/services.md), [peripherals](website/src/content/docs/api/peripherals.md), [storage](website/src/content/docs/api/storage.md), [networking](website/src/content/docs/api/networking.md), [sensors](website/src/content/docs/api/sensors.md), [UI](website/src/content/docs/api/ui.md)
 - [Guides](website/src/content/docs/guides/embedded-gotchas.md) — [embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md), [button-only navigation](website/src/content/docs/guides/button-navigation.md), [debugging](website/src/content/docs/guides/debugging.md), [bundled image assets](website/src/content/docs/guides/assets.md)
 - [Reference](website/src/content/docs/reference/limits.md) — [limits & memory budgets](website/src/content/docs/reference/limits.md), the [manifest schema](website/src/content/docs/reference/manifest.md), the [class-name shrinker](website/src/content/docs/reference/shrinker.md)
-- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.9.0
+- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.12.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure
@@ -116,39 +121,38 @@ picodroid-rs/
 ├── jvm/                # JVM interpreter — reusable library crate (pico-jvm)
 │   └── src/            # no_std + alloc only; no hardware dependencies
 │
-├── sdk/                # Android-compatible Java API stubs (picodroid.*)
+├── picodroid-core/     # Family-neutral framework crate: JVM natives, lifecycle,
+│   └── src/            # graphics, networking, drivers, install, host-simulator HAL
+│
+├── platforms/
+│   └── rp/             # RP-family firmware crate (RP2040 + RP2350)
+│       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon)
+│       ├── mcus/       # Per-MCU linker scripts, FreeRTOS config, heap sizes
+│       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb task, install path
+│
+├── sdk/                # Android-compatible Java API (picodroid.*)
 │   ├── java/           # Framework Java sources (compiled into firmware Flash)
 │   ├── keep.toml       # Class-name shrinker keep list
 │   └── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
 │
 ├── examples/           # Example apps, each with Java sources and a PicodroidManifest.xml
 │
-├── src/
-│   ├── app.rs          # JVM bootstrap (run_jvm, shared heap, class loader)
-│   ├── lifecycle.rs    # Application/Activity lifecycle management
-│   ├── lvgl_ffi.rs     # FFI bindings to the LVGL graphics library
-│   ├── drivers/        # Display and touch hardware drivers (ST7789, XPT2046)
-│   ├── boards/         # Board-specific pin and peripheral configurations
-│   ├── hal/            # Hardware Abstraction Layer (rp/ for Pico, sim/ for host simulator)
-│   │   └── rp/port/    # pico-sdk C shims (headers + FreeRTOS interop shims)
-│   ├── packagemanager/ # Flash storage and PAPK install logic
-│   ├── pdb/            # Picodroid Debug Bridge — UART listener + hot-swap logic
-│   └── system/         # Native implementations of Java API methods
+├── papk-format/        # PAPK container format — single source of truth (firmware + tools)
+├── pdb-protocol/       # PDB wire format shared by firmware, simulator, and the pdb CLI
+├── compat/             # PAPK ↔ firmware framework-map-version compatibility check
 │
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
-│   ├── class-shrink/   # Host tool: release-tied class-name shrinker (see docs/shrinker.md)
-│   └── pdb/            # Host tool: push apps and monitor device health over USB CDC
+│   ├── class-shrink/   # Host tool: release-tied class-name shrinker (see reference/shrinker)
+│   └── pdb/            # Host tool: push apps, inject input, and monitor device health
 │
-├── scripts/            # Build, flash, sim, pdb, test, and pre-commit scripts
-│
-├── vendor/             # Downloaded tooling and libraries (google-java-format JAR, LVGL; gitignored)
-│
-├── memory.x            # RP2040 linker memory layout
-├── memory_rp2350.x     # RP2350 linker memory layout
-├── third_party/        # Git submodules (FreeRTOS-Kernel)
-└── build.rs            # Compiles FreeRTOS C, embeds pre-built .papk into firmware Flash
+├── build_support/      # Shared build-script logic (boards, FreeRTOS, network, PAPK embed)
+├── scripts/            # Build, flash, sim, pdb, test, HIL, and pre-commit scripts
+├── website/            # Astro Starlight documentation site
+├── docs/               # Engineering docs: designs, audits, dated bug records
+├── third_party/        # Git submodules (FreeRTOS-Kernel, littlefs fork)
+└── vendor/             # Submodules + downloaded libs (LVGL, FreeRTOS+TCP, cyw43-driver fork)
 ```
 
 ## Attribution

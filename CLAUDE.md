@@ -1,5 +1,9 @@
 # Picodroid Development Guidelines
 
+## Two-crate layout
+
+Family-neutral framework code lives in `picodroid-core/` (JVM natives, lifecycle, graphics, networking, sim HAL); family-specific code lives in `platforms/rp/`. Never create a file at the same relative path in both `src` trees — the pre-commit shadow-twin guard rejects it. When moving code between them, move it; don't copy.
+
 ## Project Goal
 
 Picodroid brings Android-like Java app development to embedded systems. The Java API exposed to developers should stay as close to its Android counterpart as possible — class names, method signatures, semantics, and idioms should match `android.*` so that code and developer intuition transfer directly. When a design choice is forced by embedded constraints prefer the option that preserves the Android-facing API surface, even if the internal implementation diverges.
@@ -31,9 +35,11 @@ Confirm expected output appears (e.g. `[HelloWorld] Hello, World!`, `[Benchmark]
 ./scripts/pre-commit
 ```
 
-This runs: Java formatting check, `cargo fmt`, clippy (RP2040 + RP2350), embedded build, and all tests. Must end with `==> All checks passed.`
+This runs formatting (Java + `cargo fmt`), clippy across every board and the host tools, the embedded and flash-gate builds, the shadow-twin and cfg-hygiene guards, Java compilation for all apps, a langsuite conformance run, and all tests. Must end with `==> All checks passed.`
 
 Do not consider a code change complete until both of these pass.
+
+WiFi-enabled device builds (`testbench_rp2350w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >

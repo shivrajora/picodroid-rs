@@ -728,3 +728,13 @@ Still open, deliberately: `docs/parity-audit.md` records that the simulator
 still does not take real recursive monitors. The RTOS seam makes that a
 one-line change now, but it is a behaviour change rather than a move, so it
 stays out of this work.
+
+### A8 — closing pointer (2026-08-14)
+
+The residual family-neutral extraction this doc's §5 predicted was measured
+and continued in its direct successor, `docs/designs/family-neutral-residue.md`
+— stages 1–5 of that plan are executed as of 2026-08-01, with its own
+amendment trail; that doc is where the remaining work lives. And A7's "still
+open, deliberately" item is no longer open: the simulator takes real recursive
+monitors now, because it runs the real FreeRTOS kernel — resolved by
+`docs/designs/freertos-host-sim.md` (`e44b879`).
