@@ -38,8 +38,14 @@ the whole install while core 1 wrote flash, compensating with a TIMER0 alarm
 ISR on core 1 (`timer_alarm.rs`) that fired every 1 ms independently of
 FreeRTOS. Both mechanisms were retired when the PDB task moved to core 0
 (see bug #3): the JVM task now blocks on a FreeRTOS notification with
-interrupts enabled, so the tick keeps running between flash operations. The
-tick still freezes inside each erase/program window (`with_xip_disabled!`),
+interrupts enabled, so the tick keeps running between flash operations.
+Parking has since swapped cores: a dedicated `flashpark` parker task pinned
+to core 1 blocks on a FreeRTOS task notification (`hal/rp/core1_park.rs`);
+before each erase/program window core 0 notifies it and waits for the parked
+ack in SRAM, and core 1 spins in a RAM-resident loop with interrupts masked
+until the window closes. (On testbench_rp2350w, core 1 also hosts the `cyw43`
+WiFi task, at a priority below the parker.) The tick still freezes inside
+each erase/program window (`with_xip_disabled!`),
 so install-time reads use a hardware-timer busywait
 (`pdb_usb::queue_read_byte_busywait`) instead of tick-based timeouts, and a
 successful install ends in a chip reset.
@@ -56,10 +62,16 @@ or isn't processed. This was tested with both task notifications and queues.
 Calling `xTaskNotify` from core 1 to core 0 also causes the FreeRTOS SMP
 scheduler to deadlock — `vTaskDelay` on core 0 stops completing entirely.
 
-**Workaround:** The install path on RP2350 avoids all cross-core FreeRTOS API
-calls. Core 1 signals core 0 via atomic flags + `notify_jvm()` (which works
-because the JVM task checks `STOP_JVM` at opcode boundaries). Core 0 signals
-core 1 via the hardware timer alarm ISR (bug #2 workaround).
+**Workaround:** The install path on RP2350 avoids nearly all cross-core
+FreeRTOS API calls. Core 1 signals core 0 via atomic flags + `notify_jvm()`
+(which works because the JVM task checks `STOP_JVM` at opcode boundaries).
+Core 0's one cross-core call is the FreeRTOS task notification that wakes the
+dedicated core-1 parker task (`flashpark`, `hal/rp/core1_park.rs`); the
+parker acks back through SRAM atomics, not a FreeRTOS wake. That notification
+replaced the retired TIMER0-alarm ISR signal, and it is viable because
+cross-core doorbell/IPI delivery has since been repaired — the same fix that
+exposed the XIP-window lockup the parker exists to prevent (see
+`core1_park.rs`'s design notes).
 
 ## 4. Tight busy-wait on core 1 starves core 0's scheduler
 
@@ -71,9 +83,12 @@ loop accesses shared memory or peripherals. The FreeRTOS SMP scheduler appears
 to require both cores to periodically enter FreeRTOS-managed blocking states
 for tick processing to work correctly.
 
-**Workaround:** Core 1 blocks on a FreeRTOS queue receive (500 ms timeout)
-during the install wait, keeping it in the scheduler. The TIMER0 alarm (bug #2)
-handles waking core 1 after the tick freezes.
+**Workaround:** Core 1's resident tasks block in the scheduler: the
+`flashpark` parker waits on a FreeRTOS task notification (`core1_park.rs`),
+and on testbench_rp2350w the `cyw43` task blocks between driver polls. The
+only tight loop core 1 ever runs is the deliberate RAM-resident park spin
+inside a flash window, entered and exited via the `core1_park.rs` handshake.
+The TIMER0 alarm this workaround once relied on is retired.
 
 ---
 

@@ -12,7 +12,13 @@ The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running devi
 ./scripts/pdb.sh -s /dev/cu.usbmodem102 ping
 ./scripts/pdb.sh -s /dev/cu.usbmodem102 install build/apks/blinky.papk
 ./scripts/pdb.sh -s /dev/cu.usbmodem102 sysmon
+./scripts/pdb.sh -s /dev/cu.usbmodem102 input tap 120 80
+./scripts/sim.sh --app foo | ./scripts/pdb.sh logcat --stdin --tag Foo
 ```
+
+The subcommands are `devices`, `ping`, `install`, `sysmon`, `input`
+(tap/swipe/keyevent injection), and `logcat` (tag/level log filtering) — see
+the [pdb command reference](/reference/pdb-commands/) for every flag.
 
 ## Install the host tool globally (optional)
 
@@ -40,7 +46,7 @@ The device stops the running JVM (including any sleeping child threads), writes 
 Before flashing, `pdb install` runs two compatibility gates so a bad install never reboots the device:
 
 1. **Host pre-flight** — parses the PAPK manifest for `framework-map-version`, compares it to the firmware's version learned from PING, and exits with a clear error if they don't match.
-2. **Device-side check** — after parking core 0 but before erasing flash, the device peeks the install header and refuses with `STATUS_INCOMPAT` on mismatch.
+2. **Device-side check** — after stopping the JVM but before erasing flash, the device peeks the install header and refuses with `STATUS_INCOMPAT` on mismatch. (During the flash writes themselves the JVM stays blocked on core 0 and core 1 is parked by the `flashpark` task.)
 
 Mismatches mean your PAPK was built against a different release than the firmware currently running. Rebuild the APK, or reflash a matching firmware. See [Class-name shrinker → Diagnosing version mismatch](/reference/shrinker/#diagnosing-version-mismatch).
 

@@ -63,14 +63,11 @@ public class CounterService extends Service {
 | `onCreate()` | Once, the first time the service is started or bound. |
 | `onStartCommand(Intent, int startId)` | Each call to `Context.startService()` (including repeats). The return value is **ignored** on picodroid — see the note below. |
 | `onBind(Intent)` | First call to `Context.bindService()` for this service. Return an `IBinder` (typically a custom `LocalBinder`). Cached and reused across subsequent binds. |
-| `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; returning `true` is reserved for `onRebind` (see below). |
+| `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; return `true` to receive `onRebind` when a new client binds later. |
+| `onRebind(Intent)` | A client binds again after `onUnbind` returned `true` (and the service was not destroyed in between). `onBind` is **not** called again — the cached `IBinder` is reused, matching Android's contract. |
 | `onDestroy()` | Service is being torn down (last unbind + no `startService` keepalive, or explicit `stopService`). |
 
 On picodroid the OS never kills a running service, so `onStartCommand`'s return value has no runtime effect — `START_STICKY` and `START_NOT_STICKY` exist only for source-level Android compatibility. Return `START_STICKY` by convention.
-
-> **`onRebind` is not implemented in v1.** `onUnbind` can return `true` to opt into a future
-> `onRebind` callback, but the re-bind path is not yet dispatched — a subsequent bind runs
-> `onBind` again. Don't rely on `onRebind` firing yet.
 
 ## `picodroid.os.IBinder`
 

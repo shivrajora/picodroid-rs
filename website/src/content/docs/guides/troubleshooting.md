@@ -151,6 +151,34 @@ Three common causes:
 2. **I2C wiring mismatch.** The BME688 driver uses the `bus` + `addr` from `board.toml`. Verify the sensor ACKs on that bus with [`examples/i2cdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/i2cdemo).
 3. **Registration cap.** `SensorManager` allows up to 8 concurrent registrations. Call `unregisterListener()` from `onPause()` / `onDestroy()`-equivalent paths to avoid leaking slots across app swaps.
 
+## Networking
+
+### Build fails with `vendor/cyw43-driver is the unpatched upstream`
+
+The `vendor/cyw43-driver` submodule moved to the patched picodroid fork. A checkout cloned before the switch still points at upstream, and the network build fails early rather than producing broken WiFi firmware. Re-sync the submodule:
+
+```bash
+git submodule sync && git submodule update --init vendor/cyw43-driver
+```
+
+### RTT shows `wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining`
+
+WiFi credentials are **build-time** environment variables, baked into the image — setting them at flash or run time does nothing. Rebuild (and reflash) with them set; until then the stack starts but stays offline:
+
+```bash
+PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release
+```
+
+See [WiFi & networking setup](/get-started/networking/).
+
+### Sockets fail immediately after boot
+
+The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Poll `NetworkInfo.isConnected()` against a deadline (the example apps wait up to 30 s) before opening sockets — see [WiFi & networking setup](/get-started/networking/).
+
+### Repeated `net: down` lines over RTT
+
+The join is retrying. This is a known issue — see [Known issues & current limits](/reference/known-issues/). Once the join succeeds you'll see `net: up, ip a.b.c.d`.
+
 ## `HttpURLConnection` hangs or throws at `connect()`
 
 - `HTTPS URLs are rejected` — `HttpURLConnection` is HTTP/1.1 only; no TLS. Use the raw socket API if you need TLS and are willing to bundle it.

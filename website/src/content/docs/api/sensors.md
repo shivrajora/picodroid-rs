@@ -110,7 +110,7 @@ bus  = "I2C0"
 addr = 0x23         # LTR559 default
 ```
 
-The BME688 driver ([src/drivers/bme688/](https://github.com/shivrajora/picodroid-rs/tree/main/src/drivers/bme688/)) handles Bosch compensation. Read-only for now — calibration and heater-profile control are not exposed. The LTR559 driver lives at [src/drivers/ltr559.rs](https://github.com/shivrajora/picodroid-rs/blob/main/src/drivers/ltr559.rs) and exposes light (lux) plus raw proximity counts; gain and integration-time control are not yet exposed. See [Porting guide](/reference/porting-guide/#boardtoml-reference) for the full board.toml schema.
+The BME688 driver ([picodroid-core/src/drivers/bme688/](https://github.com/shivrajora/picodroid-rs/tree/main/picodroid-core/src/drivers/bme688/)) handles Bosch compensation. Read-only for now — calibration and heater-profile control are not exposed. The LTR559 driver lives at [picodroid-core/src/drivers/ltr559.rs](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/src/drivers/ltr559.rs) and exposes light (lux) plus raw proximity counts; gain and integration-time control are not yet exposed. See [Porting guide](/reference/porting-guide/#boardtoml-reference) for the full board.toml schema.
 
 ---
 

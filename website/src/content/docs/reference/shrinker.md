@@ -39,13 +39,13 @@ firmware: every name a PAPK-at-version-P refers to is still present in
 firmware-at-version-F ≥ P.
 
 PAPK compatibility is enforced at load time
-([jvm/src/apk.rs](https://github.com/shivrajora/picodroid-rs/blob/main/jvm/src/apk.rs) `verify_compat`): a PAPK with a map
+([papk-format/src/lib.rs](https://github.com/shivrajora/picodroid-rs/blob/main/papk-format/src/lib.rs) `verify_compat`): a PAPK with a map
 version greater than the firmware's is rejected with
 `PapkError::FrameworkVersionMismatch`.
 
 ## Active maps
 
-Ten release maps are committed today:
+Twelve release maps are committed today:
 
 | Map | Covers |
 |-----|--------|
@@ -60,6 +60,7 @@ Ten release maps are committed today:
 | `sdk/shrink-maps/v0.9.0.toml` | **Stable** — byte-identical to v0.8.0. The Apache → GPL relicense, multi-family refactor (`platforms/`, `picodroid-core`), ESP32-S3 M1 scaffolding, and Activity Display singleton bootstrap shipped without adding framework classes. |
 | `sdk/shrink-maps/v0.10.0.toml` | Adds the **Android-parity Tier 1/2** surface (+23 classes, 87 → 110) — `picodroid.view.ViewGroup` (+ `LayoutParams`), the adapter family (`Adapter`, `AdapterView`, `ArrayAdapter`, `BaseAdapter`), `picodroid.widget.CompoundButton`, `picodroid.content.DialogInterface`, and the typed listener interfaces (`View$OnClickListener`/`OnFocusChangeListener`, `CompoundButton$OnCheckedChangeListener`, `AdapterView$OnItemClickListener`, etc.). Every v0.9.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.11.0.toml` | Adds the **package-move + widget-completion** surface (+25 classes, 110 → 135) — `picodroid.app.AlertDialog` (+ `Builder`/`$1`, moved from `picodroid.widget`), `picodroid.content.SharedPreferences` (+ `Editor`), `picodroid.os.IBinder` (moved from `picodroid.app`), `picodroid.net.URL` / `HttpURLConnection` (Java-cased rename), `picodroid.text.{TextWatcher, InputType}`, `picodroid.view.Gravity`, `GestureDetector$SimpleOnGestureListener`, the `picodroid.view.animation` interpolator family, and `picodroid.widget.{NumberPicker, RadioButton, RadioGroup}`. Every v0.10.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.12.0.toml` | **Stable** — byte-identical to v0.11.0. The Pico 2 W networking bring-up, the FreeRTOS host simulator, the runtime-flash fixes, and the `picodroid-core` / `papk-format` / `pdb-protocol` extractions all landed outside the framework class set. |
 
 ## v1 scope
 
@@ -254,8 +255,8 @@ the device:
    for `framework-map-version`, compare to the firmware's version learned
    from the new PING greeting, and exit with a clear error if `compat::check`
    rejects.
-2. **Device-side check** in [platforms/rp/src/packagemanager/install.rs](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/src/packagemanager/install.rs):
-   after parking core 0 but before erasing flash, peek the first
+2. **Device-side check** in [picodroid-core/src/install/orchestrator.rs](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/src/install/orchestrator.rs):
+   after stopping the JVM but before erasing flash, peek the first
    `INSTALL_PEEK_BYTES` (512) of the PAPK off the wire, run `compat::check`,
    and reply `STATUS_INCOMPAT` on mismatch. The host inlines those bytes
    right after the install header so the peek doesn't stall.

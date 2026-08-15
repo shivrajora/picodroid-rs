@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Fifty-five examples are included under `examples/`, organized by category.
+Fifty-six examples are included under `examples/`, organized by category.
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 
@@ -52,8 +52,8 @@ TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--bo
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response |
-| `http_get` | `http_get.HttpGet` | Android-style `HttpURLConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream` |
+| `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response. On hardware it first waits up to 30 s for WiFi join + DHCP — see [WiFi & networking setup](/get-started/networking/) |
+| `http_get` | `http_get.HttpGet` | Android-style `HttpURLConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream`. On hardware it waits up to 30 s for the network, and `BASE_URL` must point at an HTTP server reachable on your LAN — see [WiFi & networking setup](/get-started/networking/) |
 
 ## Sensors
 

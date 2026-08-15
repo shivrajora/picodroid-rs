@@ -196,6 +196,38 @@ pub fn sleep(ms: u32);
 - Blocks the calling FreeRTOS task for `ms` milliseconds.
 - Use `freertos_rust::CurrentTask::delay()` on real hardware.
 
+### net.rs
+
+Only needed when a board sets `has_network = true` — this is the `HalNet`
+trait, gated by `cfg(has_network)`.
+
+```rust
+use core::ffi::c_void;
+use picodroid_core::hal::NetError;
+
+pub fn tcp_socket() -> Result<*mut c_void, NetError>;
+pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError>;
+pub fn tcp_send(sock: *mut c_void, data: &[u8]) -> Result<usize, NetError>;
+pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError>;
+pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError>;
+pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError>;
+pub fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError>;
+pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError>;
+pub fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError>;
+pub fn close(sock: *mut c_void);
+pub fn set_recv_timeout(sock: *mut c_void, ms: u32);
+pub fn is_network_up() -> bool;
+pub fn get_ip_address() -> u32;
+pub fn dns_resolve(hostname: &str) -> Result<u32, NetError>;
+```
+
+- Sockets are opaque `*mut c_void` handles owned by your IP stack; shared
+  code only ever passes them back.
+- `is_network_up` / `get_ip_address` back `NetworkInfo`; `dns_resolve` backs
+  `InetAddress`. Addresses are IPv4, packed into a `u32`.
+- The reference implementation is `platforms/rp/src/hal/rp/net.rs`
+  (FreeRTOS+TCP over the CYW43 driver, as built for `testbench_rp2350w`).
+
 ### boot.rs
 
 ```rust
@@ -205,9 +237,11 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> !;
 
 - `clock_init` configures the system clock (PLL, crystal, etc.).
 - `start_tasks` creates FreeRTOS tasks and starts the scheduler (never
-  returns). On dual-core MCUs (RP2040/RP2350), PDB runs on core 1 and JVM
-  on core 0 with core affinity. On single-core MCUs, both tasks run on
-  the same core, differentiated by priority only (PDB at higher priority).
+  returns). On dual-core MCUs (RP2040/RP2350), PDB and JVM are both pinned
+  to core 0 (PDB preempts by priority); core 1 hosts the `flashpark` flash
+  parker — and, on WiFi boards, the `cyw43` task. On single-core MCUs, both
+  tasks run on the same core, differentiated by priority only (PDB at
+  higher priority).
 - Optional: chip-specific boot blocks (e.g. RP2350's `IMAGE_DEF`).
 - Provide a `FreeRTOSConfig.h` in the same directory.
 
@@ -218,7 +252,6 @@ pub const PAPK_FLASH_XIP_BASE: usize;
 pub const PAPK_FLASH_META_OFFSET: u32;
 pub const PAPK_MAX_DATA_SIZE: usize;
 pub const PAPK_BOOT_META_SIZE: usize;    // typically 4096
-pub const PAPK_FLASH_MAGIC: u32;          // 0x5044_4231 ("PDB1")
 
 pub unsafe fn read_flash_papk() -> Option<&'static [u8]>;
 pub unsafe fn flash_erase_papk_region(papk_len: usize);
@@ -227,6 +260,9 @@ pub unsafe fn flash_commit_metadata(len: u32);
 pub fn flash_trigger_reset() -> !;
 ```
 
+- The boot-meta layout (magic, header parsing, meta-page building) lives in
+  the shared `papk-format` crate (`papk_format::flash_image`) — consume it,
+  as the RP family does, rather than retyping constants.
 - `read_flash_papk`: check the PAPK flash region for a valid install; return
   a `'static` slice pointing into memory-mapped flash, or `None`.
 - `flash_erase_papk_region`: erase sectors needed for `papk_len` bytes + metadata.
@@ -366,9 +402,13 @@ rustflags = [
 
 ## Single-core vs dual-core considerations
 
-picodroid's RP port uses a dual-core architecture: PDB on core 1, JVM on
-core 0. This affects `boot.rs` (core affinity) and `flash.rs` (interrupt-disable
-windows during erase/program).
+picodroid's RP port pins both PDB and JVM to core 0 (PDB preempts by
+priority); core 1 hosts a dedicated `flashpark` parker task, plus the
+`cyw43` WiFi task on WiFi boards. This affects `boot.rs` (core affinity)
+and `flash.rs` (interrupt-disable windows during erase/program): before
+each erase/program window, core 0 notifies the parker via a cross-core
+FreeRTOS task notification (`hal/rp/core1_park.rs`), spins until core 1
+reports parked, and releases it when the window closes.
 
 On single-core MCUs:
 
@@ -377,8 +417,8 @@ On single-core MCUs:
 - **Flash writes**: flash erase/write simply disables interrupts, performs the
   operation, and re-enables — the same `with_xip_disabled!` window the RP
   family uses.
-- **`CoreCoordinator`**: `request_stop_and_park()` stops the JVM task;
-  `wait_for_park()` returns immediately (single core = already "parked").
+- **No core parking**: there is no second core to park, so the
+  `flashpark`/`core1_park` handshake has no equivalent — omit it.
 - **No `configUSE_CORE_AFFINITY`**: omit `.core_affinity()` calls in
   `start_tasks()`.
 
@@ -542,6 +582,6 @@ files for patterns and conventions:
 |------|---------------------|
 | `uart.rs` | Multi-instance peripheral (UART0/UART1), baud rate calculation, GPIO pin routing |
 | `gpio.rs` | Direct register access via PAC, RP2350 ISO bit handling |
-| `flash.rs` | XIP-disabled flash operations from RAM, core parking with inline asm |
+| `flash.rs` | XIP-disabled flash operations from RAM inside `with_xip_disabled!`, with core 1 parked via the `flashpark` task (`core1_park.rs`) |
 | `boot.rs` | Dual-core task creation, chip-specific boot blocks |
 | `pdb_usb.rs` | USB CDC ISR → FreeRTOS queue pattern, NVIC interrupt setup |

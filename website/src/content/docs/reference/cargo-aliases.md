@@ -28,7 +28,7 @@ scripts in `scripts/`.
 
 ## Adding a new board
 
-Mechanical: register `b-<board>` and `r-<board>` aliases pointing at the new board feature and matching MCU target triple. For RP, edit `.cargo/config.toml` at the repo root. For ESP, edit `platforms/esp/.cargo/config.toml`.
+Mechanical: register `b-<board>` and `r-<board>` aliases pointing at the new board feature and matching MCU target triple. For RP, edit `.cargo/config.toml` at the repo root.
 
 ## rust-analyzer
 

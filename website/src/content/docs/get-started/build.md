@@ -77,7 +77,8 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 ## Building and Flashing
 
 ```bash
-# Clone with submodules (FreeRTOS-Kernel)
+# Clone with submodules (third_party/FreeRTOS-Kernel, vendor/lvgl,
+# vendor/freertos-plus-tcp, vendor/cyw43-driver)
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
@@ -88,6 +89,17 @@ cd picodroid-rs
 ./scripts/flash.sh
 ```
 
+:::caution[Existing checkouts: cyw43-driver moved to a fork]
+`vendor/cyw43-driver` now points at the patched picodroid fork. A checkout
+cloned before the switch must run
+
+```bash
+git submodule sync && git submodule update --init vendor/cyw43-driver
+```
+
+or the build fails early with `vendor/cyw43-driver is the unpatched upstream`.
+:::
+
 ### Choosing a board
 
 Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
@@ -96,7 +108,7 @@ Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 |------|-----|--------|
 | `--board testbench_rp2040` | RP2040 | Raspberry Pi Pico |
 | `--board testbench_rp2350` | RP2350 | Raspberry Pi Pico 2 |
-| `--board testbench_rp2350w` | RP2350 | Raspberry Pi Pico 2 W (adds WiFi via cyw43 + FreeRTOS+TCP) |
+| `--board testbench_rp2350w` | RP2350 | Raspberry Pi Pico 2 W (adds WiFi via cyw43 + FreeRTOS+TCP; WiFi credentials are baked in at build time — see [WiFi & networking setup](/get-started/networking/)) |
 | `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon (1.14" 240x135 ST7789, no touch) |
 
 ```bash
@@ -122,6 +134,17 @@ Pass `--app <name>` to select which example to build or flash:
 ```
 
 The `--app` flag selects which example to build. `build.sh` compiles the Java sources into a `.papk` file and embeds it into the firmware — no Cargo feature flags are involved.
+
+### Shrinking class names
+
+Both `build.sh` and `flash.sh` accept `--shrink`, which applies the active release class-name shrink map (off by default):
+
+```bash
+./scripts/build.sh --app helloworld --release --shrink
+./scripts/flash.sh --app helloworld --release --shrink
+```
+
+Firmware and PAPK must be built with the same setting, or the install is rejected with a version mismatch — see [Class-name shrinker](/reference/shrinker/).
 
 ## Generating a UF2 file
 

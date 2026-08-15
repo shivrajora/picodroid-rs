@@ -11,13 +11,24 @@ Networking is a board capability, not a Cargo feature — a board opts in by set
 
 ## Network status
 
+On hardware the WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in `onCreate()` races the link. Poll `NetworkInfo.isConnected()` against a deadline instead of checking it once:
+
 ```java
 import picodroid.net.NetworkInfo;
 import picodroid.net.InetAddress;
+import picodroid.os.SystemClock;
+
+// Wait up to 30 s for WiFi join + DHCP (instant under the simulator).
+long deadline = SystemClock.elapsedRealtimeNanos() + 30_000_000_000L;
+while (!NetworkInfo.isConnected() && SystemClock.elapsedRealtimeNanos() < deadline) {
+    SystemClock.sleep(500);
+}
 
 if (NetworkInfo.isConnected()) {
     InetAddress me = new InetAddress(NetworkInfo.getIpAddress());
     Log.i("Net", "IP: " + me.getHostAddress());   // "192.168.1.42"
+} else {
+    Log.w("Net", "network not up after 30 s");
 }
 ```
 
@@ -153,8 +164,19 @@ u.getPath();       // "/status?id=42"  — query string is part of the path
 See [`examples/http_get/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/http_get) for a full GET + POST worked example.
 
 > **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
+>
+> Network builds require the `vendor/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init vendor/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
 
 > **WiFi credentials:** on hardware, the firmware joins the network named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time** (WPA2; leave the password empty for an open network). They are baked into the image, so rebuild after changing them and never commit images built with real credentials. Without an SSID the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
+
+## Current limits
+
+- Open and WPA2-AES networks only — no WPA3, no enterprise auth.
+- No TLS: HTTPS URLs throw at `connect()`.
+- Socket I/O is chunked at 256 bytes per native call; larger reads/writes loop internally.
+- HTTP error reporting is coarse: failures surface as a single exception type whose message carries little detail.
+
+See [Known issues & current limits](/reference/known-issues/) for the live list.
 
 ---
 
