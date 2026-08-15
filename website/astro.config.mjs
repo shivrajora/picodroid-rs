@@ -56,6 +56,7 @@ export default defineConfig({
           label: 'Get started',
           items: [
             { label: 'Build & flash (RP)', slug: 'get-started/build' },
+            { label: 'WiFi & networking setup', slug: 'get-started/networking' },
             { label: 'Hot-swap with pdb', slug: 'get-started/hot-swap' },
             { label: 'Host simulator', slug: 'get-started/simulator' },
             { label: 'Your first app', slug: 'get-started/first-app' },
@@ -98,9 +99,11 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'Limits & memory budgets', slug: 'reference/limits' },
+            { label: 'Known issues & limits', slug: 'reference/known-issues' },
             { label: 'Android compatibility matrix', slug: 'reference/compatibility-matrix' },
             { label: 'Manifest', slug: 'reference/manifest' },
             { label: 'Cargo aliases', slug: 'reference/cargo-aliases' },
+            { label: 'pdb commands', slug: 'reference/pdb-commands' },
             { label: 'Class-name shrinker', slug: 'reference/shrinker' },
             { label: 'Advanced configuration', slug: 'reference/advanced-config' },
             { label: 'JVM tunables', slug: 'reference/jvm-tunables' },
