@@ -421,10 +421,10 @@ mod rtos_impl {
                 // sensor sampler and the jvm-bg workers run Java against the
                 // shared single-core JVM heap, and two equal-priority workers
                 // scheduled onto both cores would race it.  Core 1 is
-                // reserved for the wifi task and the RP2040 flash parker —
-                // the only tasks that opt out of this pin, and now that
-                // RP2040 sets configRUN_MULTIPLE_PRIORITIES=1 an unpinned
-                // task here really would migrate.
+                // reserved for the cyw43 wifi task (PIO transport, see
+                // boot_tasks.rs) and the flash parker — the only tasks that
+                // opt out of this pin, and with configRUN_MULTIPLE_PRIORITIES=1
+                // on both chips an unpinned task here really would migrate.
                 return Task::new()
                     .name(spec.name)
                     .stack_size(words)

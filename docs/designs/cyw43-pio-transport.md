@@ -1,22 +1,62 @@
 # Design + bug: cyw43 PIO transport, so WiFi can run on core 1 — 2026-08-14
 
-**Goal (fixed requirement):** the `cyw43` task must run **pinned to core 1**, so
-core 0 stays free for JVM execution. It is currently pinned to core 0 as a
-workaround; that workaround is not acceptable as the end state.
-
-This doc is written to be picked up cold in a new session. It carries the
-evidence gathered so far, the two bugs behind the workaround (one fixed, one
-open), why PIO is the structural answer, and what porting it actually involves.
+**RESOLVED 2026-08-14:** the PIO transport shipped
+(`platforms/rp/src/hal/rp/pio_spi.rs`) and the `cyw43` task is pinned to
+**core 1** (`boot_tasks.rs`, `.core_affinity(0b10)`). Core 0 is the JVM's.
+The history, evidence, and debug recipes below are retained because they are
+the durable value of this investigation.
 
 ## Status summary
 
 | Item | State |
 |---|---|
 | Flash/XIP core-1 lockup (RP2350) | **Fixed**, committed `d445785` |
-| cyw43 pinned to core 0 | **Workaround in `main`** — the thing to undo |
-| Bug A — chip bring-up fails on core 1 (`F2 not ready`) | Cause identified; **fix attempted and reverted** — see below |
-| Bug B — RX never delivers, join stalls | **Open** — primary work |
-| PIO transport | **Not started** — this design |
+| cyw43 pinned to core 0 | **Removed** — task runs on core 1 |
+| Bug A — chip bring-up fails on core 1 (`F2 not ready`) | **Mooted by PIO** — no CPU-timed bus phases remain |
+| Bug B — RX never delivers, join stalls | **Gone with the PIO transport** — see outcome below |
+| PIO transport | **Done** — Rust, PIO0 SM0 + DMA ch4/5, 37.5 MHz |
+
+## Outcome (what actually shipped)
+
+- **Option 1** as designed: Rust transport in `hal/rp/pio_spi.rs`, exposing
+  the six `cyw43_spi_*` functions `#[no_mangle] extern "C"`; the bit-bang
+  `cyw43_bus_spi.c` and the dead `port/hardware/pio.h` shim are deleted.
+  Raw-PAC register access (per-transfer EXECCTRL wrap rewrites are not
+  expressible in rp235x-hal's typed PIO API). Program is pico-sdk's
+  `spi_gap01_sample0`, assembled at compile time by `pio::pio_asm!`
+  (note: at pio 0.3.0 the macro lives in the `pio` crate, not `pio_proc`).
+- **Clock:** 150 MHz / clkdiv 2 / 2 SM-cycles-per-bit = **37.5 MHz** gSPI,
+  pico-sdk's shipping rate on RP2350. No fallback divider was needed.
+- **Transfer shapes:** the vendored driver only issues `(tx, N, NULL, 0)`
+  writes and `(buf, N, buf, N)` reads, so the read path hardcodes a 4-byte
+  command phase (X=31, Y=(N-4)*8-1, RX DMA into `buf+4`). A 16-byte aligned
+  bounce buffer covers the two unaligned boot-time swap-register transfers.
+  Write-only end-of-transfer = DMA done **then** FDEBUG.TXSTALL re-assert.
+- **The PRIMASK guard is gone.** Frames complete autonomously under
+  preemption; a park/preempt mid-transfer only delays CS deassert past an
+  already-completed frame.
+- **Bug A** needed no RAM placement at all — nothing timing-critical executes
+  from flash anymore. (The unexplained core-0 boot crash of the reverted
+  `.data.cyw43_spi` experiment remains unexplained, but no longer matters;
+  the shipped image's `.data` is byte-identical in size/VMA to the baseline.)
+- **Bug B never reproduced** on the PIO transport: with cyw43 on core 1 and
+  blinky loading core 0, DHCP binds in ~4.5 s, `rx_ok` climbs with zero
+  drops, host-wake asserts, and `wifi_join_state` sits at its post-join
+  terminal value `0x1` (the driver collapses `WIFI_JOIN_STATE_ALL` back to
+  `ACTIVE` on completion — `cyw43_ctrl.c:434`; transient AUTH/LINK/KEYED
+  bits are only visible mid-join). Read-path timing (candidate 2) was
+  evidently the cause; the host-wake gate (candidate 1) and the poll loop
+  (candidate 3) were verified healthy via the counters below.
+- **Validation on `testbench_rp2350w`:** blinky (core 0 busy, 200+ LED
+  lines) → `ip 192.168.4.94`; http_get end-to-end (DNS + TCP,
+  `status=200`, 571 body bytes) with its BASE_URL temporarily pointed at a
+  real host; 10/10 `pdb install` soak alternating blinky/http_get, WiFi
+  re-associating after every runtime flash write.
+- **Standing instrumentation** (silent, gdb-read only — never log the hot
+  path): `instr_tx_ok/tx_fail`, `instr_rx_ok/…nobuf/…queue/…noiface` in
+  `NetworkInterface_CYW43.c`; `instr_hostwake_reads/high` in `cyw43_port.c`;
+  `INSTR_CYW43_POLLS` in `wifi_task.rs` (~10/s baseline from the 100 ms
+  fallback). These are the first read on any future core-1 RX regression.
 
 ## How we got here
 
@@ -352,25 +392,13 @@ shared. `probe-rs` loses its RTT control block if the device reboots underneath
 it (a `pdb install` does), producing a garbage backtrace that is not a device
 fault. Leftover `probe-rs` holds the USB claim → "Failed to open probe".
 
-## Current working-tree state (as of writing)
+## Current state
 
-The working tree is **clean**; everything below is described so it can be
-recreated, not recovered.
-
-`main` has cyw43 pinned to **core 0** (the workaround). Nothing from the
-investigation is committed except this doc — the Bug A RAM fix was reverted for
-the boot crash described above, and the instrumentation was stripped.
-
-To pick this up, recreate:
-
-- **The counters.** `volatile uint32_t instr_tx_ok, instr_tx_fail, instr_rx_ok,
-  instr_rx_drop_nobuf, instr_rx_drop_queue, instr_rx_noiface;` in
-  `NetworkInterface_CYW43.c`, incremented in `xCYW43_Output` (after the send) and
-  at each early-return in `cyw43_cb_process_ethernet`. Read over gdb, never
-  logged — see the recipes above.
-- **The core-1 pin.** `.core_affinity(0b10)` on the cyw43 task in
-  `boot_tasks.rs`. The comment block above it currently documents the core-0
-  workaround and must be rewritten when core 1 lands for real.
+Everything described in this doc has landed: the PIO transport
+(`hal/rp/pio_spi.rs`), the core-1 pin (`boot_tasks.rs`), and the counters
+(permanent — see the Outcome section at the top). The gdb recipes above read
+them by name; `INSTR_CYW43_POLLS` is a Rust `AtomicU32`, so cast it in gdb
+batch scripts (`*(unsigned int *)&INSTR_CYW43_POLLS`).
 
 ## Related
 

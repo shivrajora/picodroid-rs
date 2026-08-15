@@ -85,8 +85,16 @@ void cyw43_hal_pin_config_irq_falling(int pin, int enable) {
  * chip-driven level, not our own output latch.
  */
 
+/* Silent host-wake counters (gdb-read only, never logged — see Bug B in
+ * docs/designs/cyw43-pio-transport.md).  Separates "host-wake never
+ * asserts" from "poll never runs" without perturbing hot-path timing. */
+volatile uint32_t instr_hostwake_reads, instr_hostwake_high;
+
 int cyw43_hal_pin_read(int pin) {
-    return (SIO_GPIO_IN_ADDR & (1u << pin)) ? 1 : 0;
+    int level = (SIO_GPIO_IN_ADDR & (1u << pin)) ? 1 : 0;
+    instr_hostwake_reads++;
+    instr_hostwake_high += level;
+    return level;
 }
 
 /* ---- Driver log formatting ---- */

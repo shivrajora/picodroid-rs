@@ -59,14 +59,17 @@ clean, universal bug worth a PR to georgerobotics/cyw43-driver; the
 error-status logging patch may also be PR-worthy. Keeping the fork small
 makes upstream rebases cheaper.
 
-## NET-4: PIO gSPI transport
+## NET-4: PIO gSPI transport — DONE 2026-08-14
 
-The transport is bit-banged at ~1.25 MHz with interrupts masked per transfer
-(a 1.5 KB frame ≈ 10 ms of IRQ-off time on core 1). Fine for bring-up and
-modest traffic; real throughput wants the PIO-based gSPI at 30+ MHz like
-pico-sdk (`cyw43_bus_pio_spi.c` is a good reference — note it also uses
-`SIDE_SET` for the clock and DMA for payloads). This also shrinks the atomic
-sections to microseconds, making NET-5 more attractive.
+Implemented in Rust as `platforms/rp/src/hal/rp/pio_spi.rs` (PIO0 SM0 + DMA
+channels 4/5, pico-sdk `spi_gap01_sample0` semantics), replacing the deleted
+bit-bang `cyw43_bus_spi.c`. The bus now runs at 37.5 MHz (150 MHz / clkdiv 2
+/ 2 cycles-per-bit) and the per-transfer PRIMASK guard is gone entirely —
+frames complete autonomously in hardware, which is what allowed the cyw43
+task to move to core 1 (`boot_tasks.rs`). Validated on HW: blinky-loaded
+core 0 + DHCP, http_get end-to-end TCP, 10/10 pdb-install soak. See
+`docs/designs/cyw43-pio-transport.md` for the full history and debug
+recipes. With atomic sections gone, NET-5 is now unblocked.
 
 ## NET-5: host-wake GPIO interrupt instead of 100 ms polling
 
@@ -112,7 +115,8 @@ Known, unfixed, low-priority:
 - `socket_table.rs` 32-bit `remove()` is a no-op (leaks table slots on close
   in the 32-bit handle configuration).
 - Socket I/O is chunked at 256 bytes per native call — correctness-fine,
-  throughput-poor; revisit together with NET-4.
+  throughput-poor. NET-4 is done (bus now 37.5 MHz, ~30x faster), so this
+  chunking is the remaining throughput bottleneck if anyone cares to measure.
 - `http_connection.rs` maps every failure (DNS, connect, TLS-less refusal…)
   to `JvmError::InvalidReference`; worth distinct IOException messages now
   that the stack is real. During bring-up this cost a full debug cycle to

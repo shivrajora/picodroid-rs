@@ -32,6 +32,18 @@ extern cyw43_t cyw43_state;
  * returns NULL and every received frame is dropped. */
 static NetworkInterface_t *pxRegisteredInterface = NULL;
 
+/* ---- Silent diagnostic counters (read over gdb, NEVER logged) ----
+ *
+ * Standing instrumentation for the core-1 RX-stall investigation
+ * (docs/designs/cyw43-pio-transport.md, Bug B).  Logging in the TX/RX hot
+ * path perturbs timing enough to mask the bug, so these are only ever read
+ * from a debugger:
+ *   printf "tx=%u/%u rx=%u nobuf=%u qfull=%u noif=%u\n", instr_tx_ok, ...
+ */
+volatile uint32_t instr_tx_ok, instr_tx_fail;
+volatile uint32_t instr_rx_ok, instr_rx_drop_nobuf, instr_rx_drop_queue,
+    instr_rx_noiface;
+
 /* ---- Interface function pointers ---- */
 
 static BaseType_t xCYW43_Init(NetworkInterface_t *pxInterface) {
@@ -68,6 +80,12 @@ static BaseType_t xCYW43_Output(NetworkInterface_t *pxInterface,
         false /* not async */
     );
     cyw43_thread_exit();
+
+    if (ret == 0) {
+        instr_tx_ok++;
+    } else {
+        instr_tx_fail++;
+    }
 
     if (xReleaseAfterSend != pdFALSE) {
         vReleaseNetworkBufferAndDescriptor(pxNetworkBuffer);
@@ -128,12 +146,14 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
 
     /* Frames can arrive before the interface is registered with the stack */
     if (pxRegisteredInterface == NULL) {
+        instr_rx_noiface++;
         return;
     }
 
     /* Allocate a FreeRTOS+TCP network buffer */
     NetworkBufferDescriptor_t *pxBuffer = pxGetNetworkBufferWithDescriptor(len, 0);
     if (pxBuffer == NULL) {
+        instr_rx_drop_nobuf++;
         return;
     }
 
@@ -149,7 +169,10 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
     xEvent.pvData = pxBuffer;
 
     if (xSendEventStructToIPTask(&xEvent, 0) != pdPASS) {
+        instr_rx_drop_queue++;
         vReleaseNetworkBufferAndDescriptor(pxBuffer);
+    } else {
+        instr_rx_ok++;
     }
 }
 

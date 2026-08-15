@@ -83,7 +83,8 @@ pub fn build_cyw43_driver(
         }
     }
 
-    build.file(format!("{port_dir}/net/cyw43_bus_spi.c"));
+    // The gSPI transport itself is Rust (`hal/rp/pio_spi.rs`, PIO-based);
+    // its cyw43_spi_* symbols resolve from the Rust rlib at final link.
     build.file(format!("{port_dir}/net/cyw43_port.c"));
     build.file(format!("{port_dir}/net/libc_str.c"));
 

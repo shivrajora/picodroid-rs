@@ -28,4 +28,6 @@ pub mod uart;
 #[cfg(has_network)]
 pub mod net;
 #[cfg(network_cyw43)]
+pub mod pio_spi;
+#[cfg(network_cyw43)]
 pub mod wifi_task;

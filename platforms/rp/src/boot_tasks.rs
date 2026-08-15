@@ -93,23 +93,23 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
     // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
     //
-    // Pinned to core 0, like every task on this family except the parker.  It
-    // ran on core 1 until 2026-08-13 ("keeps core 0 free for JVM/UI"), which
-    // was safe only because configRUN_MULTIPLE_PRIORITIES=0 stopped it from
-    // ever truly overlapping a different-priority core-0 task.  Enabling real
-    // SMP for the flash parker removed that accident and DHCP stopped binding
-    // whenever the app kept core 0 busy: link up, endpoint stuck at 0.0.0.0,
-    // no recovery (reproduced 4/4 with blinky, fixed 1/1 by this pin).
+    // Pinned to core 1 so core 0 stays free for the JVM.  This is safe under
+    // real SMP (configRUN_MULTIPLE_PRIORITIES=1) because the gSPI transport
+    // is PIO+DMA (`hal/rp/pio_spi.rs`): bus frames are clocked by the PIO
+    // state machine and fed by DMA, so they complete autonomously no matter
+    // what either CPU core executes — unlike the deleted bit-bang, whose
+    // instruction-timed clock broke the moment a loaded core 0 contended for
+    // XIP (DHCP stuck at 0.0.0.0; see docs/designs/cyw43-pio-transport.md).
     //
-    // The underlying race in the driver/+TCP glue is real and still unfixed —
-    // this pin restores the serialisation that was hiding it, and core 1 is
-    // now the parker's alone, which is also what makes the park window safe.
+    // Core 1 is shared with the flash parker (priority 30 > 22): a park
+    // mid-transfer only delays the CS deassert past an already-completed
+    // frame, which the chip tolerates.
     #[cfg(network_cyw43)]
     Task::new()
         .name("cyw43")
         .stack_size(crate::boot_budget::CYW43_STACK_WORDS)
         .priority(TaskPriority(task_priority::PRIORITY_RT_2))
-        .core_affinity(0b01) // core 0 only
+        .core_affinity(0b10) // core 1 only
         .start(move |_| crate::hal::wifi_task::run_cyw43_task())
         .unwrap();
 

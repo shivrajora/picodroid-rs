@@ -114,8 +114,17 @@ pub fn run_cyw43_task() -> ! {
     // Driver poll loop — woken by ISR notifications or 100 ms timeout.
     loop {
         CurrentTask::take_notification(true, Duration::ms(100));
+        // Silent poll counter (gdb-read only, never logged): proves the loop
+        // itself is running when diagnosing RX stalls (Bug B in
+        // docs/designs/cyw43-pio-transport.md).
+        INSTR_CYW43_POLLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         unsafe {
             cyw43::poll();
         }
     }
 }
+
+/// Poll-loop iteration counter for the Bug B decision tree; `no_mangle` so a
+/// gdb batch script can read it by name alongside the C-side counters.
+#[no_mangle]
+pub static INSTR_CYW43_POLLS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
