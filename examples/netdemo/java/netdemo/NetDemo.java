@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package netdemo;
 
+import java.io.IOException;
 import picodroid.app.Application;
 import picodroid.net.InetAddress;
 import picodroid.net.NetworkInfo;
@@ -53,25 +54,33 @@ public class NetDemo extends Application {
     Log.i(TAG, "Connecting to " + server.getHostAddress() + ":" + port);
 
     Socket sock = new Socket();
-    sock.connect(server.getRawAddress(), port);
-    sock.setTimeout(5000);
+    try {
+      sock.connect(server.getRawAddress(), port);
+      sock.setTimeout(5000);
 
-    // Send a message.
-    byte[] msg = new byte[] {'H', 'e', 'l', 'l', 'o'};
-    int sent = sock.send(msg, 0, msg.length);
-    Log.i(TAG, "Sent " + sent + " bytes");
+      // Send a message.
+      byte[] msg = new byte[] {'H', 'e', 'l', 'l', 'o'};
+      int sent = sock.send(msg, 0, msg.length);
+      Log.i(TAG, "Sent " + sent + " bytes");
 
-    // Receive the echo.
-    byte[] buf = new byte[64];
-    int n = sock.recv(buf, 0, buf.length);
-    Log.i(TAG, "Received " + n + " bytes");
+      // Receive the echo.
+      byte[] buf = new byte[64];
+      int n = sock.recv(buf, 0, buf.length);
+      Log.i(TAG, "Received " + n + " bytes");
 
-    // Log received bytes as characters.
-    for (int i = 0; i < n; i++) {
-      Log.i(TAG, "  [" + i + "] = " + (char) buf[i]);
+      // Log received bytes as characters.
+      for (int i = 0; i < n; i++) {
+        Log.i(TAG, "  [" + i + "] = " + (char) buf[i]);
+      }
+
+      Log.i(TAG, "Done.");
+    } catch (IOException e) {
+      // Expected when no echo server is listening at the address above —
+      // see the class javadoc for how to run one.
+      Log.i(TAG, "Echo connection failed: " + e.getMessage());
+      Log.i(TAG, "(is an echo server running and reachable? see NetDemo javadoc)");
+    } finally {
+      sock.close();
     }
-
-    sock.close();
-    Log.i(TAG, "Done.");
   }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
+import java.io.IOException;
+
 /** TCP client socket. */
 public class Socket implements AutoCloseable {
   private int handle;
@@ -20,8 +22,10 @@ public class Socket implements AutoCloseable {
    *
    * @param addr IPv4 address as a packed int (from InetAddress.getRawAddress())
    * @param port remote port number
+   * @throws IOException if the connection cannot be established (unreachable host, refused,
+   *     timeout); the message carries the stack error code
    */
-  public native void connect(int addr, int port);
+  public native void connect(int addr, int port) throws IOException;
 
   /**
    * Send data.

@@ -278,6 +278,8 @@ pub(super) fn builtin_super(name: &str) -> Option<&'static str> {
         "java/lang/NumberFormatException" | "java/util/IllegalFormatException" => {
             Some("java/lang/IllegalArgumentException")
         }
+        // Checked exceptions thrown alloc-by-name from natives (net stack).
+        "java/io/IOException" => Some("java/lang/Exception"),
         "java/lang/ArrayIndexOutOfBoundsException"
         | "java/lang/StringIndexOutOfBoundsException" => {
             Some("java/lang/IndexOutOfBoundsException")

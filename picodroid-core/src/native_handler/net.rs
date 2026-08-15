@@ -12,10 +12,14 @@ pub fn dispatch(
     let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         // ── Socket ──────────────────────────────────────────────────────
-        ("picodroid/net/Socket", "nativeCreate") => Some(crate::net::socket::native_create()),
-        ("picodroid/net/Socket", "connect") => {
-            Some(crate::net::socket::connect_native(ctx.args, ctx.objects))
+        ("picodroid/net/Socket", "nativeCreate") => {
+            Some(crate::net::socket::native_create(ctx.objects, ctx.strings))
         }
+        ("picodroid/net/Socket", "connect") => Some(crate::net::socket::connect_native(
+            ctx.args,
+            ctx.objects,
+            ctx.strings,
+        )),
         ("picodroid/net/Socket", "send") => Some(crate::net::socket::send_native(
             ctx.args,
             ctx.objects,

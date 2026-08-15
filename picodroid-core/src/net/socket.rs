@@ -1,26 +1,47 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Native implementations for picodroid.net.Socket.
 
+use alloc::format;
+
 use pico_jvm::array_heap::ArrayHeap;
+use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
-use super::helpers::{extract_handle, extract_socket_ptr};
+use super::helpers::{extract_handle, extract_socket_ptr, throw_io_exception};
 use super::socket_table;
 
 /// Max bytes per send/recv call — stack-allocated intermediate buffer.
 const BUF_SIZE: usize = 256;
 
 /// Socket.nativeCreate() — create a TCP socket, return handle.
-pub fn native_create() -> Result<Option<Value>, JvmError> {
-    let ptr = crate::hal::net::tcp_socket().map_err(|_| JvmError::InvalidReference)?;
+pub fn native_create(
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let ptr = crate::hal::net::tcp_socket().map_err(|e| {
+        throw_io_exception(
+            objects,
+            strings,
+            &format!("socket create failed (err {})", e.0),
+        )
+    })?;
     let handle = socket_table::register(ptr);
     Ok(Some(Value::Int(handle)))
 }
 
 /// Socket.connect(int addr, int port)
-pub fn connect_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+///
+/// Failure is a `java/io/IOException` (Android: `Socket.connect` throws
+/// IOException), not `InvalidReference` — an unreachable host is an app-
+/// visible condition, not a JVM fault. The message carries the stack error
+/// code (FreeRTOS+TCP errno on device, host errno in sim).
+pub fn connect_native(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
     let ptr = extract_socket_ptr(args, objects, fields::socket::HANDLE)?;
     let addr = match args.get(1) {
         Some(Value::Int(v)) => *v as u32,
@@ -30,7 +51,9 @@ pub fn connect_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Val
         Some(Value::Int(v)) => *v as u16,
         _ => return Err(JvmError::InvalidReference),
     };
-    crate::hal::net::tcp_connect(ptr, addr, port).map_err(|_| JvmError::InvalidReference)?;
+    crate::hal::net::tcp_connect(ptr, addr, port).map_err(|e| {
+        throw_io_exception(objects, strings, &format!("connect failed (err {})", e.0))
+    })?;
     Ok(None)
 }
 

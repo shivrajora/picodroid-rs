@@ -2,10 +2,36 @@
 //! Shared helper functions for picodroid.net native methods.
 
 use core::ffi::c_void;
+use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::socket_table;
+
+/// Allocate a `java/io/IOException` carrying `msg` and wrap it as a thrown
+/// Java exception. Alloc-by-name with exact-name catch, the pattern
+/// established for NumberFormatException/UnsupportedOperationException — the
+/// class needs no .class file, and `Throwable.getMessage()` surfaces the
+/// message via the ObjectHeap side table.
+///
+/// Use this for genuine I/O failures (unreachable host, reset connection…)
+/// so apps get the catchable Android contract; keep `InvalidReference` for
+/// malformed native arguments, which are bugs, not I/O conditions.
+pub fn throw_io_exception(
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+    msg: &str,
+) -> JvmError {
+    match objects.alloc("java/io/IOException") {
+        Some(idx) => {
+            if let Some(midx) = strings.intern_dyn(msg.as_bytes()) {
+                objects.register_exception_message(idx, midx);
+            }
+            JvmError::Exception(idx)
+        }
+        None => JvmError::StackOverflow,
+    }
+}
 
 /// Extract `this` object index from args[0].
 pub fn extract_obj_idx(args: &[Value]) -> Result<u16, JvmError> {
