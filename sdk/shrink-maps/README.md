@@ -84,5 +84,6 @@ files together. From that commit onwards, both `build.rs` and
 | `v0.9.0.toml` | Stable — byte-identical to v0.8.0 (relicense, multi-family refactor, ESP32-S3 M1, Display singleton bootstrap). |
 | `v0.10.0.toml` | + 23 classes (87 → 110): Android-parity Tier 1/2 typed-listener interfaces, the `Adapter` pattern (`Adapter`, `AdapterView`, `ArrayAdapter`, `BaseAdapter`), `ViewGroup` / `LayoutParams`, `CompoundButton`, and `DialogInterface` / `DisplayDebug`. v0.9.0 entries copied verbatim. |
 | `v0.11.0.toml` | + 25 classes (110 → 135): `AlertDialog` moved to `picodroid.app`, `SharedPreferences`, `IBinder` moved to `picodroid.os`, `URL` / `HttpURLConnection` renamed to Java casing, `TextWatcher`, `Gravity`, `InputType`, `GestureDetector.SimpleOnGestureListener`, the animation interpolator family, `NumberPicker`, and `RadioButton` / `RadioGroup`. v0.10.0 entries copied verbatim. |
+| `v0.12.0.toml` | Stable — byte-identical to v0.11.0 (the Pico 2 W networking bring-up, FreeRTOS host sim, and crate extractions added no framework classes). |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

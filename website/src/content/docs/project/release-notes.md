@@ -3,7 +3,55 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.11.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.12.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## v0.12.0 — 2026-08-14
+
+The networking release. WiFi on the Pico 2 W goes from "compiles" to validated end-to-end on hardware, the host simulator starts running the real FreeRTOS kernel, and runtime flash writes (the `pdb install` path) are fixed on both chips. The Java SDK surface is unchanged — everything here is framework, platform, and tooling work behind the existing API.
+
+**Networking — WiFi works on hardware (Pico 2 W)**
+
+- The full `picodroid.net` stack (TCP/UDP sockets, `HttpURLConnection`) now runs end-to-end on `testbench_rp2350w`: WPA2 join in ~6 s, DHCP lease shortly after, TCP echo and HTTP GET/POST validated against LAN hosts. The API itself is unchanged — it now works on the device instead of only under the simulator's host stack.
+- The cyw43 gSPI transport was rewritten in Rust on PIO + DMA (PIO0, 37.5 MHz), replacing the vendored bit-bang C transport, and the WiFi task runs on core 1 — leaving core 0 to the JVM.
+- `vendor/cyw43-driver` now points at the picodroid fork. **Existing checkouts must run** `git submodule sync && git submodule update --init vendor/cyw43-driver`; the device build fails early with instructions if the unpatched upstream is detected.
+- WiFi credentials are baked in at build time via `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` — see the new [WiFi & networking setup guide](/get-started/networking/). On hardware, poll `NetworkInfo.isConnected()` before the first socket call; `netdemo` and `http_get` show the pattern (an app's `onCreate` races the WiFi join + DHCP window).
+- Current limits are collected on the new [known issues](/reference/known-issues/) page: open/WPA2-AES networks only, no TLS, 256-byte socket I/O chunking, coarse HTTP error reporting.
+
+**Breaking: ESP32-S3 support removed**
+
+- The compile-only ESP32-S3 / Lilygo T-Deck Plus target (Milestone-1 scaffolding from v0.9.0) is gone: `platforms/esp/`, the `tdeck_plus` board, its cargo aliases, and its docs pages. Retrieve `platforms/esp/` from git history if it returns. Supported boards are now the four RP-family ones (Pico, Pico 2, Pico 2 W, Pico + Enviro+ pack).
+
+**Simulator — the real FreeRTOS kernel**
+
+- The host simulator now compiles and runs the actual FreeRTOS kernel (POSIX port) in-process instead of approximating it with host threads. `Thread.start()` spawns a real task with the device's 16 KiB stack charged against the simulated heap, `Executors.backgroundExecutor()` runs on the device's four `jvm-bg` worker tasks, `synchronized` uses kernel recursive mutexes, and `threaddemo` now runs — and is asserted — under the sim.
+- Remaining gap, documented in the [simulator guide](/get-started/simulator/): the POSIX port is single-core, so cross-core races remain hardware-only.
+
+**Runtime flash writes fixed on both chips**
+
+- RP2040: install-time flash writes no longer hang. Three stacked causes fixed — core-1 execution in the XIP-off window (a core-1 parker task now covers it), a FreeRTOS scheduler-configuration deadlock, and a per-core VTOR defect. `pdb install` now works on the original Pico.
+- RP2350: a recurrence (core 1 taking an interrupt inside the XIP-off window) fixed by extending the core-1 parker; regression-verified across the full HIL suite.
+
+**Tooling**
+
+- New `pdb input` — Android-faithful synthetic input over USB: `keyevent`, `dpad`, `back`, `tap`, `swipe`, resolved against the board's button table on-device. The sim control channel accepts the same `input …` verbs, so an input sequence rehearsed headlessly replays verbatim on hardware. See the new [pdb command reference](/reference/pdb-commands/).
+- `pdb --help` now prints the real command set (including `input` and `logcat`); `pdb sysmon` prints the JVM block after the task table; `papk-info` labels ≥ 1 MiB sizes correctly.
+- Flash-size reporting is honest: builds report usage against the linker's *program region* (an RP2040 `--release` image is 99% full, not the previously reported 43% of chip total), and RP2040 release builds automatically drop LTO to fit the 896 K ceiling — build via `scripts/build.sh`, not raw `cargo build --release`, on RP2040.
+- `hil-run.sh` derives the probe chip from the board and can now drive the RP2040 testbench.
+- PAPKs are structurally validated at embed time — a corrupt `PICODROID_APK_PATH` fails the build with a clear message instead of failing mysteriously at install.
+
+**Framework & robustness**
+
+- `NotificationManager.notify` / `cancel` are implemented (previously stubs).
+- Button GPIO edges get a 5 ms per-pin dead-time debounce; all sensor I2C moved to a dedicated FreeRTOS sampler task shared by sim and device.
+- Keypad bursts are no longer misdelivered across Activity transitions; widget listener maps unregister on `LV_EVENT_DELETE`; picoenvmon threshold alerts are edge-detected (one log line per alert edge instead of ~13/s at idle).
+- New `[jvm] prereserve_*` board tunables pre-reserve steady-state heap storage at app start to curb navigation-churn fragmentation — see [JVM tunables](/reference/jvm-tunables/).
+
+**Internal architecture**
+
+- The platform-agnostic framework moved into the `picodroid-core` crate (JVM natives, lifecycle, graphics, networking, sim HAL); the PAPK container format and the PDB wire protocol became the `papk-format` and `pdb-protocol` crates — each a single source of truth shared by firmware, simulator, and host tools. A pre-commit shadow-twin guard keeps the trees disjoint.
+- The 2026-07 code-health audit closed its P0/P1 backlog: clippy now gates all host tools and every board (ARM targets included), CI enforces the shrink-map append-only invariant and the widened LVGL constant drift guard, and a generation-tagged widget handle table is staged behind the default-off `handle-table-32` feature for 32-bit targets.
+
+Shrink map: **stable — byte-identical to v0.11.0** (135 classes). The networking, simulator, and extraction work all landed outside the `sdk/java` framework surface.
 
 ## v0.11.0 — 2026-07-20
 
