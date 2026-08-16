@@ -262,7 +262,7 @@ mod net_stub {
     use crate::hal::types::NetError;
     use core::ffi::c_void;
 
-    const DOWN: NetError = NetError(-1);
+    const DOWN: NetError = NetError::other(-1);
 
     impl crate::hal::HalNet for TestHal {
         fn tcp_socket() -> Result<*mut c_void, NetError> {

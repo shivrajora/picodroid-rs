@@ -279,33 +279,30 @@ mod net_glue {
     use core::ffi::c_void;
     use picodroid_core::hal::types::NetError;
 
-    /// The family HAL has its own `NetError`; both wrap the same errno-style
-    /// code, so this is a field lift, not a translation.
-    fn lift<T>(r: Result<T, crate::hal::net::NetError>) -> Result<T, NetError> {
-        r.map_err(|e| NetError(e.0))
-    }
-
+    // Both chip arms (rp and the shared simulator) return the shared
+    // `hal::types::NetError` directly — each family classifies its own
+    // errno space at its boundary, so this glue is a pure pass-through.
     impl picodroid_core::hal::HalNet for Platform {
         fn tcp_socket() -> Result<*mut c_void, NetError> {
-            lift(crate::hal::net::tcp_socket())
+            crate::hal::net::tcp_socket()
         }
         fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
-            lift(crate::hal::net::tcp_connect(sock, addr, port))
+            crate::hal::net::tcp_connect(sock, addr, port)
         }
         fn tcp_send(sock: *mut c_void, data: &[u8]) -> Result<usize, NetError> {
-            lift(crate::hal::net::tcp_send(sock, data))
+            crate::hal::net::tcp_send(sock, data)
         }
         fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
-            lift(crate::hal::net::tcp_recv(sock, buf))
+            crate::hal::net::tcp_recv(sock, buf)
         }
         fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
-            lift(crate::hal::net::tcp_listen(sock, port))
+            crate::hal::net::tcp_listen(sock, port)
         }
         fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
-            lift(crate::hal::net::tcp_accept(sock))
+            crate::hal::net::tcp_accept(sock)
         }
         fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError> {
-            lift(crate::hal::net::udp_socket(local_port))
+            crate::hal::net::udp_socket(local_port)
         }
         fn udp_sendto(
             sock: *mut c_void,
@@ -313,10 +310,10 @@ mod net_glue {
             addr: u32,
             port: u16,
         ) -> Result<usize, NetError> {
-            lift(crate::hal::net::udp_sendto(sock, buf, addr, port))
+            crate::hal::net::udp_sendto(sock, buf, addr, port)
         }
         fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError> {
-            lift(crate::hal::net::udp_recvfrom(sock, buf))
+            crate::hal::net::udp_recvfrom(sock, buf)
         }
         fn close(sock: *mut c_void) {
             crate::hal::net::close(sock)
@@ -331,7 +328,7 @@ mod net_glue {
             crate::hal::net::get_ip_address()
         }
         fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
-            lift(crate::hal::net::dns_resolve(hostname))
+            crate::hal::net::dns_resolve(hostname)
         }
     }
 
