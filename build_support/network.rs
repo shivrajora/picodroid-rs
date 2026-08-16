@@ -22,7 +22,10 @@ use std::path::Path;
 /// must agree on buffer layouts.
 pub fn net_config_overrides(props: &HashMap<String, String>) -> Vec<(String, String)> {
     const KEYS: [(&str, &str); 4] = [
-        ("net_buffer_descriptors", "ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS"),
+        (
+            "net_buffer_descriptors",
+            "ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS",
+        ),
         ("net_tcp_rx_bytes", "ipconfigTCP_RX_BUFFER_LENGTH"),
         ("net_tcp_tx_bytes", "ipconfigTCP_TX_BUFFER_LENGTH"),
         ("net_tcp_win_segs", "ipconfigTCP_WIN_SEG_COUNT"),
@@ -30,9 +33,9 @@ pub fn net_config_overrides(props: &HashMap<String, String>) -> Vec<(String, Str
     let mut defines = Vec::new();
     for (key, define) in KEYS {
         if let Some(v) = props.get(key) {
-            let n: u32 = v
-                .parse()
-                .unwrap_or_else(|_| panic!("board.toml: {key} must be an unsigned integer, got '{v}'"));
+            let n: u32 = v.parse().unwrap_or_else(|_| {
+                panic!("board.toml: {key} must be an unsigned integer, got '{v}'")
+            });
             defines.push((define.to_string(), format!("({n})")));
         }
     }

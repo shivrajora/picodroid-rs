@@ -1710,7 +1710,10 @@ fn registered_parked_frames_are_gc_roots() {
         |_| {},
     );
     assert_eq!(freed, 1, "only the unreferenced object may be swept");
-    assert!(objects.is_live(parked_obj), "parked frame local must survive");
+    assert!(
+        objects.is_live(parked_obj),
+        "parked frame local must survive"
+    );
     assert!(!objects.is_live(garbage));
 
     // After the parked task's execute() ends, its locals become collectable.
