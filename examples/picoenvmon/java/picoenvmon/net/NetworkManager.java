@@ -54,15 +54,21 @@ public class NetworkManager implements Runnable {
 
   private static final long NTP_RESYNC_MS = 6L * 3600 * 1000;
   private static final long NTP_RETRY_MS = 5L * 60 * 1000;
+  private static final long WEATHER_REFRESH_MS = 15L * 60 * 1000;
+  private static final long WEATHER_RETRY_MS = 5L * 60 * 1000;
 
   private int state = STATE_NO_WIFI;
   private String ipDotted;
   private String url;
+  private String weather;
   private boolean started;
   private boolean timeSynced;
 
   /** Next NTP attempt, on the monotonic elapsed-ms clock. 0 = as soon as the stack is up. */
   private long ntpDueAtMs;
+
+  /** Next weather fetch, elapsed-ms clock. 0 = as soon as the stack is up. */
+  private long weatherDueAtMs;
 
   /** No-op (and stays {@link #STATE_NO_WIFI}) when the board has no WiFi. Idempotent. */
   public void start() {
@@ -97,9 +103,15 @@ public class NetworkManager implements Runnable {
     return timeSynced;
   }
 
-  /** Ask the housekeeping tick to re-run NTP (and weather) now. */
+  /** Latest weather one-liner, or null (unavailable / not fetched yet). */
+  public String weather() {
+    return weather;
+  }
+
+  /** Ask the housekeeping tick to re-run NTP and weather now. */
   public void requestRefresh() {
     ntpDueAtMs = 0;
+    weatherDueAtMs = 0;
   }
 
   /** Register for change callbacks (delivered on the main executor). Returns false if full. */
@@ -186,7 +198,8 @@ public class NetworkManager implements Runnable {
 
   /**
    * Periodic work between serves (runs about once per second, on the accept-timeout tick). NTP:
-   * sync at network-up, re-sync every 6 h, back off 5 min on failure.
+   * sync at network-up, re-sync every 6 h, back off 5 min on failure. Weather: refresh every 15
+   * min, same backoff; both fail-soft.
    */
   private void housekeeping() {
     long nowMs = SystemClock.elapsedRealtimeNanos() / 1_000_000;
@@ -197,6 +210,15 @@ public class NetworkManager implements Runnable {
         notifyChanged();
       }
       ntpDueAtMs = nowMs + (ok ? NTP_RESYNC_MS : NTP_RETRY_MS);
+    }
+    if (nowMs >= weatherDueAtMs) {
+      String w = WeatherFetcher.fetch();
+      boolean changed = (w == null) != (weather == null) || (w != null && !w.equals(weather));
+      weather = w;
+      if (changed) {
+        notifyChanged();
+      }
+      weatherDueAtMs = nowMs + (w != null ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
     }
   }
 

@@ -202,6 +202,8 @@ public class HttpServer {
         latest.isValid(LatestReadings.IDX_LIGHT)
             ? f.formatLux(latest.get(LatestReadings.IDX_LIGHT))
             : "--");
+    String w = net.weather();
+    row(sb, "Outdoor (" + WeatherFetcher.CITY + ")", w != null ? w : "unavailable");
     sb.append("</table><p class=\"s\">");
     sb.append(net.statusFooter());
     sb.append("</p>");

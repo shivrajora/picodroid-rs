@@ -7,6 +7,7 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 import picoenvmon.di.EnvAppComponent;
 import picoenvmon.net.NetworkManager;
+import picoenvmon.net.WeatherFetcher;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.TimeFormat;
 
@@ -29,6 +30,7 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
   private TextView ipLine;
   private TextView urlLine;
   private TextView timeLine;
+  private TextView weatherLine;
 
   @Override
   public void onCreate() {
@@ -68,6 +70,10 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
     timeLine = new TextView();
     timeLine.setTextColor(Theme.colorText);
     root.addView(timeLine);
+
+    weatherLine = new TextView();
+    weatherLine.setTextColor(Theme.colorTextSecondary);
+    root.addView(weatherLine);
 
     installHintBar(root, "Y:Back");
     setContentView(root);
@@ -113,5 +119,7 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
         net.isTimeSynced()
             ? "Time: " + TimeFormat.hms(System.currentTimeMillis()) + " UTC"
             : "Time: not synced");
+    String w = net.weather();
+    weatherLine.setText(WeatherFetcher.CITY + ": " + (w != null ? w : "unavailable"));
   }
 }
