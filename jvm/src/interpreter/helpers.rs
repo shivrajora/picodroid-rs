@@ -279,7 +279,18 @@ pub(super) fn builtin_super(name: &str) -> Option<&'static str> {
             Some("java/lang/IllegalArgumentException")
         }
         // Checked exceptions thrown alloc-by-name from natives (net stack).
+        // Mirrors the real java.net hierarchy so superclass catches behave
+        // exactly as on Android — note SocketTimeoutException descends from
+        // InterruptedIOException, NOT SocketException (real-Java quirk).
         "java/io/IOException" => Some("java/lang/Exception"),
+        "java/io/InterruptedIOException" => Some("java/io/IOException"),
+        "java/net/SocketTimeoutException" => Some("java/io/InterruptedIOException"),
+        "java/net/SocketException" => Some("java/io/IOException"),
+        "java/net/ConnectException"
+        | "java/net/NoRouteToHostException"
+        | "java/net/BindException" => Some("java/net/SocketException"),
+        "java/net/UnknownHostException" => Some("java/io/IOException"),
+        "java/net/ProtocolException" => Some("java/io/IOException"),
         "java/lang/ArrayIndexOutOfBoundsException"
         | "java/lang/StringIndexOutOfBoundsException" => {
             Some("java/lang/IndexOutOfBoundsException")

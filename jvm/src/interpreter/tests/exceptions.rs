@@ -388,6 +388,59 @@ fn builtin_throwable_hierarchy_resolves_without_classfiles() {
         "java/lang/RuntimeException",
         "java/lang/Error"
     ));
+    // java.net taxonomy (typed network exceptions, NET-9).
+    assert!(is_instance_of(
+        &classes,
+        "java/net/ConnectException",
+        "java/net/SocketException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/ConnectException",
+        "java/io/IOException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/BindException",
+        "java/net/SocketException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/NoRouteToHostException",
+        "java/io/IOException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/SocketTimeoutException",
+        "java/io/InterruptedIOException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/SocketTimeoutException",
+        "java/io/IOException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/UnknownHostException",
+        "java/io/IOException"
+    ));
+    assert!(is_instance_of(
+        &classes,
+        "java/net/ProtocolException",
+        "java/io/IOException"
+    ));
+    // Real-Java quirk, pinned: SocketTimeoutException extends
+    // InterruptedIOException, NOT SocketException.
+    assert!(!is_instance_of(
+        &classes,
+        "java/net/SocketTimeoutException",
+        "java/net/SocketException"
+    ));
+    assert!(!is_instance_of(
+        &classes,
+        "java/net/SocketException",
+        "java/net/ConnectException"
+    ));
 }
 
 /// Throw a Base exception inside a try that only catches Child (subclass).
@@ -476,4 +529,142 @@ fn uncaught_exception_display_uses_line_format() {
         !s.contains("pc="),
         "should not contain 'pc=' when line known: '{s}'"
     );
+}
+
+// ── Native-minted alloc-by-name exception caught by superclass handler ────
+//
+// class T, method m()I:
+//   try { Net.fail(); return 0; }            ← native, no classfile for Net
+//   catch (java.io.IOException e) {
+//     return e.getMessage() != null ? 99 : 98;
+//   }
+//
+// The test handler intercepts Net.fail and returns a minted
+// java/net/ConnectException (alloc-by-name, no classfile) exactly like the
+// picodroid-core net natives do. Catching it via a catch java/io/IOException
+// entry exercises builtin_super-based catch matching for a native-thrown
+// exception; the getMessage() call exercises method resolution walking
+// builtin_super down to Throwable's dispatcher for a classfile-less receiver.
+//
+// CP (#1..#19, cp_count=20=0x14):
+//   #1 Class→#2 "T",  #3 Class→#4 "java/lang/Object"
+//   #5 Class→#6 "Net",  #7 Methodref→#5,#8 (Net.fail:()V)
+//   #8 NameAndType→#9,#10,  #9 "fail",  #10 "()V"
+//   #11 Class→#12 "java/io/IOException"  ← catch_type
+//   #13 Methodref→#11,#14 (getMessage:()Ljava/lang/String;)
+//   #14 NameAndType→#15,#16,  #15 "getMessage",  #16 "()Ljava/lang/String;"
+//   #17 "m",  #18 "()I",  #19 "Code"
+//
+// Bytecode (17 bytes):
+//    0: B8 00 07  invokestatic #7 (Net.fail) ← throws inside try [0,3)
+//    3: 03        iconst_0
+//    4: AC        ireturn
+//    5: B6 00 0D  invokevirtual #13 getMessage (handler entry, exc on stack)
+//    8: C6 00 06  ifnull → 14
+//   11: 10 63    bipush 99
+//   13: AC        ireturn
+//   14: 10 62    bipush 98
+//   16: AC        ireturn
+//
+// Exception table: start=0, end=3, handler=5, catch_type=#11 (IOException)
+// Code attr len = 2+2+4+17+2+8+2 = 37 = 0x25
+static CLASS_TEST_NATIVE_NET_EXC: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x14, // cp_count=20
+    0x07, 0x00, 0x02, // #1 Class→2
+    0x01, 0x00, 0x01, b'T', // #2 "T"
+    0x07, 0x00, 0x04, // #3 Class→4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 "java/lang/Object"
+    0x07, 0x00, 0x06, // #5 Class→6
+    0x01, 0x00, 0x03, b'N', b'e', b't', // #6 "Net"
+    0x0A, 0x00, 0x05, 0x00, 0x08, // #7 Methodref→#5,#8
+    0x0C, 0x00, 0x09, 0x00, 0x0A, // #8 NameAndType→#9,#10
+    0x01, 0x00, 0x04, b'f', b'a', b'i', b'l', // #9 "fail"
+    0x01, 0x00, 0x03, b'(', b')', b'V', // #10 "()V"
+    0x07, 0x00, 0x0C, // #11 Class→12
+    0x01, 0x00, 0x13, b'j', b'a', b'v', b'a', b'/', b'i', b'o', b'/', b'I', b'O', b'E', b'x', b'c',
+    b'e', b'p', b't', b'i', b'o', b'n', // #12 "java/io/IOException"
+    0x0A, 0x00, 0x0B, 0x00, 0x0E, // #13 Methodref→#11,#14
+    0x0C, 0x00, 0x0F, 0x00, 0x10, // #14 NameAndType→#15,#16
+    0x01, 0x00, 0x0A, b'g', b'e', b't', b'M', b'e', b's', b's', b'a', b'g', b'e', // #15
+    0x01, 0x00, 0x14, b'(', b')', b'L', b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/',
+    b'S', b't', b'r', b'i', b'n', b'g', b';', // #16 "()Ljava/lang/String;"
+    0x01, 0x00, 0x01, b'm', // #17 "m"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #18 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #19 "Code"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    0x00, 0x01, 0x00, 0x11, 0x00, 0x12, 0x00, 0x01, // method: name=#17, desc=#18, attrs=1
+    0x00, 0x13, 0x00, 0x00, 0x00, 0x25, // Code attr: name=#19, len=37
+    0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x11, // max_stack=2, max_locals=1, code_len=17
+    0xB8, 0x00, 0x07, // invokestatic #7 — offset 0
+    0x03, // iconst_0     — offset 3
+    0xAC, // ireturn      — offset 4
+    0xB6, 0x00, 0x0D, // invokevirtual #13 — offset 5 (handler)
+    0xC6, 0x00, 0x06, // ifnull → 14  — offset 8
+    0x10, 0x63, // bipush 99    — offset 11
+    0xAC, // ireturn      — offset 13
+    0x10, 0x62, // bipush 98    — offset 14
+    0xAC, // ireturn      — offset 16
+    0x00, 0x01, // exc_table_len=1
+    0x00, 0x00, 0x00, 0x03, 0x00, 0x05, 0x00, 0x0B, // start=0,end=3,handler=5,type=#11
+    0x00, 0x00, // code_attrs_count=0
+    0x00, 0x00, // class_attrs_count=0
+];
+
+/// Handler that mints a java/net/ConnectException the way the net natives
+/// do — alloc-by-name + intern_dyn message + register_exception_message —
+/// and throws it from a native method.
+struct NetFailHandler;
+impl NativeMethodHandler for NetFailHandler {
+    fn dispatch(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        if class_name == "Net" && method_name == "fail" {
+            let Some(idx) = ctx.objects.alloc("java/net/ConnectException") else {
+                return Some(Err(JvmError::StackOverflow));
+            };
+            if let Some(midx) = ctx.strings.intern_dyn(b"Connection refused") {
+                ctx.objects.register_exception_message(idx, midx);
+            }
+            return Some(Err(JvmError::Exception(idx)));
+        }
+        None
+    }
+}
+
+/// A native-thrown java/net/ConnectException (no classfile) is caught by a
+/// `catch java/io/IOException` handler (also no classfile) via builtin_super,
+/// and getMessage() on the minted object resolves through the builtin
+/// hierarchy to Throwable's dispatcher and returns the registered message.
+#[test]
+fn native_minted_net_exception_caught_by_ioexception_handler() {
+    let cf = ClassFile::parse(CLASS_TEST_NATIVE_NET_EXC).expect("parse failed");
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(cf);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
+    let mut handler = NetFailHandler;
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
+        &mut handler,
+        0,
+        0,
+        &[],
+    );
+    // 99 = caught AND getMessage() returned non-null (98 would mean a null
+    // message; an Err would mean the catch never matched).
+    assert_eq!(result, Ok(Some(Value::Int(99))));
 }
