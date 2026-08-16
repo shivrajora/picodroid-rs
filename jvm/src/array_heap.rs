@@ -57,6 +57,9 @@ pub struct ArrayHeap {
     /// Contiguous arena for large-array element data.
     /// All `ArrayData::Arena` entries index into this Vec.
     arena: Vec<i32>,
+    /// Allocations since the interpreter last folded this into GC pacing
+    /// (see `Executor::fold_native_alloc_events`).
+    alloc_events: u16,
 }
 
 impl ArrayHeap {
@@ -65,7 +68,13 @@ impl ArrayHeap {
             arrays: ChunkedSlots::new(),
             first_free: 0,
             arena: Vec::new(),
+            alloc_events: 0,
         }
+    }
+
+    /// Drain the pacing counter (see `alloc_events`).
+    pub fn take_alloc_events(&mut self) -> u16 {
+        core::mem::take(&mut self.alloc_events)
     }
 }
 
@@ -85,6 +94,7 @@ impl ArrayHeap {
     /// `long[]` and `double[]` occupy two i32 slots per element, so the
     /// physical slot count is `2 * len` for ATYPE_LONG / ATYPE_DOUBLE.
     pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {
+        self.alloc_events = self.alloc_events.saturating_add(1);
         let slots_per_elem = slots_per_elem(atype) as u32;
         let phys_u32 = (len as u32).checked_mul(slots_per_elem)?;
         if phys_u32 > u16::MAX as u32 {

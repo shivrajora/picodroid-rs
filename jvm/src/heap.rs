@@ -33,6 +33,11 @@ pub struct StringTable {
     /// mem-diag monitor's string-churn signal. Plain field (thumbv6m-safe).
     #[cfg(feature = "mem-diag")]
     dyn_intern_total: u32,
+    /// Dynamic-string interns since the interpreter last folded this into
+    /// GC pacing (see `Executor::fold_native_alloc_events`) — counts allocs
+    /// made from native handlers, which never pass through the bytecode
+    /// alloc opcodes.
+    alloc_events: u16,
 }
 
 // SAFETY: the static pointers reference Flash data which is never mutated.
@@ -49,7 +54,13 @@ impl StringTable {
             dyn_start: 0,
             #[cfg(feature = "mem-diag")]
             dyn_intern_total: 0,
+            alloc_events: 0,
         }
+    }
+
+    /// Drain the pacing counter (see `alloc_events`).
+    pub fn take_alloc_events(&mut self) -> u16 {
+        core::mem::take(&mut self.alloc_events)
     }
 
     /// Cumulative `intern_dyn` calls since boot (mem-diag churn metric).
@@ -139,6 +150,7 @@ impl StringTable {
         {
             self.dyn_intern_total = self.dyn_intern_total.wrapping_add(1);
         }
+        self.alloc_events = self.alloc_events.saturating_add(1);
         // Look for a freed slot to reuse.
         for di in 0..self.dyn_bufs.len() {
             if self.dyn_bufs[di].is_none() {

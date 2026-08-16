@@ -409,7 +409,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 match self.arrays.alloc(atype, count as u16) {
                     Some(arr_idx) => {
-                        self.bump_alloc_count(1);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {
@@ -438,7 +437,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     .alloc(crate::array_heap::ATYPE_REF, count as u16)
                 {
                     Some(arr_idx) => {
-                        self.bump_alloc_count(1);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {
@@ -488,7 +486,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
                 match alloc_multi(self.arrays, &counts, 0, inner_atype) {
                     Some(arr_idx) => {
-                        self.bump_alloc_count(counts.len() as u16);
                         frame.push(Value::ArrayRef(arr_idx))?;
                     }
                     None => {

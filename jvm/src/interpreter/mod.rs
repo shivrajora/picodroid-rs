@@ -80,6 +80,27 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         self.gc_state.alloc_count = self.gc_state.alloc_count.saturating_add(n);
     }
 
+    /// Fold the heaps' own allocation counters into GC pacing. The heaps
+    /// count every allocation at the source — including ones minted by
+    /// native handlers and builtins (getBytes, toString interning, sensor
+    /// events), which never pass through the bytecode alloc opcodes and
+    /// were historically invisible to the GC threshold. First bitten by the
+    /// picoenvmon dashboard: its page bodies were built almost entirely by
+    /// builtins, so KB-scale garbage accumulated with the counter near
+    /// zero until a table-growth step OOM'd. Called after every invoke
+    /// opcode and at the 256-instruction checkpoint.
+    #[inline]
+    pub fn fold_native_alloc_events(&mut self) {
+        let n = self
+            .objects
+            .take_alloc_events()
+            .saturating_add(self.arrays.take_alloc_events())
+            .saturating_add(self.strings.take_alloc_events());
+        if n > 0 {
+            self.bump_alloc_count(n);
+        }
+    }
+
     #[inline]
     pub fn need_gc(&self) -> bool {
         self.gc_state.need_gc
@@ -374,9 +395,14 @@ fn execute_frames<H: NativeMethodHandler>(
 
     loop {
         // Cooperative stop-point: checked every 256 bytecode instructions.
+        // Also folds heap-side alloc events so pure-bytecode alloc loops
+        // can't outrun GC pacing between invokes.
         ex.insn_count = ex.insn_count.wrapping_add(1);
-        if ex.insn_count == 0 && ex.handler.interrupted() {
-            return Err(JvmError::Interrupted);
+        if ex.insn_count == 0 {
+            if ex.handler.interrupted() {
+                return Err(JvmError::Interrupted);
+            }
+            ex.fold_native_alloc_events();
         }
         #[cfg(feature = "parity-metrics")]
         crate::parity::count_insn();
@@ -446,6 +472,13 @@ fn execute_frames<H: NativeMethodHandler>(
             0xc4 => ex.op_wide(code, frame),
             op => Err(JvmError::UnsupportedOpcode(op)),
         };
+
+        // Native dispatches mint allocations the bytecode opcodes never see —
+        // fold them into GC pacing while they're fresh (the checkpoint above
+        // covers pure-bytecode alloc loops).
+        if matches!(opcode, 0xb6..=0xba) {
+            ex.fold_native_alloc_events();
+        }
 
         // If op_invoke resolved a Java method, push the new frame.
         if let Some(new_frame) = ex.pending_frame.take() {

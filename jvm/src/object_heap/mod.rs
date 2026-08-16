@@ -122,6 +122,9 @@ pub struct ObjectHeap {
     alloc_histo: Vec<u32>,
     #[cfg(feature = "mem-diag")]
     histo_enabled: bool,
+    /// Allocations since the interpreter last folded this into GC pacing
+    /// (see `Executor::fold_native_alloc_events`).
+    alloc_events: u16,
 }
 
 impl ObjectHeap {
@@ -143,7 +146,13 @@ impl ObjectHeap {
             alloc_histo: Vec::new(),
             #[cfg(feature = "mem-diag")]
             histo_enabled: false,
+            alloc_events: 0,
         }
+    }
+
+    /// Drain the pacing counter (see `alloc_events`).
+    pub fn take_alloc_events(&mut self) -> u16 {
+        core::mem::take(&mut self.alloc_events)
     }
 
     /// Enable/disable the per-class allocation histogram (mem-diag). The
@@ -270,6 +279,7 @@ impl ObjectHeap {
         class_name: &'static str,
         n_fields: usize,
     ) -> Option<u16> {
+        self.alloc_events = self.alloc_events.saturating_add(1);
         let class_idx = self.intern_class(class_name);
         if class_name == "java/lang/StringBuilder" {
             if let Some(idx) = self
