@@ -39,7 +39,7 @@ This runs formatting (Java + `cargo fmt`), clippy across every board and the hos
 
 Do not consider a code change complete until both of these pass.
 
-WiFi-enabled device builds (`testbench_rp2350w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
+WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >

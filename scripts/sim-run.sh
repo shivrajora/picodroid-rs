@@ -246,6 +246,79 @@ run_enviro_smoke() {
   fi
 }
 
+# WiFi-variant board smoke: same app on pico_enviro_mon_w, which is the only
+# board combining sensors + network. Boots headless, then probes the
+# dashboard HTTP server over the sim's host-network passthrough. NTP and
+# weather need real internet, so the assertion accepts EITHER outcome token
+# (synced or the fail-soft path) — nightly must not depend on the internet.
+run_enviro_w_smoke() {
+  local mode="$1"
+  local tag="picoenvmon-enviro-w[${mode}]"
+  local log_file="$RUN_LOG_DIR/picoenvmon-enviro-w.${mode}.log"
+  local build_log="$RUN_LOG_DIR/picoenvmon-enviro-w.${mode}.build.log"
+  local patterns='PicoEnvMon[]:] Home.onCreate;net: up;http: serving on port 8080'
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (WiFi board smoke, 25s) ---"
+
+  local -a apk_args=(--app picoenvmon)
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-pico-enviro-mon-w" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim, enviro-w board)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 25 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local sim_pid=$!
+
+  # Probe the dashboard once the server line appears (bounded wait).
+  local page_ok=0
+  local i
+  for i in $(seq 1 20); do
+    if grep -q "http: serving" "$log_file" 2>/dev/null; then
+      if curl -sf -m 5 "http://127.0.0.1:8080/" 2>/dev/null | grep -q "PicoEnvMon"; then
+        page_ok=1
+      fi
+      break
+    fi
+    sleep 1
+  done
+  wait "$sim_pid" 2>/dev/null || true
+
+  if [[ "$page_ok" == "1" ]] \
+     && check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL (page_ok=$page_ok)"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # Run every selected test once per shrink mode.
 for MODE in "${MODES[@]}"; do
   sim_log "========================================="
@@ -340,6 +413,7 @@ for MODE in "${MODES[@]}"; do
   # conf matrix has no picoenvmon row, so that invocation reaches only this).
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
     run_enviro_smoke "$MODE"
+    run_enviro_w_smoke "$MODE"
   fi
 done
 

@@ -185,3 +185,34 @@ so the highlight stays teal throughout. **Verified:** teal on first render and a
 - Fix tracked in this repo's GC-root work; see memory
   `project_switch_gc_root_gap_nosuchmethod` and the prior
   `project_gc_collects_unfielded_callback_views`.
+
+---
+
+# Update 2026-08-16 — WiFi showcase (v0.12 networking)
+
+picoenvmon gained a networking feature set on the new **`pico_enviro_mon_w`** board
+(Enviro+ Pack on a Pico 2 W; the plain `pico_enviro_mon` board is unchanged and the
+app degrades gracefully there — the Network screen shows "WiFi not available"):
+
+- **Live web dashboard** — the device serves `http://<ip>:8080/` (HTTP/1.0, one
+  connection at a time, 2 s auto-refresh) with the five smoothed readings, outdoor
+  weather, clock, IP and uptime. Serial serving is the architecture: the native
+  listen backlog is 1.
+- **NTP wall clock** — SNTP against pool.ntp.org anchors
+  `System.currentTimeMillis`; History rows show `HH:MM`, the sample dialog shows
+  the full date, ALERT log lines carry `[HH:MM:SS]`. All times UTC
+  (`TimeFormat.UTC_OFFSET_MINUTES` to shift display).
+- **Weather** — one-line wttr.in fetch (plain HTTP), strictly fail-soft
+  ("unavailable" on any failure); city is a constant in `WeatherFetcher`.
+- **Network screen** — 4th hub entry: status, IP, URL, time, weather + a Refresh
+  button (X). A/B/X/Y model unchanged.
+
+Everything networked runs on ONE background thread owned by `NetworkManager`
+(app-scoped by design — Android would use a Service; the 16 KiB-per-thread cost and
+heap budget favor a single thread whose accept timeout doubles as the housekeeping
+tick). All UI updates cross to the main thread via `Executors.mainExecutor()`.
+
+QA hooks: `./scripts/sim-run.sh --app picoenvmon` runs both board smokes (the -w
+lane curls the dashboard; NTP/weather assertions accept the fail-soft tokens so
+nightly never depends on the internet). Heap pre-flight for the W board:
+`./scripts/sim.sh -b pico_enviro_mon_w -a picoenvmon -l 360` under a curl loop.
