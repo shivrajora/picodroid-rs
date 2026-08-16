@@ -120,7 +120,11 @@ Known, unfixed, low-priority:
 - `http_connection.rs` maps every failure (DNS, connect, TLS-less refusal…)
   to `JvmError::InvalidReference`; worth distinct IOException messages now
   that the stack is real. During bring-up this cost a full debug cycle to
-  see through.
+  see through. **Planned:** `Socket.connect` got a first catchable
+  IOException in `a38d53c`; the full typed-exception design
+  (ConnectException/SocketTimeoutException/UnknownHostException across the
+  whole stack, plus the semantic NetError HAL rework it requires) is
+  specced ready-to-execute in `docs/designs/net-typed-exceptions.md`.
 
 ## Validation environment (for whoever picks these up)
 
