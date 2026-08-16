@@ -8,6 +8,7 @@ pub mod http_connection;
 pub mod http_table;
 pub mod inet_address;
 pub mod network_info;
+mod ptr_table;
 pub mod server_socket;
 pub mod socket;
 pub mod socket_table;

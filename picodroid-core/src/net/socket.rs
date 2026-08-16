@@ -9,7 +9,9 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
-use super::helpers::{extract_handle, extract_socket_ptr, throw_io_exception};
+use super::helpers::{
+    extract_handle, extract_socket_ptr, throw_io_exception, throw_net_exception, NetOpCtx,
+};
 use super::socket_table;
 
 /// Max bytes per send/recv call — stack-allocated intermediate buffer.
@@ -24,25 +26,33 @@ pub fn native_create(
         throw_io_exception(
             objects,
             strings,
-            &format!("socket create failed (err {})", e.0),
+            &format!("socket create failed (err {})", e.raw),
         )
     })?;
     let handle = socket_table::register(ptr);
+    if handle == 0 {
+        crate::hal::net::close(ptr);
+        return Err(throw_io_exception(
+            objects,
+            strings,
+            "too many open sockets",
+        ));
+    }
     Ok(Some(Value::Int(handle)))
 }
 
 /// Socket.connect(int addr, int port)
 ///
-/// Failure is a `java/io/IOException` (Android: `Socket.connect` throws
-/// IOException), not `InvalidReference` — an unreachable host is an app-
-/// visible condition, not a JVM fault. The message carries the stack error
-/// code (FreeRTOS+TCP errno on device, host errno in sim).
+/// Failure surfaces as the typed `java.net` exception Android apps expect:
+/// `ConnectException` on refusal, `SocketTimeoutException` on timeout,
+/// `IOException` otherwise — an unreachable host is an app-visible
+/// condition, not a JVM fault.
 pub fn connect_native(
     args: &[Value],
     objects: &mut ObjectHeap,
     strings: &mut StringTable,
 ) -> Result<Option<Value>, JvmError> {
-    let ptr = extract_socket_ptr(args, objects, fields::socket::HANDLE)?;
+    let ptr = extract_socket_ptr(args, objects, strings, fields::socket::HANDLE)?;
     let addr = match args.get(1) {
         Some(Value::Int(v)) => *v as u32,
         _ => return Err(JvmError::InvalidReference),
@@ -51,19 +61,22 @@ pub fn connect_native(
         Some(Value::Int(v)) => *v as u16,
         _ => return Err(JvmError::InvalidReference),
     };
-    crate::hal::net::tcp_connect(ptr, addr, port).map_err(|e| {
-        throw_io_exception(objects, strings, &format!("connect failed (err {})", e.0))
-    })?;
+    crate::hal::net::tcp_connect(ptr, addr, port)
+        .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Connect))?;
     Ok(None)
 }
 
 /// Socket.send(byte[] data, int offset, int len) -> int
+///
+/// Failure throws (`SocketException` on a reset connection), matching
+/// Android's `OutputStream.write` contract — never a silent `-1`.
 pub fn send_native(
     args: &[Value],
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
     arrays: &ArrayHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let ptr = extract_socket_ptr(args, objects, fields::socket::HANDLE)?;
+    let ptr = extract_socket_ptr(args, objects, strings, fields::socket::HANDLE)?;
     let arr_idx = match args.get(1) {
         Some(Value::ArrayRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
@@ -86,19 +99,23 @@ pub fn send_native(
             .ok_or(JvmError::ArrayIndexOutOfBounds)? as u8;
     }
 
-    match crate::hal::net::tcp_send(ptr, &buf[..send_len]) {
-        Ok(n) => Ok(Some(Value::Int(n as i32))),
-        Err(_) => Ok(Some(Value::Int(-1))),
-    }
+    let n = crate::hal::net::tcp_send(ptr, &buf[..send_len])
+        .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Send))?;
+    Ok(Some(Value::Int(n as i32)))
 }
 
 /// Socket.recv(byte[] buf, int offset, int len) -> int
+///
+/// Returns `-1` **only** for orderly end-of-stream. A receive-timeout
+/// expiry throws `SocketTimeoutException`; other failures throw
+/// `SocketException`/`IOException`.
 pub fn recv_native(
     args: &[Value],
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
     arrays: &mut ArrayHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let ptr = extract_socket_ptr(args, objects, fields::socket::HANDLE)?;
+    let ptr = extract_socket_ptr(args, objects, strings, fields::socket::HANDLE)?;
     let arr_idx = match args.get(1) {
         Some(Value::ArrayRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
@@ -111,24 +128,35 @@ pub fn recv_native(
         Some(Value::Int(v)) => *v as usize,
         _ => return Err(JvmError::InvalidReference),
     };
+    if len == 0 {
+        // A zero-length read must not consult the HAL: its `Ok(0)` return
+        // means EOF, which a `recv(buf, off, 0)` caller has not reached.
+        return Ok(Some(Value::Int(0)));
+    }
 
     let recv_len = len.min(BUF_SIZE);
     let mut buf = [0u8; BUF_SIZE];
-    match crate::hal::net::tcp_recv(ptr, &mut buf[..recv_len]) {
-        Ok(n) => {
-            // Copy received bytes into JVM array.
-            for (i, &b) in buf.iter().enumerate().take(n) {
-                arrays.store(arr_idx, offset + i, b as i32);
-            }
-            Ok(Some(Value::Int(n as i32)))
-        }
-        Err(_) => Ok(Some(Value::Int(-1))),
+    let n = crate::hal::net::tcp_recv(ptr, &mut buf[..recv_len])
+        .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
+    if n == 0 {
+        return Ok(Some(Value::Int(-1)));
     }
+    // Copy received bytes into JVM array.
+    for (i, &b) in buf.iter().enumerate().take(n) {
+        arrays
+            .store(arr_idx, offset + i, b as i32)
+            .ok_or(JvmError::ArrayIndexOutOfBounds)?;
+    }
+    Ok(Some(Value::Int(n as i32)))
 }
 
 /// Socket.setTimeout(int millis)
-pub fn set_timeout_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
-    let ptr = extract_socket_ptr(args, objects, fields::socket::HANDLE)?;
+pub fn set_timeout_native(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let ptr = extract_socket_ptr(args, objects, strings, fields::socket::HANDLE)?;
     let ms = match args.get(1) {
         Some(Value::Int(v)) => *v as u32,
         _ => return Err(JvmError::InvalidReference),

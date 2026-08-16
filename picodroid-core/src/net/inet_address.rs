@@ -1,11 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Native implementations for picodroid.net.InetAddress.
 
+use alloc::string::String;
+
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
-use super::helpers::extract_obj_idx;
+use super::helpers::{extract_obj_idx, throw_net_exception, NetOpCtx};
+
+/// InetAddress.nativeResolve(String host) -> int  (static)
+///
+/// Backs `InetAddress.getByName`. Resolution failure throws
+/// `java/net/UnknownHostException` ("Unable to resolve host \"…\""),
+/// matching `java.net.InetAddress.getByName`. Dotted-quad literals take the
+/// resolver's fast path on both platforms and never hit the network.
+pub fn native_resolve(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let host_idx = match args.first() {
+        Some(Value::Reference(i)) => *i,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    // Owned copy: the throw helper needs `&mut strings` while a resolved
+    // `&str` would still borrow the table.
+    let host: String = strings
+        .resolve(host_idx)
+        .ok_or(JvmError::InvalidReference)?
+        .into();
+    let addr = crate::hal::net::dns_resolve(&host)
+        .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Dns(&host)))?;
+    Ok(Some(Value::Int(addr as i32)))
+}
 
 /// InetAddress.getHostAddress() -> String
 ///

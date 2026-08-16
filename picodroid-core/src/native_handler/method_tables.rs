@@ -182,6 +182,11 @@ pub const NET_HANDLED: &[Row] = &[
         "getHostAddress",
         "()Ljava/lang/String;",
     ),
+    (
+        "picodroid/net/InetAddress",
+        "nativeResolve",
+        "(Ljava/lang/String;)I",
+    ),
     // picodroid/net/NetworkInfo
     ("picodroid/net/NetworkInfo", "getIpAddress", "()I"),
     ("picodroid/net/NetworkInfo", "isConnected", "()Z"),
@@ -193,6 +198,7 @@ pub const NET_HANDLED: &[Row] = &[
     ),
     ("picodroid/net/ServerSocket", "close", "()V"),
     ("picodroid/net/ServerSocket", "nativeListen", "(I)I"),
+    ("picodroid/net/ServerSocket", "setSoTimeout", "(I)V"),
     // picodroid/net/Socket
     ("picodroid/net/Socket", "close", "()V"),
     ("picodroid/net/Socket", "connect", "(II)V"),

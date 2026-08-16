@@ -7,6 +7,8 @@
 //! pointer round-tripped through [`super::http_table`].
 
 use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
 use core::ffi::c_void;
 
 use pico_jvm::array_heap::ArrayHeap;
@@ -14,7 +16,12 @@ use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
+use crate::hal::types::{NetError, NetErrorKind};
+
 use super::fields;
+use super::helpers::{
+    throw_io_exception, throw_named_exception, throw_net_exception, throw_socket_closed, NetOpCtx,
+};
 use super::http_table;
 
 const RX_BUF_SIZE: usize = 1024;
@@ -107,88 +114,170 @@ fn handle_from_obj(args: &[Value], objects: &ObjectHeap, field: usize) -> Result
 /// String method, int bodyLength) -> int`.
 ///
 /// Resolves the host, opens a TCP socket, and sends the request line +
-/// minimal headers.  Returns the new handle.
-pub fn native_connect(args: &[Value], strings: &StringTable) -> Result<Option<Value>, JvmError> {
+/// minimal headers.  Returns the new handle.  Failures surface as the typed
+/// `java.net` taxonomy: `UnknownHostException` when resolution fails,
+/// `ConnectException`/`SocketTimeoutException` from the TCP connect, and
+/// `SocketException`/`IOException` from the request send.
+pub fn native_connect(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
     let host_idx = as_ref(args.first())?;
     let port = as_int(args.get(1))? as u16;
     let path_idx = as_ref(args.get(2))?;
     let method_idx = as_ref(args.get(3))?;
     let body_length = as_int(args.get(4))?;
 
-    let host = strings
+    // Owned copies: the throw helpers below need `&mut strings` while these
+    // would otherwise still be borrowed from the table.
+    let host: String = strings
         .resolve(host_idx)
-        .ok_or(JvmError::InvalidReference)?;
-    let path = strings
+        .ok_or(JvmError::InvalidReference)?
+        .into();
+    let path: String = strings
         .resolve(path_idx)
-        .ok_or(JvmError::InvalidReference)?;
-    let method = strings
+        .ok_or(JvmError::InvalidReference)?
+        .into();
+    let method: String = strings
         .resolve(method_idx)
-        .ok_or(JvmError::InvalidReference)?;
+        .ok_or(JvmError::InvalidReference)?
+        .into();
 
     // Resolve hostname → packed IPv4.
-    let addr = crate::hal::net::dns_resolve(host).map_err(|_| JvmError::InvalidReference)?;
+    let addr = crate::hal::net::dns_resolve(&host)
+        .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Dns(&host)))?;
 
     // Open and connect TCP socket.
-    let sock = crate::hal::net::tcp_socket().map_err(|_| JvmError::InvalidReference)?;
-    if crate::hal::net::tcp_connect(sock, addr, port).is_err() {
+    let sock = crate::hal::net::tcp_socket().map_err(|e| {
+        throw_io_exception(
+            objects,
+            strings,
+            &format!("socket create failed (err {})", e.raw),
+        )
+    })?;
+    if let Err(e) = crate::hal::net::tcp_connect(sock, addr, port) {
         crate::hal::net::close(sock);
-        return Err(JvmError::InvalidReference);
+        return Err(throw_net_exception(objects, strings, e, NetOpCtx::Connect));
     }
 
     // Build the request head in a stack buffer and send it.  For HTTP/1.1
     // we're required to send Host; Connection: close keeps our cleanup
     // single-path (no keep-alive reuse).
-    let mut buf = [0u8; TX_BUF_SIZE];
-    let mut pos = 0usize;
-    pos += write_bytes(&mut buf, pos, method.as_bytes());
-    pos += write_bytes(&mut buf, pos, b" ");
-    pos += write_bytes(&mut buf, pos, path.as_bytes());
-    pos += write_bytes(&mut buf, pos, b" HTTP/1.1\r\nHost: ");
-    pos += write_bytes(&mut buf, pos, host.as_bytes());
+    let mut head = HeadBuf::new();
+    head.push(method.as_bytes());
+    head.push(b" ");
+    head.push(path.as_bytes());
+    head.push(b" HTTP/1.1\r\nHost: ");
+    head.push(host.as_bytes());
     if port != 80 {
-        pos += write_bytes(&mut buf, pos, b":");
-        pos += write_usize(&mut buf, pos, port as usize);
+        head.push(b":");
+        head.push_usize(port as usize);
     }
-    pos += write_bytes(&mut buf, pos, b"\r\nConnection: close\r\n");
+    head.push(b"\r\nConnection: close\r\n");
     if body_length >= 0 {
-        pos += write_bytes(&mut buf, pos, b"Content-Length: ");
-        pos += write_usize(&mut buf, pos, body_length as usize);
-        pos += write_bytes(&mut buf, pos, b"\r\n");
+        head.push(b"Content-Length: ");
+        head.push_usize(body_length as usize);
+        head.push(b"\r\n");
     }
-    pos += write_bytes(&mut buf, pos, b"\r\n");
+    head.push(b"\r\n");
 
-    if pos > TX_BUF_SIZE {
+    if head.overflow {
         crate::hal::net::close(sock);
-        return Err(JvmError::InvalidReference);
+        return Err(throw_io_exception(
+            objects,
+            strings,
+            "request header too large",
+        ));
     }
 
-    if send_all(sock, &buf[..pos]).is_err() {
+    if let Err(e) = send_all(sock, &head.buf[..head.pos]) {
         crate::hal::net::close(sock);
-        return Err(JvmError::InvalidReference);
+        return Err(throw_net_exception(objects, strings, e, NetOpCtx::Send));
     }
 
     let boxed = Box::new(HttpConn::new(sock));
     let raw = Box::into_raw(boxed);
     let handle = http_table::register(raw as *mut c_void);
+    if handle == 0 {
+        // SAFETY: `raw` came from Box::into_raw above and was never shared.
+        let conn = unsafe { Box::from_raw(raw) };
+        crate::hal::net::close(conn.socket);
+        return Err(throw_io_exception(
+            objects,
+            strings,
+            "too many open connections",
+        ));
+    }
     Ok(Some(Value::Int(handle)))
+}
+
+/// Fixed-capacity request-head builder.  `overflow` latches when any piece
+/// fails to fit, so a truncated (garbled) head is never sent — the old
+/// `pos > TX_BUF_SIZE` check could not fire because `write_bytes` already
+/// refuses the write that would overflow.
+struct HeadBuf {
+    buf: [u8; TX_BUF_SIZE],
+    pos: usize,
+    overflow: bool,
+}
+
+impl HeadBuf {
+    fn new() -> Self {
+        Self {
+            buf: [0; TX_BUF_SIZE],
+            pos: 0,
+            overflow: false,
+        }
+    }
+
+    fn push(&mut self, src: &[u8]) {
+        let n = write_bytes(&mut self.buf, self.pos, src);
+        if n != src.len() {
+            self.overflow = true;
+        }
+        self.pos += n;
+    }
+
+    fn push_usize(&mut self, val: usize) {
+        let n = write_usize(&mut self.buf, self.pos, val);
+        if n == 0 {
+            self.overflow = true;
+        }
+        self.pos += n;
+    }
 }
 
 // ── HttpURLConnection.nativeReadResponseCode (static) ────────────────────────
 
-pub fn native_read_response_code(args: &[Value]) -> Result<Option<Value>, JvmError> {
+pub fn native_read_response_code(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
     let handle = as_int(args.first())?;
-    let conn = conn_mut(handle).ok_or(JvmError::InvalidReference)?;
+    let conn = match conn_mut(handle) {
+        Some(c) => c,
+        None => return Err(throw_socket_closed(objects, strings)),
+    };
     if !conn.headers_parsed {
-        parse_response_head(conn)?;
+        parse_response_head(conn, objects, strings)?;
     }
     Ok(Some(Value::Int(conn.status_code)))
 }
 
 // ── HttpURLConnection.nativeContentLength (static) ───────────────────────────
 
-pub fn native_content_length(args: &[Value]) -> Result<Option<Value>, JvmError> {
+pub fn native_content_length(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
     let handle = as_int(args.first())?;
-    let conn = conn_mut(handle).ok_or(JvmError::InvalidReference)?;
+    let conn = match conn_mut(handle) {
+        Some(c) => c,
+        None => return Err(throw_socket_closed(objects, strings)),
+    };
     // content_length is stored as i64; Java return type is int, so clamp.
     let len = if conn.content_length < 0 || conn.content_length > i32::MAX as i64 {
         -1
@@ -218,7 +307,8 @@ pub fn native_disconnect(args: &[Value]) -> Result<Option<Value>, JvmError> {
 
 pub fn native_output_write(
     args: &[Value],
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
     arrays: &ArrayHeap,
 ) -> Result<Option<Value>, JvmError> {
     let handle = handle_from_obj(args, objects, fields::http_output_stream::HANDLE)?;
@@ -226,7 +316,10 @@ pub fn native_output_write(
     let off = as_int(args.get(2))? as usize;
     let len = as_int(args.get(3))? as usize;
 
-    let conn = conn_mut(handle).ok_or(JvmError::InvalidReference)?;
+    let conn = match conn_mut(handle) {
+        Some(c) => c,
+        None => return Err(throw_socket_closed(objects, strings)),
+    };
 
     // Stream in chunks — we copy from JVM byte[] into a stack buffer, then
     // hand it to the HAL.  Matches the idiom in socket.rs::send_native.
@@ -240,9 +333,13 @@ pub fn native_output_write(
                 .ok_or(JvmError::ArrayIndexOutOfBounds)? as i8 as u8;
         }
         match crate::hal::net::tcp_send(conn.socket, &buf[..chunk]) {
-            Ok(0) => return Err(JvmError::InvalidReference),
+            // A blocking send that makes no progress means the peer is gone.
+            Ok(0) => {
+                let e = NetError::new(NetErrorKind::Closed, 0);
+                return Err(throw_net_exception(objects, strings, e, NetOpCtx::Send));
+            }
             Ok(n) => sent_total += n,
-            Err(_) => return Err(JvmError::InvalidReference),
+            Err(e) => return Err(throw_net_exception(objects, strings, e, NetOpCtx::Send)),
         }
     }
     Ok(None)
@@ -252,7 +349,8 @@ pub fn native_output_write(
 
 pub fn native_input_read(
     args: &[Value],
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
     arrays: &mut ArrayHeap,
 ) -> Result<Option<Value>, JvmError> {
     let handle = handle_from_obj(args, objects, fields::http_input_stream::HANDLE)?;
@@ -264,9 +362,12 @@ pub fn native_input_read(
         return Ok(Some(Value::Int(0)));
     }
 
-    let conn = conn_mut(handle).ok_or(JvmError::InvalidReference)?;
+    let conn = match conn_mut(handle) {
+        Some(c) => c,
+        None => return Err(throw_socket_closed(objects, strings)),
+    };
     if !conn.headers_parsed {
-        parse_response_head(conn)?;
+        parse_response_head(conn, objects, strings)?;
     }
     if conn.body_remaining == 0 {
         return Ok(Some(Value::Int(-1)));
@@ -300,6 +401,10 @@ pub fn native_input_read(
         core::cmp::min(want, conn.body_remaining as usize)
     };
     match crate::hal::net::tcp_recv(conn.socket, &mut buf[..want]) {
+        // `Ok(0)` is orderly EOF on every platform (the device HAL remaps
+        // FreeRTOS's inverted encoding) — so `-1` here really means
+        // end-of-stream, and a stalled-but-alive server now throws
+        // `SocketTimeoutException` instead of reading as a clean EOF.
         Ok(0) => {
             conn.body_remaining = 0;
             Ok(Some(Value::Int(-1)))
@@ -315,7 +420,7 @@ pub fn native_input_read(
             }
             Ok(Some(Value::Int(n as i32)))
         }
-        Err(_) => Ok(Some(Value::Int(-1))),
+        Err(e) => Err(throw_net_exception(objects, strings, e, NetOpCtx::Recv)),
     }
 }
 
@@ -324,18 +429,34 @@ pub fn native_input_read(
 /// Read from the socket until `\r\n\r\n`, then parse the status line and
 /// any `Content-Length` header.  Any bytes past the header terminator are
 /// left in `conn.rx_buf[rx_head..rx_tail]` for subsequent body reads.
-fn parse_response_head(conn: &mut HttpConn) -> Result<(), JvmError> {
+///
+/// Malformed *server* data (truncated head, unparseable status line) is a
+/// `java/net/ProtocolException`, not a JVM fault; transport failures map
+/// through the usual `Recv` taxonomy (`SocketTimeoutException` on expiry).
+fn parse_response_head(
+    conn: &mut HttpConn,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<(), JvmError> {
     let mut scan_from = 0usize;
     loop {
         if conn.rx_tail as usize >= RX_BUF_SIZE {
-            // Headers too long to fit.
-            return Err(JvmError::InvalidReference);
+            return Err(throw_io_exception(
+                objects,
+                strings,
+                "response headers too large",
+            ));
         }
         let space = &mut conn.rx_buf[conn.rx_tail as usize..];
         let n = crate::hal::net::tcp_recv(conn.socket, space)
-            .map_err(|_| JvmError::InvalidReference)?;
+            .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
         if n == 0 {
-            return Err(JvmError::InvalidReference);
+            return Err(throw_named_exception(
+                objects,
+                strings,
+                "java/net/ProtocolException",
+                "unexpected end of stream",
+            ));
         }
         conn.rx_tail += n as u16;
 
@@ -344,7 +465,20 @@ fn parse_response_head(conn: &mut HttpConn) -> Result<(), JvmError> {
         let start = scan_from.saturating_sub(3);
         let end = conn.rx_tail as usize;
         if let Some(body_off) = find_header_end(&conn.rx_buf[..end], start) {
-            let (status, content_length) = parse_head_bytes(&conn.rx_buf[..body_off])?;
+            let head = &conn.rx_buf[..body_off];
+            let (status, content_length) = match parse_head_bytes(head) {
+                Ok(v) => v,
+                Err(()) => {
+                    let line = strip_cr(head.split(|&b| b == b'\n').next().unwrap_or(&[]));
+                    let msg = format!("unexpected status line: {}", String::from_utf8_lossy(line));
+                    return Err(throw_named_exception(
+                        objects,
+                        strings,
+                        "java/net/ProtocolException",
+                        &msg,
+                    ));
+                }
+            };
             conn.status_code = status;
             conn.content_length = content_length;
             if content_length >= 0 {
@@ -375,12 +509,14 @@ fn find_header_end(buf: &[u8], from: usize) -> Option<usize> {
 }
 
 /// Parse the response head bytes.  Returns `(status_code, content_length)`;
-/// `content_length` is -1 if the header was absent.
-fn parse_head_bytes(head: &[u8]) -> Result<(i32, i64), JvmError> {
+/// `content_length` is -1 if the header was absent.  `Err(())` means a
+/// malformed status line — the caller owns turning that into a
+/// `ProtocolException` with the offending line in the message.
+fn parse_head_bytes(head: &[u8]) -> Result<(i32, i64), ()> {
     // head ends with \r\n\r\n — split on \r\n.
     let mut lines = head.split(|&b| b == b'\n');
     // First line: HTTP/1.x SPC CODE SPC REASON
-    let status_line = lines.next().ok_or(JvmError::InvalidReference)?;
+    let status_line = lines.next().ok_or(())?;
     let status_line = strip_cr(status_line);
     let status_code = parse_status_code(status_line)?;
 
@@ -410,17 +546,14 @@ fn strip_cr(line: &[u8]) -> &[u8] {
     }
 }
 
-fn parse_status_code(line: &[u8]) -> Result<i32, JvmError> {
+fn parse_status_code(line: &[u8]) -> Result<i32, ()> {
     // "HTTP/1.1 200 OK" — find the first and second space.
-    let first_sp = line
-        .iter()
-        .position(|&b| b == b' ')
-        .ok_or(JvmError::InvalidReference)?;
+    let first_sp = line.iter().position(|&b| b == b' ').ok_or(())?;
     let rest = &line[first_sp + 1..];
     let second_sp = rest.iter().position(|&b| b == b' ').unwrap_or(rest.len());
     let code = parse_decimal(&rest[..second_sp]);
     if code < 0 {
-        return Err(JvmError::InvalidReference);
+        return Err(());
     }
     Ok(code as i32)
 }
@@ -466,11 +599,12 @@ fn parse_decimal(s: &[u8]) -> i64 {
     acc
 }
 
-fn send_all(sock: *mut c_void, mut buf: &[u8]) -> Result<(), JvmError> {
+fn send_all(sock: *mut c_void, mut buf: &[u8]) -> Result<(), NetError> {
     while !buf.is_empty() {
-        let n = crate::hal::net::tcp_send(sock, buf).map_err(|_| JvmError::InvalidReference)?;
+        let n = crate::hal::net::tcp_send(sock, buf)?;
         if n == 0 {
-            return Err(JvmError::InvalidReference);
+            // A blocking send that makes no progress means the peer is gone.
+            return Err(NetError::new(NetErrorKind::Closed, 0));
         }
         buf = &buf[n..];
     }
