@@ -3,6 +3,7 @@ package picoenvmon.ui.network;
 
 import picodroid.graphics.Theme;
 import picodroid.util.Log;
+import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 import picoenvmon.di.EnvAppComponent;
@@ -75,7 +76,12 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
     weatherLine.setTextColor(Theme.colorTextSecondary);
     root.addView(weatherLine);
 
-    installHintBar(root, "Y:Back");
+    // The screen's one focusable widget — auto-focused, X activates.
+    Button refresh = new Button("Refresh");
+    refresh.setOnClickListener(v -> net.requestRefresh());
+    root.addView(refresh);
+
+    installHintBar(root, "X:Refresh  Y:Back");
     setContentView(root);
 
     net.addListener(this);
