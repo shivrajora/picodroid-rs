@@ -151,10 +151,27 @@ public class NetworkManager implements Runnable {
     notifyChanged();
   }
 
-  /** Steady-state loop once the stack is up. The HTTP serve loop lands here (dashboard phase). */
+  /**
+   * Steady-state loop: serve the dashboard, and let the accept timeout (1 s) double as the
+   * housekeeping tick. Bind failures back off rather than kill the thread.
+   */
   private void runOnline() {
+    HttpServer server = new HttpServer((EnvAppComponent) EnvAppComponent.current(), this);
     while (true) {
-      SystemClock.sleep(1000);
+      if (!server.ensureOpen()) {
+        SystemClock.sleep(RETRY_POLL_MS);
+        continue;
+      }
+      server.serveOnce();
+      housekeeping();
     }
+  }
+
+  /** Periodic work between serves — NTP re-sync and weather refresh land here. */
+  private void housekeeping() {}
+
+  /** Dashboard footer: address + uptime (time and weather join as those features land). */
+  String statusFooter() {
+    return "IP " + ipDotted + " - up " + HttpServer.uptime();
   }
 }
