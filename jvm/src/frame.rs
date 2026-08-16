@@ -21,9 +21,23 @@ impl Frame {
         max_locals: u16,
         max_stack: u16,
     ) -> Result<Self, JvmError> {
-        let cap = (max_locals as usize).max(args.len());
+        // Category-2 slot layout: the interpreter keeps a long/double as ONE
+        // Value on the operand stack (see ops_stack's is_cat2 handling), but
+        // classfile LOCAL indices count them as TWO slots — a (JJ)J method
+        // reads its second argument with lload_2, not lload_1. Expand each
+        // cat-2 argument with a high-half filler so locals line up with
+        // javac's slot numbering; verified bytecode never addresses the
+        // filler slot directly. (First hit: TimeFormat.floorDiv(long, long)
+        // — the second arg read back as Null.)
+        let cap = (max_locals as usize).max(args.len() * 2);
         let mut locals = Vec::with_capacity(cap);
-        locals.extend_from_slice(args);
+        for v in args {
+            locals.push(*v);
+            if matches!(v, Value::Long(_) | Value::Double(_)) {
+                locals.push(Value::Null);
+            }
+        }
+        let cap = (max_locals as usize).max(locals.len());
         locals.resize(cap, Value::Null);
         Ok(Self {
             class_idx,
@@ -80,6 +94,17 @@ mod tests {
         assert_eq!(frame.pc, 0);
         assert_eq!(frame.load_local(0), Ok(Value::Int(42)));
         assert_eq!(frame.load_local(1), Ok(Value::Int(7)));
+    }
+
+    #[test]
+    fn new_expands_category2_args_to_two_slots() {
+        // (JIJ)V javac layout: long a → slots 0-1, int b → slot 2,
+        // long c → slots 3-4. lload_0 / iload_2 / lload_3 must all resolve.
+        let args = [Value::Long(10), Value::Int(7), Value::Long(20)];
+        let frame = Frame::new(0, 0, &args, 6, 4).expect("Frame::new should succeed");
+        assert_eq!(frame.load_local(0), Ok(Value::Long(10)));
+        assert_eq!(frame.load_local(2), Ok(Value::Int(7)));
+        assert_eq!(frame.load_local(3), Ok(Value::Long(20)));
     }
 
     #[test]
