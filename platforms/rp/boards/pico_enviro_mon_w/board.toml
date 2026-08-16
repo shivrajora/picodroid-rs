@@ -46,6 +46,12 @@ net_tcp_win_segs = 8
 # pending_op_queue     = 8     # 1..=64.   Max queued startActivity/startService ops per frame.
 
 [jvm]
+# The dashboard server allocates few-but-large objects (page bodies, log
+# lines) at ~1 Hz forever; the default 256-alloc GC threshold lets KB-scale
+# garbage pile up (and fragment) long before it trips. 64 keeps the garbage
+# window to a few requests. (Found via OOM under `sim.sh -l 360` load.)
+gc_alloc_threshold = 64
+
 # Boot-time heap pre-reservation (PEM-3): claim picoenvmon's steady-state
 # JVM storage while the heap is young so it can't land mid-heap during
 # Activity churn and fragment the free space. Sized from the on-device

@@ -40,9 +40,26 @@ public class HttpServer {
           .getBytes();
   private static final byte[] PAGE_TAIL = "</body></html>".getBytes();
 
+  // HTTP/1.0 + Connection: close means body length = EOF — no Content-Length,
+  // so the response heads are constants too. Per-request garbage matters: the
+  // GC threshold counts ALLOCATIONS, and a server allocating few-but-large
+  // objects outruns it byte-wise long before it fires (found as an OOM at a
+  // 360 KB heap cap: table-growth steps need contiguous KB the accumulated
+  // garbage had fragmented away).
+  private static final byte[] HEAD_200 =
+      "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n".getBytes();
+  private static final byte[] HEAD_404 =
+      ("HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
+              + "not found\n")
+          .getBytes();
+
   private final EnvAppComponent app;
   private final NetworkManager net;
   private final byte[] reqBuf = new byte[REQUEST_BUF_BYTES];
+
+  /** Persistent page-assembly buffer — only the small dynamic middle allocates per request. */
+  private final byte[] pageBuf = new byte[1536];
+
   private ServerSocket server;
 
   public HttpServer(EnvAppComponent app, NetworkManager net) {
@@ -79,14 +96,15 @@ public class HttpServer {
     try {
       client = server.accept();
       client.setTimeout(CLIENT_TIMEOUT_MS);
-      String requestLine = readRequestLine(client);
-      if (requestLine != null
-          && (requestLine.startsWith("GET / ") || requestLine.startsWith("GET /index.html "))) {
-        byte[] body = buildBody();
-        sendResponse(client, "200 OK", body);
+      int lineLen = readRequest(client);
+      if (isDashboardGet(lineLen)) {
+        int pageLen = buildPage();
+        sendAll(client, HEAD_200, HEAD_200.length);
+        sendAll(client, pageBuf, pageLen);
       } else {
-        Log.i(TAG, "http: 404 for " + (requestLine == null ? "(bad request)" : requestLine));
-        sendResponse(client, "404 Not Found", "not found\n".getBytes());
+        // The only per-request allocation on this path is the log line.
+        Log.i(TAG, "http: 404 for " + (lineLen > 0 ? new String(reqBuf, 0, lineLen) : "(bad)"));
+        sendAll(client, HEAD_404, HEAD_404.length);
       }
     } catch (SocketTimeoutException e) {
       // No client this tick, or a client stalled mid-request — both routine.
@@ -108,8 +126,11 @@ public class HttpServer {
     }
   }
 
-  /** Read until the blank line ends the headers; return the request line, or null on garbage. */
-  private String readRequestLine(Socket client) throws IOException {
+  /**
+   * Read until the blank line ends the headers. Returns the request-line length in {@link #reqBuf}
+   * (0 on garbage) — the line stays as bytes; no String is built on the happy path.
+   */
+  private int readRequest(Socket client) throws IOException {
     int total = 0;
     while (total < reqBuf.length) {
       int n = client.recv(reqBuf, total, reqBuf.length - total);
@@ -126,11 +147,34 @@ public class HttpServer {
     while (end < total && reqBuf[end] != '\r' && reqBuf[end] != '\n') {
       end++;
     }
-    if (end == 0) {
-      return null;
-    }
-    return new String(reqBuf, 0, end);
+    return end;
   }
+
+  /** Byte-level match for "GET / " / "GET /index.html " — allocation-free. */
+  private boolean isDashboardGet(int lineLen) {
+    if (lineLen < 6
+        || reqBuf[0] != 'G'
+        || reqBuf[1] != 'E'
+        || reqBuf[2] != 'T'
+        || reqBuf[3] != ' '
+        || reqBuf[4] != '/') {
+      return false;
+    }
+    if (reqBuf[5] == ' ') {
+      return true;
+    }
+    if (lineLen < 5 + INDEX_HTML.length) {
+      return false;
+    }
+    for (int i = 0; i < INDEX_HTML.length; i++) {
+      if (reqBuf[5 + i] != INDEX_HTML[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static final byte[] INDEX_HTML = "index.html ".getBytes();
 
   private static int indexOfHeaderEnd(byte[] buf, int len) {
     for (int i = 3; i < len; i++) {
@@ -141,34 +185,38 @@ public class HttpServer {
     return -1;
   }
 
-  private void sendResponse(Socket client, String status, byte[] body) throws IOException {
-    String head =
-        "HTTP/1.0 "
-            + status
-            + "\r\nContent-Type: text/html\r\nContent-Length: "
-            + body.length
-            + "\r\nConnection: close\r\n\r\n";
-    byte[] headBytes = head.getBytes();
-    sendAll(client, headBytes);
-    sendAll(client, body);
-  }
-
   /**
    * {@code Socket.send} writes at most one 256-byte native chunk per call and returns the count
    * (the documented NET-9 staging-buffer limit) — anything page-sized must loop.
    */
-  private static void sendAll(Socket client, byte[] buf) throws IOException {
+  private static void sendAll(Socket client, byte[] buf, int len) throws IOException {
     int off = 0;
-    while (off < buf.length) {
-      int n = client.send(buf, off, buf.length - off);
+    while (off < len) {
+      int n = client.send(buf, off, len - off);
       if (n <= 0) {
-        throw new IOException("send stalled at " + off + "/" + buf.length);
+        throw new IOException("send stalled at " + off + "/" + len);
       }
       off += n;
     }
   }
 
-  private byte[] buildBody() {
+  /** Assemble the page into {@link #pageBuf}; returns its length. */
+  private int buildPage() {
+    byte[] mid = buildMid();
+    int len = 0;
+    len = appendClamped(pageBuf, len, PAGE_HEAD);
+    len = appendClamped(pageBuf, len, mid);
+    len = appendClamped(pageBuf, len, PAGE_TAIL);
+    return len;
+  }
+
+  private static int appendClamped(byte[] dst, int off, byte[] src) {
+    int n = Math.min(src.length, dst.length - off);
+    System.arraycopy(src, 0, dst, off, n);
+    return off + n;
+  }
+
+  private byte[] buildMid() {
     LatestReadings latest = app.latestReadings();
     Formatter f = app.formatter();
     StringBuilder sb = new StringBuilder();
@@ -207,13 +255,7 @@ public class HttpServer {
     sb.append("</table><p class=\"s\">");
     sb.append(net.statusFooter());
     sb.append("</p>");
-    byte[] mid = sb.toString().getBytes();
-
-    byte[] body = new byte[PAGE_HEAD.length + mid.length + PAGE_TAIL.length];
-    System.arraycopy(PAGE_HEAD, 0, body, 0, PAGE_HEAD.length);
-    System.arraycopy(mid, 0, body, PAGE_HEAD.length, mid.length);
-    System.arraycopy(PAGE_TAIL, 0, body, PAGE_HEAD.length + mid.length, PAGE_TAIL.length);
-    return body;
+    return sb.toString().getBytes();
   }
 
   private static void row(StringBuilder sb, String label, String value) {
