@@ -17,6 +17,7 @@ import picoenvmon.data.ThresholdConfig;
 import picoenvmon.di.EnvAppComponent;
 import picoenvmon.hardware.RgbLed;
 import picoenvmon.util.Formatter;
+import picoenvmon.util.TimeFormat;
 
 /**
  * Foreground Service that streams every sensor reading into a per-type ring buffer, drives the
@@ -158,7 +159,12 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     float v = event.values[0];
     SensorRingBuffer ring = ringFor(type);
     if (ring != null) {
-      ring.add(v);
+      // currentTimeMillis is epoch time only after the NTP sync anchors it;
+      // before that it counts from boot, which the >100e9 ms (~1973) sanity
+      // bound filters to ts=0 ("unknown") without coupling to NetworkManager.
+      long now = System.currentTimeMillis();
+      int epochSec = now > 100_000_000_000L ? (int) (now / 1000) : 0;
+      ring.add(v, epochSec);
     }
 
     switch (type) {
@@ -204,11 +210,17 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   private void alertEdge(int idx, boolean breached, String what, float v, String unit) {
     if (breached && !alertActive[idx]) {
       alertActive[idx] = true;
-      Log.i(TAG, "ALERT: " + what + ": " + v + unit);
+      Log.i(TAG, "ALERT" + alertStamp() + ": " + what + ": " + v + unit);
     } else if (!breached && alertActive[idx]) {
       alertActive[idx] = false;
-      Log.i(TAG, "ALERT cleared: " + what + ": " + v + unit);
+      Log.i(TAG, "ALERT cleared" + alertStamp() + ": " + what + ": " + v + unit);
     }
+  }
+
+  /** " [HH:MM:SS]" once the wall clock is NTP-anchored, "" before. Edge-latched — no churn. */
+  private static String alertStamp() {
+    long now = System.currentTimeMillis();
+    return now > 100_000_000_000L ? " [" + TimeFormat.hms(now) + "]" : "";
   }
 
   /** Register for 1 Hz windowed-mean callbacks. Returns false if all slots are full. */
@@ -305,6 +317,14 @@ public class SensorLoggerService extends Service implements SensorEventListener 
       return 0;
     }
     return rings[idx].snapshot(out);
+  }
+
+  /** As {@link #snapshot(int, float[])}, also copying per-sample epoch-second timestamps. */
+  public int snapshot(int idx, float[] out, int[] tsOut) {
+    if (idx < 0 || idx >= rings.length) {
+      return 0;
+    }
+    return rings[idx].snapshot(out, tsOut);
   }
 
   public float lastGas() {

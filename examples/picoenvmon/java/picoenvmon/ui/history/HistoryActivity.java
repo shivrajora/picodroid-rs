@@ -16,6 +16,7 @@ import picoenvmon.di.EnvAppComponent;
 import picoenvmon.service.SensorLoggerService;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.Formatter;
+import picoenvmon.util.TimeFormat;
 
 /**
  * Temperature history (reached from the Home hub). Binds {@link SensorLoggerService}, snapshots its
@@ -38,6 +39,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   private ListView list;
   private TextView statusLine;
   private final float[] samples = new float[SensorLoggerService.RING_CAPACITY];
+  private final int[] sampleTs = new int[SensorLoggerService.RING_CAPACITY];
   private int sampleCount;
   private int firstShown;
 
@@ -84,7 +86,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   @Override
   public void onServiceConnected(IBinder binder) {
     SensorLoggerService svc = ((SensorLoggerService.LocalBinder) binder).service;
-    sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples);
+    sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples, sampleTs);
     Log.i(EnvAppComponent.TAG, "History bound, samples=" + sampleCount);
 
     // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring index.
@@ -103,7 +105,13 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     Formatter f = comp.formatter();
     ArrayAdapter<String> adapter = new ArrayAdapter<String>();
     for (int i = firstShown; i < sampleCount; i++) {
-      adapter.add("[" + i + "] " + f.formatTemp(samples[i]));
+      // "HH:MM 21.3C" once the sample carries an NTP-anchored stamp; the
+      // pre-sync "[i]" ring-index form otherwise.
+      String label =
+          sampleTs[i] > 0
+              ? TimeFormat.hm(sampleTs[i] * 1000L) + " " + f.formatTemp(samples[i])
+              : "[" + i + "] " + f.formatTemp(samples[i]);
+      adapter.add(label);
     }
     list.setAdapter(adapter);
   }
@@ -120,9 +128,10 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
       return;
     }
     Formatter f = comp.formatter();
+    String when = sampleTs[idx] > 0 ? "\nTime: " + TimeFormat.dateTime(sampleTs[idx] * 1000L) : "";
     new AlertDialog.Builder()
         .setTitle("Sample " + idx)
-        .setMessage("Temperature: " + f.formatTemp(samples[idx]))
+        .setMessage("Temperature: " + f.formatTemp(samples[idx]) + when)
         .setPositiveButton("OK", (dialog, which) -> {})
         .show();
   }

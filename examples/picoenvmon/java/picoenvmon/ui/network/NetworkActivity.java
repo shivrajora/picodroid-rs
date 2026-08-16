@@ -8,6 +8,7 @@ import picodroid.widget.TextView;
 import picoenvmon.di.EnvAppComponent;
 import picoenvmon.net.NetworkManager;
 import picoenvmon.ui.common.NavActivity;
+import picoenvmon.util.TimeFormat;
 
 /**
  * Network status screen (reached from the Home hub). On WiFi-less boards it degrades to a single
@@ -27,6 +28,7 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
   private TextView statusLine;
   private TextView ipLine;
   private TextView urlLine;
+  private TextView timeLine;
 
   @Override
   public void onCreate() {
@@ -62,6 +64,10 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
     urlLine = new TextView();
     urlLine.setTextColor(Theme.colorText);
     root.addView(urlLine);
+
+    timeLine = new TextView();
+    timeLine.setTextColor(Theme.colorText);
+    root.addView(timeLine);
 
     installHintBar(root, "Y:Back");
     setContentView(root);
@@ -103,5 +109,9 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
     ipLine.setText(ip != null ? "IP: " + ip : "IP: -");
     String url = net.url();
     urlLine.setText(url != null ? url : "");
+    timeLine.setText(
+        net.isTimeSynced()
+            ? "Time: " + TimeFormat.hms(System.currentTimeMillis()) + " UTC"
+            : "Time: not synced");
   }
 }
