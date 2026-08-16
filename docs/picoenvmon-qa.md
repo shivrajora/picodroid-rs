@@ -216,3 +216,31 @@ QA hooks: `./scripts/sim-run.sh --app picoenvmon` runs both board smokes (the -w
 lane curls the dashboard; NTP/weather assertions accept the fail-soft tokens so
 nightly never depends on the internet). Heap pre-flight for the W board:
 `./scripts/sim.sh -b pico_enviro_mon_w -a picoenvmon -l 360` under a curl loop.
+
+## Open (P1): device-only panic under combined stress — 2026-08-16
+
+~4 min into an on-device soak (Live screen active with Logger on, dashboard
+serving at 2 s cadence, pdb input churn), core 0 panicked:
+
+```
+panicked at core/src/slice/index.rs:1020:51:
+range end index 388 out of range for slice of length 336
+```
+
+Immediately preceded by routine `bme:` sampler debug lines. All demo paths had
+verified before it (join/DHCP, dashboard 15/15 paced fetches, NTP sync,
+weather, timestamped ALERTs, History via pdb nav).
+
+Known so far:
+- **Sim does not reproduce** the identical scenario (Live + Logger + nav churn
+  + 45-100 paced requests, twice) — this is in the sim-invisible class.
+- Socket send/recv natives are exonerated: both copy through a stack buffer
+  around the blocking call, no arena slice held across a yield.
+- Suspect surface: an arena/table span inconsistency (a 336-element backing
+  store addressed to 388) — plausibly a latent compaction path now exercised
+  ~10x more often by the GC pacing fix (native allocs counted, threshold 64
+  on this board), or a sampler-task/JVM-heap interaction at real priorities.
+- Recipe: `docs/memory-diagnostics.md` offensive mode + the gdb-multiarch
+  probe-rs flow in project memory (`reference_gdb_sim_debugging`,
+  `project_handle_dangle_sim_blind`); a `--mem-diag` reflash with
+  `PICODROID_MEMDIAG_OFFENSIVE=1` should catch the write at damage time.
