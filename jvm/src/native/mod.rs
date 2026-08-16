@@ -578,7 +578,7 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Exception` | `<init>` |
 /// | `java/lang/RuntimeException` | `<init>` |
 /// | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/char/long/float/double/boolean)`, `length`, `charAt`, `toString` |
-/// | `java/lang/String` | `length`, `charAt`, `equals`, `equalsIgnoreCase`, `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `isEmpty`, `compareTo`, `substring`, `trim`, `toUpperCase`, `toLowerCase`, `valueOf`, `concat`, `hashCode`, `toCharArray`, `replace`, `split` |
+/// | `java/lang/String` | `<init>(byte[])`, `<init>(byte[],int,int)`, `length`, `charAt`, `equals`, `equalsIgnoreCase`, `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `isEmpty`, `compareTo`, `substring`, `trim`, `toUpperCase`, `toLowerCase`, `valueOf`, `concat`, `hashCode`, `toCharArray`, `getBytes`, `format`, `replace`, `split` |
 /// | `java/lang/Integer` | `<init>`, `valueOf`, `intValue` |
 /// | `java/lang/Boolean` | `<init>`, `valueOf`, `booleanValue` |
 /// | `java/lang/Long` | `<init>`, `valueOf`, `longValue` |

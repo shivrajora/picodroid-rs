@@ -41,6 +41,7 @@ public class StringDemo extends Application {
     testReplaceChar();
     testReplaceString();
     testToCharArray();
+    testGetBytesRoundTrip();
     testSplit();
     testFormatConversions();
     testFormatFlags();
@@ -183,6 +184,34 @@ public class StringDemo extends Application {
     check("toCharArray [2]=c", arr[2] == 'c');
     char[] empty = "".toCharArray();
     check("toCharArray empty length=0", empty.length == 0);
+  }
+
+  // The charset-less overloads are the ones the pico-jvm implements (byte-backed
+  // ASCII strings — there is no java.nio.charset.Charset in the SDK).
+  @SuppressWarnings("DefaultCharset")
+  static void testGetBytesRoundTrip() {
+    byte[] b = "Hello".getBytes();
+    check("getBytes length=5", b.length == 5);
+    check("getBytes [0]=H", b[0] == 'H');
+    check("getBytes [4]=o", b[4] == 'o');
+    check("getBytes empty", "".getBytes().length == 0);
+
+    // The full new-String path: op_new placeholder + invokespecial swap.
+    String s = new String(b);
+    check("new String(byte[])", s.equals("Hello"));
+    check("new String(byte[]) length", s.length() == 5);
+
+    String mid = new String(b, 1, 3);
+    check("new String(byte[],off,len)", mid.equals("ell"));
+
+    // The swapped reference must behave as a first-class string: concat,
+    // switch-on-equals, and interning-based identity paths all see it.
+    String joined = new String("net".getBytes()) + "/" + s;
+    check("new String concat", joined.equals("net/Hello"));
+
+    byte[] crlf = new byte[] {'A', '\r', '\n', 'B'};
+    String ctl = new String(crlf);
+    check("new String keeps CR LF", ctl.charAt(1) == '\r' && ctl.charAt(2) == '\n');
   }
 
   static void testSplit() {

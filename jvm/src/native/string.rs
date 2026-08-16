@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    array_heap::ATYPE_CHAR,
+    array_heap::{ATYPE_BYTE, ATYPE_CHAR},
     types::{JvmError, Value},
 };
 
@@ -19,6 +19,57 @@ pub(crate) fn dispatch(
             Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
+
+        // ── String — byte[] constructors ─────────────────────────────
+        // `new String(byte[])` / `new String(byte[], int, int)`. The receiver
+        // on the operand stack is the placeholder ObjectHeap object from
+        // `op_new` (String has no class file, so javac's `new; dup;
+        // invokespecial` shape reaches native dispatch); this arm interns the
+        // bytes and returns the string Reference, and `finalize_invoke`
+        // swaps every stack/locals occurrence of the placeholder for it —
+        // see the `<init>` special case there. Bytes ≥ 0x80 map to '?': the
+        // string table is byte-backed ASCII (charAt/length count bytes), so
+        // a 1:1 byte→char mapping is kept rather than multi-byte UTF-8
+        // replacement.
+        "<init>" if ctx.descriptor == "([B)V" || ctx.descriptor == "([BII)V" => {
+            let Some(Value::ArrayRef(arr)) = ctx.args.get(1) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let total = match ctx.arrays.length(*arr) {
+                Some(l) => l as usize,
+                None => return Some(Err(JvmError::InvalidReference)),
+            };
+            let (off, len) = if ctx.descriptor == "([BII)V" {
+                match (ctx.args.get(2), ctx.args.get(3)) {
+                    (Some(Value::Int(o)), Some(Value::Int(l))) if *o >= 0 && *l >= 0 => {
+                        (*o as usize, *l as usize)
+                    }
+                    (Some(Value::Int(_)), Some(Value::Int(_))) => {
+                        return Some(Err(JvmError::ArrayIndexOutOfBounds))
+                    }
+                    _ => return Some(Err(JvmError::InvalidReference)),
+                }
+            } else {
+                (0, total)
+            };
+            if off > total || len > total - off {
+                return Some(Err(JvmError::ArrayIndexOutOfBounds));
+            }
+            let mut bytes = alloc::vec::Vec::with_capacity(len);
+            for i in off..off + len {
+                let v = match ctx.arrays.load(*arr, i) {
+                    Some(v) => v,
+                    None => return Some(Err(JvmError::InvalidReference)),
+                };
+                let b = v as u8;
+                bytes.push(if b < 0x80 { b } else { b'?' });
+            }
+            let r = ctx
+                .strings
+                .intern_dyn_owned(bytes)
+                .ok_or(JvmError::StackOverflow);
+            Some(r.map(|idx| Some(Value::Reference(idx))))
+        }
 
         // ── String — static formatter ────────────────────────────────
         "format" => super::string_format::format(ctx),
@@ -324,6 +375,26 @@ pub(crate) fn dispatch(
                 };
                 for (i, &b) in bytes.iter().enumerate() {
                     ctx.arrays.store(arr, i, b as i32);
+                }
+                Some(Ok(Some(Value::ArrayRef(arr))))
+            } else {
+                Some(Err(JvmError::InvalidReference))
+            }
+        }
+        // Elements are sign-extended (`as i8 as i32`) to match baload/bastore
+        // byte[] slot conventions.
+        "getBytes" => {
+            if let Some(Value::Reference(idx)) = ctx.args.first() {
+                let bytes: alloc::vec::Vec<u8> = {
+                    let s = ctx.strings.resolve(*idx).unwrap_or("");
+                    s.as_bytes().to_vec()
+                };
+                let arr = match ctx.arrays.alloc(ATYPE_BYTE, bytes.len() as u16) {
+                    Some(a) => a,
+                    None => return Some(Err(JvmError::StackOverflow)),
+                };
+                for (i, &b) in bytes.iter().enumerate() {
+                    ctx.arrays.store(arr, i, b as i8 as i32);
                 }
                 Some(Ok(Some(Value::ArrayRef(arr))))
             } else {

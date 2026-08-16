@@ -2572,6 +2572,107 @@ fn string_to_char_array_empty() {
 }
 
 #[test]
+fn string_get_bytes() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    let result = ctx.dispatch("getBytes", "()[B", &[s]).unwrap().unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.atype(arr), Some(crate::array_heap::ATYPE_BYTE));
+    assert_eq!(ctx.arrays.length(arr), Some(3));
+    assert_eq!(ctx.arrays.load(arr, 0), Some(b'a' as i32));
+    assert_eq!(ctx.arrays.load(arr, 1), Some(b'b' as i32));
+    assert_eq!(ctx.arrays.load(arr, 2), Some(b'c' as i32));
+}
+
+#[test]
+fn string_get_bytes_sign_extends() {
+    let mut ctx = StrCtx::new();
+    // 0xC2 0xB0 = UTF-8 "°" — high bytes must come back as negative i32s,
+    // matching baload's sign-extension of byte[] slots.
+    let s = ctx.intern(b"\xC2\xB0");
+    let result = ctx.dispatch("getBytes", "()[B", &[s]).unwrap().unwrap();
+    let Value::ArrayRef(arr) = result else {
+        panic!("expected ArrayRef");
+    };
+    assert_eq!(ctx.arrays.load(arr, 0), Some(0xC2u8 as i8 as i32));
+    assert_eq!(ctx.arrays.load(arr, 1), Some(0xB0u8 as i8 as i32));
+}
+
+/// `new String(byte[])` native arm: returns the interned Reference (the
+/// interpreter's `finalize_invoke` swaps it for the placeholder receiver).
+#[test]
+fn string_init_from_bytes() {
+    let mut ctx = StrCtx::new();
+    let arr = ctx.arrays.alloc(crate::array_heap::ATYPE_BYTE, 3).unwrap();
+    for (i, b) in [b'h', b'e', b'y'].iter().enumerate() {
+        ctx.arrays.store(arr, i, *b as i32);
+    }
+    let result = ctx
+        .dispatch("<init>", "([B)V", &[Value::Null, Value::ArrayRef(arr)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "hey");
+}
+
+#[test]
+fn string_init_from_bytes_range_and_bounds() {
+    let mut ctx = StrCtx::new();
+    let arr = ctx.arrays.alloc(crate::array_heap::ATYPE_BYTE, 5).unwrap();
+    for (i, b) in b"abcde".iter().enumerate() {
+        ctx.arrays.store(arr, i, *b as i32);
+    }
+    let result = ctx
+        .dispatch(
+            "<init>",
+            "([BII)V",
+            &[
+                Value::Null,
+                Value::ArrayRef(arr),
+                Value::Int(1),
+                Value::Int(3),
+            ],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "bcd");
+
+    // off+len past the end / negative len → bounds error, not a panic.
+    for (off, len) in [(3, 3), (0, 6), (-1, 2), (0, -1)] {
+        let r = ctx.dispatch(
+            "<init>",
+            "([BII)V",
+            &[
+                Value::Null,
+                Value::ArrayRef(arr),
+                Value::Int(off),
+                Value::Int(len),
+            ],
+        );
+        assert_eq!(
+            r,
+            Err(JvmError::ArrayIndexOutOfBounds),
+            "off={off} len={len}"
+        );
+    }
+}
+
+#[test]
+fn string_init_from_bytes_sanitizes_non_ascii() {
+    let mut ctx = StrCtx::new();
+    let arr = ctx.arrays.alloc(crate::array_heap::ATYPE_BYTE, 3).unwrap();
+    ctx.arrays.store(arr, 0, b'a' as i32);
+    ctx.arrays.store(arr, 1, 0xC2u8 as i8 as i32); // high byte → '?'
+    ctx.arrays.store(arr, 2, b'z' as i32);
+    let result = ctx
+        .dispatch("<init>", "([B)V", &[Value::Null, Value::ArrayRef(arr)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(result), "a?z");
+}
+
+#[test]
 fn string_split_basic() {
     let mut ctx = StrCtx::new();
     let s = ctx.intern(b"a,b,c");

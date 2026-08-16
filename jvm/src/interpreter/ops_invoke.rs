@@ -202,9 +202,37 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 Ok(())
             };
+        // `new String(byte[])`: String has no class file, so `op_new` pushed a
+        // placeholder ObjectHeap object and the `<init>` reached native
+        // dispatch, which interned the bytes and returned the real string
+        // Reference (see `string::dispatch`). A constructor can't "return" a
+        // different receiver, so rewrite every occurrence of the placeholder
+        // in the creating frame instead. JVMS verification confines an
+        // uninitialized-`new` reference to this frame's stack and locals
+        // until `<init>` completes, so the rewrite is exhaustive; the
+        // placeholder object becomes garbage and is collected normally.
+        let string_init_swap = |frame: &mut Frame, args: &[Value], result: Option<Value>| -> bool {
+            if native_class != "java/lang/String" || name_str != "<init>" {
+                return false;
+            }
+            let (Some(Value::ObjectRef(placeholder)), Some(Value::Reference(interned))) =
+                (args.first().copied(), result)
+            else {
+                return false;
+            };
+            for slot in frame.stack.iter_mut().chain(frame.locals.iter_mut()) {
+                if *slot == Value::ObjectRef(placeholder) {
+                    *slot = Value::Reference(interned);
+                }
+            }
+            true
+        };
         match resolved {
             Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
                 let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                if string_init_swap(frame, args, result) {
+                    return Ok(());
+                }
                 push_native_result(frame, result)
             }
             Some((ci, mi)) => {
@@ -217,6 +245,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             None => {
                 // Not found in loaded classes — try native dispatch.
                 let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                if string_init_swap(frame, args, result) {
+                    return Ok(());
+                }
                 push_native_result(frame, result)
             }
         }
