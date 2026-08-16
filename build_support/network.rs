@@ -113,6 +113,18 @@ pub fn build_freertos_tcp(
         return;
     }
 
+    // Same guard as the cyw43 fork: refuse to build against pristine
+    // upstream. The picodroid branch carries the RST-during-connect wake fix
+    // (FreeRTOS_connect otherwise sleeps forever when the peer refuses).
+    {
+        let tcp_ip = tcp_src.join("FreeRTOS_TCP_IP.c");
+        let text = std::fs::read_to_string(&tcp_ip).expect("read vendored FreeRTOS_TCP_IP.c");
+        assert!(
+            text.contains("PICODROID"),
+            "vendor/freertos-plus-tcp is the unpatched upstream — run `git submodule sync && git submodule update --init vendor/freertos-plus-tcp` to fetch the picodroid fork"
+        );
+    }
+
     let port_dir = format!("src/hal/{mcu_family}/port");
     let cyw43_src = repo_root.join("vendor/cyw43-driver/src");
     let freertos_include = repo_root.join("third_party/FreeRTOS-Kernel/include");

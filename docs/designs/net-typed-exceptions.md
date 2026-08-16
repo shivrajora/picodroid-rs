@@ -285,6 +285,13 @@ uncatchable app-kill). Add to v0.13.0 release notes alongside the
    `SocketTimeoutException: connect timed out` (ARP fail → −116); http_get
    against a live URL still returns 200 end-to-end; http_get with an
    unresolvable host logs `UnknownHostException` (device DNS path).
+   *Prerequisite landed 2026-08-15:* the closed-port case only reaches the
+   app at all because of the vendored FreeRTOS+TCP fork fix (`e43e446f`,
+   see "Vendored FreeRTOS+TCP is now a fork" in
+   `docs/networking-followups-2026-08.md`) — pristine V4.4.1 leaves
+   `FreeRTOS_connect` asleep forever on RST-during-SYN, and upstream `main`
+   still has the bug. Do not "upgrade" the submodule past the fork without
+   re-carrying that patch.
 3. `catch (IOException e)` continues to catch all of the above (hierarchy);
    `catch (SocketException e)` catches ConnectException but NOT
    SocketTimeoutException (real-Java quirk, asserted in the jvm unit test).

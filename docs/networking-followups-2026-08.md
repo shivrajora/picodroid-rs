@@ -71,6 +71,21 @@ core 0 + DHCP, http_get end-to-end TCP, 10/10 pdb-install soak. See
 `docs/designs/cyw43-pio-transport.md` for the full history and debug
 recipes. With atomic sections gone, NET-5 is now unblocked.
 
+## Vendored FreeRTOS+TCP is now a fork (2026-08-15)
+
+`vendor/freertos-plus-tcp` points at the `picodroid` branch of
+`shivrajora/FreeRTOS-Plus-TCP` (V4.4.1 + `e43e446f`), mirroring the
+cyw43-driver arrangement, with the same `PICODROID`-marker build assertion
+in `build_support/network.rs`. The carried fix: an RST received in SYN-SENT
+(peer refuses the connection) transitioned the socket to `eCLOSED`, but
+`vTCPStateChange()` only wakes a task blocked in `FreeRTOS_connect()` on the
+`eCONNECT_SYN → eCLOSE_WAIT` transition — so with our (default, infinite)
+socket block time, `Socket.connect` to a reachable host with a closed port
+**hung forever** instead of failing in one RTT. Diagnosed by tcpdump (SYN →
+RST in 24 µs, no SYN retransmission, no app wake). The bug is present on
+upstream `main` as of 2026-08-15 — upstream-PR-worthy, same bucket as the
+bsscfg event-mask fix above.
+
 ## NET-5: host-wake GPIO interrupt instead of 100 ms polling
 
 `run_cyw43_task` polls every 100 ms (or on TX-side notifications). GP24 is
