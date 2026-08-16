@@ -513,7 +513,7 @@ fn execute_frames<H: NativeMethodHandler>(
             let t0 = ex.handler.clock_nanos();
             let handler = &*ex.handler;
             let freed = crate::gc::collect(
-                &frames,
+                frames,
                 ex.objects,
                 ex.arrays,
                 ex.strings,

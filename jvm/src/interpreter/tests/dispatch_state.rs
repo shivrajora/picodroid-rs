@@ -166,14 +166,19 @@ fn statics_persist_across_execute_calls() {
 fn gc_state_alloc_count_persists_across_execute_calls() {
     // The interpreter increments gc_state.alloc_count for every heap
     // allocation. Persisting that counter across calls is critical: a stream
-    // of short native-driven invocations would never trip the 256-alloc GC
-    // threshold otherwise. Pre-seed the counter, run a trivial method that
-    // does no allocations, and verify the seed survives.
+    // of short native-driven invocations would never trip the GC threshold
+    // otherwise. Pre-seed the counter, run a trivial method that does no
+    // allocations, and verify the seed survives. The seed must stay BELOW
+    // GC_THRESHOLD or the survival check is unfalsifiable — a legitimate GC
+    // resets the counter — and GC_THRESHOLD follows the active board's
+    // `gc_alloc_threshold` (pre-commit runs this suite with board env
+    // applied; pico_enviro_mon_w sets 64). 10 is under the enforced minimum
+    // of 16, so the seed is threshold-proof.
     let cf = ClassFile::parse(CLASS_LIT).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
-    gc.alloc_count = 200;
+    gc.alloc_count = 10;
     let r = execute(
         &classes,
         &mut s,
@@ -189,7 +194,7 @@ fn gc_state_alloc_count_persists_across_execute_calls() {
     );
     assert_eq!(r.unwrap(), Some(Value::Int(5)));
     assert_eq!(
-        gc.alloc_count, 200,
+        gc.alloc_count, 10,
         "alloc_count must not reset across execute() — a no-alloc method should leave it untouched"
     );
 }
