@@ -222,6 +222,7 @@ pub const OS_HANDLED: &[Row] = &[
     ),
     // picodroid/os/SystemClock
     ("picodroid/os/SystemClock", "elapsedRealtimeNanos", "()J"),
+    ("picodroid/os/SystemClock", "setCurrentTimeMillis", "(J)Z"),
     ("picodroid/os/SystemClock", "sleep", "(I)V"),
 ];
 

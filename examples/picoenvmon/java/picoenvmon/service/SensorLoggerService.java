@@ -9,6 +9,7 @@ import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
 import picodroid.os.IBinder;
+import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picoenvmon.data.SensorRingBuffer;
 import picoenvmon.data.ThresholdConfig;
@@ -180,7 +181,10 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     if (smIdx >= 0) {
       smoothSum[smIdx] += v;
       smoothCount[smIdx]++;
-      long now = System.currentTimeMillis();
+      // Monotonic clock for the interval: currentTimeMillis jumps when the
+      // NTP sync anchors the wall clock, which must not stall or burst the
+      // 1 Hz emit cadence.
+      long now = SystemClock.elapsedRealtimeNanos() / 1_000_000;
       if (lastEmitMs == 0) {
         lastEmitMs = now;
       }
