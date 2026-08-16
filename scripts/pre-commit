@@ -131,7 +131,8 @@ JOBS="$(cpu_count)"
 
 # testbench_rp2350w compiles the cyw43/network path and pico_enviro_mon the
 # sensor/has_buttons path — neither is reachable from the other boards' cfgs.
-for board in testbench_rp2040 testbench_rp2350 testbench_rp2350w pico_enviro_mon; do
+# pico_enviro_mon_w is the only board combining both (sensors + network).
+for board in testbench_rp2040 testbench_rp2350 testbench_rp2350w pico_enviro_mon pico_enviro_mon_w; do
   resolve_board "$board"
   echo "==> Running clippy ($board)..."
   # shellcheck disable=SC2086

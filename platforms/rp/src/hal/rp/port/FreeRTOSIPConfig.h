@@ -1,8 +1,12 @@
 /*
  * FreeRTOS+TCP configuration for picodroid (RP2350 + CYW43439 WiFi).
  *
- * Tuned for 256 KB FreeRTOS heap — balances buffer count against
- * JVM heap and LVGL memory requirements.
+ * All buffers come out of the shared FreeRTOS heap_4 arena (heap_kb in the
+ * MCU toml, injected as configTOTAL_HEAP_SIZE — 416 KB on RP2350), which the
+ * IP stack shares with the JVM and every task stack. The #ifndef-wrapped
+ * values below are testbench defaults; heap-constrained boards override
+ * them per-board via `net_*` keys in board.toml (see
+ * build_support/network.rs::net_config_overrides).
  */
 
 #ifndef FREERTOS_IP_CONFIG_H
@@ -29,13 +33,19 @@
 #define ipconfigDNS_REQUEST_ATTEMPTS            (4)
 
 /* ---- Network buffers ---- */
+#ifndef ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS
 #define ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS  (16)
+#endif
 #define ipconfigNETWORK_MTU                     (1500)
 #define ipconfigTCP_MSS                         (1460)
 
 /* ---- TCP socket buffers ---- */
+#ifndef ipconfigTCP_RX_BUFFER_LENGTH
 #define ipconfigTCP_RX_BUFFER_LENGTH            (4096)
+#endif
+#ifndef ipconfigTCP_TX_BUFFER_LENGTH
 #define ipconfigTCP_TX_BUFFER_LENGTH            (4096)
+#endif
 
 /* ---- IP task ---- */
 #define ipconfigIP_TASK_PRIORITY                (7)
@@ -63,7 +73,9 @@
 
 /* ---- TCP window ---- */
 #define ipconfigUSE_TCP_WIN                     (1)
+#ifndef ipconfigTCP_WIN_SEG_COUNT
 #define ipconfigTCP_WIN_SEG_COUNT               (16)
+#endif
 
 /* ---- Misc ---- */
 #define ipconfigETHERNET_DRIVER_FILTERS_FRAME_TYPES  (0)

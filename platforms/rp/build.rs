@@ -89,8 +89,21 @@ fn main() {
 
             if b.cfg.props.get("network_type").map(String::as_str) == Some("cyw43") {
                 let heap_kb = board_cfg::mcu_heap_kb(&mcu, &mcu_toml_path);
-                network::build_cyw43_driver(&mcu_family, &freertos_config_dir, &repo_root, heap_kb);
-                network::build_freertos_tcp(&mcu_family, &freertos_config_dir, &repo_root, heap_kb);
+                let net_overrides = network::net_config_overrides(&b.cfg.props);
+                network::build_cyw43_driver(
+                    &mcu_family,
+                    &freertos_config_dir,
+                    &repo_root,
+                    heap_kb,
+                    &net_overrides,
+                );
+                network::build_freertos_tcp(
+                    &mcu_family,
+                    &freertos_config_dir,
+                    &repo_root,
+                    heap_kb,
+                    &net_overrides,
+                );
                 // wifi_task.rs bakes these in via option_env!; without the
                 // rerun hints a credential/auth change is a cargo no-op and
                 // the old values stay in the firmware.

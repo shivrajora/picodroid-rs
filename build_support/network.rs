@@ -8,7 +8,36 @@
 //! should add a parallel module rather than extending this one.
 
 use crate::config::collect_files;
+use std::collections::HashMap;
 use std::path::Path;
+
+/// Map optional `net_*` board.toml keys to FreeRTOSIPConfig.h override
+/// defines. The header's defaults are `#ifndef`-wrapped so a `-D` from here
+/// wins; heap-constrained boards use these to shrink the IP stack's share of
+/// the heap_4 arena. Values are validated as unsigned integers so a typo
+/// fails the build here rather than as a C syntax error.
+///
+/// Both `build_cyw43_driver` and `build_freertos_tcp` must receive the same
+/// overrides — the two compile units both include FreeRTOSIPConfig.h and
+/// must agree on buffer layouts.
+pub fn net_config_overrides(props: &HashMap<String, String>) -> Vec<(String, String)> {
+    const KEYS: [(&str, &str); 4] = [
+        ("net_buffer_descriptors", "ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS"),
+        ("net_tcp_rx_bytes", "ipconfigTCP_RX_BUFFER_LENGTH"),
+        ("net_tcp_tx_bytes", "ipconfigTCP_TX_BUFFER_LENGTH"),
+        ("net_tcp_win_segs", "ipconfigTCP_WIN_SEG_COUNT"),
+    ];
+    let mut defines = Vec::new();
+    for (key, define) in KEYS {
+        if let Some(v) = props.get(key) {
+            let n: u32 = v
+                .parse()
+                .unwrap_or_else(|_| panic!("board.toml: {key} must be an unsigned integer, got '{v}'"));
+            defines.push((define.to_string(), format!("({n})")));
+        }
+    }
+    defines
+}
 
 /// Compile the CYW43 WiFi driver (C sources from vendor/cyw43-driver).
 ///
@@ -18,6 +47,7 @@ pub fn build_cyw43_driver(
     freertos_config_dir: &str,
     repo_root: &Path,
     heap_kb: u32,
+    net_overrides: &[(String, String)],
 ) {
     let cyw43_src = repo_root.join("vendor/cyw43-driver/src");
     if !cyw43_src.exists() {
@@ -49,6 +79,9 @@ pub fn build_cyw43_driver(
         .define("NDEBUG", None)
         .warnings(false)
         .extra_warnings(false);
+    for (k, v) in net_overrides {
+        build.define(k, v.as_str());
+    }
 
     // TODO(esp): family-specific FreeRTOS port include. Today only RP2350W
     // ships networking (CYW43+FreeRTOS+TCP). Future families using a
@@ -103,6 +136,7 @@ pub fn build_freertos_tcp(
     freertos_config_dir: &str,
     repo_root: &Path,
     heap_kb: u32,
+    net_overrides: &[(String, String)],
 ) {
     let tcp_src = repo_root.join("vendor/freertos-plus-tcp/source");
     if !tcp_src.exists() {
@@ -161,6 +195,9 @@ pub fn build_freertos_tcp(
         .define("CYW43_LWIP", "0")
         .warnings(false)
         .extra_warnings(false);
+    for (k, v) in net_overrides {
+        build.define(k, v.as_str());
+    }
 
     // TODO(esp): see comment in build_cyw43_driver.
     if mcu_family == "rp" {

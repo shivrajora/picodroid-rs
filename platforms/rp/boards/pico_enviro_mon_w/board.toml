@@ -1,0 +1,109 @@
+# Board: PicoEnviroMon-W — RP2350 + Pimoroni Pico Enviro+ Pack on a
+# Raspberry Pi Pico 2 W (CYW43439 WiFi).
+#
+# WiFi variant of pico_enviro_mon: identical display/sensor/button wiring,
+# plus the CYW43 network stack. Requires the Pico 2 W under the pack — the
+# CYW43 pins (WL_ON=GP23, WL_D=GP24, WL_CS=GP25, WL_CLK=GP29, fixed in
+# src/hal/rp/port/cyw43_configport.h) are on-module and don't collide with
+# anything the Enviro+ Pack uses (GP6/7/10 LED, GP12-15 buttons, GP16-20
+# display, I2C0 sensors).
+mcu = "rp2350"
+has_network = true
+network_type = "cyw43"
+lv_dpi = 166
+lv_mem_kb = 48
+# Disable idle-timeout display sleep — this is a live environmental monitor;
+# users watch the readings without interacting. Set to a positive ms value
+# (e.g. 60000) to re-enable.
+idle_timeout_ms = 0
+
+# FreeRTOS+TCP heap tuning (defaults in parentheses — see
+# src/hal/rp/port/FreeRTOSIPConfig.h). picoenvmon is the canonical
+# heap-constrained target; the IP stack shares the 416 KB heap_4 arena with
+# the JVM, so this board halves the buffer budget relative to the testbench
+# defaults: the app serves one short HTTP page at a time (listen backlog is
+# 1) and posts small NTP/HTTP-client exchanges — it never needs 4 KB TCP
+# windows or 16 in-flight MTU frames.
+# net_buffer_descriptors: default 16, ~1.5 KB heap each when in flight.
+# net_tcp_rx/tx_bytes: default 4096, per TCP socket.
+# net_tcp_win_segs: default 16.
+# (The board.toml prop parser is line-based — keep comments off value lines.)
+net_buffer_descriptors = 8
+net_tcp_rx_bytes = 2048
+net_tcp_tx_bytes = 2048
+net_tcp_win_segs = 8
+
+# JVM tunables (CPU↔memory tradeoffs). All optional — uncomment to override.
+# Canonical guide: website/src/content/docs/reference/jvm-tunables.md
+# Picoenvmon is the canonical heap-constrained target (see project memory
+# `project_picoenvmon_heap_budget.md`); lower `slot_chunk_shift` to 4 and
+# `gc_alloc_threshold` to 128 if you hit OOM under `--shrink -r -l 384`.
+# [jvm]
+# gc_alloc_threshold   = 256   # 16..=8192. Lower = more frequent GC, smaller peak heap, more pauses.
+# slot_chunk_shift     = 6     # 3..=8.    Chunk size = 1 << shift. Lower = smaller worst-case contiguous alloc.
+# inline_array_data    = 8     # 0..=32.   Arrays of ≤N i32-slots stored inline rather than in the arena.
+# activity_stack_depth = 8     # 1..=32.   Max nested Activities.
+# pending_op_queue     = 8     # 1..=64.   Max queued startActivity/startService ops per frame.
+
+[jvm]
+# Boot-time heap pre-reservation (PEM-3): claim picoenvmon's steady-state
+# JVM storage while the heap is young so it can't land mid-heap during
+# Activity churn and fragment the free space. Sized from the on-device
+# `memmon: storage` steady state under a full navigation soak (obj=4 arr=2
+# str=6 chunks, fields=2304, arena=2048 values) plus one growth step of
+# margin each. Values carried over from pico_enviro_mon; re-derive after the
+# networking heap soak (the network thread's interpreter state shifts them).
+prereserve_obj_chunks    = 5
+prereserve_arr_chunks    = 3
+prereserve_str_chunks    = 8
+prereserve_fields_values = 2560
+prereserve_arena_values  = 3072
+
+[display]
+driver = "st7789"
+spi_id = 0
+spi_freq = 62500000
+# Enviro+ Pack routes SPI0 SCK/MOSI to GP18/GP19, not the chip-default GP2/GP3.
+spi_sck = 18
+spi_mosi = 19
+pin_dc = 16
+pin_cs = 17
+pin_bl = 20
+# pin_rst omitted — Enviro+ Pack ties RST high in hardware; build.rs emits PIN_RST = None.
+width = 240
+height = 240
+madctl = 0x00
+band_height = 27
+scroll_limit = 10
+
+[[sensor]]
+kind = "bme688"
+bus  = "I2C0"
+addr = 0x77
+
+[[sensor]]
+kind = "ltr559"
+bus  = "I2C0"
+addr = 0x23
+
+# Pimoroni Enviro+ Pack hardware buttons (A/B/X/Y → GP12-15).
+# Semantic mapping: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[[button]]
+pin = 13
+lv_key = "NEXT"
+keycode = 20
+
+[[button]]
+pin = 14
+lv_key = "ENTER"
+keycode = 23
+
+[[button]]
+pin = 15
+lv_key = "ESC"
+keycode = 4

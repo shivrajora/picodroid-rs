@@ -35,6 +35,7 @@ board-testbench-rp2040  = []
 board-testbench-rp2350  = []
 board-testbench-rp2350w = []
 board-pico-enviro-mon   = []
+board-pico-enviro-mon-w = []
 # Board capability features — activated by the binary crate's board features and
 # forwarded here so picodroid-core can emit the matching rustc-cfgs.
 # Each new board capability (sensor, network type, etc.) needs a feature here
