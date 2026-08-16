@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
+import java.io.IOException;
+
 /**
  * HTTP/1.1 client connection, Android-style.
  *
@@ -66,8 +68,13 @@ public class HttpURLConnection implements AutoCloseable {
    * Resolve the host, open the TCP connection, and send the request line + headers. If {@code
    * doOutput} is true the connection is left ready for body writes via {@link #getOutputStream()};
    * otherwise the request is complete and {@link #getResponseCode()} can be called.
+   *
+   * @throws java.net.UnknownHostException if the host cannot be resolved
+   * @throws java.net.ConnectException if the server actively refused the connection
+   * @throws java.net.SocketTimeoutException if the connect attempt timed out
+   * @throws IOException for any other connection or request-send failure
    */
-  public void connect() {
+  public void connect() throws IOException {
     if (handle != -1) {
       return; // already connected
     }
@@ -80,7 +87,7 @@ public class HttpURLConnection implements AutoCloseable {
     this.handle = nativeConnect(url.getHost(), url.getPort(), url.getPath(), method, fixedLength);
   }
 
-  public HttpOutputStream getOutputStream() {
+  public HttpOutputStream getOutputStream() throws IOException {
     if (handle == -1) {
       connect();
     }
@@ -90,7 +97,11 @@ public class HttpURLConnection implements AutoCloseable {
     return new HttpOutputStream(handle);
   }
 
-  public int getResponseCode() {
+  /**
+   * @throws java.net.ProtocolException if the server's response is not parseable HTTP
+   * @throws IOException if connecting or reading the response head fails
+   */
+  public int getResponseCode() throws IOException {
     if (handle == -1) {
       connect();
     }
@@ -105,7 +116,7 @@ public class HttpURLConnection implements AutoCloseable {
     return nativeContentLength(handle);
   }
 
-  public HttpInputStream getInputStream() {
+  public HttpInputStream getInputStream() throws IOException {
     if (handle == -1) {
       connect();
     }
@@ -127,9 +138,9 @@ public class HttpURLConnection implements AutoCloseable {
   }
 
   private static native int nativeConnect(
-      String host, int port, String path, String method, int bodyLength);
+      String host, int port, String path, String method, int bodyLength) throws IOException;
 
-  private static native int nativeReadResponseCode(int handle);
+  private static native int nativeReadResponseCode(int handle) throws IOException;
 
   private static native int nativeContentLength(int handle);
 

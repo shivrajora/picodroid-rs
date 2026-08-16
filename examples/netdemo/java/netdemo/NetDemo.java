@@ -16,8 +16,9 @@ import picodroid.util.Log;
  * <p>Sim testing: Terminal 1: nc -l -p 7000 -c 'cat' (or: socat TCP-LISTEN:7000,fork EXEC:cat)
  * Terminal 2: ./scripts/sim.sh --app netdemo --board testbench_rp2350w
  *
- * <p>Hardware testing: Run an echo server on a machine reachable from the Pico 2 W's network, then
- * adjust the server address below.
+ * <p>Hardware testing: Run an echo server on a machine reachable from the Pico 2 W's network and
+ * bake its address in at build time — {@code PICODROID_NET_TEST_HOST=<ip> ./scripts/build-apk.sh
+ * --app netdemo} (generated into {@link NetTestConfig#HOST}; default is loopback).
  */
 public class NetDemo extends Application {
   private static final String TAG = "NetDemo";
@@ -48,13 +49,13 @@ public class NetDemo extends Application {
     InetAddress myAddr = new InetAddress(rawIp);
     Log.i(TAG, "My IP: " + myAddr.getHostAddress());
 
-    // Connect to a TCP echo server on localhost:7000.
-    InetAddress server = InetAddress.getByAddress(127, 0, 0, 1);
+    // Connect to a TCP echo server on the build-time test host (see the
+    // class javadoc), port 7000.
     int port = 7000;
-    Log.i(TAG, "Connecting to " + server.getHostAddress() + ":" + port);
-
     Socket sock = new Socket();
     try {
+      InetAddress server = InetAddress.getByName(NetTestConfig.HOST);
+      Log.i(TAG, "Connecting to " + server.getHostAddress() + ":" + port);
       sock.connect(server.getRawAddress(), port);
       sock.setTimeout(5000);
 

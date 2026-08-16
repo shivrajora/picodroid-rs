@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package http_get;
 
+import java.io.IOException;
 import picodroid.app.Application;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpOutputStream;
@@ -28,8 +29,11 @@ public class HttpGet extends Application {
   /** How long to wait for the network before giving up (WiFi join + DHCP). */
   private static final int NETWORK_WAIT_MS = 30000;
 
-  /** Server base URL — adjust to a reachable host when testing on hardware. */
-  private static final String BASE_URL = "http://127.0.0.1:8000/";
+  /**
+   * Server base URL. The host is baked at build time (default loopback) — for hardware testing,
+   * {@code PICODROID_NET_TEST_HOST=<ip> ./scripts/build-apk.sh --app http_get}.
+   */
+  private static final String BASE_URL = "http://" + NetTestConfig.HOST + ":8000/";
 
   @Override
   public void onCreate() {
@@ -67,6 +71,10 @@ public class HttpGet extends Application {
         total += n;
       }
       Log.i(TAG, "  read " + total + " body bytes");
+    } catch (IOException e) {
+      // Expected when no HTTP server is listening at BASE_URL — see the
+      // class javadoc for how to run one.
+      Log.i(TAG, "  GET failed: " + e.getMessage());
     } finally {
       c.disconnect();
     }
@@ -87,6 +95,8 @@ public class HttpGet extends Application {
 
       int code = c.getResponseCode();
       Log.i(TAG, "  status=" + code);
+    } catch (IOException e) {
+      Log.i(TAG, "  POST failed: " + e.getMessage());
     } finally {
       c.disconnect();
     }
