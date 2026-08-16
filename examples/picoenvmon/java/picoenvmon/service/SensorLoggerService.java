@@ -11,6 +11,7 @@ import picodroid.hardware.SensorManager;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
+import picoenvmon.data.LatestReadings;
 import picoenvmon.data.SensorRingBuffer;
 import picoenvmon.data.ThresholdConfig;
 import picoenvmon.di.EnvAppComponent;
@@ -51,6 +52,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   private SensorManager sensorManager;
   private RgbLed rgbLed;
   private ThresholdConfig thresholds;
+  private LatestReadings latestReadings;
   private float lastGas = -1f;
   private boolean started;
 
@@ -93,6 +95,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     EnvAppComponent app = (EnvAppComponent) EnvAppComponent.current();
     rgbLed = app.rgbLed();
     thresholds = app.thresholds();
+    latestReadings = app.latestReadings();
 
     sensorManager = SensorManager.getInstance();
     registerAll(sensorManager);
@@ -245,6 +248,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
       float avg = smoothSum[i] / smoothCount[i];
       smoothSum[i] = 0f;
       smoothCount[i] = 0;
+      latestReadings.updateByType(SMOOTHED_TYPES[i], avg);
       for (int j = 0; j < MAX_SMOOTHED_LISTENERS; j++) {
         SmoothedSensorListener l = smoothedListeners[j];
         if (l != null) {

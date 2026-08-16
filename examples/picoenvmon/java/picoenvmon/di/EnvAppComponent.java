@@ -4,8 +4,10 @@ package picoenvmon.di;
 import picodroid.content.SharedPreferences;
 import picodroid.di.ApplicationComponent;
 import picodroid.util.Log;
+import picoenvmon.data.LatestReadings;
 import picoenvmon.data.ThresholdConfig;
 import picoenvmon.hardware.RgbLed;
+import picoenvmon.net.NetworkManager;
 import picoenvmon.util.Formatter;
 
 public class EnvAppComponent extends ApplicationComponent {
@@ -15,6 +17,8 @@ public class EnvAppComponent extends ApplicationComponent {
   private final SharedPreferences prefs;
   private final ThresholdConfig thresholds;
   private final Formatter formatter;
+  private final LatestReadings latestReadings = new LatestReadings();
+  private final NetworkManager networkManager = new NetworkManager();
   private RgbLed rgbLed;
 
   public EnvAppComponent() {
@@ -51,5 +55,15 @@ public class EnvAppComponent extends ApplicationComponent {
       rgbLed = new RgbLed();
     }
     return rgbLed;
+  }
+
+  /** Latest smoothed sensor values — fed by SensorLoggerService, read by dashboard/UI. */
+  public LatestReadings latestReadings() {
+    return latestReadings;
+  }
+
+  /** Networking owner (join wait, dashboard server, NTP, weather). */
+  public NetworkManager networkManager() {
+    return networkManager;
   }
 }

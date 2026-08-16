@@ -12,6 +12,7 @@ import picoenvmon.di.EnvAppComponent;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.ui.history.HistoryActivity;
 import picoenvmon.ui.live.LiveActivity;
+import picoenvmon.ui.network.NetworkActivity;
 import picoenvmon.ui.settings.SettingsActivity;
 
 /**
@@ -23,9 +24,9 @@ import picoenvmon.ui.settings.SettingsActivity;
  */
 public class HomeActivity extends NavActivity {
 
-  private static final String[] LABELS = {"Live", "History", "Settings"};
+  private static final String[] LABELS = {"Live", "History", "Network", "Settings"};
   private static final Class<?>[] DESTINATIONS = {
-    LiveActivity.class, HistoryActivity.class, SettingsActivity.class
+    LiveActivity.class, HistoryActivity.class, NetworkActivity.class, SettingsActivity.class
   };
 
   // Held as a field so the GC roots the menu ListView via this Activity, in addition to the native

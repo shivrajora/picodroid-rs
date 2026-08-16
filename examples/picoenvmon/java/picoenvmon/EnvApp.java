@@ -19,7 +19,9 @@ public class EnvApp extends Application {
     Theme.colorTextSecondary = Color.argb(255, 160, 180, 188);
     Theme.colorOutline = Color.argb(255, 56, 80, 92);
 
-    new EnvAppComponent();
+    EnvAppComponent component = new EnvAppComponent();
+    // No-op on boards without WiFi (FEATURE_WIFI probe inside).
+    component.networkManager().start();
 
     startActivity(new Intent(HomeActivity.class));
   }
