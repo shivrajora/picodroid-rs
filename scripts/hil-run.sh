@@ -618,6 +618,15 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
+    # Skip sim-only tests (the HIL board lacks what they need, e.g. a
+    # network stack; sim-run.sh runs them).
+    if [[ "$category" == "sim" ]]; then
+      hil_log "SKIP $app[$MODE] (sim-only)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     # Skip explicitly skipped tests.
     if [[ "$category" == "skip" ]]; then
       hil_log "SKIP $app[$MODE]"

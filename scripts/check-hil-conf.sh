@@ -50,7 +50,7 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
   fi
 
   case "$category" in
-    term|loop|hw|pdb|skip) ;;
+    term|loop|hw|pdb|sim|skip) ;;
     *) fail "line $lineno ($app): unknown category '$category'" ;;
   esac
 
@@ -60,6 +60,14 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
 
   if [[ "$category" == "pdb" && -z "${pdb_command:-}" ]]; then
     fail "line $lineno ($app): pdb row is missing its pdb_command field"
+  fi
+
+  # sim rows may carry a board override in the 5th column; catch renamed or
+  # deleted boards at commit time.
+  if [[ "$category" == "sim" && -n "${pdb_command:-}" ]]; then
+    if ! compgen -G "$REPO_ROOT/platforms/*/boards/$pdb_command" > /dev/null; then
+      fail "line $lineno ($app): sim board override '$pdb_command' has no platforms/*/boards/ directory"
+    fi
   fi
 
   # Tag-literal check. Only patterns shaped `Tag[]:] ...` carry a tag; free

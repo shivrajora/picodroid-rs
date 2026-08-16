@@ -90,7 +90,8 @@ PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 HOST_TARGET="$(host_target)"
 
 run_test() {
-  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5"
+  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" board="${6:-testbench_rp2350}"
+  local board_feature="board-${board//_/-}"
   local tag="${app}[${mode}]"
   local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
@@ -126,7 +127,7 @@ run_test() {
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim,board-testbench-rp2350" >> "$build_log" 2>&1; then
+    --features "sim,$board_feature" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
     echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -251,8 +252,10 @@ for MODE in "${MODES[@]}"; do
   sim_log "Mode: $MODE"
   sim_log "========================================="
 
-  # Parse config and run tests.
-  while IFS='|' read -r app category timeout patterns; do
+  # Parse config and run tests. The 5th column is the pdb command for pdb
+  # rows and an optional board override for sim rows (e.g. netexception
+  # needs the network-enabled W board's sim build).
+  while IFS='|' read -r app category timeout patterns extra; do
     # Skip comments and blank lines.
     [[ "$app" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$app" ]] && continue
@@ -286,7 +289,11 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
-    run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
+    if [[ "$category" == "sim" && -n "${extra:-}" ]]; then
+      run_test "$app" "$category" "$timeout" "$patterns" "$MODE" "$extra"
+    else
+      run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
+    fi
   done < "$SIM_CONF"
 
   # Heap pressure tests (sim-based; bundled here so they run on every sim cycle
