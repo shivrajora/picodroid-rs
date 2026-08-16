@@ -31,10 +31,13 @@ mod prereserve_config {
 // ── Shared heap ──────────────────────────────────────────────────────────────
 //
 // All JVM threads share one heap (objects, arrays, strings), matching the
-// standard Java memory model. Only one JVM task runs at a time — on device
-// because the core is single-core and picodroid pins JVM work to it, in the
-// simulator because `Rtos::spawn` refuses to start a second JVM task — so
-// allocation needs no global lock.
+// standard Java memory model. Only one JVM task runs at a time — the core is
+// single-core (the simulator models the same), JVM work is pinned to it, and
+// `configUSE_TIME_SLICING = 0` guarantees a running JVM task keeps the CPU
+// until it blocks (sleep / socket / queue), so switches between JVM tasks
+// land only at yield points, never mid-heap-mutation — so allocation needs
+// no global lock. Parked-mid-execute tasks' frames stay visible to GC via
+// the frame registry in `GcState` (see pico_jvm::gc).
 
 // SAFETY: upheld by the single-JVM-task invariant above, which is part of
 // the RTOS contract every platform implements.

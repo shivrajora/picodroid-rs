@@ -54,6 +54,10 @@
 
 /* Scheduler behaviour */
 #define configUSE_PREEMPTION                    1
+/* Time slicing MUST stay off — same shared-JVM-heap contract as the device
+ * config (mcus/rp/FreeRTOSConfig.h): equal-priority JVM tasks must switch
+ * only at blocking yield points, never at the tick. */
+#define configUSE_TIME_SLICING                  0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configUSE_TICKLESS_IDLE                 0
 #define configUSE_16_BIT_TICKS                  0

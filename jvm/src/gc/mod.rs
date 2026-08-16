@@ -63,6 +63,22 @@ pub struct GcState {
     work: Vec<GcRef>,
     /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
     arena_compact_buf: Vec<(usize, u32, u16)>,
+    /// Frame registry: every `interpreter::execute` on this heap registers
+    /// its frame stack here for its whole run. A JVM task parked at a
+    /// blocking yield point (sleep, socket accept/recv, queue wait) is
+    /// mid-`execute` with live frames that the *collecting* task cannot see
+    /// through its own `frames` argument — without this registry those
+    /// locals get swept (first hit: the picoenvmon network thread's
+    /// HttpServer, collected while the thread was parked in accept).
+    ///
+    /// Raw pointers, walked unsafely in [`collect`]: sound under the
+    /// platform's scheduling contract (single core, `configUSE_TIME_SLICING
+    /// = 0` — parked tasks cannot resume while the collector's task runs,
+    /// and registration/deregistration happen in the owning task's slice).
+    /// Entries can include the collector's own stack; re-visiting is
+    /// harmless (marking is idempotent). A panic mid-`execute` leaks its
+    /// entry — acceptable: panics are fatal on target.
+    parked_frames: Vec<*const Vec<Frame>>,
     /// Allocations since the last GC, persistent across `execute()` calls so
     /// long native-driven callback bursts (e.g. sensor delivery) still trip
     /// the GC threshold instead of resetting to 0 on every fresh `Executor`.
@@ -95,6 +111,7 @@ impl GcState {
             str_marks: Vec::new(),
             work: Vec::new(),
             arena_compact_buf: Vec::new(),
+            parked_frames: Vec::new(),
             alloc_count: 0,
             need_gc: false,
             #[cfg(feature = "mem-diag")]
@@ -103,6 +120,21 @@ impl GcState {
             last_post_gc_live: 0,
             #[cfg(feature = "mem-diag")]
             min_post_gc_live: u32::MAX,
+        }
+    }
+
+    /// Register a running `execute()`'s frame stack as a GC root source.
+    /// Paired with [`Self::unregister_frames`] on `execute` exit.
+    pub fn register_frames(&mut self, frames: *const Vec<Frame>) {
+        self.parked_frames.push(frames);
+    }
+
+    /// Remove a frame stack registered by [`Self::register_frames`].
+    /// Removes the most recent matching entry (registration is stack-like
+    /// under nested `execute` calls).
+    pub fn unregister_frames(&mut self, frames: *const Vec<Frame>) {
+        if let Some(i) = self.parked_frames.iter().rposition(|&p| p == frames) {
+            self.parked_frames.remove(i);
         }
     }
 
@@ -187,13 +219,33 @@ pub fn collect(
 
     // ── Phase 1: scan roots ──────────────────────────────────────────────
 
-    // Frame locals and operand stacks
+    // Frame locals and operand stacks — the collecting executor's own stack.
     for frame in frames {
         for v in &frame.locals {
             push_ref(work, v);
         }
         for v in &frame.stack {
             push_ref(work, v);
+        }
+    }
+
+    // Frame stacks of every other `execute()` in flight on this heap — JVM
+    // tasks parked at a blocking yield point still hold live locals (see the
+    // `parked_frames` field docs for the safety contract). May re-visit the
+    // collector's own registered stack; marking is idempotent.
+    for &pf in &gc.parked_frames {
+        // SAFETY: the owning task is parked (single core, no time slicing)
+        // and cannot mutate its frames while this task runs; the pointer is
+        // valid for the duration of that task's `execute()` call, which
+        // spans this collection.
+        let parked = unsafe { &*pf };
+        for frame in parked {
+            for v in &frame.locals {
+                push_ref(work, v);
+            }
+            for v in &frame.stack {
+                push_ref(work, v);
+            }
         }
     }
 

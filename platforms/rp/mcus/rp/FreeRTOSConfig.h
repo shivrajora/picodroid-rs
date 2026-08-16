@@ -62,6 +62,14 @@
 
 /* Scheduler behaviour */
 #define configUSE_PREEMPTION                    1
+/* Time slicing MUST stay off: the JVM's shared heap (boot.rs SHARED_HEAP)
+ * is lock-free on the strength of "task switches between JVM tasks happen
+ * only at blocking yield points". jvm_task and Thread.start children share
+ * one priority tier; with slicing on, the tick round-robins them mid-heap-
+ * mutation and the heap corrupts (found by picoenvmon's network thread —
+ * non-deterministic InvalidReference). Higher-priority native tasks still
+ * preempt; they never touch the JVM heap. */
+#define configUSE_TIME_SLICING                  0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configUSE_TICKLESS_IDLE                 0
 #define configUSE_16_BIT_TICKS                  0

@@ -668,3 +668,124 @@ fn native_minted_net_exception_caught_by_ioexception_handler() {
     // message; an Err would mean the catch never matched).
     assert_eq!(result, Ok(Some(Value::Int(99))));
 }
+
+// ── Native throw inside <init>, caught, then the same class constructed again ──
+//
+// The picoenvmon dashboard's bind-retry loop found this: `new ServerSocket(port)`
+// whose <init> hits a throwing native (EADDRINUSE), the caller catches the
+// BindException and retries `new ServerSocket` — and the second construction
+// died with InvalidReference. This is the minimal shape: class C's <init> calls
+// Object.<init> (native-dispatched — no classfile) then a throwing native;
+// class T constructs C twice, each inside its own catch-all region, and
+// returns 42.
+//
+// Class C — <init>()V = { super(); Net.fail(); }
+// CP: #1 Class→#2 "C", #3 Class→#4 "java/lang/Object", #5 "<init>", #6 "()V",
+//     #7 Methodref #3.#8 (Object.<init>), #8 NameAndType #5,#6,
+//     #9 Class→#10 "Net", #11 Methodref #9.#12 (Net.fail), #12 NameAndType #13,#6,
+//     #13 "fail", #14 "Code"
+static CLASS_CTOR_NATIVE_THROW_C: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0F, // cp_count=15
+    0x07, 0x00, 0x02, // #1 Class→#2
+    0x01, 0x00, 0x01, b'C', // #2 "C"
+    0x07, 0x00, 0x04, // #3 Class→#4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 "java/lang/Object"
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', // #5 "<init>"
+    0x01, 0x00, 0x03, b'(', b')', b'V', // #6 "()V"
+    0x0A, 0x00, 0x03, 0x00, 0x08, // #7 Methodref #3.#8
+    0x0C, 0x00, 0x05, 0x00, 0x06, // #8 NameAndType #5,#6
+    0x07, 0x00, 0x0A, // #9 Class→#10
+    0x01, 0x00, 0x03, b'N', b'e', b't', // #10 "Net"
+    0x0A, 0x00, 0x09, 0x00, 0x0C, // #11 Methodref #9.#12
+    0x0C, 0x00, 0x0D, 0x00, 0x06, // #12 NameAndType #13,#6
+    0x01, 0x00, 0x04, b'f', b'a', b'i', b'l', // #13 "fail"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #14 "Code"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=public, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // <init>()V, public, 1 attr
+    0x00, 0x0E, 0x00, 0x00, 0x00, 0x14, // Code attr, len=20
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, // max_stack=1, max_locals=1, code_len=8
+    0x2A, // aload_0
+    0xB7, 0x00, 0x07, // invokespecial Object.<init>
+    0xB8, 0x00, 0x0B, // invokestatic Net.fail — throws
+    0xB1, // return
+    0x00, 0x00, // exc_table=0
+    0x00, 0x00, // code attrs=0
+    0x00, 0x00, // class attrs=0
+];
+
+// Class T — m()I = { try{ new C(); }catch(any){} try{ new C(); }catch(any){} return 42; }
+// The handler pc for each region is the pop that the success path also runs,
+// so both paths merge with one stack slot to drop (no verifier here).
+// CP: #1 Class→#2 "T", #3 Class→#4 "java/lang/Object", #5 Class→#6 "C",
+//     #7 Methodref #5.#8, #8 NameAndType #9,#10, #9 "<init>", #10 "()V",
+//     #11 "m", #12 "()I", #13 "Code"
+static CLASS_CTOR_NATIVE_THROW_T: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0E, // cp_count=14
+    0x07, 0x00, 0x02, // #1 Class→#2
+    0x01, 0x00, 0x01, b'T', // #2 "T"
+    0x07, 0x00, 0x04, // #3 Class→#4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 "java/lang/Object"
+    0x07, 0x00, 0x06, // #5 Class→#6
+    0x01, 0x00, 0x01, b'C', // #6 "C"
+    0x0A, 0x00, 0x05, 0x00, 0x08, // #7 Methodref #5.#8
+    0x0C, 0x00, 0x09, 0x00, 0x0A, // #8 NameAndType #9,#10
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', // #9 "<init>"
+    0x01, 0x00, 0x03, b'(', b')', b'V', // #10 "()V"
+    0x01, 0x00, 0x01, b'm', // #11 "m"
+    0x01, 0x00, 0x03, b'(', b')', b'I', // #12 "()I"
+    0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #13 "Code"
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=public, this=#1, super=#3
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
+    0x00, 0x01, 0x00, 0x0B, 0x00, 0x0C, 0x00, 0x01, // m()I, public, 1 attr
+    0x00, 0x0D, 0x00, 0x00, 0x00, 0x2F, // Code attr, len=47
+    0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, // max_stack=2, max_locals=1, code_len=19
+    0xBB, 0x00, 0x05, // 0: new C
+    0x59, // 3: dup
+    0xB7, 0x00, 0x07, // 4: invokespecial C.<init>
+    0x57, // 7: pop (obj on success, exc via handler)
+    0xBB, 0x00, 0x05, // 8: new C
+    0x59, // 11: dup
+    0xB7, 0x00, 0x07, // 12: invokespecial C.<init>
+    0x57, // 15: pop
+    0x10, 0x2A, // 16: bipush 42
+    0xAC, // 18: ireturn
+    0x00, 0x02, // exc_table_len=2
+    0x00, 0x00, 0x00, 0x07, 0x00, 0x07, 0x00, 0x00, // [0,7)→7 catch-all
+    0x00, 0x08, 0x00, 0x0F, 0x00, 0x0F, 0x00, 0x00, // [8,15)→15 catch-all
+    0x00, 0x00, // code attrs=0
+    0x00, 0x00, // class attrs=0
+];
+
+/// A native throw inside `<init>` (after the native-dispatched
+/// `Object.<init>`), caught by the caller, must leave the interpreter able
+/// to construct the same class again — the picoenvmon ServerSocket
+/// bind-retry shape.
+#[test]
+fn native_throw_in_ctor_then_reconstruct() {
+    let mut classes: Vec<ClassFile> = Vec::new();
+    classes.push(ClassFile::parse(CLASS_CTOR_NATIVE_THROW_T).expect("parse T"));
+    classes.push(ClassFile::parse(CLASS_CTOR_NATIVE_THROW_C).expect("parse C"));
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = crate::array_heap::ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
+    let mut handler = NetFailHandler;
+    let result = execute(
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+        &mut statics,
+        &mut gc_state,
+        &mut crate::class_objects::ClassObjectCache::new(),
+        &mut handler,
+        0,
+        0,
+        &[],
+    );
+    assert_eq!(result, Ok(Some(Value::Int(42))));
+}

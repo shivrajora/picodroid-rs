@@ -1667,3 +1667,64 @@ fn collect_now_frees_garbage_without_frames() {
     assert_eq!(heap.gc_state.alloc_count, 0);
     assert!(!heap.gc_state.need_gc);
 }
+
+#[test]
+fn registered_parked_frames_are_gc_roots() {
+    // A JVM task parked at a blocking native (sleep, socket accept) is
+    // mid-`execute` with live frame locals — but the GC runs with the
+    // *collecting* task's frames only. The frame registry (GcState::
+    // register_frames) is what keeps the parked task's locals alive; without
+    // it the picoenvmon network thread's HttpServer was swept while the
+    // thread sat in accept().
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    let parked_obj = objects.alloc("ParkedLocal").unwrap();
+    let garbage = objects.alloc("Garbage").unwrap();
+
+    // Synthetic parked stack: one frame whose only reference to parked_obj
+    // is a local slot.
+    let parked_frames: alloc::vec::Vec<crate::frame::Frame> = alloc::vec![crate::frame::Frame {
+        class_idx: 0,
+        method_idx: 0,
+        pc: 0,
+        inst_pc: 0,
+        locals: alloc::vec![Value::ObjectRef(parked_obj)],
+        stack: alloc::vec::Vec::new(),
+    }];
+    gc.register_frames(&parked_frames);
+
+    // Collect with NO frames of our own — like collect_now, or another
+    // executor whose own stack holds nothing.
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut gc,
+        |_| {},
+    );
+    assert_eq!(freed, 1, "only the unreferenced object may be swept");
+    assert!(objects.is_live(parked_obj), "parked frame local must survive");
+    assert!(!objects.is_live(garbage));
+
+    // After the parked task's execute() ends, its locals become collectable.
+    gc.unregister_frames(&parked_frames);
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut gc,
+        |_| {},
+    );
+    assert_eq!(freed, 1);
+    assert!(!objects.is_live(parked_obj));
+}

@@ -322,6 +322,39 @@ pub fn execute<H: NativeMethodHandler>(
     let mut frames: Vec<Frame> = Vec::new();
     frames.push(initial_frame);
 
+    // Root this stack for GCs triggered by other executors on the same heap
+    // while this task is parked at a blocking native (see GcState's
+    // `parked_frames` docs). Deregistered on every return path below via
+    // the wrapper around `execute_frames`.
+    let frames_ptr: *const Vec<Frame> = &frames;
+    gc_state.register_frames(frames_ptr);
+    let result = execute_frames(
+        classes,
+        strings,
+        objects,
+        arrays,
+        statics,
+        gc_state,
+        class_objects,
+        handler,
+        &mut frames,
+    );
+    gc_state.unregister_frames(frames_ptr);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_frames<H: NativeMethodHandler>(
+    classes: &[ClassFile],
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+    statics: &mut StaticFieldStore,
+    gc_state: &mut GcState,
+    class_objects: &mut ClassObjectCache,
+    handler: &mut H,
+    frames: &mut Vec<Frame>,
+) -> Result<Option<Value>, JvmError> {
     let mut ex = Executor {
         classes,
         strings,
@@ -478,7 +511,7 @@ pub fn execute<H: NativeMethodHandler>(
         match r {
             Ok(()) => {}
             Err(JvmError::Exception(obj_idx)) => {
-                handle_exception(&mut ex, &mut frames, obj_idx)?;
+                handle_exception(&mut ex, frames, obj_idx)?;
             }
             Err(e) => return Err(e),
         }
