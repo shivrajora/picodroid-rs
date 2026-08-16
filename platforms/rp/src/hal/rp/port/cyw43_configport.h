@@ -87,6 +87,13 @@ void cyw43_hal_pin_high(int pin);
 #define CYW43_PIN_WL_CLK        (29)
 #define CYW43_PIN_WL_SDIO_1     (24)  /* Data pin (alias for SDIO mode compat) */
 
+/* Host-wake level IRQ re-arm (NET-5): the IO_IRQ_BANK0 handler masks the
+ * GP24 level-high interrupt when it fires (a level interrupt cannot be
+ * acked while the line is high); re-arm after every poll has serviced the
+ * chip. Implemented in Rust — hal/rp/gpio.rs::hostwake. */
+extern void picodroid_cyw43_hostwake_rearm(void);
+#define CYW43_POST_POLL_HOOK picodroid_cyw43_hostwake_rearm();
+
 /* Keep the driver's default ioctl timeout (500 ms).  Do NOT shorten it —
  * some ioctls (e.g. CLM finalization) legitimately take hundreds of ms;
  * a shorter timeout silently breaks the country/regulatory setup and

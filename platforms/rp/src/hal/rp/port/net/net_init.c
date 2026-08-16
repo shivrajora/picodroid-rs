@@ -7,6 +7,7 @@
  * the FreeRTOS+TCP IP task.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -75,17 +76,28 @@ void vApplicationIPNetworkEventHook_Multi(
     picodroid_net_ip_event((eNetworkEvent == eNetworkUp) ? 1u : 0u, ip);
 }
 
+/* RP2350 hardware TRNG (hal/rp/trng.rs, NET-6). Non-blocking: false while
+ * the current collection round is still sampling. */
+extern bool picodroid_trng_random_u32(uint32_t *out);
+
 /*
  * Provide a random number for TCP sequence numbers, DHCP transaction IDs, etc.
- * Timer-seeded LCG — NOT cryptographic: each call mixes the hardware timer's
- * low word into the LCG state. Wiring up the RP2350 hardware TRNG instead is
- * the open follow-up NET-6 in docs/networking-followups-2026-08.md.
+ * Hardware TRNG when a word is buffered (NET-6); while the TRNG warms up
+ * (first harvest lands tens of ms after first use) a timer-seeded LCG fills
+ * in, and every TRNG word additionally XOR-mixes into the LCG state so the
+ * fallback stream stops being predictable after the first harvest.
  */
 BaseType_t xApplicationGetRandomNumber(uint32_t *pulNumber) {
-    /* Timer-seeded LCG state (see the comment above; the TRNG is NET-6). */
     static uint32_t ulState = 0x12345678;
+    uint32_t ulHw;
 
-    /* Mix in the hardware timer for entropy. */
+    if (picodroid_trng_random_u32(&ulHw)) {
+        ulState ^= ulHw;
+        *pulNumber = ulHw;
+        return pdTRUE;
+    }
+
+    /* Fallback: mix in the hardware timer for entropy. */
     volatile uint32_t *pTimerLow = (volatile uint32_t *)0x400B000C;
     ulState ^= *pTimerLow;
     ulState = ulState * 1664525u + 1013904223u; /* LCG */

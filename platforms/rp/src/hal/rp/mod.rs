@@ -29,5 +29,10 @@ pub mod uart;
 pub mod net;
 #[cfg(network_cyw43)]
 pub mod pio_spi;
+// TRNG entropy for the network stack (NET-6). RP2350-only hardware; the
+// consumer (net_init.c's xApplicationGetRandomNumber) only exists in
+// network builds, and the only network board is RP2350-based.
+#[cfg(all(network_cyw43, feature = "chip-rp2350"))]
+pub mod trng;
 #[cfg(network_cyw43)]
 pub mod wifi_task;

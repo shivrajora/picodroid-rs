@@ -46,19 +46,42 @@ volatile uint32_t instr_rx_ok, instr_rx_drop_nobuf, instr_rx_drop_queue,
 
 /* ---- Interface function pointers ---- */
 
+/*
+ * Link-up test used by both pfInitialise and pfGetPhyLinkStatus (NET-2).
+ *
+ * Two conditions, both required:
+ *
+ * - xInterfaceUp: set by cyw43_cb_tcpip_set_link_up only once the join has
+ *   fully completed (assoc + link + keys). The previous check used
+ *   `link_status >= CYW43_LINK_JOIN` alone, but LINK_JOIN maps from the
+ *   bare ACTIVE join-state, which is already true while a join is merely
+ *   *in progress* — so +TCP brought the interface up during every retry of
+ *   a failing join, DHCP started and timed out, and the `net: down` hook
+ *   fired dozens of times during a NONET soak.
+ *
+ * - link_status >= CYW43_LINK_JOIN: catches failure kinds (FAIL / NONET /
+ *   BADAUTH / DOWN) that may not deliver an EV_LINK link-down event, which
+ *   would otherwise leave xInterfaceUp stale-true.
+ *
+ * Note: cyw43_tcpip_link_status forwards cyw43_wifi_link_status, whose
+ * "associated" value is CYW43_LINK_JOIN — CYW43_LINK_UP is an lwIP-layer
+ * state this port never reaches. DHCP now starts at full join rather than
+ * 1-2 s earlier during association; join→lease latency re-checked on HW
+ * (docs/networking-followups-2026-08.md NET-2).
+ */
+static BaseType_t xCYW43_LinkIsUp(void) {
+    return (xInterfaceUp != pdFALSE &&
+            cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN)
+               ? pdTRUE
+               : pdFALSE;
+}
+
 static BaseType_t xCYW43_Init(NetworkInterface_t *pxInterface) {
     (void)pxInterface;
     /* CYW43 init is handled by the Rust cyw43_task; the IP task retries
      * this every few seconds until it returns pdTRUE, so returning
-     * pdFALSE before the association completes is fine.
-     *
-     * Note: cyw43_tcpip_link_status forwards cyw43_wifi_link_status,
-     * whose "associated" value is CYW43_LINK_JOIN — CYW43_LINK_UP is an
-     * lwIP-layer state this port never reaches. */
-    if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN) {
-        xInterfaceUp = pdTRUE;
-    }
-    return xInterfaceUp;
+     * pdFALSE before the association completes is fine. */
+    return xCYW43_LinkIsUp();
 }
 
 static BaseType_t xCYW43_Output(NetworkInterface_t *pxInterface,
@@ -96,9 +119,7 @@ static BaseType_t xCYW43_Output(NetworkInterface_t *pxInterface,
 
 static BaseType_t xCYW43_GetPhyLinkStatus(NetworkInterface_t *pxInterface) {
     (void)pxInterface;
-    return (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN)
-               ? pdTRUE
-               : pdFALSE;
+    return xCYW43_LinkIsUp();
 }
 
 /* ---- Public: register the CYW43 interface with FreeRTOS+TCP ---- */

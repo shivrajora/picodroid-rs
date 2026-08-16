@@ -11,10 +11,16 @@
 //! ever acquired a caller, so it was removed. Re-add a constant when the
 //! call that needs it arrives, rather than restoring the set wholesale.
 
-/// CYW43 authentication modes (matches CYW43_AUTH_* in cyw43.h).
+/// CYW43 authentication modes (matches CYW43_AUTH_* in cyw43_ll.h).
 pub mod auth {
     pub const OPEN: u32 = 0;
-    pub const WPA2_AES: u32 = 0x00400004;
+    pub const WPA2_AES: u32 = 0x0040_0004;
+    /// WPA3-SAE only (the vendored driver programs the `sae_password`
+    /// iovar on this path).
+    pub const WPA3_SAE_AES: u32 = 0x0100_0004;
+    /// WPA3-SAE with WPA2-PSK fallback — the right default for mixed-mode
+    /// APs.
+    pub const WPA3_WPA2_AES: u32 = 0x0140_0004;
 }
 
 /// CYW43 interface IDs.
@@ -120,17 +126,21 @@ pub unsafe fn set_poll_task(task_handle: *mut core::ffi::c_void) {
     cyw43_set_poll_task(task_handle);
 }
 
-/// Join a WiFi network with WPA2 authentication.
+/// Join a WiFi network.
+///
+/// `auth` is a `CYW43_AUTH_*` value from [`auth`]; pass `None` for the
+/// historical automatic choice (OPEN without a password, WPA2-AES with
+/// one).
 ///
 /// # Safety
 /// [`init`] must have succeeded; call only from the CYW43 task (the driver
 /// state is unsynchronized).
-pub unsafe fn wifi_join(ssid: &[u8], password: &[u8]) -> Result<(), i32> {
-    let auth = if password.is_empty() {
+pub unsafe fn wifi_join(ssid: &[u8], password: &[u8], auth: Option<u32>) -> Result<(), i32> {
+    let auth = auth.unwrap_or(if password.is_empty() {
         auth::OPEN
     } else {
         auth::WPA2_AES
-    };
+    });
 
     let ret = cyw43_wifi_join(
         &raw mut cyw43_state,

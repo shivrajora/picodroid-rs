@@ -178,7 +178,72 @@ pub fn init_gpio_irq() {
     }
 }
 
+// ── CYW43 host-wake interrupt (NET-5) ────────────────────────────────────────
+
+/// Level-high IRQ on the CYW43 host-wake line, replacing pure 100 ms-poll
+/// RX latency with near-immediate wakes.
+///
+/// GP24 doubles as the gSPI DATA line and the ACTIVE-HIGH host-wake
+/// indicator between transfers (see `cyw43_configport.h`); the driver's
+/// `cyw43_ll_has_work` already polls this same pad via `cyw43_hal_pin_read`.
+/// A *level* interrupt cannot be acknowledged at INTR while the line is
+/// high, so the pico-sdk discipline applies: the ISR masks the enable and
+/// notifies the cyw43 task; `CYW43_POST_POLL_HOOK` re-arms after every
+/// poll. Data toggling during a PIO transfer can fire it spuriously, but
+/// the mask-on-fire makes that a single extra (cheap, workless) poll.
+///
+/// Everything runs on core 1: `init()` and the post-poll re-arm execute on
+/// the cyw43 task (pinned to core 1), so the interrupt routes through
+/// PROC1_INTE to core 1's banked NVIC and the ISR disarm is a same-core
+/// RMW. (Routing through PROC0 here was the first attempt's bug: core 1
+/// cannot unmask core 0's NVIC, so with no button board calling
+/// `init_gpio_irq` on core 0 the interrupt never delivered —
+/// `instr_hostwake_irqs` stayed 0 on HW.)
+#[cfg(network_cyw43)]
+pub mod hostwake {
+    use rp235x_hal::pac;
+
+    /// GP24 — `CYW43_PIN_WL_HOST_WAKE` in cyw43_configport.h.
+    pub const PIN: u8 = 24;
+
+    pub(super) const REG_IDX: usize = PIN as usize / 8;
+    /// Bits within the 4-bit per-pin group: [level_low, level_high,
+    /// edge_low, edge_high] — matching `enable_edge_irq`.
+    pub(super) const LEVEL_HIGH_BIT: u32 = 1 << ((PIN as usize % 8) * 4 + 1);
+
+    /// One-time NVIC setup + first arm. MUST be called from the cyw43 task
+    /// (core 1): the NVIC is banked per-core and this unmasks the calling
+    /// core's. Same priority the button path uses — at
+    /// `configMAX_SYSCALL_INTERRUPT_PRIORITY`, so FromISR calls are legal.
+    pub fn init() {
+        unsafe {
+            let nvic_ipr = 0xE000_E400 as *mut u8;
+            let irqn = pac::Interrupt::IO_IRQ_BANK0 as u8;
+            nvic_ipr.add(irqn as usize).write_volatile(0x10);
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
+        }
+        picodroid_cyw43_hostwake_rearm();
+    }
+
+    /// Enable (re-arm) the level-high interrupt on core 1's routing.
+    /// `no_mangle`: the C side calls this as `CYW43_POST_POLL_HOOK` at the
+    /// end of every `cyw43_poll_func` run (also core 1).
+    #[no_mangle]
+    pub extern "C" fn picodroid_cyw43_hostwake_rearm() {
+        let p = unsafe { pac::Peripherals::steal() };
+        p.IO_BANK0
+            .proc1_inte(REG_IDX)
+            .modify(|r, w| unsafe { w.bits(r.bits() | LEVEL_HIGH_BIT) });
+    }
+}
+
 // ── GPIO ISR ─────────────────────────────────────────────────────────────────
+
+#[cfg(network_cyw43)]
+extern "C" {
+    /// cyw43_port.c — vTaskNotifyGiveFromISR on the cyw43 poll task.
+    fn picodroid_cyw43_hostwake_notify_from_isr();
+}
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -193,6 +258,21 @@ extern "C" fn IO_IRQ_BANK0() {
     const NUM_REGS: usize = 4;
     #[cfg(feature = "chip-rp2350")]
     const NUM_REGS: usize = 6;
+
+    // Host-wake first (delivered to core 1 via PROC1 routing): a level
+    // interrupt is not latched in INTR, so the generic clear below cannot
+    // silence it — mask it and let the post-poll hook re-arm once the chip
+    // has been serviced.
+    #[cfg(network_cyw43)]
+    {
+        let ints = p.IO_BANK0.proc1_ints(hostwake::REG_IDX).read().bits();
+        if ints & hostwake::LEVEL_HIGH_BIT != 0 {
+            p.IO_BANK0
+                .proc1_inte(hostwake::REG_IDX)
+                .modify(|r, w| unsafe { w.bits(r.bits() & !hostwake::LEVEL_HIGH_BIT) });
+            unsafe { picodroid_cyw43_hostwake_notify_from_isr() };
+        }
+    }
 
     for reg_idx in 0..NUM_REGS {
         let ints = p.IO_BANK0.proc0_ints(reg_idx).read().bits();

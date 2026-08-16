@@ -26,6 +26,33 @@ const WIFI_PASS: &str = match option_env!("PICODROID_WIFI_PASS") {
     None => "",
 };
 
+/// WiFi auth mode (override at build time with `PICODROID_WIFI_AUTH`).
+/// Accepted values: `open`, `wpa2`, `wpa3` (SAE-only), `wpa2wpa3` (SAE with
+/// WPA2-PSK fallback — the right choice for mixed-mode APs). Unset keeps
+/// the historical automatic choice: OPEN without a password, WPA2 with one.
+const WIFI_AUTH: &str = match option_env!("PICODROID_WIFI_AUTH") {
+    Some(s) => s,
+    None => "",
+};
+
+/// Map `PICODROID_WIFI_AUTH` to a `CYW43_AUTH_*` value (NET-8).
+fn wifi_auth_mode() -> Option<u32> {
+    match WIFI_AUTH {
+        "" => None,
+        "open" => Some(cyw43::auth::OPEN),
+        "wpa2" => Some(cyw43::auth::WPA2_AES),
+        "wpa3" => Some(cyw43::auth::WPA3_SAE_AES),
+        "wpa2wpa3" | "wpa3wpa2" => Some(cyw43::auth::WPA3_WPA2_AES),
+        other => {
+            defmt::warn!(
+                "wifi: unknown PICODROID_WIFI_AUTH \"{=str}\" — using automatic auth",
+                other
+            );
+            None
+        }
+    }
+}
+
 /// Network up/down events from FreeRTOS+TCP (net_init.c hook).
 /// `ip_nbo` is the endpoint address in network byte order within a
 /// little-endian u32, so the first octet is the low byte.
@@ -85,6 +112,12 @@ pub fn run_cyw43_task() -> ! {
         cyw43::wifi_set_up(cyw43::itf::STA, true, cyw43::COUNTRY_WORLDWIDE);
     }
 
+    // Arm the GP24 host-wake IRQ (NET-5): RX now wakes this task the moment
+    // the chip asserts the wake line instead of waiting out the poll
+    // timeout. The ISR masks the (level-high) interrupt when it fires and
+    // CYW43_POST_POLL_HOOK re-arms it after each poll.
+    crate::hal::gpio::hostwake::init();
+
     // Read MAC address (OTP-derived once set_up succeeded) and start the
     // FreeRTOS+TCP IP stack.
     let mac = unsafe { cyw43::get_mac().expect("cyw43 get_mac failed") };
@@ -105,15 +138,20 @@ pub fn run_cyw43_task() -> ! {
     if WIFI_SSID.is_empty() {
         defmt::warn!("wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining");
     } else {
-        match unsafe { cyw43::wifi_join(WIFI_SSID.as_bytes(), WIFI_PASS.as_bytes()) } {
+        match unsafe {
+            cyw43::wifi_join(WIFI_SSID.as_bytes(), WIFI_PASS.as_bytes(), wifi_auth_mode())
+        } {
             Ok(()) => defmt::info!("wifi: join \"{=str}\" requested", WIFI_SSID),
             Err(e) => defmt::warn!("wifi: join \"{=str}\" failed: {=i32}", WIFI_SSID, e),
         }
     }
 
-    // Driver poll loop — woken by ISR notifications or 100 ms timeout.
+    // Driver poll loop. Primary wake sources are the host-wake IRQ (RX,
+    // async events; NET-5) and TX-side notifications; the timeout is only
+    // a safety net now, so it can be long — it used to be the sole RX
+    // path at 100 ms.
     loop {
-        CurrentTask::take_notification(true, Duration::ms(100));
+        CurrentTask::take_notification(true, Duration::ms(1000));
         // Silent poll counter (gdb-read only, never logged): proves the loop
         // itself is running when diagnosing RX stalls (Bug B in
         // docs/designs/cyw43-pio-transport.md).

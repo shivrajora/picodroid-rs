@@ -73,7 +73,12 @@ void cyw43_hal_pin_config(int pin, int mode, int pull, int alt) {
 
 void cyw43_hal_pin_config_irq_falling(int pin, int enable) {
     (void)pin; (void)enable;
-    /* TODO: Configure IRQ on WL_D for async event notification */
+    /* Unused in the gSPI configuration: the driver only calls this on the
+     * !CYW43_USE_SPI (SDIO) path. The host-wake IRQ (NET-5) is instead
+     * armed by the Rust side (hal/rp/gpio.rs::hostwake, set up from
+     * wifi_task.rs) and re-armed via CYW43_POST_POLL_HOOK. The name says
+     * "falling" but the wake line is ACTIVE-HIGH (INTERRUPT_POLARITY_HIGH)
+     * — see cyw43_configport.h. */
 }
 
 /*
@@ -287,6 +292,21 @@ void cyw43_schedule_internal_poll_dispatch(void (*func)(void)) {
         } else {
             xTaskNotifyGive(cyw43_poll_task);
         }
+    }
+}
+
+/* Host-wake ISR path (NET-5): called from the Rust IO_IRQ_BANK0 handler
+ * (core 1 — PROC1 routing) when the GP24 level-high interrupt fires; wakes
+ * the core-1-pinned cyw43 poll task. Silent counter alongside the others
+ * above. */
+volatile uint32_t instr_hostwake_irqs;
+
+void picodroid_cyw43_hostwake_notify_from_isr(void) {
+    instr_hostwake_irqs++;
+    if (cyw43_poll_task != NULL) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(cyw43_poll_task, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
 
