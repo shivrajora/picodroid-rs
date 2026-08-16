@@ -31,33 +31,33 @@ regardless; `apsta` matters only for concurrent AP+STA mode and
 
 Start by comparing against pico-sdk's boot on the same firmware blob (does it
 get -5 too?), then test moving the two iovars after an explicit `WLC_DOWN` or
-simply before the 150 ms post-boot settle.
+simply before the 150 ms post-boot settle. Re-confirmed still present at
+every boot on 2026-08-15; queued with cost/tradeoff notes in
+`docs/quality-roadmap.md` § Networking follow-ups.
 
-## NET-2: link-status flapping while a join is retrying
+## NET-2: link-status flapping while a join is retrying — DONE 2026-08-15
 
-`cyw43_wifi_link_status` maps join-state `ACTIVE` (join *in progress*) to
-`CYW43_LINK_JOIN`, and `NetworkInterface_CYW43.c` treats `>= LINK_JOIN` as
-link-up. So while the chip is still associating — or looping through NONET
-retries — +TCP's `pfInitialise` succeeds, DHCP starts, times out, the
-interface drops, and the `net: down` hook fires repeatedly (dozens of lines
-during a failed-join soak).
+Fixed in the in-repo glue, no fork change. The suggested 0x0e01 join-state
+mask turned out not to work: on full join the driver *resets*
+`wifi_join_state` to bare `ACTIVE` (`cyw43_ctrl.c`, the
+`WIFI_JOIN_STATE_ALL` collapse), so post-join the mask is indistinguishable
+from join-in-progress. Instead `NetworkInterface_CYW43.c` now gates on
+`xInterfaceUp` — which the driver's own `cyw43_cb_tcpip_set_link_up`
+callback sets only when the join fully completes (assoc + link + keys) —
+ANDed with `link_status >= CYW43_LINK_JOIN` to catch failure kinds that
+deliver no EV_LINK down event. DHCP therefore starts at full join rather
+than 1–2 s earlier during association; join→lease latency re-checked on HW
+(see validation notes).
 
-Once a join lands this settles and is purely cosmetic, but it wastes DHCP
-traffic and makes RTT logs noisy. Fix direction: report link-up only when the
-join state has all of `ACTIVE|AUTH|LINK|KEYED` (0x0e01) rather than bare
-`ACTIVE`, either in the interface glue or as a fork patch to
-`cyw43_wifi_link_status`. Watch out: DHCP currently *benefits* from starting
-1–2 s early on successful joins, so re-check join→lease latency after.
+## NET-3: upstream the `bsscfg:event_msgs` fix — PR PREPARED 2026-08-15
 
-## NET-3: upstream the `bsscfg:event_msgs` fix
-
-The fork zeroes the bsscfg index in the event-mask iovar payload
-(`cyw43_ll.c`, `cyw43_ll_bus_init`). Upstream leaves those 4 bytes as stale
-buffer content, so whether async join events arrive at all depends on what
-ioctl ran previously — on our boot sequence they never arrived. This is a
-clean, universal bug worth a PR to georgerobotics/cyw43-driver; the
-error-status logging patch may also be PR-worthy. Keeping the fork small
-makes upstream rebases cheaper.
+Branch `upstream-bsscfg-event-msgs` in `vendor/cyw43-driver` carries the
+isolated, marker-free fix rebased onto the fork's upstream base; the full
+handover (pre-flight refresh against upstream main, submission commands,
+PR body, post-merge rebase guidance) is `docs/upstream-cyw43-bsscfg-pr.md`.
+Submission is deliberately left manual.
+The error-status logging patch is not bundled (log-volume change on every
+port; propose separately if the first PR lands).
 
 ## NET-4: PIO gSPI transport — DONE 2026-08-14
 
@@ -91,62 +91,104 @@ RST-while-connecting case verbatim). Same app-visible outcome as our patch.
 **Rebase guidance:** once #1355 is in a release, drop `e43e446f` and take
 upstream — do not carry both (our patch reroutes RST to `eCLOSE_WAIT`;
 theirs makes `eCLOSED` wake correctly; combining is harmless but ours
-becomes dead weight).
+becomes dead weight). **Error-mapping consequence (HW-verified
+2026-08-15):** with an infinite socket block time, `FreeRTOS_connect`
+returns `-ENOTCONN` (-128) for *every* aborted connect — peer RST,
+ARP-resolution give-up (`prvTCPPrepareConnect_IPV4` counts each 500 ms
+cache miss against the same `ucRepCount`, so an unresolvable host aborts
+in ≈1.5 s), and SYN-retransmission exhaustion (≥9 s) all converge on
+`eCLOSE_WAIT`; `-ETIMEDOUT` (-116) only appears when a finite block time
+expires first. The HAL classifies -128 by elapsed time (`tcp_connect` in
+`platforms/rp/src/hal/rp/net.rs`: <1 s → Refused, ≤6 s → Unreachable
+(NoRouteToHostException), else TimedOut — the stack's timing ladder keeps
+the causes far apart). If the upstream rebase changes which state an
+aborted connect lands in, re-verify all three netdemo failure cases on
+HW.
 
-## NET-5: host-wake GPIO interrupt instead of 100 ms polling
+## NET-5: host-wake GPIO interrupt instead of 100 ms polling — DONE 2026-08-15
 
-`run_cyw43_task` polls every 100 ms (or on TX-side notifications). GP24 is
-the chip's active-high host-wake line; routing it to a GPIO IRQ that fires
-the existing task notification would cut RX latency from ~50 ms average to
-near-zero and reduce idle wakeups. The hook stubs already exist
-(`cyw43_hal_pin_config_irq_falling` is currently a no-op in `cyw43_port.c`).
-Remember the polarity history: the wake line is ACTIVE-HIGH
-(`INTERRUPT_POLARITY_HIGH`), so the "irq_falling" name from the vendored API
-is misleading — configure a level-high or rising-edge interrupt.
+GP24 now raises a **level-high** IO_IRQ_BANK0 interrupt
+(`hal/rp/gpio.rs::hostwake`; the correct polarity — the wake line is
+ACTIVE-HIGH despite the vendored hook's "irq_falling" name). pico-sdk
+discipline: a level interrupt cannot be acked while the line is high, so
+the ISR masks it and notifies the cyw43 task
+(`picodroid_cyw43_hostwake_notify_from_isr`; PROC1 routing, so arm/ISR/
+re-arm all run on core 1 — the banked NVIC makes core-0 routing
+undeliverable from a core-1 init, the first attempt's HW-caught bug), and
+`CYW43_POST_POLL_HOOK` re-arms it after every poll. Data toggling on the
+shared PIO DATA pad can fire it spuriously mid-transfer, but mask-on-fire
+bounds that to one extra workless poll. The poll timeout is now a 1 s
+safety net (was the sole 100 ms RX path);
+`instr_hostwake_irqs` (cyw43_port.c) counts IRQ-path wakes for gdb.
+The `cyw43_hal_pin_config_irq_falling` stub stays a no-op — the driver
+only calls it on the SDIO path.
 
-## NET-6: real entropy for TCP ISNs and DHCP xids
+## NET-6: real entropy for TCP ISNs and DHCP xids — DONE 2026-08-15
 
-`net_init.c` still uses a timer-seeded LCG for `xApplicationGetRandomNumber`
-and `ulApplicationGetNextSequenceNumber`. Predictable ISNs are a real
-(if LAN-scale) TCP-hijack concern. The RP2350 has a hardware TRNG
-(0x400F0000); wire it up, with the LCG as fallback while the TRNG warms up.
+`hal/rp/trng.rs` drives the RP2350 TRNG via the rp235x-pac register block
+(sw-reset, conservative 50k-cycle sample period, health-test recovery) and
+buffers each 192-bit EHR harvest as six words. `xApplicationGetRandomNumber`
+consumes them via `picodroid_trng_random_u32` — non-blocking: while a
+harvest is still sampling the timer-seeded LCG fills in, and every TRNG
+word XOR-mixes into the LCG state so even the fallback stream stops being
+predictable after the first harvest.
 
-## NET-7: HIL coverage for networking
+## NET-7: HIL coverage for networking — PARTIAL 2026-08-15
 
-Nightly `hil-run` has no networking row, so regressions in this
-freshly-validated stack would go unnoticed until someone flashes a demo
-manually. Needs: a netdemo (and ideally http_get) row in
-`scripts/hil-tests.conf`, WiFi creds supplied to the nightly via environment
-(never checked in), a persistent echo/HTTP listener on the HIL host, and the
-example-target-IP question solved for CI (committed defaults are loopback;
-the HIL flow must inject the host's LAN IP at build time, e.g. via a
-`PICODROID_NET_TEST_HOST` env override in the examples).
+Landed:
 
-## NET-8: WPA3
+- **`netexception` roster row** (`sim` category, new): deterministic typed-
+  exception assertions run in the nightly sim suite in both shrink modes,
+  with a board-override column selecting the network-enabled W-board sim
+  build. `sim` rows are skipped by `hil-run` (the HIL testbench board has
+  no network stack).
+- **Build-time target-IP injection**: `picodroidNetTest { enabled = true }`
+  in an example's build.gradle.kts generates `NetTestConfig.java`; the host
+  comes from `-PpicodroidNetTestHost` / `PICODROID_NET_TEST_HOST` (default
+  loopback). netdemo and http_get consume it, so pointing them at a real
+  host is `PICODROID_NET_TEST_HOST=<ip> ./scripts/build-apk.sh --app
+  netdemo` — no source edit.
 
-`cyw43_wifi_join` in the vendored driver already carries the SAE path
-(`CYW43_AUTH_WPA3_SAE_AES_PSK`, `sae_password` iovar); our Rust wrapper only
-exposes OPEN and WPA2_AES. Plumb an auth-mode selection through
-`picodroid-core/src/drivers/cyw43.rs` (and decide how apps/boards express it
-— likely another build-time env or board.toml key).
+Still open for on-device nightly rows: WiFi creds supplied to the nightly
+via environment (never checked in), listeners on the HIL host, and hil-run
+board parameterization. Full execution plan (with the load-bearing fact
+that the attached HIL board is physically a Pico 2 W, verified
+2026-08-15): `docs/nightly-networking-handover.md`.
+
+## NET-8: WPA3 — DONE 2026-08-15 (needs a WPA3 AP to validate)
+
+`drivers/cyw43.rs` exposes `WPA3_SAE_AES` / `WPA3_WPA2_AES` and
+`wifi_join` takes an auth override; `PICODROID_WIFI_AUTH`
+(`open|wpa2|wpa3|wpa2wpa3`, unset = historical automatic choice) selects it
+at build time in `wifi_task.rs`. `platforms/rp/build.rs` now emits
+`rerun-if-env-changed` for SSID/PASS/AUTH — previously a credential change
+was a cargo no-op. Untested against a real WPA3 AP (none on the bench);
+WPA2 verified unaffected on HW.
 
 ## NET-9: latent sockets-HAL leftovers (from the original audit)
 
-Known, unfixed, low-priority:
-
-- `socket_table.rs` 32-bit `remove()` is a no-op (leaks table slots on close
-  in the 32-bit handle configuration).
+- **Handle tables — FIXED 2026-08-15.** `socket_table`/`http_table` now
+  share a slot-reusing `net/ptr_table.rs` on every pointer width. This
+  closed two defects at once: the 64-bit tables never reused slots (a
+  create/close loop exhausted them), and the 32-bit arms handed the raw
+  pointer to Java with a no-op `remove`, making close-then-use a dangling
+  dereference into FreeRTOS+TCP (device-only, sim-invisible — the
+  pre-generational handle_table hazard class). A stale handle now resolves
+  to null → catchable `SocketException("Socket is closed")`.
 - Socket I/O is chunked at 256 bytes per native call — correctness-fine,
-  throughput-poor. NET-4 is done (bus now 37.5 MHz, ~30x faster), so this
-  chunking is the remaining throughput bottleneck if anyone cares to measure.
-- `http_connection.rs` maps every failure (DNS, connect, TLS-less refusal…)
-  to `JvmError::InvalidReference`; worth distinct IOException messages now
-  that the stack is real. During bring-up this cost a full debug cycle to
-  see through. **Planned:** `Socket.connect` got a first catchable
-  IOException in `a38d53c`; the full typed-exception design
-  (ConnectException/SocketTimeoutException/UnknownHostException across the
-  whole stack, plus the semantic NetError HAL rework it requires) is
-  specced ready-to-execute in `docs/designs/net-typed-exceptions.md`.
+  throughput-poor, **still open by choice**: the chunk buffers live on the
+  JVM task stack, so raising them should follow a measurement, not
+  precede one. NET-4's 37.5 MHz bus makes this the remaining throughput
+  bottleneck if anyone cares to measure. Queued with cost/tradeoff notes
+  in `docs/quality-roadmap.md` § Networking follow-ups.
+- **Typed exceptions — DONE 2026-08-15.** `docs/designs/net-typed-exceptions.md`
+  executed in full: semantic `NetErrorKind` across the HAL (sim + device +
+  test platform), the normalized `tcp_recv` contract (`Ok(0)` = EOF,
+  timeout throws — fixing the device/sim inversion), typed
+  `java.net` exceptions with Android wording across Socket/ServerSocket/
+  DatagramSocket/HTTP, `InetAddress.getByName`, `ServerSocket.setSoTimeout`,
+  SDK throws clauses, the `netexception` sim-roster example, and the
+  exception-taxonomy section in `website/.../api/networking.md`.
 
 ## Validation environment (for whoever picks these up)
 

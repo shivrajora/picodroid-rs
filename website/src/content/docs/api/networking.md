@@ -7,7 +7,7 @@ description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simu
 
 Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and `network_type = "cyw43"` in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs (`NetworkInfo.isConnected()` returns `false`) and attempting to open a socket throws.
 
-`InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free.
+`InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free. `InetAddress.getByName("host")` resolves a hostname (or parses a dotted-quad literal without touching the network) and throws `java.net.UnknownHostException` on failure.
 
 ## Network status
 
@@ -46,16 +46,19 @@ byte[] msg = "Hello".getBytes();
 sock.send(msg, 0, msg.length);
 
 byte[] buf = new byte[64];
-int n = sock.recv(buf, 0, buf.length);            // -1 on error
+int n = sock.recv(buf, 0, buf.length);            // -1 = end of stream; errors throw
 sock.close();
 ```
+
+`connect`, `send`, and `recv` throw `IOException` subtypes on failure — see [Error handling](#error-handling).
 
 ## TCP server
 
 ```java
 import picodroid.net.ServerSocket;
 
-ServerSocket srv = new ServerSocket(8080);
+ServerSocket srv = new ServerSocket(8080);      // BindException if the port is taken
+srv.setSoTimeout(5000);                           // optional: accept() throws SocketTimeoutException after 5 s
 Socket client = srv.accept();                     // blocking
 // ... use client.send / client.recv ...
 client.close();
@@ -163,18 +166,53 @@ u.getPath();       // "/status?id=42"  — query string is part of the path
 
 See [`examples/http_get/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/http_get) for a full GET + POST worked example.
 
+## Error handling
+
+Network failures throw the `java.net` exception types Android apps expect, with Android's message wording — catch them per-type or via their `IOException` superclass:
+
+| Condition | Exception | Message |
+|---|---|---|
+| Connect actively refused (RST) | `java.net.ConnectException` | `Connection refused` |
+| Connect timeout (incl. unreachable hosts) | `java.net.SocketTimeoutException` | `connect timed out` |
+| Receive timeout (`setTimeout`) | `java.net.SocketTimeoutException` | `Read timed out` |
+| Accept timeout (`setSoTimeout`) | `java.net.SocketTimeoutException` | `Accept timed out` |
+| Bind conflict | `java.net.BindException` | `Address already in use` |
+| Hostname resolution failure | `java.net.UnknownHostException` | `Unable to resolve host "…"` |
+| Peer reset / operation on a closed socket | `java.net.SocketException` | `Connection reset` / `Socket is closed` |
+| Malformed HTTP response | `java.net.ProtocolException` | `unexpected status line: …` |
+| Anything else | `java.io.IOException` | `<op> failed (err N)` |
+
+`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server no longer reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`.
+
+```java
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+
+try {
+    sock.connect(server.getRawAddress(), 7000);
+} catch (ConnectException e) {
+    Log.w("Net", "refused: " + e.getMessage());
+} catch (SocketTimeoutException e) {
+    Log.w("Net", "timed out: " + e.getMessage());
+} catch (IOException e) {
+    Log.w("Net", "I/O error: " + e.getMessage());
+}
+```
+
+See [`examples/netexception/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/netexception) for runnable per-type assertions.
+
 > **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
 >
 > Network builds require the `vendor/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init vendor/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
 
-> **WiFi credentials:** on hardware, the firmware joins the network named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time** (WPA2; leave the password empty for an open network). They are baked into the image, so rebuild after changing them and never commit images built with real credentials. Without an SSID the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
+> **WiFi credentials:** on hardware, the firmware joins the network named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time** (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). They are baked into the image, so rebuild after changing them and never commit images built with real credentials. Without an SSID the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
 
 ## Current limits
 
-- Open and WPA2-AES networks only — no WPA3, no enterprise auth.
+- Open, WPA2-AES, and WPA3-SAE personal networks — no enterprise auth.
 - No TLS: HTTPS URLs throw at `connect()`.
 - Socket I/O is chunked at 256 bytes per native call; larger reads/writes loop internally.
-- HTTP error reporting is coarse: failures surface as a single exception type whose message carries little detail.
 
 See [Known issues & current limits](/reference/known-issues/) for the live list.
 

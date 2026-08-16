@@ -253,3 +253,44 @@ no ISR preemption — plus cheap hardware-side `debug_assert!` core-affinity che
 assumptions are load-bearing, naming HIL as the owning test layer per item. **Tradeoff:**
 documentation is not detection; this consciously accepts the class as HIL-only until JVM
 threading expands.
+
+## Networking follow-ups
+
+Carried over from `docs/networking-followups-2026-08.md` after the 2026-08-15
+implementation session closed most of that backlog. These two remain open by
+choice — each is an experiment with a real cost and an unproven payoff, not a
+known bug with a known fix. The NET-* IDs there stay canonical.
+
+### Silence the two boot-time iovar rejections (NET-1)
+
+At every WiFi bring-up the firmware rejects two of `cyw43_ll_bus_init`'s
+config commands (`apsta`, `ampdu_rx_factor`) with BCME -5 (NOTDOWN), logging
+two warning lines over RTT. Purely cosmetic today: `apsta` only matters for
+concurrent AP+STA mode and `ampdu_rx_factor` is a throughput tunable; joins,
+DHCP, TCP, and HTTP are unaffected. The experiment is to reorder the boot
+sequence in the vendored fork — issue an explicit `WLC_DOWN` before the two
+iovars (BCME -5 means the WL core claims to be up when they arrive), or move
+them ahead of the 150 ms post-boot settle — and check whether the -5 lines
+disappear without regressing join latency. Comparing against a pico-sdk boot
+on the same firmware blob would show whether stock Pico W setups silently hit
+this too (upstream discards firmware error statuses; only our fork logs
+them). **Tradeoff:** each attempt is a fork edit + rebuild + reflash + RTT
+soak for a log-cosmetic win, and a botched reorder can break the regulatory/
+country setup in ways that only show up as NONET join failures — validate
+join → lease on hardware after every variant.
+
+### Measure, then widen, the 256-byte socket I/O chunking (NET-9 leftover)
+
+Socket send/recv and the HTTP streams copy data between Java arrays and the
+network stack through fixed 256-byte stack buffers (`BUF_SIZE` /
+`IO_CHUNK` in `picodroid-core/src/net/`), so a 4 KB read costs 16
+native-call round-trips. Correctness is fine; this is the last known
+throughput bottleneck now that the gSPI bus runs at 37.5 MHz (NET-4). The
+buffers live on the JVM task's stack, and stack budgets on-device are tight
+and deliberately accounted (`boot_budget.rs`) — so the work is: benchmark
+real socket/HTTP throughput on hardware first (a netdemo variant moving a
+few hundred KB would do), then decide whether 512 B or 1 KB chunks pay for
+their stack (or whether the buffers should move off-stack instead).
+**Tradeoff:** raising the buffers without the measurement risks a
+hardware-only JVM-task stack overflow to speed up a path nobody has shown to
+be slow; the measurement itself needs a HW session with a listener host.

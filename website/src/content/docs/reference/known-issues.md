@@ -7,12 +7,9 @@ What doesn't work (yet), as of v0.12.0. Items here are confirmed and tracked —
 
 ## Networking (Pico 2 W)
 
-- **Open and WPA2-AES networks only.** No WPA3, no WPA2-Enterprise. IPv4 only.
+- **Personal auth only.** Open, WPA2-AES, and WPA3-SAE (`PICODROID_WIFI_AUTH`) — no WPA2/WPA3-Enterprise. IPv4 only.
 - **No TLS.** `HttpURLConnection` speaks plain HTTP; there is no `https://` support.
-- **Coarse error reporting.** Failed DNS lookups, refused connections, and timeouts currently surface as a single generic exception whose message carries little detail. Distinguishing failure causes from Java is not yet possible.
 - **Socket throughput is chunked.** Socket I/O crosses the native boundary in 256-byte chunks; large transfers work correctly but pay a per-chunk cost.
-- **Socket slots are not reclaimed on device.** On hardware, closing a socket does not yet free its slot in the internal socket table — apps that open and close sockets in a long loop will eventually exhaust the table. (The simulator is unaffected.)
-- **A retrying join is noisy.** If the configured network is out of range or the password is wrong, the join retries and emits repeated `net: down` lines over RTT. This is log spam, not a crash.
 - **Boot-time race.** The network takes up to ~10 s after reset (WiFi join + DHCP); apps must poll `NetworkInfo.isConnected()` before their first socket call — see [WiFi & networking setup](/get-started/networking/).
 
 ## Simulator ↔ hardware gaps
