@@ -83,8 +83,15 @@ in `build_support/network.rs`. The carried fix: an RST received in SYN-SENT
 socket block time, `Socket.connect` to a reachable host with a closed port
 **hung forever** instead of failing in one RTT. Diagnosed by tcpdump (SYN →
 RST in 24 µs, no SYN retransmission, no app wake). The bug is present on
-upstream `main` as of 2026-08-15 — upstream-PR-worthy, same bucket as the
-bsscfg event-mask fix above.
+upstream `main` as of 2026-08-15 (last change to `FreeRTOS_TCP_IP.c` is the
+v4.4.1 release itself) — but upstream has it in flight: **open PR #1355**
+(issue #1301) fixes the same wake-gate defect the RFC-793 way (gate accepts
+`eCLOSED`, SYN-retry exhaustion moves to `eCLOSED`; its unit test names the
+RST-while-connecting case verbatim). Same app-visible outcome as our patch.
+**Rebase guidance:** once #1355 is in a release, drop `e43e446f` and take
+upstream — do not carry both (our patch reroutes RST to `eCLOSE_WAIT`;
+theirs makes `eCLOSED` wake correctly; combining is harmless but ours
+becomes dead weight).
 
 ## NET-5: host-wake GPIO interrupt instead of 100 ms polling
 
