@@ -72,8 +72,16 @@ mkdir -p "$(dirname "$OUTPUT")"
 # invoking ./gradlew again from inside a running build would deadlock on the
 # project lock.
 if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
+  # Same per-invocation-property rule for the network-test host (NET-7):
+  # the env fallback exists for direct ./gradlew use, but a warm daemon's
+  # environment is frozen, so this wrapper always forwards it as -P.
+  GRADLE_EXTRA_ARGS=()
+  if [[ -n "${PICODROID_NET_TEST_HOST:-}" ]]; then
+    GRADLE_EXTRA_ARGS+=("-PpicodroidNetTestHost=${PICODROID_NET_TEST_HOST}")
+  fi
   (cd "$REPO_ROOT" && ./gradlew ":examples:$APP:assemblePapk" --console=plain \
-    "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}")
+    "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}" \
+    ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"})
 fi
 
 GRADLE_PAPK="$APP_DIR/build/papk/${APP}.papk"

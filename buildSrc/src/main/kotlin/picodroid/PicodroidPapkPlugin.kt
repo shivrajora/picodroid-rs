@@ -72,6 +72,13 @@ class PicodroidPapkPlugin : Plugin<Project> {
         }
 
         val compileJava = target.tasks.named("compileJava", JavaCompile::class.java)
+        // Full recompiles only: the generated-source roots below (assets,
+        // net-test config) live under build/, which nests them inside the
+        // projectDir source root — overlapping roots break Gradle's
+        // incremental source-to-class mapping (a regenerated file then fails
+        // to resolve until a clean). Apps are a handful of files; the
+        // incremental machinery buys nothing here.
+        compileJava.configure { options.isIncremental = false }
         val classesOutputDir = compileJava.flatMap { it.destinationDirectory }
 
         val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
@@ -111,6 +118,28 @@ class PicodroidPapkPlugin : Plugin<Project> {
             javaExt.sourceSets.getByName("main").java.srcDir(genAssets.flatMap { it.outputDir })
             compileJava.configure { dependsOn(genAssets) }
         }
+
+        // Networking examples opt in (`picodroidNetTest { enabled = true }`)
+        // to a generated NetTestConfig.java carrying the build-time test-host
+        // target — committed default is loopback; the HIL flow or a dev
+        // machine overrides it per-invocation (NET-7). Same second-srcDir
+        // shape as AssetConstants above.
+        val netTest = target.extensions.create("picodroidNetTest", NetTestExtension::class.java)
+        netTest.enabled.convention(false)
+        val genNetCfg = target.tasks.register(
+            "generateNetTestConfig", GenerateNetTestConfigTask::class.java
+        ) {
+            onlyIf { netTest.enabled.get() }
+            packageName.set(manifest.packageName)
+            host.set(
+                target.providers.gradleProperty("picodroidNetTestHost")
+                    .orElse(target.providers.environmentVariable("PICODROID_NET_TEST_HOST"))
+                    .orElse("127.0.0.1")
+            )
+            outputDir.set(target.layout.buildDirectory.dir("generated/picodroid-netcfg"))
+        }
+        javaExt.sourceSets.getByName("main").java.srcDir(genNetCfg.flatMap { it.outputDir })
+        compileJava.configure { dependsOn(genNetCfg) }
 
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
             classesDir.set(packClassesInput)
