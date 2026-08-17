@@ -244,3 +244,52 @@ Known so far:
   probe-rs flow in project memory (`reference_gdb_sim_debugging`,
   `project_handle_dangle_sim_blind`); a `--mem-diag` reflash with
   `PICODROID_MEMDIAG_OFFENSIVE=1` should catch the write at damage time.
+
+### 2026-08-17 overnight soak: reproduced as child-thread death + GC thrash
+
+Ran the `docs/picoenvmon-soak-plan-2026-08.md` phases overnight (offensive
+mem-diag release build, commit `beb0e3d` debug logs, verified pdb nav; full
+artifacts in `build/soak-2026-08-16/`). The corruption class reproduced on
+the **first** nav cycle, with a much tighter recipe than the original ~4 min:
+
+1. Boot; dashboard serves cleanly for 15 min (smoke, HTTP-only load).
+   `memmon` fired `LEAK? native floor rose` 8x during this window (floor
+   243k -> ~282k) then never again.
+2. 21:13:43 first pdb nav cycle: X -> `activity: push LiveActivity` (OK).
+   Two paced GCs fire during Live's construction (`w=938/939 gc=+1`).
+3. The network thread had just run its 15-min weather refresh (last child
+   log line: `weather: Clear +58 F`).
+4. Mid-dwell on Live: `Thread.start: child-task picoenvmon/net/
+   NetworkManager.run() failed: InvalidReference` — the serve thread died
+   (no respawn; dashboard dark from here on, 16,473/16,940 fetches 0-byte).
+5. The Y-back pop still worked, then the JVM entered a **permanent GC
+   thrash**: `GC-PRESSURE 24–27 GCs per window with alloc=+0 nalloc=+0`,
+   35,963 warning windows over ~10 h, `live` collapsed 26k -> 5,708 (the
+   dead child's population swept). Every later JVM entry is broken: hub
+   item clicks never push (399/399 verified X-presses missed), sensor
+   delivery logs `sensors: deliver_event err` continuously. Native/LVGL
+   stays healthy: key dispatch verified working all night (1,001 PASS),
+   pdb ping OK, no reboot, zero OOM, `nmin` 126,768 / `lblk` 108,496 flat.
+
+Reading: a main-thread GC during Activity churn invalidated state held by
+the parked/blocked network thread (weather refresh in flight) — same family
+as the parked-frames registry fix in `project_jvm_concurrency_gc_fixes`,
+which this evidently does not fully cover. The offensive poison trap never
+fired, so the damaged reference is not a poisoned freed span (points at
+slot-reuse or an unregistered root rather than UAF of heap chunks). The
+post-mortem GC thrash (emergency GC re-fired every window at zero alloc)
+is a secondary defect worth its own look: a dead child leaves the pacing
+state permanently tripped.
+
+Consequences for the other soak objectives:
+- **Heap-gate part B: not measurable** — the dashboard was dark from 21:14,
+  so the combined-load profile never sustained. (For what it is worth, the
+  degenerate 10 h churn held: zero OOM, floors far above the gate.)
+- **PEM-3 prereserve retune: not collected** — quiet-hold `memmon storage`
+  reflects a JVM without its network thread; re-run after the fix.
+
+Repro recipe (fast, ~16 min): flash offensive mem-diag release; let the
+dashboard serve ~15 min so the weather refresh lands; run one pdb nav cycle
+(open Live during/just after the refresh window). Debug next via the
+gdb-multiarch + probe-rs attach flow against the still-running thrash state
+(the zombie survives indefinitely; `pdb ping` works).
