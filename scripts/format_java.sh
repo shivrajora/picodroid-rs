@@ -2,12 +2,12 @@
 set -e
 
 VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
-JAR_VERSION="1.35.0"
+JAR_VERSION="1.36.1"
 JAR_NAME="google-java-format-${JAR_VERSION}-all-deps.jar"
 JAR_PATH="${VENDOR_DIR}/${JAR_NAME}"
 JAR_URL="https://github.com/google/google-java-format/releases/download/v${JAR_VERSION}/${JAR_NAME}"
 # Update this when bumping JAR_VERSION: shasum -a 256 <downloaded-jar>
-JAR_SHA256="bfb7f9ead6cd328389bc2da53860443bc0e805dfd08cc889bfdf43b26cb2a6e8"
+JAR_SHA256="25b400f003089d23cc5320cdaf1a16cabee19b8aa3434d0ff021b3d9f42154b4"
 
 verify_jar() {
   echo "${JAR_SHA256}  ${JAR_PATH}" | shasum -a 256 --check --quiet
