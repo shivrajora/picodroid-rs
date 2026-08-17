@@ -744,6 +744,7 @@ fn handle_push_op(
         }
         return LifecycleControl::Continue;
     }
+    crate::pd_info!("activity: push {}", new_class);
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
     crate::graphics::lvgl::events::push_activity_group();
@@ -797,6 +798,7 @@ fn handle_pop_op(
         Some(t) => t,
         None => return LifecycleControl::Continue, // already empty
     };
+    crate::pd_info!("activity: pop {}", top_class);
     // Snapshot the finishing Activity's result BEFORE the pop (it lives on the
     // entry being removed). Delivered to the uncovered caller below.
     let pending_result = handler.top_activity_result();
@@ -1573,9 +1575,9 @@ fn dispatch_touch_events(
 /// View's `OnKeyListener`, and route un-consumed BACK releases to the top
 /// Activity's `onBackPressed` (which defaults to `finish()`).
 ///
-/// Note: `hal::sim::gpio::drain_gpio_event` always returns `None` in sim
-/// builds, so this dispatcher never fires events on the host. End-to-end
-/// verification requires hardware.
+/// Note: on the host, the sim control channel (`input keyevent …` via
+/// stdin/FIFO) injects edges into the same GPIO queue, so this dispatcher
+/// fires in sim builds too.
 #[cfg(not(test))]
 fn dispatch_key_events(
     jvm: &mut Jvm,
@@ -1602,6 +1604,7 @@ fn dispatch_key_events(
         if keycode == KEYCODE_BACK && action == ACTION_UP {
             use crate::graphics::lvgl::widgets::keyboard;
             if keyboard::hide_system() {
+                crate::pd_info!("key: BACK -> keyboard dismissed");
                 continue;
             }
         }
@@ -1615,6 +1618,7 @@ fn dispatch_key_events(
             use crate::graphics::widgets;
             if widgets::has_shown_dialog() {
                 widgets::dismiss_topmost_dialog();
+                crate::pd_info!("key: BACK -> dialog dismissed");
                 continue;
             }
         }
@@ -1622,10 +1626,20 @@ fn dispatch_key_events(
         // 2) Dispatch to the focused View's OnKeyListener, if any. Capture
         //    fireKey's `boolean` return so an un-consumed BACK release can
         //    fall through to onBackPressed below.
-        let consumed = match events::focused_view_obj() {
-            Some(view_ref) => fire_view_key(jvm, view_ref, keycode, action, heap, handler),
-            None => false,
+        let (consumed, had_focus) = match events::focused_view_obj() {
+            Some(view_ref) => (
+                fire_view_key(jvm, view_ref, keycode, action, heap, handler),
+                true,
+            ),
+            None => (false, false),
         };
+        crate::pd_info!(
+            "key: code={} action={} consumed={} focus={}",
+            keycode,
+            action,
+            consumed,
+            had_focus
+        );
 
         // 3) Default BACK handler: invoke `Activity.onBackPressed` on the
         //    top activity when no View consumed the BACK release. Apps

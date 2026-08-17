@@ -96,6 +96,7 @@ fn inject_key(keycode: i32, meta: u8) -> (u8, &'static [u8]) {
     let Some(pin) = keycode_to_pin(keycode) else {
         return (STATUS_ERR, b"no such key");
     };
+    crate::pd_info!("pdb: key {} -> pin {}", keycode, pin);
     match meta {
         KEY_META_DOWN => input_inject::press::<HalSink>(pin),
         KEY_META_UP => input_inject::release::<HalSink>(pin),

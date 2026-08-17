@@ -387,6 +387,8 @@ fn push_key_event_raw(pin: u8, rising: bool) {
         if next != KEY_EVENT_QUEUE_TAIL {
             KEY_EVENT_QUEUE[head] = KeyEventRaw { pin, rising };
             KEY_EVENT_QUEUE_HEAD = next;
+        } else {
+            crate::pd_warn!("key: java queue full, dropped pin {} edge", pin);
         }
     }
 }
