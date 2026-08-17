@@ -343,3 +343,133 @@ caught-in-the-act trap. Fix the `set_field` error conflation
 (`sensors/mod.rs:579` — distinguish stale-ref from alloc-failure so the
 emergency-GC arm stops thrashing) and the thrash's GC-pacing latch at the
 same time.
+
+### 2026-08-17 (later): panic caught in gdb — faulting frame named
+
+The 16-min recipe reproduced the ORIGINAL P0 panic shape on the next run
+(`range end index 170 out of range for slice of length 166`). A gdb
+hardware breakpoint parked on `rust_begin_unwind` caught it with the full
+stack intact:
+
+```
+copy_within<Value> (dest=166)
+ObjectHeap::compact_fields_arena   jvm/src/object_heap/mod.rs:710
+gc::collect                        jvm/src/gc/mod.rs:428
+interpreter::execute_frames        (the paced safepoint GC)
+Jvm::invoke_instance
+native_handler::os::dispatch       os.rs:94  <- Thread.start child body
+```
+
+The panic is the **network child's own safepoint GC** compacting the shared
+fields arena and finding a live object whose span (end 170) extends past
+the arena (len 166). Sequentially this is impossible: spans are only
+created at the tail (`alloc_span`) and only compaction truncates, so every
+live span is in-bounds by construction. The inconsistency therefore
+requires the alloc/compact sequence to have been interleaved — yet every
+JVM task (main jvm_task, NetworkManager child, bg pool when active) is
+core-0-pinned at FreeRTOS 15 with time slicing off, the sampler task holds
+no JVM-heap access (audited), and no >15-priority task or ISR touches the
+heap (audited). Something in that serialization argument is false in
+practice.
+
+Instrumentation added (all offensive-gated, commit pending): span-invariant
+checks (`ObjectHeap::debug_check_spans`) at gc-entry / post-compact /
+post-alloc / post-lazy-grow — panics at the moment the inconsistency is
+CREATED, with the victim's call site in the backtrace, disambiguating:
+damage-before-GC vs created-by-compact vs truncation-raced-an-alloc. Plus
+the post-sweep root audit in `gc::collect` (re-walks all root sources;
+firing = mark/sweep state disturbed mid-collection). Plus two fixes landed
+on evidence already in hand: `deliver_event` stale-ref guard + drain
+unregister arm (kills the eternal thrash), and the **cross-executor handler
+root registry** (`HandlerRootGuard`): child-executor GCs previously rooted
+only their own handler's Activity stack/pending ops, so a child GC while
+the main task idled between executes could sweep the UI's Activities — a
+confirmed hole regardless of whether it is this crash's first cause.
+
+### 2026-08-17 (later still): two more repro rounds — the mechanism takes shape
+
+**Round 2** (span traps built, ~16 min): panicked INSIDE
+`compact_fields_arena` again but with the OTHER failure mode — `dest is out
+of bounds` (the compaction write cursor overran the arena). Bounds-clean
+individual spans plus an overrunning write cursor = the live spans
+**overlap** (sum of caps > arena len). An interleaved `alloc_span` pair
+produces exactly both observed panic shapes at once: two contexts read the
+same `fields_arena.len()`, both take the same offset (overlap ⇒ round-2
+panic), and the loser's smaller `resize` truncates the winner's span
+(⇒ round-1's `end 170 > len 166`). Sequentially impossible; some context is
+interleaving the alloc.
+
+**Tooling root cause found while wiring round 3:**
+`PICODROID_MEMDIAG_OFFENSIVE` was read ONLY by the sim
+(`docs/memory-diagnostics.md` even says "sim only") — **the device never
+armed offensive mode**. Every on-device "offensive" conclusion to date is
+void: the overnight soak's poison-trap silence meant nothing, and round 2's
+span traps were inert (so "gc-entry passed" was never actually tested).
+Fixed: `mem_diag::apply_device_flags()` bakes the flag at build time
+(`option_env!`), logs `memmon: offensive checks ON (build-baked)` at boot,
+and installs a task-id hook (`rtos::task_current`) so the new offensive
+alloc-trace ring `(task, offset, n_fields)` names which tasks' allocations
+interleaved. `debug_check_spans` now also runs the full overlap sweep
+(`integrity_check`) at all four contexts.
+
+**Round 3** (first genuinely-armed offensive run): panicked in
+`compact_fields_arena` (`dest is out of bounds`) with gc-entry and every
+post-alloc check PASSING — the corruption forms between checks. Post-mortem
+of the halted device delivered the root cause:
+
+- Panicking task (core 0 current, `pxCurrentTCBs[0]`): TCB name
+  `picoenvmon/net/` — the NetworkManager child, mid-its-own safepoint GC.
+  Core 1: IDLE. Alloc-trace ring: all 8 recent spans from the child
+  (1-field Socket-sized allocs at the arena tail, offsets REPEATING —
+  truncations between allocs).
+- Object-table dump at death: a chain of overlapping tail spans at offsets
+  162/165/168/170/171 — each allocation landing 2-3 slots BEHIND the
+  previous span's end. Classes (read from the live class table):
+  `Sensor`/`SensorEvent` (main task: SensorLoggerService re-registration on
+  every History nav cycle) alternating with
+  `HttpServer`/`ServerSocket`/`Socket` (network child: accept loop). Two
+  interleaved allocators, repeatedly, within seconds.
+
+**ROOT CAUSE (kernel-source confirmed):** the FreeRTOS SMP kernel's
+`prvYieldForTask` (third_party/FreeRTOS-Kernel/tasks.c:910) yields when an
+unblocked task's priority is `>=` the running task's — equal-priority WAKE
+preemption, which `configUSE_TIME_SLICING=0` does not disable (that only
+stops tick round-robin). The global allocator's `xTaskResumeAll` exit is a
+yield point, and `alloc_span`'s `try_reserve_exact`/`resize` (and the GC's
+scratch-Vec growth) allocate — so a socket completion readied by core 1's
+IP task (or an expiring UI delay) preempts a JVM task MID-COMPOUND-HEAP-
+OPERATION despite core pinning, equal priorities, and no slicing. Two tasks
+then read the same arena length in `alloc_span`; the loser's `resize`
+shrinks the arena over the winner's fresh span → overlapping/orphaned
+descriptors → compaction range/dest panics (both observed shapes), and the
+same yield inside a GC's Vec growth lets the other task mutate the heap
+mid-collection → rooted-objects swept (the InvalidReference child death +
+sensor-event sweep + GC thrash). One mechanism, every observed failure.
+This falsifies the single-core serialization contract documented on
+`GcState::parked_frames` and assumed throughout.
+
+**FIX (landed with this session's commits):** `pico_jvm::atomic_section` —
+platform-installed scheduler suspend/resume hooks
+(`vTaskSuspendAll`/`xTaskResumeAll`, installed in `boot_tasks::start_tasks`;
+nests safely with heap_4's internal suspension so the inner resume never
+yields) wrapped as an RAII guard around every compound heap mutation:
+`gc::collect` (whole collection), `ObjectHeap::alloc_with_field_count`,
+`set_field` (lazy-grow), `ArrayHeap::alloc`, `StringTable::intern` /
+`intern_dyn_owned`. No-op on host/sim (no hooks installed). Guarded
+sections never block. This restores the parked_frames safety contract by
+construction rather than by scheduling assumption.
+
+**Validation (fix commit `0c1326d`):** the 16-min combined-load repro — a
+3/3 kill rate across the previous rounds — ran CLEAN with every offensive
+trap armed: 14 full nav cycles through the weather-refresh window, 195
+verified presses, zero panics / span / integrity / root-audit fires, zero
+swept registrations, dashboard and pdb healthy after the window. (The
+driver's 28 "FAIL key=23/4 no-dispatch-log" lines are all the Settings
+NumberPicker edit-mode filter consuming X/Y natively before the Java queue
+— known drop-point, benign; every cycle's subsequent pop verified 14/14.)
+Full pre-commit and the sim smoke trio pass. Remaining follow-ups: the
+heap-gate part B soak + PEM-3 prereserve retune can now actually run;
+consider an edit-mode key log to make even that native consumption
+observable; audit the sim's Thread.start parallelism for the same race
+class (host threads have real parallelism and no atomic-section hooks);
+sb_buf cross-thread aliasing (handover §7) remains its own item.
