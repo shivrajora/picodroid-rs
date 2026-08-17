@@ -293,3 +293,53 @@ dashboard serve ~15 min so the weather refresh lands; run one pdb nav cycle
 (open Live during/just after the refresh window). Debug next via the
 gdb-multiarch + probe-rs attach flow against the still-running thrash state
 (the zombie survives indefinitely; `pdb ping` works).
+
+### 2026-08-17 gdb post-mortem on the live zombie — mechanism proven
+
+Attached probe-rs gdb + gdb-multiarch to the zombie ~17 h after death (no
+reflash). Findings, each read from device memory:
+
+1. **GC-thrash trigger identified.** Breakpoint on
+   `SharedJvmHeap::collect_now` fires from `drain_sensor_events`
+   (`sensors/mod.rs:541`) — the emergency-GC + single-redeliver arm for
+   `JvmError::StackOverflow`.
+2. **The failing call is `set_field`, and the error is mislabeled.**
+   `deliver_event` does `set_field(event_obj, TIMESTAMP, ..).ok_or(StackOverflow)`
+   (`sensors/mod.rs:577-579`). `set_field` returns `None` for a *stale ref*
+   (slot `None`), not just alloc failure — so a swept recycled event
+   masquerades as allocation pressure and triggers a pointless GC per
+   delivery, forever. `Frame::new` never fires (verified): no invoke ever
+   starts; hub clicks die silently in the same way.
+3. **Native state is intact; the heap slots are gone.** The sensor `STATE`
+   static (0x2000b014) still holds 5 registrations
+   (listener=10, events 40/42/44/46/48, values 26-30). Dumping the object
+   table (`boot::SHARED_HEAP` static, 0x20004b10, chunk 0) shows slot 10
+   (listener, Java-reachable) alive — while slots 38-41 (recycled
+   events/sensors region, native-only-rooted via `sensors::visit_gc_roots`)
+   are all `None` with stale 6-field SensorEvent payloads still legible in
+   the slot memory. **A collection swept objects that a registered GC root
+   visitor roots** — while Java-reachable neighbors survived.
+4. **Concurrency contract audit.** All JVM tasks (main + JvmChild + bg pool
+   + sampler) are core-0-pinned (`glue.rs` both arms, verified) — no SMP
+   cross-core race. Main jvm_task = FreeRTOS 15; NetworkManager uses
+   `new Thread(this).start()` = default Android 5 → also 15; equal priority
+   + `TIME_SLICING=0` means the child cannot preempt a running collector.
+   The `GcState::parked_frames` safety comment (`gc/mod.rs:74-80`) assumes
+   exactly this — so the fatal sweep is NOT simple preemption.
+
+Open first-cause candidates (narrowed): (a) a u16 JVM ref held in *Rust*
+native state across a blocking call in the NTP/weather path — invisible to
+both the parked-frames registry and `gc_visit_roots`, swept mid-block, slot
+reused, written on resume (the send/recv arena-slice exoneration never
+covered u16 refs); (b) a child-executor GC (invisible to memmon, handover
+§3) running during a main-task yield with a root-set/mark defect. Both are
+the `project_native_alloc_gc_gap` family.
+
+**Next step (designed, not yet built):** a mem-diag "root-audit" mode — after
+every sweep, re-walk every registered native root and panic at the first
+rooted-but-swept object, naming the collector (main vs child executor) and
+the root. With the 16-min repro this converts the remaining unknown into a
+caught-in-the-act trap. Fix the `set_field` error conflation
+(`sensors/mod.rs:579` — distinguish stale-ref from alloc-failure so the
+emergency-GC arm stops thrashing) and the thrash's GC-pacing latch at the
+same time.
