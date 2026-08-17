@@ -17,11 +17,17 @@ import picoenvmon.di.EnvAppComponent;
 public final class WeatherFetcher {
   private static final String TAG = EnvAppComponent.TAG;
 
-  /** Build-time constant; a Settings entry or gradle property is a documented follow-up. */
-  public static final String CITY = "London";
+  /**
+   * Display name (screen + dashboard labels). Build-time constant; a Settings entry or gradle
+   * property is a documented follow-up.
+   */
+  public static final String CITY = "San Mateo";
+
+  /** wttr.in location path — '+' for spaces, state suffix disambiguates. */
+  private static final String CITY_PATH = "San+Mateo,California";
 
   /** %25 is a URL-escaped '%': the format params are %C (condition) and %t (temperature). */
-  private static final String WEATHER_URL = "http://wttr.in/" + CITY + "?format=%25C+%25t";
+  private static final String WEATHER_URL = "http://wttr.in/" + CITY_PATH + "?format=%25C+%25t";
 
   private static final int MAX_REPLY_BYTES = 128;
 
