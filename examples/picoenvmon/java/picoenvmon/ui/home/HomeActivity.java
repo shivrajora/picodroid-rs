@@ -9,6 +9,7 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;
 import picodroid.widget.TextView;
 import picoenvmon.di.EnvAppComponent;
+import picoenvmon.service.SensorLoggerService;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.ui.history.HistoryActivity;
 import picoenvmon.ui.live.LiveActivity;
@@ -37,6 +38,14 @@ public class HomeActivity extends NavActivity {
   public void onCreate() {
     Log.i(EnvAppComponent.TAG, "Home.onCreate");
     getDisplay();
+
+    // The device is an environmental monitor: sensor logging is ON from boot
+    // so the web dashboard serves live readings without anyone touching the
+    // device (LatestReadings is fed only by this service's 1 Hz smoothing
+    // emit — found as "every dashboard row reads --" on a fresh flash). The
+    // Live screen's Logger switch restores from isLogging() and remains the
+    // off-toggle. Idempotent: the service guards re-start internally.
+    startService(new Intent(SensorLoggerService.class));
 
     LinearLayout root = makeScreenRoot();
 
