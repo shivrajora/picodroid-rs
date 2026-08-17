@@ -91,6 +91,9 @@ pub fn dispatch(
                             }
                             let heap = crate::boot::shared_heap();
                             let mut handler = super::PicodroidNativeHandler::new();
+                            // Cross-executor GC root visibility; drops with
+                            // the child on every exit path, error included.
+                            let _handler_roots = super::HandlerRootGuard::new(&handler);
                             if let Err(e) = jvm.invoke_instance(
                                 class_name,
                                 "run",

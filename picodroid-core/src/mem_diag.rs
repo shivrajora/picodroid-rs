@@ -215,6 +215,21 @@ fn histo_enabled() -> bool {
     }
 }
 
+/// Device-side arming of offensive heap checks. The device has no runtime
+/// environment, so `PICODROID_MEMDIAG_OFFENSIVE=1` must be present at BUILD
+/// time to bake the checks on. Until this existed the flag silently did
+/// nothing on hardware — device "offensive" soaks ran with every offensive
+/// check inert (docs/picoenvmon-qa.md, 2026-08-17). Also installs the
+/// task-id hook so the offensive alloc trace can name interleaving tasks.
+#[cfg(not(feature = "sim"))]
+pub fn apply_device_flags() {
+    if matches!(option_env!("PICODROID_MEMDIAG_OFFENSIVE"), Some("1")) {
+        pico_jvm::mem_diag::set_offensive(true);
+        pico_jvm::mem_diag::set_task_id_fn(|| crate::rtos::task_current() as u32);
+        crate::pd_info!("memmon: offensive checks ON (build-baked)");
+    }
+}
+
 /// Apply the runtime heap-diagnostic flags to a fresh heap. Called once at
 /// heap creation (before class loading) so every alloc is counted and the
 /// offensive checks cover the whole run.

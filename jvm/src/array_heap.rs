@@ -94,6 +94,10 @@ impl ArrayHeap {
     /// `long[]` and `double[]` occupy two i32 slots per element, so the
     /// physical slot count is `2 * len` for ATYPE_LONG / ATYPE_DOUBLE.
     pub fn alloc(&mut self, atype: u8, len: u16) -> Option<u16> {
+        // Arena reservation + slot placement must be scheduler-atomic —
+        // same interleave hazard as ObjectHeap::alloc_span (see
+        // `atomic_section` module docs).
+        let _atomic = crate::atomic_section::AtomicSection::enter();
         self.alloc_events = self.alloc_events.saturating_add(1);
         let slots_per_elem = slots_per_elem(atype) as u32;
         let phys_u32 = (len as u32).checked_mul(slots_per_elem)?;

@@ -549,6 +549,30 @@ pub fn drain_sensor_events(
                 value,
             );
         }
+        if matches!(result, Err(JvmError::InvalidReference)) {
+            // The registration's cached refs point at swept slots — heap
+            // corruption upstream (the offensive root audit hunts the
+            // cause). Drop the registration cleanly instead of thrashing:
+            // this listener stops receiving events, everything else keeps
+            // running. Also drop any swept cached Sensor objects so
+            // getDefaultSensor re-allocates instead of handing out a stale
+            // ref.
+            crate::pd_error!(
+                "sensors: registration {} refs swept — unregistering (heap corruption upstream)",
+                i
+            );
+            st.registrations[i] = None;
+            st.active_regs -= 1;
+            for slot in st.sensor_objs.iter_mut() {
+                if let Some(o) = slot {
+                    if !heap.objects.is_live(*o) {
+                        *slot = None;
+                    }
+                }
+            }
+            publish_control(st);
+            continue;
+        }
         if let Err(e) = result {
             #[cfg(not(feature = "sim"))]
             defmt::warn!("sensors: deliver_event err");
@@ -569,6 +593,18 @@ fn deliver_event(
     values_arr: u16,
     value: f32,
 ) -> Result<(), JvmError> {
+    // Stale-ref guard: these are native-cached refs (recycled-event pattern).
+    // A swept slot must surface as InvalidReference — mislabelling it as
+    // StackOverflow (the alloc-failure signal) sent the caller's emergency-GC
+    // arm into a permanent GC-per-tick loop after heap corruption swept the
+    // recycled event (docs/picoenvmon-qa.md, 2026-08-17).
+    if !heap.objects.is_live(listener_obj)
+        || !heap.objects.is_live(event_obj)
+        || !heap.arrays.is_live(values_arr)
+    {
+        return Err(JvmError::InvalidReference);
+    }
+
     // Rewrite the recycled event's mutable payload (see Registration): only
     // values[0] and timestamp change per tick, so delivery allocates nothing.
     heap.arrays.store(values_arr, 0, value.to_bits() as i32);

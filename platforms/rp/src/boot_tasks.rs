@@ -55,6 +55,27 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
         crate::hal::core1_park::set_parker_task(parker);
     }
 
+    // JVM heap compound operations and the GC must be atomic against the
+    // SMP kernel's equal-priority wake yield (prvYieldForTask uses `>=`, so
+    // an unblocked equal-priority JVM task preempts at the allocator's
+    // xTaskResumeAll inside an arena resize — the picoenvmon span-overlap
+    // corruption). Scheduler suspension nests safely with heap_4's own.
+    {
+        extern "C" {
+            fn vTaskSuspendAll();
+            fn xTaskResumeAll() -> i32;
+        }
+        fn heap_atomic_enter() {
+            unsafe { vTaskSuspendAll() };
+        }
+        fn heap_atomic_exit() {
+            unsafe {
+                xTaskResumeAll();
+            }
+        }
+        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
+    }
+
     // fs-worker: serialises all LittleFS access onto one core-0-pinned task.
     // Must be spawned after fs::init() (done in main) and before the
     // scheduler starts; any Java thread calling fs::with_fs blocks until

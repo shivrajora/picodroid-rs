@@ -122,6 +122,14 @@ pub struct ObjectHeap {
     alloc_histo: Vec<u32>,
     #[cfg(feature = "mem-diag")]
     histo_enabled: bool,
+    /// Offensive diagnostics: ring of the last 8 span allocations as
+    /// `(task_id, offset, n_fields)` — dumped when the span invariant
+    /// breaks so the panic names which tasks' allocations interleaved
+    /// (task_id via `mem_diag::set_task_id_fn`, 0 when no hook installed).
+    #[cfg(feature = "mem-diag")]
+    alloc_trace: [(u32, u32, u16); 8],
+    #[cfg(feature = "mem-diag")]
+    alloc_trace_idx: u8,
     /// Allocations since the interpreter last folded this into GC pacing
     /// (see `Executor::fold_native_alloc_events`).
     alloc_events: u16,
@@ -146,6 +154,10 @@ impl ObjectHeap {
             alloc_histo: Vec::new(),
             #[cfg(feature = "mem-diag")]
             histo_enabled: false,
+            #[cfg(feature = "mem-diag")]
+            alloc_trace: [(0, 0, 0); 8],
+            #[cfg(feature = "mem-diag")]
+            alloc_trace_idx: 0,
             alloc_events: 0,
         }
     }
@@ -290,13 +302,21 @@ impl ObjectHeap {
                 return Some(idx as u16);
             }
         }
+        // Span reservation + descriptor write must be scheduler-atomic: an
+        // equal-priority wake yield inside the arena resize let two tasks
+        // read the same arena length, and the loser's resize truncated the
+        // winner's fresh span (see `atomic_section` module docs).
+        let _atomic = crate::atomic_section::AtomicSection::enter();
         let fields_off = self.alloc_span(n_fields)?;
-        Some(self.place_in_slot(JvmObject {
+        let idx = self.place_in_slot(JvmObject {
             fields_off,
             class_idx,
             field_count: 0,
             fields_cap: n_fields as u8,
-        }))
+        });
+        #[cfg(feature = "mem-diag")]
+        self.debug_check_spans("post-alloc");
+        Some(idx)
     }
 
     /// Fixed growth step for [`fields_arena`](Self::fields_arena), in
@@ -329,6 +349,12 @@ impl ObjectHeap {
         }
         let off = self.fields_arena.len() as u32;
         self.fields_arena.resize(need, Value::Null);
+        #[cfg(feature = "mem-diag")]
+        {
+            let i = self.alloc_trace_idx as usize % self.alloc_trace.len();
+            self.alloc_trace[i] = (crate::mem_diag::task_id(), off, n_fields as u16);
+            self.alloc_trace_idx = self.alloc_trace_idx.wrapping_add(1);
+        }
         Some(off)
     }
 
@@ -484,6 +510,9 @@ impl ObjectHeap {
     }
 
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
+        // Atomic for the lazy-grow path (span move + descriptor update) —
+        // same interleave hazard as alloc_with_field_count.
+        let _atomic = crate::atomic_section::AtomicSection::enter();
         let obj = *self.objects.get(idx as usize)?.as_ref()?;
         if field >= obj.fields_cap as usize {
             // Lazy grow — a caller wrote past the count it declared at alloc
@@ -500,6 +529,8 @@ impl ObjectHeap {
             let slot = self.objects.get_mut(idx as usize)?.as_mut()?;
             slot.fields_off = new_off;
             slot.fields_cap = new_cap as u8;
+            #[cfg(feature = "mem-diag")]
+            self.debug_check_spans("post-lazy-grow");
         }
         let slot = self.objects.get_mut(idx as usize)?.as_mut()?;
         let needed = field + 1;
@@ -715,6 +746,44 @@ impl ObjectHeap {
             write_pos += count;
         }
         self.fields_arena.truncate(write_pos);
+        #[cfg(feature = "mem-diag")]
+        self.debug_check_spans("post-compact");
+    }
+
+    /// Offensive invariant: every live object's field span lies inside the
+    /// arena. Sequential execution preserves this by construction (spans are
+    /// only created at the tail and only compaction truncates), so a firing
+    /// here proves the alloc/compact sequence was interleaved by another
+    /// context — panics at the moment the inconsistency becomes visible,
+    /// naming the call site. Added for the picoenvmon compaction panic
+    /// (`range end index N out of range`, docs/picoenvmon-qa.md 2026-08-17).
+    #[cfg(feature = "mem-diag")]
+    pub fn debug_check_spans(&self, ctx: &str) {
+        if !crate::mem_diag::offensive() {
+            return;
+        }
+        let len = self.fields_arena.len();
+        for (i, slot) in self.objects.iter().enumerate() {
+            if let Some(o) = slot.as_ref() {
+                let end = o.fields_off as usize + o.fields_cap as usize;
+                if end > len {
+                    panic!(
+                        "mem-diag: span invariant broken at {}: obj {} span {}..{} > arena len {} — alloc trace {:?}",
+                        ctx, i, o.fields_off, end, len, self.alloc_trace
+                    );
+                }
+            }
+        }
+        // Bounds alone miss the interleaved-alloc signature (two tasks read
+        // the same arena len -> duplicate offsets, overlapping spans, each
+        // individually in-bounds). The overlap sweep in integrity_check
+        // catches that shape; the alloc trace names the interleaved tasks.
+        if let Err(m) = self.integrity_check() {
+            panic!(
+                "mem-diag: heap integrity broken at {}: {} — alloc trace {:?}",
+                ctx, m, self.alloc_trace
+            );
+        }
     }
 
     /// Approximate bytes held live by this heap. Used by `perfbench` /

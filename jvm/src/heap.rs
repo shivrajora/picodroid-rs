@@ -91,6 +91,9 @@ impl StringTable {
     /// Intern a UTF-8 byte slice (must have `'static` lifetime, e.g. from Flash).
     /// Returns the Reference index (u16).  Deduplicates identical static strings.
     pub fn intern(&mut self, s: &'static [u8]) -> Option<u16> {
+        // The parallel ptrs/lens/dyn_bufs pushes must not be torn by an
+        // equal-priority wake yield (see `atomic_section` module docs).
+        let _atomic = crate::atomic_section::AtomicSection::enter();
         // Deduplicate against existing static entries.
         for i in 0..self.dyn_start {
             let existing =
@@ -146,6 +149,8 @@ impl StringTable {
     /// growth rides along until the entry is GC-freed (live_bytes already
     /// accounts by capacity).
     pub fn intern_dyn_owned(&mut self, buf: Vec<u8>) -> Option<u16> {
+        // See `intern` — parallel-vec updates must be scheduler-atomic.
+        let _atomic = crate::atomic_section::AtomicSection::enter();
         #[cfg(feature = "mem-diag")]
         {
             self.dyn_intern_total = self.dyn_intern_total.wrapping_add(1);

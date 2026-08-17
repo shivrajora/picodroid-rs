@@ -33,6 +33,8 @@ fn worker_body(worker_id: u32) {
     // code runs, and only Java code submits work.
     let mut jvm: Option<pico_jvm::Jvm> = None;
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
+    // Cross-executor GC root visibility for this worker's pending state.
+    let _handler_roots = crate::native_handler::HandlerRootGuard::new(&handler);
 
     loop {
         let Some(obj_ref) = background_pool::recv_work() else {

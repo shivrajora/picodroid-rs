@@ -66,6 +66,7 @@
 extern crate alloc;
 
 pub mod array_heap;
+pub mod atomic_section;
 pub(crate) mod chunked_slots;
 pub mod class_file;
 pub mod class_objects;

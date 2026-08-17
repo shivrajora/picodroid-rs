@@ -207,9 +207,20 @@ pub fn collect(
     statics: &StaticFieldStore,
     class_objects: &ClassObjectCache,
     gc: &mut GcState,
-    extra_roots: impl FnOnce(&mut dyn FnMut(Value)),
+    extra_roots: impl Fn(&mut dyn FnMut(Value)),
 ) -> usize {
+    // The whole collection is scheduler-atomic: a mid-GC yield to the other
+    // JVM task (SMP equal-priority wake preemption at an internal Vec-growth
+    // malloc) let it mutate the heap between mark and compact — sweeping
+    // rooted objects and overrunning the compaction cursor. See
+    // `atomic_section` module docs.
+    let _atomic = crate::atomic_section::AtomicSection::enter();
     gc.clear();
+    // Offensive: if the span invariant is already broken on entry, the
+    // damage predates this collection — panic here rather than letting
+    // compaction crash on it later with the causal context long gone.
+    #[cfg(feature = "mem-diag")]
+    objects.debug_check_spans("gc-entry");
     let obj_marks = &mut gc.obj_marks;
     let arr_marks = &mut gc.arr_marks;
     let str_marks = &mut gc.str_marks;
@@ -426,6 +437,53 @@ pub fn collect(
     // Reclaims spans left by swept objects and set_field lazy-grow moves.
     // Reuses the same scratch buffer — phases run sequentially.
     objects.compact_fields_arena(&mut gc.arena_compact_buf);
+
+    // ── Offensive root audit ─────────────────────────────────────────────
+    // Re-walk every root source and panic if any ref points at a slot this
+    // collection swept. Within a self-consistent collection this cannot
+    // happen — everything a root visitor reports gets marked, and marked
+    // slots are never swept. A hit therefore proves the mark/sweep state
+    // was disturbed mid-collection (concurrent mutation, bitmap damage),
+    // caught at the fatal collect with the collector's task in the
+    // backtrace. Added for the picoenvmon rooted-but-swept corruption
+    // (docs/picoenvmon-qa.md, 2026-08-17).
+    #[cfg(feature = "mem-diag")]
+    if offensive {
+        let dyn_start = strings.dyn_start();
+        let check = |src: &str, v: &Value| {
+            let (kind, idx, stale) = match *v {
+                Value::ObjectRef(i) => ("obj", i, !objects.is_live(i)),
+                Value::ArrayRef(i) => ("arr", i, !arrays.is_live(i)),
+                Value::Reference(i) => (
+                    "str",
+                    i,
+                    (i as usize) >= dyn_start && !strings.is_dyn_live(i),
+                ),
+                _ => return,
+            };
+            if stale {
+                panic!("mem-diag: root audit — {src} {kind} ref {idx} swept by this collection");
+            }
+        };
+        for frame in frames {
+            for v in frame.locals.iter().chain(frame.stack.iter()) {
+                check("frame", v);
+            }
+        }
+        for &pf in &gc.parked_frames {
+            // SAFETY: same contract as the mark-phase walk above.
+            let parked = unsafe { &*pf };
+            for frame in parked {
+                for v in frame.locals.iter().chain(frame.stack.iter()) {
+                    check("parked-frame", v);
+                }
+            }
+        }
+        for v in statics.values_iter() {
+            check("static", &v);
+        }
+        extra_roots(&mut |v| check("native", &v));
+    }
 
     freed
 }

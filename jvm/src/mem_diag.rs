@@ -190,6 +190,26 @@ pub fn offensive() -> bool {
     OFFENSIVE.load(Ordering::Relaxed)
 }
 
+/// Platform hook returning an identifier for the currently running task
+/// (e.g. the FreeRTOS task handle). Purely diagnostic: stamped into the
+/// offensive alloc trace so a heap-corruption panic can name which tasks'
+/// allocations interleaved. 0 when no hook is installed (host tests, sim).
+static TASK_ID_FN: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_task_id_fn(f: fn() -> u32) {
+    TASK_ID_FN.store(f as usize, Ordering::Release);
+}
+
+pub fn task_id() -> u32 {
+    let p = TASK_ID_FN.load(Ordering::Relaxed);
+    if p == 0 {
+        return 0;
+    }
+    // SAFETY: only ever stored from a valid `fn() -> u32` by set_task_id_fn.
+    let f: fn() -> u32 = unsafe { core::mem::transmute(p) };
+    f()
+}
+
 /// Cross-heap structural integrity sweep, run after each GC when offensive
 /// checks are on. Returns a description of the first violation found —
 /// callers escalate (the sim panics with it). Checks are O(live²) worst

@@ -58,6 +58,52 @@ impl Default for PicodroidNativeHandler {
     }
 }
 
+// ── Cross-executor handler roots ────────────────────────────────────────────
+// Every `Thread.start` child (and each bg-pool worker) builds its own
+// handler, but all executors share one heap. A GC triggered in one executor
+// previously rooted only ITS handler's Activity stack and pending ops — a
+// network-thread GC while the main task idled between executes could not
+// see the UI's Activity stack at all and swept anything reachable only from
+// it. Registry of every live handler, walked by `gc_visit_roots` so any
+// collector sees the union of all handlers' roots.
+//
+// Raw pointers under the same scheduling contract as
+// `GcState::parked_frames`: JVM tasks are core-0-pinned with time slicing
+// off, so the other handlers' owners are parked while a collector runs, and
+// register/deregister happen in the owning task's slice.
+static mut HANDLER_ROOTS: alloc::vec::Vec<*const PicodroidNativeHandler> = alloc::vec::Vec::new();
+
+fn handler_registry() -> &'static mut alloc::vec::Vec<*const PicodroidNativeHandler> {
+    // `&raw mut` then deref: forming the reference directly trips the
+    // `static_mut_refs` lint (see events.rs / handle_table.rs). Bound to a
+    // local first so clippy's `deref_addrof` doesn't misread the idiom.
+    let ptr = &raw mut HANDLER_ROOTS;
+    // SAFETY: single-core scheduling contract per the HANDLER_ROOTS docs.
+    unsafe { &mut *ptr }
+}
+
+/// RAII registration of a handler for cross-executor GC root visibility.
+/// Create it right after the handler lands at its final address; the
+/// registration drops with the executor on every exit path, error included.
+pub struct HandlerRootGuard(*const PicodroidNativeHandler);
+
+impl HandlerRootGuard {
+    pub fn new(handler: &PicodroidNativeHandler) -> Self {
+        let ptr: *const PicodroidNativeHandler = handler;
+        handler_registry().push(ptr);
+        Self(ptr)
+    }
+}
+
+impl Drop for HandlerRootGuard {
+    fn drop(&mut self) {
+        let reg = handler_registry();
+        if let Some(i) = reg.iter().rposition(|&p| p == self.0) {
+            reg.remove(i);
+        }
+    }
+}
+
 impl PicodroidNativeHandler {
     pub fn new() -> Self {
         Self {
@@ -187,16 +233,12 @@ impl PicodroidNativeHandler {
     }
 }
 
-impl NativeMethodHandler for PicodroidNativeHandler {
-    fn clock_nanos(&self) -> u64 {
-        crate::hal::system_clock::elapsed_realtime_nanos() as u64
-    }
-
-    fn native_class_names(&self) -> &'static [&'static str] {
-        PICODROID_NATIVE_CLASSES
-    }
-
-    fn gc_visit_roots(&self, visit: &mut dyn FnMut(Value)) {
+impl PicodroidNativeHandler {
+    /// This handler's own GC roots: the Activity stack (instances, launch
+    /// Intents, pending result Intents) and queued pending ops. Factored out
+    /// of `gc_visit_roots` so the cross-executor registry walk can visit
+    /// every live handler's roots, not just the collector's own.
+    fn visit_own_roots(&self, visit: &mut dyn FnMut(Value)) {
         // Activity stack: every entry holds the Activity instance whose
         // lifecycle methods are about to be invoked. Without rooting these,
         // GC during a quiet frame (between `onResume` and the next callback)
@@ -214,12 +256,41 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         for intent_ref in self.activity_stack.iter_result_intents() {
             visit(Value::ObjectRef(intent_ref));
         }
-
         // Pending ops: the Service `intent` / `conn` / `owner_activity`
         // references and the Activity Push `intent_ref` must survive until
         // [`take_next_pending_op`] runs the op.
         self.pending_ops
             .visit_object_refs(&mut |r| visit(Value::ObjectRef(r)));
+    }
+}
+
+impl NativeMethodHandler for PicodroidNativeHandler {
+    fn clock_nanos(&self) -> u64 {
+        crate::hal::system_clock::elapsed_realtime_nanos() as u64
+    }
+
+    fn native_class_names(&self) -> &'static [&'static str] {
+        PICODROID_NATIVE_CLASSES
+    }
+
+    fn gc_visit_roots(&self, visit: &mut dyn FnMut(Value)) {
+        // This handler's own stacks/ops — valid even if its executor never
+        // created a HandlerRootGuard.
+        self.visit_own_roots(visit);
+
+        // Every OTHER live handler's stacks/ops. Without this, a GC in a
+        // child executor rooted only the child's (empty) Activity stack and
+        // swept the UI's Activities whenever the main task was between
+        // executes (see HANDLER_ROOTS docs).
+        for &hp in handler_registry().iter() {
+            if core::ptr::eq(hp, self) {
+                continue;
+            }
+            // SAFETY: scheduling contract per HANDLER_ROOTS — the owning
+            // executor is parked while this collector runs.
+            let h = unsafe { &*hp };
+            h.visit_own_roots(visit);
+        }
 
         // Everything else — native listener maps holding Views the Java heap
         // does not reference, plus the modules that own their own object refs

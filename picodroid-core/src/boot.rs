@@ -239,10 +239,16 @@ pub fn run_app(apk_data: &[u8]) {
     ));
     let heap = shared_heap();
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
+    // Root this handler's Activity stack / pending ops for GCs run by OTHER
+    // executors (network children, bg workers) — see HANDLER_ROOTS.
+    let _handler_roots = crate::native_handler::HandlerRootGuard::new(&handler);
     // Runtime heap-diagnostic flags (PICODROID_MEMDIAG_HISTO / _OFFENSIVE) —
     // applied before any class loads so the whole run is covered.
     #[cfg(all(feature = "sim", feature = "mem-diag"))]
     crate::mem_diag::apply_heap_flags(heap);
+    // Device: offensive checks are baked at build time (no runtime env).
+    #[cfg(all(not(feature = "sim"), feature = "mem-diag"))]
+    crate::mem_diag::apply_device_flags();
     host::heap_checkpoint("post-jvm-new");
 
     // Register the combined loader so Thread.start() spawned tasks load both
