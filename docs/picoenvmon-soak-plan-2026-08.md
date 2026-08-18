@@ -1,5 +1,13 @@
 # picoenvmon Long-Soak Plan — catch crashes & regressions (2026-08)
 
+> **2026-08-17: partially superseded.** The P0/P1 this plan hunted is fixed
+> (`0c1326d`; investigation in `picoenvmon-qa.md`). For the re-run of the
+> soak and the PEM-3 retune use `picoenvmon-soak-handover-2026-08.md` —
+> note in particular that `PICODROID_MEMDIAG_OFFENSIVE` did NOT arm on
+> device when this plan was written (it silently did nothing; it bakes in
+> at build time now). §4's signal table and §5's expected-noise list remain
+> valid and are referenced by the new runbook.
+
 A runbook for an agent session whose job is to soak picoenvmon on the
 **`pico_enviro_mon_w`** device (Enviro+ Pack on Pico 2 W) for hours, reproduce
 the open P0 panic, and validate heap stability. Read together with

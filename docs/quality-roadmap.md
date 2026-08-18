@@ -7,6 +7,13 @@ within each theme. Already landed (for context): the hil-tests.conf drift guard
 all-examples compile + per-push sim smoke, runtime APK loading in sim, and the native-class
 registry cross-check (`every_native_class_is_registered`).
 
+**2026-08-17 — post GC-race follow-up backlog:** the picoenvmon corruption family is fixed
+(`0c1326d`, see `picoenvmon-qa.md`); the open items it left behind — sim thread-parallelism
+audit, `sb_buf` cross-thread aliasing, memmon's child-GC blind spot, serve-loop latency,
+per-child class-metadata sharing, GC-pacing measurements, and two sensor-hardware tickets —
+are recorded in detail in **`followups-2026-08.md`**. The re-run of the long soak plus the
+PEM-3 prereserve retune has its own runbook: `picoenvmon-soak-handover-2026-08.md`.
+
 ## Regression automation
 
 ### Handle sanitizer + GC-stress variant in the nightly sim run

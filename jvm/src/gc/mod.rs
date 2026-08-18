@@ -71,13 +71,17 @@ pub struct GcState {
     /// locals get swept (first hit: the picoenvmon network thread's
     /// HttpServer, collected while the thread was parked in accept).
     ///
-    /// Raw pointers, walked unsafely in [`collect`]: sound under the
-    /// platform's scheduling contract (single core, `configUSE_TIME_SLICING
-    /// = 0` — parked tasks cannot resume while the collector's task runs,
-    /// and registration/deregistration happen in the owning task's slice).
-    /// Entries can include the collector's own stack; re-visiting is
-    /// harmless (marking is idempotent). A panic mid-`execute` leaks its
-    /// entry — acceptable: panics are fatal on target.
+    /// Raw pointers, walked unsafely in [`collect`]: sound because the
+    /// whole collection runs inside an [`crate::atomic_section`] guard
+    /// (scheduler suspension) — parked tasks cannot resume while the
+    /// collector runs, and registration/deregistration happen in the
+    /// owning task's slice. (The former justification — single core plus
+    /// `configUSE_TIME_SLICING = 0` — was insufficient: the SMP kernel's
+    /// equal-priority wake yield preempted mid-collection; see the
+    /// atomic_section module docs.) Entries can include the collector's
+    /// own stack; re-visiting is harmless (marking is idempotent). A panic
+    /// mid-`execute` leaks its entry — acceptable: panics are fatal on
+    /// target.
     parked_frames: Vec<*const Vec<Frame>>,
     /// Allocations since the last GC, persistent across `execute()` calls so
     /// long native-driven callback bursts (e.g. sensor delivery) still trip

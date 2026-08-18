@@ -27,7 +27,7 @@ Runtime toggles within a `--mem-diag` sim build (all read once at startup):
 | `PICODROID_MEMDIAG_WINDOW_MS` | `1000` | Monitor window length (min 16 ms; keep ≥ 500 ms) |
 | `PICODROID_MEMDIAG_SENTINEL` | `1` (set by `--mem-diag`) | Growth sentinel on/off |
 | `PICODROID_MEMDIAG_STRICT` | off | Sentinel trip → `abort()` (turns soaks into hard failures; sim only — the device only warns) |
-| `PICODROID_MEMDIAG_OFFENSIVE` | off | Poison-on-free + GC poison check + post-GC integrity sweep + allocator canaries (sim only) |
+| `PICODROID_MEMDIAG_OFFENSIVE` | off | Poison-on-free + GC poison check + post-GC integrity sweep + span/overlap invariants + root audit; sim reads it at runtime, the device bakes it at BUILD time (`mem_diag::apply_device_flags` since `0c1326d` — before that it was silently sim-only; boot must print `memmon: offensive checks ON (build-baked)`). Allocator canaries remain sim-only |
 | `PICODROID_MEMDIAG_HISTO` | off | Per-class allocation histogram (sim only) |
 | `PICODROID_MEMDIAG_SELFTEST` | off | Feed the sentinel a synthetic +2 KB/window ramp — must print `LEAK?` (detector self-test; sim only) |
 
@@ -41,7 +41,7 @@ containing that line is a diag build.
 One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 `memmon: ...`):
 
-```
+```text
 [memmon] w=12 live=2331 obj=2216 arr=0 str=115 floor=2331 nused=126856 nfree=299128 nmin=296664 lblk=295840 gc=+0 freed=+0 alloc=+14 nalloc=+0 stri=+9 frag=11pm
 ```
 
