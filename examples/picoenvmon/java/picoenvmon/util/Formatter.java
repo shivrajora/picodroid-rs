@@ -18,12 +18,24 @@ public class Formatter {
   }
 
   public String formatTemp(float celsius) {
+    return centiToString(tempCenti(celsius)) + (fahrenheit ? "F" : "C");
+  }
+
+  /**
+   * Temperature in centi-units of the active scale — the allocation-free twin of {@link
+   * #formatTemp} for byte-path renderers (the HTTP dashboard).
+   */
+  public int tempCenti(float celsius) {
     if (fahrenheit) {
       int milliF = (int) (celsius * 1.8f * 1000) + 32_000;
-      return centiToString(milliF / 10) + "F";
+      return milliF / 10;
     }
-    int centi = (int) (celsius * 100);
-    return centiToString(centi) + "C";
+    return (int) (celsius * 100);
+  }
+
+  /** Value → fixed-point centi units (12.34 → 1234), for byte-path renderers. */
+  public static int centi(float v) {
+    return (int) (v * 100);
   }
 
   public String formatHumidity(float pct) {

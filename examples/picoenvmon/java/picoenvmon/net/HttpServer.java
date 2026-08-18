@@ -40,6 +40,35 @@ public class HttpServer {
           .getBytes();
   private static final byte[] PAGE_TAIL = "</body></html>".getBytes();
 
+  // Dynamic-middle framing, also cached as bytes: the middle is written
+  // straight into pageBuf with the append helpers below, so the serve path
+  // allocates nothing at all — every dynamic-string intern here was re-paid
+  // per request forever, and that churn is what pinned the board's
+  // gc_alloc_threshold at 64 (docs/mem-session-2026-08.md, C2).
+  private static final byte[] ROW_OPEN = "<tr><td class=\"s\">".getBytes();
+  private static final byte[] ROW_MID = "</td><td>".getBytes();
+  private static final byte[] ROW_CLOSE = "</td></tr>".getBytes();
+  private static final byte[] LABEL_TEMP = "Temperature".getBytes();
+  private static final byte[] LABEL_HUM = "Humidity".getBytes();
+  private static final byte[] LABEL_PRES = "Pressure".getBytes();
+  private static final byte[] LABEL_AIR = "Air quality".getBytes();
+  private static final byte[] LABEL_LIGHT = "Light".getBytes();
+  private static final byte[] LABEL_OUTDOOR = ("Outdoor (" + WeatherFetcher.CITY + ")").getBytes();
+  private static final byte[] DASHES = "--".getBytes();
+  private static final byte[] UNAVAILABLE = "unavailable".getBytes();
+  private static final byte[] UNIT_C = "C".getBytes();
+  private static final byte[] UNIT_F = "F".getBytes();
+  private static final byte[] UNIT_PCT = " %".getBytes();
+  private static final byte[] UNIT_HPA = " hPa".getBytes();
+  private static final byte[] UNIT_LX = " lx".getBytes();
+  private static final byte[] UNIT_IAQ = " IAQ".getBytes();
+  private static final byte[] FOOT_OPEN = "</table><p class=\"s\">".getBytes();
+  private static final byte[] FOOT_CLOSE = "</p>".getBytes();
+  private static final byte[] TIME_UNSYNCED = "time not synced - ".getBytes();
+  private static final byte[] UTC_SEP = " UTC - ".getBytes();
+  private static final byte[] IP_PREFIX = "IP ".getBytes();
+  private static final byte[] UP_PREFIX = " - up ".getBytes();
+
   // HTTP/1.0 + Connection: close means body length = EOF — no Content-Length,
   // so the response heads are constants too. Per-request garbage matters: the
   // GC threshold counts ALLOCATIONS, and a server allocating few-but-large
@@ -200,14 +229,110 @@ public class HttpServer {
     }
   }
 
-  /** Assemble the page into {@link #pageBuf}; returns its length. */
+  /** Assemble the page into {@link #pageBuf}; returns its length. Allocation-free. */
   private int buildPage() {
-    byte[] mid = buildMid();
+    LatestReadings latest = app.latestReadings();
+    Formatter f = app.formatter();
     int len = 0;
     len = appendClamped(pageBuf, len, PAGE_HEAD);
-    len = appendClamped(pageBuf, len, mid);
+
+    len = rowStart(len, LABEL_TEMP);
+    if (latest.isValid(LatestReadings.IDX_TEMPERATURE)) {
+      len = appendCenti(pageBuf, len, f.tempCenti(latest.get(LatestReadings.IDX_TEMPERATURE)));
+      len = appendClamped(pageBuf, len, f.isFahrenheit() ? UNIT_F : UNIT_C);
+    } else {
+      len = appendClamped(pageBuf, len, DASHES);
+    }
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = rowStart(len, LABEL_HUM);
+    if (latest.isValid(LatestReadings.IDX_HUMIDITY)) {
+      len = appendCenti(pageBuf, len, Formatter.centi(latest.get(LatestReadings.IDX_HUMIDITY)));
+      len = appendClamped(pageBuf, len, UNIT_PCT);
+    } else {
+      len = appendClamped(pageBuf, len, DASHES);
+    }
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = rowStart(len, LABEL_PRES);
+    if (latest.isValid(LatestReadings.IDX_PRESSURE)) {
+      len = appendCenti(pageBuf, len, Formatter.centi(latest.get(LatestReadings.IDX_PRESSURE)));
+      len = appendClamped(pageBuf, len, UNIT_HPA);
+    } else {
+      len = appendClamped(pageBuf, len, DASHES);
+    }
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = rowStart(len, LABEL_AIR);
+    float gas = latest.isValid(LatestReadings.IDX_GAS) ? latest.get(LatestReadings.IDX_GAS) : 0f;
+    if (gas > 0f) {
+      len = appendInt(pageBuf, len, Formatter.iaqFromGas(gas));
+      len = appendClamped(pageBuf, len, UNIT_IAQ);
+    } else {
+      len = appendClamped(pageBuf, len, DASHES);
+    }
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = rowStart(len, LABEL_LIGHT);
+    if (latest.isValid(LatestReadings.IDX_LIGHT)) {
+      len = appendInt(pageBuf, len, (int) latest.get(LatestReadings.IDX_LIGHT));
+      len = appendClamped(pageBuf, len, UNIT_LX);
+    } else {
+      len = appendClamped(pageBuf, len, DASHES);
+    }
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = rowStart(len, LABEL_OUTDOOR);
+    byte[] w = net.weatherBytes();
+    len = appendClamped(pageBuf, len, w != null ? w : UNAVAILABLE);
+    len = appendClamped(pageBuf, len, ROW_CLOSE);
+
+    len = appendFooter(len);
     len = appendClamped(pageBuf, len, PAGE_TAIL);
     return len;
+  }
+
+  /** "HH:MM:SS UTC - IP a.b.c.d - up 3h 12m 45s" — TimeFormat.hms's math, byte-path. */
+  private int appendFooter(int off) {
+    off = appendClamped(pageBuf, off, FOOT_OPEN);
+    if (net.isTimeSynced()) {
+      long adjusted =
+          System.currentTimeMillis() + picoenvmon.util.TimeFormat.UTC_OFFSET_MINUTES * 60_000L;
+      long daySec = (adjusted / 1000L) % 86_400L;
+      if (daySec < 0) {
+        daySec += 86_400L;
+      }
+      off = append2(pageBuf, off, (int) (daySec / 3600));
+      off = appendByte(pageBuf, off, (byte) ':');
+      off = append2(pageBuf, off, (int) ((daySec % 3600) / 60));
+      off = appendByte(pageBuf, off, (byte) ':');
+      off = append2(pageBuf, off, (int) (daySec % 60));
+      off = appendClamped(pageBuf, off, UTC_SEP);
+    } else {
+      off = appendClamped(pageBuf, off, TIME_UNSYNCED);
+    }
+    off = appendClamped(pageBuf, off, IP_PREFIX);
+    byte[] ip = net.ipBytes();
+    if (ip != null) {
+      off = appendClamped(pageBuf, off, ip);
+    }
+    off = appendClamped(pageBuf, off, UP_PREFIX);
+    long s = SystemClock.elapsedRealtimeNanos() / 1_000_000_000L;
+    off = appendInt(pageBuf, off, (int) (s / 3600));
+    off = appendByte(pageBuf, off, (byte) 'h');
+    off = appendByte(pageBuf, off, (byte) ' ');
+    off = appendInt(pageBuf, off, (int) ((s % 3600) / 60));
+    off = appendByte(pageBuf, off, (byte) 'm');
+    off = appendByte(pageBuf, off, (byte) ' ');
+    off = appendInt(pageBuf, off, (int) (s % 60));
+    off = appendByte(pageBuf, off, (byte) 's');
+    return appendClamped(pageBuf, off, FOOT_CLOSE);
+  }
+
+  private int rowStart(int off, byte[] label) {
+    off = appendClamped(pageBuf, off, ROW_OPEN);
+    off = appendClamped(pageBuf, off, label);
+    return appendClamped(pageBuf, off, ROW_MID);
   }
 
   private static int appendClamped(byte[] dst, int off, byte[] src) {
@@ -216,59 +341,45 @@ public class HttpServer {
     return off + n;
   }
 
-  private byte[] buildMid() {
-    LatestReadings latest = app.latestReadings();
-    Formatter f = app.formatter();
-    StringBuilder sb = new StringBuilder();
-    row(
-        sb,
-        "Temperature",
-        latest.isValid(LatestReadings.IDX_TEMPERATURE)
-            ? f.formatTemp(latest.get(LatestReadings.IDX_TEMPERATURE))
-            : "--");
-    row(
-        sb,
-        "Humidity",
-        latest.isValid(LatestReadings.IDX_HUMIDITY)
-            ? f.formatHumidity(latest.get(LatestReadings.IDX_HUMIDITY))
-            : "--");
-    row(
-        sb,
-        "Pressure",
-        latest.isValid(LatestReadings.IDX_PRESSURE)
-            ? f.formatPressure(latest.get(LatestReadings.IDX_PRESSURE))
-            : "--");
-    row(
-        sb,
-        "Air quality",
-        latest.isValid(LatestReadings.IDX_GAS)
-            ? f.formatGasIaq(latest.get(LatestReadings.IDX_GAS))
-            : "--");
-    row(
-        sb,
-        "Light",
-        latest.isValid(LatestReadings.IDX_LIGHT)
-            ? f.formatLux(latest.get(LatestReadings.IDX_LIGHT))
-            : "--");
-    String w = net.weather();
-    row(sb, "Outdoor (" + WeatherFetcher.CITY + ")", w != null ? w : "unavailable");
-    sb.append("</table><p class=\"s\">");
-    sb.append(net.statusFooter());
-    sb.append("</p>");
-    return sb.toString().getBytes();
+  private static int appendByte(byte[] dst, int off, byte b) {
+    if (off < dst.length) {
+      dst[off] = b;
+      return off + 1;
+    }
+    return off;
   }
 
-  private static void row(StringBuilder sb, String label, String value) {
-    sb.append("<tr><td class=\"s\">");
-    sb.append(label);
-    sb.append("</td><td>");
-    sb.append(value);
-    sb.append("</td></tr>");
+  /** Decimal int → ASCII digits, clamped like {@link #appendClamped}. */
+  private static int appendInt(byte[] dst, int off, int v) {
+    if (v < 0) {
+      off = appendByte(dst, off, (byte) '-');
+    }
+    long abs = v < 0 ? -(long) v : v;
+    long div = 1;
+    while (abs / div >= 10) {
+      div *= 10;
+    }
+    while (div > 0) {
+      off = appendByte(dst, off, (byte) ('0' + (int) (abs / div % 10)));
+      div /= 10;
+    }
+    return off;
   }
 
-  /** "3h 12m 45s" from the monotonic clock. */
-  static String uptime() {
-    long s = SystemClock.elapsedRealtimeNanos() / 1_000_000_000L;
-    return (s / 3600) + "h " + ((s % 3600) / 60) + "m " + (s % 60) + "s";
+  /** 1234 → "12.34" — the byte-path twin of Formatter's two-decimal formatting. */
+  private static int appendCenti(byte[] dst, int off, int centi) {
+    if (centi < 0) {
+      off = appendByte(dst, off, (byte) '-');
+      centi = -centi;
+    }
+    off = appendInt(dst, off, centi / 100);
+    off = appendByte(dst, off, (byte) '.');
+    return append2(dst, off, centi % 100);
+  }
+
+  /** Two-digit zero-padded. */
+  private static int append2(byte[] dst, int off, int v) {
+    off = appendByte(dst, off, (byte) ('0' + (v / 10) % 10));
+    return appendByte(dst, off, (byte) ('0' + v % 10));
   }
 }

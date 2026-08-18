@@ -59,8 +59,10 @@ public class NetworkManager implements Runnable {
 
   private int state = STATE_NO_WIFI;
   private String ipDotted;
+  private byte[] ipBytes;
   private String url;
   private String weather;
+  private byte[] weatherBytes;
   private boolean started;
   private boolean timeSynced;
 
@@ -106,6 +108,19 @@ public class NetworkManager implements Runnable {
   /** Latest weather one-liner, or null (unavailable / not fetched yet). */
   public String weather() {
     return weather;
+  }
+
+  /**
+   * Weather bytes, cached once per 15-min refresh — the serve path must not re-encode the string on
+   * every request (its page write is allocation-free).
+   */
+  byte[] weatherBytes() {
+    return weatherBytes;
+  }
+
+  /** Dotted-quad IP as bytes, cached at net-up. Null before {@link #STATE_UP}. */
+  byte[] ipBytes() {
+    return ipBytes;
   }
 
   /** Ask the housekeeping tick to re-run NTP and weather now. */
@@ -174,6 +189,7 @@ public class NetworkManager implements Runnable {
       waited += pollMs;
     }
     ipDotted = new InetAddress(NetworkInfo.getIpAddress()).getHostAddress();
+    ipBytes = ipDotted.getBytes();
     url = "http://" + ipDotted + ":" + HTTP_PORT + "/";
     state = STATE_UP;
     Log.i(TAG, "net: up, ip=" + ipDotted);
@@ -215,6 +231,7 @@ public class NetworkManager implements Runnable {
       String w = WeatherFetcher.fetch();
       boolean changed = (w == null) != (weather == null) || (w != null && !w.equals(weather));
       weather = w;
+      weatherBytes = w != null ? w.getBytes() : null;
       if (changed) {
         notifyChanged();
       }
@@ -223,11 +240,4 @@ public class NetworkManager implements Runnable {
   }
 
   /** Dashboard footer: clock + address + uptime. */
-  String statusFooter() {
-    String time =
-        timeSynced
-            ? picoenvmon.util.TimeFormat.hms(System.currentTimeMillis()) + " UTC - "
-            : "time not synced - ";
-    return time + "IP " + ipDotted + " - up " + HttpServer.uptime();
-  }
 }
