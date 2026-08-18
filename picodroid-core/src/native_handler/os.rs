@@ -75,20 +75,22 @@ pub fn dispatch(
                     crate::rtos::spawn(
                         &spec,
                         alloc::boxed::Box::new(move || {
-                            let mut jvm = pico_jvm::Jvm::new();
-                            // Don't unwrap: a class-load failure inside a child
-                            // task would `bkpt`-halt the whole MCU under
-                            // panic-probe and freeze USB CDC, leaving pdb unable
-                            // to PING the device. Log and bail instead so
+                            // Shared class set (boot::SHARED_JVM): children
+                            // read the set `run_app` published instead of
+                            // building a private `Jvm` + re-running
+                            // `load_classes` — that duplicate cost ≈14 KB of
+                            // parsed metadata per thread, permanently
+                            // (docs/mem-session-2026-08.md). Don't panic on
+                            // absence: a `bkpt`-halt here would freeze USB
+                            // CDC and lock pdb out. Log and bail instead so
                             // jvm_task and PDB stay alive.
-                            if let Err(e) = crate::boot::load_classes(&mut jvm) {
+                            let Some(jvm) = crate::boot::shared_jvm() else {
                                 crate::pd_error!(
-                                    "Thread.start: child-task class load failed for {}: {}",
-                                    class_name,
-                                    defmt::Display2Format(&e)
+                                    "Thread.start: no shared class set for {}",
+                                    class_name
                                 );
                                 return;
-                            }
+                            };
                             let heap = crate::boot::shared_heap();
                             let mut handler = super::PicodroidNativeHandler::new();
                             // Cross-executor GC root visibility; drops with

@@ -10,7 +10,6 @@
 //! per-subsystem state reset before either. It is moved verbatim for that
 //! reason; see the comments at each step.
 
-use alloc::boxed::Box;
 use papk_format::Papk;
 use pico_jvm::types::JvmError;
 use pico_jvm::{Jvm, SharedJvmHeap};
@@ -55,6 +54,46 @@ static SHARED_HEAP: SharedHeapCell =
 /// mid-alloc at a cooperative yield point (sleep / UART read).
 pub fn shared_heap() -> &'static mut SharedJvmHeap {
     unsafe { &mut *SHARED_HEAP.0.get() }
+}
+
+// ── Shared class set ─────────────────────────────────────────────────────────
+//
+// All executors share one `Jvm` (the loaded-class set). `Thread.start`
+// children and bg-pool workers used to build a private `Jvm` and re-run
+// `load_classes` — a permanent per-thread duplicate of every parsed class's
+// metadata (measured ≈14 KB device-estimate for picoenvmon's one network
+// thread; docs/mem-session-2026-08.md). The set is append-only while
+// `run_app` loads it and read-only during execution (`Jvm::invoke_*` take
+// `&self`); the lazy `ClassFile` parse is interior-mutable but contains no
+// yield point, so under the single-JVM-task contract above a parked task is
+// never observed mid-parse.
+
+// SAFETY: same single-JVM-task invariant as SHARED_HEAP; additionally,
+// `run_app` publishes only after every class is registered, and children
+// cannot exist before Java code runs.
+struct SharedJvmCell(core::cell::UnsafeCell<Option<Jvm>>);
+unsafe impl Sync for SharedJvmCell {}
+
+static SHARED_JVM: SharedJvmCell = SharedJvmCell(core::cell::UnsafeCell::new(None));
+
+/// The process-wide shared class set, or `None` before [`run_app`] publishes
+/// it. Child executors invoke through this (`&'static Jvm` — `invoke_*`
+/// take `&self`); the main task holds the `&mut` side via [`run_app`]'s
+/// local. A re-entered `run_app` (PDB app reload) replaces the set — sound
+/// because children terminate before the previous app is torn down (the
+/// pre-existing `shared_heap().reset()` contract).
+pub fn shared_jvm() -> Option<&'static Jvm> {
+    unsafe { (*SHARED_JVM.0.get()).as_ref() }
+}
+
+/// Move the fully-loaded class set into [`SHARED_JVM`] and hand the caller
+/// the main task's exclusive reference to it.
+fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
+    unsafe {
+        let slot = &mut *SHARED_JVM.0.get();
+        *slot = Some(jvm);
+        slot.as_mut().unwrap_unchecked()
+    }
 }
 
 // ── Class loader registration ────────────────────────────────────────────────
@@ -234,9 +273,7 @@ pub fn run_app(apk_data: &[u8]) {
         }
     };
     let apk_class_count = apk_for_count.classes().map(|it| it.count()).unwrap_or(0);
-    let mut jvm = Box::new(Jvm::with_capacity(
-        FRAMEWORK_CLASSES.len() + apk_class_count,
-    ));
+    let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASSES.len() + apk_class_count);
     let heap = shared_heap();
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
     // Root this handler's Activity stack / pending ops for GCs run by OTHER
@@ -260,6 +297,10 @@ pub fn run_app(apk_data: &[u8]) {
     host::heap_checkpoint("post-framework-load");
     load_classes_from_apk(&mut jvm).unwrap();
     host::heap_checkpoint("post-app-load");
+
+    // Publish the loaded set for child executors; `jvm` is the main task's
+    // exclusive handle from here on.
+    let jvm: &'static mut Jvm = publish_jvm(jvm);
 
     // Determine the entry point from the APK manifest. The pre-sizing parse
     // above already returned on error, so a second failure here is a
@@ -312,7 +353,7 @@ pub fn run_app(apk_data: &[u8]) {
         // store it in the object heap.
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(application_class) };
-        crate::lifecycle::run_application(&mut jvm, static_name, heap, &mut handler);
+        crate::lifecycle::run_application(jvm, static_name, heap, &mut handler);
     } else if let Some(activity_class) = apk.activity() {
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
@@ -320,7 +361,7 @@ pub fn run_app(apk_data: &[u8]) {
             .objects
             .alloc(static_name)
             .expect("OOM allocating Activity");
-        crate::lifecycle::run_activity(&mut jvm, static_name, obj_ref, None, heap, &mut handler);
+        crate::lifecycle::run_activity(jvm, static_name, obj_ref, None, heap, &mut handler);
     } else {
         let main_class = apk
             .main_class()
@@ -368,7 +409,7 @@ pub fn run_app(apk_data: &[u8]) {
         // runs with no tick loop) one [memmon] line, and Activity soaks a
         // closing figure to grep.
         #[cfg(feature = "mem-diag")]
-        crate::mem_diag::snapshot(&jvm, heap, &handler);
+        crate::mem_diag::snapshot(jvm, heap, &handler);
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
         let (parsed, total) = jvm.count_parsed();
         println!(

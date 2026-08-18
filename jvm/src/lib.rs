@@ -218,11 +218,17 @@ impl Default for SharedJvmHeap {
 /// A Java bytecode interpreter.
 ///
 /// `Jvm` holds the set of loaded [`ClassFile`]s and executes bytecode against
-/// a caller-supplied [`SharedJvmHeap`].  Create one `Jvm` per execution
-/// context (e.g. per thread), load the required classes with
+/// a caller-supplied [`SharedJvmHeap`].  Load the required classes with
 /// [`load_class`](Jvm::load_class), then drive execution with
 /// [`invoke_static`](Jvm::invoke_static) or
 /// [`invoke_instance`](Jvm::invoke_instance).
+///
+/// The `invoke_*` family takes `&self` — the class set is read-only during
+/// execution — so multiple execution contexts (threads) can share one loaded
+/// `Jvm` rather than each paying for a private parsed-metadata copy
+/// (measured ≈14 KB per child for a ~160-class app). The lazy
+/// [`ClassFile`] parse is interior-mutable; sharing across cooperative
+/// tasks is sound because `Parsed::parse` contains no yield point.
 pub struct Jvm {
     classes: Vec<ClassFile>,
 }
@@ -335,7 +341,7 @@ impl Jvm {
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
     pub fn invoke_static(
-        &mut self,
+        &self,
         class_name: &str,
         method_name: &str,
         heap: &mut SharedJvmHeap,
@@ -370,7 +376,7 @@ impl Jvm {
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
     pub fn invoke_static_with_args(
-        &mut self,
+        &self,
         class_name: &str,
         method_name: &str,
         args: &[Value],
@@ -404,7 +410,7 @@ impl Jvm {
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
     pub fn invoke_instance(
-        &mut self,
+        &self,
         class_name: &str,
         method_name: &str,
         obj_ref: u16,
@@ -430,7 +436,7 @@ impl Jvm {
 
     /// Invoke an instance method with explicit arguments (beyond `this`).
     pub fn invoke_instance_with_args(
-        &mut self,
+        &self,
         class_name: &str,
         method_name: &str,
         obj_ref: u16,
@@ -465,7 +471,7 @@ impl Jvm {
     /// Kept as a separate function so existing `let _ = invoke_*` call
     /// sites don't need to change signature.
     pub fn invoke_instance_with_args_returning(
-        &mut self,
+        &self,
         class_name: &str,
         method_name: &str,
         obj_ref: u16,

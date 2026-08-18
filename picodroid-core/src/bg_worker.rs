@@ -12,11 +12,10 @@
 //! ~38 KB across 23 symbols, which overflowed the RP2040 flash ceiling.
 //! One JVM-driving crate means one instantiation.
 //!
-//! The split is deliberately "install a loop", not "install a per-item
-//! callback": each worker builds its `Jvm` once and reuses it for every
-//! subsequent Runnable. A per-item callback would have rebuilt and reloaded
-//! classes on each dispatch, which is the same code but roughly two orders
-//! of magnitude slower.
+//! Workers execute against the shared class set (`boot::shared_jvm`) —
+//! historically each worker built a private `Jvm` and reloaded every class
+//! (a permanent per-worker duplicate of the parsed metadata; see
+//! docs/mem-session-2026-08.md for the measured cost).
 
 use crate::executors::background_pool;
 
@@ -27,11 +26,6 @@ pub fn install() {
 }
 
 fn worker_body(worker_id: u32) {
-    // `Jvm` construction is deferred until the first work item so that
-    // `boot::register_class_loader` (called from `run_app`) is
-    // guaranteed to have run: no Runnable can reach the queue before Java
-    // code runs, and only Java code submits work.
-    let mut jvm: Option<pico_jvm::Jvm> = None;
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
     // Cross-executor GC root visibility for this worker's pending state.
     let _handler_roots = crate::native_handler::HandlerRootGuard::new(&handler);
@@ -42,19 +36,15 @@ fn worker_body(worker_id: u32) {
             continue;
         };
 
-        if jvm.is_none() {
-            let mut j = pico_jvm::Jvm::new();
-            if let Err(e) = crate::boot::load_classes(&mut j) {
-                crate::pd_error!(
-                    "background_pool[{}]: class load failed: {}",
-                    worker_id,
-                    defmt::Display2Format(&e)
-                );
-                continue;
-            }
-            jvm = Some(j);
-        }
-        let j = jvm.as_mut().unwrap();
+        // Published by `run_app` before any Java code runs, and only Java
+        // code submits work — so a miss means a torn-down app, not a race.
+        let Some(j) = crate::boot::shared_jvm() else {
+            crate::pd_error!(
+                "background_pool[{}]: no shared class set — dropping work item",
+                worker_id
+            );
+            continue;
+        };
         let heap = crate::boot::shared_heap();
 
         // Route through the `Executors.dispatchRunnable` bytecode bridge
