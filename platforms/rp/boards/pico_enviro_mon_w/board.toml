@@ -46,11 +46,18 @@ net_tcp_win_segs = 8
 # pending_op_queue     = 8     # 1..=64.   Max queued startActivity/startService ops per frame.
 
 [jvm]
-# The dashboard server allocates few-but-large objects (page bodies, log
-# lines) at ~1 Hz forever; the default 256-alloc GC threshold lets KB-scale
-# garbage pile up (and fragment) long before it trips. 64 keeps the garbage
-# window to a few requests. (Found via OOM under `sim.sh -l 360` load.)
-gc_alloc_threshold = 64
+# Raised 64 → 128 (2026-08-17). The 64 (2026-08-16) guarded against the
+# dashboard's few-but-large per-request garbage outrunning the count-based
+# threshold byte-wise — but it cost +39 % perfbench composite / 4× GC count
+# on EVERY workload. The serve path is now allocation-free (page written
+# straight into pageBuf, weather/IP cached as bytes;
+# docs/mem-session-2026-08.md C2), which removes that driver. Measured
+# three-way under the `sim.sh -l 360` + 100-curl + nav gate (same code):
+# min-ever-free 10.9 / 9.9 / 7.6 KB at 64 / 128 / 256, all OOM-free — the
+# nav dip is Activity/LVGL/TCP transients, not paced-GC garbage. 128 buys
+# half of 64's GC frequency for ~1 KB of worst-case headroom; 256's extra
+# 2.2 KB dip is not worth the remaining margin.
+gc_alloc_threshold = 128
 
 # Boot-time heap pre-reservation (PEM-3): claim picoenvmon's steady-state
 # JVM storage while the heap is young so it can't land mid-heap during
