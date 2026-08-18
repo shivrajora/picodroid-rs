@@ -473,3 +473,25 @@ consider an edit-mode key log to make even that native consumption
 observable; audit the sim's Thread.start parallelism for the same race
 class (host threads have real parallelism and no atomic-section hooks);
 sb_buf cross-thread aliasing (handover §7) remains its own item.
+
+**Measured atomic-section cost (on-device benchmark app,
+`pico_enviro_mon_w` release, deterministic per-binary to the ms):**
+
+| Build | TOTAL |
+|---|---|
+| A: hooks live (kernel suspend/resume) | 176,738 ms |
+| B: hooks not installed (guards no-op) | 186,166 ms |
+| C: hooks installed, empty bodies | 175,311 ms |
+
+A vs C isolates the actual `vTaskSuspendAll`/`xTaskResumeAll` pairs with
+near-identical binary layout: **+1,427 ms = 0.81%** on the
+interpreter-intensive benchmark. The A-vs-B spread (B is *slower* despite
+executing less) shows XIP/icache layout effects swing ±5% between
+differently-shaped binaries — the guard cost is well under the layout
+noise floor. Real workloads (UI churn, serve loop) execute far fewer
+guarded ops per second than the benchmark, so their cost is lower still.
+Latency note: the GC now runs under scheduler suspension, so core-0
+context switches (pdb, fs worker, IP-task wakeups) defer for the GC's
+duration (~ms) — same order as the pause JVM tasks already saw; core 1's
+running task keeps executing. Sim numbers unaffected (no hooks: 807 ms vs
+~820 ms baseline, noise).
