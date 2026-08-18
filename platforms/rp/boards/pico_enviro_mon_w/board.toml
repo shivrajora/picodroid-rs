@@ -61,16 +61,20 @@ gc_alloc_threshold = 128
 
 # Boot-time heap pre-reservation (PEM-3): claim picoenvmon's steady-state
 # JVM storage while the heap is young so it can't land mid-heap during
-# Activity churn and fragment the free space. Sized from the on-device
-# `memmon: storage` steady state under a full navigation soak (obj=4 arr=2
-# str=6 chunks, fields=2304, arena=2048 values) plus one growth step of
-# margin each. Values carried over from pico_enviro_mon; re-derive after the
-# networking heap soak (the network thread's interpreter state shifts them).
+# Activity churn and fragment the free space. Re-derived 2026-08-17 from the
+# sim `memmon: storage` steady state (nav cycle + serving, network thread
+# up) after packed byte[] moved byte payloads out of the i32 arena: i32
+# arena demand fell to ~920 slots (was sized 3072 with byte[] at 4 B/elem),
+# so arena_values halves and the new arena8 arena gets its own claim
+# (observed demand 2,777 B). obj/str/fields never grew past the prior
+# sizing — kept. Margins stay generous: this claim is anti-fragmentation
+# insurance, not a budget cap.
 prereserve_obj_chunks    = 5
 prereserve_arr_chunks    = 3
 prereserve_str_chunks    = 8
 prereserve_fields_values = 2560
-prereserve_arena_values  = 3072
+prereserve_arena_values  = 1536
+prereserve_arena8_bytes  = 3072
 
 [display]
 driver = "st7789"
