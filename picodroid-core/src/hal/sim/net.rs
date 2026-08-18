@@ -54,7 +54,13 @@ const fn bad_handle() -> NetError {
 /// native accept deadline (unlike read timeouts on streams), so
 /// [`tcp_accept`] emulates one with a nonblocking poll loop.
 enum SimSocket {
-    TcpClient(Option<TcpStream>),
+    /// The client's second field is a receive timeout configured *before*
+    /// connect. The device stores `FREERTOS_SO_RCVTIMEO` in the socket, where
+    /// it bounds `FreeRTOS_connect` and then stays on as the receive timeout;
+    /// std splits that one value across `connect_timeout` +
+    /// `set_read_timeout`, so the pre-connect setting is stashed here until
+    /// [`tcp_connect`] applies it to both.
+    TcpClient(Option<TcpStream>, Option<Duration>),
     TcpListener(TcpListener, Option<Duration>),
     Udp(UdpSocket),
 }
@@ -97,15 +103,27 @@ fn retry_eintr<T>(mut f: impl FnMut() -> std::io::Result<T>) -> Result<T, NetErr
 // ── TCP ──────────────────────────────────────────────────────────────────────
 
 pub fn tcp_socket() -> Result<*mut c_void, NetError> {
-    Ok(box_socket(SimSocket::TcpClient(None)))
+    Ok(box_socket(SimSocket::TcpClient(None, None)))
 }
 
 pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(ref mut opt) => {
-            let ip = u32_to_ipv4(addr);
-            let stream = retry_eintr(|| TcpStream::connect(SocketAddrV4::new(ip, port)))?;
+        SimSocket::TcpClient(ref mut opt, ref pending) => {
+            let sa = SocketAddrV4::new(u32_to_ipv4(addr), port);
+            let stream = match pending {
+                // std's connect_timeout tracks its deadline across EINTR
+                // internally (a poll loop with recomputed remaining time),
+                // so no retry_eintr wrapper — one would restart the window.
+                Some(d) => TcpStream::connect_timeout(&std::net::SocketAddr::V4(sa), *d)
+                    .map_err(map_io_err)?,
+                None => retry_eintr(|| TcpStream::connect(sa))?,
+            };
+            if let Some(d) = pending {
+                // Device parity: a pre-connect RCVTIMEO stays on as the
+                // socket's receive timeout after connect.
+                let _ = stream.set_read_timeout(Some(*d));
+            }
             *opt = Some(stream);
             Ok(())
         }
@@ -117,7 +135,7 @@ pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
     use std::io::Write;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream)) => retry_eintr(|| stream.write(buf)),
+        SimSocket::TcpClient(Some(ref mut stream), _) => retry_eintr(|| stream.write(buf)),
         _ => Err(bad_handle()),
     }
 }
@@ -134,7 +152,7 @@ pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
     use std::io::Read;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream)) => {
+        SimSocket::TcpClient(Some(ref mut stream), _) => {
             let configured = stream.read_timeout().ok().flatten();
             let Some(window) = configured else {
                 // No timeout: an EINTR retry loop is exactly right.
@@ -170,7 +188,7 @@ pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
 pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(_) => {
+        SimSocket::TcpClient(..) => {
             let listener =
                 retry_eintr(|| TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)))?;
             *s = SimSocket::TcpListener(listener, None);
@@ -185,7 +203,7 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
     match s {
         SimSocket::TcpListener(ref listener, None) => {
             let (stream, _addr) = retry_eintr(|| listener.accept())?;
-            Ok(box_socket(SimSocket::TcpClient(Some(stream))))
+            Ok(box_socket(SimSocket::TcpClient(Some(stream), None)))
         }
         // With a timeout set, emulate an accept deadline by polling a
         // nonblocking listener — WouldBlock here means "nothing pending
@@ -198,7 +216,7 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
                         let _ = stream.set_nonblocking(false);
-                        break Ok(box_socket(SimSocket::TcpClient(Some(stream))));
+                        break Ok(box_socket(SimSocket::TcpClient(Some(stream), None)));
                     }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
@@ -302,8 +320,14 @@ pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
         Some(Duration::from_millis(timeout_ms as u64))
     };
     match s {
-        SimSocket::TcpClient(Some(ref stream)) => {
+        SimSocket::TcpClient(Some(ref stream), _) => {
             let _ = stream.set_read_timeout(dur);
+        }
+        // Not connected yet: stash for `tcp_connect`, which uses it as the
+        // connect deadline and then applies it as the read timeout — the
+        // device's pre-connect RCVTIMEO semantics.
+        SimSocket::TcpClient(None, ref mut pending) => {
+            *pending = dur;
         }
         SimSocket::Udp(ref udp) => {
             let _ = udp.set_read_timeout(dur);
@@ -311,7 +335,6 @@ pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
         SimSocket::TcpListener(_, ref mut timeout) => {
             *timeout = dur;
         }
-        _ => {}
     }
 }
 

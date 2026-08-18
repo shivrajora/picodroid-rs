@@ -291,14 +291,21 @@ run_enviro_w_smoke() {
     timeout 25 "$bin" > "$log_file" 2>&1 < /dev/null &
   local sim_pid=$!
 
-  # Probe the dashboard once the server line appears (bounded wait).
+  # Probe the dashboard once the server line appears (bounded wait). The
+  # serve loop shares its thread with NTP + weather housekeeping (bounded but
+  # up to ~11 s on a slow external endpoint), so retry rather than fail on one
+  # unanswered request — the 2026-08-18 nightly failed on exactly that.
   local page_ok=0
-  local i
+  local i attempt
   for i in $(seq 1 20); do
     if grep -q "http: serving" "$log_file" 2>/dev/null; then
-      if curl -sf -m 5 "http://127.0.0.1:8080/" 2>/dev/null | grep -q "PicoEnvMon"; then
-        page_ok=1
-      fi
+      for attempt in 1 2 3; do
+        if curl -sf -m 5 "http://127.0.0.1:8080/" 2>/dev/null | grep -q "PicoEnvMon"; then
+          page_ok=1
+          break
+        fi
+        sleep 2
+      done
       break
     fi
     sleep 1

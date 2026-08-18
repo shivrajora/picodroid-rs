@@ -128,6 +128,10 @@ pub fn native_connect(
     let path_idx = as_ref(args.get(2))?;
     let method_idx = as_ref(args.get(3))?;
     let body_length = as_int(args.get(4))?;
+    // 0 = infinite, per the Android URLConnection contract; the Java side
+    // rejects negatives.
+    let connect_timeout_ms = as_int(args.get(5))? as u32;
+    let read_timeout_ms = as_int(args.get(6))? as u32;
 
     // Owned copies: the throw helpers below need `&mut strings` while these
     // would otherwise still be borrowed from the table.
@@ -156,9 +160,25 @@ pub fn native_connect(
             &format!("socket create failed (err {})", e.raw),
         )
     })?;
+    // A receive timeout set *before* connect doubles as the connect
+    // deadline: `FreeRTOS_connect` blocks on the socket's RCVTIMEO
+    // (FreeRTOS_Sockets.c:3819), and the sim HAL implements the same
+    // pre-connect contract.
+    if connect_timeout_ms > 0 {
+        crate::hal::net::set_recv_timeout(sock, connect_timeout_ms);
+    }
     if let Err(e) = crate::hal::net::tcp_connect(sock, addr, port) {
         crate::hal::net::close(sock);
         return Err(throw_net_exception(objects, strings, e, NetOpCtx::Connect));
+    }
+    // From here on, RCVTIMEO is the read timeout. "No read timeout" cannot
+    // be expressed as 0 once a connect timeout was set — 0 means
+    // non-blocking on the device stack — so restore an effectively-infinite
+    // window instead.
+    if read_timeout_ms > 0 {
+        crate::hal::net::set_recv_timeout(sock, read_timeout_ms);
+    } else if connect_timeout_ms > 0 {
+        crate::hal::net::set_recv_timeout(sock, u32::MAX);
     }
 
     // Build the request head in a stack buffer and send it.  For HTTP/1.1

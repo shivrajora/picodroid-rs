@@ -159,7 +159,7 @@ pub const NET_HANDLED: &[Row] = &[
     (
         "picodroid/net/HttpURLConnection",
         "nativeConnect",
-        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;I)I",
+        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;III)I",
     ),
     (
         "picodroid/net/HttpURLConnection",

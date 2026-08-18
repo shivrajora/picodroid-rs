@@ -27,6 +27,8 @@ public class HttpURLConnection implements AutoCloseable {
   private String method;
   private boolean doOutput;
   private int fixedLength;
+  private int connectTimeout;
+  private int readTimeout;
   private int handle;
 
   public HttpURLConnection(URL url) {
@@ -34,7 +36,48 @@ public class HttpURLConnection implements AutoCloseable {
     this.method = "GET";
     this.doOutput = false;
     this.fixedLength = -1;
+    this.connectTimeout = 0;
+    this.readTimeout = 0;
     this.handle = -1;
+  }
+
+  /**
+   * Sets the connect timeout in milliseconds. A timeout of zero (the default) is interpreted as an
+   * infinite timeout. On expiry, {@link #connect()} throws {@link java.net.SocketTimeoutException}.
+   *
+   * @throws IllegalArgumentException if {@code timeoutMs} is negative
+   */
+  public void setConnectTimeout(int timeoutMs) {
+    if (timeoutMs < 0) {
+      throw new IllegalArgumentException("timeout can not be negative");
+    }
+    this.connectTimeout = timeoutMs;
+  }
+
+  public int getConnectTimeout() {
+    return connectTimeout;
+  }
+
+  /**
+   * Sets the read timeout in milliseconds, bounding each blocking read of the response — {@link
+   * #getResponseCode()} and every {@code HttpInputStream.read}. A timeout of zero (the default) is
+   * interpreted as an infinite timeout. On expiry the read throws {@link
+   * java.net.SocketTimeoutException}.
+   *
+   * <p>Must be set before {@link #connect()}; the value is applied to the underlying socket at
+   * connect time.
+   *
+   * @throws IllegalArgumentException if {@code timeoutMs} is negative
+   */
+  public void setReadTimeout(int timeoutMs) {
+    if (timeoutMs < 0) {
+      throw new IllegalArgumentException("timeout can not be negative");
+    }
+    this.readTimeout = timeoutMs;
+  }
+
+  public int getReadTimeout() {
+    return readTimeout;
   }
 
   public void setRequestMethod(String m) {
@@ -84,7 +127,15 @@ public class HttpURLConnection implements AutoCloseable {
     if (doOutput && fixedLength < 0) {
       throw new IllegalStateException("setFixedLengthStreamingMode() required for output");
     }
-    this.handle = nativeConnect(url.getHost(), url.getPort(), url.getPath(), method, fixedLength);
+    this.handle =
+        nativeConnect(
+            url.getHost(),
+            url.getPort(),
+            url.getPath(),
+            method,
+            fixedLength,
+            connectTimeout,
+            readTimeout);
   }
 
   public HttpOutputStream getOutputStream() throws IOException {
@@ -138,7 +189,14 @@ public class HttpURLConnection implements AutoCloseable {
   }
 
   private static native int nativeConnect(
-      String host, int port, String path, String method, int bodyLength) throws IOException;
+      String host,
+      int port,
+      String path,
+      String method,
+      int bodyLength,
+      int connectTimeoutMs,
+      int readTimeoutMs)
+      throws IOException;
 
   private static native int nativeReadResponseCode(int handle) throws IOException;
 

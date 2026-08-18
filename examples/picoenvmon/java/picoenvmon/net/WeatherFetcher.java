@@ -13,9 +13,17 @@ import picoenvmon.di.EnvAppComponent;
  * fail-soft: this depends on a third-party endpoint and real internet, so every failure — DNS,
  * timeout, non-200, garbage — returns null and the UI renders "unavailable". Nothing in CI ever
  * asserts on weather content.
+ *
+ * <p>The fetch runs on the NetworkManager thread, serially with dashboard serving, so it must be
+ * time-bounded: a stalled wttr.in with no timeouts starved the serve loop for a whole 25 s smoke
+ * run (nightly 2026-08-18). Connect and read timeouts bound each blocking network call at {@code
+ * TIMEOUT_MS}; the tiny fixed-size reply keeps the read count small.
  */
 public final class WeatherFetcher {
   private static final String TAG = EnvAppComponent.TAG;
+
+  /** Per-phase (connect, read) bound. Worst-case housekeeping stall must stay well under 25 s. */
+  private static final int TIMEOUT_MS = 4000;
 
   /**
    * Display name (screen + dashboard labels). Build-time constant; a Settings entry or gradle
@@ -41,6 +49,8 @@ public final class WeatherFetcher {
     HttpURLConnection conn = null;
     try {
       conn = new URL(WEATHER_URL).openConnection();
+      conn.setConnectTimeout(TIMEOUT_MS);
+      conn.setReadTimeout(TIMEOUT_MS);
       conn.connect();
       int code = conn.getResponseCode();
       if (code != 200) {
