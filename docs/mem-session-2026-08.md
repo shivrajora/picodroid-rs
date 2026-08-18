@@ -144,6 +144,11 @@ gained `arena8_cap`.
 
 - 1 Hz `SocketTimeoutException` churn on the serve thread (recycled
   exception or native accept-timeout signalling — framework change).
+  Confirmed on device: the same +2 alloc/+1 stri per idle second.
+- Device HTTP close sends RST after the body (curl exit 56 despite
+  `http=200` and full payload) — FreeRTOS+TCP close semantics, NET
+  follow-up. Scripts probing the device dashboard must judge success by
+  `%{http_code}`, not curl's exit code.
 - `char[]`/`short[]` packing (2 B/elem) on the C4 substrate.
 - Device-side census over pdb sysmon (roadmap `mem-diag-histo`; census is
   the sim half). Byte-weighted GC pacing: `gcb=` now provides the evidence
@@ -155,21 +160,36 @@ gained `arena8_cap`.
   session (`0c1326d`, SMP wake-yield atomic_section work) while this one
   ran; this session's changes were validated on the merged tree.
 
-## Device spot-check — deliberately SKIPPED
+## Device spot-check — RUN 2026-08-18 (board freed by power cycle): PASSED
 
-The plan's <15-min on-device mem-diag comparison was **not run**: at
-execution time the attached pico_enviro_mon_w showed 3.7 h of uptime —
-state owned by the concurrent session working the P1 fix (`0c1326d`);
-flashing would have destroyed it. Recipe for when the board is free:
+<15-min mem-diag release flash on pico_enviro_mon_w (5a72a60 firmware,
+plain mem-diag, not offensive): boot + WiFi join, one full nav cycle via
+prebuilt `pdb input keyevent` (all four screens pushed/popped cleanly, no
+thread failures — the fixed-P1 recipe's window passed without symptoms),
+240-request serve loop, detach at ~8 min.
 
-```bash
-env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_EXTRA_FEATURES=mem-diag \
-  ./scripts/flash.sh --board pico_enviro_mon_w --app picoenvmon --release &   # never exits
-# min 0-2 idle; min 2-5 one nav cycle via prebuilt pdb (input keyevent 20/23/4);
-# min 5-12 curl loop; read RTT `memmon:` w= lines; DETACH BY MIN 14 (P1 window).
-# Compare live/obj/arr/str/floor to the sim (pointer-free layouts: near-exact);
-# nused/lblk shape-match only. Plain mem-diag, NOT offensive (block-size shift).
-```
+**The sim model tracks hardware almost exactly:**
+
+| Metric | sim (416 KB model) | device |
+|---|---|---|
+| `arr` live | 8,801 B | **8,801 B — byte-identical** (pointer-free layout) |
+| `live` steady | ~13.8 K | ~13.0–13.7 K |
+| idle churn | +2 alloc / +1 stri per window | **same** (the accept-timeout exception) |
+| serve churn | `stri` ≈ +0 | **+1/window** at ~3 req/s — allocation-free serve holds |
+| `nused` | ~297.9 K | 251.7–272 K — Δ ≈ 46 K matches the census's host-vs-device metadata inflation (`parsedB` 86.6 K vs `devB~` 46.3 K), **validating the `devB~` estimate on hardware** |
+| min-ever free | — | **146.2 K** (lblk 147 K, frag ≤ 32 ‰) |
+
+Child-thread GCs are visible in `gc=/freed=/gcb=` on device (the A1 fix,
+proven on hardware: serve-thread collections show `freed`/`gcb` deltas).
+Two `LEAK? native floor` warnings fired once each at WiFi join (+6.6 K)
+and the nav cycle (+8.4 K) — legitimate construction growth, `nused`
+settles flat after; sim runs don't show these because the host net stack
+joins for free.
+
+One pre-existing quirk surfaced: the device closes HTTP connections with
+**RST instead of FIN** after the full page is sent (curl exit 56 with
+`http=200 bytes=761` — all data delivered; browsers tolerate it).
+FreeRTOS+TCP close semantics, unrelated to this session — NET follow-up.
 
 ## Final validation (2026-08-18, merged tree incl. the concurrent
 ## atomic-section fix 0c1326d)
