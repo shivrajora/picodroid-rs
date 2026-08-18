@@ -509,3 +509,12 @@ pub fn tick_timer_stop() {
 pub fn delay_ms(ms: u32) {
     std::thread::sleep(Duration::from_millis(ms as u64));
 }
+
+/// Whether the calling thread is a kernel task. This backing has no kernel —
+/// tasks are host threads and std blocking is the real blocking — so the
+/// answer is always no, and callers asking in order to pick a kernel-visible
+/// block correctly fall through to std. Mirrors
+/// `rtos_freertos::current_thread_is_task`.
+pub fn current_thread_is_task() -> bool {
+    false
+}

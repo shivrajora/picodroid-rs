@@ -113,6 +113,24 @@ pub fn live_jvm_children() -> usize {
     LIVE_JVM_CHILDREN.load(Ordering::Acquire)
 }
 
+std::thread_local! {
+    /// True on every pthread that entered through [`spawn`]'s trampoline —
+    /// i.e. is a FreeRTOS task. Every task in the simulator is created
+    /// through that one trampoline (`sim_boot` and the executors all go
+    /// through the `crate::rtos` seam), so this is a complete census; host
+    /// service threads with no device analog (the control-channel reader)
+    /// stay false.
+    static IS_KERNEL_TASK: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Whether the calling thread is a FreeRTOS task, and may therefore use
+/// task-only kernel APIs (`vTaskDelay` and friends). Kernel task APIs called
+/// from a non-task pthread act on whatever task the kernel believes is
+/// current, so callers that can run on either kind of thread must check.
+pub fn current_thread_is_task() -> bool {
+    IS_KERNEL_TASK.with(|f| f.get())
+}
+
 /// Spawn `spec` as a real FreeRTOS task.
 ///
 /// `charge_task` bills the platform's boot-budget model and returns the
@@ -158,6 +176,7 @@ pub fn spawn(
         .stack_size(words)
         .priority(TaskPriority(spec.priority))
         .start(move |_| {
+            IS_KERNEL_TASK.with(|f| f.set(true));
             // Unwinding out of the port's `extern "C"` task trampoline is UB,
             // and abort-on-panic is what the device does under panic-probe.
             if std::panic::catch_unwind(AssertUnwindSafe(body)).is_err() {

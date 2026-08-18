@@ -72,7 +72,7 @@ pub fn dispatch(
                     // Rtos::spawn; the simulator declines this task kind
                     // outright (host threads cannot honour the interpreter's
                     // single-core heap guarantee) and reports it there.
-                    crate::rtos::spawn(
+                    let spawned = crate::rtos::spawn(
                         &spec,
                         alloc::boxed::Box::new(move || {
                             // Shared class set (boot::SHARED_JVM): children
@@ -111,6 +111,12 @@ pub fn dispatch(
                             }
                         }),
                     );
+                    // A declined spawn means the Java thread will simply never
+                    // run — which reads as starvation from the app's side, so
+                    // it must never be silent.
+                    if !spawned {
+                        crate::pd_error!("Thread.start: task spawn failed for {}", class_name);
+                    }
                 }
             }
             Some(Ok(None))
