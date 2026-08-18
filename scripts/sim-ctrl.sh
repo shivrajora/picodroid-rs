@@ -31,6 +31,8 @@
 #          (Android-faithful synthetic input; mirrors `pdb input ...`)
 # Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
+#          heapcensus — live-set census: bytes by class / array type / dyn
+#          strings / side tables / per-executor class metadata (same build)
 #
 # The command is forwarded verbatim; the sim validates it and reports unknown
 # tokens on its own log ("[sim] control channel: unknown ...").
@@ -62,6 +64,7 @@ Commands (forwarded verbatim to the sim):
   input tap <x> <y>
   input swipe <x1> <y1> <x2> <y2> [ms]
   memstats     ([memmon] snapshot; sim must be built with --mem-diag)
+  heapcensus   (live-set census by class/atype/strings; same build requirement)
 
 Examples:
   $(basename "$0") tap A

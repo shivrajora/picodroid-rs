@@ -193,7 +193,8 @@ impl SharedJvmHeap {
         {
             let post_gc_live =
                 self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
-            self.gc_state.note_post_gc_live(post_gc_live);
+            self.gc_state
+                .note_gc_cycle(freed, pre_gc_used, post_gc_live);
             if mem_diag::offensive() {
                 if let Err(m) =
                     mem_diag::integrity_check(&self.objects, &self.arrays, &self.strings)
@@ -269,6 +270,41 @@ impl Jvm {
     pub fn count_parsed(&self) -> (usize, usize) {
         let parsed = self.classes.iter().filter(|c| c.is_parsed()).count();
         (parsed, self.classes.len())
+    }
+
+    /// Total RAM held by parsed class metadata across the loaded set, as
+    /// `(host_bytes, device_bytes)` — see
+    /// [`ClassFile::parsed_metadata_bytes`]. The census uses this to price
+    /// each executor's metadata (a `Thread.start` child that loads its own
+    /// class set duplicates all of it — handover §6).
+    #[cfg(feature = "mem-diag")]
+    pub fn parsed_metadata_bytes(&self) -> (usize, usize) {
+        let mut host = 0;
+        let mut dev = 0;
+        for c in &self.classes {
+            if let Some((h, d)) = c.parsed_metadata_bytes() {
+                host += h;
+                dev += d;
+            }
+        }
+        (host, dev)
+    }
+
+    /// RAM held by the class *registration* table itself — the per-entry
+    /// `ClassFile` structs, paid for every registered class whether or not
+    /// it ever parses. `(host_bytes, device_bytes)`; device: 20 B per entry
+    /// (two 8 B Flash slices at 4-byte pointers + a 4 B `OnceCell<Box>`)
+    /// plus the Vec header and its heap_4 block header.
+    #[cfg(feature = "mem-diag")]
+    pub fn class_table_bytes(&self) -> (usize, usize) {
+        let host = core::mem::size_of::<Vec<ClassFile>>()
+            + self.classes.capacity() * core::mem::size_of::<ClassFile>();
+        let dev = if self.classes.capacity() > 0 {
+            12 + 8 + self.classes.capacity() * 20
+        } else {
+            12
+        };
+        (host, dev)
     }
 }
 

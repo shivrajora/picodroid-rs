@@ -57,6 +57,7 @@ struct MonitorState {
     prev_dyn_intern: u32,
     prev_gc_count: u32,
     prev_gc_freed: u32,
+    prev_gc_bytes: u32,
     /// Last-reported storage fingerprint (chunk counts + arena capacities);
     /// the `storage` line prints only when it changes, pinpointing exactly
     /// which window mid-churn growth happened in (PEM-3 sizing data).
@@ -80,6 +81,7 @@ impl MonitorState {
             prev_dyn_intern: 0,
             prev_gc_count: 0,
             prev_gc_freed: 0,
+            prev_gc_bytes: 0,
             prev_storage: (0, 0, 0, 0, 0),
         }
     }
@@ -108,6 +110,43 @@ pub fn note_native_alloc(n: u32) {
 
 fn native_alloc_total() -> u32 {
     unsafe { *core::ptr::addr_of!(NATIVE_ALLOC_TOTAL) }
+}
+
+// ── Child-executor Jvm registry (census) ────────────────────────────────────
+
+/// `Thread.start` children and bg-pool workers own private `Jvm`s whose
+/// lazily-parsed class metadata accrues while they run, so the census must
+/// read them live — a spawn-time snapshot would undercount (the duplicate
+/// grows with every class the child touches; handover §6). Raw pointers on
+/// the `parked_frames` precedent: registration/deregistration run in the
+/// owning task's slice, census reads run on the main task while children
+/// are parked at yield points (single JVM task at a time), and
+/// `Parsed::parse` contains no yield point, so a parked child is never
+/// mid-`OnceCell` init. Fixed-size: the monitor never allocates. 8 slots
+/// covers the 4-worker bg pool plus every observed `Thread.start` pattern;
+/// on overflow the census under-reports rather than failing.
+const MAX_CHILD_JVMS: usize = 8;
+static mut CHILD_JVMS: [Option<(&'static str, *const pico_jvm::Jvm)>; MAX_CHILD_JVMS] =
+    [None; MAX_CHILD_JVMS];
+
+/// Register a child executor's `Jvm` for the census. Call from the owning
+/// task after class loading; pair with [`unregister_child_jvm`] before the
+/// `Jvm` is dropped.
+pub fn register_child_jvm(name: &'static str, jvm: *const pico_jvm::Jvm) {
+    let slots = unsafe { &mut *core::ptr::addr_of_mut!(CHILD_JVMS) };
+    if let Some(slot) = slots.iter_mut().find(|s| s.is_none()) {
+        *slot = Some((name, jvm));
+    }
+}
+
+/// Remove a child `Jvm` registered by [`register_child_jvm`].
+pub fn unregister_child_jvm(jvm: *const pico_jvm::Jvm) {
+    let slots = unsafe { &mut *core::ptr::addr_of_mut!(CHILD_JVMS) };
+    for s in slots.iter_mut() {
+        if matches!(s, Some((_, p)) if *p == jvm) {
+            *s = None;
+        }
+    }
 }
 
 /// Sim control channel → main task: an on-demand `memstats` snapshot was
@@ -147,6 +186,17 @@ pub fn published_snapshot() -> (u32, u32, u32, u32) {
 #[cfg(feature = "sim")]
 pub fn request_memstats() {
     MEMSTATS_REQUESTED.store(true, core::sync::atomic::Ordering::Release);
+}
+
+/// Sim control channel → main task: an on-demand `heapcensus` was requested.
+#[cfg(feature = "sim")]
+static CENSUS_REQUESTED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Called from the control-channel reader thread (`hal/sim/display.rs`).
+#[cfg(feature = "sim")]
+pub fn request_census() {
+    CENSUS_REQUESTED.store(true, core::sync::atomic::Ordering::Release);
 }
 
 // ── Env config (sim; device uses the defaults) ─────────────────────────────
@@ -272,6 +322,146 @@ fn print_histo_top(heap: &SharedJvmHeap) {
     println!();
 }
 
+/// JVM atype constant → printable element-type name.
+#[cfg(feature = "sim")]
+fn atype_name(atype: usize) -> &'static str {
+    match atype as u8 {
+        pico_jvm::array_heap::ATYPE_REF => "ref",
+        pico_jvm::array_heap::ATYPE_BOOLEAN => "bool",
+        pico_jvm::array_heap::ATYPE_CHAR => "char",
+        pico_jvm::array_heap::ATYPE_FLOAT => "float",
+        pico_jvm::array_heap::ATYPE_DOUBLE => "double",
+        pico_jvm::array_heap::ATYPE_BYTE => "byte",
+        pico_jvm::array_heap::ATYPE_SHORT => "short",
+        pico_jvm::array_heap::ATYPE_INT => "int",
+        pico_jvm::array_heap::ATYPE_LONG => "long",
+        _ => "?",
+    }
+}
+
+/// Print the live-heap census: bytes/counts bucketed by class, arrays by
+/// element type, dyn-string sizes, the side tables `live_bytes` misses, and
+/// each executor's class-metadata cost. Unlike the alloc histogram
+/// (cumulative churn since boot), every figure here is a snapshot of what
+/// is retained right now. Sim-only: sorting/formatting uses host std under
+/// `bypass()` (the scratch rows are host-side and cannot perturb the
+/// modeled arena, the `print_histo_top` rule).
+#[cfg(feature = "sim")]
+fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
+    let _b = crate::host::heap_bypass();
+
+    // Objects, bucketed by class; top 8 by retained bytes.
+    let mut rows =
+        std::vec![pico_jvm::object_heap::ClassCensus::default(); heap.objects.class_count()];
+    heap.objects.census_by_class(&mut rows);
+    let (mut n, mut bytes, mut classes) = (0u32, 0u32, 0u32);
+    for r in &rows {
+        if r.count > 0 {
+            n += r.count;
+            bytes += r.bytes;
+            classes += 1;
+        }
+    }
+    println!("[memmon] census obj: n={n} bytes={bytes} classes={classes}");
+    let mut top: std::vec::Vec<(u32, u32, usize)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.count > 0)
+        .map(|(i, r)| (r.bytes, r.count, i))
+        .collect();
+    top.sort_unstable_by_key(|e| core::cmp::Reverse(e.0));
+    print!("[memmon] census obj top:");
+    for (b, c, idx) in top.iter().take(8) {
+        let name = heap.objects.class_name_by_idx(*idx as u16).unwrap_or("?");
+        print!(" {name}={c}n/{b}B");
+    }
+    println!();
+
+    // Arrays by element type, plus arena occupancy: `dead` is swept spans
+    // awaiting compaction, `slack` is reserved-but-unwritten capacity.
+    let atypes = heap.arrays.census_by_atype();
+    let mut live_arena = 0u32;
+    print!("[memmon] census arr:");
+    for (atype, r) in atypes.iter().enumerate() {
+        if r.count > 0 {
+            live_arena += r.arena_bytes;
+            print!(
+                " {}={}n/{}B(inl {})",
+                atype_name(atype),
+                r.count,
+                r.slot_bytes + r.arena_bytes,
+                r.inline_count
+            );
+        }
+    }
+    let arena_len_b = heap.arrays.arena_len() as u32 * 4;
+    let arena_cap_b = heap.arrays.arena_capacity() as u32 * 4;
+    println!(
+        " dead={}B slack={}B",
+        arena_len_b.saturating_sub(live_arena),
+        arena_cap_b - arena_len_b
+    );
+
+    // Dynamic strings: capacity minus length = builder slack carried into
+    // the interned buffer.
+    let s = heap.strings.dyn_census();
+    println!(
+        "[memmon] census str: dyn n={} len={} cap={} slack={} buckets={}/{}/{}/{}/{}/{} top_cap={}/{}/{}/{}",
+        s.live,
+        s.len_bytes,
+        s.cap_bytes,
+        s.cap_bytes - s.len_bytes,
+        s.len_buckets[0],
+        s.len_buckets[1],
+        s.len_buckets[2],
+        s.len_buckets[3],
+        s.len_buckets[4],
+        s.len_buckets[5],
+        s.top_caps[0],
+        s.top_caps[1],
+        s.top_caps[2],
+        s.top_caps[3],
+    );
+
+    // Side tables — the bytes `live` does NOT include.
+    let t = heap.objects.side_table_census();
+    println!(
+        "[memmon] census side: lists={}n/{}B maps={}n/{}B sb={}B lambda={}n/{}B exc={}B",
+        t.list_count,
+        t.list_bytes,
+        t.map_count,
+        t.map_bytes,
+        t.sb_bytes,
+        t.lambda_count,
+        t.lambda_bytes,
+        t.exc_bytes
+    );
+
+    // Class metadata per executor: the main Jvm, then every registered
+    // child (each child's parsed set is a duplicate of the main one's —
+    // handover §6). devB~ re-derives 32-bit release sizes; use it, not
+    // parsedB, for device sizing decisions.
+    let (parsed, total) = jvm.count_parsed();
+    let (host_b, dev_b) = jvm.parsed_metadata_bytes();
+    let (_, table_dev_b) = jvm.class_table_bytes();
+    println!(
+        "[memmon] census classmeta main: {parsed}/{total} parsedB={host_b} devB~={dev_b} tableB~={table_dev_b}"
+    );
+    let slots = unsafe { &*core::ptr::addr_of!(CHILD_JVMS) };
+    for (name, ptr) in slots.iter().flatten() {
+        // SAFETY: registry contract (see CHILD_JVMS) — the owning task is
+        // parked while the main task runs the census, so the pointee is
+        // alive and not mid-mutation.
+        let child = unsafe { &**ptr };
+        let (cp, ct) = child.count_parsed();
+        let (ch, cd) = child.parsed_metadata_bytes();
+        let (_, ctab) = child.class_table_bytes();
+        println!(
+            "[memmon] census classmeta child {name}: {cp}/{ct} parsedB={ch} devB~={cd} tableB~={ctab}"
+        );
+    }
+}
+
 // ── Native heap sampling ────────────────────────────────────────────────────
 
 struct NativeHeapSample {
@@ -323,6 +513,7 @@ fn print_report(
     native: &NativeHeapSample,
     gc_delta: u32,
     freed_delta: u32,
+    gc_bytes_delta: u32,
     alloc_delta: u32,
     native_alloc_delta: u32,
     intern_delta: u32,
@@ -332,7 +523,7 @@ fn print_report(
     {
         let _b = crate::host::heap_bypass();
         println!(
-            "[memmon] w={} live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc=+{} freed=+{} alloc=+{} nalloc=+{} stri=+{} frag={}pm",
+            "[memmon] w={} live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc=+{} freed=+{} gcb=+{} alloc=+{} nalloc=+{} stri=+{} frag={}pm",
             window,
             live,
             obj,
@@ -345,6 +536,7 @@ fn print_report(
             native.largest_free_block,
             gc_delta,
             freed_delta,
+            gc_bytes_delta,
             alloc_delta,
             native_alloc_delta,
             intern_delta,
@@ -353,7 +545,7 @@ fn print_report(
     }
     #[cfg(not(feature = "sim"))]
     defmt::info!(
-        "memmon: w={=u32} live={=u32} obj={=u32} arr={=u32} str={=u32} floor={=u32} nused={=u32} nfree={=u32} nmin={=u32} lblk={=u32} gc=+{=u32} freed=+{=u32} alloc=+{=u32} nalloc=+{=u32} stri=+{=u32} frag={=u32}pm",
+        "memmon: w={=u32} live={=u32} obj={=u32} arr={=u32} str={=u32} floor={=u32} nused={=u32} nfree={=u32} nmin={=u32} lblk={=u32} gc=+{=u32} freed=+{=u32} gcb=+{=u32} alloc=+{=u32} nalloc=+{=u32} stri=+{=u32} frag={=u32}pm",
         window,
         live,
         obj,
@@ -366,6 +558,7 @@ fn print_report(
         native.largest_free_block,
         gc_delta,
         freed_delta,
+        gc_bytes_delta,
         alloc_delta,
         native_alloc_delta,
         intern_delta,
@@ -416,8 +609,8 @@ pub fn note_activity_transition() {
 
 /// Per-tick hook — called from the `MainTask::LvglTick` arm. Cheap between
 /// window boundaries (one increment + compare; plus a request-flag load on
-/// sim).
-pub fn on_tick(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
+/// sim). `jvm` feeds the census's class-metadata accounting.
+pub fn on_tick(jvm: &pico_jvm::Jvm, heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
     let st = state();
     resolve_config(st);
     if !st.banner_shown {
@@ -441,8 +634,14 @@ pub fn on_tick(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
 
     #[cfg(feature = "sim")]
     if MEMSTATS_REQUESTED.swap(false, core::sync::atomic::Ordering::Acquire) {
-        snapshot(heap, handler);
+        snapshot(jvm, heap, handler);
     }
+    #[cfg(feature = "sim")]
+    if CENSUS_REQUESTED.swap(false, core::sync::atomic::Ordering::Acquire) {
+        print_census(jvm, heap);
+    }
+    #[cfg(not(feature = "sim"))]
+    let _ = jvm; // census printing is sim-only today
 
     st.tick_count += 1;
     if st.tick_count < st.ticks_per_window {
@@ -454,7 +653,7 @@ pub fn on_tick(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
 }
 
 /// Sample, report, and run the sentinels for the window that just ended.
-fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
+fn sample_window(heap: &mut SharedJvmHeap, _handler: &PicodroidNativeHandler) {
     let st = state();
 
     let obj = heap.objects.live_bytes() as u32;
@@ -467,11 +666,20 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
 
     let native = sample_native_heap();
 
-    let (_, gc_count, gc_freed) = handler.gc_stats();
-    let gc_delta = gc_count.wrapping_sub(st.prev_gc_count);
-    let freed_delta = gc_freed.wrapping_sub(st.prev_gc_freed);
-    st.prev_gc_count = gc_count;
-    st.prev_gc_freed = gc_freed;
+    // GC counters come from GcState (heap-wide), not the per-executor
+    // handler: child-thread collections must be visible here (handover §3).
+    let gc_delta = heap.gc_state.gc_runs_total.wrapping_sub(st.prev_gc_count);
+    let freed_delta = heap
+        .gc_state
+        .gc_freed_entries_total
+        .wrapping_sub(st.prev_gc_freed);
+    let gc_bytes_delta = heap
+        .gc_state
+        .gc_bytes_reclaimed_total
+        .wrapping_sub(st.prev_gc_bytes);
+    st.prev_gc_count = heap.gc_state.gc_runs_total;
+    st.prev_gc_freed = heap.gc_state.gc_freed_entries_total;
+    st.prev_gc_bytes = heap.gc_state.gc_bytes_reclaimed_total;
 
     let alloc_total = heap.gc_state.alloc_total;
     let alloc_delta = alloc_total.wrapping_sub(st.prev_alloc_total);
@@ -495,6 +703,7 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         &native,
         gc_delta,
         freed_delta,
+        gc_bytes_delta,
         alloc_delta,
         native_alloc_delta,
         intern_delta,
@@ -594,10 +803,10 @@ fn sample_window(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
 }
 
 /// On-demand snapshot (sim `memstats` control command and the exit summary).
-/// Prints one report line for the partial window without disturbing the
-/// periodic cadence or the sentinels.
+/// Prints one report line for the partial window plus the full census,
+/// without disturbing the periodic cadence or the sentinels.
 #[cfg(feature = "sim")]
-pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
+pub fn snapshot(jvm: &pico_jvm::Jvm, heap: &mut SharedJvmHeap, _handler: &PicodroidNativeHandler) {
     let st = state();
     resolve_config(st);
     let obj = heap.objects.live_bytes() as u32;
@@ -613,11 +822,10 @@ pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         live
     };
     let native = sample_native_heap();
-    let (_, gc_count, gc_freed) = handler.gc_stats();
     {
         let _b = crate::host::heap_bypass();
         println!(
-            "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} alloc={} nalloc={} stri={} frag={}pm",
+            "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} gcb={} alloc={} nalloc={} stri={} frag={}pm",
             live,
             obj,
             arr,
@@ -627,8 +835,9 @@ pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
             native.free,
             native.min_free,
             native.largest_free_block,
-            gc_count,
-            gc_freed,
+            heap.gc_state.gc_runs_total,
+            heap.gc_state.gc_freed_entries_total,
+            heap.gc_state.gc_bytes_reclaimed_total,
             heap.gc_state.alloc_total,
             native_alloc_total(),
             heap.strings.dyn_intern_total(),
@@ -636,4 +845,5 @@ pub fn snapshot(heap: &mut SharedJvmHeap, handler: &PicodroidNativeHandler) {
         );
     }
     print_histo_top(heap);
+    print_census(jvm, heap);
 }

@@ -287,6 +287,41 @@ impl ArrayHeap {
         total
     }
 
+    /// Current payload-arena length in `i32` slots (live spans + dead spans
+    /// awaiting compaction; `arena_capacity() - arena_len()` is reserved
+    /// slack).
+    #[cfg(feature = "mem-diag")]
+    pub fn arena_len(&self) -> usize {
+        self.arena.len()
+    }
+
+    /// Live-set census bucketed by JVM `atype` (index = atype constant;
+    /// only 0 and 4..=11 are populated). Splits the [`Self::live_bytes`]
+    /// accounting into slot overhead vs arena payload per element type, and
+    /// counts how many arrays are inline (arena-free). Fixed-size output —
+    /// no allocation (monitor rule).
+    #[cfg(feature = "mem-diag")]
+    pub fn census_by_atype(&self) -> [AtypeCensus; 12] {
+        const PER_SLOT: u32 = core::mem::size_of::<Option<JvmArray>>() as u32;
+        let mut out = [AtypeCensus::default(); 12];
+        for i in 0..self.arrays.len() {
+            if let Some(Some(arr)) = self.arrays.get(i) {
+                let Some(row) = out.get_mut(arr.atype as usize) else {
+                    continue;
+                };
+                row.count += 1;
+                row.slot_bytes += PER_SLOT;
+                match &arr.data {
+                    ArrayData::Inline { .. } => row.inline_count += 1,
+                    ArrayData::Arena { len, .. } => {
+                        row.arena_bytes += *len as u32 * core::mem::size_of::<i32>() as u32;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Free the array at `idx`, setting its slot to `None`.
     /// Arena space is NOT reclaimed here — it is reclaimed during compaction.
     pub fn free(&mut self, idx: u16) {
@@ -414,6 +449,17 @@ impl ArrayHeap {
         }
         self.arena.truncate(write_pos);
     }
+}
+
+/// One row of the live-array census, per JVM `atype` (see
+/// [`ArrayHeap::census_by_atype`]).
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Default)]
+pub struct AtypeCensus {
+    pub count: u32,
+    pub slot_bytes: u32,
+    pub arena_bytes: u32,
+    pub inline_count: u32,
 }
 
 #[cfg(test)]

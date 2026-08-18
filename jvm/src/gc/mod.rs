@@ -105,6 +105,21 @@ pub struct GcState {
     /// (`u32::MAX` = no GC ran in the current window).
     #[cfg(feature = "mem-diag")]
     pub min_post_gc_live: u32,
+    /// Cumulative GC cycles on this heap since boot. Lives here — on the
+    /// heap-wide `GcState` — rather than the per-executor native handler,
+    /// so collections run by `Thread.start` children reach the mem-diag
+    /// monitor; the per-handler counters missed them and `[memmon]`
+    /// reported `gc=+0` under background-thread churn
+    /// (docs/perf-memory-handover-2026-08.md §3). Plain non-atomic fields
+    /// like `alloc_total`: only the task that owns the heap mutates them.
+    #[cfg(feature = "mem-diag")]
+    pub gc_runs_total: u32,
+    /// Cumulative heap entries (objects + arrays + dyn strings) freed by GC.
+    #[cfg(feature = "mem-diag")]
+    pub gc_freed_entries_total: u32,
+    /// Cumulative live-bytes reclaimed by GC (pre-sweep minus post-sweep).
+    #[cfg(feature = "mem-diag")]
+    pub gc_bytes_reclaimed_total: u32,
 }
 
 impl GcState {
@@ -124,6 +139,12 @@ impl GcState {
             last_post_gc_live: 0,
             #[cfg(feature = "mem-diag")]
             min_post_gc_live: u32::MAX,
+            #[cfg(feature = "mem-diag")]
+            gc_runs_total: 0,
+            #[cfg(feature = "mem-diag")]
+            gc_freed_entries_total: 0,
+            #[cfg(feature = "mem-diag")]
+            gc_bytes_reclaimed_total: 0,
         }
     }
 
@@ -142,16 +163,25 @@ impl GcState {
         }
     }
 
-    /// Record the live_bytes sum right after a GC sweep (mem-diag monitor
-    /// floor tracking). Called at both GC sites: the interpreter safepoint
-    /// and `SharedJvmHeap::collect_now`.
+    /// Record a completed GC cycle: the post-sweep live_bytes floor (mem-diag
+    /// monitor leak tracking) plus this cycle's contribution to the
+    /// cumulative run/freed/reclaimed counters. Called at both GC sites: the
+    /// interpreter safepoint and `SharedJvmHeap::collect_now` — from every
+    /// executor, so child-thread collections are counted too.
     #[cfg(feature = "mem-diag")]
-    pub fn note_post_gc_live(&mut self, bytes: usize) {
-        let b = bytes.min(u32::MAX as usize) as u32;
+    pub fn note_gc_cycle(&mut self, freed_entries: usize, pre_bytes: usize, post_bytes: usize) {
+        let b = post_bytes.min(u32::MAX as usize) as u32;
         self.last_post_gc_live = b;
         if b < self.min_post_gc_live {
             self.min_post_gc_live = b;
         }
+        self.gc_runs_total = self.gc_runs_total.wrapping_add(1);
+        self.gc_freed_entries_total = self
+            .gc_freed_entries_total
+            .wrapping_add(freed_entries.min(u32::MAX as usize) as u32);
+        self.gc_bytes_reclaimed_total = self
+            .gc_bytes_reclaimed_total
+            .wrapping_add(pre_bytes.saturating_sub(post_bytes).min(u32::MAX as usize) as u32);
     }
 
     /// Drain the current monitor window: returns the post-GC live floor for

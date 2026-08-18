@@ -368,7 +368,7 @@ pub fn run_app(apk_data: &[u8]) {
         // runs with no tick loop) one [memmon] line, and Activity soaks a
         // closing figure to grep.
         #[cfg(feature = "mem-diag")]
-        crate::mem_diag::snapshot(heap, &handler);
+        crate::mem_diag::snapshot(&jvm, heap, &handler);
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
         let (parsed, total) = jvm.count_parsed();
         println!(

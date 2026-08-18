@@ -17,6 +17,7 @@ Audience: developers and AI agents. Every command below is copy-pasteable.
 | Firmware (RP2350) | `PICODROID_EXTRA_FEATURES=mem-diag ./scripts/flash.sh -b testbench_rp2350 -a <app>` |
 | Firmware (RP2040) | Same, but **manual opt-in only** — the diag image lands ~0.1 KB under the 896 K program region. Never make it a default. |
 | On-demand snapshot (sim) | `./scripts/sim-ctrl.sh memstats` against a running `sim-remote` (or write `memstats` to the control FIFO / stdin) |
+| On-demand census (sim) | `./scripts/sim-ctrl.sh heapcensus` (or write `heapcensus` to the control FIFO / stdin) — the live-set census, see "The heap census" below |
 | Device query | `./scripts/pdb.sh sysmon` — mem-diag firmware appends a JVM block (live bytes, post-GC floor, alloc total, largest free block) to the standard response |
 | Soak suite | `./scripts/test-memdiag.sh` (also runs as a `sim-run.sh` lane) |
 
@@ -42,7 +43,7 @@ One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 `memmon: ...`):
 
 ```text
-[memmon] w=12 live=2331 obj=2216 arr=0 str=115 floor=2331 nused=126856 nfree=299128 nmin=296664 lblk=295840 gc=+0 freed=+0 alloc=+14 nalloc=+0 stri=+9 frag=11pm
+[memmon] w=12 live=2331 obj=2216 arr=0 str=115 floor=2331 nused=126856 nfree=299128 nmin=296664 lblk=295840 gc=+0 freed=+0 gcb=+0 alloc=+14 nalloc=+0 stri=+9 frag=11pm
 ```
 
 | Field | Meaning |
@@ -53,7 +54,8 @@ One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 | `nused` / `nfree` | Native (FreeRTOS heap_4) used / free bytes |
 | `nmin` | Lowest-ever native free (high-water complement) |
 | `lblk` | Largest single free block |
-| `gc=+N` / `freed=+N` | GC cycles / heap entries reclaimed this window |
+| `gc=+N` / `freed=+N` | GC cycles / heap entries reclaimed this window. Counted on the heap-wide `GcState`, so collections run by `Thread.start` children are included (before this the columns came from the main executor's handler and read `+0` under background-thread churn — handover §3) |
+| `gcb=+N` | Live bytes reclaimed by GC this window (pre-sweep minus post-sweep) — the byte-level companion to `freed`'s entry count, and the evidence base for a future byte-weighted GC trigger |
 | `alloc=+N` | JVM allocations via bytecode this window |
 | `nalloc=+N` | JVM allocations by native glue (lifecycle/sensor code) this window |
 | `stri=+N` | `intern_dyn` calls this window (StringBuilder.toString / format / concat all sink here) |
@@ -70,6 +72,43 @@ Special lines:
   fields, cumulative counters instead of deltas.
 - `[memmon] histo top: benchmark/Counter=50000 ...` — top-8 allocating
   classes (requires `_HISTO=1`); the "WHO is churning" answer.
+
+## The heap census (`heapcensus`, sim)
+
+Where the histogram answers "who is churning" (cumulative alloc counts since
+boot), the census answers **"who is holding the bytes right now"** — a
+live-set snapshot, attributed to code constructs. Printed with every
+`memstats`/exit snapshot and on demand via `heapcensus`:
+
+```text
+[memmon] census obj: n=44 bytes=3312 classes=25
+[memmon] census obj top: picodroid/hardware/Sensor=5n/540B picoenvmon/data/SensorRingBuffer=5n/380B ...
+[memmon] census arr: ref=7n/792B(inl 5) float=12n/1680B(inl 7) byte=8n/10824B(inl 0) ... dead=0B slack=480B
+[memmon] census str: dyn n=32 len=667 cap=677 slack=10 buckets=14/10/8/0/0/0 top_cap=39/39/38/38
+[memmon] census side: lists=1n/64B maps=0n/0B sb=0B lambda=1n/16B exc=0B
+[memmon] census classmeta main: 62/161 parsedB=92255 devB~=49387 tableB~=3240
+[memmon] census classmeta child picoenvmon/net/NetworkManager: 11/161 parsedB=16123 devB~=8735 tableB~=5140
+```
+
+- `census obj` / `obj top` — live objects bucketed by class, `count`n/`bytes`B
+  (slot + field span, the `live_bytes` accounting), top-8 by retained bytes.
+- `census arr` — live arrays by element type; `(inl N)` = arrays small enough
+  to live inline in the 40 B slot (no arena payload). `dead` = swept arena
+  spans awaiting compaction, `slack` = reserved-but-unwritten arena capacity.
+- `census str` — dynamic strings: logical `len` vs pinned `cap` (`slack` is
+  StringBuilder growth slack carried into the interned buffer), a length
+  histogram (≤16/≤32/≤64/≤128/≤256/>256), and the 4 largest capacities.
+- `census side` — bytes the `live=` figure does **not** include: ArrayList
+  (`lists`) and HashMap/HashSet (`maps`) backing buffers, StringBuilder text
+  (`sb`), lambda captures, exception tables.
+- `census classmeta` — per-executor parsed-class metadata: `parsed/total`
+  classes, `parsedB` = bytes in this process (what the sim arena pays),
+  `devB~` = 32-bit release re-derivation (4 B usize, 12 B Vec headers, heap_4
+  block headers) — **use `devB~` for device sizing decisions**, the host
+  figure is ~2× inflated by pointer width. `tableB~` = the registration
+  table itself. One `child` row per live `Thread.start`/bg-pool executor
+  (each child's parsed set is a full duplicate of the main one — the
+  handover §6 lever; children register via `mem_diag::register_child_jvm`).
 
 ## The growth sentinel
 

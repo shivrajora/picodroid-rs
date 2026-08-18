@@ -430,6 +430,16 @@ fn handle_control_line(line: &str) {
         return;
     }
 
+    if cmd.eq_ignore_ascii_case("heapcensus") {
+        // Same request-flag discipline as `memstats`: the census walks the
+        // heaps, so only the main task may run it.
+        #[cfg(feature = "mem-diag")]
+        crate::mem_diag::request_census();
+        #[cfg(not(feature = "mem-diag"))]
+        println!("[sim] heapcensus: built without mem-diag (rebuild with sim.sh --mem-diag)");
+        return;
+    }
+
     if cmd.eq_ignore_ascii_case("touch") {
         handle_touch_command(&mut it);
         return;
@@ -669,7 +679,7 @@ fn spawn_control_channel() {
          'touch down|move <x> <y>', 'touch up', \
          'input keyevent|dpad|back|tap|swipe …' (Android-verb, matches 'pdb input'){}",
         if cfg!(feature = "mem-diag") {
-            ", 'memstats'"
+            ", 'memstats', 'heapcensus'"
         } else {
             ""
         }

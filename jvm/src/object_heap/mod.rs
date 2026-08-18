@@ -807,6 +807,94 @@ impl ObjectHeap {
         }
         total
     }
+
+    /// Number of classes in the intern table — sizes a
+    /// [`Self::census_by_class`] output buffer.
+    #[cfg(feature = "mem-diag")]
+    pub fn class_count(&self) -> usize {
+        self.class_table.len()
+    }
+
+    /// Live-set census bucketed by class: `out[class_idx]` accumulates the
+    /// count and pinned bytes (slot + field span, the [`Self::live_bytes`]
+    /// accounting) of every live object of that class. Unlike the alloc
+    /// histogram — cumulative churn since boot — this is a snapshot of what
+    /// is retained right now. Caller supplies a zeroed `out` sized from
+    /// [`Self::class_count`]; the heap side never allocates (monitor rule).
+    #[cfg(feature = "mem-diag")]
+    pub fn census_by_class(&self, out: &mut [ClassCensus]) {
+        const PER_OBJECT: u32 = core::mem::size_of::<Option<JvmObject>>() as u32;
+        const PER_FIELD: u32 = core::mem::size_of::<Value>() as u32;
+        for i in 0..self.objects.len() {
+            if let Some(Some(obj)) = self.objects.get(i) {
+                if let Some(row) = out.get_mut(obj.class_idx as usize) {
+                    row.count += 1;
+                    row.bytes += PER_OBJECT + obj.fields_cap as u32 * PER_FIELD;
+                }
+            }
+        }
+    }
+
+    /// Bytes pinned by the ObjectHeap's side tables — storage that
+    /// [`Self::live_bytes`] does NOT count: ArrayList/HashMap backing
+    /// buffers, the StringBuilder text stack, lambda captures, and the
+    /// exception tables. Payload bytes only (element size × capacity);
+    /// the containers' own Vec headers are pointer-width-dependent and
+    /// excluded so the figure reads the same on host and device.
+    #[cfg(feature = "mem-diag")]
+    pub fn side_table_census(&self) -> SideTableCensus {
+        const PER_VALUE: u32 = core::mem::size_of::<Value>() as u32;
+        let mut c = SideTableCensus::default();
+        for buf in self.list_bufs.iter().flatten() {
+            c.list_count += 1;
+            c.list_bytes += buf.capacity() as u32 * PER_VALUE;
+        }
+        for buf in self.map_bufs.iter().flatten() {
+            c.map_count += 1;
+            c.map_bytes += buf.capacity() as u32 * 2 * PER_VALUE;
+        }
+        for buf in &self.sb_stack {
+            c.sb_bytes += buf.capacity() as u32;
+        }
+        for (_, proxy) in &self.lambda_proxies {
+            c.lambda_count += 1;
+            c.lambda_bytes += proxy.captures.capacity() as u32 * PER_VALUE;
+        }
+        // Exception tables: entry pairs are 4 B each; suppressed lists add
+        // their inner u16 capacity.
+        c.exc_bytes += (self.exception_messages.len() as u32 + self.exception_causes.len() as u32)
+            * 2
+            * core::mem::size_of::<u16>() as u32;
+        for (_, list) in &self.suppressed {
+            c.exc_bytes += 2 * core::mem::size_of::<u16>() as u32
+                + list.capacity() as u32 * core::mem::size_of::<u16>() as u32;
+        }
+        c
+    }
+}
+
+/// One row of the live-heap census: live-object count and pinned bytes for a
+/// single `class_idx` (see [`ObjectHeap::census_by_class`]).
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Default)]
+pub struct ClassCensus {
+    pub count: u32,
+    pub bytes: u32,
+}
+
+/// Byte totals for the ObjectHeap side tables that `live_bytes` misses (see
+/// [`ObjectHeap::side_table_census`]).
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Default)]
+pub struct SideTableCensus {
+    pub list_count: u32,
+    pub list_bytes: u32,
+    pub map_count: u32,
+    pub map_bytes: u32,
+    pub sb_bytes: u32,
+    pub lambda_count: u32,
+    pub lambda_bytes: u32,
+    pub exc_bytes: u32,
 }
 
 /// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.

@@ -272,6 +272,44 @@ impl StringTable {
         total
     }
 
+    /// Census of the dynamic-string region: live count, logical length vs
+    /// pinned capacity (the gap is StringBuilder growth slack carried into
+    /// the interned buffer — `intern_dyn_owned` takes the Vec by move), a
+    /// length histogram, and the largest capacities. Fixed-size output — no
+    /// allocation (monitor rule). Static strings are Flash and cost nothing.
+    #[cfg(feature = "mem-diag")]
+    pub fn dyn_census(&self) -> DynStringCensus {
+        let mut c = DynStringCensus::default();
+        for di in 0..self.dyn_bufs.len() {
+            if let Some(buf) = &self.dyn_bufs[di] {
+                c.live += 1;
+                c.len_bytes += buf.len() as u32;
+                c.cap_bytes += buf.capacity() as u32;
+                let bucket = match buf.len() {
+                    0..=16 => 0,
+                    17..=32 => 1,
+                    33..=64 => 2,
+                    65..=128 => 3,
+                    129..=256 => 4,
+                    _ => 5,
+                };
+                c.len_buckets[bucket] += 1;
+                // Keep the four largest capacities (insertion into a fixed
+                // descending array).
+                let cap = buf.capacity() as u32;
+                let n = c.top_caps.len();
+                for i in 0..n {
+                    if cap > c.top_caps[i] {
+                        c.top_caps.copy_within(i..n - 1, i + 1);
+                        c.top_caps[i] = cap;
+                        break;
+                    }
+                }
+            }
+        }
+        c
+    }
+
     /// Resolve a Reference index to a `&str`.
     pub fn resolve(&self, idx: u16) -> Option<&str> {
         let i = idx as usize;
@@ -303,6 +341,18 @@ impl StringTable {
         let slice = unsafe { core::slice::from_raw_parts(ptr, self.lens[i] as usize) };
         core::str::from_utf8(slice).ok()
     }
+}
+
+/// Snapshot of the dynamic-string region (see [`StringTable::dyn_census`]).
+/// `len_buckets` boundaries: ≤16 / ≤32 / ≤64 / ≤128 / ≤256 / >256 bytes.
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Default)]
+pub struct DynStringCensus {
+    pub live: u32,
+    pub len_bytes: u32,
+    pub cap_bytes: u32,
+    pub len_buckets: [u32; 6],
+    pub top_caps: [u32; 4],
 }
 
 #[cfg(test)]

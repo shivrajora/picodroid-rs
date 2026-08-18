@@ -530,7 +530,7 @@ fn execute_frames<H: NativeMethodHandler>(
             {
                 let post_gc_live =
                     ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
-                ex.gc_state.note_post_gc_live(post_gc_live);
+                ex.gc_state.note_gc_cycle(freed, pre_gc_used, post_gc_live);
                 if crate::mem_diag::offensive() {
                     if let Err(m) =
                         crate::mem_diag::integrity_check(ex.objects, ex.arrays, ex.strings)

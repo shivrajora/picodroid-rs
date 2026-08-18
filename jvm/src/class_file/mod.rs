@@ -156,6 +156,72 @@ impl ClassFile {
     pub(crate) fn scanned_name(&self) -> &'static [u8] {
         self.name
     }
+
+    /// Approximate RAM held by this class's lazily-parsed metadata, as
+    /// `(host_bytes, device_bytes)`. `None` when the parse has not run —
+    /// an unparsed entry costs only its `ClassFile` struct in the class
+    /// table.
+    ///
+    /// `host_bytes` is what this process actually pays (real `size_of` /
+    /// capacities — the figure the sim's modeled arena sees). Pointer-width
+    /// parts differ 2× on the 64-bit host, so `device_bytes` re-derives the
+    /// 32-bit release layout (4-byte usize, 12-byte Vec headers) and adds
+    /// one 8-byte heap_4 block header per real allocation — use the device
+    /// figure for sizing decisions.
+    #[cfg(feature = "mem-diag")]
+    pub fn parsed_metadata_bytes(&self) -> Option<(usize, usize)> {
+        // Device layout constants (32-bit release):
+        /// heap_4 BlockLink_t header per allocation.
+        const DEV_HDR: usize = 8;
+        /// `Parsed`: 6 Vec headers (12 B) + 3 u16 scalars, padded.
+        const DEV_PARSED: usize = 80;
+        /// `MethodInfo` without the debug-only lnt fields: 7 scalars (18 B)
+        /// + exception-table Vec header (12 B), padded to 4.
+        const DEV_METHOD_INFO: usize = 32;
+        /// `BootstrapMethod`: u16 + Vec header, padded.
+        const DEV_BOOTSTRAP: usize = 16;
+        /// Payload bytes -> device cost including the block header (empty
+        /// Vecs don't allocate).
+        fn dev_alloc(payload: usize) -> usize {
+            if payload > 0 {
+                payload + DEV_HDR
+            } else {
+                0
+            }
+        }
+
+        let p = self.parsed.get()?;
+
+        let mut host = core::mem::size_of::<Parsed>();
+        host += p.cp_offsets.capacity() * core::mem::size_of::<usize>();
+        host += p.cp_tags.capacity();
+        host += p.methods.capacity() * core::mem::size_of::<MethodInfo>();
+        host += p.fields.capacity() * core::mem::size_of::<FieldInfo>();
+        host += p.static_fields.capacity() * core::mem::size_of::<FieldInfo>();
+        host += p.interfaces.capacity() * core::mem::size_of::<u16>();
+        host += p.bootstrap_methods.capacity() * core::mem::size_of::<BootstrapMethod>();
+
+        let mut dev = DEV_PARSED + DEV_HDR; // the Box allocation
+        dev += dev_alloc(p.cp_offsets.capacity() * 4);
+        dev += dev_alloc(p.cp_tags.capacity());
+        dev += dev_alloc(p.methods.capacity() * DEV_METHOD_INFO);
+        dev += dev_alloc(p.fields.capacity() * 4);
+        dev += dev_alloc(p.static_fields.capacity() * 4);
+        dev += dev_alloc(p.interfaces.capacity() * 2);
+        dev += dev_alloc(p.bootstrap_methods.capacity() * DEV_BOOTSTRAP);
+
+        for m in &p.methods {
+            let payload = m.exception_table.capacity() * core::mem::size_of::<ExceptionEntry>();
+            host += payload;
+            dev += dev_alloc(payload); // ExceptionEntry is 8 B on all targets
+        }
+        for b in &p.bootstrap_methods {
+            let payload = b.arguments.capacity() * core::mem::size_of::<u16>();
+            host += payload;
+            dev += dev_alloc(payload);
+        }
+        Some((host, dev))
+    }
 }
 
 struct Cursor<'a> {

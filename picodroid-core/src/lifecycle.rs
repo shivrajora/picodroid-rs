@@ -336,7 +336,7 @@ pub(crate) fn run_activity(
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.
                 #[cfg(feature = "mem-diag")]
-                crate::mem_diag::on_tick(heap, handler);
+                crate::mem_diag::on_tick(jvm, heap, handler);
 
                 // Idle GC (see IDLE_GC_TICKS above): sub-threshold garbage is
                 // collected once allocations have stopped for ~2 s.
