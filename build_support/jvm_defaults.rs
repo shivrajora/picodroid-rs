@@ -47,3 +47,5 @@ pub const PRERESERVE_ARR_CHUNKS: JvmTunable = JvmTunable::new(0, 0, 64);
 pub const PRERESERVE_STR_CHUNKS: JvmTunable = JvmTunable::new(0, 0, 64);
 pub const PRERESERVE_FIELDS_VALUES: JvmTunable = JvmTunable::new(0, 0, 65536);
 pub const PRERESERVE_ARENA_VALUES: JvmTunable = JvmTunable::new(0, 0, 65536);
+/// Packed byte-array arena (`ArrayHeap::arena8`), in bytes.
+pub const PRERESERVE_ARENA8_BYTES: JvmTunable = JvmTunable::new(0, 0, 65536);

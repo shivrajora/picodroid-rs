@@ -34,15 +34,49 @@ fn slots_per_elem(atype: u8) -> u16 {
     }
 }
 
-/// Array data stored either inline (small arrays) or in the shared arena.
+/// Element types stored packed at 1 byte per element (in `arena8` /
+/// `Inline8`) instead of one i32 slot each — a 75 % payload saving on every
+/// `byte[]`/`boolean[]`. Semantics are unchanged: `bastore` already
+/// truncates to `i8` before store, and `load` sign-extends back.
+/// `char[]`/`short[]` (2 B/elem) are a noted follow-up.
+#[inline]
+fn is_packed(atype: u8) -> bool {
+    matches!(atype, ATYPE_BYTE | ATYPE_BOOLEAN)
+}
+
+/// Inline capacity of a packed array, in bytes. Sized to exactly fill the
+/// space the i32 `Inline` buffer occupies, so the packed variants cannot
+/// grow `JvmArray` (the 40-byte OBJ-05 slot assert).
+const INLINE8: usize = INLINE_DATA * 4;
+
+/// Array data stored either inline (small arrays) or in a shared arena.
 ///
-/// Small arrays (<= 8 elements) are stored inline to avoid arena overhead.
-/// Large arrays store an (offset, len) pair pointing into `ArrayHeap::arena`,
-/// a single contiguous `Vec<i32>` that eliminates per-array FreeRTOS
-/// malloc/free churn — the dominant source of heap fragmentation.
+/// Small arrays are stored inline to avoid arena overhead. Large arrays
+/// store an (offset, len) pair pointing into a single contiguous arena Vec,
+/// which eliminates per-array FreeRTOS malloc/free churn — the dominant
+/// source of heap fragmentation. `byte[]`/`boolean[]` use the packed
+/// `Inline8`/`Arena8` forms ([`is_packed`]): 1 byte per element in
+/// `ArrayHeap::arena8`; everything else uses i32 slots in
+/// `ArrayHeap::arena`.
 enum ArrayData {
-    Inline { buf: [i32; INLINE_DATA], len: u16 },
-    Arena { offset: u32, len: u16 },
+    Inline {
+        buf: [i32; INLINE_DATA],
+        len: u16,
+    },
+    Arena {
+        offset: u32,
+        len: u16,
+    },
+    /// Packed small `byte[]`/`boolean[]`; `len` is in bytes (= elements).
+    Inline8 {
+        buf: [u8; INLINE8],
+        len: u16,
+    },
+    /// Packed large `byte[]`/`boolean[]` span in `ArrayHeap::arena8`.
+    Arena8 {
+        offset: u32,
+        len: u16,
+    },
 }
 
 struct JvmArray {
@@ -57,6 +91,10 @@ pub struct ArrayHeap {
     /// Contiguous arena for large-array element data.
     /// All `ArrayData::Arena` entries index into this Vec.
     arena: Vec<i32>,
+    /// Contiguous byte arena for packed `byte[]`/`boolean[]` payloads.
+    /// All `ArrayData::Arena8` entries index into this Vec. Compacted after
+    /// GC like `arena`.
+    arena8: Vec<u8>,
     /// Allocations since the interpreter last folded this into GC pacing
     /// (see `Executor::fold_native_alloc_events`).
     alloc_events: u16,
@@ -68,6 +106,7 @@ impl ArrayHeap {
             arrays: ChunkedSlots::new(),
             first_free: 0,
             arena: Vec::new(),
+            arena8: Vec::new(),
             alloc_events: 0,
         }
     }
@@ -99,28 +138,46 @@ impl ArrayHeap {
         // `atomic_section` module docs).
         let _atomic = crate::atomic_section::AtomicSection::enter();
         self.alloc_events = self.alloc_events.saturating_add(1);
-        let slots_per_elem = slots_per_elem(atype) as u32;
-        let phys_u32 = (len as u32).checked_mul(slots_per_elem)?;
-        if phys_u32 > u16::MAX as u32 {
-            return None;
-        }
-        let phys = phys_u32 as u16;
-        let data = if (phys as usize) <= INLINE_DATA {
-            ArrayData::Inline {
-                buf: [0i32; INLINE_DATA],
-                len: phys,
+        let data = if is_packed(atype) {
+            // Packed byte/boolean payload: 1 byte per element.
+            if (len as usize) <= INLINE8 {
+                ArrayData::Inline8 {
+                    buf: [0u8; INLINE8],
+                    len,
+                }
+            } else {
+                // try_reserve_exact — see the i32-arena comment below.
+                if self.arena8.try_reserve_exact(len as usize).is_err() {
+                    return None; // OOM — caller should trigger GC and retry
+                }
+                let offset = self.arena8.len() as u32;
+                self.arena8.resize(self.arena8.len() + len as usize, 0u8);
+                ArrayData::Arena8 { offset, len }
             }
         } else {
-            let extra = phys as usize;
-            // Use try_reserve_exact to avoid Vec's amortized 2× growth.
-            // On constrained FreeRTOS heaps the doubling can request more
-            // contiguous memory than is available (e.g. 64 KB → 128 KB).
-            if self.arena.try_reserve_exact(extra).is_err() {
-                return None; // OOM — caller should trigger GC and retry
+            let slots_per_elem = slots_per_elem(atype) as u32;
+            let phys_u32 = (len as u32).checked_mul(slots_per_elem)?;
+            if phys_u32 > u16::MAX as u32 {
+                return None;
             }
-            let offset = self.arena.len() as u32;
-            self.arena.resize(self.arena.len() + extra, 0i32);
-            ArrayData::Arena { offset, len: phys }
+            let phys = phys_u32 as u16;
+            if (phys as usize) <= INLINE_DATA {
+                ArrayData::Inline {
+                    buf: [0i32; INLINE_DATA],
+                    len: phys,
+                }
+            } else {
+                let extra = phys as usize;
+                // Use try_reserve_exact to avoid Vec's amortized 2× growth.
+                // On constrained FreeRTOS heaps the doubling can request more
+                // contiguous memory than is available (e.g. 64 KB → 128 KB).
+                if self.arena.try_reserve_exact(extra).is_err() {
+                    return None; // OOM — caller should trigger GC and retry
+                }
+                let offset = self.arena.len() as u32;
+                self.arena.resize(self.arena.len() + extra, 0i32);
+                ArrayData::Arena { offset, len: phys }
+            }
         };
         let new_arr = JvmArray { atype, data };
         // Scan from first_free for a None slot; skip already-occupied prefix.
@@ -139,7 +196,9 @@ impl ArrayHeap {
         Some(idx)
     }
 
-    /// Load element at index `elem` from array `idx`.
+    /// Load element at index `elem` from array `idx`. Packed byte/boolean
+    /// elements are sign-extended (`b as i8 as i32`) — for booleans (0/1)
+    /// this is the identity, for bytes it matches `baload`.
     pub fn load(&self, idx: u16, elem: usize) -> Option<i32> {
         let arr = self.arrays.get(idx as usize)?.as_ref()?;
         match &arr.data {
@@ -155,29 +214,60 @@ impl ArrayHeap {
                 }
                 Some(self.arena[*offset as usize + elem])
             }
+            ArrayData::Inline8 { buf, len } => {
+                if elem >= *len as usize {
+                    return None;
+                }
+                Some(buf[elem] as i8 as i32)
+            }
+            ArrayData::Arena8 { offset, len } => {
+                if elem >= *len as usize {
+                    return None;
+                }
+                Some(self.arena8[*offset as usize + elem] as i8 as i32)
+            }
         }
     }
 
-    /// Store value at index `elem` in array `idx`.
+    /// Store value at index `elem` in array `idx`. Packed byte/boolean
+    /// storage keeps the low 8 bits — `bastore` truncates to `i8` before
+    /// calling here, so nothing observable changes.
     pub fn store(&mut self, idx: u16, elem: usize, val: i32) -> Option<()> {
         // Read the data variant and copy out what we need, releasing the
         // immutable borrow on self.arrays before mutating.
         let arr = self.arrays.get(idx as usize)?.as_ref()?;
-        let (is_inline, offset, len) = match &arr.data {
-            ArrayData::Inline { len, .. } => (true, 0u32, *len),
-            ArrayData::Arena { offset, len } => (false, *offset, *len),
+        enum Loc {
+            Inline,
+            Arena(u32),
+            Inline8,
+            Arena8(u32),
+        }
+        let (loc, len) = match &arr.data {
+            ArrayData::Inline { len, .. } => (Loc::Inline, *len),
+            ArrayData::Arena { offset, len } => (Loc::Arena(*offset), *len),
+            ArrayData::Inline8 { len, .. } => (Loc::Inline8, *len),
+            ArrayData::Arena8 { offset, len } => (Loc::Arena8(*offset), *len),
         };
         if elem >= len as usize {
             return None;
         }
-        if is_inline {
-            if let Some(Some(arr)) = self.arrays.get_mut(idx as usize) {
-                if let ArrayData::Inline { buf, .. } = &mut arr.data {
-                    buf[elem] = val;
+        match loc {
+            Loc::Inline => {
+                if let Some(Some(arr)) = self.arrays.get_mut(idx as usize) {
+                    if let ArrayData::Inline { buf, .. } = &mut arr.data {
+                        buf[elem] = val;
+                    }
                 }
             }
-        } else {
-            self.arena[offset as usize + elem] = val;
+            Loc::Arena(offset) => self.arena[offset as usize + elem] = val,
+            Loc::Inline8 => {
+                if let Some(Some(arr)) = self.arrays.get_mut(idx as usize) {
+                    if let ArrayData::Inline8 { buf, .. } = &mut arr.data {
+                        buf[elem] = val as u8;
+                    }
+                }
+            }
+            Loc::Arena8(offset) => self.arena8[offset as usize + elem] = val as u8,
         }
         Some(())
     }
@@ -189,6 +279,9 @@ impl ArrayHeap {
         let phys = match &arr.data {
             ArrayData::Inline { len, .. } => *len,
             ArrayData::Arena { len, .. } => *len,
+            // Packed: len is bytes = elements; slots_per_elem is 1.
+            ArrayData::Inline8 { len, .. } => *len,
+            ArrayData::Arena8 { len, .. } => *len,
         };
         Some(phys / slots_per_elem(arr.atype))
     }
@@ -224,12 +317,36 @@ impl ArrayHeap {
         let len = self.length(idx)?;
         // Copy the data into a temporary buffer before allocating (to avoid
         // borrowing conflicts during allocation).
-        let data: alloc::vec::Vec<i32> = self.data_slice(idx).to_vec();
-        let new_idx = self.alloc(atype, len)?;
-        for (i, v) in data.iter().enumerate() {
-            self.store(new_idx, i, *v);
+        if is_packed(atype) {
+            let data: alloc::vec::Vec<u8> = self.packed_slice(idx).to_vec();
+            let new_idx = self.alloc(atype, len)?;
+            for (i, b) in data.iter().enumerate() {
+                self.store(new_idx, i, *b as i8 as i32);
+            }
+            Some(new_idx)
+        } else {
+            let data: alloc::vec::Vec<i32> = self.data_slice(idx).to_vec();
+            let new_idx = self.alloc(atype, len)?;
+            for (i, v) in data.iter().enumerate() {
+                self.store(new_idx, i, *v);
+            }
+            Some(new_idx)
         }
-        Some(new_idx)
+    }
+
+    /// Raw byte view of a packed array's payload (empty for non-packed).
+    fn packed_slice(&self, idx: u16) -> &[u8] {
+        match self.arrays.get(idx as usize).and_then(|a| a.as_ref()) {
+            Some(arr) => match &arr.data {
+                ArrayData::Inline8 { buf, len } => &buf[..*len as usize],
+                ArrayData::Arena8 { offset, len } => {
+                    let o = *offset as usize;
+                    &self.arena8[o..o + *len as usize]
+                }
+                _ => &[],
+            },
+            None => &[],
+        }
     }
 
     // ── GC support ────────────────────────────────────────────────────────────
@@ -245,13 +362,23 @@ impl ArrayHeap {
         self.arena.capacity()
     }
 
+    /// Current packed byte-arena capacity in bytes.
+    pub fn arena8_capacity(&self) -> usize {
+        self.arena8.capacity()
+    }
+
     /// Boot-time pre-reservation of slot chunks + payload-arena capacity —
     /// see `ObjectHeap::prereserve` for the fragmentation rationale.
-    pub fn prereserve(&mut self, slot_chunks: usize, arena_values: usize) {
+    /// `arena8_bytes` sizes the packed byte-array arena.
+    pub fn prereserve(&mut self, slot_chunks: usize, arena_values: usize, arena8_bytes: usize) {
         self.arrays.reserve_chunks(slot_chunks);
         let target = arena_values.saturating_sub(self.arena.len());
         if self.arena.capacity() < arena_values {
             let _ = self.arena.try_reserve_exact(target);
+        }
+        let target8 = arena8_bytes.saturating_sub(self.arena8.len());
+        if self.arena8.capacity() < arena8_bytes {
+            let _ = self.arena8.try_reserve_exact(target8);
         }
     }
 
@@ -279,8 +406,13 @@ impl ArrayHeap {
         for i in 0..self.arrays.len() {
             if let Some(Some(arr)) = self.arrays.get(i) {
                 total += PER_SLOT;
-                if let ArrayData::Arena { len, .. } = &arr.data {
-                    total += (*len as usize) * core::mem::size_of::<i32>();
+                match &arr.data {
+                    ArrayData::Arena { len, .. } => {
+                        total += (*len as usize) * core::mem::size_of::<i32>();
+                    }
+                    // Packed payload: 1 byte per element.
+                    ArrayData::Arena8 { len, .. } => total += *len as usize,
+                    ArrayData::Inline { .. } | ArrayData::Inline8 { .. } => {}
                 }
             }
         }
@@ -312,10 +444,11 @@ impl ArrayHeap {
                 row.count += 1;
                 row.slot_bytes += PER_SLOT;
                 match &arr.data {
-                    ArrayData::Inline { .. } => row.inline_count += 1,
+                    ArrayData::Inline { .. } | ArrayData::Inline8 { .. } => row.inline_count += 1,
                     ArrayData::Arena { len, .. } => {
                         row.arena_bytes += *len as u32 * core::mem::size_of::<i32>() as u32;
                     }
+                    ArrayData::Arena8 { len, .. } => row.arena_bytes += *len as u32,
                 }
             }
         }
@@ -344,6 +477,16 @@ impl ArrayHeap {
                                 self.arena[start..end].fill(crate::mem_diag::POISON_I32);
                             }
                         }
+                        ArrayData::Inline8 { buf, .. } => {
+                            buf.fill(crate::mem_diag::POISON_BYTE);
+                        }
+                        ArrayData::Arena8 { offset, len } => {
+                            let start = *offset as usize;
+                            let end = start + *len as usize;
+                            if end <= self.arena8.len() {
+                                self.arena8[start..end].fill(crate::mem_diag::POISON_BYTE);
+                            }
+                        }
                     }
                 }
             }
@@ -367,19 +510,24 @@ impl ArrayHeap {
                 return Err("ArrayHeap: free slot below first_free");
             }
         }
+        // Two independent span spaces: i32 arena and packed byte arena.
+        // Spans are only compared within their own arena.
         let arena_len = self.arena.len();
-        let span = |arr: &JvmArray| -> Option<(usize, usize)> {
+        let arena8_len = self.arena8.len();
+        let span = |arr: &JvmArray| -> Option<(bool, usize, usize)> {
             match &arr.data {
-                ArrayData::Arena { offset, len } => Some((*offset as usize, *len as usize)),
-                ArrayData::Inline { .. } => None,
+                ArrayData::Arena { offset, len } => Some((false, *offset as usize, *len as usize)),
+                ArrayData::Arena8 { offset, len } => Some((true, *offset as usize, *len as usize)),
+                ArrayData::Inline { .. } | ArrayData::Inline8 { .. } => None,
             }
         };
         for (i, slot) in self.arrays.iter().enumerate() {
             let Some(a) = slot.as_ref() else { continue };
-            let Some((a_start, a_len)) = span(a) else {
+            let Some((a_packed, a_start, a_len)) = span(a) else {
                 continue;
             };
-            if a_start + a_len > arena_len {
+            let bound = if a_packed { arena8_len } else { arena_len };
+            if a_start + a_len > bound {
                 return Err("ArrayHeap: data span out of arena bounds");
             }
             if a_len == 0 {
@@ -387,10 +535,10 @@ impl ArrayHeap {
             }
             for slot_b in self.arrays.iter().skip(i + 1) {
                 let Some(b) = slot_b.as_ref() else { continue };
-                let Some((b_start, b_len)) = span(b) else {
+                let Some((b_packed, b_start, b_len)) = span(b) else {
                     continue;
                 };
-                if b_len == 0 {
+                if b_len == 0 || b_packed != a_packed {
                     continue;
                 }
                 if a_start < b_start + b_len && b_start < a_start + a_len {
@@ -401,7 +549,10 @@ impl ArrayHeap {
         Ok(())
     }
 
-    /// Return the raw data slice of the array at `idx` (for ATYPE_REF scanning).
+    /// Return the raw i32-slot data slice of the array at `idx` (for
+    /// ATYPE_REF scanning by the GC, and `clone`). Packed byte/boolean
+    /// arrays have no i32 slots and return `&[]` — their only callers are
+    /// the ref-array tracer (never packed) and the packed `clone` arm.
     pub fn data_slice(&self, idx: u16) -> &[i32] {
         match self.arrays.get(idx as usize).and_then(|a| a.as_ref()) {
             Some(arr) => match &arr.data {
@@ -410,6 +561,7 @@ impl ArrayHeap {
                     let o = *offset as usize;
                     &self.arena[o..o + *len as usize]
                 }
+                ArrayData::Inline8 { .. } | ArrayData::Arena8 { .. } => &[],
             },
             None => &[],
         }
@@ -448,6 +600,34 @@ impl ArrayHeap {
             write_pos += count;
         }
         self.arena.truncate(write_pos);
+
+        // Second pass: the packed byte arena, same scratch buffer.
+        buf.clear();
+        for (i, slot) in self.arrays.iter().enumerate() {
+            if let Some(arr) = slot.as_ref() {
+                if let ArrayData::Arena8 { offset, len } = &arr.data {
+                    buf.push((i, *offset, *len));
+                }
+            }
+        }
+        buf.sort_unstable_by_key(|&(_, offset, _)| offset);
+
+        let mut write_pos: usize = 0;
+        for &(slot_idx, read_offset, len) in buf.iter() {
+            let read_pos = read_offset as usize;
+            let count = len as usize;
+            if read_pos != write_pos {
+                self.arena8
+                    .copy_within(read_pos..read_pos + count, write_pos);
+            }
+            if let Some(Some(arr)) = self.arrays.get_mut(slot_idx) {
+                if let ArrayData::Arena8 { offset, .. } = &mut arr.data {
+                    *offset = write_pos as u32;
+                }
+            }
+            write_pos += count;
+        }
+        self.arena8.truncate(write_pos);
     }
 }
 
@@ -509,6 +689,106 @@ mod tests {
         heap.alloc(ATYPE_INT, 4);
         assert_eq!(heap.store(0, 2, 99), Some(()));
         assert_eq!(heap.load(0, 2), Some(99));
+    }
+
+    // ── Packed byte[]/boolean[] (Inline8/Arena8) ────────────────────────────
+
+    #[test]
+    fn packed_byte_roundtrip_inline_and_arena() {
+        let mut heap = ArrayHeap::new();
+        let small = heap.alloc(ATYPE_BYTE, 8).unwrap(); // inline
+        let big = heap.alloc(ATYPE_BYTE, 200).unwrap(); // arena8
+        for (idx, len) in [(small, 8usize), (big, 200usize)] {
+            for i in 0..len {
+                assert_eq!(heap.store(idx, i, (i as i32 % 251) - 128), Some(()));
+            }
+            for i in 0..len {
+                let expect = ((i as i32 % 251) - 128) as i8 as i32;
+                assert_eq!(heap.load(idx, i), Some(expect), "idx={idx} i={i}");
+            }
+            assert_eq!(heap.length(idx), Some(len as u16));
+        }
+        // Payload accounting: 200-byte array costs 200 arena8 bytes, not 800.
+        assert_eq!(heap.live_bytes(), 2 * 40 + 200);
+    }
+
+    #[test]
+    fn packed_byte_sign_extends_on_load() {
+        let mut heap = ArrayHeap::new();
+        let idx = heap.alloc(ATYPE_BYTE, 4).unwrap();
+        heap.store(idx, 0, -1).unwrap();
+        heap.store(idx, 1, 0x7f).unwrap();
+        heap.store(idx, 2, -128).unwrap();
+        assert_eq!(heap.load(idx, 0), Some(-1));
+        assert_eq!(heap.load(idx, 1), Some(127));
+        assert_eq!(heap.load(idx, 2), Some(-128));
+    }
+
+    #[test]
+    fn packed_boolean_roundtrip() {
+        let mut heap = ArrayHeap::new();
+        let idx = heap.alloc(ATYPE_BOOLEAN, 100).unwrap();
+        heap.store(idx, 0, 1).unwrap();
+        heap.store(idx, 99, 1).unwrap();
+        assert_eq!(heap.load(idx, 0), Some(1));
+        assert_eq!(heap.load(idx, 50), Some(0));
+        assert_eq!(heap.load(idx, 99), Some(1));
+    }
+
+    #[test]
+    fn packed_clone_copies_payload() {
+        let mut heap = ArrayHeap::new();
+        let idx = heap.alloc(ATYPE_BYTE, 64).unwrap();
+        for i in 0..64 {
+            heap.store(idx, i, i as i32).unwrap();
+        }
+        let copy = heap.clone(idx).unwrap();
+        heap.store(idx, 0, 42).unwrap(); // clone must be independent
+        assert_eq!(heap.load(copy, 0), Some(0));
+        for i in 1..64 {
+            assert_eq!(heap.load(copy, i), Some(i as i32));
+        }
+    }
+
+    #[test]
+    fn packed_compaction_reclaims_and_relocates() {
+        let mut heap = ArrayHeap::new();
+        let a = heap.alloc(ATYPE_BYTE, 100).unwrap();
+        let b = heap.alloc(ATYPE_BYTE, 100).unwrap();
+        let c = heap.alloc(ATYPE_BYTE, 100).unwrap();
+        for i in 0..100 {
+            heap.store(a, i, 1).unwrap();
+            heap.store(b, i, 2).unwrap();
+            heap.store(c, i, 3).unwrap();
+        }
+        heap.free(b);
+        let mut buf = Vec::new();
+        heap.compact_arena(&mut buf);
+        // b's 100 bytes reclaimed; a and c intact after the slide.
+        assert_eq!(heap.arena8.len(), 200);
+        for i in 0..100 {
+            assert_eq!(heap.load(a, i), Some(1));
+            assert_eq!(heap.load(c, i), Some(3));
+        }
+    }
+
+    #[test]
+    fn packed_and_i32_arenas_are_independent() {
+        let mut heap = ArrayHeap::new();
+        let ints = heap.alloc(ATYPE_INT, 50).unwrap();
+        let bytes = heap.alloc(ATYPE_BYTE, 50).unwrap();
+        for i in 0..50 {
+            heap.store(ints, i, 1000 + i as i32).unwrap();
+            heap.store(bytes, i, i as i32).unwrap();
+        }
+        let mut buf = Vec::new();
+        heap.compact_arena(&mut buf); // both passes run, nothing freed
+        for i in 0..50 {
+            assert_eq!(heap.load(ints, i), Some(1000 + i as i32));
+            assert_eq!(heap.load(bytes, i), Some(i as i32));
+        }
+        assert_eq!(heap.arena.len(), 50);
+        assert_eq!(heap.arena8.len(), 50);
     }
 
     #[test]

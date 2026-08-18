@@ -406,6 +406,11 @@ pub fn emit_jvm_state_config(out: &Path, board: &Option<ResolvedBoard>) {
         "prereserve_arena_values",
         &jvm_defaults::PRERESERVE_ARENA_VALUES,
     );
+    let arena8 = read_jvm_u32(
+        jvm,
+        "prereserve_arena8_bytes",
+        &jvm_defaults::PRERESERVE_ARENA8_BYTES,
+    );
 
     write_generated(
         out,
@@ -416,7 +421,8 @@ pub fn emit_jvm_state_config(out: &Path, board: &Option<ResolvedBoard>) {
              pub const PRERESERVE_ARR_CHUNKS: usize = {arr};\n\
              pub const PRERESERVE_STR_CHUNKS: usize = {str_chunks};\n\
              pub const PRERESERVE_FIELDS_VALUES: usize = {fields};\n\
-             pub const PRERESERVE_ARENA_VALUES: usize = {arena};\n"
+             pub const PRERESERVE_ARENA_VALUES: usize = {arena};\n\
+             pub const PRERESERVE_ARENA8_BYTES: usize = {arena8};\n"
         ),
     );
 }

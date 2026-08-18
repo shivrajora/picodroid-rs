@@ -214,6 +214,7 @@ pub fn run_app(apk_data: &[u8]) {
         prereserve_config::PRERESERVE_FIELDS_VALUES,
         prereserve_config::PRERESERVE_ARR_CHUNKS,
         prereserve_config::PRERESERVE_ARENA_VALUES,
+        prereserve_config::PRERESERVE_ARENA8_BYTES,
         prereserve_config::PRERESERVE_STR_CHUNKS,
     );
     crate::lifecycle::reset_dispatch_event_state();

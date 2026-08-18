@@ -19,6 +19,7 @@ The Picodroid JVM exposes five compile-time knobs that let a board choose its ow
 | `prereserve_str_chunks` | 0 | 0..=64 | (as above, dyn-string slots) | Default (off) | (as above) |
 | `prereserve_fields_values` | 0 | 0..=65536 | Boot-claimed fields-arena capacity (`Value` slots) | Default (off) | (as above) |
 | `prereserve_arena_values` | 0 | 0..=65536 | Boot-claimed array-arena capacity (`i32` slots) | Default (off) | (as above) |
+| `prereserve_arena8_bytes` | 0 | 0..=65536 | Boot-claimed packed byte-array arena capacity (bytes; backs `byte[]`/`boolean[]` at 1 B per element) | Default (off) | (as above) |
 
 The first five are compile-time `pub const`s, inlined at every use site — zero RAM cost; changing them changes the binary, not the running JVM. The `prereserve_*` keys instead size a one-shot allocation at app start.
 

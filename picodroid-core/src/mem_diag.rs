@@ -61,7 +61,7 @@ struct MonitorState {
     /// Last-reported storage fingerprint (chunk counts + arena capacities);
     /// the `storage` line prints only when it changes, pinpointing exactly
     /// which window mid-churn growth happened in (PEM-3 sizing data).
-    prev_storage: (usize, usize, usize, usize, usize),
+    prev_storage: (usize, usize, usize, usize, usize, usize),
 }
 
 impl MonitorState {
@@ -82,7 +82,7 @@ impl MonitorState {
             prev_gc_count: 0,
             prev_gc_freed: 0,
             prev_gc_bytes: 0,
-            prev_storage: (0, 0, 0, 0, 0),
+            prev_storage: (0, 0, 0, 0, 0, 0),
         }
     }
 }
@@ -715,6 +715,7 @@ fn sample_window(heap: &mut SharedJvmHeap, _handler: &PicodroidNativeHandler) {
         heap.strings.dyn_chunk_count(),
         heap.objects.fields_arena_capacity(),
         heap.arrays.arena_capacity(),
+        heap.arrays.arena8_capacity(),
     );
     if storage != st.prev_storage {
         st.prev_storage = storage;
@@ -722,19 +723,20 @@ fn sample_window(heap: &mut SharedJvmHeap, _handler: &PicodroidNativeHandler) {
         {
             let _b = crate::host::heap_bypass();
             println!(
-                "[memmon] storage w={} obj_chunks={} arr_chunks={} str_chunks={} fields_cap={} arena_cap={}",
-                st.window_index, storage.0, storage.1, storage.2, storage.3, storage.4
+                "[memmon] storage w={} obj_chunks={} arr_chunks={} str_chunks={} fields_cap={} arena_cap={} arena8_cap={}",
+                st.window_index, storage.0, storage.1, storage.2, storage.3, storage.4, storage.5
             );
         }
         #[cfg(not(feature = "sim"))]
         defmt::info!(
-            "memmon: storage w={=u32} obj_chunks={=usize} arr_chunks={=usize} str_chunks={=usize} fields_cap={=usize} arena_cap={=usize}",
+            "memmon: storage w={=u32} obj_chunks={=usize} arr_chunks={=usize} str_chunks={=usize} fields_cap={=usize} arena_cap={=usize} arena8_cap={=usize}",
             st.window_index,
             storage.0,
             storage.1,
             storage.2,
             storage.3,
-            storage.4
+            storage.4,
+            storage.5
         );
     }
 

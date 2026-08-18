@@ -154,10 +154,12 @@ impl SharedJvmHeap {
         fields_values: usize,
         arr_chunks: usize,
         arena_values: usize,
+        arena8_bytes: usize,
         str_chunks: usize,
     ) {
         self.objects.prereserve(obj_chunks, fields_values);
-        self.arrays.prereserve(arr_chunks, arena_values);
+        self.arrays
+            .prereserve(arr_chunks, arena_values, arena8_bytes);
         self.strings.prereserve_dyn(str_chunks);
     }
 
