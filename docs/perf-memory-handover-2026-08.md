@@ -81,6 +81,12 @@ Consequences to measure in the perf session:
 
 ## 3. memmon observability gap — background-thread GCs are invisible
 
+> **FIXED 2026-08-17** (docs/mem-session-2026-08.md, Phase A1): the
+> `gc=/freed=` counters moved to heap-wide `GcState`
+> (`note_gc_cycle`), so child-executor collections are counted; a new
+> `gcb=+N` column reports bytes reclaimed per window. The per-handler
+> counters remain for the Java `Runtime.*` API and the exit summary only.
+
 During the passing 360 KB gate run, `live` visibly oscillated (GC collecting)
 while memmon windows reported `gc=+0 freed=+0`. Cause: each `Thread.start`
 child builds its **own `PicodroidNativeHandler`**, so `report_gc` from
@@ -140,6 +146,12 @@ down documented in the plan: 6 descriptors, 1460 B buffers, 4 segs).
   Re-derive from on-device `memmon: storage` steady state under nav + serving.
 
 ## 6. Biggest heap lever — per-child duplicate class metadata
+
+> **MEASURED AND CLOSED 2026-08-17** (docs/mem-session-2026-08.md, C1): the
+> census priced the NetworkManager child's duplicate at 8,735 B parsed +
+> 5,140 B doubling-overshot registration table ≈ **13.9 KB device-estimate**
+> (grows as the child parses more). All executors now share one `Jvm` via
+> `boot::shared_jvm()`; `Jvm::invoke_*` take `&self`. Duplicate = 0.
 
 Every `Thread.start` child builds a **fresh `Jvm` + `load_classes`**
 (`native_handler/os.rs`), i.e. a full duplicate set of parsed class metadata

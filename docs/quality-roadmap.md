@@ -38,7 +38,10 @@ ambiguity instead of removing it.
 
 Capture `print_memory_usage` (`scripts/lib.sh`) per board into a checked-in baseline during CI
 or the nightly run; warn (don't fail) on >2–3% flash/static-RAM growth. Every KB of bloat
-directly shrinks the JVM heap budget that is already ~30 KB short for picoenvmon on RP2350.
+directly shrinks the JVM heap budget for picoenvmon on RP2350. (The old "~30 KB short" figure
+predates the 2026-08-16 measurements — the measured headroom is 20,484 B static on the W board,
+and the 2026-08-17 session recovered ~14 KB of class-metadata duplication plus ~8.5 KB of
+byte[] payload on top; see docs/perf-memory-handover-2026-08.md §5 and docs/mem-session-2026-08.md.)
 **Tradeoff:** legitimate feature growth trips thresholds — keep it report-only to avoid
 baseline-update fatigue.
 
