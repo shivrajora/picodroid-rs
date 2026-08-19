@@ -57,78 +57,137 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
     Ok(None)
 }
 
-/// Generic in-place sort for i32-slot arrays. `widen` converts the raw stored
-/// i32 into a comparable i32 using the array's element type's signedness rules
-/// (e.g. byte[] sign-extends, char[] zero-extends).
-fn sort_i32<F: Fn(i32) -> i32 + Copy>(arrays: &mut ArrayHeap, arr: u16, len: usize, widen: F) {
+// Every primitive `Arrays.sort` overload funnels through one `u64` sort.
+// Rust's sort is generic, so calling `buf.sort()` once per element type
+// monomorphises the whole driftsort per type — the i32/i64/f32/f64 copies
+// cost ~25 KB of flash between them, which the RP2040's program region
+// cannot spare. Instead each element type maps onto an order-preserving
+// `u64` key, so the four call sites share a single sort instantiation and
+// the transform back is exact.
+//
+// Unstable is the right choice here: equal primitives are indistinguishable,
+// and Java's own primitive `Arrays.sort` is a dual-pivot quicksort that
+// makes no stability guarantee either.
+
+/// Order-preserving `i64` → `u64` key: flipping the sign bit puts
+/// two's-complement negatives below positives under unsigned comparison.
+#[inline]
+fn key_from_i64(v: i64) -> u64 {
+    (v as u64) ^ (1 << 63)
+}
+
+#[inline]
+fn i64_from_key(k: u64) -> i64 {
+    (k ^ (1 << 63)) as i64
+}
+
+/// Order-preserving IEEE-754 → key, matching `total_cmp`: negatives invert
+/// (their magnitude bits run backwards), positives lift above them. Falls
+/// out of this: `-0.0 < +0.0`, and NaNs order consistently instead of
+/// making the comparator non-total.
+#[inline]
+fn key_from_f64_bits(b: u64) -> u64 {
+    if b & (1 << 63) != 0 {
+        !b
+    } else {
+        b | (1 << 63)
+    }
+}
+
+#[inline]
+fn f64_bits_from_key(k: u64) -> u64 {
+    if k & (1 << 63) != 0 {
+        k & !(1 << 63)
+    } else {
+        !k
+    }
+}
+
+/// Same transform on 32-bit floats; zero-extending to `u64` preserves the
+/// unsigned ordering, so f32 rides the shared sort too.
+#[inline]
+fn key_from_f32_bits(b: u32) -> u64 {
+    let k = if b & (1 << 31) != 0 {
+        !b
+    } else {
+        b | (1 << 31)
+    };
+    k as u64
+}
+
+#[inline]
+fn f32_bits_from_key(k: u64) -> u32 {
+    let k = k as u32;
+    if k & (1 << 31) != 0 {
+        k & !(1 << 31)
+    } else {
+        !k
+    }
+}
+
+/// The one sort. Small runs use insertion sort to skip quicksort's setup.
+fn sort_keys(buf: &mut [u64]) {
+    if buf.len() < INSERTION_THRESHOLD {
+        for i in 1..buf.len() {
+            let key = buf[i];
+            let mut j = i;
+            while j > 0 && buf[j - 1] > key {
+                buf[j] = buf[j - 1];
+                j -= 1;
+            }
+            buf[j] = key;
+        }
+    } else {
+        buf.sort_unstable();
+    }
+}
+
+/// In-place sort for i32-slot arrays. `widen` converts the raw stored i32
+/// into a comparable i32 using the element type's signedness rules (byte[]
+/// sign-extends, char[] zero-extends). It is a plain `fn` pointer, not a
+/// generic: a generic parameter would monomorphise this loader four times
+/// for no benefit.
+fn sort_i32(arrays: &mut ArrayHeap, arr: u16, len: usize, widen: fn(i32) -> i32) {
     // Pull into a Vec, sort, write back. Cheaper than O(n log n) load/store
     // through the ArrayHeap accessors, and bounded — the array already exists
     // in heap so we know it fits.
-    let mut buf: Vec<i32> = (0..len)
-        .map(|i| widen(arrays.load(arr, i).unwrap_or(0)))
+    let mut buf: Vec<u64> = (0..len)
+        .map(|i| key_from_i64(widen(arrays.load(arr, i).unwrap_or(0)) as i64))
         .collect();
-    if len < INSERTION_THRESHOLD {
-        insertion_sort(&mut buf, |a, b| a.cmp(b));
-    } else {
-        buf.sort();
-    }
-    for (i, v) in buf.into_iter().enumerate() {
-        let _ = arrays.store(arr, i, v);
+    sort_keys(&mut buf);
+    for (i, k) in buf.into_iter().enumerate() {
+        let _ = arrays.store(arr, i, i64_from_key(k) as i32);
     }
 }
 
 fn sort_i64(arrays: &mut ArrayHeap, arr: u16, len: usize) {
-    let mut buf: Vec<i64> = (0..len)
-        .map(|i| arrays.load64(arr, i).unwrap_or(0))
+    let mut buf: Vec<u64> = (0..len)
+        .map(|i| key_from_i64(arrays.load64(arr, i).unwrap_or(0)))
         .collect();
-    if len < INSERTION_THRESHOLD {
-        insertion_sort(&mut buf, |a, b| a.cmp(b));
-    } else {
-        buf.sort();
-    }
-    for (i, v) in buf.into_iter().enumerate() {
-        let _ = arrays.store64(arr, i, v);
+    sort_keys(&mut buf);
+    for (i, k) in buf.into_iter().enumerate() {
+        let _ = arrays.store64(arr, i, i64_from_key(k));
     }
 }
 
 fn sort_f32(arrays: &mut ArrayHeap, arr: u16, len: usize) {
     // Float arrays use 1 i32 slot per element — bit-cast from raw i32.
-    let mut buf: Vec<f32> = (0..len)
-        .map(|i| f32::from_bits(arrays.load(arr, i).unwrap_or(0) as u32))
+    let mut buf: Vec<u64> = (0..len)
+        .map(|i| key_from_f32_bits(arrays.load(arr, i).unwrap_or(0) as u32))
         .collect();
-    if len < INSERTION_THRESHOLD {
-        insertion_sort(&mut buf, f32::total_cmp);
-    } else {
-        buf.sort_by(f32::total_cmp);
-    }
-    for (i, v) in buf.into_iter().enumerate() {
-        let _ = arrays.store(arr, i, v.to_bits() as i32);
+    sort_keys(&mut buf);
+    for (i, k) in buf.into_iter().enumerate() {
+        let _ = arrays.store(arr, i, f32_bits_from_key(k) as i32);
     }
 }
 
 fn sort_f64(arrays: &mut ArrayHeap, arr: u16, len: usize) {
-    let mut buf: Vec<f64> = (0..len)
-        .map(|i| f64::from_bits(arrays.load64(arr, i).unwrap_or(0) as u64))
+    let mut buf: Vec<u64> = (0..len)
+        .map(|i| key_from_f64_bits(arrays.load64(arr, i).unwrap_or(0) as u64))
         .collect();
-    if len < INSERTION_THRESHOLD {
-        insertion_sort(&mut buf, f64::total_cmp);
-    } else {
-        buf.sort_by(f64::total_cmp);
-    }
-    for (i, v) in buf.into_iter().enumerate() {
-        let _ = arrays.store64(arr, i, v.to_bits() as i64);
-    }
-}
-
-fn insertion_sort<T: Copy, F: Fn(&T, &T) -> core::cmp::Ordering>(buf: &mut [T], cmp: F) {
-    for i in 1..buf.len() {
-        let key = buf[i];
-        let mut j = i;
-        while j > 0 && cmp(&buf[j - 1], &key) == core::cmp::Ordering::Greater {
-            buf[j] = buf[j - 1];
-            j -= 1;
-        }
-        buf[j] = key;
+    sort_keys(&mut buf);
+    for (i, k) in buf.into_iter().enumerate() {
+        let _ = arrays.store64(arr, i, f64_bits_from_key(k) as i64);
     }
 }
 

@@ -3656,3 +3656,132 @@ fn builtin_dispatch_classes_subset_of_names() {
         );
     }
 }
+
+/// Every primitive sort funnels through one `u64`-key sort (see
+/// `native::arrays`), so the float key transforms have to reproduce
+/// `total_cmp` exactly — including the cases that make a naive bitwise
+/// comparison wrong: `-0.0` below `+0.0`, negative values running backwards,
+/// and signed NaNs at the two ends.
+#[test]
+fn arrays_sort_float_matches_total_cmp() {
+    use crate::array_heap::ATYPE_FLOAT;
+    let edges: [f32; 11] = [
+        f32::NAN,
+        -f32::NAN,
+        0.0,
+        -0.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        1.5,
+        -1.5,
+        f32::MIN_POSITIVE,
+        -f32::MIN_POSITIVE,
+        42.0,
+    ];
+    // Run both the insertion-sort path (< INSERTION_THRESHOLD) and the
+    // quicksort path by padding the same edge values out past the threshold.
+    for reps in [1usize, 3] {
+        let input: alloc::vec::Vec<f32> = (0..reps).flat_map(|_| edges.iter().copied()).collect();
+        let len = input.len();
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let idx = arrays.alloc(ATYPE_FLOAT, len as u16).unwrap();
+        for (i, v) in input.iter().enumerate() {
+            arrays.store(idx, i, v.to_bits() as i32).unwrap();
+        }
+        arrays_dispatch(
+            "sort",
+            "([F)V",
+            &[Value::ArrayRef(idx)],
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+        )
+        .unwrap();
+        let got: alloc::vec::Vec<u32> = (0..len)
+            .map(|i| arrays.load(idx, i).unwrap() as u32)
+            .collect();
+        let mut want = input.clone();
+        want.sort_by(f32::total_cmp);
+        let want: alloc::vec::Vec<u32> = want.iter().map(|v| v.to_bits()).collect();
+        // Compare bit patterns, not values: NaN != NaN, and -0.0 == 0.0.
+        assert_eq!(got, want, "f32 sort diverged from total_cmp (reps={reps})");
+    }
+}
+
+#[test]
+fn arrays_sort_double_matches_total_cmp() {
+    use crate::array_heap::ATYPE_DOUBLE;
+    let edges: [f64; 11] = [
+        f64::NAN,
+        -f64::NAN,
+        0.0,
+        -0.0,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        1.5,
+        -1.5,
+        f64::MIN_POSITIVE,
+        -f64::MIN_POSITIVE,
+        42.0,
+    ];
+    for reps in [1usize, 3] {
+        let input: alloc::vec::Vec<f64> = (0..reps).flat_map(|_| edges.iter().copied()).collect();
+        let len = input.len();
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = ArrayHeap::new();
+        let idx = arrays.alloc(ATYPE_DOUBLE, len as u16).unwrap();
+        for (i, v) in input.iter().enumerate() {
+            arrays.store64(idx, i, v.to_bits() as i64).unwrap();
+        }
+        arrays_dispatch(
+            "sort",
+            "([D)V",
+            &[Value::ArrayRef(idx)],
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+        )
+        .unwrap();
+        let got: alloc::vec::Vec<u64> = (0..len)
+            .map(|i| arrays.load64(idx, i).unwrap() as u64)
+            .collect();
+        let mut want = input.clone();
+        want.sort_by(f64::total_cmp);
+        let want: alloc::vec::Vec<u64> = want.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(got, want, "f64 sort diverged from total_cmp (reps={reps})");
+    }
+}
+
+/// The i64 key transform has to keep negatives below positives across the
+/// sign boundary, including the extremes where a sign-bit flip is easy to
+/// get wrong.
+#[test]
+fn arrays_sort_long_spans_sign_boundary() {
+    use crate::array_heap::ATYPE_LONG;
+    let input: [i64; 8] = [i64::MAX, -1, 0, i64::MIN, 1, -2, i64::MIN + 1, i64::MAX - 1];
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let idx = arrays.alloc(ATYPE_LONG, input.len() as u16).unwrap();
+    for (i, v) in input.iter().enumerate() {
+        arrays.store64(idx, i, *v).unwrap();
+    }
+    arrays_dispatch(
+        "sort",
+        "([J)V",
+        &[Value::ArrayRef(idx)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    let got: alloc::vec::Vec<i64> = (0..input.len())
+        .map(|i| arrays.load64(idx, i).unwrap())
+        .collect();
+    let mut want = input.to_vec();
+    want.sort_unstable();
+    assert_eq!(got, want);
+}
