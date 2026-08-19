@@ -113,6 +113,19 @@ pub fn dispatch(
         ("picodroid/net/HttpURLConnection", "nativeContentLength") => Some(
             crate::net::http_connection::native_content_length(ctx.args, ctx.objects, ctx.strings),
         ),
+        ("picodroid/net/HttpURLConnection", "nativeHeaderField") => Some(
+            crate::net::http_connection::native_header_field(ctx.args, ctx.objects, ctx.strings),
+        ),
+        ("picodroid/net/HttpURLConnection", "nativeHeaderFieldAt") => Some(
+            crate::net::http_connection::native_header_field_at(ctx.args, ctx.objects, ctx.strings),
+        ),
+        ("picodroid/net/HttpURLConnection", "nativeResponseMessage") => {
+            Some(crate::net::http_connection::native_response_message(
+                ctx.args,
+                ctx.objects,
+                ctx.strings,
+            ))
+        }
         ("picodroid/net/HttpURLConnection", "nativeDisconnect") => {
             Some(crate::net::http_connection::native_disconnect(ctx.args))
         }

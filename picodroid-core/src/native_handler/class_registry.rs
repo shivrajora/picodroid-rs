@@ -114,7 +114,7 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
     (
         "picodroid/app/Activity",
         "runOnUiThread",
-        "use getMainExecutor().execute(Runnable)",
+        "use Executors.mainExecutor().execute(Runnable)",
     ),
     (
         "picodroid/app/Activity",
@@ -129,17 +129,12 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
     (
         "picodroid/view/View",
         "post",
-        "use getMainExecutor().execute(Runnable)",
+        "use Executors.mainExecutor().execute(Runnable)",
     ),
     (
         "picodroid/view/View",
         "postDelayed",
-        "no Handler — use ViewPropertyAnimator timers or getMainExecutor()",
-    ),
-    (
-        "picodroid/app/Activity",
-        "getSystemService",
-        "services are exposed directly: getDisplay(), new NotificationManager(this), ...",
+        "no Handler — use ViewPropertyAnimator timers or Executors.mainExecutor()",
     ),
     (
         "picodroid/app/Activity",
@@ -160,11 +155,6 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
         "picodroid/content/Context",
         "registerReceiver",
         "no BroadcastReceiver — use a bound Service or a direct callback",
-    ),
-    (
-        "picodroid/content/Context",
-        "getSystemService",
-        "services are exposed directly: getDisplay(), new NotificationManager(this), ...",
     ),
 ];
 
@@ -198,10 +188,16 @@ mod tests {
     fn api_hint_lookup() {
         assert_eq!(
             api_hint("picodroid/app/Activity", "runOnUiThread"),
-            Some("use getMainExecutor().execute(Runnable)")
+            Some("use Executors.mainExecutor().execute(Runnable)")
         );
         // Unknown (class, method) → no hint.
         assert_eq!(api_hint("picodroid/app/Activity", "onCreate"), None);
+        // getSystemService is implemented now, so it must not carry a hint
+        // telling callers to avoid it.
+        assert_eq!(
+            api_hint("picodroid/content/Context", "getSystemService"),
+            None
+        );
         assert_eq!(api_hint("picodroid/widget/TextView", "setText"), None);
     }
 

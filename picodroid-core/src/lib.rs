@@ -105,3 +105,9 @@ mod native_class_registry_tests;
 #[cfg(test)]
 #[path = "native_handler/method_tables.rs"]
 mod native_method_tables_tests;
+// HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
+// status-line/header rules would otherwise be the untested kind this shim
+// list exists to prevent.
+#[cfg(test)]
+#[path = "net/http_head.rs"]
+mod net_http_head_tests;

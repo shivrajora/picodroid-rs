@@ -159,7 +159,7 @@ pub const NET_HANDLED: &[Row] = &[
     (
         "picodroid/net/HttpURLConnection",
         "nativeConnect",
-        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;III)I",
+        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IIILjava/lang/String;)I",
     ),
     (
         "picodroid/net/HttpURLConnection",
@@ -173,8 +173,23 @@ pub const NET_HANDLED: &[Row] = &[
     ),
     (
         "picodroid/net/HttpURLConnection",
+        "nativeHeaderField",
+        "(ILjava/lang/String;)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/net/HttpURLConnection",
+        "nativeHeaderFieldAt",
+        "(IIZ)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/net/HttpURLConnection",
         "nativeReadResponseCode",
         "(I)I",
+    ),
+    (
+        "picodroid/net/HttpURLConnection",
+        "nativeResponseMessage",
+        "(I)Ljava/lang/String;",
     ),
     // picodroid/net/InetAddress
     (

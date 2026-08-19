@@ -53,6 +53,7 @@ public class HttpGet extends Application {
 
     doGet();
     doPost();
+    doHeaders();
   }
 
   private void doGet() {
@@ -97,6 +98,39 @@ public class HttpGet extends Application {
       Log.i(TAG, "  status=" + code);
     } catch (IOException e) {
       Log.i(TAG, "  POST failed: " + e.getMessage());
+    } finally {
+      c.disconnect();
+    }
+  }
+
+  /** Sends custom request headers and reads the response headers back. */
+  private void doHeaders() {
+    Log.i(TAG, "GET with headers " + BASE_URL);
+    HttpURLConnection c = new URL(BASE_URL).openConnection();
+    try {
+      c.setRequestProperty("Accept", "text/html");
+      c.setRequestProperty("X-Picodroid", "demo");
+      // setRequestProperty replaces; addRequestProperty would send both.
+      c.setRequestProperty("X-Picodroid", "demo2");
+      Log.i(TAG, "  sent X-Picodroid=" + c.getRequestProperty("X-Picodroid"));
+
+      int code = c.getResponseCode();
+      Log.i(TAG, "  status=" + code + " message=" + c.getResponseMessage());
+      Log.i(TAG, "  Content-Type=" + c.getHeaderField("Content-Type"));
+      Log.i(TAG, "  Server=" + c.getHeaderField("Server"));
+      Log.i(TAG, "  absent header=" + c.getHeaderField("X-Does-Not-Exist"));
+
+      // Index 0 is the status line (null key); real headers start at 1.
+      Log.i(TAG, "  [0] key=" + c.getHeaderFieldKey(0) + " value=" + c.getHeaderField(0));
+      for (int i = 1; i <= 3; i++) {
+        String key = c.getHeaderFieldKey(i);
+        if (key == null) {
+          break;
+        }
+        Log.i(TAG, "  [" + i + "] " + key + "=" + c.getHeaderField(i));
+      }
+    } catch (IOException e) {
+      Log.i(TAG, "  header demo failed: " + e.getMessage());
     } finally {
       c.disconnect();
     }

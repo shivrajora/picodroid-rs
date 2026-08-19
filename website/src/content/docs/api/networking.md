@@ -96,6 +96,41 @@ Constraints:
 - Methods: `GET`, `POST`, `PUT`.
 - `Connection: close` is always sent — no keep-alive / connection pooling.
 - Request bodies need a known length: call `setFixedLengthStreamingMode(n)` before `connect()` on any request that writes a body.
+- At most 16 request headers per connection.
+
+The `HTTP_*` status constants (`HTTP_OK`, `HTTP_NOT_FOUND`, `HTTP_INTERNAL_ERROR`, …) match `java.net.HttpURLConnection`.
+
+### Request headers
+
+Set headers before connecting; `setRequestProperty` replaces any previous value for that name, `addRequestProperty` adds another line.
+
+```java
+HttpURLConnection c = new URL("http://example.com/api").openConnection();
+c.setRequestProperty("Accept", "application/json");
+c.setRequestProperty("Authorization", "Bearer " + token);
+c.connect();
+```
+
+`Host`, `Connection`, and `Content-Length` are managed by the connection — values set for them are ignored. Setting any header after `connect()` throws `IllegalStateException`, and a name or value containing CR or LF throws `IllegalArgumentException` (header injection).
+
+### Response headers
+
+```java
+int status = c.getResponseCode();          // 200
+String message = c.getResponseMessage();   // "OK"
+String type = c.getHeaderField("Content-Type");   // case-insensitive, null if absent
+
+// Index 0 is the status line and has a null key; real headers start at 1.
+for (int i = 1; ; i++) {
+    String key = c.getHeaderFieldKey(i);
+    if (key == null) {
+        break;
+    }
+    Log.i(TAG, key + "=" + c.getHeaderField(i));
+}
+```
+
+When a header repeats, `getHeaderField(String)` returns the last value; the indexed accessors see every line. `getErrorStream()` returns the body stream for a status of 400 or above, and null otherwise.
 
 ### GET
 
@@ -152,7 +187,7 @@ try {
 }
 ```
 
-`Host:` is set automatically from the URL (including port if non-standard). To add your own headers, the current API only accepts the method, path, and content-length — no per-request header map yet.
+`Host:` is set automatically from the URL (including port if non-standard). Add your own with [`setRequestProperty`](#request-headers).
 
 ### `URL`
 

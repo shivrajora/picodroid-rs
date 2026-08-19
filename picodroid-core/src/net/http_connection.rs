@@ -22,6 +22,10 @@ use super::fields;
 use super::helpers::{
     throw_io_exception, throw_named_exception, throw_net_exception, throw_socket_closed, NetOpCtx,
 };
+use super::http_head::{
+    find_header_end, header_lines_of, header_matches, header_name, header_value, parse_head_bytes,
+    reason_phrase, status_line_of, write_bytes, write_usize,
+};
 use super::http_table;
 
 const RX_BUF_SIZE: usize = 1024;
@@ -41,6 +45,12 @@ struct HttpConn {
     rx_buf: [u8; RX_BUF_SIZE],
     rx_head: u16,
     rx_tail: u16,
+    /// Length of the response head (through the `\r\n\r\n`) once parsed.
+    /// Body reads never write back into `rx_buf[..head_len]` — they drain
+    /// from `rx_head` and then read straight into the caller's array — so
+    /// the head stays intact and the header accessors re-scan it in place
+    /// instead of allocating a parsed table.
+    head_len: u16,
 }
 
 impl HttpConn {
@@ -54,7 +64,13 @@ impl HttpConn {
             rx_buf: [0; RX_BUF_SIZE],
             rx_head: 0,
             rx_tail: 0,
+            head_len: 0,
         }
+    }
+
+    /// The retained response head, empty until it has been parsed.
+    fn head(&self) -> &[u8] {
+        &self.rx_buf[..self.head_len as usize]
     }
 }
 
@@ -132,6 +148,10 @@ pub fn native_connect(
     // rejects negatives.
     let connect_timeout_ms = as_int(args.get(5))? as u32;
     let read_timeout_ms = as_int(args.get(6))? as u32;
+    // Caller-supplied request headers, already formatted as `K: V\r\n` lines
+    // by the Java side (which owns ordering, replace-vs-add, and rejecting
+    // CR/LF injection). Empty when the app set none.
+    let extra_headers_idx = as_ref(args.get(7))?;
 
     // Owned copies: the throw helpers below need `&mut strings` while these
     // would otherwise still be borrowed from the table.
@@ -145,6 +165,10 @@ pub fn native_connect(
         .into();
     let method: String = strings
         .resolve(method_idx)
+        .ok_or(JvmError::InvalidReference)?
+        .into();
+    let extra_headers: String = strings
+        .resolve(extra_headers_idx)
         .ok_or(JvmError::InvalidReference)?
         .into();
 
@@ -200,6 +224,7 @@ pub fn native_connect(
         head.push_usize(body_length as usize);
         head.push(b"\r\n");
     }
+    head.push(extra_headers.as_bytes());
     head.push(b"\r\n");
 
     if head.overflow {
@@ -305,6 +330,113 @@ pub fn native_content_length(
         conn.content_length as i32
     };
     Ok(Some(Value::Int(len)))
+}
+
+// ── HttpURLConnection response-header accessors (static) ─────────────────────
+
+/// Intern `bytes` and return it as a Java String reference.
+fn interned(strings: &mut StringTable, bytes: &[u8]) -> Result<Option<Value>, JvmError> {
+    let r = strings.intern_dyn(bytes).ok_or(JvmError::StackOverflow)?;
+    Ok(Some(Value::Reference(r)))
+}
+
+/// Resolve a connection whose response head has been parsed. `Ok(None)` means
+/// the head is not available (not yet read), which every accessor reports to
+/// Java as `null` rather than an exception — matching Android, where the
+/// getters are non-throwing.
+fn conn_with_head(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<&'static mut HttpConn>, JvmError> {
+    let handle = as_int(args.first())?;
+    let conn = match conn_mut(handle) {
+        Some(c) => c,
+        None => return Err(throw_socket_closed(objects, strings)),
+    };
+    if !conn.headers_parsed {
+        return Ok(None);
+    }
+    Ok(Some(conn))
+}
+
+/// `getHeaderField(String name)` — the value of the last header with that
+/// name (case-insensitive), or null if absent.
+pub fn native_header_field(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let name_idx = as_ref(args.get(1))?;
+    let name: String = strings
+        .resolve(name_idx)
+        .ok_or(JvmError::InvalidReference)?
+        .to_ascii_lowercase();
+    let Some(conn) = conn_with_head(args, objects, strings)? else {
+        return Ok(Some(Value::Null));
+    };
+    // Last match wins, as on Android.
+    let found = header_lines_of(conn.head())
+        .filter(|l| header_matches(l, name.as_bytes()))
+        .filter_map(header_value)
+        .last();
+    match found {
+        Some(v) => interned(strings, v),
+        None => Ok(Some(Value::Null)),
+    }
+}
+
+/// `getHeaderField(int n)` / `getHeaderFieldKey(int n)`. Index 0 is the status
+/// line: its value is the whole line and its key is null, per Android. Indices
+/// past the last header return null.
+pub fn native_header_field_at(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let n = as_int(args.get(1))?;
+    let want_key = as_int(args.get(2))? != 0;
+    let Some(conn) = conn_with_head(args, objects, strings)? else {
+        return Ok(Some(Value::Null));
+    };
+    if n < 0 {
+        return Ok(Some(Value::Null));
+    }
+    if n == 0 {
+        return if want_key {
+            Ok(Some(Value::Null))
+        } else {
+            let line = status_line_of(conn.head());
+            interned(strings, line)
+        };
+    }
+    let Some(line) = header_lines_of(conn.head()).nth(n as usize - 1) else {
+        return Ok(Some(Value::Null));
+    };
+    if want_key {
+        interned(strings, header_name(line))
+    } else {
+        match header_value(line) {
+            Some(v) => interned(strings, v),
+            None => Ok(Some(Value::Null)),
+        }
+    }
+}
+
+/// `getResponseMessage()` — the reason phrase from the status line
+/// (`HTTP/1.1 404 Not Found` → `Not Found`), or null if unavailable.
+pub fn native_response_message(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let Some(conn) = conn_with_head(args, objects, strings)? else {
+        return Ok(Some(Value::Null));
+    };
+    match reason_phrase(status_line_of(conn.head())) {
+        Some(reason) => interned(strings, reason),
+        None => Ok(Some(Value::Null)),
+    }
 }
 
 // ── HttpURLConnection.nativeDisconnect (static) ──────────────────────────────
@@ -488,8 +620,8 @@ fn parse_response_head(
             let head = &conn.rx_buf[..body_off];
             let (status, content_length) = match parse_head_bytes(head) {
                 Ok(v) => v,
-                Err(()) => {
-                    let line = strip_cr(head.split(|&b| b == b'\n').next().unwrap_or(&[]));
+                Err(_) => {
+                    let line = status_line_of(head);
                     let msg = format!("unexpected status line: {}", String::from_utf8_lossy(line));
                     return Err(throw_named_exception(
                         objects,
@@ -505,118 +637,12 @@ fn parse_response_head(
                 conn.body_remaining = content_length;
             }
             conn.rx_head = body_off as u16;
+            conn.head_len = body_off as u16;
             conn.headers_parsed = true;
             return Ok(());
         }
         scan_from = end;
     }
-}
-
-fn find_header_end(buf: &[u8], from: usize) -> Option<usize> {
-    // Returns the offset of the first byte *after* \r\n\r\n.
-    let needle = b"\r\n\r\n";
-    if buf.len() < 4 {
-        return None;
-    }
-    let mut i = from;
-    while i + 4 <= buf.len() {
-        if &buf[i..i + 4] == needle {
-            return Some(i + 4);
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Parse the response head bytes.  Returns `(status_code, content_length)`;
-/// `content_length` is -1 if the header was absent.  `Err(())` means a
-/// malformed status line — the caller owns turning that into a
-/// `ProtocolException` with the offending line in the message.
-fn parse_head_bytes(head: &[u8]) -> Result<(i32, i64), ()> {
-    // head ends with \r\n\r\n — split on \r\n.
-    let mut lines = head.split(|&b| b == b'\n');
-    // First line: HTTP/1.x SPC CODE SPC REASON
-    let status_line = lines.next().ok_or(())?;
-    let status_line = strip_cr(status_line);
-    let status_code = parse_status_code(status_line)?;
-
-    let mut content_length: i64 = -1;
-    for line in lines {
-        let line = strip_cr(line);
-        if line.is_empty() {
-            continue;
-        }
-        if header_matches(line, b"content-length") {
-            if let Some(value) = header_value(line) {
-                let v = parse_decimal(value);
-                if v >= 0 {
-                    content_length = v;
-                }
-            }
-        }
-    }
-    Ok((status_code, content_length))
-}
-
-fn strip_cr(line: &[u8]) -> &[u8] {
-    if let Some((&b'\r', rest)) = line.split_last() {
-        rest
-    } else {
-        line
-    }
-}
-
-fn parse_status_code(line: &[u8]) -> Result<i32, ()> {
-    // "HTTP/1.1 200 OK" — find the first and second space.
-    let first_sp = line.iter().position(|&b| b == b' ').ok_or(())?;
-    let rest = &line[first_sp + 1..];
-    let second_sp = rest.iter().position(|&b| b == b' ').unwrap_or(rest.len());
-    let code = parse_decimal(&rest[..second_sp]);
-    if code < 0 {
-        return Err(());
-    }
-    Ok(code as i32)
-}
-
-/// Case-insensitive match of the `name:` prefix.
-fn header_matches(line: &[u8], name: &[u8]) -> bool {
-    if line.len() < name.len() + 1 {
-        return false;
-    }
-    for i in 0..name.len() {
-        let a = line[i].to_ascii_lowercase();
-        if a != name[i] {
-            return false;
-        }
-    }
-    line[name.len()] == b':'
-}
-
-fn header_value(line: &[u8]) -> Option<&[u8]> {
-    let colon = line.iter().position(|&b| b == b':')?;
-    let mut v = &line[colon + 1..];
-    while let Some((&first, rest)) = v.split_first() {
-        if first == b' ' || first == b'\t' {
-            v = rest;
-        } else {
-            break;
-        }
-    }
-    Some(v)
-}
-
-fn parse_decimal(s: &[u8]) -> i64 {
-    if s.is_empty() {
-        return -1;
-    }
-    let mut acc: i64 = 0;
-    for &b in s {
-        if !b.is_ascii_digit() {
-            return -1;
-        }
-        acc = acc.saturating_mul(10) + (b - b'0') as i64;
-    }
-    acc
 }
 
 fn send_all(sock: *mut c_void, mut buf: &[u8]) -> Result<(), NetError> {
@@ -629,87 +655,4 @@ fn send_all(sock: *mut c_void, mut buf: &[u8]) -> Result<(), NetError> {
         buf = &buf[n..];
     }
     Ok(())
-}
-
-fn write_bytes(buf: &mut [u8], pos: usize, src: &[u8]) -> usize {
-    if pos + src.len() > buf.len() {
-        return 0;
-    }
-    buf[pos..pos + src.len()].copy_from_slice(src);
-    src.len()
-}
-
-fn write_usize(buf: &mut [u8], pos: usize, mut val: usize) -> usize {
-    // No leading zero suppression needed — we format a plain decimal.
-    if val == 0 {
-        if pos < buf.len() {
-            buf[pos] = b'0';
-            return 1;
-        }
-        return 0;
-    }
-    let mut tmp = [0u8; 20];
-    let mut n = 0;
-    while val > 0 {
-        tmp[n] = b'0' + (val % 10) as u8;
-        val /= 10;
-        n += 1;
-    }
-    if pos + n > buf.len() {
-        return 0;
-    }
-    for i in 0..n {
-        buf[pos + i] = tmp[n - 1 - i];
-    }
-    n
-}
-
-// ── tests ────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_200_with_content_length() {
-        let head = b"HTTP/1.1 200 OK\r\nContent-Length: 42\r\nConnection: close\r\n\r\n";
-        let (status, content_length) = parse_head_bytes(head).unwrap();
-        assert_eq!(status, 200);
-        assert_eq!(content_length, 42);
-    }
-
-    #[test]
-    fn parses_404_without_content_length() {
-        let head = b"HTTP/1.1 404 Not Found\r\n\r\n";
-        let (status, content_length) = parse_head_bytes(head).unwrap();
-        assert_eq!(status, 404);
-        assert_eq!(content_length, -1);
-    }
-
-    #[test]
-    fn content_length_is_case_insensitive() {
-        let head = b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\n";
-        let (_, content_length) = parse_head_bytes(head).unwrap();
-        assert_eq!(content_length, 7);
-    }
-
-    #[test]
-    fn find_header_end_locates_crlfcrlf() {
-        let buf = b"GET /\r\nHost: x\r\n\r\nBODY";
-        assert_eq!(find_header_end(buf, 0), Some(buf.len() - 4));
-    }
-
-    #[test]
-    fn write_usize_formats_decimal() {
-        let mut buf = [0u8; 8];
-        let n = write_usize(&mut buf, 0, 1234);
-        assert_eq!(&buf[..n], b"1234");
-    }
-
-    #[test]
-    fn write_usize_zero() {
-        let mut buf = [0u8; 4];
-        let n = write_usize(&mut buf, 0, 0);
-        assert_eq!(&buf[..n], b"0");
-    }
 }
