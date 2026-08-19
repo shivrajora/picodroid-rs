@@ -177,6 +177,17 @@ pub fn api_hint(class: &str, method: &str) -> Option<&'static str> {
         .map(|(_, _, hint)| *hint)
 }
 
+/// Whether `class` is an SDK class the active board left out of its embedded
+/// framework via `framework_class_excludes` (board.toml). Distinguishes "this
+/// board does not ship that class" from "picodroid has no such method" on a
+/// native miss. Empty — and so always false — on boards that exclude nothing.
+#[cfg(not(test))]
+pub fn is_excluded_on_this_board(class: &str) -> bool {
+    crate::framework_classes::FRAMEWORK_EXCLUDED_CLASSES
+        .iter()
+        .any(|c| *c == class || c.split('$').next() == Some(class))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{api_hint, API_HINTS, PICODROID_NATIVE_CLASSES};

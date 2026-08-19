@@ -481,6 +481,20 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     );
                     #[cfg(feature = "sim")]
                     eprintln!("[sim] no native {class_name}.{method_name} — {hint}");
+                } else if class_registry::is_excluded_on_this_board(class_name) {
+                    // The class exists in the SDK but this board dropped it to
+                    // fit flash, so the miss is a build-configuration answer,
+                    // not a missing implementation.
+                    #[cfg(not(feature = "sim"))]
+                    defmt::warn!(
+                        "{=str} is not built into this board's framework (framework_class_excludes)",
+                        class_name
+                    );
+                    #[cfg(feature = "sim")]
+                    eprintln!(
+                        "[sim] {class_name} is not built into this board's framework \
+                         (framework_class_excludes in board.toml)"
+                    );
                 }
                 None
             }

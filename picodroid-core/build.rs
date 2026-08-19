@@ -44,12 +44,12 @@ fn main() {
         .parent()
         .expect("picodroid-core must be a direct subdirectory of the repo root");
 
-    papk::emit_framework_map_version(out, root);
-    papk::embed_framework_classes(out, root);
-
     // Resolve the active board across platform families (None for boardless
     // builds such as `cargo build -p picodroid-core`).
     let board = board_cfg::resolve(&manifest_dir);
+
+    papk::emit_framework_map_version(out, root);
+    papk::embed_framework_classes(out, root, &board_cfg::framework_class_excludes(&board));
 
     // A board that declares a capability must have the matching feature
     // forwarded, or the driver would silently compile out.

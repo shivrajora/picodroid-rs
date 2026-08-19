@@ -134,7 +134,11 @@ fn main() {
     // would produce duplicate symbols.
 
     papk::emit_framework_map_version(out, &repo_root);
-    papk::embed_framework_classes(out, &repo_root);
+    papk::embed_framework_classes(
+        out,
+        &repo_root,
+        &board_cfg::framework_class_excludes(&board),
+    );
     papk::embed_apk(out, is_embedded);
     papk::embed_papk_flash_init(out, is_embedded);
 }

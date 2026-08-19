@@ -144,7 +144,16 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// `framework_unshrink.rs` — a reverse-translation table from shrunk name
 /// back to original, consumed by the native dispatch layer. When shrinking
 /// is off the emitted table is an identity passthrough.
-pub fn embed_framework_classes(out: &Path, root: &Path) {
+///
+/// `excludes` are JVM internal class names (`picodroid/json/JSONObject`) the
+/// active board opts out of, from its `framework_class_excludes` key. The
+/// whole SDK is otherwise embedded on every board and loaded at boot, so a
+/// new class costs its full `.class` size in flash everywhere — which the
+/// RP2040's near-full program region cannot absorb. Excluding a name also
+/// excludes its inner classes (`Foo$Builder` goes with `Foo`). The emitted
+/// `FRAMEWORK_EXCLUDED_CLASSES` names what was dropped so a miss can say so
+/// instead of surfacing as a bare NoClassDefFound.
+pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // The empty/full cutover is keyed on PICODROID_APK_PATH (only embedded
     // builds set it). Without this directive, a `cargo build` without the
     // var caches the empty table, and the subsequent `flash.sh` build (which
@@ -155,7 +164,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path) {
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
             out.join("framework_classes.rs"),
-            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\n",
+            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\n",
         )
         .unwrap();
         emit_identity_unshrink(out);
@@ -213,7 +222,12 @@ pub fn embed_framework_classes(out: &Path, root: &Path) {
     class_files.sort();
 
     let mut entries = String::new();
+    let mut dropped: Vec<String> = Vec::new();
     for f in &class_files {
+        if let Some(name) = excluded_class_name(f, &embed_dir, excludes) {
+            dropped.push(name);
+            continue;
+        }
         let abs = f
             .canonicalize()
             .unwrap_or_else(|_| f.clone())
@@ -222,8 +236,46 @@ pub fn embed_framework_classes(out: &Path, root: &Path) {
         entries.push_str(&format!("    include_bytes!({abs:?}),\n"));
     }
 
-    let content = format!("pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n");
+    // Name an exclude that matched nothing: a typo would otherwise look like
+    // a working opt-out while the class still ships.
+    for want in excludes {
+        if !dropped
+            .iter()
+            .any(|d| d == want || d.starts_with(&format!("{want}$")))
+        {
+            panic!(
+                "framework_class_excludes lists {want:?}, which matches no compiled SDK class \
+                 — check the spelling (JVM internal form, e.g. picodroid/json/JSONObject)"
+            );
+        }
+    }
+
+    dropped.sort();
+    let dropped_entries: String = dropped.iter().map(|n| format!("    {n:?},\n")).collect();
+    let content = format!(
+        "pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n\
+         pub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[\n{dropped_entries}];\n"
+    );
     fs::write(out.join("framework_classes.rs"), content).unwrap();
+}
+
+/// The JVM internal class name of `file` when the board excludes it, else
+/// `None`. Inner classes follow their outer class: excluding `a/B` drops
+/// `a/B$C` too.
+fn excluded_class_name(file: &Path, embed_dir: &Path, excludes: &[String]) -> Option<String> {
+    if excludes.is_empty() {
+        return None;
+    }
+    let rel = file.strip_prefix(embed_dir).ok()?;
+    let name = rel
+        .with_extension("")
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    let outer = name.split('$').next().unwrap_or(&name);
+    excludes
+        .iter()
+        .any(|e| e == &name || e == outer)
+        .then_some(name)
 }
 
 /// If shrinking is enabled and an active map covers the current picodroid

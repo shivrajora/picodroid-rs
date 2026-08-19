@@ -45,6 +45,23 @@ impl ResolvedBoard {
     }
 }
 
+/// Framework classes this board opts out of embedding, from the optional
+/// top-level `framework_class_excludes` key (a `;`- or `,`-separated list of
+/// JVM internal names, e.g. `picodroid/json/JSONObject`).
+///
+/// The SDK ships whole on every board and is loaded at boot, so each class
+/// costs its `.class` size in flash everywhere — the RP2040's program region
+/// has no room to spare. Excluding a class here keeps it off boards that
+/// cannot afford it; apps built for such a board must not reference it.
+/// Empty for boardless builds and for boards that set nothing.
+pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
+    board
+        .as_ref()
+        .and_then(|b| b.cfg.props.get("framework_class_excludes"))
+        .map(|v| config::parse_str_list(v))
+        .unwrap_or_default()
+}
+
 /// Resolve the active board for a crate whose manifest lives at
 /// `manifest_dir`, searching across platform families. `None` for boardless
 /// builds (bare `cargo build -p picodroid-core`, `cargo test` with no board
