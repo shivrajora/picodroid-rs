@@ -111,7 +111,7 @@ The full docs are an Astro Starlight site under [`website/`](website/) — once 
 - [Java API](website/src/content/docs/api.md) — split by area: [core](website/src/content/docs/api/core.md), [system](website/src/content/docs/api/system.md), [services](website/src/content/docs/api/services.md), [peripherals](website/src/content/docs/api/peripherals.md), [storage](website/src/content/docs/api/storage.md), [networking](website/src/content/docs/api/networking.md), [sensors](website/src/content/docs/api/sensors.md), [UI](website/src/content/docs/api/ui.md)
 - [Guides](website/src/content/docs/guides/embedded-gotchas.md) — [embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md), [button-only navigation](website/src/content/docs/guides/button-navigation.md), [debugging](website/src/content/docs/guides/debugging.md), [bundled image assets](website/src/content/docs/guides/assets.md)
 - [Reference](website/src/content/docs/reference/limits.md) — [limits & memory budgets](website/src/content/docs/reference/limits.md), the [manifest schema](website/src/content/docs/reference/manifest.md), the [class-name shrinker](website/src/content/docs/reference/shrinker.md)
-- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.12.0
+- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.13.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure
@@ -126,7 +126,7 @@ picodroid-rs/
 │
 ├── platforms/
 │   └── rp/             # RP-family firmware crate (RP2040 + RP2350)
-│       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon)
+│       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon / _w)
 │       ├── mcus/       # Per-MCU linker scripts, FreeRTOS config, heap sizes
 │       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb task, install path
 │

@@ -3,13 +3,14 @@ title: "Known issues & current limits"
 description: "User-visible limitations in the current release: networking constraints, simulator/hardware gaps, and platform caveats."
 ---
 
-What doesn't work (yet), as of v0.12.0. Items here are confirmed and tracked — not speculative.
+What doesn't work (yet), as of v0.13.0. Items here are confirmed and tracked — not speculative.
 
 ## Networking (Pico 2 W)
 
 - **Personal auth only.** Open, WPA2-AES, and WPA3-SAE (`PICODROID_WIFI_AUTH`) — no WPA2/WPA3-Enterprise. IPv4 only.
 - **No TLS.** `HttpURLConnection` speaks plain HTTP; there is no `https://` support.
 - **Socket throughput is chunked.** Socket I/O crosses the native boundary in 256-byte chunks; large transfers work correctly but pay a per-chunk cost.
+- **The device closes HTTP connections with RST.** After a complete response the FreeRTOS+TCP side resets rather than closing cleanly, so a client sees a transport error alongside a full, correct payload (`curl` exits 56 with `http_code` 200). Scripts probing a device HTTP server must judge success by the status code and body, not the client's exit code. Simulator connections close normally.
 - **Boot-time race.** The network takes up to ~10 s after reset (WiFi join + DHCP); apps must poll `NetworkInfo.isConnected()` before their first socket call — see [WiFi & networking setup](/get-started/networking/).
 
 ## Simulator ↔ hardware gaps
