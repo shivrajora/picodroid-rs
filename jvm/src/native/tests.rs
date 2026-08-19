@@ -567,21 +567,26 @@ fn string_trim() {
 
 // ── StringBuilder native method tests ─────────────────────────────────────
 //
-// StringBuilder uses a singleton buffer inside ObjectHeap, so all dispatch
-// calls in a single test share the same ObjectHeap instance.
+// Each StringBuilder owns a buffer in ObjectHeap addressed by the slot index
+// its receiver holds in field 0, so the harness allocates a real instance and
+// passes it as `this` on every call.
 
 struct SbCtx {
     strings: StringTable,
     objects: ObjectHeap,
     arrays: ArrayHeap,
+    this: u16,
 }
 
 impl SbCtx {
     fn new() -> Self {
+        let mut objects = ObjectHeap::new();
+        let this = objects.alloc("java/lang/StringBuilder").unwrap();
         Self {
             strings: StringTable::new(),
-            objects: ObjectHeap::new(),
+            objects,
             arrays: ArrayHeap::new(),
+            this,
         }
     }
 
@@ -591,8 +596,7 @@ impl SbCtx {
         desc: &str,
         extra: Option<Value>,
     ) -> Result<Option<Value>, JvmError> {
-        // args[0] is the fake `this` — never dereferenced by sb methods
-        let this = Value::ObjectRef(0);
+        let this = Value::ObjectRef(self.this);
         let args: alloc::vec::Vec<Value> = match extra {
             None => alloc::vec![this],
             Some(v) => alloc::vec![this, v],
@@ -1904,10 +1908,10 @@ fn hashmap_int_then_string_keys_shared_heap() {
 
     // StringBuilder usage (simulating "v1=" + v1)
     let _sb = objects.alloc("java/lang/StringBuilder").unwrap();
-    objects.sb_push();
-    objects.sb_append_bytes(b"v1=");
-    objects.sb_append_int(10);
-    let sb_bytes = objects.sb_pop();
+    let sb_buf = objects.sb_alloc().unwrap();
+    objects.sb_append_bytes(sb_buf, b"v1=");
+    objects.sb_append_int(sb_buf, 10);
+    let sb_bytes = objects.sb_contents_slice(sb_buf).to_vec();
     let _str_idx = strings.intern_dyn(&sb_bytes).unwrap();
 
     // Map 2: String keys

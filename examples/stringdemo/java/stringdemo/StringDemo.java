@@ -112,31 +112,46 @@ public class StringDemo extends Application {
   }
 
   static void testStringBuilder() {
-    // NOTE: the JVM uses a single shared StringBuilder buffer. Capture results
-    // into local variables before string concatenation (+), which itself
-    // creates an internal StringBuilder that shares the same buffer.
     StringBuilder sb = new StringBuilder("val=");
     sb.append(100);
-    String sbResult = sb.toString();
-    check("sb basic", sbResult.equals("val=100"));
+    check("sb basic", sb.toString().equals("val=100"));
 
     StringBuilder sb2 = new StringBuilder();
     sb2.append("x=");
     sb2.append(3.14f);
-    String sb2Result = sb2.toString();
-    check("sb float", sb2Result.equals("x=3.14"));
+    check("sb float", sb2.toString().equals("x=3.14"));
 
     StringBuilder sb3 = new StringBuilder();
     sb3.append("flag=");
     sb3.append(true);
-    String sb3Result = sb3.toString();
-    check("sb bool", sb3Result.equals("flag=true"));
+    check("sb bool", sb3.toString().equals("flag=true"));
 
     StringBuilder sb4 = new StringBuilder("abcde");
-    int sb4Len = sb4.length();
-    int sb4Ch = sb4.charAt(2);
-    check("sb length=5", sb4Len == 5);
-    check("sb charAt(2)=99 (ASCII c)", sb4Ch == 99);
+    check("sb length=5", sb4.length() == 5);
+    check("sb charAt(2)=99 (ASCII c)", sb4.charAt(2) == 99);
+
+    // Two builders alive at once keep separate buffers, and appending to the
+    // older one after constructing the newer still reaches the older.
+    StringBuilder outer = new StringBuilder("outer:");
+    StringBuilder inner = new StringBuilder("inner:");
+    inner.append(2);
+    outer.append(1);
+    check("sb interleaved outer", outer.toString().equals("outer:1"));
+    check("sb interleaved inner", inner.toString().equals("inner:2"));
+
+    // toString() is non-destructive: the builder keeps its contents and can be
+    // appended to afterwards.
+    StringBuilder reuse = new StringBuilder("a");
+    String first = reuse.toString();
+    reuse.append("b");
+    check("sb toString non-destructive", first.equals("a") && reuse.toString().equals("ab"));
+
+    // A builder survives an intervening concat (which itself compiles to a
+    // separate StringBuilder).
+    StringBuilder keep = new StringBuilder("keep=");
+    String other = "n" + 1;
+    keep.append(7);
+    check("sb survives concat", keep.toString().equals("keep=7") && other.equals("n1"));
   }
 
   // ── String operations ────────────────────────────────────────────────────

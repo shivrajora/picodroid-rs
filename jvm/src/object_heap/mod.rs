@@ -3,6 +3,7 @@ pub(crate) mod iter_store;
 mod lambda;
 mod list_store;
 mod map_store;
+mod sb_store;
 
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
@@ -33,6 +34,8 @@ fn default_field_count_for_native(class_name: &str) -> usize {
         | "java/lang/Short" => 1,
         // HashMap views store the backing map_buf index at slot 0.
         "java/util/HashMap$KeySet" | "java/util/HashMap$Values" => 1,
+        // StringBuilder stores its backing sb_buf index at slot 0.
+        "java/lang/StringBuilder" => 1,
         _ => 0,
     }
 }
@@ -90,7 +93,9 @@ pub struct ObjectHeap {
     /// `JvmObject.class_idx`. Lazily populated on first `alloc` for a class —
     /// real apps load <200 classes, so a linear scan during intern is cheap.
     pub(super) class_table: Vec<&'static str>,
-    pub(super) sb_stack: Vec<Vec<u8>>,
+    /// One byte buffer per live StringBuilder, addressed by the slot index the
+    /// instance stores in field 0. See [`sb_store`].
+    pub(super) sb_bufs: Vec<Option<Vec<u8>>>,
     pub(super) list_bufs: Vec<Option<Vec<Value>>>,
     pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
@@ -142,7 +147,7 @@ impl ObjectHeap {
             fields_arena: Vec::new(),
             first_free: 0,
             class_table: Vec::new(),
-            sb_stack: Vec::new(),
+            sb_bufs: Vec::new(),
             list_bufs: Vec::new(),
             map_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
@@ -275,8 +280,6 @@ impl Default for ObjectHeap {
 
 impl ObjectHeap {
     /// Allocate a new object of the given class, returning its heap index.
-    /// For `java/lang/StringBuilder`, reuses an existing slot if one exists —
-    /// the JVM's single shared `sb_buf` makes all StringBuilders equivalent.
     /// Reuses a None slot (freed by GC) before growing the backing Vec.
     pub fn alloc(&mut self, class_name: &'static str) -> Option<u16> {
         self.alloc_with_field_count(class_name, default_field_count_for_native(class_name))
@@ -293,15 +296,6 @@ impl ObjectHeap {
     ) -> Option<u16> {
         self.alloc_events = self.alloc_events.saturating_add(1);
         let class_idx = self.intern_class(class_name);
-        if class_name == "java/lang/StringBuilder" {
-            if let Some(idx) = self
-                .objects
-                .iter()
-                .position(|o| matches!(o, Some(obj) if obj.class_idx == class_idx))
-            {
-                return Some(idx as u16);
-            }
-        }
         // Span reservation + descriptor write must be scheduler-atomic: an
         // equal-priority wake yield inside the arena resize let two tasks
         // read the same arena length, and the loser's resize truncated the
@@ -545,60 +539,6 @@ impl ObjectHeap {
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
         let class_idx = self.objects.get(idx as usize)?.as_ref()?.class_idx;
         self.class_table.get(class_idx as usize).copied()
-    }
-
-    /// Push a new StringBuilder buffer onto the stack.
-    pub fn sb_push(&mut self) {
-        self.sb_stack.push(Vec::new());
-    }
-
-    /// Pop the top StringBuilder buffer off the stack.
-    pub fn sb_pop(&mut self) -> Vec<u8> {
-        self.sb_stack.pop().unwrap_or_default()
-    }
-
-    /// Append bytes to the top StringBuilder buffer.
-    pub fn sb_append_bytes(&mut self, bytes: &[u8]) {
-        if let Some(top) = self.sb_stack.last_mut() {
-            top.extend_from_slice(bytes);
-        }
-    }
-
-    /// Append an integer (decimal) to the shared StringBuilder buffer.
-    pub fn sb_append_int(&mut self, n: i32) {
-        let mut tmp = [0u8; 12];
-        let s = int_to_decimal_buf(n, &mut tmp);
-        self.sb_append_bytes(s);
-    }
-
-    /// Append a long (decimal) to the shared StringBuilder buffer.
-    pub fn sb_append_long(&mut self, n: i64) {
-        let mut tmp = [0u8; 21];
-        let s = long_to_decimal_buf(n, &mut tmp);
-        self.sb_append_bytes(s);
-    }
-
-    /// Append a float to the shared StringBuilder buffer.
-    /// Formats as `[-]integer.fraction` with up to 6 significant decimal digits.
-    pub fn sb_append_float(&mut self, f: f32) {
-        let mut tmp = [0u8; 32];
-        let s = float_to_str_buf(f, &mut tmp);
-        self.sb_append_bytes(s);
-    }
-
-    /// Return the current length of the top StringBuilder buffer.
-    pub fn sb_len(&self) -> usize {
-        self.sb_stack.last().map_or(0, |b| b.len())
-    }
-
-    /// Return the byte at `idx` in the top StringBuilder buffer, or `None` if out of bounds.
-    pub fn sb_char_at(&self, idx: usize) -> Option<u8> {
-        self.sb_stack.last()?.get(idx).copied()
-    }
-
-    /// Return the top StringBuilder buffer contents as a byte slice.
-    pub fn sb_contents_slice(&self) -> &[u8] {
-        self.sb_stack.last().map_or(&[], |b| b.as_slice())
     }
 
     // ── GC support ───────────────────────────────────────────────────────────
@@ -853,7 +793,7 @@ impl ObjectHeap {
             c.map_count += 1;
             c.map_bytes += buf.capacity() as u32 * 2 * PER_VALUE;
         }
-        for buf in &self.sb_stack {
+        for buf in self.sb_bufs.iter().flatten() {
             c.sb_bytes += buf.capacity() as u32;
         }
         for (_, proxy) in &self.lambda_proxies {
@@ -1111,108 +1051,121 @@ mod tests {
     }
 
     #[test]
-    fn string_builder_reuses_slot() {
+    fn string_builder_instances_are_distinct() {
         let mut heap = ObjectHeap::new();
         let idx1 = heap.alloc("java/lang/StringBuilder");
         let idx2 = heap.alloc("java/lang/StringBuilder");
         assert!(idx1.is_some());
-        assert_eq!(idx1, idx2);
+        assert_ne!(idx1, idx2);
     }
 
     #[test]
     fn sb_append_bytes_and_contents() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_bytes(b"hello");
-        assert_eq!(heap.sb_contents_slice(), b"hello");
-        assert_eq!(heap.sb_len(), 5);
+        let b = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(b, b"hello");
+        assert_eq!(heap.sb_contents_slice(b), b"hello");
+        assert_eq!(heap.sb_len(b), 5);
     }
 
     #[test]
-    fn sb_push_creates_fresh_buffer() {
+    fn sb_alloc_creates_fresh_buffer() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_bytes(b"hello");
-        heap.sb_push();
-        assert_eq!(heap.sb_len(), 0);
+        let a = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(a, b"hello");
+        let b = heap.sb_alloc().unwrap();
+        assert_eq!(heap.sb_len(b), 0);
+        assert_eq!(heap.sb_len(a), 5);
     }
 
     #[test]
     fn sb_char_at() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_bytes(b"abc");
-        assert_eq!(heap.sb_char_at(0), Some(b'a'));
-        assert_eq!(heap.sb_char_at(2), Some(b'c'));
-        assert_eq!(heap.sb_char_at(3), None);
+        let b = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(b, b"abc");
+        assert_eq!(heap.sb_char_at(b, 0), Some(b'a'));
+        assert_eq!(heap.sb_char_at(b, 2), Some(b'c'));
+        assert_eq!(heap.sb_char_at(b, 3), None);
     }
 
     #[test]
     fn sb_append_int_zero() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_int(0);
-        assert_eq!(heap.sb_contents_slice(), b"0");
+        let b = heap.sb_alloc().unwrap();
+        heap.sb_append_int(b, 0);
+        assert_eq!(heap.sb_contents_slice(b), b"0");
     }
 
     #[test]
     fn sb_append_int_positive() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_int(12345);
-        assert_eq!(heap.sb_contents_slice(), b"12345");
+        let b = heap.sb_alloc().unwrap();
+        heap.sb_append_int(b, 12345);
+        assert_eq!(heap.sb_contents_slice(b), b"12345");
     }
 
     #[test]
     fn sb_append_int_negative() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_int(-42);
-        assert_eq!(heap.sb_contents_slice(), b"-42");
+        let b = heap.sb_alloc().unwrap();
+        heap.sb_append_int(b, -42);
+        assert_eq!(heap.sb_contents_slice(b), b"-42");
     }
 
     #[test]
     fn sb_append_no_truncation() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
+        let b = heap.sb_alloc().unwrap();
         let long_str = [b'x'; 70];
-        heap.sb_append_bytes(&long_str);
-        assert_eq!(heap.sb_len(), 70);
+        heap.sb_append_bytes(b, &long_str);
+        assert_eq!(heap.sb_len(b), 70);
     }
 
+    /// Two builders alive at once must not interleave. Under the old shared
+    /// LIFO stack every append landed in whichever builder was constructed
+    /// last, so `outer` came back empty.
     #[test]
-    fn sb_push_pop_restores_outer() {
+    fn sb_interleaved_builders_stay_independent() {
         let mut heap = ObjectHeap::new();
-        heap.sb_push();
-        heap.sb_append_bytes(b"foo");
-        heap.sb_append_int(7);
-        // Nested builder
-        heap.sb_push();
-        heap.sb_append_bytes(b"bar");
-        let inner = heap.sb_pop();
-        assert_eq!(&inner, b"bar");
-        // Outer buffer survives
-        assert_eq!(heap.sb_contents_slice(), b"foo7");
+        let outer = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(outer, b"foo");
+        let inner = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(inner, b"bar");
+        // Interleave: appending to the older builder still reaches it.
+        heap.sb_append_int(outer, 7);
+        assert_eq!(heap.sb_contents_slice(inner), b"bar");
+        assert_eq!(heap.sb_contents_slice(outer), b"foo7");
     }
 
     #[test]
     fn sb_nested_builders_preserve_content() {
         let mut heap = ObjectHeap::new();
         // Outer: "hi " + (inner) + 42
-        heap.sb_push();
-        heap.sb_append_bytes(b"hi ");
+        let outer = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(outer, b"hi ");
         // Inner: "Hello, World!" + " bye "
-        heap.sb_push();
-        heap.sb_append_bytes(b"Hello, World!");
-        heap.sb_append_bytes(b" bye ");
-        let inner = heap.sb_pop();
-        assert_eq!(&inner, b"Hello, World! bye ");
-        // Outer resumes
-        assert_eq!(heap.sb_contents_slice(), b"hi ");
-        heap.sb_append_bytes(&inner);
-        heap.sb_append_int(42);
-        let outer = heap.sb_pop();
-        assert_eq!(&outer, b"hi Hello, World! bye 42");
+        let inner = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(inner, b"Hello, World!");
+        heap.sb_append_bytes(inner, b" bye ");
+        assert_eq!(heap.sb_contents_slice(inner), b"Hello, World! bye ");
+        // Outer is untouched by the inner builder's appends.
+        assert_eq!(heap.sb_contents_slice(outer), b"hi ");
+        let inner_bytes = heap.sb_contents_slice(inner).to_vec();
+        heap.sb_append_bytes(outer, &inner_bytes);
+        heap.sb_append_int(outer, 42);
+        assert_eq!(heap.sb_contents_slice(outer), b"hi Hello, World! bye 42");
+    }
+
+    #[test]
+    fn sb_free_releases_slot_for_reuse() {
+        let mut heap = ObjectHeap::new();
+        let a = heap.sb_alloc().unwrap();
+        heap.sb_append_bytes(a, b"gone");
+        heap.sb_free(a);
+        // The freed slot is handed out again, zeroed.
+        let b = heap.sb_alloc().unwrap();
+        assert_eq!(b, a);
+        assert_eq!(heap.sb_len(b), 0);
     }
 
     #[test]

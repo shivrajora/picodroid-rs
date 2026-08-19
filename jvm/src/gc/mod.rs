@@ -435,6 +435,12 @@ pub fn collect(
                     objects.map_free(buf_idx as u16);
                 }
             }
+            // Free the StringBuilder byte buffer if applicable
+            if cn == Some("java/lang/StringBuilder") {
+                if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
+                    objects.sb_free(buf_idx as u16);
+                }
+            }
             objects.free_lambda(i);
             objects.iter_free(i);
             objects.free_exception_message(i);
