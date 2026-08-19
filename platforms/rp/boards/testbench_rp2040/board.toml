@@ -1,6 +1,16 @@
 # Board: TestBench RP2040 — Waveshare 2.8" Pico display (ST7789 + XPT2046) on Pico (RP2040)
 mcu = "rp2040"
 
+# Networking will never be supported on this board, and framework classes are
+# embedded on every board whether an app uses them or not — so the whole
+# picodroid.net stack is pure flash cost here, on the tightest program region
+# in the fleet. Drop all of it except NetworkInfo: the native stub
+# deliberately keeps isConnected()/getIpAddress() answerable
+# (native_handler/net_stub.rs) so an app written for several boards can probe
+# and degrade gracefully, which needs the class to resolve. Everything else
+# could only ever throw UnsupportedOperationException.
+framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress"
+
 [display]
 driver = "st7789"
 spi_id = 1
