@@ -571,21 +571,33 @@ impl ArrayHeap {
     /// freed arrays. Called by GC after sweep.
     ///
     /// `buf` is a reusable scratch buffer (owned by `GcState`) to avoid
-    /// allocating during compaction.
-    pub fn compact_arena(&mut self, buf: &mut Vec<(usize, u32, u16)>) {
+    /// allocating during compaction. Entries are packed into the `u64` sort
+    /// key described in [`crate::sort`] — offset in the high half so the sort
+    /// orders by it, then the slot index and length — so this shares the
+    /// JVM's single sort instantiation instead of monomorphising another one
+    /// for a tuple.
+    pub fn compact_arena(&mut self, buf: &mut Vec<u64>) {
         buf.clear();
         for (i, slot) in self.arrays.iter().enumerate() {
             if let Some(arr) = slot.as_ref() {
                 if let ArrayData::Arena { offset, len } = &arr.data {
-                    buf.push((i, *offset, *len));
+                    // Slots are addressed by `ArrayRef(u16)`, so an index
+                    // always fits the 16 bits reserved for it here.
+                    debug_assert!(i <= u16::MAX as usize, "array slot index overflows the key");
+                    buf.push(((*offset as u64) << 32) | ((i as u64) << 16) | *len as u64);
                 }
             }
         }
         // Sort by arena offset so we slide data forward in order.
-        buf.sort_unstable_by_key(|&(_, offset, _)| offset);
+        crate::sort::sort_keys(buf);
 
         let mut write_pos: usize = 0;
-        for &(slot_idx, read_offset, len) in buf.iter() {
+        for &key in buf.iter() {
+            let (slot_idx, read_offset, len) = (
+                (key >> 16) as usize & 0xffff,
+                (key >> 32) as u32,
+                key as u16,
+            );
             let read_pos = read_offset as usize;
             let count = len as usize;
             if read_pos != write_pos {
@@ -606,14 +618,20 @@ impl ArrayHeap {
         for (i, slot) in self.arrays.iter().enumerate() {
             if let Some(arr) = slot.as_ref() {
                 if let ArrayData::Arena8 { offset, len } = &arr.data {
-                    buf.push((i, *offset, *len));
+                    debug_assert!(i <= u16::MAX as usize, "array slot index overflows the key");
+                    buf.push(((*offset as u64) << 32) | ((i as u64) << 16) | *len as u64);
                 }
             }
         }
-        buf.sort_unstable_by_key(|&(_, offset, _)| offset);
+        crate::sort::sort_keys(buf);
 
         let mut write_pos: usize = 0;
-        for &(slot_idx, read_offset, len) in buf.iter() {
+        for &key in buf.iter() {
+            let (slot_idx, read_offset, len) = (
+                (key >> 16) as usize & 0xffff,
+                (key >> 32) as u32,
+                key as u16,
+            );
             let read_pos = read_offset as usize;
             let count = len as usize;
             if read_pos != write_pos {

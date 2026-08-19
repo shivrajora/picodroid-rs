@@ -7,13 +7,14 @@ use crate::{
         ATYPE_SHORT,
     },
     object_heap::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf},
+    sort::{
+        f32_bits_from_key, f64_bits_from_key, i64_from_key, key_from_f32_bits, key_from_f64_bits,
+        key_from_i64, sort_keys,
+    },
     types::{JvmError, Value},
 };
 
 use super::NativeContext;
-
-/// Below this size, sort with insertion sort to avoid quicksort overhead.
-const INSERTION_THRESHOLD: usize = 16;
 
 fn extract_array(args: &[Value]) -> Result<u16, JvmError> {
     match args.first().copied().unwrap_or(Value::Null) {
@@ -55,91 +56,6 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
         _ => return Err(JvmError::InvalidReference),
     }
     Ok(None)
-}
-
-// Every primitive `Arrays.sort` overload funnels through one `u64` sort.
-// Rust's sort is generic, so calling `buf.sort()` once per element type
-// monomorphises the whole driftsort per type — the i32/i64/f32/f64 copies
-// cost ~25 KB of flash between them, which the RP2040's program region
-// cannot spare. Instead each element type maps onto an order-preserving
-// `u64` key, so the four call sites share a single sort instantiation and
-// the transform back is exact.
-//
-// Unstable is the right choice here: equal primitives are indistinguishable,
-// and Java's own primitive `Arrays.sort` is a dual-pivot quicksort that
-// makes no stability guarantee either.
-
-/// Order-preserving `i64` → `u64` key: flipping the sign bit puts
-/// two's-complement negatives below positives under unsigned comparison.
-#[inline]
-fn key_from_i64(v: i64) -> u64 {
-    (v as u64) ^ (1 << 63)
-}
-
-#[inline]
-fn i64_from_key(k: u64) -> i64 {
-    (k ^ (1 << 63)) as i64
-}
-
-/// Order-preserving IEEE-754 → key, matching `total_cmp`: negatives invert
-/// (their magnitude bits run backwards), positives lift above them. Falls
-/// out of this: `-0.0 < +0.0`, and NaNs order consistently instead of
-/// making the comparator non-total.
-#[inline]
-fn key_from_f64_bits(b: u64) -> u64 {
-    if b & (1 << 63) != 0 {
-        !b
-    } else {
-        b | (1 << 63)
-    }
-}
-
-#[inline]
-fn f64_bits_from_key(k: u64) -> u64 {
-    if k & (1 << 63) != 0 {
-        k & !(1 << 63)
-    } else {
-        !k
-    }
-}
-
-/// Same transform on 32-bit floats; zero-extending to `u64` preserves the
-/// unsigned ordering, so f32 rides the shared sort too.
-#[inline]
-fn key_from_f32_bits(b: u32) -> u64 {
-    let k = if b & (1 << 31) != 0 {
-        !b
-    } else {
-        b | (1 << 31)
-    };
-    k as u64
-}
-
-#[inline]
-fn f32_bits_from_key(k: u64) -> u32 {
-    let k = k as u32;
-    if k & (1 << 31) != 0 {
-        k & !(1 << 31)
-    } else {
-        !k
-    }
-}
-
-/// The one sort. Small runs use insertion sort to skip quicksort's setup.
-fn sort_keys(buf: &mut [u64]) {
-    if buf.len() < INSERTION_THRESHOLD {
-        for i in 1..buf.len() {
-            let key = buf[i];
-            let mut j = i;
-            while j > 0 && buf[j - 1] > key {
-                buf[j] = buf[j - 1];
-                j -= 1;
-            }
-            buf[j] = key;
-        }
-    } else {
-        buf.sort_unstable();
-    }
 }
 
 /// In-place sort for i32-slot arrays. `widen` converts the raw stored i32

@@ -661,19 +661,34 @@ impl ObjectHeap {
     /// left by swept objects and lazy-grow moves. Called by GC after sweep;
     /// mirrors [`crate::array_heap::ArrayHeap::compact_arena`] and shares
     /// its scratch buffer.
-    pub fn compact_fields_arena(&mut self, buf: &mut Vec<(usize, u32, u16)>) {
+    pub fn compact_fields_arena(&mut self, buf: &mut Vec<u64>) {
         buf.clear();
         for (i, slot) in self.objects.iter().enumerate() {
             if let Some(obj) = slot.as_ref() {
                 if obj.fields_cap > 0 {
-                    buf.push((i, obj.fields_off, obj.fields_cap as u16));
+                    // Slots are addressed by `ObjectRef(u16)`, so an index
+                    // always fits the 16 bits reserved for it in the key.
+                    debug_assert!(
+                        i <= u16::MAX as usize,
+                        "object slot index overflows the key"
+                    );
+                    buf.push(
+                        ((obj.fields_off as u64) << 32)
+                            | ((i as u64) << 16)
+                            | obj.fields_cap as u64,
+                    );
                 }
             }
         }
-        buf.sort_unstable_by_key(|&(_, offset, _)| offset);
+        crate::sort::sort_keys(buf);
 
         let mut write_pos: usize = 0;
-        for &(slot_idx, read_offset, cap) in buf.iter() {
+        for &key in buf.iter() {
+            let (slot_idx, read_offset, cap) = (
+                (key >> 16) as usize & 0xffff,
+                (key >> 32) as u32,
+                key as u16,
+            );
             let read_pos = read_offset as usize;
             let count = cap as usize;
             if read_pos != write_pos {

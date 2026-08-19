@@ -62,7 +62,7 @@ pub struct GcState {
     str_marks: Vec<u8>,
     work: Vec<GcRef>,
     /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
-    arena_compact_buf: Vec<(usize, u32, u16)>,
+    arena_compact_buf: Vec<u64>,
     /// Frame registry: every `interpreter::execute` on this heap registers
     /// its frame stack here for its whole run. A JVM task parked at a
     /// blocking yield point (sleep, socket accept/recv, queue wait) is

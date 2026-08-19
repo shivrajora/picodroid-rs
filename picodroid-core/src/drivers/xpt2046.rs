@@ -17,6 +17,19 @@ const CMD_READ_Y: u8 = 0x90; // Y position, 12-bit, differential
 /// the rest are averaged to eliminate transient spikes.
 const NUM_SAMPLES: usize = 5;
 
+/// Ascending in-place sort for the tiny median-filter sample buffers.
+fn insertion_sort_u16(buf: &mut [u16]) {
+    for i in 1..buf.len() {
+        let key = buf[i];
+        let mut j = i;
+        while j > 0 && buf[j - 1] > key {
+            buf[j] = buf[j - 1];
+            j -= 1;
+        }
+        buf[j] = key;
+    }
+}
+
 pub struct Xpt2046<SPI, CS> {
     spi: SPI,
     cs: CS,
@@ -138,8 +151,12 @@ where
         let _ = self.cs.set_high();
         self.spi.set_frequency(self.display_spi_freq);
 
-        xs.sort_unstable();
-        ys.sort_unstable();
+        // Insertion sort, not `sort_unstable`: five elements never reach
+        // the point where a real quicksort pays for itself, and the generic
+        // sort would monomorphise its whole machinery into the firmware for
+        // this one call site. See `pico_jvm::sort` for the same trade.
+        insertion_sort_u16(&mut xs);
+        insertion_sort_u16(&mut ys);
         let mid = &xs[1..NUM_SAMPLES - 1];
         let raw_x = (mid.iter().map(|&v| v as u32).sum::<u32>() / mid.len() as u32) as u16;
         let mid = &ys[1..NUM_SAMPLES - 1];
