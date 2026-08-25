@@ -216,3 +216,97 @@ Fitting a usable proxy needs paired runs with `parity-metrics` enabled
   exceeds ~8% (2σ) before spending a device confirmation, not 5%.
 - The deterministic metrics are proven load-bearing: they answered both
   questions that four months of device wall-clock could not.
+
+---
+
+## S2 — Flash headroom
+
+Objective for this phase: buy program-region headroom on the RP2040, which is
+the campaign's binding budget (96.1% full, ~35 KB, enforced only by link
+failure in `scripts/pre-commit`). Every later speed change adds code and has to
+pass that gate.
+
+Both changes were measured with `parity-bench.sh --size-only`, which is the
+only campaign instrument with a literally zero noise floor.
+
+### F3 — hand-written introsort (`jvm/src/sort.rs`)
+
+`edd1259` and `a828229` had already funnelled every primitive `Arrays.sort`
+and GC compaction onto one `u64` key. What remained was the standard library's
+driftsort/ipnsort — 7,386 bytes across five symbols even at a single
+instantiation. The JVM's two sort callers are `Arrays.sort` on app-sized
+arrays and arena compaction (once per collection, 403 times in a whole
+`benchmark` run); neither is bound by sort throughput.
+
+Replaced with insertion sort under 16, median-of-three **Hoare** quicksort,
+and a heapsort fallback at `2*log2(n)` depth. Hoare rather than Lomuto so an
+all-equal run splits down the middle instead of going quadratic — `Arrays.sort`
+on a constant array is ordinary. The depth limit is what keeps compaction off a
+latency cliff.
+
+```text
+sort machinery   10,074 ->  1,774 bytes   (9 -> 5 symbols)
+rp2040 flash    881,827 -> 871,939        (-9,888)
+```
+
+Byte-identical work: `gc_count` 403, `gc_freed` 100,062, `heap_peak_kb` 277,
+`oom_count` 50, `classes_parsed` 8 — all equal to the `2332f36` nightly
+baseline; `insns` 65,965,597 against the parity audit's 65,965,594.
+
+### F2 — premultiplied ARGB8888 was dead code, and on by default
+
+`LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED` was never set in `lv_conf.h`.
+LVGL's `lv_conf_internal.h` defaults it to **1** when `LV_KCONFIG_PRESENT` is
+undefined, so it has been linked since the port began without anyone asking
+for it.
+
+It is reachable exactly two ways, and both are closed:
+
+- **An asset in that format.** `tools/papk-pack` bakes
+  `LV_COLOR_FORMAT_RGB565` into every image and has a `color_format_guard`
+  test module enforcing it.
+- **An intermediate layer requesting it.** Every `lv_draw_layer_create` call
+  site in `vendor/lvgl` passes `ARGB8888`, `A8`, or `NATIVE`. None passes
+  `PREMULTIPLIED`.
+
+```text
+rp2040 flash    871,939 -> 849,047        (-22,892)
+rp2350 flash    886,919 -> 868,943        (-17,976)
+```
+
+The win exceeds the two obvious symbols (`blend_image_to_` 8,234 +
+`blend_color_to_` 3,058 = 11,292) because the config also drops the
+premultiplied transform and recolor paths.
+
+**Proof of no behavioural change:** graphicsbench built with `parity-fbhash`
+before and after emits **1000 band CRC32s that are identical**, with
+`insns=147899 allocs=8908 gcs=34 bands=1000 fbytes=9648348` equal in both runs.
+Rendering is pixel-exact. `imagedemo` (asset decode), `animdemo` (alpha
+animation — the path that *does* create ARGB8888 layers) and `dialogdemo` all
+hit their `hil-tests.conf` patterns.
+
+Two neighbours were checked and left alone: `lv_draw_sw_transform` (9,782 B) is
+live via `ImageView.setScale`, and plain `LV_DRAW_SW_SUPPORT_ARGB8888` is
+genuinely needed — the animation engine's `lv_obj_set_style_opa` makes LVGL
+build ARGB8888 intermediate layers.
+
+### S2 result
+
+```text
+rp2040 program region   881,827 -> 849,047 bytes
+headroom                 35,421 ->  68,201 bytes   (+92%)
+region occupancy          96.1% ->    92.6%
+```
+
+### Correction to the plan's F1
+
+The plan sized F1 (native dispatch → sorted table) at ~18 KB from the symbol
+sizes of `pico_jvm::native::string::dispatch` (10,316) and
+`PicodroidNativeHandler::dispatch` (7,588). Reading them, both are `match`
+statements whose arms contain the **method implementations**, not just
+comparison code. Most of those bytes are real work and would survive any
+dispatch rewrite. F1 needs a measured prototype before it can be scoped; the
+18 KB figure should not be quoted.
+
+S1.3 already removed its other justification — there is no 6.8% shrink tax for
+a faster dispatch to recover.
