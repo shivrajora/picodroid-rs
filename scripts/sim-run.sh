@@ -432,6 +432,20 @@ sim_log "  Results: $RESULTS_FILE"
 sim_log "  Logs:    $RUN_LOG_DIR/"
 sim_log "========================================="
 
+# Append this run's benchmark metrics to bench/parity/history.csv and print a
+# drift summary. Informational only -- a slow perf regression should surface in
+# the morning report, but it must never fail the correctness run.
+# (docs/perf-campaign-2026-08.md S0)
+if [[ -x "$SCRIPT_DIR/bench-backfill.py" ]]; then
+  sim_log "Appending benchmark metrics to bench/parity/history.csv..."
+  python3 "$SCRIPT_DIR/bench-backfill.py" --run-dir "$RUN_LOG_DIR" --quiet 2>&1 |
+    while IFS= read -r line; do sim_log "  bench: $line"; done || \
+    sim_log "  Metric backfill failed (non-fatal)."
+  python3 "$SCRIPT_DIR/bench-report.py" --trend wall_ms --env sim \
+    --app benchmark --mode no-shrink 2>/dev/null | tail -6 |
+    while IFS= read -r line; do sim_log "  trend: $line"; done || true
+fi
+
 # Send email report.
 if [[ "$SEND_EMAIL" == "true" ]]; then
   sim_log "Sending email report..."
