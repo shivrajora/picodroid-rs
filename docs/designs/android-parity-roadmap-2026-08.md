@@ -283,3 +283,11 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   Add `AtomicInteger` alone if thread-parity work surfaces demand.
 - **`Fragment` before the resource system.** Fragments without layouts and
   ids are shape without substance.
+- **Jetpack Compose proper.** Even runtime-only Compose (custom `Applier`,
+  no `compose-ui`) is ~2k classes / ~600 KB of tree-shaken class files plus
+  kotlinx-coroutines plus a Java SE library the JVM does not have
+  (`ThreadLocal`, atomics, `WeakReference`, `IdentityHashMap`); the class
+  table alone would be ~40 KB and a first composition is ~10⁶ bytecodes at
+  ~1 M bytecodes/s. A Compose-*like* declarative layer over the retained
+  `View` tree is feasible and is deferred in `docs/quality-roadmap.md`
+  § Framework direction, behind `docs/designs/kotlin-roadmap-2026-08.md`.

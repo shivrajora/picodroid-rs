@@ -304,3 +304,24 @@ their stack (or whether the buffers should move off-stack instead).
 **Tradeoff:** raising the buffers without the measurement risks a
 hardware-only JVM-task stack overflow to speed up a path nobody has shown to
 be slow; the measurement itself needs a HW session with a listener host.
+
+## Framework direction
+
+### Compose-like declarative UI layer *(deferred)*
+
+A declarative layer over the existing retained LVGL `View` tree: `State<T>`/`MutableState<T>`
+with a plain invalidation list (no MVCC snapshots), tree descriptions built by lambdas, a
+positional + `key()` reconciler that re-runs affected subtree builders on state change
+(virtual-DOM style — no compiler plugin, so no automatic skipping), and an applier that calls
+`View` setters only for changed properties. Java-first: it does not need Kotlin; Kotlin only adds
+DSL sugar (trailing lambdas, receivers). Backend gaps: `ViewGroup.addView` is append-only with no
+reorder (needs `lv_obj_move_to_index` in `lvgl_ffi.rs`, or subtree rebuilds), and a post-callback
+`Recomposer.flush()` dispatch site in `picodroid-core/src/lifecycle.rs`. Estimated 20–30 classes /
+1.5–2.5k LOC, 35–60 KB flash (ship inside the PAPK, or E1-gate it — RP2040 has ~40 KB of program
+flash left), ~9 KB retained + ~8 KB transient per rebuild for a picoenvmon-sized UI (33 views),
+~10 ms per full recompose on device. Jetpack Compose proper is ruled out — see
+`docs/designs/android-parity-roadmap-2026-08.md` § Not doing. Deferred until
+`docs/designs/kotlin-roadmap-2026-08.md` closes, so the DSL is designed once, against the language
+apps will actually use. **Tradeoff:** every screen written imperatively in the meantime is a screen
+to port later; but designing the DSL before Kotlin lands would either freeze a Java-shaped API or
+block on the Kotlin toolchain.
