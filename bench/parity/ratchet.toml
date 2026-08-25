@@ -1,0 +1,21 @@
+# Committed size baseline for the perf campaign.
+#
+# Deterministic metrics ratchet at 0%: bench-report.py --ratchet fails
+# on any growth. Advancing this file is the explicit act of consenting
+# to spend budget, so do it in the same commit that spends it and say
+# why in the message (size: trailer).
+#
+# Regenerate: ./scripts/parity-bench.sh --size-only --boards <list>
+#             ./scripts/bench-report.py --ratchet --accept
+
+[testbench_rp2040]
+flash_bytes = 849047
+ram_bytes = 227704
+text = 849043
+bss = 227700
+
+[testbench_rp2350]
+flash_bytes = 868943
+ram_bytes = 522852
+text = 868939
+bss = 522848

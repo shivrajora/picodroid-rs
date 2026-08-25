@@ -262,6 +262,120 @@ def cmd_holdout(rows, args):
     return 1 if vetoed else 0
 
 
+RATCHET = REPO / "bench" / "parity" / "ratchet.toml"
+
+# The RP2040 program region is 917,248 B and is enforced today only by the link
+# failing. G1_HARD keeps a deliberate reserve below it so the gate trips in
+# review rather than at 3am in someone's build.
+G1_HARD = 908_000
+G2_HARD = 532_480          # rp2350 data+bss, the chip's whole SRAM
+
+
+def read_ratchet():
+    """Minimal TOML reader -- Python 3.11 has tomllib, older does not, and the
+    file is a flat two-level table by construction."""
+    if not RATCHET.exists():
+        return {}
+    try:
+        import tomllib
+        with RATCHET.open("rb") as f:
+            return tomllib.load(f)
+    except ImportError:
+        pass
+    out, section = {}, None
+    for line in RATCHET.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+            out[section] = {}
+        elif "=" in line and section:
+            k, v = (x.strip() for x in line.split("=", 1))
+            out[section][k] = int(v) if v.lstrip("-").isdigit() else v.strip('"')
+    return out
+
+
+def current_sizes(rows):
+    """Newest size-lane reading per (board, metric)."""
+    best = {}
+    for r in rows:
+        if r["env"] != "size":
+            continue
+        key = (r["board"], r["metric"])
+        if key not in best or r["utc"] > best[key][0]:
+            best[key] = (r["utc"], float(r["value"]))
+    return {k: v for k, (_, v) in best.items()}
+
+
+def cmd_ratchet(rows, args):
+    """Gate flash/RAM against the committed baseline.
+
+    Deterministic metrics ratchet at 0%: any growth must be a deliberate,
+    named act. Shrinking is always allowed and is what --accept records.
+    """
+    base = read_ratchet()
+    cur = current_sizes(rows)
+    if not cur:
+        sys.exit("no size-lane rows -- run "
+                 "./scripts/parity-bench.sh --size-only --boards <b1,b2>")
+
+    boards = sorted({b for b, _ in cur})
+    print(f"{'board':<22} {'metric':<14} {'baseline':>10} {'current':>10} "
+          f"{'delta':>9}  verdict")
+    failed = accepted = 0
+    for board in boards:
+        for metric in ("flash_bytes", "ram_bytes"):
+            c = cur.get((board, metric))
+            if c is None:
+                continue
+            b = base.get(board, {}).get(metric)
+            hard = G1_HARD if metric == "flash_bytes" else G2_HARD
+            verdict = ""
+            if metric == "flash_bytes" and "rp2040" in board and c > hard:
+                verdict = "FAIL (hard ceiling)"
+            elif b is None:
+                verdict = "new"
+            elif c > b:
+                verdict = "FAIL (ratchet)"
+            elif c < b:
+                verdict = "improved"
+            if verdict.startswith("FAIL"):
+                failed += 1
+            if verdict == "improved":
+                accepted += 1
+            d = "-" if b is None else f"{c - b:+,.0f}"
+            bs = "-" if b is None else f"{b:,.0f}"
+            print(f"{board:<22} {metric:<14} {bs:>10} {c:>10,.0f} {d:>9}  {verdict}")
+
+    if args.accept:
+        lines = ["# Committed size baseline for the perf campaign.",
+                 "#",
+                 "# Deterministic metrics ratchet at 0%: bench-report.py --ratchet fails",
+                 "# on any growth. Advancing this file is the explicit act of consenting",
+                 "# to spend budget, so do it in the same commit that spends it and say",
+                 "# why in the message (size: trailer).",
+                 "#",
+                 "# Regenerate: ./scripts/parity-bench.sh --size-only --boards <list>",
+                 "#             ./scripts/bench-report.py --ratchet --accept",
+                 ""]
+        for board in boards:
+            lines.append(f"[{board}]")
+            for metric in ("flash_bytes", "ram_bytes", "text", "bss"):
+                c = cur.get((board, metric))
+                if c is not None:
+                    lines.append(f"{metric} = {c:.0f}")
+            lines.append("")
+        RATCHET.write_text("\n".join(lines))
+        print(f"\nbaseline written to {RATCHET.relative_to(REPO)}")
+        return 0
+
+    print(f"\n{failed} failure(s), {accepted} improvement(s) not yet accepted")
+    if accepted and not failed:
+        print("run with --accept to lock the improvement in")
+    return 1 if failed else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -270,6 +384,10 @@ def main():
     ap.add_argument("--compare", metavar="A..B")
     ap.add_argument("--fit", action="store_true")
     ap.add_argument("--holdout", metavar="A..B")
+    ap.add_argument("--ratchet", action="store_true",
+                    help="gate flash/RAM against bench/parity/ratchet.toml")
+    ap.add_argument("--accept", action="store_true",
+                    help="with --ratchet: record current sizes as the baseline")
     ap.add_argument("--env", default=None, choices=[None, "sim", "hil"])
     ap.add_argument("--app", default="benchmark")
     ap.add_argument("--mode", default="no-shrink")
@@ -292,6 +410,8 @@ def main():
         return cmd_fit(rows, args) or 0
     if args.holdout:
         return cmd_holdout(rows, args) or 0
+    if args.ratchet:
+        return cmd_ratchet(rows, args) or 0
     ap.print_help()
     return 0
 
