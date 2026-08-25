@@ -35,3 +35,4 @@ node_modules/
 !.vscode/settings.json
 # Local WiFi credentials (user-supplied, never committed)
 /.wifi-creds.env
+__pycache__/
