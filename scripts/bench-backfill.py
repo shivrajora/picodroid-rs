@@ -47,7 +47,10 @@ BOARD_BY_APP = {
     "netexception": "testbench_rp2350w",
 }
 
-RUN_ID_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_([0-9a-f]+)$")
+# Cron dirs are "<date>_<time>_<sha>"; parity-bench appends "_<n>" so that
+# repeated samples of one commit land in distinct directories.
+RUN_ID_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_([0-9a-f]+)(?:_\d+)?$")
 
 # defmt/RTT framing: "[INFO ] Tag: msg (picodroid_core src/util/log.rs:28)"
 DEFMT_RE = re.compile(r"^\[[A-Z ]+\]\s*(.*?)\s*\([a-z_]+ src/[^)]*\)\s*$")
@@ -217,7 +220,7 @@ def split_app_mode(stem):
     return stem, "none"
 
 
-def rows_for_run(run_dir, env):
+def rows_for_run(run_dir, env, board_override=None):
     """Yield CSV rows for one <RUN_ID> directory."""
     m = RUN_ID_RE.match(run_dir.name)
     if not m:
@@ -233,7 +236,7 @@ def rows_for_run(run_dir, env):
         metrics = parse_log(log, env)
         if not metrics:
             continue
-        board = BOARD_BY_APP.get(app, DEFAULT_BOARD)
+        board = board_override or BOARD_BY_APP.get(app, DEFAULT_BOARD)
         split = "train" if app in TRAIN_APPS else "holdout"
         for metric, value in sorted(metrics.items()):
             yield [utc, commit, env, board, app, mode, split, metric, value]
@@ -244,6 +247,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env", choices=["sim", "hil", "both"], default="both")
     ap.add_argument("--run-dir", help="parse exactly one run directory")
+    ap.add_argument("--board", help="board for --run-dir rows (default: per-app map)")
+    ap.add_argument("--force-env", choices=["sim", "hil", "size"],
+                    help="env for --run-dir rows when the path does not say")
     ap.add_argument("--out", default=str(CSV_PATH))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--quiet", action="store_true")
@@ -252,8 +258,8 @@ def main():
     rows = []
     if args.run_dir:
         d = Path(args.run_dir).resolve()
-        env = "hil" if "/hil/" in str(d) else "sim"
-        rows.extend(rows_for_run(d, env))
+        env = args.force_env or ("hil" if "/hil/" in str(d) else "sim")
+        rows.extend(rows_for_run(d, env, args.board))
     else:
         envs = ["sim", "hil"] if args.env == "both" else [args.env]
         for env in envs:

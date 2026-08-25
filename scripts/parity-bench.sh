@@ -75,19 +75,23 @@ COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 stamp_utc() { UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; }
 HOST_TARGET="$(host_target)"
 
-# Same-image batches are ~32 ppm reproducible. A spread above 0.5% means the
-# board is in a bad state (thermal / USB / probe), not that the code changed --
-# discard and re-run rather than averaging it in.
-# (docs/perf-campaign-2026-08.md S1.3)
-report_spread() { # app  < values-on-stdin
-  awk -v app="$1" '
+# Reports the spread of a batch, and flags a batch that is too noisy to use.
+#
+# The threshold is per-environment and the difference is large: repeated runs
+# of one flashed image are ~32 ppm reproducible, so a device batch spreading
+# more than 0.5% means the board is in a bad state (thermal / USB / probe) and
+# should be discarded rather than averaged in. The sim has a 4-5% same-binary
+# spread by nature, so the same threshold there is pure false alarm -- it is
+# reported but never flagged. (docs/perf-campaign-2026-08.md S1.3)
+report_spread() { # app limit_percent  < values-on-stdin
+  awk -v app="$1" -v limit="$2" '
     /^[0-9]+$/ { v[n++] = $1; if (mn == "" || $1 < mn) mn = $1; if ($1 > mx) mx = $1 }
     END {
       if (n == 0) { printf "  %s: no wall-clock captured\n", app; exit }
       if (n == 1) { printf "  %s: 1 run, %d ms\n", app, mn; exit }
       p = (mx - mn) / mn * 100
       printf "  %s: %d runs, %d..%d ms, p2p %.3f%%%s\n", app, n, mn, mx, p,
-             (p > 0.5 ? "  <== BAD BATCH, board unstable, re-run" : "")
+             (limit > 0 && p > limit ? "  <== BAD BATCH, board unstable, re-run" : "")
     }'
 }
 
@@ -99,9 +103,29 @@ emit() { # env app metric value
   echo "$UTC,$COMMIT,$1,${EMIT_BOARD:-$BOARD},$2,$mode,$split,$3,$4" >> "$CSV"
 }
 
-# Parse one captured log: TOTAL/SCORE wall numbers + the parity counter line.
-# Tolerant of both sim ("[Benchmark] TOTAL...") and defmt ("Benchmark: TOTAL")
-# tag framing.
+# Parsing is delegated to scripts/bench-backfill.py so this script and the
+# nightly backfill cannot drift apart. Running both parsers over the same
+# workload used to produce disjoint metric sets -- this one emitted four
+# metrics, the backfill emitted ~38 -- which made a parity-bench run
+# incomparable with the nightly corpus it is supposed to extend.
+#
+# Logs are written as <RUN_ID>/<app>.<mode>.log so the backfill can recover
+# utc and commit from the directory name exactly as it does for a cron run.
+# One run directory per sample. bench-backfill.py derives utc and commit from
+# the directory name, and the CSV primary key is every column but the value --
+# so N samples sharing one directory would collapse into one row instead of N.
+new_run_dir() {
+  local d="$LOG_DIR/$(date -u '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT}_$1"
+  mkdir -p "$d"
+  echo "$d"
+}
+
+ingest_run_dir() { # env board dir
+  python3 "$SCRIPT_DIR/bench-backfill.py" --run-dir "$3" \
+    --force-env "$1" --board "$2" --out "$CSV" --quiet
+}
+
+# Retained only for the --check lane's legacy expectations.
 parse_log() { # env app logfile
   local env_name="$1" app="$2" log="$3"
   local wall
@@ -177,19 +201,21 @@ if $DO_SIM; then
     # pre-averaged -- averaging destroys the spread the analysis needs.
     n_runs="${RUNS:-1}"
     : > "$LOG_DIR/$app.sim.walls"
+    mode_tag=no-shrink
+    [[ "${PICODROID_SHRINK:-0}" == "1" ]] && mode_tag=shrink
     for run in $(seq 1 "$n_runs"); do
-      local_log="$LOG_DIR/$app.sim.$run.log"
+      run_dir="$(new_run_dir "$run")"
+      local_log="$run_dir/$app.$mode_tag.log"
       # Bench apps terminate on their own; the timeout is a hang backstop.
       PICODROID_APK_PATH="$REPO_ROOT/build/apks/$app.papk" \
         PICODROID_SIM_HEADLESS=1 \
         timeout 600 "$REPO_ROOT/target/$HOST_TARGET/release/picodroid" \
         > "$local_log" 2>&1 || true
-      stamp_utc
-      parse_log sim "$app" "$local_log"
+      ingest_run_dir sim "$BOARD" "$run_dir"
       grep -oE 'TOTAL: [0-9]+ ms' "$local_log" | grep -oE '[0-9]+' \
         >> "$LOG_DIR/$app.sim.walls" || true
     done
-    report_spread "$app" < "$LOG_DIR/$app.sim.walls"
+    report_spread "$app" 0 < "$LOG_DIR/$app.sim.walls"
   done
 fi
 
@@ -207,17 +233,19 @@ if $DO_HIL; then
     # samples would measure the linker, not the change.
     n_runs="${RUNS:-3}"
     : > "$LOG_DIR/$app.hil.walls"
+    mode_tag=no-shrink
+    [[ "${PICODROID_SHRINK:-0}" == "1" ]] && mode_tag=shrink
     for run in $(seq 1 "$n_runs"); do
-      local_log="$LOG_DIR/$app.hil.$run.log"
+      run_dir="$(new_run_dir "$run")"
+      local_log="$run_dir/$app.$mode_tag.log"
       PICODROID_EXTRA_FEATURES=parity-metrics \
         timeout 300 "$SCRIPT_DIR/flash.sh" -b "$BOARD" -a "$app" -r \
         > "$local_log" 2>&1 || true
-      stamp_utc
-      parse_log hil "$app" "$local_log"
+      ingest_run_dir hil "$BOARD" "$run_dir"
       grep -oE 'TOTAL: [0-9]+ ms' "$local_log" | grep -oE '[0-9]+' \
         >> "$LOG_DIR/$app.hil.walls" || true
     done
-    report_spread "$app" < "$LOG_DIR/$app.hil.walls"
+    report_spread "$app" 0.5 < "$LOG_DIR/$app.hil.walls"
   done
 fi
 
