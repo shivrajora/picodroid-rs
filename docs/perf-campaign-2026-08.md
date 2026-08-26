@@ -310,3 +310,90 @@ dispatch rewrite. F1 needs a measured prototype before it can be scoped; the
 
 S1.3 already removed its other justification — there is no 6.8% shrink tax for
 a faster dispatch to recover.
+
+---
+
+## S4 — Interpreter overhead, and the limit of what we can measure
+
+Four changes, each removing work from a hot path without changing what the JVM
+computes. Every deterministic counter is identical before and after — `insns`
+65,965,597, `allocs` 100,263, `gcs` 403, `gc_freed` 100,062, `heap_peak_kb`
+277, `oom_count` 50 — which is the expected signature of pure overhead
+removal, and also the reason the deterministic proxy cannot score them.
+
+| | change | flash |
+|---|---|---|
+| S1 | one-entry `(class_idx, method_idx) -> code` cache in the interpreter loop, replacing a OnceCell load + `Box` deref + two Vec indexes + a reslice **per bytecode** | } +100 B |
+| S2 | `has_lambdas()` gate so a virtual invoke skips the lambda probe entirely when no proxy exists | } together |
+| S3 | one `AtomicSection` per `alloc_with_defaults` instead of one **per field written** — on device each was a `vTaskSuspendAll`/`xTaskResumeAll` pair | +364 B |
+| S4 | binary-search `lookupswitch` (JVMS 6.5 guarantees sorted keys) | +128 B |
+
+S3 is safe because the object is not published: `idx` is still local to the
+call, so no other task can read or write those slots, and the capacity was
+sized exactly above so the lazy-grow path is unreachable. One section still
+brackets the run because another task could be reallocating `fields_arena`.
+
+### The measurement failed, and that is the finding
+
+| environment | result |
+|---|---|
+| sim, 3 runs, p2p 0.8% | **−7.09%** (649 → 603 ms) |
+| device, 3 runs, p2p 0.004% | **+0.42%** (184,427 → 185,201 ms) |
+
+Both batches are internally clean — the device pair is 40 ppm, an order of
+magnitude inside the 0.5% bad-batch guard. The disagreement is not measurement
+error.
+
+The per-microbench breakdown settles which one to believe, using the same
+diagnostic that exonerated `a828229` in S1.1:
+
+| microbench | device | sim predicted |
+|---|---|---|
+| `float_arithmetic` | **−32.0%** | −7.9% |
+| `string_operations` | −11.6% | +2.9% |
+| `int_arithmetic` | −10.0% | −14.2% |
+| `control_flow` | +8.2% | −6.5% |
+| `object_allocation` | +7.0% | +1.3% |
+| `interface_dispatch` | +11.2% | +2.9% |
+| `method_dispatch` | **+11.3%** | −2.2% |
+
+Scattered in both directions, magnitudes far beyond any mechanism these four
+changes could produce, and uncorrelated with the sim. That is the layout
+signature. **The device cannot resolve an effect this small**: the true value
+is somewhere inside ±4% and this experiment does not narrow it.
+
+Two consequences:
+
+1. **The plan's batching rule does not work.** It said to accumulate changes
+   until the predicted effect exceeds 2σ, then spend one device confirmation.
+   The predictor is the sim, and the sim is not merely noisy here — it is
+   **biased**, over-predicting by about seven points. A host CPU with deep
+   out-of-order execution and large caches rewards removing pointer chasing far
+   more than a Cortex-M33 executing from XIP flash does. A rule keyed to an
+   unreliable predictor is not a rule.
+2. **Resolving this class of change needs the layout sweep**, not a bigger
+   batch. n=7 per arm at ~6 min per sample resolves roughly 3%; nothing cheaper
+   works, because layout noise is multiplicative over the whole run and no
+   choice of workload escapes it.
+
+### What was kept, and on what grounds
+
+All four, at +592 B against 67,609 B of headroom — **but not as a measured
+win, and the sim's −7% is not a claim.** Each is kept because it is
+mechanically strictly less work, which is a different and weaker justification
+than the campaign normally accepts, and it is recorded as such:
+
+- **S1** removes memory traffic on the single hottest path in the system, for
+  about 50 bytes. The best mechanism-to-cost ratio of the four.
+- **S2** likewise, on every virtual invoke, for about 50 bytes.
+- **S3** deletes real FreeRTOS calls and shortens the worst-case
+  scheduler-suspension window — correctness-adjacent given this project's SMP
+  history (`project_picoenvmon_soak_child_thread_gc_death`).
+- **S4** is the weakest: `benchmark` contains no sparse switch, so this
+  experiment could never have scored it. Kept as cheap insurance against a
+  latency cliff in an app we have not seen, the same reasoning that chose Hoare
+  partition over Lomuto in F3.
+
+Reverting strictly-less-work changes because the instrument is too coarse would
+be as much a mistake as claiming a win from a biased proxy. The honest record
+is that we do not know their device effect, only that it is under about 4%.

@@ -71,7 +71,15 @@ is_train() { [[ "$1" == benchmark || "$1" == perfbench ]]; }
 # the value, so a fixed timestamp would make N runs of the same app collapse
 # into one row instead of N samples.
 UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+# A dirty tree gets its own identity. Tagging uncommitted work with the plain
+# HEAD hash makes before-and-after rows collide on the CSV primary key, so a
+# comparison silently reads its own "after" numbers as the baseline and reports
+# everything identical. The diff digest keeps successive working states
+# distinct, which is what an inner measurement loop needs.
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+if ! git -C "$REPO_ROOT" diff --quiet HEAD 2>/dev/null; then
+  COMMIT="${COMMIT}-d$(git -C "$REPO_ROOT" diff HEAD | sha1sum | cut -c1-6)"
+fi
 stamp_utc() { UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; }
 HOST_TARGET="$(host_target)"
 

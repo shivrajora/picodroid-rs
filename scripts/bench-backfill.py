@@ -50,7 +50,8 @@ BOARD_BY_APP = {
 # Cron dirs are "<date>_<time>_<sha>"; parity-bench appends "_<n>" so that
 # repeated samples of one commit land in distinct directories.
 RUN_ID_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_([0-9a-f]+)(?:_\d+)?$")
+    r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_"
+    r"([0-9a-f]+(?:-d[0-9a-f]+)?)(?:_\d+)?$")
 
 # defmt/RTT framing: "[INFO ] Tag: msg (picodroid_core src/util/log.rs:28)"
 DEFMT_RE = re.compile(r"^\[[A-Z ]+\]\s*(.*?)\s*\([a-z_]+ src/[^)]*\)\s*$")

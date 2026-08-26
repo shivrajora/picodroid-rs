@@ -287,22 +287,41 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     _ => return Err(JvmError::InvalidBytecode),
                 };
 
+                // JVMS 6.5 requires the match-offset pairs to be sorted by
+                // match value, precisely so this can be a binary search --
+                // javac emits lookupswitch for sparse switches, which are the
+                // ones with enough cases for the linear scan to matter.
+                //
+                // Reading a pair rather than trusting the sort would defeat
+                // the point, so a malformed class file (keys out of order)
+                // degrades to taking the default branch. That is a safe
+                // outcome: no read leaves the operand's bounds, and the same
+                // class file would already be untrusted for a dozen other
+                // reasons.
+                let pair_at = |i: usize| -> (i32, i32) {
+                    let at = frame.pc + i * 8;
+                    (
+                        i32::from_be_bytes([code[at], code[at + 1], code[at + 2], code[at + 3]]),
+                        i32::from_be_bytes([
+                            code[at + 4],
+                            code[at + 5],
+                            code[at + 6],
+                            code[at + 7],
+                        ]),
+                    )
+                };
                 let mut chosen = default_offset;
-                for i in 0..npairs {
-                    let match_val = i32::from_be_bytes([
-                        code[frame.pc + i * 8],
-                        code[frame.pc + i * 8 + 1],
-                        code[frame.pc + i * 8 + 2],
-                        code[frame.pc + i * 8 + 3],
-                    ]);
-                    if match_val == key {
-                        chosen = i32::from_be_bytes([
-                            code[frame.pc + i * 8 + 4],
-                            code[frame.pc + i * 8 + 5],
-                            code[frame.pc + i * 8 + 6],
-                            code[frame.pc + i * 8 + 7],
-                        ]);
-                        break;
+                let (mut lo, mut hi) = (0usize, npairs);
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    let (match_val, offset) = pair_at(mid);
+                    match match_val.cmp(&key) {
+                        core::cmp::Ordering::Equal => {
+                            chosen = offset;
+                            break;
+                        }
+                        core::cmp::Ordering::Less => lo = mid + 1,
+                        core::cmp::Ordering::Greater => hi = mid,
                     }
                 }
                 frame.pc = ((inst_pc as i32) + chosen) as usize;

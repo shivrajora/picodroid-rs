@@ -393,6 +393,23 @@ fn execute_frames<H: NativeMethodHandler>(
         insn_count: 0,
     };
 
+    // One-entry cache of the executing method's code slice.
+    //
+    // Without it every single bytecode re-derives `code` from scratch:
+    // index `classes`, call `methods()` (a `OnceCell` load plus a `Box`
+    // deref into the lazily-parsed metadata), index that, then reslice
+    // `data()`. That is a lot of pointer chasing to answer a question whose
+    // answer changes only when the frame changes -- which is to say, on
+    // calls and returns, not on the long runs of straight-line bytecode in
+    // between.
+    //
+    // Keying on `(class_idx, method_idx)` rather than on frame identity is
+    // deliberate: a recursive call pushes a new frame for the *same* method,
+    // and `method_code` is a pure function of that pair, so the cached slice
+    // is still correct and recursion keeps the hit. `classes` is immutable
+    // for the lifetime of the call, so nothing can invalidate the entry.
+    let mut code_cache: Option<(usize, usize, &'static [u8])> = None;
+
     loop {
         // Cooperative stop-point: checked every 256 bytecode instructions.
         // Also folds heap-side alloc events so pure-bytecode alloc loops
@@ -412,9 +429,15 @@ fn execute_frames<H: NativeMethodHandler>(
             None => return Ok(None),
         };
 
-        let cf = &ex.classes[frame.class_idx];
-        let method = &cf.methods()[frame.method_idx];
-        let code = cf.method_code(method);
+        let code = match code_cache {
+            Some((ci, mi, code)) if ci == frame.class_idx && mi == frame.method_idx => code,
+            _ => {
+                let cf = &ex.classes[frame.class_idx];
+                let code = cf.method_code(&cf.methods()[frame.method_idx]);
+                code_cache = Some((frame.class_idx, frame.method_idx, code));
+                code
+            }
+        };
 
         if frame.pc >= code.len() {
             frames.pop();

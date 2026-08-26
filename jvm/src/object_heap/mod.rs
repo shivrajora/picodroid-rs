@@ -459,16 +459,50 @@ impl ObjectHeap {
                 .sum::<usize>();
         let idx = self.alloc_with_field_count(canonical_name, n_fields)?;
 
-        let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
-        for ci in chain.iter() {
-            let cf = &classes[*ci];
-            for fi in cf.fields() {
-                let v = match cf.field_descriptor(fi) {
-                    Some(desc) => default_for_descriptor(desc),
-                    None => Value::Null,
-                };
-                self.set_field(idx, slot, v)?;
-                slot += 1;
+        // Write the defaults straight into the arena rather than through
+        // `set_field` once per field.
+        //
+        // `set_field` exists to be safe for an object other tasks can already
+        // see, so it pays for a slot re-lookup, the lazy-grow branch, a
+        // high-water bump, and — the expensive part — a scheduler-atomic
+        // section on *every* field. On device that is a
+        // vTaskSuspendAll/xTaskResumeAll pair per field written, so a
+        // ten-field object suspended and resumed the scheduler ten times just
+        // to store ten constants.
+        //
+        // None of that is needed here. `idx` has not been published: it is
+        // still local to this call, so no other task can read or write these
+        // slots and there is no torn-`Value` hazard to guard against. The
+        // capacity was sized exactly above, so the lazy-grow path is
+        // unreachable. One section around the whole run is all that is
+        // required, and it is required only because another task could be
+        // reallocating `fields_arena` underneath us.
+        let start_slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
+        {
+            let _atomic = crate::atomic_section::AtomicSection::enter();
+            let base = self.objects.get(idx as usize)?.as_ref()?.fields_off as usize;
+            let mut slot = start_slot;
+            for ci in chain.iter() {
+                let cf = &classes[*ci];
+                for fi in cf.fields() {
+                    let v = match cf.field_descriptor(fi) {
+                        Some(desc) => default_for_descriptor(desc),
+                        None => Value::Null,
+                    };
+                    self.fields_arena[base + slot] = v;
+                    slot += 1;
+                }
+            }
+            // Match `set_field`'s high-water semantics exactly: it raises
+            // `field_count` to the highest slot actually written, and leaves
+            // it alone when nothing is written at all. An enum whose chain
+            // contributes no fields must keep `field_count == 0` so that
+            // reads of the two implicit slots still return None.
+            if slot > start_slot {
+                let s = self.objects.get_mut(idx as usize)?.as_mut()?;
+                if slot > s.field_count as usize {
+                    s.field_count = slot as u8;
+                }
             }
         }
         Some(idx)

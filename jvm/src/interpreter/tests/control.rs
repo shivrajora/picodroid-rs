@@ -543,6 +543,48 @@ fn lookupswitch_match_first_pair() {
     assert_eq!(run(CLASS_LOOKUPSWITCH_KEY1).unwrap(), Some(Value::Int(10)));
 }
 
+/// Rewrites the `bipush <key>` operand of `CLASS_LOOKUPSWITCH_KEY5` so one
+/// class-file fixture can be reused for every key. The four-byte sequence
+/// `bipush 5; lookupswitch; pad` occurs exactly once in the fixture.
+/// Leaks, because `run` takes `&'static [u8]` and these fixtures are a few
+/// hundred bytes in a test binary.
+fn lookupswitch_with_key(key: u8) -> &'static [u8] {
+    let mut bytes = CLASS_LOOKUPSWITCH_KEY5.to_vec();
+    let at = bytes
+        .windows(4)
+        .position(|w| w == [0x10, 0x05, 0xAB, 0x00])
+        .expect("bipush 5 + lookupswitch not found in fixture");
+    bytes[at + 1] = key;
+    alloc::boxed::Box::leak(bytes.into_boxed_slice())
+}
+
+// The three tests above land inside the pair table. These cover the ends,
+// which is where a binary search goes wrong: an exclusive/inclusive slip in
+// the high bound loses the last pair, and a key outside the table on either
+// side must still reach the default rather than reading past the operands.
+// The pairs are {1 → 10, 5 → 20, 100 → 30}, default 99.
+
+#[test]
+fn lookupswitch_match_last_pair() {
+    assert_eq!(
+        run(lookupswitch_with_key(100)).unwrap(),
+        Some(Value::Int(30))
+    );
+}
+
+#[test]
+fn lookupswitch_key_below_every_pair_takes_default() {
+    assert_eq!(run(lookupswitch_with_key(0)).unwrap(), Some(Value::Int(99)));
+}
+
+#[test]
+fn lookupswitch_key_above_every_pair_takes_default() {
+    assert_eq!(
+        run(lookupswitch_with_key(120)).unwrap(),
+        Some(Value::Int(99))
+    );
+}
+
 #[test]
 fn ifnull_taken() {
     assert_eq!(run(CLASS_IFNULL_TAKEN).unwrap(), Some(Value::Int(1)));

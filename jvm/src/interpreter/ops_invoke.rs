@@ -66,7 +66,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // Lambda proxy intercept: if receiver is a lambda, dispatch to the
         // target method directly.
-        if is_virtual && self.try_lambda_dispatch(frame, arg_count)? {
+        if is_virtual && self.objects.has_lambdas() && self.try_lambda_dispatch(frame, arg_count)? {
             return Ok(());
         }
 
