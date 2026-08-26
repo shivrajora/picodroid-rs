@@ -258,34 +258,53 @@ if $DO_HIL; then
 fi
 
 if $DO_CHECK; then
-  # For each app: latest hil/sim wall_ms ratio vs the median of prior
-  # ratios. Exit 1 on >30% drift. Requires >= 3 prior paired runs.
+  # Two independent checks.
+  #
+  # 1. The size ratchet -- flash and RAM against bench/parity/ratchet.toml.
+  #    Deterministic, so it gates at 0%.
+  # 2. Counter parity -- insns/allocs/gcs must be EQUAL between the sim and
+  #    hil rows of the same commit+app. Inequality is a runtime divergence
+  #    (memory, threading, dispatch), not a performance signal
+  #    (docs/parity-audit.md P1).
+  #
+  # What this deliberately no longer does is alarm on hil/sim wall-clock ratio
+  # drift. That check was written at 30%, which is ~10,000x the 32 ppm device
+  # floor and never fired once in four months. Worse, the ratio is not a
+  # meaningful quantity: the sim is a biased predictor of device time, not
+  # merely a noisy one (docs/perf-campaign-2026-08.md S4 measured it
+  # over-predicting by seven points), so the ratio moves with every commit
+  # that happens to suit one environment more than the other. Trending
+  # `bench-report.py --trend wall_ms --env hil` is the check that works.
+  python3 "$SCRIPT_DIR/bench-report.py" --ratchet || CHECK_BAD=1
+  echo
   python3 - "$CSV" <<'EOF'
-import csv, statistics, sys
+import collections, csv, sys
+
+COUNTERS = ("insns", "allocs", "gcs", "bands", "fbytes")
 rows = list(csv.DictReader(open(sys.argv[1])))
-pairs = {}
+seen = collections.defaultdict(dict)
 for r in rows:
-    if r["metric"] != "wall_ms":
-        continue
-    key = (r["commit"], r["app"])
-    pairs.setdefault(key, {})[r["env"]] = float(r["value"])
-ratios = {}
-order = []
-for (commit, app), envs in pairs.items():
-    if "sim" in envs and "hil" in envs and envs["sim"] > 0:
-        ratios.setdefault(app, []).append(envs["hil"] / envs["sim"])
-        order.append(app)
-bad = False
-for app, rs in ratios.items():
-    if len(rs) < 4:
-        print(f"{app}: {len(rs)} paired run(s) — need 4+ for drift check")
-        continue
-    latest, prior = rs[-1], rs[:-1]
-    med = statistics.median(prior)
-    drift = abs(latest - med) / med
-    status = "DRIFT" if drift > 0.30 else "ok"
-    print(f"{app}: hil/sim ratio {latest:.2f} vs median {med:.2f} ({drift:+.0%}) {status}")
-    bad |= drift > 0.30
+    if r["metric"] in COUNTERS and r["env"] in ("sim", "hil"):
+        seen[(r["commit"], r["app"], r["mode"], r["metric"])][r["env"]] = r["value"]
+
+paired = [(k, v) for k, v in seen.items() if "sim" in v and "hil" in v]
+if not paired:
+    print("counter parity: no commit has both a sim and a hil row with "
+          "parity-metrics enabled -- run ./scripts/parity-bench.sh --both")
+    sys.exit(0)
+
+bad = 0
+for (commit, app, mode, metric), v in sorted(paired):
+    if v["sim"] != v["hil"]:
+        bad += 1
+        print(f"counter parity: DIVERGENCE {commit} {app}[{mode}] {metric} "
+              f"sim={v['sim']} hil={v['hil']}")
+print(f"counter parity: {len(paired)} paired counter(s), {bad} divergence(s)")
 sys.exit(1 if bad else 0)
 EOF
+  # An `[[ ]] && exit` here would make the script exit 1 whenever the
+  # condition is false, because it is the last statement.
+  if [[ "${CHECK_BAD:-0}" == "1" ]]; then
+    exit 1
+  fi
 fi

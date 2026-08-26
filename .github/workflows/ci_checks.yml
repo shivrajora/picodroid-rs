@@ -115,6 +115,30 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
       # Host tools (previously unlinted anywhere; a real bug hid in papk-info)
       - run: cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink --all-targets --target "$(rustc -vV | awk '/^host:/ { print $2 }')" -- --deny=warnings
+  size-ratchet:
+    name: Binary-size ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Install ARM toolchain and JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      # Flash and RAM are the only metrics in this project with a zero noise
+      # floor -- the link is deterministic -- and the RP2040 program region is
+      # the binding budget, enforced otherwise only by the link failing.
+      # pre-commit runs this too; CI is the backstop for anything that bypasses
+      # the hook. Growth is allowed but must be deliberate: advance
+      # bench/parity/ratchet.toml in the same commit, with a "size:" trailer.
+      # (docs/perf-campaign-2026-08.md)
+      - name: Measure release firmware size
+        run: bash scripts/parity-bench.sh --size-only --boards testbench_rp2040,testbench_rp2350
+      - name: Check against the committed baseline
+        run: python3 scripts/bench-report.py --ratchet
   examples:
     name: Compile All Example APKs
     runs-on: ubuntu-latest

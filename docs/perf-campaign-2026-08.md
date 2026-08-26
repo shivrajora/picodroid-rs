@@ -459,3 +459,70 @@ byte-identical to hardware — it returned zero, and the change was reverted
 despite being complete, correct, tested, and on the plan.
 
 A campaign that only ever ratchets forward is not measuring anything.
+
+---
+
+## Conclusion — 2026-08-25
+
+### What the campaign actually bought
+
+| | before | after |
+|---|---|---|
+| rp2040 program region | 881,827 B (96.1%) | **849,639 B (92.6%)** |
+| rp2040 headroom | 35,421 B | **67,609 B** (+91%) |
+| rp2350 flash | 896,215 B | 869,551 B |
+| rp2350 static RAM | 522,852 B | unchanged |
+| device wall-clock | — | **no measurable change** |
+
+Both flash wins were dead code that nobody had looked for: a standard-library
+sort the JVM did not need, and an LVGL pixel format that was on because
+`lv_conf_internal.h` defaults it on. Neither was on the plan. Both came out of
+the harness built in S0.
+
+The speed work produced no measurable device change, and the memory work was
+reverted. That is the honest ledger.
+
+### Standing state
+
+- `bench/parity/history.csv` — 59k+ rows back to 2026-04-15, appended by both
+  nightlies automatically, with a drift summary in the emailed report.
+- `bench/parity/ratchet.toml` — flash/RAM baseline, gated at 0% in both
+  `scripts/pre-commit` and the CI `size-ratchet` job.
+- `scripts/bench-report.py` — `--trend`, `--compare`, `--ratchet`, `--holdout`,
+  `--fit`.
+- `parity-bench.sh --check` — size ratchet plus sim↔device counter parity. The
+  old 30% hil/sim ratio alarm is gone; it was ~10,000× the device noise floor,
+  never fired in four months, and the ratio is not a meaningful quantity now
+  that the sim is known to be a *biased* predictor rather than a noisy one.
+- 4AM `hil-run.sh` cron **re-enabled 2026-08-25** (disabled 2026-08-24 for the
+  campaign). The one-day gap in the HIL trend is this, not a failure.
+
+### The three things worth carrying forward
+
+1. **Deterministic metrics decide; wall-clock confirms.** Every conclusion in
+   this campaign came from a counter, a byte count, or a CRC. Every wall-clock
+   number that looked like a finding was layout.
+2. **The sim is biased, not just noisy.** It over-predicted a device speed
+   change by seven points (S4). Never size a device change from a sim
+   wall-clock delta.
+3. **Same-image precision is not accuracy.** 32 ppm reproducibility makes a
+   cross-image comparison look authoritative. `dcb377c` reported −6.56% ± 0.01%
+   eight nights running, and it was wrong (S1.2).
+
+### What is left, and why it was not done
+
+- **Device speed below ~4% is not currently measurable.** The layout-jitter
+  sweep (n=7/arm, ~84 min unattended, resolves ~3%) is the prerequisite for any
+  further speed work, not an optional refinement. Nothing else is cheaper:
+  layout noise is multiplicative over the whole run, so no choice of workload
+  escapes it.
+- **F1 (native dispatch → sorted table)** was sized at ~18 KB in the plan from
+  the dispatch symbol sizes. Reading them, most of those bytes are method
+  *bodies*, not comparison code, and S1.2 removed the other justification by
+  showing there is no shrink tax to recover. Needs a measured prototype before
+  anyone quotes a number.
+- **F4 (framework class tree-shaking)** is real but a large change, and flash
+  is no longer tight enough to justify it.
+- **`Value` 16 B → 8 B** remains the largest memory lever in the codebase and
+  still deserves its own design doc. It is a redesign with a single
+  cliff-shaped payoff, not a hill to climb.
