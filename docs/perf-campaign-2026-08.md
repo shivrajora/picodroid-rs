@@ -397,3 +397,65 @@ than the campaign normally accepts, and it is recorded as such:
 Reverting strictly-less-work changes because the instrument is too coarse would
 be as much a mistake as claiming a win from a biased proxy. The honest record
 is that we do not know their device effect, only that it is under about 4%.
+
+---
+
+## S5 — `char[]`/`short[]` packing: built, measured, REJECTED
+
+C4's follow-up, listed in `mem-session-2026-08.md` and in this campaign's plan
+as the next memory win: extend the packed-array substrate with
+`Inline16`/`Arena16` at 2 bytes per element, backed by a new
+`ArrayHeap::arena16`.
+
+It was implemented in full — variants, alloc, load/store, length, `live_bytes`,
+the atype census, offensive poison (`POISON_U16`), the integrity sweep's third
+span space, `data_slice` exclusion, a third compaction pass, the
+`memmon: storage` line, and six tests including a compaction survival test
+that interleaves all three arenas. 1,962 tests passed.
+
+The semantics work out cleanly, which is worth recording because it is the
+non-obvious part. `char` is unsigned and `short` is signed, and that is the one
+place the two packed types differ. The opcodes already narrow on both sides
+(`castore`/`sastore` truncate to 16 bits; `caload`/`saload` re-apply their own
+extension), so it is enough for `load` to widen per `atype` — zero-extend for
+`char`, sign-extend for `short` — and every reader, bytecode or native, sees
+exactly what it saw when these arrays were i32-backed.
+
+**Then it was measured, and it buys nothing.**
+
+| | |
+|---|---|
+| flash cost | **+952 B** (rp2040 849,639 → 850,591) |
+| heap saved, every app in the tree | **0 B** |
+
+The live-set census after a full `langsuite` run — which includes `stringdemo`,
+the only example that touches `char[]` — is `ref=6n/240B(inl 6) int=1n/40B(inl
+1)`. No live `char[]` or `short[]` at all. The single `toCharArray()` in the
+corpus is `"abc".toCharArray()`: three elements, which is inline under both the
+old i32 form (≤ 8 slots) and the new packed form (≤ 16 elements), so not one
+arena byte moves either way.
+
+Nothing else allocates them. picodroid's `String` is byte-backed ASCII, so
+`toCharArray` is the only source of `char[]`; the sensor rings are `int[]` and
+`float[]`; the HTTP buffers that made C4 worth 12.4 KB are `byte[]`. The SDK
+exposes `Arrays.sort(char[])` and `Arrays.fill(short[])`, so an app *could*
+allocate a large one — but none does, and "an app might" does not buy 952 bytes
+of the budget this session exists to protect.
+
+**Reverted.** The working implementation is kept at
+`scratchpad/c5-rejected/array_heap.rs` for whoever revisits it; the substrate
+and the sign-extension design are the hard parts and they are solved.
+
+Reopen it when a workload actually allocates a `char[]`/`short[]` larger than
+16 elements. The census makes that easy to notice: an `arena16_cap` that stops
+being zero is the trigger.
+
+### Why this is the session's most useful result
+
+S4 kept four changes on mechanism because the instrument was too coarse to
+score them. S5 is the opposite case and the reason that was not simply
+rationalisation: here the instrument *was* sharp enough — the heap model is
+byte-identical to hardware — it returned zero, and the change was reverted
+despite being complete, correct, tested, and on the plan.
+
+A campaign that only ever ratchets forward is not measuring anything.
