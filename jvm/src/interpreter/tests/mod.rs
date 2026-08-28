@@ -135,11 +135,13 @@ fn run_code(max_stack: u16, max_locals: u16, code: &[u8]) -> Result<Option<Value
 }
 
 mod arrays;
+mod asm;
 mod class_literal;
 mod clinit;
 mod constants;
 mod control;
 mod convert;
+mod defaults;
 mod dispatch_state;
 mod exceptions;
 mod fields;

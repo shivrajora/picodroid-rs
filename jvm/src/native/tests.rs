@@ -4047,3 +4047,276 @@ fn enum_hash_code_is_the_ordinal() {
     );
     assert_eq!(h.unwrap(), Some(Value::Int(2)));
 }
+
+// ── entrySet / views / LinkedHash* aliases / toArray / append(null) ────────
+
+const OBJ_DESC: &str = "()Ljava/lang/Object;";
+
+fn new_map(cx: &mut StrCtx, class: &'static str) -> Value {
+    let map = Value::ObjectRef(cx.objects.alloc(class).unwrap());
+    dispatch_on(cx, class, "<init>", "()V", &[map]).unwrap();
+    map
+}
+
+#[test]
+fn entry_set_iterates_key_value_pairs() {
+    let mut cx = StrCtx::new();
+    let map = new_map(&mut cx, "java/util/HashMap");
+    let k1 = cx.intern(b"one");
+    let k2 = cx.intern(b"two");
+    let put = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+    dispatch_on(
+        &mut cx,
+        "java/util/HashMap",
+        "put",
+        put,
+        &[map, k1, Value::Int(1)],
+    )
+    .unwrap();
+    dispatch_on(
+        &mut cx,
+        "java/util/HashMap",
+        "put",
+        put,
+        &[map, k2, Value::Int(2)],
+    )
+    .unwrap();
+
+    let view = dispatch_on(
+        &mut cx,
+        "java/util/HashMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        &[map],
+    )
+    .unwrap()
+    .unwrap();
+    let Value::ObjectRef(vi) = view else {
+        panic!("entrySet returned {view:?}");
+    };
+    assert_eq!(
+        cx.objects.class_name(vi),
+        Some("java/util/HashMap$EntrySet")
+    );
+    assert_eq!(
+        dispatch_on(
+            &mut cx,
+            "java/util/HashMap$EntrySet",
+            "size",
+            "()I",
+            &[view]
+        )
+        .unwrap(),
+        Some(Value::Int(2))
+    );
+    let it = dispatch_on(
+        &mut cx,
+        "java/util/HashMap$EntrySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        &[view],
+    )
+    .unwrap()
+    .unwrap();
+
+    let mut pairs: alloc::vec::Vec<(Value, Value)> = alloc::vec::Vec::new();
+    while dispatch_on(&mut cx, "java/util/Iterator", "hasNext", "()Z", &[it]).unwrap()
+        == Some(Value::Int(1))
+    {
+        let e = dispatch_on(&mut cx, "java/util/Iterator", "next", OBJ_DESC, &[it])
+            .unwrap()
+            .unwrap();
+        let Value::ObjectRef(ei) = e else {
+            panic!("next returned {e:?}");
+        };
+        assert_eq!(cx.objects.class_name(ei), Some("java/util/Map$Entry"));
+        let k = dispatch_on(&mut cx, "java/util/Map$Entry", "getKey", OBJ_DESC, &[e])
+            .unwrap()
+            .unwrap();
+        let v = dispatch_on(&mut cx, "java/util/Map$Entry", "getValue", OBJ_DESC, &[e])
+            .unwrap()
+            .unwrap();
+        pairs.push((k, v));
+    }
+    assert_eq!(pairs.len(), 2);
+    assert!(pairs.contains(&(k1, Value::Int(1))));
+    assert!(pairs.contains(&(k2, Value::Int(2))));
+    // Past the end.
+    assert!(dispatch_on(&mut cx, "java/util/Iterator", "next", OBJ_DESC, &[it]).is_err());
+}
+
+#[test]
+fn key_set_and_values_views_pick_their_source_by_class() {
+    let mut cx = StrCtx::new();
+    let map = new_map(&mut cx, "java/util/HashMap");
+    let k = cx.intern(b"k");
+    let put = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+    dispatch_on(
+        &mut cx,
+        "java/util/HashMap",
+        "put",
+        put,
+        &[map, k, Value::Int(9)],
+    )
+    .unwrap();
+    for (method, class, expect) in [
+        ("keySet", "java/util/HashMap$KeySet", k),
+        ("values", "java/util/HashMap$Values", Value::Int(9)),
+    ] {
+        let view = dispatch_on(
+            &mut cx,
+            "java/util/HashMap",
+            method,
+            "()Ljava/util/Set;",
+            &[map],
+        )
+        .unwrap()
+        .unwrap();
+        let it = dispatch_on(
+            &mut cx,
+            class,
+            "iterator",
+            "()Ljava/util/Iterator;",
+            &[view],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            dispatch_on(&mut cx, "java/util/Iterator", "next", OBJ_DESC, &[it]).unwrap(),
+            Some(expect)
+        );
+        assert_eq!(
+            dispatch_on(&mut cx, class, "size", "()I", &[view]).unwrap(),
+            Some(Value::Int(1))
+        );
+    }
+}
+
+#[test]
+fn linked_hash_map_and_set_alias_the_hash_dispatchers() {
+    let mut cx = StrCtx::new();
+    let map = new_map(&mut cx, "java/util/LinkedHashMap");
+    let k = cx.intern(b"k");
+    let put = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+    dispatch_on(
+        &mut cx,
+        "java/util/LinkedHashMap",
+        "put",
+        put,
+        &[map, k, Value::Int(5)],
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_on(
+            &mut cx,
+            "java/util/LinkedHashMap",
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            &[map, k]
+        )
+        .unwrap(),
+        Some(Value::Int(5))
+    );
+    assert_eq!(
+        dispatch_on(&mut cx, "java/util/LinkedHashMap", "size", "()I", &[map]).unwrap(),
+        Some(Value::Int(1))
+    );
+
+    let set = new_map(&mut cx, "java/util/LinkedHashSet");
+    let add = "(Ljava/lang/Object;)Z";
+    assert_eq!(
+        dispatch_on(&mut cx, "java/util/LinkedHashSet", "add", add, &[set, k]).unwrap(),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        dispatch_on(&mut cx, "java/util/LinkedHashSet", "add", add, &[set, k]).unwrap(),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        dispatch_on(
+            &mut cx,
+            "java/util/LinkedHashSet",
+            "contains",
+            add,
+            &[set, k]
+        )
+        .unwrap(),
+        Some(Value::Int(1))
+    );
+}
+
+#[test]
+fn to_array_copies_every_reference_kind() {
+    let mut cx = StrCtx::new();
+    let list = Value::ObjectRef(cx.objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_on(&mut cx, "java/util/ArrayList", "<init>", "()V", &[list]).unwrap();
+    let s = cx.intern(b"s");
+    let o = Value::ObjectRef(cx.objects.alloc("O").unwrap());
+    let arr = Value::ArrayRef(cx.arrays.alloc(crate::array_heap::ATYPE_INT, 1).unwrap());
+    for v in [s, o, Value::Null, arr] {
+        dispatch_on(
+            &mut cx,
+            "java/util/ArrayList",
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, v],
+        )
+        .unwrap();
+    }
+    let out = dispatch_on(
+        &mut cx,
+        "java/util/ArrayList",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        &[list, Value::Null],
+    )
+    .unwrap()
+    .unwrap();
+    let Value::ArrayRef(ai) = out else {
+        panic!("toArray returned {out:?}");
+    };
+    assert_eq!(cx.arrays.atype(ai), Some(crate::array_heap::ATYPE_REF));
+    assert_eq!(cx.arrays.length(ai), Some(4));
+    for (i, v) in [s, o, Value::Null, arr].into_iter().enumerate() {
+        assert_eq!(
+            crate::array_heap::decode_ref(cx.arrays.load(ai, i).unwrap()),
+            v
+        );
+    }
+}
+
+#[test]
+fn append_null_and_value_of_object_on_string_or_null() {
+    let mut cx = StrCtx::new();
+    let sb = Value::ObjectRef(cx.objects.alloc("java/lang/StringBuilder").unwrap());
+    dispatch_on(&mut cx, "java/lang/StringBuilder", "<init>", "()V", &[sb]).unwrap();
+    dispatch_on(
+        &mut cx,
+        "java/lang/StringBuilder",
+        "append",
+        "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
+        &[sb, Value::Null],
+    )
+    .unwrap();
+    let s = dispatch_on(
+        &mut cx,
+        "java/lang/StringBuilder",
+        "toString",
+        "()Ljava/lang/String;",
+        &[sb],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(cx.resolve(s), "null");
+
+    let ab = cx.intern(b"ab");
+    let desc = "(Ljava/lang/Object;)Ljava/lang/String;";
+    assert_eq!(
+        dispatch_on(&mut cx, "java/lang/String", "valueOf", desc, &[ab]).unwrap(),
+        Some(ab)
+    );
+    let n = dispatch_on(&mut cx, "java/lang/String", "valueOf", desc, &[Value::Null])
+        .unwrap()
+        .unwrap();
+    assert_eq!(cx.resolve(n), "null");
+}

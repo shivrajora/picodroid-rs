@@ -2,6 +2,7 @@
 package stringdemo;
 
 import java.util.IllegalFormatException;
+import java.util.Locale;
 import picodroid.app.Application;
 import picodroid.util.Log;
 
@@ -21,6 +22,40 @@ public class StringDemo extends Application {
     }
   }
 
+  /** {@code toString()} override reached through {@code append(Object)}. */
+  static class Named {
+    final String n;
+
+    Named(String n) {
+      this.n = n;
+    }
+
+    @Override
+    public String toString() {
+      return "Named(" + n + ")";
+    }
+  }
+
+  /** A {@code toString()} that itself concatenates another object. */
+  static class Nested {
+    final Named inner;
+
+    Nested(Named inner) {
+      this.inner = inner;
+    }
+
+    @Override
+    public String toString() {
+      return "{" + inner + "}";
+    }
+  }
+
+  static class Plain {}
+
+  enum Color {
+    RED
+  }
+
   @Override
   public void onCreate() {
     run();
@@ -36,7 +71,9 @@ public class StringDemo extends Application {
     testTransforms();
     testValueOf();
     testStringBuilder();
+    testAppendObject();
     testConcat();
+    testLocaleCase();
     testHashCode();
     testReplaceChar();
     testReplaceString();
@@ -155,6 +192,45 @@ public class StringDemo extends Application {
   }
 
   // ── String operations ────────────────────────────────────────────────────
+
+  static void testAppendObject() {
+    // `"" + obj` and `sb.append(obj)` compile to StringBuilder.append(Object):
+    // a Java toString() override runs; boxes, enums and null format natively;
+    // anything else prints its identity.
+    Named nm = new Named("x");
+    check("concat obj toString", ("" + nm).equals("Named(x)"));
+    StringBuilder sb = new StringBuilder("[");
+    sb.append(nm).append("]");
+    check("sb append obj chained", sb.toString().equals("[Named(x)]"));
+    check("nested toString concat", ("<" + new Nested(nm) + ">").equals("<{Named(x)}>"));
+    Object boxedInt = Integer.valueOf(5);
+    check("concat boxed int", ("v=" + boxedInt).equals("v=5"));
+    Object boxedFloat = Float.valueOf(1.5f);
+    check("concat boxed float", ("f=" + boxedFloat).equals("f=1.5"));
+    Object boxedBool = Boolean.valueOf(true);
+    check("concat boxed bool", ("b=" + boxedBool).equals("b=true"));
+    Object boxedChar = Character.valueOf('z');
+    check("concat boxed char", ("c=" + boxedChar).equals("c=z"));
+    check("concat enum", ("e=" + Color.RED).equals("e=RED"));
+    Object nul = null;
+    check("concat null obj", ("n=" + nul).equals("n=null"));
+    check("concat identity", ("" + new Plain()).startsWith("stringdemo.StringDemo$Plain@"));
+    Object anArray = new int[0];
+    check("concat array identity", ("" + anArray).startsWith("[I@"));
+    check("valueOf obj", String.valueOf((Object) nm).equals("Named(x)"));
+    check("valueOf null obj", String.valueOf(nul).equals("null"));
+    Object str = "s";
+    check("valueOf string as obj", String.valueOf(str).equals("s"));
+    check("valueOf boxed", String.valueOf(boxedInt).equals("5"));
+  }
+
+  static void testLocaleCase() {
+    // Locale is name-only: its constants read as null and the case
+    // conversions ignore them (this is what Kotlin's uppercase()/lowercase()
+    // compile to).
+    check("toUpperCase(Locale.ROOT)", "abc".toUpperCase(Locale.ROOT).equals("ABC"));
+    check("toLowerCase(Locale.US)", "ABC".toLowerCase(Locale.US).equals("abc"));
+  }
 
   static void testConcat() {
     String a = "hello";

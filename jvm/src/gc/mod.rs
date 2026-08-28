@@ -15,6 +15,22 @@ mod tests;
 
 // ── Bitset helpers ───────────────────────────────────────────────────────────
 
+/// Builtin classes whose field 0 is a `map_bufs` index they own (the
+/// `LinkedHash*` names are aliases of the hash-ordered dispatchers). Views
+/// (`HashMap$KeySet`/`$Values`/`$EntrySet`) and iterators share the buffer
+/// without owning it.
+fn owns_map_buf(class_name: Option<&str>) -> bool {
+    matches!(
+        class_name,
+        Some(
+            "java/util/HashMap"
+                | "java/util/HashSet"
+                | "java/util/LinkedHashMap"
+                | "java/util/LinkedHashSet"
+        )
+    )
+}
+
 fn mark_bit(bits: &mut Vec<u8>, idx: u16) {
     let i = idx as usize;
     let byte = i / 8;
@@ -353,8 +369,7 @@ pub fn collect(
                 }
 
                 // HashMap / HashSet: scan backing map_bufs for references
-                let cn = objects.class_name(idx);
-                if cn == Some("java/util/HashMap") || cn == Some("java/util/HashSet") {
+                if owns_map_buf(objects.class_name(idx)) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
                         for (k, v) in objects.map_iter(buf_idx as u16) {
                             push_ref(work, &k);
@@ -430,7 +445,7 @@ pub fn collect(
             }
             // Free HashMap / HashSet backing store if applicable
             let cn = objects.class_name(i);
-            if cn == Some("java/util/HashMap") || cn == Some("java/util/HashSet") {
+            if owns_map_buf(cn) {
                 if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
                     objects.map_free(buf_idx as u16);
                 }

@@ -12,6 +12,7 @@ sourceSets {
             srcDir("../bytecodecoverage/java")
             srcDir("../clonedemo/java")
             srcDir("../collectionsdemo/java")
+            srcDir("../defaultmethods/java")
             srcDir("../enumdemo/java")
             srcDir("../exceptiondemo/java")
             srcDir("../floatdemo/java")

@@ -111,19 +111,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     .arrays
                     .load(arr_idx, index as usize)
                     .ok_or(JvmError::ArrayIndexOutOfBounds)?;
-                // Encoding: 0 = Null, positive untagged = ObjectRef,
-                // REF_TAG set = Reference, ARRAY_TAG set = ArrayRef.
-                let u = raw as u32;
-                let v = if raw == 0 {
-                    Value::Null
-                } else if u & crate::array_heap::REF_TAG != 0 {
-                    Value::Reference((u & !crate::array_heap::REF_TAG) as u16)
-                } else if u & crate::array_heap::ARRAY_TAG != 0 {
-                    Value::ArrayRef((u & !crate::array_heap::ARRAY_TAG) as u16)
-                } else {
-                    Value::ObjectRef(raw as u16)
-                };
-                frame.push(v)?;
+                frame.push(crate::array_heap::decode_ref(raw))?;
             }
 
             // baload — load byte/boolean from array (sign-extend)
@@ -303,13 +291,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 if index < 0 {
                     return Err(JvmError::ArrayIndexOutOfBounds);
                 }
-                let raw = match value {
-                    Value::Null => 0i32,
-                    Value::ObjectRef(i) => i as i32,
-                    Value::Reference(i) => ((i as u32) | crate::array_heap::REF_TAG) as i32,
-                    Value::ArrayRef(i) => ((i as u32) | crate::array_heap::ARRAY_TAG) as i32,
-                    _ => return Err(JvmError::InvalidBytecode),
-                };
+                let raw = crate::array_heap::encode_ref(value).ok_or(JvmError::InvalidBytecode)?;
                 self.arrays
                     .store(arr_idx, index as usize, raw)
                     .ok_or(JvmError::ArrayIndexOutOfBounds)?;

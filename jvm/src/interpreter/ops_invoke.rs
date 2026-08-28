@@ -76,6 +76,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             return Ok(());
         }
 
+        // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
+        // arbitrary object; run its `toString()` before the native arm sees it.
+        if desc_str.starts_with("(Ljava/lang/Object;)")
+            && self.stringify_object_arg(class_str, name_str, desc_str, frame)?
+        {
+            return Ok(());
+        }
+
         // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
         // invokevirtual / invokeinterface start from the receiver's runtime class,
         // invokestatic / invokespecial start from the CP-declared class.
@@ -137,6 +145,69 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
 
         self.finalize_invoke(args, resolved, native_class, name_str, desc_str, frame)
+    }
+
+    /// The one `Object`-typed argument the builtins cannot format themselves:
+    /// `StringBuilder.append(Object)` (every `"" + obj` and Kotlin `"$obj"`
+    /// template) and `String.valueOf(Object)`. When the top-of-stack argument
+    /// is an object or array: if its class (or a superclass) has a Java
+    /// `toString()`, pop the argument, push a frame for that method and
+    /// rewind `pc` so this same invoke re-executes with the returned String
+    /// in the argument slot — the `<clinit>` pattern; otherwise replace the
+    /// argument in place with the native `toString` (boxed values, enums,
+    /// the identity `Cls@hhhh`) and let the invoke proceed. Strings and
+    /// `null` need nothing: the native arms handle them. Returns `Ok(true)`
+    /// when a frame was pushed.
+    fn stringify_object_arg(
+        &mut self,
+        class_str: &str,
+        name_str: &str,
+        desc_str: &str,
+        frame: &mut Frame,
+    ) -> Result<bool, JvmError> {
+        let target = match (class_str, name_str) {
+            ("java/lang/StringBuilder", "append") => {
+                "(Ljava/lang/Object;)Ljava/lang/StringBuilder;"
+            }
+            ("java/lang/String", "valueOf") => "(Ljava/lang/Object;)Ljava/lang/String;",
+            _ => return Ok(false),
+        };
+        if desc_str != target {
+            return Ok(false);
+        }
+        let Some(&arg) = frame.stack.last() else {
+            return Ok(false);
+        };
+        let class = match arg {
+            Value::ObjectRef(idx) => self
+                .objects
+                .class_name(idx)
+                .ok_or(JvmError::InvalidReference)?,
+            Value::ArrayRef(_) => "java/lang/Object",
+            _ => return Ok(false),
+        };
+        const TO_STRING: &str = "toString";
+        const TO_STRING_DESC: &str = "()Ljava/lang/String;";
+        if let Some((ci, mi)) = helpers::find_method_walking_cached(
+            &mut self.method_cache,
+            self.classes,
+            class,
+            TO_STRING,
+            TO_STRING_DESC,
+        ) {
+            let m = &self.classes[ci].methods()[mi];
+            if m.code_offset != 0 {
+                frame.stack.pop();
+                self.pending_frame = Some(Frame::new(ci, mi, &[arg], m.max_locals, m.max_stack)?);
+                frame.pc = frame.inst_pc;
+                return Ok(true);
+            }
+        }
+        let s = self.dispatch_native(class, TO_STRING, TO_STRING_DESC, &[arg])?;
+        if let (Some(slot), Some(s)) = (frame.stack.last_mut(), s) {
+            *slot = s;
+        }
+        Ok(false)
     }
 
     /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy,

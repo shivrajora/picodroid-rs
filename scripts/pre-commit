@@ -268,7 +268,7 @@ fi
 
 # One behavioral Java lane so a pico-jvm semantics regression is caught
 # locally, not first by CI/nightly. langsuite is the widest self-checking
-# suite (14 sub-demos, log-token asserted, both shrink modes).
+# suite (16 sub-demos, log-token asserted, both shrink modes).
 echo "==> Running Java conformance suite (langsuite, sim)..."
 # A verification run measures but records nothing: it must not append to the
 # metric history and must not create a commit as a side effect of being run.

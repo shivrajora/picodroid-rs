@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::array_heap::REF_TAG;
+use crate::array_heap::decode_ref;
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
@@ -25,19 +25,6 @@ struct Spec {
     width: usize,
     precision: Option<usize>,
     conv: u8,
-}
-
-/// Decode a raw i32 slot read from an Object[] into a typed Value.
-/// Encoding: 0 = Null, REF_TAG set = String reference, else ObjectRef.
-fn decode_slot(raw: i32) -> Value {
-    let u = raw as u32;
-    if u == 0 {
-        Value::Null
-    } else if u & REF_TAG != 0 {
-        Value::Reference((u & !REF_TAG) as u16)
-    } else {
-        Value::ObjectRef(u as u16)
-    }
 }
 
 /// Build and return an IllegalFormatException for the exception unwinding path.
@@ -334,7 +321,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
     let mut args: Vec<Value> = Vec::with_capacity(arr_len);
     for i in 0..arr_len {
         let raw = ctx.arrays.load(arr_idx, i).unwrap_or(0);
-        args.push(decode_slot(raw));
+        args.push(decode_ref(raw));
     }
 
     let mut out: Vec<u8> = Vec::with_capacity(fmt_bytes.len());

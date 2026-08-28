@@ -289,8 +289,13 @@ pub(crate) fn dispatch(
             }
         }
         "valueOf" => {
-            // Static method: String.valueOf(int/long/boolean/char/float/double)
+            // Static method: String.valueOf(int/long/boolean/char/float/double),
+            // plus valueOf(Object) for a String or null — any other object was
+            // already turned into its `toString()` by the interpreter
+            // (`Executor::stringify_object_arg`).
             let result: Option<alloc::vec::Vec<u8>> = match ctx.args.first() {
+                Some(Value::Reference(r)) => return Some(Ok(Some(Value::Reference(*r)))),
+                Some(Value::Null) => Some(b"null".to_vec()),
                 Some(Value::Int(n)) => {
                     if ctx.descriptor.starts_with("(Z)") {
                         Some(if *n != 0 {

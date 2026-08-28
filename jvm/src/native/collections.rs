@@ -152,6 +152,29 @@ pub(crate) fn dispatch(
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
+        // toArray() / toArray(T[]): always a fresh Object[] of exactly the
+        // list's length — the array argument is neither filled nor returned
+        // (documented divergence; Kotlin's `toTypedArray()` passes an empty
+        // one and reads the result).
+        "toArray" => {
+            let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
+                Ok(i) => i,
+                Err(e) => return Some(Err(e)),
+            };
+            let len = ctx.objects.list_len(buf_idx);
+            let arr = match ctx.arrays.alloc(crate::array_heap::ATYPE_REF, len as u16) {
+                Some(a) => a,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            for i in 0..len {
+                let v = ctx.objects.list_get(buf_idx, i).unwrap_or(Value::Null);
+                let Some(raw) = crate::array_heap::encode_ref(v) else {
+                    return Some(Err(JvmError::InvalidReference));
+                };
+                ctx.arrays.store(arr, i, raw);
+            }
+            Some(Ok(Some(Value::ArrayRef(arr))))
+        }
         "contains" => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,

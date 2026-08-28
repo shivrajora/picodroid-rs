@@ -87,11 +87,12 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 |---------|-------|-------------|
 | `inherit` | `inherit.InheritDemo` | Demonstrates class inheritance, field inheritance, method overriding, and `super()` |
 | `interfacedemo` | `interfacedemo.InterfaceDemo` | Demonstrates interface dispatch (`invokeinterface`) with `Dog` and `Cat` implementing `Speakable` |
+| `defaultmethods` | `defaultmethods.DefaultMethodsDemo` | Test-harness coverage of interface `default` methods: resolution without an override, sub-interface overrides (whatever the `implements` order), `I.super.f()` in a diamond, defaults reached through abstract and builtin superclasses, defaults calling abstract methods on `this`, interface `static` methods, and a user `Iterable` in a for-each loop |
 | `floatdemo` | `floatdemo.FloatDemo` | Demonstrates `float`, `long`, and `double` arithmetic and type conversions (`f2i`, `i2l`, `i2d`, etc.) |
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
-| `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, plus exhaustive printf-style conversions, flags, widths, and precision |
+| `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, `"" + obj`/`append(Object)`/`valueOf(Object)` through `toString()`, `toUpperCase(Locale)`, plus exhaustive printf-style conversions, flags, widths, and precision |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
@@ -99,7 +100,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
 | `classlit` | `classlit.ClassLit` | Class literals (`T.class`): demonstrates `getName()` and that repeated `T.class` evaluations return the same `Class` instance |
 | `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
-| `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Test-harness coverage of `java.util.*`: `ArrayList` add/get/set/remove/contains/clear plus `Integer`/`Boolean` autoboxing, `Arrays.sort`/`copyOf`/`fill`/`toString`, `Arrays.sort(Object[])` and `Collections.sort`/`reverse` over `Comparable<T>`, explicit `Iterator` and enhanced for-each over lists/maps, `HashMap` and `HashSet` |
+| `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Test-harness coverage of `java.util.*`: `ArrayList` add/get/set/remove/contains/clear plus `Integer`/`Boolean` autoboxing, `Arrays.sort`/`copyOf`/`fill`/`toString`, `Arrays.sort(Object[])` and `Collections.sort`/`reverse` over `Comparable<T>`, explicit `Iterator` and enhanced for-each over lists/maps, `HashMap` and `HashSet`, `entrySet()`/`Map.Entry`, the `LinkedHashMap`/`LinkedHashSet` aliases and `toArray` |
 | `randomdemo` | `randomdemo.RandomDemo` | Demonstrates `java.util.Random` — `nextInt`, `nextLong`, `nextFloat`, seeded reproducibility |
 | `clockdemo` | `clockdemo.ClockDemo` | Demonstrates `System.currentTimeMillis()` for boot-elapsed wallclock-style timing |
 | `langsuite` | `langsuite.LangSuite` | Aggregated language-feature test runner — exercises every JVM language feature in one APK |

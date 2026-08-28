@@ -64,7 +64,11 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/util/HashMap",
     "java/util/HashMap$KeySet",
     "java/util/HashMap$Values",
+    "java/util/HashMap$EntrySet",
+    "java/util/Map$Entry",
     "java/util/HashSet",
+    "java/util/LinkedHashMap",
+    "java/util/LinkedHashSet",
     "java/util/Iterator",
     "java/util/Random",
     "java/util/Arrays",
@@ -218,9 +222,16 @@ const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
     ("java/lang/Short", boxed::dispatch_short),
     ("java/util/ArrayList", collections::dispatch),
     ("java/util/HashMap", hashmap::dispatch),
-    ("java/util/HashMap$KeySet", hashmap::dispatch_keyset),
-    ("java/util/HashMap$Values", hashmap::dispatch_values),
+    ("java/util/HashMap$KeySet", hashmap::dispatch_view),
+    ("java/util/HashMap$Values", hashmap::dispatch_view),
+    ("java/util/HashMap$EntrySet", hashmap::dispatch_view),
+    ("java/util/Map$Entry", hashmap::dispatch_entry),
     ("java/util/HashSet", hashset::dispatch),
+    // Insertion-ordered aliases (documented divergence: hash order). The
+    // no-arg `mutableMapOf()`/`mutableSetOf()` are inline in Kotlin and emit
+    // `new java/util/LinkedHashMap` at the call site.
+    ("java/util/LinkedHashMap", hashmap::dispatch),
+    ("java/util/LinkedHashSet", hashset::dispatch),
     ("java/util/Iterator", iterator::dispatch),
     ("java/util/Random", random::dispatch),
     ("java/util/Arrays", arrays::dispatch),
@@ -667,14 +678,14 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Throwable` | `<init>`, `addSuppressed` |
 /// | `java/lang/Exception` | `<init>` |
 /// | `java/lang/RuntimeException` | `<init>` |
-/// | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/char/long/float/double/boolean)`, `length`, `charAt`, `toString` |
+/// | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/char/long/float/double/boolean/Object)`, `length`, `charAt`, `toString` — `append(Object)` and `String.valueOf(Object)` receive the argument's `toString()` (the interpreter runs a Java override first, else the builtin/identity one) |
 /// | `java/lang/String` | `<init>(byte[])`, `<init>(byte[],int,int)`, `length`, `charAt`, `equals`, `equalsIgnoreCase`, `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `isEmpty`, `compareTo`, `substring`, `trim`, `toUpperCase`, `toLowerCase`, `valueOf`, `concat`, `hashCode`, `toCharArray`, `getBytes`, `format`, `replace`, `split` |
 /// | `java/lang/Integer`, `Long`, `Float`, `Double`, `Short`, `Byte` | `<init>`, `valueOf`, `parseX`, `toString`, the `xxxValue()` accessors (unconverted — see the compatibility matrix); `equals` (same class and bits), `hashCode()`/`hashCode(x)`, `compareTo`/`compare` (Java's float total order); `Float.floatToIntBits` |
 /// | `java/lang/Boolean` | `<init>`, `valueOf`, `parseBoolean`, `booleanValue`, `toString`, `equals`, `hashCode` (1231/1237), `compare` |
 /// | `java/lang/Character` | `<init>`, `valueOf`, `charValue`, `toString`, `equals`, `hashCode`, `compare`; ASCII `isDigit`/`isLetter`/`toUpperCase`/`toLowerCase` |
-/// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
-/// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values` |
-/// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
+/// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains`, `iterator`, `toArray` (always a fresh `Object[]`) |
+/// | `java/util/HashMap` (alias `LinkedHashMap`, hash-ordered) | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values`, `entrySet` — the views answer `iterator`/`size`; `Map$Entry` answers `getKey`/`getValue` |
+/// | `java/util/HashSet` (alias `LinkedHashSet`, hash-ordered) | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
 /// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
 /// | `java/util/Arrays` | `sort`, `fill`, `copyOf`, `toString` (all numeric primitive overloads: int/long/double/float/short/byte/char) |

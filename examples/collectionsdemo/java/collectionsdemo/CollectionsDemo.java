@@ -8,6 +8,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import picodroid.app.Application;
 import picodroid.util.Log;
 
@@ -80,6 +84,9 @@ public class CollectionsDemo extends Application {
     testHashSetBasic();
     testHashSetDuplicate();
     testHashSetClear();
+    testEntrySet();
+    testLinkedHashAliases();
+    testToArray();
 
     String passStr = String.valueOf(passed);
     String failStr = String.valueOf(failed);
@@ -501,5 +508,75 @@ public class CollectionsDemo extends Application {
     set.clear();
     check("set clear size=0", set.size() == 0);
     check("set clear isEmpty", set.isEmpty());
+  }
+
+  // ── entrySet / LinkedHash* aliases / toArray ──────────────────────────────
+
+  static void testEntrySet() {
+    HashMap<String, Integer> m = new HashMap<>();
+    m.put("a", 1);
+    m.put("b", 2);
+    m.put("c", 3);
+    int n = 0;
+    int sum = 0;
+    int keys = 0;
+    for (Map.Entry<String, Integer> e : m.entrySet()) {
+      n = n + 1;
+      sum = sum + e.getValue();
+      keys = keys + e.getKey().charAt(0);
+    }
+    check("entrySet count", n == 3);
+    check("entrySet values", sum == 6);
+    check("entrySet keys", keys == 'a' + 'b' + 'c');
+    check("entrySet size", m.entrySet().size() == 3);
+    Iterator<Map.Entry<String, Integer>> it = m.entrySet().iterator();
+    check("entrySet iterator hasNext", it.hasNext());
+    Object first = it.next();
+    check("entry instanceof Map.Entry", first instanceof Map.Entry);
+    check("entrySet instanceof Set", (Object) m.entrySet() instanceof Set);
+    check("empty entrySet", !new HashMap<String, Integer>().entrySet().iterator().hasNext());
+  }
+
+  static void testLinkedHashAliases() {
+    // LinkedHashMap / LinkedHashSet are aliases of HashMap / HashSet
+    // (documented divergence: no insertion order).
+    LinkedHashMap<String, Integer> lm = new LinkedHashMap<>();
+    lm.put("x", 10);
+    lm.put("y", 20);
+    check("lhm get", lm.get("y") == 20);
+    check("lhm containsKey", lm.containsKey("x"));
+    check("lhm size", lm.size() == 2);
+    check("lhm instanceof Map", (Object) lm instanceof Map);
+    check("lhm instanceof HashMap", (Object) lm instanceof HashMap);
+    Map<String, Integer> asMap = lm;
+    int s = 0;
+    for (String k : asMap.keySet()) {
+      s = s + asMap.get(k);
+    }
+    check("lhm keySet via Map", s == 30);
+    int viaEntries = 0;
+    for (Map.Entry<String, Integer> e : asMap.entrySet()) {
+      viaEntries = viaEntries + e.getValue();
+    }
+    check("lhm entrySet via Map", viaEntries == 30);
+
+    LinkedHashSet<String> ls = new LinkedHashSet<>();
+    check("lhs add", ls.add("p"));
+    check("lhs dup", !ls.add("p"));
+    check("lhs contains", ls.contains("p"));
+    check("lhs size", ls.size() == 1);
+    check("lhs instanceof Set", (Object) ls instanceof Set);
+  }
+
+  static void testToArray() {
+    ArrayList<String> list = new ArrayList<>();
+    list.add("a");
+    list.add("b");
+    String[] arr = list.toArray(new String[0]);
+    check("toArray length", arr.length == 2);
+    check("toArray elems", arr[0].equals("a") && arr[1].equals("b"));
+    Object[] objs = list.toArray();
+    check("toArray() length", objs.length == 2);
+    check("toArray empty", new ArrayList<String>().toArray(new String[0]).length == 0);
   }
 }

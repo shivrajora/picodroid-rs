@@ -1731,3 +1731,60 @@ fn registered_parked_frames_are_gc_roots() {
     assert_eq!(freed, 1);
     assert!(!objects.is_live(parked_obj));
 }
+
+// ── LinkedHashMap / LinkedHashSet aliases own a map buffer like HashMap ─────
+
+#[test]
+fn gc_traces_and_frees_linked_hash_map_like_hash_map() {
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let map_obj = objects.alloc("java/util/LinkedHashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+    let key_obj = objects.alloc("Key").unwrap();
+    let val_obj = objects.alloc("Val").unwrap();
+    objects.map_put(
+        buf_idx,
+        Value::ObjectRef(key_obj),
+        Value::ObjectRef(val_obj),
+        &strings,
+    );
+
+    // Rooted: the entries are traced through the alias's buffer.
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(key_obj) && objects.is_live(val_obj));
+
+    // Unrooted: the map, its entries and its buffer slot are all reclaimed.
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 3);
+    assert!(!objects.is_live(map_obj));
+    assert_eq!(objects.map_len(buf_idx), 0);
+    assert_eq!(
+        objects.map_alloc(),
+        Some(buf_idx),
+        "buffer slot was not freed"
+    );
+}

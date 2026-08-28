@@ -20,6 +20,7 @@ public class LangSuite extends Application {
     safe("bytecodecoverage", () -> bytecodecoverage.BytecodeCoverage.run());
     safe("clonedemo", () -> clonedemo.CloneDemo.run());
     safe("collectionsdemo", () -> collectionsdemo.CollectionsDemo.run());
+    safe("defaultmethods", () -> defaultmethods.DefaultMethodsDemo.run());
     safe("enumdemo", () -> enumdemo.EnumDemo.run());
     safe("exceptiondemo", () -> exceptiondemo.ExceptionDemo.run());
     safe("floatdemo", () -> floatdemo.FloatDemo.run());

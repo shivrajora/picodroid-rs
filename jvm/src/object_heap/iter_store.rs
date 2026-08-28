@@ -2,6 +2,7 @@
 use super::ObjectHeap;
 
 /// Source collection type for an iterator.
+#[derive(Clone, Copy)]
 pub enum IterSource {
     /// Iterating over an ArrayList's list_buf at this index.
     List(u16),
@@ -9,6 +10,9 @@ pub enum IterSource {
     MapKeys(u16),
     /// Iterating over a HashMap's map_buf values at this index.
     MapValues(u16),
+    /// Iterating over a HashMap's map_buf entries at this index, each
+    /// yielded as a fresh two-field `java/util/Map$Entry` (key, value).
+    MapEntries(u16),
 }
 
 /// State for a live Java Iterator object.

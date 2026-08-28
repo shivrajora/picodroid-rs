@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::chunked_slots::ChunkedSlots;
 use crate::tunables::INLINE_DATA;
+use crate::types::Value;
 use alloc::vec::Vec;
 
 // JVM atype constants for newarray
@@ -23,6 +24,32 @@ pub const ATYPE_REF: u8 = 0; // used by anewarray
 ///   - ARRAY_TAG set                   → ArrayRef (low 16 bits)
 pub const REF_TAG: u32 = 0x4000_0000;
 pub const ARRAY_TAG: u32 = 0x2000_0000;
+
+/// Encode a reference `Value` for an `ATYPE_REF` slot per the scheme above;
+/// `None` for a non-reference value.
+pub fn encode_ref(v: Value) -> Option<i32> {
+    Some(match v {
+        Value::Null => 0,
+        Value::ObjectRef(i) => i as i32,
+        Value::Reference(i) => ((i as u32) | REF_TAG) as i32,
+        Value::ArrayRef(i) => ((i as u32) | ARRAY_TAG) as i32,
+        _ => return None,
+    })
+}
+
+/// Decode an `ATYPE_REF` slot back into its reference `Value`.
+pub fn decode_ref(raw: i32) -> Value {
+    let u = raw as u32;
+    if raw == 0 {
+        Value::Null
+    } else if u & REF_TAG != 0 {
+        Value::Reference((u & !REF_TAG) as u16)
+    } else if u & ARRAY_TAG != 0 {
+        Value::ArrayRef((u & !ARRAY_TAG) as u16)
+    } else {
+        Value::ObjectRef(raw as u16)
+    }
+}
 
 /// Physical i32 slots per user-visible element.
 /// `long[]` and `double[]` use two slots per element; everything else uses one.

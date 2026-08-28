@@ -350,6 +350,11 @@ pub(crate) const BUILTIN_SUPER: &[(&str, &str)] = &[
     ("java/lang/Double", "java/lang/Number"),
     ("java/lang/Short", "java/lang/Number"),
     ("java/lang/Byte", "java/lang/Number"),
+    // Insertion-ordered collections are aliases of the hash-ordered ones
+    // (documented divergence): `mutableMapOf()` / `mutableSetOf()` are
+    // inline and emit `new java/util/LinkedHashMap` at the call site.
+    ("java/util/LinkedHashMap", "java/util/HashMap"),
+    ("java/util/LinkedHashSet", "java/util/HashSet"),
 ];
 
 /// Interfaces implemented by classfile-less builtin classes, flattened to
@@ -387,6 +392,14 @@ pub(crate) const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
     (
         "java/util/HashMap$Values",
         &["java/util/Collection", "java/lang/Iterable"],
+    ),
+    (
+        "java/util/HashMap$EntrySet",
+        &[
+            "java/util/Set",
+            "java/util/Collection",
+            "java/lang/Iterable",
+        ],
     ),
     (
         "java/lang/String",
@@ -631,6 +644,12 @@ pub(super) fn superclass_chain(classes: &[ClassFile], class_name: &[u8]) -> Vec<
 /// superclass chain. Used by invokevirtual / invokeinterface (starting from the receiver's runtime
 /// class) AND by invokestatic / invokespecial (starting from the CP-declared class) — both forms
 /// of dispatch recurse to the superclass when the named class doesn't declare the method.
+///
+/// When the chain misses — it reaches `java/lang/Object`, or leaves the
+/// loaded class set (a user class extending a builtin such as
+/// `RuntimeException`) — resolution continues into the superinterfaces of
+/// every class on the chain ([`find_default_method`]): interface default
+/// methods, including the bodies kotlinc emits under `-Xjvm-default=all`.
 pub(super) fn find_method_walking(
     classes: &[ClassFile],
     start_class: &str,
@@ -642,12 +661,82 @@ pub(super) fn find_method_walking(
         if let Some(result) = find_method(classes, current, method_name, descriptor) {
             return Some(result);
         }
-        let ci = classes
+        let Some(ci) = classes
             .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))?;
-        let super_bytes = classes[ci].super_class_name()?;
-        let super_str: &'static str = core::str::from_utf8(super_bytes).ok()?;
-        current = super_str;
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
+        else {
+            break;
+        };
+        let Some(super_bytes) = classes[ci].super_class_name() else {
+            break;
+        };
+        current = core::str::from_utf8(super_bytes).ok()?;
+    }
+    find_default_method(classes, start_class.as_bytes(), method_name, descriptor)
+}
+
+/// Bound on the interfaces visited per resolution. Real hierarchies have a
+/// handful; a hand-assembled cycle must not spin.
+const MAX_IFACES: usize = 16;
+
+/// JVMS §5.4.3.3 step 3: the maximally-specific superinterface method with a
+/// body. Breadth-first over the interfaces of every loaded class on
+/// `start_class`'s superclass chain, then their superinterfaces; a candidate
+/// declared in a subinterface of the one held so far replaces it (a
+/// sub-interface's override beats the inherited default whatever the
+/// `implements` order). Abstract declarations are skipped, and interfaces
+/// with no class file (`kotlin/jvm/internal/markers/KMappedMarker`) simply
+/// end their branch. Only reached on a miss, so an interface is parsed the
+/// first time a default has to be found through it, never eagerly.
+#[inline(never)]
+fn find_default_method(
+    classes: &[ClassFile],
+    start_class: &[u8],
+    method_name: &str,
+    descriptor: &str,
+) -> Option<(usize, usize)> {
+    let mut queue: Vec<&'static [u8]> = Vec::new();
+    let mut current = start_class;
+    while let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(current)) {
+        push_interfaces(&mut queue, cf);
+        match cf.super_class_name() {
+            Some(s) => current = s,
+            None => break,
+        }
+    }
+    let mut best: Option<(&'static [u8], usize, usize)> = None;
+    let mut i = 0;
+    while i < queue.len() {
+        let name = queue[i];
+        i += 1;
+        let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(name)) else {
+            continue;
+        };
+        push_interfaces(&mut queue, cf);
+        let Ok(name_str) = core::str::from_utf8(name) else {
+            continue;
+        };
+        if let Some((ci, mi)) = find_method(classes, name_str, method_name, descriptor) {
+            if classes[ci].methods()[mi].code_offset == 0 {
+                continue;
+            }
+            match best {
+                Some((held, _, _)) if !iface_reaches(classes, name, held, MAX_IFACE_DEPTH) => {}
+                _ => best = Some((name, ci, mi)),
+            }
+        }
+    }
+    best.map(|(_, ci, mi)| (ci, mi))
+}
+
+/// Append `cf`'s direct superinterfaces to `queue` (deduplicated, bounded).
+fn push_interfaces(queue: &mut Vec<&'static [u8]>, cf: &ClassFile) {
+    for &idx in cf.interfaces() {
+        if let Some(n) = cf.cp_utf8(idx) {
+            if queue.len() < MAX_IFACES && !queue.contains(&n) {
+                queue.push(n);
+            }
+        }
     }
 }
 

@@ -114,83 +114,84 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(default))))
         }
-        "keySet" => {
-            let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
-                Ok(i) => i,
-                Err(e) => return Some(Err(e)),
-            };
-            // Return a view object that stores the map_buf index
-            let view = match ctx.objects.alloc("java/util/HashMap$KeySet") {
-                Some(idx) => idx,
-                None => return Some(Err(JvmError::StackOverflow)),
-            };
-            ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
-            Some(Ok(Some(Value::ObjectRef(view))))
-        }
-        "values" => {
-            let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
-                Ok(i) => i,
-                Err(e) => return Some(Err(e)),
-            };
-            let view = match ctx.objects.alloc("java/util/HashMap$Values") {
-                Some(idx) => idx,
-                None => return Some(Err(JvmError::StackOverflow)),
-            };
-            ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
-            Some(Ok(Some(Value::ObjectRef(view))))
-        }
+        "keySet" => view(ctx, "java/util/HashMap$KeySet"),
+        "values" => view(ctx, "java/util/HashMap$Values"),
+        "entrySet" => view(ctx, "java/util/HashMap$EntrySet"),
         _ => None,
     }
 }
 
-/// Dispatch for HashMap$KeySet view — only supports `iterator()`.
-pub(crate) fn dispatch_keyset(
-    method_name: &str,
+/// A view object over the receiver's map buffer (field 0 = map_buf index).
+fn view(
     ctx: &mut NativeContext<'_>,
+    class: &'static str,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name != "iterator" {
-        return None;
-    }
     let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
         Ok(i) => i,
         Err(e) => return Some(Err(e)),
     };
-    let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+    let view = match ctx.objects.alloc(class) {
         Some(idx) => idx,
         None => return Some(Err(JvmError::StackOverflow)),
     };
-    ctx.objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::MapKeys(buf_idx),
-            position: 0,
-        },
-    );
-    Some(Ok(Some(Value::ObjectRef(iter_obj))))
+    ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
+    Some(Ok(Some(Value::ObjectRef(view))))
 }
 
-/// Dispatch for HashMap$Values view — only supports `iterator()`.
-pub(crate) fn dispatch_values(
+/// Dispatch for the `HashMap$KeySet` / `$Values` / `$EntrySet` views:
+/// `iterator()` (keys, values, or fresh `Map$Entry` objects, by the view's
+/// class) and `size()`.
+pub(crate) fn dispatch_view(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name != "iterator" {
-        return None;
-    }
     let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
         Ok(i) => i,
         Err(e) => return Some(Err(e)),
     };
-    let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
-        Some(idx) => idx,
-        None => return Some(Err(JvmError::StackOverflow)),
+    match method_name {
+        "iterator" => {
+            let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let source = match ctx.objects.class_name(recv) {
+                Some("java/util/HashMap$KeySet") => IterSource::MapKeys(buf_idx),
+                Some("java/util/HashMap$Values") => IterSource::MapValues(buf_idx),
+                _ => IterSource::MapEntries(buf_idx),
+            };
+            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+                Some(idx) => idx,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            ctx.objects.iter_register(
+                iter_obj,
+                IteratorState {
+                    source,
+                    position: 0,
+                },
+            );
+            Some(Ok(Some(Value::ObjectRef(iter_obj))))
+        }
+        "size" => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
+        _ => None,
+    }
+}
+
+/// Dispatch for the `java/util/Map$Entry` objects an `entrySet()` iterator
+/// yields: `getKey()` (field 0) and `getValue()` (field 1).
+pub(crate) fn dispatch_entry(
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    let slot = match method_name {
+        "getKey" => 0,
+        "getValue" => 1,
+        _ => return None,
     };
-    ctx.objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::MapValues(buf_idx),
-            position: 0,
-        },
-    );
-    Some(Ok(Some(Value::ObjectRef(iter_obj))))
+    let Some(Value::ObjectRef(idx)) = ctx.args.first().copied() else {
+        return Some(Err(JvmError::InvalidReference));
+    };
+    Some(Ok(Some(
+        ctx.objects.get_field(idx, slot).unwrap_or(Value::Null),
+    )))
 }

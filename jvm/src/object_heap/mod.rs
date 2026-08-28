@@ -33,7 +33,9 @@ fn default_field_count_for_native(class_name: &str) -> usize {
         | "java/lang/Byte"
         | "java/lang/Short" => 1,
         // HashMap views store the backing map_buf index at slot 0.
-        "java/util/HashMap$KeySet" | "java/util/HashMap$Values" => 1,
+        "java/util/HashMap$KeySet" | "java/util/HashMap$Values" | "java/util/HashMap$EntrySet" => 1,
+        // Map$Entry objects yielded by entrySet(): key at slot 0, value at 1.
+        "java/util/Map$Entry" => 2,
         // StringBuilder stores its backing sb_buf index at slot 0.
         "java/lang/StringBuilder" => 1,
         _ => 0,

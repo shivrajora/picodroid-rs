@@ -15,4 +15,6 @@ public interface List<E> {
   boolean contains(Object o);
 
   void clear();
+
+  Iterator<E> iterator();
 }

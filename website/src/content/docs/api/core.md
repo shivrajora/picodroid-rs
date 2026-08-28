@@ -178,6 +178,7 @@ Hash-table-backed associative containers. Keys are compared by `equals()` / `has
 ```java
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 
 HashMap map = new HashMap();
 map.put("one", Integer.valueOf(1));
@@ -189,9 +190,10 @@ int     n   = map.size();                    // 2
 Integer d   = (Integer) map.getOrDefault("nope", Integer.valueOf(0));  // 0
 map.remove("one");
 
-// Iterate keys / values (keySet() and values() are Iterable)
+// Iterate keys / values / entries (keySet(), values() and entrySet() are Iterable)
 for (Object k : map.keySet())   { Log.i("TAG", (String) k); }
 for (Object val : map.values()) { Log.i("TAG", String.valueOf((Integer) val)); }
+for (Map.Entry<String, Integer> e : map.entrySet()) { Log.i("TAG", e.getKey() + "=" + e.getValue()); }
 
 HashSet set = new HashSet();
 set.add("a");
@@ -201,7 +203,7 @@ boolean inSet = set.contains("a");           // true
 
 ## `java.util.Iterator` and the enhanced for loop
 
-`ArrayList`, `HashMap` (via `keySet()`), and `HashSet` implement `Iterable`, so the enhanced `for` loop and explicit `Iterator` both work.
+`ArrayList`, `HashMap` (via `keySet()`, `values()`, `entrySet()`), `HashSet`, and any class of your own that implements `Iterable` work with the enhanced `for` loop and an explicit `Iterator`. `LinkedHashMap`/`LinkedHashSet` are accepted as aliases of `HashMap`/`HashSet` (no insertion order — see the [compatibility matrix](/reference/compatibility-matrix/)).
 
 ```java
 import java.util.ArrayList;
