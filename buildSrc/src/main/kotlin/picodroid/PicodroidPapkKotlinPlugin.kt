@@ -4,7 +4,9 @@ package picodroid
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 /**
  * `picodroid-papk-kotlin`: a Kotlin app under `examples/<app>/`. Applies the
@@ -33,6 +35,17 @@ class PicodroidPapkKotlinPlugin : Plugin<Project> {
 
         target.plugins.apply(PicodroidPapkPlugin::class.java)
 
+        // Outgoing variant for `:kotlin-shim`'s contract check: this app's own
+        // compiled classes (Kotlin + Java), before staging and stripping, so
+        // the contract sees exactly what kotlinc referenced.
+        val appClasses = target.configurations.create(APP_CLASSES_CONFIGURATION) {
+            isCanBeConsumed = true
+            isCanBeResolved = false
+            description = "Compiled classes of this Kotlin app, for the kotlin-shim contract check"
+        }
+        target.artifacts.add(appClasses.name, target.tasks.named("compileKotlin", KotlinCompile::class.java).flatMap { it.destinationDirectory })
+        target.artifacts.add(appClasses.name, target.tasks.named("compileJava", JavaCompile::class.java).flatMap { it.destinationDirectory })
+
         val kotlin = target.extensions.getByType(KotlinJvmProjectExtension::class.java)
         kotlin.sourceSets.getByName("main").kotlin.apply {
             // Mirror the Java root: sources anywhere under the app dir.
@@ -49,6 +62,7 @@ class PicodroidPapkKotlinPlugin : Plugin<Project> {
 
     companion object {
         const val SHIM_CONFIGURATION = "picodroidShim"
+        const val APP_CLASSES_CONFIGURATION = "picodroidAppClasses"
 
         /**
          * The frozen flag string (docs/designs/kotlin-shim-inventory.md header).

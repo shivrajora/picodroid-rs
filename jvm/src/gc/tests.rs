@@ -1694,6 +1694,7 @@ fn registered_parked_frames_are_gc_roots() {
         inst_pc: 0,
         locals: alloc::vec![Value::ObjectRef(parked_obj)],
         stack: alloc::vec::Vec::new(),
+        box_return: 0,
     }];
     gc.register_frames(&parked_frames);
 

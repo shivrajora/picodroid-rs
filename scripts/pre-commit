@@ -112,10 +112,13 @@ if [[ "$FAMRP_GATES" != "0" ]]; then
   exit 1
 fi
 
-echo "==> Type-checking all Java apps (gradle compileJava)..."
-if ! (cd "$REPO_ROOT" && ./gradlew compileJava --console=plain); then
+echo "==> Type-checking all Java apps (gradle compileJava) + kotlin-shim contract..."
+# :kotlin-shim:contractCheck compiles the Kotlin fixture apps and proves every
+# kotlin/** reference they make resolves in the shim, every java/** reference
+# is allowlisted, and nothing in the shim is dead (warning).
+if ! (cd "$REPO_ROOT" && ./gradlew compileJava :kotlin-shim:contractCheck --console=plain); then
   echo ""
-  echo "ERROR: Java compilation failed. Fix the errors above before committing."
+  echo "ERROR: Java compilation or the kotlin-shim contract failed. Fix the errors above before committing."
   exit 1
 fi
 
@@ -275,6 +278,16 @@ echo "==> Running Java conformance suite (langsuite, sim)..."
 if ! PICODROID_BENCH_RECORD=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
   echo ""
   echo "ERROR: langsuite failed in sim. A pico-jvm/stdlib behavior regressed;"
+  echo "       fix before committing."
+  exit 1
+fi
+
+# The Kotlin twin: kotlinc output + the kotlin-shim on the same JVM
+# (docs/designs/kotlin-roadmap-2026-08.md Session 5).
+echo "==> Running Kotlin conformance suite (langsuite_kt, sim)..."
+if ! PICODROID_BENCH_RECORD=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite_kt --no-email; then
+  echo ""
+  echo "ERROR: langsuite_kt failed in sim. A pico-jvm or kotlin-shim behavior regressed;"
   echo "       fix before committing."
   exit 1
 fi

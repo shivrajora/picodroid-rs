@@ -624,3 +624,32 @@ fn to_array_returns_a_fresh_object_array() {
     let t = a.finish(0x0001, this, obj, &[], Some((4, &code, &[])));
     assert_eq!(run(t).unwrap(), Some(Value::Int(2)));
 }
+
+// ── Object.clone() on an array receiver ───────────────────────────────────
+
+#[test]
+fn object_clone_on_an_array_dispatches_by_array_class() {
+    // kotlinc's enum `values()`: `getstatic $VALUES; invokevirtual
+    // java/lang/Object.clone()`. `iconst_2; newarray int; invokevirtual
+    // Object.clone(); checkcast [I; arraylength` → 2.
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let clone = a.methodref(0x0A, obj, "clone", "()Ljava/lang/Object;");
+    let int_arr = a.class("[I");
+    let code = [
+        0x05, // iconst_2
+        0xBC,
+        10, // newarray int
+        0xB6,
+        hi(clone),
+        lo(clone),
+        0xC0,
+        hi(int_arr),
+        lo(int_arr),
+        0xBE, // arraylength
+        0xAC,
+    ];
+    let t = a.finish(0x0001, this, obj, &[], Some((2, &code, &[])));
+    assert_eq!(run(t).unwrap(), Some(Value::Int(2)));
+}

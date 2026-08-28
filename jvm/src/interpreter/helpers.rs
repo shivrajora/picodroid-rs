@@ -192,6 +192,82 @@ pub(super) fn count_args(descriptor: &str) -> usize {
     count
 }
 
+/// One byte per parameter of a method descriptor: the primitive letter
+/// (`I`, `J`, `F`, `D`, `Z`, `B`, `S`, `C`), or `b'L'` for any reference
+/// (object or array). Stops at `)`.
+pub(super) struct ParamKinds<'a> {
+    bytes: &'a [u8],
+    i: usize,
+}
+
+impl<'a> ParamKinds<'a> {
+    pub(super) fn new(desc: &'a [u8]) -> Self {
+        Self { bytes: desc, i: 0 }
+    }
+}
+
+impl Iterator for ParamKinds<'_> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<u8> {
+        loop {
+            let b = *self.bytes.get(self.i)?;
+            self.i += 1;
+            match b {
+                b'(' => continue,
+                b')' => return None,
+                b'[' | b'L' => {
+                    // Skip the rest of the type: further `[`s, then either a
+                    // single primitive letter or `L…;`.
+                    let mut c = b;
+                    while c == b'[' {
+                        c = *self.bytes.get(self.i)?;
+                        self.i += 1;
+                    }
+                    if c == b'L' {
+                        while *self.bytes.get(self.i)? != b';' {
+                            self.i += 1;
+                        }
+                        self.i += 1;
+                    }
+                    return Some(b'L');
+                }
+                p => return Some(p),
+            }
+        }
+    }
+}
+
+/// Return kind of a method descriptor: the primitive letter, `b'V'`, or
+/// `b'L'` for any reference.
+pub(super) fn return_kind(desc: &[u8]) -> u8 {
+    let i = desc.iter().position(|&c| c == b')').map_or(0, |i| i + 1);
+    match desc.get(i).copied().unwrap_or(b'V') {
+        b'[' | b'L' => b'L',
+        k => k,
+    }
+}
+
+/// Box a primitive `Value` as the wrapper for descriptor letter `kind`
+/// (`I` → `java/lang/Integer`, …): the box's field 0 holds the raw value, as
+/// `Integer.valueOf` and `op_new` + `<init>` lay it out. `None` on OOM.
+pub(super) fn box_primitive(objects: &mut ObjectHeap, kind: u8, v: Value) -> Option<Value> {
+    let class = match kind {
+        b'I' => "java/lang/Integer",
+        b'J' => "java/lang/Long",
+        b'F' => "java/lang/Float",
+        b'D' => "java/lang/Double",
+        b'Z' => "java/lang/Boolean",
+        b'C' => "java/lang/Character",
+        b'B' => "java/lang/Byte",
+        b'S' => "java/lang/Short",
+        _ => return Some(v),
+    };
+    let idx = objects.alloc(class)?;
+    objects.set_field(idx, 0, v);
+    Some(Value::ObjectRef(idx))
+}
+
 /// Branch target: offset is relative to the start of the branch instruction.
 /// By the time we use this, frame.pc points 2 bytes past the offset field,
 /// i.e. 3 bytes past the opcode. So instruction_start = frame.pc - 3.
@@ -268,7 +344,7 @@ pub(super) fn field_slot(
 /// [`crate::native::BUILTIN_CLASS_NAMES`] so a `new` of it canonicalises
 /// instead of producing an `"unknown"` object that no catch clause matches
 /// — the `builtin_hierarchy_names_are_registered` test enforces it.
-pub(crate) const BUILTIN_SUPER: &[(&str, &str)] = &[
+pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     ("java/lang/Throwable", "java/lang/Object"),
     ("java/lang/Exception", "java/lang/Throwable"),
     ("java/lang/Error", "java/lang/Throwable"),
@@ -363,7 +439,7 @@ pub(crate) const BUILTIN_SUPER: &[(&str, &str)] = &[
 /// `java/util/List` is a `Collection` and an `Iterable`). Consulted by
 /// [`is_instance_of`] at every level of the superclass chain and of the
 /// interface walk. Same registration rule as [`BUILTIN_SUPER`].
-pub(crate) const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
+pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
     (
         "java/util/ArrayList",
         &[

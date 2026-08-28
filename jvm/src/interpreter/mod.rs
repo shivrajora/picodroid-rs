@@ -31,6 +31,10 @@ mod ops_wide;
 mod tests;
 
 pub(crate) use helpers::array_class_name;
+/// The classfile-less hierarchy tables, exported so an embedder's tests can
+/// cross-check the classes its Kotlin/Java surface names against what the
+/// JVM serves (picodroid-core's `jdk_allowlist_owners_are_served`).
+pub use helpers::{BUILTIN_INTERFACES, BUILTIN_SUPER};
 
 use crate::tunables::GC_THRESHOLD;
 
@@ -457,7 +461,11 @@ fn execute_frames<H: NativeMethodHandler>(
         // Return opcodes are handled inline — they pop the frame stack.
         match opcode {
             0xac..=0xb0 => {
-                let v = frame.pop()?;
+                let mut v = frame.pop()?;
+                if frame.box_return != 0 {
+                    v = helpers::box_primitive(ex.objects, frame.box_return, v)
+                        .ok_or(JvmError::StackOverflow)?;
+                }
                 frames.pop();
                 if frames.is_empty() {
                     return Ok(Some(v));

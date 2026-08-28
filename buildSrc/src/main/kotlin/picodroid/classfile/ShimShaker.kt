@@ -64,10 +64,10 @@ object ShimShaker {
 
     fun isFacade(name: String): Boolean = name.endsWith("Kt")
 
-    private class Marks(val renames: MutableMap<MemberKey, String> = HashMap(), val keepMethods: MutableSet<MemberKey> = HashSet(), val keepClasses: MutableSet<String> = HashSet())
+    class Marks(val renames: MutableMap<MemberKey, String> = HashMap(), val keepMethods: MutableSet<MemberKey> = HashSet(), val keepClasses: MutableSet<String> = HashSet())
 
-    /** Pre-pass over the unstripped shim bytes: `@ShimName` / `@ShimKeep` are CLASS-retention, so they must be read before the strip drops them. */
-    private fun collectMarks(entries: List<ClassEntry>): Marks {
+    /** Pre-pass over the unstripped shim bytes: `@ShimName` / `@ShimKeep` are CLASS-retention, so they must be read before the strip drops them. Shared with [ShimContract]. */
+    fun collectMarks(entries: List<ClassEntry>): Marks {
         val marks = Marks()
         entries.forEach { e ->
             var owner = e.className

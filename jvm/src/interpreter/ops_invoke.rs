@@ -54,6 +54,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // `invokeinterface Comparable.compareTo` / `CharSequence.length` or
         // `invokevirtual Object.equals` on a String must reach the String
         // dispatcher, not a `java/lang/Comparable` arm that does not exist.
+        // Likewise an array dispatches as its array class: kotlinc's
+        // `values()` clones `$VALUES` through `Object.clone()`, where javac
+        // names the array class as the owner.
         let is_virtual = opcode == 0xb6 || opcode == 0xb9;
         let dispatch_class = if is_virtual {
             let stack_len = frame.stack.len();
@@ -61,6 +64,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 match frame.stack[stack_len - arg_count] {
                     Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
                     Value::Reference(_) => "java/lang/String",
+                    Value::ArrayRef(idx) => helpers::array_class_name(
+                        self.arrays
+                            .atype(idx)
+                            .unwrap_or(crate::array_heap::ATYPE_REF),
+                    ),
                     _ => class_str,
                 }
             } else {
@@ -72,7 +80,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // Lambda proxy intercept: if receiver is a lambda, dispatch to the
         // target method directly.
-        if is_virtual && self.objects.has_lambdas() && self.try_lambda_dispatch(frame, arg_count)? {
+        if is_virtual
+            && self.objects.has_lambdas()
+            && self.try_lambda_dispatch(frame, arg_count, desc_str)?
+        {
             return Ok(());
         }
 
@@ -215,10 +226,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// proxy's `target_class_idx::target_method_idx`, and return `Ok(true)`.
     /// Returns `Ok(false)` when the receiver isn't a lambda (caller falls
     /// through to ordinary method resolution).
+    ///
+    /// Performs `LambdaMetafactory`'s boxing adaptation: kotlinc keeps a
+    /// lambda body primitive (`(I)I`) behind the erased SAM
+    /// (`Function1.invoke(Object)Object`) and leaves unboxing the arguments
+    /// and boxing the return to the metafactory — javac boxes inside the
+    /// body, so Java apps never hit this. Captured values are passed as-is
+    /// (their types already match the body's leading parameters).
     fn try_lambda_dispatch(
         &mut self,
         frame: &mut Frame,
         arg_count: usize,
+        sam_desc: &str,
     ) -> Result<bool, JvmError> {
         let stack_len = frame.stack.len();
         if stack_len < arg_count {
@@ -234,28 +253,66 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let target_mi = lambda.target_method_idx;
         let captures: Vec<Value> = lambda.captures.clone();
 
+        let tm = &self.classes[target_ci].methods()[target_mi];
+        if tm.code_offset == 0 {
+            return Err(JvmError::NoSuchMethod);
+        }
+        let impl_desc = self.classes[target_ci]
+            .cp_utf8(tm.descriptor_index)
+            .ok_or(JvmError::InvalidBytecode)?;
+        let (max_locals, max_stack) = (tm.max_locals, tm.max_stack);
+
         // Pop all args (including "this") and grab the interface-method args
         // after the lambda receiver itself.
         let start = stack_len - arg_count;
-        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
+        let mut method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
         frame.stack.truncate(start);
+
+        // Unbox every boxed argument whose body parameter is primitive. The
+        // captures occupy the body's leading parameters; step past them by
+        // hand (`Iterator::skip` monomorphises a 500 B `nth` on thumbv6m).
+        let mut body_kinds = helpers::ParamKinds::new(impl_desc);
+        for _ in 0..captures.len() {
+            body_kinds.next();
+        }
+        for (arg, kind) in method_args.iter_mut().zip(body_kinds) {
+            if kind == b'L' {
+                continue;
+            }
+            match *arg {
+                Value::ObjectRef(idx) => {
+                    let raw = self
+                        .objects
+                        .get_field(idx, 0)
+                        .ok_or(JvmError::InvalidReference)?;
+                    *arg = widen(raw, kind);
+                }
+                Value::Null => {
+                    let npe = self
+                        .objects
+                        .alloc("java/lang/NullPointerException")
+                        .ok_or(JvmError::StackOverflow)?;
+                    return Err(JvmError::Exception(npe));
+                }
+                _ => {}
+            }
+        }
+        let body_ret = helpers::return_kind(impl_desc);
+        let box_return = if body_ret != b'L'
+            && body_ret != b'V'
+            && helpers::return_kind(sam_desc.as_bytes()) == b'L'
+        {
+            body_ret
+        } else {
+            0
+        };
 
         // Build actual args: captures first, then interface method args.
         let mut actual_args = captures;
         actual_args.extend_from_slice(&method_args);
 
-        let is_native = self.classes[target_ci].methods()[target_mi].code_offset == 0;
-        if is_native {
-            return Err(JvmError::NoSuchMethod);
-        }
-        let tm = &self.classes[target_ci].methods()[target_mi];
-        let new_frame = Frame::new(
-            target_ci,
-            target_mi,
-            &actual_args,
-            tm.max_locals,
-            tm.max_stack,
-        )?;
+        let mut new_frame = Frame::new(target_ci, target_mi, &actual_args, max_locals, max_stack)?;
+        new_frame.box_return = box_return;
         self.pending_frame = Some(new_frame);
         Ok(true)
     }
@@ -567,6 +624,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .ok_or(JvmError::StackOverflow)?;
         frame.push(Value::ObjectRef(obj_idx))?;
         Ok(())
+    }
+}
+
+/// Widen an unboxed value to the body's parameter kind (an `Integer` passed
+/// where the body takes `long`, `float` or `double`); every other
+/// combination is already the right `Value`.
+fn widen(v: Value, kind: u8) -> Value {
+    match (kind, v) {
+        (b'J', Value::Int(i)) => Value::Long(i as i64),
+        (b'F', Value::Int(i)) => Value::Float(i as f32),
+        (b'D', Value::Int(i)) => Value::Double(i as f64),
+        (b'D', Value::Float(f)) => Value::Double(f as f64),
+        _ => v,
     }
 }
 

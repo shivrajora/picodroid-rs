@@ -31,3 +31,32 @@ artifacts {
         builtBy(tasks.named("compileJava"))
     }
 }
+
+// ── Contract check (roadmap Session 5) ──────────────────────────────────────
+// Every kotlin/** reference the fixture apps make must resolve in this shim
+// (Direction A), unused shim members are reported (B), and every java/**
+// reference — from the shim and from the fixtures — must be a row of
+// jdk-allowlist.tsv (C), which picodroid-core's `jdk_allowlist_owners_are_served`
+// test cross-checks against the JVM's builtin tables.
+val shimFixtures: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    description = "Compiled classes of the Kotlin apps that define the shim's required surface"
+}
+
+dependencies {
+    shimFixtures(project(mapOf("path" to ":examples:langsuite_kt", "configuration" to "picodroidAppClasses")))
+}
+
+val contractCheck by tasks.registering(picodroid.ShimContractTask::class) {
+    group = "verification"
+    description = "kotlin-shim contract: fixture kotlin/** refs resolve, unused members, JDK allowlist"
+    shimClasses.set(tasks.named<JavaCompile>("compileJava").flatMap { it.destinationDirectory })
+    fixtureClasses.from(shimFixtures)
+    allowlistFile.set(layout.projectDirectory.file("jdk-allowlist.tsv"))
+    // Direction B stays a warning until the tiers stabilise (Session 6 decides).
+    strictUnused.set(false)
+    reportFile.set(layout.buildDirectory.file("reports/shim-contract.txt"))
+}
+
+tasks.named("check") { dependsOn(contractCheck) }

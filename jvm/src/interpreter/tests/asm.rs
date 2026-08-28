@@ -73,6 +73,29 @@ impl Asm {
         ])
     }
 
+    /// MethodHandle (tag 15): `kind` is the reference kind (6 = invokeStatic).
+    pub(super) fn method_handle(&mut self, kind: u8, r: u16) -> u16 {
+        self.push(vec![0x0F, kind, (r >> 8) as u8, r as u8])
+    }
+
+    /// MethodType (tag 16).
+    pub(super) fn method_type(&mut self, desc: &str) -> u16 {
+        let u = self.utf8(desc);
+        self.push(vec![0x10, (u >> 8) as u8, u as u8])
+    }
+
+    /// InvokeDynamic (tag 18) for bootstrap entry `bsm` and `name`/`desc`.
+    pub(super) fn invoke_dynamic(&mut self, bsm: u16, name: &str, desc: &str) -> u16 {
+        let nat = self.name_and_type(name, desc);
+        self.push(vec![
+            0x12,
+            (bsm >> 8) as u8,
+            bsm as u8,
+            (nat >> 8) as u8,
+            nat as u8,
+        ])
+    }
+
     /// Fieldref (tag 9).
     pub(super) fn fieldref(&mut self, class: u16, name: &str, desc: &str) -> u16 {
         let nat = self.name_and_type(name, desc);
@@ -125,6 +148,20 @@ impl Asm {
         ifaces: &[u16],
         methods: &[Method<'_>],
     ) -> &'static [u8] {
+        self.finish_full(access, this, sup, ifaces, methods, &[])
+    }
+
+    /// Emit the class file with the given methods and `BootstrapMethods`
+    /// entries, each `(bootstrap MethodHandle, arguments)`.
+    pub(super) fn finish_full(
+        &mut self,
+        access: u16,
+        this: u16,
+        sup: u16,
+        ifaces: &[u16],
+        methods: &[Method<'_>],
+        bootstraps: &[(u16, &[u16])],
+    ) -> &'static [u8] {
         // Constant-pool entries for every method first: the pool is emitted
         // before the method table.
         let names: Vec<(u16, u16)> = methods
@@ -135,6 +172,11 @@ impl Asm {
             self.utf8("Code")
         } else {
             0
+        };
+        let bsm_name = if bootstraps.is_empty() {
+            0
+        } else {
+            self.utf8("BootstrapMethods")
         };
         let mut out = vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34];
         out.extend_from_slice(&(self.cp.len() as u16 + 1).to_be_bytes());
@@ -174,7 +216,25 @@ impl Asm {
             }
             out.extend_from_slice(&[0x00, 0x00]); // code attrs
         }
-        out.extend_from_slice(&[0x00, 0x00]); // class attrs
+        if bootstraps.is_empty() {
+            out.extend_from_slice(&[0x00, 0x00]); // class attrs
+        } else {
+            out.extend_from_slice(&[0x00, 0x01]);
+            out.extend_from_slice(&bsm_name.to_be_bytes());
+            let len = 2 + bootstraps
+                .iter()
+                .map(|(_, a)| 4 + 2 * a.len())
+                .sum::<usize>();
+            out.extend_from_slice(&(len as u32).to_be_bytes());
+            out.extend_from_slice(&(bootstraps.len() as u16).to_be_bytes());
+            for (handle, args) in bootstraps {
+                out.extend_from_slice(&handle.to_be_bytes());
+                out.extend_from_slice(&(args.len() as u16).to_be_bytes());
+                for a in *args {
+                    out.extend_from_slice(&a.to_be_bytes());
+                }
+            }
+        }
         alloc::boxed::Box::leak(out.into_boxed_slice())
     }
 }

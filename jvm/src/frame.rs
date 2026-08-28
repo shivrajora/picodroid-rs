@@ -11,6 +11,11 @@ pub struct Frame {
     pub inst_pc: usize,
     pub locals: Vec<Value>,
     pub stack: Vec<Value>,
+    /// Non-zero for a lambda body whose primitive return (`I`, `J`, …) must
+    /// be boxed for the erased SAM (`Function1.invoke(Object)Object`) — the
+    /// adaptation `LambdaMetafactory` performs on a real JVM. Applied by the
+    /// return opcode.
+    pub box_return: u8,
 }
 
 impl Frame {
@@ -46,6 +51,7 @@ impl Frame {
             inst_pc: 0,
             locals,
             stack: Vec::with_capacity(max_stack as usize),
+            box_return: 0,
         })
     }
 

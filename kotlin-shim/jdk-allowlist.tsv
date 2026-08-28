@@ -1,0 +1,274 @@
+# kotlin-shim/jdk-allowlist.tsv — every java/** class and member the Kotlin
+# shim and the Kotlin fixture apps (examples/langsuite_kt, later
+# examples/picoenvmon_kt) reference, one `owner<TAB>name<TAB>desc` row each.
+# A row with empty name/desc allows the class itself (new / checkcast /
+# instanceof / anewarray / super / interface / catch_type / indy SAM).
+#
+# Checked in two directions (docs/designs/kotlin-roadmap-2026-08.md Session 5):
+#   :kotlin-shim:contractCheck  — a reference with no row fails the build and
+#                                 prints the missing rows, ready to paste;
+#   picodroid-core test         — every owner here must be a pico-jvm builtin,
+#     `jdk_allowlist_owners_are_served`   a BUILTIN_SUPER / BUILTIN_INTERFACES
+#                                 name, or an SDK java/** class, so a row
+#                                 cannot name a class the JVM does not serve.
+# A row only says the JVM *knows the class*; whether it serves the exact
+# member is proven by langsuite / langsuite_kt in the sim (the rustdoc table
+# in jvm/src/native/mod.rs lists the arms).
+#
+# Seeded from the Session 1 dumps (tools/kotlin-survey: fixture + Java
+# picoenvmon baseline) and the Sessions 3-4 additions; keep sorted by owner.
+#
+# Rows that are known NOT to be served at run time but appear in every
+# kotlinc-compiled class of their kind (the check is static):
+#   java/lang/Enum.valueOf(Class,String) — every Kotlin enum's synthetic
+#   valueOf(String) calls it; unsupported (compatibility matrix), never called
+#   by the demos.
+java/io/IOException		
+java/io/IOException	<init>	(Ljava/lang/String;)V
+java/io/IOException	getMessage	()Ljava/lang/String;
+java/lang/ArithmeticException		
+java/lang/ArrayIndexOutOfBoundsException		
+java/lang/Boolean		
+java/lang/Boolean	booleanValue	()Z
+java/lang/Boolean	hashCode	(Z)I
+java/lang/Boolean	valueOf	(Z)Ljava/lang/Boolean;
+java/lang/Byte		
+java/lang/Byte	byteValue	()B
+java/lang/Byte	valueOf	(B)Ljava/lang/Byte;
+java/lang/CharSequence		
+java/lang/CharSequence	charAt	(I)C
+java/lang/CharSequence	length	()I
+java/lang/Character		
+java/lang/Character	charValue	()C
+java/lang/Character	hashCode	(C)I
+java/lang/Character	isDigit	(C)Z
+java/lang/Character	isLetter	(C)Z
+java/lang/Character	toLowerCase	(C)C
+java/lang/Character	toUpperCase	(C)C
+java/lang/Character	valueOf	(C)Ljava/lang/Character;
+java/lang/Class		
+java/lang/Class	getName	()Ljava/lang/String;
+java/lang/ClassCastException		
+java/lang/Cloneable		
+java/lang/Comparable		
+java/lang/Comparable	compareTo	(Ljava/lang/Object;)I
+java/lang/Double		
+java/lang/Double	compare	(DD)I
+java/lang/Double	doubleValue	()D
+java/lang/Double	hashCode	(D)I
+java/lang/Double	valueOf	(D)Ljava/lang/Double;
+java/lang/Enum		
+java/lang/Enum	<init>	(Ljava/lang/String;I)V
+java/lang/Enum	compareTo	(Ljava/lang/Enum;)I
+java/lang/Enum	equals	(Ljava/lang/Object;)Z
+java/lang/Enum	hashCode	()I
+java/lang/Enum	name	()Ljava/lang/String;
+java/lang/Enum	ordinal	()I
+java/lang/Enum	toString	()Ljava/lang/String;
+java/lang/Enum	valueOf	(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;
+java/lang/Error		
+java/lang/Error	<init>	()V
+java/lang/Error	<init>	(Ljava/lang/String;)V
+java/lang/Error	getMessage	()Ljava/lang/String;
+java/lang/Exception		
+java/lang/Exception	<init>	()V
+java/lang/Exception	<init>	(Ljava/lang/String;)V
+java/lang/Exception	getMessage	()Ljava/lang/String;
+java/lang/Float		
+java/lang/Float	compare	(FF)I
+java/lang/Float	floatValue	()F
+java/lang/Float	hashCode	(F)I
+java/lang/Float	valueOf	(F)Ljava/lang/Float;
+java/lang/IllegalArgumentException		
+java/lang/IllegalArgumentException	<init>	()V
+java/lang/IllegalArgumentException	<init>	(Ljava/lang/String;)V
+java/lang/IllegalArgumentException	getMessage	()Ljava/lang/String;
+java/lang/IllegalStateException		
+java/lang/IllegalStateException	<init>	()V
+java/lang/IllegalStateException	<init>	(Ljava/lang/String;)V
+java/lang/IllegalStateException	getMessage	()Ljava/lang/String;
+java/lang/IndexOutOfBoundsException		
+java/lang/IndexOutOfBoundsException	<init>	(Ljava/lang/String;)V
+java/lang/Integer		
+java/lang/Integer	hashCode	(I)I
+java/lang/Integer	intValue	()I
+java/lang/Integer	parseInt	(Ljava/lang/String;)I
+java/lang/Integer	toString	(I)Ljava/lang/String;
+java/lang/Integer	valueOf	(I)Ljava/lang/Integer;
+java/lang/Iterable		
+java/lang/Iterable	iterator	()Ljava/util/Iterator;
+java/lang/Long		
+java/lang/Long	hashCode	(J)I
+java/lang/Long	longValue	()J
+java/lang/Long	valueOf	(J)Ljava/lang/Long;
+java/lang/Math		
+java/lang/Math	abs	(F)F
+java/lang/Math	abs	(I)I
+java/lang/Math	floor	(D)D
+java/lang/Math	max	(FF)F
+java/lang/Math	max	(II)I
+java/lang/Math	min	(II)I
+java/lang/Math	pow	(DD)D
+java/lang/Math	sqrt	(D)D
+java/lang/NoSuchFieldError		
+java/lang/NullPointerException		
+java/lang/NullPointerException	<init>	()V
+java/lang/NullPointerException	<init>	(Ljava/lang/String;)V
+java/lang/Number		
+java/lang/Number	doubleValue	()D
+java/lang/Number	floatValue	()F
+java/lang/Number	intValue	()I
+java/lang/Number	longValue	()J
+java/lang/NumberFormatException		
+java/lang/NumberFormatException	getMessage	()Ljava/lang/String;
+java/lang/Object		
+java/lang/Object	<init>	()V
+java/lang/Object	clone	()Ljava/lang/Object;
+java/lang/Object	equals	(Ljava/lang/Object;)Z
+java/lang/Object	getClass	()Ljava/lang/Class;
+java/lang/Object	hashCode	()I
+java/lang/Object	toString	()Ljava/lang/String;
+java/lang/Runnable		
+java/lang/Runnable	run	()V
+java/lang/RuntimeException		
+java/lang/RuntimeException	<init>	()V
+java/lang/RuntimeException	<init>	(Ljava/lang/String;)V
+java/lang/RuntimeException	getMessage	()Ljava/lang/String;
+java/lang/Short		
+java/lang/Short	shortValue	()S
+java/lang/Short	valueOf	(S)Ljava/lang/Short;
+java/lang/String		
+java/lang/String	<init>	([BII)V
+java/lang/String	charAt	(I)C
+java/lang/String	compareTo	(Ljava/lang/String;)I
+java/lang/String	concat	(Ljava/lang/String;)Ljava/lang/String;
+java/lang/String	endsWith	(Ljava/lang/String;)Z
+java/lang/String	equals	(Ljava/lang/Object;)Z
+java/lang/String	format	(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;
+java/lang/String	getBytes	()[B
+java/lang/String	hashCode	()I
+java/lang/String	indexOf	(I)I
+java/lang/String	indexOf	(Ljava/lang/String;)I
+java/lang/String	isEmpty	()Z
+java/lang/String	length	()I
+java/lang/String	startsWith	(Ljava/lang/String;)Z
+java/lang/String	substring	(I)Ljava/lang/String;
+java/lang/String	substring	(II)Ljava/lang/String;
+java/lang/String	toLowerCase	(Ljava/util/Locale;)Ljava/lang/String;
+java/lang/String	toUpperCase	(Ljava/util/Locale;)Ljava/lang/String;
+java/lang/String	trim	()Ljava/lang/String;
+java/lang/String	valueOf	(C)Ljava/lang/String;
+java/lang/String	valueOf	(D)Ljava/lang/String;
+java/lang/String	valueOf	(F)Ljava/lang/String;
+java/lang/String	valueOf	(I)Ljava/lang/String;
+java/lang/String	valueOf	(J)Ljava/lang/String;
+java/lang/String	valueOf	(Ljava/lang/Object;)Ljava/lang/String;
+java/lang/String	valueOf	(Z)Ljava/lang/String;
+java/lang/StringBuilder		
+java/lang/StringBuilder	<init>	()V
+java/lang/StringBuilder	<init>	(Ljava/lang/String;)V
+java/lang/StringBuilder	append	(C)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(D)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(F)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(I)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(J)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(Ljava/lang/Object;)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(Ljava/lang/String;)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	append	(Z)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	length	()I
+java/lang/StringBuilder	toString	()Ljava/lang/String;
+java/lang/System	arraycopy	(Ljava/lang/Object;ILjava/lang/Object;II)V
+java/lang/System	currentTimeMillis	()J
+java/lang/Throwable		
+java/lang/Throwable	getMessage	()Ljava/lang/String;
+java/lang/UnsupportedOperationException		
+java/lang/UnsupportedOperationException	<init>	()V
+java/lang/UnsupportedOperationException	<init>	(Ljava/lang/String;)V
+java/net/SocketTimeoutException		
+java/util/AbstractList		
+java/util/AbstractList	<init>	()V
+java/util/ArrayList		
+java/util/ArrayList	<init>	()V
+java/util/ArrayList	<init>	(I)V
+java/util/ArrayList	add	(Ljava/lang/Object;)Z
+java/util/ArrayList	clear	()V
+java/util/ArrayList	contains	(Ljava/lang/Object;)Z
+java/util/ArrayList	get	(I)Ljava/lang/Object;
+java/util/ArrayList	isEmpty	()Z
+java/util/ArrayList	iterator	()Ljava/util/Iterator;
+java/util/ArrayList	remove	(I)Ljava/lang/Object;
+java/util/ArrayList	set	(ILjava/lang/Object;)Ljava/lang/Object;
+java/util/ArrayList	size	()I
+java/util/ArrayList	toArray	([Ljava/lang/Object;)[Ljava/lang/Object;
+java/util/Arrays	copyOf	([FI)[F
+java/util/Arrays	copyOf	([II)[I
+java/util/Arrays	copyOf	([Ljava/lang/Object;I)[Ljava/lang/Object;
+java/util/Arrays	fill	([FF)V
+java/util/Arrays	fill	([II)V
+java/util/Arrays	sort	([F)V
+java/util/Arrays	sort	([I)V
+java/util/Arrays	sort	([Ljava/lang/Object;)V
+java/util/Collection		
+java/util/Collection	add	(Ljava/lang/Object;)Z
+java/util/Collection	contains	(Ljava/lang/Object;)Z
+java/util/Collection	isEmpty	()Z
+java/util/Collection	iterator	()Ljava/util/Iterator;
+java/util/Collection	size	()I
+java/util/Collection	toArray	([Ljava/lang/Object;)[Ljava/lang/Object;
+java/util/Collections	sort	(Ljava/util/List;)V
+java/util/Collections	sort	(Ljava/util/List;Ljava/util/Comparator;)V
+java/util/Comparator		
+java/util/Comparator	compare	(Ljava/lang/Object;Ljava/lang/Object;)I
+java/util/HashMap		
+java/util/HashMap	<init>	()V
+java/util/HashMap	<init>	(I)V
+java/util/HashMap	containsKey	(Ljava/lang/Object;)Z
+java/util/HashMap	entrySet	()Ljava/util/Set;
+java/util/HashMap	get	(Ljava/lang/Object;)Ljava/lang/Object;
+java/util/HashMap	keySet	()Ljava/util/Set;
+java/util/HashMap	put	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+java/util/HashMap	remove	(Ljava/lang/Object;)Ljava/lang/Object;
+java/util/HashMap	size	()I
+java/util/HashMap	values	()Ljava/util/Collection;
+java/util/HashSet		
+java/util/HashSet	<init>	()V
+java/util/HashSet	add	(Ljava/lang/Object;)Z
+java/util/HashSet	contains	(Ljava/lang/Object;)Z
+java/util/HashSet	size	()I
+java/util/Iterator		
+java/util/Iterator	hasNext	()Z
+java/util/Iterator	next	()Ljava/lang/Object;
+java/util/LinkedHashMap		
+java/util/LinkedHashMap	<init>	()V
+java/util/LinkedHashSet		
+java/util/LinkedHashSet	<init>	()V
+java/util/List		
+java/util/List	add	(Ljava/lang/Object;)Z
+java/util/List	contains	(Ljava/lang/Object;)Z
+java/util/List	get	(I)Ljava/lang/Object;
+java/util/List	indexOf	(Ljava/lang/Object;)I
+java/util/List	isEmpty	()Z
+java/util/List	iterator	()Ljava/util/Iterator;
+java/util/List	set	(ILjava/lang/Object;)Ljava/lang/Object;
+java/util/List	size	()I
+java/util/Locale	ROOT	Ljava/util/Locale;
+java/util/Locale	US	Ljava/util/Locale;
+java/util/Map		
+java/util/Map	containsKey	(Ljava/lang/Object;)Z
+java/util/Map	entrySet	()Ljava/util/Set;
+java/util/Map	get	(Ljava/lang/Object;)Ljava/lang/Object;
+java/util/Map	keySet	()Ljava/util/Set;
+java/util/Map	put	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+java/util/Map	size	()I
+java/util/Map	values	()Ljava/util/Collection;
+java/util/Map$Entry		
+java/util/Map$Entry	getKey	()Ljava/lang/Object;
+java/util/Map$Entry	getValue	()Ljava/lang/Object;
+java/util/NoSuchElementException		
+java/util/NoSuchElementException	<init>	()V
+java/util/NoSuchElementException	<init>	(Ljava/lang/String;)V
+java/util/Set		
+java/util/Set	contains	(Ljava/lang/Object;)Z
+java/util/Set	isEmpty	()Z
+java/util/Set	iterator	()Ljava/util/Iterator;
+java/util/Set	size	()I

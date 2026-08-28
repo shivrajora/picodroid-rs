@@ -146,6 +146,7 @@ mod dispatch_state;
 mod exceptions;
 mod fields;
 mod invoke;
+mod lambdas;
 mod locals;
 mod long_arrays;
 mod math;
