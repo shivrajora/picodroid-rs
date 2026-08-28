@@ -6,6 +6,7 @@
 #   ./scripts/sim.sh --app blinky
 #   ./scripts/sim.sh --board pico_enviro_mon --app helloworld
 #   ./scripts/sim.sh --release
+#   ./scripts/sim.sh --apk path/to/hand-packed.papk   # skip the Gradle build
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -14,6 +15,8 @@ source "$SCRIPT_DIR/lib.sh"
 
 BOARD="testbench_rp2350"
 APP="helloworld"
+APP_SET=""
+APK_PATH=""
 HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 # Handle sanitizer defaults ON (docs/parity-audit.md HAL-05/X3): the 64-bit
 # handle table silently absorbs use-after-delete lookups that dangle on real
@@ -31,6 +34,9 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   -b, --board <board>       Board to simulate (default: testbench_rp2350)
   -a, --app <app>           App to run (default: helloworld)
+      --apk <file>          Run a pre-built .papk as-is: skips build-apk.sh,
+                            so the file must be unshrunk (no --shrink) and
+                            is mutually exclusive with --app
   -r, --release             Build in release mode
   -l, --heap-limit <KB>     Override the sim heap cap in KB. Defaults to the
                             simulated chip's FreeRTOS arena size (416 KB
@@ -80,6 +86,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     -a|--app)
       APP="$2"
+      APP_SET=1
+      shift 2
+      ;;
+    --apk)
+      APK_PATH="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
       shift 2
       ;;
     -r|--release)
@@ -116,10 +127,28 @@ done
 
 resolve_board "$BOARD"
 
-# Step 1: Build the APK for the selected app.
-bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
-
-APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+# Step 1: Build the APK for the selected app — or take a pre-built one as-is.
+# The sim binary loads the .papk from PICODROID_APK_PATH at run time
+# (build_support/papk.rs), so --apk needs no rebuild; it just bypasses
+# build-apk.sh, whose verify_compat step would reject an unshrunk file under
+# --shrink anyway.
+if [[ -n "$APK_PATH" ]]; then
+  if [[ -n "$APP_SET" ]]; then
+    echo "Error: --app and --apk are mutually exclusive" >&2
+    exit 1
+  fi
+  if [[ ! -f "$APK_PATH" ]]; then
+    echo "Error: --apk file not found: $APK_PATH" >&2
+    exit 1
+  fi
+  if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
+    echo "Error: --apk runs a pre-built (unshrunk) PAPK; drop --shrink" >&2
+    exit 1
+  fi
+else
+  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+  APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+fi
 
 # Step 2: Compile and run the simulator with the APK embedded.
 # Sim always targets the host — do not pass EXTRA_BUILD_ARGS (no -Zbuild-std for host).

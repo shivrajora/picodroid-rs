@@ -36,3 +36,6 @@ node_modules/
 # Local WiFi credentials (user-supplied, never committed)
 /.wifi-creds.env
 __pycache__/
+
+# Kotlin survey (tools/kotlin-survey) generated dumps
+tools/kotlin-survey/out/

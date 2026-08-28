@@ -6,11 +6,11 @@
 
 Written against the tree at `21e41a6` (file:line references are from that commit). A Compose-like declarative UI layer is **deferred** — see `docs/quality-roadmap.md` § Framework direction; Jetpack Compose proper is ruled out in `docs/designs/android-parity-roadmap-2026-08.md` § Not doing.
 
-## Status (2026-08-24)
+## Status (2026-08-27)
 
 | # | Session | Status | RP2040 flash gate |
 |---|---------|--------|-------------------|
-| 1 | Survey: toolchain fixture, reference dump, shim inventory doc | NOT STARTED | no |
+| 1 | Survey: toolchain fixture, reference dump, shim inventory doc | **DONE 2026-08-27** — `docs/designs/kotlin-shim-inventory.md` | no |
 | 2 | Build tooling: KGP in buildSrc, `kotlin-shim/` skeleton, stage/strip/shake tasks, `examples/hellokt` | NOT STARTED | no |
 | 3 | Interpreter I: class-file hardening, RTTI, Object/boxed identity, String canonicalization | NOT STARTED | **yes** |
 | 4 | Interpreter II: interface default methods, `append(Object)` trampoline, `entrySet`, LinkedHash* aliases | NOT STARTED | **yes** |
@@ -66,6 +66,8 @@ No firmware or buildSrc changes. Everything empirical that the shim and interpre
 - Freeze the exact Kotlin version and flag string in the inventory doc header.
 
 Verify: `./gradlew -p tools/kotlin-survey dumpRefs` reproducible; hello-kotlin sim log shows the `Log.i` line; inventory doc answers (a)–(m); pre-commit.
+
+**Result (2026-08-27):** done as `tools/kotlin-survey/{fixture,hello,dump}/` (see AMENDMENTS 3). `hello-kotlin-on-sim` **passed with zero JVM changes** — both the raw class (901 B PAPK) and the ASM-stripped one (558 B PAPK) print `[HelloKt] hi from kotlin 42`. The inventory doc answers (a)–(m) from `out/fixture/*.tsv` rows; the notable refutations are that `Intrinsics.checkNotNullExpressionValue` *survives* the `-Xno-*` flags (it is copied out of inlined stdlib bodies), that `kotlin/jvm/internal/Lambda`, `IntRange`, `IntProgression` and `RangesKt.step` are never referenced (every `for`-range form is intrinsified; only `kotlin/internal/ProgressionUtilKt.getProgressionLastElement(III)I` remains), and that `-Xno-source-debug-extension` drops only the annotation copy of the SMAP — the `SourceDebugExtension` attribute itself is still emitted (2.7 KB across the fixture) and is the strip's job.
 
 ### Session 2 — Build tooling: KGP in buildSrc, `kotlin-shim/` skeleton, stage/strip/shake tasks, `examples/hellokt`
 
@@ -237,4 +239,9 @@ Per session: `./scripts/pre-commit` (formatting incl. Kotlin from Session 2, mar
 
 ## AMENDMENTS
 
-(none yet)
+1. **2026-08-27 (Session 1) — binary-size ratchet.** `scripts/pre-commit` gained a size lane after this doc was written (`bench/parity/ratchet.toml`, `scripts/bench-report.py --ratchet`, commits `3534d17`/`557f952`): any RP2040/RP2350 image growth fails pre-commit until `./scripts/bench-report.py --ratchet --accept` is run and the new baseline is committed alongside the change with a `size: <board> +N B` trailer. Sessions 3 and 4 record their `.text` delta by advancing the ratchet in the same commit, in addition to the PR-description note above; the "< 4 KB combined" budget is unchanged.
+2. **2026-08-27 (Session 1) — `scripts/sim.sh --apk <file>`.** The sim binary reads `PICODROID_APK_PATH` at run time (`build_support/papk.rs`), but `sim.sh` always rebuilt through `build-apk.sh` and overwrote the variable. `--apk` runs a pre-built PAPK as-is (mutually exclusive with `--app`, rejects `--shrink`); the `--app` path is byte-for-byte unchanged. Used by `tools/kotlin-survey/hello-sim.sh`; Session 2's stripped/shaken PAPKs can use it too.
+3. **2026-08-27 (Session 1) — survey layout.** `tools/kotlin-survey/` is a three-subproject standalone build — `fixture/` (surveyed, never run), `hello/` (the milestone PAPK), `dump/` (the ASM tool) — instead of a single `src/main/kotlin/survey/` with `ClassRefDump.kt` inside the fixture: the tool's own `java/**`/`kotlin/**` references would have landed in its own tables, and the fixture has no runnable classpath. The tool's pure functions (`ClassRefs.kt`, `ClassCensus.kt`, `IndyCensus.kt`, `ClassStrip.kt`) are the Session 2 lift target for `buildSrc/.../ClassRefs.kt` and the strip task.
+4. **2026-08-27 (Session 1) — `-Xjdk-release=1.8` added to the frozen flag string** (javac `--release 8` parity; JDK 9+ API use fails to compile). Kotlin 2.1.21 accepted it silently under `allWarningsAsErrors`. The full string, as the compiler received it, is in the inventory doc header.
+5. **2026-08-27 (Session 1) — Kotlin pinned to 2.1.21** (latest 2.1.x at survey time); `tools/kotlin-survey/out/` added to `.gitignore`.
+6. **2026-08-27 (Session 1) — inventory corrections** carried into Sessions 3–6: tier 0 gains `Intrinsics.checkNotNullExpressionValue(Ljava/lang/Object;Ljava/lang/String;)V` and `kotlin/jvm/internal/StringCompanionObject.INSTANCE` (both from inlined stdlib bodies); tier 0 drops `kotlin/jvm/internal/Lambda` and `DefaultConstructorMarker` (descriptor-only); tier 2 drops `IntRange`/`IntProgression`/`IntProgressionIterator`/`RangesKt.step` in favour of `kotlin/internal/ProgressionUtilKt.getProgressionLastElement(III)I`; `$WhenMappings` uses javac's try/catch-`NoSuchFieldError` shape, not a direct `ordinal()` switch; a `when` over a String with few branches compiles to an `Intrinsics.areEqual` chain, not a `hashCode` switch. Full tables in `docs/designs/kotlin-shim-inventory.md` § 8.
