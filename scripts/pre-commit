@@ -270,9 +270,9 @@ fi
 # locally, not first by CI/nightly. langsuite is the widest self-checking
 # suite (14 sub-demos, log-token asserted, both shrink modes).
 echo "==> Running Java conformance suite (langsuite, sim)..."
-# sim-run.sh commits the metric log on scheduled runs; a verification run must
-# not create commits as a side effect of being run.
-if ! PICODROID_BENCH_AUTOCOMMIT=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
+# A verification run measures but records nothing: it must not append to the
+# metric history and must not create a commit as a side effect of being run.
+if ! PICODROID_BENCH_RECORD=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
   echo ""
   echo "ERROR: langsuite failed in sim. A pico-jvm/stdlib behavior regressed;"
   echo "       fix before committing."
@@ -285,13 +285,20 @@ fi
 # bench/parity/ratchet.toml in the same commit that spends the budget, with a
 # "size:" trailer saying why. (docs/perf-campaign-2026-08.md)
 echo "==> Checking the binary-size ratchet..."
-if ! bash "$REPO_ROOT/scripts/parity-bench.sh" --size-only \
+# Measured into a scratch directory and read straight back, so committing never
+# touches bench/parity/history.csv. The numbers here are, by construction, the
+# same as the last commit's unless the image actually changed -- recording them
+# would only ever have dirtied the tree.
+SIZE_RUN_DIR="$(mktemp -d)"
+trap 'rm -rf "$SIZE_RUN_DIR"' EXIT
+if ! PICODROID_BENCH_RECORD=0 PICODROID_SIZE_RUN_DIR="$SIZE_RUN_DIR" \
+     bash "$REPO_ROOT/scripts/parity-bench.sh" --size-only \
        --boards testbench_rp2040,testbench_rp2350; then
   echo ""
   echo "ERROR: size lane failed to build. Fix before committing."
   exit 1
 fi
-if ! python3 "$REPO_ROOT/scripts/bench-report.py" --ratchet; then
+if ! python3 "$REPO_ROOT/scripts/bench-report.py" --ratchet --sizes-from "$SIZE_RUN_DIR"; then
   echo ""
   echo "ERROR: the image grew past bench/parity/ratchet.toml. If the growth is"
   echo "       intended, run:"

@@ -588,7 +588,36 @@ Both runners now commit the CSV after appending. Three details that matter:
   unpushed local commits unless the remote has diverged, and pushing is a
   decision for a human.
 
-Scheduled runs commit; verification runs do not. `scripts/pre-commit` drives
-`sim-run.sh` for its langsuite stage, so without an opt-out a *test suite*
-would silently create a commit — which it did, twice, before this was caught.
-`PICODROID_BENCH_AUTOCOMMIT=0` suppresses it and pre-commit sets it.
+### Committing must not touch the metric log at all
+
+The first version of the above got this wrong in a way worth recording,
+because the wrong fix looked reasonable.
+
+`scripts/pre-commit` *is* the git hook, and two of its stages were writing the
+CSV on every single commit: the size-ratchet stage (~14 rows) and the langsuite
+stage, which drives `sim-run.sh` (~100 rows). The first attempt at a fix only
+suppressed the resulting *commit* — which traded an unwanted commit for a
+permanently dirty tree, and left the writes in place. It solved the symptom
+and made the actual complaint worse.
+
+The real problem was conceptual: the ratchet was being routed through an
+append-only history to answer a question about *right now*. Those rows are, by
+construction, the same numbers as the last commit's unless the image changed.
+They were never worth persisting.
+
+So the ratchet no longer touches the CSV. `parity-bench.sh --size-only` writes
+its logs to a directory the caller can name (`PICODROID_SIZE_RUN_DIR`), and
+`bench-report.py --ratchet --sizes-from <dir>` reads them straight back.
+pre-commit points both at an `mktemp -d` it deletes on exit.
+
+One switch, `PICODROID_BENCH_RECORD=0`, means *measure but record nothing* —
+it suppresses the CSV append and the commit together, in both runners and in
+`parity-bench.sh`. pre-commit sets it for both stages. It replaces the earlier
+`PICODROID_BENCH_AUTOCOMMIT`, which only ever addressed half the problem.
+
+Verified: a full `./scripts/pre-commit` leaves `HEAD` unchanged and the CSV
+**byte-identical** (same sha1 before and after), and still ends
+"All checks passed".
+
+The file now changes only when something deliberately records into it: the two
+nightlies, or a hand-run `parity-bench.sh`.

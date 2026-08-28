@@ -25,6 +25,7 @@ import csv
 import statistics
 import subprocess
 import sys
+import pathlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -296,6 +297,36 @@ def read_ratchet():
     return out
 
 
+def sizes_from_logs(run_dir):
+    """Read a size-lane run directory directly, without the history CSV.
+
+    The ratchet compares what the tree builds *right now* against the committed
+    baseline. Routing that through the append-only history meant every commit
+    wrote rows that were, by construction, the same numbers as the last commit's
+    -- and left the tree dirty for a check that needed to persist nothing.
+    """
+    import importlib.util
+
+    src = pathlib.Path(__file__).resolve().parent / "bench-backfill.py"
+    spec = importlib.util.spec_from_file_location("bench_backfill", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Parse the logs directly rather than going through rows_for_run: that
+    # derives utc and commit from the directory name, and a scratch directory
+    # (pre-commit hands us an mktemp one) has no identity to derive. The
+    # ratchet only needs board, metric and value.
+    out = {}
+    for log in sorted(pathlib.Path(run_dir).glob("*.log")):
+        hdr = mod.read_header(log)
+        board = hdr.get("board")
+        if not board:
+            continue
+        for metric, value in mod.parse_log(log, "size").items():
+            out[(board, metric)] = float(value)
+    return out
+
+
 def current_sizes(rows):
     """Newest size-lane reading per (board, metric)."""
     best = {}
@@ -315,9 +346,9 @@ def cmd_ratchet(rows, args):
     named act. Shrinking is always allowed and is what --accept records.
     """
     base = read_ratchet()
-    cur = current_sizes(rows)
+    cur = sizes_from_logs(args.sizes_from) if args.sizes_from else current_sizes(rows)
     if not cur:
-        sys.exit("no size-lane rows -- run "
+        sys.exit("no size measurements -- run "
                  "./scripts/parity-bench.sh --size-only --boards <b1,b2>")
 
     boards = sorted({b for b, _ in cur})
@@ -386,6 +417,10 @@ def main():
     ap.add_argument("--holdout", metavar="A..B")
     ap.add_argument("--ratchet", action="store_true",
                     help="gate flash/RAM against bench/parity/ratchet.toml")
+    ap.add_argument("--sizes-from", metavar="RUN_DIR",
+                    help="with --ratchet: read sizes from a size-lane run "
+                         "directory instead of the history CSV, so the check "
+                         "persists nothing")
     ap.add_argument("--accept", action="store_true",
                     help="with --ratchet: record current sizes as the baseline")
     ap.add_argument("--env", default=None, choices=[None, "sim", "hil"])

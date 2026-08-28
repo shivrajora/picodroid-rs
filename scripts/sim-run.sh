@@ -436,7 +436,7 @@ sim_log "========================================="
 # drift summary. Informational only -- a slow perf regression should surface in
 # the morning report, but it must never fail the correctness run.
 # (docs/perf-campaign-2026-08.md S0)
-if [[ -x "$SCRIPT_DIR/bench-backfill.py" ]]; then
+if [[ -x "$SCRIPT_DIR/bench-backfill.py" && "${PICODROID_BENCH_RECORD:-1}" == "1" ]]; then
   sim_log "Appending benchmark metrics to bench/parity/history.csv..."
   python3 "$SCRIPT_DIR/bench-backfill.py" --run-dir "$RUN_LOG_DIR" --quiet 2>&1 |
     while IFS= read -r line; do sim_log "  bench: $line"; done || \
@@ -456,11 +456,7 @@ if [[ -x "$SCRIPT_DIR/bench-backfill.py" ]]; then
   # Never pushes: the cron's own `git pull --ff-only` stays happy with
   # unpushed local commits unless the remote diverged, and pushing is a
   # decision for a human.
-  # Scheduled runs commit; verification runs do not. scripts/pre-commit drives
-  # sim-run.sh for its langsuite stage, and a test suite that silently creates
-  # a commit is a nasty surprise -- it sets this to 0.
-  if [[ "${PICODROID_BENCH_AUTOCOMMIT:-1}" == "1" ]] &&
-     ! git -C "$REPO_ROOT" diff --quiet -- bench/parity/history.csv 2>/dev/null; then
+  if ! git -C "$REPO_ROOT" diff --quiet -- bench/parity/history.csv 2>/dev/null; then
     if git -C "$REPO_ROOT" commit -q --no-verify \
          -m "chore(bench): sim metrics for $RUN_ID" \
          -- bench/parity/history.csv 2>/dev/null; then

@@ -129,6 +129,13 @@ new_run_dir() {
 }
 
 ingest_run_dir() { # env board dir
+  # A verification run measures but records nothing. Every commit runs the
+  # size lane through the git hook, and those rows are by construction the
+  # same numbers as the last commit's -- appending them only ever dirtied the
+  # tree. PICODROID_BENCH_RECORD=0 turns the whole append off.
+  if [[ "${PICODROID_BENCH_RECORD:-1}" != "1" ]]; then
+    return 0
+  fi
   python3 "$SCRIPT_DIR/bench-backfill.py" --run-dir "$3" \
     --force-env "$1" --board "$2" --out "$CSV" --quiet
 }
@@ -171,7 +178,9 @@ if $DO_SIZE; then
   # straight to the CSV, which made its rows the only copy -- and the only
   # rows in the file that a stray `git checkout` would destroy for good. It
   # now writes a log like everything else, and goes through the same parser.
-  SIZE_RUN_DIR="$REPO_ROOT/build/size/logs/$(date -u '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT}"
+  # A caller that wants to read the logs back (pre-commit, feeding
+  # `bench-report.py --ratchet --sizes-from`) can name the directory.
+  SIZE_RUN_DIR="${PICODROID_SIZE_RUN_DIR:-$REPO_ROOT/build/size/logs/$(date -u '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT}}"
   mkdir -p "$SIZE_RUN_DIR"
   for board in "${BOARDS[@]}"; do
     resolve_board "$board"
