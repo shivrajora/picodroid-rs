@@ -27,6 +27,7 @@ public class LangSuite extends Application {
     safe("interfacedemo", () -> interfacedemo.InterfaceDemo.run());
     safe("lambdademo", () -> lambdademo.LambdaDemo.run());
     safe("mathsdemo", () -> mathsdemo.MathsDemo.run());
+    safe("rttidemo", () -> rttidemo.RttiDemo.run());
     safe("stringdemo", () -> stringdemo.StringDemo.run());
     safe("syncdemo", () -> syncdemo.SyncDemo.run());
     safe("trywithresourcesdemo", () -> trywithresourcesdemo.TryWithResourcesDemo.run());

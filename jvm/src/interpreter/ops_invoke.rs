@@ -48,13 +48,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             _ => return Err(JvmError::UnsupportedOpcode(opcode)),
         };
 
-        // Determine dispatch class (virtual uses runtime class of `this`)
+        // Determine dispatch class (virtual uses runtime class of `this`).
+        // A string Reference has no ObjectHeap class — its runtime class is
+        // always `java/lang/String`, whatever the CP declared: an
+        // `invokeinterface Comparable.compareTo` / `CharSequence.length` or
+        // `invokevirtual Object.equals` on a String must reach the String
+        // dispatcher, not a `java/lang/Comparable` arm that does not exist.
         let is_virtual = opcode == 0xb6 || opcode == 0xb9;
         let dispatch_class = if is_virtual {
             let stack_len = frame.stack.len();
             if stack_len >= arg_count {
                 match frame.stack[stack_len - arg_count] {
                     Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
+                    Value::Reference(_) => "java/lang/String",
                     _ => class_str,
                 }
             } else {
@@ -293,14 +299,38 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .get(bsm_idx as usize)
             .ok_or(JvmError::InvalidBytecode)?;
 
-        // 4. Bootstrap arguments for LambdaMetafactory:
+        // 4. The only bootstraps this JVM implements are LambdaMetafactory's
+        //    (metafactory, and altMetafactory — same first three arguments —
+        //    which javac/kotlinc emit only for Serializable SAMs); the owner
+        //    check is what matters. Anything else — StringConcatFactory from
+        //    a class compiled for Java 9+, ObjectMethods from records — would
+        //    otherwise have its arguments[1] misread as a lambda
+        //    implementation handle.
+        //    Bootstrap arguments for LambdaMetafactory:
         //    [0] = MethodType (samMethodType)
         //    [1] = MethodHandle (implMethod) — the target lambda$ method
         //    [2] = MethodType (instantiatedMethodType)
+        let (_bsm_kind, bsm_ref) = cf
+            .cp_method_handle(bsm.method_ref)
+            .ok_or(JvmError::InvalidBytecode)?;
+        let (bsm_owner, _, _) = cf.cp_methodref(bsm_ref).ok_or(JvmError::InvalidBytecode)?;
+        if bsm_owner != b"java/lang/invoke/LambdaMetafactory" {
+            let owner = core::str::from_utf8(bsm_owner).unwrap_or("?");
+            return Err(JvmError::UnsupportedInvokeDynamic(owner));
+        }
         let impl_method_cp = *bsm.arguments.get(1).ok_or(JvmError::InvalidBytecode)?;
-        let (_ref_kind, ref_idx) = cf
+        let (ref_kind, ref_idx) = cf
             .cp_method_handle(impl_method_cp)
             .ok_or(JvmError::InvalidBytecode)?;
+        // REF_invokeVirtual/Static/Special/Interface (5/6/7/9) all take the
+        // captures as leading arguments, which is how the proxy is invoked
+        // below. REF_newInvokeSpecial (8, a `Foo::new` constructor reference)
+        // would call `<init>` on nothing — reject it up front.
+        if !matches!(ref_kind, 5 | 6 | 7 | 9) {
+            return Err(JvmError::UnsupportedInvokeDynamic(
+                "java/lang/invoke/LambdaMetafactory(newInvokeSpecial)",
+            ));
+        }
 
         // 5. Resolve the MethodHandle's Methodref to find the target method
         let (target_class_bytes, target_name_bytes, target_desc_bytes) =
@@ -414,6 +444,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 Some(s) => s,
                 None => match helpers::builtin_super(current) {
                     Some(s) => s,
+                    // Every class ends in java/lang/Object — a loaded class
+                    // whose parent is Object reports no super name, and a
+                    // name with neither class file nor table row still
+                    // inherits Object's identity equals/hashCode/toString.
+                    None if current != "java/lang/Object" => "java/lang/Object",
                     None => break,
                 },
             };

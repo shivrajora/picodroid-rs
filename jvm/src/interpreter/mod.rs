@@ -30,6 +30,8 @@ mod ops_wide;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use helpers::array_class_name;
+
 use crate::tunables::GC_THRESHOLD;
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {

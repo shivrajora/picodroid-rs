@@ -256,62 +256,238 @@ pub(super) fn field_slot(
     None
 }
 
-/// Superclass edges for classfile-less builtin classes — enough of the
-/// `java.lang` throwable hierarchy for catch-matching and `instanceof` to
-/// work on builtin exceptions. Without this, `catch (Throwable)` /
-/// `catch (Exception)` never matched a thrown `RuntimeException` (or any
-/// user exception whose super chain bottoms out in a builtin), which
-/// silently disabled javac's synthetic try-with-resources cleanup and
-/// every catch-all handler.
+/// Superclass edges for classfile-less builtin classes — the `java.lang`
+/// throwable hierarchy for catch-matching, and the builtin value/collection
+/// classes so `checkcast`/`instanceof` against `Object`, `Number`, … hold.
+/// Without the throwable rows, `catch (Throwable)` / `catch (Exception)`
+/// never matched a thrown `RuntimeException` (or any user exception whose
+/// super chain bottoms out in a builtin), which silently disabled javac's
+/// synthetic try-with-resources cleanup and every catch-all handler.
+///
+/// Every class named here (key or value) must also be in
+/// [`crate::native::BUILTIN_CLASS_NAMES`] so a `new` of it canonicalises
+/// instead of producing an `"unknown"` object that no catch clause matches
+/// — the `builtin_hierarchy_names_are_registered` test enforces it.
+pub(crate) const BUILTIN_SUPER: &[(&str, &str)] = &[
+    ("java/lang/Throwable", "java/lang/Object"),
+    ("java/lang/Exception", "java/lang/Throwable"),
+    ("java/lang/Error", "java/lang/Throwable"),
+    ("java/lang/RuntimeException", "java/lang/Exception"),
+    (
+        "java/lang/IllegalArgumentException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/lang/NullPointerException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/lang/IllegalStateException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/lang/ArithmeticException",
+        "java/lang/RuntimeException",
+    ),
+    ("java/lang/ClassCastException", "java/lang/RuntimeException"),
+    (
+        "java/lang/UnsupportedOperationException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/lang/IndexOutOfBoundsException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/util/NoSuchElementException",
+        "java/lang/RuntimeException",
+    ),
+    (
+        "java/lang/NumberFormatException",
+        "java/lang/IllegalArgumentException",
+    ),
+    (
+        "java/util/IllegalFormatException",
+        "java/lang/IllegalArgumentException",
+    ),
+    // Checked exceptions thrown alloc-by-name from natives (net stack).
+    // Mirrors the real java.net hierarchy so superclass catches behave
+    // exactly as on Android — note SocketTimeoutException descends from
+    // InterruptedIOException, NOT SocketException (real-Java quirk).
+    ("java/io/IOException", "java/lang/Exception"),
+    ("java/io/InterruptedIOException", "java/io/IOException"),
+    (
+        "java/net/SocketTimeoutException",
+        "java/io/InterruptedIOException",
+    ),
+    ("java/net/SocketException", "java/io/IOException"),
+    ("java/net/ConnectException", "java/net/SocketException"),
+    (
+        "java/net/NoRouteToHostException",
+        "java/net/SocketException",
+    ),
+    ("java/net/BindException", "java/net/SocketException"),
+    ("java/net/UnknownHostException", "java/io/IOException"),
+    ("java/net/ProtocolException", "java/io/IOException"),
+    (
+        "java/lang/ArrayIndexOutOfBoundsException",
+        "java/lang/IndexOutOfBoundsException",
+    ),
+    (
+        "java/lang/StringIndexOutOfBoundsException",
+        "java/lang/IndexOutOfBoundsException",
+    ),
+    ("java/lang/ExceptionInInitializerError", "java/lang/Error"),
+    ("java/lang/StackOverflowError", "java/lang/Error"),
+    // Boxed numerics descend from Number, as Kotlin's `checkcast
+    // java/lang/Number` before every `intValue()` unboxing of a generic
+    // element requires. No `X → java/lang/Object` rows: `is_instance_of`
+    // answers `Object` up front and `dispatch_native` falls through to
+    // Object for any class without a row.
+    ("java/lang/Integer", "java/lang/Number"),
+    ("java/lang/Long", "java/lang/Number"),
+    ("java/lang/Float", "java/lang/Number"),
+    ("java/lang/Double", "java/lang/Number"),
+    ("java/lang/Short", "java/lang/Number"),
+    ("java/lang/Byte", "java/lang/Number"),
+];
+
+/// Interfaces implemented by classfile-less builtin classes, flattened to
+/// the transitive closure, plus superinterface edges for the JDK interfaces
+/// that have no class file of their own (a user class implementing
+/// `java/util/List` is a `Collection` and an `Iterable`). Consulted by
+/// [`is_instance_of`] at every level of the superclass chain and of the
+/// interface walk. Same registration rule as [`BUILTIN_SUPER`].
+pub(crate) const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
+    (
+        "java/util/ArrayList",
+        &[
+            "java/util/List",
+            "java/util/Collection",
+            "java/lang/Iterable",
+        ],
+    ),
+    ("java/util/HashMap", &["java/util/Map"]),
+    (
+        "java/util/HashSet",
+        &[
+            "java/util/Set",
+            "java/util/Collection",
+            "java/lang/Iterable",
+        ],
+    ),
+    (
+        "java/util/HashMap$KeySet",
+        &[
+            "java/util/Set",
+            "java/util/Collection",
+            "java/lang/Iterable",
+        ],
+    ),
+    (
+        "java/util/HashMap$Values",
+        &["java/util/Collection", "java/lang/Iterable"],
+    ),
+    (
+        "java/lang/String",
+        &["java/lang/CharSequence", "java/lang/Comparable"],
+    ),
+    ("java/lang/StringBuilder", &["java/lang/CharSequence"]),
+    ("java/lang/Integer", &["java/lang/Comparable"]),
+    ("java/lang/Long", &["java/lang/Comparable"]),
+    ("java/lang/Float", &["java/lang/Comparable"]),
+    ("java/lang/Double", &["java/lang/Comparable"]),
+    ("java/lang/Short", &["java/lang/Comparable"]),
+    ("java/lang/Byte", &["java/lang/Comparable"]),
+    ("java/lang/Boolean", &["java/lang/Comparable"]),
+    ("java/lang/Character", &["java/lang/Comparable"]),
+    ("java/lang/Enum", &["java/lang/Comparable"]),
+    (
+        "java/util/List",
+        &["java/util/Collection", "java/lang/Iterable"],
+    ),
+    (
+        "java/util/Set",
+        &["java/util/Collection", "java/lang/Iterable"],
+    ),
+    ("java/util/Collection", &["java/lang/Iterable"]),
+];
+
+/// Linear scan of a name-keyed table. Opaque to the optimiser: with the
+/// `const` table visible LLVM unrolls the scan into one constant-length
+/// `memcmp` per row (~600 B for the interface table on thumbv6m).
+#[inline(never)]
+fn table_lookup<V: Copy>(table: &[(&str, V)], name: &str) -> Option<V> {
+    // black_box: each monomorphisation has one caller, so without it LLVM
+    // propagates the constant table into the body and unrolls anyway.
+    let table = core::hint::black_box(table);
+    table.iter().find(|(k, _)| *k == name).map(|(_, v)| *v)
+}
+
+/// Superclass of a classfile-less builtin class, from [`BUILTIN_SUPER`].
 pub(super) fn builtin_super(name: &str) -> Option<&'static str> {
-    match name {
-        "java/lang/Throwable" => Some("java/lang/Object"),
-        "java/lang/Exception" | "java/lang/Error" => Some("java/lang/Throwable"),
-        "java/lang/RuntimeException" => Some("java/lang/Exception"),
-        "java/lang/IllegalArgumentException"
-        | "java/lang/NullPointerException"
-        | "java/lang/IllegalStateException"
-        | "java/lang/ArithmeticException"
-        | "java/lang/ClassCastException"
-        | "java/lang/UnsupportedOperationException"
-        | "java/lang/IndexOutOfBoundsException" => Some("java/lang/RuntimeException"),
-        "java/lang/NumberFormatException" | "java/util/IllegalFormatException" => {
-            Some("java/lang/IllegalArgumentException")
-        }
-        // Checked exceptions thrown alloc-by-name from natives (net stack).
-        // Mirrors the real java.net hierarchy so superclass catches behave
-        // exactly as on Android — note SocketTimeoutException descends from
-        // InterruptedIOException, NOT SocketException (real-Java quirk).
-        "java/io/IOException" => Some("java/lang/Exception"),
-        "java/io/InterruptedIOException" => Some("java/io/IOException"),
-        "java/net/SocketTimeoutException" => Some("java/io/InterruptedIOException"),
-        "java/net/SocketException" => Some("java/io/IOException"),
-        "java/net/ConnectException"
-        | "java/net/NoRouteToHostException"
-        | "java/net/BindException" => Some("java/net/SocketException"),
-        "java/net/UnknownHostException" => Some("java/io/IOException"),
-        "java/net/ProtocolException" => Some("java/io/IOException"),
-        "java/lang/ArrayIndexOutOfBoundsException"
-        | "java/lang/StringIndexOutOfBoundsException" => {
-            Some("java/lang/IndexOutOfBoundsException")
-        }
-        "java/lang/ExceptionInInitializerError" | "java/lang/StackOverflowError" => {
-            Some("java/lang/Error")
-        }
-        _ => None,
+    table_lookup(BUILTIN_SUPER, name)
+}
+
+/// Interfaces of a classfile-less builtin class (or superinterfaces of a
+/// classfile-less JDK interface), from [`BUILTIN_INTERFACES`].
+fn builtin_interfaces(name: &str) -> &'static [&'static str] {
+    table_lookup(BUILTIN_INTERFACES, name).unwrap_or(&[])
+}
+
+/// Bound on the superinterface recursion in [`iface_reaches`]. Valid class
+/// files cannot cycle, but a hand-assembled one can; real hierarchies are
+/// two or three deep.
+const MAX_IFACE_DEPTH: u8 = 8;
+
+/// Returns true if interface `iface` is `target` or extends it, walking
+/// superinterfaces transitively through loaded interface class files and
+/// [`BUILTIN_INTERFACES`]. Interfaces with no class file and no table row
+/// (`kotlin/jvm/internal/markers/KMappedMarker`) simply end the walk.
+fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) -> bool {
+    if iface == target {
+        return true;
     }
+    if depth == 0 {
+        return false;
+    }
+    if let Ok(name) = core::str::from_utf8(iface) {
+        if builtin_interfaces(name)
+            .iter()
+            .any(|i| i.as_bytes() == target)
+        {
+            return true;
+        }
+    }
+    let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(iface)) else {
+        return false;
+    };
+    cf.interfaces().iter().any(|&idx| {
+        cf.cp_utf8(idx)
+            .is_some_and(|sup| iface_reaches(classes, sup, target, depth - 1))
+    })
 }
 
 /// Returns true if `runtime_class` is the same as, a subclass of, or
-/// implements `target_class` (checked at each level of the superclass chain).
+/// implements `target_class` (checked at each level of the superclass chain,
+/// with superinterfaces walked transitively at each level).
 pub(super) fn is_instance_of(
     classes: &[ClassFile],
     runtime_class: &str,
     target_class: &str,
 ) -> bool {
+    // Every reference is an Object — including lambda proxies and
+    // handler-allocated objects whose class has neither a class file nor a
+    // table row.
+    if target_class == "java/lang/Object" {
+        return true;
+    }
     let mut current: &str = runtime_class;
     loop {
         if current == target_class {
+            return true;
+        }
+        if builtin_interfaces(current).contains(&target_class) {
             return true;
         }
         let ci = match classes
@@ -320,7 +496,7 @@ pub(super) fn is_instance_of(
         {
             Some(i) => i,
             None => {
-                // No classfile — follow the builtin throwable hierarchy.
+                // No classfile — follow the builtin hierarchy.
                 match builtin_super(current) {
                     Some(s) => {
                         current = s;
@@ -330,11 +506,16 @@ pub(super) fn is_instance_of(
                 }
             }
         };
-        // Check implemented interfaces at this level
+        // Check implemented interfaces at this level, transitively.
         let cf = &classes[ci];
         for iface_idx in cf.interfaces() {
             if let Some(iface_name) = cf.cp_utf8(*iface_idx) {
-                if iface_name == target_class.as_bytes() {
+                if iface_reaches(
+                    classes,
+                    iface_name,
+                    target_class.as_bytes(),
+                    MAX_IFACE_DEPTH,
+                ) {
                     return true;
                 }
             }
@@ -346,6 +527,59 @@ pub(super) fn is_instance_of(
                 Err(_) => return false,
             },
         }
+    }
+}
+
+/// JVM class name of an array by element type: `[I`, `[F`, … for primitive
+/// arrays; `[Ljava/lang/Object;` for every reference array, because the
+/// array heap records no element class (see [`value_is_instance`]).
+pub(crate) fn array_class_name(atype: u8) -> &'static str {
+    use crate::array_heap::*;
+    match atype {
+        ATYPE_BOOLEAN => "[Z",
+        ATYPE_CHAR => "[C",
+        ATYPE_FLOAT => "[F",
+        ATYPE_DOUBLE => "[D",
+        ATYPE_BYTE => "[B",
+        ATYPE_SHORT => "[S",
+        ATYPE_INT => "[I",
+        ATYPE_LONG => "[J",
+        _ => "[Ljava/lang/Object;",
+    }
+}
+
+/// `instanceof` for any operand-stack value, as `checkcast`/`instanceof`
+/// need it. `Null` is an instance of nothing here (checkcast handles null
+/// itself). A string Reference is a `java/lang/String`; an array is an
+/// `Object`/`Cloneable`, its exact primitive array class, or
+/// — for reference arrays, whose element class is not recorded — any
+/// reference-array target (`[L…;` / `[[…`): a documented divergence, the
+/// cast succeeds where Java might throw.
+pub(super) fn value_is_instance(
+    classes: &[ClassFile],
+    objects: &ObjectHeap,
+    arrays: &crate::array_heap::ArrayHeap,
+    value: Value,
+    target: &str,
+) -> bool {
+    match value {
+        Value::ObjectRef(idx) => {
+            let runtime_class = objects.class_name(idx).unwrap_or("");
+            is_instance_of(classes, runtime_class, target)
+        }
+        Value::Reference(_) => is_instance_of(classes, "java/lang/String", target),
+        Value::ArrayRef(idx) => match target.as_bytes().first() {
+            Some(b'[') => {
+                let atype = arrays.atype(idx).unwrap_or(crate::array_heap::ATYPE_REF);
+                if atype == crate::array_heap::ATYPE_REF {
+                    matches!(target.as_bytes().get(1), Some(b'L') | Some(b'['))
+                } else {
+                    array_class_name(atype) == target
+                }
+            }
+            _ => matches!(target, "java/lang/Object" | "java/lang/Cloneable"),
+        },
+        _ => false,
     }
 }
 

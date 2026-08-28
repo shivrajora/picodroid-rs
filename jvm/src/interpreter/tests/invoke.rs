@@ -515,17 +515,78 @@ static CLASS_CALLER_INVOKEDYNAMIC: &[u8] = &[
     0x00, 0x16, 0x00, 0x03, 0x00, 0x17, 0x00, 0x15, 0x00, 0x18,
 ];
 
+/// `CLASS_CALLER_INVOKEDYNAMIC` with a real bootstrap: appends
+/// `#26 Utf8 "java/lang/invoke/LambdaMetafactory"`, `#27 Utf8 "metafactory"`,
+/// `#28 Class→#26`, `#29 NameAndType→#27,#6`, `#30 Methodref→#28,#29`,
+/// `#31 MethodHandle(6→#30)` to the constant pool, points the
+/// BootstrapMethods entry at `bsm_ref` (#31 for the real thing; #22 is the
+/// original bogus `Target.lambda$test$0` handle) and sets the implementation
+/// handle's reference kind (#21) to `impl_kind`.
+fn indy_caller(bsm_ref: u16, impl_kind: u8) -> &'static [u8] {
+    let base = CLASS_CALLER_INVOKEDYNAMIC;
+    let cp_end = base
+        .windows(5)
+        .position(|w| w == [0x12, 0x00, 0x00, 0x00, 0x10])
+        .expect("InvokeDynamic entry")
+        + 5;
+    let mut out: Vec<u8> = Vec::with_capacity(base.len() + 80);
+    out.extend_from_slice(&base[..8]);
+    out.extend_from_slice(&32u16.to_be_bytes()); // cp_count: 31 entries
+    out.extend_from_slice(&base[10..cp_end]);
+    for s in [&b"java/lang/invoke/LambdaMetafactory"[..], b"metafactory"] {
+        out.push(0x01);
+        out.extend_from_slice(&(s.len() as u16).to_be_bytes());
+        out.extend_from_slice(s);
+    }
+    out.extend_from_slice(&[0x07, 0x00, 26]); // #28 Class → #26
+    out.extend_from_slice(&[0x0C, 0x00, 27, 0x00, 0x06]); // #29 NameAndType
+    out.extend_from_slice(&[0x0A, 0x00, 28, 0x00, 29]); // #30 Methodref
+    out.extend_from_slice(&[0x0F, 0x06, 0x00, 30]); // #31 MethodHandle
+    out.extend_from_slice(&base[cp_end..]);
+    // Implementation handle #21 is the first `0F 06 00 13` in the pool.
+    let impl_at = out
+        .windows(4)
+        .position(|w| w == [0x0F, 0x06, 0x00, 0x13])
+        .expect("impl handle");
+    out[impl_at + 1] = impl_kind;
+    // BootstrapMethods entry: method_ref is 10 bytes from the end.
+    let n = out.len();
+    out[n - 10..n - 8].copy_from_slice(&bsm_ref.to_be_bytes());
+    alloc::boxed::Box::leak(out.into_boxed_slice())
+}
+
 #[test]
 fn invokedynamic_creates_lambda_proxy_and_dispatches() {
     // Target has static lambda$test$0()I → returns 3.
     // LambdaCaller.m()I uses invokedynamic to create a Func proxy,
     // calls Func.call()I on it via invokeinterface → should return 3.
     let result = run_multi(
-        &[CLASS_TARGET_LAMBDA, CLASS_CALLER_INVOKEDYNAMIC],
+        &[CLASS_TARGET_LAMBDA, indy_caller(31, 6)],
         1, // LambdaCaller is at index 1
         &[],
     );
     assert_eq!(result.unwrap(), Some(Value::Int(3)));
+}
+
+/// A bootstrap that is not `LambdaMetafactory.metafactory` (here the bogus
+/// `Target.lambda$test$0` handle, standing in for `StringConcatFactory` /
+/// `ObjectMethods`) must fail by name instead of having `arguments[1]`
+/// misread as an implementation handle.
+#[test]
+fn invokedynamic_rejects_non_lambda_bootstrap() {
+    let result = run_multi(&[CLASS_TARGET_LAMBDA, indy_caller(22, 6)], 1, &[]);
+    assert_eq!(result, Err(JvmError::UnsupportedInvokeDynamic("Target")));
+}
+
+/// `REF_newInvokeSpecial` (a `Foo::new` reference) would invoke `<init>`
+/// with no receiver; rejected up front.
+#[test]
+fn invokedynamic_rejects_constructor_reference() {
+    let result = run_multi(&[CLASS_TARGET_LAMBDA, indy_caller(31, 8)], 1, &[]);
+    assert!(
+        matches!(result, Err(JvmError::UnsupportedInvokeDynamic(_))),
+        "{result:?}"
+    );
 }
 
 // ── anonymous class tests ────────────────────────────────────────────────

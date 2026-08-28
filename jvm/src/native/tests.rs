@@ -3785,3 +3785,265 @@ fn arrays_sort_long_spans_sign_boundary() {
     want.sort_unstable();
     assert_eq!(got, want);
 }
+
+// ── Boxed value/identity surface, Object identity, Enum.valueOf ────────────
+//
+// The Java 8 wrapper API that Kotlin data classes (`Float.hashCode(F)`,
+// `Float.compare(FF)`), `Intrinsics.areEqual` and `compareBy` lean on.
+
+fn dispatch_on(
+    cx: &mut StrCtx,
+    class: &str,
+    method: &str,
+    desc: &str,
+    args: &[Value],
+) -> Result<Option<Value>, JvmError> {
+    let mut ctx = NativeContext {
+        classes: &[],
+        descriptor: desc,
+        args,
+        strings: &mut cx.strings,
+        objects: &mut cx.objects,
+        arrays: &mut cx.arrays,
+    };
+    BuiltinHandler
+        .dispatch(class, method, &mut ctx)
+        .unwrap_or_else(|| panic!("{class}.{method} not handled"))
+}
+
+fn boxed(cx: &mut StrCtx, class: &'static str, v: Value) -> Value {
+    let idx = cx.objects.alloc(class).unwrap();
+    cx.objects.set_field(idx, 0, v);
+    Value::ObjectRef(idx)
+}
+
+#[test]
+fn float_compare_is_javas_total_order() {
+    let mut cx = StrCtx::new();
+    let cmp = |cx: &mut StrCtx, a: f32, b: f32| {
+        dispatch_on(
+            cx,
+            "java/lang/Float",
+            "compare",
+            "(FF)I",
+            &[Value::Float(a), Value::Float(b)],
+        )
+        .unwrap()
+    };
+    assert_eq!(cmp(&mut cx, 1.0, 2.0), Some(Value::Int(-1)));
+    assert_eq!(cmp(&mut cx, 2.0, 1.0), Some(Value::Int(1)));
+    assert_eq!(cmp(&mut cx, 1.0, 1.0), Some(Value::Int(0)));
+    assert_eq!(cmp(&mut cx, -0.0, 0.0), Some(Value::Int(-1)));
+    assert_eq!(cmp(&mut cx, f32::NAN, f32::INFINITY), Some(Value::Int(1)));
+    assert_eq!(cmp(&mut cx, f32::NAN, f32::NAN), Some(Value::Int(0)));
+    let d = dispatch_on(
+        &mut cx,
+        "java/lang/Double",
+        "compare",
+        "(DD)I",
+        &[Value::Double(-0.0), Value::Double(0.0)],
+    );
+    assert_eq!(d.unwrap(), Some(Value::Int(-1)));
+    let i = dispatch_on(
+        &mut cx,
+        "java/lang/Integer",
+        "compare",
+        "(II)I",
+        &[Value::Int(i32::MIN), Value::Int(i32::MAX)],
+    );
+    assert_eq!(i.unwrap(), Some(Value::Int(-1)));
+    let b = dispatch_on(
+        &mut cx,
+        "java/lang/Boolean",
+        "compare",
+        "(ZZ)I",
+        &[Value::Int(1), Value::Int(0)],
+    );
+    assert_eq!(b.unwrap(), Some(Value::Int(1)));
+}
+
+#[test]
+fn boxed_hash_codes_match_java() {
+    let mut cx = StrCtx::new();
+    let h = |cx: &mut StrCtx, class: &str, desc: &str, v: Value| {
+        dispatch_on(cx, class, "hashCode", desc, &[v]).unwrap()
+    };
+    assert_eq!(
+        h(&mut cx, "java/lang/Integer", "(I)I", Value::Int(42)),
+        Some(Value::Int(42))
+    );
+    assert_eq!(
+        h(
+            &mut cx,
+            "java/lang/Long",
+            "(J)I",
+            Value::Long((1i64 << 32) | 5)
+        ),
+        Some(Value::Int(4))
+    );
+    assert_eq!(
+        h(&mut cx, "java/lang/Float", "(F)I", Value::Float(1.0)),
+        Some(Value::Int(0x3f80_0000))
+    );
+    assert_eq!(
+        h(&mut cx, "java/lang/Double", "(D)I", Value::Double(1.0)),
+        Some(Value::Int(0x3ff0_0000))
+    );
+    assert_eq!(
+        h(&mut cx, "java/lang/Boolean", "(Z)I", Value::Int(1)),
+        Some(Value::Int(1231))
+    );
+    assert_eq!(
+        h(&mut cx, "java/lang/Boolean", "(Z)I", Value::Int(0)),
+        Some(Value::Int(1237))
+    );
+    // Instance form on a box.
+    let seven = boxed(&mut cx, "java/lang/Integer", Value::Int(7));
+    assert_eq!(
+        h(&mut cx, "java/lang/Integer", "()I", seven),
+        Some(Value::Int(7))
+    );
+    let t = boxed(&mut cx, "java/lang/Boolean", Value::Int(1));
+    assert_eq!(
+        h(&mut cx, "java/lang/Boolean", "()I", t),
+        Some(Value::Int(1231))
+    );
+}
+
+#[test]
+fn boxed_equals_needs_same_class_and_same_bits() {
+    let mut cx = StrCtx::new();
+    let i1 = boxed(&mut cx, "java/lang/Integer", Value::Int(1));
+    let i1b = boxed(&mut cx, "java/lang/Integer", Value::Int(1));
+    let l1 = boxed(&mut cx, "java/lang/Long", Value::Long(1));
+    let nan = boxed(&mut cx, "java/lang/Float", Value::Float(f32::NAN));
+    let nan2 = boxed(&mut cx, "java/lang/Float", Value::Float(f32::NAN));
+    let pz = boxed(&mut cx, "java/lang/Float", Value::Float(0.0));
+    let nz = boxed(&mut cx, "java/lang/Float", Value::Float(-0.0));
+    let eq = |cx: &mut StrCtx, class: &str, a: Value, b: Value| {
+        dispatch_on(cx, class, "equals", "(Ljava/lang/Object;)Z", &[a, b]).unwrap()
+    };
+    assert_eq!(
+        eq(&mut cx, "java/lang/Integer", i1, i1b),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        eq(&mut cx, "java/lang/Integer", i1, l1),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        eq(&mut cx, "java/lang/Integer", i1, Value::Null),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        eq(&mut cx, "java/lang/Float", nan, nan2),
+        Some(Value::Int(1))
+    );
+    assert_eq!(eq(&mut cx, "java/lang/Float", pz, nz), Some(Value::Int(0)));
+    let i5 = boxed(&mut cx, "java/lang/Integer", Value::Int(5));
+    let cmp = dispatch_on(
+        &mut cx,
+        "java/lang/Integer",
+        "compareTo",
+        "(Ljava/lang/Integer;)I",
+        &[i1, i5],
+    );
+    assert_eq!(cmp.unwrap(), Some(Value::Int(-1)));
+}
+
+#[test]
+fn float_to_int_bits() {
+    let mut cx = StrCtx::new();
+    let r = dispatch_on(
+        &mut cx,
+        "java/lang/Float",
+        "floatToIntBits",
+        "(F)I",
+        &[Value::Float(1.0)],
+    );
+    assert_eq!(r.unwrap(), Some(Value::Int(0x3f80_0000)));
+}
+
+#[test]
+fn character_predicates_cover_ascii() {
+    let mut cx = StrCtx::new();
+    let c = |cx: &mut StrCtx, m: &str, ch: i32| {
+        dispatch_on(cx, "java/lang/Character", m, "(C)Z", &[Value::Int(ch)]).unwrap()
+    };
+    assert_eq!(c(&mut cx, "isDigit", '7' as i32), Some(Value::Int(1)));
+    assert_eq!(c(&mut cx, "isDigit", 'x' as i32), Some(Value::Int(0)));
+    assert_eq!(c(&mut cx, "isLetter", 'x' as i32), Some(Value::Int(1)));
+    assert_eq!(
+        c(&mut cx, "toUpperCase", 'a' as i32),
+        Some(Value::Int('A' as i32))
+    );
+    assert_eq!(
+        c(&mut cx, "toLowerCase", 'Q' as i32),
+        Some(Value::Int('q' as i32))
+    );
+    assert_eq!(c(&mut cx, "toUpperCase", 0xE9), Some(Value::Int(0xE9)));
+    assert_eq!(c(&mut cx, "isLetter", 0xE9), Some(Value::Int(0)));
+}
+
+#[test]
+fn object_identity_equals_hash_code_to_string() {
+    let mut cx = StrCtx::new();
+    let a = Value::ObjectRef(cx.objects.alloc("demo/Thing").unwrap());
+    let b = Value::ObjectRef(cx.objects.alloc("demo/Thing").unwrap());
+    let arr = Value::ArrayRef(cx.arrays.alloc(crate::array_heap::ATYPE_INT, 3).unwrap());
+    let obj = |cx: &mut StrCtx, m: &str, d: &str, args: &[Value]| {
+        dispatch_on(cx, "java/lang/Object", m, d, args).unwrap()
+    };
+    assert_eq!(
+        obj(&mut cx, "equals", "(Ljava/lang/Object;)Z", &[a, a]),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        obj(&mut cx, "equals", "(Ljava/lang/Object;)Z", &[a, b]),
+        Some(Value::Int(0))
+    );
+    assert_eq!(
+        obj(&mut cx, "equals", "(Ljava/lang/Object;)Z", &[arr, arr]),
+        Some(Value::Int(1))
+    );
+    let Value::ObjectRef(ai) = a else {
+        unreachable!()
+    };
+    assert_eq!(
+        obj(&mut cx, "hashCode", "()I", &[a]),
+        Some(Value::Int(ai as i32))
+    );
+    assert_ne!(
+        obj(&mut cx, "hashCode", "()I", &[a]),
+        obj(&mut cx, "hashCode", "()I", &[b])
+    );
+    let s = obj(&mut cx, "toString", "()Ljava/lang/String;", &[a]).unwrap();
+    let text = cx.resolve(s);
+    assert_eq!(text, alloc::format!("demo.Thing@{ai:04x}"));
+    let s = obj(&mut cx, "toString", "()Ljava/lang/String;", &[arr]).unwrap();
+    let text = cx.resolve(s);
+    assert!(text.starts_with("[I@"), "{text}");
+    // A string Reference still comes back unchanged.
+    let hello = cx.intern(b"hello");
+    assert_eq!(
+        obj(&mut cx, "toString", "()Ljava/lang/String;", &[hello]),
+        Some(hello)
+    );
+}
+
+#[test]
+fn enum_hash_code_is_the_ordinal() {
+    let mut cx = StrCtx::new();
+    let n = cx.intern(b"BLUE");
+    let idx = cx.objects.alloc("demo/Color").unwrap();
+    cx.objects.set_field(idx, 0, n);
+    cx.objects.set_field(idx, 1, Value::Int(2));
+    let h = dispatch_on(
+        &mut cx,
+        "java/lang/Enum",
+        "hashCode",
+        "()I",
+        &[Value::ObjectRef(idx)],
+    );
+    assert_eq!(h.unwrap(), Some(Value::Int(2)));
+}

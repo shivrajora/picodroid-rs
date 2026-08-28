@@ -84,6 +84,13 @@ pub enum JvmError {
     NegativeArraySize,
     /// An attempt was made to invoke a method on an abstract class or interface.
     AbstractMethodError,
+    /// An `invokedynamic` whose bootstrap method is not
+    /// `java/lang/invoke/LambdaMetafactory.metafactory`/`altMetafactory`, or
+    /// whose implementation handle is a constructor reference
+    /// (`REF_newInvokeSpecial`). The payload names the bootstrap owner class
+    /// (e.g. `java/lang/invoke/StringConcatFactory` from a class compiled for
+    /// Java 9+).
+    UnsupportedInvokeDynamic(&'static str),
     /// A Java exception was thrown; the `u16` is the [`crate::object_heap::ObjectHeap`]
     /// index of the exception object.  Used internally during exception unwinding.
     Exception(u16),
@@ -107,6 +114,9 @@ impl fmt::Display for JvmError {
         match self {
             JvmError::UnsupportedOpcode(op) => {
                 write!(f, "UnsupportedOpcode: {} (0x{:02x})", opcode_name(*op), op)
+            }
+            JvmError::UnsupportedInvokeDynamic(bsm) => {
+                write!(f, "UnsupportedInvokeDynamic: bootstrap {}", bsm)
             }
             JvmError::UncaughtException {
                 exception_class,

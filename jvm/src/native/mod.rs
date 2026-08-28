@@ -78,6 +78,39 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/Comparable",
     "java/util/Comparator",
     "java/lang/Cloneable",
+    // Classfile-less classes that user code may `new`, `checkcast` or
+    // `instanceof` (every name in the interpreter's `BUILTIN_SUPER` /
+    // `BUILTIN_INTERFACES` tables). A `new` of a name missing here yields
+    // an `"unknown"`-class object that no catch clause ever matches.
+    "java/lang/Number",
+    "java/lang/CharSequence",
+    "java/lang/Iterable",
+    "java/util/Collection",
+    "java/util/Set",
+    "java/util/Map",
+    "java/lang/Error",
+    "java/lang/IllegalArgumentException",
+    "java/lang/IllegalStateException",
+    "java/lang/NullPointerException",
+    "java/lang/ArithmeticException",
+    "java/lang/ClassCastException",
+    "java/lang/UnsupportedOperationException",
+    "java/lang/IndexOutOfBoundsException",
+    "java/lang/ArrayIndexOutOfBoundsException",
+    "java/lang/StringIndexOutOfBoundsException",
+    "java/lang/NumberFormatException",
+    "java/lang/ExceptionInInitializerError",
+    "java/lang/StackOverflowError",
+    "java/util/NoSuchElementException",
+    "java/io/IOException",
+    "java/io/InterruptedIOException",
+    "java/net/SocketTimeoutException",
+    "java/net/SocketException",
+    "java/net/ConnectException",
+    "java/net/NoRouteToHostException",
+    "java/net/BindException",
+    "java/net/UnknownHostException",
+    "java/net/ProtocolException",
 ];
 
 /// Every `(declaring class, method, descriptor)` the built-in handler serves
@@ -230,7 +263,7 @@ fn throwable_get_message(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, J
 /// Allocate `class` and wrap it as a thrown Java exception (the pattern
 /// established for NumberFormatException: alloc-by-name; exact-name catch
 /// works).
-fn throw_named(ctx: &mut NativeContext<'_>, class: &'static str) -> JvmError {
+pub(super) fn throw_named(ctx: &mut NativeContext<'_>, class: &'static str) -> JvmError {
     match ctx.objects.alloc(class) {
         Some(idx) => JvmError::Exception(idx),
         None => JvmError::StackOverflow,
@@ -304,14 +337,20 @@ fn dispatch_init_only(
     }
 }
 
-/// `java/lang/Object` dispatcher: `<init>` plus a `toString` that mirrors Java's
-/// `String.toString()` (returns `this`). Because the builtin `String` has no
-/// class-file method table, an `invokevirtual toString()` on a value whose
-/// static type is `Object`/`String` resolves to `Object.toString` here — so
-/// returning the receiver unchanged when it is already a string reference makes
-/// the idiomatic `Adapter`/`AdapterView` item rendering (`getItem(i).toString()`)
-/// and `"" + obj` work. Non-string receivers keep the previous behaviour
-/// (unimplemented → caller sees `NoSuchMethod`).
+/// `java/lang/Object` dispatcher: `<init>`, `clone`, and the identity
+/// `equals`/`hashCode`/`toString` every object inherits. These are reached
+/// only when nothing more specific claimed the call — a Java override on the
+/// receiver's class chain resolves to a Java frame before native dispatch,
+/// and the builtin dispatchers (String, boxed, Enum, StringBuilder, …) sit
+/// before `Object` on the `builtin_super` walk — so a data class's own
+/// `equals` still wins and a plain `new Object()` behaves as in Java.
+///
+/// Identity `hashCode` is the object's heap slot index (reused after GC —
+/// stable for the object's lifetime, not unique over time), and identity
+/// `toString` is `<class>@<hex slot>`; both accept arrays too. A string
+/// Reference receiver normally dispatches straight to the String
+/// dispatcher; the `toString` arm keeps returning it unchanged for the
+/// `<clinit>`-time and handler-originated calls that still name `Object`.
 fn dispatch_object(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -321,8 +360,23 @@ fn dispatch_object(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        "toString" => match ctx.args.first() {
-            Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
+        "toString" => match ctx.args.first().copied() {
+            Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(idx)))),
+            Some(v @ (Value::ObjectRef(_) | Value::ArrayRef(_))) => {
+                Some(identity_to_string(ctx, v))
+            }
+            _ => None,
+        },
+        "equals" => match (ctx.args.first().copied(), ctx.args.get(1).copied()) {
+            (Some(a @ (Value::ObjectRef(_) | Value::ArrayRef(_))), Some(b)) => {
+                Some(Ok(Some(Value::Int((a == b) as i32))))
+            }
+            _ => None,
+        },
+        "hashCode" => match ctx.args.first().copied() {
+            Some(Value::ObjectRef(idx) | Value::ArrayRef(idx)) => {
+                Some(Ok(Some(Value::Int(idx as i32))))
+            }
             _ => None,
         },
         // Object.clone(): shallow copy per the Java spec — field slots are
@@ -345,6 +399,42 @@ fn dispatch_object(
         },
         _ => None,
     }
+}
+
+/// Java's `Object.toString()` default: `<dotted class name>@<identity hash
+/// as four hex digits>` (arrays print as `[I@…` / `[Ljava.lang.Object;@…`).
+fn identity_to_string(ctx: &mut NativeContext<'_>, v: Value) -> Result<Option<Value>, JvmError> {
+    let (name, idx): (&str, u16) = match v {
+        Value::ObjectRef(idx) => (ctx.objects.class_name(idx).unwrap_or("?"), idx),
+        Value::ArrayRef(idx) => (
+            crate::interpreter::array_class_name(
+                ctx.arrays
+                    .atype(idx)
+                    .unwrap_or(crate::array_heap::ATYPE_REF),
+            ),
+            idx,
+        ),
+        _ => return Err(JvmError::InvalidReference),
+    };
+    // Fixed buffer, no Vec growth paths; a class name longer than the
+    // buffer is truncated (the identity suffix is what matters).
+    let mut buf = [0u8; 80];
+    let mut n = 0;
+    for b in name.bytes().take(buf.len() - 5) {
+        buf[n] = if b == b'/' { b'.' } else { b };
+        n += 1;
+    }
+    buf[n] = b'@';
+    n += 1;
+    for shift in [12u32, 8, 4, 0] {
+        buf[n] = b"0123456789abcdef"[((idx >> shift) & 0xF) as usize];
+        n += 1;
+    }
+    let s = ctx
+        .strings
+        .intern_dyn(&buf[..n])
+        .ok_or(JvmError::StackOverflow)?;
+    Ok(Some(Value::Reference(s)))
 }
 
 fn dispatch_throwable(
@@ -573,24 +663,22 @@ pub trait NativeMethodHandler {
 ///
 /// | Class | Methods |
 /// |---|---|
-/// | `java/lang/Object` | `<init>` |
+/// | `java/lang/Object` | `<init>`, `clone`, identity `equals`/`hashCode`/`toString` (any object or array; reached only when no Java override and no more specific builtin claims the call) |
 /// | `java/lang/Throwable` | `<init>`, `addSuppressed` |
 /// | `java/lang/Exception` | `<init>` |
 /// | `java/lang/RuntimeException` | `<init>` |
 /// | `java/lang/StringBuilder` | `<init>`, `<init>(String)`, `append(String/int/char/long/float/double/boolean)`, `length`, `charAt`, `toString` |
 /// | `java/lang/String` | `<init>(byte[])`, `<init>(byte[],int,int)`, `length`, `charAt`, `equals`, `equalsIgnoreCase`, `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `isEmpty`, `compareTo`, `substring`, `trim`, `toUpperCase`, `toLowerCase`, `valueOf`, `concat`, `hashCode`, `toCharArray`, `getBytes`, `format`, `replace`, `split` |
-/// | `java/lang/Integer` | `<init>`, `valueOf`, `intValue` |
-/// | `java/lang/Boolean` | `<init>`, `valueOf`, `booleanValue` |
-/// | `java/lang/Long` | `<init>`, `valueOf`, `longValue` |
-/// | `java/lang/Float` | `<init>`, `valueOf`, `floatValue` |
-/// | `java/lang/Double` | `<init>`, `valueOf`, `doubleValue` |
+/// | `java/lang/Integer`, `Long`, `Float`, `Double`, `Short`, `Byte` | `<init>`, `valueOf`, `parseX`, `toString`, the `xxxValue()` accessors (unconverted — see the compatibility matrix); `equals` (same class and bits), `hashCode()`/`hashCode(x)`, `compareTo`/`compare` (Java's float total order); `Float.floatToIntBits` |
+/// | `java/lang/Boolean` | `<init>`, `valueOf`, `parseBoolean`, `booleanValue`, `toString`, `equals`, `hashCode` (1231/1237), `compare` |
+/// | `java/lang/Character` | `<init>`, `valueOf`, `charValue`, `toString`, `equals`, `hashCode`, `compare`; ASCII `isDigit`/`isLetter`/`toUpperCase`/`toLowerCase` |
 /// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains` |
 /// | `java/util/HashMap` | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values` |
 /// | `java/util/HashSet` | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
 /// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
 /// | `java/util/Arrays` | `sort`, `fill`, `copyOf`, `toString` (all numeric primitive overloads: int/long/double/float/short/byte/char) |
-/// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `compareTo` |
+/// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `hashCode` (ordinal), `compareTo` — no `valueOf(Class, String)` (see the compatibility matrix) |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
 

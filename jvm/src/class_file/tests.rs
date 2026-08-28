@@ -380,3 +380,70 @@ fn untouched_registered_classes_stay_unparsed() {
          the lazy-load architecture"
     );
 }
+
+// ── Constant-pool tags nothing resolves ───────────────────────────────────
+//
+// class "Cd" extends java/lang/Object with a CONSTANT_Dynamic (17), a
+// CONSTANT_Module (19) and a CONSTANT_Package (20) entry in the pool. None
+// of them is referenced by anything the JVM resolves, so registration and
+// the full parse must skip them by size instead of rejecting the class.
+//
+//   #1: Class        -> #2
+//   #2: Utf8         "Cd"
+//   #3: Class        -> #4
+//   #4: Utf8         "java/lang/Object"
+//   #5: Dynamic      bsm=0, name_and_type=#6
+//   #6: NameAndType  -> #7, #8
+//   #7: Utf8         "x"
+//   #8: Utf8         "I"
+//   #9: Module       -> #2
+//   #10: Package     -> #2
+static CLASS_WITH_CONDY_MODULE_PACKAGE: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x37, // magic, Java 11
+    0x00, 0x0B, // cp_count = 11
+    0x07, 0x00, 0x02, // #1 Class -> #2
+    0x01, 0x00, 0x02, b'C', b'd', // #2 Utf8 "Cd"
+    0x07, 0x00, 0x04, // #3 Class -> #4
+    0x01, 0x00, 0x10, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j',
+    b'e', b'c', b't', // #4 Utf8 "java/lang/Object"
+    0x11, 0x00, 0x00, 0x00, 0x06, // #5 Dynamic bsm=0, nat=#6
+    0x0C, 0x00, 0x07, 0x00, 0x08, // #6 NameAndType -> #7, #8
+    0x01, 0x00, 0x01, b'x', // #7 Utf8 "x"
+    0x01, 0x00, 0x01, b'I', // #8 Utf8 "I"
+    0x13, 0x00, 0x02, // #9 Module -> #2
+    0x14, 0x00, 0x02, // #10 Package -> #2
+    0x00, 0x01, // access_flags
+    0x00, 0x01, // this_class = #1
+    0x00, 0x03, // super_class = #3
+    0x00, 0x00, // interfaces_count
+    0x00, 0x00, // fields_count
+    0x00, 0x00, // methods_count
+    0x00, 0x00, // attributes_count
+];
+
+#[test]
+fn condy_module_and_package_cp_entries_are_skipped() {
+    let cf = ClassFile::register(CLASS_WITH_CONDY_MODULE_PACKAGE).expect("register");
+    assert_eq!(cf.class_name(), Some(&b"Cd"[..]));
+    let cf = ClassFile::parse(CLASS_WITH_CONDY_MODULE_PACKAGE).expect("parse");
+    assert_eq!(cf.class_name(), Some(&b"Cd"[..]));
+    // Parent is java/lang/Object, which reports as None.
+    assert_eq!(cf.super_class_name(), None);
+    // Nothing resolves the Dynamic entry: an `ldc #5` would see no string,
+    // class, int or float there.
+    assert_eq!(cf.cp_class_name(5), None);
+    assert_eq!(cf.cp_string_utf8(5), None);
+}
+
+#[test]
+fn truly_unknown_cp_tag_is_still_rejected() {
+    let mut bytes = CLASS_WITH_CONDY_MODULE_PACKAGE.to_vec();
+    // Turn the Module entry (tag 0x13 at its known offset) into tag 21.
+    let at = bytes
+        .windows(3)
+        .position(|w| w == [0x13, 0x00, 0x02])
+        .expect("Module entry");
+    bytes[at] = 21;
+    let leaked: &'static [u8] = alloc::boxed::Box::leak(bytes.into_boxed_slice());
+    assert_eq!(ClassFile::register(leaked).err(), Some("unknown CP tag"));
+}

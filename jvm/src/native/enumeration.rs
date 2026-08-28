@@ -8,6 +8,15 @@ pub(crate) fn dispatch(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
+        // Identity hash in Java; the ordinal is just as stable per constant
+        // and survives a GC's slot reuse, which the heap index would not.
+        "hashCode" => {
+            let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let ordinal = ctx.objects.get_field(obj_idx, 1).unwrap_or(Value::Int(0));
+            Some(Ok(Some(ordinal)))
+        }
         "<init>" => {
             // Enum.<init>(String name, int ordinal)
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {

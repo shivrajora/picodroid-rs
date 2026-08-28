@@ -39,9 +39,121 @@ macro_rules! boxed_dispatch {
                 };
                 Some(Ok(Some($ctx.objects.get_field(obj, 0).unwrap_or($default))))
             }
-            _ => None,
+            _ => dispatch_common($class, $method, $ctx),
         }
     };
+}
+
+/// `args[i]` as a primitive: unboxed from a wrapper object, or as passed.
+fn unboxed(ctx: &NativeContext<'_>, i: usize) -> Value {
+    match ctx.args.get(i).copied() {
+        Some(Value::ObjectRef(obj)) => ctx.objects.get_field(obj, 0).unwrap_or(Value::Null),
+        Some(v) => v,
+        None => Value::Null,
+    }
+}
+
+/// A primitive as (value bits, integer key, float value, is_float). Bits
+/// are what `floatToIntBits` yields — NaNs collapsed to the canonical one —
+/// so they give Java's `equals`/`hashCode` (`Float.equals(NaN)` is true,
+/// `0.0` and `-0.0` differ, `Long.hashCode` folds the halves); the key or
+/// float value gives `compare`.
+fn prim(v: Value) -> Option<(u64, i64, f64, bool)> {
+    Some(match v {
+        Value::Int(n) => (n as u32 as u64, n as i64, 0.0, false),
+        Value::Long(n) => (n as u64, n, 0.0, false),
+        Value::Float(f) => {
+            let f = if f.is_nan() { f32::NAN } else { f };
+            (f.to_bits() as u64, 0, f as f64, true)
+        }
+        Value::Double(d) => {
+            let d = if d.is_nan() { f64::NAN } else { d };
+            (d.to_bits(), 0, d, true)
+        }
+        _ => return None,
+    })
+}
+
+/// Arms every wrapper shares — the Java 8 value/identity surface that data
+/// classes, `Intrinsics.areEqual`, `HashMap` keys and `compareBy` lean on.
+/// Each accepts both the instance form (`args[0]` is the box) and the static
+/// form (`args[0]`/`args[1]` are primitives): `hashCode()` and
+/// `hashCode(I)`, `compareTo(Integer)` and `compare(II)`. `floatToIntBits`
+/// is the one bit conversion (data-class `hashCode` inlines it).
+fn dispatch_common(
+    class: &'static str,
+    method_name: &str,
+    ctx: &mut NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    let a = unboxed(ctx, 0);
+    let r: i32 = match method_name {
+        // Same wrapper class and same value bits (Integer(1) != Long(1)).
+        "equals" => {
+            let same_class = match (ctx.args.first(), ctx.args.get(1)) {
+                (Some(Value::ObjectRef(x)), Some(Value::ObjectRef(y))) => {
+                    ctx.objects.class_name(*x) == ctx.objects.class_name(*y)
+                }
+                _ => false,
+            };
+            (same_class
+                && match (prim(a), prim(unboxed(ctx, 1))) {
+                    (Some((x, ..)), Some((y, ..))) => x == y,
+                    _ => false,
+                }) as i32
+        }
+        "hashCode" => {
+            let (bits, ..) = prim(a)?;
+            if class == "java/lang/Boolean" {
+                if bits != 0 {
+                    1231
+                } else {
+                    1237
+                }
+            } else {
+                (bits ^ (bits >> 32)) as i32
+            }
+        }
+        "compareTo" | "compare" => {
+            let (Some((_, xi, xf, is_float)), Some((_, yi, yf, _))) =
+                (prim(a), prim(unboxed(ctx, 1)))
+            else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            // Java's float total order: `-0.0 < 0.0`, NaN (canonical by
+            // now) above everything and equal to itself — the bit pattern
+            // as a signed integer orders exactly that way once `<`/`>` have
+            // settled the rest.
+            if is_float {
+                if xf < yf {
+                    -1
+                } else if xf > yf {
+                    1
+                } else {
+                    let (xb, yb) = (xf.to_bits() as i64, yf.to_bits() as i64);
+                    (xb > yb) as i32 - (xb < yb) as i32
+                }
+            } else {
+                (xi > yi) as i32 - (xi < yi) as i32
+            }
+        }
+        "floatToIntBits" => prim(a)?.0 as i32,
+        _ => return None,
+    };
+    Some(Ok(Some(Value::Int(r))))
+}
+
+/// `java/lang/Character` static predicates and case mapping over the ASCII
+/// range the byte-backed string table can hold; code points above 0x7F are
+/// neither letters nor digits here and map to themselves.
+fn char_static(method_name: &str, c: i32) -> Option<Value> {
+    let b = u8::try_from(c).ok().filter(|b| b.is_ascii());
+    Some(Value::Int(match method_name {
+        "isDigit" => b.is_some_and(|b| b.is_ascii_digit()) as i32,
+        "isLetter" => b.is_some_and(|b| b.is_ascii_alphabetic()) as i32,
+        "toUpperCase" => b.map_or(c, |b| b.to_ascii_uppercase() as i32),
+        "toLowerCase" => b.map_or(c, |b| b.to_ascii_lowercase() as i32),
+        _ => return None,
+    }))
 }
 
 /// `valueOf(String)` shares a method name with the boxing `valueOf(primitive)`;
@@ -143,6 +255,11 @@ pub(crate) fn dispatch_character(
 ) -> Option<Result<Option<Value>, JvmError>> {
     if method_name == "toString" {
         return Some(character_to_string(ctx));
+    }
+    if let Some(Value::Int(c)) = ctx.args.first().copied() {
+        if let Some(v) = char_static(method_name, c) {
+            return Some(Ok(Some(v)));
+        }
     }
     boxed_dispatch!("java/lang/Character", Value::Int(0), ctx, method_name)
 }

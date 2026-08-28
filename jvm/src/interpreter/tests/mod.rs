@@ -148,6 +148,7 @@ mod locals;
 mod long_arrays;
 mod math;
 mod multianewarray;
+mod rtti;
 mod stack;
 mod stack_manip;
 mod wide_goto;

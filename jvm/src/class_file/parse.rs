@@ -72,6 +72,18 @@ fn parse_cp(data: &[u8]) -> Result<(Vec<usize>, Vec<u8>, usize), &'static str> {
             16 => {
                 c.skip(2).ok_or("truncated")?;
             }
+            // CONSTANT_Dynamic (17, bootstrap_method_attr_index + name_and_type_index)
+            // and CONSTANT_Module / CONSTANT_Package (19 / 20, one name index)
+            // are skipped by size like every other entry nothing resolves —
+            // a class that carries one is registered, and only an `ldc` of
+            // the condy entry itself fails (JVMS §4.4.13, §4.4.11/12). Same
+            // rows as tools/class-shrink/src/classfile.rs.
+            17 => {
+                c.skip(4).ok_or("truncated")?;
+            }
+            19 | 20 => {
+                c.skip(2).ok_or("truncated")?;
+            }
             _ => return Err("unknown CP tag"),
         }
         idx += 1;

@@ -262,6 +262,6 @@ Notes for Session 2: the output has no `StackMapTable`, so a HotSpot JVM would r
 ## 9. Open questions for Sessions 2 and 3
 
 1. `Ref$IntRef`/`ObjectRef` (captured mutated locals), `Double`/`Boolean` data-class fields, `Triple`, range *values* (`val r = 0..n`, `r.contains`), `when(String)` with many branches, `String?.plus` → `stringPlus`, and `first()`/`Iterator.next()` past the end were not exercised; the `picoenvmon_kt` port (Session 7) is the second contract-test fixture and will settle them.
-2. `Enum.valueOf(Class,String)` (risk 26) and `Collection.toArray` (m): cheap-or-documented, decided against the RP2040 gate in Sessions 3/4.
+2. `Enum.valueOf(Class,String)` (risk 26) and `Collection.toArray` (m): cheap-or-documented, decided against the RP2040 gate in Sessions 3/4. **Session 3 (2026-08-28): `Enum.valueOf` is documented, not implemented** — a heap-scan implementation measured ~800 B of RP2040 flash against a 4 KB two-session budget; `values()` + `name()` is the workaround (compatibility matrix). `Collection.toArray` stays with Session 4.
 3. `SourceDebugExtension` is 2.7 KB in the fixture; the strip removes it, but `LineNumberTable` (kept for stack traces) still maps inlined stdlib lines to the app's `SourceFile` — acceptable, documented.
 4. The dump tool's `refs-all.tsv` also lists every `picodroid/**` member the fixture touches — Session 2's Direction-C allowlist can be seeded from it as well as from § 5.1.

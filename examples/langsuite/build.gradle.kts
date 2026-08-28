@@ -19,6 +19,7 @@ sourceSets {
             srcDir("../interfacedemo/java")
             srcDir("../lambdademo/java")
             srcDir("../mathsdemo/java")
+            srcDir("../rttidemo/java")
             srcDir("../stringdemo/java")
             srcDir("../syncdemo")
             srcDir("../trywithresourcesdemo")

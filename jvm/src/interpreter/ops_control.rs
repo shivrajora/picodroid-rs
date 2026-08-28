@@ -175,19 +175,26 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.pc = ((frame.inst_pc as i64) + offset as i64) as usize;
             }
 
-            // checkcast — peek TOS; error if the object is not an instance of the target class
+            // checkcast — peek TOS; throw a catchable ClassCastException if
+            // the value is not an instance of the target class. null passes.
             0xc0 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                if let Some(Value::ObjectRef(idx)) = frame.stack.last().copied() {
+                let value = frame.stack.last().copied().unwrap_or(Value::Null);
+                if value != Value::Null {
                     let cf = &self.classes[frame.class_idx];
-                    if let Some(target_bytes) = cf.cp_class_name(cp_idx) {
-                        if let Ok(target) = core::str::from_utf8(target_bytes) {
-                            let runtime_class = self.objects.class_name(idx).unwrap_or("");
-                            if !helpers::is_instance_of(self.classes, runtime_class, target) {
-                                return Err(JvmError::InvalidReference);
-                            }
-                        }
+                    let target = cf
+                        .cp_class_name(cp_idx)
+                        .and_then(|b| core::str::from_utf8(b).ok())
+                        .ok_or(JvmError::InvalidBytecode)?;
+                    if !helpers::value_is_instance(
+                        self.classes,
+                        self.objects,
+                        self.arrays,
+                        value,
+                        target,
+                    ) {
+                        return Err(self.class_cast_exception());
                     }
                 }
             }
@@ -196,24 +203,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0xc1 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                let obj = frame.pop()?;
-                let result = match obj {
-                    Value::Null => Value::Int(0),
-                    Value::ObjectRef(idx) => {
-                        let cf = &self.classes[frame.class_idx];
-                        let is_instance = cf
-                            .cp_class_name(cp_idx)
-                            .and_then(|b| core::str::from_utf8(b).ok())
-                            .map(|target| {
-                                let runtime_class = self.objects.class_name(idx).unwrap_or("");
-                                helpers::is_instance_of(self.classes, runtime_class, target)
-                            })
-                            .unwrap_or(false);
-                        Value::Int(if is_instance { 1 } else { 0 })
-                    }
-                    _ => Value::Int(0),
-                };
-                frame.push(result)?;
+                let value = frame.pop()?;
+                let cf = &self.classes[frame.class_idx];
+                let is_instance = cf
+                    .cp_class_name(cp_idx)
+                    .and_then(|b| core::str::from_utf8(b).ok())
+                    .is_some_and(|target| {
+                        helpers::value_is_instance(
+                            self.classes,
+                            self.objects,
+                            self.arrays,
+                            value,
+                            target,
+                        )
+                    });
+                frame.push(Value::Int(is_instance as i32))?;
             }
 
             // tableswitch: dense switch (0xaa)
