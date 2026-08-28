@@ -3,7 +3,10 @@ package survey
 
 import picodroid.util.Log
 
-/** The collection surface a picoenvmon-sized app uses: builders, inline HOFs, maps, destructuring, sorting. */
+/**
+ * The collection surface a picoenvmon-sized app uses: builders, inline HOFs, maps, destructuring,
+ * sorting.
+ */
 object CollectionsDemo {
     private const val TAG = "Collections"
 

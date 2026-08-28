@@ -6,6 +6,11 @@ plugins {
     id("org.jetbrains.kotlin.jvm")
 }
 
+// The pure class-file modules (ClassRefs, ClassCensus, IndyCensus, ClassStrip)
+// live in buildSrc — the strip task and Session 5's contract test use them —
+// and are compiled here from that source directory rather than copied.
+kotlin.sourceSets["main"].kotlin.srcDir(rootDir.parentFile.parentFile.resolve("buildSrc/src/main/kotlin/picodroid/classfile"))
+
 dependencies {
     implementation("org.ow2.asm:asm:9.7")
     implementation("org.ow2.asm:asm-util:9.7")
@@ -64,3 +69,19 @@ tasks.register("stripProto") {
 
 val strippedFixtureClasses = provider { outDir.resolve("strip/fixture/classes") }
 registerDump("dumpStripped", "fixture-stripped", listOf(strippedFixtureClasses), "fixture-stripped").configure { dependsOn("stripFixture") }
+
+// Ad-hoc dump of any classes directory (e.g. an app's build/classes-stripped):
+//   ./gradlew -p tools/kotlin-survey dumpAny -Pclasses=/abs/dir -Plabel=name
+tasks.register<JavaExec>("dumpAny") {
+    group = "survey"
+    description = "Dump an arbitrary classes dir: -Pclasses=DIR -Plabel=NAME [-Pexternal=REGEX]"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("picodroid.survey.MainKt")
+    doFirst {
+        val classes = project.findProperty("classes") as? String ?: throw GradleException("-Pclasses=DIR required")
+        val label = project.findProperty("label") as? String ?: File(classes).name
+        val a = mutableListOf("dump", "--label", label, "--classes", classes, "--out", outDir.resolve(label).path)
+        (project.findProperty("external") as? String)?.let { a += listOf("--external", it) }
+        args = a
+    }
+}

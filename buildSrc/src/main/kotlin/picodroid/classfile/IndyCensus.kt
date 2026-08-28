@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package picodroid.survey
+package picodroid.classfile
 
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor

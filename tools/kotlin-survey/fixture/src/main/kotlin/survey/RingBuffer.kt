@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package survey
 
-/** SensorRingBuffer shape: FloatArray/IntArray storage and the ArraysKt surface a ring buffer touches. */
+/**
+ * SensorRingBuffer shape: FloatArray/IntArray storage and the ArraysKt surface a ring buffer
+ * touches.
+ */
 class RingBuffer(capacity: Int) {
     private val data = FloatArray(capacity)
     private val ts = IntArray(capacity)

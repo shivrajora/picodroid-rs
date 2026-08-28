@@ -3,12 +3,17 @@ package survey
 
 import picodroid.hardware.Sensor
 
-/** Data classes: `toString`/`equals`/`hashCode`/`copy`/`componentN` codegen with Int/Float/Long/String fields. */
+/**
+ * Data classes: `toString`/`equals`/`hashCode`/`copy`/`componentN` codegen with
+ * Int/Float/Long/String fields.
+ */
 data class Reading(val type: Int, val value: Float, val ts: Long)
 
 data class Named(val name: String, val n: Int)
 
-/** Enum with constructor params, used via `entries`, `values()`, `valueOf`, and exhaustive `when`. */
+/**
+ * Enum with constructor params, used via `entries`, `values()`, `valueOf`, and exhaustive `when`.
+ */
 enum class SensorKind(val label: String, val sdkType: Int) {
     TEMPERATURE("temp", Sensor.TYPE_AMBIENT_TEMPERATURE),
     HUMIDITY("hum", Sensor.TYPE_RELATIVE_HUMIDITY),
@@ -32,18 +37,20 @@ sealed class Sample {
     class Err(val msg: String) : Sample()
 }
 
-fun describeKind(k: SensorKind): String = when (k) {
-    SensorKind.TEMPERATURE -> "T ${k.label}"
-    SensorKind.HUMIDITY -> "H"
-    SensorKind.PRESSURE -> "P"
-    SensorKind.LIGHT -> "L"
-}
+fun describeKind(k: SensorKind): String =
+    when (k) {
+        SensorKind.TEMPERATURE -> "T ${k.label}"
+        SensorKind.HUMIDITY -> "H"
+        SensorKind.PRESSURE -> "P"
+        SensorKind.LIGHT -> "L"
+    }
 
-fun renderSample(s: Sample): String = when (s) {
-    is Sample.Ok -> "ok ${s.r} copy=${s.r.copy(value = 0f)}"
-    Sample.Missing -> "missing"
-    is Sample.Err -> "err ${s.msg}"
-}
+fun renderSample(s: Sample): String =
+    when (s) {
+        is Sample.Ok -> "ok ${s.r} copy=${s.r.copy(value = 0f)}"
+        Sample.Missing -> "missing"
+        is Sample.Err -> "err ${s.msg}"
+    }
 
 fun sameReading(a: Reading, b: Reading): Boolean = a == b && a.hashCode() == b.hashCode()
 

@@ -7,9 +7,9 @@ import picodroid.widget.ListView
 import picodroid.widget.TextView
 
 /**
- * Activity 2 (HistoryActivity shape): every range form in and out of `for`,
- * `withIndex`, `coerceIn`, `repeat`, `buildString`, `String.format`,
- * try/catch/finally, `synchronized`, and `error()` behind an elvis.
+ * Activity 2 (HistoryActivity shape): every range form in and out of `for`, `withIndex`,
+ * `coerceIn`, `repeat`, `buildString`, `String.format`, try/catch/finally, `synchronized`, and
+ * `error()` behind an elvis.
  */
 class HistoryActivity : Activity() {
     private val lock = Any()
@@ -40,14 +40,15 @@ class HistoryActivity : Activity() {
         header.setText(String.format("%.1f (%s)", samples[pos], summary))
         setContentView(header)
 
-        val parsed = try {
-            intent.getStringExtra("n").toInt()
-        } catch (e: NumberFormatException) {
-            Log.w(TAG, "bad n: ${e.message}")
-            -1
-        } finally {
-            done = true
-        }
+        val parsed =
+            try {
+                intent.getStringExtra("n").toInt()
+            } catch (e: NumberFormatException) {
+                Log.w(TAG, "bad n: ${e.message}")
+                -1
+            } finally {
+                done = true
+            }
         synchronized(lock) { parsedCount = parsed }
         val svc = service ?: error("no service bound")
         Log.i(TAG, "count=$parsedCount done=$done latest=${svc.latest()}")

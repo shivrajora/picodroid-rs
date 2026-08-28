@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package picodroid.survey
+package picodroid.classfile
 
 import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.Attribute
@@ -25,6 +25,7 @@ data class StripStats(val bytesBefore: Int, val bytesAfter: Int, val cpBefore: I
  * StackMapTable, SourceDebugExtension, and any non-standard attribute.
  * Kept: Code (with max_stack/max_locals copied from the reader),
  * LineNumberTable, SourceFile, Exceptions, BootstrapMethods, ConstantValue.
+ * [renames] applies `@ShimName` (declaration and shim-internal call sites).
  *
  * `ClassWriter(0)` without a `ClassReader` argument rebuilds the constant pool
  * from what is actually written; with `SKIP_FRAMES` no StackMapTable is read
@@ -33,11 +34,13 @@ data class StripStats(val bytesBefore: Int, val bytesAfter: Int, val cpBefore: I
  * shape. Never "fix" it with COMPUTE_FRAMES — that needs a class hierarchy the
  * host JVM does not have for the picodroid SDK classes.
  */
-fun strip(bytes: ByteArray): Pair<ByteArray, StripStats> {
+fun strip(bytes: ByteArray, renames: Map<MemberKey, String> = emptyMap()): Pair<ByteArray, StripStats> {
     val cr = ClassReader(bytes)
     val cw = ClassWriter(0)
+    var owner = ""
     val cv = object : ClassVisitor(Opcodes.ASM9, cw) {
         override fun visit(version: Int, access: Int, name: String, signature: String?, superName: String?, interfaces: Array<String>?) {
+            owner = name
             super.visit(version, access, name, null, superName, interfaces)
         }
 
@@ -71,7 +74,12 @@ fun strip(bytes: ByteArray): Pair<ByteArray, StripStats> {
             }
 
         override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<String>?): MethodVisitor =
-            object : MethodVisitor(Opcodes.ASM9, super.visitMethod(access, name, descriptor, null, exceptions)) {
+            object : MethodVisitor(Opcodes.ASM9, super.visitMethod(access, renames[MemberKey(owner, name, descriptor)] ?: name, descriptor, null, exceptions)) {
+                // `@ShimName` call sites inside the shim follow the declaration rename.
+                override fun visitMethodInsn(opcode: Int, owner: String, name: String, descriptor: String, isInterface: Boolean) {
+                    super.visitMethodInsn(opcode, owner, renames[MemberKey(owner, name, descriptor)] ?: name, descriptor, isInterface)
+                }
+
                 override fun visitAnnotation(descriptor: String, visible: Boolean): AnnotationVisitor? = null
 
                 override fun visitTypeAnnotation(typeRef: Int, typePath: TypePath?, descriptor: String, visible: Boolean): AnnotationVisitor? = null

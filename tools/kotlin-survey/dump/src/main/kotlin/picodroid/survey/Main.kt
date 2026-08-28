@@ -3,12 +3,13 @@ package picodroid.survey
 
 import java.io.File
 import kotlin.system.exitProcess
+import picodroid.classfile.*
 
 /**
  * CLI for the survey. All file I/O lives here; everything else is pure.
  *
- *   dump  --label L --classes DIR [--classes DIR ...] --out DIR [--external REGEX]
- *   strip --label L --classes DIR --out DIR
+ * dump --label L --classes DIR [--classes DIR ...] --out DIR [--external REGEX] strip --label L
+ * --classes DIR --out DIR
  */
 fun main(args: Array<String>) {
     val cmd = args.firstOrNull()
@@ -17,13 +18,20 @@ fun main(args: Array<String>) {
         "dump" -> dumpCommand(opts)
         "strip" -> stripCommand(opts)
         else -> {
-            System.err.println("usage: dump|strip --label L --classes DIR... --out DIR [--external REGEX]")
+            System.err.println(
+                "usage: dump|strip --label L --classes DIR... --out DIR [--external REGEX]"
+            )
             exitProcess(2)
         }
     }
 }
 
-private class Options(val label: String, val classes: List<File>, val out: File, val external: Regex)
+private class Options(
+    val label: String,
+    val classes: List<File>,
+    val out: File,
+    val external: Regex,
+)
 
 private fun parseOptions(args: List<String>): Options {
     var label: String? = null
@@ -54,7 +62,8 @@ private fun parseOptions(args: List<String>): Options {
 /** Every `.class` under [root], as (relative path with '/' separators, bytes), sorted by path. */
 private fun classFiles(root: File): List<Pair<String, ByteArray>> {
     require(root.isDirectory) { "not a directory: $root" }
-    return root.walkTopDown()
+    return root
+        .walkTopDown()
         .filter { it.isFile && it.name.endsWith(".class") }
         .map { it.relativeTo(root).invariantSeparatorsPath to it.readBytes() }
         .sortedBy { it.first }
@@ -67,9 +76,12 @@ private fun write(out: File, name: String, text: String) {
 }
 
 private fun dumpCommand(o: Options) {
-    val results = o.classes.flatMap { classFiles(it) }.map { (rel, bytes) ->
-        ClassResult(rel, bytes, extract(bytes), census(bytes), indy(bytes))
-    }
+    val results =
+        o.classes
+            .flatMap { classFiles(it) }
+            .map { (rel, bytes) ->
+                ClassResult(rel, bytes, extract(bytes), census(bytes), indy(bytes))
+            }
     val allRefs = results.flatMap { it.refs }
     val extRefs = allRefs.filter { o.external.containsMatchIn(it.owner) }
     write(o.out, "refs-all.tsv", refsTsv(allRefs))
@@ -81,7 +93,9 @@ private fun dumpCommand(o: Options) {
     val summary = summaryMarkdown(o.label, results, o.external)
     write(o.out, "summary.md", summary)
     println(summary)
-    println("[dump] ${results.size} classes from ${o.classes.joinToString { it.path }} -> ${o.out.path}")
+    println(
+        "[dump] ${results.size} classes from ${o.classes.joinToString { it.path }} -> ${o.out.path}"
+    )
 }
 
 private fun stripCommand(o: Options) {

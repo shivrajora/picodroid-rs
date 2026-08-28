@@ -5,14 +5,21 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.file.Directory
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
 
 /**
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
  *
  * Pipeline: compileJava -> (optional) shrinkClasses -> packPapk.
+ * Kotlin apps (`picodroid-papk-kotlin`): compileKotlin + compileJava ->
+ * stageClasses (+ shim) -> stripClassMetadata -> (optional) shrinkClasses ->
+ * packPapk. Java-only apps take the first path untouched.
  *
  * Shrinking gate: enabled by Gradle property `picodroid.shrink=true` or env
  * `PICODROID_SHRINK=1`. When enabled and a map is committed for the current
@@ -81,11 +88,36 @@ class PicodroidPapkPlugin : Plugin<Project> {
         compileJava.configure { options.isIncremental = false }
         val classesOutputDir = compileJava.flatMap { it.destinationDirectory }
 
+        // Kotlin apps: stage app classes + the shim into one tree, then strip /
+        // prune / shake it. The Kotlin plugin is applied *before* this one by
+        // picodroid-papk-kotlin, so a plain hasPlugin() check is deterministic.
+        val rawClassesInput: Provider<Directory> = if (target.plugins.hasPlugin("org.jetbrains.kotlin.jvm")) {
+            val compileKotlin = target.tasks.named("compileKotlin", KotlinCompile::class.java)
+            val shimClasses = target.configurations.getByName(PicodroidPapkKotlinPlugin.SHIM_CONFIGURATION)
+            val stagedDir = target.layout.buildDirectory.dir("classes-staged")
+            val stageClasses = target.tasks.register("stageClasses", Sync::class.java) {
+                description = "Stage app + kotlin-shim classes for the strip"
+                from(compileKotlin.flatMap { it.destinationDirectory })
+                from(compileJava.flatMap { it.destinationDirectory })
+                from(shimClasses)
+                include("**/*.class")
+                into(stagedDir)
+            }
+            val stripTask = target.tasks.register("stripClassMetadata", StripClassMetadataTask::class.java) {
+                dependsOn(stageClasses)
+                inputDir.set(stagedDir)
+                outputDir.set(target.layout.buildDirectory.dir("classes-stripped"))
+                reportFile.set(target.layout.buildDirectory.file("reports/strip-report.txt"))
+            }
+            stripTask.flatMap { it.outputDir }
+        } else {
+            classesOutputDir
+        }
+
         val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
             val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
-                dependsOn(compileJava)
-                inputDir.set(classesOutputDir)
+                inputDir.set(rawClassesInput)
                 this.mapFile.set(mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
@@ -93,7 +125,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             }
             shrinkTask.flatMap { it.outputDir }
         } else {
-            classesOutputDir
+            rawClassesInput
         }
 
         // Per-app `assets/` directory is opt-in: present it to papk-pack only

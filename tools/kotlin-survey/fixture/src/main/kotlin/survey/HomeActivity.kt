@@ -21,9 +21,9 @@ import picodroid.widget.ListView
 import picodroid.widget.TextView
 
 /**
- * Activity 1 (HomeActivity/LiveActivity shape): lateinit, lazy, anonymous
- * objects for the two-method SDK interfaces, SAM lambdas for the one-method
- * ones, `!!`/`?.`/`?:`/`as?`, and `when` over a String.
+ * Activity 1 (HomeActivity/LiveActivity shape): lateinit, lazy, anonymous objects for the
+ * two-method SDK interfaces, SAM lambdas for the one-method ones, `!!`/`?.`/`?:`/`as?`, and `when`
+ * over a String.
  */
 class HomeActivity : Activity() {
     private lateinit var status: TextView
@@ -31,26 +31,28 @@ class HomeActivity : Activity() {
     private var mode: String = "idle"
     private val prefs by lazy { getSharedPreferences("survey", Context.MODE_PRIVATE) }
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(binder: IBinder) {
-            svc = (binder as? SensorService.LocalBinder)?.service
-            status.setText("connected: ${svc?.latest()}")
+    private val connection =
+        object : ServiceConnection {
+            override fun onServiceConnected(binder: IBinder) {
+                svc = (binder as? SensorService.LocalBinder)?.service
+                status.setText("connected: ${svc?.latest()}")
+            }
+
+            override fun onServiceDisconnected() {
+                svc = null
+            }
         }
 
-        override fun onServiceDisconnected() {
-            svc = null
-        }
-    }
+    private val rawListener =
+        object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                status.setText("raw ${event.sensor.type}=${event.values[0]}")
+            }
 
-    private val rawListener = object : SensorEventListener {
-        override fun onSensorChanged(event: SensorEvent) {
-            status.setText("raw ${event.sensor.type}=${event.values[0]}")
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+                Log.d(SurveyApp.TAG, "accuracy $accuracy for ${sensor.name}")
+            }
         }
-
-        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
-            Log.d(SurveyApp.TAG, "accuracy $accuracy for ${sensor.name}")
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -73,7 +75,9 @@ class HomeActivity : Activity() {
 
         bindService(Intent(SensorService::class.java), connection)
         val sm = SensorManager.getInstance()
-        sm.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sm.registerListener(rawListener, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        sm.getDefaultSensor(Sensor.TYPE_LIGHT)?.let {
+            sm.registerListener(rawListener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
 
         Thread { poll() }.start()
         Thread(Runnable { poll() }).start()

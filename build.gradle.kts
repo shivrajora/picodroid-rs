@@ -17,31 +17,56 @@ allprojects {
 
 tasks.register("newApp") {
     group = "picodroid"
-    description = "Scaffold a new examples/<name>/ app. Usage: ./gradlew newApp -Pname=myapp"
+    description = "Scaffold a new examples/<name>/ app. Usage: ./gradlew newApp -Pname=myapp [-Plang=kotlin]"
     doLast {
-        val name = project.findProperty("name") as? String
+        // providers.gradleProperty, not findProperty: `name` is also a built-in
+        // Project property (the project's own name), which shadows -Pname.
+        val name = providers.gradleProperty("name").orNull
             ?: throw GradleException("missing -Pname=<appname>")
         if (!name.matches(Regex("^[a-z][a-z0-9_]*$"))) {
             throw GradleException("app name must match [a-z][a-z0-9_]* — got '$name'")
         }
+        val lang = providers.gradleProperty("lang").orNull ?: "java"
+        if (lang != "java" && lang != "kotlin") {
+            throw GradleException("-Plang must be java or kotlin — got '$lang'")
+        }
         val dir = rootDir.resolve("examples/$name")
         if (dir.exists()) throw GradleException("already exists: $dir")
         val className = name.replaceFirstChar { it.uppercaseChar() }
-        dir.resolve("java/$name").mkdirs()
-        dir.resolve("java/$name/$className.java").writeText(
-            """
-            package $name;
+        if (lang == "kotlin") {
+            dir.resolve("kotlin/$name").mkdirs()
+            dir.resolve("kotlin/$name/$className.kt").writeText(
+                """
+                package $name
 
-            import picodroid.app.Application;
-            import picodroid.util.Log;
+                import picodroid.app.Application
+                import picodroid.util.Log
 
-            public class $className extends Application {
-              public void onCreate() {
-                Log.i("$className", "Hello from $className!");
-              }
-            }
-            """.trimIndent() + "\n"
-        )
+                class $className : Application() {
+                    override fun onCreate() {
+                        Log.i("$className", "Hello from $className!")
+                    }
+                }
+                """.trimIndent() + "\n"
+            )
+        } else {
+            dir.resolve("java/$name").mkdirs()
+            dir.resolve("java/$name/$className.java").writeText(
+                """
+                package $name;
+
+                import picodroid.app.Application;
+                import picodroid.util.Log;
+
+                public class $className extends Application {
+                  @Override
+                  public void onCreate() {
+                    Log.i("$className", "Hello from $className!");
+                  }
+                }
+                """.trimIndent() + "\n"
+            )
+        }
         dir.resolve("PicodroidManifest.xml").writeText(
             """
             <?xml version="1.0" encoding="utf-8"?>
@@ -52,10 +77,11 @@ tasks.register("newApp") {
             </manifest>
             """.trimIndent() + "\n"
         )
+        val pluginId = if (lang == "kotlin") "picodroid-papk-kotlin" else "picodroid-papk"
         dir.resolve("build.gradle.kts").writeText(
             """
             plugins {
-                id("picodroid-papk")
+                id("$pluginId")
             }
             """.trimIndent() + "\n"
         )

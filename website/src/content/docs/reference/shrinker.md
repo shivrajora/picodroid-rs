@@ -171,6 +171,10 @@ When no map is active it's an identity passthrough — zero cost beyond one func
   and every PAPK refers to them literally.
 - `picodroid/annotation/KeepName` (exact): the annotation class used
   by future method/field keeps in Java source.
+- `kotlin/**` (glob): the hand-written stdlib shim that rides inside
+  Kotlin apps' PAPKs (`kotlin-shim/`). kotlinc-compiled app classes name
+  these classes literally, and maps are generated from the SDK set anyway,
+  so this documents the invariant more than it enforces it.
 
 Add an entry here before adding new framework surface that Rust
 references by name in a way the reverse-translation layer can't cover.

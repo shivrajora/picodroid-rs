@@ -13,3 +13,9 @@ pattern = "java/**"
 # recognizes `@KeepName` annotations on user classes later.
 [[class]]
 name = "picodroid/annotation/KeepName"
+
+# The kotlin/** stdlib shim (kotlin-shim/) rides inside Kotlin apps' PAPKs and
+# is never renamed. Maps are generated from the SDK set, so this documents the
+# invariant more than it enforces it (docs/designs/kotlin-roadmap-2026-08.md).
+[[glob]]
+pattern = "kotlin/**"

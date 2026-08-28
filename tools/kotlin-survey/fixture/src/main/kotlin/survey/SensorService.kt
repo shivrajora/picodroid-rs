@@ -11,9 +11,9 @@ import picodroid.os.IBinder
 import picodroid.util.Log
 
 /**
- * SensorLoggerService shape: a Service that is its own SensorEventListener,
- * an inner LocalBinder, a `fun interface` listener, `Array(n) { }`, `IntArray`,
- * `when` over SDK `static final int` constants, and an `@Synchronized` method.
+ * SensorLoggerService shape: a Service that is its own SensorEventListener, an inner LocalBinder, a
+ * `fun interface` listener, `Array(n) { }`, `IntArray`, `when` over SDK `static final int`
+ * constants, and an `@Synchronized` method.
  */
 class SensorService : Service(), SensorEventListener {
     fun interface SmoothedListener {
@@ -35,7 +35,9 @@ class SensorService : Service(), SensorEventListener {
     override fun onCreate() {
         super.onCreate()
         val sm = SensorManager.getInstance()
-        sm.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        sm.getDefaultSensor(Sensor.TYPE_LIGHT)?.let {
+            sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
         addListener { t, v -> Log.i(TAG, "$t=$v") }
     }
 
@@ -53,13 +55,14 @@ class SensorService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         val v = event.values[0]
-        val slot = when (event.sensor.type) {
-            Sensor.TYPE_LIGHT -> 0
-            Sensor.TYPE_PRESSURE -> 1
-            Sensor.TYPE_RELATIVE_HUMIDITY -> 2
-            Sensor.TYPE_AMBIENT_TEMPERATURE -> 3
-            else -> return
-        }
+        val slot =
+            when (event.sensor.type) {
+                Sensor.TYPE_LIGHT -> 0
+                Sensor.TYPE_PRESSURE -> 1
+                Sensor.TYPE_RELATIVE_HUMIDITY -> 2
+                Sensor.TYPE_AMBIENT_TEMPERATURE -> 3
+                else -> return
+            }
         buffers[slot].add(v, (event.timestamp / 1_000_000_000L).toInt())
         counts[slot]++
         latestValue = v
@@ -75,14 +78,14 @@ class SensorService : Service(), SensorEventListener {
         listeners += l
     }
 
-    @Synchronized
-    fun latest(): Float = latestValue
+    @Synchronized fun latest(): Float = latestValue
 
     fun setLogging(on: Boolean) {
         logging = on
     }
 
-    fun describe(): String = "counts=${counts.sum()} max=${buffers[0].max()} spread=${buffers[1].spread()}"
+    fun describe(): String =
+        "counts=${counts.sum()} max=${buffers[0].max()} spread=${buffers[1].spread()}"
 
     companion object {
         const val TAG = "SensorService"

@@ -12,6 +12,11 @@ if ! bash "$REPO_ROOT/scripts/format_java.sh" check; then
   exit 1
 fi
 
+echo "==> Checking Kotlin formatting..."
+if ! bash "$REPO_ROOT/scripts/format_kotlin.sh" check; then
+  exit 1
+fi
+
 echo "==> Linting markdown (markdownlint-cli2)..."
 if ! bash "$REPO_ROOT/scripts/lint-md.sh"; then
   echo ""

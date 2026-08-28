@@ -5,11 +5,10 @@ import picodroid.concurrent.Executors
 import picodroid.util.Log
 
 /**
- * Deliberately out-of-scope or undecided shapes, one probe function each, so
- * the dump's `from_member` column names the probe. This is the ONLY fixture
- * file allowed to use `::`, `::class`, `uppercase`/`lowercase`, the no-arg
- * `mutableMapOf`/`mutableSetOf`/`hashMapOf`, `toTypedArray`, `println`, or
- * `is MutableList`; the inventory's tier tables exclude `Probes.kt`.
+ * Deliberately out-of-scope or undecided shapes, one probe function each, so the dump's
+ * `from_member` column names the probe. This is the ONLY fixture file allowed to use `::`,
+ * `::class`, `uppercase`/`lowercase`, the no-arg `mutableMapOf`/`mutableSetOf`/`hashMapOf`,
+ * `toTypedArray`, `println`, or `is MutableList`; the inventory's tier tables exclude `Probes.kt`.
  */
 object Probes {
     private const val TAG = "Probes"
@@ -31,7 +30,12 @@ object Probes {
         val lenRef: (String) -> Int = String::length
         val valRef: (Reading) -> Float = Reading::value
         val ctorRef: (Float) -> Threshold = ::Threshold
-        return lens.size + vals.size + ths.size + lenRef("x") + valRef(readings[0]).toInt() + ctorRef(1f).v.toInt()
+        return lens.size +
+            vals.size +
+            ths.size +
+            lenRef("x") +
+            valRef(readings[0]).toInt() +
+            ctorRef(1f).v.toInt()
     }
 
     /** (c) a Serializable SAM forces altMetafactory. */
@@ -60,11 +64,12 @@ object Probes {
 
     /** (k) crossinline in an object expression, and plain `() -> Unit` values. */
     inline fun runLater(crossinline f: () -> Unit) {
-        Executors.mainExecutor().execute(
-            object : Runnable {
-                override fun run() = f()
-            },
-        )
+        Executors.mainExecutor()
+            .execute(
+                object : Runnable {
+                    override fun run() = f()
+                }
+            )
     }
 
     fun call(f: () -> Unit) = f()
@@ -80,7 +85,8 @@ object Probes {
     fun probeM_toTypedArray(): Int = listOf("a").toTypedArray().size
 
     /** Reflection shapes the contract test must reject. */
-    fun probeR_reflection(x: Any): String = Reading::class.simpleName + (x is MutableList<*>) + Registry::created.name
+    fun probeR_reflection(x: Any): String =
+        Reading::class.simpleName + (x is MutableList<*>) + Registry::created.name
 
     /** `println` → `kotlin/io/ConsoleKt` → System.out (absent on pico-jvm). */
     fun probeP_println() {

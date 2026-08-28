@@ -78,8 +78,8 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
     tag="$(sed -n 's/^\([A-Za-z][A-Za-z0-9]*\)\[\]:\].*/\1/p' <<< "$pat")"
     [[ -z "$tag" ]] && continue
     allow_tag "$tag" && continue
-    if ! grep -rqF "\"$tag\"" "$REPO_ROOT/examples" "$REPO_ROOT/sdk" --include='*.java'; then
-      fail "line $lineno ($app): pattern tag '$tag' not found as a string literal in examples/ or sdk/ Java sources (renamed or deleted demo? update the conf row or ALLOW_TAGS)"
+    if ! grep -rqF "\"$tag\"" "$REPO_ROOT/examples" "$REPO_ROOT/sdk" --include='*.java' --include='*.kt'; then
+      fail "line $lineno ($app): pattern tag '$tag' not found as a string literal in examples/ or sdk/ Java or Kotlin sources (renamed or deleted demo? update the conf row or ALLOW_TAGS)"
     fi
   done
 done < "$CONF"

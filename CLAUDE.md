@@ -35,7 +35,7 @@ Confirm expected output appears (e.g. `[HelloWorld] Hello, World!`, `[Benchmark]
 ./scripts/pre-commit
 ```
 
-This runs formatting (Java + `cargo fmt`), clippy across every board and the host tools, the embedded and flash-gate builds, the shadow-twin and cfg-hygiene guards, Java compilation for all apps, a langsuite conformance run, and all tests. Must end with `==> All checks passed.`
+This runs formatting (Java + Kotlin + `cargo fmt`), clippy across every board and the host tools, the embedded and flash-gate builds, the shadow-twin and cfg-hygiene guards, Java compilation for all apps, a langsuite conformance run, and all tests. Must end with `==> All checks passed.`
 
 Do not consider a code change complete until both of these pass.
 

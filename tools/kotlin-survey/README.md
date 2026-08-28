@@ -20,12 +20,13 @@ the root wrapper, `./gradlew -p tools/kotlin-survey ...`.
 - `hello/` — the `hello-kotlin-on-sim` milestone: one zero-stdlib Kotlin
   `Application` that is hand-packed with `tools/papk-pack` and run on the host
   simulator with zero JVM changes.
-- `dump/` — the ASM tool: `ClassRefs.kt` (every reference a class makes),
-  `ClassCensus.kt` (raw class-file walk: attribute bytes, CP tags, method
-  flags), `IndyCensus.kt` (`invokedynamic` sites), `ClassStrip.kt` (the
-  Session 2 strip, prototyped), `Report.kt` (TSV + Markdown), `Main.kt` (CLI).
-  The first four are pure functions over `ByteArray` so Session 2 can lift them
-  into `buildSrc`.
+- `dump/` — the ASM tool's CLI (`Main.kt`) and reports (`Report.kt`). The
+  pure class-file modules it drives — `ClassRefs.kt` (every reference a class
+  makes), `ClassCensus.kt` (raw class-file walk: attribute bytes, CP tags,
+  method flags), `IndyCensus.kt` (`invokedynamic` sites), `ClassStrip.kt` (the
+  strip) — live in `buildSrc/src/main/kotlin/picodroid/classfile/`, where the
+  `stripClassMetadata` task of `picodroid-papk-kotlin` uses them; this build
+  compiles them from that directory rather than keeping a copy.
 - `out/` — generated, gitignored.
 
 ## Prerequisites
@@ -50,6 +51,7 @@ from Maven Central / the Gradle plugin portal (~150 MB); later runs work with
 ./gradlew -p tools/kotlin-survey helloPapk helloPapkStripped   # out/hellokt.papk, out/hellokt-stripped.papk
 tools/kotlin-survey/hello-sim.sh               # pack + run hello on the sim (scripts/sim.sh --apk)
 tools/kotlin-survey/hello-sim.sh --stripped    # same with the ASM-stripped class
+./gradlew -p tools/kotlin-survey dumpAny -Pclasses=/abs/classes/dir -Plabel=name   # any classes dir -> out/name/
 ```
 
 ## Outputs (per `out/<label>/`)

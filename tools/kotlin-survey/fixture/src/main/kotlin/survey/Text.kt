@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package survey
 
-import picodroid.util.Log
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import picodroid.util.Log
 
 /** Extension functions (Formatter/TimeFormat shape). */
 fun Float.fmt1(): String = String.format("%.1f", this)
@@ -17,11 +17,15 @@ fun String?.orDash(): String = this ?: "-"
 /** Constructor default arguments → `DefaultConstructorMarker` in the synthetic ctor descriptor. */
 class Cfg(val a: Int = 1, val b: String = "x")
 
-/** Strings, chars, templates, kotlin.math, default/named args, varargs, scope functions, require/check/error/TODO. */
+/**
+ * Strings, chars, templates, kotlin.math, default/named args, varargs, scope functions,
+ * require/check/error/TODO.
+ */
 object TextDemo {
     private const val TAG = "Text"
 
-    fun fmt(v: Float, digits: Int = 1, unit: String = ""): String = String.format("%.${digits}f%s", v, unit)
+    fun fmt(v: Float, digits: Int = 1, unit: String = ""): String =
+        String.format("%.${digits}f%s", v, unit)
 
     fun logAll(vararg parts: String) {
         for (p in parts) Log.d(TAG, p)
@@ -51,7 +55,8 @@ object TextDemo {
         val arr = arrayOf("a", "b")
         logAll(*arr)
         logAll("one", "two")
-        val applied = StringBuilder().apply { append(t) }.let { it.length }.also { Log.d(TAG, "len $it") }
+        val applied =
+            StringBuilder().apply { append(t) }.let { it.length }.also { Log.d(TAG, "len $it") }
         val ran = t.run { length + 1 }
         val w = with(t) { length }
         val tk = t.takeIf { it.isNotEmpty() }

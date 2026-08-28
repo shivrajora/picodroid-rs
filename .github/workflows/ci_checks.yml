@@ -181,7 +181,7 @@ jobs:
       # board's LVGL config is CI-simulated.
       - name: Run sim smoke subset
         run: |
-          for app in helloworld gcstress langsuite callbacktest picoenvmon prefs_demo clinitdemo heapstress; do
+          for app in helloworld hellokt gcstress langsuite callbacktest picoenvmon prefs_demo clinitdemo heapstress; do
             bash scripts/sim-run.sh --app "$app" --no-email
           done
   formatting:
@@ -197,7 +197,7 @@ jobs:
           target: thumbv6m-none-eabi
       - run: cargo fmt -- --check
   java-formatting:
-    name: Java Formatting
+    name: Java + Kotlin Formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -207,3 +207,5 @@ jobs:
           java-version: '21'
       - name: Check Java formatting
         run: bash scripts/format_java.sh check
+      - name: Check Kotlin formatting
+        run: bash scripts/format_kotlin.sh check
