@@ -265,7 +265,9 @@ fi
 # locally, not first by CI/nightly. langsuite is the widest self-checking
 # suite (14 sub-demos, log-token asserted, both shrink modes).
 echo "==> Running Java conformance suite (langsuite, sim)..."
-if ! bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
+# sim-run.sh commits the metric log on scheduled runs; a verification run must
+# not create commits as a side effect of being run.
+if ! PICODROID_BENCH_AUTOCOMMIT=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite --no-email; then
   echo ""
   echo "ERROR: langsuite failed in sim. A pico-jvm/stdlib behavior regressed;"
   echo "       fix before committing."

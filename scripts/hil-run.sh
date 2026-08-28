@@ -695,7 +695,11 @@ if [[ -x "$SCRIPT_DIR/bench-backfill.py" ]]; then
   # Never pushes: the cron's own `git pull --ff-only` stays happy with
   # unpushed local commits unless the remote diverged, and pushing is a
   # decision for a human.
-  if ! git -C "$REPO_ROOT" diff --quiet -- bench/parity/history.csv 2>/dev/null; then
+  # Scheduled runs commit; verification runs do not. scripts/pre-commit drives
+  # sim-run.sh for its langsuite stage, and a test suite that silently creates
+  # a commit is a nasty surprise -- it sets this to 0.
+  if [[ "${PICODROID_BENCH_AUTOCOMMIT:-1}" == "1" ]] &&
+     ! git -C "$REPO_ROOT" diff --quiet -- bench/parity/history.csv 2>/dev/null; then
     if git -C "$REPO_ROOT" commit -q --no-verify \
          -m "chore(bench): hil metrics for $RUN_ID" \
          -- bench/parity/history.csv 2>/dev/null; then

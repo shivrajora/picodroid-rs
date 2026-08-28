@@ -587,3 +587,8 @@ Both runners now commit the CSV after appending. Three details that matter:
 - **Never pushes.** The cron's own `git pull --ff-only` stays happy with
   unpushed local commits unless the remote has diverged, and pushing is a
   decision for a human.
+
+Scheduled runs commit; verification runs do not. `scripts/pre-commit` drives
+`sim-run.sh` for its langsuite stage, so without an opt-out a *test suite*
+would silently create a commit — which it did, twice, before this was caught.
+`PICODROID_BENCH_AUTOCOMMIT=0` suppresses it and pre-commit sets it.
