@@ -526,3 +526,64 @@ reverted. That is the honest ledger.
 - **`Value` 16 B → 8 B** remains the largest memory lever in the codebase and
   still deserves its own design doc. It is a redesign with a single
   cliff-shaped payoff, not a hill to climb.
+
+---
+
+## Post-campaign — the nightly append log
+
+The S0 wiring made both nightlies append to `bench/parity/history.csv`, which
+is tracked. Two nights later that showed its cost: the working tree is dirty
+every morning, and the reflex response to a dirty *generated* file —
+`git checkout -- .` — would silently destroy rows nothing can rebuild.
+
+Measured first, because the obvious worry turned out to be the wrong one:
+
+| | raw | stored in pack |
+|---|---|---|
+| current CSV | 6.00 MB | 298,882 B (base) |
+| previous version | 5.91 MB | **273 B** (delta) |
+
+Append-only text deltas almost perfectly, so a nightly commit costs a few
+hundred bytes, not 6 MB. File size was never the problem. Data loss was.
+
+### The file is now regenerable
+
+Of 61,676 rows, 61,072 rebuilt from `build/*/logs`. The 604 that did not were
+the ones written straight to the CSV by lanes that leave no log: the size lane
+(`--size-only`) and any ad-hoc `parity-bench.sh` run whose `mktemp -d` log
+directory has since been cleaned up.
+
+The size lane now writes `build/size/logs/<RUN_ID>/<board>.size.log` and goes
+through `bench-backfill.py` like every other lane. Because several boards share
+one run directory, the filename cannot encode the identity, so the log declares
+it on the first line:
+
+```text
+#bench board=testbench_rp2040 app=helloworld mode=no-shrink
+   text    data     bss     dec     hex  filename
+ 849635       4  227700 1077339  10705b  .../picodroid
+#program_flash_max=917248
+#ram_max=262144
+```
+
+`bench-backfill.py` honours that header for any log, and derives headroom from
+the recorded ceilings so no reader has to re-parse a linker script. Verified by
+deleting the new size rows and rebuilding them from the logs alone.
+
+The 189 size rows written before this change still have no log behind them.
+They are the only irreplaceable rows in the file, which is why they were
+committed rather than left dirty.
+
+### The nightlies commit it
+
+Both runners now commit the CSV after appending. Three details that matter:
+
+- **Pathspec commit, not `git add`** — commits only `bench/parity/history.csv`
+  from the working tree, so nothing a human left staged gets swept in. Verified
+  against a tree that also had another session's edits to `.gitignore`,
+  `scripts/sim.sh`, and an untracked `tools/kotlin-survey/`: the commit
+  contained exactly one file.
+- **`--no-verify`** — the hook is the 15-minute suite; this is a data append.
+- **Never pushes.** The cron's own `git pull --ff-only` stays happy with
+  unpushed local commits unless the remote has diverged, and pushing is a
+  decision for a human.

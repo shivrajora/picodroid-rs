@@ -166,32 +166,38 @@ parse_log() { # env app logfile
 if $DO_SIZE; then
   [[ ${#BOARDS[@]} -gt 0 ]] || BOARDS=("$BOARD")
   echo "==> Size lane (release firmware, ${#BOARDS[@]} board(s))"
+  # Every other lane leaves a log that bench-backfill.py can re-read, so its
+  # rows can always be rebuilt from build/*/logs. The size lane used to write
+  # straight to the CSV, which made its rows the only copy -- and the only
+  # rows in the file that a stray `git checkout` would destroy for good. It
+  # now writes a log like everything else, and goes through the same parser.
+  SIZE_RUN_DIR="$REPO_ROOT/build/size/logs/$(date -u '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT}"
+  mkdir -p "$SIZE_RUN_DIR"
   for board in "${BOARDS[@]}"; do
     resolve_board "$board"
-    EMIT_BOARD="$board"
     APP="${SIZE_APP:-helloworld}"
     PROFILE=release
     EXTRA_ARGS=(--release)
     build_firmware > /dev/null 2>&1 || { echo "  $board: BUILD FAILED"; continue; }
     # print_memory_usage exported TEXT/DATA/BSS; resolve_board exported the
-    # ceilings. Headroom is emitted too: at 96-98% full it is the number that
-    # decides whether a change can land at all.
+    # ceilings. The log carries both, so headroom stays derivable later
+    # without re-reading a linker script.
     flash=$(( TEXT + DATA ))
     ram=$(( DATA + BSS ))
-    stamp_utc
-    emit size "$APP" text "$TEXT"
-    emit size "$APP" data "$DATA"
-    emit size "$APP" bss "$BSS"
-    emit size "$APP" flash_bytes "$flash"
-    emit size "$APP" ram_bytes "$ram"
-    emit size "$APP" flash_headroom_bytes "$(( PROGRAM_FLASH_MAX - flash ))"
-    emit size "$APP" ram_headroom_bytes "$(( RAM_MAX - ram ))"
+    {
+      # Several boards share one run directory, so the filename cannot encode
+      # the identity; the log declares it instead.
+      echo "#bench board=$board app=$APP mode=no-shrink"
+      "$SIZE_TOOL" "$ELF"
+      echo "#program_flash_max=$PROGRAM_FLASH_MAX"
+      echo "#ram_max=$RAM_MAX"
+    } > "$SIZE_RUN_DIR/$board.size.log"
     printf "  %-22s flash %8d / %8d (%2d%%, %6d free)   ram %7d / %7d (%2d%%, %6d free)\n" \
       "$board" "$flash" "$PROGRAM_FLASH_MAX" \
       "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$(( PROGRAM_FLASH_MAX - flash ))" \
       "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))" "$(( RAM_MAX - ram ))"
   done
-  unset EMIT_BOARD
+  ingest_run_dir size "" "$SIZE_RUN_DIR"
 fi
 
 if $DO_SIM; then

@@ -49,6 +49,19 @@ BOARD_BY_APP = {
 
 # Cron dirs are "<date>_<time>_<sha>"; parity-bench appends "_<n>" so that
 # repeated samples of one commit land in distinct directories.
+# A log may declare its own identity on the first line, which lets a lane
+# whose filenames cannot encode board/app/mode (the size lane runs several
+# boards into one run directory) still go through the one parser:
+#     #bench board=testbench_rp2040 app=helloworld mode=no-shrink
+HEADER_RE = re.compile(r"^#bench\s+(.*)$")
+
+# `arm-none-eabi-size` default (Berkeley) output row.
+SIZE_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+[0-9a-fA-F]+\s+\S+\s*$")
+# Ceilings the size lane records alongside, so headroom is derivable later
+# without re-reading the linker script.
+CEILING_RE = re.compile(r"^#(program_flash_max|ram_max)=(\d+)$")
+
 RUN_ID_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_"
     r"([0-9a-f]+(?:-d[0-9a-f]+)?)(?:_\d+)?$")
@@ -107,9 +120,28 @@ def normalize(line):
     return None, line
 
 
+def read_header(path):
+    """Identity a log declares for itself, if any (see HEADER_RE)."""
+    try:
+        with path.open(errors="replace") as f:
+            first = f.readline()
+    except OSError:
+        return {}
+    m = HEADER_RE.match(first.strip())
+    if not m:
+        return {}
+    out = {}
+    for kv in m.group(1).split():
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            out[k] = v
+    return out
+
+
 def parse_log(path, env):
     """Return {metric: value} for one app log."""
     out = {}
+    ceilings = {}
     oom_count = 0
     oom_min_free = None
     oom_min_lblk = None
@@ -152,6 +184,18 @@ def parse_log(path, env):
         if m:
             out["apk_bytes"] = int(m.group(1))
             continue
+        m = CEILING_RE.match(line)
+        if m:
+            ceilings[m.group(1)] = int(m.group(2))
+            continue
+        if env == "size":
+            m = SIZE_ROW_RE.match(line)
+            if m:
+                text, data, bss = (int(m.group(i)) for i in (1, 2, 3))
+                out["text"], out["data"], out["bss"] = text, data, bss
+                out["flash_bytes"] = text + data
+                out["ram_bytes"] = data + bss
+                continue
         m = FLASH_TIME_RE.match(line)
         if m:
             out["flash_seconds_x100"] = int(round(float(m.group(1)) * 100))
@@ -203,6 +247,14 @@ def parse_log(path, env):
             out[f"test_{m.group(1)}_{unit}"] = int(m.group(2))
             continue
 
+    # Headroom is what actually decides whether a change can land at 96% full,
+    # so derive it here rather than making every reader re-parse a linker
+    # script.
+    if "program_flash_max" in ceilings and "flash_bytes" in out:
+        out["flash_headroom_bytes"] = ceilings["program_flash_max"] - out["flash_bytes"]
+    if "ram_max" in ceilings and "ram_bytes" in out:
+        out["ram_headroom_bytes"] = ceilings["ram_max"] - out["ram_bytes"]
+
     if oom_count or env == "sim":
         out["oom_count"] = oom_count
     if oom_min_free is not None:
@@ -234,10 +286,13 @@ def rows_for_run(run_dir, env, board_override=None):
         if log.name.endswith(".build.log"):
             continue
         app, mode = split_app_mode(log.stem)
+        hdr = read_header(log)
+        app = hdr.get("app", app)
+        mode = hdr.get("mode", mode)
         metrics = parse_log(log, env)
         if not metrics:
             continue
-        board = board_override or BOARD_BY_APP.get(app, DEFAULT_BOARD)
+        board = hdr.get("board") or board_override or BOARD_BY_APP.get(app, DEFAULT_BOARD)
         split = "train" if app in TRAIN_APPS else "holdout"
         for metric, value in sorted(metrics.items()):
             yield [utc, commit, env, board, app, mode, split, metric, value]
@@ -246,7 +301,7 @@ def rows_for_run(run_dir, env, board_override=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--env", choices=["sim", "hil", "both"], default="both")
+    ap.add_argument("--env", choices=["sim", "hil", "size", "all"], default="all")
     ap.add_argument("--run-dir", help="parse exactly one run directory")
     ap.add_argument("--board", help="board for --run-dir rows (default: per-app map)")
     ap.add_argument("--force-env", choices=["sim", "hil", "size"],
@@ -259,10 +314,12 @@ def main():
     rows = []
     if args.run_dir:
         d = Path(args.run_dir).resolve()
-        env = args.force_env or ("hil" if "/hil/" in str(d) else "sim")
-        rows.extend(rows_for_run(d, env, args.board))
+        env = args.force_env
+        if env is None:
+            env = next((e for e in ("hil", "size") if f"/{e}/" in str(d)), "sim")
+        rows.extend(rows_for_run(d, env, args.board or None))
     else:
-        envs = ["sim", "hil"] if args.env == "both" else [args.env]
+        envs = ["sim", "hil", "size"] if args.env == "all" else [args.env]
         for env in envs:
             base = REPO / "build" / env / "logs"
             if not base.is_dir():
@@ -325,7 +382,11 @@ def main():
             w.writerow(existing[key])
 
     if not args.quiet:
-        print(f"==> {out.relative_to(REPO)}: {len(order)} rows "
+        try:
+            shown = out.relative_to(REPO)
+        except ValueError:
+            shown = out  # --out may point outside the repo
+        print(f"==> {shown}: {len(order)} rows "
               f"({added} new this pass)", file=sys.stderr)
     return 0
 
