@@ -257,6 +257,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if tm.code_offset == 0 {
             return Err(JvmError::NoSuchMethod);
         }
+        // ACC_STATIC = 0x0008.
+        let body_is_static = tm.access_flags & 0x0008 != 0;
         let impl_desc = self.classes[target_ci]
             .cp_utf8(tm.descriptor_index)
             .ok_or(JvmError::InvalidBytecode)?;
@@ -271,8 +273,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Unbox every boxed argument whose body parameter is primitive. The
         // captures occupy the body's leading parameters; step past them by
         // hand (`Iterator::skip` monomorphises a 500 B `nth` on thumbv6m).
+        // A lambda capturing `this` compiles to an *instance* synthetic body
+        // (javac's `private void lambda$track$0(...)`): the captured receiver
+        // lands in local 0 and is *not* a descriptor parameter, so it steps
+        // past no kind. Skipping one per capture regardless shifted every
+        // remaining argument onto the wrong kind and unboxed a reference --
+        // picodroid.widget.RadioGroup's own `(CompoundButton, boolean)`
+        // listener read field 0 off the button and passed it as `buttonView`.
         let mut body_kinds = helpers::ParamKinds::new(impl_desc);
-        for _ in 0..captures.len() {
+        let desc_captures = if body_is_static {
+            captures.len()
+        } else {
+            captures.len().saturating_sub(1)
+        };
+        for _ in 0..desc_captures {
             body_kinds.next();
         }
         for (arg, kind) in method_args.iter_mut().zip(body_kinds) {

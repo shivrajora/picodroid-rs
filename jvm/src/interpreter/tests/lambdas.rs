@@ -2,7 +2,9 @@
 //! `LambdaMetafactory`'s boxing adaptation for kotlinc-shaped lambdas: a
 //! primitive body (`(I)I`) behind an erased SAM (`call(Object)Object`) gets
 //! its arguments unboxed and its return boxed; matching descriptors and
-//! captured values pass through untouched.
+//! captured values pass through untouched. A `this`-capturing lambda -- whose
+//! body javac emits as an *instance* method, so the captured receiver is a
+//! local but not a descriptor parameter -- lines its arguments up too.
 use super::asm::{Asm, Method, ACC_INTERFACE};
 use super::*;
 use alloc::vec;
@@ -289,4 +291,70 @@ fn null_for_a_primitive_parameter_throws_npe() {
         }) => assert_eq!(exception_class, "java/lang/NullPointerException"),
         other => panic!("expected an uncaught NPE, got {other:?}"),
     }
+}
+
+#[test]
+fn instance_body_receiver_capture_consumes_no_parameter() {
+    // A lambda that captures `this` (`picodroid.widget.RadioGroup` wires one
+    // onto every button it tracks) compiles to a *non-static* body: javac
+    // passes the receiver as local 0, where it occupies no slot of the body's
+    // descriptor. Counting it as a leading parameter anyway walked one kind
+    // too far and lined every remaining argument up against the wrong one --
+    // here it would leave Integer(21) boxed, and RadioGroup's real
+    // `(CompoundButton, boolean)` listener had its button unboxed as a `Z`.
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let lmf = a.class("java/lang/invoke/LambdaMetafactory");
+    let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
+    let bsm = a.method_handle(6, lmf_ref);
+    // REF_invokeSpecial (7) on a private instance body, as javac emits.
+    let body_ref = a.methodref(0x0A, this, "lam", "(I)I");
+    let body_handle = a.method_handle(7, body_ref);
+    let sam_type = a.method_type(SAM_OBJ);
+    let inst_type = a.method_type("(Ljava/lang/Integer;)Ljava/lang/Integer;");
+    let indy = a.invoke_dynamic(0, "call", "(Ljava/lang/Object;)LFunc;");
+    let func = a.class("Func");
+    let call = a.methodref(0x0B, func, "call", SAM_OBJ);
+    let integer = a.class("java/lang/Integer");
+    let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
+    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+
+    // The captured receiver is only ever a local the body ignores, so any
+    // object stands in for `this`: Integer(0) saves T needing an <init>.
+    let mut code = vec![0x03, 0xB8, hi(value_of), lo(value_of)]; // iconst_0; valueOf
+    code.extend_from_slice(&[0xBA, hi(indy), lo(indy), 0, 0]); // invokedynamic
+    code.extend_from_slice(&[0x10, 21, 0xB8, hi(value_of), lo(value_of)]); // bipush 21; valueOf
+    code.extend_from_slice(&[0xB9, hi(call), lo(call), 2, 0]); // invokeinterface Func.call
+    code.extend_from_slice(&[0xC0, hi(integer), lo(integer)]); // checkcast Integer
+    code.extend_from_slice(&[0xB6, hi(int_value), lo(int_value), 0xAC]); // intValue; ireturn
+    let t = a.finish_full(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[
+            Method {
+                access: 0x0008,
+                name: "m",
+                desc: "()I",
+                max_stack: 6,
+                max_locals: 1,
+                code: &code,
+                exc: &[],
+            },
+            Method {
+                access: 0x0002, // private, *not* static
+                name: "lam",
+                desc: "(I)I",
+                max_stack: 4,
+                max_locals: 2, // 0 = the captured receiver, 1 = the int
+                code: &[0x1B, 0x05, 0x68, 0xAC], // iload_1; iconst_2; imul; ireturn
+                exc: &[],
+            },
+        ],
+        &[(bsm, &[sam_type, body_handle, inst_type])],
+    );
+    let classes = [func_iface(SAM_OBJ), t];
+    assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(42)));
 }
