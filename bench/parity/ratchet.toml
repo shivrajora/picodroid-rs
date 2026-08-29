@@ -5,8 +5,18 @@
 # to spend budget, so do it in the same commit that spends it and say
 # why in the message (size: trailer).
 #
-# Regenerate: ./scripts/parity-bench.sh --size-only --boards <list>
-#             ./scripts/bench-report.py --ratchet --accept
+# These bytes are specific to the compiler that produced them:
+# rustc 1.98.0 builds this tree ~4 KB larger than 1.95.0. CI's
+# size-ratchet job pins its toolchain for that reason -- bump the pin
+# and this file together.
+#
+# Regenerate -- read the sizes back from the run you just measured. A
+# bare --accept falls back to bench/parity/history.csv, whose newest
+# rows can be hours old and from another configuration entirely:
+#   D=$(mktemp -d)
+#   PICODROID_SIZE_RUN_DIR=$D ./scripts/parity-bench.sh --size-only \
+#     --boards testbench_rp2040,testbench_rp2350
+#   ./scripts/bench-report.py --ratchet --sizes-from "$D" --accept
 
 [testbench_rp2040]
 flash_bytes = 861531

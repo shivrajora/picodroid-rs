@@ -318,8 +318,12 @@ fi
 if ! python3 "$REPO_ROOT/scripts/bench-report.py" --ratchet --sizes-from "$SIZE_RUN_DIR"; then
   echo ""
   echo "ERROR: the image grew past bench/parity/ratchet.toml. If the growth is"
-  echo "       intended, run:"
-  echo "         ./scripts/bench-report.py --ratchet --accept"
+  echo "       intended, accept the run just measured -- a bare --accept reads"
+  echo "       bench/parity/history.csv instead, which may be stale:"
+  echo "         D=\$(mktemp -d)"
+  echo "         PICODROID_SIZE_RUN_DIR=\$D ./scripts/parity-bench.sh --size-only \\"
+  echo "           --boards testbench_rp2040,testbench_rp2350"
+  echo "         ./scripts/bench-report.py --ratchet --sizes-from \"\$D\" --accept"
   echo "       and commit the new baseline alongside the change, with a"
   echo "       'size: <board> +N B' trailer in the message."
   exit 1

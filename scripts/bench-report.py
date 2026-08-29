@@ -380,6 +380,14 @@ def cmd_ratchet(rows, args):
             print(f"{board:<22} {metric:<14} {bs:>10} {c:>10,.0f} {d:>9}  {verdict}")
 
     if args.accept:
+        # --accept rewrites the file from `cur` alone, so a run that measured
+        # fewer boards than the baseline holds would silently drop the rest.
+        dropped = sorted(set(base) - set(boards))
+        if dropped:
+            sys.exit("refusing to accept: this run measured "
+                     f"{', '.join(boards)}, which would drop "
+                     f"{', '.join(dropped)} from the baseline. Re-measure with "
+                     "--boards " + ",".join(sorted(base)))
         lines = ["# Committed size baseline for the perf campaign.",
                  "#",
                  "# Deterministic metrics ratchet at 0%: bench-report.py --ratchet fails",
@@ -387,8 +395,18 @@ def cmd_ratchet(rows, args):
                  "# to spend budget, so do it in the same commit that spends it and say",
                  "# why in the message (size: trailer).",
                  "#",
-                 "# Regenerate: ./scripts/parity-bench.sh --size-only --boards <list>",
-                 "#             ./scripts/bench-report.py --ratchet --accept",
+                 "# These bytes are specific to the compiler that produced them:",
+                 "# rustc 1.98.0 builds this tree ~4 KB larger than 1.95.0. CI's",
+                 "# size-ratchet job pins its toolchain for that reason -- bump the pin",
+                 "# and this file together.",
+                 "#",
+                 "# Regenerate -- read the sizes back from the run you just measured. A",
+                 "# bare --accept falls back to bench/parity/history.csv, whose newest",
+                 "# rows can be hours old and from another configuration entirely:",
+                 "#   D=$(mktemp -d)",
+                 "#   PICODROID_SIZE_RUN_DIR=$D ./scripts/parity-bench.sh --size-only \\",
+                 "#     --boards testbench_rp2040,testbench_rp2350",
+                 "#   ./scripts/bench-report.py --ratchet --sizes-from \"$D\" --accept",
                  ""]
         for board in boards:
             lines.append(f"[{board}]")
