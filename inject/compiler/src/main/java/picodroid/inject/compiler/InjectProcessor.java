@@ -24,7 +24,12 @@ import javax.tools.Diagnostic;
  *
  * <p>See {@code docs/designs/inject-annotations-2026-08.md} for the contract and its rationale.
  */
-@SupportedAnnotationTypes({"javax.inject.Inject", "javax.inject.Singleton"})
+@SupportedAnnotationTypes({
+  "javax.inject.Inject",
+  "javax.inject.Singleton",
+  "picodroid.di.Module",
+  "picodroid.di.Provides"
+})
 public final class InjectProcessor extends AbstractProcessor {
   private boolean done;
 
@@ -46,10 +51,10 @@ public final class InjectProcessor extends AbstractProcessor {
     for (Binding b : graph.bindings()) {
       try {
         if (b.hasInjectConstructor()) {
-          FactoryWriter.write(processingEnv, b);
+          FactoryWriter.write(processingEnv, graph, b);
         }
         if (b.needsMembersInjector()) {
-          MembersInjectorWriter.write(processingEnv, b);
+          MembersInjectorWriter.write(processingEnv, graph, b);
         }
       } catch (IOException e) {
         processingEnv
@@ -59,6 +64,26 @@ public final class InjectProcessor extends AbstractProcessor {
                 "Could not write generated source for " + b.qualifiedName() + ": " + e,
                 b.type);
       }
+    }
+    try {
+      for (ModuleInfo mod : graph.modules()) {
+        for (ProvidesBinding pb : mod.provides) {
+          ProvidesWriter.write(processingEnv, graph, pb);
+        }
+        if (mod.needsInstance()) {
+          ProvidesWriter.writeModuleFactory(processingEnv, mod.type);
+        }
+      }
+      for (TypeElement t : graph.providerTypes()) {
+        WrapperWriter.writeProvider(processingEnv, graph, t);
+      }
+      for (TypeElement t : graph.lazyTypes()) {
+        WrapperWriter.writeLazy(processingEnv, graph, t);
+      }
+    } catch (IOException e) {
+      processingEnv
+          .getMessager()
+          .printMessage(Diagnostic.Kind.ERROR, "Could not write generated DI source: " + e);
     }
     // Never claim javax.inject.*: other tools may want to see them.
     return false;

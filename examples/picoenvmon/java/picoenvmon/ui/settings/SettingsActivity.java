@@ -2,6 +2,7 @@
 package picoenvmon.ui.settings;
 
 import javax.inject.Inject;
+import picodroid.content.SharedPreferences;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.util.Log;
@@ -13,7 +14,6 @@ import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.Toast;
 import picoenvmon.EnvApp;
-import picoenvmon.data.EnvPrefs;
 import picoenvmon.data.ThresholdConfig;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.Formatter;
@@ -30,7 +30,7 @@ public class SettingsActivity extends NavActivity {
 
   @Inject ThresholdConfig thresholds;
   @Inject Formatter formatter;
-  @Inject EnvPrefs prefs;
+  @Inject SharedPreferences prefs;
   private NumberPicker tempField;
   private NumberPicker humField;
   private NumberPicker luxField;
@@ -133,7 +133,7 @@ public class SettingsActivity extends NavActivity {
     th.tempHiCentiC = tempField.getValue() * 100;
     th.humLoMilliPct = humField.getValue() * 1000;
     th.luxLo = luxField.getValue();
-    boolean ok = th.save(prefs.get());
+    boolean ok = th.save(prefs);
     Log.i(
         EnvApp.TAG,
         "Settings saved: tempHi="

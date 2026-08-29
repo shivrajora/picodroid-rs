@@ -13,8 +13,8 @@ import picoenvmon.ui.home.HomeActivity;
  * App entry point. The object graph is wired by {@code @Inject}/{@code @Singleton}
  * (docs/designs/inject-annotations-2026-08.md): the framework injects this Application's fields
  * before {@code onCreate}, and every Activity and Service below gets the same treatment, so the
- * singletons ({@link NetworkManager}, ThresholdConfig, Formatter, LatestReadings, RgbLed, EnvPrefs)
- * are shared without a hand-written component.
+ * singletons ({@link NetworkManager}, ThresholdConfig, Formatter, LatestReadings, RgbLed) are
+ * shared without a hand-written component; SDK types come from {@link EnvModule}.
  */
 public class EnvApp extends Application {
   public static final String TAG = "PicoEnvMon";

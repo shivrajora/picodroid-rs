@@ -32,7 +32,7 @@ at the bottom can be executed cold. Verified against the tree at `ad79a98`
 |---|---|---|
 | No reflection, annotations dropped at parse | `jvm/src/class_file/parse.rs`, `sdk/java/java/lang/Class.java` | `SOURCE` retention; generated Java only |
 | Generated classes ship in the PAPK for free | `tools/papk-pack` packs every `.class` in the compile output; no keep-list | Cost class **P**: 0 firmware flash, ~20 B RAM/class registered, ~88 B + 5 B/CP entry + 32 B/method when first touched |
-| New SDK classes cost flash on every board | `build_support/papk.rs` embeds `sdk/java/**` into firmware; RP2040 gate ~58 KB headroom | **Zero new SDK classes** this cut (no `Provider<T>`/`Lazy<T>`) |
+| New SDK classes cost flash on every board | `build_support/papk.rs` embeds `sdk/java/**` into firmware; RP2040 gate ~58 KB headroom | Zero new SDK classes in the first cut; the follow-up added exactly two one-method interfaces (`javax.inject.Provider`, `picodroid.di.Lazy`) |
 | Statics are shared + GC-rooted | `SharedJvmHeap.statics` (`jvm/src/lib.rs:107-121`), `jvm/src/gc/mod.rs:313` | A `static` holder is a correct process singleton across threads |
 | `synchronized` blocks work, methods don't | `monitorenter` → handler; `ACC_SYNCHRONIZED` never read | Singleton = double-checked locking on `synchronized (Foo_Factory.class)` |
 | `Foo::new` rejected; lambda proxies capture every call | `jvm/src/interpreter/ops_invoke.rs:398`, `try_lambda_dispatch` | Generated code uses no lambdas or method refs |
@@ -98,6 +98,23 @@ fully-qualified names, no imports, no lambdas, header
   none**, so the runtime probes exactly one name.
 - Nested classes: `Outer.Inner` → `Outer_Inner_Factory` (Dagger convention);
   the runtime maps `$` → `_` to match.
+- `T_Provider implements javax.inject.Provider<T>` (stateless, `get()` →
+  `T_Factory.get()`) and `T_Lazy implements picodroid.di.Lazy<T>` (one memoized
+  value per wrapper object, double-checked on `this`), generated only for types
+  requested as `Provider<T>` / `Lazy<T>` somewhere; every injection site gets
+  its own `new T_Provider()` / `new T_Lazy()`. Wrapper edges are excluded from
+  cycle detection (they construct nothing at injection time — Dagger
+  semantics). Nested wrappers, raw wrappers and wildcards are errors.
+- `@Module` / `@Provides` (`picodroid.di.*`, SOURCE retention, in
+  `inject/annotations`): every module in the compilation is installed into
+  the implicit component. Each `@Provides` method becomes
+  `Mod_ProvideFooFactory.get()` (Dagger naming) — a static call, or a call on
+  `Mod_Factory.get()`, the lazily-created module singleton, for instance
+  methods; `@Singleton` on the method uses the DCL holder. A provided type may
+  be an interface, abstract class or SDK type. Dependency resolution prefers
+  the `@Provides` factory; a type bound by both a method and an `@Inject`
+  constructor (or by two methods) is a duplicate-binding error. Cycle
+  detection runs over binding keys, so `@Provides` parameters are edges too.
 
 **Validation rules** (each a `Messager` error at the element; the golden and
 diagnostic tests in `inject/compiler/src/test/java` pin them):
@@ -137,13 +154,20 @@ constructors on an `Application` subclass never ran. They do now
 
 ## Follow-ups (not started)
 
-1. **`Provider<T>` / `Lazy<T>`** — JSR-330 `Provider` is an interface with
-   one method; cheapest home is a tiny SDK interface (cost class S, ~300 B) or
-   generation into each PAPK. Would also let cycles be broken the Dagger way.
-2. **`@Provides` / `@Module` / `@Binds`** — the missing piece for SDK types
-   (`SharedPreferences`, `SensorManager`) and interfaces; today apps wrap them
-   (`picoenvmon`'s `EnvPrefs`). Natural design: a `@Module` class with static
-   `@Provides` methods, called from factories exactly like `_Factory.get()`.
+1. ~~**`Provider<T>` / `Lazy<T>`**~~ — **DONE (branch `di-provider-lazy`)**:
+   `sdk/java/javax/inject/Provider.java` + `sdk/java/picodroid/di/Lazy.java`
+   (the interface class files are needed for `checkcast`/`instanceof` walks;
+   `invokeinterface` dispatches by runtime class regardless), `T_Provider` /
+   `T_Lazy` generated on demand, wrappers excluded from cycle edges. Flash cost:
+   testbench_rp2040 +472 B, testbench_rp2350 +460 B (two 220 B class files +
+   table entries), measured base-vs-change in the same worktree — a worktree's
+   absolute image is ~3.4 KB larger than the main checkout's for the same
+   commit, so the ratchet baseline was advanced by the delta, not to the
+   worktree's absolute numbers.
+2. ~~**`@Provides` / `@Module`**~~ — **DONE (branch `di-provides-module`)** as
+   described in the contract above; `picoenvmon` binds `SharedPreferences` from
+   `EnvModule` and its `EnvPrefs` wrapper is gone. `@Binds` (abstract
+   interface→impl aliasing without a method body) remains a follow-up.
 3. **Qualifiers** (`@Named`, custom `@Qualifier`) — keyed bindings.
 4. **Activity scope** (`@ActivityScoped`) — per-Activity instances shared by
    that Activity's graph; needs an activity-lifetime holder.

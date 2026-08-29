@@ -3,8 +3,11 @@ package picodroid.inject.compiler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.processing.Messager;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.AnnotationMirror;
@@ -47,6 +50,8 @@ final class Validator {
     for (Binding b : graph.bindings()) {
       validateBinding(b);
     }
+    validateModules();
+    checkDuplicateBindings();
     checkShadowing();
     if (ok) {
       checkCycles();
@@ -67,6 +72,35 @@ final class Validator {
   private void validateBinding(Binding b) {
     TypeElement type = b.type;
     String name = Names.ref(type);
+    if (graph.module(type) != null) {
+      // Modules contribute bindings; they are not injection targets.
+      for (ExecutableElement ctor : b.injectConstructors) {
+        error(ctor, "@Module classes cannot have an @Inject constructor (" + name + ").");
+      }
+      for (Element member : b.injectFields) {
+        error(member, "@Module classes cannot have @Inject members (" + name + ").");
+      }
+      for (Element member : b.injectMethods) {
+        error(member, "@Module classes cannot have @Inject members (" + name + ").");
+      }
+      if (b.singleton) {
+        error(
+            type,
+            "@Singleton on a @Module has no effect; put it on the @Provides methods instead ("
+                + name
+                + ").");
+      }
+      for (Element member : b.misplacedSingletons) {
+        error(
+            member,
+            "@Singleton on a method is only supported on @Provides methods of a @Module ("
+                + name
+                + "."
+                + member.getSimpleName()
+                + ").");
+      }
+      return;
+    }
     if (type.getKind() != ElementKind.CLASS) {
       error(type, "@Inject and @Singleton can only be used on classes; " + name + " is not one.");
       return;
@@ -87,8 +121,7 @@ final class Validator {
     for (Element member : b.misplacedSingletons) {
       error(
           member,
-          "@Singleton is only supported on classes with an @Inject constructor; @Provides methods"
-              + " are not supported yet ("
+          "@Singleton on a method is only supported on @Provides methods of a @Module ("
               + name
               + "."
               + member.getSimpleName()
@@ -163,25 +196,44 @@ final class Validator {
     }
   }
 
-  /** A dependency must be a concrete, non-generic class with an @Inject constructor. */
-  private void checkDependency(TypeMirror t, Element site) {
+  /**
+   * A dependency is a concrete, non-generic class with an @Inject constructor, optionally wrapped
+   * in a single {@code Provider<T>} / {@code Lazy<T>}.
+   */
+  private void checkDependency(TypeMirror declared, Element site) {
+    Dependency d = Dependency.of(declared);
+    if (d.rawWrapper) {
+      error(site, "Raw " + declared + " cannot be injected; use " + declared + "<T>.");
+      return;
+    }
+    if (d.isWrapper() && Dependency.of(d.provided).isWrapper()) {
+      error(site, "Nested Provider/Lazy are not supported (" + declared + ").");
+      return;
+    }
+    if (checkProvidable(d.provided, site) && d.isWrapper()) {
+      graph.requestWrapper(d.kind, d.providedElement());
+    }
+  }
+
+  /** Returns whether {@code t} is a concrete, non-generic class with an @Inject constructor. */
+  private boolean checkProvidable(TypeMirror t, Element site) {
     switch (t.getKind()) {
       case ERROR:
         // javac already reported the unresolved symbol; just don't generate.
         ok = false;
-        return;
+        return false;
       case DECLARED:
         break;
       case ARRAY:
         error(site, "Arrays cannot be injected (" + t + ").");
-        return;
+        return false;
       case TYPEVAR:
       case WILDCARD:
         error(site, "Type variables cannot be injected (" + t + ").");
-        return;
+        return false;
       default:
         error(site, "Primitive types cannot be injected (" + t + ").");
-        return;
+        return false;
     }
     DeclaredType dt = (DeclaredType) t;
     TypeElement te = (TypeElement) dt.asElement();
@@ -191,10 +243,14 @@ final class Validator {
           site,
           "Parameterized types cannot be injected ("
               + t
-              + "); Provider<T>/Lazy<T> are not supported yet — see "
+              + "); only javax.inject.Provider<T> and picodroid.di.Lazy<T> are supported — see "
               + DESIGN_DOC
               + ".");
-      return;
+      return false;
+    }
+    if (!graph.providesFor(te).isEmpty()) {
+      // Bound by a @Provides method (duplicates are reported separately).
+      return true;
     }
     if (te.getKind() != ElementKind.CLASS || te.getModifiers().contains(Modifier.ABSTRACT)) {
       error(
@@ -202,15 +258,155 @@ final class Validator {
           name
               + " is "
               + (te.getKind() == ElementKind.CLASS ? "abstract" : "not a class")
-              + " and cannot be provided without an @Inject constructor;"
-              + " @Provides/@Binds are not supported yet — see "
+              + " and cannot be provided without an @Inject constructor or a @Provides method"
+              + " (see "
               + DESIGN_DOC
-              + ".");
-      return;
+              + ").");
+      return false;
     }
     Binding provider = graph.binding(te);
     if (provider == null || !provider.hasInjectConstructor()) {
-      error(site, name + " cannot be provided without an @Inject constructor.");
+      error(
+          site, name + " cannot be provided without an @Inject constructor or a @Provides method.");
+      return false;
+    }
+    return true;
+  }
+
+  // ── Modules ────────────────────────────────────────────────────────────────
+
+  private void validateModules() {
+    for (ExecutableElement m : graph.strayProvides()) {
+      error(
+          m,
+          "@Provides methods can only be present within a @Module class ("
+              + Names.ref((TypeElement) m.getEnclosingElement())
+              + "."
+              + m.getSimpleName()
+              + ").");
+    }
+    for (ModuleInfo mod : graph.modules()) {
+      TypeElement type = mod.type;
+      String name = Names.ref(type);
+      if (type.getKind() != ElementKind.CLASS) {
+        error(type, "@Module can only be used on classes (" + name + ").");
+        continue;
+      }
+      NestingKind nesting = type.getNestingKind();
+      if (nesting == NestingKind.LOCAL || nesting == NestingKind.ANONYMOUS) {
+        error(type, "@Module is not supported on local or anonymous classes (" + name + ").");
+        continue;
+      }
+      if (nesting == NestingKind.MEMBER && !type.getModifiers().contains(Modifier.STATIC)) {
+        error(type, "Nested @Module classes must be static (" + name + ").");
+        continue;
+      }
+      if (!type.getTypeParameters().isEmpty()) {
+        error(type, "@Module classes cannot be generic (" + name + ").");
+        continue;
+      }
+      Set<String> methodNames = new HashSet<>();
+      for (ProvidesBinding pb : mod.provides) {
+        ExecutableElement m = pb.method;
+        String mname = name + "." + m.getSimpleName();
+        if (!methodNames.add(m.getSimpleName().toString())) {
+          error(
+              m,
+              "Cannot have more than one @Provides method with the same name in a @Module ("
+                  + mname
+                  + ").");
+        }
+        if (m.getModifiers().contains(Modifier.PRIVATE)) {
+          error(m, "@Provides methods must not be private (" + mname + ").");
+        } else if (m.getModifiers().contains(Modifier.ABSTRACT)) {
+          error(m, "@Provides methods must not be abstract (" + mname + ").");
+        } else if (!m.getTypeParameters().isEmpty()) {
+          error(m, "@Provides methods must not be generic (" + mname + ").");
+        }
+        TypeMirror rt = m.getReturnType();
+        switch (rt.getKind()) {
+          case ERROR:
+            ok = false;
+            break;
+          case DECLARED:
+            if (!((DeclaredType) rt).getTypeArguments().isEmpty()) {
+              error(m, "@Provides methods cannot return parameterized types (" + rt + ").");
+            }
+            break;
+          case VOID:
+            error(m, "@Provides methods must return a value (" + mname + ").");
+            break;
+          default:
+            error(
+                m,
+                "@Provides methods must return a class or interface type ("
+                    + mname
+                    + " returns "
+                    + rt
+                    + ").");
+            break;
+        }
+        for (VariableElement param : m.getParameters()) {
+          checkDependency(param.asType(), param);
+        }
+      }
+      if (mod.needsInstance()) {
+        if (type.getModifiers().contains(Modifier.ABSTRACT)) {
+          error(
+              type,
+              "A @Module with instance @Provides methods must be concrete; make the methods"
+                  + " static or the class concrete ("
+                  + name
+                  + ").");
+        } else if (!hasAccessibleNoArgConstructor(type)) {
+          error(
+              type,
+              "A @Module with instance @Provides methods needs a non-private no-arg constructor ("
+                  + name
+                  + ").");
+        }
+      }
+    }
+  }
+
+  private static boolean hasAccessibleNoArgConstructor(TypeElement type) {
+    boolean any = false;
+    for (Element member : type.getEnclosedElements()) {
+      if (member.getKind() != ElementKind.CONSTRUCTOR) {
+        continue;
+      }
+      any = true;
+      ExecutableElement ctor = (ExecutableElement) member;
+      if (ctor.getParameters().isEmpty() && !ctor.getModifiers().contains(Modifier.PRIVATE)) {
+        return true;
+      }
+    }
+    return !any; // no explicit constructor → the implicit default one
+  }
+
+  /** A type may have exactly one binding: one @Provides method or one @Inject constructor. */
+  private void checkDuplicateBindings() {
+    for (Map.Entry<String, List<ProvidesBinding>> e : graph.provisions().entrySet()) {
+      List<ProvidesBinding> provides = e.getValue();
+      TypeElement provided = provides.get(0).returnElement();
+      Binding ctorBinding = graph.binding(provided);
+      List<String> sites = new ArrayList<>();
+      for (ProvidesBinding pb : provides) {
+        sites.add(pb.describe());
+      }
+      if (ctorBinding != null && ctorBinding.hasInjectConstructor()) {
+        sites.add("@Inject " + Names.ref(provided) + "(...)");
+      }
+      if (sites.size() < 2) {
+        continue;
+      }
+      String message = Names.ref(provided) + " is bound multiple times: " + sites;
+      for (ProvidesBinding pb : provides) {
+        error(pb.method, message);
+      }
+      if (ctorBinding != null && ctorBinding.hasInjectConstructor()) {
+        error(ctorBinding.injectConstructor(), message);
+      }
     }
   }
 
@@ -265,12 +461,26 @@ final class Validator {
   private static final int GREY = 1;
   private static final int BLACK = 2;
 
-  private void checkCycles() {
-    Map<String, Integer> color = new HashMap<>();
+  /** Every node: classes with bindings plus every @Provides-bound type, by qualified name. */
+  private Map<String, TypeElement> cycleNodes() {
+    Map<String, TypeElement> nodes = new LinkedHashMap<>();
     for (Binding b : graph.bindings()) {
-      if (color.getOrDefault(b.qualifiedName(), WHITE) == WHITE) {
-        List<Binding> path = new ArrayList<>();
-        if (dfs(b, color, path)) {
+      nodes.put(b.qualifiedName(), b.type);
+    }
+    for (List<ProvidesBinding> provides : graph.provisions().values()) {
+      TypeElement t = provides.get(0).returnElement();
+      nodes.put(t.getQualifiedName().toString(), t);
+    }
+    return nodes;
+  }
+
+  private void checkCycles() {
+    Map<String, TypeElement> nodes = cycleNodes();
+    Map<String, Integer> color = new HashMap<>();
+    for (String key : nodes.keySet()) {
+      if (color.getOrDefault(key, WHITE) == WHITE) {
+        List<String> path = new ArrayList<>();
+        if (dfs(key, nodes, color, path)) {
           return;
         }
       }
@@ -278,61 +488,82 @@ final class Validator {
   }
 
   /** Returns true once a cycle has been reported (one is enough). */
-  private boolean dfs(Binding b, Map<String, Integer> color, List<Binding> path) {
-    color.put(b.qualifiedName(), GREY);
-    path.add(b);
-    for (Binding dep : dependencies(b)) {
-      int c = color.getOrDefault(dep.qualifiedName(), WHITE);
+  private boolean dfs(
+      String key, Map<String, TypeElement> nodes, Map<String, Integer> color, List<String> path) {
+    color.put(key, GREY);
+    path.add(key);
+    for (String dep : dependencies(key, nodes)) {
+      int c = color.getOrDefault(dep, WHITE);
       if (c == GREY) {
-        reportCycle(path, dep);
+        reportCycle(path, dep, nodes);
         return true;
       }
-      if (c == WHITE && dfs(dep, color, path)) {
+      if (c == WHITE && dfs(dep, nodes, color, path)) {
         return true;
       }
     }
     path.remove(path.size() - 1);
-    color.put(b.qualifiedName(), BLACK);
+    color.put(key, BLACK);
     return false;
   }
 
-  /** Constructor parameters plus every member injected on construction (own and inherited). */
-  private List<Binding> dependencies(Binding b) {
-    List<Binding> deps = new ArrayList<>();
+  /**
+   * Direct (non-wrapper) dependencies of a node: a @Provides method's parameters, or a class's
+   * constructor parameters plus every member injected on construction (own and inherited).
+   */
+  private List<String> dependencies(String key, Map<String, TypeElement> nodes) {
+    List<String> deps = new ArrayList<>();
+    TypeElement type = nodes.get(key);
+    List<ProvidesBinding> provides = graph.providesFor(type);
+    if (provides.size() == 1) {
+      for (VariableElement p : provides.get(0).method.getParameters()) {
+        addDependency(deps, p.asType(), nodes);
+      }
+      return deps;
+    }
+    Binding b = graph.binding(type);
+    if (b == null) {
+      return deps;
+    }
     if (b.hasInjectConstructor()) {
       for (VariableElement p : b.injectConstructor().getParameters()) {
-        addDependency(deps, p.asType());
+        addDependency(deps, p.asType(), nodes);
       }
     }
     for (Binding m = b; m != null; m = m.nearestInjectableAncestor) {
       for (VariableElement f : m.injectFields) {
-        addDependency(deps, f.asType());
+        addDependency(deps, f.asType(), nodes);
       }
       for (ExecutableElement method : m.injectMethods) {
         for (VariableElement p : method.getParameters()) {
-          addDependency(deps, p.asType());
+          addDependency(deps, p.asType(), nodes);
         }
       }
     }
     return deps;
   }
 
-  private void addDependency(List<Binding> deps, TypeMirror t) {
+  private void addDependency(List<String> deps, TypeMirror t, Map<String, TypeElement> nodes) {
+    // Provider<T> / Lazy<T> construct nothing at injection time, so they are
+    // not edges — that is exactly how they break a cycle (Dagger semantics).
+    if (Dependency.of(t).isWrapper()) {
+      return;
+    }
     if (t.getKind() == TypeKind.DECLARED) {
-      Binding dep = graph.binding((TypeElement) ((DeclaredType) t).asElement());
-      if (dep != null) {
-        deps.add(dep);
+      String key = ((TypeElement) ((DeclaredType) t).asElement()).getQualifiedName().toString();
+      if (nodes.containsKey(key)) {
+        deps.add(key);
       }
     }
   }
 
-  private void reportCycle(List<Binding> path, Binding back) {
+  private void reportCycle(List<String> path, String back, Map<String, TypeElement> nodes) {
     int start = path.indexOf(back);
     StringBuilder sb = new StringBuilder("Found a dependency cycle: ");
     for (int i = start; i < path.size(); i++) {
-      sb.append(path.get(i).type.getSimpleName()).append(" -> ");
+      sb.append(nodes.get(path.get(i)).getSimpleName()).append(" -> ");
     }
-    sb.append(back.type.getSimpleName());
-    error(back.type, sb.toString());
+    sb.append(nodes.get(back).getSimpleName());
+    error(nodes.get(back), sb.toString());
   }
 }

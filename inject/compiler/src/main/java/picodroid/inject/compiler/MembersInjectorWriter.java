@@ -16,7 +16,7 @@ import javax.lang.model.element.VariableElement;
 final class MembersInjectorWriter {
   private MembersInjectorWriter() {}
 
-  static void write(ProcessingEnvironment env, Binding b) throws IOException {
+  static void write(ProcessingEnvironment env, InjectionGraph graph, Binding b) throws IOException {
     TypeElement type = b.type;
     String simple = Names.generatedSimpleName(type, Names.MEMBERS_INJECTOR_SUFFIX);
     String ref = Names.ref(type);
@@ -34,7 +34,7 @@ final class MembersInjectorWriter {
       sb.append("    instance.")
           .append(field.getSimpleName())
           .append(" = ")
-          .append(SourceWriter.factoryCall(field.asType()))
+          .append(SourceWriter.dependencyExpr(graph, field.asType()))
           .append(";\n");
     }
     for (ExecutableElement method : b.injectMethods) {
@@ -45,7 +45,7 @@ final class MembersInjectorWriter {
           sb.append(", ");
         }
         first = false;
-        sb.append(SourceWriter.factoryCall(param.asType()));
+        sb.append(SourceWriter.dependencyExpr(graph, param.asType()));
       }
       sb.append(");\n");
     }

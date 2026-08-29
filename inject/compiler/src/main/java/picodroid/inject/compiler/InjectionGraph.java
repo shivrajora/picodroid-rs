@@ -10,6 +10,7 @@ import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
@@ -36,6 +37,20 @@ final class InjectionGraph {
   private final List<TypeElement> allTypes = new ArrayList<>();
   private final List<TypeMirror> frameworkTypes = new ArrayList<>();
 
+  /** Types requested as {@code Provider<T>} / {@code Lazy<T>} somewhere (qualified name → T). */
+  private final Map<String, TypeElement> providerTypes = new LinkedHashMap<>();
+
+  private final Map<String, TypeElement> lazyTypes = new LinkedHashMap<>();
+
+  /** Every {@code @Module} class, by qualified name. */
+  private final Map<String, ModuleInfo> modules = new LinkedHashMap<>();
+
+  /** {@code @Provides} methods declared outside any {@code @Module} (always an error). */
+  private final List<ExecutableElement> strayProvides = new ArrayList<>();
+
+  /** Provided type (qualified name) → its {@code @Provides} bindings (>1 is a duplicate error). */
+  private final Map<String, List<ProvidesBinding>> provisions = new LinkedHashMap<>();
+
   private InjectionGraph(ProcessingEnvironment env) {
     this.types = env.getTypeUtils();
     this.elements = env.getElementUtils();
@@ -54,6 +69,7 @@ final class InjectionGraph {
     }
     List<TypeElement> unannotatedComponents = new ArrayList<>();
     for (TypeElement type : g.allTypes) {
+      g.collectModule(type);
       if (!g.addBinding(type) && g.isFrameworkComponent(type)) {
         unannotatedComponents.add(type);
       }
@@ -104,8 +120,12 @@ final class InjectionGraph {
     List<VariableElement> fields = new ArrayList<>();
     List<ExecutableElement> methods = new ArrayList<>();
     List<Element> misplacedSingletons = new ArrayList<>();
+    boolean isModule = Names.hasAnnotation(type, Names.MODULE);
     for (Element member : type.getEnclosedElements()) {
-      if (Names.hasAnnotation(member, Names.SINGLETON)) {
+      // @Singleton is fine on a @Provides method of a @Module; anywhere else
+      // on a member it is misplaced.
+      if (Names.hasAnnotation(member, Names.SINGLETON)
+          && !(isModule && Names.hasAnnotation(member, Names.PROVIDES))) {
         misplacedSingletons.add(member);
       }
       if (!Names.hasAnnotation(member, Names.INJECT)) {
@@ -159,6 +179,34 @@ final class InjectionGraph {
     return true;
   }
 
+  /** Registers {@code type}'s {@code @Provides} methods, under its module or as strays. */
+  private void collectModule(TypeElement type) {
+    boolean isModule = Names.hasAnnotation(type, Names.MODULE);
+    List<ProvidesBinding> provides = new ArrayList<>();
+    for (Element member : type.getEnclosedElements()) {
+      if (member.getKind() != ElementKind.METHOD || !Names.hasAnnotation(member, Names.PROVIDES)) {
+        continue;
+      }
+      ExecutableElement method = (ExecutableElement) member;
+      if (!isModule) {
+        strayProvides.add(method);
+        continue;
+      }
+      ProvidesBinding pb =
+          new ProvidesBinding(type, method, Names.hasAnnotation(method, Names.SINGLETON));
+      provides.add(pb);
+      TypeElement returned = pb.returnElement();
+      if (returned != null) {
+        provisions
+            .computeIfAbsent(returned.getQualifiedName().toString(), k -> new ArrayList<>())
+            .add(pb);
+      }
+    }
+    if (isModule) {
+      modules.put(type.getQualifiedName().toString(), new ModuleInfo(type, provides));
+    }
+  }
+
   private Binding findInjectableAncestor(TypeElement type) {
     TypeMirror sup = type.getSuperclass();
     while (sup.getKind() == TypeKind.DECLARED) {
@@ -193,6 +241,53 @@ final class InjectionGraph {
   /** Every class, interface and enum in the compilation (used by the shadowing check). */
   List<TypeElement> allTypes() {
     return allTypes;
+  }
+
+  Collection<ModuleInfo> modules() {
+    return modules.values();
+  }
+
+  ModuleInfo module(TypeElement type) {
+    return modules.get(type.getQualifiedName().toString());
+  }
+
+  List<ExecutableElement> strayProvides() {
+    return strayProvides;
+  }
+
+  /** The {@code @Provides} bindings for {@code type} (empty if none). */
+  List<ProvidesBinding> providesFor(TypeElement type) {
+    List<ProvidesBinding> p = provisions.get(type.getQualifiedName().toString());
+    return p == null ? new ArrayList<ProvidesBinding>() : p;
+  }
+
+  Map<String, List<ProvidesBinding>> provisions() {
+    return provisions;
+  }
+
+  /**
+   * Qualified name of the factory whose {@code get()} binds {@code type}: the single
+   * {@code @Provides} factory if a module provides it, else the type's own {@code T_Factory}.
+   */
+  String providerFactoryName(TypeElement type) {
+    List<ProvidesBinding> p = provisions.get(type.getQualifiedName().toString());
+    if (p != null && p.size() == 1) {
+      return p.get(0).factoryQualifiedName();
+    }
+    return Names.generatedQualifiedName(type, Names.FACTORY_SUFFIX);
+  }
+
+  void requestWrapper(Dependency.Kind kind, TypeElement provided) {
+    Map<String, TypeElement> target = kind == Dependency.Kind.LAZY ? lazyTypes : providerTypes;
+    target.put(provided.getQualifiedName().toString(), provided);
+  }
+
+  Collection<TypeElement> providerTypes() {
+    return providerTypes.values();
+  }
+
+  Collection<TypeElement> lazyTypes() {
+    return lazyTypes.values();
   }
 
   Types types() {

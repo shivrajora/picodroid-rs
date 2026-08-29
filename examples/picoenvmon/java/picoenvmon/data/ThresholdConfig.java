@@ -29,8 +29,8 @@ public class ThresholdConfig {
 
   /** Loads the persisted values once; app-scoped so every screen and the Service share them. */
   @Inject
-  public ThresholdConfig(EnvPrefs prefs) {
-    load(prefs.get());
+  public ThresholdConfig(SharedPreferences prefs) {
+    load(prefs);
     Log.i(
         EnvApp.TAG,
         "thresholds tempHi=" + tempHiCentiC + " humLo=" + humLoMilliPct + " luxLo=" + luxLo);

@@ -190,6 +190,58 @@ public class ValidationTest {
   }
 
   @Test
+  public void nestedProviderRejected() throws Exception {
+    assertError(
+        "Nested Provider/Lazy are not supported",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider<picodroid.di.Lazy<Clock>> x) {}",
+            "}"));
+  }
+
+  @Test
+  public void rawProviderRejected() throws Exception {
+    assertError(
+        "Raw javax.inject.Provider cannot be injected",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider x) {}",
+            "}"));
+  }
+
+  @Test
+  public void providerOfUnprovidableRejected() throws Exception {
+    assertError(
+        "t.Plain cannot be provided without an @Inject constructor",
+        src("t.Plain", "package t;", "public class Plain {}"),
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(picodroid.di.Lazy<Plain> x) {}",
+            "}"));
+  }
+
+  @Test
+  public void providerOfWildcardRejected() throws Exception {
+    assertError(
+        "Type variables cannot be injected",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider<? extends Clock> x) {}",
+            "}"));
+  }
+
+  @Test
   public void interfaceDependency() throws Exception {
     assertError(
         "is not a class and cannot be provided without an @Inject constructor",
@@ -251,13 +303,184 @@ public class ValidationTest {
   @Test
   public void singletonOnMethodRejected() throws Exception {
     assertError(
-        "@Singleton is only supported on classes",
+        "@Singleton on a method is only supported on @Provides methods of a @Module",
         CLOCK,
         src(
             "t.M",
             "package t;",
             "public class M {",
             "  @javax.inject.Singleton Clock provide() { return null; }",
+            "}"));
+  }
+
+  private static final Source GREETING =
+      src("t.Greeting", "package t;", "public interface Greeting {", "  String greet();", "}");
+
+  @Test
+  public void providesOutsideModuleRejected() throws Exception {
+    assertError(
+        "@Provides methods can only be present within a @Module class",
+        GREETING,
+        src(
+            "t.NotAModule",
+            "package t;",
+            "public class NotAModule {",
+            "  @picodroid.di.Provides static Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void duplicateBindingAcrossModules() throws Exception {
+    assertError(
+        "t.Greeting is bound multiple times",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static Greeting g() { return null; }",
+            "}"),
+        src(
+            "t.B",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class B {",
+            "  @picodroid.di.Provides static Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void duplicateBindingModuleAndInjectConstructor() throws Exception {
+    assertError(
+        "t.Clock is bound multiple times",
+        CLOCK,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static Clock c() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void providesMustReturnAValue() throws Exception {
+    assertError(
+        "@Provides methods must return a value",
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static void nothing() {}",
+            "}"));
+  }
+
+  @Test
+  public void providesPrimitiveRejected() throws Exception {
+    assertError(
+        "@Provides methods must return a class or interface type",
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static int n() { return 1; }",
+            "}"));
+  }
+
+  @Test
+  public void privateProvidesRejected() throws Exception {
+    assertError(
+        "@Provides methods must not be private",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides private static Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void sameNameProvidesRejected() throws Exception {
+    assertError(
+        "Cannot have more than one @Provides method with the same name",
+        GREETING,
+        CLOCK,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static Greeting g() { return null; }",
+            "  @picodroid.di.Provides static Clock g(Greeting x) { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void instanceProvidesOnAbstractModuleRejected() throws Exception {
+    assertError(
+        "must be concrete",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public abstract class A {",
+            "  @picodroid.di.Provides Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void instanceProvidesNeedsNoArgConstructor() throws Exception {
+    assertError(
+        "needs a non-private no-arg constructor",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  A(int x) {}",
+            "  @picodroid.di.Provides Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void injectConstructorOnModuleRejected() throws Exception {
+    assertError(
+        "@Module classes cannot have an @Inject constructor",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @javax.inject.Inject A() {}",
+            "  @picodroid.di.Provides static Greeting g() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void cycleThroughProvides() throws Exception {
+    assertError(
+        "Found a dependency cycle",
+        GREETING,
+        src(
+            "t.A",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class A {",
+            "  @picodroid.di.Provides static Greeting g(B b) { return null; }",
+            "}"),
+        src(
+            "t.B",
+            "package t;",
+            "public class B {",
+            "  @javax.inject.Inject B(Greeting g) {}",
             "}"));
   }
 

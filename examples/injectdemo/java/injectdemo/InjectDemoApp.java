@@ -2,9 +2,11 @@
 package injectdemo;
 
 import javax.inject.Inject;
+import javax.inject.Provider;
 import picodroid.app.Application;
 import picodroid.content.Intent;
 import picodroid.di.ApplicationComponent;
+import picodroid.di.Lazy;
 import picodroid.util.Log;
 
 /**
@@ -22,6 +24,18 @@ public class InjectDemoApp extends Application {
   @Inject Greeter greeter;
   @Inject LegacyComponent legacy;
 
+  /** A fresh (unscoped) Greeter per get(). */
+  @Inject Provider<Greeter> greeters;
+
+  /** Deferred until first get(), then memoized — and a @Singleton's Lazy is the shared instance. */
+  @Inject Lazy<Clock> lazyClock;
+
+  /** Module-provided bindings: an interface (unscoped) and a value type (@Singleton @Provides). */
+  @Inject Greeting greeting;
+
+  @Inject Banner banner;
+  @Inject Provider<Banner> banners;
+
   @Override
   public void onCreate() {
     appGreeter = greeter;
@@ -34,6 +48,28 @@ public class InjectDemoApp extends Application {
             + (m.fieldsOk() ? "ok" : "BAD")
             + " method="
             + (m.methodOk() ? "ok" : "BAD"));
+
+    Greeter first = greeters.get();
+    Greeter second = greeters.get();
+    Clock lazyOnce = lazyClock.get();
+    Clock lazyTwice = lazyClock.get();
+    Log.i(
+        TAG,
+        "Provider fresh="
+            + (first != second)
+            + " Lazy clock#"
+            + lazyOnce.id()
+            + " memo="
+            + (lazyOnce == lazyTwice));
+
+    Log.i(
+        TAG,
+        "Module iface="
+            + greeting.greet("x")
+            + " banner="
+            + banner.text()
+            + " singleton="
+            + (banners.get() == banner));
 
     startService(new Intent(PingService.class));
     startActivity(new Intent(HomeActivity.class));

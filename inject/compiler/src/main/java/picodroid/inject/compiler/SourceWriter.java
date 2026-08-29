@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.Writer;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.JavaFileObject;
 
@@ -31,10 +30,26 @@ final class SourceWriter {
     return sb;
   }
 
-  /** {@code pkg.Dep_Factory.get()} for a (validated, declared) dependency type. */
-  static String factoryCall(TypeMirror dependency) {
-    TypeElement te = (TypeElement) ((DeclaredType) dependency).asElement();
-    return Names.generatedQualifiedName(te, Names.FACTORY_SUFFIX) + ".get()";
+  /** {@code get()} on whichever factory binds {@code type}: its own or a {@code @Provides} one. */
+  static String factoryCall(InjectionGraph graph, TypeElement type) {
+    return graph.providerFactoryName(type) + ".get()";
+  }
+
+  /**
+   * The expression that satisfies one (validated) injection site: the factory call for a plain
+   * {@code T}, or a fresh wrapper object for {@code Provider<T>} / {@code Lazy<T>}.
+   */
+  static String dependencyExpr(InjectionGraph graph, TypeMirror declared) {
+    Dependency d = Dependency.of(declared);
+    TypeElement te = d.providedElement();
+    switch (d.kind) {
+      case PROVIDER:
+        return "new " + Names.generatedQualifiedName(te, Names.PROVIDER_SUFFIX) + "()";
+      case LAZY:
+        return "new " + Names.generatedQualifiedName(te, Names.LAZY_SUFFIX) + "()";
+      default:
+        return factoryCall(graph, te);
+    }
   }
 
   /** {@code pkg.Owner_MembersInjector.injectMembers(<expr>)}. */

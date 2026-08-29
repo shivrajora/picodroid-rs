@@ -287,6 +287,207 @@ public class GenerationTest {
   }
 
   @Test
+  public void providerAndLazyDependencies() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Clock",
+                "package t;",
+                "public class Clock {",
+                "  @javax.inject.Inject public Clock() {}",
+                "}"),
+            src(
+                "t.Greeter",
+                "package t;",
+                "public class Greeter {",
+                "  @javax.inject.Inject picodroid.di.Lazy<Clock> lazyField;",
+                "  @javax.inject.Inject Greeter(javax.inject.Provider<Clock> p,"
+                    + " picodroid.di.Lazy<Clock> l) {}",
+                "}"));
+    assertClean(r);
+    assertTrue(
+        r.generated("t.Greeter_Factory")
+            .contains("new t.Greeter(new t.Clock_Provider(), new t.Clock_Lazy())"));
+    assertTrue(
+        r.generated("t.Greeter_MembersInjector")
+            .contains("instance.lazyField = new t.Clock_Lazy();"));
+    assertEquals(
+        HEADER
+            + "public final class Clock_Provider implements javax.inject.Provider<t.Clock> {\n"
+            + "  public Clock_Provider() {}\n"
+            + "\n"
+            + "  @Override\n"
+            + "  public t.Clock get() {\n"
+            + "    return t.Clock_Factory.get();\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.Clock_Provider"));
+    assertEquals(
+        HEADER
+            + "public final class Clock_Lazy implements picodroid.di.Lazy<t.Clock> {\n"
+            + "  private t.Clock value;\n"
+            + "\n"
+            + "  public Clock_Lazy() {}\n"
+            + "\n"
+            + "  @Override\n"
+            + "  public t.Clock get() {\n"
+            + "    t.Clock local = value;\n"
+            + "    if (local == null) {\n"
+            + "      synchronized (this) {\n"
+            + "        local = value;\n"
+            + "        if (local == null) {\n"
+            + "          local = t.Clock_Factory.get();\n"
+            + "          value = local;\n"
+            + "        }\n"
+            + "      }\n"
+            + "    }\n"
+            + "    return local;\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.Clock_Lazy"));
+  }
+
+  @Test
+  public void providerBreaksCycle() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.A",
+                "package t;",
+                "public class A {",
+                "  @javax.inject.Inject A(javax.inject.Provider<B> b) {}",
+                "}"),
+            src("t.B", "package t;", "public class B {", "  @javax.inject.Inject B(A a) {}", "}"));
+    assertClean(r);
+    assertTrue(r.generated.containsKey("t.B_Provider"));
+  }
+
+  private static final CompileHarness.Source GREETING =
+      src("t.Greeting", "package t;", "public interface Greeting {", "  String greet();", "}");
+
+  @Test
+  public void staticProvidesBindsAnInterface() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Clock",
+                "package t;",
+                "public class Clock {",
+                "  @javax.inject.Inject public Clock() {}",
+                "}"),
+            GREETING,
+            src(
+                "t.AppModule",
+                "package t;",
+                "@picodroid.di.Module",
+                "public abstract class AppModule {",
+                "  @picodroid.di.Provides",
+                "  static Greeting provideGreeting(Clock clock) { return null; }",
+                "}"),
+            src(
+                "t.User",
+                "package t;",
+                "public class User {",
+                "  @javax.inject.Inject Greeting greeting;",
+                "}"));
+    assertClean(r);
+    assertEquals(
+        HEADER
+            + "public final class AppModule_ProvideGreetingFactory {\n"
+            + "  private AppModule_ProvideGreetingFactory() {}\n"
+            + "\n"
+            + "  public static t.Greeting get() {\n"
+            + "    return t.AppModule.provideGreeting(t.Clock_Factory.get());\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.AppModule_ProvideGreetingFactory"));
+    assertTrue(
+        r.generated("t.User_MembersInjector")
+            .contains("instance.greeting = t.AppModule_ProvideGreetingFactory.get();"));
+    assertFalse(
+        "static-only modules get no instance holder",
+        r.generated.containsKey("t.AppModule_Factory"));
+  }
+
+  @Test
+  public void instanceProvidesUsesModuleSingleton() throws Exception {
+    Result r =
+        compile(
+            GREETING,
+            src(
+                "t.AppModule",
+                "package t;",
+                "@picodroid.di.Module",
+                "public class AppModule {",
+                "  @picodroid.di.Provides",
+                "  @javax.inject.Singleton",
+                "  Greeting provideGreeting() { return null; }",
+                "}"),
+            src(
+                "t.User",
+                "package t;",
+                "public class User {",
+                "  @javax.inject.Inject User(Greeting g) {}",
+                "}"));
+    assertClean(r);
+    String factory = r.generated("t.AppModule_ProvideGreetingFactory");
+    assertTrue(factory, factory.contains("  private static t.Greeting instance;\n"));
+    assertTrue(
+        factory,
+        factory.contains("          local = t.AppModule_Factory.get().provideGreeting();\n"));
+    assertEquals(
+        HEADER
+            + "public final class AppModule_Factory {\n"
+            + "  private static t.AppModule instance;\n"
+            + "\n"
+            + "  private AppModule_Factory() {}\n"
+            + "\n"
+            + "  public static t.AppModule get() {\n"
+            + "    t.AppModule local = instance;\n"
+            + "    if (local == null) {\n"
+            + "      synchronized (AppModule_Factory.class) {\n"
+            + "        local = instance;\n"
+            + "        if (local == null) {\n"
+            + "          local = new t.AppModule();\n"
+            + "          instance = local;\n"
+            + "        }\n"
+            + "      }\n"
+            + "    }\n"
+            + "    return local;\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.AppModule_Factory"));
+  }
+
+  @Test
+  public void wrappersOfProvidedTypesUseTheProvidesFactory() throws Exception {
+    Result r =
+        compile(
+            GREETING,
+            src(
+                "t.AppModule",
+                "package t;",
+                "@picodroid.di.Module",
+                "public final class AppModule {",
+                "  @picodroid.di.Provides static Greeting provideGreeting() { return null; }",
+                "}"),
+            src(
+                "t.User",
+                "package t;",
+                "public class User {",
+                "  @javax.inject.Inject User(javax.inject.Provider<Greeting> p,"
+                    + " picodroid.di.Lazy<Greeting> l) {}",
+                "}"));
+    assertClean(r);
+    assertTrue(
+        r.generated("t.Greeting_Provider")
+            .contains("return t.AppModule_ProvideGreetingFactory.get();"));
+    assertTrue(
+        r.generated("t.Greeting_Lazy")
+            .contains("local = t.AppModule_ProvideGreetingFactory.get();"));
+  }
+
+  @Test
   public void noAnnotationsGeneratesNothing() throws Exception {
     Result r = compile(src("t.Plain", "package t;", "public class Plain {}"));
     assertClean(r);
