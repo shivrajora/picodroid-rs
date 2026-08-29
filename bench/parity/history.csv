@@ -63772,3 +63772,5 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-08-28T22:52:40Z,40411ec,sim,testbench_rp2350,callbacktest,shrink,holdout,phase_post_jvm_new_peak_b,90744
 2026-08-28T22:53:45Z,40411ec,hil,testbench_rp2350,hellokt,no-shrink,holdout,flash_seconds_x100,3939
 2026-08-28T22:53:45Z,40411ec,hil,testbench_rp2350,hellokt,shrink,holdout,flash_seconds_x100,3937
+2026-08-28T22:57:46Z,9e1cad0,hil,testbench_rp2350,langsuite_kt,no-shrink,holdout,flash_seconds_x100,4381
+2026-08-28T22:57:46Z,9e1cad0,hil,testbench_rp2350,langsuite_kt,shrink,holdout,flash_seconds_x100,4450
