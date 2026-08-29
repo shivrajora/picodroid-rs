@@ -187,7 +187,15 @@ if $DO_SIZE; then
     APP="${SIZE_APP:-helloworld}"
     PROFILE=release
     EXTRA_ARGS=(--release)
-    build_firmware > /dev/null 2>&1 || { echo "  $board: BUILD FAILED"; continue; }
+    # Keep the build output: sent to /dev/null, a CI link failure surfaced as
+    # a bare "exit code 1" under the lane header with nothing to read.
+    build_log="$SIZE_RUN_DIR/$board.build.log"
+    if ! build_firmware > "$build_log" 2>&1; then
+      echo "  $board: BUILD FAILED"
+      tail -30 "$build_log" | sed 's/^/    /'
+      SIZE_FAILED=1
+      continue
+    fi
     # print_memory_usage exported TEXT/DATA/BSS; resolve_board exported the
     # ceilings. The log carries both, so headroom stays derivable later
     # without re-reading a linker script.
@@ -207,6 +215,12 @@ if $DO_SIZE; then
       "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))" "$(( RAM_MAX - ram ))"
   done
   ingest_run_dir size "" "$SIZE_RUN_DIR"
+  # A board that never built must not read as a clean lane -- the ratchet step
+  # downstream would otherwise check a baseline nothing was measured against.
+  if [[ -n "${SIZE_FAILED:-}" ]]; then
+    echo "==> Size lane FAILED (see the build logs above)" >&2
+    exit 1
+  fi
 fi
 
 if $DO_SIM; then

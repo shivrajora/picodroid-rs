@@ -274,8 +274,12 @@ build_firmware() {
   if [[ "$TARGET" == thumbv6m* ]]; then
     flash_gate+=(--config 'profile.release.lto=false')
   fi
+  # `return`, not a bare command: a caller that invokes build_firmware on the
+  # left of `||` runs it with errexit disabled, so a failed cargo used to fall
+  # straight through to the ELF check below -- measuring or flashing whatever
+  # stale binary the last good build left behind. Report the failure instead.
   # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or a "+toolchain" override)
-  PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
+  if ! PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
     --manifest-path "$MANIFEST_DIR/Cargo.toml" \
     --config 'profile.dev.debug-assertions=false' \
     --config 'profile.dev.overflow-checks=false' \
@@ -286,13 +290,18 @@ build_firmware() {
     --no-default-features \
     --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
     "${EXTRA_BUILD_ARGS[@]}" \
-    "${EXTRA_ARGS[@]}"
+    "${EXTRA_ARGS[@]}"; then
+    echo "cargo build failed: $PACKAGE ($BOARD, $TARGET, $PROFILE)" >&2
+    return 1
+  fi
 
   ELF="${TARGET_DIR}/${TARGET}/${PROFILE}/${PACKAGE}"
 
+  # `return` for the same reason as above -- an `exit` here killed the caller
+  # outright, which no `||` can intercept.
   if [[ ! -f "$ELF" ]]; then
     echo "Binary not found: $ELF" >&2
-    exit 1
+    return 1
   fi
 
   print_memory_usage "$ELF"

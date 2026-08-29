@@ -128,6 +128,10 @@ jobs:
         with:
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
       - uses: Swatinem/rust-cache@v2
+      # Both ARM targets link through flip-link (.cargo/config.toml), so the
+      # release build below cannot link without it. No-ops when the cached
+      # ~/.cargo/bin already holds the binary.
+      - run: cargo install flip-link
       # Flash and RAM are the only metrics in this project with a zero noise
       # floor -- the link is deterministic -- and the RP2040 program region is
       # the binding budget, enforced otherwise only by the link failing.
