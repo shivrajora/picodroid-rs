@@ -163,25 +163,44 @@ final class Validator {
     }
   }
 
-  /** A dependency must be a concrete, non-generic class with an @Inject constructor. */
-  private void checkDependency(TypeMirror t, Element site) {
+  /**
+   * A dependency is a concrete, non-generic class with an @Inject constructor, optionally wrapped
+   * in a single {@code Provider<T>} / {@code Lazy<T>}.
+   */
+  private void checkDependency(TypeMirror declared, Element site) {
+    Dependency d = Dependency.of(declared);
+    if (d.rawWrapper) {
+      error(site, "Raw " + declared + " cannot be injected; use " + declared + "<T>.");
+      return;
+    }
+    if (d.isWrapper() && Dependency.of(d.provided).isWrapper()) {
+      error(site, "Nested Provider/Lazy are not supported (" + declared + ").");
+      return;
+    }
+    if (checkProvidable(d.provided, site) && d.isWrapper()) {
+      graph.requestWrapper(d.kind, d.providedElement());
+    }
+  }
+
+  /** Returns whether {@code t} is a concrete, non-generic class with an @Inject constructor. */
+  private boolean checkProvidable(TypeMirror t, Element site) {
     switch (t.getKind()) {
       case ERROR:
         // javac already reported the unresolved symbol; just don't generate.
         ok = false;
-        return;
+        return false;
       case DECLARED:
         break;
       case ARRAY:
         error(site, "Arrays cannot be injected (" + t + ").");
-        return;
+        return false;
       case TYPEVAR:
       case WILDCARD:
         error(site, "Type variables cannot be injected (" + t + ").");
-        return;
+        return false;
       default:
         error(site, "Primitive types cannot be injected (" + t + ").");
-        return;
+        return false;
     }
     DeclaredType dt = (DeclaredType) t;
     TypeElement te = (TypeElement) dt.asElement();
@@ -191,10 +210,10 @@ final class Validator {
           site,
           "Parameterized types cannot be injected ("
               + t
-              + "); Provider<T>/Lazy<T> are not supported yet — see "
+              + "); only javax.inject.Provider<T> and picodroid.di.Lazy<T> are supported — see "
               + DESIGN_DOC
               + ".");
-      return;
+      return false;
     }
     if (te.getKind() != ElementKind.CLASS || te.getModifiers().contains(Modifier.ABSTRACT)) {
       error(
@@ -206,12 +225,14 @@ final class Validator {
               + " @Provides/@Binds are not supported yet — see "
               + DESIGN_DOC
               + ".");
-      return;
+      return false;
     }
     Binding provider = graph.binding(te);
     if (provider == null || !provider.hasInjectConstructor()) {
       error(site, name + " cannot be provided without an @Inject constructor.");
+      return false;
     }
+    return true;
   }
 
   /**
@@ -318,6 +339,11 @@ final class Validator {
   }
 
   private void addDependency(List<Binding> deps, TypeMirror t) {
+    // Provider<T> / Lazy<T> construct nothing at injection time, so they are
+    // not edges — that is exactly how they break a cycle (Dagger semantics).
+    if (Dependency.of(t).isWrapper()) {
+      return;
+    }
     if (t.getKind() == TypeKind.DECLARED) {
       Binding dep = graph.binding((TypeElement) ((DeclaredType) t).asElement());
       if (dep != null) {

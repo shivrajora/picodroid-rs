@@ -190,6 +190,58 @@ public class ValidationTest {
   }
 
   @Test
+  public void nestedProviderRejected() throws Exception {
+    assertError(
+        "Nested Provider/Lazy are not supported",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider<picodroid.di.Lazy<Clock>> x) {}",
+            "}"));
+  }
+
+  @Test
+  public void rawProviderRejected() throws Exception {
+    assertError(
+        "Raw javax.inject.Provider cannot be injected",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider x) {}",
+            "}"));
+  }
+
+  @Test
+  public void providerOfUnprovidableRejected() throws Exception {
+    assertError(
+        "t.Plain cannot be provided without an @Inject constructor",
+        src("t.Plain", "package t;", "public class Plain {}"),
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(picodroid.di.Lazy<Plain> x) {}",
+            "}"));
+  }
+
+  @Test
+  public void providerOfWildcardRejected() throws Exception {
+    assertError(
+        "Type variables cannot be injected",
+        CLOCK,
+        src(
+            "t.P",
+            "package t;",
+            "public class P {",
+            "  @javax.inject.Inject P(javax.inject.Provider<? extends Clock> x) {}",
+            "}"));
+  }
+
+  @Test
   public void interfaceDependency() throws Exception {
     assertError(
         "is not a class and cannot be provided without an @Inject constructor",

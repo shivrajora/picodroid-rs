@@ -60,6 +60,18 @@ public final class InjectProcessor extends AbstractProcessor {
                 b.type);
       }
     }
+    try {
+      for (TypeElement t : graph.providerTypes()) {
+        WrapperWriter.writeProvider(processingEnv, t);
+      }
+      for (TypeElement t : graph.lazyTypes()) {
+        WrapperWriter.writeLazy(processingEnv, t);
+      }
+    } catch (IOException e) {
+      processingEnv
+          .getMessager()
+          .printMessage(Diagnostic.Kind.ERROR, "Could not write generated Provider/Lazy: " + e);
+    }
     // Never claim javax.inject.*: other tools may want to see them.
     return false;
   }

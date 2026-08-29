@@ -188,13 +188,14 @@ What the build does:
 - Every class with `@Inject` fields or methods gets a generated `Foo_MembersInjector`. Superclass members are injected first, then fields, then methods, each in declaration order.
 - **Framework-owned components — `Application`, `Activity`, `Service` — are injected automatically** right after construction and before `onCreate()`, like Hilt's `@AndroidEntryPoint`. They keep their no-arg constructor; use field or method injection there.
 - Anything else is pulled from the graph with `Foo_Factory.get()`, the equivalent of a Dagger component accessor (see `Message_Factory.get()` in `injectdemo`).
+- `javax.inject.Provider<T>` and `picodroid.di.Lazy<T>` (the `dagger.Lazy` counterpart) can be injected anywhere a `T` can. A `Provider` hands out a fresh instance per `get()` for unscoped types (the one instance for a `@Singleton`) and constructs nothing until called; a `Lazy` calls the factory once and memoizes. Both break dependency cycles, since neither constructs anything at injection time. They are generated on demand as `T_Provider` / `T_Lazy`.
 
 Rules the compiler enforces — each violation is a compile error that says why:
 
 - One `@Inject` constructor per class, never on an abstract class or on an `Application` / `Activity` / `Service` subclass (the framework constructs those with the no-arg constructor).
 - `@Inject` fields must be non-private, non-final and non-static; the injector lives in the same package, so package-private is the idiom. `@Inject` methods must be non-private, non-static, non-abstract and non-generic.
-- Every dependency must be a concrete, non-generic class with an `@Inject` constructor in the app. Interfaces, abstract classes, `Provider<T>`, `Lazy<T>`, qualifiers and `@Provides` are not supported yet — wrap an SDK type in a one-line `@Singleton` class instead (`EnvPrefs` in `picoenvmon` wraps `SharedPreferences`).
-- No dependency cycles, through constructor or member edges.
+- Every dependency must be a concrete, non-generic class with an `@Inject` constructor in the app, optionally wrapped in one `Provider<T>` / `Lazy<T>`. Interfaces, abstract classes, other generics, qualifiers and `@Provides` are not supported yet — wrap an SDK type in a one-line `@Singleton` class instead (`EnvPrefs` in `picoenvmon` wraps `SharedPreferences`).
+- No dependency cycles through direct constructor or member edges; break one with `Provider<T>` or `Lazy<T>`.
 - An `@Inject` field's name must not be reused anywhere in its superclass or subclass chain: pico-jvm resolves instance fields by name only.
 - `@Singleton` is the only scope, and it requires an `@Inject` constructor.
 

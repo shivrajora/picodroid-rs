@@ -17,10 +17,14 @@ import javax.lang.model.element.TypeElement;
 final class Names {
   static final String FACTORY_SUFFIX = "_Factory";
   static final String MEMBERS_INJECTOR_SUFFIX = "_MembersInjector";
+  static final String PROVIDER_SUFFIX = "_Provider";
+  static final String LAZY_SUFFIX = "_Lazy";
 
   static final String INJECT = "javax.inject.Inject";
   static final String SINGLETON = "javax.inject.Singleton";
   static final String SCOPE = "javax.inject.Scope";
+  static final String PROVIDER = "javax.inject.Provider";
+  static final String LAZY = "picodroid.di.Lazy";
 
   private Names() {}
 

@@ -58,11 +58,15 @@ public class HostRunTest {
                 "package t;",
                 "public class Leaf extends Base {",
                 "  @javax.inject.Inject Greeter greeter;",
+                "  @javax.inject.Inject javax.inject.Provider<Greeter> greeters;",
+                "  @javax.inject.Inject picodroid.di.Lazy<Clock> lazyClock;",
                 "  @javax.inject.Inject public Leaf() {}",
                 "  @javax.inject.Inject void leafMethod(Greeter g) { Trace.LOG.add(\"leaf:\" + (g"
                     + " != greeter)); }",
                 "  public Clock baseClock() { return baseClock; }",
                 "  public Greeter greeter() { return greeter; }",
+                "  public javax.inject.Provider<Greeter> greeters() { return greeters; }",
+                "  public picodroid.di.Lazy<Clock> lazyClock() { return lazyClock; }",
                 "}"));
     assertTrue("compile failed: " + r.errors(), r.success);
 
@@ -82,6 +86,14 @@ public class HostRunTest {
       Object leaf = loader.loadClass("t.Leaf_Factory").getMethod("get").invoke(null);
       assertSame(clock1, leafClass.getMethod("baseClock").invoke(leaf));
       assertNotNull(leafClass.getMethod("greeter").invoke(leaf));
+      Object greeters = leafClass.getMethod("greeters").invoke(leaf);
+      java.lang.reflect.Method providerGet = greeters.getClass().getMethod("get");
+      assertNotSame(
+          "unscoped: fresh per get()", providerGet.invoke(greeters), providerGet.invoke(greeters));
+      Object lazyClock = leafClass.getMethod("lazyClock").invoke(leaf);
+      java.lang.reflect.Method lazyGet = lazyClock.getClass().getMethod("get");
+      assertSame(clock1, lazyGet.invoke(lazyClock));
+      assertSame(lazyGet.invoke(lazyClock), lazyGet.invoke(lazyClock));
       Object log = loader.loadClass("t.Trace").getField("LOG").get(null);
       assertEquals(Arrays.asList("base:true", "leaf:true"), log);
     }

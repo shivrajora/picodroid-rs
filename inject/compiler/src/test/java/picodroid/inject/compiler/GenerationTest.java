@@ -287,6 +287,82 @@ public class GenerationTest {
   }
 
   @Test
+  public void providerAndLazyDependencies() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Clock",
+                "package t;",
+                "public class Clock {",
+                "  @javax.inject.Inject public Clock() {}",
+                "}"),
+            src(
+                "t.Greeter",
+                "package t;",
+                "public class Greeter {",
+                "  @javax.inject.Inject picodroid.di.Lazy<Clock> lazyField;",
+                "  @javax.inject.Inject Greeter(javax.inject.Provider<Clock> p,"
+                    + " picodroid.di.Lazy<Clock> l) {}",
+                "}"));
+    assertClean(r);
+    assertTrue(
+        r.generated("t.Greeter_Factory")
+            .contains("new t.Greeter(new t.Clock_Provider(), new t.Clock_Lazy())"));
+    assertTrue(
+        r.generated("t.Greeter_MembersInjector")
+            .contains("instance.lazyField = new t.Clock_Lazy();"));
+    assertEquals(
+        HEADER
+            + "public final class Clock_Provider implements javax.inject.Provider<t.Clock> {\n"
+            + "  public Clock_Provider() {}\n"
+            + "\n"
+            + "  @Override\n"
+            + "  public t.Clock get() {\n"
+            + "    return t.Clock_Factory.get();\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.Clock_Provider"));
+    assertEquals(
+        HEADER
+            + "public final class Clock_Lazy implements picodroid.di.Lazy<t.Clock> {\n"
+            + "  private t.Clock value;\n"
+            + "\n"
+            + "  public Clock_Lazy() {}\n"
+            + "\n"
+            + "  @Override\n"
+            + "  public t.Clock get() {\n"
+            + "    t.Clock local = value;\n"
+            + "    if (local == null) {\n"
+            + "      synchronized (this) {\n"
+            + "        local = value;\n"
+            + "        if (local == null) {\n"
+            + "          local = t.Clock_Factory.get();\n"
+            + "          value = local;\n"
+            + "        }\n"
+            + "      }\n"
+            + "    }\n"
+            + "    return local;\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.Clock_Lazy"));
+  }
+
+  @Test
+  public void providerBreaksCycle() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.A",
+                "package t;",
+                "public class A {",
+                "  @javax.inject.Inject A(javax.inject.Provider<B> b) {}",
+                "}"),
+            src("t.B", "package t;", "public class B {", "  @javax.inject.Inject B(A a) {}", "}"));
+    assertClean(r);
+    assertTrue(r.generated.containsKey("t.B_Provider"));
+  }
+
+  @Test
   public void noAnnotationsGeneratesNothing() throws Exception {
     Result r = compile(src("t.Plain", "package t;", "public class Plain {}"));
     assertClean(r);

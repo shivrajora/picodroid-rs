@@ -36,6 +36,11 @@ final class InjectionGraph {
   private final List<TypeElement> allTypes = new ArrayList<>();
   private final List<TypeMirror> frameworkTypes = new ArrayList<>();
 
+  /** Types requested as {@code Provider<T>} / {@code Lazy<T>} somewhere (qualified name → T). */
+  private final Map<String, TypeElement> providerTypes = new LinkedHashMap<>();
+
+  private final Map<String, TypeElement> lazyTypes = new LinkedHashMap<>();
+
   private InjectionGraph(ProcessingEnvironment env) {
     this.types = env.getTypeUtils();
     this.elements = env.getElementUtils();
@@ -193,6 +198,19 @@ final class InjectionGraph {
   /** Every class, interface and enum in the compilation (used by the shadowing check). */
   List<TypeElement> allTypes() {
     return allTypes;
+  }
+
+  void requestWrapper(Dependency.Kind kind, TypeElement provided) {
+    Map<String, TypeElement> target = kind == Dependency.Kind.LAZY ? lazyTypes : providerTypes;
+    target.put(provided.getQualifiedName().toString(), provided);
+  }
+
+  Collection<TypeElement> providerTypes() {
+    return providerTypes.values();
+  }
+
+  Collection<TypeElement> lazyTypes() {
+    return lazyTypes.values();
   }
 
   Types types() {
