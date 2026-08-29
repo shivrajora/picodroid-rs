@@ -188,16 +188,29 @@ What the build does:
 - Every class with `@Inject` fields or methods gets a generated `Foo_MembersInjector`. Superclass members are injected first, then fields, then methods, each in declaration order.
 - **Framework-owned components — `Application`, `Activity`, `Service` — are injected automatically** right after construction and before `onCreate()`, like Hilt's `@AndroidEntryPoint`. They keep their no-arg constructor; use field or method injection there.
 - Anything else is pulled from the graph with `Foo_Factory.get()`, the equivalent of a Dagger component accessor (see `Message_Factory.get()` in `injectdemo`).
+- Types that cannot carry an `@Inject` constructor — SDK classes, interfaces, abstract types — are bound by `@Provides` methods on a `@Module` class (`picodroid.di.Module` / `picodroid.di.Provides`, the `dagger.Module` / `dagger.Provides` counterparts). Every `@Module` in the app is installed automatically; there is no `@Component` to declare. Methods may be `static` (preferred) or instance methods on a module with a no-arg constructor (the module is then created once, lazily); parameters are injected like constructor parameters; `@Singleton` on the method scopes the value. Each method becomes a generated `Mod_ProvideFooFactory`.
+
+  ```java
+  @Module
+  public final class AppModule {
+    @Provides @Singleton
+    static SharedPreferences providePrefs() { return SharedPreferences.open("app"); }
+
+    @Provides
+    static Greeter provideGreeter(Clock clock) { return new FriendlyGreeter(clock); }
+  }
+  ```
+
 - `javax.inject.Provider<T>` and `picodroid.di.Lazy<T>` (the `dagger.Lazy` counterpart) can be injected anywhere a `T` can. A `Provider` hands out a fresh instance per `get()` for unscoped types (the one instance for a `@Singleton`) and constructs nothing until called; a `Lazy` calls the factory once and memoizes. Both break dependency cycles, since neither constructs anything at injection time. They are generated on demand as `T_Provider` / `T_Lazy`.
 
 Rules the compiler enforces — each violation is a compile error that says why:
 
 - One `@Inject` constructor per class, never on an abstract class or on an `Application` / `Activity` / `Service` subclass (the framework constructs those with the no-arg constructor).
 - `@Inject` fields must be non-private, non-final and non-static; the injector lives in the same package, so package-private is the idiom. `@Inject` methods must be non-private, non-static, non-abstract and non-generic.
-- Every dependency must be a concrete, non-generic class with an `@Inject` constructor in the app, optionally wrapped in one `Provider<T>` / `Lazy<T>`. Interfaces, abstract classes, other generics, qualifiers and `@Provides` are not supported yet — wrap an SDK type in a one-line `@Singleton` class instead (`EnvPrefs` in `picoenvmon` wraps `SharedPreferences`).
+- Every dependency must have exactly one binding in the app — an `@Inject` constructor on a concrete, non-generic class, or one `@Provides` method — optionally wrapped in one `Provider<T>` / `Lazy<T>`. A type bound twice is an error. Parameterized types (other than the two wrappers), qualifiers and `@Binds` are not supported yet.
 - No dependency cycles through direct constructor or member edges; break one with `Provider<T>` or `Lazy<T>`.
 - An `@Inject` field's name must not be reused anywhere in its superclass or subclass chain: pico-jvm resolves instance fields by name only.
-- `@Singleton` is the only scope, and it requires an `@Inject` constructor.
+- `@Singleton` is the only scope; it goes on a class with an `@Inject` constructor or on a `@Provides` method. `@Provides` methods must live in a `@Module`, be non-private and non-abstract, return a class or interface type, and have unique names within the module; a module cannot itself have an `@Inject` constructor or members.
 
 Divergences worth knowing: the annotations have `SOURCE` retention (JSR-330 says `RUNTIME`), so using them adds nothing to the PAPK; the generated classes ship inside the PAPK and cost about 20 B of RAM each at boot plus their metadata when first touched, and no firmware flash at all; and Kotlin apps are not wired yet (no kapt/KSP) — a Kotlin `@Inject` fails to compile instead of silently doing nothing. Design, generated-code contract and roadmap: `docs/designs/inject-annotations-2026-08.md`. End-to-end example: [`examples/injectdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/injectdemo); `picoenvmon` uses it throughout.
 

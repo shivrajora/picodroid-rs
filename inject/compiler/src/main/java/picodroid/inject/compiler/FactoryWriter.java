@@ -19,7 +19,7 @@ import javax.lang.model.element.VariableElement;
 final class FactoryWriter {
   private FactoryWriter() {}
 
-  static void write(ProcessingEnvironment env, Binding b) throws IOException {
+  static void write(ProcessingEnvironment env, InjectionGraph graph, Binding b) throws IOException {
     TypeElement type = b.type;
     String simple = Names.generatedSimpleName(type, Names.FACTORY_SUFFIX);
     String ref = Names.ref(type);
@@ -30,7 +30,7 @@ final class FactoryWriter {
       if (args.length() > 0) {
         args.append(", ");
       }
-      args.append(SourceWriter.dependencyExpr(param.asType()));
+      args.append(SourceWriter.dependencyExpr(graph, param.asType()));
     }
     String construct = "new " + ref + "(" + args + ")";
 

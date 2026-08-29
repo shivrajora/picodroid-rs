@@ -4,6 +4,7 @@ package picodroid.inject.compiler;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 
@@ -25,6 +26,8 @@ final class Names {
   static final String SCOPE = "javax.inject.Scope";
   static final String PROVIDER = "javax.inject.Provider";
   static final String LAZY = "picodroid.di.Lazy";
+  static final String MODULE = "picodroid.di.Module";
+  static final String PROVIDES = "picodroid.di.Provides";
 
   private Names() {}
 
@@ -55,6 +58,18 @@ final class Names {
   static String generatedQualifiedName(TypeElement type, String suffix) {
     String pkg = packageOf(type).getQualifiedName().toString();
     String simple = generatedSimpleName(type, suffix);
+    return pkg.isEmpty() ? simple : pkg + "." + simple;
+  }
+
+  /** {@code Mod.provideFoo()} → {@code Mod_ProvideFooFactory} (Dagger convention). */
+  static String providesFactorySimpleName(TypeElement module, ExecutableElement method) {
+    String m = method.getSimpleName().toString();
+    return flatName(module) + "_" + Character.toUpperCase(m.charAt(0)) + m.substring(1) + "Factory";
+  }
+
+  static String providesFactoryQualifiedName(TypeElement module, ExecutableElement method) {
+    String pkg = packageOf(module).getQualifiedName().toString();
+    String simple = providesFactorySimpleName(module, method);
     return pkg.isEmpty() ? simple : pkg + "." + simple;
   }
 

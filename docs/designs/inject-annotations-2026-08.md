@@ -105,6 +105,16 @@ fully-qualified names, no imports, no lambdas, header
   its own `new T_Provider()` / `new T_Lazy()`. Wrapper edges are excluded from
   cycle detection (they construct nothing at injection time — Dagger
   semantics). Nested wrappers, raw wrappers and wildcards are errors.
+- `@Module` / `@Provides` (`picodroid.di.*`, SOURCE retention, in
+  `inject/annotations`): every module in the compilation is installed into
+  the implicit component. Each `@Provides` method becomes
+  `Mod_ProvideFooFactory.get()` (Dagger naming) — a static call, or a call on
+  `Mod_Factory.get()`, the lazily-created module singleton, for instance
+  methods; `@Singleton` on the method uses the DCL holder. A provided type may
+  be an interface, abstract class or SDK type. Dependency resolution prefers
+  the `@Provides` factory; a type bound by both a method and an `@Inject`
+  constructor (or by two methods) is a duplicate-binding error. Cycle
+  detection runs over binding keys, so `@Provides` parameters are edges too.
 
 **Validation rules** (each a `Messager` error at the element; the golden and
 diagnostic tests in `inject/compiler/src/test/java` pin them):
@@ -154,10 +164,10 @@ constructors on an `Application` subclass never ran. They do now
    absolute image is ~3.4 KB larger than the main checkout's for the same
    commit, so the ratchet baseline was advanced by the delta, not to the
    worktree's absolute numbers.
-2. **`@Provides` / `@Module` / `@Binds`** — the missing piece for SDK types
-   (`SharedPreferences`, `SensorManager`) and interfaces; today apps wrap them
-   (`picoenvmon`'s `EnvPrefs`). Natural design: a `@Module` class with static
-   `@Provides` methods, called from factories exactly like `_Factory.get()`.
+2. ~~**`@Provides` / `@Module`**~~ — **DONE (branch `di-provides-module`)** as
+   described in the contract above; `picoenvmon` binds `SharedPreferences` from
+   `EnvModule` and its `EnvPrefs` wrapper is gone. `@Binds` (abstract
+   interface→impl aliasing without a method body) remains a follow-up.
 3. **Qualifiers** (`@Named`, custom `@Qualifier`) — keyed bindings.
 4. **Activity scope** (`@ActivityScoped`) — per-Activity instances shared by
    that Activity's graph; needs an activity-lifetime holder.

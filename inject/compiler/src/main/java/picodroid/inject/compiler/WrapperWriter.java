@@ -14,7 +14,8 @@ import javax.lang.model.element.TypeElement;
 final class WrapperWriter {
   private WrapperWriter() {}
 
-  static void writeProvider(ProcessingEnvironment env, TypeElement type) throws IOException {
+  static void writeProvider(ProcessingEnvironment env, InjectionGraph graph, TypeElement type)
+      throws IOException {
     String simple = Names.generatedSimpleName(type, Names.PROVIDER_SUFFIX);
     String ref = Names.ref(type);
     StringBuilder sb = SourceWriter.begin(type);
@@ -28,13 +29,14 @@ final class WrapperWriter {
     sb.append("  public ").append(simple).append("() {}\n\n");
     sb.append("  @Override\n");
     sb.append("  public ").append(ref).append(" get() {\n");
-    sb.append("    return ").append(SourceWriter.factoryCall(type)).append(";\n");
+    sb.append("    return ").append(SourceWriter.factoryCall(graph, type)).append(";\n");
     sb.append("  }\n");
     sb.append("}\n");
     SourceWriter.emit(env, Names.generatedQualifiedName(type, Names.PROVIDER_SUFFIX), sb, type);
   }
 
-  static void writeLazy(ProcessingEnvironment env, TypeElement type) throws IOException {
+  static void writeLazy(ProcessingEnvironment env, InjectionGraph graph, TypeElement type)
+      throws IOException {
     String simple = Names.generatedSimpleName(type, Names.LAZY_SUFFIX);
     String ref = Names.ref(type);
     StringBuilder sb = SourceWriter.begin(type);
@@ -54,7 +56,7 @@ final class WrapperWriter {
     sb.append("      synchronized (this) {\n");
     sb.append("        local = value;\n");
     sb.append("        if (local == null) {\n");
-    sb.append("          local = ").append(SourceWriter.factoryCall(type)).append(";\n");
+    sb.append("          local = ").append(SourceWriter.factoryCall(graph, type)).append(";\n");
     sb.append("          value = local;\n");
     sb.append("        }\n");
     sb.append("      }\n");

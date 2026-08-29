@@ -30,6 +30,12 @@ public class InjectDemoApp extends Application {
   /** Deferred until first get(), then memoized — and a @Singleton's Lazy is the shared instance. */
   @Inject Lazy<Clock> lazyClock;
 
+  /** Module-provided bindings: an interface (unscoped) and a value type (@Singleton @Provides). */
+  @Inject Greeting greeting;
+
+  @Inject Banner banner;
+  @Inject Provider<Banner> banners;
+
   @Override
   public void onCreate() {
     appGreeter = greeter;
@@ -55,6 +61,15 @@ public class InjectDemoApp extends Application {
             + lazyOnce.id()
             + " memo="
             + (lazyOnce == lazyTwice));
+
+    Log.i(
+        TAG,
+        "Module iface="
+            + greeting.greet("x")
+            + " banner="
+            + banner.text()
+            + " singleton="
+            + (banners.get() == banner));
 
     startService(new Intent(PingService.class));
     startActivity(new Intent(HomeActivity.class));

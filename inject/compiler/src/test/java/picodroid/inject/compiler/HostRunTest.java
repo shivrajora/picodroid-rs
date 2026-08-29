@@ -54,12 +54,31 @@ public class HostRunTest {
                     + " baseClock)); }",
                 "}"),
             src(
+                "t.Greeting",
+                "package t;",
+                "public interface Greeting {",
+                "  String greet();",
+                "}"),
+            src(
+                "t.AppModule",
+                "package t;",
+                "@picodroid.di.Module",
+                "public class AppModule {",
+                "  public static int calls;",
+                "  @picodroid.di.Provides @javax.inject.Singleton Greeting provideGreeting(final"
+                    + " Clock c) {",
+                "    calls++;",
+                "    return new Greeting() { public String greet() { return \"hi#\" + calls; } };",
+                "  }",
+                "}"),
+            src(
                 "t.Leaf",
                 "package t;",
                 "public class Leaf extends Base {",
                 "  @javax.inject.Inject Greeter greeter;",
                 "  @javax.inject.Inject javax.inject.Provider<Greeter> greeters;",
                 "  @javax.inject.Inject picodroid.di.Lazy<Clock> lazyClock;",
+                "  @javax.inject.Inject Greeting greeting;",
                 "  @javax.inject.Inject public Leaf() {}",
                 "  @javax.inject.Inject void leafMethod(Greeter g) { Trace.LOG.add(\"leaf:\" + (g"
                     + " != greeter)); }",
@@ -67,6 +86,7 @@ public class HostRunTest {
                 "  public Greeter greeter() { return greeter; }",
                 "  public javax.inject.Provider<Greeter> greeters() { return greeters; }",
                 "  public picodroid.di.Lazy<Clock> lazyClock() { return lazyClock; }",
+                "  public Greeting greeting() { return greeting; }",
                 "}"));
     assertTrue("compile failed: " + r.errors(), r.success);
 
@@ -94,6 +114,12 @@ public class HostRunTest {
       java.lang.reflect.Method lazyGet = lazyClock.getClass().getMethod("get");
       assertSame(clock1, lazyGet.invoke(lazyClock));
       assertSame(lazyGet.invoke(lazyClock), lazyGet.invoke(lazyClock));
+      Object greeting = leafClass.getMethod("greeting").invoke(leaf);
+      assertEquals("hi#1", loader.loadClass("t.Greeting").getMethod("greet").invoke(greeting));
+      Object again =
+          loader.loadClass("t.AppModule_ProvideGreetingFactory").getMethod("get").invoke(null);
+      assertSame("@Singleton @Provides is memoized", greeting, again);
+      assertEquals(1, loader.loadClass("t.AppModule").getField("calls").get(null));
       Object log = loader.loadClass("t.Trace").getField("LOG").get(null);
       assertEquals(Arrays.asList("base:true", "leaf:true"), log);
     }

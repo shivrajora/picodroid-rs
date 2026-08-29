@@ -30,16 +30,16 @@ final class SourceWriter {
     return sb;
   }
 
-  /** {@code pkg.Dep_Factory.get()}. */
-  static String factoryCall(TypeElement type) {
-    return Names.generatedQualifiedName(type, Names.FACTORY_SUFFIX) + ".get()";
+  /** {@code get()} on whichever factory binds {@code type}: its own or a {@code @Provides} one. */
+  static String factoryCall(InjectionGraph graph, TypeElement type) {
+    return graph.providerFactoryName(type) + ".get()";
   }
 
   /**
    * The expression that satisfies one (validated) injection site: the factory call for a plain
    * {@code T}, or a fresh wrapper object for {@code Provider<T>} / {@code Lazy<T>}.
    */
-  static String dependencyExpr(TypeMirror declared) {
+  static String dependencyExpr(InjectionGraph graph, TypeMirror declared) {
     Dependency d = Dependency.of(declared);
     TypeElement te = d.providedElement();
     switch (d.kind) {
@@ -48,7 +48,7 @@ final class SourceWriter {
       case LAZY:
         return "new " + Names.generatedQualifiedName(te, Names.LAZY_SUFFIX) + "()";
       default:
-        return factoryCall(te);
+        return factoryCall(graph, te);
     }
   }
 
