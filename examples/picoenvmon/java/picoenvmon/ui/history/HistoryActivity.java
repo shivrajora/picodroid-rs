@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.history;
 
+import javax.inject.Inject;
 import picodroid.app.AlertDialog;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
@@ -11,8 +12,7 @@ import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;
 import picodroid.widget.TextView;
-import picoenvmon.di.EnvActivityComponent;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
 import picoenvmon.service.SensorLoggerService;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.Formatter;
@@ -35,7 +35,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
    */
   private static final int MAX_ROWS = 12;
 
-  private EnvActivityComponent comp;
+  @Inject Formatter formatter;
   private ListView list;
   private TextView statusLine;
   private final float[] samples = new float[SensorLoggerService.RING_CAPACITY];
@@ -45,8 +45,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
 
   @Override
   public void onCreate() {
-    Log.i(EnvAppComponent.TAG, "History.onCreate");
-    comp = new EnvActivityComponent();
+    Log.i(EnvApp.TAG, "History.onCreate");
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
@@ -79,7 +78,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     try {
       unbindService(this);
     } catch (Throwable t) {
-      Log.i(EnvAppComponent.TAG, "History unbind ignored: " + t);
+      Log.i(EnvApp.TAG, "History unbind ignored: " + t);
     }
   }
 
@@ -87,7 +86,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   public void onServiceConnected(IBinder binder) {
     SensorLoggerService svc = ((SensorLoggerService.LocalBinder) binder).service;
     sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples, sampleTs);
-    Log.i(EnvAppComponent.TAG, "History bound, samples=" + sampleCount);
+    Log.i(EnvApp.TAG, "History bound, samples=" + sampleCount);
 
     // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring index.
     firstShown = sampleCount > MAX_ROWS ? sampleCount - MAX_ROWS : 0;
@@ -102,7 +101,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
       statusLine.setText(sampleCount + " samples");
     }
 
-    Formatter f = comp.formatter();
+    Formatter f = formatter;
     ArrayAdapter<String> adapter = new ArrayAdapter<String>();
     for (int i = firstShown; i < sampleCount; i++) {
       // "HH:MM 21.3C" once the sample carries an NTP-anchored stamp; the
@@ -118,7 +117,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
 
   @Override
   public void onServiceDisconnected() {
-    Log.i(EnvAppComponent.TAG, "History service disconnected");
+    Log.i(EnvApp.TAG, "History service disconnected");
   }
 
   private void showSampleDialog(int position) {
@@ -127,7 +126,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     if (idx < 0 || idx >= sampleCount) {
       return;
     }
-    Formatter f = comp.formatter();
+    Formatter f = formatter;
     String when = sampleTs[idx] > 0 ? "\nTime: " + TimeFormat.dateTime(sampleTs[idx] * 1000L) : "";
     new AlertDialog.Builder()
         .setTitle("Sample " + idx)

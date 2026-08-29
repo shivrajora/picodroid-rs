@@ -1,14 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon;
 
+import javax.inject.Inject;
 import picodroid.app.Application;
 import picodroid.content.Intent;
 import picodroid.graphics.Color;
 import picodroid.graphics.Theme;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.net.NetworkManager;
 import picoenvmon.ui.home.HomeActivity;
 
+/**
+ * App entry point. The object graph is wired by {@code @Inject}/{@code @Singleton}
+ * (docs/designs/inject-annotations-2026-08.md): the framework injects this Application's fields
+ * before {@code onCreate}, and every Activity and Service below gets the same treatment, so the
+ * singletons ({@link NetworkManager}, ThresholdConfig, Formatter, LatestReadings, RgbLed, EnvPrefs)
+ * are shared without a hand-written component.
+ */
 public class EnvApp extends Application {
+  public static final String TAG = "PicoEnvMon";
+  public static final String PREFS_NAME = "picoenvmon";
+
+  /** Owns the WiFi join, dashboard server, NTP sync and weather refresh. */
+  @Inject NetworkManager networkManager;
+
   @Override
   public void onCreate() {
     Theme.colorBackground = Color.argb(255, 14, 20, 24);
@@ -19,9 +33,8 @@ public class EnvApp extends Application {
     Theme.colorTextSecondary = Color.argb(255, 160, 180, 188);
     Theme.colorOutline = Color.argb(255, 56, 80, 92);
 
-    EnvAppComponent component = new EnvAppComponent();
     // No-op on boards without WiFi (FEATURE_WIFI probe inside).
-    component.networkManager().start();
+    networkManager.start();
 
     startActivity(new Intent(HomeActivity.class));
   }

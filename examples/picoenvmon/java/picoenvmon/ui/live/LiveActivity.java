@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.live;
 
+import javax.inject.Inject;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
@@ -12,8 +13,8 @@ import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.Switch;
 import picodroid.widget.TextView;
-import picoenvmon.di.EnvActivityComponent;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
+import picoenvmon.data.ThresholdConfig;
 import picoenvmon.service.SensorLoggerService;
 import picoenvmon.service.SmoothedSensorListener;
 import picoenvmon.ui.common.NavActivity;
@@ -35,7 +36,8 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private static final int IDX_LIGHT = 4;
   private static final int NUM_TILES = 5;
 
-  private EnvActivityComponent comp;
+  @Inject Formatter formatter;
+  @Inject ThresholdConfig thresholds;
   private SensorLoggerService service;
   private boolean serviceRunning;
   private Switch loggerSwitch;
@@ -45,8 +47,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
 
   @Override
   public void onCreate() {
-    Log.i(EnvAppComponent.TAG, "Live.onCreate");
-    comp = new EnvActivityComponent();
+    Log.i(EnvApp.TAG, "Live.onCreate");
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
@@ -87,7 +88,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     try {
       unbindService(this);
     } catch (Throwable t) {
-      Log.i(EnvAppComponent.TAG, "Live unbind ignored: " + t);
+      Log.i(EnvApp.TAG, "Live unbind ignored: " + t);
     }
   }
 
@@ -153,7 +154,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
       stopService(svc);
     }
     serviceRunning = on;
-    Log.i(EnvAppComponent.TAG, "Logger " + (on ? "started" : "stopped"));
+    Log.i(EnvApp.TAG, "Logger " + (on ? "started" : "stopped"));
   }
 
   private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
@@ -187,15 +188,15 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
 
   @Override
   public void onSmoothedSensor(int sensorType, float value) {
-    Formatter f = comp.formatter();
+    Formatter f = formatter;
     switch (sensorType) {
       case Sensor.TYPE_AMBIENT_TEMPERATURE:
         tileValues[IDX_TEMP].setText(f.formatTemp(value));
-        flashOnBreach(tileRoots[IDX_TEMP], comp.thresholds().tempBreached(value));
+        flashOnBreach(tileRoots[IDX_TEMP], thresholds.tempBreached(value));
         break;
       case Sensor.TYPE_RELATIVE_HUMIDITY:
         tileValues[IDX_HUM].setText(f.formatHumidity(value));
-        flashOnBreach(tileRoots[IDX_HUM], comp.thresholds().humidityBreached(value));
+        flashOnBreach(tileRoots[IDX_HUM], thresholds.humidityBreached(value));
         break;
       case Sensor.TYPE_PRESSURE:
         tileValues[IDX_PRESS].setText(f.formatPressure(value));
@@ -205,7 +206,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
         break;
       case Sensor.TYPE_LIGHT:
         tileValues[IDX_LIGHT].setText(f.formatLux(value));
-        flashOnBreach(tileRoots[IDX_LIGHT], comp.thresholds().luxBreached(value));
+        flashOnBreach(tileRoots[IDX_LIGHT], thresholds.luxBreached(value));
         break;
       default:
         break;

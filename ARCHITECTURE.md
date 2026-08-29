@@ -15,6 +15,8 @@ These crates have no picodroid-specific knowledge and could be picked up by a di
 | `compat` | [`compat/`](compat/) | PAPK ↔ firmware version compatibility check. `no_std`. Shared by device + host. See [`compat/README.md`](compat/README.md). |
 | `class-shrink` | [`tools/class-shrink/`](tools/class-shrink/) | Build-time Java class/method name shrinker. Host-only (uses `std`). See [`tools/class-shrink/README.md`](tools/class-shrink/README.md). |
 
+Two host-side Gradle projects sit next to the crates and are equally free of picodroid-specific runtime knowledge: [`inject/annotations`](inject/annotations/) (JSR-330 `javax.inject.Inject` / `Singleton` / `Scope`, `SOURCE` retention) and [`inject/compiler`](inject/compiler/) (the javac annotation processor that turns them into plain `Foo_Factory` / `Foo_MembersInjector` classes). `buildSrc`'s `picodroid-papk` plugin wires both into every Java app; the only runtime counterpart is a ~40-line probe in `picodroid-core/src/lifecycle.rs` that calls the generated leaf injector after a component's `<init>`. Design: [`docs/designs/inject-annotations-2026-08.md`](docs/designs/inject-annotations-2026-08.md).
+
 ## The picodroid binary
 
 The [`picodroid`](platforms/rp/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), loads framework + app classes, dispatches native methods, drives the display and input, and exposes the developer-facing UART debugger (`pdb`). Since the 2026-07 extraction it is a thin family shell over [`picodroid-core`](picodroid-core/), which holds the framework itself.

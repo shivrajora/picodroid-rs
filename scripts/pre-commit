@@ -112,13 +112,13 @@ if [[ "$FAMRP_GATES" != "0" ]]; then
   exit 1
 fi
 
-echo "==> Type-checking all Java apps (gradle compileJava) + kotlin-shim contract..."
+echo "==> Type-checking all Java apps (gradle compileJava) + kotlin-shim contract + @Inject processor tests..."
 # :kotlin-shim:contractCheck compiles the Kotlin fixture apps and proves every
 # kotlin/** reference they make resolves in the shim, every java/** reference
 # is allowlisted, and nothing in the shim is dead (warning).
-if ! (cd "$REPO_ROOT" && ./gradlew compileJava :kotlin-shim:contractCheck --console=plain); then
+if ! (cd "$REPO_ROOT" && ./gradlew compileJava :kotlin-shim:contractCheck :inject:compiler:test --console=plain); then
   echo ""
-  echo "ERROR: Java compilation or the kotlin-shim contract failed. Fix the errors above before committing."
+  echo "ERROR: Java compilation, the kotlin-shim contract, or the @Inject processor tests failed. Fix the errors above before committing."
   exit 1
 fi
 

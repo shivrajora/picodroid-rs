@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.service;
 
+import javax.inject.Inject;
 import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.content.Intent;
@@ -14,7 +15,6 @@ import picodroid.util.Log;
 import picoenvmon.data.LatestReadings;
 import picoenvmon.data.SensorRingBuffer;
 import picoenvmon.data.ThresholdConfig;
-import picoenvmon.di.EnvAppComponent;
 import picoenvmon.hardware.RgbLed;
 import picoenvmon.util.Formatter;
 import picoenvmon.util.TimeFormat;
@@ -51,9 +51,9 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   };
 
   private SensorManager sensorManager;
-  private RgbLed rgbLed;
-  private ThresholdConfig thresholds;
-  private LatestReadings latestReadings;
+  @Inject RgbLed rgbLed;
+  @Inject ThresholdConfig thresholds;
+  @Inject LatestReadings latestReadings;
   private float lastGas = -1f;
   private boolean started;
 
@@ -93,11 +93,6 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   @Override
   public void onCreate() {
     binder.service = this;
-    EnvAppComponent app = (EnvAppComponent) EnvAppComponent.current();
-    rgbLed = app.rgbLed();
-    thresholds = app.thresholds();
-    latestReadings = app.latestReadings();
-
     sensorManager = SensorManager.getInstance();
     registerAll(sensorManager);
     Log.i(TAG, "onCreate");

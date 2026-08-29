@@ -1,6 +1,6 @@
 ---
 title: "Services & DI"
-description: "Service / ServiceConnection / Notification / IBinder, plus the manual DI components — preview surface introduced in v0.4.0."
+description: "Service / ServiceConnection / Notification / IBinder, plus dependency injection: compile-time @Inject / @Singleton and the manual DI components."
 ---
 
 :::caution[Preview]
@@ -152,9 +152,57 @@ stopService(i);
 `bindService` takes just `(Intent, ServiceConnection)` — there is no `flags` parameter and no
 `Context.BIND_AUTO_CREATE` constant; binding always creates the service if it isn't running.
 
+## Dependency injection: `@Inject` / `@Singleton`
+
+Picodroid ships a compile-time DI framework in the Dagger/Hilt shape. Annotate constructors, fields and methods with JSR-330's `javax.inject.Inject`, scope app-wide objects with `javax.inject.Singleton`, and the build generates the wiring. Nothing is resolved at runtime — pico-jvm has no reflection and drops annotations from class files — so the only thing that reaches the device is ordinary generated Java.
+
+```java
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
+@Singleton
+public class SensorRepository {
+  @Inject
+  public SensorRepository(Formatter formatter) { /* ... */ }   // constructor injection
+}
+
+public class Formatter {
+  @Inject
+  public Formatter() {}
+}
+
+public class HomeActivity extends Activity {
+  @Inject SensorRepository repo;      // field injection — set before onCreate()
+  @Inject Formatter formatter;
+
+  @Override
+  public void onCreate() {
+    // repo and formatter are already populated
+  }
+}
+```
+
+What the build does:
+
+- Every class with an `@Inject` constructor gets a generated `Foo_Factory` with `public static Foo get()`. Unscoped classes yield a fresh instance per injection; a `@Singleton` class yields one instance per process, created lazily on first use and held in a static field (a GC root shared by every thread).
+- Every class with `@Inject` fields or methods gets a generated `Foo_MembersInjector`. Superclass members are injected first, then fields, then methods, each in declaration order.
+- **Framework-owned components — `Application`, `Activity`, `Service` — are injected automatically** right after construction and before `onCreate()`, like Hilt's `@AndroidEntryPoint`. They keep their no-arg constructor; use field or method injection there.
+- Anything else is pulled from the graph with `Foo_Factory.get()`, the equivalent of a Dagger component accessor (see `Message_Factory.get()` in `injectdemo`).
+
+Rules the compiler enforces — each violation is a compile error that says why:
+
+- One `@Inject` constructor per class, never on an abstract class or on an `Application` / `Activity` / `Service` subclass (the framework constructs those with the no-arg constructor).
+- `@Inject` fields must be non-private, non-final and non-static; the injector lives in the same package, so package-private is the idiom. `@Inject` methods must be non-private, non-static, non-abstract and non-generic.
+- Every dependency must be a concrete, non-generic class with an `@Inject` constructor in the app. Interfaces, abstract classes, `Provider<T>`, `Lazy<T>`, qualifiers and `@Provides` are not supported yet — wrap an SDK type in a one-line `@Singleton` class instead (`EnvPrefs` in `picoenvmon` wraps `SharedPreferences`).
+- No dependency cycles, through constructor or member edges.
+- An `@Inject` field's name must not be reused anywhere in its superclass or subclass chain: pico-jvm resolves instance fields by name only.
+- `@Singleton` is the only scope, and it requires an `@Inject` constructor.
+
+Divergences worth knowing: the annotations have `SOURCE` retention (JSR-330 says `RUNTIME`), so using them adds nothing to the PAPK; the generated classes ship inside the PAPK and cost about 20 B of RAM each at boot plus their metadata when first touched, and no firmware flash at all; and Kotlin apps are not wired yet (no kapt/KSP) — a Kotlin `@Inject` fails to compile instead of silently doing nothing. Design, generated-code contract and roadmap: `docs/designs/inject-annotations-2026-08.md`. End-to-end example: [`examples/injectdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/injectdemo); `picoenvmon` uses it throughout.
+
 ## Manual DI: `ApplicationComponent` / `ActivitySingletonComponent`
 
-Picodroid does not ship a runtime container like Hilt — there's no annotation processing on-device. Instead, the framework gives you a tiny manual-DI shape that the `picoenvmon` example uses end-to-end:
+The hand-written shape predates `@Inject` and remains supported for apps that want an explicit graph with no generated code:
 
 ```java
 import picodroid.di.ApplicationComponent;
@@ -179,4 +227,6 @@ public final class HomeActivityComponent extends ActivitySingletonComponent {
 
 This pattern keeps the dependency graph explicit, statically typed, and visible in the source — no reflection, no codegen, no startup cost.
 
-See [`examples/servicedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/servicedemo) for the full Service v1 lifecycle in one non-UI run, and [`examples/picoenvmon/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/picoenvmon) for the manual DI pattern in production-shape code.
+The two styles coexist: an `ApplicationComponent` subclass can itself be a `@Singleton` with an `@Inject` constructor, which makes it injectable while `ApplicationComponent.current()` keeps working for legacy call sites (`LegacyComponent` in `injectdemo`).
+
+See [`examples/servicedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/servicedemo) for the full Service v1 lifecycle in one non-UI run, and [`examples/picoenvmon/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/picoenvmon) for `@Inject` / `@Singleton` in production-shape code.

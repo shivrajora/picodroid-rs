@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.data;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import picodroid.hardware.Sensor;
 
 /**
@@ -10,6 +12,7 @@ import picodroid.hardware.Sensor;
  * cross-thread reads benign (a reader sees either the previous or the current sample, never a torn
  * one — floats occupy one 32-bit slot).
  */
+@Singleton
 public class LatestReadings {
   public static final int IDX_TEMPERATURE = 0;
   public static final int IDX_HUMIDITY = 1;
@@ -20,6 +23,9 @@ public class LatestReadings {
 
   private final float[] values = new float[COUNT];
   private int validMask;
+
+  @Inject
+  public LatestReadings() {}
 
   /** Map a {@link Sensor} type to an index, or -1. */
   public static int indexForType(int sensorType) {

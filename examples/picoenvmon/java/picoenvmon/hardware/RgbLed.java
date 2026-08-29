@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.hardware;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import picodroid.pio.PeripheralManager;
 import picodroid.pio.Pwm;
 import picodroid.util.Log;
@@ -9,6 +11,7 @@ import picodroid.util.Log;
  * Pimoroni Enviro+ Pack RGB LED (common-anode active-low) on R=GP6, G=GP7, B=GP10. Pre-allocated at
  * the app scope (one LED on the board) and driven via PWM at ~1 kHz.
  */
+@Singleton
 public class RgbLed {
   private static final String TAG = "RgbLed";
   private static final double PWM_FREQ_HZ = 1000.0;
@@ -17,6 +20,7 @@ public class RgbLed {
   private final Pwm green;
   private final Pwm blue;
 
+  @Inject
   public RgbLed() {
     PeripheralManager pm = PeripheralManager.getInstance();
     this.red = pm.openPwm("GP6");

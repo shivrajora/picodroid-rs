@@ -358,11 +358,19 @@ pub fn run_app(apk_data: &[u8]) {
     } else if let Some(activity_class) = apk.activity() {
         let static_name: &'static str =
             unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
-        let obj_ref = heap
-            .objects
-            .alloc(static_name)
-            .expect("OOM allocating Activity");
-        crate::lifecycle::run_activity(jvm, static_name, obj_ref, None, heap, &mut handler);
+        // Same construction path as every pushed Activity: field defaults,
+        // <init>, then @Inject member injection.
+        match crate::lifecycle::instantiate_component(jvm, static_name, heap, &mut handler) {
+            Some(obj_ref) => {
+                crate::lifecycle::run_activity(jvm, static_name, obj_ref, None, heap, &mut handler);
+            }
+            None => {
+                #[cfg(not(feature = "sim"))]
+                defmt::error!("failed to instantiate boot Activity {}", static_name);
+                #[cfg(feature = "sim")]
+                eprintln!("[sim] failed to instantiate boot Activity {}", static_name);
+            }
+        }
     } else {
         let main_class = apk
             .main_class()

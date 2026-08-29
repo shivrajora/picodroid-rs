@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.data;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import picodroid.content.SharedPreferences;
+import picodroid.util.Log;
+import picoenvmon.EnvApp;
 
 /**
  * Alert thresholds — when a sensor reading crosses one of these, HomeActivity flashes the matching
  * tile and SensorLoggerService logs an alert. Persisted to {@link SharedPreferences} so values
  * survive power-cycle.
  */
+@Singleton
 public class ThresholdConfig {
   private static final String KEY_TEMP_HI = "temp_hi_centi_c";
   private static final String KEY_HUM_LO = "hum_lo_milli_pct";
@@ -21,6 +26,15 @@ public class ThresholdConfig {
 
   /** Default: 10 lux. */
   public int luxLo = 10;
+
+  /** Loads the persisted values once; app-scoped so every screen and the Service share them. */
+  @Inject
+  public ThresholdConfig(EnvPrefs prefs) {
+    load(prefs.get());
+    Log.i(
+        EnvApp.TAG,
+        "thresholds tempHi=" + tempHiCentiC + " humLo=" + humLoMilliPct + " luxLo=" + luxLo);
+  }
 
   public void load(SharedPreferences p) {
     tempHiCentiC = p.getInt(KEY_TEMP_HI, tempHiCentiC);

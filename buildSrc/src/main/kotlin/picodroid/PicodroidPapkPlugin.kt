@@ -60,6 +60,29 @@ class PicodroidPapkPlugin : Plugin<Project> {
             target.dependencies.project(mapOf("path" to sdkProjectPath))
         )
 
+        // Compile-time DI (docs/designs/inject-annotations-2026-08.md): the
+        // javax.inject annotations ride compileOnly (SOURCE retention — never
+        // in a PAPK) and the processor emits *_Factory / *_MembersInjector
+        // sources into javac's default generated dir, compiled and packed with
+        // the app's own classes. Java apps only for now: a Kotlin app gets
+        // neither, so a Kotlin @Inject fails to compile instead of silently
+        // doing nothing (no kapt/KSP yet). Paths mirror sdkProjectPath so an
+        // out-of-tree app can point at its picodroid checkout.
+        if (!target.plugins.hasPlugin("org.jetbrains.kotlin.jvm")) {
+            val injectAnnotationsPath =
+                (target.findProperty("picodroid.injectAnnotationsProjectPath") as? String) ?: ":inject:annotations"
+            val injectCompilerPath =
+                (target.findProperty("picodroid.injectCompilerProjectPath") as? String) ?: ":inject:compiler"
+            target.dependencies.add(
+                JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME,
+                target.dependencies.project(mapOf("path" to injectAnnotationsPath))
+            )
+            target.dependencies.add(
+                JavaPlugin.ANNOTATION_PROCESSOR_CONFIGURATION_NAME,
+                target.dependencies.project(mapOf("path" to injectCompilerPath))
+            )
+        }
+
         // App jars are not published; skip the default jar task.
         target.tasks.named("jar", Jar::class.java) { enabled = false }
 

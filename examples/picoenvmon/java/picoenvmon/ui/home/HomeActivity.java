@@ -8,7 +8,7 @@ import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;
 import picodroid.widget.TextView;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
 import picoenvmon.service.SensorLoggerService;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.ui.history.HistoryActivity;
@@ -36,7 +36,7 @@ public class HomeActivity extends NavActivity {
 
   @Override
   public void onCreate() {
-    Log.i(EnvAppComponent.TAG, "Home.onCreate");
+    Log.i(EnvApp.TAG, "Home.onCreate");
     getDisplay();
 
     // The device is an environmental monitor: sensor logging is ON from boot

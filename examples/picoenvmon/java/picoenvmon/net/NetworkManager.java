@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.net;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.pm.PackageManager;
@@ -8,7 +10,9 @@ import picodroid.net.InetAddress;
 import picodroid.net.NetworkInfo;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
+import picoenvmon.data.LatestReadings;
+import picoenvmon.util.Formatter;
 
 /**
  * App-scoped owner of everything networked: waits for the WiFi join, then runs the dashboard HTTP
@@ -24,6 +28,7 @@ import picoenvmon.di.EnvAppComponent;
  * readers see the previous or current value). Listener callbacks are always posted through {@code
  * Executors.mainExecutor()}, so UI code runs on the main thread only.
  */
+@Singleton
 public class NetworkManager implements Runnable {
   /** Board has no WiFi hardware ({@code FEATURE_WIFI} absent) — thread never starts. */
   public static final int STATE_NO_WIFI = 0;
@@ -44,13 +49,15 @@ public class NetworkManager implements Runnable {
 
   public static final int HTTP_PORT = 8080;
 
-  private static final String TAG = EnvAppComponent.TAG;
+  private static final String TAG = EnvApp.TAG;
   private static final int JOIN_POLL_MS = 500;
   private static final int JOIN_WAIT_LIMIT_MS = 30_000;
   private static final int RETRY_POLL_MS = 5_000;
   private static final int MAX_LISTENERS = 2;
 
   private final Listener[] listeners = new Listener[MAX_LISTENERS];
+  private final LatestReadings latestReadings;
+  private final Formatter formatter;
 
   private static final long NTP_RESYNC_MS = 6L * 3600 * 1000;
   private static final long NTP_RETRY_MS = 5L * 60 * 1000;
@@ -71,6 +78,12 @@ public class NetworkManager implements Runnable {
 
   /** Next weather fetch, elapsed-ms clock. 0 = as soon as the stack is up. */
   private long weatherDueAtMs;
+
+  @Inject
+  public NetworkManager(LatestReadings latestReadings, Formatter formatter) {
+    this.latestReadings = latestReadings;
+    this.formatter = formatter;
+  }
 
   /** No-op (and stays {@link #STATE_NO_WIFI}) when the board has no WiFi. Idempotent. */
   public void start() {
@@ -201,7 +214,7 @@ public class NetworkManager implements Runnable {
    * housekeeping tick. Bind failures back off rather than kill the thread.
    */
   private void runOnline() {
-    HttpServer server = new HttpServer((EnvAppComponent) EnvAppComponent.current(), this);
+    HttpServer server = new HttpServer(latestReadings, formatter, this);
     while (true) {
       if (!server.ensureOpen()) {
         SystemClock.sleep(RETRY_POLL_MS);

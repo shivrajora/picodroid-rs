@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.settings;
 
+import javax.inject.Inject;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.util.Log;
@@ -11,10 +12,11 @@ import picodroid.widget.NumberPicker;
 import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.Toast;
+import picoenvmon.EnvApp;
+import picoenvmon.data.EnvPrefs;
 import picoenvmon.data.ThresholdConfig;
-import picoenvmon.di.EnvActivityComponent;
-import picoenvmon.di.EnvAppComponent;
 import picoenvmon.ui.common.NavActivity;
+import picoenvmon.util.Formatter;
 
 /**
  * Threshold + units editor (reached from the Home hub). Three focusable {@link NumberPicker} rows,
@@ -26,15 +28,16 @@ import picoenvmon.ui.common.NavActivity;
  */
 public class SettingsActivity extends NavActivity {
 
-  private EnvActivityComponent comp;
+  @Inject ThresholdConfig thresholds;
+  @Inject Formatter formatter;
+  @Inject EnvPrefs prefs;
   private NumberPicker tempField;
   private NumberPicker humField;
   private NumberPicker luxField;
 
   @Override
   public void onCreate() {
-    Log.i(EnvAppComponent.TAG, "Settings.onCreate");
-    comp = new EnvActivityComponent();
+    Log.i(EnvApp.TAG, "Settings.onCreate");
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
@@ -45,7 +48,7 @@ public class SettingsActivity extends NavActivity {
     title.setTextColor(Theme.colorPrimary);
     root.addView(title);
 
-    ThresholdConfig th = comp.thresholds();
+    ThresholdConfig th = thresholds;
     tempField = addRow(root, "Temp Hi °C", 0, 60, 1, th.tempHiCentiC / 100);
     humField = addRow(root, "Hum Lo %", 0, 100, 1, th.humLoMilliPct / 1000);
     luxField = addRow(root, "Lux Lo", 0, 10000, 10, th.luxLo);
@@ -85,9 +88,8 @@ public class SettingsActivity extends NavActivity {
         label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
     Switch units = new Switch();
-    units.setChecked(comp.formatter().isFahrenheit());
-    units.setOnCheckedChangeListener(
-        (buttonView, isChecked) -> comp.formatter().setFahrenheit(isChecked));
+    units.setChecked(formatter.isFahrenheit());
+    units.setOnCheckedChangeListener((buttonView, isChecked) -> formatter.setFahrenheit(isChecked));
     row.addView(units);
 
     return row;
@@ -127,13 +129,13 @@ public class SettingsActivity extends NavActivity {
   }
 
   private void commit() {
-    ThresholdConfig th = comp.thresholds();
+    ThresholdConfig th = thresholds;
     th.tempHiCentiC = tempField.getValue() * 100;
     th.humLoMilliPct = humField.getValue() * 1000;
     th.luxLo = luxField.getValue();
-    boolean ok = th.save(comp.appComponent().prefs());
+    boolean ok = th.save(prefs.get());
     Log.i(
-        EnvAppComponent.TAG,
+        EnvApp.TAG,
         "Settings saved: tempHi="
             + th.tempHiCentiC
             + " humLo="

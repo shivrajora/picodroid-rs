@@ -157,6 +157,10 @@ jobs:
         run: ./gradlew assemblePapk --console=plain
       - name: Assemble all PAPKs (shrink)
         run: PICODROID_SHRINK=1 ./gradlew assemblePapk --console=plain
+      # The @Inject annotation processor's golden-output + validation tests
+      # (docs/designs/inject-annotations-2026-08.md).
+      - name: Test the @Inject annotation processor
+        run: ./gradlew :inject:compiler:test --console=plain
       # Every kotlin/** reference the Kotlin fixture apps make resolves in
       # kotlin-shim, and every java/** reference is allowlisted
       # (docs/designs/kotlin-roadmap-2026-08.md Session 5).

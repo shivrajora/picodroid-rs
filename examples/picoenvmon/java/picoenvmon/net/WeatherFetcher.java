@@ -6,7 +6,7 @@ import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 import picodroid.util.Log;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
 
 /**
  * One-line weather via wttr.in over plain HTTP (no TLS exists on this platform). Strictly
@@ -20,7 +20,7 @@ import picoenvmon.di.EnvAppComponent;
  * TIMEOUT_MS}; the tiny fixed-size reply keeps the read count small.
  */
 public final class WeatherFetcher {
-  private static final String TAG = EnvAppComponent.TAG;
+  private static final String TAG = EnvApp.TAG;
 
   /** Per-phase (connect, read) bound. Worst-case housekeeping stall must stay well under 25 s. */
   private static final int TIMEOUT_MS = 4000;

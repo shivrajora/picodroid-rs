@@ -6,7 +6,7 @@
 //! loading, and shared heap management remain in `app.rs`.
 
 #[cfg(not(test))]
-use pico_jvm::types::JvmError;
+use pico_jvm::types::{JvmError, Value};
 #[cfg(not(test))]
 use pico_jvm::{Jvm, SharedJvmHeap};
 
@@ -94,6 +94,11 @@ fn warn_if_slow(span: &str, start_ms: u64, slow_ms: u64, last_warn_ms: &mut u64)
 /// Run an Application-based app: allocate the Application object, call
 /// `onCreate()`, then enter the activity loop with whichever Activity (if
 /// any) the application's `onCreate` queued via `startActivity`.
+///
+/// The Application goes through [`instantiate_component`] like every other
+/// framework-owned component: field defaults, `<init>` (so instance
+/// initializers run — Android-faithful), then `@Inject` member injection,
+/// all before `onCreate`.
 #[cfg(not(test))]
 pub(crate) fn run_application(
     jvm: &mut Jvm,
@@ -103,10 +108,13 @@ pub(crate) fn run_application(
 ) {
     use crate::native_handler::PendingActivityOp;
 
-    let obj_ref = heap
-        .objects
-        .alloc(application_class)
-        .expect("OOM allocating Application");
+    let obj_ref = match instantiate_component(jvm, application_class, heap, handler) {
+        Some(r) => r,
+        None => {
+            log_error!("failed to instantiate Application {}", application_class);
+            return;
+        }
+    };
 
     match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
         Ok(()) => {}
@@ -167,11 +175,12 @@ pub(crate) fn run_application(
     }
 }
 
-/// Allocate a fresh component (Activity or Service) and run its no-arg
-/// `<init>`. Returns the new ObjectRef, or `None` if allocation or
-/// initialization failed (allocation OOM, missing class, constructor
-/// faulted). Field defaults are applied per JVMS before the constructor
-/// runs.
+/// Allocate a fresh framework-owned component (Application, Activity or
+/// Service), run its no-arg `<init>`, then inject its `@Inject` members.
+/// Returns the new ObjectRef, or `None` if allocation or initialization
+/// failed (allocation OOM, missing class, constructor faulted, or a
+/// cooperative stop). Field defaults are applied per JVMS before the
+/// constructor runs.
 #[cfg(not(test))]
 pub(crate) fn instantiate_component(
     jvm: &mut Jvm,
@@ -187,12 +196,58 @@ pub(crate) fn instantiate_component(
     // from the superclass), ignore MethodNotFound: field defaults are already
     // applied and the implicit super-chain is a no-op.
     match jvm.invoke_instance(class_name, "<init>", obj_ref, heap, handler) {
-        Ok(()) => Some(obj_ref),
-        Err(JvmError::MethodNotFound) => Some(obj_ref),
+        Ok(()) | Err(JvmError::MethodNotFound) => {
+            inject_members(jvm, class_name, obj_ref, heap, handler)?;
+            Some(obj_ref)
+        }
         Err(JvmError::Interrupted) => None,
         Err(e) => {
             log_error!("<init> failed: {}", e);
             Some(obj_ref)
+        }
+    }
+}
+
+/// Hilt-style member injection for framework-owned components. Probes for
+/// the `@Inject` annotation processor's generated
+/// `<Class>_MembersInjector.injectMembers(instance)` — the leaf class's
+/// injector already covers inherited members, so exactly one probe per
+/// component — and calls it. Absence (`MethodNotFound`) is the common case
+/// and costs one linear class-table scan. `$` becomes `_` to mirror the
+/// processor's nested-class naming (`Outer$Inner` →
+/// `Outer_Inner_MembersInjector`). See
+/// docs/designs/inject-annotations-2026-08.md.
+///
+/// Returns `None` only on a cooperative stop; an injector that faults is
+/// logged and the component is still handed back, matching `<init>`.
+#[cfg(not(test))]
+fn inject_members(
+    jvm: &mut Jvm,
+    class_name: &str,
+    obj_ref: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> Option<()> {
+    const SUFFIX: &str = "_MembersInjector";
+    // One short String per component creation (rare: Activity push, Service
+    // start, app boot) — not a hot path.
+    let mut name = alloc::string::String::with_capacity(class_name.len() + SUFFIX.len());
+    for c in class_name.chars() {
+        name.push(if c == '$' { '_' } else { c });
+    }
+    name.push_str(SUFFIX);
+    match jvm.invoke_static_with_args(
+        &name,
+        "injectMembers",
+        &[Value::ObjectRef(obj_ref)],
+        heap,
+        handler,
+    ) {
+        Ok(()) | Err(JvmError::MethodNotFound) => Some(()),
+        Err(JvmError::Interrupted) => None,
+        Err(e) => {
+            log_error!("injectMembers failed: {}", e);
+            Some(())
         }
     }
 }

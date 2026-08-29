@@ -121,6 +121,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | `animdemo` | `animdemo.AnimDemoApp` | `view.animate().alpha(...).x(...).y(...).setDuration(...).start()` — interpolated property animations |
 | `keyboarddemo` | `keyboarddemo.KeyboardDemoApp` | Soft keyboard: both system-on-touch (default) and explicit `Keyboard` instances bound to `EditText`. Includes the soft-keyboard polish pass: slide-up animation, `OnEditorActionListener` for the Done key, dismiss-on-outside-tap |
 | `navdemo` | `navdemo.NavDemoApp` | Multi-Activity back-stack — `startActivity()` push, `finish()` pop, lifecycle callbacks (`onPause` / `onStop` / `onResume`) |
+| `injectdemo` | `injectdemo.InjectDemoApp` | Compile-time DI end to end: `@Inject` constructor / field / method injection, `@Singleton` identity across an `Application`, two Activities and a `Service` (all injected automatically before `onCreate`), an unscoped class per injection site, a leaf Activity that only inherits its `@Inject` members, `Foo_Factory.get()` from plain code, and coexistence with a hand-written `ApplicationComponent` |
 | `imagedemo` | `imagedemo.ImageDemoApp` | `ImageView.setImageSource("name.png")` resolving against the PAPK ASSETS section (v1.1 bundled images). Demonstrates `setScaleType` / `setTint` / `setScale`. See [Bundled image assets](/guides/assets/) |
 | `pickerdemo` | `pickerdemo.PickerDemoApp` | `DatePicker` (lv_calendar binding) and `TimePicker` (lv_roller binding) with 12-hour / AM-PM mode and value-changed listeners |
 | `snackbardemo` | `snackbardemo.SnackbarDemoApp` | `Snackbar.make().setAction().show()` — toast with a clickable action lozenge, auto-dismiss, click-through-to-listener |
@@ -145,7 +146,7 @@ End-to-end apps that combine multiple subsystems. These are the closest referenc
 
 | Example | Class | Description |
 |---------|-------|-------------|
-| `picoenvmon` | `picoenvmon.EnvApp` | Environmental monitor for the Pimoroni Enviro+ Pack. Multi-Activity (`HomeActivity`, settings, history) with a sub-package layout (`di/`, `ui/`, `service/`, `hardware/`, `data/`, `util/`); customizes the global `Theme` palette in `Application.onCreate()`; runs a `SensorLoggerService` ring-buffering BME688 + LTR559 readings; drives an RGB LED. Demonstrates the manual DI pattern (`EnvAppComponent`, `ActivitySingletonComponent`) |
+| `picoenvmon` | `picoenvmon.EnvApp` | Environmental monitor for the Pimoroni Enviro+ Pack. Multi-Activity (`HomeActivity`, settings, history, network) with a sub-package layout (`ui/`, `service/`, `net/`, `hardware/`, `data/`, `util/`); customizes the global `Theme` palette in `Application.onCreate()`; runs a `SensorLoggerService` ring-buffering BME688 + LTR559 readings; drives an RGB LED. Wired with `@Inject` / `@Singleton` throughout — app-scoped `ThresholdConfig`, `Formatter`, `LatestReadings`, `RgbLed`, `NetworkManager` and an `EnvPrefs` wrapper around `SharedPreferences`, injected into every Activity and the Service |
 
 ## Running an Example
 

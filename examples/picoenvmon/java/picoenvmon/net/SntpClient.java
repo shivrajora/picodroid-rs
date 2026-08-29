@@ -7,7 +7,7 @@ import picodroid.net.DatagramSocket;
 import picodroid.net.InetAddress;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
 
 /**
  * Minimal SNTP (RFC 4330) client. Android hides its SntpClient as internal API, so this lives in
@@ -17,7 +17,7 @@ import picoenvmon.di.EnvAppComponent;
  * a sensor monitor doesn't need sub-100ms truth.
  */
 public final class SntpClient {
-  private static final String TAG = EnvAppComponent.TAG;
+  private static final String TAG = EnvApp.TAG;
   private static final String NTP_HOST = "pool.ntp.org";
   private static final int NTP_PORT = 123;
   private static final int PACKET_BYTES = 48;

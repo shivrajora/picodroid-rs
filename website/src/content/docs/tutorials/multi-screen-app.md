@@ -284,20 +284,22 @@ See [debugging](/guides/debugging/) for more on reading lifecycle traces.
 The tutorial app shares no data between screens, but you'll want to eventually — and there's one
 correctness note worth internalising first.
 
-`Intent` has extras (`putExtra` / `getIntExtra` / `getStringExtra` / `getBooleanExtra`), **but an
-Activity cannot read them.** There is no `getIntent()` on `Activity`. Extras are delivered only to
-**Services**, in `onStartCommand` / `onBind`. So this does *not* work for screen-to-screen data:
+`Intent` has extras (`putExtra` / `getIntExtra` / `getStringExtra` / `getBooleanExtra`), and an
+Activity reads the Intent that launched it with `getIntent()` (null only for a manifest `activity=`
+boot with no app-side launch). That covers one-shot arguments — an id, a mode, a title:
 
 ```java
-// The extra is set, but CounterActivity has no way to read it back — there is no getIntent().
 startActivity(new Intent(CounterActivity.class).putExtra("start", 10));
+// in CounterActivity.onCreate():
+int start = getIntent().getIntExtra("start", 0);
 ```
 
-The idiomatic way to share state between Activities is an **app-scoped DI singleton**. Construct an
-`ApplicationComponent` subclass in `Application.onCreate`, then reach it from any Activity via
-`ApplicationComponent.current()` and pull shared state through it. Reserve Intent extras for the
-Service case — see the [background service tutorial](/tutorials/background-service/) and the
-[Services & DI reference](/api/services/).
+For *shared state* — a repository, settings, a sensor cache — the idiomatic way is an app-scoped
+singleton injected where it is needed: mark the class `@Singleton` with an `@Inject` constructor and
+declare `@Inject` fields in each Activity; the framework populates them before `onCreate()`. The
+hand-written `ApplicationComponent` / `ApplicationComponent.current()` shape still works if you
+prefer no generated code. See the [Services & DI reference](/api/services/) for both, and the
+[background service tutorial](/tutorials/background-service/) for extras delivered to Services.
 
 ## Run it
 

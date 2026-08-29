@@ -4,6 +4,11 @@ include(":sdk")
 // The hand-written kotlin/** stdlib shim that rides inside Kotlin apps' PAPKs
 // (never in firmware). See docs/designs/kotlin-roadmap-2026-08.md.
 include(":kotlin-shim")
+// Compile-time DI: the javax.inject annotations (compileOnly on every Java
+// app) and the annotation processor behind them. Host-only; nothing ships in
+// firmware. See docs/designs/inject-annotations-2026-08.md.
+include(":inject:annotations")
+include(":inject:compiler")
 
 // Auto-discover every examples/<name>/ that ships a PicodroidManifest.xml.
 // Adding a new app requires no edit to this file — just create the dir +

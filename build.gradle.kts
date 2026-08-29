@@ -132,6 +132,12 @@ subprojects {
                     // so this default warning would be an unfixable false positive.
                     check("StringCaseLocaleUsage", CheckSeverity.OFF)
 
+                    // Generated sources (AssetConstants, NetTestConfig, the
+                    // @Inject processor's *_Factory / *_MembersInjector) are
+                    // not hand-maintained and not format-gated; keep the
+                    // curated ERROR checks off them.
+                    excludedPaths.set(".*/build/generated/.*")
+
                     // Curated readability/safety checks promoted to build-failing. @Override
                     // and unused imports are source-only (no .class byte change) and
                     // auto-fixable via the -Pep.patch sweep above.

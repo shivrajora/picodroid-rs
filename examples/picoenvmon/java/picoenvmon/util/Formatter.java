@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.util;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
 /** Sensor-value → display-string formatter. The °C↔°F flag is global to the app. */
+@Singleton
 public class Formatter {
   private boolean fahrenheit;
+
+  @Inject
+  public Formatter() {}
 
   public void toggleUnits() {
     fahrenheit = !fahrenheit;

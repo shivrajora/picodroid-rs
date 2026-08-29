@@ -7,8 +7,8 @@ import picodroid.net.ServerSocket;
 import picodroid.net.Socket;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
+import picoenvmon.EnvApp;
 import picoenvmon.data.LatestReadings;
-import picoenvmon.di.EnvAppComponent;
 import picoenvmon.util.Formatter;
 
 /**
@@ -22,7 +22,7 @@ import picoenvmon.util.Formatter;
  */
 @SuppressWarnings("DefaultCharset") // byte-backed ASCII strings; no Charset class in the SDK
 public class HttpServer {
-  private static final String TAG = EnvAppComponent.TAG;
+  private static final String TAG = EnvApp.TAG;
   private static final int ACCEPT_TIMEOUT_MS = 1000;
   private static final int CLIENT_TIMEOUT_MS = 2000;
   private static final int REQUEST_BUF_BYTES = 512;
@@ -82,7 +82,8 @@ public class HttpServer {
               + "not found\n")
           .getBytes();
 
-  private final EnvAppComponent app;
+  private final LatestReadings latestReadings;
+  private final Formatter formatter;
   private final NetworkManager net;
   private final byte[] reqBuf = new byte[REQUEST_BUF_BYTES];
 
@@ -91,8 +92,9 @@ public class HttpServer {
 
   private ServerSocket server;
 
-  public HttpServer(EnvAppComponent app, NetworkManager net) {
-    this.app = app;
+  public HttpServer(LatestReadings latestReadings, Formatter formatter, NetworkManager net) {
+    this.latestReadings = latestReadings;
+    this.formatter = formatter;
     this.net = net;
   }
 
@@ -231,8 +233,8 @@ public class HttpServer {
 
   /** Assemble the page into {@link #pageBuf}; returns its length. Allocation-free. */
   private int buildPage() {
-    LatestReadings latest = app.latestReadings();
-    Formatter f = app.formatter();
+    LatestReadings latest = latestReadings;
+    Formatter f = formatter;
     int len = 0;
     len = appendClamped(pageBuf, len, PAGE_HEAD);
 

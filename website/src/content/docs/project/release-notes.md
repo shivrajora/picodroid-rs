@@ -5,6 +5,14 @@ description: "User-facing changes for Picodroid v0.4.0 onward."
 
 This page covers everything that landed in releases v0.4.0 through v0.13.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
+## Unreleased
+
+**Compile-time dependency injection: `@Inject` / `@Singleton`**
+
+- Apps can now use JSR-330's `javax.inject.Inject` on constructors, fields and methods and `javax.inject.Singleton` on classes, in the Dagger/Hilt shape. An annotation processor wired into every Java app build generates `Foo_Factory` / `Foo_MembersInjector` classes; nothing is resolved at runtime and the annotations never reach the device (`SOURCE` retention). `Application`, `Activity` and `Service` instances have their `@Inject` members populated automatically before `onCreate()`, like Hilt's `@AndroidEntryPoint`; everything else is built through `Foo_Factory.get()`. The compiler rejects the shapes pico-jvm cannot honour (an `@Inject` constructor on a framework component, private fields, shadowed field names, cycles, interfaces without a provider) with a message that says why. Not yet: `Provider<T>` / `Lazy<T>`, `@Provides` / `@Module`, qualifiers, other scopes, Kotlin (kapt/KSP). See [Services & DI](/api/services/) and the new `injectdemo` example.
+- The manual `ApplicationComponent` / `ActivitySingletonComponent` shape is unchanged and coexists with the new one. `picoenvmon` migrated to `@Inject` / `@Singleton` and dropped its hand-written `di/` package.
+- **Behaviour change:** the `Application` subclass (and a manifest `activity=` boot Activity) is now constructed like every other component — field defaults, then `<init>`, then injection — so instance-field initializers and constructors on an `Application` finally run, as on Android. Previously `Application` was allocated without running its constructor.
+
 ## v0.13.0 — 2026-08-19
 
 The networking-maturity release. Sockets stop failing with an uncatchable JVM-internal error and start throwing the `java.net` exceptions Android apps already catch; `HttpURLConnection` grows the header and timeout surface real REST work needs; and `picoenvmon` becomes a WiFi showcase on a new Enviro+/Pico 2 W board — live web dashboard, NTP-anchored clock, internet weather. Underneath, a long device soak turned up an SMP heap-corruption family in the JVM (now fixed), and the memory work that followed cut picoenvmon's live heap by a third.

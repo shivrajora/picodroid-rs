@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.ui.network;
 
+import javax.inject.Inject;
 import picodroid.graphics.Theme;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
-import picoenvmon.di.EnvAppComponent;
+import picoenvmon.EnvApp;
 import picoenvmon.net.NetworkManager;
 import picoenvmon.net.WeatherFetcher;
 import picoenvmon.ui.common.NavActivity;
@@ -26,7 +27,7 @@ import picoenvmon.util.TimeFormat;
  */
 public class NetworkActivity extends NavActivity implements NetworkManager.Listener {
 
-  private NetworkManager net;
+  @Inject NetworkManager net;
   private TextView statusLine;
   private TextView ipLine;
   private TextView urlLine;
@@ -35,8 +36,7 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
 
   @Override
   public void onCreate() {
-    Log.i(EnvAppComponent.TAG, "Network.onCreate");
-    net = ((EnvAppComponent) EnvAppComponent.current()).networkManager();
+    Log.i(EnvApp.TAG, "Network.onCreate");
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
