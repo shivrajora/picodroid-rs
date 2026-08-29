@@ -481,7 +481,10 @@ pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
         "java/lang/String",
         &["java/lang/CharSequence", "java/lang/Comparable"],
     ),
-    ("java/lang/StringBuilder", &["java/lang/CharSequence"]),
+    (
+        "java/lang/StringBuilder",
+        &["java/lang/CharSequence", "java/lang/Appendable"],
+    ),
     ("java/lang/Integer", &["java/lang/Comparable"]),
     ("java/lang/Long", &["java/lang/Comparable"]),
     ("java/lang/Float", &["java/lang/Comparable"]),

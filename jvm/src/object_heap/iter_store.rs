@@ -19,6 +19,11 @@ pub enum IterSource {
 pub struct IteratorState {
     pub source: IterSource,
     pub position: usize,
+    /// The collection (or map view) object this iterator was taken from.
+    /// The GC marks it while the iterator is live, so `for (x in temp())`
+    /// keeps the temporary's buffer — and the references inside it — alive
+    /// for the whole loop even though nothing else holds the collection.
+    pub owner: u16,
 }
 
 impl ObjectHeap {

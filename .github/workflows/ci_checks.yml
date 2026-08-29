@@ -190,7 +190,7 @@ jobs:
       # board's LVGL config is CI-simulated.
       - name: Run sim smoke subset
         run: |
-          for app in helloworld hellokt gcstress langsuite langsuite_kt callbacktest picoenvmon prefs_demo clinitdemo heapstress; do
+          for app in helloworld hellokt gcstress langsuite langsuite_kt langsuite_kt_stdlib callbacktest picoenvmon prefs_demo clinitdemo heapstress; do
             bash scripts/sim-run.sh --app "$app" --no-email
           done
   formatting:

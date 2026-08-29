@@ -284,13 +284,17 @@ fi
 
 # The Kotlin twin: kotlinc output + the kotlin-shim on the same JVM
 # (docs/designs/kotlin-roadmap-2026-08.md Session 5).
-echo "==> Running Kotlin conformance suite (langsuite_kt, sim)..."
-if ! PICODROID_BENCH_RECORD=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app langsuite_kt --no-email; then
-  echo ""
-  echo "ERROR: langsuite_kt failed in sim. A pico-jvm or kotlin-shim behavior regressed;"
-  echo "       fix before committing."
-  exit 1
-fi
+# Two apps (language half + stdlib half, Session 6): together their parsed-class
+# metadata would not fit the 416 KB heap arena.
+for kt_suite in langsuite_kt langsuite_kt_stdlib; do
+  echo "==> Running Kotlin conformance suite ($kt_suite, sim)..."
+  if ! PICODROID_BENCH_RECORD=0 bash "$REPO_ROOT/scripts/sim-run.sh" --app "$kt_suite" --no-email; then
+    echo ""
+    echo "ERROR: $kt_suite failed in sim. A pico-jvm or kotlin-shim behavior regressed;"
+    echo "       fix before committing."
+    exit 1
+  fi
+done
 
 # Binary-size ratchet. Flash and RAM are the only metrics here with a zero
 # noise floor -- the link is deterministic -- and the RP2040 program region is

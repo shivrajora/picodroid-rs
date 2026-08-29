@@ -139,6 +139,9 @@ pub(crate) fn dispatch(
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
+            let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
+                return Some(Err(JvmError::InvalidReference));
+            };
             let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
@@ -148,6 +151,7 @@ pub(crate) fn dispatch(
                 IteratorState {
                     source: IterSource::List(buf_idx),
                     position: 0,
+                    owner,
                 },
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))

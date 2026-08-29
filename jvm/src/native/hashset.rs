@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    object_heap::ObjectHeap,
+    object_heap::{iter_store::IterSource, iter_store::IteratorState, ObjectHeap},
     types::{JvmError, Value},
 };
 
@@ -82,6 +82,30 @@ pub(crate) fn dispatch(
             Some(Ok(Some(Value::Int(
                 (ctx.objects.map_len(buf_idx) == 0) as i32,
             ))))
+        }
+        // iterator(): the set's elements are the keys of its map buffer, so
+        // the HashMap key-view iterator serves it unchanged (hash order).
+        "iterator" => {
+            let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
+                Ok(i) => i,
+                Err(e) => return Some(Err(e)),
+            };
+            let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+                Some(idx) => idx,
+                None => return Some(Err(JvmError::StackOverflow)),
+            };
+            ctx.objects.iter_register(
+                iter_obj,
+                IteratorState {
+                    source: IterSource::MapKeys(buf_idx),
+                    position: 0,
+                    owner,
+                },
+            );
+            Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
         "clear" => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {

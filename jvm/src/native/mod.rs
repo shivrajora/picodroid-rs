@@ -88,6 +88,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // an `"unknown"`-class object that no catch clause ever matches.
     "java/lang/Number",
     "java/lang/CharSequence",
+    "java/lang/Appendable",
     "java/lang/Iterable",
     "java/util/Collection",
     "java/util/Set",
@@ -684,8 +685,8 @@ pub trait NativeMethodHandler {
 /// | `java/lang/Boolean` | `<init>`, `valueOf`, `parseBoolean`, `booleanValue`, `toString`, `equals`, `hashCode` (1231/1237), `compare` |
 /// | `java/lang/Character` | `<init>`, `valueOf`, `charValue`, `toString`, `equals`, `hashCode`, `compare`; ASCII `isDigit`/`isLetter`/`toUpperCase`/`toLowerCase` |
 /// | `java/util/ArrayList` | `<init>`, `add`, `get`, `size`, `isEmpty`, `set`, `remove`, `clear`, `contains`, `iterator`, `toArray` (always a fresh `Object[]`) |
-/// | `java/util/HashMap` (alias `LinkedHashMap`, hash-ordered) | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values`, `entrySet` — the views answer `iterator`/`size`; `Map$Entry` answers `getKey`/`getValue` |
-/// | `java/util/HashSet` (alias `LinkedHashSet`, hash-ordered) | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear` |
+/// | `java/util/HashMap` (alias `LinkedHashMap`, hash-ordered) | `<init>`, `put`, `get`, `remove`, `containsKey`, `containsValue`, `size`, `isEmpty`, `clear`, `getOrDefault`, `keySet`, `values`, `entrySet` — the views answer `iterator`/`size` (key and value views also `contains`); `Map$Entry` answers `getKey`/`getValue` |
+/// | `java/util/HashSet` (alias `LinkedHashSet`, hash-ordered) | `<init>`, `add`, `remove`, `contains`, `size`, `isEmpty`, `clear`, `iterator` (the map key-view iterator) |
 /// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
 /// | `java/util/Arrays` | `sort`, `fill`, `copyOf`, `toString` (all numeric primitive overloads: int/long/double/float/short/byte/char) |

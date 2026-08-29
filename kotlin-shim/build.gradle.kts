@@ -46,6 +46,7 @@ val shimFixtures: Configuration by configurations.creating {
 
 dependencies {
     shimFixtures(project(mapOf("path" to ":examples:langsuite_kt", "configuration" to "picodroidAppClasses")))
+    shimFixtures(project(mapOf("path" to ":examples:langsuite_kt_stdlib", "configuration" to "picodroidAppClasses")))
 }
 
 val contractCheck by tasks.registering(picodroid.ShimContractTask::class) {
@@ -54,8 +55,10 @@ val contractCheck by tasks.registering(picodroid.ShimContractTask::class) {
     shimClasses.set(tasks.named<JavaCompile>("compileJava").flatMap { it.destinationDirectory })
     fixtureClasses.from(shimFixtures)
     allowlistFile.set(layout.projectDirectory.file("jdk-allowlist.tsv"))
-    // Direction B stays a warning until the tiers stabilise (Session 6 decides).
-    strictUnused.set(false)
+    // Direction B is an error since Session 6 (tiers 0-2 shipped with an empty
+    // unused list): a shim member no fixture references is dead weight in every
+    // Kotlin PAPK, so add the demo check first, then the member.
+    strictUnused.set(true)
     reportFile.set(layout.buildDirectory.file("reports/shim-contract.txt"))
 }
 

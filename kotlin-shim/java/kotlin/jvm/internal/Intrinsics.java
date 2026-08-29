@@ -38,6 +38,21 @@ public final class Intrinsics {
     return first == null ? second == null : first.equals(second);
   }
 
+  /** {@code Float? == Float}: null-safe IEEE equality (NaN != NaN, -0.0 == 0.0). */
+  public static boolean areEqual(Float first, float second) {
+    return first != null && first.floatValue() == second;
+  }
+
+  /** {@code Double? == Double}: null-safe IEEE equality. */
+  public static boolean areEqual(Double first, double second) {
+    return first != null && first.doubleValue() == second;
+  }
+
+  /** {@code a.compareTo(b)} on two {@code Int}s when kotlinc cannot fuse it into a branch. */
+  public static int compare(int first, int second) {
+    return first < second ? -1 : first == second ? 0 : 1;
+  }
+
   public static void throwUninitializedPropertyAccessException(String propertyName) {
     throw new kotlin.UninitializedPropertyAccessException(
         "lateinit property " + propertyName + " has not been initialized");

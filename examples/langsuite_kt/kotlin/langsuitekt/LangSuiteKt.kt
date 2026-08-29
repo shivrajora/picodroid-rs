@@ -5,9 +5,13 @@ import picodroid.app.Application
 import picodroid.util.Log
 
 /**
- * The Kotlin twin of `langsuite`: every sub-demo is a self-checking `object` printing `=== ALL
- * PASSED ===` under its own tag. It is also the fixture the kotlin-shim contract check runs against
- * — every `kotlin/…` reference this app makes must resolve in `kotlin-shim/`.
+ * The Kotlin twin of `langsuite`, language half (lambdas, null safety, objects, data classes,
+ * enums, sealed/when, interface defaults, exceptions, lazy/Pair, scope functions, default
+ * arguments, varargs, extensions/operators, synchronized, type checks); the stdlib half is
+ * `langsuite_kt_stdlib`, split off so each app's parsed-class metadata fits the 416 KB heap arena.
+ * Every sub-demo is a self-checking `object` printing `=== ALL PASSED ===` under its own tag. Both
+ * apps are the fixtures the kotlin-shim contract check runs against — every `kotlin/…` reference
+ * they make must resolve in `kotlin-shim/`.
  */
 class LangSuiteKt : Application() {
     override fun onCreate() {
@@ -22,6 +26,12 @@ class LangSuiteKt : Application() {
         safe("interfacedefault") { InterfaceDefaultDemo.run() }
         safe("exceptions") { ExceptionsDemo.run() }
         safe("lazypair") { LazyPairDemo.run() }
+        safe("scope") { ScopeFunctionsDemo.run() }
+        safe("defaultargs") { DefaultArgsDemo.run() }
+        safe("varargs") { VarargsDemo.run() }
+        safe("extension") { ExtensionDemo.run() }
+        safe("sync") { SyncDemo.run() }
+        safe("typechecks") { TypeChecksDemo.run() }
 
         Log.i(TAG, "=== LangSuiteKt done ===")
     }

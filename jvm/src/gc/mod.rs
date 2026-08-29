@@ -385,6 +385,14 @@ pub fn collect(
                     }
                 }
 
+                // Iterator: pin the collection it walks. `for (x in temp())`
+                // holds the temporary only through the iterator; without this
+                // the sweep would free the list/map buffer mid-loop and a later
+                // allocation would reuse it under the iterator's feet.
+                if let Some(state) = objects.iter_get(idx) {
+                    push_ref(work, &Value::ObjectRef(state.owner));
+                }
+
                 // Throwable side tables: the constructor message and any
                 // suppressed exceptions live in ObjectHeap side tables, not
                 // fields — trace them while their owner is live. Suppressed

@@ -130,11 +130,18 @@ fn view(
         Ok(i) => i,
         Err(e) => return Some(Err(e)),
     };
+    let Some(Value::ObjectRef(map)) = ctx.args.first().copied() else {
+        return Some(Err(JvmError::InvalidReference));
+    };
     let view = match ctx.objects.alloc(class) {
         Some(idx) => idx,
         None => return Some(Err(JvmError::StackOverflow)),
     };
     ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
+    // Field 1 keeps the map alive for as long as the view is: the GC
+    // traces object fields generically, so a view over a temporary map
+    // (`for (e in makeMap().entries)`) pins the map, and with it the buffer.
+    ctx.objects.set_field(view, 1, Value::ObjectRef(map));
     Some(Ok(Some(Value::ObjectRef(view))))
 }
 
@@ -168,11 +175,30 @@ pub(crate) fn dispatch_view(
                 IteratorState {
                     source,
                     position: 0,
+                    owner: recv,
                 },
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
         "size" => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
+        // contains(): `k in map.keys` / `v in map.values` — the entry view has
+        // no useful equality (entries are fresh objects) and stays unanswered.
+        "contains" => {
+            let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let probe = ctx.args.get(1).copied().unwrap_or(Value::Null);
+            let found = match ctx.objects.class_name(recv) {
+                Some("java/util/HashMap$KeySet") => {
+                    ctx.objects.map_contains_key(buf_idx, probe, ctx.strings)
+                }
+                Some("java/util/HashMap$Values") => {
+                    ctx.objects.map_contains_value(buf_idx, probe, ctx.strings)
+                }
+                _ => return None,
+            };
+            Some(Ok(Some(Value::Int(found as i32))))
+        }
         _ => None,
     }
 }

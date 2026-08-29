@@ -1347,6 +1347,7 @@ fn gc_collects_iterator() {
         IteratorState {
             source: IterSource::List(buf_idx),
             position: 0,
+            owner: list_obj,
         },
     );
 
@@ -1369,6 +1370,112 @@ fn gc_collects_iterator() {
     assert!(objects.iter_get(iter_obj).is_none());
 }
 
+/// `for (x in temp())`: the temporary list is reachable only through the
+/// iterator. The iterator's `owner` pins it, so its buffer and the
+/// references inside survive a collection mid-loop.
+#[test]
+fn gc_iterator_pins_temporary_list() {
+    use crate::object_heap::iter_store::{IterSource, IteratorState};
+
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let list_obj = objects.alloc("java/util/ArrayList").unwrap();
+    let buf_idx = objects.list_alloc().unwrap();
+    objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
+    let elem = objects.alloc("java/lang/Object").unwrap();
+    objects.list_add(buf_idx, Value::ObjectRef(elem));
+
+    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    objects.iter_register(
+        iter_obj,
+        IteratorState {
+            source: IterSource::List(buf_idx),
+            position: 0,
+            owner: list_obj,
+        },
+    );
+
+    // Root only the iterator: the list and its element must survive.
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(iter_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(list_obj));
+    assert!(objects.is_live(elem));
+    assert_eq!(objects.list_get(buf_idx, 0), Some(Value::ObjectRef(elem)));
+
+    // Drop the iterator too: now everything goes.
+    let freed = collect(
+        &[],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 3);
+}
+
+/// A `keySet()`/`values()`/`entrySet()` view over a temporary map holds the
+/// map in its field 1, so the map buffer outlives the map's last direct
+/// reference for as long as the view (or an iterator over it) does.
+#[test]
+fn gc_map_view_pins_temporary_map() {
+    use crate::object_heap::iter_store::{IterSource, IteratorState};
+
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let buf_idx = objects.map_alloc().unwrap();
+    objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
+    let key = objects.alloc("java/lang/Object").unwrap();
+    objects.map_put(buf_idx, Value::ObjectRef(key), Value::Int(1), &mut strings);
+
+    let view = objects.alloc("java/util/HashMap$KeySet").unwrap();
+    objects.set_field(view, 0, Value::Int(buf_idx as i32));
+    objects.set_field(view, 1, Value::ObjectRef(map_obj));
+    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    objects.iter_register(
+        iter_obj,
+        IteratorState {
+            source: IterSource::MapKeys(buf_idx),
+            position: 0,
+            owner: view,
+        },
+    );
+
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(iter_obj)], 4, 4).unwrap();
+    let freed = collect(
+        &[frame],
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 0);
+    assert!(objects.is_live(map_obj) && objects.is_live(view) && objects.is_live(key));
+    assert!(objects.map_contains_key(buf_idx, Value::ObjectRef(key), &strings));
+}
+
 #[test]
 fn gc_retains_iterator_and_source() {
     use crate::object_heap::iter_store::{IterSource, IteratorState};
@@ -1389,6 +1496,7 @@ fn gc_retains_iterator_and_source() {
         IteratorState {
             source: IterSource::List(buf_idx),
             position: 0,
+            owner: list_obj,
         },
     );
 
@@ -1443,6 +1551,7 @@ fn gc_stress_iterator_churn() {
             IteratorState {
                 source: IterSource::List(buf_idx),
                 position: (i as usize) % 5,
+                owner: list_obj,
             },
         );
         last_iter = iter_obj;

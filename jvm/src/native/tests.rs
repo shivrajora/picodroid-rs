@@ -1831,6 +1831,48 @@ fn hashset_add_duplicate() {
 }
 
 #[test]
+fn hashset_iterator_visits_every_element() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let set = make_set(&mut strings, &mut objects);
+    for v in [7, 3, 7, 9] {
+        dispatch_set(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[set, Value::Int(v)],
+            &mut strings,
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let iter = dispatch_set(
+        "iterator",
+        "()Ljava/util/Iterator;",
+        &[set],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let mut seen = alloc::vec::Vec::new();
+    while dispatch_iter("hasNext", "()Z", &[iter], &mut objects)
+        .unwrap()
+        .unwrap()
+        == Value::Int(1)
+    {
+        seen.push(
+            dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects)
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    assert_eq!(seen.len(), 3);
+    for v in [3, 7, 9] {
+        assert!(seen.contains(&Value::Int(v)));
+    }
+}
+
+#[test]
 fn hashset_clear() {
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
@@ -2208,6 +2250,71 @@ fn iterator_hashmap_keys() {
     // Keys should be Int(1) and Int(2) (order not guaranteed, but our impl preserves insertion order)
     assert!(keys.contains(&Value::Int(1)));
     assert!(keys.contains(&Value::Int(2)));
+}
+
+#[test]
+fn hashmap_key_and_value_views_answer_contains() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let map = make_map(&mut strings, &mut objects);
+    dispatch_map(
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[map, Value::Int(1), Value::Int(10)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    let keyset = dispatch_map(
+        "keySet",
+        "()Ljava/util/Set;",
+        &[map],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let values = dispatch_map(
+        "values",
+        "()Ljava/util/Collection;",
+        &[map],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    let mut arrays = ArrayHeap::new();
+    let mut probe = |class: &str, view: Value, needle: Value| -> Value {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: "(Ljava/lang/Object;)Z",
+            args: &[view, needle],
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+        };
+        BuiltinHandler
+            .dispatch(class, "contains", &mut ctx)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(
+        probe("java/util/HashMap$KeySet", keyset, Value::Int(1)),
+        Value::Int(1)
+    );
+    assert_eq!(
+        probe("java/util/HashMap$KeySet", keyset, Value::Int(10)),
+        Value::Int(0)
+    );
+    assert_eq!(
+        probe("java/util/HashMap$Values", values, Value::Int(10)),
+        Value::Int(1)
+    );
+    assert_eq!(
+        probe("java/util/HashMap$Values", values, Value::Int(1)),
+        Value::Int(0)
+    );
 }
 
 #[test]

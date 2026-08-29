@@ -7,6 +7,7 @@
 # Usage:
 #   ./scripts/hil-run.sh                  # run all tests, send email report
 #   ./scripts/hil-run.sh --app helloworld # run one test only
+#   ./scripts/hil-run.sh --board testbench_rp2040 --app langsuite_kt --no-email
 #   ./scripts/hil-run.sh --no-email       # skip email report
 #   ./scripts/hil-run.sh --include-hw     # also run hardware-peripheral tests
 set -euo pipefail
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --skip-pdb)   SKIP_PDB=true; shift ;;
     --no-email)   SEND_EMAIL=false; shift ;;
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
+    --board)      BOARD="$2"; shift 2 ;;
     --mode)
       case "$2" in
         no-shrink) MODES=("no-shrink") ;;
@@ -58,6 +60,8 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --app <name>    Run only the specified test
+  --board <name>  Board to flash (default: testbench_rp2350; e.g. testbench_rp2040
+                  when that board is on the probe)
   --include-hw    Also run hardware-peripheral tests (adcdemo, i2cdemo, etc.)
   --skip-pdb      Skip all PDB (Picodroid Debug Bridge) tests
   --mode <no-shrink|shrink|both>
