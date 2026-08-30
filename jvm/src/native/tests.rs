@@ -753,6 +753,32 @@ fn sb_append_char() {
 }
 
 #[test]
+fn sb_char_at_out_of_range_throws() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'x' as i32)),
+    )
+    .unwrap();
+    assert_eq!(
+        ctx.call("charAt", "(I)C", Some(Value::Int(0))),
+        Ok(Some(Value::Int(b'x' as i32)))
+    );
+    for i in [1, -1] {
+        let r = ctx.call("charAt", "(I)C", Some(Value::Int(i)));
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("charAt({i}) = {r:?}");
+        };
+        assert_eq!(
+            ctx.objects.class_name(idx),
+            Some("java/lang/StringIndexOutOfBoundsException")
+        );
+    }
+}
+
+#[test]
 fn sb_append_char_newline_passes_through() {
     // Java's append('\n') must yield a real newline (line-joining,
     // AlertDialog item lists) — not a space (regression for the old
@@ -3031,6 +3057,86 @@ fn string_split_multi_char() {
     assert_eq!(ctx.strings.resolve(r0), Some("a"));
     assert_eq!(ctx.strings.resolve(r1), Some("b"));
     assert_eq!(ctx.strings.resolve(r2), Some("c"));
+}
+
+#[test]
+fn string_char_at_out_of_range_throws() {
+    // Java: StringIndexOutOfBoundsException, not '\0'.
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    for i in [3, -1, 100] {
+        let r = ctx.dispatch("charAt", "(I)C", &[s, Value::Int(i)]);
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("charAt({i}) = {r:?}");
+        };
+        assert_eq!(
+            ctx.objects.class_name(idx),
+            Some("java/lang/StringIndexOutOfBoundsException")
+        );
+    }
+    assert_eq!(
+        ctx.dispatch("charAt", "(I)C", &[s, Value::Int(2)]),
+        Ok(Some(Value::Int(b'c' as i32)))
+    );
+}
+
+#[test]
+fn string_index_of_honours_from_index() {
+    // The 2-arg overloads used to drop fromIndex entirely, so the classic
+    // `while ((i = s.indexOf(x, i + 1)) >= 0)` loop never terminated.
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abcabc");
+    let a = ctx.intern(b"a");
+    let abc = ctx.intern(b"abc");
+    let d = |ctx: &mut StrCtx, m: &str, desc: &str, args: &[Value]| -> i32 {
+        match ctx.dispatch(m, desc, args) {
+            Ok(Some(Value::Int(i))) => i,
+            other => panic!("{m}{desc} -> {other:?}"),
+        }
+    };
+    let so = "(Ljava/lang/String;I)I";
+    let co = "(II)I";
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(1)]), 3);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(4)]), -1);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(-5)]), 0);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(99)]), -1);
+    assert_eq!(
+        d(
+            &mut ctx,
+            "indexOf",
+            co,
+            &[s, Value::Int(b'c' as i32), Value::Int(3)]
+        ),
+        5
+    );
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, abc, Value::Int(3)]), 3);
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, abc, Value::Int(2)]), 0);
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, a, Value::Int(-1)]), -1);
+    assert_eq!(
+        d(
+            &mut ctx,
+            "lastIndexOf",
+            co,
+            &[s, Value::Int(b'a' as i32), Value::Int(2)]
+        ),
+        0
+    );
+    assert_eq!(
+        d(
+            &mut ctx,
+            "lastIndexOf",
+            co,
+            &[s, Value::Int(b'a' as i32), Value::Int(99)]
+        ),
+        3
+    );
+    // startsWith(prefix, toffset)
+    let bc = ctx.intern(b"bc");
+    let sw = "(Ljava/lang/String;I)Z";
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(1)]), 1);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(0)]), 0);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(-1)]), 0);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(6)]), 0);
 }
 
 #[test]

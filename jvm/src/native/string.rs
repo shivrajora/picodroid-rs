@@ -88,8 +88,13 @@ pub(crate) fn dispatch(
                 (ctx.args.first(), ctx.args.get(1))
             {
                 let s = ctx.strings.resolve(*idx).unwrap_or("");
-                let ch = s.as_bytes().get(*i as usize).copied().unwrap_or(0);
-                Some(Ok(Some(Value::Int(ch as i32))))
+                match usize::try_from(*i).ok().and_then(|i| s.as_bytes().get(i)) {
+                    Some(&ch) => Some(Ok(Some(Value::Int(ch as i32)))),
+                    None => Some(Err(super::throw_named(
+                        ctx,
+                        "java/lang/StringIndexOutOfBoundsException",
+                    ))),
+                }
             } else {
                 Some(Err(JvmError::InvalidReference))
             }
@@ -124,7 +129,16 @@ pub(crate) fn dispatch(
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
-                Some(Ok(Some(Value::Int(sa.starts_with(sb) as i32))))
+                // startsWith(prefix, toffset): false for an offset outside
+                // [0, len] — Java's contract, no exception.
+                let r = match ctx.args.get(2) {
+                    Some(Value::Int(off)) => usize::try_from(*off)
+                        .ok()
+                        .and_then(|o| sa.get(o..))
+                        .is_some_and(|tail| tail.starts_with(sb)),
+                    _ => sa.starts_with(sb),
+                };
+                Some(Ok(Some(Value::Int(r as i32))))
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
@@ -145,23 +159,33 @@ pub(crate) fn dispatch(
             _ => Some(Err(JvmError::InvalidReference)),
         },
         "indexOf" => {
+            // Optional third arg: fromIndex (negative clamps to 0, past the
+            // end finds nothing) — Java's contract for the 2-arg overloads.
+            let from = match ctx.args.get(2) {
+                Some(Value::Int(f)) => (*f).max(0) as usize,
+                _ => 0,
+            };
             match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
-                    // indexOf(String)
+                    // indexOf(String[, int])
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
-                    let result = sa.find(sb).map(|i| i as i32).unwrap_or(-1);
+                    let result = sa
+                        .get(from..)
+                        .and_then(|tail| tail.find(sb))
+                        .map(|i| (i + from) as i32)
+                        .unwrap_or(-1);
                     Some(Ok(Some(Value::Int(result))))
                 }
                 (Some(Value::Reference(a)), Some(Value::Int(ch))) => {
-                    // indexOf(char) — char passed as int
+                    // indexOf(char[, int]) — char passed as int
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let target = *ch as u8;
                     let result = sa
                         .as_bytes()
-                        .iter()
-                        .position(|&b| b == target)
-                        .map(|i| i as i32)
+                        .get(from..)
+                        .and_then(|tail| tail.iter().position(|&b| b == target))
+                        .map(|i| (i + from) as i32)
                         .unwrap_or(-1);
                     Some(Ok(Some(Value::Int(result))))
                 }
@@ -169,12 +193,25 @@ pub(crate) fn dispatch(
             }
         }
         "lastIndexOf" => {
+            // Optional third arg: fromIndex — search backward starting at
+            // that index (a match may start at fromIndex itself); negative
+            // finds nothing, past the end searches the whole string.
+            let from = match ctx.args.get(2) {
+                Some(Value::Int(f)) if *f < 0 => {
+                    return Some(Ok(Some(Value::Int(-1))));
+                }
+                Some(Value::Int(f)) => Some(*f as usize),
+                _ => None,
+            };
             match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Int(ch))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let target = *ch as u8;
-                    let result = sa
-                        .as_bytes()
+                    let bytes = sa.as_bytes();
+                    let end = from
+                        .map(|f| f.saturating_add(1).min(bytes.len()))
+                        .unwrap_or(bytes.len());
+                    let result = bytes[..end]
                         .iter()
                         .rposition(|&b| b == target)
                         .map(|i| i as i32)
@@ -182,10 +219,17 @@ pub(crate) fn dispatch(
                     Some(Ok(Some(Value::Int(result))))
                 }
                 (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
-                    // lastIndexOf(String)
+                    // lastIndexOf(String[, int])
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
-                    let result = sa.rfind(sb).map(|i| i as i32).unwrap_or(-1);
+                    let end = from
+                        .map(|f| f.saturating_add(sb.len()).min(sa.len()))
+                        .unwrap_or(sa.len());
+                    let result = sa
+                        .get(..end)
+                        .and_then(|head| head.rfind(sb))
+                        .map(|i| i as i32)
+                        .unwrap_or(-1);
                     Some(Ok(Some(Value::Int(result))))
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
