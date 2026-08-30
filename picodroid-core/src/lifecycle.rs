@@ -143,7 +143,7 @@ pub(crate) fn run_application(
                 activity_push = Some((class_name, intent_ref));
                 break;
             }
-            PendingOp::Activity(PendingActivityOp::Pop) => {
+            PendingOp::Activity(PendingActivityOp::Pop { .. }) => {
                 // No stack yet — nothing to pop.
             }
             PendingOp::Service(s) => {
@@ -985,7 +985,7 @@ fn process_pending_op(
             heap,
             handler,
         ),
-        PendingOp::Activity(PendingActivityOp::Pop) => handle_pop_op(jvm, heap, handler),
+        PendingOp::Activity(PendingActivityOp::Pop { .. }) => handle_pop_op(jvm, heap, handler),
     }
 }
 

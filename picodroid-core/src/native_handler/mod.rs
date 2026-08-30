@@ -470,7 +470,23 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 })))
             }
             (_, "finish") => {
-                self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
+                // args[0] = this. Android's finish() is idempotent per
+                // Activity (mFinished) and a no-op on one already destroyed;
+                // without these guards `finish(); finish();` queued two Pops
+                // and the drain loop popped the caller and its parent.
+                let this = match ctx.args.first() {
+                    Some(Value::ObjectRef(o)) => *o,
+                    _ => 0,
+                };
+                if !self.activity_stack.iter().any(|(r, _)| r == this) {
+                    crate::pd_warn!("finish() on an Activity that is not on the stack; ignored");
+                    return Some(Ok(None));
+                }
+                if !self.pending_ops.has_pending_pop_for(this) {
+                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop {
+                        finishing: this,
+                    }));
+                }
                 Some(Ok(None))
             }
             _ => {
