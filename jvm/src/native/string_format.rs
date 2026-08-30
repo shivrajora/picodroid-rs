@@ -81,7 +81,7 @@ fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
 /// scratch buffer — `format()` reuses one buffer across all args instead of
 /// allocating a fresh Vec per conversion (device-heap churn in log-heavy
 /// loops).
-fn stringify(ctx: &mut NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
+fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
     dst.clear();
     let unboxed = unbox(ctx, v);
     match unboxed {
@@ -106,32 +106,19 @@ fn stringify(ctx: &mut NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
             dst.extend_from_slice(crate::object_heap::double_to_str_buf(d, &mut tmp));
         }
         Value::ObjectRef(idx) => {
-            // %s of an object calls its toString() (bugbash S4). The upcall
-            // runs with the builtin handler — a toString needing embedder
-            // natives surfaces the miss as the fallback below. Sibling args
-            // stay rooted through the varargs array while the callee runs.
-            use super::NativeMethodHandler as _;
-            let mut h = super::BuiltinHandler;
-            if let Ok(Some(Value::Reference(sref))) = h.invoke_java(
-                ctx,
-                Value::ObjectRef(idx),
-                "toString",
-                "()Ljava/lang/String;",
-                &[],
-            ) {
-                dst.extend_from_slice(ctx.strings.resolve(sref).unwrap_or("null").as_bytes());
-            } else {
-                // Identity fallback, in Object.toString's own shape
-                // (dotted name @ 4-hex index — it used to print the class
-                // in slash form with a decimal index).
-                let name = ctx.objects.class_name(idx).unwrap_or("Object");
-                for b in name.bytes() {
-                    dst.push(if b == b'/' { b'.' } else { b });
-                }
-                dst.push(b'@');
-                for shift in [12u32, 8, 4, 0] {
-                    dst.push(b"0123456789abcdef"[((idx >> shift) & 0xF) as usize]);
-                }
+            // Identity shape, matching Object.toString (dotted name @ 4-hex
+            // index). Objects with a toString() override never reach here
+            // when the interpreter is driving: op_invoke pre-stringifies
+            // format's Object[] elements (bugbash S4) — doing the upcall
+            // from this native would monomorphise a second Executor for
+            // BuiltinHandler, which overflowed RP2040's flash by 11.7 KB.
+            let name = ctx.objects.class_name(idx).unwrap_or("Object");
+            for b in name.bytes() {
+                dst.push(if b == b'/' { b'.' } else { b });
+            }
+            dst.push(b'@');
+            for shift in [12u32, 8, 4, 0] {
+                dst.push(b"0123456789abcdef"[((idx >> shift) & 0xF) as usize]);
             }
         }
         Value::ArrayRef(idx) => {
