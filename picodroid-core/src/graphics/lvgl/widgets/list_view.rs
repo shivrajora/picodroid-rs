@@ -107,7 +107,11 @@ pub(in crate::graphics) fn add_item(id: i32, text: &str) {
 /// as the item-click target for the list handle. Mirrors
 /// `spinner::register_listener` — update-in-place if already registered.
 pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
+    let raw_obj = handle_table::lookup(id);
+    if raw_obj.is_null() {
+        return; // deleted/stale list: never hand LVGL a null, never map key 0
+    }
+    let raw_ptr = raw_obj as usize;
     unsafe {
         match map_mut(&raw mut LISTENER_MAP).upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
@@ -141,21 +145,31 @@ pub fn drain_item_click_queue() -> Option<usize> {
 /// listener, or the row is no longer a child of its list. The position is the
 /// row's index among the list's children, recovered by scan.
 pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
+    // The queued row pointer is never dereferenced: an earlier click in the
+    // same drain may have rebuilt the list (removeAllViews / a
+    // notifyDataSetChanged-style repopulate) or finished the Activity, and
+    // this queue has no LV_EVENT_DELETE purge. Instead, walk the children of
+    // every list that still has a listener (those pointers are kept live by
+    // list_map_delete_cb) and match the row by address — a freed row is
+    // simply not found.
+    let row_obj = row as *mut lv_obj_t;
+    let mut hit = None;
     unsafe {
-        let row_obj = row as *mut lv_obj_t;
-        let list = lv_obj_get_parent(row_obj);
-        if list.is_null() {
-            return None;
-        }
-        let obj_ref = map_ref(&raw const LISTENER_MAP).lookup(list as usize)?;
-        let n = lv_obj_get_child_count(list) as i32;
-        for i in 0..n {
-            if lv_obj_get_child(list, i) == row_obj {
-                return Some((obj_ref, i));
+        map_ref(&raw const LISTENER_MAP).for_each(&mut |list, obj_ref| {
+            if hit.is_some() {
+                return;
             }
-        }
-        None
+            let list = list as *mut lv_obj_t;
+            let n = lv_obj_get_child_count(list) as i32;
+            for i in 0..n {
+                if lv_obj_get_child(list, i) == row_obj {
+                    hit = Some((obj_ref, i));
+                    return;
+                }
+            }
+        });
     }
+    hit
 }
 
 pub fn reset_list_view_state() {
