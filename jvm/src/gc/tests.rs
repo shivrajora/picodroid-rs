@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::array_heap::encode_ref;
 use alloc::format;
 
 #[test]
@@ -364,6 +365,37 @@ fn gc_collects_unreachable_array() {
 }
 
 #[test]
+fn gc_ref_array_null_does_not_pin_object_zero() {
+    // A null slot is raw 0; before OBJ_TAG the mark phase read it as
+    // "object 0" and kept whatever lived there alive forever.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+
+    let obj0 = objects.alloc("Garbage").unwrap();
+    assert_eq!(obj0, 0);
+    let arr = arrays.alloc(ATYPE_REF, 2).unwrap();
+    arrays.store(arr, 0, encode_ref(Value::Null).unwrap());
+
+    let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)], 4, 4).unwrap();
+    let frames = [frame];
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut GcState::new(),
+        |_| {},
+    );
+    assert_eq!(freed, 1);
+    assert!(!objects.is_live(obj0));
+    assert!(arrays.is_live(arr));
+}
+
+#[test]
 fn gc_retains_ref_array_elements() {
     let mut objects = ObjectHeap::new();
     let mut arrays = ArrayHeap::new();
@@ -373,7 +405,7 @@ fn gc_retains_ref_array_elements() {
     // Create an ATYPE_REF array holding an object reference
     let obj = objects.alloc("Target").unwrap();
     let arr = arrays.alloc(ATYPE_REF, 2).unwrap();
-    arrays.store(arr, 0, obj as i32);
+    arrays.store(arr, 0, encode_ref(Value::ObjectRef(obj)).unwrap());
 
     // Only the array is rooted — object should survive via ATYPE_REF scan
     let frame = Frame::new(0, 0, &[Value::ArrayRef(arr)], 4, 4).unwrap();

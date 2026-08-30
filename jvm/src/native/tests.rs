@@ -1188,6 +1188,45 @@ fn arraylist_set_returns_old() {
 }
 
 #[test]
+fn arraylist_to_array_keeps_object_zero() {
+    // The first object an executor allocates lives in slot 0; a round trip
+    // through an Object[] must hand it back, not null.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let first = objects.alloc("Foo").unwrap();
+    assert_eq!(first, 0);
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::ObjectRef(first)],
+        &mut objects,
+    )
+    .unwrap();
+    let mut ctx = NativeContext {
+        classes: &[],
+        descriptor: "()[Ljava/lang/Object;",
+        args: &[list],
+        strings: &mut strings,
+        objects: &mut objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    let arr = BuiltinHandler
+        .dispatch("java/util/ArrayList", "toArray", &mut ctx)
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(a) = arr else {
+        panic!("expected ArrayRef");
+    };
+    let raw = arrays.load(a, 0).unwrap();
+    assert_eq!(crate::array_heap::decode_ref(raw), Value::ObjectRef(0));
+}
+
+#[test]
 fn arraylist_remove() {
     let mut objects = ObjectHeap::new();
     let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
@@ -2929,26 +2968,15 @@ impl StrCtx {
             .alloc(crate::array_heap::ATYPE_REF, vals.len() as u16)
             .unwrap();
         for (i, v) in vals.iter().enumerate() {
-            let raw: i32 = match *v {
-                Value::Null => 0,
-                Value::Reference(idx) => ((idx as u32) | crate::array_heap::REF_TAG) as i32,
-                Value::ObjectRef(idx) => idx as i32,
-                _ => panic!("make_args only accepts Null / Reference / ObjectRef"),
-            };
+            let raw = crate::array_heap::encode_ref(*v)
+                .expect("make_args only accepts Null / Reference / ObjectRef");
             self.arrays.store(arr, i, raw);
         }
         Value::ArrayRef(arr)
     }
 
     /// Box a primitive Value into the named wrapper class and return the ObjectRef.
-    ///
-    /// Reserves slot 0 on first use because the ATYPE_REF aastore encoding
-    /// collides `ObjectRef(0)` with `Null` (both stored as raw 0).  Real apps
-    /// never hit this because slot 0 is taken by their Application object.
     fn box_primitive(&mut self, class: &'static str, v: Value) -> Value {
-        if self.objects.class_name(0).is_none() {
-            self.objects.alloc("java/lang/Object").unwrap();
-        }
         let idx = self.objects.alloc(class).unwrap();
         self.objects.set_field(idx, 0, v);
         Value::ObjectRef(idx)

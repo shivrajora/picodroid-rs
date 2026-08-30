@@ -453,16 +453,15 @@ pub fn collect(
 
                 // ATYPE_REF arrays hold one of three reference kinds,
                 // disambiguated by tag bits — see array_heap::REF_TAG /
-                // ARRAY_TAG. Untagged non-negative values are ObjectRefs.
+                // ARRAY_TAG / OBJ_TAG. Raw 0 is Null and must not pin
+                // object 0.
                 if arrays.atype(idx) == Some(ATYPE_REF) {
                     for &val in arrays.data_slice(idx) {
-                        let u = val as u32;
-                        if u & crate::array_heap::REF_TAG != 0 {
-                            work.push(GcRef::String((u & !crate::array_heap::REF_TAG) as u16));
-                        } else if u & crate::array_heap::ARRAY_TAG != 0 {
-                            work.push(GcRef::Array((u & !crate::array_heap::ARRAY_TAG) as u16));
-                        } else if val >= 0 {
-                            work.push(GcRef::Object(val as u16));
+                        match crate::array_heap::decode_ref(val) {
+                            Value::Reference(s) => work.push(GcRef::String(s)),
+                            Value::ArrayRef(a) => work.push(GcRef::Array(a)),
+                            Value::ObjectRef(o) => work.push(GcRef::Object(o)),
+                            _ => {}
                         }
                     }
                 }
