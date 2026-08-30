@@ -17,10 +17,20 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
  * never pinned separately) for type-checking only; what ships in the PAPK is
  * the app's classes plus the reachable part of `:kotlin-shim`, staged through
  * the `picodroidShim` configuration. The stdlib jar is never packed.
+ *
+ * `@Inject` / `@Module` (docs/designs/inject-annotations-2026-08.md) is
+ * processed by kapt over kotlinc's stubs: the same javac processor Java apps
+ * run, wired onto the `kapt` configuration by [PicodroidPapkPlugin]. Generated
+ * Java lands in `build/generated/source/kapt/main`, is compiled by
+ * `compileJava`, and flows through `stageClasses` like any app class.
  */
 class PicodroidPapkKotlinPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         target.plugins.apply("org.jetbrains.kotlin.jvm")
+        // kapt ships inside the kotlin-gradle-plugin artifact already on
+        // buildSrc's classpath. Applied before PicodroidPapkPlugin so its
+        // hasPlugin("org.jetbrains.kotlin.kapt") branch is deterministic.
+        target.plugins.apply("org.jetbrains.kotlin.kapt")
 
         val shimProjectPath = (target.findProperty("picodroid.shimProjectPath") as? String) ?: ":kotlin-shim"
         target.configurations.create(SHIM_CONFIGURATION) {

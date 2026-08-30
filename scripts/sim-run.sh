@@ -194,17 +194,23 @@ run_test() {
 # buttons-only/no-touch). Build and boot it on its real board so
 # board-conditional code is exercised in sim CI at all. The app loops
 # forever; a timeout kill after a verified boot is the expected outcome.
+# Args: mode, app, lane name (log stem + bench-backfill BOARD_BY_APP key), log
+# tag. The defaults are the Java app; picoenvmon_kt (its Kotlin twin, roadmap
+# Session 7) rides the same two lanes with its own names.
 run_enviro_smoke() {
   local mode="$1"
-  local tag="picoenvmon-enviro[${mode}]"
-  local log_file="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.log"
-  local build_log="$RUN_LOG_DIR/picoenvmon-enviro.${mode}.build.log"
-  local patterns='PicoEnvMon[]:] Home.onCreate'
+  local app="${2:-picoenvmon}"
+  local lane="${3:-picoenvmon-enviro}"
+  local logtag="${4:-PicoEnvMon}"
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="${logtag}[]:] Home.onCreate"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (board smoke, 25s) ---"
 
-  local -a apk_args=(--app picoenvmon)
+  local -a apk_args=(--app "$app")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -227,7 +233,7 @@ run_enviro_smoke() {
   fi
 
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
-  PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
+  PICODROID_APK_PATH="$REPO_ROOT/build/apks/${app}.papk" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
@@ -253,15 +259,18 @@ run_enviro_smoke() {
 # (synced or the fail-soft path) — nightly must not depend on the internet.
 run_enviro_w_smoke() {
   local mode="$1"
-  local tag="picoenvmon-enviro-w[${mode}]"
-  local log_file="$RUN_LOG_DIR/picoenvmon-enviro-w.${mode}.log"
-  local build_log="$RUN_LOG_DIR/picoenvmon-enviro-w.${mode}.build.log"
-  local patterns='PicoEnvMon[]:] Home.onCreate;net: up;http: serving on port 8080'
+  local app="${2:-picoenvmon}"
+  local lane="${3:-picoenvmon-enviro-w}"
+  local logtag="${4:-PicoEnvMon}"
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="${logtag}[]:] Home.onCreate;net: up;http: serving on port 8080"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (WiFi board smoke, 25s) ---"
 
-  local -a apk_args=(--app picoenvmon)
+  local -a apk_args=(--app "$app")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -284,7 +293,7 @@ run_enviro_w_smoke() {
   fi
 
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
-  PICODROID_APK_PATH="$REPO_ROOT/build/apks/picoenvmon.papk" \
+  PICODROID_APK_PATH="$REPO_ROOT/build/apks/${app}.papk" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
@@ -300,7 +309,7 @@ run_enviro_w_smoke() {
   for i in $(seq 1 20); do
     if grep -q "http: serving" "$log_file" 2>/dev/null; then
       for attempt in 1 2 3; do
-        if curl -sf -m 5 "http://127.0.0.1:8080/" 2>/dev/null | grep -q "PicoEnvMon"; then
+        if curl -sf -m 5 "http://127.0.0.1:8080/" 2>/dev/null | grep -q "$logtag"; then
           page_ok=1
           break
         fi
@@ -421,6 +430,12 @@ for MODE in "${MODES[@]}"; do
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
     run_enviro_smoke "$MODE"
     run_enviro_w_smoke "$MODE"
+  fi
+  # The Kotlin twin (examples/picoenvmon_kt): same boards, same proofs, its own
+  # log tag and lane names (docs/designs/kotlin-roadmap-2026-08.md Session 7).
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon_kt" ]]; then
+    run_enviro_smoke "$MODE" picoenvmon_kt picoenvmon_kt-enviro PicoEnvMonKt
+    run_enviro_w_smoke "$MODE" picoenvmon_kt picoenvmon_kt-enviro-w PicoEnvMonKt
   fi
 done
 

@@ -52,7 +52,8 @@ at the bottom can be executed cold. Verified against the tree at `ad79a98`
   generated intermediate base class.
 - **Java only** this cut. Kotlin apps get neither the annotations nor the
   processor, so a Kotlin `@Inject` fails at compile time instead of silently
-  doing nothing. kapt/KSP is a follow-up.
+  doing nothing. kapt/KSP is a follow-up. *(Superseded 2026-08-30: kapt landed —
+  follow-up 6 below.)*
 - **Examples:** new `examples/injectdemo`; `examples/picoenvmon` migrated off
   its hand-written `di/` package. `dialogdemo`/`gesturedemo` and the manual
   SDK classes stay; the two styles coexist (a hand-written
@@ -174,8 +175,29 @@ constructors on an `Application` subclass never ran. They do now
 5. **One aggregate graph class per app** instead of a factory per class —
    trades Dagger fidelity for fewer registered classes (~20 B + parse cost
    each) on RAM-tight boards.
-6. **Kotlin** — kapt or KSP in `PicodroidPapkKotlinPlugin`; generated Java must
-   flow through `stageClasses` → `stripClassMetadata` untouched (it is not
-   under `kotlin/**` or `picodroid/shim/**`, so it will).
+6. ~~**Kotlin** — kapt or KSP in `PicodroidPapkKotlinPlugin`~~ — **DONE 2026-08-30
+   (branch `kotlin-session7-kapt`, roadmap AMENDMENT 14)**: `picodroid-papk-kotlin`
+   applies `org.jetbrains.kotlin.kapt` (it ships inside the KGP artifact already
+   on buildSrc's classpath — no new dependency) and `PicodroidPapkPlugin` puts
+   `:inject:compiler` on the `kapt` configuration for Kotlin apps (kapt forces
+   `-proc:none` on `compileJava`) and on `annotationProcessor` for Java apps —
+   one code path, the Java-only gate is gone. Generated Java lands in
+   `build/generated/source/kapt/main`, is compiled by `compileJava` and rides
+   `stageClasses` → `stripClassMetadata` untouched (only `kotlin/**` is pruned).
+   `examples/injectdemo_kt` is the twin of `injectdemo` and a `shimFixtures`
+   input: same seven log proofs; PAPK 25,486 B / 32 classes (14 Kotlin + 16
+   generated — identical to the Java set — + `Intrinsics` and
+   `UninitializedPropertyAccessException` from the shim) vs 19 classes /
+   13.8 KB for the Java app. kapt stubs show the shapes the processor sees:
+   `@Inject lateinit var` → `@Inject public T x` (+ accessors), `@Module object`
+   + `@JvmStatic @Provides` → one `public static final` method with the
+   object's private constructor (the static path never checks it), `@Module
+   class` → Kotlin's public no-arg constructor (instance path). Two traps,
+   pinned by `inject/compiler`'s `KotlinShapesTest` on stub-shaped Java:
+   `@Provides` in a `companion object` (kotlinc emits the method on the outer
+   class and on `$Companion` → stray-provides error) and a `@Module object`
+   method without `@JvmStatic` (private constructor → no-arg-ctor error).
+   `kapt.include.compile.classpath=false` in `gradle.properties`; K2 kapt is
+   left at KGP 2.1.21's default. No KSP.
 7. **`sdk/keep.toml`'s `picodroid/annotation/KeepName`** is a stale,
    never-implemented hook; unrelated to this work, left alone.

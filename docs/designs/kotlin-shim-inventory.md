@@ -266,3 +266,56 @@ Notes for Session 2: the output has no `StackMapTable`, so a HotSpot JVM would r
 3. `SourceDebugExtension` is 2.7 KB in the fixture; the strip removes it, but `LineNumberTable` (kept for stack traces) still maps inlined stdlib lines to the app's `SourceFile` — acceptable, documented.
 4. The dump tool's `refs-all.tsv` also lists every `picodroid/**` member the fixture touches — Session 2's Direction-C allowlist can be seeded from it as well as from § 5.1.
 5. **Class-metadata budget (Session 6, 2026-08-28).** The 24-demo `langsuite_kt` parses 155 classes and OOMs the 416 KB sim/RP2350 arena with only 3 KB of live objects: `census classmeta main: 155/295 parsedB=236105 devB~=127909` over a 96 KB framework baseline — ~1.5 KB per parsed class on the 64-bit sim, ~0.8 KB on device. kotlinc's inlined comparator classes (`$$inlined$sortedBy$N`, 25 for `SortingDemo` alone), `$WhenMappings` and lambda-capturing objects all count. The suite was split into `langsuite_kt` (language, 15 demos) and `langsuite_kt_stdlib` (8 demos); Session 7's port must report `classmeta` for `picoenvmon_kt` against `picoenvmon` as its first number.
+
+## 10. Session 7 — `examples/picoenvmon_kt` vs `examples/picoenvmon` (2026-08-30)
+
+Same protocol for both apps, same commit, sim `-b pico_enviro_mon_w -m` (416 KB
+arena, headless, control FIFO): census at boot with the dashboard serving, one
+A/B/X/Y nav cycle over Live → History → Network → Settings, then 100 dashboard
+requests at 1 req/s. PAPKs from `build-apk.sh` in both modes. `devB~` is the
+32-bit device re-derivation of the sim's `parsedB` (docs/memory-diagnostics.md).
+
+| Metric | picoenvmon (Java) | picoenvmon_kt | Δ |
+|---|---|---|---|
+| PAPK, no-shrink | 75,170 B | 79,095 B | +3,925 B (+5.2 %) |
+| PAPK, shrink | 68,896 B | 72,908 B | +4,012 B (+5.8 %) |
+| Classes in the PAPK | 35 (23 hand-written + 12 generated DI) | 45 (30 Kotlin + 12 generated DI + 3 shim) | +10 |
+| … of which never parsed | 0 | 7 (`ConstantsKt` + 6 file-private `const` facades) | — |
+| Strip (Kotlin only) | — | 42 app + 53 shim classes in → 3 shim kept, 50 pruned; 187,236 → 77,001 B, 7,567 → 3,850 CP entries | — |
+| Shim survivors | — | `Intrinsics`, `UninitializedPropertyAccessException`, `StringCompanionObject` (`String.format`) | — |
+| Registered classes (`classmeta` total) | 174 | 184 | +10 |
+| Parsed at boot (serving) | 65 · `devB~` 47,608 | 66 · `devB~` 47,495 | +1 · −113 B |
+| Parsed after the nav cycle | 84 · `devB~` 64,311 | 88 · `devB~` 66,776 | +4 · +2,465 B (+3.8 %) |
+| Parsed after 100 serves | 85 · `devB~` 64,871 | 89 · `devB~` 67,336 | +4 · +2,465 B |
+| `tableB~` | 3,500 | 3,700 | +200 B |
+| Live floor after serves (`floor`) | 13,024 B | 13,580 B | +556 B |
+| Live at snapshot (`live` obj/arr/str) | 13,263 (3,596 / 8,801 / 866) | 15,667 (5,436 / 8,805 / 1,426) | snapshot phase differs (Kotlin's shows 34 pending `Socket` + 37 `SocketTimeoutException` awaiting the next GC — the clean-bind idle signature, not retention: floors are 556 B apart) |
+| Native min-ever-free (`nmin`) | 66,864 B | 69,088 B | +2,224 B (noise-level; Kotlin ahead) |
+| Largest free block (`lblk`) | 65,728 B | 66,488 B | — |
+| Idle serve signature | `alloc=+2 stri=+1` / s | `alloc=+2 stri=+1` / s | identical |
+| LEAK? / GC-PRESSURE / OOM | 0 / 0 / 0 | 0 / 0 / 0 | — |
+| Sim smoke, both boards × both shrink modes | 4/4 PASS | 4/4 PASS (dashboard curl incl.) | — |
+| `-l 360` gate (boot + 100 serves, no nav): `nmin` / `lblk` / `floor` | 44,328 / 40,608 / 12,816 B | 49,696 / 49,248 / 13,352 B | Kotlin +5.4 KB headroom (heap layout; not worse) |
+| `-l 360` gate: curl non-200 / OOM / GC-PRESSURE | 0 / 0 / 0 | 0 / 0 / 0 | — |
+| `-l 360` gate: `LEAK?` | 1 (native floor +6,656 B at w≈10) | 1 (native floor +6,672 B at w=11) | identical boot-warm-up trip in both apps — sensor registration, PWM, first-touch class parsing — `nused` is a flat sawtooth and `nmin` constant from w≈40 to the end; a protocol artifact of arming the native sentinel two windows after `Home.onCreate`, not retention |
+
+Against the Cross-cutting budget (roadmap § Cross-cutting decisions): PAPK
+≤ 160 KB ✓ (79 KB); parsed metadata ≤ 61 KB — the Java app itself now sits at
+64 KB after a nav cycle because the 12 generated DI classes joined it since the
+41 KB figure was taken, and the Kotlin twin is +2.5 KB over that; zero `.bss`
+growth ✓ (no firmware change). Device min-ever-free (`pdb.sh sysmon`) is not
+measured in this session: the probe and the main checkout were in use by
+another session; the recipe is in the app README and roadmap Session 7.
+
+Why the deltas are this small: the port follows the frugality rules in
+`examples/picoenvmon_kt/README.md` — no `companion object` anywhere (top-level
+`const val`s instead; the seven facade classes are registered but never
+parsed), top-level functions with `@file:JvmName` for the four stateless
+utilities, `@JvmField` on cross-class fields, `private val` (no accessors)
+inside classes, no stdlib collections/`lazy`/`Pair`/data classes, byte
+constants through `Formatter.ascii()` (`String.getBytes()`, not the `Charset`
+overload `toByteArray()` inlines to), written-out scans instead of
+`IntArray.indexOf`/`trim()`. What Kotlin still adds: `lateinit` accessors on
+the 12 injected fields, `Intrinsics` null checks at `as` casts, the three shim
+classes, `LineNumberTable`s, and one extra parsed class per `@file:JvmName`
+facade that is actually called (`TimeFormat`, `SntpClient`, `WeatherFetcher`).

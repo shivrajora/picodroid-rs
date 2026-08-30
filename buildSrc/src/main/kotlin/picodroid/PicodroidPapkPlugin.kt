@@ -17,9 +17,10 @@ import java.io.File
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
  *
  * Pipeline: compileJava -> (optional) shrinkClasses -> packPapk.
- * Kotlin apps (`picodroid-papk-kotlin`): compileKotlin + compileJava ->
- * stageClasses (+ shim) -> stripClassMetadata -> (optional) shrinkClasses ->
- * packPapk. Java-only apps take the first path untouched.
+ * Kotlin apps (`picodroid-papk-kotlin`): kapt (stubs + @Inject processor) ->
+ * compileKotlin + compileJava -> stageClasses (+ shim) -> stripClassMetadata
+ * -> (optional) shrinkClasses -> packPapk. Java-only apps take the first path
+ * untouched.
  *
  * Shrinking gate: enabled by Gradle property `picodroid.shrink=true` or env
  * `PICODROID_SHRINK=1`. When enabled and a map is committed for the current
@@ -63,25 +64,31 @@ class PicodroidPapkPlugin : Plugin<Project> {
         // Compile-time DI (docs/designs/inject-annotations-2026-08.md): the
         // javax.inject annotations ride compileOnly (SOURCE retention — never
         // in a PAPK) and the processor emits *_Factory / *_MembersInjector
-        // sources into javac's default generated dir, compiled and packed with
-        // the app's own classes. Java apps only for now: a Kotlin app gets
-        // neither, so a Kotlin @Inject fails to compile instead of silently
-        // doing nothing (no kapt/KSP yet). Paths mirror sdkProjectPath so an
-        // out-of-tree app can point at its picodroid checkout.
-        if (!target.plugins.hasPlugin("org.jetbrains.kotlin.jvm")) {
-            val injectAnnotationsPath =
-                (target.findProperty("picodroid.injectAnnotationsProjectPath") as? String) ?: ":inject:annotations"
-            val injectCompilerPath =
-                (target.findProperty("picodroid.injectCompilerProjectPath") as? String) ?: ":inject:compiler"
-            target.dependencies.add(
-                JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME,
-                target.dependencies.project(mapOf("path" to injectAnnotationsPath))
-            )
-            target.dependencies.add(
-                JavaPlugin.ANNOTATION_PROCESSOR_CONFIGURATION_NAME,
-                target.dependencies.project(mapOf("path" to injectCompilerPath))
-            )
-        }
+        // sources, compiled and packed with the app's own classes. Java apps
+        // run it through javac's annotationProcessor path; Kotlin apps run the
+        // same processor through kapt (applied by picodroid-papk-kotlin before
+        // this plugin), which processes kotlinc's stubs plus any Java sources
+        // and hands the generated Java to compileJava — kapt forces
+        // `-proc:none` on compileJava, so the processor must ride the `kapt`
+        // configuration there. compileOnly is on the compile classpath both
+        // kotlinc and the stub pass consume, so no separate Kotlin dependency
+        // is needed. Paths mirror sdkProjectPath so an out-of-tree app can
+        // point at its picodroid checkout.
+        val injectAnnotationsPath =
+            (target.findProperty("picodroid.injectAnnotationsProjectPath") as? String) ?: ":inject:annotations"
+        val injectCompilerPath =
+            (target.findProperty("picodroid.injectCompilerProjectPath") as? String) ?: ":inject:compiler"
+        target.dependencies.add(
+            JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME,
+            target.dependencies.project(mapOf("path" to injectAnnotationsPath))
+        )
+        val processorConfiguration =
+            if (target.plugins.hasPlugin("org.jetbrains.kotlin.kapt")) "kapt"
+            else JavaPlugin.ANNOTATION_PROCESSOR_CONFIGURATION_NAME
+        target.dependencies.add(
+            processorConfiguration,
+            target.dependencies.project(mapOf("path" to injectCompilerPath))
+        )
 
         // App jars are not published; skip the default jar task.
         target.tasks.named("jar", Jar::class.java) { enabled = false }

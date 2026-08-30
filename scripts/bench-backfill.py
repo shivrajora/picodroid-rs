@@ -44,6 +44,8 @@ DEFAULT_BOARD = "testbench_rp2350"
 BOARD_BY_APP = {
     "picoenvmon-enviro": "pico_enviro_mon",
     "picoenvmon-enviro-w": "pico_enviro_mon_w",
+    "picoenvmon_kt-enviro": "pico_enviro_mon",
+    "picoenvmon_kt-enviro-w": "pico_enviro_mon_w",
     "netexception": "testbench_rp2350w",
 }
 
