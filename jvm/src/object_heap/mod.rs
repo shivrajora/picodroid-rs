@@ -890,20 +890,20 @@ pub struct SideTableCensus {
 }
 
 /// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.
-pub fn long_to_decimal_buf(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
+pub fn long_to_decimal_buf(n: i64, buf: &mut [u8; 21]) -> &[u8] {
     if n == 0 {
         buf[0] = b'0';
         return &buf[..1];
     }
     let neg = n < 0;
-    if neg {
-        n = n.wrapping_neg();
-    }
+    // Unsigned magnitude: `i64::MIN.wrapping_neg()` is still `i64::MIN`, so a
+    // signed negate would leave the digit loop with nothing to emit.
+    let mut m = n.unsigned_abs();
     let mut i = 21usize;
-    while n > 0 {
+    while m > 0 {
         i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
+        buf[i] = b'0' + (m % 10) as u8;
+        m /= 10;
     }
     if neg {
         i -= 1;
@@ -913,20 +913,19 @@ pub fn long_to_decimal_buf(mut n: i64, buf: &mut [u8; 21]) -> &[u8] {
 }
 
 /// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.
-pub fn int_to_decimal_buf(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
+pub fn int_to_decimal_buf(n: i32, buf: &mut [u8; 12]) -> &[u8] {
     if n == 0 {
         buf[0] = b'0';
         return &buf[..1];
     }
     let neg = n < 0;
-    if neg {
-        n = n.wrapping_neg();
-    }
+    // Unsigned magnitude — see `long_to_decimal_buf`.
+    let mut m = n.unsigned_abs();
     let mut i = 12usize;
-    while n > 0 {
+    while m > 0 {
         i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
+        buf[i] = b'0' + (m % 10) as u8;
+        m /= 10;
     }
     if neg {
         i -= 1;
@@ -1094,6 +1093,32 @@ mod tests {
         assert_eq!(heap.get_exception_message(obj), Some(11));
         heap.free_exception_message(obj);
         assert_eq!(heap.get_exception_message(obj), None);
+    }
+
+    #[test]
+    fn int_to_decimal_buf_handles_min_value() {
+        // `wrapping_neg` is a no-op on MIN, so the digit loop used to skip
+        // and the function returned a bare "-".
+        let mut b = [0u8; 12];
+        assert_eq!(int_to_decimal_buf(i32::MIN, &mut b), b"-2147483648");
+        let mut b = [0u8; 12];
+        assert_eq!(int_to_decimal_buf(i32::MAX, &mut b), b"2147483647");
+        let mut b = [0u8; 12];
+        assert_eq!(int_to_decimal_buf(-1, &mut b), b"-1");
+    }
+
+    #[test]
+    fn long_to_decimal_buf_handles_min_value() {
+        let mut b = [0u8; 21];
+        assert_eq!(
+            long_to_decimal_buf(i64::MIN, &mut b),
+            b"-9223372036854775808"
+        );
+        let mut b = [0u8; 21];
+        assert_eq!(
+            long_to_decimal_buf(i64::MAX, &mut b),
+            b"9223372036854775807"
+        );
     }
 
     #[test]
