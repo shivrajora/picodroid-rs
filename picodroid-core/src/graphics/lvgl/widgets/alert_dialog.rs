@@ -173,17 +173,28 @@ unsafe extern "C" fn scrim_delete_cb(e: *mut lv_event_t) {
 // the scrim is parented to the screen, so it would otherwise outlive the
 // Activity and leak onto the one beneath as an input-absorbing modal.
 
-const MAX_SHOWN: usize = 4;
+const MAX_SHOWN: usize = 8;
 static mut SHOWN: [i32; MAX_SHOWN] = [0; MAX_SHOWN];
 static mut SHOWN_LEN: usize = 0;
 
-fn shown_push(id: i32) {
+/// Track `id` as the topmost shown dialog. Returns the oldest dialog's id
+/// when the table was full — the caller must dismiss it. An untracked
+/// dialog is worse than a dismissed one: BACK and Activity teardown only
+/// reach tracked ids, so a dropped entry left an input-absorbing scrim
+/// alive across Activities (the AlertDialog-leak symptom past the cap).
+fn shown_push(id: i32) -> Option<i32> {
     unsafe {
         shown_remove(id); // de-dup so re-show moves it to the top
-        if SHOWN_LEN < MAX_SHOWN {
-            SHOWN[SHOWN_LEN] = id;
-            SHOWN_LEN += 1;
-        }
+        let evicted = if SHOWN_LEN == MAX_SHOWN {
+            let oldest = SHOWN[0];
+            shown_remove(oldest);
+            Some(oldest)
+        } else {
+            None
+        };
+        SHOWN[SHOWN_LEN] = id;
+        SHOWN_LEN += 1;
+        evicted
     }
 }
 
@@ -552,7 +563,13 @@ pub(in crate::graphics) fn show(id: i32) {
     }
     unsafe { lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN) };
     focus_dialog_buttons(scrim as usize);
-    shown_push(id);
+    if let Some(oldest) = shown_push(id) {
+        crate::pd_warn!(
+            "AlertDialog: {} shown at once, dismissing the oldest",
+            MAX_SHOWN
+        );
+        dismiss(oldest);
+    }
 }
 
 /// Add the shown dialog's buttons to the active keypad focus group and focus
