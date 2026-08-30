@@ -40,6 +40,12 @@ struct HttpConn {
     status_code: i32,
     content_length: i64, // -1 if absent
     body_remaining: i64, // i64::MAX if Content-Length unknown (read-til-EOF)
+    /// `Transfer-Encoding: chunked`: body reads run through `chunk` and the
+    /// wire framing (size lines, CRLFs, trailers) never reaches the app.
+    /// Without this the read-til-EOF fallback handed hex size lines and the
+    /// 0\r\n\r\n terminator to the caller as body bytes (bugbash F7).
+    chunked: bool,
+    chunk: crate::net::http_head::ChunkDecoder,
     /// Bytes the header parser read past `\r\n\r\n` — handed to the first
     /// body reads before any new `tcp_recv`.
     rx_buf: [u8; RX_BUF_SIZE],
@@ -61,6 +67,8 @@ impl HttpConn {
             status_code: -1,
             content_length: -1,
             body_remaining: i64::MAX,
+            chunked: false,
+            chunk: crate::net::http_head::ChunkDecoder::new(),
             rx_buf: [0; RX_BUF_SIZE],
             rx_head: 0,
             rx_tail: 0,
@@ -524,6 +532,9 @@ pub fn native_input_read(
     if conn.body_remaining == 0 {
         return Ok(Some(Value::Int(-1)));
     }
+    if conn.chunked {
+        return chunked_read(conn, objects, strings, arrays, arr_idx, off, len);
+    }
 
     // 1) Drain any bytes the header parser over-read.
     let stashed = (conn.rx_tail - conn.rx_head) as usize;
@@ -573,6 +584,75 @@ pub fn native_input_read(
             Ok(Some(Value::Int(n as i32)))
         }
         Err(e) => Err(throw_net_exception(objects, strings, e, NetOpCtx::Recv)),
+    }
+}
+
+/// Body read for a `Transfer-Encoding: chunked` response: run every wire
+/// byte (stashed head-overrun first, then fresh `tcp_recv`) through the
+/// connection's [`ChunkDecoder`], storing only payload bytes. Returns as
+/// soon as at least one payload byte landed, `-1` at the terminal chunk.
+fn chunked_read(
+    conn: &mut HttpConn,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+    arrays: &mut ArrayHeap,
+    arr_idx: u16,
+    off: usize,
+    len: usize,
+) -> Result<Option<Value>, JvmError> {
+    use crate::net::http_head::ChunkEvent;
+
+    let mut produced = 0usize;
+    loop {
+        // Drain what the buffer holds through the decoder.
+        while produced < len && conn.rx_head < conn.rx_tail {
+            let b = conn.rx_buf[conn.rx_head as usize];
+            conn.rx_head += 1;
+            match conn.chunk.push(b) {
+                ChunkEvent::Byte(x) => {
+                    arrays
+                        .store(arr_idx, off + produced, x as i8 as i32)
+                        .ok_or(JvmError::InvalidReference)?;
+                    produced += 1;
+                }
+                ChunkEvent::None => {}
+                ChunkEvent::Done => {
+                    conn.body_remaining = 0;
+                    return Ok(Some(Value::Int(if produced > 0 {
+                        produced as i32
+                    } else {
+                        -1
+                    })));
+                }
+                ChunkEvent::Bad => {
+                    return Err(throw_named_exception(
+                        objects,
+                        strings,
+                        "java/net/ProtocolException",
+                        "malformed chunked framing",
+                    ));
+                }
+            }
+        }
+        if produced > 0 {
+            return Ok(Some(Value::Int(produced as i32)));
+        }
+        // Buffer empty and nothing produced yet: pull more wire bytes. The
+        // head is parsed, so the whole rx_buf can be recycled.
+        conn.rx_head = conn.head_len;
+        conn.rx_tail = conn.head_len;
+        let start = conn.rx_head as usize;
+        let n = crate::hal::net::tcp_recv(conn.socket, &mut conn.rx_buf[start..])
+            .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
+        if n == 0 {
+            return Err(throw_named_exception(
+                objects,
+                strings,
+                "java/net/ProtocolException",
+                "unexpected end of stream inside chunked body",
+            ));
+        }
+        conn.rx_tail += n as u16;
     }
 }
 
@@ -632,8 +712,11 @@ fn parse_response_head(
                 }
             };
             conn.status_code = status;
-            conn.content_length = content_length;
-            if content_length >= 0 {
+            conn.chunked = crate::net::http_head::is_chunked(head);
+            // A chunked response has no usable Content-Length (RFC 9112
+            // forbids combining them; the framing wins).
+            conn.content_length = if conn.chunked { -1 } else { content_length };
+            if !conn.chunked && content_length >= 0 {
                 conn.body_remaining = content_length;
             }
             conn.rx_head = body_off as u16;

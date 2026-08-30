@@ -145,6 +145,215 @@ pub fn parse_head_bytes(head: &[u8]) -> Result<(i32, i64), MalformedStatusLine> 
     Ok((status_code, content_length))
 }
 
+/// True when the head carries `Transfer-Encoding: chunked` (last token —
+/// per RFC 9112 chunked must be the final encoding).
+pub fn is_chunked(head: &[u8]) -> bool {
+    for line in header_lines_of(head) {
+        if header_matches(line, b"transfer-encoding") {
+            if let Some(value) = header_value(line) {
+                // The value may be a list ("gzip, chunked"); match the last
+                // comma-separated token, case-insensitively.
+                let last = value.rsplit(|&b| b == b',').next().unwrap_or(value);
+                let last: alloc::vec::Vec<u8> = last
+                    .iter()
+                    .filter(|b| !b.is_ascii_whitespace())
+                    .map(|b| b.to_ascii_lowercase())
+                    .collect();
+                return last == b"chunked";
+            }
+        }
+    }
+    false
+}
+
+/// Incremental `Transfer-Encoding: chunked` decoder (RFC 9112 §7.1). Fed one
+/// wire byte at a time — the transport hands the connection arbitrary
+/// fragments, so every boundary (a size line, a CRLF, a trailer) can be
+/// split anywhere; per-byte state is the simplest resumable form and the
+/// stream is already copied byte-wise into the JVM array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChunkState {
+    /// Reading the hex size line (possibly inside a `;ext` suffix).
+    Size {
+        val: u64,
+        seen_digit: bool,
+        in_ext: bool,
+    },
+    /// Size line seen `\r`, expecting `\n`.
+    SizeLf {
+        val: u64,
+    },
+    /// Inside chunk data with this many bytes left.
+    Data {
+        left: u64,
+    },
+    /// Chunk data done, expecting `\r` then `\n`.
+    DataCr,
+    DataLf,
+    /// After the last (size 0) chunk: consuming trailer lines. `at_line_start`
+    /// with an immediate CRLF ends the body.
+    Trailer {
+        at_line_start: bool,
+        saw_cr: bool,
+    },
+    Done,
+    Bad,
+}
+
+pub struct ChunkDecoder {
+    state: ChunkState,
+}
+
+/// What one wire byte produced.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ChunkEvent {
+    /// A body payload byte.
+    Byte(u8),
+    /// Framing consumed; nothing for the caller.
+    None,
+    /// The terminal chunk and trailers are fully consumed: end of body.
+    Done,
+    /// Malformed framing.
+    Bad,
+}
+
+impl Default for ChunkDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChunkDecoder {
+    pub const fn new() -> Self {
+        Self {
+            state: ChunkState::Size {
+                val: 0,
+                seen_digit: false,
+                in_ext: false,
+            },
+        }
+    }
+
+    pub fn done(&self) -> bool {
+        self.state == ChunkState::Done
+    }
+
+    pub fn push(&mut self, b: u8) -> ChunkEvent {
+        use ChunkState::*;
+        match self.state {
+            Size {
+                mut val,
+                mut seen_digit,
+                mut in_ext,
+            } => {
+                match b {
+                    b'\r' if seen_digit => {
+                        self.state = SizeLf { val };
+                        return ChunkEvent::None;
+                    }
+                    b';' => in_ext = true,
+                    _ if in_ext => {}
+                    b'0'..=b'9' => {
+                        val = val.saturating_mul(16) + (b - b'0') as u64;
+                        seen_digit = true;
+                    }
+                    b'a'..=b'f' => {
+                        val = val.saturating_mul(16) + (b - b'a' + 10) as u64;
+                        seen_digit = true;
+                    }
+                    b'A'..=b'F' => {
+                        val = val.saturating_mul(16) + (b - b'A' + 10) as u64;
+                        seen_digit = true;
+                    }
+                    _ => {
+                        self.state = Bad;
+                        return ChunkEvent::Bad;
+                    }
+                }
+                self.state = Size {
+                    val,
+                    seen_digit,
+                    in_ext,
+                };
+                ChunkEvent::None
+            }
+            SizeLf { val } => {
+                if b != b'\n' {
+                    self.state = Bad;
+                    return ChunkEvent::Bad;
+                }
+                if val == 0 {
+                    self.state = Trailer {
+                        at_line_start: true,
+                        saw_cr: false,
+                    };
+                } else {
+                    self.state = Data { left: val };
+                }
+                ChunkEvent::None
+            }
+            Data { left } => {
+                let left = left - 1;
+                self.state = if left == 0 { DataCr } else { Data { left } };
+                ChunkEvent::Byte(b)
+            }
+            DataCr => {
+                if b != b'\r' {
+                    self.state = Bad;
+                    return ChunkEvent::Bad;
+                }
+                self.state = DataLf;
+                ChunkEvent::None
+            }
+            DataLf => {
+                if b != b'\n' {
+                    self.state = Bad;
+                    return ChunkEvent::Bad;
+                }
+                self.state = Size {
+                    val: 0,
+                    seen_digit: false,
+                    in_ext: false,
+                };
+                ChunkEvent::None
+            }
+            Trailer {
+                at_line_start,
+                saw_cr,
+            } => match (b, at_line_start, saw_cr) {
+                (b'\r', true, false) => {
+                    self.state = Trailer {
+                        at_line_start: true,
+                        saw_cr: true,
+                    };
+                    ChunkEvent::None
+                }
+                (b'\n', true, true) => {
+                    self.state = Done;
+                    ChunkEvent::Done
+                }
+                (b'\n', _, _) => {
+                    // End of a trailer field line.
+                    self.state = Trailer {
+                        at_line_start: true,
+                        saw_cr: false,
+                    };
+                    ChunkEvent::None
+                }
+                _ => {
+                    self.state = Trailer {
+                        at_line_start: false,
+                        saw_cr: false,
+                    };
+                    ChunkEvent::None
+                }
+            },
+            Done => ChunkEvent::Done,
+            Bad => ChunkEvent::Bad,
+        }
+    }
+}
+
 /// Write `src` at `pos`, returning bytes written — 0 (nothing written) if it
 /// would not fit.
 pub fn write_bytes(buf: &mut [u8], pos: usize, src: &[u8]) -> usize {
@@ -178,6 +387,50 @@ pub fn write_usize(buf: &mut [u8], pos: usize, val: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dechunk(wire: &[u8]) -> Result<alloc::vec::Vec<u8>, &'static str> {
+        let mut d = ChunkDecoder::new();
+        let mut out = alloc::vec::Vec::new();
+        for &b in wire {
+            match d.push(b) {
+                ChunkEvent::Byte(x) => out.push(x),
+                ChunkEvent::None => {}
+                ChunkEvent::Done => return Ok(out),
+                ChunkEvent::Bad => return Err("bad"),
+            }
+        }
+        Err("truncated")
+    }
+
+    #[test]
+    fn is_chunked_matches_case_insensitively_and_last_token() {
+        let head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+        assert!(is_chunked(head));
+        let head = b"HTTP/1.1 200 OK\r\ntransfer-encoding:  Chunked \r\n\r\n";
+        assert!(is_chunked(head));
+        let head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n";
+        assert!(is_chunked(head));
+        let head = b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n";
+        assert!(!is_chunked(head));
+    }
+
+    #[test]
+    fn chunk_decoder_reassembles_a_body() {
+        // Two chunks with a hex size, an extension, and trailers.
+        let wire = b"4\r\nWiki\r\n5;ext=1\r\npedia\r\n0\r\n\r\n";
+        assert_eq!(dechunk(wire).unwrap(), b"Wikipedia");
+        let wire = b"A\r\n0123456789\r\n0\r\nX-Trailer: v\r\n\r\n";
+        assert_eq!(dechunk(wire).unwrap(), b"0123456789");
+        // Empty body.
+        assert_eq!(dechunk(b"0\r\n\r\n").unwrap(), b"");
+    }
+
+    #[test]
+    fn chunk_decoder_rejects_garbage_sizes() {
+        assert_eq!(dechunk(b"zz\r\nWiki\r\n0\r\n\r\n"), Err("bad"));
+        assert_eq!(dechunk(b"4\r\nWikiXX\r\n0\r\n\r\n"), Err("bad"));
+        assert_eq!(dechunk(b"4\r\nWiki\r\n0\r\n"), Err("truncated"));
+    }
 
     const HEAD: &[u8] =
         b"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nX-Multi: first\r\nX-Multi: second\r\n\r\n";
