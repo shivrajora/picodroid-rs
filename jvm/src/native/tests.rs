@@ -3034,6 +3034,27 @@ fn string_split_multi_char() {
 }
 
 #[test]
+fn string_value_of_char_newline_passes_through() {
+    // Same defect StringBuilder.append(char) had (5d5f0a6): `.max(0x20)`
+    // turned '\n'/'\t' into spaces, so String.valueOf('\n') joined lines
+    // with a space.
+    let mut ctx = StrCtx::new();
+    for (c, want) in [
+        (b'\n', "\n"),
+        (b'\t', "\t"),
+        (b'\r', "\r"),
+        (b'a', "a"),
+        (0x07u8, " "),
+    ] {
+        let r = ctx
+            .dispatch("valueOf", "(C)Ljava/lang/String;", &[Value::Int(c as i32)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(ctx.resolve(r), want, "valueOf({c:#x})");
+    }
+}
+
+#[test]
 fn string_split_empty_parts() {
     let mut ctx = StrCtx::new();
     let s = ctx.intern(b"a,,b");

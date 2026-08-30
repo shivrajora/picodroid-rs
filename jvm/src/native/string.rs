@@ -304,7 +304,16 @@ pub(crate) fn dispatch(
                             b"false".to_vec()
                         })
                     } else if ctx.descriptor.starts_with("(C)") {
-                        Some(alloc::vec![(*n as u8).max(0x20)])
+                        // Mirror StringBuilder.append(char): '\n', '\t', '\r'
+                        // are real characters; other C0 controls become a
+                        // space (the log/display sinks can't render them).
+                        let c = *n as u8;
+                        let c = match c {
+                            b'\n' | b'\t' | b'\r' => c,
+                            0..=0x1f => b' ',
+                            _ => c,
+                        };
+                        Some(alloc::vec![c])
                     } else {
                         let mut tmp = [0u8; 12];
                         let bytes = crate::object_heap::int_to_decimal_buf(*n, &mut tmp);
