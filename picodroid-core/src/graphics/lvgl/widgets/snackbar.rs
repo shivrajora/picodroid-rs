@@ -230,7 +230,7 @@ pub(in crate::graphics) fn dismiss(id: i32) {
     }
     let bar_ptr = bar as usize;
     unregister(bar_ptr);
-    unsafe { lv_obj_delete(bar) };
+    super::super::view_ops::delete_obj(bar);
 }
 
 /// Record a Java `Snackbar` ObjectRef as the action-click target for `id`.
@@ -271,9 +271,7 @@ pub fn tick(ms: u32) {
                 // — same rationale as `dismiss`.
                 detach_action_for(bar_ptr);
                 detach_obj_for(bar_ptr);
-                if !bar.is_null() {
-                    lv_obj_delete(bar);
-                }
+                super::super::view_ops::delete_obj(bar);
             }
         }
     }

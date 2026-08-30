@@ -139,6 +139,17 @@ pub(in crate::graphics) fn delete(h: Handle) {
     if o.is_null() {
         return; // already deleted (stale handle)
     }
+    delete_obj(o);
+}
+
+/// Delete an LVGL subtree by raw pointer, running the same pre-delete
+/// cleanup as [`delete`]: every framework-owned `lv_obj_delete` must go
+/// through here (toast/snackbar timers included), or a running animation or
+/// bound keyboard keeps a pointer into freed memory.
+pub(in crate::graphics) fn delete_obj(o: *mut lv_obj_t) {
+    if o.is_null() {
+        return;
+    }
     // Drop dangling references into this subtree before its objects are freed:
     // animations keyed by handle (the Live-screen back-out hang) and the system
     // keyboard's bound-textarea pointer (the Settings re-open segfault).
