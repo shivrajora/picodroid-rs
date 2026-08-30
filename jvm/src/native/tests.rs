@@ -3075,6 +3075,31 @@ fn string_split_empty_parts() {
     assert_eq!(ctx.strings.resolve(r1), Some(""));
 }
 
+#[test]
+fn string_split_drops_trailing_empty_strings() {
+    // Java's split(regex) has limit 0: trailing empty strings are removed,
+    // interior ones kept, and a no-match input yields [input].
+    fn split_len(ctx: &mut StrCtx, s: &'static [u8], d: &'static [u8]) -> u16 {
+        let s = ctx.intern(s);
+        let d = ctx.intern(d);
+        let r = ctx
+            .dispatch("split", "(Ljava/lang/String;)[Ljava/lang/String;", &[s, d])
+            .unwrap()
+            .unwrap();
+        let Value::ArrayRef(arr) = r else {
+            panic!("expected ArrayRef");
+        };
+        ctx.arrays.length(arr).unwrap()
+    }
+    let mut ctx = StrCtx::new();
+    assert_eq!(split_len(&mut ctx, b"a,b,,", b","), 2);
+    assert_eq!(split_len(&mut ctx, b",,", b","), 0);
+    assert_eq!(split_len(&mut ctx, b"a,,b", b","), 3);
+    assert_eq!(split_len(&mut ctx, b",a", b","), 2);
+    assert_eq!(split_len(&mut ctx, b"", b","), 1);
+    assert_eq!(split_len(&mut ctx, b"abc", b","), 1);
+}
+
 // ── Stress: split many times with GC pressure ─────────────────────────────
 
 #[test]

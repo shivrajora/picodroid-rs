@@ -478,9 +478,19 @@ pub(crate) fn dispatch(
                 if delim.is_empty() {
                     alloc::vec![s.as_bytes().to_vec()]
                 } else {
-                    s.split(delim)
+                    let mut parts: alloc::vec::Vec<alloc::vec::Vec<u8>> = s
+                        .split(delim)
                         .map(|part| part.as_bytes().to_vec())
-                        .collect()
+                        .collect();
+                    // Java limit-0 semantics: trailing empty strings are
+                    // discarded ("a,b,," -> ["a","b"], ",," -> []). A
+                    // no-match input stays [input], even when empty.
+                    if parts.len() > 1 {
+                        while parts.last().is_some_and(|p| p.is_empty()) {
+                            parts.pop();
+                        }
+                    }
+                    parts
                 }
             };
             // Intern each segment, then build a ref array.
