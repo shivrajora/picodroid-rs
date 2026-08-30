@@ -46,6 +46,7 @@ public class BugBash extends Application {
   @Override
   public void onCreate() {
     Log.i(TAG, "=== BugBash start ===");
+    faults();
     numbers();
     strings();
     collections();
@@ -59,6 +60,64 @@ public class BugBash extends Application {
       Log.i(TAG, "=== FAILED: " + failed + " ===");
     }
   }
+
+  static int zero = 0; // defeat constant folding for the fault checks
+
+  static void faults() {
+    // J4: runtime faults are catchable Java exceptions.
+    boolean threw = false;
+    try {
+      int x = 1 / zero;
+      sink2 = x;
+    } catch (ArithmeticException e) {
+      threw = true;
+    }
+    check("J4 catch ArithmeticException", threw);
+    threw = false;
+    int[] a = new int[2];
+    try {
+      sink2 = a[5];
+    } catch (ArrayIndexOutOfBoundsException e) {
+      threw = true;
+    }
+    check("J4 catch AIOOBE", threw);
+    threw = false;
+    int[] nullArr = zero == 0 ? null : a;
+    try {
+      sink2 = nullArr[0];
+    } catch (NullPointerException e) {
+      threw = true;
+    }
+    check("J4 catch NPE on null array", threw);
+    threw = false;
+    try {
+      int[] neg = new int[-1 - zero];
+      sink2 = neg.length;
+    } catch (NegativeArraySizeException e) {
+      threw = true;
+    }
+    check("J4 catch NegativeArraySizeException", threw);
+    // J5: an unsatisfiable allocation is OutOfMemoryError, not truncation
+    // or a livelock.
+    threw = false;
+    try {
+      byte[] big = new byte[70_000 + zero];
+      sink2 = big.length;
+    } catch (OutOfMemoryError e) {
+      threw = true;
+    }
+    check("J5 new byte[70000] throws OOM", threw);
+    threw = false;
+    try {
+      long[] big = new long[40_000 + zero];
+      sink2 = (int) big[0];
+    } catch (OutOfMemoryError e) {
+      threw = true;
+    }
+    check("J5 new long[40000] throws OOM", threw);
+  }
+
+  static int sink2;
 
   static void numbers() {
     // J1: decimal formatting of MIN_VALUE.
