@@ -105,3 +105,42 @@ pub fn submit(obj_ref: u16) -> bool {
         None => super::main_queue::enqueue_runnable(obj_ref),
     }
 }
+
+/// Discard every queued Runnable. Called on a PDB app reload next to the
+/// heap reset: the queue words are object indices into the *previous* app's
+/// heap, and a worker draining them against the new heap would dispatch
+/// `Executors.dispatchRunnable` on whatever now lives at that index.
+/// Returns the number dropped.
+pub fn drain() -> usize {
+    let Some(q) = queue() else {
+        return 0;
+    };
+    let mut n = 0;
+    while rtos::queue_recv(q, Timeout::None).is_some() {
+        n += 1;
+    }
+    n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_discards_queued_runnables() {
+        // No queue yet: submit falls through to the main queue, drain is a no-op.
+        assert_eq!(drain(), 0);
+        let q = rtos::queue_create(4);
+        assert_ne!(q, 0);
+        QUEUE.store(q, Ordering::Release);
+        assert!(submit(7));
+        assert!(submit(8));
+        assert_eq!(drain(), 2);
+        assert_eq!(recv_nonblocking(), None);
+        QUEUE.store(0, Ordering::Release);
+    }
+
+    fn recv_nonblocking() -> Option<u32> {
+        rtos::queue_recv(queue().unwrap(), Timeout::None)
+    }
+}

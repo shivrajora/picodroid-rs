@@ -218,6 +218,15 @@ pub fn run_app(apk_data: &[u8]) {
         prereserve_config::PRERESERVE_STR_CHUNKS,
     );
     crate::lifecycle::reset_dispatch_event_state();
+    // Runnables the previous app left in the background pool index its heap,
+    // not this one (the main queue is drained by `main_queue::init`).
+    let stale_bg = crate::executors::background_pool::drain();
+    if stale_bg > 0 {
+        crate::pd_warn!(
+            "dropped {} stale background Runnable(s) on reload",
+            stale_bg
+        );
+    }
     crate::graphics::widgets::reset_button_state();
     crate::graphics::widgets::reset_progress_bar_state();
     crate::graphics::widgets::reset_toggle_button_state();
