@@ -185,6 +185,19 @@ pub fn dispatch(
                                     defmt::Display2Format(&e)
                                 );
                             }
+                            // A `run()` that left through a non-Java error (a
+                            // debugger stop, an internal fault) skipped the
+                            // `monitorexit` handlers javac emits for every
+                            // `synchronized` block; anything this task still
+                            // holds would block every other thread forever.
+                            let leaked = crate::monitor_store::release_all_held_by_current();
+                            if leaked != 0 {
+                                crate::pd_error!(
+                                    "Thread.start: {} exited holding {} monitor(s); released",
+                                    class_name,
+                                    leaked
+                                );
+                            }
                         }),
                     );
                     // A declined spawn means the Java thread will simply never

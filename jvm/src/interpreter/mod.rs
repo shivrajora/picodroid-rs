@@ -441,6 +441,24 @@ fn deliver_exception<H: NativeMethodHandler>(
     })
 }
 
+/// Let the handler drop the monitors of entities a collection just freed
+/// (see [`NativeMethodHandler::monitors_prune`]). Runs before any allocation
+/// can recycle a slot, so "not live" means "freed by this collection".
+pub(crate) fn prune_monitors<H: NativeMethodHandler>(
+    handler: &mut H,
+    objects: &ObjectHeap,
+    arrays: &ArrayHeap,
+    strings: &StringTable,
+) {
+    use crate::types::MonitorKey;
+    handler.monitors_prune(&|key| match key {
+        MonitorKey::Object(i) => objects.is_live(i),
+        MonitorKey::Array(i) => arrays.is_live(i),
+        // Static strings live in Flash and are never freed.
+        MonitorKey::String(i) => (i as usize) < strings.dyn_start() || strings.is_dyn_live(i),
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn execute<H: NativeMethodHandler>(
     classes: &[ClassFile],
@@ -706,6 +724,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 let t1 = ex.handler.clock_nanos();
                 ex.handler
                     .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
+                prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
                 ex.gc_state.alloc_count = 0;
                 if for_failed_alloc && freed == 0 {
                     let e = ex.runtime_fault_obj("java/lang/OutOfMemoryError")?;

@@ -703,6 +703,17 @@ pub trait NativeMethodHandler {
     /// Implementations should release any OS-level mutex resources.
     fn monitors_clear(&mut self) {}
 
+    /// Drop monitor state for entities the collector just freed.
+    ///
+    /// Called by the interpreter right after every collection, before any
+    /// allocation can reuse a freed slot, with `live` answering whether the
+    /// entity a key names survived the sweep. A [`MonitorKey`] is a heap slot
+    /// index and slots are recycled, so without this a new object landing in
+    /// a dead object's slot would inherit its monitor — and every monitor
+    /// ever entered would keep its OS mutex forever. Implementations must
+    /// keep any monitor that is still held. The default is a no-op.
+    fn monitors_prune(&mut self, _live: &dyn Fn(MonitorKey) -> bool) {}
+
     /// Visit object / array / string references held in native state so the
     /// GC keeps them alive across cycles.
     ///

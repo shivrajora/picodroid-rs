@@ -63,6 +63,9 @@ fn worker_body(worker_id: u32) {
                 worker_id,
                 defmt::Display2Format(&e)
             );
+            // A non-Java error skipped javac's `monitorexit` handlers; this
+            // worker lives on, so anything it still holds must go now.
+            crate::monitor_store::release_all_held_by_current();
         }
     }
 }

@@ -378,6 +378,10 @@ unsafe impl Rtos for TestRtos {
         sim_rtos::mutex_recursive_unlock(m)
     }
 
+    fn mutex_recursive_delete(m: RawMutex) {
+        sim_rtos::mutex_recursive_delete(m)
+    }
+
     fn sem_binary_create() -> RawSem {
         sim_rtos::sem_binary_create()
     }

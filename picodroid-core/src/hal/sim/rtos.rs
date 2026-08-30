@@ -388,6 +388,16 @@ pub fn mutex_recursive_unlock(m: RawMutex) {
     }
 }
 
+pub fn mutex_recursive_delete(m: RawMutex) {
+    if m == 0 {
+        return;
+    }
+    let _bypass = allocator::bypass();
+    // SAFETY: `m` came from `mutex_recursive_create`, which leaked a
+    // `Box<SimMutex>`.
+    drop(unsafe { Box::from_raw(m as *mut SimMutex) });
+}
+
 pub fn sem_binary_create() -> RawSem {
     let _bypass = allocator::bypass();
     Box::into_raw(Box::new(SimSem {

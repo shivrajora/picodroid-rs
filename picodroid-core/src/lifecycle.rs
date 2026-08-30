@@ -436,13 +436,19 @@ pub(crate) fn run_activity(
                 // the abstract interface method with no bytecode and
                 // silently no-ops.
                 let span_start = now_ms();
-                let _ = jvm.invoke_static_with_args(
+                let dispatched = jvm.invoke_static_with_args(
                     dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
                     dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
                     &[pico_jvm::types::Value::ObjectRef(r)],
                     heap,
                     handler,
                 );
+                if dispatched.is_err() {
+                    // A non-Java error skipped javac's `monitorexit`
+                    // handlers; the UI task lives on, so anything it still
+                    // holds would block every worker forever.
+                    crate::monitor_store::release_all_held_by_current();
+                }
                 warn_if_slow(
                     "Runnable",
                     span_start,

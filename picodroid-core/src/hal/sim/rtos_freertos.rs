@@ -340,6 +340,16 @@ pub fn mutex_recursive_unlock(m: RawMutex) {
     mutex.give();
 }
 
+pub fn mutex_recursive_delete(m: RawMutex) {
+    if m == 0 {
+        return;
+    }
+    // SAFETY: `m` came from `mutex_recursive_create`, which leaked a
+    // `Box<MutexRecursive>`; re-boxing drops it, and its `Drop` deletes the
+    // kernel semaphore.
+    drop(unsafe { Box::from_raw(m as *mut MutexRecursive) });
+}
+
 pub fn sem_binary_create() -> RawSem {
     match Semaphore::new_binary() {
         Ok(s) => Box::into_raw(Box::new(s)) as RawSem,

@@ -129,6 +129,9 @@ macro_rules! register_sim_platform {
                 fn mutex_recursive_unlock(m: RawMutex) {
                     rtos::mutex_recursive_unlock(m)
                 }
+                fn mutex_recursive_delete(m: RawMutex) {
+                    rtos::mutex_recursive_delete(m)
+                }
                 fn sem_binary_create() -> RawSem {
                     rtos::sem_binary_create()
                 }

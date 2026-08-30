@@ -173,6 +173,11 @@ pub unsafe trait Rtos {
     fn mutex_recursive_create() -> Option<RawMutex>;
     fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool;
     fn mutex_recursive_unlock(m: RawMutex);
+    /// Destroy a mutex from [`Rtos::mutex_recursive_create`]. The caller
+    /// guarantees nothing holds it and nothing is blocked on it — the monitor
+    /// store only deletes a monitor whose object the collector just freed,
+    /// which no task can still name.
+    fn mutex_recursive_delete(m: RawMutex);
 
     fn sem_binary_create() -> RawSem;
     fn sem_give(s: RawSem);
@@ -211,6 +216,7 @@ extern "Rust" {
     fn __pd_rtos_mutex_recursive_create() -> Option<RawMutex>;
     fn __pd_rtos_mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool;
     fn __pd_rtos_mutex_recursive_unlock(m: RawMutex);
+    fn __pd_rtos_mutex_recursive_delete(m: RawMutex);
     fn __pd_rtos_sem_binary_create() -> RawSem;
     fn __pd_rtos_sem_give(s: RawSem);
     fn __pd_rtos_sem_take(s: RawSem, t: Timeout) -> bool;
@@ -270,6 +276,9 @@ pub fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
 }
 pub fn mutex_recursive_unlock(m: RawMutex) {
     unsafe { __pd_rtos_mutex_recursive_unlock(m) }
+}
+pub fn mutex_recursive_delete(m: RawMutex) {
+    unsafe { __pd_rtos_mutex_recursive_delete(m) }
 }
 pub fn sem_binary_create() -> RawSem {
     unsafe { __pd_rtos_sem_binary_create() }
@@ -363,6 +372,10 @@ macro_rules! set_rtos {
             #[no_mangle]
             extern "Rust" fn __pd_rtos_mutex_recursive_unlock(m: RawMutex) {
                 <$t as $crate::rtos::Rtos>::mutex_recursive_unlock(m)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_mutex_recursive_delete(m: RawMutex) {
+                <$t as $crate::rtos::Rtos>::mutex_recursive_delete(m)
             }
             #[no_mangle]
             extern "Rust" fn __pd_rtos_sem_binary_create() -> RawSem {

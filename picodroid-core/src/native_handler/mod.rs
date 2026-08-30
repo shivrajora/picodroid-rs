@@ -565,4 +565,8 @@ impl NativeMethodHandler for PicodroidNativeHandler {
     fn monitors_clear(&mut self) {
         crate::monitor_store::clear();
     }
+
+    fn monitors_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
+        crate::monitor_store::prune_dead(live);
+    }
 }

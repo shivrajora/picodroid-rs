@@ -190,6 +190,7 @@ impl SharedJvmHeap {
         );
         let t1 = handler.clock_nanos();
         handler.report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
+        interpreter::prune_monitors(handler, &self.objects, &self.arrays, &self.strings);
         self.gc_state.alloc_count = 0;
         self.gc_state.need_gc = false;
         #[cfg(feature = "mem-diag")]
