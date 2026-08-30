@@ -18,6 +18,12 @@ fn get_list_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
     }
 }
 
+/// Java's ArrayList throws IndexOutOfBoundsException (catchable) for a bad
+/// index — `i as usize` on a negative index simply misses the buffer.
+fn index_out_of_bounds(ctx: &mut NativeContext<'_>) -> JvmError {
+    super::throw_named(ctx, "java/lang/IndexOutOfBoundsException")
+}
+
 /// Value equality for ArrayList.contains — uses value-based equality for
 /// autoboxed wrapper objects so that `contains(42)` finds `Integer(42)` even
 /// when the two `ObjectRef` indices differ (i.e., different heap slots).
@@ -67,6 +73,9 @@ pub(crate) fn dispatch(
                     return Some(Err(JvmError::InvalidReference));
                 };
                 let v = ctx.args.get(2).copied().unwrap_or(Value::Null);
+                if i < 0 || i as usize > ctx.objects.list_len(buf_idx) {
+                    return Some(Err(index_out_of_bounds(ctx)));
+                }
                 ctx.objects.list_insert(buf_idx, i as usize, v);
                 Some(Ok(None))
             } else {
@@ -86,7 +95,7 @@ pub(crate) fn dispatch(
             };
             match ctx.objects.list_get(buf_idx, i as usize) {
                 Some(v) => Some(Ok(Some(v))),
-                None => Some(Err(JvmError::ArrayIndexOutOfBounds)),
+                None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
         "size" => {
@@ -114,11 +123,13 @@ pub(crate) fn dispatch(
                 return Some(Err(JvmError::InvalidReference));
             };
             let v = ctx.args.get(2).copied().unwrap_or(Value::Null);
-            let old = ctx
-                .objects
-                .list_set(buf_idx, i as usize, v)
-                .unwrap_or(Value::Null);
-            Some(Ok(Some(old)))
+            match usize::try_from(i)
+                .ok()
+                .and_then(|i| ctx.objects.list_set(buf_idx, i, v))
+            {
+                Some(old) => Some(Ok(Some(old))),
+                None => Some(Err(index_out_of_bounds(ctx))),
+            }
         }
         "remove" => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
@@ -143,7 +154,7 @@ pub(crate) fn dispatch(
             };
             match ctx.objects.list_remove(buf_idx, i as usize) {
                 Some(v) => Some(Ok(Some(v))),
-                None => Some(Err(JvmError::ArrayIndexOutOfBounds)),
+                None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
         "clear" => {

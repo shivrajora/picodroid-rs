@@ -1418,6 +1418,94 @@ fn arraylist_contains_matches_string_content() {
 }
 
 #[test]
+fn arraylist_index_bounds_throw_index_out_of_bounds() {
+    // add(i, v) clamped (a negative index appended!), set(i, v) silently
+    // returned null; get/remove were uncatchable hard errors.
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [1, 2] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let ioobe = |r: Result<Option<Value>, JvmError>, objects: &ObjectHeap, what: &str| {
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("{what}: {r:?}");
+        };
+        assert_eq!(
+            objects.class_name(idx),
+            Some("java/lang/IndexOutOfBoundsException"),
+            "{what}"
+        );
+    };
+    let addi = "(ILjava/lang/Object;)V";
+    let r = dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(5), Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "add(5)");
+    let r = dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(-1), Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "add(-1)");
+    // add(size, v) is legal and appends.
+    dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(2), Value::Int(3)],
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(3)))
+    );
+    let seti = "(ILjava/lang/Object;)Ljava/lang/Object;";
+    let r = dispatch_list(
+        "set",
+        seti,
+        &[list, Value::Int(9), Value::Int(0)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "set(9)");
+    let r = dispatch_list(
+        "get",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "get(9)");
+    let r = dispatch_list(
+        "get",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(-1)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "get(-1)");
+    let r = dispatch_list(
+        "remove",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(3)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "remove(3)");
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(3)))
+    );
+}
+
+#[test]
 fn arraylist_remove_object_overload() {
     // remove(Object) compiles to (Ljava/lang/Object;)Z; the arm demanded an
     // Int index and threw InvalidReference for it.
