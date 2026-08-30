@@ -186,6 +186,13 @@ pub(in crate::graphics) fn init_keypad() {
 #[cfg(has_buttons)]
 const MAX_ACTIVITY_GROUPS: usize = 32;
 
+// Pin the "Activity stack caps depth first" claim: a board.toml raising
+// `activity_stack_depth` past this table would make push_activity_group a
+// silent no-op while pop_activity_group still decrements — desyncing the
+// group stack from the Activity stack.
+#[cfg(has_buttons)]
+const _: () = assert!(crate::board_cfg::jvm_state::ACTIVITY_STACK_DEPTH <= MAX_ACTIVITY_GROUPS);
+
 #[cfg(has_buttons)]
 static mut KEYPAD_INDEV: *mut lv_indev_t = core::ptr::null_mut();
 
