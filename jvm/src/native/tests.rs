@@ -1376,6 +1376,48 @@ fn arraylist_to_array_keeps_object_zero() {
 }
 
 #[test]
+fn arraylist_contains_matches_string_content() {
+    // A literal and a runtime-built string with the same text are distinct
+    // References; HashMap compared contents, ArrayList compared indices.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    let lit = Value::Reference(strings.intern(b"ab").unwrap());
+    let dynamic = Value::Reference(strings.intern_dyn(b"ab").unwrap());
+    assert_ne!(lit, dynamic);
+    dispatch_list("add", "(Ljava/lang/Object;)Z", &[list, lit], &mut objects).unwrap();
+    let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: d,
+            args,
+            strings: &mut strings,
+            objects,
+            arrays: &mut arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", m, &mut ctx)
+            .unwrap()
+    };
+    let obj = "(Ljava/lang/Object;)Z";
+    assert_eq!(
+        call("contains", obj, &[list, dynamic], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("remove", obj, &[list, dynamic], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
 fn arraylist_remove_object_overload() {
     // remove(Object) compiles to (Ljava/lang/Object;)Z; the arm demanded an
     // Int index and threw InvalidReference for it.

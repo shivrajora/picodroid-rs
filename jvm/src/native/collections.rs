@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
+    heap::StringTable,
     object_heap::{iter_store::IterSource, iter_store::IteratorState, ObjectHeap},
     types::{JvmError, Value},
 };
@@ -20,12 +21,18 @@ fn get_list_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
 /// Value equality for ArrayList.contains — uses value-based equality for
 /// autoboxed wrapper objects so that `contains(42)` finds `Integer(42)` even
 /// when the two `ObjectRef` indices differ (i.e., different heap slots).
-fn values_eq(a: Value, b: Value, objects: &ObjectHeap) -> bool {
+fn values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) -> bool {
     match (a, b) {
         (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
             // Compare field 0 for wrapper equality (Integer, Long, Boolean, etc.)
             let fa = objects.get_field(ai, 0);
             fa.is_some() && fa == objects.get_field(bi, 0)
+        }
+        (Value::Reference(ai), Value::Reference(bi)) if ai != bi => {
+            // Distinct String References can carry the same text (a literal
+            // vs. a runtime-built string) — same rule as map_values_eq.
+            let sa = strings.resolve(ai);
+            sa.is_some() && sa == strings.resolve(bi)
         }
         _ => a == b,
     }
@@ -124,7 +131,7 @@ pub(crate) fn dispatch(
                 let len = ctx.objects.list_len(buf_idx);
                 let pos = (0..len).find(|&i| {
                     let elem = ctx.objects.list_get(buf_idx, i).unwrap_or(Value::Null);
-                    values_eq(elem, needle, ctx.objects)
+                    values_eq(elem, needle, ctx.objects, ctx.strings)
                 });
                 if let Some(i) = pos {
                     ctx.objects.list_remove(buf_idx, i);
@@ -202,7 +209,7 @@ pub(crate) fn dispatch(
             let mut found = false;
             for i in 0..len {
                 let elem = ctx.objects.list_get(buf_idx, i).unwrap_or(Value::Null);
-                if values_eq(elem, needle, ctx.objects) {
+                if values_eq(elem, needle, ctx.objects, ctx.strings) {
                     found = true;
                     break;
                 }
