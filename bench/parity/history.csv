@@ -64839,3 +64839,5 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-08-29T04:00:02Z,10728dd,hil,testbench_rp2350,servicedemo,shrink,holdout,flash_seconds_x100,2937
 2026-08-29T04:00:02Z,10728dd,hil,testbench_rp2350,threaddemo,no-shrink,holdout,flash_seconds_x100,2924
 2026-08-29T04:00:02Z,10728dd,hil,testbench_rp2350,threaddemo,shrink,holdout,flash_seconds_x100,2924
+2026-08-29T19:45:36Z,a637c42,hil,testbench_rp2350,injectdemo,no-shrink,holdout,flash_seconds_x100,3018
+2026-08-29T19:45:36Z,a637c42,hil,testbench_rp2350,injectdemo,shrink,holdout,flash_seconds_x100,3003
