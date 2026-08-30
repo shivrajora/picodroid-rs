@@ -6,7 +6,7 @@ use crate::{
         encode_ref, ArrayHeap, ATYPE_BOOLEAN, ATYPE_BYTE, ATYPE_CHAR, ATYPE_DOUBLE, ATYPE_FLOAT,
         ATYPE_INT, ATYPE_LONG, ATYPE_REF, ATYPE_SHORT,
     },
-    object_heap::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf},
+    object_heap::{double_to_str_buf, float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf},
     sort::{
         f32_bits_from_key, f64_bits_from_key, i64_from_key, key_from_f32_bits, key_from_f64_bits,
         key_from_i64, sort_keys,
@@ -368,7 +368,6 @@ fn write_f32(out: &mut Vec<u8>, v: f32) {
 }
 
 fn write_f64(out: &mut Vec<u8>, v: f64) {
-    // Reuses the f32 formatter — same precision loss as `StringBuilder.append(double)`.
     let mut tmp = [0u8; 32];
-    out.extend_from_slice(float_to_str_buf(v as f32, &mut tmp));
+    out.extend_from_slice(double_to_str_buf(v, &mut tmp));
 }

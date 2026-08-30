@@ -85,7 +85,7 @@ pub(crate) fn dispatch(
                     ctx.objects.sb_append_float(buf, *f);
                 }
                 Some(Value::Double(d)) => {
-                    ctx.objects.sb_append_float(buf, *d as f32);
+                    ctx.objects.sb_append_double(buf, *d);
                 }
                 // append(Object) with null. A non-null object never reaches
                 // here: the interpreter stringifies it first (see

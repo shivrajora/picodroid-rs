@@ -102,7 +102,7 @@ fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
         }
         Value::Double(d) => {
             let mut tmp = [0u8; 32];
-            dst.extend_from_slice(crate::object_heap::float_to_str_buf(d as f32, &mut tmp));
+            dst.extend_from_slice(crate::object_heap::double_to_str_buf(d, &mut tmp));
         }
         Value::ObjectRef(idx) => {
             let name = ctx.objects.class_name(idx).unwrap_or("Object");
@@ -474,6 +474,22 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 let prec = spec.precision.unwrap_or(6);
                 let neg = f.is_sign_negative() && !f.is_nan();
                 let mag = if neg { -f } else { f };
+                if !f.is_finite() {
+                    // Java spells these out and pads with spaces even under
+                    // the 0 flag; NaN never takes a sign.
+                    let body: &[u8] = if f.is_nan() { b"NaN" } else { b"Infinity" };
+                    let sign = if f.is_nan() {
+                        b"" as &[u8]
+                    } else {
+                        numeric_sign(neg, &spec)
+                    };
+                    let spec_no_zero = Spec {
+                        zero: false,
+                        ..spec
+                    };
+                    pad_numeric(sign, body, &spec_no_zero, &mut out);
+                    continue;
+                }
                 let body_string: String = match spec.conv {
                     b'f' => format!("{:.*}", prec, mag),
                     b'e' | b'E' => {

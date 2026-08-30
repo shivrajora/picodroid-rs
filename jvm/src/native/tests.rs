@@ -3449,6 +3449,69 @@ fn format_boolean() {
 }
 
 #[test]
+fn format_float_special_values_use_java_spelling() {
+    // Rust's formatter spells them "inf"/"NaN"; Java prints "Infinity" and
+    // ignores the 0 flag for them.
+    let mut ctx = StrCtx::new();
+    let inf = ctx.box_primitive("java/lang/Double", Value::Double(f64::INFINITY));
+    let ninf = ctx.box_primitive("java/lang/Double", Value::Double(f64::NEG_INFINITY));
+    let nan = ctx.box_primitive("java/lang/Double", Value::Double(f64::NAN));
+    assert_eq!(ctx.fmt(b"%f", &[inf]), "Infinity");
+    assert_eq!(ctx.fmt(b"%.2e", &[ninf]), "-Infinity");
+    assert_eq!(ctx.fmt(b"%f", &[nan]), "NaN");
+    assert_eq!(ctx.fmt(b"%010f", &[inf]), "  Infinity");
+    assert_eq!(ctx.fmt(b"%+f", &[inf]), "+Infinity");
+}
+
+#[test]
+fn format_s_of_double_keeps_double_precision() {
+    let mut ctx = StrCtx::new();
+    let d = ctx.box_primitive("java/lang/Double", Value::Double(1.0 / 3.0));
+    assert_eq!(ctx.fmt(b"%s", &[d]), "0.3333333333333333");
+    let big = ctx.box_primitive("java/lang/Double", Value::Double(1e10));
+    assert_eq!(ctx.fmt(b"%s", &[big]), "1.0E10");
+}
+
+#[test]
+fn double_stringification_keeps_double_precision() {
+    // String.valueOf(double), StringBuilder.append(double) and
+    // Arrays.toString(double[]) all narrowed to f32 first.
+    let third = 1.0f64 / 3.0;
+    let mut ctx = StrCtx::new();
+    let r = ctx
+        .dispatch("valueOf", "(D)Ljava/lang/String;", &[Value::Double(third)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "0.3333333333333333");
+
+    let mut sb = SbCtx::new();
+    sb.call("<init>", "()V", None).unwrap();
+    sb.call(
+        "append",
+        "(D)Ljava/lang/StringBuilder;",
+        Some(Value::Double(third)),
+    )
+    .unwrap();
+    assert_eq!(sb.to_string(), "0.3333333333333333");
+
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let arr = arrays.alloc(crate::array_heap::ATYPE_DOUBLE, 1).unwrap();
+    arrays.store64(arr, 0, third.to_bits() as i64);
+    assert_eq!(
+        arrays_to_string_str(
+            "([D)Ljava/lang/String;",
+            arr,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[0.3333333333333333]"
+    );
+}
+
+#[test]
 fn format_float_basic() {
     let mut ctx = StrCtx::new();
     let f = ctx.box_primitive("java/lang/Double", Value::Double(3.14));

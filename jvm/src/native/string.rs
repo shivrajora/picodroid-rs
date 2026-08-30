@@ -377,7 +377,7 @@ pub(crate) fn dispatch(
                 }
                 Some(Value::Double(d)) => {
                     let mut tmp = [0u8; 32];
-                    let bytes = crate::object_heap::float_to_str_buf(*d as f32, &mut tmp);
+                    let bytes = crate::object_heap::double_to_str_buf(*d, &mut tmp);
                     Some(bytes.to_vec())
                 }
                 _ => None,

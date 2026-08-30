@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use alloc::vec::Vec;
 
-use super::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf, ObjectHeap};
+use super::{
+    double_to_str_buf, float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf, ObjectHeap,
+};
 
 impl ObjectHeap {
     // ── StringBuilder / sb_bufs ──────────────────────────────────────────────
@@ -53,11 +55,17 @@ impl ObjectHeap {
         self.sb_append_bytes(idx, s);
     }
 
-    /// Append a float to the buffer at `idx`.
-    /// Formats as `[-]integer.fraction` with up to 6 significant decimal digits.
+    /// Append a float to the buffer at `idx` (`Float.toString` layout).
     pub fn sb_append_float(&mut self, idx: u16, f: f32) {
         let mut tmp = [0u8; 32];
         let s = float_to_str_buf(f, &mut tmp);
+        self.sb_append_bytes(idx, s);
+    }
+
+    /// Append a double to the buffer at `idx` (`Double.toString` layout).
+    pub fn sb_append_double(&mut self, idx: u16, d: f64) {
+        let mut tmp = [0u8; 32];
+        let s = double_to_str_buf(d, &mut tmp);
         self.sb_append_bytes(idx, s);
     }
 
