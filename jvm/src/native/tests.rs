@@ -82,6 +82,79 @@ fn dispatch_math(
 // ── abs ──────────────────────────────────────────────────────────────────
 
 #[test]
+fn abs_min_value_is_min_value() {
+    // Java: Math.abs(Integer.MIN_VALUE) == Integer.MIN_VALUE (no exception,
+    // no panic). `i32::abs` overflows under debug overflow checks.
+    assert_eq!(
+        dispatch_math("abs", "(I)I", &[Value::Int(i32::MIN)]),
+        Ok(Some(Value::Int(i32::MIN)))
+    );
+    assert_eq!(
+        dispatch_math("abs", "(J)J", &[Value::Long(i64::MIN)]),
+        Ok(Some(Value::Long(i64::MIN)))
+    );
+}
+
+#[test]
+fn round_negative_half_rounds_toward_positive_infinity() {
+    // Java's Math.round is floor(x + 0.5): -2.5 -> -2, -0.5 -> 0, 2.5 -> 3.
+    assert_eq!(
+        dispatch_math("round", "(F)I", &[Value::Float(-2.5)]),
+        Ok(Some(Value::Int(-2)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(-2.5)]),
+        Ok(Some(Value::Long(-2)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(-0.5)]),
+        Ok(Some(Value::Long(0)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(2.5)]),
+        Ok(Some(Value::Long(3)))
+    );
+    // NaN -> 0, saturation at the integer range.
+    assert_eq!(
+        dispatch_math("round", "(F)I", &[Value::Float(f32::NAN)]),
+        Ok(Some(Value::Int(0)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(1e30)]),
+        Ok(Some(Value::Long(i64::MAX)))
+    );
+}
+
+#[test]
+fn min_max_propagate_nan_and_order_signed_zero() {
+    // Java: NaN if either argument is NaN; -0.0 < 0.0.
+    let r = dispatch_math(
+        "min",
+        "(DD)D",
+        &[Value::Double(f64::NAN), Value::Double(1.0)],
+    );
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d.is_nan()),
+        "{r:?}"
+    );
+    let r = dispatch_math("max", "(FF)F", &[Value::Float(1.0), Value::Float(f32::NAN)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Float(f))) if f.is_nan()),
+        "{r:?}"
+    );
+    let r = dispatch_math("min", "(DD)D", &[Value::Double(0.0), Value::Double(-0.0)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d == 0.0 && d.is_sign_negative()),
+        "{r:?}"
+    );
+    let r = dispatch_math("max", "(DD)D", &[Value::Double(-0.0), Value::Double(0.0)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d == 0.0 && d.is_sign_positive()),
+        "{r:?}"
+    );
+}
+
+#[test]
 fn abs_int_positive() {
     assert_eq!(
         dispatch_math("abs", "(I)I", &[Value::Int(5)]),

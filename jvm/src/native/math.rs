@@ -3,14 +3,57 @@ use crate::types::{JvmError, Value};
 
 use super::NativeContext;
 
+/// Java `Math.min`/`Math.max` on floating point: NaN if either operand is
+/// NaN, and `-0.0 < 0.0`. Rust's `f32::min`/`max` return the non-NaN
+/// operand and treat the two zeros as equal.
+macro_rules! java_minmax {
+    ($name:ident, $t:ty, $pick:ident, $zero_wins:expr) => {
+        fn $name(a: $t, b: $t) -> $t {
+            if a.is_nan() || b.is_nan() {
+                return <$t>::NAN;
+            }
+            if a == 0.0 && b == 0.0 {
+                // Signed zero: min prefers -0.0, max prefers +0.0.
+                return if a.is_sign_negative() == $zero_wins {
+                    a
+                } else {
+                    b
+                };
+            }
+            a.$pick(b)
+        }
+    };
+}
+java_minmax!(java_min_f32, f32, min, true);
+java_minmax!(java_min_f64, f64, min, true);
+java_minmax!(java_max_f32, f32, max, false);
+java_minmax!(java_max_f64, f64, max, false);
+
+/// Java `Math.round`: nearest integer, ties toward positive infinity —
+/// i.e. `floor(x + 0.5)` without the precision loss of actually adding
+/// 0.5 (`x - floor(x)` is exact). `as` saturates and maps NaN to 0, which
+/// is the Java contract for the cast.
+fn java_round_f32(f: f32) -> i32 {
+    let fl = libm::floorf(f);
+    let r = if f - fl >= 0.5 { fl + 1.0 } else { fl };
+    r as i32
+}
+
+fn java_round_f64(d: f64) -> i64 {
+    let fl = libm::floor(d);
+    let r = if d - fl >= 0.5 { fl + 1.0 } else { fl };
+    r as i64
+}
+
 pub(crate) fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
         "abs" => match ctx.args.first() {
-            Some(Value::Int(i)) => Some(Ok(Some(Value::Int(i.abs())))),
-            Some(Value::Long(l)) => Some(Ok(Some(Value::Long(l.abs())))),
+            // Java: abs(MIN_VALUE) == MIN_VALUE; plain `abs` overflows.
+            Some(Value::Int(i)) => Some(Ok(Some(Value::Int(i.wrapping_abs())))),
+            Some(Value::Long(l)) => Some(Ok(Some(Value::Long(l.wrapping_abs())))),
             Some(Value::Float(f)) => Some(Ok(Some(Value::Float(f.abs())))),
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(d.abs())))),
             _ => Some(Err(JvmError::InvalidReference)),
@@ -19,10 +62,10 @@ pub(crate) fn dispatch(
             (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.min(b))))),
             (Some(Value::Long(a)), Some(Value::Long(b))) => Some(Ok(Some(Value::Long(*a.min(b))))),
             (Some(Value::Float(a)), Some(Value::Float(b))) => {
-                Some(Ok(Some(Value::Float(a.min(*b)))))
+                Some(Ok(Some(Value::Float(java_min_f32(*a, *b)))))
             }
             (Some(Value::Double(a)), Some(Value::Double(b))) => {
-                Some(Ok(Some(Value::Double(a.min(*b)))))
+                Some(Ok(Some(Value::Double(java_min_f64(*a, *b)))))
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
@@ -30,10 +73,10 @@ pub(crate) fn dispatch(
             (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.max(b))))),
             (Some(Value::Long(a)), Some(Value::Long(b))) => Some(Ok(Some(Value::Long(*a.max(b))))),
             (Some(Value::Float(a)), Some(Value::Float(b))) => {
-                Some(Ok(Some(Value::Float(a.max(*b)))))
+                Some(Ok(Some(Value::Float(java_max_f32(*a, *b)))))
             }
             (Some(Value::Double(a)), Some(Value::Double(b))) => {
-                Some(Ok(Some(Value::Double(a.max(*b)))))
+                Some(Ok(Some(Value::Double(java_max_f64(*a, *b)))))
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
@@ -56,8 +99,8 @@ pub(crate) fn dispatch(
             _ => Some(Err(JvmError::InvalidReference)),
         },
         "round" => match ctx.args.first() {
-            Some(Value::Float(f)) => Some(Ok(Some(Value::Int(libm::roundf(*f) as i32)))),
-            Some(Value::Double(d)) => Some(Ok(Some(Value::Long(libm::round(*d) as i64)))),
+            Some(Value::Float(f)) => Some(Ok(Some(Value::Int(java_round_f32(*f))))),
+            Some(Value::Double(d)) => Some(Ok(Some(Value::Long(java_round_f64(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
         "sin" => match ctx.args.first() {
