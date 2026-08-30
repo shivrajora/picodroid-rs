@@ -65900,3 +65900,5 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-08-30T14:29:14Z,e83cd63,hil,testbench_rp2350,hellokt,shrink,holdout,flash_seconds_x100,4021
 2026-08-30T14:32:51Z,3950715,hil,testbench_rp2350,injectdemo_kt,no-shrink,holdout,flash_seconds_x100,4120
 2026-08-30T14:32:51Z,3950715,hil,testbench_rp2350,injectdemo_kt,shrink,holdout,flash_seconds_x100,4103
+2026-08-30T14:37:11Z,0f35d63,hil,testbench_rp2350,langsuite_kt,no-shrink,holdout,flash_seconds_x100,4537
+2026-08-30T14:37:11Z,0f35d63,hil,testbench_rp2350,langsuite_kt,shrink,holdout,flash_seconds_x100,4525
