@@ -116,7 +116,7 @@ arm-none-eabi-gdb target/thumbv8m.main-none-eabihf/debug/picodroid \
 [sim] Activity lifecycle error: NoSuchMethod
 ```
 
-On hardware the same line arrives over RTT without the `[sim]` prefix: `Activity lifecycle error: NoSuchMethod`. A second, related line can appear from the framework-default fallback path: `Activity lifecycle fallback error: NoSuchMethod`. These are emitted from the lifecycle dispatcher in [`platforms/rp/src/lifecycle.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/src/lifecycle.rs).
+On hardware the same line arrives over RTT without the `[sim]` prefix: `Activity lifecycle error: NoSuchMethod`. A second, related line can appear from the framework-default fallback path: `Activity lifecycle fallback error: NoSuchMethod`. These are emitted from the lifecycle dispatcher in [`picodroid-core/src/lifecycle.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/src/lifecycle.rs).
 
 There is **no "native miss" log line** — ignore any guidance that tells you to grep for one. The real diagnostic surface for this failure is the `Activity lifecycle error: NoSuchMethod` line above.
 

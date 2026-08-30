@@ -56,9 +56,9 @@ Supported value types: `String`, `int`, `long`, `boolean`. Limits: 64 entries pe
 
 ```java
 import picodroid.content.SharedPreferences;
-import picodroid.content.Editor;
+import picodroid.content.SharedPreferences.Editor;
 
-Preferences prefs = SharedPreferences.open("settings");
+SharedPreferences prefs = SharedPreferences.open("settings");
 int boots = prefs.getInt("boot_count", 0);
 
 Editor e = prefs.edit();

@@ -5,7 +5,50 @@ description: "Module layout, HAL contract, and multi-family seams."
 
 This document maps the picodroid-rs codebase by **reusability**: which pieces are written to be lifted into another project, which are picodroid-the-application, and where the boundaries between them sit.
 
-For end-user docs (writing apps, porting to a new board, debugging) see [the website](/).
+For end-user docs (writing apps, porting to a new board, debugging) start at the [Overview](/).
+
+## At a glance
+
+```mermaid
+graph TD
+    subgraph Host["Host (development machine)"]
+        PDB_CLI["pdb CLI tool"]
+    end
+
+    subgraph HW["Hardware"]
+        SILICON["RP2040 (Cortex-M0+ @ 125 MHz)<br/>RP2350 (Cortex-M33 @ 150 MHz)"]
+    end
+
+    subgraph RTOS["FreeRTOS SMP — both cores"]
+        PDB["pdb task<br/><i>core 0</i>"]
+        JVM_TASK["jvm task + fs / sensor / bg workers<br/><i>core 0</i>"]
+        CORE1["flash parker · cyw43 WiFi (Pico 2 W)<br/><i>core 1</i>"]
+    end
+
+    subgraph JVM["JVM interpreter (jvm/ crate)"]
+        BC["Java bytecode<br/>.papk app"]
+        THREADS["Thread.start()<br/>child tasks (core 0)"]
+        GC["Mark-sweep GC"]
+    end
+
+    subgraph CORE["Framework (picodroid-core/ crate)"]
+        NATIVE["Native dispatch<br/>GPIO · UART · I2C · SPI · Log · Display · Net · FS"]
+        LIFECYCLE["Lifecycle + widgets"]
+    end
+
+    SILICON --> RTOS
+    JVM_TASK --> JVM
+    BC --> THREADS
+    BC --> GC
+    BC --> NATIVE
+    NATIVE --> LIFECYCLE
+
+    PDB_CLI -- "USB CDC hot-swap" --> PDB
+    PDB -- "write .papk to flash<br/>restart JVM" --> JVM_TASK
+```
+
+Apps are hot-swapped at runtime with `pdb install`, without reflashing the
+firmware. The rest of this page is the map behind that picture.
 
 ## Workspace crates
 
@@ -24,7 +67,7 @@ The workspace members are `platforms/rp`, `jvm`, `picodroid-core`, `compat`, `pa
 
 The [`picodroid`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/src/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), binding `picodroid-core`'s framework — class loading, native dispatch, display and input — to this family's silicon, and exposes the developer-facing USB-CDC debugger (`pdb`).
 
-Treat `platforms/rp/src/` as a **reference implementation** of how to embed `pico-jvm` on Cortex-M, not as code to lift wholesale into another project. For porting picodroid to a new board, see [`docs/porting-guide.md`](/reference/porting-guide/).
+Treat `platforms/rp/src/` as a **reference implementation** of how to embed `pico-jvm` on Cortex-M, not as code to lift wholesale into another project. For porting picodroid to a new board, see the [porting guide](/reference/porting-guide/).
 
 ## Module map
 

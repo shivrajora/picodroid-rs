@@ -2,7 +2,7 @@
 
 This document maps the picodroid-rs codebase by **reusability**: which pieces are written to be lifted into another project, which are picodroid-the-application, and where the boundaries between them sit.
 
-For end-user docs (writing apps, porting to a new board, debugging) see [`docs/`](docs/).
+For end-user docs (writing apps, porting to a new board, debugging) see the documentation site: <https://shivrajora.github.io/picodroid-rs/>. `docs/` holds engineering notes — designs, audits, and dated bug records.
 
 ## Reusable crates
 
@@ -19,9 +19,9 @@ Two host-side Gradle projects sit next to the crates and are equally free of pic
 
 ## The picodroid binary
 
-The [`picodroid`](platforms/rp/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), loads framework + app classes, dispatches native methods, drives the display and input, and exposes the developer-facing UART debugger (`pdb`). Since the 2026-07 extraction it is a thin family shell over [`picodroid-core`](picodroid-core/), which holds the framework itself.
+The [`picodroid`](platforms/rp/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), loads framework + app classes, dispatches native methods, drives the display and input, and exposes the developer-facing USB-CDC debugger (`pdb`). Since the 2026-07 extraction it is a thin family shell over [`picodroid-core`](picodroid-core/), which holds the framework itself.
 
-Treat `platforms/rp/` as a **reference implementation** of how to bind a family to `picodroid-core`, not as code to lift wholesale. For porting picodroid to a new MCU, see the [porting guide](website/src/content/docs/reference/porting-guide.md).
+Treat `platforms/rp/` as a **reference implementation** of how to bind a family to `picodroid-core`, not as code to lift wholesale. For porting picodroid to a new MCU, see the [porting guide](https://shivrajora.github.io/picodroid-rs/reference/porting-guide/).
 
 ## Module map
 
@@ -38,7 +38,7 @@ in `platforms/rp/` is this family and nothing else.
 | [`native_handler/`](picodroid-core/src/native_handler/) | `pico-jvm` native dispatch (chain-of-responsibility per domain) | `[picodroid]` |
 | [`lifecycle.rs`](picodroid-core/src/lifecycle.rs) / [`service_lifecycle.rs`](picodroid-core/src/service_lifecycle.rs) | Activity + Service lifecycle, event dispatch | `[picodroid]` |
 | [`hal/`](picodroid-core/src/hal/) | HAL CONTRACT v2 traits, facade, registration macros | `[reusable]` candidate |
-| [`hal/sim/`](picodroid-core/src/hal/sim/) | The simulator — shared, not copied per family | `[reusable]` candidate |
+| [`hal/sim/`](picodroid-core/src/hal/sim/) | The simulator — shared, not copied per family, incl. the [`allocator.rs`](picodroid-core/src/hal/sim/allocator.rs) device heap cap and [`heap4.rs`](picodroid-core/src/hal/sim/heap4.rs) `heap_4` port | `[reusable]` candidate |
 | [`rtos.rs`](picodroid-core/src/rtos.rs) / [`host.rs`](picodroid-core/src/host.rs) | RTOS trait and platform hooks | `[reusable]` candidate |
 | [`executors/`](picodroid-core/src/executors/) | Main queue + background pool, behind the RTOS seam | `[reusable]` candidate |
 | [`hardware/`](picodroid-core/src/hardware/) | Sensor sampler and mailbox | `[picodroid]` |
@@ -57,11 +57,9 @@ in `platforms/rp/` is this family and nothing else.
 | [`main.rs`](platforms/rp/src/main.rs) | Entry point, panic handler, global allocator | `[picodroid]` |
 | [`app.rs`](platforms/rp/src/app.rs) | This family's APK blob and post-run idle loop | `[picodroid]` |
 | [`hal/rp/`](platforms/rp/src/hal/rp/) | RP2040/RP2350 peripheral implementations | `[hardware]` |
-| [`hal/sim/`](platforms/rp/src/hal/sim/) | Three stubs only — `boot`, `flash`, `pdb_usb` | `[hardware]` |
 | [`fs/`](platforms/rp/src/fs/) | LittleFS wrapper behind the `HalFs` seam | `[reusable]` candidate |
 | [`pdb/`](platforms/rp/src/pdb/) | Debug-bridge family glue: CDC transport, park coordinator, FreeRTOS sysmon source. The protocol itself lives in [`picodroid-core/src/pdb/`](picodroid-core/src/pdb/), its wire layouts in [`pdb-protocol/`](pdb-protocol/) | `[picodroid]` |
 | [`packagemanager/`](platforms/rp/src/packagemanager/) | Hot-reload PAPK install over USB | `[picodroid]` |
-| [`sim_allocator.rs`](platforms/rp/src/sim_allocator.rs) / [`sim_heap4.rs`](platforms/rp/src/sim_heap4.rs) | Simulated device heap cap and `heap_4` port | `[picodroid]` |
 | [`boards/`](platforms/rp/src/boards/) | Per-board feature glue (memory layout, capability cfgs) | `[picodroid]` |
 
 `[reusable]` candidates are well-layered enough to lift into another project but currently live here because there's only one consumer. If a second consumer materialises, promote them to standalone crates.
@@ -102,7 +100,7 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 
 ### MCU TOML schema
 
-[mcus/&lt;family&gt;/&lt;mcu&gt;.toml](mcus/) drives the build. [build_support/freertos.rs](build_support/freertos.rs) consumes:
+[platforms/&lt;family&gt;/mcus/&lt;family&gt;/&lt;mcu&gt;.toml](platforms/rp/mcus/) drives the build. [build_support/freertos.rs](build_support/freertos.rs) consumes:
 
 - `freertos_port` — kernel port path
 - `pico_shim` — extra C source compiled with the kernel
@@ -111,13 +109,13 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 - `freertos_vector_aliases` — semicolon-separated `CMSIS=portasm` linker aliases
 - `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
 
-[build_support/network.rs](build_support/network.rs) takes `mcu_family` and reads `src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP; a future family using esp-idf/lwIP should add a parallel network module rather than extending this one.
+[build_support/network.rs](build_support/network.rs) takes `mcu_family` and reads `platforms/<family>/src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP; a future family using esp-idf/lwIP should add a parallel network module rather than extending this one.
 
 ### Naming convention
 
 - `family-<name>` (Cargo feature) — e.g. `family-rp`. Activated transitively by chip features.
-- `chip-<mcu_name>` (Cargo feature) — e.g. `chip-rp2040`, `chip-rp2350`. Mechanical 1:1 with `mcus/<family>/<mcu_name>.toml`.
-- `board-<board_name>` (Cargo feature) — e.g. `board-testbench-rp2040`. Mechanical 1:1 with `boards/<board_name>/`.
+- `chip-<mcu_name>` (Cargo feature) — e.g. `chip-rp2040`, `chip-rp2350`. Mechanical 1:1 with `platforms/<family>/mcus/<family>/<mcu_name>.toml`.
+- `board-<board_name>` (Cargo feature) — e.g. `board-testbench-rp2040`. Mechanical 1:1 with `platforms/<family>/boards/<board_name>/`.
 
 Boards declare their MCU via `mcu = "..."` in `board.toml`; [build_support/config.rs](build_support/config.rs)::`resolve_active_mcu` reads it directly. Chip features only exist to gate dep crates.
 
@@ -127,4 +125,4 @@ The following are deeply RP-specific and live entirely under [platforms/rp/src/h
 
 - **SMP / cross-core FIFO / Amazon-SMP affinity APIs** — [platforms/rp/src/hal/rp/boot.rs](platforms/rp/src/hal/rp/boot.rs) uses `xTaskCreateAffinitySet` (V11 SMP). ESP-IDF FreeRTOS uses `xTaskCreatePinnedToCore` and stack sizes in bytes (not words).
 - **Same-core install flow** — PDB and JVM tasks are both pinned to core 0 (an RP2350 cross-core SRAM visibility bug retired the original cross-core park design); during install the JVM blocks on a FreeRTOS notification, and each flash erase/program window disables interrupts inside `with_xip_disabled!` ([platforms/rp/src/hal/rp/flash.rs](platforms/rp/src/hal/rp/flash.rs)). ESP32-S3 has cache-suspension APIs (`esp_flash_suspend_cache`) that obviate this pattern.
-- **`mcus/rp/FreeRTOSConfig.h` ARM macros** — keyed off `__ARM_ARCH_8M_MAIN__`. A future `mcus/esp/FreeRTOSConfig.h` will need its own Xtensa-aware variant.
+- **`platforms/rp/mcus/rp/FreeRTOSConfig.h` ARM macros** — keyed off `__ARM_ARCH_8M_MAIN__`. A future family supplies its own config keyed to its architecture.

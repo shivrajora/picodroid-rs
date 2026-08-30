@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Fifty-six examples are included under `examples/`, organized by category.
+Sixty-three examples are included under `examples/`, organized by category.
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 
@@ -53,6 +53,7 @@ TCP/UDP sockets via `picodroid.net`. On hardware these require a Pico 2 W (`--bo
 | Example | Class | Description |
 |---------|-------|-------------|
 | `netdemo` | `netdemo.NetDemo` | Checks `NetworkInfo`, opens a TCP `Socket`, sends "Hello" to a localhost echo server on port 7000, and logs the response. On hardware it first waits up to 30 s for WiFi join + DHCP — see [WiFi & networking setup](/get-started/networking/) |
+| `netexception` | `netexception.NetException` | Asserts the typed network-exception taxonomy — `ConnectException` on a refused loopback port, `SocketTimeoutException` from `ServerSocket.accept()` and from a blocked read, and a dotted-quad `InetAddress` resolve. Fully local: no external server, network, or resolver needed |
 | `http_get` | `http_get.HttpGet` | Android-style `HttpURLConnection` demo: performs a GET and a POST against a localhost HTTP/1.1 server, reading the response body through `HttpInputStream`. On hardware it waits up to 30 s for the network, and `BASE_URL` must point at an HTTP server reachable on your LAN — see [WiFi & networking setup](/get-started/networking/) |
 
 ## Sensors
@@ -99,12 +100,26 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
 | `clinitdemo` | `clinitdemo.ClinitDemo` | Demonstrates static class initializers (`<clinit>`): field initializers, `static {}` blocks, and cross-class chaining |
 | `classlit` | `classlit.ClassLit` | Class literals (`T.class`): demonstrates `getName()` and that repeated `T.class` evaluations return the same `Class` instance |
+| `clonedemo` | `clonedemo.CloneDemo` | `Object.clone()`: shallow-copy semantics (reference fields stay shared), identity, class preservation, and the canonical `(T) super.clone()` override inside a `Cloneable` class |
+| `rttidemo` | `rttidemo.RttiDemo` | Runtime type information: `instanceof` / `checkcast` over strings, arrays, collections under their interfaces and boxes under `Number`; transitive superinterfaces; a catchable `ClassCastException`; the boxed `equals` / `hashCode` / `compare` family; `Comparable` through `Arrays.sort(Object[])`; enum identity |
 | `syncdemo` | `syncdemo.SyncDemo` | Demonstrates `synchronized` blocks (`monitorenter`/`monitorexit`) and reentrant locking |
 | `collectionsdemo` | `collectionsdemo.CollectionsDemo` | Test-harness coverage of `java.util.*`: `ArrayList` add/get/set/remove/contains/clear plus `Integer`/`Boolean` autoboxing, `Arrays.sort`/`copyOf`/`fill`/`toString`, `Arrays.sort(Object[])` and `Collections.sort`/`reverse` over `Comparable<T>`, explicit `Iterator` and enhanced for-each over lists/maps, `HashMap` and `HashSet`, `entrySet()`/`Map.Entry`, the `LinkedHashMap`/`LinkedHashSet` aliases and `toArray` |
 | `randomdemo` | `randomdemo.RandomDemo` | Demonstrates `java.util.Random` — `nextInt`, `nextLong`, `nextFloat`, seeded reproducibility |
 | `clockdemo` | `clockdemo.ClockDemo` | Demonstrates `System.currentTimeMillis()` for boot-elapsed wallclock-style timing |
 | `langsuite` | `langsuite.LangSuite` | Aggregated language-feature test runner — exercises every JVM language feature in one APK |
 | `bytecodecoverage` | `bytecodecoverage.BytecodeCoverage` | JVM bytecode coverage harness — exercises long/double arrays, `multianewarray`, `wide`, `goto_w`, and stack-manipulation opcodes |
+
+## Kotlin
+
+Kotlin apps compile to the same bytecode and run on the same JVM; a small
+`kotlin-shim` supplies the stdlib entry points the compiler emits. What is and
+is not supported is tabulated in the [Android compatibility matrix](/reference/compatibility-matrix/).
+
+| Example | Class | Description |
+|---------|-------|-------------|
+| `hellokt` | `hellokt.HelloKt` | The smallest Kotlin app: a string template, one `!!` (the `Intrinsics.checkNotNull` the shim serves), and a SAM lambda for a Java interface |
+| `langsuite_kt` | `langsuitekt.LangSuiteKt` | Kotlin language suite — data classes, sealed classes and `when`, extension functions, default and named arguments, varargs, null safety, scope functions, `lazy`/`Pair`, objects and companions, interface defaults, lambdas, type checks, exceptions, `synchronized` |
+| `langsuite_kt_stdlib` | `langsuitektstdlib.LangSuiteKtStdlib` | Kotlin stdlib suite — collections, maps, sets, arrays, ranges, sorting, strings, and math over the shim |
 
 ## Graphics and Display
 

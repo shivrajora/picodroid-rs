@@ -1,0 +1,93 @@
+---
+// Starlight `Head` override: keep the stock head, then add the mermaid
+// renderer. Diagrams reach the page as `<pre class="mermaid">` (see
+// `src/plugins/remark-mermaid.mjs`); this turns them into SVG.
+import Default from '@astrojs/starlight/components/Head.astro';
+
+// Overrides are handed the route data as props; the stock component reads it
+// (`entry`, `lang`, …), so it has to be forwarded or it renders nothing.
+const props = Astro.props;
+---
+
+<Default {...props}><slot /></Default>
+
+<script>
+  const diagrams = () =>
+    Array.from(document.querySelectorAll<HTMLElement>('pre.mermaid'));
+
+  // Hidden from the first frame so the raw source never flashes. Done from
+  // JS rather than CSS on purpose: with scripting off the `<pre>` stays
+  // visible and the reader still gets the diagram source.
+  for (const el of diagrams()) el.style.visibility = 'hidden';
+
+  // Starlight stamps `data-theme="dark" | "light"` on <html>.
+  // `neutral` is mermaid's greyscale light theme — its `default` theme's
+  // lilac-and-yellow palette clashes with the docs' own.
+  const themeName = () =>
+    document.documentElement.dataset.theme === 'light' ? 'neutral' : 'dark';
+
+  async function render() {
+    const nodes = diagrams();
+    if (nodes.length === 0) return;
+
+    try {
+      // `mermaid` is ~500 kB gzipped, so it is imported dynamically and only
+      // on pages that contain a diagram. Every other page pays nothing.
+      const { default: mermaid } = await import('mermaid');
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: themeName(),
+        flowchart: { useMaxWidth: true },
+        securityLevel: 'strict',
+      });
+
+      // Re-runs (theme flips) need the original source back: `mermaid.run()`
+      // replaced the element's content with SVG and marked it processed.
+      for (const el of nodes) {
+        const src = el.dataset.mermaidSource;
+        if (src === undefined) continue;
+        el.textContent = src;
+        el.removeAttribute('data-processed');
+      }
+
+      await mermaid.run({ nodes });
+    } finally {
+      // Reveal either the SVG or — if mermaid failed to load or the diagram
+      // has a syntax error — the source, which beats a blank space.
+      for (const el of nodes) el.style.visibility = '';
+    }
+  }
+
+  render();
+
+  // Astro view transitions swap the DOM without a full reload.
+  document.addEventListener('astro:page-load', render);
+
+  // Re-render on theme flip so the diagram never sits at the wrong contrast.
+  let lastTheme = themeName();
+  new MutationObserver(() => {
+    if (themeName() === lastTheme) return;
+    lastTheme = themeName();
+    render();
+  }).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+</script>
+
+<style is:global>
+  /* Diagrams run wider than the prose column on small screens; scroll the
+     diagram rather than the page body. */
+  pre.mermaid {
+    background: none;
+    border: none;
+    padding: 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+
+  pre.mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
+</style>

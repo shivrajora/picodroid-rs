@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightLinksValidator from 'starlight-links-validator';
 import { visit } from 'unist-util-visit';
+import { remarkMermaid } from './src/plugins/remark-mermaid.mjs';
 
 // Astro doesn't auto-prefix root-relative markdown links with `base`. This
 // remark plugin walks every link node and prepends BASE if it starts with /
@@ -32,15 +33,19 @@ export default defineConfig({
   ...(process.env.SITE ? { site: process.env.SITE } : {}),
   ...(process.env.BASE ? { base: process.env.BASE } : {}),
   markdown: {
-    remarkPlugins: [remarkBasePrefix()],
+    remarkPlugins: [remarkBasePrefix(), remarkMermaid],
   },
   integrations: [
     starlight({
       title: 'Picodroid',
       description:
         'A stripped-down, FreeRTOS-based version of Android for the Raspberry Pi Pico.',
-      logo: { src: './src/assets/picodroid.svg', replacesTitle: true },
+      logo: { src: './src/assets/picodroid.svg' },
       customCss: ['./src/styles/custom.css'],
+      components: {
+        // Adds the client-side mermaid renderer; otherwise the stock head.
+        Head: './src/components/Head.astro',
+      },
       social: {
         github: 'https://github.com/shivrajora/picodroid-rs',
       },

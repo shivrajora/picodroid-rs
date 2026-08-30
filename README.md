@@ -3,11 +3,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml"><img src="https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml/badge.svg" alt="CI"/></a>
+  <img src="https://img.shields.io/badge/license-GPL--3.0--only-blue" alt="License: GPL-3.0-only"/>
+  <img src="https://img.shields.io/badge/rust-nightly%20%7C%20stable-orange" alt="Rust: nightly | stable"/>
+</p>
 
-[![CI](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml/badge.svg)](https://github.com/shivrajora/picodroid-rs/actions/workflows/ci_checks.yml)
-![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)
-![Rust](https://img.shields.io/badge/rust-nightly%20%7C%20stable-orange)
-
+<p align="center">
+  <a href="https://shivrajora.github.io/picodroid-rs/"><b>Documentation</b></a>
 </p>
 
 # Picodroid
@@ -68,7 +70,7 @@ Apps can be hot-swapped at runtime via `pdb install` without reflashing the firm
 - Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 (RP2350), or Raspberry Pi Pico 2 W (RP2350 + CYW43439)
 - An SWD debug probe: [Raspberry Pi Debug Probe](https://www.raspberrypi.com/products/debug-probe/), Picoprobe, J-Link, or any CMSIS-DAP adapter
 
-On the Pico 2 W the `picodroid.net` stack runs over WiFi end-to-end — WPA2 join, DHCP, TCP/UDP sockets, and HTTP — validated on hardware. See [WiFi & networking setup](website/src/content/docs/get-started/networking.md) for build-time credentials and the required cyw43 submodule fork.
+On the Pico 2 W the `picodroid.net` stack runs over WiFi end-to-end — WPA2 join, DHCP, TCP/UDP sockets, and HTTP — validated on hardware. See [WiFi & networking setup](https://shivrajora.github.io/picodroid-rs/get-started/networking/) for build-time credentials and the required cyw43 submodule fork.
 
 ## Quick Start
 
@@ -95,23 +97,23 @@ The serial device is `/dev/ttyACM*` on Linux and `/dev/cu.usbmodem*` on macOS.
 
 Display apps (e.g. `displaydemo`) open a graphical window with mouse-as-touch input when run in the simulator.
 
-See [Build & flash](website/src/content/docs/get-started/build.md) for prerequisites, chip selection, app selection, and UF2 flashing.
+See [Build & flash](https://shivrajora.github.io/picodroid-rs/get-started/build/) for prerequisites, chip selection, app selection, and UF2 flashing.
 
 ## Documentation
 
-The full docs are an Astro Starlight site under [`website/`](website/) — once the GitHub Pages workflow ships, they're hosted at `https://shivrajora.github.io/picodroid-rs/`. The same content also renders on GitHub directly.
+The full docs are published at **<https://shivrajora.github.io/picodroid-rs/>** — searchable, cross-linked, and deployed from [`website/`](website/) by [`.github/workflows/docs.yml`](.github/workflows/docs.yml) on every push to `main`. The same content also renders on GitHub directly under [`website/src/content/docs/`](website/src/content/docs/).
 
-**New to Picodroid? Read in this order:** [Build & flash](website/src/content/docs/get-started/build.md) → [Your first app](website/src/content/docs/get-started/first-app.md) → [Multi-screen tutorial](website/src/content/docs/tutorials/multi-screen-app.md) → [Embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md) → [Limits & memory budgets](website/src/content/docs/reference/limits.md).
+**New to Picodroid? Read in this order:** [Build & flash](https://shivrajora.github.io/picodroid-rs/get-started/build/) → [Your first app](https://shivrajora.github.io/picodroid-rs/get-started/first-app/) → [Multi-screen tutorial](https://shivrajora.github.io/picodroid-rs/tutorials/multi-screen-app/) → [Embedded gotchas](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/) → [Limits & memory budgets](https://shivrajora.github.io/picodroid-rs/reference/limits/).
 
-- [Get started → Build & flash](website/src/content/docs/get-started/build.md) — prerequisites, build, flash, board/app selection
-- [Get started → Host simulator](website/src/content/docs/get-started/simulator.md) — run apps without hardware
-- [Get started → Hot-swap with pdb](website/src/content/docs/get-started/hot-swap.md) — push PAPKs over USB CDC
-- [Get started → Your first app](website/src/content/docs/get-started/first-app.md) — Application/Activity lifecycle and supported language features
-- [Tutorials](website/src/content/docs/tutorials/multi-screen-app.md) — guided builds: a [multi-screen app](website/src/content/docs/tutorials/multi-screen-app.md) and a [background service](website/src/content/docs/tutorials/background-service.md)
-- [Java API](website/src/content/docs/api.md) — split by area: [core](website/src/content/docs/api/core.md), [system](website/src/content/docs/api/system.md), [services](website/src/content/docs/api/services.md), [peripherals](website/src/content/docs/api/peripherals.md), [storage](website/src/content/docs/api/storage.md), [networking](website/src/content/docs/api/networking.md), [sensors](website/src/content/docs/api/sensors.md), [UI](website/src/content/docs/api/ui.md)
-- [Guides](website/src/content/docs/guides/embedded-gotchas.md) — [embedded gotchas](website/src/content/docs/guides/embedded-gotchas.md), [button-only navigation](website/src/content/docs/guides/button-navigation.md), [debugging](website/src/content/docs/guides/debugging.md), [bundled image assets](website/src/content/docs/guides/assets.md)
-- [Reference](website/src/content/docs/reference/limits.md) — [limits & memory budgets](website/src/content/docs/reference/limits.md), the [manifest schema](website/src/content/docs/reference/manifest.md), the [class-name shrinker](website/src/content/docs/reference/shrinker.md)
-- [Release notes](website/src/content/docs/project/release-notes.md) — v0.4.0 → v0.13.0
+- [Get started → Build & flash](https://shivrajora.github.io/picodroid-rs/get-started/build/) — prerequisites, build, flash, board/app selection
+- [Get started → Host simulator](https://shivrajora.github.io/picodroid-rs/get-started/simulator/) — run apps without hardware
+- [Get started → Hot-swap with pdb](https://shivrajora.github.io/picodroid-rs/get-started/hot-swap/) — push PAPKs over USB CDC
+- [Get started → Your first app](https://shivrajora.github.io/picodroid-rs/get-started/first-app/) — Application/Activity lifecycle and supported language features
+- [Tutorials](https://shivrajora.github.io/picodroid-rs/tutorials/multi-screen-app/) — guided builds: a [multi-screen app](https://shivrajora.github.io/picodroid-rs/tutorials/multi-screen-app/) and a [background service](https://shivrajora.github.io/picodroid-rs/tutorials/background-service/)
+- [Java API](https://shivrajora.github.io/picodroid-rs/api/) — split by area: [core](https://shivrajora.github.io/picodroid-rs/api/core/), [system](https://shivrajora.github.io/picodroid-rs/api/system/), [services](https://shivrajora.github.io/picodroid-rs/api/services/), [peripherals](https://shivrajora.github.io/picodroid-rs/api/peripherals/), [storage](https://shivrajora.github.io/picodroid-rs/api/storage/), [networking](https://shivrajora.github.io/picodroid-rs/api/networking/), [sensors](https://shivrajora.github.io/picodroid-rs/api/sensors/), [UI](https://shivrajora.github.io/picodroid-rs/api/ui/)
+- [Guides](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/) — [embedded gotchas](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/), [button-only navigation](https://shivrajora.github.io/picodroid-rs/guides/button-navigation/), [debugging](https://shivrajora.github.io/picodroid-rs/guides/debugging/), [bundled image assets](https://shivrajora.github.io/picodroid-rs/guides/assets/)
+- [Reference](https://shivrajora.github.io/picodroid-rs/reference/limits/) — [limits & memory budgets](https://shivrajora.github.io/picodroid-rs/reference/limits/), the [manifest schema](https://shivrajora.github.io/picodroid-rs/reference/manifest/), the [class-name shrinker](https://shivrajora.github.io/picodroid-rs/reference/shrinker/)
+- [Release notes](https://shivrajora.github.io/picodroid-rs/project/release-notes/) — v0.4.0 → v0.13.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure
