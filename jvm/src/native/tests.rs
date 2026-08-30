@@ -1376,6 +1376,72 @@ fn arraylist_to_array_keeps_object_zero() {
 }
 
 #[test]
+fn arraylist_remove_object_overload() {
+    // remove(Object) compiles to (Ljava/lang/Object;)Z; the arm demanded an
+    // Int index and threw InvalidReference for it.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    let a = Value::Reference(strings.intern(b"a").unwrap());
+    let b = Value::Reference(strings.intern(b"b").unwrap());
+    let five = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(five, 0, Value::Int(5));
+    let five2 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(five2, 0, Value::Int(5));
+    for v in [a, b, Value::ObjectRef(five)] {
+        dispatch_list("add", "(Ljava/lang/Object;)Z", &[list, v], &mut objects).unwrap();
+    }
+    let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: d,
+            args,
+            strings: &mut strings,
+            objects,
+            arrays: &mut arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", m, &mut ctx)
+            .unwrap()
+    };
+    let rm = "(Ljava/lang/Object;)Z";
+    assert_eq!(
+        call("remove", rm, &[list, a], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(2)))
+    );
+    assert_eq!(
+        call("remove", rm, &[list, a], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+    // A different boxed Integer with the same value matches (equals semantics).
+    assert_eq!(
+        call("remove", rm, &[list, Value::ObjectRef(five2)], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    // The index overload still works and returns the element.
+    assert_eq!(
+        call(
+            "remove",
+            "(I)Ljava/lang/Object;",
+            &[list, Value::Int(0)],
+            &mut objects
+        ),
+        Ok(Some(b))
+    );
+}
+
+#[test]
 fn arraylist_remove() {
     let mut objects = ObjectHeap::new();
     let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());

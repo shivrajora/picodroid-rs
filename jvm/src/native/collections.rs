@@ -118,6 +118,19 @@ pub(crate) fn dispatch(
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
+            if !ctx.descriptor.starts_with("(I") {
+                // remove(Object) -> boolean: drop the first equal element.
+                let needle = ctx.args.get(1).copied().unwrap_or(Value::Null);
+                let len = ctx.objects.list_len(buf_idx);
+                let pos = (0..len).find(|&i| {
+                    let elem = ctx.objects.list_get(buf_idx, i).unwrap_or(Value::Null);
+                    values_eq(elem, needle, ctx.objects)
+                });
+                if let Some(i) = pos {
+                    ctx.objects.list_remove(buf_idx, i);
+                }
+                return Some(Ok(Some(Value::Int(pos.is_some() as i32))));
+            }
             let Value::Int(i) = ctx.args.get(1).copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
