@@ -113,7 +113,8 @@ pub(crate) fn dispatch(
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
                 Some(Ok(Some(Value::Int((sa == sb) as i32))))
             }
-            (Some(Value::Reference(_)), Some(Value::Null)) => Some(Ok(Some(Value::Int(0)))),
+            // equals(Object): null or any non-String is simply false.
+            (Some(Value::Reference(_)), Some(_)) => Some(Ok(Some(Value::Int(0)))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
         "equalsIgnoreCase" => match (ctx.args.first(), ctx.args.get(1)) {

@@ -3060,6 +3060,28 @@ fn string_split_multi_char() {
 }
 
 #[test]
+fn string_equals_non_string_is_false() {
+    // "x".equals(someObject) / equals(array) is specified to be false —
+    // it was a hard InvalidReference error (uncatchable).
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"x");
+    let obj = Value::ObjectRef(ctx.objects.alloc("Foo").unwrap());
+    let arr = Value::ArrayRef(ctx.arrays.alloc(crate::array_heap::ATYPE_INT, 1).unwrap());
+    for other in [obj, arr, Value::Null] {
+        assert_eq!(
+            ctx.dispatch("equals", "(Ljava/lang/Object;)Z", &[s, other]),
+            Ok(Some(Value::Int(0))),
+            "equals({other:?})"
+        );
+    }
+    let same = ctx.intern(b"x");
+    assert_eq!(
+        ctx.dispatch("equals", "(Ljava/lang/Object;)Z", &[s, same]),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
 fn string_char_at_out_of_range_throws() {
     // Java: StringIndexOutOfBoundsException, not '\0'.
     let mut ctx = StrCtx::new();
