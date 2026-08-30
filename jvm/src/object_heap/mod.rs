@@ -934,33 +934,45 @@ pub fn int_to_decimal_buf(n: i32, buf: &mut [u8; 12]) -> &[u8] {
     &buf[i..]
 }
 
-/// Java `Double.toString` / `Float.toString` layout over the shortest
-/// round-trip digit string: plain decimal with at least one fractional
-/// digit for `1e-3 <= |x| < 1e7`, otherwise computerized scientific
-/// notation (`1.0E10`, `1.5E-5`). Special values: "NaN", "Infinity",
-/// "-Infinity". Rust's `Display`/`LowerExp` already produce the shortest
-/// digits that round-trip (for the value's own width — an `f32` formats
-/// as an `f32`, which is exactly what `Float.toString` does); this only
-/// applies Java's layout rules on top.
-fn java_float_layout<F>(x: F, buf: &mut [u8; 32]) -> &[u8]
-where
-    F: Copy + core::fmt::Display + core::fmt::LowerExp + Into<f64>,
-{
-    struct W<'a> {
-        buf: &'a mut [u8],
+/// Java `Double.toString` / `Float.toString`: the shortest digit string that
+/// round-trips, laid out as plain decimal with at least one fractional digit
+/// for `1e-3 <= |x| < 1e7` and as computerized scientific notation
+/// (`1.0E10`, `1.5E-5`) otherwise. Special values: "NaN", "Infinity",
+/// "-Infinity".
+///
+/// The digits come from the exact-mode `{:.*e}` formatter at increasing
+/// precision until the result parses back to `x` — the closest `p`-digit
+/// decimal round-trips whenever any `p`-digit decimal does, so this is the
+/// shortest representation. Exact-mode formatting and `str::parse` are
+/// already linked for `String.format` and `parseDouble`; the shortest-mode
+/// `Display` path would cost ~6 KB of RP2040 flash.
+fn java_float_layout<'a>(
+    d: f64,
+    roundtrips: &dyn Fn(&str) -> bool,
+    buf: &'a mut [u8; 32],
+) -> &'a [u8] {
+    struct W<'b> {
+        buf: &'b mut [u8],
         len: usize,
+    }
+    impl W<'_> {
+        fn push(&mut self, b: u8) {
+            if self.len < self.buf.len() {
+                self.buf[self.len] = b;
+                self.len += 1;
+            }
+        }
     }
     impl core::fmt::Write for W<'_> {
         fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            let n = s.len().min(self.buf.len() - self.len);
-            self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
-            self.len += n;
+            for &b in s.as_bytes() {
+                self.push(b);
+            }
             Ok(())
         }
     }
     use core::fmt::Write as _;
 
-    let d: f64 = x.into();
     if d.is_nan() {
         buf[..3].copy_from_slice(b"NaN");
         return &buf[..3];
@@ -970,39 +982,115 @@ where
         buf[..s.len()].copy_from_slice(s);
         return &buf[..s.len()];
     }
+    let neg = d.is_sign_negative();
     let mag = d.abs();
-    let mut w = W { buf, len: 0 };
-    let sci = mag != 0.0 && !(1e-3..1e7).contains(&mag);
-    if sci {
-        let _ = write!(w, "{x:e}");
+    let mut out = W { buf, len: 0 };
+    if neg {
+        out.push(b'-');
+    }
+    if mag == 0.0 {
+        out.write_str("0.0").ok();
+        let len = out.len;
+        return &out.buf[..len];
+    }
+
+    // Shortest round-tripping digits, as `d.ddd…e±N` from the exact formatter.
+    let mut raw = [0u8; 32];
+    let mut raw_len = 0;
+    for prec in 0..17 {
+        let mut w = W {
+            buf: &mut raw,
+            len: 0,
+        };
+        let _ = write!(w, "{mag:.prec$e}");
+        raw_len = w.len;
+        let text = core::str::from_utf8(&raw[..raw_len]).unwrap_or("");
+        if roundtrips(text) {
+            break;
+        }
+    }
+    let raw = &raw[..raw_len];
+    let epos = raw.iter().position(|&b| b == b'e').unwrap_or(raw_len);
+    let mut digits = [b'0'; 20];
+    let mut nd = 0;
+    for &b in &raw[..epos] {
+        if b != b'.' && nd < digits.len() {
+            digits[nd] = b;
+            nd += 1;
+        }
+    }
+    while nd > 1 && digits[nd - 1] == b'0' {
+        nd -= 1;
+    }
+    let mut exp: i32 = 0;
+    let mut exp_neg = false;
+    for &b in &raw[(epos + 1).min(raw_len)..] {
+        match b {
+            b'-' => exp_neg = true,
+            b'0'..=b'9' => exp = exp * 10 + (b - b'0') as i32,
+            _ => {}
+        }
+    }
+    if exp_neg {
+        exp = -exp;
+    }
+
+    if !(1e-3..1e7).contains(&mag) {
+        // d.dddE±N — at least one fractional digit.
+        out.push(digits[0]);
+        out.push(b'.');
+        if nd > 1 {
+            for &b in &digits[1..nd] {
+                out.push(b);
+            }
+        } else {
+            out.push(b'0');
+        }
+        out.push(b'E');
+        let _ = write!(out, "{exp}");
+    } else if exp >= 0 {
+        let int_len = exp as usize + 1;
+        for i in 0..int_len {
+            out.push(if i < nd { digits[i] } else { b'0' });
+        }
+        out.push(b'.');
+        if nd > int_len {
+            for &b in &digits[int_len..nd] {
+                out.push(b);
+            }
+        } else {
+            out.push(b'0');
+        }
     } else {
-        let _ = write!(w, "{x}");
+        out.write_str("0.").ok();
+        for _ in 0..(-exp - 1) {
+            out.push(b'0');
+        }
+        for &b in &digits[..nd] {
+            out.push(b);
+        }
     }
-    let mut len = w.len;
-    // Java always shows a fractional digit in the mantissa: "1e10" -> "1.0E10",
-    // "100" -> "100.0".
-    let exp_pos = buf[..len].iter().position(|&b| b == b'e');
-    let mantissa_end = exp_pos.unwrap_or(len);
-    if !buf[..mantissa_end].contains(&b'.') && len + 2 <= buf.len() {
-        buf.copy_within(mantissa_end..len, mantissa_end + 2);
-        buf[mantissa_end] = b'.';
-        buf[mantissa_end + 1] = b'0';
-        len += 2;
-    }
-    if let Some(p) = buf[..len].iter().position(|&b| b == b'e') {
-        buf[p] = b'E';
-    }
-    &buf[..len]
+    let len = out.len;
+    &out.buf[..len]
 }
 
 /// Format `d` as `java.lang.Double.toString` would. See [`java_float_layout`].
 pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
-    java_float_layout(d, buf)
+    java_float_layout(d, &|s| s.parse::<f64>().ok() == Some(d), buf)
 }
 
 /// Format `f` as `java.lang.Float.toString` would. See [`java_float_layout`].
 pub fn float_to_str_buf(f: f32, buf: &mut [u8; 32]) -> &[u8] {
-    java_float_layout(f, buf)
+    // Formatting goes through f64 (exact widening) and so does the parse —
+    // `str::parse::<f32>` would link a second dec2flt instantiation (RP2040
+    // flash). The double rounding (decimal -> f64 -> f32) can only differ
+    // from a direct f32 parse for a decimal within an f64 ulp of an f32
+    // midpoint, which a <= 9-digit candidate never is.
+    java_float_layout(
+        f as f64,
+        &|s| s.parse::<f64>().ok().map(|d| d as f32) == Some(f),
+        buf,
+    )
 }
 
 #[cfg(test)]

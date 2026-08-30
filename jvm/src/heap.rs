@@ -46,6 +46,16 @@ pub struct StringTable {
 unsafe impl Send for StringTable {}
 
 impl StringTable {
+    /// True when two string indices carry the same text. Distinct indices
+    /// can hold equal strings (a literal vs. a runtime-built copy), so every
+    /// `equals`-style comparison of References must go through here rather
+    /// than comparing indices. Kept out of line: it is called from several
+    /// dispatchers and inlining the resolve pair each time costs flash.
+    #[inline(never)]
+    pub fn content_eq(&self, a: u16, b: u16) -> bool {
+        a == b || (self.resolve(a).is_some() && self.resolve(a) == self.resolve(b))
+    }
+
     pub const fn new() -> Self {
         Self {
             ptrs: Vec::new(),

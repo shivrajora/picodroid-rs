@@ -34,12 +34,9 @@ fn values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) ->
             let fa = objects.get_field(ai, 0);
             fa.is_some() && fa == objects.get_field(bi, 0)
         }
-        (Value::Reference(ai), Value::Reference(bi)) if ai != bi => {
-            // Distinct String References can carry the same text (a literal
-            // vs. a runtime-built string) — same rule as map_values_eq.
-            let sa = strings.resolve(ai);
-            sa.is_some() && sa == strings.resolve(bi)
-        }
+        // Distinct String References can carry the same text (a literal vs.
+        // a runtime-built string) — same rule as map_values_eq.
+        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
         _ => a == b,
     }
 }
