@@ -97,7 +97,8 @@ object MathDemo {
                 maxOf(1, 5, 3) == 5 &&
                 minOf(4, 2, 9) == 2 &&
                 maxOf(1.5f, 2.5f) == 2.5f &&
-                minOf("b", "a") == "a",
+                minOf("b", "a") == "a" &&
+                maxOf("b", "a") == "b",
         )
         check(
             "sin / cos / tan",

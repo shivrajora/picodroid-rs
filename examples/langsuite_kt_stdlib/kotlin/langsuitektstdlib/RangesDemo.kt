@@ -73,6 +73,15 @@ object RangesDemo {
         )
         check("coerceAtLeast / coerceAtMost", 3.coerceAtLeast(5) == 5 && 3.coerceAtMost(2) == 2)
         check(
+            "coerceAtLeast / coerceAtMost widths",
+            7L.coerceAtLeast(9L) == 9L &&
+                7L.coerceAtMost(5L) == 5L &&
+                2f.coerceAtLeast(3f) == 3f &&
+                2f.coerceAtMost(1f) == 1f &&
+                1.5.coerceAtLeast(2.0) == 2.0 &&
+                1.5.coerceAtMost(1.0) == 1.0,
+        )
+        check(
             "coerceIn float / double / long",
             1.5f.coerceIn(0f, 1f) == 1f &&
                 (-0.5).coerceIn(0.0, 1.0) == 0.0 &&
