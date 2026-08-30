@@ -417,6 +417,10 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
         "java/lang/NegativeArraySizeException",
         "java/lang/RuntimeException",
     ),
+    (
+        "java/util/ConcurrentModificationException",
+        "java/lang/RuntimeException",
+    ),
     ("java/lang/OutOfMemoryError", "java/lang/Error"),
     ("java/lang/ExceptionInInitializerError", "java/lang/Error"),
     ("java/lang/StackOverflowError", "java/lang/Error"),

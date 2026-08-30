@@ -103,6 +103,8 @@ pub(crate) fn dispatch(
                     source: IterSource::MapKeys(buf_idx),
                     position: 0,
                     owner,
+                    expected_len: ctx.objects.map_len(buf_idx),
+                    last_returned: None,
                 },
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))

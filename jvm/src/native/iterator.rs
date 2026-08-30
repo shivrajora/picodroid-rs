@@ -24,12 +24,24 @@ pub(crate) fn dispatch(
             Some(Ok(Some(Value::Int((state.position < len) as i32))))
         }
         "next" => {
-            let (source, pos) = match ctx.objects.iter_get(obj_idx) {
-                Some(s) => (s.source, s.position),
+            let (source, pos, expected) = match ctx.objects.iter_get(obj_idx) {
+                Some(s) => (s.source, s.position, s.expected_len),
                 None => return Some(Err(JvmError::InvalidReference)),
             };
-            if pos >= source_len(ctx, &source) {
-                return Some(Err(JvmError::ArrayIndexOutOfBounds));
+            let len = source_len(ctx, &source);
+            if len != expected {
+                // Fail fast, like java.util: the source changed behind the
+                // iterator (bugbash S6).
+                return Some(Err(super::throw_named(
+                    ctx,
+                    "java/util/ConcurrentModificationException",
+                )));
+            }
+            if pos >= len {
+                return Some(Err(super::throw_named(
+                    ctx,
+                    "java/util/NoSuchElementException",
+                )));
             }
             let value = match source {
                 IterSource::List(buf) => ctx.objects.list_get(buf, pos).unwrap_or(Value::Null),
@@ -48,9 +60,44 @@ pub(crate) fn dispatch(
             };
             // Advance position
             if let Some(state) = ctx.objects.iter_get_mut(obj_idx) {
+                state.last_returned = Some(state.position);
                 state.position += 1;
             }
             Some(Ok(Some(value)))
+        }
+        "remove" => {
+            let (source, last, expected) = match ctx.objects.iter_get(obj_idx) {
+                Some(s) => (s.source, s.last_returned, s.expected_len),
+                None => return Some(Err(JvmError::InvalidReference)),
+            };
+            // remove() before next(), or twice in a row.
+            let Some(at) = last else {
+                return Some(Err(super::throw_named(
+                    ctx,
+                    "java/lang/IllegalStateException",
+                )));
+            };
+            if source_len(ctx, &source) != expected {
+                return Some(Err(super::throw_named(
+                    ctx,
+                    "java/util/ConcurrentModificationException",
+                )));
+            }
+            let removed = match source {
+                IterSource::List(buf) => ctx.objects.list_remove(buf, at).is_some(),
+                IterSource::MapKeys(buf)
+                | IterSource::MapValues(buf)
+                | IterSource::MapEntries(buf) => ctx.objects.map_remove_at(buf, at),
+            };
+            if !removed {
+                return Some(Err(JvmError::InvalidReference));
+            }
+            if let Some(state) = ctx.objects.iter_get_mut(obj_idx) {
+                state.position = at;
+                state.expected_len -= 1;
+                state.last_returned = None;
+            }
+            Some(Ok(None))
         }
         _ => None,
     }

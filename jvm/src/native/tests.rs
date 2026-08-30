@@ -5196,3 +5196,125 @@ fn append_null_and_value_of_object_on_string_or_null() {
         .unwrap();
     assert_eq!(cx.resolve(n), "null");
 }
+
+// ── bugbash S6: Iterator.remove and fail-fast iteration ───────────────────
+
+#[test]
+fn iterator_remove_removes_the_last_returned_element() {
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [10, 20, 30] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let iter = make_list_iterator(&mut objects, list);
+    // remove() before next() is IllegalStateException.
+    let r = dispatch_iter("remove", "()V", &[iter], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some("java/lang/IllegalStateException")
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(10)))
+    );
+    dispatch_iter("remove", "()V", &[iter], &mut objects).unwrap();
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(2)))
+    );
+    // Iteration continues over the survivors.
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(20)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(30)))
+    );
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn iterator_detects_concurrent_modification() {
+    // Removing through the collection mid-iteration used to silently skip
+    // every other element; java.util fails fast in next().
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [1, 2, 3, 4] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let iter = make_list_iterator(&mut objects, list);
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    dispatch_list(
+        "remove",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(0)],
+        &mut objects,
+    )
+    .unwrap();
+    let r = dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some("java/util/ConcurrentModificationException")
+    );
+}
+
+fn make_list_iterator(objects: &mut ObjectHeap, list: Value) -> Value {
+    let mut strings = StringTable::new();
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        classes: &[],
+        descriptor: "()Ljava/util/Iterator;",
+        args: &[list],
+        strings: &mut strings,
+        objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    BuiltinHandler
+        .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+        .unwrap()
+        .unwrap()
+        .unwrap()
+}
+
+// ── bugbash S4: %s of an object uses Object.toString's identity shape ─────
+
+#[test]
+fn format_s_object_without_interpreter_uses_identity_shape() {
+    // With no upcall env the fallback must match identity_to_string:
+    // dotted name @ 4-hex index (it used to print pkg/Cls@<decimal>).
+    let mut ctx = StrCtx::new();
+    let obj = Value::ObjectRef(ctx.objects.alloc("com/example/Thing").unwrap());
+    let out = ctx.fmt(b"%s", &[obj]);
+    assert!(
+        out.starts_with("com.example.Thing@") && out.len() == "com.example.Thing@".len() + 4,
+        "{out}"
+    );
+}

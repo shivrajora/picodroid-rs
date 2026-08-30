@@ -1380,6 +1380,8 @@ fn gc_collects_iterator() {
             source: IterSource::List(buf_idx),
             position: 0,
             owner: list_obj,
+            expected_len: 0,
+            last_returned: None,
         },
     );
 
@@ -1427,6 +1429,8 @@ fn gc_iterator_pins_temporary_list() {
             source: IterSource::List(buf_idx),
             position: 0,
             owner: list_obj,
+            expected_len: 0,
+            last_returned: None,
         },
     );
 
@@ -1489,6 +1493,8 @@ fn gc_map_view_pins_temporary_map() {
             source: IterSource::MapKeys(buf_idx),
             position: 0,
             owner: view,
+            expected_len: 0,
+            last_returned: None,
         },
     );
 
@@ -1529,6 +1535,8 @@ fn gc_retains_iterator_and_source() {
             source: IterSource::List(buf_idx),
             position: 0,
             owner: list_obj,
+            expected_len: 0,
+            last_returned: None,
         },
     );
 
@@ -1584,6 +1592,8 @@ fn gc_stress_iterator_churn() {
                 source: IterSource::List(buf_idx),
                 position: (i as usize) % 5,
                 owner: list_obj,
+                expected_len: 0,
+                last_returned: None,
             },
         );
         last_iter = iter_obj;
