@@ -168,8 +168,7 @@ object CollectionsDemo {
 
         // S9: emptyList() must not be a shared mutable singleton — one cast+add
         // used to poison every later emptyList() app-wide.
-        @Suppress("UNCHECKED_CAST")
-        (emptyList<Int>() as MutableList<Int>).add(99)
+        @Suppress("UNCHECKED_CAST") (emptyList<Int>() as MutableList<Int>).add(99)
         check("emptyList not shared", emptyList<Int>().isEmpty() && listOf<Int>().isEmpty())
 
         Check.done(TAG)

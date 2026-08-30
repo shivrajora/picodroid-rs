@@ -177,8 +177,7 @@ object MapsDemo {
         )
 
         // S9: emptyMap() must not be a shared mutable singleton.
-        @Suppress("UNCHECKED_CAST")
-        (emptyMap<String, Int>() as MutableMap<String, Int>).put("x", 1)
+        @Suppress("UNCHECKED_CAST") (emptyMap<String, Int>() as MutableMap<String, Int>).put("x", 1)
         check("emptyMap not shared", emptyMap<String, Int>().isEmpty())
 
         Check.done(TAG)

@@ -10,9 +10,9 @@ import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
- * End-to-end regression checks for the 2026-08-30 bug bash (docs/bugbash-2026-08-30.md). Each
- * check names the bash id it pins; the unit tests next to each fix are the primary guard, this app
- * proves the same behaviour through real bytecode on the sim and on hardware.
+ * End-to-end regression checks for the 2026-08-30 bug bash (docs/bugbash-2026-08-30.md). Each check
+ * names the bash id it pins; the unit tests next to each fix are the primary guard, this app proves
+ * the same behaviour through real bytecode on the sim and on hardware.
  */
 public class BugBash extends Application {
   private static final String TAG = "BugBash";

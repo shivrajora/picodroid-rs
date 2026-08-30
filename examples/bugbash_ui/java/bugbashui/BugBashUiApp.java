@@ -7,8 +7,8 @@ import picodroid.util.Log;
 
 /**
  * Lifecycle half of the 2026-08-30 bug-bash regression app (see {@code examples/bugbash} for the
- * pure-logic half). Self-driving: {@link MainActivity} walks three phases across its own
- * onResume calls and finishes when done, so the app terminates like a {@code term} row.
+ * pure-logic half). Self-driving: {@link MainActivity} walks three phases across its own onResume
+ * calls and finishes when done, so the app terminates like a {@code term} row.
  */
 public class BugBashUiApp extends Application {
   @Override
