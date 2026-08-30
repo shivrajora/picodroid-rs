@@ -107,6 +107,8 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/NumberFormatException",
     "java/lang/ExceptionInInitializerError",
     "java/lang/StackOverflowError",
+    "java/lang/NegativeArraySizeException",
+    "java/lang/OutOfMemoryError",
     "java/util/NoSuchElementException",
     "java/io/IOException",
     "java/io/InterruptedIOException",

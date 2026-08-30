@@ -413,6 +413,11 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
         "java/lang/StringIndexOutOfBoundsException",
         "java/lang/IndexOutOfBoundsException",
     ),
+    (
+        "java/lang/NegativeArraySizeException",
+        "java/lang/RuntimeException",
+    ),
+    ("java/lang/OutOfMemoryError", "java/lang/Error"),
     ("java/lang/ExceptionInInitializerError", "java/lang/Error"),
     ("java/lang/StackOverflowError", "java/lang/Error"),
     // Boxed numerics descend from Number, as Kotlin's `checkcast

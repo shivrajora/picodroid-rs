@@ -98,6 +98,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         let v = self.objects.get_field(idx, slot).unwrap_or(Value::Null);
                         frame.push(v)?;
                     }
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidReference),
                 }
             }
@@ -128,6 +129,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .set_field(idx, slot, value)
                             .ok_or(JvmError::InvalidReference)?;
                     }
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidReference),
                 }
             }

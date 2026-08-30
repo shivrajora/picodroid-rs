@@ -680,6 +680,11 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
             // an allocator reported OOM (need_gc).  After an emergency GC the
             // opcode that failed has already been rewound and will re-execute.
             if r.is_ok() && (ex.alloc_count() >= GC_THRESHOLD || ex.need_gc()) {
+                // Remember whether this collection was demanded by a failed
+                // allocation (the opcode rewound itself for a retry) — if the
+                // GC then frees nothing, the retry can never succeed and
+                // would spin forever (bugbash J5's long[]-livelock).
+                let for_failed_alloc = ex.need_gc();
                 ex.set_need_gc(false);
                 // Sample pre-sweep live bytes so handlers can track a heap
                 // high-water mark — GC fires at peak pressure, so this is the
@@ -702,6 +707,11 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 ex.handler
                     .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
                 ex.gc_state.alloc_count = 0;
+                if for_failed_alloc && freed == 0 {
+                    let e = ex.runtime_fault_obj("java/lang/OutOfMemoryError")?;
+                    handle_exception(ex, frames, e, base_depth)?;
+                    continue;
+                }
                 #[cfg(feature = "mem-diag")]
                 {
                     let post_gc_live =
@@ -722,6 +732,18 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 Err(JvmError::Exception(obj_idx)) => {
                     handle_exception(ex, frames, obj_idx, base_depth)?;
                 }
+                // Bounds and size faults are catchable Java exceptions
+                // (bugbash J4); translating here covers every array opcode
+                // without touching each site. Other JvmErrors stay hard —
+                // they signal interpreter/native bugs, not program faults.
+                Err(JvmError::ArrayIndexOutOfBounds) => {
+                    let e = ex.runtime_fault_obj("java/lang/ArrayIndexOutOfBoundsException")?;
+                    handle_exception(ex, frames, e, base_depth)?;
+                }
+                Err(JvmError::NegativeArraySize) => {
+                    let e = ex.runtime_fault_obj("java/lang/NegativeArraySizeException")?;
+                    handle_exception(ex, frames, e, base_depth)?;
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -731,6 +753,12 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
     /// even that allocation fails the heap is exhausted, so fall back to the
     /// hard `JvmError::StackOverflow` (this crate's allocation-failure
     /// signal) rather than inventing an object index.
+    /// Allocate a runtime-fault exception object by name, degrading to the
+    /// hard `StackOverflow` signal only when even that allocation fails.
+    fn runtime_fault_obj(&mut self, class: &'static str) -> Result<u16, JvmError> {
+        self.objects.alloc(class).ok_or(JvmError::StackOverflow)
+    }
+
     fn stack_overflow_error(&mut self) -> Result<u16, JvmError> {
         self.objects
             .alloc("java/lang/StackOverflowError")

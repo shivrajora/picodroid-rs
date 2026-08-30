@@ -14,10 +14,26 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// flash to format, and the stack trace already names the cast site.
     /// Allocation failure degrades to `StackOverflow` like every native throw.
     pub(super) fn class_cast_exception(&mut self) -> JvmError {
-        match self.objects.alloc("java/lang/ClassCastException") {
+        self.runtime_fault("java/lang/ClassCastException")
+    }
+
+    /// Allocate `class` by name and return it as a thrown exception —
+    /// division by zero, null dereference, bad array index and friends are
+    /// specified as catchable Java exceptions, not VM faults (bugbash J4).
+    /// Same alloc-by-name/no-message tradeoff as `class_cast_exception`.
+    pub(super) fn runtime_fault(&mut self, class: &'static str) -> JvmError {
+        match self.objects.alloc(class) {
             Some(exc) => JvmError::Exception(exc),
             None => JvmError::StackOverflow,
         }
+    }
+
+    pub(super) fn arithmetic_exception(&mut self) -> JvmError {
+        self.runtime_fault("java/lang/ArithmeticException")
+    }
+
+    pub(super) fn null_pointer_exception(&mut self) -> JvmError {
+        self.runtime_fault("java/lang/NullPointerException")
     }
 
     /// athrow (0xbf): pop an object reference and throw it as an exception.
@@ -27,7 +43,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let val = frame.pop()?;
         match val {
             Value::ObjectRef(idx) => Err(JvmError::Exception(idx)),
-            Value::Null => Err(JvmError::InvalidReference),
+            // JVMS: athrow of null throws NullPointerException.
+            Value::Null => Err(self.null_pointer_exception()),
             _ => Err(JvmError::InvalidBytecode),
         }
     }

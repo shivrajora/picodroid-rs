@@ -209,6 +209,10 @@ fn need_gc_flag_triggers_collection_and_clears() {
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
+    // Give the emergency GC something to free: a need_gc collection that
+    // frees nothing is a genuine OOM since bugbash J5 (the failed
+    // allocation could never succeed on retry) and throws OutOfMemoryError.
+    let _garbage = o.alloc("java/lang/Object").unwrap();
     gc.need_gc = true;
     gc.alloc_count = 50;
     let r = execute(

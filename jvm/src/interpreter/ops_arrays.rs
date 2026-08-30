@@ -17,7 +17,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -38,7 +38,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -59,7 +59,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -80,7 +80,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -101,7 +101,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -122,7 +122,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -143,7 +143,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -164,7 +164,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -196,7 +196,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -219,7 +219,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -242,7 +242,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -265,7 +265,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -285,7 +285,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -309,7 +309,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -332,7 +332,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -355,7 +355,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 if index < 0 {
@@ -389,6 +389,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 if count < 0 {
                     return Err(JvmError::NegativeArraySize);
                 }
+                if count > u16::MAX as i32 {
+                    // Unsatisfiable regardless of GC — `as u16` used to
+                    // truncate the length silently (bugbash J5).
+                    return Err(self.runtime_fault("java/lang/OutOfMemoryError"));
+                }
                 match self.arrays.alloc(atype, count as u16) {
                     Some(arr_idx) => {
                         frame.push(Value::ArrayRef(arr_idx))?;
@@ -413,6 +418,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 };
                 if count < 0 {
                     return Err(JvmError::NegativeArraySize);
+                }
+                if count > u16::MAX as i32 {
+                    return Err(self.runtime_fault("java/lang/OutOfMemoryError"));
                 }
                 match self
                     .arrays
@@ -487,7 +495,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0xbe => {
                 let arr_idx = match frame.pop()? {
                     Value::ArrayRef(i) => i,
-                    Value::Null => return Err(JvmError::InvalidReference),
+                    Value::Null => return Err(self.null_pointer_exception()),
                     _ => return Err(JvmError::InvalidBytecode),
                 };
                 let len = self
