@@ -14,7 +14,7 @@
 /// Rises by exactly the amount the platform crate's `EXPECTED_PROVIDERS`
 /// falls whenever modules move. If only one of the two changes in a commit,
 /// a provider was dropped.
-pub const EXPECTED_PROVIDERS: usize = 17;
+pub const EXPECTED_PROVIDERS: usize = 19;
 
 /// Register every root provider owned by this crate.
 ///
@@ -80,6 +80,14 @@ pub fn register_all() {
     // Animation end-actions hold the Runnable to fire on completion;
     // nothing on the Java side references it for the animation's duration.
     register_object_refs(animations::visit_end_action_roots);
+
+    // Runnables in flight in the executor queues: between
+    // Executors.execute() and the drain, the queued word can be a lambda's
+    // only reference — a GC in that window swept it and the dispatch ran on
+    // a reused slot (bugbash F2; the same hazard class as the listener
+    // maps, one queue further out).
+    register_object_refs(crate::executors::main_queue::visit_pending_runnable_roots);
+    register_object_refs(crate::executors::background_pool::visit_pending_runnable_roots);
 
     // Sensor registrations hold the listener and the recycled SensorEvent;
     // the Activity stack holds each live Activity object and its pending

@@ -69,6 +69,56 @@ unsafe impl Sync for TickFlagCell {}
 
 static TICK_IN_QUEUE: TickFlagCell = TickFlagCell(Cell::new(false));
 
+/// Shadow of every Runnable obj_ref currently sitting in the backing queue,
+/// in FIFO order. The RTOS queue cannot be iterated, so without this the GC
+/// root scan cannot see in-flight Runnables — a lambda whose only reference
+/// is the queued word was swept by any collection that ran between post and
+/// drain (bugbash F2). Mutations are bracketed by an
+/// [`pico_jvm::atomic_section::AtomicSection`], the same guard the heap's
+/// compound operations use, because `enqueue_runnable` may run on a
+/// different task than the draining UI loop.
+struct ShadowCell(Cell<[u16; CAPACITY]>, Cell<usize>);
+unsafe impl Sync for ShadowCell {}
+static PENDING_RUNNABLES: ShadowCell = ShadowCell(Cell::new([0; CAPACITY]), Cell::new(0));
+
+fn shadow_push(r: u16) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    if len < CAPACITY {
+        arr[len] = r;
+        PENDING_RUNNABLES.0.set(arr);
+        PENDING_RUNNABLES.1.set(len + 1);
+    }
+}
+
+fn shadow_remove(r: u16) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    if let Some(pos) = arr[..len].iter().position(|&x| x == r) {
+        arr.copy_within(pos + 1..len, pos);
+        arr[len - 1] = 0;
+        PENDING_RUNNABLES.0.set(arr);
+        PENDING_RUNNABLES.1.set(len - 1);
+    }
+}
+
+fn shadow_clear() {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    PENDING_RUNNABLES.0.set([0; CAPACITY]);
+    PENDING_RUNNABLES.1.set(0);
+}
+
+/// GC roots: every Runnable still in the queue. See [`PENDING_RUNNABLES`].
+pub fn visit_pending_runnable_roots(visit: &mut dyn FnMut(u16)) {
+    let arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    for &r in &arr[..len] {
+        visit(r);
+    }
+}
+
 fn encode(task: MainTask) -> u32 {
     match task {
         MainTask::LvglTick => TICK_SENTINEL,
@@ -158,6 +208,9 @@ mod backing {
 pub fn init() {
     TICK_IN_QUEUE.0.set(false);
     backing::init();
+    // init() drains any queue left from the previous app run, so the shadow
+    // starts empty too (its refs point into the old heap).
+    shadow_clear();
 }
 
 /// Enqueue an `LvglTick` if one is not already pending. Returns `true` if
@@ -181,7 +234,11 @@ pub fn enqueue_tick() -> bool {
 /// Enqueue a `Runnable` obj_ref. Non-blocking; drops the item if the queue
 /// is full (returns `false`). Caller is expected to log on drop.
 pub fn enqueue_runnable(obj_ref: u16) -> bool {
-    backing::try_send(encode(MainTask::Runnable(obj_ref)))
+    let sent = backing::try_send(encode(MainTask::Runnable(obj_ref)));
+    if sent {
+        shadow_push(obj_ref);
+    }
+    sent
 }
 
 /// Post a `Wake` sentinel to the queue so the UI loop's `recv_blocking`
@@ -213,6 +270,9 @@ pub fn try_recv() -> Option<MainTask> {
     if task == MainTask::LvglTick {
         TICK_IN_QUEUE.0.set(false);
     }
+    if let MainTask::Runnable(r) = task {
+        shadow_remove(r);
+    }
     Some(task)
 }
 
@@ -227,6 +287,9 @@ pub fn recv_blocking() -> MainTask {
     let task = decode(word);
     if task == MainTask::LvglTick {
         TICK_IN_QUEUE.0.set(false);
+    }
+    if let MainTask::Runnable(r) = task {
+        shadow_remove(r);
     }
     task
 }
@@ -246,6 +309,33 @@ mod tests {
         while try_recv().is_some() {}
         TICK_IN_QUEUE.0.set(false);
         guard
+    }
+
+    #[test]
+    fn queued_runnables_are_visited_as_gc_roots() {
+        // A lambda whose only reference is the queued word must stay a root
+        // from post to drain (bugbash F2).
+        let _guard = acquire();
+        init();
+        let collect = || {
+            let mut v = alloc::vec::Vec::new();
+            visit_pending_runnable_roots(&mut |r| v.push(r));
+            v
+        };
+        assert!(collect().is_empty());
+        assert!(enqueue_runnable(7));
+        assert!(enqueue_tick());
+        assert!(enqueue_runnable(9));
+        assert_eq!(collect(), alloc::vec![7, 9]);
+        // Draining a tick leaves both; draining a runnable drops just it.
+        while let Some(t) = try_recv() {
+            if t == MainTask::Runnable(7) {
+                break;
+            }
+        }
+        assert_eq!(collect(), alloc::vec![9]);
+        init();
+        assert!(collect().is_empty());
     }
 
     #[test]
