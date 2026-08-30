@@ -789,3 +789,45 @@ fn native_throw_in_ctor_then_reconstruct() {
     );
     assert_eq!(result, Ok(Some(Value::Int(42))));
 }
+
+/// Unbounded Java recursion must surface as a catchable `StackOverflowError`.
+///
+/// Before the frame-depth cap the frame stack was unbounded, so runaway
+/// recursion exhausted the *heap* instead and reported a bare allocation
+/// failure — after poisoning every other allocation on the way down.
+#[test]
+fn frame_depth_cap_throws_stack_overflow_error() {
+    use super::asm::{Asm, Method};
+    let mut a = Asm::new();
+    let this = a.class("R");
+    let obj = a.class("java/lang/Object");
+    let me = a.methodref(0x0A, this, "m", "()I");
+    let code = [
+        0xB8,
+        (me >> 8) as u8,
+        me as u8, // invokestatic R.m()I — forever
+        0xAC,     // ireturn
+    ];
+    let cls = a.finish_methods(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[Method {
+            access: 0x0009,
+            name: "m",
+            desc: "()I",
+            max_stack: 1,
+            max_locals: 1,
+            code: &code,
+            exc: &[],
+        }],
+    );
+
+    match run_multi(&[cls], 0, &[]) {
+        Err(JvmError::UncaughtException {
+            exception_class, ..
+        }) => assert_eq!(exception_class, "java/lang/StackOverflowError"),
+        other => panic!("expected StackOverflowError from the depth cap, got {other:?}"),
+    }
+}

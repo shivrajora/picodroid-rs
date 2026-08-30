@@ -40,6 +40,7 @@ impl StrCtx {
             strings: &mut self.strings,
             objects: &mut self.objects,
             arrays: &mut self.arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/lang/String", method, &mut ctx)
@@ -71,6 +72,7 @@ fn dispatch_math(
         strings: &mut strings,
         objects: &mut objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/lang/Math", method, &mut ctx)
@@ -608,6 +610,7 @@ impl SbCtx {
             strings: &mut self.strings,
             objects: &mut self.objects,
             arrays: &mut self.arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/lang/StringBuilder", method, &mut ctx)
@@ -776,6 +779,7 @@ fn dispatch_boxed(
         strings: &mut strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch(class, method, &mut ctx)
@@ -917,6 +921,7 @@ fn dispatch_boxed_to_string(
         strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch(class, "toString", &mut ctx)
@@ -1084,6 +1089,7 @@ fn dispatch_list(
         strings: &mut strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/util/ArrayList", method, &mut ctx)
@@ -1257,6 +1263,7 @@ fn dispatch_map(
         strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/util/HashMap", method, &mut ctx)
@@ -1278,6 +1285,7 @@ fn dispatch_set(
         strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/util/HashSet", method, &mut ctx)
@@ -2002,6 +2010,7 @@ fn dispatch_iter(
         strings: &mut strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/util/Iterator", method, &mut ctx)
@@ -2025,6 +2034,7 @@ fn iterator_arraylist_empty() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/ArrayList", "iterator", &mut ctx)
@@ -2078,6 +2088,7 @@ fn iterator_arraylist_basic() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/ArrayList", "iterator", &mut ctx)
@@ -2132,6 +2143,7 @@ fn iterator_arraylist_single() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/ArrayList", "iterator", &mut ctx)
@@ -2170,6 +2182,7 @@ fn iterator_next_past_end() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/ArrayList", "iterator", &mut ctx)
@@ -2226,6 +2239,7 @@ fn iterator_hashmap_keys() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/HashMap$KeySet", "iterator", &mut ctx)
@@ -2292,6 +2306,7 @@ fn hashmap_key_and_value_views_answer_contains() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch(class, "contains", &mut ctx)
@@ -2361,6 +2376,7 @@ fn iterator_hashmap_values() {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/HashMap$Values", "iterator", &mut ctx)
@@ -2402,6 +2418,7 @@ fn dispatch_enum(
         strings,
         objects,
         arrays: &mut arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/lang/Enum", method, &mut ctx)
@@ -3211,6 +3228,7 @@ impl RngCtx {
             strings: &mut strings,
             objects: &mut objects,
             arrays: &mut arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/Random", "<init>", &mut ctx)
@@ -3234,6 +3252,7 @@ impl RngCtx {
             strings: &mut self.strings,
             objects: &mut self.objects,
             arrays: &mut self.arrays,
+            upcall: None,
         };
         BuiltinHandler
             .dispatch("java/util/Random", method, &mut ctx)
@@ -3408,6 +3427,7 @@ fn arrays_dispatch(
         strings,
         objects,
         arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch("java/util/Arrays", method, &mut ctx)
@@ -3912,6 +3932,7 @@ fn dispatch_on(
         strings: &mut cx.strings,
         objects: &mut cx.objects,
         arrays: &mut cx.arrays,
+        upcall: None,
     };
     BuiltinHandler
         .dispatch(class, method, &mut ctx)

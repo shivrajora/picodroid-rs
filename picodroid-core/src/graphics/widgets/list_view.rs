@@ -41,3 +41,72 @@ pub fn list_view_register_item_click_listener(
     lvgl_list_view::register_item_click_listener(id, obj_ref);
     Ok(None)
 }
+
+/// Bind an `Adapter` by *pulling* its rows from native, instead of having Java
+/// loop and push one `addItem` per row.
+///
+/// This is the embedder-side proof of the native→Java upcall. It resolves
+/// three different descriptor shapes — `()I`, `(I)Ljava/lang/Object;` and
+/// `()Ljava/lang/String;` — against the *runtime* class of app-authored
+/// bytecode, and the `toString` case falls through to the String builtin
+/// because `java/lang/String` has no class file.
+///
+/// Takes the handler rather than the graphics backend on purpose:
+/// [`NativeMethodHandler::invoke_java`] needs the arm to lend back the very
+/// `&mut H` it already holds, so the nested executor reborrows one handler
+/// instead of acquiring a second. The graphics sub-dispatchers only ever
+/// receive `&mut LvglBackend`, which is why this arm lives beside the other
+/// `self`-taking arms in `native_handler/mod.rs` rather than with its
+/// siblings in `graphics/`.
+///
+/// The caller (`ListView.refreshFromAdapter`) has already emptied the list and
+/// holds the `ListView` as `this` in its own frame, so the receiver stays
+/// GC-rooted for the whole loop even though a collection can fire inside any
+/// of these upcalls. `add_item` re-validates the generational handle on every
+/// call, so even a stale one degrades to a no-op rather than a dangle.
+pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
+    handler: &mut H,
+    ctx: &mut pico_jvm::native::NativeContext<'_>,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(ctx.args, ctx.objects)?;
+    let adapter = ctx.args.get(1).copied().unwrap_or(Value::Null);
+    if matches!(adapter, Value::Null) {
+        return Ok(None);
+    }
+
+    let count = match handler.invoke_java(ctx, adapter, "getCount", "()I", &[])? {
+        Some(Value::Int(n)) => n,
+        _ => return Err(JvmError::InvalidReference),
+    };
+
+    for i in 0..count {
+        let item = handler
+            .invoke_java(
+                ctx,
+                adapter,
+                "getItem",
+                "(I)Ljava/lang/Object;",
+                &[Value::Int(i)],
+            )?
+            .unwrap_or(Value::Null);
+        // Mirrors `item == null ? "" : item.toString()`. A `Reference` is
+        // already a String, and `String.toString()` returns `this`, so the
+        // upcall is skipped for the common `ArrayAdapter<String>` case.
+        let text = match item {
+            Value::Null => None,
+            Value::Reference(idx) => Some(idx),
+            _ => match handler.invoke_java(ctx, item, "toString", "()Ljava/lang/String;", &[])? {
+                Some(Value::Reference(idx)) => Some(idx),
+                _ => None,
+            },
+        };
+        // Resolved after every upcall has returned: a `&str` borrowed from
+        // `ctx.strings` must not be held across one, and the borrow checker
+        // enforces that here.
+        match text.and_then(|idx| ctx.strings.resolve(idx)) {
+            Some(s) => lvgl_list_view::add_item(id, s),
+            None => lvgl_list_view::add_item(id, ""),
+        }
+    }
+    Ok(None)
+}

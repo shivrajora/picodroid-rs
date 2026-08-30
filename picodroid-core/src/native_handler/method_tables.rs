@@ -496,6 +496,11 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/LinearLayout", "setSpacing", "(I)V"),
     // picodroid/widget/ListView
     ("picodroid/widget/ListView", "addItem", "(Ljava/lang/String;)V"),
+    (
+        "picodroid/widget/ListView",
+        "nativeBindAdapter",
+        "(Lpicodroid/widget/Adapter;)V",
+    ),
     ("picodroid/widget/ListView", "nativeCreate", "()I"),
     ("picodroid/widget/ListView", "nativeRegisterItemClickListener", "()V"),
     // picodroid/widget/NumberPicker

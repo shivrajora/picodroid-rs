@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use super::{helpers, Executor};
+use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
@@ -9,25 +9,34 @@ use crate::{
 use alloc::vec::Vec;
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
+    /// Takes the whole frame stack rather than the current frame: native
+    /// dispatch below can re-enter the interpreter (a synchronous native→Java
+    /// upcall), which needs to push and pop frames. The current frame is
+    /// re-derived at each use and never held across a call that might push.
     pub(super) fn op_invoke(
         &mut self,
         opcode: u8,
         code: &[u8],
-        frame: &mut Frame,
+        frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
         // invokedynamic (0xBA) has a completely different format — handle separately.
         if opcode == 0xba {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
             return self.op_invokedynamic(code, frame);
         }
 
-        let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
-        frame.pc += 2;
-        // invokeinterface has 2 extra bytes: count (arg count hint) and a reserved 0 byte
-        if opcode == 0xb9 {
+        let (cp_idx, class_idx) = {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+            let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
             frame.pc += 2;
-        }
+            // invokeinterface has 2 extra bytes: count (arg count hint) and a reserved 0 byte
+            if opcode == 0xb9 {
+                frame.pc += 2;
+            }
+            (cp_idx, frame.class_idx)
+        };
 
-        let cf = &self.classes[frame.class_idx];
+        let cf = &self.classes[class_idx];
         let (class_bytes, name_bytes, desc_bytes) =
             cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
         let class_str = core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
@@ -36,6 +45,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // invokestatic triggers class initialization.
         if opcode == 0xb8 && self.ensure_class_initialized(class_bytes)? {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
             frame.pc = frame.inst_pc;
             return Ok(());
         }
@@ -59,6 +69,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // names the array class as the owner.
         let is_virtual = opcode == 0xb6 || opcode == 0xb9;
         let dispatch_class = if is_virtual {
+            let frame = frames.last().ok_or(JvmError::InvalidBytecode)?;
             let stack_len = frame.stack.len();
             if stack_len >= arg_count {
                 match frame.stack[stack_len - arg_count] {
@@ -80,17 +91,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // Lambda proxy intercept: if receiver is a lambda, dispatch to the
         // target method directly.
-        if is_virtual
-            && self.objects.has_lambdas()
-            && self.try_lambda_dispatch(frame, arg_count, desc_str)?
-        {
-            return Ok(());
+        if is_virtual && self.objects.has_lambdas() {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+            if self.try_lambda_dispatch(frame, arg_count, desc_str)? {
+                return Ok(());
+            }
         }
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
         // arbitrary object; run its `toString()` before the native arm sees it.
         if desc_str.starts_with("(Ljava/lang/Object;)")
-            && self.stringify_object_arg(class_str, name_str, desc_str, frame)?
+            && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
         {
             return Ok(());
         }
@@ -116,37 +127,28 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             )
         };
 
-        // Pop arguments from caller's stack into an inline buffer (avoids heap alloc).
-        let stack_len = frame.stack.len();
-        if stack_len < arg_count {
-            return Err(JvmError::StackUnderflow);
-        }
-        let start = stack_len - arg_count;
-
+        // Pop arguments from caller's stack into an inline buffer (avoids heap
+        // alloc). The buffer is a local, so it outlives the borrow of `frames`
+        // and stays valid across the dispatch below — which may re-enter the
+        // interpreter and push frames.
         const MAX_INLINE_ARGS: usize = 8;
         let mut inline_buf = [Value::Null; MAX_INLINE_ARGS];
-        let args: &[Value] = if arg_count <= MAX_INLINE_ARGS {
-            inline_buf[..arg_count].copy_from_slice(&frame.stack[start..]);
-            frame.stack.truncate(start);
-            &inline_buf[..arg_count]
-        } else {
-            let heap_buf: Vec<Value> = frame.stack[start..].to_vec();
-            frame.stack.truncate(start);
-            // SAFETY: heap_buf lives until end of this block; we return before drop.
-            // Use a Vec and pass slices from it below.
-            let native_class = if is_virtual {
-                dispatch_class
+        let heap_args: Option<Vec<Value>> = {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+            let stack_len = frame.stack.len();
+            if stack_len < arg_count {
+                return Err(JvmError::StackUnderflow);
+            }
+            let start = stack_len - arg_count;
+            if arg_count <= MAX_INLINE_ARGS {
+                inline_buf[..arg_count].copy_from_slice(&frame.stack[start..]);
+                frame.stack.truncate(start);
+                None
             } else {
-                class_str
-            };
-            return self.invoke_with_heap_args(
-                heap_buf,
-                resolved,
-                native_class,
-                name_str,
-                desc_str,
-                frame,
-            );
+                let heap_buf: Vec<Value> = frame.stack[start..].to_vec();
+                frame.stack.truncate(start);
+                Some(heap_buf)
+            }
         };
 
         let native_class = if is_virtual {
@@ -155,7 +157,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class_str
         };
 
-        self.finalize_invoke(args, resolved, native_class, name_str, desc_str, frame)
+        match heap_args {
+            Some(heap_buf) => self.invoke_with_heap_args(
+                heap_buf,
+                resolved,
+                native_class,
+                name_str,
+                desc_str,
+                frames,
+            ),
+            None => self.finalize_invoke(
+                &inline_buf[..arg_count],
+                resolved,
+                native_class,
+                name_str,
+                desc_str,
+                frames,
+            ),
+        }
     }
 
     /// The one `Object`-typed argument the builtins cannot format themselves:
@@ -174,7 +193,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         class_str: &str,
         name_str: &str,
         desc_str: &str,
-        frame: &mut Frame,
+        frames: &mut Vec<Frame>,
     ) -> Result<bool, JvmError> {
         let target = match (class_str, name_str) {
             ("java/lang/StringBuilder", "append") => {
@@ -186,7 +205,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if desc_str != target {
             return Ok(false);
         }
-        let Some(&arg) = frame.stack.last() else {
+        let Some(&arg) = frames.last().ok_or(JvmError::InvalidBytecode)?.stack.last() else {
             return Ok(false);
         };
         let class = match arg {
@@ -208,13 +227,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         ) {
             let m = &self.classes[ci].methods()[mi];
             if m.code_offset != 0 {
+                // Build the frame before mutating the caller's stack, so an
+                // allocation failure here leaves the frame untouched.
+                let new_frame = Frame::new(ci, mi, &[arg], m.max_locals, m.max_stack)?;
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 frame.stack.pop();
-                self.pending_frame = Some(Frame::new(ci, mi, &[arg], m.max_locals, m.max_stack)?);
                 frame.pc = frame.inst_pc;
+                self.pending_frame = Some(new_frame);
                 return Ok(true);
             }
         }
-        let s = self.dispatch_native(class, TO_STRING, TO_STRING_DESC, &[arg])?;
+        let s = self.dispatch_native(class, TO_STRING, TO_STRING_DESC, &[arg], frames)?;
+        let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
         if let (Some(slot), Some(s)) = (frame.stack.last_mut(), s) {
             *slot = s;
         }
@@ -246,87 +270,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] else {
             return Ok(false);
         };
-        let Some(lambda) = self.objects.get_lambda(obj_idx) else {
+        if self.objects.get_lambda(obj_idx).is_none() {
             return Ok(false);
-        };
-        let target_ci = lambda.target_class_idx;
-        let target_mi = lambda.target_method_idx;
-        let captures: Vec<Value> = lambda.captures.clone();
-
-        let tm = &self.classes[target_ci].methods()[target_mi];
-        if tm.code_offset == 0 {
-            return Err(JvmError::NoSuchMethod);
         }
-        // ACC_STATIC = 0x0008.
-        let body_is_static = tm.access_flags & 0x0008 != 0;
-        let impl_desc = self.classes[target_ci]
-            .cp_utf8(tm.descriptor_index)
-            .ok_or(JvmError::InvalidBytecode)?;
-        let (max_locals, max_stack) = (tm.max_locals, tm.max_stack);
 
         // Pop all args (including "this") and grab the interface-method args
         // after the lambda receiver itself.
         let start = stack_len - arg_count;
-        let mut method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
+        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
         frame.stack.truncate(start);
 
-        // Unbox every boxed argument whose body parameter is primitive. The
-        // captures occupy the body's leading parameters; step past them by
-        // hand (`Iterator::skip` monomorphises a 500 B `nth` on thumbv6m).
-        // A lambda capturing `this` compiles to an *instance* synthetic body
-        // (javac's `private void lambda$track$0(...)`): the captured receiver
-        // lands in local 0 and is *not* a descriptor parameter, so it steps
-        // past no kind. Skipping one per capture regardless shifted every
-        // remaining argument onto the wrong kind and unboxed a reference --
-        // picodroid.widget.RadioGroup's own `(CompoundButton, boolean)`
-        // listener read field 0 off the button and passed it as `buttonView`.
-        let mut body_kinds = helpers::ParamKinds::new(impl_desc);
-        let desc_captures = if body_is_static {
-            captures.len()
-        } else {
-            captures.len().saturating_sub(1)
+        let Some(new_frame) =
+            lambda_frame(self.objects, self.classes, obj_idx, &method_args, sam_desc)?
+        else {
+            return Ok(false);
         };
-        for _ in 0..desc_captures {
-            body_kinds.next();
-        }
-        for (arg, kind) in method_args.iter_mut().zip(body_kinds) {
-            if kind == b'L' {
-                continue;
-            }
-            match *arg {
-                Value::ObjectRef(idx) => {
-                    let raw = self
-                        .objects
-                        .get_field(idx, 0)
-                        .ok_or(JvmError::InvalidReference)?;
-                    *arg = widen(raw, kind);
-                }
-                Value::Null => {
-                    let npe = self
-                        .objects
-                        .alloc("java/lang/NullPointerException")
-                        .ok_or(JvmError::StackOverflow)?;
-                    return Err(JvmError::Exception(npe));
-                }
-                _ => {}
-            }
-        }
-        let body_ret = helpers::return_kind(impl_desc);
-        let box_return = if body_ret != b'L'
-            && body_ret != b'V'
-            && helpers::return_kind(sam_desc.as_bytes()) == b'L'
-        {
-            body_ret
-        } else {
-            0
-        };
-
-        // Build actual args: captures first, then interface method args.
-        let mut actual_args = captures;
-        actual_args.extend_from_slice(&method_args);
-
-        let mut new_frame = Frame::new(target_ci, target_mi, &actual_args, max_locals, max_stack)?;
-        new_frame.box_return = box_return;
         self.pending_frame = Some(new_frame);
         Ok(true)
     }
@@ -341,7 +299,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         native_class: &str,
         name_str: &str,
         desc_str: &str,
-        frame: &mut Frame,
+        frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
         let push_native_result =
             |frame: &mut Frame, result: Option<Value>| -> Result<(), JvmError> {
@@ -377,7 +335,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
         match resolved {
             Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
-                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                let result =
+                    self.dispatch_native(native_class, name_str, desc_str, args, frames)?;
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
                 }
@@ -392,7 +352,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             None => {
                 // Not found in loaded classes — try native dispatch.
-                let result = self.dispatch_native(native_class, name_str, desc_str, args)?;
+                let result =
+                    self.dispatch_native(native_class, name_str, desc_str, args, frames)?;
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
                 }
@@ -411,9 +373,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         native_class: &str,
         name_str: &str,
         desc_str: &str,
-        frame: &mut Frame,
+        frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
-        self.finalize_invoke(&args, resolved, native_class, name_str, desc_str, frame)
+        self.finalize_invoke(&args, resolved, native_class, name_str, desc_str, frames)
     }
 
     /// Handle `invokedynamic` (0xBA) for lambda expressions.
@@ -537,6 +499,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         method_name: &str,
         descriptor: &str,
         args: &[Value],
+        // Carried so the pre-dispatch seam below can re-enter the interpreter.
+        frames: &mut Vec<Frame>,
     ) -> Result<Option<Value>, JvmError> {
         // `Object.getClass()` resolves here rather than in a handler: it needs
         // the class-object cache (not part of NativeContext) so that
@@ -558,6 +522,31 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .map(Some);
             }
         }
+        // `ArrayList.sort(Comparator)` resolves here rather than in a handler
+        // arm, for two reasons. `java/util/ArrayList` is classfile-less, so
+        // unlike `Collections.sort` there is no Java body this could live in;
+        // and a handler arm receives only a `NativeContext`, which carries no
+        // way back into the interpreter. Here the whole `Executor` — the real
+        // handler included — is still in hand, and `ctx` has not been built
+        // yet, so nothing is borrowed across the upcall.
+        if method_name == "sort"
+            && class_name == "java/util/ArrayList"
+            && descriptor == "(Ljava/util/Comparator;)V"
+        {
+            self.sort_list_with_comparator(frames, args)?;
+            return Ok(None);
+        }
+        // Everything the arm might need to re-enter the interpreter, minus
+        // the handler — which it already holds as its own `&mut self` and
+        // lends back through `invoke_java`. These are disjoint fields of
+        // `self`, so `self.handler` stays separately borrowable below.
+        let mut env = crate::native::UpcallEnv {
+            statics: self.statics,
+            gc_state: self.gc_state,
+            class_objects: self.class_objects,
+            frames,
+            upcall_depth: self.upcall_depth,
+        };
         let mut ctx = NativeContext {
             descriptor,
             args,
@@ -565,6 +554,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             objects: self.objects,
             arrays: self.arrays,
             classes: self.classes,
+            upcall: Some(&mut env),
         };
         // Try the exact class first.
         if let Some(result) = self
@@ -606,6 +596,227 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         Err(JvmError::NoSuchMethod)
     }
 
+    /// Synchronously invoke a Java method from inside a native context and
+    /// return its value — the sole native→Java upcall primitive.
+    ///
+    /// `args` excludes `recv`. The receiver and arguments are GC-rooted for
+    /// the duration; **any other `Value` the caller holds across this call
+    /// must be shadow-rooted too, or re-read from the heap afterwards** —
+    /// the callee runs arbitrary Java, which allocates, which collects.
+    ///
+    /// Two further obligations on callers, both consequences of the callee
+    /// being able to throw:
+    /// - An arm holding side state (a slot-table entry, a half-mutated
+    ///   buffer) must not `?` straight out of this call — an `Err` skips
+    ///   whatever cleanup follows it.
+    /// - This must never be called from inside an
+    ///   [`crate::atomic_section`] guard. Those suspend the scheduler and
+    ///   must not block; arbitrary Java can do both.
+    pub(super) fn invoke_java(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        recv: Value,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
+        if self.upcall_depth >= MAX_UPCALL_DEPTH {
+            let e = self.stack_overflow_error()?;
+            return Err(JvmError::Exception(e));
+        }
+        // Root the receiver and arguments. `op_invoke` popped them off the
+        // operand stack before dispatching here, so until this returns they
+        // exist only in the caller's Rust locals.
+        let mark = self
+            .gc_state
+            .push_shadow_roots(core::slice::from_ref(&recv));
+        self.gc_state.push_shadow_roots(args);
+        let result = self.invoke_java_inner(frames, recv, method_name, descriptor, args);
+        self.gc_state.truncate_shadow_roots(mark);
+        result
+    }
+
+    fn invoke_java_inner(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        recv: Value,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
+        // Lambda proxies first. A proxy's nominal class is the functional
+        // interface, whose SAM has no bytecode, so any name-based lookup
+        // resolves to an empty method and silently does nothing — the exact
+        // failure that forced the deferred main-queue path to route
+        // `Runnable.run` through an `Executors.dispatchRunnable` bytecode
+        // bridge. Running inside the Executor, this can consult the proxy
+        // directly and needs no bridge.
+        let new_frame = match recv {
+            Value::ObjectRef(obj_idx) => {
+                match lambda_frame(self.objects, self.classes, obj_idx, args, descriptor)? {
+                    Some(f) => Some(f),
+                    None => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
+                }
+            }
+            _ => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
+        };
+
+        let Some(new_frame) = new_frame else {
+            // No bytecode body — fall through to native dispatch, which is
+            // what an ordinary invoke of this method would have done.
+            let class = self.runtime_class_of(recv)?;
+            let mut all: Vec<Value> = Vec::with_capacity(args.len() + 1);
+            all.push(recv);
+            all.extend_from_slice(args);
+            return self.dispatch_native(class, method_name, descriptor, &all, frames);
+        };
+
+        let base = frames.len();
+        if base >= MAX_FRAME_DEPTH {
+            let e = self.stack_overflow_error()?;
+            return Err(JvmError::Exception(e));
+        }
+        frames.push(new_frame);
+        self.upcall_depth += 1;
+        let r = self.run(frames, base);
+        self.upcall_depth -= 1;
+        if r.is_err() {
+            // A caught exception was already unwound to `base` by
+            // `handle_exception`'s floor; a hard error (uncaught, interrupted,
+            // allocation failure) was not. Restore the caller's frame stack
+            // exactly either way.
+            frames.truncate(base);
+        }
+        r
+    }
+
+    /// Resolve `method_name`/`descriptor` against the receiver's *runtime*
+    /// class, per JVMS §5.4.3.3. `Ok(None)` when there is no bytecode body
+    /// (unresolved, or a native method).
+    fn resolve_upcall_frame(
+        &mut self,
+        recv: Value,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Frame>, JvmError> {
+        let class = self.runtime_class_of(recv)?;
+        let Some((ci, mi)) = helpers::find_method_walking_cached(
+            &mut self.method_cache,
+            self.classes,
+            class,
+            method_name,
+            descriptor,
+        ) else {
+            return Ok(None);
+        };
+        let m = &self.classes[ci].methods()[mi];
+        if m.code_offset == 0 {
+            return Ok(None);
+        }
+        let mut all: Vec<Value> = Vec::with_capacity(args.len() + 1);
+        all.push(recv);
+        all.extend_from_slice(args);
+        Ok(Some(Frame::new(ci, mi, &all, m.max_locals, m.max_stack)?))
+    }
+
+    /// Sort a builtin `ArrayList` under a Java `Comparator`, one
+    /// [`Self::invoke_java`] upcall per comparison.
+    fn sort_list_with_comparator(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        args: &[Value],
+    ) -> Result<(), JvmError> {
+        let recv = args.first().copied().unwrap_or(Value::Null);
+        let Value::ObjectRef(obj_idx) = recv else {
+            return Err(JvmError::InvalidReference);
+        };
+        let cmp = args.get(1).copied().unwrap_or(Value::Null);
+        if matches!(cmp, Value::Null) {
+            // The JDK reads a null comparator as "natural ordering". That
+            // needs a Comparable.compareTo upcall of its own; until then
+            // reject it rather than silently leaving the list unsorted.
+            let npe = self
+                .objects
+                .alloc("java/lang/NullPointerException")
+                .ok_or(JvmError::StackOverflow)?;
+            return Err(JvmError::Exception(npe));
+        }
+        let Some(Value::Int(buf)) = self.objects.get_field(obj_idx, 0) else {
+            return Err(JvmError::InvalidReference);
+        };
+        // The list and the comparator are reachable only from this function's
+        // Rust locals for the whole sort — `op_invoke` popped them off the
+        // operand stack before dispatching here. Without rooting them, a
+        // collection triggered by the comparator would sweep the list and
+        // `list_free` the backing buffer out from under the loop.
+        let mark = self.gc_state.push_shadow_roots(&[recv, cmp]);
+        let r = self.insertion_sort(frames, buf as u16, cmp);
+        self.gc_state.truncate_shadow_roots(mark);
+        r
+    }
+
+    /// Insertion sort, deliberately, rather than the merge sort
+    /// `Arrays.sort(Object[], Comparator)` uses: no auxiliary buffer means no
+    /// second heap object to root, and the list is in a valid partially-sorted
+    /// state between every comparison — so an exception escaping the
+    /// comparator leaves a well-formed list rather than a half-merged one.
+    /// O(n²) is fine at the list sizes an embedded screen holds; revisit if a
+    /// caller ever sorts more than a screenful.
+    fn insertion_sort(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        buf_idx: u16,
+        cmp: Value,
+    ) -> Result<(), JvmError> {
+        const COMPARE: &str = "compare";
+        const COMPARE_DESC: &str = "(Ljava/lang/Object;Ljava/lang/Object;)I";
+        let len = self.objects.list_len(buf_idx);
+        for i in 1..len {
+            let mut j = i;
+            while j > 0 {
+                let (Some(prev), Some(cur)) = (
+                    self.objects.list_get(buf_idx, j - 1),
+                    self.objects.list_get(buf_idx, j),
+                ) else {
+                    return Err(JvmError::InvalidReference);
+                };
+                let ord = self.invoke_java(frames, cmp, COMPARE, COMPARE_DESC, &[prev, cur])?;
+                let Some(Value::Int(ord)) = ord else {
+                    return Err(JvmError::InvalidReference);
+                };
+                if ord <= 0 {
+                    break;
+                }
+                // Re-read across the upcall rather than reusing `prev`/`cur`:
+                // the comparator ran arbitrary Java, which may have collected
+                // (compacting the store) or mutated the list itself. A shrunk
+                // list surfaces as `None` here rather than a bad write.
+                let (Some(prev), Some(cur)) = (
+                    self.objects.list_get(buf_idx, j - 1),
+                    self.objects.list_get(buf_idx, j),
+                ) else {
+                    return Err(JvmError::InvalidReference);
+                };
+                self.objects.list_set(buf_idx, j - 1, cur);
+                self.objects.list_set(buf_idx, j, prev);
+                j -= 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn runtime_class_of(&self, recv: Value) -> Result<&'static str, JvmError> {
+        match recv {
+            Value::ObjectRef(idx) => self
+                .objects
+                .class_name(idx)
+                .ok_or(JvmError::InvalidReference),
+            Value::Reference(_) => Ok("java/lang/String"),
+            _ => Err(JvmError::InvalidReference),
+        }
+    }
+
     pub(super) fn op_new(&mut self, code: &[u8], frame: &mut Frame) -> Result<(), JvmError> {
         let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
         frame.pc += 2;
@@ -639,6 +850,105 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame.push(Value::ObjectRef(obj_idx))?;
         Ok(())
     }
+}
+
+/// Build the frame a lambda proxy's SAM invocation targets, applying
+/// `LambdaMetafactory`'s boxing adaptation. `args` are the interface-method
+/// arguments, *excluding* the proxy receiver itself. Returns `Ok(None)` when
+/// `obj_idx` is not a lambda proxy.
+///
+/// Stack-independent by construction — it reads no operand stack and pushes
+/// no frame — so both `op_invoke`'s stack-marshalling path and the
+/// native→Java upcall primitive can share it.
+///
+/// The adaptation: kotlinc keeps a lambda body primitive (`(I)I`) behind the
+/// erased SAM (`Function1.invoke(Object)Object`) and leaves unboxing the
+/// arguments and boxing the return to the metafactory — javac boxes inside
+/// the body, so Java apps never hit this. Captured values are passed as-is
+/// (their types already match the body's leading parameters).
+fn lambda_frame(
+    objects: &mut crate::object_heap::ObjectHeap,
+    classes: &[crate::class_file::ClassFile],
+    obj_idx: u16,
+    args: &[Value],
+    sam_desc: &str,
+) -> Result<Option<Frame>, JvmError> {
+    let Some(lambda) = objects.get_lambda(obj_idx) else {
+        return Ok(None);
+    };
+    let target_ci = lambda.target_class_idx;
+    let target_mi = lambda.target_method_idx;
+    let captures: Vec<Value> = lambda.captures.clone();
+
+    let tm = &classes[target_ci].methods()[target_mi];
+    if tm.code_offset == 0 {
+        return Err(JvmError::NoSuchMethod);
+    }
+    // ACC_STATIC = 0x0008.
+    let body_is_static = tm.access_flags & 0x0008 != 0;
+    let impl_desc = classes[target_ci]
+        .cp_utf8(tm.descriptor_index)
+        .ok_or(JvmError::InvalidBytecode)?;
+    let (max_locals, max_stack) = (tm.max_locals, tm.max_stack);
+
+    let mut method_args: Vec<Value> = args.to_vec();
+
+    // Unbox every boxed argument whose body parameter is primitive. The
+    // captures occupy the body's leading parameters; step past them by
+    // hand (`Iterator::skip` monomorphises a 500 B `nth` on thumbv6m).
+    // A lambda capturing `this` compiles to an *instance* synthetic body
+    // (javac's `private void lambda$track$0(...)`): the captured receiver
+    // lands in local 0 and is *not* a descriptor parameter, so it steps
+    // past no kind. Skipping one per capture regardless shifted every
+    // remaining argument onto the wrong kind and unboxed a reference --
+    // picodroid.widget.RadioGroup's own `(CompoundButton, boolean)`
+    // listener read field 0 off the button and passed it as `buttonView`.
+    let mut body_kinds = helpers::ParamKinds::new(impl_desc);
+    let desc_captures = if body_is_static {
+        captures.len()
+    } else {
+        captures.len().saturating_sub(1)
+    };
+    for _ in 0..desc_captures {
+        body_kinds.next();
+    }
+    for (arg, kind) in method_args.iter_mut().zip(body_kinds) {
+        if kind == b'L' {
+            continue;
+        }
+        match *arg {
+            Value::ObjectRef(idx) => {
+                let raw = objects
+                    .get_field(idx, 0)
+                    .ok_or(JvmError::InvalidReference)?;
+                *arg = widen(raw, kind);
+            }
+            Value::Null => {
+                let npe = objects
+                    .alloc("java/lang/NullPointerException")
+                    .ok_or(JvmError::StackOverflow)?;
+                return Err(JvmError::Exception(npe));
+            }
+            _ => {}
+        }
+    }
+    let body_ret = helpers::return_kind(impl_desc);
+    let box_return = if body_ret != b'L'
+        && body_ret != b'V'
+        && helpers::return_kind(sam_desc.as_bytes()) == b'L'
+    {
+        body_ret
+    } else {
+        0
+    };
+
+    // Build actual args: captures first, then interface method args.
+    let mut actual_args = captures;
+    actual_args.extend_from_slice(&method_args);
+
+    let mut new_frame = Frame::new(target_ci, target_mi, &actual_args, max_locals, max_stack)?;
+    new_frame.box_return = box_return;
+    Ok(Some(new_frame))
 }
 
 /// Widen an unboxed value to the body's parameter kind (an `Integer` passed

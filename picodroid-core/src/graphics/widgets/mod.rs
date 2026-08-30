@@ -85,8 +85,8 @@ pub use linear_layout::{
 };
 pub use list_view::{drain_item_click_queue, lookup_item_click};
 pub use list_view::{
-    list_view_add_item, list_view_native_create, list_view_register_item_click_listener,
-    reset_list_view_state,
+    list_view_add_item, list_view_bind_adapter, list_view_native_create,
+    list_view_register_item_click_listener, reset_list_view_state,
 };
 pub use number_picker::{drain_np_step_queue, lookup_picker_obj};
 pub use number_picker::{

@@ -40,13 +40,14 @@ public class ListView extends AdapterView<Adapter> {
   @Override
   protected void refreshFromAdapter() {
     removeAllViews();
-    if (adapter == null) {
-      return;
-    }
-    int n = adapter.getCount();
-    for (int i = 0; i < n; i++) {
-      Object item = adapter.getItem(i);
-      addItem(item == null ? "" : item.toString());
-    }
+    nativeBindAdapter(adapter);
   }
+
+  /**
+   * Pulls every row from {@code adapter} in one native call, calling {@code getCount()}, {@code
+   * getItem(int)} and {@code toString()} back into Java as it goes. Replaces the old Java-side loop
+   * that made one {@link #addItem} call per row. A null adapter is a no-op; the caller has already
+   * cleared the list.
+   */
+  private native void nativeBindAdapter(Adapter adapter);
 }

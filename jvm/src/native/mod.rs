@@ -4,6 +4,7 @@ use crate::{
     class_file::ClassFile,
     heap::StringTable,
     object_heap::ObjectHeap,
+    static_fields::StaticFieldStore,
     types::{JvmError, MonitorKey, Value},
 };
 
@@ -493,6 +494,37 @@ pub struct NativeContext<'a> {
     /// past the current call, since a `&str` from [`StringTable::resolve`] may
     /// point into the GC-managed dynamic-string region.
     pub classes: &'a [ClassFile],
+    /// The rest of the interpreter state, present whenever this call came from
+    /// running bytecode. [`NativeMethodHandler::invoke_java`] needs it; nothing
+    /// else does, and its contents are deliberately crate-private.
+    ///
+    /// `None` when a handler is driven outside the interpreter (unit tests,
+    /// direct dispatch), which is why `invoke_java` can fail rather than
+    /// assuming it is there.
+    pub upcall: Option<&'a mut UpcallEnv<'a>>,
+}
+
+/// The interpreter state a synchronous native→Java upcall needs — everything
+/// in `Executor` *except* the handler.
+///
+/// The omission is the whole design. While `dispatch` runs, the arm holds
+/// `&mut H` exclusively; the nested executor gets its handler by reborrowing
+/// that same `&mut H` (the arm lends itself via `self.invoke_java(..)`), and
+/// takes everything else from here. Carrying the handler in this struct
+/// instead would hand the nested executor a *second* `&mut H` — the aliasing
+/// bug that sank the original "park a `*mut Executor` in a static cell"
+/// sketch.
+///
+/// Fields are crate-private: arms pass the whole `NativeContext` back to
+/// [`NativeMethodHandler::invoke_java`] and never reach in here themselves.
+pub struct UpcallEnv<'a> {
+    pub(crate) statics: &'a mut StaticFieldStore,
+    pub(crate) gc_state: &'a mut crate::gc::GcState,
+    pub(crate) class_objects: &'a mut crate::class_objects::ClassObjectCache,
+    pub(crate) frames: &'a mut alloc::vec::Vec<crate::frame::Frame>,
+    /// Upcall nesting already on this Rust stack, so the nested executor
+    /// continues the count instead of restarting it.
+    pub(crate) upcall_depth: u8,
 }
 
 impl NativeContext<'_> {
@@ -580,6 +612,42 @@ pub trait NativeMethodHandler {
     /// cooperative exit for use cases like hot-swap app deployment.
     ///
     /// Default implementation always returns `false` (never interrupted).
+    /// Synchronously call a Java method from inside a native arm and return
+    /// its value — the embedder-facing half of the native→Java upcall.
+    ///
+    /// `args` excludes `recv`. Both are GC-rooted for the duration; **any
+    /// other `Value` the arm holds across this call must be re-read from the
+    /// heap afterwards**, because the callee runs arbitrary Java, which
+    /// allocates, which collects.
+    ///
+    /// Taking `&mut self` *and* `&mut NativeContext` is load-bearing, not
+    /// stylistic: it makes the borrow checker reject an arm that holds a
+    /// `ctx.objects`-derived reference across the call, which would otherwise
+    /// dangle when the callee mutates the heap.
+    ///
+    /// Two obligations this cannot check for you:
+    /// - An arm holding side state (a slot-table entry, a half-mutated
+    ///   buffer) must not `?` straight out of this call — an `Err` skips
+    ///   whatever cleanup follows it.
+    /// - Never call it from inside an [`crate::atomic_section`] guard. Those
+    ///   suspend the scheduler and must not block; arbitrary Java can do both.
+    ///
+    /// Fails with [`JvmError::NoSuchMethod`] if this handler was driven from
+    /// outside the interpreter (`ctx.upcall` is `None`).
+    fn invoke_java(
+        &mut self,
+        ctx: &mut NativeContext<'_>,
+        recv: Value,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError>
+    where
+        Self: Sized,
+    {
+        crate::interpreter::upcall_from_native(self, ctx, recv, method_name, descriptor, args)
+    }
+
     fn interrupted(&self) -> bool {
         false
     }

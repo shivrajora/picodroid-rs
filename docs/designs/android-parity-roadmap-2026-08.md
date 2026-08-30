@@ -29,12 +29,21 @@ Three structural findings dominate everything below.
    `.class` size in flash everywhere, used or not. One mid-sized class does
    not fit. JVM *builtins* (native-backed `java.*` classes with no `.class`
    file) are far cheaper and shared across boards.
-3. **Natives cannot call back into Java synchronously.** `NativeContext`
-   holds no interpreter handle, so `Collections.sort(list, comparator)`,
-   forEach-with-lambda, `Iterator.remove`, custom `Interpolator`s,
-   `Adapter.getView`, and `ViewGroup.getChildAt` are all blocked on the same
-   missing mechanism. Callbacks reach Java only through the lifecycle loop's
-   append-only `dispatch_sites.rs` table.
+3. ~~**Natives cannot call back into Java synchronously.**~~ **Fixed
+   2026-08-29** — see § E2. `NativeContext` now carries an `upcall` env and
+   `NativeMethodHandler::invoke_java` re-enters the interpreter, for builtin
+   and embedder arms alike. Deferred callbacks still reach Java through the
+   lifecycle loop's append-only `dispatch_sites.rs` table, which remains the
+   right mechanism whenever the native side can return before the Java runs.
+
+   Three of the items this list originally blamed on the upcall were
+   miscategorised, and are *not* fixed by it: `Collections.sort(list,
+   comparator)` already worked in pure bytecode; custom `Interpolator`s and
+   `Iterator.remove` need deferred-callback plumbing and native iterator
+   state respectively; and **`ViewGroup.getChildAt` needs an
+   `lv_obj_t* → ObjectRef` reverse map**, not an upcall — there is no
+   Java-side child list to ask, since `addView` is native and the child set
+   lives in LVGL. It is correctly gated on T3.2(B) below.
 
 **Flash cost classes** used throughout:
 **G** = Gradle/host only (0 device bytes) ·
@@ -93,16 +102,87 @@ references a class excluded on its target board, instead of letting it
 surface at runtime. Worth building before any board actually excludes
 something.
 
-### E2. Native → Java synchronous upcall — not started
+### E2. Native → Java synchronous upcall — **session 1 DONE 2026-08-29**
 
-A standalone milestone (1–2 weeks) with exactly one proof consumer:
-`Collections.sort(List, Comparator)`. The sketch (op_invoke refactor +
-`Executor::invoke_inline` + an `Upcaller` trait) is recorded in project
-memory. Touches `jvm/src/interpreter/`, `jvm/src/native/mod.rs`,
-`picodroid-core/src/native_handler/mod.rs`. Risk is high: reentrancy, and GC
-roots that must survive across the upcall boundary
-(`gc_root_registration.rs`). Everything in Tier 1 deliberately avoids
-needing it.
+`Executor::invoke_java` re-enters the interpreter from native code and
+returns the callee's value. Proof consumer: `ArrayList.sort(Comparator)`.
+Cost +4,860 B rp2040 / +5,692 B rp2350 (mechanism 1,756 B, sort 3,104 B);
+ratchet baseline raised.
+
+**Three corrections to this section as originally written:**
+
+1. **The stated proof consumer was already working.**
+   `Collections.sort(List, Comparator)` runs today in pure bytecode —
+   `sdk/java/java/util/Collections.java:33-46` delegates to
+   `sdk/java/java/util/Arrays.java:116-139`, a Java merge sort calling
+   `c.compare`. The comment at `Arrays.java:65-69` says it is written in
+   Java *precisely because* native could not upcall. It proved nothing.
+   `ArrayList.sort` was used instead: `java/util/ArrayList` is
+   classfile-less, so there is no Java body it could live in — blocked
+   structurally rather than by convention — and it exercises both hard
+   paths, a value-returning upcall and lambda-proxy resolution.
+
+2. **Custom `Interpolator` does not need E2.** `animations::tick` is a
+   `Display` hook called from `graphics/lvgl/mod.rs:94`, *outside*
+   `execute()`, where `invoke_instance_with_args_returning` already works.
+   What blocks it is the tick site not holding the heap and handler, plus
+   the abstract-method no-op that needed the `Runnable` bridge — the
+   deferred-callback problem, not this one. Same for `Iterator.remove`,
+   whose state is native (`object_heap::iter_store`).
+
+3. **The recorded sketch — parking `*mut Executor` in a static cell — is
+   unsound and was rejected.** While `H::dispatch` runs, `&mut H` is held
+   exclusively by the arm; a parked executor's `dispatch_native` calling
+   `self.handler.dispatch(...)` aliases it. The static cell hides that
+   rather than avoiding it. `handler: Option<&'a mut H>` + `take()` *is*
+   sound but sound by amputation: during the upcall the trait defaults
+   apply, so `gc_visit_roots` stops visiting the embedder's 32 root
+   providers and a GC mid-upcall sweeps live Views, while `interrupted()`
+   and `monitor_enter/exit` silently no-op. What shipped instead is a
+   reborrow chain — `dispatch_native` → `H::dispatch(&mut self)` →
+   `self.invoke_java(...)` → nested `Executor { handler: self }` — which
+   needs zero `unsafe` and keeps roots, monitors and nested native dispatch
+   working.
+
+Also landed, both independently useful: `MAX_FRAME_DEPTH` (the Java frame
+stack was unbounded, so runaway recursion exhausted the heap instead of
+throwing a catchable `StackOverflowError`) and a `floor` on
+`handle_exception`, without which an exception in an upcall would unwind
+past the native arm into its caller's frames.
+
+**Session 2 — DONE 2026-08-29.** `NativeContext` gained an `upcall` field
+carrying `UpcallEnv` (the executor state minus the handler), and
+`NativeMethodHandler::invoke_java` is a provided method, so embedder arms in
+`picodroid-core` can upcall too. Cost +1,040 B rp2040 / +100 B rp2350 —
+the mechanism itself is only 236 B of that.
+
+Proof consumer: **`ListView.nativeBindAdapter`**. Java's
+`refreshFromAdapter` used to loop and push one `addItem` per row; native now
+*pulls*, calling `getCount()`, `getItem(int)` and `toString()` back into
+app-authored bytecode. That covers three descriptor shapes, virtual dispatch
+against the runtime class, and the no-bytecode-body fallthrough into the
+String builtin. Verified end-to-end in the sim on picoenvmon, whose home
+menu is an `ArrayAdapter<String>`: keypad nav selects row 1 and opens
+`History`, so the rows are real, ordered and selectable.
+
+Two design points worth keeping:
+
+- **`UpcallEnv` deliberately excludes the handler.** The arm already holds
+  `&mut H` and lends it back through `invoke_java`; carrying a handler here
+  would hand the nested executor a second one.
+- **The arm must live where `&mut self` is the handler.** The graphics
+  sub-dispatchers only receive `&mut LvglBackend`, so `nativeBindAdapter`
+  sits with the other `self`-taking arms in `native_handler/mod.rs`
+  alongside `app_services::dispatch`, not with its ListView siblings.
+
+The mass "NativeEnv" accessor refactor is **not** needed and was rejected:
+`&mut self` on `invoke_java` already makes the borrow checker reject an arm
+that holds a `ctx.objects`-derived reference across the call (verified —
+it is an `E0499`), because direct field use is already a partial borrow of
+`ctx`.
+
+**Still open:** T3.4 `Adapter.getView` + convertView recycling, which is the
+row-*views* half of what session 2 built the row-*data* half of.
 
 ### E3. Compile-time API contract — not started
 
@@ -201,7 +281,8 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
 - **T2.4 — line-number stack traces.** Parse `LineNumberTable`; the project's
   own "biggest debugging quality-of-life win remaining". Schedule early: it
   multiplies the velocity of everything after it.
-- **T2.5 — the upcall enabler (E2).**
+- **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
+  embedder arms can upcall; T3.4 is unblocked.
 - **T2.6 — JSON.** `picodroid.json.JSONObject`/`JSONArray`/`JSONException`
   with exact `org.json` signatures. Native handle-backed parse tree with
   strings materialized on `get`, so no native code holds `ObjectRef`s. Three
@@ -244,8 +325,10 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   `BufferedReader.readLine()`. The biggest "code from the internet just
   works" enabler. (The typed-exceptions design excluded socket streams from
   *its own* scope, not permanently.)
-- **T3.4 — `Adapter.getView` + convertView recycling** (needs E2), pooled to
-  the ~12-row cap. Deliberately instead of `RecyclerView`.
+- **T3.4 — `Adapter.getView` + convertView recycling** (E2 done; unblocked),
+  pooled to the ~12-row cap. Deliberately instead of `RecyclerView`.
+  `ListView.nativeBindAdapter` already pulls `getCount`/`getItem` from
+  native, so this adds the per-row *View* and the recycling pool.
 - **T3.5 — `Canvas`/`onDraw`** — optional, RP2350-only, last. LVGL's canvas
   buffer is W×H×2 (112.5 KB at 240×240): impossible on RP2040, tight on
   RP2350. Needs E2. Only on concrete app demand.

@@ -99,6 +99,22 @@ pub struct GcState {
     /// mid-`execute` leaks its entry — acceptable: panics are fatal on
     /// target.
     parked_frames: Vec<*const Vec<Frame>>,
+    /// `Value`s reachable only from Rust locals across a synchronous
+    /// native→Java upcall.
+    ///
+    /// `op_invoke` pops a call's arguments off the operand stack *before*
+    /// dispatching to native code, so for the duration of a native call the
+    /// receiver and arguments live only in an inline `[Value; 8]` buffer — in
+    /// no frame, no field, and no static. That was harmless while native code
+    /// could not run Java: nothing could collect. An upcall can, so those
+    /// values need a root of their own.
+    ///
+    /// Stack-disciplined: [`Self::push_shadow_roots`] returns a mark and
+    /// [`Self::truncate_shadow_roots`] restores it. Stored by copy rather than
+    /// by pointer (unlike `parked_frames`): `Value` is `Copy` and ≤8 bytes, so
+    /// copying the handful an upcall holds is cheaper than the raw-pointer
+    /// discipline and needs no `unsafe`.
+    shadow_roots: Vec<Value>,
     /// Allocations since the last GC, persistent across `execute()` calls so
     /// long native-driven callback bursts (e.g. sensor delivery) still trip
     /// the GC threshold instead of resetting to 0 on every fresh `Executor`.
@@ -147,6 +163,7 @@ impl GcState {
             work: Vec::new(),
             arena_compact_buf: Vec::new(),
             parked_frames: Vec::new(),
+            shadow_roots: Vec::new(),
             alloc_count: 0,
             need_gc: false,
             #[cfg(feature = "mem-diag")]
@@ -177,6 +194,20 @@ impl GcState {
         if let Some(i) = self.parked_frames.iter().rposition(|&p| p == frames) {
             self.parked_frames.remove(i);
         }
+    }
+
+    /// Root `values` for the duration of a native→Java upcall, returning the
+    /// mark to hand back to [`Self::truncate_shadow_roots`]. See the
+    /// `shadow_roots` field docs for why this is needed.
+    pub(crate) fn push_shadow_roots(&mut self, values: &[Value]) -> usize {
+        let mark = self.shadow_roots.len();
+        self.shadow_roots.extend_from_slice(values);
+        mark
+    }
+
+    /// Drop shadow roots pushed since `mark`.
+    pub(crate) fn truncate_shadow_roots(&mut self, mark: usize) {
+        self.shadow_roots.truncate(mark);
     }
 
     /// Record a completed GC cycle: the post-sweep live_bytes floor (mem-diag
@@ -308,6 +339,12 @@ pub fn collect(
                 push_ref(work, v);
             }
         }
+    }
+
+    // Values held only by a native arm across a synchronous upcall — see the
+    // `shadow_roots` field docs. Empty unless an upcall is on this stack.
+    for v in &gc.shadow_roots {
+        push_ref(work, v);
     }
 
     // Static fields
