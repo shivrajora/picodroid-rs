@@ -50,6 +50,8 @@ dependencies {
     // The @Inject twin: kapt-generated factories/injectors plus the Kotlin DI
     // shapes (lateinit fields, object modules) get Direction A/C coverage.
     shimFixtures(project(mapOf("path" to ":examples:injectdemo_kt", "configuration" to "picodroidAppClasses")))
+    // The Session 7 proof app: a real Activity/Service/net app's kotlinc output.
+    shimFixtures(project(mapOf("path" to ":examples:picoenvmon_kt", "configuration" to "picodroidAppClasses")))
 }
 
 val contractCheck by tasks.registering(picodroid.ShimContractTask::class) {

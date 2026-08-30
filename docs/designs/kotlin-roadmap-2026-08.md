@@ -6,7 +6,7 @@
 
 Written against the tree at `21e41a6` (file:line references are from that commit). A Compose-like declarative UI layer is **deferred** — see `docs/quality-roadmap.md` § Framework direction; Jetpack Compose proper is ruled out in `docs/designs/android-parity-roadmap-2026-08.md` § Not doing.
 
-## Status (2026-08-28)
+## Status (2026-08-30)
 
 | # | Session | Status | RP2040 flash gate |
 |---|---------|--------|-------------------|
@@ -16,7 +16,7 @@ Written against the tree at `21e41a6` (file:line references are from that commit
 | 4 | Interpreter II: interface default methods, `append(Object)` trampoline, `entrySet`, LinkedHash* aliases | **DONE 2026-08-28** | **yes** |
 | 5 | Shim tier 0 + contract test + JDK allowlist scan + `examples/langsuite_kt` (core demos) | **DONE 2026-08-28** | no → **yes** (AMENDMENT 12) |
 | 6 | Shim tiers 1–2 + full `langsuite_kt` + gates (pre-commit, HIL, CI) | **DONE 2026-08-28** (HIL: `pico_enviro_mon_w` ✓, `testbench_rp2040` untested) | no → **yes** (AMENDMENT 13, +660 B) |
-| 7 | Proof app `examples/picoenvmon_kt` + memory deltas | NOT STARTED | no |
+| 7 | Proof app `examples/picoenvmon_kt` + memory deltas | **DONE 2026-08-30** (7a kapt + 7b port; device sysmon pending) | no |
 | 8 | Hardening, soak, docs closure | NOT STARTED | no |
 
 ## Why now, and the numbers the design is built against
@@ -148,6 +148,8 @@ Verify: `:kotlin-shim:check`; `sim-run.sh --app langsuite_kt` both modes; `sim-r
 - CI `sim-smoke` app list gains `picoenvmon_kt`; the enviro-board smoke lane mirrors picoenvmon's.
 
 Verify: sim run with the same log milestones as `picoenvmon`; heap-pressure soak (`scripts/test-heap.sh` equivalent) clean; mem-diag sentinel silent for 30 min on sim; device boot + web dashboard + 1 h soak on `pico_enviro_mon_w`; numbers within budget; pre-commit.
+
+**Result (2026-08-30):** landed in two commits on `kotlin-session7-kapt` — 7a (kapt, AMENDMENT 14) and 7b, the port. `examples/picoenvmon_kt` is the 21-file twin with the `@Inject`/`@Singleton`/`@Module`/`@Provides` graph intact (kapt), packages `picoenvmonkt.*`, tags `PicoEnvMonKt`/`SensorLoggerKt`/`RgbLedKt`, prefs file `picoenvmonkt`, the same Activity/Service simple names (the soak scripts key on them). **Numbers** (inventory § 10, same protocol for both apps): PAPK 79,095 / 72,908 B vs 75,170 / 68,896 B (+5 %); 45 vs 35 PAPK classes, 12 generated DI classes on each side; parsed after a nav cycle 88 / `devB~` 66,776 B vs 84 / 64,311 B (**+2.5 KB, +3.8 %**), boot metadata 113 B *smaller*; live floor +556 B; `nmin` 69,088 vs 66,864 B (noise, Kotlin ahead); the idle serve signature is identical (`alloc=+2 stri=+1`/s); no LEAK?/GC-PRESSURE/OOM at 416 KB; at the `-l 360` serve gate both apps trip the native-floor sentinel exactly once during boot warm-up (+6.7 KB, then flat) and the Kotlin twin ends with *more* headroom (`nmin` 49,696 vs 44,328 B). The 60 KB parsed-metadata budget is met relative to the Java app, which itself grew to 64 KB when its 12 DI classes landed after the 41 KB figure was taken. **Idioms that had to be avoided** (each verified by contractCheck or javap): `toByteArray()` and `String(bytes, off, len)` inline to the `Charset` overloads (`Formatter.ascii()` = `(s as java.lang.String).bytes` → `getBytes()[B`, plus a `StringBuilder.append(Char)` loop for the one 404 log line); `trim()` (`StringsKt`), `IntArray.indexOf` (`ArraysKt`), `companion object` (a parsed class each), `java.lang.Thread` (Kotlin's default import — `picodroid.concurrent.Thread` must be imported), `Service.START_STICKY` qualified. Top-level functions with `@file:JvmName` replace the four static-utility classes (no `INSTANCE`, no `<clinit>`); `var x … private set` replaces the Java accessors. Shim survivors after the strip: `Intrinsics`, `UninitializedPropertyAccessException`, `StringCompanionObject` — no new shim member and no new allowlist row was needed. **Gates:** `sim-run.sh`'s two enviro functions are parametrised by app/lane/tag (the Java lane names stay byte-identical) and dispatch for `--app picoenvmon_kt` (`picoenvmon_kt-enviro`, `picoenvmon_kt-enviro-w`, both with the dashboard curl); `bench-backfill.py` `BOARD_BY_APP` rows; CI `sim-smoke` list; fourth `shimFixtures` input. No `hil-tests.conf` row, mirroring the Java app; pre-commit unchanged (the compile + kapt + contract lanes already cover it). **Not done here:** device `pdb.sh sysmon` min-ever-free and the 1 h soak — the probe and the main checkout were held by another session; command: `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_EXTRA_FEATURES=mem-diag ./scripts/flash.sh --board pico_enviro_mon_w --app picoenvmon_kt --release` then `./scripts/pdb.sh sysmon` and `scripts/soak/soak-nav.sh`. Website/README rows stay with Session 8.
 
 ### Session 8 — Hardening, soak, docs closure
 
