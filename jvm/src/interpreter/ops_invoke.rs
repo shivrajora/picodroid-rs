@@ -105,6 +105,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         {
             return Ok(());
         }
+        // Same for the objects inside `String.format`'s varargs array
+        // (bugbash S4) — done here, on this executor, so no second
+        // interpreter is monomorphised for the builtin handler.
+        if class_str == "java/lang/String" && name_str == "format" {
+            self.stringify_format_args(desc_str, frames)?;
+        }
 
         // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
         // invokevirtual / invokeinterface start from the receiver's runtime class,
@@ -243,6 +249,70 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             *slot = s;
         }
         Ok(false)
+    }
+
+    /// Replace each plain object inside `String.format`'s `Object[]` with
+    /// its `toString()` before the native arm runs (bugbash S4): the
+    /// builtins format primitives, strings and boxes themselves, but a
+    /// user object's override can only run here, where the real handler
+    /// drives [`Self::invoke_java`]. Elements are replaced in the varargs
+    /// array itself — javac builds a fresh temporary per call site, so the
+    /// mutation is unobservable for compiled Java; a hand-reused Object[]
+    /// would see its object elements become Strings (documented
+    /// divergence, avoids rooting a copy across the upcalls).
+    fn stringify_format_args(
+        &mut self,
+        desc_str: &str,
+        frames: &mut Vec<Frame>,
+    ) -> Result<(), JvmError> {
+        if desc_str != "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;" {
+            return Ok(());
+        }
+        let Some(&Value::ArrayRef(arr)) =
+            frames.last().ok_or(JvmError::InvalidBytecode)?.stack.last()
+        else {
+            return Ok(());
+        };
+        let len = self.arrays.length(arr).unwrap_or(0) as usize;
+        for i in 0..len {
+            let Some(raw) = self.arrays.load(arr, i) else {
+                continue;
+            };
+            let Value::ObjectRef(obj) = crate::array_heap::decode_ref(raw) else {
+                continue;
+            };
+            // Boxed numerics must reach the native intact: %d/%x/%f consume
+            // the box, not a string.
+            if matches!(
+                self.objects.class_name(obj),
+                Some(
+                    "java/lang/Integer"
+                        | "java/lang/Long"
+                        | "java/lang/Float"
+                        | "java/lang/Double"
+                        | "java/lang/Boolean"
+                        | "java/lang/Character"
+                        | "java/lang/Short"
+                        | "java/lang/Byte"
+                )
+            ) {
+                continue;
+            }
+            // The array is rooted through the operand stack; the returned
+            // Reference is stored straight back into it.
+            if let Some(s @ Value::Reference(_)) = self.invoke_java(
+                frames,
+                Value::ObjectRef(obj),
+                "toString",
+                "()Ljava/lang/String;",
+                &[],
+            )? {
+                if let Some(enc) = crate::array_heap::encode_ref(s) {
+                    let _ = self.arrays.store(arr, i, enc);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy,

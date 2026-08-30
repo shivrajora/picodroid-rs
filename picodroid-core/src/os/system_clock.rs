@@ -16,15 +16,38 @@ use crate::hal::system_clock as platform;
 /// porting guide saying so. Shared code asking `stop_requested()` is the same
 /// question asked once.
 pub fn sleep(args: &[Value]) -> Result<Option<Value>, JvmError> {
-    let ms = match args.first() {
-        Some(Value::Int(n)) => *n as u32,
-        _ => return Err(JvmError::InvalidReference),
+    let Some(Value::Int(n)) = args.first() else {
+        return Err(JvmError::InvalidReference);
+    };
+    let Some(ms) = sleep_millis(*n) else {
+        return Ok(None);
     };
     if crate::host::stop_requested() {
         return Ok(None);
     }
     platform::sleep(ms);
     Ok(None)
+}
+
+/// The platform sleep to issue for `SystemClock.sleep(ms)`, or `None` for a
+/// sleep that must return immediately. Android returns at once for a zero or
+/// negative argument; a plain `as u32` turned `sleep(-1)` into 49.7 days.
+fn sleep_millis(ms: i32) -> Option<u32> {
+    u32::try_from(ms).ok().filter(|&ms| ms > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sleep_millis;
+
+    #[test]
+    fn negative_and_zero_sleeps_return_immediately() {
+        assert_eq!(sleep_millis(-1), None);
+        assert_eq!(sleep_millis(i32::MIN), None);
+        assert_eq!(sleep_millis(0), None);
+        assert_eq!(sleep_millis(5), Some(5));
+        assert_eq!(sleep_millis(i32::MAX), Some(i32::MAX as u32));
+    }
 }
 
 pub fn elapsed_realtime_nanos() -> Result<Option<Value>, JvmError> {

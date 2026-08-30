@@ -176,6 +176,8 @@ pub(crate) fn dispatch_view(
                     source,
                     position: 0,
                     owner: recv,
+                    expected_len: ctx.objects.map_len(buf_idx),
+                    last_returned: None,
                 },
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))

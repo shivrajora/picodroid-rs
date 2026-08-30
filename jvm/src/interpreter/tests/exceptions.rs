@@ -277,12 +277,17 @@ static CLASS_ATHROW_NULL: &[u8] = &[
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
-/// athrow on a null reference → Err(InvalidReference).
+/// athrow on a null reference throws NullPointerException (JVMS; bugbash J4).
 ///
 /// Tests the `Value::Null` branch in op_athrow.
 #[test]
-fn athrow_null_becomes_error() {
-    assert_eq!(run(CLASS_ATHROW_NULL), Err(JvmError::InvalidReference));
+fn athrow_null_becomes_npe() {
+    match run(CLASS_ATHROW_NULL).unwrap_err() {
+        JvmError::UncaughtException {
+            exception_class, ..
+        } => assert_eq!(exception_class, "java/lang/NullPointerException"),
+        other => panic!("expected NullPointerException, got {other:?}"),
+    }
 }
 
 /// Throw an Exc with no matching exception table entry → propagates as Err.
@@ -829,5 +834,134 @@ fn frame_depth_cap_throws_stack_overflow_error() {
             exception_class, ..
         }) => assert_eq!(exception_class, "java/lang/StackOverflowError"),
         other => panic!("expected StackOverflowError from the depth cap, got {other:?}"),
+    }
+}
+
+// ── bugbash J4/J5: runtime faults must be catchable Java exceptions ───────
+
+mod runtime_faults {
+    use super::super::asm::Asm;
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    /// `body` then `iconst_1 ireturn`; when `catch` is set a handler covering
+    /// the body pops the exception and returns 7 — the `cast_class` shape.
+    fn faulting_class(body: &[u8], catch: Option<&str>) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("T");
+        let obj = a.class("java/lang/Object");
+        let c = catch.map(|c| a.class(c));
+        let mut code = body.to_vec();
+        code.push(0x04); // iconst_1
+        code.push(0xAC); // ireturn
+        let handler = code.len() as u16;
+        code.push(0x57); // pop (the exception)
+        code.push(0x10); // bipush
+        code.push(0x07); //   7
+        code.push(0xAC); // ireturn
+        let exc: Vec<[u16; 4]> = c
+            .map(|c| vec![[0, handler, handler, c]])
+            .unwrap_or_default();
+        a.finish(0x0001, this, obj, &[], Some((4, &code, &exc)))
+    }
+
+    const DIV_BY_ZERO: &[u8] = &[0x04, 0x03, 0x6C, 0x57]; // iconst_1 iconst_0 idiv pop
+
+    #[test]
+    fn division_by_zero_throws_catchable_arithmetic_exception() {
+        for catch in [
+            "java/lang/ArithmeticException",
+            "java/lang/RuntimeException",
+        ] {
+            let r = run(faulting_class(DIV_BY_ZERO, Some(catch)));
+            assert_eq!(r.unwrap(), Some(Value::Int(7)), "catch {catch}");
+        }
+        // lrem 1 % 0: lconst_1 lconst_0 lrem pop2
+        let body = &[0x0A, 0x09, 0x71, 0x58];
+        let r = run(faulting_class(body, Some("java/lang/ArithmeticException")));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        match run(faulting_class(DIV_BY_ZERO, None)) {
+            Err(JvmError::UncaughtException {
+                exception_class, ..
+            }) => assert_eq!(exception_class, "java/lang/ArithmeticException"),
+            other => panic!("expected uncaught ArithmeticException, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_index_out_of_bounds_throws_catchable_exception() {
+        // iconst_2; newarray int; iconst_5; iaload; pop
+        let body = &[0x05, 0xBC, 0x0A, 0x08, 0x2E, 0x57];
+        for catch in [
+            "java/lang/ArrayIndexOutOfBoundsException",
+            "java/lang/IndexOutOfBoundsException",
+            "java/lang/RuntimeException",
+        ] {
+            let r = run(faulting_class(body, Some(catch)));
+            assert_eq!(r.unwrap(), Some(Value::Int(7)), "catch {catch}");
+        }
+        match run(faulting_class(body, None)) {
+            Err(JvmError::UncaughtException {
+                exception_class, ..
+            }) => assert_eq!(exception_class, "java/lang/ArrayIndexOutOfBoundsException"),
+            other => panic!("expected uncaught AIOOBE, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn athrow_null_and_null_array_throw_catchable_npe() {
+        let athrow_null = &[0x01, 0xBF]; // aconst_null athrow
+        let r = run(faulting_class(
+            athrow_null,
+            Some("java/lang/NullPointerException"),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        // aconst_null; iconst_0; iaload; pop — load through a null array.
+        let null_load = &[0x01, 0x03, 0x2E, 0x57];
+        let r = run(faulting_class(
+            null_load,
+            Some("java/lang/NullPointerException"),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        // arraylength on null.
+        let null_len = &[0x01, 0xBE, 0x57];
+        let r = run(faulting_class(
+            null_len,
+            Some("java/lang/NullPointerException"),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
+    #[test]
+    fn negative_array_size_throws_catchable_exception() {
+        let body = &[0x02, 0xBC, 0x0A, 0x57]; // iconst_m1 newarray int pop
+        let r = run(faulting_class(
+            body,
+            Some("java/lang/NegativeArraySizeException"),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
+    #[test]
+    fn oversized_array_throws_oom_instead_of_truncating() {
+        // sipush 7000; bipush 10; imul → 70000; newarray byte — used to
+        // silently truncate to 4464 elements.
+        let body = &[0x11, 0x1B, 0x58, 0x10, 0x0A, 0x68, 0xBC, 0x08, 0x57];
+        let r = run(faulting_class(body, Some("java/lang/OutOfMemoryError")));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
+    #[test]
+    fn unsatisfiable_long_array_terminates_with_oom() {
+        // sipush 20000; iconst_2; imul → 40000; newarray long — 80000 slots
+        // > u16::MAX used to livelock the GC-retry loop forever.
+        let body = &[0x11, 0x4E, 0x20, 0x05, 0x68, 0xBC, 0x0B, 0x57];
+        match run(faulting_class(body, None)) {
+            Err(JvmError::UncaughtException {
+                exception_class, ..
+            }) => assert_eq!(exception_class, "java/lang/OutOfMemoryError"),
+            other => panic!("expected uncaught OutOfMemoryError, got {other:?}"),
+        }
     }
 }

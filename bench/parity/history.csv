@@ -65880,3 +65880,13 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-08-30T04:00:02Z,b84ddb0,hil,testbench_rp2350,servicedemo,shrink,holdout,flash_seconds_x100,2955
 2026-08-30T04:00:02Z,b84ddb0,hil,testbench_rp2350,threaddemo,no-shrink,holdout,flash_seconds_x100,2954
 2026-08-30T04:00:02Z,b84ddb0,hil,testbench_rp2350,threaddemo,shrink,holdout,flash_seconds_x100,2943
+2026-08-30T13:51:08Z,a6bb5f1,hil,testbench_rp2350,bugbash,no-shrink,holdout,flash_seconds_x100,4064
+2026-08-30T13:51:08Z,a6bb5f1,hil,testbench_rp2350,bugbash,shrink,holdout,flash_seconds_x100,4051
+2026-08-30T13:54:48Z,9d57a27,hil,testbench_rp2350,bugbash_ui,no-shrink,holdout,flash_seconds_x100,4065
+2026-08-30T13:54:48Z,9d57a27,hil,testbench_rp2350,bugbash_ui,shrink,holdout,flash_seconds_x100,4041
+2026-08-30T13:58:29Z,fe53f20,hil,testbench_rp2350,executorstress,no-shrink,holdout,flash_seconds_x100,4038
+2026-08-30T13:58:29Z,fe53f20,hil,testbench_rp2350,executorstress,shrink,holdout,flash_seconds_x100,4023
+2026-08-30T14:02:17Z,72afd5f,hil,testbench_rp2350,threadstress,no-shrink,holdout,flash_seconds_x100,4036
+2026-08-30T14:02:17Z,72afd5f,hil,testbench_rp2350,threadstress,no-shrink,holdout,passed,1
+2026-08-30T14:02:17Z,72afd5f,hil,testbench_rp2350,threadstress,shrink,holdout,flash_seconds_x100,4024
+2026-08-30T14:02:17Z,72afd5f,hil,testbench_rp2350,threadstress,shrink,holdout,passed,1

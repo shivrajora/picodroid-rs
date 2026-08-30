@@ -84,8 +84,15 @@ fn file_rename_to(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError
 fn fis_read(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let this = as_obj(ctx.args.first())?;
     let arr_idx = as_array(ctx.args.get(1))?;
-    let off = as_int(ctx.args.get(2))? as usize;
-    let len = as_int(ctx.args.get(3))? as usize;
+    let (off, len) = checked_range(
+        ctx,
+        arr_idx,
+        as_int(ctx.args.get(2))?,
+        as_int(ctx.args.get(3))?,
+    )?;
+    if len == 0 {
+        return Ok(Some(Value::Int(0)));
+    }
 
     let path_ref = ctx
         .objects
@@ -142,8 +149,12 @@ fn fos_init_stream(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErro
 fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let this = as_obj(ctx.args.first())?;
     let arr_idx = as_array(ctx.args.get(1))?;
-    let off = as_int(ctx.args.get(2))? as usize;
-    let len = as_int(ctx.args.get(3))? as usize;
+    let (off, len) = checked_range(
+        ctx,
+        arr_idx,
+        as_int(ctx.args.get(2))?,
+        as_int(ctx.args.get(3))?,
+    )?;
 
     let path = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::fos::PATH)?;
     let pos = get_long_field(ctx.objects, this, fields::fos::POS);
@@ -157,6 +168,32 @@ fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
         .set_field(this, fields::fos::POS, Value::Long(pos + n as i64))
         .ok_or(JvmError::InvalidReference)?;
     Ok(None)
+}
+
+/// Validate a `(byte[], off, len)` triple the way `java.io` does: negative
+/// values or a window past the array end throw IndexOutOfBoundsException.
+/// Without this a negative `len` went through `as usize` straight into a
+/// `vec![0u8; len]` in the backend.
+fn checked_range(
+    ctx: &mut NativeContext<'_>,
+    arr_idx: u16,
+    off: i32,
+    len: i32,
+) -> Result<(usize, usize), JvmError> {
+    let arr_len = ctx
+        .arrays
+        .length(arr_idx)
+        .ok_or(JvmError::InvalidReference)? as usize;
+    let ok = off >= 0 && len >= 0 && (off as usize).saturating_add(len as usize) <= arr_len;
+    if !ok {
+        return Err(
+            match ctx.objects.alloc("java/lang/IndexOutOfBoundsException") {
+                Some(idx) => JvmError::Exception(idx),
+                None => JvmError::StackOverflow,
+            },
+        );
+    }
+    Ok((off as usize, len as usize))
 }
 
 // ── arg / field extraction ─────────────────────────────────────────────────
@@ -340,5 +377,132 @@ mod backend {
         }
         entry[start..start + data.len()].copy_from_slice(data);
         data.len() as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a FileInputStream/FileOutputStream object over `path` with the
+    /// in-memory backend holding `content`.
+    fn stream_over(
+        objects: &mut ObjectHeap,
+        strings: &mut StringTable,
+        class: &'static str,
+        path: &'static str,
+        content: &[u8],
+    ) -> u16 {
+        backend::truncate(path);
+        backend::write_at(path, 0, content);
+        let this = objects.alloc(class).unwrap();
+        let p = strings.intern(path.as_bytes()).unwrap();
+        objects.set_field(this, fields::fis::PATH, Value::Reference(p));
+        objects.set_field(this, fields::fis::POS, Value::Long(0));
+        this
+    }
+
+    fn call(
+        class: &str,
+        method: &str,
+        args: &[Value],
+        objects: &mut ObjectHeap,
+        strings: &mut StringTable,
+        arrays: &mut ArrayHeap,
+    ) -> Result<Option<Value>, JvmError> {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: "([BII)I",
+            args,
+            strings,
+            objects,
+            arrays,
+            upcall: None,
+        };
+        dispatch(class, method, &mut ctx).expect("io method handled")
+    }
+
+    #[test]
+    fn read_and_write_reject_bad_offsets_with_index_out_of_bounds() {
+        // A negative len went through `as usize` into `vec![0u8; len]` — a
+        // capacity-overflow panic on the host, an allocation failure on
+        // device. Android's InputStream.read throws IndexOutOfBoundsException.
+        let mut objects = ObjectHeap::new();
+        let mut strings = StringTable::new();
+        let mut arrays = ArrayHeap::new();
+        let fis = stream_over(
+            &mut objects,
+            &mut strings,
+            "picodroid/io/FileInputStream",
+            "/bugbash-f6-in",
+            b"hello",
+        );
+        let fos = stream_over(
+            &mut objects,
+            &mut strings,
+            "picodroid/io/FileOutputStream",
+            "/bugbash-f6-out",
+            b"",
+        );
+        let buf = arrays.alloc(ATYPE_BYTE, 4).unwrap();
+        for (class, this, m) in [
+            ("picodroid/io/FileInputStream", fis, "read"),
+            ("picodroid/io/FileOutputStream", fos, "write"),
+        ] {
+            for (off, len) in [(0, -1), (-1, 2), (3, 2), (0, 5), (i32::MAX, 1)] {
+                let r = call(
+                    class,
+                    m,
+                    &[
+                        Value::ObjectRef(this),
+                        Value::ArrayRef(buf),
+                        Value::Int(off),
+                        Value::Int(len),
+                    ],
+                    &mut objects,
+                    &mut strings,
+                    &mut arrays,
+                );
+                let Err(JvmError::Exception(idx)) = r else {
+                    panic!("{m}(off={off}, len={len}) = {r:?}");
+                };
+                assert_eq!(
+                    objects.class_name(idx),
+                    Some("java/lang/IndexOutOfBoundsException"),
+                    "{m}(off={off}, len={len})"
+                );
+            }
+        }
+        // A well-formed read still works: 4 bytes of "hello" into the buffer.
+        let r = call(
+            "picodroid/io/FileInputStream",
+            "read",
+            &[
+                Value::ObjectRef(fis),
+                Value::ArrayRef(buf),
+                Value::Int(0),
+                Value::Int(4),
+            ],
+            &mut objects,
+            &mut strings,
+            &mut arrays,
+        );
+        assert_eq!(r, Ok(Some(Value::Int(4))));
+        assert_eq!(arrays.load(buf, 0), Some(b'h' as i32));
+        // len == 0 reads nothing and returns 0 (InputStream contract).
+        let r = call(
+            "picodroid/io/FileInputStream",
+            "read",
+            &[
+                Value::ObjectRef(fis),
+                Value::ArrayRef(buf),
+                Value::Int(0),
+                Value::Int(0),
+            ],
+            &mut objects,
+            &mut strings,
+            &mut arrays,
+        );
+        assert_eq!(r, Ok(Some(Value::Int(0))));
     }
 }

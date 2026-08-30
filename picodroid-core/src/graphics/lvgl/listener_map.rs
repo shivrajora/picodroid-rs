@@ -87,6 +87,13 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
+    /// Visit every live `(ptr, obj_ref)` pair.
+    pub fn for_each(&self, f: &mut dyn FnMut(usize, u16)) {
+        for &(p, r) in &self.entries[..self.len] {
+            f(p, r);
+        }
+    }
+
     /// Visit every registered Java obj_ref as a GC root.
     pub fn visit(&self, visit: &mut dyn FnMut(u16)) {
         for &(_, r) in &self.entries[..self.len] {

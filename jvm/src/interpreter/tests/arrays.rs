@@ -199,19 +199,25 @@ fn caload_zero_extends() {
 }
 
 #[test]
-fn negative_array_size_returns_error() {
-    assert_eq!(
-        run(CLASS_NEGATIVE_ARRAY_SIZE).unwrap_err(),
-        JvmError::NegativeArraySize
-    );
+fn negative_array_size_throws_java_exception() {
+    // Since bugbash J4 these surface as catchable Java exceptions, not hard
+    // JvmErrors; uncaught they name their class.
+    match run(CLASS_NEGATIVE_ARRAY_SIZE).unwrap_err() {
+        JvmError::UncaughtException {
+            exception_class, ..
+        } => assert_eq!(exception_class, "java/lang/NegativeArraySizeException"),
+        other => panic!("expected NegativeArraySizeException, got {other:?}"),
+    }
 }
 
 #[test]
-fn iaload_out_of_bounds_returns_error() {
-    assert_eq!(
-        run(CLASS_IALOAD_OUT_OF_BOUNDS).unwrap_err(),
-        JvmError::ArrayIndexOutOfBounds
-    );
+fn iaload_out_of_bounds_throws_java_exception() {
+    match run(CLASS_IALOAD_OUT_OF_BOUNDS).unwrap_err() {
+        JvmError::UncaughtException {
+            exception_class, ..
+        } => assert_eq!(exception_class, "java/lang/ArrayIndexOutOfBoundsException"),
+        other => panic!("expected ArrayIndexOutOfBoundsException, got {other:?}"),
+    }
 }
 
 #[test]

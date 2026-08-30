@@ -43,6 +43,46 @@ unsafe impl Sync for WorkerBodyCell {}
 /// [`spawn`] does nothing.
 static WORKER_BODY: WorkerBodyCell = WorkerBodyCell(Cell::new(None));
 
+/// Shadow of every Runnable obj_ref in the pool queue — the GC-root mirror
+/// of the RTOS queue, same rationale and locking as
+/// `main_queue::PENDING_RUNNABLES` (bugbash F2).
+const SHADOW_CAP: usize = config::POOL_QUEUE_DEPTH as usize;
+struct ShadowCell(Cell<[u16; SHADOW_CAP]>, Cell<usize>);
+unsafe impl Sync for ShadowCell {}
+static PENDING_RUNNABLES: ShadowCell = ShadowCell(Cell::new([0; SHADOW_CAP]), Cell::new(0));
+
+fn shadow_push(r: u16) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    if len < SHADOW_CAP {
+        arr[len] = r;
+        PENDING_RUNNABLES.0.set(arr);
+        PENDING_RUNNABLES.1.set(len + 1);
+    }
+}
+
+fn shadow_remove(r: u16) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    if let Some(pos) = arr[..len].iter().position(|&x| x == r) {
+        arr.copy_within(pos + 1..len, pos);
+        arr[len - 1] = 0;
+        PENDING_RUNNABLES.0.set(arr);
+        PENDING_RUNNABLES.1.set(len - 1);
+    }
+}
+
+/// GC roots: every Runnable still queued for the pool.
+pub fn visit_pending_runnable_roots(visit: &mut dyn FnMut(u16)) {
+    let arr = PENDING_RUNNABLES.0.get();
+    let len = PENDING_RUNNABLES.1.get();
+    for &r in &arr[..len] {
+        visit(r);
+    }
+}
+
 fn queue() -> Option<RawQueue> {
     match QUEUE.load(Ordering::Acquire) {
         0 => None,
@@ -90,7 +130,11 @@ pub fn spawn() {
 /// should treat as "retry" rather than "exit".
 pub fn recv_work() -> Option<u16> {
     let q = queue()?;
-    rtos::queue_recv(q, Timeout::Forever).map(|word| (word & 0xFFFF) as u16)
+    let r = rtos::queue_recv(q, Timeout::Forever).map(|word| (word & 0xFFFF) as u16);
+    if let Some(r) = r {
+        shadow_remove(r);
+    }
+    r
 }
 
 /// Non-blocking submit. Returns `true` if the work was accepted, `false` if
@@ -101,7 +145,53 @@ pub fn recv_work() -> Option<u16> {
 /// contract that submitted work eventually executes.
 pub fn submit(obj_ref: u16) -> bool {
     match queue() {
-        Some(q) => rtos::queue_send(q, obj_ref as u32, Timeout::None),
+        Some(q) => {
+            let sent = rtos::queue_send(q, obj_ref as u32, Timeout::None);
+            if sent {
+                shadow_push(obj_ref);
+            }
+            sent
+        }
         None => super::main_queue::enqueue_runnable(obj_ref),
+    }
+}
+
+/// Discard every queued Runnable. Called on a PDB app reload next to the
+/// heap reset: the queue words are object indices into the *previous* app's
+/// heap, and a worker draining them against the new heap would dispatch
+/// `Executors.dispatchRunnable` on whatever now lives at that index.
+/// Returns the number dropped.
+pub fn drain() -> usize {
+    let Some(q) = queue() else {
+        return 0;
+    };
+    let mut n = 0;
+    while let Some(word) = rtos::queue_recv(q, Timeout::None) {
+        shadow_remove((word & 0xFFFF) as u16);
+        n += 1;
+    }
+    n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_discards_queued_runnables() {
+        // No queue yet: submit falls through to the main queue, drain is a no-op.
+        assert_eq!(drain(), 0);
+        let q = rtos::queue_create(4);
+        assert_ne!(q, 0);
+        QUEUE.store(q, Ordering::Release);
+        assert!(submit(7));
+        assert!(submit(8));
+        assert_eq!(drain(), 2);
+        assert_eq!(recv_nonblocking(), None);
+        QUEUE.store(0, Ordering::Release);
+    }
+
+    fn recv_nonblocking() -> Option<u32> {
+        rtos::queue_recv(queue().unwrap(), Timeout::None)
     }
 }

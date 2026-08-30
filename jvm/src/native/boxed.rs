@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::object_heap::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf};
+use crate::object_heap::{
+    double_to_str_buf, float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf,
+};
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
@@ -238,6 +240,9 @@ pub(crate) fn dispatch_double(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    if method_name == "toString" {
+        return Some(double_to_string(ctx));
+    }
     if method_name == "parseDouble" {
         return Some(parse_f64(ctx).map(|v| Some(Value::Double(v))));
     }
@@ -361,6 +366,19 @@ fn float_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErro
     };
     let mut buf = [0u8; 32];
     intern_string(ctx, float_to_str_buf(f, &mut buf))
+}
+
+fn double_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let d = match ctx.args.first().copied() {
+        Some(Value::Double(v)) => v,
+        Some(Value::ObjectRef(obj)) => match ctx.objects.get_field(obj, 0) {
+            Some(Value::Double(v)) => v,
+            _ => 0.0,
+        },
+        _ => 0.0,
+    };
+    let mut buf = [0u8; 32];
+    intern_string(ctx, double_to_str_buf(d, &mut buf))
 }
 
 fn character_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {

@@ -48,7 +48,11 @@ pub enum PendingActivityOp {
     },
     /// `Activity.finish()` — pop the current top off the stack. If the
     /// stack is left empty, [`run_activity`] returns and the app exits.
-    Pop,
+    /// `finishing` is the Activity that called `finish()`: the handler
+    /// refuses a second Pop for the same object while one is queued, so
+    /// `finish(); finish();` (Android's `mFinished` idempotence) pops one
+    /// Activity, not the caller *and* its parent.
+    Pop { finishing: u16 },
 }
 
 /// Pending Service transition signaled from Java to the framework loop. The
@@ -321,6 +325,14 @@ impl PendingOpQueue {
             .any(|op| matches!(op, PendingOp::Activity(_)))
     }
 
+    /// True if a Pop for `finishing` is already queued — `finish()` is
+    /// idempotent per Activity.
+    pub fn has_pending_pop_for(&self, finishing: u16) -> bool {
+        self.entries[..self.len].iter().flatten().any(|op| {
+            matches!(op, PendingOp::Activity(PendingActivityOp::Pop { finishing: f }) if *f == finishing)
+        })
+    }
+
     /// Take the oldest queued op. Returns `None` when empty.
     pub fn take_next(&mut self) -> Option<PendingOp> {
         if self.len == 0 {
@@ -346,7 +358,7 @@ impl PendingOpQueue {
                         visit(*r);
                     }
                 }
-                PendingOp::Activity(PendingActivityOp::Pop) => {}
+                PendingOp::Activity(PendingActivityOp::Pop { .. }) => {}
                 PendingOp::Service(svc) => match *svc {
                     PendingServiceOp::Start { intent_ref, .. } => {
                         visit(intent_ref);
@@ -386,6 +398,19 @@ mod tests {
     const C: &str = "com/test/ActC";
 
     // ── Activity stack ──────────────────────────────────────────────────────
+
+    #[test]
+    fn has_pending_pop_for_distinguishes_finishing_activities() {
+        // finish(); finish(); from one Activity must collapse to a single Pop,
+        // while two different Activities finishing both get theirs.
+        let mut q = PendingOpQueue::new();
+        assert!(!q.has_pending_pop_for(7));
+        assert!(q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 7 })));
+        assert!(q.has_pending_pop_for(7));
+        assert!(!q.has_pending_pop_for(8));
+        q.take_next();
+        assert!(!q.has_pending_pop_for(7));
+    }
 
     #[test]
     fn new_stack_is_empty() {
@@ -523,7 +548,7 @@ mod tests {
             request_code: None,
             caller_ref: 0,
         }));
-        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
+        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
         match q.take_next() {
             Some(PendingOp::Activity(PendingActivityOp::Push { class_name, .. })) => {
                 assert_eq!(class_name, A)
@@ -537,7 +562,7 @@ mod tests {
             other => panic!("expected second Push(B), got {:?}", other),
         }
         match q.take_next() {
-            Some(PendingOp::Activity(PendingActivityOp::Pop)) => {}
+            Some(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 })) => {}
             other => panic!("expected Pop, got {:?}", other),
         }
         assert!(q.take_next().is_none());
@@ -553,10 +578,10 @@ mod tests {
     fn pending_ops_full_queue_rejects_further() {
         let mut q = PendingOpQueue::new();
         for _ in 0..MAX_PENDING_OPS {
-            assert!(q.enqueue(PendingOp::Activity(PendingActivityOp::Pop)));
+            assert!(q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 })));
         }
         assert!(
-            !q.enqueue(PendingOp::Activity(PendingActivityOp::Pop)),
+            !q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 })),
             "enqueue past MAX_PENDING_OPS must return false"
         );
     }
@@ -574,7 +599,7 @@ mod tests {
             caller_ref: 0,
         }));
         q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: B }));
-        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
+        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
         assert!(matches!(
             q.take_next(),
             Some(PendingOp::Activity(PendingActivityOp::Push { .. }))
@@ -585,7 +610,7 @@ mod tests {
         ));
         assert!(matches!(
             q.take_next(),
-            Some(PendingOp::Activity(PendingActivityOp::Pop))
+            Some(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }))
         ));
     }
 
@@ -600,7 +625,7 @@ mod tests {
             request_code: None,
             caller_ref: 0,
         }));
-        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop));
+        q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
         q.visit_object_refs(&mut |r| visited.push(r));
         assert!(visited.is_empty(), "activity-only ops carry no heap refs");

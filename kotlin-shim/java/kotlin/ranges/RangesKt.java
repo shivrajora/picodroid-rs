@@ -78,4 +78,30 @@ public final class RangesKt {
   public static int coerceAtMost(int value, int max) {
     return value > max ? max : value;
   }
+
+  // The long/float/double widths previously resolved to nothing and died at
+  // runtime with NoSuchMethod (bugbash S10); coerceIn always had all four.
+  public static long coerceAtLeast(long value, long min) {
+    return value < min ? min : value;
+  }
+
+  public static long coerceAtMost(long value, long max) {
+    return value > max ? max : value;
+  }
+
+  public static float coerceAtLeast(float value, float min) {
+    return value < min ? min : value;
+  }
+
+  public static float coerceAtMost(float value, float max) {
+    return value > max ? max : value;
+  }
+
+  public static double coerceAtLeast(double value, double min) {
+    return value < min ? min : value;
+  }
+
+  public static double coerceAtMost(double value, double max) {
+    return value > max ? max : value;
+  }
 }

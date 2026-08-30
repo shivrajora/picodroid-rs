@@ -103,6 +103,18 @@ impl ObjectHeap {
     }
 
     /// Remove all entries from the map.
+    /// Remove the `i`-th entry in iteration order (Iterator.remove on a map
+    /// view). Returns false when out of range.
+    pub fn map_remove_at(&mut self, idx: u16, i: usize) -> bool {
+        if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
+            if i < buf.len() {
+                buf.remove(i);
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn map_clear(&mut self, idx: u16) {
         if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
             buf.clear();
@@ -129,13 +141,9 @@ fn map_values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable
             let fa = objects.get_field(ai, 0);
             fa.is_some() && fa == objects.get_field(bi, 0)
         }
-        (Value::Reference(ai), Value::Reference(bi)) if ai != bi => {
-            // String References may have different indices but same content
-            // due to StringTable interning behavior after dynamic strings exist.
-            let sa = strings.resolve(ai);
-            let sb = strings.resolve(bi);
-            sa.is_some() && sa == sb
-        }
+        // String References may have different indices but same content
+        // due to StringTable interning behavior after dynamic strings exist.
+        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
         _ => a == b,
     }
 }

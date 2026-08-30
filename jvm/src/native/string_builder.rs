@@ -85,7 +85,7 @@ pub(crate) fn dispatch(
                     ctx.objects.sb_append_float(buf, *f);
                 }
                 Some(Value::Double(d)) => {
-                    ctx.objects.sb_append_float(buf, *d as f32);
+                    ctx.objects.sb_append_double(buf, *d);
                 }
                 // append(Object) with null. A non-null object never reaches
                 // here: the interpreter stringifies it first (see
@@ -102,8 +102,16 @@ pub(crate) fn dispatch(
         }
         "charAt" => {
             if let Some(Value::Int(i)) = ctx.args.get(1) {
-                let ch = ctx.objects.sb_char_at(buf, *i as usize).unwrap_or(0);
-                Some(Ok(Some(Value::Int(ch as i32))))
+                match usize::try_from(*i)
+                    .ok()
+                    .and_then(|i| ctx.objects.sb_char_at(buf, i))
+                {
+                    Some(ch) => Some(Ok(Some(Value::Int(ch as i32)))),
+                    None => Some(Err(super::throw_named(
+                        ctx,
+                        "java/lang/StringIndexOutOfBoundsException",
+                    ))),
+                }
             } else {
                 Some(Err(JvmError::InvalidReference))
             }

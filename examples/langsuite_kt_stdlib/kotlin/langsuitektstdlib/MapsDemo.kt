@@ -176,6 +176,9 @@ object MapsDemo {
             },
         )
 
+        // S9: emptyMap() must not be a shared mutable singleton.
+        check("emptyMap not shared", emptyMap<String, Int>() !== emptyMap<String, Int>())
+
         Check.done(TAG)
     }
 }

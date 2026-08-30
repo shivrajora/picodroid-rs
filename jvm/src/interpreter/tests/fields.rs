@@ -202,3 +202,83 @@ fn alloc_without_defaults_still_leaves_slots_unset() {
     let idx = objects.alloc("F").unwrap();
     assert_eq!(objects.get_field(idx, 0), None);
 }
+
+// ── bugbash J12: shadowed fields resolve via the Fieldref's class ─────────
+
+#[test]
+fn shadowed_field_has_its_own_slot() {
+    use super::asm::{Asm, Method};
+
+    // class A { int x; }
+    let a_cls = {
+        let mut a = Asm::new();
+        let this = a.class("A");
+        let obj = a.class("java/lang/Object");
+        a.field("x", "I");
+        a.finish(0x0001, this, obj, &[], None)
+    };
+    // class B extends A { int x; }  with
+    //   static m(LB;)I:  b.x(A) = 1; b.x(B) = 2; return x(A)*10 + x(B);
+    let b_cls = {
+        let mut b = Asm::new();
+        let this = b.class("B");
+        let sup = b.class("A");
+        b.field("x", "I");
+        let fr_a = b.fieldref(sup, "x", "I");
+        let fr_b = b.fieldref(this, "x", "I");
+        let code = alloc::vec![
+            0x2A, // aload_0
+            0x04, // iconst_1
+            0xB5,
+            (fr_a >> 8) as u8,
+            fr_a as u8, // putfield A.x
+            0x2A,
+            0x05, // iconst_2
+            0xB5,
+            (fr_b >> 8) as u8,
+            fr_b as u8, // putfield B.x
+            0x2A,
+            0xB4,
+            (fr_a >> 8) as u8,
+            fr_a as u8, // getfield A.x
+            0x10,
+            0x0A, // bipush 10
+            0x68, // imul
+            0x2A,
+            0xB4,
+            (fr_b >> 8) as u8,
+            fr_b as u8, // getfield B.x
+            0x60,       // iadd
+            0xAC,       // ireturn
+        ];
+        b.finish_methods(
+            0x0001,
+            this,
+            sup,
+            &[],
+            &[Method {
+                access: 0x0008,
+                name: "m",
+                desc: "(LB;)I",
+                max_stack: 3,
+                max_locals: 1,
+                code: &code,
+                exc: &[],
+            }],
+        )
+    };
+    // The helper resolves distinct slots per declaring class...
+    let classes: Vec<ClassFile> = alloc::vec![
+        ClassFile::parse(a_cls).unwrap(),
+        ClassFile::parse(b_cls).unwrap(),
+    ];
+    let a_slot = helpers::field_slot_declared(&classes, "B", "A", "x").unwrap();
+    let b_slot = helpers::field_slot_declared(&classes, "B", "B", "x").unwrap();
+    assert_ne!(a_slot, b_slot, "shadowed field must not alias its super's");
+    // ...and end to end, writes through each Fieldref stay separate
+    // (aliasing returned 22: the second putfield clobbered A.x).
+    let mut heap = crate::object_heap::ObjectHeap::new();
+    let obj = heap.alloc_with_defaults("B", &classes).expect("alloc B");
+    let r = run_multi_with_heap(&[a_cls, b_cls], 1, &[Value::ObjectRef(obj)], heap);
+    assert_eq!(r.unwrap(), Some(Value::Int(12)));
+}

@@ -94,6 +94,16 @@ mod test_platform;
 #[cfg(test)]
 #[path = "native_handler/state.rs"]
 mod native_handler_state_tests;
+// java/io natives over the in-memory test backend (bounds checks — the
+// negative-length read panic, bugbash F6).
+#[cfg(test)]
+#[path = "native_handler/io.rs"]
+mod native_handler_io_tests;
+// SystemClock.sleep argument handling (bugbash F5); `os` is cfg(not(test))
+// for the same HAL reasons as native_handler.
+#[cfg(test)]
+#[path = "os/system_clock.rs"]
+mod os_system_clock_tests;
 // Native-class registry + its cross-check: every SDK class declaring a
 // `native` method must appear in the registry, or virtual dispatch fails at
 // runtime with NoSuchMethod.

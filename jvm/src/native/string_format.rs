@@ -83,7 +83,8 @@ fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
 /// loops).
 fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
     dst.clear();
-    match unbox(ctx, v) {
+    let unboxed = unbox(ctx, v);
+    match unboxed {
         Value::Null => dst.extend_from_slice(b"null"),
         Value::Reference(idx) => {
             dst.extend_from_slice(ctx.strings.resolve(idx).unwrap_or("null").as_bytes())
@@ -102,14 +103,23 @@ fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
         }
         Value::Double(d) => {
             let mut tmp = [0u8; 32];
-            dst.extend_from_slice(crate::object_heap::float_to_str_buf(d as f32, &mut tmp));
+            dst.extend_from_slice(crate::object_heap::double_to_str_buf(d, &mut tmp));
         }
         Value::ObjectRef(idx) => {
+            // Identity shape, matching Object.toString (dotted name @ 4-hex
+            // index). Objects with a toString() override never reach here
+            // when the interpreter is driving: op_invoke pre-stringifies
+            // format's Object[] elements (bugbash S4) — doing the upcall
+            // from this native would monomorphise a second Executor for
+            // BuiltinHandler, which overflowed RP2040's flash by 11.7 KB.
             let name = ctx.objects.class_name(idx).unwrap_or("Object");
-            dst.extend_from_slice(name.as_bytes());
+            for b in name.bytes() {
+                dst.push(if b == b'/' { b'.' } else { b });
+            }
             dst.push(b'@');
-            let mut tmp = [0u8; 12];
-            dst.extend_from_slice(crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp));
+            for shift in [12u32, 8, 4, 0] {
+                dst.push(b"0123456789abcdef"[((idx >> shift) & 0xF) as usize]);
+            }
         }
         Value::ArrayRef(idx) => {
             dst.extend_from_slice(b"[@");
@@ -474,6 +484,22 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 let prec = spec.precision.unwrap_or(6);
                 let neg = f.is_sign_negative() && !f.is_nan();
                 let mag = if neg { -f } else { f };
+                if !f.is_finite() {
+                    // Java spells these out and pads with spaces even under
+                    // the 0 flag; NaN never takes a sign.
+                    let body: &[u8] = if f.is_nan() { b"NaN" } else { b"Infinity" };
+                    let sign = if f.is_nan() {
+                        b"" as &[u8]
+                    } else {
+                        numeric_sign(neg, &spec)
+                    };
+                    let spec_no_zero = Spec {
+                        zero: false,
+                        ..spec
+                    };
+                    pad_numeric(sign, body, &spec_no_zero, &mut out);
+                    continue;
+                }
                 let body_string: String = match spec.conv {
                     b'f' => format!("{:.*}", prec, mag),
                     b'e' | b'E' => {

@@ -14,7 +14,7 @@ mod io;
 mod net;
 #[cfg(not(has_network))]
 mod net_stub;
-mod os;
+pub(crate) mod os;
 mod pio;
 #[cfg(not(test))]
 mod sensors;
@@ -123,7 +123,15 @@ impl PicodroidNativeHandler {
     /// (with a log) if the queue is full — apps shouldn't be queueing more
     /// than [`MAX_PENDING_OPS`] transitions per frame.
     pub fn enqueue_op(&mut self, op: PendingOp) -> bool {
-        self.pending_ops.enqueue(op)
+        let ok = self.pending_ops.enqueue(op);
+        if !ok {
+            // Every call site (startActivity/finish/start/stop/bind/unbind)
+            // discards the bool, so an overflow — e.g. issuing dozens of
+            // service ops from one callback against the 8-deep default
+            // queue — was completely silent (bugbash F16).
+            crate::pd_warn!("pending-op queue full, op dropped");
+        }
+        ok
     }
 
     /// Pop the oldest pending op (FIFO). Returns `None` when the queue is
@@ -470,7 +478,23 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 })))
             }
             (_, "finish") => {
-                self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop));
+                // args[0] = this. Android's finish() is idempotent per
+                // Activity (mFinished) and a no-op on one already destroyed;
+                // without these guards `finish(); finish();` queued two Pops
+                // and the drain loop popped the caller and its parent.
+                let this = match ctx.args.first() {
+                    Some(Value::ObjectRef(o)) => *o,
+                    _ => 0,
+                };
+                if !self.activity_stack.iter().any(|(r, _)| r == this) {
+                    crate::pd_warn!("finish() on an Activity that is not on the stack; ignored");
+                    return Some(Ok(None));
+                }
+                if !self.pending_ops.has_pending_pop_for(this) {
+                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop {
+                        finishing: this,
+                    }));
+                }
                 Some(Ok(None))
             }
             _ => {

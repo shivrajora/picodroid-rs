@@ -171,6 +171,11 @@ pub fn run_install(
         inner: transport,
     };
     if !stream_and_verify(&mut prefixed, coordinator, flash, papk_len) {
+        // stream_and_verify released core 0; withdraw the park request as
+        // the Phase-A failure paths do, otherwise jvm_task re-parks on its
+        // next supervisor loop and the device is wedged until another
+        // install arrives.
+        coordinator.cancel_park_request();
         return;
     }
 
@@ -690,6 +695,9 @@ mod tests {
         let r = run(papk.len() as u32, bad, true, 1 << 20, None);
         assert!(r.events.contains(&Ev::Error("crc_mismatch")));
         assert!(r.events.contains(&Ev::Release));
+        // The park request must be withdrawn too, or jvm_task parks itself
+        // on its next supervisor loop and the device wedges (bugbash F8).
+        assert!(r.events.contains(&Ev::CancelPark));
         assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
         assert!(!r.reset);
     }
@@ -700,6 +708,9 @@ mod tests {
         let r = run(600, wire(&papk), true, 1 << 20, Some(1));
         assert!(r.events.contains(&Ev::Error("flash_write_failed")));
         assert!(r.events.contains(&Ev::Release));
+        // The park request must be withdrawn too, or jvm_task parks itself
+        // on its next supervisor loop and the device wedges (bugbash F8).
+        assert!(r.events.contains(&Ev::CancelPark));
         assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
     }
 

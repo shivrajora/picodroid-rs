@@ -118,12 +118,38 @@ fn state() -> &'static mut SensorState {
     unsafe { &mut *core::ptr::addr_of_mut!(STATE) }
 }
 
+/// Android's `registerListener` takes either a `SENSOR_DELAY_*` constant
+/// (0..=3) or a sampling period in microseconds; anything else used to fall
+/// through to NORMAL silently, so `registerListener(l, s, 20_000)` — 20 ms —
+/// delivered every 192 ms.
 fn delay_to_ticks(delay: i32) -> u32 {
+    const TICK_US: i64 = 16_000;
     match delay {
         0 => 1,  // FASTEST: every tick
         1 => 2,  // GAME: ~32 ms
         2 => 4,  // UI: ~64 ms
-        _ => 12, // NORMAL: ~192 ms
+        3 => 12, // NORMAL: ~192 ms
+        // samplingPeriodUs, rounded to the nearest 16 ms tick, at least one.
+        us if us > 3 => ((us as i64 + TICK_US / 2) / TICK_US).max(1) as u32,
+        _ => 12,
+    }
+}
+
+#[cfg(test)]
+mod delay_tests {
+    use super::delay_to_ticks;
+
+    #[test]
+    fn microsecond_periods_map_to_ticks() {
+        assert_eq!(delay_to_ticks(0), 1);
+        assert_eq!(delay_to_ticks(3), 12);
+        assert_eq!(delay_to_ticks(4), 1); // tiny period: fastest
+        assert_eq!(delay_to_ticks(20_000), 1); // 20 ms rounds to one tick
+        assert_eq!(delay_to_ticks(32_000), 2);
+        assert_eq!(delay_to_ticks(200_000), 13); // 12.5 ticks rounds up
+        assert_eq!(delay_to_ticks(1_000_000), 63);
+        assert_eq!(delay_to_ticks(i32::MAX), 134_218);
+        assert_eq!(delay_to_ticks(-1), 12);
     }
 }
 

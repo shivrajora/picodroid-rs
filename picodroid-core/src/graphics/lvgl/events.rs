@@ -103,7 +103,11 @@ unsafe extern "C" fn key_map_delete_cb(e: *mut lv_event_t) {
 /// first registration still attaches the `LV_EVENT_DELETE` unregistration
 /// hook so a destroyed view's entry doesn't pin its Java graph.
 pub fn register_view_key_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = super::handle_table::lookup(id) as usize;
+    let raw_obj = super::handle_table::lookup(id);
+    if raw_obj.is_null() {
+        return; // deleted/stale view: never hand LVGL a null, never map key 0
+    }
+    let raw_ptr = raw_obj as usize;
     unsafe {
         match map_mut(&raw mut VIEW_KEY_MAP).upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
@@ -185,6 +189,13 @@ pub(in crate::graphics) fn init_keypad() {
 /// caps depth first, so this group stack never overflows.
 #[cfg(has_buttons)]
 const MAX_ACTIVITY_GROUPS: usize = 32;
+
+// Pin the "Activity stack caps depth first" claim: a board.toml raising
+// `activity_stack_depth` past this table would make push_activity_group a
+// silent no-op while pop_activity_group still decrements — desyncing the
+// group stack from the Activity stack.
+#[cfg(has_buttons)]
+const _: () = assert!(crate::board_cfg::jvm_state::ACTIVITY_STACK_DEPTH <= MAX_ACTIVITY_GROUPS);
 
 #[cfg(has_buttons)]
 static mut KEYPAD_INDEV: *mut lv_indev_t = core::ptr::null_mut();

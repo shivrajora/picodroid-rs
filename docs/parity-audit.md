@@ -548,3 +548,28 @@ emits one line per band (~12/frame), so device capture must fit the RTT window â
 keep scenes to a few seconds or extend the hil-run capture window; the CRC adds
 ~1-2 ms/band on-device, so `parity-fbhash` builds are for sequence comparison,
 never wall-clock measurement.
+
+## 2026-08-30 bug-bash divergence decisions
+
+Deliberate divergences surfaced by the bug bash (docs/bugbash-2026-08-30.md), kept as-is:
+
+- **String intern identity is order-dependent** (`("a"+"b") == "ab"` may be true): the
+  StringTable dedups literals against live dynamic strings so `getClass()` keeps a stable
+  `Class` identity. Reference comparison of strings is unreliable on Android too; use
+  `equals`. (`jvm/src/heap.rs`, bugbash J15.)
+- **Adapters have a single bound view and no auto-notify**: `ArrayAdapter.add/clear` do not
+  call `notifyDataSetChanged()` (Android's default `mNotifyOnChange=true`), and
+  `AdapterView.setAdapter` does not unbind the previous adapter (one `boundView` slot, not a
+  `DataSetObservable`). Call `notifyDataSetChanged()` explicitly. (bugbash S8.)
+- **`MotionEvent.ACTION_LONG_PRESS = 3` collides with Android's `ACTION_CANCEL`**: a
+  documented picodroid extension; ported code testing `ACTION_CANCEL` by value will match
+  long presses. (bugbash C24.)
+- **`View.GONE` renders like `INVISIBLE`**: both map to `LV_OBJ_FLAG_HIDDEN`; GONE does not
+  collapse layout space. `getVisibility()` reports what was set. (bugbash C23.)
+- **class-shrink**: Utf8 lengths are written `as u16` (unreachable while renames only
+  shorten) and any string literal containing `/` is treated as a class name and rewritten â€”
+  load-bearing for Intent target names, but a literal like a URL path with a matching
+  prefix would be rewritten too. Revisit before method/field renaming lands. (bugbash S12.)
+- **PAPK asset records are 4-aligned within the assets section only**; the section offset
+  itself depends on the class blob's length, so XIP-direct LVGL use relies on LVGL's
+  byte-wise pixel reads. Verify before any word-wide blit path. (bugbash S11.)

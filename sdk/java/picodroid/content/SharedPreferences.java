@@ -383,14 +383,26 @@ public final class SharedPreferences {
     return ~c;
   }
 
-  /** Pending mutations for a {@link SharedPreferences} instance. */
+  /**
+   * Pending mutations for a {@link SharedPreferences} instance.
+   *
+   * <p>Mirrors Android's {@code EditorImpl}: the editor records a set of modifications (puts,
+   * removes, and a {@code clear} flag) rather than a copy of the whole state. At {@link #commit}
+   * the flag is applied first and the puts second — so {@code putString("a", "1").clear()} and
+   * {@code clear().putString("a", "1")} both keep {@code a} — the merged state is published into
+   * fresh arrays (a reused editor never aliases the live preferences), and the pending set is
+   * emptied so the editor can be used again.
+   */
   public static final class Editor {
     private static final String TAG = "SharedPreferences";
 
+    /** Pending-set marker for {@link #remove}. */
+    private static final byte T_REMOVED = 4;
+
     private final SharedPreferences base;
 
-    // Pending state: copied from base on construction, mutated in place,
-    // swapped onto base only after a successful commit().
+    // Pending modifications since edit() / the last commit(): keys with a
+    // type of T_REMOVED are removals, anything else is a put.
     private String[] keys = new String[SharedPreferences.MAX_ENTRIES];
     private byte[] types = new byte[SharedPreferences.MAX_ENTRIES];
     private String[] strVals = new String[SharedPreferences.MAX_ENTRIES];
@@ -398,18 +410,10 @@ public final class SharedPreferences {
     private int[] longValsLo = new int[SharedPreferences.MAX_ENTRIES];
     private int[] longValsHi = new int[SharedPreferences.MAX_ENTRIES];
     private int count;
+    private boolean clearRequested;
 
     Editor(SharedPreferences base) {
       this.base = base;
-      this.count = base.count;
-      for (int i = 0; i < count; i++) {
-        keys[i] = base.keys[i];
-        types[i] = base.types[i];
-        strVals[i] = base.strVals[i];
-        intVals[i] = base.intVals[i];
-        longValsLo[i] = base.longValsLo[i];
-        longValsHi[i] = base.longValsHi[i];
-      }
     }
 
     public Editor putString(String key, String value) {
@@ -452,46 +456,80 @@ public final class SharedPreferences {
     }
 
     public Editor remove(String key) {
-      int i = indexOf(key);
-      if (i >= 0) {
-        // swap-remove to keep the array dense
-        int last = count - 1;
-        if (i != last) {
-          keys[i] = keys[last];
-          types[i] = types[last];
-          strVals[i] = strVals[last];
-          intVals[i] = intVals[last];
-          longValsLo[i] = longValsLo[last];
-          longValsHi[i] = longValsHi[last];
-        }
-        keys[last] = null;
-        strVals[last] = null;
-        intVals[last] = 0;
-        longValsLo[last] = 0;
-        longValsHi[last] = 0;
-        types[last] = 0;
-        count--;
-      }
+      checkKey(key);
+      int i = slot(key);
+      types[i] = T_REMOVED;
+      strVals[i] = null;
       return this;
     }
 
     public Editor clear() {
-      for (int i = 0; i < count; i++) {
-        keys[i] = null;
-        strVals[i] = null;
-        intVals[i] = 0;
-        longValsLo[i] = 0;
-        longValsHi[i] = 0;
-        types[i] = 0;
-      }
-      count = 0;
+      clearRequested = true;
       return this;
     }
 
     /** Atomically writes the pending state to disk. Returns false on I/O failure. */
     public boolean commit() {
-      // Publish editor state into the base instance first so serializedSize /
-      // encode can reuse the base's serializer without duplicating logic.
+      // Merge: base state (unless cleared), then the pending puts/removes,
+      // into fresh arrays that the base will own outright.
+      String[] nk = new String[SharedPreferences.MAX_ENTRIES];
+      byte[] nt = new byte[SharedPreferences.MAX_ENTRIES];
+      String[] ns = new String[SharedPreferences.MAX_ENTRIES];
+      int[] ni = new int[SharedPreferences.MAX_ENTRIES];
+      int[] nlo = new int[SharedPreferences.MAX_ENTRIES];
+      int[] nhi = new int[SharedPreferences.MAX_ENTRIES];
+      int nc = 0;
+      if (!clearRequested) {
+        nc = base.count;
+        for (int i = 0; i < nc; i++) {
+          nk[i] = base.keys[i];
+          nt[i] = base.types[i];
+          ns[i] = base.strVals[i];
+          ni[i] = base.intVals[i];
+          nlo[i] = base.longValsLo[i];
+          nhi[i] = base.longValsHi[i];
+        }
+      }
+      for (int p = 0; p < count; p++) {
+        int i = -1;
+        for (int j = 0; j < nc; j++) {
+          if (nk[j].equals(keys[p])) {
+            i = j;
+            break;
+          }
+        }
+        if (types[p] == T_REMOVED) {
+          if (i >= 0) {
+            int last = nc - 1;
+            nk[i] = nk[last];
+            nt[i] = nt[last];
+            ns[i] = ns[last];
+            ni[i] = ni[last];
+            nlo[i] = nlo[last];
+            nhi[i] = nhi[last];
+            nk[last] = null;
+            ns[last] = null;
+            nc = last;
+          }
+          continue;
+        }
+        if (i < 0) {
+          if (nc >= SharedPreferences.MAX_ENTRIES) {
+            throw new IllegalArgumentException("preferences full");
+          }
+          i = nc;
+          nk[i] = keys[p];
+          nc = nc + 1;
+        }
+        nt[i] = types[p];
+        ns[i] = strVals[p];
+        ni[i] = intVals[p];
+        nlo[i] = longValsLo[p];
+        nhi[i] = longValsHi[p];
+      }
+
+      // Publish the merged state so serializedSize / encode can reuse the
+      // base's serializer; roll back on any failure below.
       String[] sk = base.keys;
       byte[] st = base.types;
       String[] ss = base.strVals;
@@ -500,17 +538,16 @@ public final class SharedPreferences {
       int[] slh = base.longValsHi;
       int sc = base.count;
 
-      base.keys = keys;
-      base.types = types;
-      base.strVals = strVals;
-      base.intVals = intVals;
-      base.longValsLo = longValsLo;
-      base.longValsHi = longValsHi;
-      base.count = count;
+      base.keys = nk;
+      base.types = nt;
+      base.strVals = ns;
+      base.intVals = ni;
+      base.longValsLo = nlo;
+      base.longValsHi = nhi;
+      base.count = nc;
 
       int need = base.serializedSize();
       if (need > SharedPreferences.MAX_BLOB) {
-        // Roll back the swap.
         base.keys = sk;
         base.types = st;
         base.strVals = ss;
@@ -582,6 +619,15 @@ public final class SharedPreferences {
         Log.i(TAG, "atomic rename failed");
         return false;
       }
+      // Committed: the editor starts a fresh pending set (Android's
+      // commitToMemory clears mModified / mClear).
+      for (int i = 0; i < count; i++) {
+        keys[i] = null;
+        strVals[i] = null;
+        types[i] = 0;
+      }
+      count = 0;
+      clearRequested = false;
       return true;
     }
 

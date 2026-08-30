@@ -31,6 +31,11 @@ public final class ComparisonsKt {
     return a.compareTo(b) <= 0 ? a : b;
   }
 
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  public static Comparable maxOf(Comparable a, Comparable b) {
+    return a.compareTo(b) >= 0 ? a : b;
+  }
+
   @SuppressWarnings("rawtypes")
   public static Comparator compareBy(Function1[] selectors) {
     if (selectors.length == 0) {

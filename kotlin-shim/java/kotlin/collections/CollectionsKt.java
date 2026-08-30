@@ -24,12 +24,10 @@ import picodroid.shim.ShimName;
  *
  * <p>Divergences (compatibility matrix): read-only factories return plain {@code ArrayList}s;
  * {@code toSet}/{@code distinct}/{@code union} use the hash-ordered {@code HashSet}; {@code
- * emptyList()} is one shared instance.
+ * emptyList()} returns a fresh instance per call (Kotlin's is an immutable singleton).
  */
 public final class CollectionsKt {
   private CollectionsKt() {}
-
-  private static final ArrayList<Object> EMPTY = new ArrayList<Object>(0);
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -62,8 +60,13 @@ public final class CollectionsKt {
 
   // ── factories ─────────────────────────────────────────────────────────────
 
+  /**
+   * A fresh (mutable) empty list per call. Kotlin's is an immutable singleton; this shim has no
+   * unmodifiable wrapper, so a shared instance would let one {@code (it as MutableList).add(x)} —
+   * or any Java interop that appends — poison every later {@code emptyList()} app-wide.
+   */
   public static List emptyList() {
-    return EMPTY;
+    return new ArrayList<Object>(0);
   }
 
   public static List listOf(Object[] elements) {

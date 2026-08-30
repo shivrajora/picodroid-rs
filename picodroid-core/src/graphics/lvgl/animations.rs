@@ -132,6 +132,12 @@ pub fn start(handle: i32, property: i32, from: i32, to: i32, duration_ms: u32, i
 /// Register a Runnable to fire once `handle`'s animations complete (Android's
 /// `withEndAction`). Replaces any existing action for the handle.
 pub fn set_end_action(handle: i32, obj_ref: u16) {
+    if handle == 0 {
+        // 0 is the table's empty sentinel; an animator built on a stale or
+        // failed handle would otherwise plant a (0, r) entry that the next
+        // registration silently overwrites and the GC roots forever.
+        return;
+    }
     unsafe {
         for entry in &mut END_ACTIONS[..] {
             if entry.0 == handle {

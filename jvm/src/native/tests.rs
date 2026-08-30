@@ -82,6 +82,79 @@ fn dispatch_math(
 // ── abs ──────────────────────────────────────────────────────────────────
 
 #[test]
+fn abs_min_value_is_min_value() {
+    // Java: Math.abs(Integer.MIN_VALUE) == Integer.MIN_VALUE (no exception,
+    // no panic). `i32::abs` overflows under debug overflow checks.
+    assert_eq!(
+        dispatch_math("abs", "(I)I", &[Value::Int(i32::MIN)]),
+        Ok(Some(Value::Int(i32::MIN)))
+    );
+    assert_eq!(
+        dispatch_math("abs", "(J)J", &[Value::Long(i64::MIN)]),
+        Ok(Some(Value::Long(i64::MIN)))
+    );
+}
+
+#[test]
+fn round_negative_half_rounds_toward_positive_infinity() {
+    // Java's Math.round is floor(x + 0.5): -2.5 -> -2, -0.5 -> 0, 2.5 -> 3.
+    assert_eq!(
+        dispatch_math("round", "(F)I", &[Value::Float(-2.5)]),
+        Ok(Some(Value::Int(-2)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(-2.5)]),
+        Ok(Some(Value::Long(-2)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(-0.5)]),
+        Ok(Some(Value::Long(0)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(2.5)]),
+        Ok(Some(Value::Long(3)))
+    );
+    // NaN -> 0, saturation at the integer range.
+    assert_eq!(
+        dispatch_math("round", "(F)I", &[Value::Float(f32::NAN)]),
+        Ok(Some(Value::Int(0)))
+    );
+    assert_eq!(
+        dispatch_math("round", "(D)J", &[Value::Double(1e30)]),
+        Ok(Some(Value::Long(i64::MAX)))
+    );
+}
+
+#[test]
+fn min_max_propagate_nan_and_order_signed_zero() {
+    // Java: NaN if either argument is NaN; -0.0 < 0.0.
+    let r = dispatch_math(
+        "min",
+        "(DD)D",
+        &[Value::Double(f64::NAN), Value::Double(1.0)],
+    );
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d.is_nan()),
+        "{r:?}"
+    );
+    let r = dispatch_math("max", "(FF)F", &[Value::Float(1.0), Value::Float(f32::NAN)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Float(f))) if f.is_nan()),
+        "{r:?}"
+    );
+    let r = dispatch_math("min", "(DD)D", &[Value::Double(0.0), Value::Double(-0.0)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d == 0.0 && d.is_sign_negative()),
+        "{r:?}"
+    );
+    let r = dispatch_math("max", "(DD)D", &[Value::Double(-0.0), Value::Double(0.0)]);
+    assert!(
+        matches!(r, Ok(Some(Value::Double(d))) if d == 0.0 && d.is_sign_positive()),
+        "{r:?}"
+    );
+}
+
+#[test]
 fn abs_int_positive() {
     assert_eq!(
         dispatch_math("abs", "(I)I", &[Value::Int(5)]),
@@ -680,6 +753,32 @@ fn sb_append_char() {
 }
 
 #[test]
+fn sb_char_at_out_of_range_throws() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    ctx.call(
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'x' as i32)),
+    )
+    .unwrap();
+    assert_eq!(
+        ctx.call("charAt", "(I)C", Some(Value::Int(0))),
+        Ok(Some(Value::Int(b'x' as i32)))
+    );
+    for i in [1, -1] {
+        let r = ctx.call("charAt", "(I)C", Some(Value::Int(i)));
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("charAt({i}) = {r:?}");
+        };
+        assert_eq!(
+            ctx.objects.class_name(idx),
+            Some("java/lang/StringIndexOutOfBoundsException")
+        );
+    }
+}
+
+#[test]
 fn sb_append_char_newline_passes_through() {
     // Java's append('\n') must yield a real newline (line-joining,
     // AlertDialog item lists) — not a space (regression for the old
@@ -1038,6 +1137,56 @@ fn boolean_to_string_static_both_paths() {
 }
 
 #[test]
+fn double_to_string_static_and_instance() {
+    // Every other wrapper has a toString arm; Double had none, so the
+    // static form was NoSuchMethod and the instance form printed
+    // java.lang.Double@NNNN via Object.toString.
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let cases: &[(f64, &str)] = &[
+        (1.5, "1.5"),
+        (100.0, "100.0"),
+        (0.1, "0.1"),
+        (-0.0, "-0.0"),
+        (0.0, "0.0"),
+        (1e10, "1.0E10"),
+        (1.5e-5, "1.5E-5"),
+        (1234567.0, "1234567.0"),
+        (12345678.0, "1.2345678E7"),
+        (0.001, "0.001"),
+        (f64::NAN, "NaN"),
+        (f64::INFINITY, "Infinity"),
+        (f64::NEG_INFINITY, "-Infinity"),
+        (core::f64::consts::PI, "3.141592653589793"),
+    ];
+    for &(d, want) in cases {
+        let v = dispatch_boxed_to_string(
+            "java/lang/Double",
+            "(D)Ljava/lang/String;",
+            &[Value::Double(d)],
+            &mut objects,
+            &mut strings,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolve_str(&strings, v), want, "Double.toString({d})");
+    }
+    // Instance form on a boxed receiver.
+    let boxed = objects.alloc("java/lang/Double").unwrap();
+    objects.set_field(boxed, 0, Value::Double(2.5));
+    let v = dispatch_boxed_to_string(
+        "java/lang/Double",
+        "()Ljava/lang/String;",
+        &[Value::ObjectRef(boxed)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "2.5");
+}
+
+#[test]
 fn float_to_string_static() {
     let mut objects = ObjectHeap::new();
     let mut strings = StringTable::new();
@@ -1184,6 +1333,241 @@ fn arraylist_set_returns_old() {
             &mut objects
         ),
         Ok(Some(Value::Int(99)))
+    );
+}
+
+#[test]
+fn arraylist_to_array_keeps_object_zero() {
+    // The first object an executor allocates lives in slot 0; a round trip
+    // through an Object[] must hand it back, not null.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let first = objects.alloc("Foo").unwrap();
+    assert_eq!(first, 0);
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    dispatch_list(
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[list, Value::ObjectRef(first)],
+        &mut objects,
+    )
+    .unwrap();
+    let mut ctx = NativeContext {
+        classes: &[],
+        descriptor: "()[Ljava/lang/Object;",
+        args: &[list],
+        strings: &mut strings,
+        objects: &mut objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    let arr = BuiltinHandler
+        .dispatch("java/util/ArrayList", "toArray", &mut ctx)
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let Value::ArrayRef(a) = arr else {
+        panic!("expected ArrayRef");
+    };
+    let raw = arrays.load(a, 0).unwrap();
+    assert_eq!(crate::array_heap::decode_ref(raw), Value::ObjectRef(0));
+}
+
+#[test]
+fn arraylist_contains_matches_string_content() {
+    // A literal and a runtime-built string with the same text are distinct
+    // References; HashMap compared contents, ArrayList compared indices.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    let lit = Value::Reference(strings.intern(b"ab").unwrap());
+    let dynamic = Value::Reference(strings.intern_dyn(b"ab").unwrap());
+    assert_ne!(lit, dynamic);
+    dispatch_list("add", "(Ljava/lang/Object;)Z", &[list, lit], &mut objects).unwrap();
+    let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: d,
+            args,
+            strings: &mut strings,
+            objects,
+            arrays: &mut arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", m, &mut ctx)
+            .unwrap()
+    };
+    let obj = "(Ljava/lang/Object;)Z";
+    assert_eq!(
+        call("contains", obj, &[list, dynamic], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("remove", obj, &[list, dynamic], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn arraylist_index_bounds_throw_index_out_of_bounds() {
+    // add(i, v) clamped (a negative index appended!), set(i, v) silently
+    // returned null; get/remove were uncatchable hard errors.
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [1, 2] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let ioobe = |r: Result<Option<Value>, JvmError>, objects: &ObjectHeap, what: &str| {
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("{what}: {r:?}");
+        };
+        assert_eq!(
+            objects.class_name(idx),
+            Some("java/lang/IndexOutOfBoundsException"),
+            "{what}"
+        );
+    };
+    let addi = "(ILjava/lang/Object;)V";
+    let r = dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(5), Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "add(5)");
+    let r = dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(-1), Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "add(-1)");
+    // add(size, v) is legal and appends.
+    dispatch_list(
+        "add",
+        addi,
+        &[list, Value::Int(2), Value::Int(3)],
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(3)))
+    );
+    let seti = "(ILjava/lang/Object;)Ljava/lang/Object;";
+    let r = dispatch_list(
+        "set",
+        seti,
+        &[list, Value::Int(9), Value::Int(0)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "set(9)");
+    let r = dispatch_list(
+        "get",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(9)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "get(9)");
+    let r = dispatch_list(
+        "get",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(-1)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "get(-1)");
+    let r = dispatch_list(
+        "remove",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(3)],
+        &mut objects,
+    );
+    ioobe(r, &objects, "remove(3)");
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(3)))
+    );
+}
+
+#[test]
+fn arraylist_remove_object_overload() {
+    // remove(Object) compiles to (Ljava/lang/Object;)Z; the arm demanded an
+    // Int index and threw InvalidReference for it.
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    let a = Value::Reference(strings.intern(b"a").unwrap());
+    let b = Value::Reference(strings.intern(b"b").unwrap());
+    let five = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(five, 0, Value::Int(5));
+    let five2 = objects.alloc("java/lang/Integer").unwrap();
+    objects.set_field(five2, 0, Value::Int(5));
+    for v in [a, b, Value::ObjectRef(five)] {
+        dispatch_list("add", "(Ljava/lang/Object;)Z", &[list, v], &mut objects).unwrap();
+    }
+    let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
+        let mut ctx = NativeContext {
+            classes: &[],
+            descriptor: d,
+            args,
+            strings: &mut strings,
+            objects,
+            arrays: &mut arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch("java/util/ArrayList", m, &mut ctx)
+            .unwrap()
+    };
+    let rm = "(Ljava/lang/Object;)Z";
+    assert_eq!(
+        call("remove", rm, &[list, a], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(2)))
+    );
+    assert_eq!(
+        call("remove", rm, &[list, a], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+    // A different boxed Integer with the same value matches (equals semantics).
+    assert_eq!(
+        call("remove", rm, &[list, Value::ObjectRef(five2)], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        call("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    // The index overload still works and returns the element.
+    assert_eq!(
+        call(
+            "remove",
+            "(I)Ljava/lang/Object;",
+            &[list, Value::Int(0)],
+            &mut objects
+        ),
+        Ok(Some(b))
     );
 }
 
@@ -2872,6 +3256,129 @@ fn string_split_multi_char() {
 }
 
 #[test]
+fn string_equals_non_string_is_false() {
+    // "x".equals(someObject) / equals(array) is specified to be false —
+    // it was a hard InvalidReference error (uncatchable).
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"x");
+    let obj = Value::ObjectRef(ctx.objects.alloc("Foo").unwrap());
+    let arr = Value::ArrayRef(ctx.arrays.alloc(crate::array_heap::ATYPE_INT, 1).unwrap());
+    for other in [obj, arr, Value::Null] {
+        assert_eq!(
+            ctx.dispatch("equals", "(Ljava/lang/Object;)Z", &[s, other]),
+            Ok(Some(Value::Int(0))),
+            "equals({other:?})"
+        );
+    }
+    let same = ctx.intern(b"x");
+    assert_eq!(
+        ctx.dispatch("equals", "(Ljava/lang/Object;)Z", &[s, same]),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn string_char_at_out_of_range_throws() {
+    // Java: StringIndexOutOfBoundsException, not '\0'.
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    for i in [3, -1, 100] {
+        let r = ctx.dispatch("charAt", "(I)C", &[s, Value::Int(i)]);
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("charAt({i}) = {r:?}");
+        };
+        assert_eq!(
+            ctx.objects.class_name(idx),
+            Some("java/lang/StringIndexOutOfBoundsException")
+        );
+    }
+    assert_eq!(
+        ctx.dispatch("charAt", "(I)C", &[s, Value::Int(2)]),
+        Ok(Some(Value::Int(b'c' as i32)))
+    );
+}
+
+#[test]
+fn string_index_of_honours_from_index() {
+    // The 2-arg overloads used to drop fromIndex entirely, so the classic
+    // `while ((i = s.indexOf(x, i + 1)) >= 0)` loop never terminated.
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abcabc");
+    let a = ctx.intern(b"a");
+    let abc = ctx.intern(b"abc");
+    let d = |ctx: &mut StrCtx, m: &str, desc: &str, args: &[Value]| -> i32 {
+        match ctx.dispatch(m, desc, args) {
+            Ok(Some(Value::Int(i))) => i,
+            other => panic!("{m}{desc} -> {other:?}"),
+        }
+    };
+    let so = "(Ljava/lang/String;I)I";
+    let co = "(II)I";
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(1)]), 3);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(4)]), -1);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(-5)]), 0);
+    assert_eq!(d(&mut ctx, "indexOf", so, &[s, a, Value::Int(99)]), -1);
+    assert_eq!(
+        d(
+            &mut ctx,
+            "indexOf",
+            co,
+            &[s, Value::Int(b'c' as i32), Value::Int(3)]
+        ),
+        5
+    );
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, abc, Value::Int(3)]), 3);
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, abc, Value::Int(2)]), 0);
+    assert_eq!(d(&mut ctx, "lastIndexOf", so, &[s, a, Value::Int(-1)]), -1);
+    assert_eq!(
+        d(
+            &mut ctx,
+            "lastIndexOf",
+            co,
+            &[s, Value::Int(b'a' as i32), Value::Int(2)]
+        ),
+        0
+    );
+    assert_eq!(
+        d(
+            &mut ctx,
+            "lastIndexOf",
+            co,
+            &[s, Value::Int(b'a' as i32), Value::Int(99)]
+        ),
+        3
+    );
+    // startsWith(prefix, toffset)
+    let bc = ctx.intern(b"bc");
+    let sw = "(Ljava/lang/String;I)Z";
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(1)]), 1);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(0)]), 0);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(-1)]), 0);
+    assert_eq!(d(&mut ctx, "startsWith", sw, &[s, bc, Value::Int(6)]), 0);
+}
+
+#[test]
+fn string_value_of_char_newline_passes_through() {
+    // Same defect StringBuilder.append(char) had (5d5f0a6): `.max(0x20)`
+    // turned '\n'/'\t' into spaces, so String.valueOf('\n') joined lines
+    // with a space.
+    let mut ctx = StrCtx::new();
+    for (c, want) in [
+        (b'\n', "\n"),
+        (b'\t', "\t"),
+        (b'\r', "\r"),
+        (b'a', "a"),
+        (0x07u8, " "),
+    ] {
+        let r = ctx
+            .dispatch("valueOf", "(C)Ljava/lang/String;", &[Value::Int(c as i32)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(ctx.resolve(r), want, "valueOf({c:#x})");
+    }
+}
+
+#[test]
 fn string_split_empty_parts() {
     let mut ctx = StrCtx::new();
     let s = ctx.intern(b"a,,b");
@@ -2890,6 +3397,31 @@ fn string_split_empty_parts() {
     assert_eq!(ctx.arrays.length(arr), Some(3));
     let r1 = ((ctx.arrays.load(arr, 1).unwrap() as u32) & !crate::array_heap::REF_TAG) as u16;
     assert_eq!(ctx.strings.resolve(r1), Some(""));
+}
+
+#[test]
+fn string_split_drops_trailing_empty_strings() {
+    // Java's split(regex) has limit 0: trailing empty strings are removed,
+    // interior ones kept, and a no-match input yields [input].
+    fn split_len(ctx: &mut StrCtx, s: &'static [u8], d: &'static [u8]) -> u16 {
+        let s = ctx.intern(s);
+        let d = ctx.intern(d);
+        let r = ctx
+            .dispatch("split", "(Ljava/lang/String;)[Ljava/lang/String;", &[s, d])
+            .unwrap()
+            .unwrap();
+        let Value::ArrayRef(arr) = r else {
+            panic!("expected ArrayRef");
+        };
+        ctx.arrays.length(arr).unwrap()
+    }
+    let mut ctx = StrCtx::new();
+    assert_eq!(split_len(&mut ctx, b"a,b,,", b","), 2);
+    assert_eq!(split_len(&mut ctx, b",,", b","), 0);
+    assert_eq!(split_len(&mut ctx, b"a,,b", b","), 3);
+    assert_eq!(split_len(&mut ctx, b",a", b","), 2);
+    assert_eq!(split_len(&mut ctx, b"", b","), 1);
+    assert_eq!(split_len(&mut ctx, b"abc", b","), 1);
 }
 
 // ── Stress: split many times with GC pressure ─────────────────────────────
@@ -2929,26 +3461,15 @@ impl StrCtx {
             .alloc(crate::array_heap::ATYPE_REF, vals.len() as u16)
             .unwrap();
         for (i, v) in vals.iter().enumerate() {
-            let raw: i32 = match *v {
-                Value::Null => 0,
-                Value::Reference(idx) => ((idx as u32) | crate::array_heap::REF_TAG) as i32,
-                Value::ObjectRef(idx) => idx as i32,
-                _ => panic!("make_args only accepts Null / Reference / ObjectRef"),
-            };
+            let raw = crate::array_heap::encode_ref(*v)
+                .expect("make_args only accepts Null / Reference / ObjectRef");
             self.arrays.store(arr, i, raw);
         }
         Value::ArrayRef(arr)
     }
 
     /// Box a primitive Value into the named wrapper class and return the ObjectRef.
-    ///
-    /// Reserves slot 0 on first use because the ATYPE_REF aastore encoding
-    /// collides `ObjectRef(0)` with `Null` (both stored as raw 0).  Real apps
-    /// never hit this because slot 0 is taken by their Application object.
     fn box_primitive(&mut self, class: &'static str, v: Value) -> Value {
-        if self.objects.class_name(0).is_none() {
-            self.objects.alloc("java/lang/Object").unwrap();
-        }
         let idx = self.objects.alloc(class).unwrap();
         self.objects.set_field(idx, 0, v);
         Value::ObjectRef(idx)
@@ -3121,6 +3642,69 @@ fn format_boolean() {
     let f = ctx.box_primitive("java/lang/Boolean", Value::Int(0));
     assert_eq!(ctx.fmt(b"%b", &[f]), "false");
     assert_eq!(ctx.fmt(b"%b", &[Value::Null]), "false");
+}
+
+#[test]
+fn format_float_special_values_use_java_spelling() {
+    // Rust's formatter spells them "inf"/"NaN"; Java prints "Infinity" and
+    // ignores the 0 flag for them.
+    let mut ctx = StrCtx::new();
+    let inf = ctx.box_primitive("java/lang/Double", Value::Double(f64::INFINITY));
+    let ninf = ctx.box_primitive("java/lang/Double", Value::Double(f64::NEG_INFINITY));
+    let nan = ctx.box_primitive("java/lang/Double", Value::Double(f64::NAN));
+    assert_eq!(ctx.fmt(b"%f", &[inf]), "Infinity");
+    assert_eq!(ctx.fmt(b"%.2e", &[ninf]), "-Infinity");
+    assert_eq!(ctx.fmt(b"%f", &[nan]), "NaN");
+    assert_eq!(ctx.fmt(b"%010f", &[inf]), "  Infinity");
+    assert_eq!(ctx.fmt(b"%+f", &[inf]), "+Infinity");
+}
+
+#[test]
+fn format_s_of_double_keeps_double_precision() {
+    let mut ctx = StrCtx::new();
+    let d = ctx.box_primitive("java/lang/Double", Value::Double(1.0 / 3.0));
+    assert_eq!(ctx.fmt(b"%s", &[d]), "0.3333333333333333");
+    let big = ctx.box_primitive("java/lang/Double", Value::Double(1e10));
+    assert_eq!(ctx.fmt(b"%s", &[big]), "1.0E10");
+}
+
+#[test]
+fn double_stringification_keeps_double_precision() {
+    // String.valueOf(double), StringBuilder.append(double) and
+    // Arrays.toString(double[]) all narrowed to f32 first.
+    let third = 1.0f64 / 3.0;
+    let mut ctx = StrCtx::new();
+    let r = ctx
+        .dispatch("valueOf", "(D)Ljava/lang/String;", &[Value::Double(third)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "0.3333333333333333");
+
+    let mut sb = SbCtx::new();
+    sb.call("<init>", "()V", None).unwrap();
+    sb.call(
+        "append",
+        "(D)Ljava/lang/StringBuilder;",
+        Some(Value::Double(third)),
+    )
+    .unwrap();
+    assert_eq!(sb.to_string(), "0.3333333333333333");
+
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let arr = arrays.alloc(crate::array_heap::ATYPE_DOUBLE, 1).unwrap();
+    arrays.store64(arr, 0, third.to_bits() as i64);
+    assert_eq!(
+        arrays_to_string_str(
+            "([D)Ljava/lang/String;",
+            arr,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[0.3333333333333333]"
+    );
 }
 
 #[test]
@@ -3613,6 +4197,170 @@ fn arrays_sort_byte_sign_extends() {
     .unwrap();
     let got: alloc::vec::Vec<i32> = (0..4).map(|i| arrays.load(idx, i).unwrap()).collect();
     assert_eq!(got, alloc::vec![-128, -1, 0, 1]);
+}
+
+fn arrays_to_string_str(
+    desc: &str,
+    arr: u16,
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+) -> alloc::string::String {
+    let v = arrays_dispatch(
+        "toString",
+        desc,
+        &[Value::ArrayRef(arr)],
+        strings,
+        objects,
+        arrays,
+    )
+    .unwrap()
+    .unwrap();
+    let Value::Reference(idx) = v else {
+        panic!("expected Reference, got {v:?}");
+    };
+    strings.resolve(idx).unwrap().into()
+}
+
+#[test]
+fn arrays_fill_and_to_string_boolean_and_char() {
+    // boolean[] had no arm at all (hard InvalidReference); char[] printed
+    // code points ("[97, 98]") instead of the characters.
+    use crate::array_heap::{ATYPE_BOOLEAN, ATYPE_CHAR};
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let b = arrays.alloc(ATYPE_BOOLEAN, 3).unwrap();
+    arrays_dispatch(
+        "fill",
+        "([ZZ)V",
+        &[Value::ArrayRef(b), Value::Int(1)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, b), alloc::vec![1, 1, 1]);
+    arrays.store(b, 1, 0);
+    assert_eq!(
+        arrays_to_string_str(
+            "([Z)Ljava/lang/String;",
+            b,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[true, false, true]"
+    );
+    let c = arrays.alloc(ATYPE_CHAR, 2).unwrap();
+    arrays.store(c, 0, b'a' as i32);
+    arrays.store(c, 1, b'b' as i32);
+    assert_eq!(
+        arrays_to_string_str(
+            "([C)Ljava/lang/String;",
+            c,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[a, b]"
+    );
+}
+
+#[test]
+fn arrays_fill_and_sort_range_overloads() {
+    // fill(a, from, to, v) used to read `from` as the value and fill the
+    // whole array; sort(a, from, to) sorted everything.
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let a = make_int_array(&mut arrays, &[0, 0, 0, 0, 0]);
+    arrays_dispatch(
+        "fill",
+        "([IIII)V",
+        &[
+            Value::ArrayRef(a),
+            Value::Int(1),
+            Value::Int(3),
+            Value::Int(9),
+        ],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, a), alloc::vec![0, 9, 9, 0, 0]);
+
+    let s = make_int_array(&mut arrays, &[5, 4, 3, 2, 1]);
+    arrays_dispatch(
+        "sort",
+        "([III)V",
+        &[Value::ArrayRef(s), Value::Int(1), Value::Int(4)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, s), alloc::vec![5, 2, 3, 4, 1]);
+
+    // Bad ranges throw like Java: to > length -> AIOOBE, from > to -> IAE.
+    let r = arrays_dispatch(
+        "fill",
+        "([IIII)V",
+        &[
+            Value::ArrayRef(a),
+            Value::Int(1),
+            Value::Int(9),
+            Value::Int(0),
+        ],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    );
+    let Err(JvmError::Exception(idx)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(idx),
+        Some("java/lang/ArrayIndexOutOfBoundsException")
+    );
+    let r = arrays_dispatch(
+        "sort",
+        "([III)V",
+        &[Value::ArrayRef(a), Value::Int(3), Value::Int(1)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    );
+    let Err(JvmError::Exception(idx)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(idx),
+        Some("java/lang/IllegalArgumentException")
+    );
+}
+
+#[test]
+fn arrays_fill_object_array() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let arr = arrays.alloc(crate::array_heap::ATYPE_REF, 2).unwrap();
+    let s = Value::Reference(strings.intern(b"x").unwrap());
+    arrays_dispatch(
+        "fill",
+        "([Ljava/lang/Object;Ljava/lang/Object;)V",
+        &[Value::ArrayRef(arr), s],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::array_heap::decode_ref(arrays.load(arr, 1).unwrap()),
+        s
+    );
 }
 
 #[test]
@@ -4447,4 +5195,126 @@ fn append_null_and_value_of_object_on_string_or_null() {
         .unwrap()
         .unwrap();
     assert_eq!(cx.resolve(n), "null");
+}
+
+// ── bugbash S6: Iterator.remove and fail-fast iteration ───────────────────
+
+#[test]
+fn iterator_remove_removes_the_last_returned_element() {
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [10, 20, 30] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let iter = make_list_iterator(&mut objects, list);
+    // remove() before next() is IllegalStateException.
+    let r = dispatch_iter("remove", "()V", &[iter], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some("java/lang/IllegalStateException")
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(10)))
+    );
+    dispatch_iter("remove", "()V", &[iter], &mut objects).unwrap();
+    assert_eq!(
+        dispatch_list("size", "()I", &[list], &mut objects),
+        Ok(Some(Value::Int(2)))
+    );
+    // Iteration continues over the survivors.
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(20)))
+    );
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(30)))
+    );
+    assert_eq!(
+        dispatch_iter("hasNext", "()Z", &[iter], &mut objects),
+        Ok(Some(Value::Int(0)))
+    );
+}
+
+#[test]
+fn iterator_detects_concurrent_modification() {
+    // Removing through the collection mid-iteration used to silently skip
+    // every other element; java.util fails fast in next().
+    let mut objects = ObjectHeap::new();
+    let list = Value::ObjectRef(objects.alloc("java/util/ArrayList").unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [1, 2, 3, 4] {
+        dispatch_list(
+            "add",
+            "(Ljava/lang/Object;)Z",
+            &[list, Value::Int(v)],
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let iter = make_list_iterator(&mut objects, list);
+    assert_eq!(
+        dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    dispatch_list(
+        "remove",
+        "(I)Ljava/lang/Object;",
+        &[list, Value::Int(0)],
+        &mut objects,
+    )
+    .unwrap();
+    let r = dispatch_iter("next", "()Ljava/lang/Object;", &[iter], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some("java/util/ConcurrentModificationException")
+    );
+}
+
+fn make_list_iterator(objects: &mut ObjectHeap, list: Value) -> Value {
+    let mut strings = StringTable::new();
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        classes: &[],
+        descriptor: "()Ljava/util/Iterator;",
+        args: &[list],
+        strings: &mut strings,
+        objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    BuiltinHandler
+        .dispatch("java/util/ArrayList", "iterator", &mut ctx)
+        .unwrap()
+        .unwrap()
+        .unwrap()
+}
+
+// ── bugbash S4: %s of an object uses Object.toString's identity shape ─────
+
+#[test]
+fn format_s_object_without_interpreter_uses_identity_shape() {
+    // With no upcall env the fallback must match identity_to_string:
+    // dotted name @ 4-hex index (it used to print pkg/Cls@<decimal>).
+    let mut ctx = StrCtx::new();
+    let obj = Value::ObjectRef(ctx.objects.alloc("com/example/Thing").unwrap());
+    let out = ctx.fmt(b"%s", &[obj]);
+    assert!(
+        out.starts_with("com.example.Thing@") && out.len() == "com.example.Thing@".len() + 4,
+        "{out}"
+    );
 }

@@ -19,18 +19,24 @@ pub const ATYPE_REF: u8 = 0; // used by anewarray
 /// `Value` distinguishes three live reference kinds, so we disambiguate via
 /// the top bits. Encoding:
 ///   - 0                              → Null
-///   - positive, no tag                → ObjectRef (low 16 bits)
+///   - OBJ_TAG set                     → ObjectRef (low 16 bits)
 ///   - REF_TAG set                     → Reference / interned string (low 16 bits)
 ///   - ARRAY_TAG set                   → ArrayRef (low 16 bits)
+///
+/// Objects carry a tag too: an untagged `ObjectRef(0)` would be raw 0 —
+/// indistinguishable from `Null` — and object slot 0 is an ordinary slot
+/// (handed out first, reused after GC), so the first object an executor
+/// allocates used to read back as `null` from any `Object[]`.
 pub const REF_TAG: u32 = 0x4000_0000;
 pub const ARRAY_TAG: u32 = 0x2000_0000;
+pub const OBJ_TAG: u32 = 0x1000_0000;
 
 /// Encode a reference `Value` for an `ATYPE_REF` slot per the scheme above;
 /// `None` for a non-reference value.
 pub fn encode_ref(v: Value) -> Option<i32> {
     Some(match v {
         Value::Null => 0,
-        Value::ObjectRef(i) => i as i32,
+        Value::ObjectRef(i) => ((i as u32) | OBJ_TAG) as i32,
         Value::Reference(i) => ((i as u32) | REF_TAG) as i32,
         Value::ArrayRef(i) => ((i as u32) | ARRAY_TAG) as i32,
         _ => return None,
@@ -47,7 +53,8 @@ pub fn decode_ref(raw: i32) -> Value {
     } else if u & ARRAY_TAG != 0 {
         Value::ArrayRef((u & !ARRAY_TAG) as u16)
     } else {
-        Value::ObjectRef(raw as u16)
+        // OBJ_TAG, or a legacy untagged (non-zero) object index.
+        Value::ObjectRef((u & 0xFFFF) as u16)
     }
 }
 
@@ -690,6 +697,20 @@ pub struct AtypeCensus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ref_encoding_round_trips_object_zero() {
+        // Object slot 0 is a normal slot; it must not alias Null.
+        let raw = encode_ref(Value::ObjectRef(0)).unwrap();
+        assert_ne!(raw, 0);
+        assert_eq!(decode_ref(raw), Value::ObjectRef(0));
+        assert_eq!(decode_ref(0), Value::Null);
+        assert_eq!(encode_ref(Value::Null), Some(0));
+        for v in [Value::ObjectRef(7), Value::Reference(7), Value::ArrayRef(7)] {
+            assert_eq!(decode_ref(encode_ref(v).unwrap()), v);
+        }
+        assert_eq!(encode_ref(Value::Int(3)), None);
+    }
 
     #[test]
     fn alloc_returns_sequential_indices() {

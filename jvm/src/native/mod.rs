@@ -107,6 +107,9 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/NumberFormatException",
     "java/lang/ExceptionInInitializerError",
     "java/lang/StackOverflowError",
+    "java/lang/NegativeArraySizeException",
+    "java/util/ConcurrentModificationException",
+    "java/lang/OutOfMemoryError",
     "java/util/NoSuchElementException",
     "java/io/IOException",
     "java/io/InterruptedIOException",
@@ -313,9 +316,9 @@ fn throwable_get_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>
         .alloc(crate::array_heap::ATYPE_REF, list.len() as u16)
         .ok_or(JvmError::StackOverflow)?;
     for (i, &t) in list.iter().enumerate() {
-        // ObjectRefs are stored untagged in ATYPE_REF arrays (see the GC's
-        // tag scheme); aaload turns them back into Value::ObjectRef.
-        ctx.arrays.store(arr, i, t as i32);
+        // Same slot encoding aastore uses; aaload decodes it back.
+        let raw = crate::array_heap::encode_ref(Value::ObjectRef(t)).unwrap_or(0);
+        ctx.arrays.store(arr, i, raw);
     }
     Ok(Some(Value::ArrayRef(arr)))
 }

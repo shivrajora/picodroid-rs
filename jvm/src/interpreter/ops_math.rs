@@ -49,7 +49,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let b = frame.pop()?;
                 let a = frame.pop()?;
                 match (a, b) {
-                    (Value::Int(_), Value::Int(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Int(_), Value::Int(0)) => return Err(self.arithmetic_exception()),
                     (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_div(b)))?,
                     _ => return Err(JvmError::InvalidBytecode),
                 }
@@ -60,7 +60,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let b = frame.pop()?;
                 let a = frame.pop()?;
                 match (a, b) {
-                    (Value::Int(_), Value::Int(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Int(_), Value::Int(0)) => return Err(self.arithmetic_exception()),
                     (Value::Int(a), Value::Int(b)) => frame.push(Value::Int(a.wrapping_rem(b)))?,
                     _ => return Err(JvmError::InvalidBytecode),
                 }
@@ -243,7 +243,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let b = frame.pop()?;
                 let a = frame.pop()?;
                 match (a, b) {
-                    (Value::Long(_), Value::Long(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Long(_), Value::Long(0)) => return Err(self.arithmetic_exception()),
                     (Value::Long(a), Value::Long(b)) => {
                         frame.push(Value::Long(a.wrapping_div(b)))?
                     }
@@ -256,7 +256,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let b = frame.pop()?;
                 let a = frame.pop()?;
                 match (a, b) {
-                    (Value::Long(_), Value::Long(0)) => return Err(JvmError::InvalidBytecode),
+                    (Value::Long(_), Value::Long(0)) => return Err(self.arithmetic_exception()),
                     (Value::Long(a), Value::Long(b)) => {
                         frame.push(Value::Long(a.wrapping_rem(b)))?
                     }

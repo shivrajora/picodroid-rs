@@ -143,9 +143,7 @@ pub fn tick(ms: u32) {
             if now >= slot.expire_at_ms {
                 let toast = slot.handle as *mut lv_obj_t;
                 *slot = EMPTY_SLOT;
-                if !toast.is_null() {
-                    lv_obj_delete(toast);
-                }
+                super::super::view_ops::delete_obj(toast);
             }
         }
     }
