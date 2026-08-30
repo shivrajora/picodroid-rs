@@ -934,6 +934,61 @@ pub fn int_to_decimal_buf(n: i32, buf: &mut [u8; 12]) -> &[u8] {
     &buf[i..]
 }
 
+/// Format `d` the way `java.lang.Double.toString` does: the shortest digit
+/// string that round-trips, plain decimal with at least one fractional
+/// digit for `1e-3 <= |d| < 1e7`, otherwise computerized scientific
+/// notation (`1.0E10`, `1.5E-5`). Special values: "NaN", "Infinity",
+/// "-Infinity". Rust's `Display`/`LowerExp` already produce the shortest
+/// round-trip digits; this only applies Java's layout rules.
+pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
+    struct W<'a> {
+        buf: &'a mut [u8],
+        len: usize,
+    }
+    impl core::fmt::Write for W<'_> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let n = s.len().min(self.buf.len() - self.len);
+            self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+            self.len += n;
+            Ok(())
+        }
+    }
+    use core::fmt::Write as _;
+
+    if d.is_nan() {
+        buf[..3].copy_from_slice(b"NaN");
+        return &buf[..3];
+    }
+    if d.is_infinite() {
+        let s: &[u8] = if d > 0.0 { b"Infinity" } else { b"-Infinity" };
+        buf[..s.len()].copy_from_slice(s);
+        return &buf[..s.len()];
+    }
+    let mag = d.abs();
+    let mut w = W { buf, len: 0 };
+    let sci = mag != 0.0 && !(1e-3..1e7).contains(&mag);
+    if sci {
+        let _ = write!(w, "{d:e}");
+    } else {
+        let _ = write!(w, "{d}");
+    }
+    let mut len = w.len;
+    // Java always shows a fractional digit in the mantissa: "1e10" -> "1.0E10",
+    // "100" -> "100.0".
+    let exp_pos = buf[..len].iter().position(|&b| b == b'e');
+    let mantissa_end = exp_pos.unwrap_or(len);
+    if !buf[..mantissa_end].contains(&b'.') && len + 2 <= buf.len() {
+        buf.copy_within(mantissa_end..len, mantissa_end + 2);
+        buf[mantissa_end] = b'.';
+        buf[mantissa_end + 1] = b'0';
+        len += 2;
+    }
+    if let Some(p) = buf[..len].iter().position(|&b| b == b'e') {
+        buf[p] = b'E';
+    }
+    &buf[..len]
+}
+
 /// Format `f` as a decimal ASCII string into `buf`.
 /// Produces `[-]integer.fraction` with up to 6 significant decimal digits.
 /// Special values: "NaN", "Infinity", "-Infinity".
@@ -1093,6 +1148,23 @@ mod tests {
         assert_eq!(heap.get_exception_message(obj), Some(11));
         heap.free_exception_message(obj);
         assert_eq!(heap.get_exception_message(obj), None);
+    }
+
+    #[test]
+    fn double_to_str_buf_matches_java_layout() {
+        let mut b = [0u8; 32];
+        assert_eq!(double_to_str_buf(100.0, &mut b), b"100.0");
+        let mut b = [0u8; 32];
+        assert_eq!(double_to_str_buf(1e10, &mut b), b"1.0E10");
+        let mut b = [0u8; 32];
+        assert_eq!(double_to_str_buf(-1.5e-5, &mut b), b"-1.5E-5");
+        let mut b = [0u8; 32];
+        assert_eq!(
+            double_to_str_buf(f64::MAX, &mut b),
+            b"1.7976931348623157E308"
+        );
+        let mut b = [0u8; 32];
+        assert_eq!(double_to_str_buf(-0.0, &mut b), b"-0.0");
     }
 
     #[test]

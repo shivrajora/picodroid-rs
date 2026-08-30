@@ -1111,6 +1111,56 @@ fn boolean_to_string_static_both_paths() {
 }
 
 #[test]
+fn double_to_string_static_and_instance() {
+    // Every other wrapper has a toString arm; Double had none, so the
+    // static form was NoSuchMethod and the instance form printed
+    // java.lang.Double@NNNN via Object.toString.
+    let mut objects = ObjectHeap::new();
+    let mut strings = StringTable::new();
+    let cases: &[(f64, &str)] = &[
+        (1.5, "1.5"),
+        (100.0, "100.0"),
+        (0.1, "0.1"),
+        (-0.0, "-0.0"),
+        (0.0, "0.0"),
+        (1e10, "1.0E10"),
+        (1.5e-5, "1.5E-5"),
+        (1234567.0, "1234567.0"),
+        (12345678.0, "1.2345678E7"),
+        (0.001, "0.001"),
+        (f64::NAN, "NaN"),
+        (f64::INFINITY, "Infinity"),
+        (f64::NEG_INFINITY, "-Infinity"),
+        (core::f64::consts::PI, "3.141592653589793"),
+    ];
+    for &(d, want) in cases {
+        let v = dispatch_boxed_to_string(
+            "java/lang/Double",
+            "(D)Ljava/lang/String;",
+            &[Value::Double(d)],
+            &mut objects,
+            &mut strings,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolve_str(&strings, v), want, "Double.toString({d})");
+    }
+    // Instance form on a boxed receiver.
+    let boxed = objects.alloc("java/lang/Double").unwrap();
+    objects.set_field(boxed, 0, Value::Double(2.5));
+    let v = dispatch_boxed_to_string(
+        "java/lang/Double",
+        "()Ljava/lang/String;",
+        &[Value::ObjectRef(boxed)],
+        &mut objects,
+        &mut strings,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(resolve_str(&strings, v), "2.5");
+}
+
+#[test]
 fn float_to_string_static() {
     let mut objects = ObjectHeap::new();
     let mut strings = StringTable::new();
