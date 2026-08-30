@@ -215,13 +215,19 @@ pub(crate) fn destroy_all(
 ) {
     // Snapshot to avoid iterator-vs-mutation issues (each onDestroy may
     // observe other entries via static state).
-    let mut victims: [Option<(u16, &'static str)>; MAX_SERVICES] = [None; MAX_SERVICES];
+    let mut victims: [Option<(u16, &'static str, Option<i32>)>; MAX_SERVICES] =
+        [None; MAX_SERVICES];
     for (i, e) in registry().iter().enumerate() {
         if let Some(s) = e {
-            victims[i] = Some((s.obj_ref, s.class_name));
+            victims[i] = Some((s.obj_ref, s.class_name, s.foreground_id));
         }
     }
     for v in victims.iter().flatten() {
+        // Clear the banner first, as maybe_destroy does — the app-exit path
+        // used to leave a foreground Service's notification on screen.
+        if let Some(id) = v.2 {
+            crate::notification::cancel(id);
+        }
         let _ = invoke_lifecycle(
             jvm,
             v.1,
@@ -339,6 +345,17 @@ fn process_bind(
     heap: &mut SharedJvmHeap,
     handler: &mut PicodroidNativeHandler,
 ) -> crate::lifecycle::LifecycleControl {
+    // Refuse up front when the connection table is full: recording nothing
+    // while still bumping bind_count and delivering onServiceConnected left a
+    // bind that unbindService could never find, so the Service never reached
+    // onDestroy. Every other cap in this file is loud; this one was silent.
+    if connections().iter().all(|c| c.is_some()) {
+        crate::pd_warn!(
+            "bindService: connection table full ({} connections), bind dropped",
+            MAX_CONNECTIONS
+        );
+        return crate::lifecycle::LifecycleControl::Continue;
+    }
     let slot = match ensure_registered(class_name, jvm, heap, handler) {
         Some(s) => s,
         None => return crate::lifecycle::LifecycleControl::Continue,
