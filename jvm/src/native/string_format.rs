@@ -81,9 +81,10 @@ fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
 /// scratch buffer — `format()` reuses one buffer across all args instead of
 /// allocating a fresh Vec per conversion (device-heap churn in log-heavy
 /// loops).
-fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
+fn stringify(ctx: &mut NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
     dst.clear();
-    match unbox(ctx, v) {
+    let unboxed = unbox(ctx, v);
+    match unboxed {
         Value::Null => dst.extend_from_slice(b"null"),
         Value::Reference(idx) => {
             dst.extend_from_slice(ctx.strings.resolve(idx).unwrap_or("null").as_bytes())
@@ -105,11 +106,33 @@ fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
             dst.extend_from_slice(crate::object_heap::double_to_str_buf(d, &mut tmp));
         }
         Value::ObjectRef(idx) => {
-            let name = ctx.objects.class_name(idx).unwrap_or("Object");
-            dst.extend_from_slice(name.as_bytes());
-            dst.push(b'@');
-            let mut tmp = [0u8; 12];
-            dst.extend_from_slice(crate::object_heap::int_to_decimal_buf(idx as i32, &mut tmp));
+            // %s of an object calls its toString() (bugbash S4). The upcall
+            // runs with the builtin handler — a toString needing embedder
+            // natives surfaces the miss as the fallback below. Sibling args
+            // stay rooted through the varargs array while the callee runs.
+            use super::NativeMethodHandler as _;
+            let mut h = super::BuiltinHandler;
+            if let Ok(Some(Value::Reference(sref))) = h.invoke_java(
+                ctx,
+                Value::ObjectRef(idx),
+                "toString",
+                "()Ljava/lang/String;",
+                &[],
+            ) {
+                dst.extend_from_slice(ctx.strings.resolve(sref).unwrap_or("null").as_bytes());
+            } else {
+                // Identity fallback, in Object.toString's own shape
+                // (dotted name @ 4-hex index — it used to print the class
+                // in slash form with a decimal index).
+                let name = ctx.objects.class_name(idx).unwrap_or("Object");
+                for b in name.bytes() {
+                    dst.push(if b == b'/' { b'.' } else { b });
+                }
+                dst.push(b'@');
+                for shift in [12u32, 8, 4, 0] {
+                    dst.push(b"0123456789abcdef"[((idx >> shift) & 0xF) as usize]);
+                }
+            }
         }
         Value::ArrayRef(idx) => {
             dst.extend_from_slice(b"[@");
