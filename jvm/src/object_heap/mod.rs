@@ -934,13 +934,18 @@ pub fn int_to_decimal_buf(n: i32, buf: &mut [u8; 12]) -> &[u8] {
     &buf[i..]
 }
 
-/// Format `d` the way `java.lang.Double.toString` does: the shortest digit
-/// string that round-trips, plain decimal with at least one fractional
-/// digit for `1e-3 <= |d| < 1e7`, otherwise computerized scientific
+/// Java `Double.toString` / `Float.toString` layout over the shortest
+/// round-trip digit string: plain decimal with at least one fractional
+/// digit for `1e-3 <= |x| < 1e7`, otherwise computerized scientific
 /// notation (`1.0E10`, `1.5E-5`). Special values: "NaN", "Infinity",
 /// "-Infinity". Rust's `Display`/`LowerExp` already produce the shortest
-/// round-trip digits; this only applies Java's layout rules.
-pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
+/// digits that round-trip (for the value's own width — an `f32` formats
+/// as an `f32`, which is exactly what `Float.toString` does); this only
+/// applies Java's layout rules on top.
+fn java_float_layout<F>(x: F, buf: &mut [u8; 32]) -> &[u8]
+where
+    F: Copy + core::fmt::Display + core::fmt::LowerExp + Into<f64>,
+{
     struct W<'a> {
         buf: &'a mut [u8],
         len: usize,
@@ -955,6 +960,7 @@ pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
     }
     use core::fmt::Write as _;
 
+    let d: f64 = x.into();
     if d.is_nan() {
         buf[..3].copy_from_slice(b"NaN");
         return &buf[..3];
@@ -968,9 +974,9 @@ pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
     let mut w = W { buf, len: 0 };
     let sci = mag != 0.0 && !(1e-3..1e7).contains(&mag);
     if sci {
-        let _ = write!(w, "{d:e}");
+        let _ = write!(w, "{x:e}");
     } else {
-        let _ = write!(w, "{d}");
+        let _ = write!(w, "{x}");
     }
     let mut len = w.len;
     // Java always shows a fractional digit in the mantissa: "1e10" -> "1.0E10",
@@ -989,67 +995,14 @@ pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
     &buf[..len]
 }
 
-/// Format `f` as a decimal ASCII string into `buf`.
-/// Produces `[-]integer.fraction` with up to 6 significant decimal digits.
-/// Special values: "NaN", "Infinity", "-Infinity".
+/// Format `d` as `java.lang.Double.toString` would. See [`java_float_layout`].
+pub fn double_to_str_buf(d: f64, buf: &mut [u8; 32]) -> &[u8] {
+    java_float_layout(d, buf)
+}
+
+/// Format `f` as `java.lang.Float.toString` would. See [`java_float_layout`].
 pub fn float_to_str_buf(f: f32, buf: &mut [u8; 32]) -> &[u8] {
-    if f.is_nan() {
-        let s = b"NaN";
-        buf[..s.len()].copy_from_slice(s);
-        return &buf[..s.len()];
-    }
-    if f.is_infinite() {
-        if f > 0.0 {
-            let s = b"Infinity";
-            buf[..s.len()].copy_from_slice(s);
-            return &buf[..s.len()];
-        } else {
-            let s = b"-Infinity";
-            buf[..s.len()].copy_from_slice(s);
-            return &buf[..s.len()];
-        }
-    }
-    let neg = f < 0.0;
-    let f = if neg { -f } else { f };
-
-    // Integer and fractional parts
-    let int_part = f as u32;
-    let frac = f - int_part as f32;
-
-    let mut pos = 0usize;
-    if neg {
-        buf[pos] = b'-';
-        pos += 1;
-    }
-
-    // Write integer part
-    let mut ibuf = [0u8; 12];
-    let istr = int_to_decimal_buf(int_part as i32, &mut ibuf);
-    buf[pos..pos + istr.len()].copy_from_slice(istr);
-    pos += istr.len();
-
-    // Write up to 6 fractional digits, trimming trailing zeros
-    buf[pos] = b'.';
-    pos += 1;
-
-    let mut frac_val = (frac * 1_000_000.0 + 0.5) as u32; // round to 6 places
-                                                          // Trim trailing zeros
-    let mut digits = 6usize;
-    while digits > 1 && frac_val % 10 == 0 {
-        frac_val /= 10;
-        digits -= 1;
-    }
-    // Write digits (right to left, then reverse)
-    let frac_start = pos;
-    let mut fv = frac_val;
-    for _ in 0..digits {
-        buf[pos] = b'0' + (fv % 10) as u8;
-        fv /= 10;
-        pos += 1;
-    }
-    buf[frac_start..pos].reverse();
-
-    &buf[..pos]
+    java_float_layout(f, buf)
 }
 
 #[cfg(test)]
@@ -1148,6 +1101,29 @@ mod tests {
         assert_eq!(heap.get_exception_message(obj), Some(11));
         heap.free_exception_message(obj);
         assert_eq!(heap.get_exception_message(obj), None);
+    }
+
+    #[test]
+    fn float_to_str_buf_matches_java_float_to_string() {
+        // Shortest round-trip digits with Java's layout. The old 6-digit
+        // formatter lost the rounding carry (0.99999994 -> "0.0") and
+        // reinterpreted a saturated `as u32` as i32 above 2^31 (1e10 -> "-1…").
+        let cases: &[(f32, &[u8])] = &[
+            (0.99999994, b"0.99999994"),
+            (1e10, b"1.0E10"),
+            (1.0 / 3.0, b"0.33333334"),
+            (100.0, b"100.0"),
+            (1e-4, b"1.0E-4"),
+            (-2.5, b"-2.5"),
+            (0.1, b"0.1"),
+            (3.4028235e38, b"3.4028235E38"),
+            (0.0, b"0.0"),
+            (-0.0, b"-0.0"),
+        ];
+        for &(f, want) in cases {
+            let mut buf = [0u8; 32];
+            assert_eq!(float_to_str_buf(f, &mut buf), want, "{f}");
+        }
     }
 
     #[test]
