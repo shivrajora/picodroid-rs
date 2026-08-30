@@ -57,13 +57,23 @@ fn run_multi(
     exec_class_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
+    run_multi_with_heap(classes_data, exec_class_idx, args, ObjectHeap::new())
+}
+
+/// [`run_multi`] over a caller-provided heap, for tests whose args reference
+/// pre-allocated objects.
+fn run_multi_with_heap(
+    classes_data: &[&'static [u8]],
+    exec_class_idx: usize,
+    args: &[Value],
+    mut objects: ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
     let mut classes: Vec<ClassFile> = Vec::new();
     for &data in classes_data {
         let cf = ClassFile::parse(data).expect("parse failed");
         classes.push(cf);
     }
     let mut strings = StringTable::new();
-    let mut objects = ObjectHeap::new();
     let mut arrays = crate::array_heap::ArrayHeap::new();
     let mut statics = StaticFieldStore::new();
     let mut gc_state = GcState::new();

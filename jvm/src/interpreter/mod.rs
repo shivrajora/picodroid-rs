@@ -133,7 +133,7 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub class_objects: &'a mut ClassObjectCache,
     pub handler: &'a mut H,
     /// Cache: (class_name ptr, field_name ptr) → field slot index.
-    pub field_cache: Vec<(*const u8, *const u8, usize)>,
+    pub field_cache: Vec<(*const u8, *const u8, *const u8, usize)>,
     /// Cache: (class_name ptr, method_name ptr, desc ptr) → (class_idx, method_idx).
     pub method_cache: Vec<helpers::MethodCacheEntry>,
     /// Cache: (class_name ptr, field_name ptr) → index in StaticFieldStore entries.

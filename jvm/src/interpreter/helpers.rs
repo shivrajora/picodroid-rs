@@ -13,20 +13,27 @@ pub(super) type MethodCacheEntry = (*const u8, *const u8, *const u8, usize, usiz
 
 /// Cached field_slot: uses pointer identity on the Flash-backed class/field name slices.
 pub(super) fn field_slot_cached(
-    cache: &mut Vec<(*const u8, *const u8, usize)>,
+    cache: &mut Vec<(*const u8, *const u8, *const u8, usize)>,
     classes: &[ClassFile],
     class_name: &'static str,
+    declared_class: &[u8],
     field_name: &[u8],
 ) -> Option<usize> {
     let cn_ptr = class_name.as_ptr();
+    let dc_ptr = declared_class.as_ptr();
     let fn_ptr = field_name.as_ptr();
-    for &(cp, fp, slot) in cache.iter() {
-        if cp == cn_ptr && fp == fn_ptr {
+    for &(cp, dp, fp, slot) in cache.iter() {
+        if cp == cn_ptr && dp == dc_ptr && fp == fn_ptr {
             return Some(slot);
         }
     }
-    let slot = field_slot(classes, class_name, core::str::from_utf8(field_name).ok()?)?;
-    cache.push((cn_ptr, fn_ptr, slot));
+    let slot = field_slot_declared(
+        classes,
+        class_name,
+        core::str::from_utf8(declared_class).ok()?,
+        core::str::from_utf8(field_name).ok()?,
+    )?;
+    cache.push((cn_ptr, dc_ptr, fn_ptr, slot));
     Some(slot)
 }
 
@@ -287,6 +294,58 @@ pub(super) fn field_slot(
     class_name: &str,
     field_name: &str,
 ) -> Option<usize> {
+    field_slot_declared(classes, class_name, class_name, field_name)
+}
+
+/// [`field_slot`], honouring the `Fieldref`'s declaring class: JVMS §5.4.3.2
+/// resolves a field starting at the CP-named class and walking *up*, so when
+/// a subclass shadows a super's field (`class A { int x; } class B extends A
+/// { int x; }`) the two Fieldrefs address two distinct slots. The old
+/// name-only walk returned the root-most match for both — reads and writes
+/// through either declaring class aliased A's storage and B's own field was
+/// unreachable (bugbash J12).
+pub(super) fn field_slot_declared(
+    classes: &[ClassFile],
+    runtime_class: &str,
+    declared_class: &str,
+    field_name: &str,
+) -> Option<usize> {
+    // Resolve which class actually declares the field, from the CP-named
+    // class upward. A declaring class outside the loaded set (builtin
+    // natives lay their fields out by convention) falls back to the
+    // name-only walk below.
+    let mut declaring: Option<&str> = None;
+    let mut current = declared_class;
+    loop {
+        let Some(ci) = classes
+            .iter()
+            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
+        else {
+            break;
+        };
+        let cf = &classes[ci];
+        let declares = (0..cf.fields().len()).any(|fi| {
+            cf.field_name(fi)
+                .is_some_and(|n| n == field_name.as_bytes())
+        });
+        if declares {
+            declaring = Some(current);
+            break;
+        }
+        match cf.super_class_name() {
+            Some(sup) => current = core::str::from_utf8(sup).ok()?,
+            None => break,
+        }
+    }
+    field_slot_in(classes, runtime_class, declaring, field_name)
+}
+
+fn field_slot_in(
+    classes: &[ClassFile],
+    class_name: &str,
+    declaring: Option<&str>,
+    field_name: &str,
+) -> Option<usize> {
     // Build a chain of class indices from root to leaf (root first).
     // Track whether the chain bottoms out at java/lang/Enum (a native class
     // not in the loaded class set) so we can account for its implicit fields.
@@ -322,8 +381,14 @@ pub(super) fn field_slot(
     let mut slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
     for ci in chain.iter() {
         let cf = &classes[*ci];
+        // With a known declaring class, only its own field table may match;
+        // shadowing classes above/below it keep their own slots.
+        let this_declares = match declaring {
+            Some(d) => cf.class_name().is_some_and(|n| n == d.as_bytes()),
+            None => true,
+        };
         for fi in 0..cf.fields().len() {
-            if cf.field_name(fi)? == field_name.as_bytes() {
+            if this_declares && cf.field_name(fi)? == field_name.as_bytes() {
                 return Some(slot);
             }
             slot += 1;

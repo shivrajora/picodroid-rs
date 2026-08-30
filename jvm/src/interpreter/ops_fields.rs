@@ -82,7 +82,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 match obj_ref {
                     Value::ObjectRef(idx) => {
                         let cf = &self.classes[frame.class_idx];
-                        let (_class, field_name_bytes, _desc) =
+                        let (declared_class, field_name_bytes, _desc) =
                             cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                         let obj_class = self
                             .objects
@@ -92,6 +92,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             &mut self.field_cache,
                             self.classes,
                             obj_class,
+                            declared_class,
                             field_name_bytes,
                         )
                         .ok_or(JvmError::InvalidReference)?;
@@ -112,7 +113,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 match obj_ref {
                     Value::ObjectRef(idx) => {
                         let cf = &self.classes[frame.class_idx];
-                        let (_class, field_name_bytes, _desc) =
+                        let (declared_class, field_name_bytes, _desc) =
                             cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                         let obj_class = self
                             .objects
@@ -122,6 +123,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             &mut self.field_cache,
                             self.classes,
                             obj_class,
+                            declared_class,
                             field_name_bytes,
                         )
                         .ok_or(JvmError::InvalidReference)?;
