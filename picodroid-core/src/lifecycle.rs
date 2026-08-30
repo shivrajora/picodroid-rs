@@ -537,7 +537,9 @@ fn teardown_activity(
     use crate::graphics::gfx::Handle;
     use crate::graphics::lvgl::with_gfx;
 
+    let mut popped = 0usize;
     while let Some((act_ref, act_class, root)) = handler.pop_activity() {
+        popped += 1;
         for site in [
             dispatch_sites::ACTIVITY_ON_PAUSE,
             dispatch_sites::ACTIVITY_ON_STOP,
@@ -558,6 +560,13 @@ fn teardown_activity(
         with_gfx(|g| g.delete(Handle::from_java(visible_root)));
     }
     crate::graphics::display::set_current_root_id(0);
+    // Mirror handle_pop_op: every pushed Activity owns a keypad focus group,
+    // and only the pop path freed them — a clean app exit left the group
+    // stack at its high-water mark until the next boot's reset. Done after
+    // the view trees are deleted so the groups are empty.
+    for _ in 0..popped {
+        crate::graphics::lvgl::events::pop_activity_group();
+    }
     // Tear down any Services still alive. Foreground/started/bound — all
     // get a final onDestroy and have their banners cleared.
     crate::service_lifecycle::destroy_all(jvm, heap, handler);
