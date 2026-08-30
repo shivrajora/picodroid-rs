@@ -12,8 +12,6 @@ import java.util.Set;
 public final class SetsKt {
   private SetsKt() {}
 
-  private static final HashSet<Object> EMPTY = new HashSet<Object>();
-
   private static LinkedHashSet<Object> fromArray(Object[] elements) {
     LinkedHashSet<Object> out = new LinkedHashSet<Object>();
     for (Object e : elements) {
@@ -30,8 +28,9 @@ public final class SetsKt {
     return out;
   }
 
+  /** A fresh (mutable) empty set per call — see {@code CollectionsKt.emptyList}. */
   public static Set emptySet() {
-    return EMPTY;
+    return new HashSet<Object>();
   }
 
   public static Set setOf(Object[] elements) {

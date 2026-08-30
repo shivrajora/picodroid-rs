@@ -83,6 +83,11 @@ object SetsDemo {
         check("sumOf / maxOf on set", a.sumOf { it * 2 } == 12 && a.maxOf { it } == 3)
         check("joinToString transform on set", a.sorted().joinToString("") { "${it * 2}" } == "246")
 
+        // S9: emptySet() must not be a shared mutable singleton.
+        @Suppress("UNCHECKED_CAST")
+        (emptySet<Int>() as MutableSet<Int>).add(7)
+        check("emptySet not shared", emptySet<Int>().isEmpty())
+
         Check.done(TAG)
     }
 }

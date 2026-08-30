@@ -166,6 +166,12 @@ object CollectionsDemo {
         check("onEach", nums.onEach { n += it }.size == 5 && n == 17)
         check("chunk via windowed loop", nums.chunked(2).size == 3 && nums.chunked(2)[2].size == 1)
 
+        // S9: emptyList() must not be a shared mutable singleton — one cast+add
+        // used to poison every later emptyList() app-wide.
+        @Suppress("UNCHECKED_CAST")
+        (emptyList<Int>() as MutableList<Int>).add(99)
+        check("emptyList not shared", emptyList<Int>().isEmpty() && listOf<Int>().isEmpty())
+
         Check.done(TAG)
     }
 }

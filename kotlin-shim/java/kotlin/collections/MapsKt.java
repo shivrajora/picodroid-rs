@@ -18,8 +18,6 @@ import kotlin.Pair;
 public final class MapsKt {
   private MapsKt() {}
 
-  private static final HashMap<Object, Object> EMPTY = new HashMap<Object, Object>();
-
   @SuppressWarnings("unchecked")
   private static void putAll(Map<Object, Object> target, Map source) {
     for (Object o : source.entrySet()) {
@@ -48,8 +46,9 @@ public final class MapsKt {
     return Integer.MAX_VALUE;
   }
 
+  /** A fresh (mutable) empty map per call — see {@code CollectionsKt.emptyList}. */
   public static Map emptyMap() {
-    return EMPTY;
+    return new HashMap<Object, Object>();
   }
 
   public static Map mapOf(Pair[] pairs) {
