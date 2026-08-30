@@ -1050,8 +1050,9 @@ fn java_float_layout<'a>(
         let _ = write!(out, "{exp}");
     } else if exp >= 0 {
         let int_len = exp as usize + 1;
+        let head = &digits[..nd];
         for i in 0..int_len {
-            out.push(if i < nd { digits[i] } else { b'0' });
+            out.push(head.get(i).copied().unwrap_or(b'0'));
         }
         out.push(b'.');
         if nd > int_len {
