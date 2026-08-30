@@ -289,6 +289,10 @@ const ENUM_IMPLICIT_FIELDS: usize = 2;
 /// Computes the runtime field slot for a named field, walking from the root of the hierarchy down.
 /// Super-class fields come first (slot 0), then subclass fields.
 /// Handles `java/lang/Enum` as a native superclass with 2 implicit fields (name, ordinal).
+/// Name-only resolution (declared class = runtime class); kept for the
+/// direct unit tests, unused in firmware builds where every call site
+/// carries the Fieldref's class.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn field_slot(
     classes: &[ClassFile],
     class_name: &str,
@@ -316,13 +320,10 @@ pub(super) fn field_slot_declared(
     // name-only walk below.
     let mut declaring: Option<&str> = None;
     let mut current = declared_class;
-    loop {
-        let Some(ci) = classes
-            .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
-        else {
-            break;
-        };
+    while let Some(ci) = classes
+        .iter()
+        .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
+    {
         let cf = &classes[ci];
         let declares = (0..cf.fields().len()).any(|fi| {
             cf.field_name(fi)
