@@ -143,6 +143,7 @@ public class BugBash extends Application {
     check("J14 %f Infinity", String.format("%f", Double.POSITIVE_INFINITY).equals("Infinity"));
     check("J14 %s double", String.format("%s", 1.0 / 3.0).equals("0.3333333333333333"));
     check("J14 %.2f", String.format("%.2f", 3.14159).equals("3.14"));
+    check("S4 %s calls toString", String.format("%s", new Item("q")).equals("Item(q)"));
   }
 
   static void strings() {
