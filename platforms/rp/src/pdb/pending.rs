@@ -31,11 +31,18 @@ pub static FLASH_PARK_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// pdb_task polls this before starting flash operations.
 pub static CORE0_PARKED: AtomicBool = AtomicBool::new(false);
 
-/// Tracks the number of currently-running JVM child threads (spawned via Thread.start()).
-/// jvm_task waits for this to reach zero before resetting the heap for a new app.
+/// Tracks the number of JVM child threads (spawned via Thread.start()) that
+/// have been counted by [`note_child_spawning`] and not yet deregistered.
+/// jvm_task waits for this to reach zero before resetting the heap for a new
+/// app. Plain load/store (thumbv6m has no atomic RMW) — every read-modify-
+/// write below runs inside an `AtomicSection`, which is what makes it atomic
+/// against the other JVM tasks that also touch it.
 pub static ACTIVE_JVM_THREADS: AtomicU32 = AtomicU32::new(0);
 
-// SAFETY: single-core; jvm_task and jvm-t tasks never run concurrently on RP2040/RP2350.
+// SAFETY: every access is inside an `AtomicSection` (scheduler suspended),
+// so no two tasks can be in the Vec at once. The former "single-core, never
+// concurrent" argument did not survive unequal priorities: a child created
+// above its parent's priority preempts it inside `Vec::push`.
 struct ChildTasksCell(UnsafeCell<Vec<freertos_rust::Task>>);
 unsafe impl Sync for ChildTasksCell {}
 // Vec::new() is const and does not allocate — safe in a static initializer.
@@ -69,28 +76,52 @@ pub(super) fn notify_jvm() {
     cortex_m::asm::sev();
 }
 
-/// Register a child task. Called from the spawning side right after Task::start() returns.
-pub fn register_child_task(task: freertos_rust::Task) {
+/// Count a child that is about to be created. Called by the spawning side
+/// *before* `Task::start`, so the count is already up when the child runs
+/// its first instruction — a child created at a higher priority than its
+/// parent does exactly that, before `start` returns.
+pub fn note_child_spawning() {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
     let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);
     ACTIVE_JVM_THREADS.store(n + 1, Ordering::Relaxed);
+}
+
+/// Undo [`note_child_spawning`] when `Task::start` failed and no child will
+/// ever deregister.
+pub fn abort_child_spawn() {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);
+    ACTIVE_JVM_THREADS.store(n.saturating_sub(1), Ordering::Relaxed);
+}
+
+/// Register a child task's handle. Called by the child itself, as the first
+/// thing it does, so a handle in this list always names a live task (the
+/// spawning side never holds one — see `glue.rs`). Does not touch the
+/// count; [`note_child_spawning`] already did.
+pub fn register_child_task(task: freertos_rust::Task) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
     unsafe { (*CHILD_TASKS.0.get()).push(task) };
 }
 
 /// Deregister a child task by its raw handle. Called from within the child task
 /// just before it exits, so jvm_task's wait loop can unblock.
 pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
-    let tasks = unsafe { &mut *CHILD_TASKS.0.get() };
-    if let Some(pos) = tasks
-        .iter()
-        .position(|t| core::ptr::eq(t.raw_handle(), own_handle))
-    {
-        tasks.swap_remove(pos);
-    }
-    // Decrement and notify jvm_task when we are the last child to exit.
-    // Single-core: no other task can race this load+store sequence.
-    let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);
-    let next = n.saturating_sub(1);
-    ACTIVE_JVM_THREADS.store(next, Ordering::Release);
+    let next = {
+        let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+        let tasks = unsafe { &mut *CHILD_TASKS.0.get() };
+        if let Some(pos) = tasks
+            .iter()
+            .position(|t| core::ptr::eq(t.raw_handle(), own_handle))
+        {
+            tasks.swap_remove(pos);
+        }
+        let n = ACTIVE_JVM_THREADS.load(Ordering::Relaxed);
+        let next = n.saturating_sub(1);
+        ACTIVE_JVM_THREADS.store(next, Ordering::Release);
+        next
+    };
+    // Notify jvm_task when we are the last child to exit — outside the
+    // section, since notifying may yield.
     if next == 0 {
         notify_jvm();
     }
@@ -99,8 +130,12 @@ pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
 /// Abort delays on all registered child tasks. Called from jvm_task immediately
 /// after run_jvm_with() returns so sleeping threads wake up and see STOP_JVM.
 pub fn abort_all_child_delays() {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
     let tasks = unsafe { &*CHILD_TASKS.0.get() };
     for task in tasks.iter() {
+        // Non-blocking (`xTaskAbortDelay` only readies the task), so it is
+        // legal inside the section; the readied child cannot run until the
+        // scheduler resumes.
         task.abort_delay();
     }
 }

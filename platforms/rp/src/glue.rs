@@ -441,25 +441,39 @@ mod rtos_impl {
             //    unblocks. The spawn trampoline calls vTaskDelete(NULL)
             //    after the body returns, reclaiming stack and TCB.
             //
+            // Ordering matters. The count goes up *before* the task exists,
+            // as the simulator's does, and the child registers its own
+            // handle as its first act rather than the parent registering
+            // it after `start` returns: a child at a higher priority than
+            // its parent runs the moment it is created and can finish its
+            // whole body before `start` even returns, and the parent would
+            // then push a handle to a task that no longer exists — leaving
+            // the count wrong (jvm_task waits forever for it) and
+            // `abort_all_child_delays` poking a deleted TCB.
+            //
             // Written as a whole chain because `TaskBuilder`'s setters
             // borrow the temporary and cannot be split across a `let`.
+            crate::pdb::pending::note_child_spawning();
             let spawned = Task::new()
                 .name(spec.name)
                 .stack_size(words)
                 .priority(prio)
                 .core_affinity(0b01)
                 .start(move |_| {
+                    if let Ok(t) = Task::current() {
+                        crate::pdb::pending::register_child_task(t);
+                    }
                     body();
                     if let Ok(t) = Task::current() {
                         crate::pdb::pending::deregister_child_task(t.raw_handle());
                     }
                 });
             match spawned {
-                Ok(child) => {
-                    crate::pdb::pending::register_child_task(child);
-                    true
+                Ok(_child) => true,
+                Err(_) => {
+                    crate::pdb::pending::abort_child_spawn();
+                    false
                 }
-                Err(_) => false,
             }
         }
 

@@ -64,6 +64,36 @@ pub struct BootLeaves {
 /// Returns when the JVM task has finished the app and ended the scheduler —
 /// one app per process, as `sim-run.sh` already assumes.
 pub fn run(leaves: BootLeaves) {
+    // JVM heap compound operations and the GC must be scheduler-atomic here
+    // exactly as on a device (`platforms/rp/src/boot_tasks.rs` installs the
+    // same pair): the POSIX port preempts at every kernel call and on its
+    // 1 kHz tick, and the bg pool and JVM task hold different priorities, so
+    // an arena resize or a collection can be interleaved by another JVM task
+    // at the allocator's `xTaskResumeAll` — the picoenvmon span-overlap
+    // corruption, reproduced on the host. Left uninstalled, every
+    // `AtomicSection` in the simulator is a no-op and the class of bug the
+    // guard exists for is invisible here. Keep this block and the device's in
+    // lockstep.
+    {
+        extern "C" {
+            fn vTaskSuspendAll();
+            fn xTaskResumeAll() -> i32;
+        }
+        fn heap_atomic_enter() {
+            // SAFETY: FFI into the kernel; nests with the allocator's own
+            // suspension, as on device.
+            unsafe { vTaskSuspendAll() };
+        }
+        fn heap_atomic_exit() {
+            // SAFETY: as above; the return value (whether a yield happened)
+            // is not needed.
+            unsafe {
+                xTaskResumeAll();
+            }
+        }
+        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
+    }
+
     // The filesystem worker first, matching the device's order: it has to
     // exist before anything can ask it for a file. Its stack charge rides the
     // same `charge_task_spawn` every other task's does, because it is created

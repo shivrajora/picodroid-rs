@@ -143,9 +143,10 @@ pub fn dispatch(
                     }
                     // One call for every target. Core-0 pinning and the debug
                     // bridge's child-task bookkeeping live in the platform's
-                    // Rtos::spawn; the simulator declines this task kind
-                    // outright (host threads cannot honour the interpreter's
-                    // single-core heap guarantee) and reports it there.
+                    // Rtos::spawn. The simulator runs it as a real task on
+                    // its hosted kernel; only the `cargo test` backing
+                    // declines the kind (no scheduler runs there) and
+                    // reports it.
                     let spawned = crate::rtos::spawn(
                         &spec,
                         alloc::boxed::Box::new(move || {

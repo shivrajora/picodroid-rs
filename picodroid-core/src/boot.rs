@@ -259,7 +259,6 @@ pub fn run_app(apk_data: &[u8]) {
     // must not survive into the reset heap (visit_gc_roots would walk them).
     // Also publishes all-disabled demand so the sampler parks between apps.
     crate::hardware::sensors::reset();
-    #[cfg(not(feature = "sim"))]
     crate::monitor_store::clear();
 
     // Parse the APK once up front so the class table can be pre-sized to the

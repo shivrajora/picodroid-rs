@@ -111,10 +111,15 @@ pub unsafe trait Rtos {
     /// entry point internally anyway, so this costs nothing extra.
     ///
     /// Declining is a legitimate answer. The `cargo test` backing refuses
-    /// [`TaskKind::JvmChild`] because the object heap's safety rests on a
-    /// single-core cooperative-scheduling guarantee that host threads do not
-    /// provide, and no scheduler is running there. The simulator proper runs
-    /// the real FreeRTOS kernel and accepts it.
+    /// [`TaskKind::JvmChild`] because the object heap's safety rests on
+    /// "JVM tasks switch only at kernel yield points", which host threads do
+    /// not provide, and no scheduler is running there. The simulator proper
+    /// runs the real FreeRTOS kernel and accepts it.
+    ///
+    /// A platform that tracks live children for a debug bridge must count
+    /// the child *before* creating it and let the child register its own
+    /// handle: a child created above its parent's priority can run to
+    /// completion before this function returns.
     fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
 
     fn queue_create(depth: usize) -> RawQueue;

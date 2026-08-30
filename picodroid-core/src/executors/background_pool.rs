@@ -1,28 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Fixed-size worker pool backing `picodroid.concurrent.Executors`.
 //!
-//! Workers block on a shared queue of `Runnable` obj_refs. Each owns its own
-//! `Jvm` (lazily built on first work item) so app code can run off the UI
-//! thread without contending for the interpreter.
+//! Workers block on a shared queue of `Runnable` obj_refs and run each item
+//! against the shared class set and heap (`crate::boot`), so app code can run
+//! off the UI thread without contending for the interpreter.
 //!
 //! # Where the worker body lives
 //!
-//! The loop that builds a `Jvm`, loads classes and invokes
-//! `Executors.dispatchRunnable` still lives in the platform crate, because it
-//! reaches into the app's class loader and shared heap. This module owns the
-//! queue and the spawning; the platform installs its loop via
-//! [`set_worker_body`] and pulls work with [`recv_work`]. That keeps the
-//! per-worker `Jvm` cached across items, which a per-item callback would
-//! have quietly destroyed.
+//! The loop that pulls an item and invokes `Executors.dispatchRunnable` is
+//! [`crate::bg_worker`]; this module owns the queue and the spawning. The
+//! body is installed via [`set_worker_body`] and pulls work with
+//! [`recv_work`], so the loop keeps its per-worker native handler across
+//! items.
 //!
 //! # No simulator special case
 //!
 //! There used to be a `mod sim` whose `submit` forwarded to the main queue
-//! and whose `spawn` was a no-op. That distinction is now implicit: the
-//! simulator never calls [`spawn`], so no queue exists, and [`submit`] falls
-//! back to the main queue on its own. Same behaviour, one code path — work
-//! still runs, serialised onto the UI thread, matching the simulator's
-//! single-threaded guarantee.
+//! and whose `spawn` was a no-op. Both the device and the simulator now spawn
+//! the same workers through the RTOS seam (`sim_boot.rs`), and [`submit`]
+//! falls back to the main queue only when no pool exists — the `cargo test`
+//! backing, where no scheduler runs.
 
 use alloc::boxed::Box;
 use core::cell::Cell;

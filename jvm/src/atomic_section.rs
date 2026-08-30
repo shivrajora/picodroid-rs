@@ -13,11 +13,12 @@
 //! overlapping spans, compaction range panics, mid-GC sweeps of rooted
 //! objects (picoenvmon P1, docs/picoenvmon-qa.md 2026-08-17).
 //!
-//! The platform installs suspend/resume hooks (device:
-//! `vTaskSuspendAll`/`xTaskResumeAll`, which nest with the allocator's own
-//! suspension so the inner resume never yields); an [`AtomicSection`] guard
-//! brackets each compound operation. With no hooks installed (host tests,
-//! the sim) the guard is a no-op.
+//! The platform installs suspend/resume hooks (`vTaskSuspendAll`/
+//! `xTaskResumeAll` on both the device and the simulator's hosted kernel;
+//! they nest with the allocator's own suspension so the inner resume never
+//! yields); an [`AtomicSection`] guard brackets each compound operation.
+//! With no hooks installed (`cargo test`, where no scheduler runs) the guard
+//! is a no-op.
 //!
 //! Sections must never block: nothing inside a guard may call a blocking
 //! RTOS primitive. The guarded regions are short (an arena grow, one GC).

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#[cfg(not(feature = "sim"))]
 use pico_jvm::types::MonitorKey;
 use pico_jvm::{
     types::{JvmError, Value},
@@ -67,10 +66,13 @@ impl Default for PicodroidNativeHandler {
 // it. Registry of every live handler, walked by `gc_visit_roots` so any
 // collector sees the union of all handlers' roots.
 //
-// Raw pointers under the same scheduling contract as
-// `GcState::parked_frames`: JVM tasks are core-0-pinned with time slicing
-// off, so the other handlers' owners are parked while a collector runs, and
-// register/deregister happen in the owning task's slice.
+// Raw pointers under the same contract as `GcState::parked_frames`: the
+// collector walks this registry inside an `AtomicSection` (scheduler
+// suspended), so no owner can be mid-`execute`-teardown while it is read, and
+// register/deregister below take the same guard so the `Vec` can never be
+// reallocated under a reader. The older justification — core-0 pinning plus
+// time slicing off — was falsified by the SMP kernel's equal-priority wake
+// yield (see `pico_jvm::atomic_section`).
 static mut HANDLER_ROOTS: alloc::vec::Vec<*const PicodroidNativeHandler> = alloc::vec::Vec::new();
 
 fn handler_registry() -> &'static mut alloc::vec::Vec<*const PicodroidNativeHandler> {
@@ -78,7 +80,8 @@ fn handler_registry() -> &'static mut alloc::vec::Vec<*const PicodroidNativeHand
     // `static_mut_refs` lint (see events.rs / handle_table.rs). Bound to a
     // local first so clippy's `deref_addrof` doesn't misread the idiom.
     let ptr = &raw mut HANDLER_ROOTS;
-    // SAFETY: single-core scheduling contract per the HANDLER_ROOTS docs.
+    // SAFETY: every mutation and every walk of the registry happens inside
+    // an `AtomicSection` (see the HANDLER_ROOTS docs).
     unsafe { &mut *ptr }
 }
 
@@ -90,6 +93,7 @@ pub struct HandlerRootGuard(*const PicodroidNativeHandler);
 impl HandlerRootGuard {
     pub fn new(handler: &PicodroidNativeHandler) -> Self {
         let ptr: *const PicodroidNativeHandler = handler;
+        let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
         handler_registry().push(ptr);
         Self(ptr)
     }
@@ -97,6 +101,7 @@ impl HandlerRootGuard {
 
 impl Drop for HandlerRootGuard {
     fn drop(&mut self) {
+        let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
         let reg = handler_registry();
         if let Some(i) = reg.iter().rposition(|&p| p == self.0) {
             reg.remove(i);
@@ -544,17 +549,19 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         crate::host::stop_requested()
     }
 
-    #[cfg(not(feature = "sim"))]
+    // No simulator arm: the simulator runs the real FreeRTOS kernel with real
+    // `Thread.start` children (docs/designs/freertos-host-sim.md, M7), so
+    // `synchronized` must contend real kernel mutexes there too. These were
+    // `cfg(not(feature = "sim"))` from before M7, which left the simulator's
+    // monitors silent no-ops for a month after its threads became real.
     fn monitor_enter(&mut self, key: MonitorKey) -> Result<(), JvmError> {
         crate::monitor_store::enter(key)
     }
 
-    #[cfg(not(feature = "sim"))]
     fn monitor_exit(&mut self, key: MonitorKey) -> Result<(), JvmError> {
         crate::monitor_store::exit(key)
     }
 
-    #[cfg(not(feature = "sim"))]
     fn monitors_clear(&mut self) {
         crate::monitor_store::clear();
     }
