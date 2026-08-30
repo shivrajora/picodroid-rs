@@ -4,6 +4,70 @@ use pico_jvm::{
     NativeContext,
 };
 
+/// Runnables handed to `Thread.start`, rooted from the moment of spawn until
+/// their child task exits. The task closure captures the obj_ref as a raw
+/// u16, and idiomatic Java (`new Thread(new Work()).start();`) drops every
+/// Java-side reference immediately — so between spawn and the child's first
+/// frame (and on any GC that races the child's startup) the Runnable had no
+/// root at all and was swept while the parent churned (bugbash B1: all three
+/// threadstress workers died on their first getfield). Same hazard class as
+/// the executor queues (F2), one queue further out. Guarded by an
+/// atomic-section like the heap's own compound ops: start() runs on the
+/// spawning task, the release on the child.
+const MAX_SPAWNED: usize = 8;
+struct SpawnedCell(
+    core::cell::Cell<[u16; MAX_SPAWNED]>,
+    core::cell::Cell<usize>,
+);
+unsafe impl Sync for SpawnedCell {}
+static SPAWNED_RUNNABLES: SpawnedCell = SpawnedCell(
+    core::cell::Cell::new([0; MAX_SPAWNED]),
+    core::cell::Cell::new(0),
+);
+
+fn spawned_push(r: u16) -> bool {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = SPAWNED_RUNNABLES.0.get();
+    let len = SPAWNED_RUNNABLES.1.get();
+    if len >= MAX_SPAWNED {
+        return false;
+    }
+    arr[len] = r;
+    SPAWNED_RUNNABLES.0.set(arr);
+    SPAWNED_RUNNABLES.1.set(len + 1);
+    true
+}
+
+fn spawned_remove(r: u16) {
+    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let mut arr = SPAWNED_RUNNABLES.0.get();
+    let len = SPAWNED_RUNNABLES.1.get();
+    if let Some(pos) = arr[..len].iter().position(|&x| x == r) {
+        arr.copy_within(pos + 1..len, pos);
+        arr[len - 1] = 0;
+        SPAWNED_RUNNABLES.0.set(arr);
+        SPAWNED_RUNNABLES.1.set(len - 1);
+    }
+}
+
+/// Drops the root when the child exits, on every path (error included).
+struct SpawnedRootGuard(u16);
+impl Drop for SpawnedRootGuard {
+    fn drop(&mut self) {
+        spawned_remove(self.0);
+    }
+}
+
+/// GC roots: every Runnable whose child task has been spawned and has not
+/// exited. See [`SPAWNED_RUNNABLES`].
+pub fn visit_spawned_runnable_roots(visit: &mut dyn FnMut(u16)) {
+    let arr = SPAWNED_RUNNABLES.0.get();
+    let len = SPAWNED_RUNNABLES.1.get();
+    for &r in &arr[..len] {
+        visit(r);
+    }
+}
+
 pub fn dispatch(
     class_name: &str,
     method_name: &str,
@@ -67,6 +131,16 @@ pub fn dispatch(
                         stack_bytes: None, // platform's JvmChild default
                     };
 
+                    // Root the Runnable BEFORE the task exists: the closure
+                    // holds it only as a raw u16 (see SPAWNED_RUNNABLES).
+                    if !spawned_push(runnable_obj_idx) {
+                        crate::pd_warn!(
+                            "Thread.start: more than {} live threads, {} not started",
+                            MAX_SPAWNED,
+                            class_name
+                        );
+                        return Some(Ok(None));
+                    }
                     // One call for every target. Core-0 pinning and the debug
                     // bridge's child-task bookkeeping live in the platform's
                     // Rtos::spawn; the simulator declines this task kind
@@ -91,6 +165,7 @@ pub fn dispatch(
                                 );
                                 return;
                             };
+                            let _spawn_root = SpawnedRootGuard(runnable_obj_idx);
                             let heap = crate::boot::shared_heap();
                             let mut handler = super::PicodroidNativeHandler::new();
                             // Cross-executor GC root visibility; drops with
@@ -116,6 +191,8 @@ pub fn dispatch(
                     // it must never be silent.
                     if !spawned {
                         crate::pd_error!("Thread.start: task spawn failed for {}", class_name);
+                        // The closure was dropped unrun; release the root.
+                        spawned_remove(runnable_obj_idx);
                     }
                 }
             }

@@ -14,7 +14,7 @@ mod io;
 mod net;
 #[cfg(not(has_network))]
 mod net_stub;
-mod os;
+pub(crate) mod os;
 mod pio;
 #[cfg(not(test))]
 mod sensors;
