@@ -32,6 +32,7 @@
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use alloc::boxed::Box;
 
@@ -42,6 +43,7 @@ use crate::rtos::{self, RawQueue, RawTask, TaskKind, TaskSpec, Timeout};
 /// blocked callers, not memory the worker owns.
 const QUEUE_CAPACITY: usize = 8;
 
+#[derive(Clone, Copy)]
 struct Work {
     /// Trampoline that calls the type-erased caller closure.
     run: unsafe fn(*mut ()),
@@ -107,9 +109,12 @@ impl SerialWorker {
                 // SAFETY: `ptr` points at a `Work` on the caller's stack; the
                 // caller is blocked in `submit` until we notify, so the frame
                 // is live for the duration of this call.
-                let work = unsafe { &*(ptr as *const Work) };
-                unsafe { (work.run)(work.ctx) };
-                rtos::task_notify(work.waiter);
+                // Copy the record out before running it: once `run` sets the
+                // submitter's `done` flag the submitter may return and the
+                // `Work` on its stack is gone.
+                let Work { run, ctx, waiter } = unsafe { *(ptr as *const Work) };
+                unsafe { run(ctx) };
+                rtos::task_notify(waiter);
             }),
         );
         assert!(spawned, "serial worker task");
@@ -127,6 +132,11 @@ impl SerialWorker {
         struct Ctx<F, R> {
             f: Option<F>,
             out: MaybeUninit<R>,
+            /// Set once `out` is written. The notification is only a wakeup
+            /// (the seam's contract: waiters re-check their own condition),
+            /// so a stray or latched notification must not make `submit`
+            /// read `out` early.
+            done: AtomicBool,
         }
 
         /// # Safety
@@ -139,11 +149,13 @@ impl SerialWorker {
             let ctx = unsafe { &mut *(ctx as *mut Ctx<F, R>) };
             let f = ctx.f.take().expect("serial worker trampoline called twice");
             ctx.out.write(f());
+            ctx.done.store(true, Ordering::Release);
         }
 
         let mut ctx: Ctx<F, R> = Ctx {
             f: Some(f),
             out: MaybeUninit::uninit(),
+            done: AtomicBool::new(false),
         };
         let work = Work {
             run: trampoline::<F, R>,
@@ -155,8 +167,10 @@ impl SerialWorker {
             rtos::queue_send_ptr(self.queue(), ptr, Timeout::Forever),
             "serial worker queue send"
         );
-        rtos::task_wait_notification(Timeout::Forever);
-        // SAFETY: the trampoline wrote `out` before the worker notified us.
+        while !ctx.done.load(Ordering::Acquire) {
+            rtos::task_wait_notification(Timeout::Forever);
+        }
+        // SAFETY: `done` is set by the trampoline after it wrote `out`.
         unsafe { ctx.out.assume_init() }
     }
 }
