@@ -3940,6 +3940,170 @@ fn arrays_sort_byte_sign_extends() {
     assert_eq!(got, alloc::vec![-128, -1, 0, 1]);
 }
 
+fn arrays_to_string_str(
+    desc: &str,
+    arr: u16,
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+) -> alloc::string::String {
+    let v = arrays_dispatch(
+        "toString",
+        desc,
+        &[Value::ArrayRef(arr)],
+        strings,
+        objects,
+        arrays,
+    )
+    .unwrap()
+    .unwrap();
+    let Value::Reference(idx) = v else {
+        panic!("expected Reference, got {v:?}");
+    };
+    strings.resolve(idx).unwrap().into()
+}
+
+#[test]
+fn arrays_fill_and_to_string_boolean_and_char() {
+    // boolean[] had no arm at all (hard InvalidReference); char[] printed
+    // code points ("[97, 98]") instead of the characters.
+    use crate::array_heap::{ATYPE_BOOLEAN, ATYPE_CHAR};
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let b = arrays.alloc(ATYPE_BOOLEAN, 3).unwrap();
+    arrays_dispatch(
+        "fill",
+        "([ZZ)V",
+        &[Value::ArrayRef(b), Value::Int(1)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, b), alloc::vec![1, 1, 1]);
+    arrays.store(b, 1, 0);
+    assert_eq!(
+        arrays_to_string_str(
+            "([Z)Ljava/lang/String;",
+            b,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[true, false, true]"
+    );
+    let c = arrays.alloc(ATYPE_CHAR, 2).unwrap();
+    arrays.store(c, 0, b'a' as i32);
+    arrays.store(c, 1, b'b' as i32);
+    assert_eq!(
+        arrays_to_string_str(
+            "([C)Ljava/lang/String;",
+            c,
+            &mut strings,
+            &mut objects,
+            &mut arrays
+        ),
+        "[a, b]"
+    );
+}
+
+#[test]
+fn arrays_fill_and_sort_range_overloads() {
+    // fill(a, from, to, v) used to read `from` as the value and fill the
+    // whole array; sort(a, from, to) sorted everything.
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let a = make_int_array(&mut arrays, &[0, 0, 0, 0, 0]);
+    arrays_dispatch(
+        "fill",
+        "([IIII)V",
+        &[
+            Value::ArrayRef(a),
+            Value::Int(1),
+            Value::Int(3),
+            Value::Int(9),
+        ],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, a), alloc::vec![0, 9, 9, 0, 0]);
+
+    let s = make_int_array(&mut arrays, &[5, 4, 3, 2, 1]);
+    arrays_dispatch(
+        "sort",
+        "([III)V",
+        &[Value::ArrayRef(s), Value::Int(1), Value::Int(4)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(read_int_array(&arrays, s), alloc::vec![5, 2, 3, 4, 1]);
+
+    // Bad ranges throw like Java: to > length -> AIOOBE, from > to -> IAE.
+    let r = arrays_dispatch(
+        "fill",
+        "([IIII)V",
+        &[
+            Value::ArrayRef(a),
+            Value::Int(1),
+            Value::Int(9),
+            Value::Int(0),
+        ],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    );
+    let Err(JvmError::Exception(idx)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(idx),
+        Some("java/lang/ArrayIndexOutOfBoundsException")
+    );
+    let r = arrays_dispatch(
+        "sort",
+        "([III)V",
+        &[Value::ArrayRef(a), Value::Int(3), Value::Int(1)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    );
+    let Err(JvmError::Exception(idx)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(idx),
+        Some("java/lang/IllegalArgumentException")
+    );
+}
+
+#[test]
+fn arrays_fill_object_array() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let arr = arrays.alloc(crate::array_heap::ATYPE_REF, 2).unwrap();
+    let s = Value::Reference(strings.intern(b"x").unwrap());
+    arrays_dispatch(
+        "fill",
+        "([Ljava/lang/Object;Ljava/lang/Object;)V",
+        &[Value::ArrayRef(arr), s],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::array_heap::decode_ref(arrays.load(arr, 1).unwrap()),
+        s
+    );
+}
+
 #[test]
 fn arrays_fill_int() {
     let mut strings = StringTable::new();

@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 
 use crate::{
     array_heap::{
-        ArrayHeap, ATYPE_BYTE, ATYPE_CHAR, ATYPE_DOUBLE, ATYPE_FLOAT, ATYPE_INT, ATYPE_LONG,
-        ATYPE_SHORT,
+        encode_ref, ArrayHeap, ATYPE_BOOLEAN, ATYPE_BYTE, ATYPE_CHAR, ATYPE_DOUBLE, ATYPE_FLOAT,
+        ATYPE_INT, ATYPE_LONG, ATYPE_REF, ATYPE_SHORT,
     },
     object_heap::{float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf},
     sort::{
@@ -38,21 +38,51 @@ pub(crate) fn dispatch(
 
 // ── sort ─────────────────────────────────────────────────────────────────
 
+/// Resolve the `[from, to)` range of a `(a, from, to, …)` overload, or the
+/// whole array for the plain form. Java's contract: `from > to` is an
+/// IllegalArgumentException, anything outside the array is an
+/// ArrayIndexOutOfBoundsException.
+fn range_args(
+    ctx: &mut NativeContext<'_>,
+    len: usize,
+    from_to: Option<(Value, Value)>,
+) -> Result<(usize, usize), JvmError> {
+    let Some((from, to)) = from_to else {
+        return Ok((0, len));
+    };
+    let (Value::Int(from), Value::Int(to)) = (from, to) else {
+        return Err(JvmError::InvalidReference);
+    };
+    if from > to {
+        return Err(throw_named(ctx, "java/lang/IllegalArgumentException"));
+    }
+    if from < 0 || to as usize > len {
+        return Err(throw_named(ctx, "java/lang/ArrayIndexOutOfBoundsException"));
+    }
+    Ok((from as usize, to as usize))
+}
+
 fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let arr = extract_array(ctx.args)?;
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
     let len = ctx.arrays.length(arr).ok_or(JvmError::InvalidReference)? as usize;
-    if len < 2 {
+    // sort(a) or sort(a, fromIndex, toIndex).
+    let from_to = match ctx.args {
+        [_, f, t] => Some((*f, *t)),
+        _ => None,
+    };
+    let (lo, hi) = range_args(ctx, len, from_to)?;
+    if hi - lo < 2 {
         return Ok(None);
     }
     match atype {
-        ATYPE_INT => sort_i32(ctx.arrays, arr, len, |x| x),
-        ATYPE_SHORT => sort_i32(ctx.arrays, arr, len, |x| x as i16 as i32),
-        ATYPE_BYTE => sort_i32(ctx.arrays, arr, len, |x| x as i8 as i32),
-        ATYPE_CHAR => sort_i32(ctx.arrays, arr, len, |x| x as u16 as i32),
-        ATYPE_LONG => sort_i64(ctx.arrays, arr, len),
-        ATYPE_FLOAT => sort_f32(ctx.arrays, arr, len),
-        ATYPE_DOUBLE => sort_f64(ctx.arrays, arr, len),
+        ATYPE_INT => sort_i32(ctx.arrays, arr, lo, hi, |x| x),
+        ATYPE_SHORT => sort_i32(ctx.arrays, arr, lo, hi, |x| x as i16 as i32),
+        ATYPE_BYTE => sort_i32(ctx.arrays, arr, lo, hi, |x| x as i8 as i32),
+        ATYPE_CHAR => sort_i32(ctx.arrays, arr, lo, hi, |x| x as u16 as i32),
+        ATYPE_LONG => sort_i64(ctx.arrays, arr, lo, hi),
+        ATYPE_FLOAT => sort_f32(ctx.arrays, arr, lo, hi),
+        ATYPE_DOUBLE => sort_f64(ctx.arrays, arr, lo, hi),
         _ => return Err(JvmError::InvalidReference),
     }
     Ok(None)
@@ -63,47 +93,47 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
 /// sign-extends, char[] zero-extends). It is a plain `fn` pointer, not a
 /// generic: a generic parameter would monomorphise this loader four times
 /// for no benefit.
-fn sort_i32(arrays: &mut ArrayHeap, arr: u16, len: usize, widen: fn(i32) -> i32) {
+fn sort_i32(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize, widen: fn(i32) -> i32) {
     // Pull into a Vec, sort, write back. Cheaper than O(n log n) load/store
     // through the ArrayHeap accessors, and bounded — the array already exists
     // in heap so we know it fits.
-    let mut buf: Vec<u64> = (0..len)
+    let mut buf: Vec<u64> = (lo..hi)
         .map(|i| key_from_i64(widen(arrays.load(arr, i).unwrap_or(0)) as i64))
         .collect();
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
-        let _ = arrays.store(arr, i, i64_from_key(k) as i32);
+        let _ = arrays.store(arr, lo + i, i64_from_key(k) as i32);
     }
 }
 
-fn sort_i64(arrays: &mut ArrayHeap, arr: u16, len: usize) {
-    let mut buf: Vec<u64> = (0..len)
+fn sort_i64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
+    let mut buf: Vec<u64> = (lo..hi)
         .map(|i| key_from_i64(arrays.load64(arr, i).unwrap_or(0)))
         .collect();
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
-        let _ = arrays.store64(arr, i, i64_from_key(k));
+        let _ = arrays.store64(arr, lo + i, i64_from_key(k));
     }
 }
 
-fn sort_f32(arrays: &mut ArrayHeap, arr: u16, len: usize) {
+fn sort_f32(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
     // Float arrays use 1 i32 slot per element — bit-cast from raw i32.
-    let mut buf: Vec<u64> = (0..len)
+    let mut buf: Vec<u64> = (lo..hi)
         .map(|i| key_from_f32_bits(arrays.load(arr, i).unwrap_or(0) as u32))
         .collect();
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
-        let _ = arrays.store(arr, i, f32_bits_from_key(k) as i32);
+        let _ = arrays.store(arr, lo + i, f32_bits_from_key(k) as i32);
     }
 }
 
-fn sort_f64(arrays: &mut ArrayHeap, arr: u16, len: usize) {
-    let mut buf: Vec<u64> = (0..len)
+fn sort_f64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
+    let mut buf: Vec<u64> = (lo..hi)
         .map(|i| key_from_f64_bits(arrays.load64(arr, i).unwrap_or(0) as u64))
         .collect();
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
-        let _ = arrays.store64(arr, i, f64_bits_from_key(k) as i64);
+        let _ = arrays.store64(arr, lo + i, f64_bits_from_key(k) as i64);
     }
 }
 
@@ -113,31 +143,43 @@ fn dispatch_fill(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
     let arr = extract_array(ctx.args)?;
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
     let len = ctx.arrays.length(arr).ok_or(JvmError::InvalidReference)? as usize;
-    let val = ctx.args.get(1).copied().unwrap_or(Value::Null);
+    // fill(a, val) or fill(a, fromIndex, toIndex, val).
+    let (val, from_to) = match ctx.args {
+        [_, f, t, v] => (*v, Some((*f, *t))),
+        _ => (ctx.args.get(1).copied().unwrap_or(Value::Null), None),
+    };
+    let (lo, hi) = range_args(ctx, len, from_to)?;
     match (atype, val) {
         (ATYPE_INT, Value::Int(v))
         | (ATYPE_SHORT, Value::Int(v))
         | (ATYPE_BYTE, Value::Int(v))
-        | (ATYPE_CHAR, Value::Int(v)) => {
-            for i in 0..len {
+        | (ATYPE_CHAR, Value::Int(v))
+        | (ATYPE_BOOLEAN, Value::Int(v)) => {
+            for i in lo..hi {
                 let _ = ctx.arrays.store(arr, i, v);
             }
         }
         (ATYPE_LONG, Value::Long(v)) => {
-            for i in 0..len {
+            for i in lo..hi {
                 let _ = ctx.arrays.store64(arr, i, v);
             }
         }
         (ATYPE_FLOAT, Value::Float(v)) => {
             let bits = v.to_bits() as i32;
-            for i in 0..len {
+            for i in lo..hi {
                 let _ = ctx.arrays.store(arr, i, bits);
             }
         }
         (ATYPE_DOUBLE, Value::Double(v)) => {
             let bits = v.to_bits() as i64;
-            for i in 0..len {
+            for i in lo..hi {
                 let _ = ctx.arrays.store64(arr, i, bits);
+            }
+        }
+        (ATYPE_REF, v) => {
+            let raw = encode_ref(v).ok_or(JvmError::InvalidReference)?;
+            for i in lo..hi {
+                let _ = ctx.arrays.store(arr, i, raw);
             }
         }
         _ => return Err(JvmError::InvalidReference),
@@ -279,7 +321,17 @@ fn dispatch_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
             ATYPE_INT => write_i32(&mut out, ctx.arrays.load(arr, i).unwrap_or(0)),
             ATYPE_SHORT => write_i32(&mut out, ctx.arrays.load(arr, i).unwrap_or(0) as i16 as i32),
             ATYPE_BYTE => write_i32(&mut out, ctx.arrays.load(arr, i).unwrap_or(0) as i8 as i32),
-            ATYPE_CHAR => write_i32(&mut out, ctx.arrays.load(arr, i).unwrap_or(0) as u16 as i32),
+            ATYPE_BOOLEAN => out.extend_from_slice(if ctx.arrays.load(arr, i).unwrap_or(0) != 0 {
+                b"true"
+            } else {
+                b"false"
+            }),
+            ATYPE_CHAR => {
+                // The string table is byte-oriented (Latin-1/ASCII); wider
+                // code points render as '?' like the other char sinks.
+                let c = ctx.arrays.load(arr, i).unwrap_or(0) as u16;
+                out.push(u8::try_from(c).unwrap_or(b'?'));
+            }
             ATYPE_LONG => write_i64(&mut out, ctx.arrays.load64(arr, i).unwrap_or(0)),
             ATYPE_FLOAT => write_f32(
                 &mut out,
