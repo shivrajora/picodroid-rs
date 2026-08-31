@@ -64,15 +64,14 @@ pub struct BootLeaves {
 /// Returns when the JVM task has finished the app and ended the scheduler —
 /// one app per process, as `sim-run.sh` already assumes.
 pub fn run(leaves: BootLeaves) {
-    // JVM heap compound operations and the GC must be scheduler-atomic here
+    // JVM heap compound operations and the GC are scheduler-atomic here
     // exactly as on a device (`platforms/rp/src/boot_tasks.rs` installs the
-    // same pair): the POSIX port preempts at every kernel call and on its
-    // 1 kHz tick, and the bg pool and JVM task hold different priorities, so
-    // an arena resize or a collection can be interleaved by another JVM task
-    // at the allocator's `xTaskResumeAll` — the picoenvmon span-overlap
-    // corruption, reproduced on the host. Left uninstalled, every
-    // `AtomicSection` in the simulator is a no-op and the class of bug the
-    // guard exists for is invisible here. Keep this block and the device's in
+    // same pair). The single-core POSIX port has not been seen to interleave
+    // them — the bug-bash `threadstress` soak ran clean before these hooks
+    // existed (B0) — but a task at another priority does preempt at every
+    // kernel call, the guard costs a counter increment, and with it the two
+    // boots make the same promise: no `AtomicSection` is a silent no-op on
+    // one target and real on the other. Keep this block and the device's in
     // lockstep.
     {
         extern "C" {

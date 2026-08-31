@@ -72,6 +72,9 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    // Every View/Display native passes through here — the one place to
+    // notice a touch from off the UI thread (see `crate::ui_thread`).
+    crate::ui_thread::warn_if_off_ui_thread();
     dispatch_with(&mut LvglBackend, class_name, method_name, ctx)
 }
 

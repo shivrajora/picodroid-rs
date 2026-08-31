@@ -288,6 +288,9 @@ pub(crate) fn run_activity(
     // Initialise the unified main-thread FIFO; harmless if the module was
     // already initialised on a prior activity launch.
     main_queue::init();
+    // This task owns the widget tree from here on (`lvgl::with_gfx` warns
+    // any other task that touches it — see `ui_thread`).
+    crate::ui_thread::note_ui_task();
 
     // Bring up LVGL + allocate the Display singleton before the Activity
     // can run. `Display.setContentView` reads `g.screen()` unconditionally,

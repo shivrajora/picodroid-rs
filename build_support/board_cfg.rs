@@ -279,10 +279,14 @@ pub fn emit_button_config(out: &Path, board: &Option<ResolvedBoard>) {
 
 /// Emit background thread pool constants from board.toml's optional
 /// `[background_pool]` section. Missing keys fall back to defaults
-/// (4 workers, priority 5 in the BG tier, 4 KiB stack, 32-deep queue).
+/// (4 workers, the JVM priority tier, 4 KiB stack, 32-deep queue).
 pub fn emit_background_pool_config(out: &Path, board: &Option<ResolvedBoard>) {
     const DEFAULT_THREADS: u32 = 4;
-    const DEFAULT_PRIORITY: u32 = 5; // PRIORITY_BG_5
+    // `picodroid_core::task_priority::PRIORITY_JVM_NORM`. Every task that
+    // interprets Java must share one priority or the lock-free shared heap
+    // is unsound (a `task_priority` test cross-checks the two numbers).
+    const JVM_TIER: u32 = 15;
+    const DEFAULT_PRIORITY: u32 = JVM_TIER;
     const DEFAULT_STACK_BYTES: u32 = 4096;
     const DEFAULT_QUEUE_DEPTH: u32 = 32;
 
@@ -302,8 +306,9 @@ pub fn emit_background_pool_config(out: &Path, board: &Option<ResolvedBoard>) {
     let queue_depth = read("queue_depth", DEFAULT_QUEUE_DEPTH);
 
     assert!(
-        (1..=10).contains(&priority),
-        "[background_pool] priority must be in 1..=10 (BG tier), got {priority}"
+        priority == JVM_TIER,
+        "[background_pool] priority must be {JVM_TIER}: every task that interprets Java \
+         shares one FreeRTOS priority (docs/parity-audit.md THR-06), got {priority}"
     );
     assert!(
         (1..=32).contains(&threads),

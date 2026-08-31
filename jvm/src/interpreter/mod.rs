@@ -450,6 +450,7 @@ const ACC_SYNCHRONIZED: u16 = 0x0020;
 /// and record it on the frame so every exit path releases it. javac emits
 /// no `monitorenter`/`monitorexit` for the method form; only the block form
 /// is bytecode, so without this a `synchronized void inc()` ran unlocked.
+#[inline(never)]
 fn enter_synchronized<H: NativeMethodHandler>(
     ex: &mut Executor<'_, H>,
     frame: &mut Frame,
@@ -472,7 +473,11 @@ fn enter_synchronized<H: NativeMethodHandler>(
             _ => return Err(JvmError::InvalidBytecode),
         }
     } else {
-        let this = frame.locals.first().copied().ok_or(JvmError::InvalidBytecode)?;
+        let this = frame
+            .locals
+            .first()
+            .copied()
+            .ok_or(JvmError::InvalidBytecode)?;
         ops_monitor::value_to_monitor_key(this)?
     };
     ex.handler.monitor_enter(key)?;
@@ -498,6 +503,7 @@ fn pop_frame<H: NativeMethodHandler>(
 /// exception is in flight, where a monitor the handler will not release
 /// (an `IllegalMonitorStateException`-in-waiting) must not displace the
 /// exception being delivered — so release failures are ignored here.
+#[inline(never)]
 fn truncate_frames<H: NativeMethodHandler>(
     ex: &mut Executor<'_, H>,
     frames: &mut Vec<Frame>,

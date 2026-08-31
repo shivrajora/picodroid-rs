@@ -5,9 +5,9 @@
 //! one — reporting each through the handler's `monitor_enter`/`monitor_exit`.
 use super::asm::{Asm, Method};
 use super::*;
+use crate::types::MonitorKey;
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::types::MonitorKey;
 
 const OBJECT: &str = "java/lang/Object";
 const ACC_SYNC: u16 = 0x0020;
@@ -64,12 +64,34 @@ fn class_s() -> &'static [u8] {
     let rte_init = a.methodref(0x0A, rte, "<init>", "()V");
     let im = [0x08, 0xAC]; // iconst_5; ireturn
     let sm = [0x10, 7, 0xAC]; // bipush 7; ireturn
-    // new RuntimeException; dup; invokespecial <init>; athrow
-    let thrower = [0xBB, h(rte), l(rte), 0x59, 0xB7, h(rte_init), l(rte_init), 0xBF];
+                              // new RuntimeException; dup; invokespecial <init>; athrow
+    let thrower = [
+        0xBB,
+        h(rte),
+        l(rte),
+        0x59,
+        0xB7,
+        h(rte_init),
+        l(rte_init),
+        0xBF,
+    ];
     // iload_1; ifeq → iconst_0; aload_0; iload_1; iconst_1; isub;
     // invokevirtual rec; ireturn; iconst_0; ireturn
     let rec_code = [
-        0x1B, 0x99, 0x00, 0x0B, 0x2A, 0x1B, 0x04, 0x64, 0xB6, h(rec), l(rec), 0xAC, 0x03, 0xAC,
+        0x1B,
+        0x99,
+        0x00,
+        0x0B,
+        0x2A,
+        0x1B,
+        0x04,
+        0x64,
+        0xB6,
+        h(rec),
+        l(rec),
+        0xAC,
+        0x03,
+        0xAC,
     ];
     a.finish_methods(
         0x0001,
@@ -128,7 +150,10 @@ fn main_class(body: impl FnOnce(&mut Asm, u16) -> (Vec<u8>, Vec<[u16; 4]>)) -> &
     a.finish(0x0001, this, obj, &[], Some((3, &code, &exc)))
 }
 
-fn run_main(t: &'static [u8], refuse_enter: bool) -> (Result<Option<Value>, JvmError>, Vec<Ev>, ObjectHeap) {
+fn run_main(
+    t: &'static [u8],
+    refuse_enter: bool,
+) -> (Result<Option<Value>, JvmError>, Vec<Ev>, ObjectHeap) {
     let classes: Vec<ClassFile> = [class_s(), t]
         .iter()
         .map(|d| ClassFile::parse(d).expect("parse failed"))
@@ -172,7 +197,19 @@ fn instance_and_static_synchronized_methods_lock_receiver_and_class_object() {
         let im = a.methodref(0x0A, s, "im", "()I");
         let sm = a.methodref(0x0A, s, "sm", "()I");
         (
-            vec![0xBB, h(s), l(s), 0xB6, h(im), l(im), 0xB8, h(sm), l(sm), 0x60, 0xAC],
+            vec![
+                0xBB,
+                h(s),
+                l(s),
+                0xB6,
+                h(im),
+                l(im),
+                0xB8,
+                h(sm),
+                l(sm),
+                0x60,
+                0xAC,
+            ],
             vec![],
         )
     });
@@ -181,11 +218,23 @@ fn instance_and_static_synchronized_methods_lock_receiver_and_class_object() {
     assert_eq!(ev.len(), 4, "{ev:?}");
     let receiver = key_of(ev[0]);
     let class = key_of(ev[2]);
-    assert_eq!(ev, vec![Ev::Enter(receiver), Ev::Exit(receiver), Ev::Enter(class), Ev::Exit(class)]);
+    assert_eq!(
+        ev,
+        vec![
+            Ev::Enter(receiver),
+            Ev::Exit(receiver),
+            Ev::Enter(class),
+            Ev::Exit(class)
+        ]
+    );
     assert_ne!(receiver, class);
-    let MonitorKey::Object(s) = receiver else { panic!("{receiver:?}") };
+    let MonitorKey::Object(s) = receiver else {
+        panic!("{receiver:?}")
+    };
     assert_eq!(objects.class_name(s), Some("S"));
-    let MonitorKey::Object(c) = class else { panic!("{class:?}") };
+    let MonitorKey::Object(c) = class else {
+        panic!("{class:?}")
+    };
     assert_eq!(objects.class_name(c), Some("java/lang/Class"));
 }
 
@@ -201,7 +250,10 @@ fn a_caught_exception_leaving_a_synchronized_method_releases_its_monitor() {
     });
     let (r, ev, _) = run_main(t, false);
     assert_eq!(r.unwrap(), Some(Value::Int(-1)));
-    assert!(matches!(ev[..], [Ev::Enter(a), Ev::Exit(b)] if a == b), "{ev:?}");
+    assert!(
+        matches!(ev[..], [Ev::Enter(a), Ev::Exit(b)] if a == b),
+        "{ev:?}"
+    );
 }
 
 #[test]
@@ -221,7 +273,10 @@ fn an_uncaught_exception_leaving_a_synchronized_method_releases_its_monitor() {
         ),
         "{r:?}"
     );
-    assert!(matches!(ev[..], [Ev::Enter(a), Ev::Exit(b)] if a == b), "{ev:?}");
+    assert!(
+        matches!(ev[..], [Ev::Enter(a), Ev::Exit(b)] if a == b),
+        "{ev:?}"
+    );
 }
 
 #[test]
@@ -229,7 +284,10 @@ fn recursion_through_a_synchronized_method_nests_enter_and_exit() {
     // new S; iconst_2; invokevirtual S.rec(I)I; ireturn
     let t = main_class(|a, s| {
         let rec = a.methodref(0x0A, s, "rec", "(I)I");
-        (vec![0xBB, h(s), l(s), 0x05, 0xB6, h(rec), l(rec), 0xAC], vec![])
+        (
+            vec![0xBB, h(s), l(s), 0x05, 0xB6, h(rec), l(rec), 0xAC],
+            vec![],
+        )
     });
     let (r, ev, _) = run_main(t, false);
     assert_eq!(r.unwrap(), Some(Value::Int(0)));

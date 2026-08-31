@@ -178,11 +178,11 @@ static mut GFX: LvglGfx = LvglGfx::new();
 
 /// Run a closure with mutable access to the global graphics backend.
 ///
-/// Single-threaded today (the JVM holds the only frontend); a future SMP
-/// world will gate this with the same hardware spinlock used by
-/// `SharedJvmHeap`. Do **not** call this from inside an LVGL `extern "C"`
-/// callback — the trampoline would re-borrow and panic. Trampolines must
-/// read directly from the per-handle slot tables in `lvgl/events.rs`.
+/// Single-threaded by contract: only the UI task may touch the widget tree
+/// (`native_handler::graphics::dispatch` warns any other caller once). Do
+/// **not** call this from inside an LVGL `extern "C"` callback —
+/// the trampoline would re-borrow and panic. Trampolines must read directly
+/// from the per-handle slot tables in `lvgl/events.rs`.
 #[cfg(not(test))]
 pub fn with_gfx<R>(f: impl FnOnce(&mut dyn Gfx) -> R) -> R {
     // SAFETY: single-threaded access to a `'static mut` singleton; same

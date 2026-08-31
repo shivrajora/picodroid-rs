@@ -109,8 +109,8 @@ const _: () = {
 };
 
 const _: () = {
-    // Workers live in the BG priority tier.
-    assert!(background_pool::POOL_PRIORITY >= 1 && background_pool::POOL_PRIORITY <= 10);
+    // Workers interpret Java, so they share the one JVM tier (see task_priority).
+    assert!(background_pool::POOL_PRIORITY == crate::task_priority::PRIORITY_JVM_NORM);
     assert!(background_pool::POOL_THREADS >= 1 && background_pool::POOL_THREADS <= 32);
 };
 

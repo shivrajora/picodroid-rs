@@ -113,11 +113,10 @@ pub fn dispatch(
                         .ok_or(JvmError::InvalidReference)
                         .ok()?;
 
-                    // Field 0 = target (Runnable), field 1 = priority (int).
-                    let android_priority = match ctx.objects.get_field(*thread_idx, 1) {
-                        Some(Value::Int(p)) => p,
-                        _ => 5, // Thread.NORM_PRIORITY fallback
-                    };
+                    // `Thread.setPriority` is advisory: every task that
+                    // interprets Java runs at the one JVM tier, because the
+                    // shared heap's safety rests on "a running JVM task
+                    // keeps the core until it blocks" — see `task_priority`.
                     let spec = crate::rtos::TaskSpec {
                         // The class name rides along as the task name so the
                         // platform can identify the Runnable — the simulator
@@ -125,9 +124,7 @@ pub fn dispatch(
                         // debug bridge's task list on device.
                         name: class_name,
                         kind: crate::rtos::TaskKind::JvmChild,
-                        priority: crate::task_priority::android_to_freertos_priority(
-                            android_priority,
-                        ),
+                        priority: crate::task_priority::PRIORITY_JVM_NORM,
                         stack_bytes: None, // platform's JvmChild default
                     };
 

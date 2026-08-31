@@ -47,6 +47,7 @@ pub mod lvgl_ffi;
 #[cfg(all(feature = "mem-diag", not(test)))]
 pub mod mem_diag;
 pub mod monitor_store;
+pub mod ui_thread;
 // The JVM's native dispatch. `cfg(not(test))` because its submodules reach
 // the HAL, LVGL and the lifecycle; the pure-logic ones are re-exposed as
 // test shims at the bottom of this file so their checks still run.

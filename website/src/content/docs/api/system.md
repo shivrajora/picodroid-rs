@@ -94,13 +94,7 @@ public class MyApp {
 
 ### Priority
 
-| Java constant | Value | FreeRTOS priority |
-|---|---|---|
-| `Thread.MIN_PRIORITY` | 1 | 11 |
-| `Thread.NORM_PRIORITY` | 5 | 15 (default) |
-| `Thread.MAX_PRIORITY` | 10 | 20 |
-
-Priorities follow the Android `Thread` API (1–10). Internally they map to FreeRTOS priorities 11–20 (the JVM tier), which sit below real-time native tasks (21–30) and above background native services (1–10). `setPriority` must be called before `start()`; changing priority on a running thread is not supported.
+`Thread.MIN_PRIORITY` (1), `NORM_PRIORITY` (5) and `MAX_PRIORITY` (10) exist and `setPriority`/`getPriority` round-trip them, but the value is **advisory**: every task that interprets Java — the UI thread, every `Thread`, the background executor pool — runs at the single JVM tier (FreeRTOS priority 15), below real-time native tasks (21–30) and above background native services (1–10). The shared JVM heap is lock-free on the strength of "a running JVM task keeps the core until it blocks", and a Java thread one notch above the UI thread would preempt it at any instruction. Android itself only treats `setPriority` as a scheduling hint; here the hint is recorded and not applied.
 
 Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stack. When `MyRunnable.run()` returns, the task self-deletes and its stack is reclaimed automatically.
 
