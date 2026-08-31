@@ -56,16 +56,29 @@ Runtime.resetPeakMemory();            // reset the peak counter to the current u
 
 ## `picodroid.concurrent.Thread`
 
+The `java.lang.Thread` API on a FreeRTOS task. Import it — there is no `java.lang.Thread` here.
+
 ```java
 import picodroid.concurrent.Thread;
 
-Thread t = new Thread(new MyRunnable());
-t.start();   // spawns a FreeRTOS task that calls MyRunnable.run()
+Thread t = new Thread(new MyRunnable(), "worker");
+t.start();            // spawns a FreeRTOS task that calls MyRunnable.run()
+t.join();             // or join(ms); InterruptedException if this thread is interrupted
+t.isAlive();          // false once run() has returned
 
-// Priority (optional, must be set before start())
-t.setPriority(Thread.MAX_PRIORITY);  // 1 (MIN) .. 5 (NORM, default) .. 10 (MAX)
-int p = t.getPriority();
+Thread.currentThread().getName();   // "main" on the UI thread
+Thread.sleep(250);                  // interruptible; throws InterruptedException
+t.interrupt();                      // wakes sleep/join/wait on t, or sets its flag
+
+// Subclass form, uncaught-exception handler
+Thread u = new Thread("u") { @Override public void run() { /* ... */ } };
+Thread.setDefaultUncaughtExceptionHandler((th, e) -> Log.e("app", th.getName() + ": " + e));
+
+// Monitors: synchronized blocks AND methods lock; Object.wait/notify work
+synchronized (lock) { while (!ready) lock.wait(); }
 ```
+
+Second `start()` throws `IllegalThreadStateException`; `wait`/`notify` outside `synchronized` throw `IllegalMonitorStateException`. `SystemClock.sleep(int)` is the non-interruptible sleep, as on Android.
 
 ### Complete Runnable example
 
@@ -100,7 +113,7 @@ Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stac
 
 All JVM child threads are pinned to **core 0**, the same core as the `jvm` task. This keeps the single-core safety assumption of `SharedJvmState` intact — no JVM state is ever accessed from core 1.
 
-On hot-swap, any thread blocked inside `SystemClock.sleep()` is woken immediately so it can see the stop signal and exit cleanly before the new app starts.
+On hot-swap, any thread blocked inside `SystemClock.sleep()`, `Thread.sleep()`, `join()` or `Object.wait()` is woken immediately so it can see the stop signal and exit cleanly before the new app starts.
 
 For fire-and-forget work, prefer [`Executors.backgroundExecutor()`](#picodroidconcurrentexecutors) over spawning a dedicated `Thread`: the pool amortises stack allocation across jobs and keeps per-task overhead bounded.
 

@@ -7,6 +7,14 @@ nightly soak + PEM-3 retune, which have their own runbook:
 
 ## 1. Sim `Thread.start` parallelism — same race class, no guards (P1-risk)
 
+**Closed 2026-08-30.** Two findings superseded the premise: the simulator has
+run the real FreeRTOS POSIX-port kernel since M7 (2026-07-28), so its tasks
+are serialised by the kernel, not by host threads; and the bug bash's
+`threadstress` soak (B0) ran clean without hooks. The hooks are installed
+anyway (`sim_boot.rs`, concurrency-parity WP0) so no `AtomicSection` is a
+no-op on one target and real on the other. The text below is the original
+note.
+
 The device fix works by suspending the FreeRTOS scheduler around compound
 heap mutations (`pico_jvm::atomic_section`). The sim installs **no hooks**,
 so its guards are no-ops — deliberately, because the host has no FreeRTOS.
@@ -32,6 +40,9 @@ to confirm no deadlock — the guarded sections never block, so a plain
 mutex should be safe.
 
 ## 2. Shared StringBuilder buffer (`sb_buf`) cross-thread aliasing
+
+**Fixed by `896f691` (2026-08-18)** — every StringBuilder owns its buffer
+(`sb_store.rs`). Original note below.
 
 `ObjectHeap` keeps a **stack of shared StringBuilder buffers**
 (`sb_stack`, `object_heap/mod.rs:519-571`); every Java `StringBuilder`
@@ -71,6 +82,9 @@ sim smoke + pre-commit.
 
 ## 4. memmon cannot see child-executor GCs
 
+**Fixed by `7b5589f` (2026-08-18)** — the counters moved to the heap-wide
+`GcState`. Original note below.
+
 Each `Thread.start` child builds its own `PicodroidNativeHandler`, so
 `report_gc` from collections triggered in a child lands in the child's
 counters — memmon's `gc=`/`freed=` columns silently miss them
@@ -96,6 +110,9 @@ Unchanged by the GC-race fix except that a second thread is now *safe* to
 consider.
 
 ## 6. Per-child duplicate class metadata — biggest heap lever
+
+**Fixed by `807cc37` (2026-08-18)** — one class set shared across executors
+(`boot::shared_jvm`). Original note below.
 
 Every `Thread.start` child builds a fresh `Jvm` + `load_classes`
 (`native_handler/os.rs`) — a full duplicate parsed-class set on the shared

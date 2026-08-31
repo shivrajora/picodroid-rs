@@ -163,20 +163,18 @@ cuts child-thread spawn latency.
 
 ## 7. Residual concurrency holes (correctness-adjacent perf)
 
-- **Unequal-priority JVM work can still race**: `configUSE_TIME_SLICING = 0`
-  fixed equal-priority slicing, but the background-executor pool runs at
-  priority 1–10 — a waking jvm_task (15) preempts a pool worker
-  **mid-heap-mutation**. Short jobs make it rare (executordemo passes
-  nightly), but it is the same corruption class as the fixed bug. Proper fix:
-  one priority tier for every interpreting task, or critical sections around
-  heap mutation. Note Android `setPriority` semantics become advisory either way.
-- **Shared StringBuilder buffer** (`sb_buf`, ObjectHeap): all StringBuilders
-  alias one buffer, safe only because append→toString sequences never cross a
-  blocking native. Nothing enforces that; a Java method that logs (or blocks)
-  mid-build from two threads would interleave. Audit-worthy.
-- **Time-slicing-off fairness**: a compute-bound Java thread now holds the CPU
+- ~~**Unequal-priority JVM work can still race**~~ **Closed 2026-08-30
+  (concurrency-parity WP3):** every task that interprets Java — jvm_task,
+  `Thread.start` children, the background pool — runs at the one JVM tier
+  (FreeRTOS 15); `Thread.setPriority` is advisory (parity-audit THR-06). The
+  compound heap operations additionally sit in `AtomicSection`s on every
+  target.
+- ~~**Shared StringBuilder buffer**~~ Fixed by `896f691` (per-builder
+  buffers, `sb_store.rs`).
+- **Time-slicing-off fairness**: a compute-bound Java thread holds the CPU
   until it blocks — equal-priority starvation is possible by design. Fine for
-  the server (blocks constantly); user apps with busy loops will starve the UI.
+  the server (blocks constantly); user apps with busy loops will starve the
+  UI. `Thread.yield()` (2026-08-30) is the cooperative escape hatch.
 
 ## 8. Minor known costs (recorded, low priority)
 

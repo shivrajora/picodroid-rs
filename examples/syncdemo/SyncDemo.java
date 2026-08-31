@@ -7,9 +7,9 @@ import picodroid.util.Log;
 /**
  * Demonstrates Java synchronized blocks (monitorenter / monitorexit).
  *
- * <p>On real hardware with threads, synchronized prevents data races. In the simulator
- * (single-threaded), it verifies the bytecodes are handled without error and reentrant locking
- * works correctly.
+ * <p>Single-threaded: verifies the bytecodes are handled and reentrant locking works. The monitors
+ * are real kernel mutexes on device and in the simulator alike; {@code examples/threadparity}
+ * exercises them under contention (including synchronized methods, wait/notify).
  */
 public class SyncDemo extends Application {
   @Override
