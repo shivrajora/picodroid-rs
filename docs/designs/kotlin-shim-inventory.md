@@ -303,9 +303,14 @@ Against the Cross-cutting budget (roadmap § Cross-cutting decisions): PAPK
 ≤ 160 KB ✓ (79 KB); parsed metadata ≤ 61 KB — the Java app itself now sits at
 64 KB after a nav cycle because the 12 generated DI classes joined it since the
 41 KB figure was taken, and the Kotlin twin is +2.5 KB over that; zero `.bss`
-growth ✓ (no firmware change). Device min-ever-free (`pdb.sh sysmon`) is not
-measured in this session: the probe and the main checkout were in use by
-another session; the recipe is in the app README and roadmap Session 7.
+growth ✓ (no firmware change). Device min-ever-free (`pdb.sh sysmon`,
+`pico_enviro_mon_w`, debug + `mem-diag` firmware, main `f98a3da`) was measured
+in Session 8: **155.7 KB at boot, 124.3 KB after a 7 h 31 m soak** (11,677
+dashboard requests, hourly nav bursts; budget ≥ 120 KB ✓), JVM live floor
+13,558 B on device after the soak, native footprint 237 → 272 KB plateau after
+first-visit parsing, growth sentinel trips only at warm-up and transiently on the 3-way HTTP
+and hourly nav bursts (~4.7 KB of socket/screen buffers, back within a minute); native use flat at
+286–288 KB from 20 minutes to 7.5 hours.
 
 Why the deltas are this small: the port follows the frugality rules in
 `examples/picoenvmon_kt/README.md` — no `companion object` anywhere (top-level

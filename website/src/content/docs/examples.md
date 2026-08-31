@@ -120,6 +120,9 @@ is not supported is tabulated in the [Android compatibility matrix](/reference/c
 | `hellokt` | `hellokt.HelloKt` | The smallest Kotlin app: a string template, one `!!` (the `Intrinsics.checkNotNull` the shim serves), and a SAM lambda for a Java interface |
 | `langsuite_kt` | `langsuitekt.LangSuiteKt` | Kotlin language suite — data classes, sealed classes and `when`, extension functions, default and named arguments, varargs, null safety, scope functions, `lazy`/`Pair`, objects and companions, interface defaults, lambdas, type checks, exceptions, `synchronized` |
 | `langsuite_kt_stdlib` | `langsuitektstdlib.LangSuiteKtStdlib` | Kotlin stdlib suite — collections, maps, sets, arrays, ranges, sorting, strings, and math over the shim |
+| `injectdemo_kt` | `injectdemokt.InjectDemoKtApp` | The Kotlin twin of `injectdemo`: the same compile-time DI graph through kapt — `@Inject lateinit var` fields, constructor and method injection, `Provider<T>` / `picodroid.di.Lazy<T>`, a `@Module object` with `@JvmStatic @Provides` and an instance `@Module class` — across an Application, two Activities, and a Service |
+| `gcstress_kt` | `gcstresskt.GcStressKt` | GC stress through the churn Kotlin codegen mints: per-iteration lambda proxies, `Ref$IntRef` boxes for captured locals, autoboxing through generic collections, `Pair` destructuring, string templates, and map entry-view iteration; asserts identity-hashCode slot stability and lambda-capture rooting across collections |
+| `picoenvmon_kt` | `picoenvmonkt.EnvApp` | The Kotlin twin of `picoenvmon` — same screens, Service, RGB LED, and dashboard HTTP server, same `@Inject`/`@Module` object graph, written under the class-metadata frugality rules of the [Kotlin guide](/guides/kotlin/) |
 
 ## Graphics and Display
 

@@ -66,6 +66,37 @@ Details:
 - **Framework classes are embedded whole.** Every compiled SDK class ships in firmware on every board and is loaded at boot, so a new SDK class costs its full `.class` size in flash whether or not any app touches it — there is no tree-shaking. On a board whose program region is nearly full (RP2040), a board can drop classes it does not need with the optional top-level `framework_class_excludes` key in `board.toml` (a `;`- or `,`-separated list of JVM internal names, e.g. `picodroid/json/JSONObject`; excluding a class also excludes its inner classes). An exclude that matches no compiled class fails the build, so a typo cannot silently keep shipping the class. An app that calls into an excluded class gets a native miss naming the exclusion. `testbench_rp2040` uses this to drop the `picodroid.net.*` classes it can never run (all but `NetworkInfo`, which stays answerable so portable apps can probe and degrade) — worth ~9 KB on the fleet's tightest program region. No other board excludes anything.
 - **Focusable list rows.** On boards with a small LVGL pool (e.g. 48 KiB on `pico_enviro_mon`), keep focusable `lv_list` rows to roughly a dozen — the picoenvmon History screen caps at `MAX_ROWS = 12`. Each focusable row consumes render-pool memory; too many starve the LVGL draw tasks and stall the renderer. This is an **app-level guideline driven by the board's `lv_mem_kb`, not a framework constant** — boards with the default 64 KiB pool have more headroom. See [embedded gotchas](/guides/embedded-gotchas/) and [button navigation](/guides/button-navigation/).
 
+## Kotlin apps
+
+Kotlin costs class metadata, not object heap. Measured like-for-like on
+`examples/picoenvmon_kt` against its Java twin `examples/picoenvmon` (same
+screens, Service, dashboard server and DI graph; the [Kotlin guide](/guides/kotlin/)
+explains the frugality rules the port follows):
+
+| Metric | Java | Kotlin | Δ |
+|---|---|---|---|
+| PAPK (no-shrink / shrink) | 75,170 / 68,896 B | 79,095 / 72,908 B | +5 % |
+| Classes in the PAPK | 35 | 45 (3 shim survivors) | +10 |
+| Parsed class metadata after a nav cycle (device-derived) | 64.3 KB | 66.8 KB | +2.5 KB (+3.8 %) |
+| JVM live floor, idle serving (sim, 416 KB arena) | 13.0 KB | 13.6 KB | +0.5 KB |
+| JVM live floor after 7.5 h on device | — | 13.6 KB | stable |
+| Device free heap at boot / after 7.5 h (`pdb sysmon`, `pico_enviro_mon_w`) | — | 164.5 KB / 135.9 KB | — |
+| Device **min-ever-free** after 7.5 h soak | — | **124.3 KB** | budget ≥ 120 KB ✓ |
+| Idle allocation signature | `alloc=+2 stri=+1`/s | identical | — |
+
+Soak conditions (2026-08-30, mem-diag debug firmware): dashboard fetch every
+2 s with 3-way bursts (11,677 requests), hourly four-screen navigation bursts,
+NTP + weather refreshes; no crash, reboot, OOM or GC-pressure event. The
+growth sentinel trips at warm-up (first-visit class parsing and socket set-up
+take the native footprint from 237 KB to a 272 KB plateau) and transiently on
+each 3-way HTTP burst and each hourly nav burst (~4.7 KB of socket and screen
+buffers that return within a minute, min-free unaffected); across the run the native footprint
+was flat — 286.1 KB at 20 minutes, 287.5 KB at 7.5 hours. A minimal Kotlin app (`hellokt`) is a
+2.8 KB PAPK of three classes; the per-class costs in the table above (~20 B
+registered, ~0.8 KB parsed, 32 B per method) are what to budget for.
+`examples/gcstress_kt` is the collector stress lane for Kotlin-specific churn
+(lambda proxies, `Ref` boxes, autoboxing, `Pair`, map entry views).
+
 ## Display idle sleep
 
 On `has_buttons` boards (not the simulator, not touch-only boards), the panel sleeps after **60 seconds** with no button input (the default `idle_timeout_ms`). Setting `idle_timeout_ms = 0` disables sleep — `pico_enviro_mon` does this.

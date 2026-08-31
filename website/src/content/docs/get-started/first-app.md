@@ -248,6 +248,10 @@ The `pico-jvm` crate is hardware-independent (`no_std + alloc` only). To use it 
 
 ## Supported Language Features
 
+The table below is written for Java. Kotlin apps are supported too — same JVM,
+same features where the languages overlap; see the [Kotlin guide](/guides/kotlin/)
+for the Kotlin-specific subset, divergences, and idioms.
+
 | Feature | Example |
 |---------|---------|
 | Arrays | `byte[] buf = new byte[16];` — allocation, `.length`, index read/write |
