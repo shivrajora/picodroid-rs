@@ -370,8 +370,26 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   (`ExecutorService`/`Future`/`Callable`/`TimeUnit`/`FutureTask`, a fixed
   `ThreadPoolExecutor`, `AtomicInteger`/`Long`/`Boolean`/`Reference`,
   `CountDownLatch`) on top of the Thread parity work — zero natives, zero
-  `.text`, class files only. Locks, `Semaphore`, `ConcurrentHashMap`,
-  `BlockingQueue` and scheduled pools stay out.
+  `.text`, class files only. What stays out, and what would change the answer,
+  is enumerated below.
+
+### Concurrency surface deliberately left out (2026-08-31)
+
+Recorded after T2.3 + the `j.u.c.` core set merged (`a34a639`), so the
+decisions outlive the session that made them. Every one of these is a *cost*
+call, not a difficulty call: SDK classes are charged to **every** board's
+flash, and `testbench_rp2040` already excludes the `j.u.c.` core set via
+`framework_class_excludes` to stay under its gate (19.9 KB headroom). Anything
+added here has to earn that budget on the smallest board or arrive E1-gated.
+
+| Left out | Why | What would change it |
+|---|---|---|
+| `ThreadLocal` | Needs a per-task slot map the GC must root, and the natural users (a Looper, a per-thread `StringBuilder`) do not exist. The shared `sb_buf` aliasing hazard is a *separate* bug, tracked in `docs/followups-2026-08.md` § 2 — do not "fix" it by adding `ThreadLocal`. | A framework need for per-task state, or `sb_buf` being retired in favour of per-thread buffers after measurement. |
+| `ReentrantLock`, `ReadWriteLock`, `Condition` | `synchronized` + `wait`/`notify` cover every in-tree case and are already kernel-recursive-mutex-backed. Locks add interruptible/timed acquisition and lock ordering — surface without a caller. | A real caller needing `tryLock`/timeout, or fairness work (WP3c) proving `synchronized` too coarse. |
+| `Semaphore`, `CyclicBarrier`, `Exchanger`, `Phaser` | `CountDownLatch` covers the one shipped pattern (fan-in); the rest are pure class-file cost. | A shipped app needing bounded-permit or barrier semantics. |
+| `ConcurrentHashMap`, `BlockingQueue`, `CopyOnWriteArrayList` | `synchronized` wrappers around the existing collections give the same guarantees at zero new `.text`. A genuinely concurrent map wants CAS, which **thumbv6m does not have** — it would be `AtomicSection`-guarded anyway, i.e. a coarse lock wearing a lock-free name. | RP2350-only (E1-gated) scope, plus a profile showing the coarse lock is the bottleneck. |
+| `ScheduledExecutorService`, `Timer`/`TimerTask`, `Handler.postDelayed`, `CountDownTimer` | The same rejection as `Handler`/`Looper` above, re-confirmed 2026-08-30: delayed work stays executor-shaped, a `Thread` that `sleep`s then posts to `Executors.mainExecutor()`, or `view.animate()…withEndAction(…)`. Timers are leak-prone and temporally coupled, and a scheduled pool needs a timer thread per pool. | An internal tick-slot table (the Toast/animation pattern) growing a public face — a design conversation, not a backlog item. |
+| Kotlin coroutines / `kotlinx-coroutines` | Contract-rejected in `docs/designs/kotlin-roadmap-2026-08.md`; the dispatcher machinery plus a Java SE library the JVM lacks (`ThreadLocal`, `WeakReference`, `IdentityHashMap`) dwarfs the flash budget. `suspend` over the existing executors is the shape to revisit, not the library. | Nothing on this roadmap. See the Compose entry below for the same arithmetic. |
 - **`Fragment` before the resource system.** Fragments without layouts and
   ids are shape without substance.
 - **Jetpack Compose proper.** Even runtime-only Compose (custom `Applier`,

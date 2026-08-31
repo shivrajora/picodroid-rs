@@ -255,6 +255,51 @@ families) are documented in the tests-module comment in
 `picodroid-core/src/lvgl_ffi.rs`. Note: the original list here named
 `LV_ALIGN_*`, but no such Rust constants exist — nothing to guard.
 
+### Cross-thread field visibility has no `volatile` and no fences
+
+Opened 2026-08-31 by the concurrency-parity work (merged `a34a639`). Java threads are real
+FreeRTOS tasks sharing one heap, but the interpreter has **no `volatile` semantics and emits no
+barriers**: `getfield`/`putfield` are plain loads and stores whatever the field's ACC flags say,
+and `jvm/src/` has no fence of any kind. Today that is *correct* rather than lucky, and only
+because of two properties that are themselves load-bearing elsewhere:
+
+- every JVM-interpreting task is pinned to core 0, so there is one cache and one store buffer;
+- `configUSE_TIME_SLICING 0` plus a single JVM priority tier (`PRIORITY_JVM_NORM`, WP3) means a
+  task holds the core until it blocks, so a switch is always a full context save.
+
+Both fall the moment a second core interprets — which is exactly what parity-audit **THR-04 / X1**
+asks about, and RP2350 already runs real SMP with `configRUN_MULTIPLE_PRIORITIES=1`. So this
+entry is a dependent of X1, not an independent one: if X1 concludes the pinning invariant is
+unenforced, `volatile` fields stop being a documentation gap and become a correctness bug.
+
+Cheapest honest step, in order: (1) a source-scanning guard that a JVM-adjacent task cannot be
+spawned unpinned, so the invariant is checked rather than remembered; (2) record in
+ARCHITECTURE.md that `volatile` parses and is ignored; (3) only then consider `dmb` on
+`volatile` accesses — thumbv6m has the instruction but no atomic RMW, so anything past plain
+load/store still needs `AtomicSection`. **Tradeoff:** step 3 taxes the hot `getfield`/`putfield`
+path for a guarantee nothing in-tree currently needs; do not pay it before X1 reports.
+
+### Simulator leaks a pthread and TCB per finished Java thread
+
+Opened 2026-08-31; the mechanism is written up in full in
+`docs/designs/freertos-host-sim.md` § A5b. The POSIX port ends a task with `pthread_exit()`, a
+forced unwind that has to cross `freertos-rust`'s `extern "C"` (therefore `nounwind`) spawn
+trampoline and calls `abort()` when it does. `park_finished_task` sidesteps that by suspending
+finished tasks forever: the *model* charge is released first, so heap-parity measurements stay
+exact, but one suspended pthread and TCB accumulate per finished Java thread.
+
+This was invisible until the parity work — every task in the old topology looped forever, so no
+Java `run()` ever returned. It is now reachable from ordinary app code: `threadparity` alone
+churns 40 start/join cycles per run, and thread-churn soaks are the obvious next sim test.
+Hundreds of threads per run are fine; tens of thousands would exhaust host threads.
+
+The real fix is a `freertos-rust-pd` point release declaring `thread_start` as
+`extern "C-unwind"` — no Rust destructors are live in that frame by then, so the unwind is
+clean — which needs a published fork release, hence the deferral. **Tradeoff:** until then a
+long-running sim soak that spawns threads in a loop will die host-side for a reason that has
+nothing to do with the firmware under test; budget a bounded thread count in soak apps, and
+suspect this first when a sim soak dies at a suspiciously round thread count.
+
 ### Document concurrency divergences as checked invariants
 
 An ARCHITECTURE.md section listing what sim deliberately cannot catch — dual-core visibility
