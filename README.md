@@ -137,7 +137,7 @@ picodroid-rs/
 │   ├── keep.toml       # Class-name shrinker keep list
 │   └── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
 │
-├── examples/           # Example apps, each with Java sources and a PicodroidManifest.xml
+├── examples/           # Example apps (Java or Kotlin sources + a PicodroidManifest.xml)
 │
 ├── papk-format/        # PAPK container format — single source of truth (firmware + tools)
 ├── pdb-protocol/       # PDB wire format shared by firmware, simulator, and the pdb CLI

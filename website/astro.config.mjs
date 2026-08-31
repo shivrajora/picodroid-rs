@@ -93,6 +93,7 @@ export default defineConfig({
           label: 'Guides',
           items: [
             { label: 'Embedded gotchas', slug: 'guides/embedded-gotchas' },
+            { label: 'Kotlin apps', slug: 'guides/kotlin' },
             { label: 'Button-only navigation', slug: 'guides/button-navigation' },
             { label: 'Debugging', slug: 'guides/debugging' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
