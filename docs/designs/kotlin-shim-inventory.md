@@ -308,9 +308,11 @@ growth ✓ (no firmware change). Device min-ever-free (`pdb.sh sysmon`,
 in Session 8: **155.7 KB at boot, 124.3 KB after a 7 h 31 m soak** (11,677
 dashboard requests, hourly nav bursts; budget ≥ 120 KB ✓), JVM live floor
 13,558 B on device after the soak, native footprint 237 → 272 KB plateau after
-first-visit parsing, growth sentinel trips only at warm-up and transiently on the 3-way HTTP
-and hourly nav bursts (~4.7 KB of socket/screen buffers, back within a minute); native use flat at
-286–288 KB from 20 minutes to 7.5 hours.
+first-visit parsing, growth sentinel trips at warm-up and then repeatedly under combined
+load (~5 KB transient native oscillations, back to the ~287 KB baseline within
+a minute or two); native use flat at 286–288 KB from 20 minutes to 7.5 hours.
+An unattended overnight extension ended with an unattributed device reboot at
+9 h 29 m (telemetry was down; roadmap AMENDMENT 15 (f)).
 
 Why the deltas are this small: the port follows the frugality rules in
 `examples/picoenvmon_kt/README.md` — no `companion object` anywhere (top-level

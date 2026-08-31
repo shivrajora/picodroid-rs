@@ -86,12 +86,9 @@ explains the frugality rules the port follows):
 
 Soak conditions (2026-08-30, mem-diag debug firmware): dashboard fetch every
 2 s with 3-way bursts (11,677 requests), hourly four-screen navigation bursts,
-NTP + weather refreshes; no crash, reboot, OOM or GC-pressure event. The
-growth sentinel trips at warm-up (first-visit class parsing and socket set-up
-take the native footprint from 237 KB to a 272 KB plateau) and transiently on
-each 3-way HTTP burst and each hourly nav burst (~4.7 KB of socket and screen
-buffers that return within a minute, min-free unaffected); across the run the native footprint
-was flat — 286.1 KB at 20 minutes, 287.5 KB at 7.5 hours. A minimal Kotlin app (`hellokt`) is a
+NTP + weather refreshes; no crash, reboot, OOM or GC-pressure event in the measured window. An unattended overnight extension ended at 00:17 (9 h 29 m uptime): after a ~30 s serving gap the dashboard's uptime footer reset (569 m → 0 m) and the device came straight back up serving — a real reboot, unattributed because telemetry was down at that moment (the branch's own pre-commit had terminated the RTT attach at 22:37); a follow-up soak with telemetry attached end-to-end is open work. The 4 AM nightly HIL then reclaimed the device and ran green. At warm-up,
+first-visit class parsing and socket set-up take the native footprint from
+237 KB to a 272 KB plateau; after that the native-floor sentinel trips repeatedly under combined load — ~5 KB transient oscillations (sockets, weather/NTP buffers) that always return to the ~287 KB baseline within a minute or two, with min-ever-free unmoved after warm-up; no monotonic growth (286.1 KB at 20 minutes, 287.5 KB at 7.5 hours). A minimal Kotlin app (`hellokt`) is a
 2.8 KB PAPK of three classes; the per-class costs in the table above (~20 B
 registered, ~0.8 KB parsed, 32 B per method) are what to budget for.
 `examples/gcstress_kt` is the collector stress lane for Kotlin-specific churn
