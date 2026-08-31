@@ -45,7 +45,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Twelve release maps are committed today:
+Fourteen release maps are committed today:
 
 | Map | Covers |
 |-----|--------|
@@ -62,6 +62,7 @@ Twelve release maps are committed today:
 | `sdk/shrink-maps/v0.11.0.toml` | Adds the **package-move + widget-completion** surface (+25 classes, 110 → 135) — `picodroid.app.AlertDialog` (+ `Builder`/`$1`, moved from `picodroid.widget`), `picodroid.content.SharedPreferences` (+ `Editor`), `picodroid.os.IBinder` (moved from `picodroid.app`), `picodroid.net.URL` / `HttpURLConnection` (Java-cased rename), `picodroid.text.{TextWatcher, InputType}`, `picodroid.view.Gravity`, `GestureDetector$SimpleOnGestureListener`, the `picodroid.view.animation` interpolator family, and `picodroid.widget.{NumberPicker, RadioButton, RadioGroup}`. Every v0.10.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.12.0.toml` | **Stable** — byte-identical to v0.11.0. The Pico 2 W networking bring-up, the FreeRTOS host simulator, the runtime-flash fixes, and the `picodroid-core` / `papk-format` / `pdb-protocol` extractions all landed outside the framework class set. |
 | `sdk/shrink-maps/v0.13.0.toml` | **Stable** — byte-identical to v0.12.0. The typed `java.net` exceptions, `HttpURLConnection` header/timeout surface, `InetAddress.getByName`, `ServerSocket.setSoTimeout`, and `SystemClock.setCurrentTimeMillis` all landed as methods on classes the v0.11.0 cut already named; the JVM, GC, and memory-diagnostics work added no `sdk/java` classes. |
+| `sdk/shrink-maps/v0.14.0.toml` | Adds the **concurrency + injection-point** surface (+14 classes, 135 → 149) — the pure-Java `java.util.concurrent` core set (`picodroid.concurrent.{Callable, Future, FutureTask, ExecutorService, ThreadPoolExecutor, TimeUnit, CountDownLatch, AtomicInteger, AtomicLong, AtomicBoolean, AtomicReference}`), `Thread$UncaughtExceptionHandler`, and the two injection points `javax.inject.Provider` / `picodroid.di.Lazy`. Every v0.13.0 mapping copied verbatim. |
 
 ## v1 scope
 

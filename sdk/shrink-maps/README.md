@@ -86,5 +86,6 @@ files together. From that commit onwards, both `build.rs` and
 | `v0.11.0.toml` | + 25 classes (110 → 135): `AlertDialog` moved to `picodroid.app`, `SharedPreferences`, `IBinder` moved to `picodroid.os`, `URL` / `HttpURLConnection` renamed to Java casing, `TextWatcher`, `Gravity`, `InputType`, `GestureDetector.SimpleOnGestureListener`, the animation interpolator family, `NumberPicker`, and `RadioButton` / `RadioGroup`. v0.10.0 entries copied verbatim. |
 | `v0.12.0.toml` | Stable — byte-identical to v0.11.0 (the Pico 2 W networking bring-up, FreeRTOS host sim, and crate extractions added no framework classes). |
 | `v0.13.0.toml` | Stable — byte-identical to v0.12.0 (the networking-maturity, JVM-correctness, and memory work extended existing classes rather than adding new ones). |
+| `v0.14.0.toml` | + 14 classes (135 → 149): the `java.util.concurrent` core set (`Callable`, `Future`, `FutureTask`, `ExecutorService`, `ThreadPoolExecutor`, `TimeUnit`, `CountDownLatch`, the four `Atomic*` types), `Thread.UncaughtExceptionHandler`, and the DI injection points `javax.inject.Provider` / `picodroid.di.Lazy`. v0.13.0 entries copied verbatim. |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

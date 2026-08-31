@@ -113,7 +113,7 @@ The full docs are published at **<https://shivrajora.github.io/picodroid-rs/>** 
 - [Java API](https://shivrajora.github.io/picodroid-rs/api/) — split by area: [core](https://shivrajora.github.io/picodroid-rs/api/core/), [system](https://shivrajora.github.io/picodroid-rs/api/system/), [services](https://shivrajora.github.io/picodroid-rs/api/services/), [peripherals](https://shivrajora.github.io/picodroid-rs/api/peripherals/), [storage](https://shivrajora.github.io/picodroid-rs/api/storage/), [networking](https://shivrajora.github.io/picodroid-rs/api/networking/), [sensors](https://shivrajora.github.io/picodroid-rs/api/sensors/), [UI](https://shivrajora.github.io/picodroid-rs/api/ui/)
 - [Guides](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/) — [embedded gotchas](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/), [button-only navigation](https://shivrajora.github.io/picodroid-rs/guides/button-navigation/), [debugging](https://shivrajora.github.io/picodroid-rs/guides/debugging/), [bundled image assets](https://shivrajora.github.io/picodroid-rs/guides/assets/)
 - [Reference](https://shivrajora.github.io/picodroid-rs/reference/limits/) — [limits & memory budgets](https://shivrajora.github.io/picodroid-rs/reference/limits/), the [manifest schema](https://shivrajora.github.io/picodroid-rs/reference/manifest/), the [class-name shrinker](https://shivrajora.github.io/picodroid-rs/reference/shrinker/)
-- [Release notes](https://shivrajora.github.io/picodroid-rs/project/release-notes/) — v0.4.0 → v0.13.0
+- [Release notes](https://shivrajora.github.io/picodroid-rs/project/release-notes/) — v0.4.0 → v0.14.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
 ## Project Structure

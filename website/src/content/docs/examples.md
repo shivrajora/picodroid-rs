@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Sixty-three examples are included under `examples/`, organized by category.
+Seventy-two examples are included under `examples/`, organized by category.
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 
@@ -159,6 +159,10 @@ Benchmarks and stress tests for the JVM runtime and allocator. Reference: [Syste
 | `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
 | `heapstress` | `heapstress.HeapStress` | Allocation/fragmentation stress test exercising the array arena allocator and emergency-GC path |
 | `tracedemo` | `tracedemo.TraceDemo` | Bytecode-level tracing harness — exercises the JVM's diagnostic trace mode for verifying interpreter behavior under controlled inputs |
+| `bugbash` | `bugbash.BugBash` | Pure-logic regression checks for the 2026-08-30 bug bash — each check names the defect id it pins, proving through real bytecode what the unit tests guard in Rust |
+| `bugbash_ui` | `bugbashui.BugBashUiApp` | Lifecycle half of the bug-bash regression app — self-driving Activity/Service walk covering `finish()` idempotence, service bind limits, and pending-op delivery |
+| `executorstress` | `executorstress.ExecutorStress` | GC-rooting stress for Runnables in flight in the executor queues: posts lambdas whose only reference is the queued executor word, then forces collections before the queue drains |
+| `threadstress` | `threadstress.ThreadStress` | Concurrent-allocation stress for the compound-heap atomic sections — three child threads plus the main task churn the shared heap; run under `--mem-diag` with offensive checks armed |
 
 ## Feature Showcase
 
