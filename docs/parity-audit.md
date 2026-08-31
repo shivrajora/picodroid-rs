@@ -293,6 +293,19 @@ ask-first items are marked.
     every JVM-adjacent task being explicitly core-0-pinned rather than on
     scheduler policy. X1 is more urgent, not less; the THR-04 row records the
     change.
+  - 2026-08-31: X1 now has a **dependent**. The concurrency-parity work
+    (`a34a639`) widened Java threading considerably — real monitors with
+    ownership, `ACC_SYNCHRONIZED`, `Object.wait`/`notify`, a thread registry,
+    a `j.u.c.` core set — and every one of those rests on the same unenforced
+    pinning invariant. In particular the interpreter emits **no barriers and
+    honours no `volatile`** (`ACC_VOLATILE` is never read; `jvm/src/` contains
+    no fence), which is correct only while one core interprets. Filed as
+    *Cross-thread field visibility has no `volatile` and no fences* in
+    `docs/quality-roadmap.md` § Long-term stability, explicitly blocked on this
+    row's outcome: if pinning turns out to be unenforced, that entry is a
+    correctness bug rather than a documentation gap. The cheapest first move
+    belongs to X1 either way — a guard that a JVM-adjacent task cannot be
+    spawned unpinned, so the invariant is checked rather than remembered.
 - **X2 — cfg-gating lint**: pre-commit grep for `not(feature = "family-rp")`-style gates
   that should name `sim` explicitly (BLD-02 hazard).
   - 2026-07-26: expected count lowered 4 → 2. `system/monitor_store.rs` moved to

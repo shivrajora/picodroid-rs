@@ -94,6 +94,16 @@ on the probe. That is the board sitting at 97 % flash, so it is simultaneously t
 most likely to break and the only one never tested on hardware. It is also the last
 open item on the Kotlin roadmap (AMENDMENT 13).
 
+*2026-08-31 (concurrency parity, `a34a639`):* `threadparity` and `jucdemo` are now
+`term` rows in `hil-tests.conf` and passed 2/2 on the RP2350 board in both shrink
+modes — but that run predates the merge of main into the branch, so a post-merge
+re-run is still owed (low risk: the merge added a Kotlin app and docs, no framework
+code). The rp2040 gap above bites harder now: `testbench_rp2040` excludes the whole
+`j.u.c.` class set via `framework_class_excludes` to stay under its flash gate, so
+`jucdemo` cannot run there **by construction** — the exclusion itself is what wants
+testing (an app that touches an excluded class must fail to load cleanly, not
+mysteriously), and no rp2040 hardware row exists to test it.
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**
@@ -128,6 +138,24 @@ small trait (no LVGL) and unit-test its invariants. (b) Direct tests for
 `jvm/src/native/{hashmap,hashset,string_builder}.rs` and the `object_heap` list/map stores
 (resize, collisions, slot reuse) — currently tested only behaviorally. **Tradeoff:** (a)
 refactors the very file being protected; land the sim scenario tests first as a net.
+
+### Kotlin concurrency conformance under contention
+
+Opened 2026-08-31 alongside the Thread-parity merge. `examples/langsuite_kt`'s `SyncDemo.kt`
+covers `synchronized(lock) {}`, `@Synchronized` and `@Volatile` thoroughly but **entirely on one
+thread**: nesting, early return, exception unwind, lambdas, loops. Nothing there would have
+noticed that `ACC_SYNCHRONIZED` methods took no monitor at all until WP2 — the Java side caught
+it only because `threadparity` increments a shared counter from two threads and checks the total.
+
+Wanted: a Kotlin counterpart that spawns `picodroid.concurrent.Thread` from Kotlin, contends a
+`@Synchronized` method and a `synchronized(this)` block hard enough that a missing monitor loses
+increments, and exercises `wait`/`notify` through Kotlin's `(this as Object).wait()` idiom (Kotlin
+has no `Object` supertype syntax, which is itself worth pinning as conformance). Note that
+`@Volatile` currently compiles to a field the interpreter treats as ordinary — see *Cross-thread
+field visibility has no `volatile` and no fences* under Long-term stability; a Kotlin test must
+not be written in a way that silently depends on volatile semantics. **Tradeoff:** contention
+tests are the flaky kind — bound the iteration counts so a slow board does not time out, and
+assert on totals rather than interleavings.
 
 ### Grow langsuite-style conformance suites (not host JUnit)
 
@@ -265,6 +293,26 @@ Deliberate exemptions (alias/composite values and trivially-stable one-off
 families) are documented in the tests-module comment in
 `picodroid-core/src/lvgl_ffi.rs`. Note: the original list here named
 `LV_ALIGN_*`, but no such Rust constants exist — nothing to guard.
+
+### Scheduling fairness: a compute-bound thread holds its core until it blocks
+
+Deferred out of the concurrency-parity work as WP3c (2026-08-31); by design, not by oversight.
+`configUSE_TIME_SLICING 0` plus one JVM priority tier is exactly what makes the lock-free shared
+heap safe — a running JVM task keeps the core until it blocks — so equal-priority threads do not
+round-robin. A thread that loops without allocating, sleeping or doing I/O starves its siblings
+until it exits. `Thread.yield()` is the escape hatch and works today; `setPriority` cannot help
+because it is advisory (parity-audit THR-06).
+
+The designed-but-unbuilt fix: a `NativeMethodHandler::safepoint()` (default no-op) that the
+production handler implements as `rtos::task_yield()`, called from the interpreter every ~4096
+instructions from a counter beside `insn_count`. It is safe precisely because an opcode boundary
+outside any `AtomicSection` is the "blocking yield point" the heap model already assumes.
+
+**Measure before keeping it.** Gate on the perf harness against `benchmark` (±4 % noise floor per
+`docs/perf-memory-handover-2026-08.md`) and keep only if TOTAL moves under 2 %. **Tradeoff:** this
+buys fairness nothing in-tree currently needs — no shipped app has a compute-bound background
+thread — at a tax on the hottest loop in the system. The honest trigger is an app that actually
+starves, not the tidiness of having it.
 
 ### Cross-thread field visibility has no `volatile` and no fences
 
