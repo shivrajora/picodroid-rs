@@ -121,7 +121,11 @@ arena8; `data_slice` stays i32-only (GC ref-scan). 6 new unit tests; full
 suite 529/529. Offensive nav+serve soak: zero violations.
 **picoenvmon byte[] payload 12,428 → 3,921 B (−68 %); 27/33 byte arrays now
 inline; `arr` live 17,308 → 8,801 B; total live 21.4 → 13.8 KB.**
-Follow-up: `char[]`/`short[]` at 2 B/elem.
+Follow-up: `char[]`/`short[]` at 2 B/elem. **Closed 2026-08-25 — rejected.**
+Built in full, then measured at **+952 B flash / 0 B heap saved** and reverted;
+see `perf-campaign-2026-08.md` §S5. Root cause: picodroid `String` is byte-backed
+ASCII, so `toCharArray()` is the only `char[]` source and the corpus's sole
+instance is 3 elements — inline under both layouts.
 
 ### C3 — prereserve retune (W board)
 Storage steady state never grew past boot (obj 5 / arr 3 / str 8 chunks,
@@ -149,7 +153,9 @@ gained `arena8_cap`.
   `http=200` and full payload) — FreeRTOS+TCP close semantics, NET
   follow-up. Scripts probing the device dashboard must judge success by
   `%{http_code}`, not curl's exit code.
-- `char[]`/`short[]` packing (2 B/elem) on the C4 substrate.
+- ~~`char[]`/`short[]` packing (2 B/elem) on the C4 substrate.~~ **Not open** —
+  built, measured at zero, rejected (`69c918f`). `perf-campaign-2026-08.md` §S5
+  records the reopen trigger: an `arena16_cap` that stops being zero.
 - Device-side census over pdb sysmon (roadmap `mem-diag-histo`; census is
   the sim half). Byte-weighted GC pacing: `gcb=` now provides the evidence
   base.

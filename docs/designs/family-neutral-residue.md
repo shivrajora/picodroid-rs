@@ -615,6 +615,19 @@ n = 2.
 Per §7 below, plus the final baseline-to-end flash table appended as an
 amendment, A7-style.
 
+> **Partial as of 2026-08-31.** Three of §7's items are already satisfied:
+> `hal/sim/mod.rs` is out of `TWIN_ALLOW` (`scripts/pre-commit`; there is no
+> `platforms/rp/src/hal/sim/` twin any more), the BLD-02 expected count is 0
+> and documented as the end state, and the porting guide *does* now have a
+> networking section (`317acf1` — `### net.rs` documents `HalNet` under
+> `cfg(has_network)`, and board.toml's `has_network`/`network_type` are
+> listed). Residual: the six-item "what a new port must provide" list names
+> `Rtos` + `PlatformHooks` rather than §7's four PDB/install traits, and
+> ARCHITECTURE.md carries the wire-format boundary rule but not the
+> simulator-policy one. **Stage 6 is entirely untouched** — no
+> `hal/event_ring.rs`, no shared `hal::touch_override`, both misnamed
+> `protocol.rs` files still misnamed, no `declare_family_hal!`.
+
 ## 5. End state — what stays in `platforms/rp`
 
 - `main.rs` — entry, exception handlers, FreeRTOS hooks, both

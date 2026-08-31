@@ -16,10 +16,16 @@ Written against the tree at `21e41a6` (file:line references are from that commit
 | 4 | Interpreter II: interface default methods, `append(Object)` trampoline, `entrySet`, LinkedHash* aliases | **DONE 2026-08-28** | **yes** |
 | 5 | Shim tier 0 + contract test + JDK allowlist scan + `examples/langsuite_kt` (core demos) | **DONE 2026-08-28** | no → **yes** (AMENDMENT 12) |
 | 6 | Shim tiers 1–2 + full `langsuite_kt` + gates (pre-commit, HIL, CI) | **DONE 2026-08-28** (HIL: `pico_enviro_mon_w` ✓, `testbench_rp2040` untested) | no → **yes** (AMENDMENT 13, +660 B) |
-| 7 | Proof app `examples/picoenvmon_kt` + memory deltas | **DONE 2026-08-30** (7a kapt + 7b port; device sysmon pending) | no |
-| 8 | Hardening, soak, docs closure | **DONE 2026-08-30** (overnight soak addendum pending) | no |
+| 7 | Proof app `examples/picoenvmon_kt` + memory deltas | **DONE 2026-08-30** (7a kapt + 7b port; device sysmon ran in S8: min-ever-free 124.3 KB vs a ≥120 KB budget) | no |
+| 8 | Hardening, soak, docs closure | **DONE 2026-08-30** (soak addendum recorded 2026-08-31 in `57b7049` / AMENDMENT 15(f)) | no |
 
 All eight sessions are DONE as of 2026-08-30; this roadmap is closed — later Kotlin work gets its own design doc.
+
+**Two items outlive the roadmap** (2026-08-31 audit): the `testbench_rp2040` HIL
+gap in the S6 row above — no rp2040 row has *ever* run, all 5,296 `hil` rows in
+`bench/parity/history.csv` are `testbench_rp2350` — and the unattributed device
+reboot at 9 h 29 m recorded in AMENDMENT 15(f), whose soak ran blind because
+pre-commit SIGTERMed the RTT attach.
 
 ## Why now, and the numbers the design is built against
 

@@ -486,6 +486,29 @@ grade. `picodroid-core` stays (rationale in §5).
 17. GC-root provider registry *(roadmap)* — also breaks the `native_handler`↔`graphics`
     cycle (§4.3).
 
+### P2 status audit — 2026-08-31
+
+Verified against the tree, not against this list's own wording:
+
+- **12 — partial.** The StringBuilder scratch *did* come out (`896f691`,
+  `jvm/src/object_heap/sb_store.rs`), but `object_heap/mod.rs` is still ~1,516
+  lines and still owns the exception side-tables and formatting.
+- **14 — the `[lib]` goal was met by a better route, so treat it as done.**
+  `tools/pdb/Cargo.toml` still has no `[lib]`, but the shared code was lifted
+  into two real workspace crates — `pdb-protocol/` and `papk-format/` — and
+  `tools/pdb/src/protocol.rs` is now a thin `pub use pdb_protocol::*` plus std
+  I/O. `parity-bench.sh` is wired (pre-commit size lane).
+- **15 — partial.** ARCHITECTURE.md was refreshed (`3191e97`, `7ffca44`), but
+  there are still **no READMEs** for `picodroid-core`, `platforms/rp`, `pdb`,
+  `pdb-protocol` or `papk-format`.
+- **16 — partial, and the three scripts this item names are the ones still
+  missing it.** 12 scripts now carry `set -euo pipefail` — including
+  `hil-run.sh` — but `build.sh`, `build-apk.sh` and `flash.sh` remain on bare
+  `set -e`, and `lib.sh`'s sed-TOML parsing is untouched. `hil-run.sh` was not
+  rewritten; it grew 671 → 725 lines.
+- **17 — DONE** (`23fa075`), as recorded.
+- 11 and 13 are untouched.
+
 ## Appendix: invariants verified directly during this audit
 
 | Declared rule | Check | Result |

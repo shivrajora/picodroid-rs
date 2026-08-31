@@ -150,10 +150,17 @@ Landed:
   netdemo` — no source edit.
 
 Still open for on-device nightly rows: WiFi creds supplied to the nightly
-via environment (never checked in), listeners on the HIL host, and hil-run
-board parameterization. Full execution plan (with the load-bearing fact
+via environment (never checked in), listeners on the HIL host, and ~~hil-run
+board parameterization~~. Full execution plan (with the load-bearing fact
 that the attached HIL board is physically a Pico 2 W, verified
 2026-08-15): `docs/nightly-networking-handover.md`.
+
+**2026-08-28 (`40411ec`): the board-parameterization third is closed.**
+`hil-run.sh` takes `--board` (`:47`, help at `:63`) and the 2026-08-30 bug bash
+used it in anger (`--board pico_enviro_mon_w`). What remains of NET-7 is the
+creds-from-environment plumbing, the HIL-host listeners, and a `net` category —
+`scripts/hil-tests.conf` still has none, and its only networking row
+(`netexception`) is category `sim`, which hil-run skips.
 
 ## NET-8: WPA3 — DONE 2026-08-15 (needs a WPA3 AP to validate)
 

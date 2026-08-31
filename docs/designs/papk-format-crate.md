@@ -5,6 +5,27 @@
 > verdict and amendments are at the bottom and OVERRIDE the design body where
 > they conflict). Execute from this doc; update it if reality diverges.
 
+## Status (added 2026-08-31 — this doc had none, and read as unexecuted)
+
+**DONE in full, including both critique riders.** `papk-format/` is a workspace
+member; `compat/src/lib.rs` now points at `Papk::verify_compat` as the device
+authority, and the moved module-doc example uses `papk_format::Papk::parse`.
+
+- **Critique amendment 7 — `checked_add` hardening: done.** Offset arithmetic
+  is checked throughout `papk-format/src/lib.rs` (see the rationale comment
+  around the section-table walk), plus `scan.rs` and `write.rs`, with a 32-bit
+  wrap test.
+- **§(c) step 7 — `validate_structure` at embed time: done** (`build_support/papk.rs`).
+- **§(c) step 7's "out of scope, recorded follow-up" — the PDB1 flash-init
+  mini-format: done, beyond the original plan.** It lives as
+  `papk-format/src/flash_image.rs` (executed by family-neutral-residue Stage 3)
+  and is consumed from `build_support/papk.rs`, retiring the triplicated
+  `PAPK_FLASH_MAGIC`/`META_SIZE` constants.
+
+**Accepted remaining duplication** (unchanged, by design): the `cf` byte stays
+an opaque `u8` in the format crate while papk-pack and papk-info keep their own
+LVGL colour-format tables.
+
 ## DESIGN
 # Design: shared `papk-format` crate extraction
 

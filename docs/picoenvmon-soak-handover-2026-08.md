@@ -83,6 +83,16 @@ Driver gotchas baked in but worth knowing:
 
 ## PEM-3: retuning the memory pre-allocation numbers
 
+> **Status 2026-08-31 — the values were retuned; the on-device validation was
+> not.** `a58df06` ("prereserve retune for the packed-arena era", 2026-08-18)
+> set `prereserve_arena_values` 3072 → **1536** and added
+> `prereserve_arena8_bytes = 3072` after C4 moved `byte[]` off the i32 arena.
+> But it was derived from the **sim** memmon storage steady state, not from the
+> device quiet-hold procedure in steps 1–3 and 5 below — so the zero-growth
+> validation on hardware and the before/after record in `picoenvmon-qa.md`
+> (step 6) are still owed. Note the anchors below are stale: the keys now live
+> at `board.toml:72-77` and there are **six** of them, not five.
+
 **What it is.** At boot the JVM pre-reserves its slot/arena storage from
 `[jvm] prereserve_*` in
 `platforms/rp/boards/pico_enviro_mon_w/board.toml:62-66`:

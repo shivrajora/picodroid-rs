@@ -304,11 +304,18 @@ ask-first items are marked.
     `monitor_enter`/`monitor_exit` off-simulator), so the simulator continues not to
     take monitors at all. Enabling them there is now a one-line change and would be
     a genuine parity win — tracked as a follow-up, not done as part of a move.
+    **Superseded 2026-07-26 by `5d092e8`:** the follow-up landed in that same move.
+    `monitor_store.rs:8-13` records it — `crate::rtos` gives every platform a
+    recursive mutex, so the simulator now enforces the same monitor discipline the
+    device does. The sentence above is kept for the history; it is no longer true.
   - 2026-07-26: lowered again 2 → 1. `graphics/lvgl/calibration.rs` moved to
     `picodroid-core`; its two gates chose between a real debug-bridge stop poll and
     a constant `false`, which the platform-hook seam (`picodroid_core::host::
     stop_requested`) now answers for any platform. The one remaining gate is in
     `native_handler/mod.rs` and goes when that module moves.
+  - **Closed 2026-08-31: the expected count is now 0.** `scripts/pre-commit:78-100`
+    documents 0 as the end state and needs `|| true` on the grep precisely because a
+    match is now the failure. Nothing is left to drain.
 - **X3 — handle sanitizer on by default** in sim.sh and CI sim lanes (HAL-05); opt-out
   env stays for the rare legitimate case.
 

@@ -5,6 +5,22 @@
 > verdict and amendments are at the bottom and OVERRIDE the design body where
 > they conflict). Execute from this doc; update it if reality diverges.
 
+## Status (added 2026-08-31 — this doc had none, and read as unexecuted)
+
+**Phase 1: DONE.** `picodroid-core/src/native_handler/method_tables.rs` holds the
+per-handler `(class, method, descriptor)` const tables plus the
+bidirectional test — direction A (every SDK `ACC_NATIVE` method is handled or
+allowlisted) and direction B (every table row matches a real SDK declaration).
+The failure message prints ready-to-paste rows, which is the intended migration
+workflow and works: adding `ListView.nativeBindAdapter` during the E2 work
+produced exactly one paste-ready row. Wired via the `#[cfg(test)] #[path]`
+include in `main.rs`, as §0 requires.
+
+**Phase 2 (the X-macro): OPEN.** There is no
+`picodroid-core/src/native_handler/tables/` directory and no
+`native_table_macros.rs` anywhere in the tree; handlers still hand-match. The
+goal — making drift structurally impossible rather than test-enforced — stands.
+
 ## DESIGN
 # Method-Level Native-Registry Cross-Check — Design (quality-roadmap.md Stage 2)
 

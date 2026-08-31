@@ -83,6 +83,17 @@ maintain.
 networking rows (netdemo, ideally http_get) — that half is NET-7 in
 `docs/networking-followups-2026-08.md`.
 
+*2026-08-28 (`40411ec`):* **the `--board` flag landed** (`hil-run.sh:47`, help at
+`:63`) and is used in anger — the 2026-08-30 bug bash ran
+`hil-run.sh --board pico_enviro_mon_w`. This also closes the board-parameterisation
+third of NET-7, which `networking-followups-2026-08.md` still lists as blocking.
+
+*Still open, and now the sharper problem:* **no rp2040 row has ever run.** All 5,296
+`hil` rows in `bench/parity/history.csv` are `testbench_rp2350` — there is no rp2040
+on the probe. That is the board sitting at 97 % flash, so it is simultaneously the
+most likely to break and the only one never tested on hardware. It is also the last
+open item on the Kotlin roadmap (AMENDMENT 13).
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**

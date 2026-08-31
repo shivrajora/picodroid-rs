@@ -65,10 +65,20 @@ drops those classes from the embedded set for that board; excluding a class
 also excludes its inner classes. An exclude matching no compiled class fails
 the build, so a typo cannot silently keep shipping the class. A native miss
 on an excluded class says so rather than surfacing as a bare
-`NoSuchMethod` (`class_registry::is_excluded_on_this_board`). Every board
-currently excludes nothing, so behavior is unchanged everywhere — the
+`NoSuchMethod` (`class_registry::is_excluded_on_this_board`). ~~Every board
+currently excludes nothing, so behavior is unchanged everywhere~~ — the
 mechanism is what unblocks new S-class work (JSON, Bundle, Resources,
 pickers) on the RP2040.
+
+**Correction 2026-08-31: exclusion is live, and the open follow-up below is no
+longer speculative.** `testbench_rp2040/board.toml:12` excludes **nine
+`picodroid/net/*` classes** (`HttpURLConnection`, `HttpInputStream`,
+`HttpOutputStream`, `URL`, `Socket`, `ServerSocket`, `DatagramSocket`,
+`DatagramPacket`, `InetAddress`). `framework_class_excludes` is read only by
+`build_support/` and `picodroid-core` — **nothing in `buildSrc/` knows about
+it** — so an app calling `new Socket(...)` for that board compiles cleanly and
+dies at runtime with the hint, not at build time. Expect this to get worse: at
+19,961 B free (97 %) the RP2040 will need more exclusions, not fewer.
 
 Verified end-to-end: excluding `picodroid/widget/NumberPicker` took the
 embedded set from 137 to 135 classes (the class and its
@@ -210,7 +220,7 @@ too.
 | T1.6 | `Gpio` input | N | open |
 | T1.7 | `java.util.Objects`, `String.join` | B | open |
 | T1.8 | Persistence fills | N | open |
-| T1.9 | `EditText.setInputType` + password masking | N/S-small | open |
+| T1.9 | `EditText.setInputType` + password masking | N/S-small | **partial** (see below) |
 
 **T1.1 — StringBuilder per-instance buffers (DONE).** Every builder shared
 one global LIFO buffer, so two concurrently-alive builders interleaved
@@ -265,6 +275,13 @@ boards benefit.
 `mkdirs`/`createNewFile`/`list()` (`list()` needs a `HalFs` readdir —
 LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
 
+**T1.9 — `setInputType` + password masking (PARTIAL — the setter already
+shipped).** `706e14c` landed `EditText.setInputType(int)` and the full
+`picodroid/text/InputType` constant set on **2026-06-05**, two and a half
+months *before* this roadmap was written — the row was open at authoring, not
+by drift. Only masking remains, and `InputType.java:44` already says so:
+"Accepted; the field is not yet masked in v1."
+
 ## Tier 2 — medium milestones (1–2 weeks each)
 
 - **T2.1 — compile-contract verifier (E3 phase 1).** Parallel Gradle-only
@@ -274,6 +291,12 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   by the existing builtins, so `Map<String,String> m = new HashMap<>()` — the
   most basic Java idiom there is — compiles. Pathfinder for builtin-interface
   plumbing, and a prerequisite for JSON `keys()`, `getAll()`, and T3.3.
+  **Partial 2026-08-31:** the *runtime* half landed via Kotlin Sessions 3/4 —
+  `helpers.rs` `BUILTIN_INTERFACES` maps `ArrayList`→List/Collection/Iterable,
+  `HashMap`→Map, `HashSet`→Set, plus `HashMap$KeySet`/`$Values` and
+  `Appendable`, so `instanceof` and interface dispatch work. The *compile* half
+  is untouched: there are no `Map`/`Set`/`Collection` files in
+  `sdk/java/java/util/`, so the acceptance example above still will not compile.
 - **T2.3 — Thread parity.** **DONE 2026-08-30** (concurrency-parity WP4/WP5:
   `Thread` API, `Object.wait`/`notify`, `ACC_SYNCHRONIZED`, monitor store
   with ownership; `setPriority` advisory — parity-audit THR-06). Original
@@ -284,6 +307,13 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
 - **T2.4 — line-number stack traces.** Parse `LineNumberTable`; the project's
   own "biggest debugging quality-of-life win remaining". Schedule early: it
   multiplies the velocity of everything after it.
+  **Partial — and this was already true when the roadmap was written.**
+  `fce8241` landed line numbers on 2026-05-06, three and a half months before
+  this doc (`0dcd3fa`, 2026-08-18): `class_file/mod.rs` carries
+  `lnt_offset`/`lnt_len`, `parse.rs` scans the Code sub-attributes, and
+  `tests/exceptions.rs` pins the rendered format. Only the release half is
+  open — it is all `#[cfg(debug_assertions)]`-gated — and since `flash.sh`
+  defaults to debug builds, that gap bites less than the entry implies.
 - **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
   embedder arms can upcall; T3.4 is unblocked.
 - **T2.6 — JSON.** `picodroid.json.JSONObject`/`JSONArray`/`JSONException`
