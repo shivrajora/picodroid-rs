@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::types::{JvmError, Value};
+use crate::types::{JvmError, MonitorKey, Value};
 use alloc::vec::Vec;
 
 pub struct Frame {
@@ -16,6 +16,11 @@ pub struct Frame {
     /// adaptation `LambdaMetafactory` performs on a real JVM. Applied by the
     /// return opcode.
     pub box_return: u8,
+    /// The monitor an `ACC_SYNCHRONIZED` method holds for its whole
+    /// activation — the receiver, or the Class object for a static method.
+    /// Taken when the frame is pushed and released on every way it can
+    /// leave the stack (JVMS §2.11.10); `None` for every other method.
+    pub monitor: Option<MonitorKey>,
 }
 
 impl Frame {
@@ -52,6 +57,7 @@ impl Frame {
             locals,
             stack: Vec::with_capacity(max_stack as usize),
             box_return: 0,
+            monitor: None,
         })
     }
 

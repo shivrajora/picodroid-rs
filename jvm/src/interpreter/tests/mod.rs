@@ -164,5 +164,6 @@ mod multianewarray;
 mod rtti;
 mod stack;
 mod stack_manip;
+mod synchronized;
 mod upcall;
 mod wide_goto;

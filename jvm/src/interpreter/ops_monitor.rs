@@ -22,7 +22,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     }
 }
 
-fn value_to_monitor_key(val: Value) -> Result<MonitorKey, JvmError> {
+pub(super) fn value_to_monitor_key(val: Value) -> Result<MonitorKey, JvmError> {
     match val {
         Value::ObjectRef(idx) => Ok(MonitorKey::Object(idx)),
         Value::ArrayRef(idx) => Ok(MonitorKey::Array(idx)),

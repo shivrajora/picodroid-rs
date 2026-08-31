@@ -364,7 +364,7 @@ fn handle_exception<H: NativeMethodHandler>(
                     // `crossed_clinit` searched from `unwind_floor`, which is
                     // itself `>= floor`, so this can never cut below the floor.
                     debug_assert!(clinit_idx >= floor);
-                    frames.truncate(clinit_idx);
+                    truncate_frames(ex, frames, clinit_idx);
                     obj_idx = wrapper;
                     continue;
                 }
@@ -380,7 +380,7 @@ fn handle_exception<H: NativeMethodHandler>(
 /// Deliver `obj_idx` to the handler at `handler_frame_idx`, or build the
 /// uncaught-exception error when there is none.
 fn deliver_exception<H: NativeMethodHandler>(
-    ex: &Executor<'_, H>,
+    ex: &mut Executor<'_, H>,
     frames: &mut Vec<Frame>,
     obj_idx: u16,
     handler_frame_idx: Option<usize>,
@@ -388,7 +388,7 @@ fn deliver_exception<H: NativeMethodHandler>(
 ) -> Result<(), JvmError> {
     if let Some(idx) = handler_frame_idx {
         // Found a handler — truncate to that frame and set up for execution.
-        frames.truncate(idx + 1);
+        truncate_frames(ex, frames, idx + 1);
         let f = frames.last_mut().unwrap();
         let cf = &ex.classes[f.class_idx];
         let method = &cf.methods()[f.method_idx];
@@ -406,7 +406,7 @@ fn deliver_exception<H: NativeMethodHandler>(
     // Java exception so it resumes the search there; only the outermost run
     // (floor 0) can conclude that nothing caught it.
     if floor > 0 {
-        frames.truncate(floor);
+        truncate_frames(ex, frames, floor);
         return Err(JvmError::Exception(obj_idx));
     }
 
@@ -433,12 +433,79 @@ fn deliver_exception<H: NativeMethodHandler>(
         .objects
         .get_exception_message(obj_idx)
         .and_then(|msg_idx| ex.strings.resolve_static(msg_idx));
-    frames.truncate(floor);
+    truncate_frames(ex, frames, floor);
     Err(JvmError::UncaughtException {
         exception_class,
         message,
         trace,
     })
+}
+
+const ACC_STATIC: u16 = 0x0008;
+const ACC_SYNCHRONIZED: u16 = 0x0020;
+
+/// `ACC_SYNCHRONIZED` (JVMS §2.11.10): before a synchronized method's frame
+/// goes on the stack, take the monitor it holds for its whole activation —
+/// the receiver for an instance method, the Class object for a static one —
+/// and record it on the frame so every exit path releases it. javac emits
+/// no `monitorenter`/`monitorexit` for the method form; only the block form
+/// is bytecode, so without this a `synchronized void inc()` ran unlocked.
+fn enter_synchronized<H: NativeMethodHandler>(
+    ex: &mut Executor<'_, H>,
+    frame: &mut Frame,
+) -> Result<(), JvmError> {
+    let cf = &ex.classes[frame.class_idx];
+    let m = &cf.methods()[frame.method_idx];
+    if m.access_flags & ACC_SYNCHRONIZED == 0 {
+        return Ok(());
+    }
+    let key = if m.access_flags & ACC_STATIC != 0 {
+        let name = cf.class_name().ok_or(JvmError::InvalidBytecode)?;
+        match helpers::class_object_for_name(
+            ex.classes,
+            ex.strings,
+            ex.objects,
+            ex.class_objects,
+            name,
+        )? {
+            Value::ObjectRef(class_obj) => crate::types::MonitorKey::Object(class_obj),
+            _ => return Err(JvmError::InvalidBytecode),
+        }
+    } else {
+        let this = frame.locals.first().copied().ok_or(JvmError::InvalidBytecode)?;
+        ops_monitor::value_to_monitor_key(this)?
+    };
+    ex.handler.monitor_enter(key)?;
+    frame.monitor = Some(key);
+    Ok(())
+}
+
+/// Pop the top frame, releasing the monitor of a synchronized method. Every
+/// pop in this module goes through here or [`truncate_frames`].
+fn pop_frame<H: NativeMethodHandler>(
+    ex: &mut Executor<'_, H>,
+    frames: &mut Vec<Frame>,
+) -> Result<(), JvmError> {
+    if let Some(frame) = frames.pop() {
+        if let Some(key) = frame.monitor {
+            ex.handler.monitor_exit(key)?;
+        }
+    }
+    Ok(())
+}
+
+/// Unwind to `len` frames, releasing monitors top-down. Used while an
+/// exception is in flight, where a monitor the handler will not release
+/// (an `IllegalMonitorStateException`-in-waiting) must not displace the
+/// exception being delivered — so release failures are ignored here.
+fn truncate_frames<H: NativeMethodHandler>(
+    ex: &mut Executor<'_, H>,
+    frames: &mut Vec<Frame>,
+    len: usize,
+) {
+    while frames.len() > len {
+        let _ = pop_frame(ex, frames);
+    }
 }
 
 /// Let the handler drop the monitors of entities a collection just freed
@@ -596,7 +663,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
             };
 
             if frame.pc >= code.len() {
-                frames.pop();
+                pop_frame(ex, frames)?;
                 if frames.len() == base_depth {
                     return Ok(None);
                 }
@@ -616,7 +683,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                         v = helpers::box_primitive(ex.objects, frame.box_return, v)
                             .ok_or(JvmError::StackOverflow)?;
                     }
-                    frames.pop();
+                    pop_frame(ex, frames)?;
                     if frames.len() == base_depth {
                         return Ok(Some(v));
                     }
@@ -624,7 +691,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     continue;
                 }
                 0xb1 => {
-                    frames.pop();
+                    pop_frame(ex, frames)?;
                     if frames.len() == base_depth {
                         return Ok(None);
                     }
@@ -633,7 +700,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 _ => {}
             }
 
-            let r: Result<(), JvmError> = match opcode {
+            let mut r: Result<(), JvmError> = match opcode {
                 0x00..=0x14 => ex.op_constants(opcode, code, frame),
                 0x15..=0x2d => ex.op_locals_load(opcode, code, frame),
                 0x2e..=0x35 => ex.op_array_load(opcode, frame),
@@ -664,15 +731,23 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
             }
 
             // If op_invoke resolved a Java method, push the new frame.
-            if let Some(new_frame) = ex.pending_frame.take() {
+            if let Some(mut new_frame) = ex.pending_frame.take() {
                 if r.is_ok() {
                     if frames.len() >= MAX_FRAME_DEPTH {
                         let e = ex.stack_overflow_error()?;
                         handle_exception(ex, frames, e, base_depth)?;
                         continue;
                     }
-                    frames.push(new_frame);
-                    continue;
+                    // A synchronized method takes its monitor before its
+                    // frame exists on the stack; a failure to take it is the
+                    // invoke's error and is handled below like any other.
+                    match enter_synchronized(ex, &mut new_frame) {
+                        Ok(()) => {
+                            frames.push(new_frame);
+                            continue;
+                        }
+                        Err(e) => r = Err(e),
+                    }
                 }
                 // If the opcode errored, drop the pending frame and fall through
                 // to exception handling below.
