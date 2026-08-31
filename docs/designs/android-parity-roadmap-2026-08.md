@@ -274,7 +274,10 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   by the existing builtins, so `Map<String,String> m = new HashMap<>()` — the
   most basic Java idiom there is — compiles. Pathfinder for builtin-interface
   plumbing, and a prerequisite for JSON `keys()`, `getAll()`, and T3.3.
-- **T2.3 — Thread parity.** `sleep`, `currentThread`, `join`, `interrupt`,
+- **T2.3 — Thread parity.** **DONE 2026-08-30** (concurrency-parity WP4/WP5:
+  `Thread` API, `Object.wait`/`notify`, `ACC_SYNCHRONIZED`, monitor store
+  with ownership; `setPriority` advisory — parity-audit THR-06). Original
+  scope: `sleep`, `currentThread`, `join`, `interrupt`,
   `isAlive`, `setName` on `picodroid.concurrent.Thread`. Split
   `Object.wait`/`notify` into a separate follow-on — monitor-wait integration
   is the risky half.

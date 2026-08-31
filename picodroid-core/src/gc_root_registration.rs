@@ -88,9 +88,11 @@ pub fn register_all() {
     // maps, one queue further out).
     register_object_refs(crate::executors::main_queue::visit_pending_runnable_roots);
     register_object_refs(crate::executors::background_pool::visit_pending_runnable_roots);
-    // A Thread.start Runnable is held only as a raw u16 in the task closure;
-    // idiomatic Java drops every other reference at start() (bugbash B1).
-    register_object_refs(crate::native_handler::os::visit_spawned_runnable_roots);
+    // Every live Thread object — reserved in the registry before its task
+    // exists, so it (and through its `target` field the Runnable) is rooted
+    // from before the child's first frame; idiomatic Java drops every other
+    // reference at start() (bugbash B1). Adopted tasks' Thread objects too.
+    register_object_refs(crate::threads::visit_thread_roots);
 
     // Sensor registrations hold the listener and the recycled SensorEvent;
     // the Activity stack holds each live Activity object and its pending

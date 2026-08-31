@@ -39,7 +39,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 
 | API | Status | Notes / alternative |
 |---|---|---|
-| `View` | Partial | Geometry/visibility/enabled/tag/id, `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. No `findViewById` (no resource IDs — keep references or use `setTag`/`getTag`); no `post`/`postDelayed` (use `getMainExecutor()` or animation timers). |
+| `View` | Partial | Geometry/visibility/enabled/tag/id, `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. No `findViewById` (no resource IDs — keep references or use `setTag`/`getTag`); no `post`/`postDelayed` (use `Executors.mainExecutor()` or animation timers). |
 | `ViewGroup` / `ViewPropertyAnimator` | Partial | `animate()` with `translationX/Y`, `alpha`, `scaleX/Y`, `setInterpolator`, `withEndAction`. |
 | `MotionEvent` | Partial | `getX`/`getY` are **view-relative**, `getRawX`/`getRawY` are screen-absolute, matching Android. **Coordinates are `int`, not `float`** (no FPU). |
 | `GestureDetector` | Partial | `OnGestureListener` + `SimpleOnGestureListener`; slop/fling use raw coordinates. |
@@ -84,7 +84,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `SystemClock` | Full | `uptimeMillis`/`elapsedRealtime`. |
-| `Handler` / `Looper` / `Message` | Unsupported | Use `getMainExecutor().execute(Runnable)` for "post to UI", and the animation engine's timers / internal popup timeouts for delayed work. There is no `postDelayed`. |
+| `Handler` / `Looper` / `Message` | Unsupported | Use `Executors.mainExecutor().execute(Runnable)` for "post to UI"; for delayed work, a `Thread` that sleeps then posts, or the animation engine's `withEndAction`. There is no `postDelayed`. |
 | `Bundle` | Partial | Intent extras only. |
 
 ### android.hardware
@@ -97,7 +97,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 
 | API | Status | Notes / alternative |
 |---|---|---|
-| `Thread` (`picodroid.concurrent.Thread`) | Partial | On device, `start()` spawns a real FreeRTOS task. **In the simulator it is a no-op and logs a warning** — there is no threading in sim. |
+| `Thread` (`picodroid.concurrent.Thread`) | Full | `start()` spawns a real FreeRTOS task on device and in the simulator (the sim runs the real kernel). `run()` override or `Runnable` target, `sleep`, `join`/`join(ms)`, `interrupt`/`isInterrupted`/`interrupted`, `isAlive`, `currentThread`, `get`/`setName`, `getId`, `yield`, `UncaughtExceptionHandler` (per-thread and default), `IllegalThreadStateException` on a second `start()`. `synchronized` blocks **and methods** are real kernel mutexes; `Object.wait`/`notify`/`notifyAll` work (timed, interruptible, `IllegalMonitorStateException` when not owner). Divergences: `setPriority` and `setDaemon` are advisory (every Java task runs at one RTOS priority — see the system reference), and a compute-bound thread holds the core until it blocks (no time slicing). |
 | `Executor` / `Executors` (`mainExecutor` / `backgroundExecutor`) | Full | The recommended concurrency primitive — this is how you "post to the UI thread". |
 
 ### java.* standard library
@@ -137,7 +137,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
   drawables, or strings. Bundle binary assets under `assets/` and reference
   them through the generated `AssetConstants` (see [assets](/guides/assets/)).
 - **No `Handler`/`Looper`.** The main loop is an executor-driven dispatcher;
-  use `getMainExecutor()` and animation timers.
+  use `Executors.mainExecutor()` and animation timers.
 - **Custom `Interpolator`s fall back to linear.** Standard interpolators
   (linear/accelerate/decelerate/accelerate-decelerate) map to native easing; an
   app-defined `Interpolator` can't be up-called from the native tick, so it

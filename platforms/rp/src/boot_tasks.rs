@@ -153,8 +153,10 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                 crate::pdb::pending::clear_stop();
                 crate::app::run_jvm_with(boot_apk);
 
-                // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM.
+                // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM,
+                // and end every Thread.sleep / join / Object.wait park the same way.
                 crate::pdb::pending::abort_all_child_delays();
+                picodroid_core::threads::wake_all_parked();
 
                 // Wait for all child threads to deregister.  Loop because
                 // notifications may arrive from pdb_task (consumed harmlessly)

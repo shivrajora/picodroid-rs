@@ -81,6 +81,10 @@ pub const VIEW_LONG_CLICK: usize = 37;
 pub const ACTIVITY_ON_ACTIVITY_RESULT: usize = 38;
 /// `Service.onRebind(Intent)` — a client rebinds after onUnbind returned true.
 pub const SERVICE_ON_REBIND: usize = 39;
+// A started Thread's task runs its whole Java life through this static
+// bridge: `run()` by invokevirtual (subclass overrides work), the uncaught
+// path, and the registry hand-back in `finally`.
+pub const THREAD_RUN: usize = 40;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -128,6 +132,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     ("picodroid/view/View", "fireLongClick"),
     ("picodroid/app/Activity", "onActivityResult"),
     ("picodroid/app/Service", "onRebind"),
+    ("picodroid/concurrent/Thread", "runWrapper"),
 ];
 
 #[cfg(test)]

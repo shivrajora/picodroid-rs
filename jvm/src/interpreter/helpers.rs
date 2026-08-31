@@ -415,6 +415,16 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     ("java/lang/Exception", "java/lang/Throwable"),
     ("java/lang/Error", "java/lang/Throwable"),
     ("java/lang/RuntimeException", "java/lang/Exception"),
+    // Thread primitives (picodroid.concurrent.Thread, Object.wait/notify).
+    ("java/lang/InterruptedException", "java/lang/Exception"),
+    (
+        "java/lang/IllegalThreadStateException",
+        "java/lang/IllegalArgumentException",
+    ),
+    (
+        "java/lang/IllegalMonitorStateException",
+        "java/lang/RuntimeException",
+    ),
     (
         "java/lang/IllegalArgumentException",
         "java/lang/RuntimeException",

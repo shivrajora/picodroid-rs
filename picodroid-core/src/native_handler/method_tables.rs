@@ -227,8 +227,6 @@ pub const NET_HANDLED: &[Row] = &[
 pub const OS_HANDLED: &[Row] = &[
     // java/lang/System
     ("java/lang/System", "currentTimeMillis", "()J"),
-    // picodroid/concurrent/Thread
-    ("picodroid/concurrent/Thread", "start", "()V"),
     // picodroid/content/pm/PackageManager
     (
         "picodroid/content/pm/PackageManager",
@@ -269,6 +267,29 @@ pub const CONCURRENT_HANDLED: &[Row] = &[
 ];
 
 /// `native_handler/sensors.rs`
+/// `native_handler/threads.rs`. `Object.wait`/`notify`/`notifyAll` are
+/// served there too but have no row: `java/lang/Object` is a builtin with
+/// no SDK class file to cross-check against (see that module's docs).
+pub const THREADS_HANDLED: &[Row] = &[
+    // picodroid/concurrent/Thread
+    ("picodroid/concurrent/Thread", "adopt0", "()V"),
+    (
+        "picodroid/concurrent/Thread",
+        "current0",
+        "()Lpicodroid/concurrent/Thread;",
+    ),
+    ("picodroid/concurrent/Thread", "currentKind0", "()I"),
+    ("picodroid/concurrent/Thread", "exit0", "()V"),
+    ("picodroid/concurrent/Thread", "interrupt", "()V"),
+    ("picodroid/concurrent/Thread", "interrupted", "()Z"),
+    ("picodroid/concurrent/Thread", "isAlive", "()Z"),
+    ("picodroid/concurrent/Thread", "isInterrupted", "()Z"),
+    ("picodroid/concurrent/Thread", "join0", "(J)V"),
+    ("picodroid/concurrent/Thread", "sleep0", "(J)V"),
+    ("picodroid/concurrent/Thread", "start0", "()Z"),
+    ("picodroid/concurrent/Thread", "yield0", "()V"),
+];
+
 pub const SENSORS_HANDLED: &[Row] = &[
     // picodroid/hardware/SensorManager
     (
@@ -583,6 +604,7 @@ pub const ALL_HANDLED: &[&[Row]] = &[
     NET_HANDLED,
     OS_HANDLED,
     CONCURRENT_HANDLED,
+    THREADS_HANDLED,
     SENSORS_HANDLED,
     APP_SERVICES_HANDLED,
     CORE_HANDLED,

@@ -260,6 +260,7 @@ pub fn run_app(apk_data: &[u8]) {
     // Also publishes all-disabled demand so the sampler parks between apps.
     crate::hardware::sensors::reset();
     crate::monitor_store::clear();
+    crate::threads::clear();
 
     // Parse the APK once up front so the class table can be pre-sized to the
     // exact framework + app class count. Avoids 7 Vec doubling reallocations

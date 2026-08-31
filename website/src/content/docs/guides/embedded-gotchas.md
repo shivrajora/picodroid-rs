@@ -84,40 +84,38 @@ public void onCreate() {
 
 Why: the GC is non-moving mark-sweep with slot reuse. A View reachable only through a Rust-side listener map (and not a Java field) was historically swept on the first GC; its heap slot was reused by another object, and a later dispatch resolved a live widget to a dead reference. The picoenvmon home hub keeps its menu `ListView` as a field redundantly for exactly this reason.
 
-## No Handler, Looper, postDelayed, Thread.sleep, or Timer
+## No Handler, Looper, postDelayed, or Timer
 
-Symptom: `Handler`, `Looper`, `postDelayed`, `java.lang.Thread`, and `Timer` do not exist; `Thread.sleep` is absent even on `picodroid.concurrent.Thread`.
+Symptom: `Handler`, `Looper`, `postDelayed`, `java.lang.Thread` and `Timer` do not exist. `picodroid.concurrent.Thread` is the thread class (import it), with the `java.lang.Thread` API: `sleep`, `join`, `interrupt`, `currentThread`, a `Runnable` target or an overridden `run()`, and `Object.wait`/`notify`.
 
-For background work, spawn a `picodroid.concurrent.Thread` and block with `SystemClock.sleep` — never on the main thread.
+For background work, spawn a `Thread` and block on it — never on the main thread.
 
 ```java
-// WRONG: none of these classes/methods exist on Picodroid.
+// WRONG: none of these exist on Picodroid.
 new Handler().postDelayed(this::sample, 1000);
-Thread.sleep(1000);
+java.lang.Thread.sleep(1000);
 ```
 
 ```java
 // RIGHT: loop on a background Thread; hop results back to the UI.
 new Thread(() -> {
-  while (running) {
+  while (!Thread.currentThread().isInterrupted()) {
     final Reading r = sample();
     Executors.mainExecutor().execute(() -> label.setText(r.toString()));
-    SystemClock.sleep(1000);
+    try {
+      Thread.sleep(1000);
+    } catch (InterruptedException e) {
+      return;
+    }
   }
 }).start();
 ```
 
-`SystemClock.sleep(int ms)` is the only blocking sleep in the SDK. To hop threads use `Executors.mainExecutor().execute(Runnable)` or `Executors.backgroundExecutor().execute(Runnable)` — `execute` runs as soon as the queue drains; there is no delay or timer overload.
+`Thread.sleep(long)` is interruptible and throws `InterruptedException` like Android's; `SystemClock.sleep(int)` sleeps through interrupts, also like Android's. To hop threads use `Executors.mainExecutor().execute(Runnable)` or `Executors.backgroundExecutor().execute(Runnable)` — `execute` runs as soon as the queue drains; there is no delay or timer overload, so "do X in 500 ms" is a `Thread` that sleeps and then posts.
 
-For animation, use `view.animate()` ([ViewPropertyAnimator](/api/ui/)). Note the v1 caveats: linear interpolation only, **no completion listener**, and both endpoints are required.
+For animation, use `view.animate()` ([ViewPropertyAnimator](/api/ui/)): `setDuration`, `setInterpolator`, and `withEndAction(Runnable)` for "do X after the animation" — the end action runs on the main thread.
 
-```java
-// "do X after the animation" — fire synchronously after start(); there is no callback.
-view.animate().alpha(1.0f, 0.0f).x(0, 120).setDuration(300).start();
-onAnimationKickedOff();
-```
-
-Why: there is no Android main-loop `Handler`/`Looper` here. The Executors queue drains "sub-ms on Runnable post," and the animation engine plays in the background without a finish callback. See [background services](/tutorials/background-service/).
+Why: there is no Android main-loop `Handler`/`Looper` here; the Executors queue drains "sub-ms on Runnable post". See [background services](/tutorials/background-service/).
 
 ## Button-only boards: widgets need setFocusable(true) + requestFocus()
 

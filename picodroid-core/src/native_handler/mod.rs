@@ -17,6 +17,7 @@ pub(crate) mod os;
 mod pio;
 #[cfg(not(test))]
 mod sensors;
+mod threads;
 
 mod class_registry;
 pub use class_registry::PICODROID_NATIVE_CLASSES;
@@ -340,6 +341,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         if let result @ Some(_) = os::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        if let result @ Some(_) = threads::dispatch(class_name, method_name, ctx) {
             return result;
         }
         if let result @ Some(_) = concurrent::dispatch(class_name, method_name, ctx) {
