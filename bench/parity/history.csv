@@ -65894,3 +65894,7 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-08-31T00:16:52Z,1d814a5,hil,testbench_rp2350,threadparity,no-shrink,holdout,passed,1
 2026-08-31T00:16:52Z,1d814a5,hil,testbench_rp2350,threadparity,shrink,holdout,flash_seconds_x100,3123
 2026-08-31T00:16:52Z,1d814a5,hil,testbench_rp2350,threadparity,shrink,holdout,passed,1
+2026-08-31T00:20:20Z,bf267a9,hil,testbench_rp2350,jucdemo,no-shrink,holdout,flash_seconds_x100,3140
+2026-08-31T00:20:20Z,bf267a9,hil,testbench_rp2350,jucdemo,no-shrink,holdout,passed,1
+2026-08-31T00:20:20Z,bf267a9,hil,testbench_rp2350,jucdemo,shrink,holdout,flash_seconds_x100,3124
+2026-08-31T00:20:20Z,bf267a9,hil,testbench_rp2350,jucdemo,shrink,holdout,passed,1
