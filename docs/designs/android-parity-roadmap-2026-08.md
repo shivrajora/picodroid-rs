@@ -366,7 +366,12 @@ LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
   a real case appears.
 - **Full `java.util.concurrent`, `LinkedList`, `TreeMap`, `ArrayDeque`.** No
   demonstrated need; every builtin still costs shared `.text` and table rows.
-  Add `AtomicInteger` alone if thread-parity work surfaces demand.
+  *2026-08-30:* the core set landed as **pure Java** in `picodroid.concurrent`
+  (`ExecutorService`/`Future`/`Callable`/`TimeUnit`/`FutureTask`, a fixed
+  `ThreadPoolExecutor`, `AtomicInteger`/`Long`/`Boolean`/`Reference`,
+  `CountDownLatch`) on top of the Thread parity work — zero natives, zero
+  `.text`, class files only. Locks, `Semaphore`, `ConcurrentHashMap`,
+  `BlockingQueue` and scheduled pools stay out.
 - **`Fragment` before the resource system.** Fragments without layouts and
   ids are shape without substance.
 - **Jetpack Compose proper.** Even runtime-only Compose (custom `Applier`,

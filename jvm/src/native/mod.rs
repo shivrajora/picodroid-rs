@@ -113,6 +113,10 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/InterruptedException",
     "java/lang/IllegalThreadStateException",
     "java/lang/IllegalMonitorStateException",
+    "java/util/concurrent/ExecutionException",
+    "java/util/concurrent/CancellationException",
+    "java/util/concurrent/TimeoutException",
+    "java/util/concurrent/RejectedExecutionException",
     "java/util/NoSuchElementException",
     "java/io/IOException",
     "java/io/InterruptedIOException",
@@ -250,20 +254,33 @@ const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
     ("java/lang/System", arrays::dispatch_system),
 ];
 
-/// If the receiver is a Throwable being constructed with a String first arg
-/// (e.g. `<init>(Ljava/lang/String;)V`), record that message in the side
-/// table on the ObjectHeap so it can later be surfaced in `UncaughtException`.
+/// If the receiver is a Throwable being constructed with a String and/or a
+/// Throwable argument (`<init>(Ljava/lang/String;)V`,
+/// `<init>(Ljava/lang/Throwable;)V`,
+/// `<init>(Ljava/lang/String;Ljava/lang/Throwable;)V`), record the message
+/// and the cause in the ObjectHeap side tables so `getMessage()` /
+/// `getCause()` and `UncaughtException` can surface them. The cause-only
+/// form leaves the message unset where Java would set it to
+/// `cause.toString()` — a documented shortcut.
 fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
-    if !ctx.descriptor.starts_with("(Ljava/lang/String;") {
-        return;
-    }
     let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
         return;
     };
-    let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() else {
-        return;
-    };
-    ctx.objects.register_exception_message(obj_idx, msg_idx);
+    let d = ctx.descriptor;
+    if d.starts_with("(Ljava/lang/String;") {
+        if let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() {
+            ctx.objects.register_exception_message(obj_idx, msg_idx);
+        }
+        if d.starts_with("(Ljava/lang/String;Ljava/lang/Throwable;") {
+            if let Some(Value::ObjectRef(cause)) = ctx.args.get(2).copied() {
+                ctx.objects.register_exception_cause(obj_idx, cause);
+            }
+        }
+    } else if d.starts_with("(Ljava/lang/Throwable;") {
+        if let Some(Value::ObjectRef(cause)) = ctx.args.get(1).copied() {
+            ctx.objects.register_exception_cause(obj_idx, cause);
+        }
+    }
 }
 
 /// `getMessage()` on any Throwable-family receiver: surface the message

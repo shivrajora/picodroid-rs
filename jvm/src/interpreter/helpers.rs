@@ -425,6 +425,24 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
         "java/lang/IllegalMonitorStateException",
         "java/lang/RuntimeException",
     ),
+    // picodroid.concurrent's ExecutorService/Future (pure Java) throw these
+    // by their JDK names, alloc-by-name like the java.net family.
+    (
+        "java/util/concurrent/ExecutionException",
+        "java/lang/Exception",
+    ),
+    (
+        "java/util/concurrent/CancellationException",
+        "java/lang/IllegalStateException",
+    ),
+    (
+        "java/util/concurrent/TimeoutException",
+        "java/lang/Exception",
+    ),
+    (
+        "java/util/concurrent/RejectedExecutionException",
+        "java/lang/RuntimeException",
+    ),
     (
         "java/lang/IllegalArgumentException",
         "java/lang/RuntimeException",
