@@ -3,6 +3,11 @@
 .gdb_history
 Cargo.lock
 target/
+# Per-triple build directories used by `scripts/pre-commit`'s parallel lanes.
+# Cargo serializes concurrent invocations that share one target dir, so each
+# lane gets its own. Safe to `rm -rf` at any time.
+target-thumbv6m/
+target-thumbv8m/
 
 # Downloaded tooling (google-java-format JAR, etc.)
 vendor/

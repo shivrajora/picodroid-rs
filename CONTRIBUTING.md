@@ -22,25 +22,51 @@ Always use the test script — bare `cargo test` fails because the default targe
 
 ## Pre-commit Hook
 
-The pre-commit hook runs automatically on `git commit` and checks:
-
-1. Java formatting (`google-java-format`)
-2. Rust formatting (`cargo fmt`)
-3. Clippy (RP2040, RP2350, and simulator targets)
-4. Embedded firmware build
-5. All tests
-
 Install it after cloning:
 
 ```bash
 ln -s ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
-You can also run it manually at any time:
+It runs in two tiers, both of which fan their stages out across parallel lanes:
 
 ```bash
-./scripts/pre-commit
+./scripts/pre-commit          # fast (default, and what the hook runs)
+./scripts/pre-commit --full   # everything — run before you push
 ```
+
+**`--fast`** is scoped to what actually changed and trimmed to the checks CI
+does not already run. A docs-only commit gets markdown lint and the guards; a
+one-file Rust change adds `cargo fmt`, sim + RP2040 clippy, the RP2040 debug
+flash gate and the size ratchet. Editing anything under `scripts/` promotes the
+run to `--full`, since a script change can invalidate any lane's assumptions.
+
+**`--full`** runs every check unscoped: all five board clippy legs, the staged
+`handle-table-32` and opt-in `mem-diag` legs, every firmware build, the test
+suite in both shrink modes, the Java and Kotlin conformance suites in the
+simulator, and the size ratchet on both boards.
+
+What the fast tier is allowed to skip is not a guess. `.github/workflows/ci_checks.yml`
+already runs the board clippy legs, both boards in debug and release, `test.sh`,
+every example APK, both formatters, and a 14-app sim smoke covering all three
+langsuites. The checks that exist *only* locally — the shadow-twin and
+cfg-hygiene guards, `hil-tests.conf` drift, `apply_jvm_env`, markdown lint, and
+the binary-size ratchet — run at every tier.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--list` | Print the stages that would run, grouped by lane, and exit. |
+| `--serial` | One lane at a time, streaming to stdout. Use it to debug a failure. |
+| `--since <ref>` | Scope against `<ref>` instead of the index or working tree. |
+| `--clean` | Delete the per-lane build directories. |
+
+Each cargo lane gets its own `CARGO_TARGET_DIR` (`target/` for host,
+`target-thumbv6m/` and `target-thumbv8m/` for the two ARM triples) because cargo
+serializes concurrent invocations that share one build directory. The first
+`--full` run after checkout therefore pays a cold build for the two ARM
+directories; `--clean` removes them. Per-run logs land in `build/pre-commit/`.
 
 ## Code Style
 
