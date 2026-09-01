@@ -146,7 +146,7 @@ if [[ -n "$APK_PATH" ]]; then
     exit 1
   fi
 else
-  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
   APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 fi
 

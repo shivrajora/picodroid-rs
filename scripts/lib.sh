@@ -250,8 +250,10 @@ print_memory_usage() {
 # Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
 # PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
 build_firmware() {
-  # Step 1: Build the APK for the selected app.
-  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+  # Step 1: Build the APK for the selected app. The board goes along so the
+  # API contract check rejects classes this board excludes from its
+  # framework (framework_class_excludes) at build time, not on device.
+  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
 
   APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 

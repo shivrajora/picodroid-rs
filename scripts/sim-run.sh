@@ -101,7 +101,7 @@ run_test() {
 
   # Build APK.
   sim_log "  Building APK..."
-  local -a apk_args=(--app "$app")
+  local -a apk_args=(--app "$app" --board "$board")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -210,7 +210,7 @@ run_enviro_smoke() {
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (board smoke, 25s) ---"
 
-  local -a apk_args=(--app "$app")
+  local -a apk_args=(--app "$app" --board pico_enviro_mon)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -270,7 +270,7 @@ run_enviro_w_smoke() {
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (WiFi board smoke, 25s) ---"
 
-  local -a apk_args=(--app "$app")
+  local -a apk_args=(--app "$app" --board pico_enviro_mon_w)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
