@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.os.IBinder;
 
@@ -30,8 +31,14 @@ import picodroid.os.IBinder;
  * <p>onCreate runs on the first start <em>or</em> first bind; onDestroy runs when the Service is
  * neither started nor bound. The framework owns instantiation: subclasses must have a public no-arg
  * constructor.
+ *
+ * <p>A Service is a {@link Context}, as on Android: {@code getSystemService}, {@code
+ * getSharedPreferences}, {@code startService} and {@code bindService} are available on {@code
+ * this}. One divergence: a binding made from inside a Service is owned by the <em>foreground
+ * Activity</em> at the time of the call (bindings are tracked per Activity), so it is released when
+ * that Activity finishes, not when the Service is destroyed.
  */
-public abstract class Service {
+public abstract class Service extends Context {
   /**
    * Returned from {@link #onStartCommand} to indicate the system should re-create the Service after
    * a kill. On picodroid the OS never kills a running Service, so the constant has no runtime
@@ -45,16 +52,33 @@ public abstract class Service {
    */
   public static final int START_NOT_STICKY = 2;
 
+  /**
+   * Returned from {@link #onStartCommand} to ask for the last Intent to be redelivered after a
+   * kill. No-op on picodroid, like {@link #START_STICKY}.
+   */
+  public static final int START_REDELIVER_INTENT = 3;
+
+  /**
+   * {@code flags} bit: the Intent is a redelivery of one the Service was killed before finishing.
+   * Never set on picodroid — a Service is never killed — so {@code flags} is always {@code 0}; the
+   * constants exist so Android code that tests them compiles.
+   */
+  public static final int START_FLAG_REDELIVERY = 1;
+
+  /** {@code flags} bit: the Intent is a retry after a failed earlier delivery. Never set. */
+  public static final int START_FLAG_RETRY = 2;
+
   public void onCreate() {
     // Subclass overrides
   }
 
   /**
-   * Called for every {@code startService} (including repeats). {@code startId} increments
-   * monotonically per Service instance and is supplied to {@code stopSelfResult} (not yet
-   * implemented).
+   * Called for every {@code startService} (including repeats). Mirrors {@code
+   * android.app.Service#onStartCommand(Intent, int, int)}: {@code flags} is always {@code 0} here
+   * (see {@link #START_FLAG_REDELIVERY}); {@code startId} increments monotonically per Service
+   * instance and is the token {@link #stopSelfResult} checks.
    */
-  public int onStartCommand(Intent intent, int startId) {
+  public int onStartCommand(Intent intent, int flags, int startId) {
     return START_STICKY;
   }
 

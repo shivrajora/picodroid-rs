@@ -13,7 +13,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::fields;
-use super::gfx::{Handle, Visibility};
+use super::gfx::{Handle, ViewProperty, Visibility};
 use super::lvgl::events as lvgl_events;
 use super::lvgl::widgets::button as lvgl_button;
 use super::lvgl::with_gfx;
@@ -151,6 +151,39 @@ pub fn get_width(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, 
 
 pub fn get_height(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     frame_component(args, objects, |f| f.3)
+}
+
+/// Decode a `ViewPropertyAnimator.PROPERTY_*` code (the Java side shares them
+/// between the animator and `View`'s transform accessors) into the trait's
+/// backend-neutral enum. Alpha / x / y have their own setters and never come
+/// through here.
+fn view_property(code: i32) -> Result<ViewProperty, JvmError> {
+    match code {
+        3 => Ok(ViewProperty::TranslationX),
+        4 => Ok(ViewProperty::TranslationY),
+        5 => Ok(ViewProperty::Rotation),
+        6 => Ok(ViewProperty::ScaleX),
+        7 => Ok(ViewProperty::ScaleY),
+        _ => Err(JvmError::InvalidReference),
+    }
+}
+
+/// `View.nativeSetProperty(int property, float value)` — backs
+/// `setTranslationX/Y`, `setRotation`, `setScaleX/Y`.
+pub fn set_property(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let prop = view_property(arg_int(args, 1)?)?;
+    let value = arg_float(args, 2)?;
+    with_gfx(|g| g.set_view_property(Handle::from_java(id), prop, value));
+    Ok(None)
+}
+
+/// `View.nativeGetProperty(int property)` — backs the matching getters.
+pub fn get_property(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let prop = view_property(arg_int(args, 1)?)?;
+    let value = with_gfx(|g| g.get_view_property(Handle::from_java(id), prop));
+    Ok(Some(Value::Float(value)))
 }
 
 /// `View.setPadding(int left, int top, int right, int bottom)`

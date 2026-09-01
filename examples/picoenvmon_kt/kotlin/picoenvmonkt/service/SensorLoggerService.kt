@@ -120,7 +120,7 @@ class SensorLoggerService : Service(), SensorEventListener {
         }
     }
 
-    override fun onStartCommand(intent: Intent, startId: Int): Int {
+    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
         if (!isLogging) {
             isLogging = true
             val n =

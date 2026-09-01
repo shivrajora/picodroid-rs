@@ -54,6 +54,17 @@ pub struct lv_color_t {
     pub red: u8,
 }
 
+/// `lv_style_value_t` — what `lv_obj_get_style_prop` returns. Numeric props
+/// (opacity, translate, transform_*) come back in `num`. Pointer-sized on
+/// every target, so it is returned in a register exactly as C does.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union lv_style_value_t {
+    pub num: i32,
+    pub ptr: *const c_void,
+    pub color: lv_color_t,
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct lv_area_t {
@@ -234,6 +245,24 @@ pub type lv_style_selector_t = u32;
 /// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
 pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
+
+/// A bare part id (no state bits), as `lv_obj_get_style_prop` takes it.
+pub type lv_part_t = u32;
+/// `lv_style_prop_t` is `uint8_t` in LVGL 9 (`lv_types.h`).
+pub type lv_style_prop_t = u8;
+
+/// Style property ids from `vendor/lvgl/src/misc/lv_style.h` — the
+/// `lv_style_prop_t` enum mixes explicit `= N` anchors with implicit
+/// ordinals, so these are pinned by `tests::lv_style_prop_constants_match_vendored_header`.
+/// Only the props the animation engine reads back are declared.
+pub const LV_STYLE_TRANSLATE_X: lv_style_prop_t = 12;
+pub const LV_STYLE_TRANSLATE_Y: lv_style_prop_t = 13;
+pub const LV_STYLE_OPA: lv_style_prop_t = 112;
+pub const LV_STYLE_TRANSFORM_SCALE_X: lv_style_prop_t = 152;
+pub const LV_STYLE_TRANSFORM_SCALE_Y: lv_style_prop_t = 153;
+pub const LV_STYLE_TRANSFORM_ROTATION: lv_style_prop_t = 156;
+/// `transform_scale_*` value meaning "unscaled" (`lv_style.h` `LV_SCALE_NONE`).
+pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
 /// standard recipe for a radio-style circular checkbox indicator.
 pub const LV_RADIUS_CIRCLE: i32 = 0x7FFF;
@@ -618,6 +647,56 @@ extern "C" {
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
     pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
 
+    // Style readback. The typed `lv_obj_get_style_<prop>()` getters are
+    // `static inline` in LVGL 9, so this generic exported one is the only
+    // linkable entry; unset props return the property's default.
+    pub fn lv_obj_get_style_prop(
+        obj: *const lv_obj_t,
+        part: lv_part_t,
+        prop: lv_style_prop_t,
+    ) -> lv_style_value_t;
+
+    // Transform styles — ViewPropertyAnimator and View.setTranslationX & co.
+    // translate in px; rotation in 0.1°; scale with LV_SCALE_NONE (256) = 1.0;
+    // pivot as a coordinate (`lv_pct(50)` = the object's centre).
+    pub fn lv_obj_set_style_translate_x(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_translate_y(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_transform_rotation(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_transform_scale_x(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_transform_scale_y(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_transform_pivot_x(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_transform_pivot_y(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    /// `LV_PCT(x)` as the exported function — percentage coordinate encoding.
+    pub fn lv_pct(x: i32) -> i32;
+
     // Drawable styles — used by GradientDrawable to apply a bundle of
     // visual properties at once.
     pub fn lv_obj_set_style_radius(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
@@ -869,6 +948,7 @@ mod tests {
     const LV_IMAGE_HEADER: &str = include_str!("../../vendor/lvgl/src/widgets/image/lv_image.h");
     const LV_IMAGE_DSC_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_image_dsc.h");
     const LV_DRAW_RECT_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_draw_rect.h");
+    const LV_STYLE_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_style.h");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the
@@ -985,6 +1065,58 @@ mod tests {
             return eval_c_const(value);
         }
         None
+    }
+
+    /// `lv_style_prop_t` is a plain `enum _lv_style_prop_t { … };` with no
+    /// typedef close anchor for `enum_body`, so slice from its first member
+    /// to the closing `};`. It mixes explicit `= N` anchors (`LV_STYLE_OPA =
+    /// 112`) with implicit ordinals (`LV_STYLE_TRANSLATE_X` four past
+    /// `LV_STYLE_MIN_WIDTH = 8`), which is exactly what `lookup_ordinal`
+    /// models.
+    fn style_prop_body() -> &'static str {
+        let start = LV_STYLE_HEADER
+            .find("LV_STYLE_PROP_INV")
+            .expect("lv_style_prop_t enum not found in vendored lv_style.h");
+        let end = LV_STYLE_HEADER[start..]
+            .find("\n};")
+            .expect("lv_style_prop_t enum unterminated");
+        &LV_STYLE_HEADER[start..start + end]
+    }
+
+    #[test]
+    fn lv_style_prop_constants_match_vendored_header() {
+        let body = style_prop_body();
+        for (rust_const, name) in [
+            (LV_STYLE_TRANSLATE_X, "LV_STYLE_TRANSLATE_X"),
+            (LV_STYLE_TRANSLATE_Y, "LV_STYLE_TRANSLATE_Y"),
+            (LV_STYLE_OPA, "LV_STYLE_OPA"),
+            (LV_STYLE_TRANSFORM_SCALE_X, "LV_STYLE_TRANSFORM_SCALE_X"),
+            (LV_STYLE_TRANSFORM_SCALE_Y, "LV_STYLE_TRANSFORM_SCALE_Y"),
+            (LV_STYLE_TRANSFORM_ROTATION, "LV_STYLE_TRANSFORM_ROTATION"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_STYLE_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));
+            assert_eq!(
+                u32::from(rust_const),
+                header_val,
+                "{name}: Rust FFI drifted from vendored lv_style.h — the animation \
+                 engine reads its implicit `from` through lv_obj_get_style_prop with \
+                 these ids, so a shift silently animates from the wrong property."
+            );
+        }
+        // Anchor the helper on both sides of an explicit `= N`: the first
+        // anchor and the implicit ordinal right after it.
+        assert_eq!(lookup_ordinal(body, "LV_STYLE_", "LV_STYLE_WIDTH"), Some(1));
+        assert_eq!(
+            lookup_ordinal(body, "LV_STYLE_", "LV_STYLE_HEIGHT"),
+            Some(2)
+        );
+        // Scale units: 256 = 1.0, used by to_units/from_units in animations.rs.
+        assert_eq!(
+            lookup_define(LV_STYLE_HEADER, "LV_SCALE_NONE"),
+            Some(LV_SCALE_NONE as u32),
+            "LV_SCALE_NONE drifted — View.setScaleX/getScaleX would mis-scale"
+        );
     }
 
     #[test]

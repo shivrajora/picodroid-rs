@@ -202,6 +202,9 @@ pub(in crate::graphics) fn remove_all_children(h: Handle) {
 
 /// Laid-out geometry (x, y, width, height) in parent-relative pixels. Forces
 /// a layout pass first so reads right after addView/setSize see final values.
+/// LVGL folds `translate_x/y` into the laid-out coords; Android's `getLeft` /
+/// `getTop` exclude translation (`getX() = getLeft() + getTranslationX()`),
+/// so it is subtracted back out here.
 pub(in crate::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
     let o = obj(h);
     if o.is_null() {
@@ -209,9 +212,10 @@ pub(in crate::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
     }
     unsafe {
         lv_obj_update_layout(o);
+        let (tx, ty) = super::animations::translation_of(o);
         (
-            lv_obj_get_x(o),
-            lv_obj_get_y(o),
+            lv_obj_get_x(o) - tx,
+            lv_obj_get_y(o) - ty,
             lv_obj_get_width(o),
             lv_obj_get_height(o),
         )

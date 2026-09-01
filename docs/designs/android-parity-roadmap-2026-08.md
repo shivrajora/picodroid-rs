@@ -322,14 +322,44 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   S-classes (E1-gated) plus `native_handler/json.rs`. Retires picoenvmon's
   hand-rolled parser. *Namespace note:* Android ships this as `org.json`; the
   picodroid-namespace rule makes it `picodroid.json`.
-- **T2.7 — shape corrections.** `Service extends Context`;
-  `onStartCommand(Intent, int flags, int startId)` (fixing the 2-arg form at
-  `Service.java:57`); `Button extends TextView` (fixing `Button.java:7`);
-  `ViewPropertyAnimator` to-only signatures (`alpha(float)`,
-  `translationX`, `rotation`, `scaleX/Y`, `setStartDelay`) with the
-  `from,to` variants deleted outright. `Activity.onCreate(Bundle)` joins once
-  Bundle exists. Land early — breaking is free, and later work should build
-  on the corrected shapes.
+- **T2.7 — shape corrections. DONE 2026-08-31.** `Service extends Context`
+  and `onStartCommand(Intent, int flags, int startId)` (`flags` is always 0:
+  redelivery after a process kill has no MCU analogue); `Button extends
+  TextView`; `ViewPropertyAnimator` to-only (`alpha`/`x`/`y`/`translationX/Y`/
+  `rotation`/`scaleX/Y(float)`, `setDuration(long)`, `setStartDelay(long)`)
+  with the `from,to` variants deleted, plus `View.set/getTranslationX/Y`,
+  `set/getRotation`, `set/getScaleX/Y` over two generic natives
+  (`nativeSetProperty`/`nativeGetProperty`) so the setters and the animator
+  share one unit conversion. What the implementation found, worth keeping:
+  - `Service extends Context` and the 3-arg callback were Java-only changes —
+    `app_services.rs` routes the Context natives by method name, the callback
+    is invoked by name with an explicit arg array, and shrink maps are
+    class-name-only. The one behavioural wrinkle: a `bindService` from inside
+    a Service is owned by the foreground Activity (bindings are per Activity).
+  - `Button` re-declares `native setText`: its LVGL object is a button with a
+    child label, so TextView's label arm must not run on it. `setTextColor`
+    is inherited and reaches TextView's arm through the native superclass
+    walk (`ops_invoke.rs`), which works because LVGL's `text_color` cascades
+    to the child. Field layout was unaffected (neither class declares fields).
+  - LVGL has no linkable `lv_obj_get_style_<prop>` getters (they are `static
+    inline`); readback goes through `lv_obj_get_style_prop`, with the
+    `LV_STYLE_*` ids pinned by a drift guard. LVGL also folds `translate_*`
+    into the laid-out coords, so `View.getLeft/getTop` subtract it back out —
+    otherwise `getX() = getLeft() + getTranslationX()` double-counts.
+  - A *delayed* start captures its `from` lazily when the delay expires and
+    only then retires a running animation of the same property; an immediate
+    start replaces it at once (Android's rule). Without the lazy capture the
+    pulse idiom (`alpha(0.35f)` then `alpha(1f).setStartDelay(180)`) reads
+    `from = 1.0` and never dips.
+  - Rotation/scale switch the object to an ARGB8888 transform layer from the
+    LVGL pool (64 KB default): a 60×30 tile is 7 KB, a full screen 225 KB and
+    impossible. Documented, not guarded.
+  - `getAlpha()` stays field-backed (exact floats, no per-View heap); the
+    animator writes the alpha *target* into it on `start()`. The other
+    getters read LVGL (exact in the units written: 0.1°, 1/256).
+  `Activity.onCreate(Bundle)` still joins once Bundle exists (T3.1). Not done,
+  same pattern available: `EditText extends TextView`, `CompoundButton extends
+  Button`, hoisting `startActivity` onto `Context`.
 - **T2.8 — `DatePickerDialog`/`TimePickerDialog`.** Thin S-classes over
   `AlertDialog` plus the existing picker widgets.
 
@@ -369,7 +399,7 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 ## Ordering
 
 1. ~~E1 gating~~, ~~T1.1~~, ~~T1.2~~ (done)
-2. T2.7 shape corrections — early, before more code accretes on the wrong shapes
+2. ~~T2.7 shape corrections~~ (done 2026-08-31)
 3. Remaining Tier 1 + T2.1 verifier (parallel Gradle track)
 4. T2.2 collection interfaces
 5. T2.4 line-number stack traces

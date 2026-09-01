@@ -13,6 +13,14 @@ public class TextView extends View {
     super(nativeCreate());
   }
 
+  /**
+   * For subclasses whose native object is not a bare label ({@link Button}: a button with a child
+   * label) — they create their own object and hand the handle up.
+   */
+  protected TextView(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   private static native int nativeCreate();
 
   public native void setText(String text);

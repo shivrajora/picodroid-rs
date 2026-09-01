@@ -18,6 +18,18 @@
 
 use super::handle::Handle;
 
+/// A view's transform properties, in Android units: pixels for translation,
+/// degrees clockwise for rotation, 1.0 = unscaled. Backs `View.setRotation`
+/// & co; the animated versions go straight to the backend's animation engine.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ViewProperty {
+    TranslationX,
+    TranslationY,
+    Rotation,
+    ScaleX,
+    ScaleY,
+}
+
 /// Visibility of a widget. Mirrors Android's `View.VISIBLE` / `INVISIBLE` /
 /// `GONE` states; the Java-int decode (0/4/8, Android's values) lives in
 /// `graphics::view::set_visibility`.
@@ -97,6 +109,14 @@ pub trait Gfx {
     /// after forcing any pending layout pass. Backs View.getWidth/getHeight/
     /// getLeft/getTop.
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32);
+
+    /// Set a transform property immediately (no animation). Rotation and
+    /// scale pivot on the view's centre, as on Android.
+    fn set_view_property(&mut self, h: Handle, p: ViewProperty, value: f32);
+
+    /// Read a transform property's current value — the identity (0 / 1.0)
+    /// for a view that has never been transformed or whose handle is stale.
+    fn get_view_property(&mut self, h: Handle, p: ViewProperty) -> f32;
 
     // Per-widget operations are not on this trait. Each widget module under
     // `graphics/widgets/` calls its LVGL counterpart in

@@ -117,7 +117,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   }
 
   @Override
-  public int onStartCommand(Intent intent, int startId) {
+  public int onStartCommand(Intent intent, int flags, int startId) {
     if (!started) {
       started = true;
       Notification n =

@@ -551,7 +551,14 @@ fn invoke_service_on_start_command(
     handler: &mut PicodroidNativeHandler,
 ) -> crate::lifecycle::LifecycleControl {
     let method = dispatch_method(dispatch_sites::SERVICE_ON_START_COMMAND);
-    let extra = [intent_ref_value(intent_ref), Value::Int(start_id)];
+    // Android's `onStartCommand(Intent, int flags, int startId)`. `flags` is
+    // always 0: START_FLAG_REDELIVERY / START_FLAG_RETRY describe redelivery
+    // after a process kill, and a Service is never killed here.
+    let extra = [
+        intent_ref_value(intent_ref),
+        Value::Int(0),
+        Value::Int(start_id),
+    ];
     match jvm.invoke_instance_with_args_returning(
         runtime_class,
         method,

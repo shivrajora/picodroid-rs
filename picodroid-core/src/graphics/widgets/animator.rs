@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.view.ViewPropertyAnimator`.
 //!
-//! Both natives are *static* (the Java side passes the View's
-//! nativeHandle as an explicit `int`), so neither reads `this`.
+//! All three natives are *static* (the Java side passes the View's
+//! nativeHandle as an explicit `int`), so none reads `this`.
 
 use pico_jvm::types::{JvmError, Value};
 
@@ -19,15 +19,24 @@ fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
     }
 }
 
-/// `ViewPropertyAnimator.nativeStart(int handle, int property, int from, int to, int durationMs, int interpolator)`
+#[inline]
+fn arg_float(args: &[Value], i: usize) -> Result<f32, JvmError> {
+    match args.get(i) {
+        Some(Value::Float(v)) => Ok(*v),
+        _ => Err(JvmError::InvalidReference),
+    }
+}
+
+/// `ViewPropertyAnimator.nativeStart(int handle, int property, float to, int durationMs,
+/// int startDelayMs, int interpolator)` — to-only; the engine reads the implicit `from`.
 pub fn animator_native_start(args: &[Value]) -> Result<Option<Value>, JvmError> {
     let handle = arg_int(args, 0)?;
     let property = arg_int(args, 1)?;
-    let from = arg_int(args, 2)?;
-    let to = arg_int(args, 3)?;
-    let duration_ms = arg_int(args, 4)?.max(0) as u32;
+    let to = arg_float(args, 2)?;
+    let duration_ms = arg_int(args, 3)?.max(0) as u32;
+    let delay_ms = arg_int(args, 4)?.max(0) as u32;
     let interpolator = arg_int(args, 5)?;
-    animations::start(handle, property, from, to, duration_ms, interpolator);
+    animations::start_to(handle, property, to, duration_ms, delay_ms, interpolator);
     Ok(None)
 }
 

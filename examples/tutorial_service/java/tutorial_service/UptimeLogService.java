@@ -67,7 +67,7 @@ public class UptimeLogService extends Service {
   }
 
   @Override
-  public int onStartCommand(Intent intent, int startId) {
+  public int onStartCommand(Intent intent, int flags, int startId) {
     Log.i(TAG, "onStartCommand id=" + startId);
     if (!started) {
       started = true;

@@ -74,11 +74,11 @@ private boolean started;
 private volatile boolean running;
 ```
 
-`onStartCommand` is the **two-argument** form — `(Intent intent, int startId)`, no `flags`. It fires on **every** `startService`, including repeats, so guard the one-time setup with a `started` flag. Without that guard a second start would spawn a second sampler thread and a duplicate banner.
+`onStartCommand` has Android's three-argument shape — `(Intent intent, int flags, int startId)`. `flags` is always `0` (it reports redelivery after a process kill, which never happens on an MCU). It fires on **every** `startService`, including repeats, so guard the one-time setup with a `started` flag. Without that guard a second start would spawn a second sampler thread and a duplicate banner.
 
 ```java
 @Override
-public int onStartCommand(Intent intent, int startId) {
+public int onStartCommand(Intent intent, int flags, int startId) {
   Log.i(TAG, "onStartCommand id=" + startId);
   if (!started) {
     started = true;

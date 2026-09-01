@@ -287,8 +287,9 @@ public class GraphicsBench extends Application {
     }
     display.update();
     // 8 tiles × {X, ALPHA} = 16 slots, exactly the animation-slot cap — none dropped.
+    // To-only: each tile starts from its laid-out x=4 and default alpha 1.0.
     for (int i = 0; i < C_TILES; i++) {
-      tiles[i].animate().x(4, w - 32).alpha(1.0f, 0.2f).setDuration(C_DURATION_MS).start();
+      tiles[i].animate().x(w - 32).alpha(0.2f).setDuration(C_DURATION_MS).start();
     }
     // Pump exactly duration/16 frames; each tick advances every slot 16 ms + renders.
     for (int f = 0; f < C_FRAMES; f++) {

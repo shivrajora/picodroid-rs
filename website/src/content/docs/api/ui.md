@@ -217,7 +217,8 @@ view.setBackgroundColor(Color.BLUE);
 view.setBackground(drawable);       // or apply a Drawable (see GradientDrawable)
 view.setVisibility(View.VISIBLE);   // VISIBLE, INVISIBLE, or GONE
 view.setEnabled(false);             // grey out / disable interaction
-view.animate().alpha(0f, 1f).setDuration(200).start();   // see ViewPropertyAnimator
+view.setTranslationX(8f);           // also setTranslationY, setRotation, setScaleX/Y + getters
+view.animate().alpha(1f).setDuration(200).start();       // see ViewPropertyAnimator
 view.setOnClickListener(v -> doThing());   // View.OnClickListener (fires on tap or D-pad center)
 view.setOnTouchListener(listener);  // per-View touch dispatch
 view.close();                        // release the native widget
@@ -351,26 +352,35 @@ Velocities are pixels/second; positive `vx` is rightward, positive `vy` is downw
 
 ## `picodroid.view.ViewPropertyAnimator`
 
-Fluent builder for short interpolated property animations on a single `View`. Obtain via `view.animate()`.
+Fluent builder for short interpolated property animations on a single `View`. Obtain via `view.animate()`. Every property method takes only the **target** value, as on Android — the animation starts from whatever value the view has when it begins.
 
 ```java
 view.animate()
-    .alpha(0f, 1f)        // fade in
-    .x(20, 60)            // and slide right by 40 px
+    .alpha(1f)            // fade in from the current alpha
+    .translationX(40f)    // and slide right to a 40 px offset
     .setDuration(250)     // both in 250 ms (default 300 ms)
+    .setInterpolator(new DecelerateInterpolator())
+    .withEndAction(() -> Log.i("UI", "done"))
     .start();
 ```
 
 | Method | Description |
 |--------|-------------|
-| `alpha(float from, float to)` | Animate alpha (0.0–1.0). |
-| `x(int from, int to)` | Animate horizontal position in pixels. |
-| `y(int from, int to)` | Animate vertical position in pixels. |
-| `setDuration(int ms)` | Total duration; applies to every queued property. |
-| `start()` | Begin every queued property animation. |
+| `alpha(float)` | Animate alpha (0.0–1.0). |
+| `x(float)`, `y(float)` | Animate the layout position in pixels. No effect on a child of a `LinearLayout`, which positions its children itself — use translation there. |
+| `translationX(float)`, `translationY(float)` | Animate the offset from the laid-out position. Works everywhere. |
+| `rotation(float)` | Animate rotation in degrees clockwise, about the view's centre. |
+| `scaleX(float)`, `scaleY(float)` | Animate scale about the centre (1.0 = unscaled). |
+| `setDuration(long ms)` | Total duration; applies to every queued property. |
+| `setStartDelay(long ms)` | Wait before starting; the animation then starts from the value the view has at that moment. |
+| `setInterpolator(Interpolator)` | `Linear`, `Accelerate`, `Decelerate` or `AccelerateDecelerate` from `picodroid.view.animation`; anything else falls back to linear. |
+| `withEndAction(Runnable)` | Run once every queued property finishes, on the main thread. One per view — a later registration replaces an earlier one; dropped by `cancel()`. |
+| `start()` | Begin every queued property animation. Explicit — nothing runs until it is called. |
 | `cancel()` | Cancel every property animation targeting this view. Properties stay at the last interpolated frame. |
 
-v1 caveats: linear interpolation only (no easing curves), no completion listener, both `from` and `to` are required. Multiple property calls in the same chain run concurrently. See [`examples/animdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/animdemo).
+Starting a property that is already animating replaces the running animation for that property (Android cancels it too); a delayed start takes over when its delay expires. Multiple property calls in one chain run concurrently. The immediate setters live on `View` — `setTranslationX/Y`, `setRotation`, `setScaleX/Y` and their getters, with `getX() == getLeft() + getTranslationX()` as on Android.
+
+**Memory:** a rotated or scaled view is rendered through an off-screen ARGB layer of its own size, allocated from LVGL's pool (64 KB by default). A 60×30 tile costs ~7 KB; a full 240×240 screen would need 225 KB and is skipped with an `Allocating layer buffer failed` log. Keep transformed views small. Up to 16 property animations run concurrently across all views. See [`examples/animdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/animdemo).
 
 ## Key events
 
@@ -418,7 +428,7 @@ See [`examples/keydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/e
 
 ## Widgets
 
-All widget classes live in `picodroid.widget.*` and extend `View`. They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`.
+All widget classes live in `picodroid.widget.*` and extend `View` (`Button` through `TextView`, as on Android). They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`.
 
 ### `picodroid.widget.TextView`
 
@@ -434,7 +444,7 @@ label.setTextColor(Color.WHITE);
 
 ### `picodroid.widget.Button`
 
-A clickable button with a text label.
+A clickable button with a text label. Extends `TextView`, so `setText` and `setTextColor` are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
 
 ```java
 import picodroid.view.View;

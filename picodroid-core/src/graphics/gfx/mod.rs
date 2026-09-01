@@ -9,4 +9,4 @@ pub mod handle;
 pub mod trait_def;
 
 pub use handle::Handle;
-pub use trait_def::{Gfx, Visibility};
+pub use trait_def::{Gfx, ViewProperty, Visibility};

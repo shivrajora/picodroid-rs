@@ -41,7 +41,7 @@ class SensorService : Service(), SensorEventListener {
         addListener { t, v -> Log.i(TAG, "$t=$v") }
     }
 
-    override fun onStartCommand(intent: Intent?, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "start $startId from ${intent?.targetClassName}")
         return START_STICKY
     }

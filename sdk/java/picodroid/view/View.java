@@ -295,21 +295,24 @@ public class View {
   }
 
   /**
-   * Returns the alpha set via {@link #setAlpha}. Mirrors {@code android.view.View#getAlpha()}.
-   * Alpha driven by a running {@link ViewPropertyAnimator} is not reflected here until the next
-   * {@link #setAlpha} call.
+   * Returns the alpha set via {@link #setAlpha}, or the target of the last started {@link
+   * ViewPropertyAnimator#alpha} animation. Mirrors {@code android.view.View#getAlpha()} at rest;
+   * the per-frame interpolated value is not exposed.
    */
   public float getAlpha() {
     return alpha;
   }
 
   /**
-   * Left edge of this view relative to its parent, in pixels, after layout. Mirrors {@code
-   * android.view.View#getLeft()}.
+   * Left edge of this view relative to its parent, in pixels, after layout and excluding {@link
+   * #getTranslationX() translation}. Mirrors {@code android.view.View#getLeft()}.
    */
   public native int getLeft();
 
-  /** Top edge of this view relative to its parent, in pixels, after layout. Mirrors Android. */
+  /**
+   * Top edge of this view relative to its parent, in pixels, after layout and excluding
+   * translation. Mirrors Android.
+   */
   public native int getTop();
 
   /** Laid-out width in pixels. Mirrors {@code android.view.View#getWidth()}. */
@@ -319,16 +322,78 @@ public class View {
   public native int getHeight();
 
   /**
-   * Horizontal position, {@code getLeft()} as a float. Mirrors {@code android.view.View#getX()};
-   * picodroid has no translationX, so X and left coincide.
+   * Horizontal offset from the laid-out position, in pixels. Mirrors {@code
+   * android.view.View#setTranslationX(float)}. Unlike {@link #setPosition}, translation also works
+   * on children of a {@link picodroid.widget.LinearLayout}, which positions its children itself.
    */
-  public float getX() {
-    return getLeft();
+  public void setTranslationX(float translationX) {
+    nativeSetProperty(ViewPropertyAnimator.PROPERTY_TRANSLATION_X, translationX);
   }
 
-  /** Vertical position, {@code getTop()} as a float. See {@link #getX()}. */
+  /** Returns the horizontal translation. Mirrors {@code android.view.View#getTranslationX()}. */
+  public float getTranslationX() {
+    return nativeGetProperty(ViewPropertyAnimator.PROPERTY_TRANSLATION_X);
+  }
+
+  /** Vertical offset from the laid-out position, in pixels. See {@link #setTranslationX}. */
+  public void setTranslationY(float translationY) {
+    nativeSetProperty(ViewPropertyAnimator.PROPERTY_TRANSLATION_Y, translationY);
+  }
+
+  /** Returns the vertical translation. Mirrors {@code android.view.View#getTranslationY()}. */
+  public float getTranslationY() {
+    return nativeGetProperty(ViewPropertyAnimator.PROPERTY_TRANSLATION_Y);
+  }
+
+  /**
+   * Rotation about the view's centre, in degrees clockwise. Mirrors {@code
+   * android.view.View#setRotation(float)}. A rotated or scaled view renders through an off-screen
+   * layer of its own size — see {@link ViewPropertyAnimator} for the memory budget; keep
+   * transformed views small.
+   */
+  public void setRotation(float rotation) {
+    nativeSetProperty(ViewPropertyAnimator.PROPERTY_ROTATION, rotation);
+  }
+
+  /** Returns the rotation in degrees (0.1° resolution). Mirrors Android. */
+  public float getRotation() {
+    return nativeGetProperty(ViewPropertyAnimator.PROPERTY_ROTATION);
+  }
+
+  /**
+   * Horizontal scale about the view's centre; {@code 1.0} is unscaled. Mirrors {@code
+   * android.view.View#setScaleX(float)}. Negative values (Android's mirror) clamp to {@code 0}.
+   */
+  public void setScaleX(float scaleX) {
+    nativeSetProperty(ViewPropertyAnimator.PROPERTY_SCALE_X, scaleX);
+  }
+
+  /** Returns the horizontal scale (1/256 resolution). Mirrors Android. */
+  public float getScaleX() {
+    return nativeGetProperty(ViewPropertyAnimator.PROPERTY_SCALE_X);
+  }
+
+  /** Vertical scale about the view's centre; {@code 1.0} is unscaled. See {@link #setScaleX}. */
+  public void setScaleY(float scaleY) {
+    nativeSetProperty(ViewPropertyAnimator.PROPERTY_SCALE_Y, scaleY);
+  }
+
+  /** Returns the vertical scale. Mirrors Android. */
+  public float getScaleY() {
+    return nativeGetProperty(ViewPropertyAnimator.PROPERTY_SCALE_Y);
+  }
+
+  /**
+   * Visual horizontal position: {@code getLeft() + getTranslationX()}. Mirrors {@code
+   * android.view.View#getX()}.
+   */
+  public float getX() {
+    return getLeft() + getTranslationX();
+  }
+
+  /** Visual vertical position: {@code getTop() + getTranslationY()}. See {@link #getX()}. */
   public float getY() {
-    return getTop();
+    return getTop() + getTranslationY();
   }
 
   /**
@@ -359,6 +424,14 @@ public class View {
   private native void nativeSetEnabled(boolean enabled);
 
   private native void nativeSetAlpha(float alpha);
+
+  /**
+   * Transform accessors; {@code property} is a {@code ViewPropertyAnimator.PROPERTY_*} code, so the
+   * setters and the animator share one native unit conversion.
+   */
+  private native void nativeSetProperty(int property, float value);
+
+  private native float nativeGetProperty(int property);
 
   public native void close();
 
@@ -404,7 +477,9 @@ public class View {
 
   /**
    * Returns a fresh {@link ViewPropertyAnimator} for this view. Mirrors {@code View.animate()} in
-   * Android — chain alpha/x/y + setDuration on the result and call {@code start()}.
+   * Android — chain target values ({@code alpha}, {@code translationX}, {@code rotation}, {@code
+   * scaleX} …) plus {@code setDuration}/{@code setStartDelay} on the result and call {@code
+   * start()}.
    */
   public ViewPropertyAnimator animate() {
     return new ViewPropertyAnimator(this);

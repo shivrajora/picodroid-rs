@@ -39,8 +39,8 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 
 | API | Status | Notes / alternative |
 |---|---|---|
-| `View` | Partial | Geometry/visibility/enabled/tag/id, `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. No `findViewById` (no resource IDs — keep references or use `setTag`/`getTag`); no `post`/`postDelayed` (use `Executors.mainExecutor()` or animation timers). |
-| `ViewGroup` / `ViewPropertyAnimator` | Partial | `animate()` with `translationX/Y`, `alpha`, `scaleX/Y`, `setInterpolator`, `withEndAction`. |
+| `View` | Partial | Geometry/visibility/enabled/tag/id, `setTranslationX/Y`, `setRotation`, `setScaleX/Y` + getters (`getX() == getLeft() + getTranslationX()`), `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. No `findViewById` (no resource IDs — keep references or use `setTag`/`getTag`); no `post`/`postDelayed` (use `Executors.mainExecutor()` or animation timers). |
+| `ViewGroup` / `ViewPropertyAnimator` | Partial | `animate()` with `alpha`, `x/y`, `translationX/Y`, `rotation`, `scaleX/Y`, `setDuration`, `setStartDelay`, `setInterpolator` (the four built-in curves), `withEndAction` — to-only, as on Android. Rotation/scale render through an off-screen layer of the view's size; keep transformed views small. |
 | `MotionEvent` | Partial | `getX`/`getY` are **view-relative**, `getRawX`/`getRawY` are screen-absolute, matching Android. **Coordinates are `int`, not `float`** (no FPU). |
 | `GestureDetector` | Partial | `OnGestureListener` + `SimpleOnGestureListener`; slop/fling use raw coordinates. |
 | `KeyEvent` | Partial | D-pad / button codes for button-only boards. |

@@ -11,7 +11,7 @@ Picodroid mirrors the Android `Service` shape closely enough that an Android dev
 
 ## `picodroid.app.Service`
 
-A long-running background component with a lifecycle independent of any `Activity`. Subclass it in your app:
+A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Subclass it in your app:
 
 ```java
 package myapp;
@@ -32,7 +32,7 @@ public class CounterService extends Service {
     }
 
     @Override
-    public int onStartCommand(Intent intent, int startId) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
         count++;
         Log.i("CounterService", "tick=" + count);
         return Service.START_STICKY;    // return value is ignored on picodroid (see below)
@@ -61,7 +61,7 @@ public class CounterService extends Service {
 | Callback | When it fires |
 |---|---|
 | `onCreate()` | Once, the first time the service is started or bound. |
-| `onStartCommand(Intent, int startId)` | Each call to `Context.startService()` (including repeats). The return value is **ignored** on picodroid — see the note below. |
+| `onStartCommand(Intent, int flags, int startId)` | Each call to `Context.startService()` (including repeats). `flags` is always `0` — `START_FLAG_REDELIVERY` / `START_FLAG_RETRY` describe redelivery after a process kill, which never happens on an MCU. The return value is **ignored** on picodroid — see the note below. |
 | `onBind(Intent)` | First call to `Context.bindService()` for this service. Return an `IBinder` (typically a custom `LocalBinder`). Cached and reused across subsequent binds. |
 | `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; return `true` to receive `onRebind` when a new client binds later. |
 | `onRebind(Intent)` | A client binds again after `onUnbind` returned `true` (and the service was not destroyed in between). `onBind` is **not** called again — the cached `IBinder` is reused, matching Android's contract. |
@@ -89,7 +89,7 @@ A foreground service shows a persistent banner while it runs. There is no idle o
 import picodroid.app.Notification;
 
 @Override
-public int onStartCommand(Intent intent, int startId) {
+public int onStartCommand(Intent intent, int flags, int startId) {
     Notification n = new Notification.Builder()
         .setContentTitle("Logging sensors")
         .setContentText("ring buffer 0/256")
@@ -121,7 +121,7 @@ nm.cancel(1);      // dismiss it
 
 ## `picodroid.content.Context` — start / bind / stop
 
-The `Context` (your `Application` or `Activity`) drives the service lifecycle:
+The `Context` (your `Application`, an `Activity`, or another `Service`) drives the service lifecycle:
 
 ```java
 import picodroid.content.Intent;

@@ -442,6 +442,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "getLeft", "()I"),
     ("picodroid/view/View", "getTop", "()I"),
     ("picodroid/view/View", "getWidth", "()I"),
+    ("picodroid/view/View", "nativeGetProperty", "(I)F"),
     ("picodroid/view/View", "nativeIsFocused", "()Z"),
     ("picodroid/view/View", "nativeRegisterClickListener", "()V"),
     ("picodroid/view/View", "nativeRegisterFocusChangeListener", "()V"),
@@ -454,6 +455,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetEnabled", "(Z)V"),
     ("picodroid/view/View", "nativeSetFlexGrow", "(I)V"),
     ("picodroid/view/View", "nativeSetFocusable", "(Z)V"),
+    ("picodroid/view/View", "nativeSetProperty", "(IF)V"),
     ("picodroid/view/View", "nativeSetVisibility", "(I)V"),
     ("picodroid/view/View", "performClick", "()V"),
     ("picodroid/view/View", "performLongClickNative", "()V"),
@@ -469,7 +471,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/view/ViewPropertyAnimator
     ("picodroid/view/ViewPropertyAnimator", "nativeCancel", "(I)V"),
     ("picodroid/view/ViewPropertyAnimator", "nativeSetEndAction", "(ILjava/lang/Runnable;)V"),
-    ("picodroid/view/ViewPropertyAnimator", "nativeStart", "(IIIIII)V"),
+    ("picodroid/view/ViewPropertyAnimator", "nativeStart", "(IIFIII)V"),
     // picodroid/widget/Button
     ("picodroid/widget/Button", "nativeCreate", "(Ljava/lang/String;)I"),
     ("picodroid/widget/Button", "setText", "(Ljava/lang/String;)V"),

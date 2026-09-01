@@ -23,7 +23,7 @@ public class CounterService extends Service {
   }
 
   @Override
-  public int onStartCommand(Intent intent, int startId) {
+  public int onStartCommand(Intent intent, int flags, int startId) {
     startCount++;
     int step = (intent != null) ? intent.getIntExtra("step", 1) : 1;
     count += step;

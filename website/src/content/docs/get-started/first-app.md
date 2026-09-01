@@ -211,7 +211,7 @@ import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 
 view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListener() {
-    public void onSingleTap(MotionEvent e) { view.animate().alpha(1f, 0.3f).setDuration(120).start(); }
+    public void onSingleTap(MotionEvent e) { view.animate().alpha(0.3f).setDuration(120).start(); }
     public void onLongPress(MotionEvent e) { showContextMenu(); }
     public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) { /* ... */ }
 }));

@@ -207,8 +207,14 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         if (!breached || tile == null) {
             return
         }
-        // ViewPropertyAnimator has no completion listener; the alpha pulse self-restores.
-        tile.animate().alpha(1f, 0.35f).setDuration(180).start()
-        tile.animate().alpha(0.35f, 1f).setDuration(360).start()
+        // Dip, then restore once the dip has finished. Two back-to-back alpha()
+        // starts on the same view would replace each other; chaining through
+        // withEndAction is the Android idiom.
+        tile
+            .animate()
+            .alpha(0.35f)
+            .setDuration(180)
+            .withEndAction { tile.animate().alpha(1f).setDuration(360).start() }
+            .start()
     }
 }

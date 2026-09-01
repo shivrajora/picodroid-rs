@@ -3,7 +3,15 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.14.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.14.0, plus what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## Unreleased
+
+**Breaking — API shape corrections (T2.7).** Three `picodroid.*` shapes that had diverged from their `android.*` counterparts are corrected in place. There are no compatibility shims: apps recompile against the new signatures, and the in-tree examples show the migrated form.
+
+- **`Service extends Context`, and `onStartCommand` takes Android's three arguments** — `onStartCommand(Intent intent, int flags, int startId)`. `flags` is always `0` (`START_FLAG_REDELIVERY` / `START_FLAG_RETRY` describe redelivery after a process kill, which never happens on an MCU; the constants exist so Android code that tests them compiles). Inside a Service, `getSystemService`, `getSharedPreferences`, `startService` and `bindService` now work on `this`. *Migration:* add the `int flags` parameter to every override — the framework invokes the three-argument form, so an unmigrated two-argument override is no longer called.
+- **`Button extends TextView`** (was `View`), as on Android: `setTextColor` is available on a Button, and a Button can be passed wherever a `TextView` is expected. `setText` keeps its button-specific native implementation.
+- **`ViewPropertyAnimator` is to-only.** `alpha(float)`, `x(float)`, `y(float)` and `setDuration(long)` take only the target; the `from, to` overloads are gone and the animation starts from the view's current value, read back from the renderer. New on the animator: `translationX/Y(float)`, `rotation(float)`, `scaleX/Y(float)`, `setStartDelay(long)`, `getDuration()`, `getStartDelay()`. New on `View`: `setTranslationX/Y`, `setRotation`, `setScaleX/Y` and their getters; `getX()` is now `getLeft() + getTranslationX()`. Starting a property that is already animating replaces the running animation; a delayed start takes over when its delay expires. Rotation and scale render through an off-screen layer of the view's own size (from LVGL's 64 KB pool) — keep transformed views small. *Migration:* `alpha(1f, 0f)` → `alpha(0f)`; `x(20, 60)` → `x(60f)`; two back-to-back animations of one property become a `withEndAction` chain.
 
 ## v0.14.0 — 2026-08-31
 

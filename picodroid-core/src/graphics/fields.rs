@@ -7,11 +7,13 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    // Slot 1 is `onKeyListener`; a View subclass's own fields therefore start
-    // at slot 2 (Button.onClickListener, LinearLayout.orientation and
-    // ToggleButton.onCheckedChangeListener each sit there). None of those are
-    // named in this file — they are read and written from Java only, so no
-    // Rust code ever needs their index.
+    // View.java declares the listener, layout-params and cached-getter fields
+    // after `nativeHandle` (14 fields in all); a subclass's own fields — e.g.
+    // `CompoundButton.onCheckedChangeListener`, `LinearLayout.orientation` —
+    // follow them. `TextView` and `Button` declare none, so inserting TextView
+    // into Button's chain moved nothing. None of those are named in this file:
+    // they are read and written from Java only, so no Rust code ever needs
+    // their index.
 }
 
 pub mod display {

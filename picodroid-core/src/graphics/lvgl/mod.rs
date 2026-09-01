@@ -9,7 +9,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg_attr(test, allow(unused_imports))]
-use super::gfx::{Gfx, Handle, Visibility};
+use super::gfx::{Gfx, Handle, ViewProperty, Visibility};
 
 // `lvgl_ffi`'s `extern "C"` block is `cfg(not(test))`, so its drift-check
 // tests can run without linking LVGL. Every module that calls an LVGL
@@ -164,6 +164,28 @@ impl Gfx for LvglGfx {
 
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32) {
         view_ops::frame(h)
+    }
+
+    fn set_view_property(&mut self, h: Handle, p: ViewProperty, value: f32) {
+        animations::set_property(h.to_java(), property_code(p), value);
+    }
+
+    fn get_view_property(&mut self, h: Handle, p: ViewProperty) -> f32 {
+        animations::get_property(h.to_java(), property_code(p))
+    }
+}
+
+/// Map the backend-neutral property onto the animation engine's code, so the
+/// immediate setters and `ViewPropertyAnimator` share one unit conversion and
+/// one LVGL write path.
+#[cfg(not(test))]
+fn property_code(p: ViewProperty) -> i32 {
+    match p {
+        ViewProperty::TranslationX => animations::PROPERTY_TRANSLATION_X,
+        ViewProperty::TranslationY => animations::PROPERTY_TRANSLATION_Y,
+        ViewProperty::Rotation => animations::PROPERTY_ROTATION,
+        ViewProperty::ScaleX => animations::PROPERTY_SCALE_X,
+        ViewProperty::ScaleY => animations::PROPERTY_SCALE_Y,
     }
 }
 

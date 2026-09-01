@@ -5,9 +5,9 @@ import picodroid.app.NotificationManager;
 import picodroid.hardware.SensorManager;
 
 /**
- * Common base for {@code Application} and {@code Activity}: provides component-launch APIs ({@code
- * startActivity}, {@code startService}, {@code bindService}) and system-service lookup ({@code
- * getSystemService}).
+ * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
+ * component-launch APIs ({@code startService}, {@code bindService}; {@code startActivity} lives on
+ * Activity and Application) and system-service lookup ({@code getSystemService}).
  *
  * <p>Picodroid is single-process, so cross-process Intents and the {@code android:process}
  * attribute don't exist.
