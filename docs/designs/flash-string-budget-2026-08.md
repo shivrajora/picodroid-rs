@@ -20,6 +20,9 @@ API impact and no runtime cost. That matters because `testbench_rp2040` sits at
 (`bench/parity/ratchet.toml`, `docs/bugs-rp2040-flash-2026-08-01.md`) — it has
 effectively zero headroom today.
 
+*Landed 2026-09-01 — see the status block in §4: 45.7 KB (4.5 %) off the
+measured image, −27.3 KB on `testbench_rp2040`, −34.4 KB on `testbench_rp2350`.*
+
 ## 1. The build under measurement
 
 ```bash
@@ -159,6 +162,27 @@ under `jvm/src/native/` add ~865 B of method-name literals.
 
 ## 4. Opportunity 1 — strip dead debug attributes (measured, 22.6 KB)
 
+> **Status — landed 2026-09-01** (ASM route, §4.2). Measured on this tree, same
+> lockfile, before → after:
+>
+> | Artefact | Before | After | Saved |
+> |---|---:|---:|---:|
+> | `picoenvmon` on `pico_enviro_mon`, `--release --shrink`, `Flash:` | 1,015,184 | 969,452 | **45,732 (4.5 %)** |
+> | ├─ embedded SDK corpus (shrunk, 145 classes) | 131,150 | 98,511 | 32,639 (24.9 %) |
+> | └─ embedded `picoenvmon.papk` (shrink) | 69,140 | 56,048 | 13,092 (18.9 %) |
+> | raw SDK tree, `sdk/build/classes/java/main` → `classes-stripped` | 149,015 | 114,731 | 34,284 (23.0 %) |
+> | `picoenvmon.papk`, no shrink | 75,495 | 61,734 | 13,761 (18.2 %) |
+> | `hellokt.papk` (Kotlin — already stripped; line numbers only) | 3,873 | 3,417 | 456 (11.8 %) |
+> | `helloworld.papk` | 911 | 814 | 97 |
+> | ratchet: `testbench_rp2040` flash (`helloworld`, release) | 901,223 | 873,902 | **27,321** |
+> | ratchet: `testbench_rp2350` flash (`helloworld`, release) | 941,235 | 906,854 | **34,381** |
+>
+> More than the 22.6 KB + 9.1 KB projected below, because the ASM rewrite also
+> drops the attributes Kotlin apps already lost (`InnerClasses`, `Signature`,
+> annotations, `NestHost/Members`, `MethodParameters`) with their constant-pool
+> entries, and the corpus is 145 classes today, not 137. `testbench_rp2040` now
+> has 43,346 B of headroom under its 896 K ceiling (was ~16 KB). RAM unchanged.
+
 **`LineNumberTable` is read only under `#[cfg(debug_assertions)]`**
 ([jvm/src/class_file/parse.rs:303-304](../../jvm/src/class_file/parse.rs#L303-L304)),
 and firmware builds compile with debug-assertions off in *both* profiles
@@ -203,28 +227,44 @@ Consequence: sim builds keep `debug_assertions` on and would keep their line
 numbers; only the firmware image loses them, and only where it could not have
 read them anyway.
 
-### 4.2 Where it hooks in
+### 4.2 Where it hooks in — as landed (2026-09-01)
 
 Two call sites, because the app PAPK and the SDK corpus are packed by different
-toolchains:
+toolchains, but **one implementation**: the ASM strip Kotlin apps already went
+through (`buildSrc/src/main/kotlin/picodroid/classfile/ClassStrip.kt`,
+`strip()`), which gained a `keepLineNumbers` switch. It re-serialises each
+class through `ClassWriter(0)` without a source reader, so the constant pool is
+rebuilt from what is written — the §6 compaction of the orphaned `Utf8` entries
+came for free — and the rest of the strip (annotations, `InnerClasses`,
+`Signature`, `NestHost/Members`, …) applies too; pico-jvm reads none of it
+(`Code`, `BootstrapMethods`, and `LineNumberTable` under `debug_assertions` are
+the only attributes it parses).
 
-- **SDK corpus** — `build_support/papk.rs`. `apply_active_shrink()` (line 292)
-  already rewrites the corpus into `OUT_DIR/framework_classes_shrunk`; the strip
-  belongs next to it. Note it must *also* run when the shrink map is inactive
-  (`shrink_enabled()` false, or map version `0.0.0`), which today short-circuits
-  to `emit_identity_unshrink` and embeds the raw Gradle output. That is a
-  restructure of the function, not a one-line addition.
-- **App PAPK** — the `packPapk`/`shrinkClasses` Gradle tasks in
-  `buildSrc/` (`PicodroidPapkPlugin`), so the strip applies whether or not
-  `--shrink` is on.
+- **SDK corpus** — `sdk/build.gradle.kts` registers `:sdk:stripClasses` (a
+  `ClassStripTask`, `keepLineNumbers = false`) writing to
+  `sdk/build/classes-stripped/java/main`, a separate tree so a sim build's
+  Gradle run can never overwrite what a firmware build has `include_bytes!`'d.
+  `build_support/papk.rs::embed_framework_classes` runs that task instead of
+  `:sdk:compileJava` when `CARGO_CFG_DEBUG_ASSERTIONS` is absent and points the
+  unchanged shrink step at its output — `apply_active_shrink` needed no
+  restructuring after all, because the strip happens upstream of it. The
+  generated `framework_classes.rs` carries `FRAMEWORK_CLASSES_DEBUG_STRIPPED`,
+  and `picodroid-core/src/framework_classes.rs` pins it to
+  `!cfg!(debug_assertions)` and to the embedded bytes.
+- **App PAPK** — `PicodroidPapkPlugin` reads `-Ppicodroid.stripDebug=true`
+  (what `scripts/build-apk.sh --strip-debug` passes): Java apps get a
+  `stripClassMetadata` stage between `verifyApiContract` and `shrinkClasses` /
+  `packPapk`; Kotlin apps' existing `stripClassMetadata` drops line numbers.
+  Every device path passes the flag — `lib.sh build_firmware` (so `build.sh`,
+  `flash.sh`, CI and the size ratchet), `hil-run.sh`, pre-commit's firmware
+  snapshot. Sim paths (`sim.sh`, `sim-run.sh`, `test.sh`) do not, so a
+  dev-profile sim run still resolves `(:line)` for app frames and a Java PAPK
+  built without the flag is byte-identical to before.
 
-`tools/class-shrink` cannot do this as it stands: its `ClassFile` keeps
-everything from `access_flags` to EOF as an opaque `tail`
-([classfile.rs:41](../../tools/class-shrink/src/classfile.rs#L41)) and only
-rewrites `Utf8` bytes in place. An attribute strip needs a real
-field/method/attribute walk — roughly 150 lines. A working reference
-implementation exists in the scratchpad (`strip.py`, §7), including the nested
-walk into `Code`'s sub-attributes.
+`tools/class-shrink` is untouched: its opaque-tail `ClassFile` rewrites the
+stripped output's `Utf8` entries exactly as it did the raw output's (Kotlin
+apps have run strip → shrink since Session 2). The Rust walker this section
+originally sketched was not needed.
 
 ## 5. Opportunity 2 — extend the shrink map
 
@@ -360,12 +400,12 @@ Key gotchas when re-running:
 
 | # | Change | Saving | Risk | Effort |
 |---|---|---:|---|---|
-| 1 | Strip `LineNumberTable` / `StackMapTable` / `SourceFile` from the SDK corpus, gated on `CARGO_CFG_DEBUG_ASSERTIONS` | 14.1 KB every board | low | ~150 LOC in `build_support` + a class walker |
-| 2 | Same strip in the PAPK packer (`buildSrc`) | 8.4 KB this app, scales | low | mirrors #1 in Kotlin |
+| 1 | Strip `LineNumberTable` / `StackMapTable` / `SourceFile` from the SDK corpus, gated on `CARGO_CFG_DEBUG_ASSERTIONS` | 14.1 KB every board | low | **done 2026-09-01** — ASM in `buildSrc`, §4.2 |
+| 2 | Same strip in the PAPK packer (`buildSrc`) | 8.4 KB this app, scales | low | **done 2026-09-01** — `--strip-debug`, §4.2 |
 | 3 | Emit `PICODROID_NATIVE_CLASSES` in shrunk form from `build.rs` (`shrink_class` already exists) | ~1.9 KB | low | small |
 | 4 | Shrink `java/**` class names under a `b/` prefix — **landed 2026-09-01, −10,758 B measured (§5.1)** | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
 | 5 | Match dispatch on shrunk names directly, retire `unshrink_class`'s original column | ~4.7 KB | medium | needs the X-macro |
-| 6 | Constant-pool compaction | ~9.1 KB | medium — bytecode renumbering | largest |
+| 6 | Constant-pool compaction | ~9.1 KB | medium — bytecode renumbering | the §4 orphans are gone with #1/#2 (ASM rebuilds the pool); only pre-existing dead entries remain |
 | 7 | Shrink method/field names | ~13 KB | high — override consistency, Kotlin shim | only after #5 |
 
 Steps 1–3 are **24.4 KB (2.4% of flash) at low risk** and are independent of
@@ -378,13 +418,18 @@ file's header.
 
 ## 9. Open questions
 
-- Does anything read `SourceFile` for `pdb` stack traces or the sim's exception
-  reporting? Grep found no reader, but the strip should land behind one release
-  of soak before `--full` treats it as load-bearing.
-- Is `LineNumberTable` worth keeping in *sim* builds specifically? It already is
-  under the proposed gate — worth confirming that sim stack traces still show
-  line numbers after the change, since the sim is where invariant debugging
-  happens.
+- ~~Does anything read `SourceFile` for `pdb` stack traces or the sim's
+  exception reporting?~~ Answered 2026-09-01: no reader anywhere in `jvm/`,
+  `picodroid-core/`, `platforms/rp/` or `tools/pdb`; `papk-pack`'s class check
+  skips attributes by length. Device stack traces already print `pc=N`.
+- ~~Is `LineNumberTable` worth keeping in *sim* builds specifically?~~ Kept:
+  dev-profile sim builds (`sim.sh`, `test.sh`) embed the raw tree and build
+  their PAPKs without `--strip-debug`, so `tracedemo` still prints
+  `at tracedemo.TraceDemo.deepest(:39)` there, and the same PAPK built with
+  `--strip-debug` and run via `sim.sh --apk` prints `(pc=9)` — both confirmed
+  after the change. `--release` sim builds
+  (`sim-run.sh` lanes, CI `sim-smoke`) embed the stripped corpus, consistent
+  with a JVM whose `pc_to_line` is compiled out.
 - Would a shared cross-class constant pool (one dedup'd string table for the
   whole SDK corpus, indices into it) beat per-class shrinking outright?
   `java/lang/Object` ×109 and `()V` ×104 suggest the corpus-wide duplication is

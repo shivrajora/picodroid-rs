@@ -15,6 +15,7 @@ source "$SCRIPT_DIR/lib.sh"
 APP=""
 OUTPUT=""
 BOARD=""
+STRIP_DEBUG=0
 
 usage() {
   cat <<EOF
@@ -26,6 +27,10 @@ Options:
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
                         PICODROID_SHRINK=1. See docs/shrinker.md.
+      --strip-debug     Drop LineNumberTable/SourceFile (and the rest of the
+                        class-metadata strip) from the packed classes. For
+                        device-bound PAPKs: that firmware never reads them.
+                        Sim paths leave it off to keep (:line) stack traces.
   -b, --board  <name>   Target board: the API contract check also rejects
                         classes that board drops (framework_class_excludes
                         in its board.toml). Without it only the java/**
@@ -44,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     -o|--output)     OUTPUT="$2"; shift 2 ;;
     -b|--board)      BOARD="$2";  shift 2 ;;
     --shrink)        export PICODROID_SHRINK=1; shift ;;
+    --strip-debug)   STRIP_DEBUG=1; shift ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
@@ -90,6 +96,14 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   # A -P property for the same daemon-freshness reason as the shrink flag.
   if [[ -n "$BOARD" ]]; then
     GRADLE_EXTRA_ARGS+=("-Ppicodroid.board=${BOARD}")
+  fi
+  # Debug-attribute strip for device-bound PAPKs
+  # (docs/designs/flash-string-budget-2026-08.md §4). Device firmware is built
+  # with debug-assertions off (lib.sh build_firmware) and never reads
+  # LineNumberTable/SourceFile; the sim does, which is why sim.sh never passes
+  # this. A -P property for the same daemon-freshness reason as the shrink flag.
+  if [[ "$STRIP_DEBUG" == "1" ]]; then
+    GRADLE_EXTRA_ARGS+=("-Ppicodroid.stripDebug=true")
   fi
   # gradle_lock_run: pre-commit runs lanes in parallel and more than one can
   # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew

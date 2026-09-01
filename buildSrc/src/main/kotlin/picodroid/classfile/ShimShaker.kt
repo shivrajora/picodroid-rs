@@ -122,7 +122,7 @@ object ShimShaker {
         return out
     }
 
-    fun process(input: List<ClassEntry>): Pair<List<ClassEntry>, ShakeReport> {
+    fun process(input: List<ClassEntry>, keepLineNumbers: Boolean = true): Pair<List<ClassEntry>, ShakeReport> {
         val annotationClasses = input.filter { isAnnotationClass(it.className) }
         val shimIn = input.filter { isShimClass(it.className) }
         val app = input.filter { !isShimClass(it.className) && !isAnnotationClass(it.className) }
@@ -132,8 +132,8 @@ object ShimShaker {
         val cpIn = (app + shimIn).sumOf { ClassReader(it.bytes).itemCount }
 
         // 1. Strip (and rename) everything that ships.
-        val strippedApp = app.map { ClassEntry(it.relPath, strip(it.bytes, marks.renames).first) }
-        var shim = shimIn.associate { it.className to ClassEntry(it.relPath, strip(it.bytes, marks.renames).first) }.toMutableMap()
+        val strippedApp = app.map { ClassEntry(it.relPath, strip(it.bytes, marks.renames, keepLineNumbers).first) }
+        var shim = shimIn.associate { it.className to ClassEntry(it.relPath, strip(it.bytes, marks.renames, keepLineNumbers).first) }.toMutableMap()
         val shaken = LinkedHashMap<String, MutableList<String>>()
 
         // 2. Prune + shake to a fixpoint.

@@ -181,6 +181,10 @@ jobs:
         run: ./gradlew assemblePapk --console=plain
       - name: Assemble all PAPKs (shrink)
         run: PICODROID_SHRINK=1 ./gradlew assemblePapk --console=plain
+      # Every example through the device-bound debug-attribute strip — an ASM
+      # rewrite of every class (docs/designs/flash-string-budget-2026-08.md §4).
+      - name: Assemble all PAPKs (strip-debug)
+        run: ./gradlew assemblePapk -Ppicodroid.stripDebug=true --console=plain
       # The @Inject annotation processor's golden-output + validation tests
       # (docs/designs/inject-annotations-2026-08.md).
       - name: Test the @Inject annotation processor

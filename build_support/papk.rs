@@ -134,9 +134,13 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
         .unwrap_or_else(|| UNRELEASED.to_string())
 }
 
-/// Compile picodroid framework Java sources with `javac`, optionally apply
-/// the active shrink map, and embed each `.class` file as a `&'static [u8]`
-/// into `framework_classes.rs`.
+/// Compile the picodroid framework Java sources through Gradle, optionally
+/// apply the active shrink map, and embed each `.class` file as a
+/// `&'static [u8]` into `framework_classes.rs`. Firmware built with
+/// `debug_assertions` off (every device build) embeds `:sdk:stripClasses`'
+/// output — the classes without `LineNumberTable` / `SourceFile` /
+/// `StackMapTable`, which that JVM never reads — and the generated file says
+/// so in `FRAMEWORK_CLASSES_DEBUG_STRIPPED`; see the gate below.
 ///
 /// `root` is the repo root directory (where `gradlew`, `sdk/`, etc. live).
 /// Shrinking is only triggered when [`resolve_active_map_version`] returns
@@ -165,7 +169,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
             out.join("framework_classes.rs"),
-            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\n",
+            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\npub const FRAMEWORK_CLASSES_DEBUG_STRIPPED: bool = false;\n",
         )
         .unwrap();
         emit_identity_unshrink(out);
@@ -198,8 +202,29 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     } else {
         "gradlew"
     });
+    // Device firmware compiles with debug_assertions off in both profiles
+    // (scripts/lib.sh build_firmware), which compiles out the JVM's only
+    // LineNumberTable reader (jvm/src/class_file/parse.rs, under
+    // `#[cfg(debug_assertions)]`); SourceFile and StackMapTable have no reader
+    // at all. Embed the tree `:sdk:stripClasses` writes without them (~14 KB
+    // of flash on every board, docs/designs/flash-string-budget-2026-08.md §4)
+    // and keep compileJava's raw tree for debug_assertions builds — the sim,
+    // whose stack traces resolve `(:line)` from it. CARGO_CFG_DEBUG_ASSERTIONS
+    // is the exact gate: it tracks the `--config profile.dev.debug-assertions`
+    // override (DEBUG and PROFILE do not) and is part of cargo's build-script
+    // fingerprint, so no rerun-if-env-changed is needed. Cargo sets it to the
+    // empty string when on, hence the presence test.
+    let strip_debug = env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_none();
+    let (gradle_task, classes_dir) = if strip_debug {
+        (
+            ":sdk:stripClasses",
+            root.join("sdk/build/classes-stripped/java/main"),
+        )
+    } else {
+        (":sdk:compileJava", root.join("sdk/build/classes/java/main"))
+    };
     let status = Command::new(&gradlew)
-        .arg(":sdk:compileJava")
+        .arg(gradle_task)
         .arg("--console=plain")
         .arg("-q")
         .current_dir(root)
@@ -210,9 +235,24 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
         );
     assert!(
         status.success(),
-        "./gradlew :sdk:compileJava failed while compiling picodroid framework classes"
+        "./gradlew {gradle_task} failed while compiling picodroid framework classes"
     );
-    let classes_dir = root.join("sdk/build/classes/java/main");
+    // A clean'd or half-written tree would otherwise surface later as an
+    // opaque include_bytes! error, and a strip that lost a class would surface
+    // on device as NoClassDefFound.
+    let class_count = collect_files(&classes_dir, "class").len();
+    assert!(
+        class_count > 0,
+        "{} holds no .class files after ./gradlew {gradle_task}",
+        classes_dir.display()
+    );
+    if strip_debug {
+        let raw_count = collect_files(&root.join("sdk/build/classes/java/main"), "class").len();
+        assert_eq!(
+            class_count, raw_count,
+            "stripped SDK tree has {class_count} classes but compileJava produced {raw_count}"
+        );
+    }
 
     // If the active map covers our package version, shrink into a sibling
     // directory and point the embed step at the shrunk output. Otherwise
@@ -266,7 +306,12 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     let dropped_entries: String = dropped.iter().map(|n| format!("    {n:?},\n")).collect();
     let content = format!(
         "pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n\
-         pub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[\n{dropped_entries}];\n"
+         pub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[\n{dropped_entries}];\n\
+         /// True when the embedded classes came from `:sdk:stripClasses` (no\n\
+         /// LineNumberTable / SourceFile / StackMapTable), i.e. the firmware was\n\
+         /// built with `debug_assertions` off. Pinned to `!cfg!(debug_assertions)`\n\
+         /// by a picodroid-core test.\n\
+         pub const FRAMEWORK_CLASSES_DEBUG_STRIPPED: bool = {strip_debug};\n"
     );
     fs::write(out.join("framework_classes.rs"), content).unwrap();
 }

@@ -310,8 +310,11 @@ build_firmware() {
   else
     # The board goes along so the API contract check rejects classes this
     # board excludes from its framework (framework_class_excludes) at build
-    # time, not on device.
-    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
+    # time, not on device. --strip-debug because this PAPK is bound for a
+    # firmware built with debug-assertions off (the --config lines below):
+    # that JVM never reads LineNumberTable/SourceFile, so they are dead flash
+    # there. sim.sh builds its own PAPK without the flag and keeps (:line).
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug ${BOARD:+--board "$BOARD"}
     APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
   fi
 

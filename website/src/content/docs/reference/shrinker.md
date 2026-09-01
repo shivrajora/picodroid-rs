@@ -85,11 +85,12 @@ remain valid, so a PAPK shrunk with an older map still loads.
 - So `picodroid/app/Activity` → `a/A`,
   `picodroid/app/Application` → `a/B`, … `a/AP`.
 
-The `.class` bytes outside the constant pool are preserved byte-for-byte.
-Only `CONSTANT_Utf8_info` entries get rewritten — bare class-name
-references and `Lfoo/Bar;` substrings inside descriptors. CP indices
-stay stable so the trailing sections (attributes, `Code`,
-`StackMapTable`) don't need touching.
+The shrink step preserves the `.class` bytes outside the constant pool
+byte-for-byte. Only `CONSTANT_Utf8_info` entries get rewritten — bare
+class-name references and `Lfoo/Bar;` substrings inside descriptors. CP
+indices stay stable so the trailing sections (attributes, `Code`) don't
+need touching. (For a device build its input has already been through the
+independent [debug-attribute strip](#debug-attribute-strip).)
 
 ## Enabling shrinking
 
@@ -112,9 +113,10 @@ When `PICODROID_SHRINK=1`, `class-shrink print-version` resolves the
 active version from the root `Cargo.toml` + `sdk/shrink-maps/`. Both
 sides of the build call it:
 
-1. **Firmware (`build.rs`)**: after `javac`, if shrinking is on and the
-   active version isn't `0.0.0`, applies the map to the compiled
-   framework classes and embeds the shrunk output via
+1. **Firmware (`build.rs`)**: after Gradle has compiled — and, for a
+   debug-assertions-off build, [stripped](#debug-attribute-strip) — the
+   framework classes, if shrinking is on and the active version isn't
+   `0.0.0`, applies the map to them and embeds the shrunk output via
    `FRAMEWORK_CLASSES`. Also writes `framework_mapping_version.rs`
    (the version string the firmware advertises) and
    `framework_unshrink.rs` (the reverse-translation table).
@@ -134,6 +136,60 @@ sides of the build call it:
    right after parsing. A PAPK built with mismatched shrink settings
    (one side `0.0.0`, the other non-zero) is rejected with a hard
    error asking to rebuild.
+
+## Debug-attribute strip
+
+Independent of the shrink map, and applied to everything bound for a device:
+the `.class` files a device firmware carries lose the attributes pico-jvm
+never reads there. `LineNumberTable` is parsed only in `debug_assertions`
+builds (it feeds the `(:line)` in stack traces), and `SourceFile` and
+`StackMapTable` have no reader at all — picodroid does not run a bytecode
+verifier. Device firmware is built with debug-assertions off in both
+profiles, so the three were dead flash: about 14 KB of SDK corpus on every
+board plus 10–15 % of each PAPK. The measurements and the design are in
+[docs/designs/flash-string-budget-2026-08.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/flash-string-budget-2026-08.md)
+§4.
+
+How it is applied:
+
+- **SDK corpus (`build.rs`)** — when `CARGO_CFG_DEBUG_ASSERTIONS` is absent
+  (every `build.sh` / `flash.sh` build, and `--release` sim builds), the
+  build script runs `./gradlew :sdk:stripClasses` and embeds
+  `sdk/build/classes-stripped/java/main` instead of `compileJava`'s tree;
+  the shrink step then runs on top, unchanged. The generated
+  `framework_classes.rs` records the choice in
+  `FRAMEWORK_CLASSES_DEBUG_STRIPPED`, and a `picodroid-core` test pins it to
+  `!cfg!(debug_assertions)`.
+- **PAPKs** — `scripts/build-apk.sh --strip-debug` (Gradle property
+  `-Ppicodroid.stripDebug=true`), which every device path passes:
+  `build.sh` / `flash.sh`, `hil-run.sh`, the size ratchet and pre-commit's
+  firmware snapshot. `sim.sh` and the other host paths leave it off, so a
+  dev-profile sim run still shows `at Foo.bar(:42)` for app frames, and a
+  Java PAPK built without the flag is byte-identical to before.
+
+The rewrite is the ASM strip Kotlin apps already go through
+([ClassStrip.kt](https://github.com/shivrajora/picodroid-rs/blob/main/buildSrc/src/main/kotlin/picodroid/classfile/ClassStrip.kt)):
+it also drops annotations, `InnerClasses`, `Signature` and the other
+attributes the JVM skips, and because each class is re-serialised without a
+source reader the constant pool is rebuilt — the orphaned
+`"LineNumberTable"`, `"Foo.java"`, … entries go with it. The result has no
+`StackMapTable`, so a HotSpot JVM refuses to load it; only pico-jvm may
+consume `sdk/build/classes-stripped/` or a `--strip-debug` PAPK.
+
+To inspect: `javap -v` on a class under `sdk/build/classes-stripped/java/main`
+(or its shrunk copy under
+`target/<triple>/<profile>/build/picodroid-core-*/out/framework_classes_shrunk`)
+lists no `LineNumberTable` / `SourceFile` / `StackMapTable`; `papk-info`
+shows the per-class sizes of a PAPK built with and without the flag.
+
+Two things to keep in mind:
+
+- `./gradlew :examples:<app>:install` builds its PAPK in the same Gradle
+  invocation, so it ships unstripped unless you pass
+  `-Ppicodroid.stripDebug=true` — larger, not incorrect.
+- Anything that wants to read annotations from SDK or app classes (a
+  `@KeepName`-style keep, say) must read the compiler's output, not what
+  ships: the strip removes them.
 
 ## Compatibility rules
 
@@ -177,7 +233,10 @@ When no map is active it's an identity passthrough — zero cost beyond one func
 `sdk/keep.toml` declares names the shrinker must never touch. In v1:
 
 - `picodroid/annotation/KeepName` (exact): the annotation class used
-  by future method/field keeps in Java source.
+  by future method/field keeps in Java source. Such a keep must read
+  `compileJava`'s output — the
+  [debug-attribute strip](#debug-attribute-strip) removes annotations from
+  what ships.
 - `kotlin/**` (glob): the hand-written stdlib shim that rides inside
   Kotlin apps' PAPKs (`kotlin-shim/`). kotlinc-compiled app classes name
   these classes literally, and maps are generated from the SDK set anyway,
@@ -235,7 +294,10 @@ Always emitted:
 - `framework_unshrink.rs` — `unshrink_class(name) -> &str`. Identity
   passthrough when shrinking is off; a reverse-lookup match when on.
 - `framework_classes.rs` — `pub static FRAMEWORK_CLASSES: &[&[u8]] = &[…];`
-  pointing at (shrunk or raw) class files.
+  pointing at (shrunk or raw) class files, plus
+  `FRAMEWORK_CLASSES_DEBUG_STRIPPED`. For a debug-assertions-off build the
+  raw tree is `sdk/build/classes-stripped/java/main`, written by
+  `:sdk:stripClasses` (see [Debug-attribute strip](#debug-attribute-strip)).
 
 Emitted only when shrinking is on and a map is active:
 
