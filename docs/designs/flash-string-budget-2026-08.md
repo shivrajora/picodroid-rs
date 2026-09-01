@@ -306,7 +306,11 @@ method literals (~865 B) shrink with them.
 > `bench/parity/ratchet.toml` and the rp2040 flash gate measure no-shrink
 > builds, where this change is pure cost — held to **+84 B** (rp2040) /
 > **+40 B** (rp2350) because the translating descriptor walk is guarded by
-> the table's emptiness and folds away.
+> the table's emptiness and folds away. Re-measured after §4 landed (main
+> `20577a2`, the attribute strip): 969,452 → **959,911 B** (−9,541) — the two
+> steps compose, with a small overlap where the strip's constant-pool rebuild
+> had already dropped orphaned name text (`.rodata` −7,452, PAPK −4,009,
+> `.text` +1,920 unchanged).
 
 The keep glob's stated reason no longer fully holds. Since T2.2 the only
 `java/**` SDK class files are `java/lang/{Class,Math,System}` and
@@ -403,7 +407,7 @@ Key gotchas when re-running:
 | 1 | Strip `LineNumberTable` / `StackMapTable` / `SourceFile` from the SDK corpus, gated on `CARGO_CFG_DEBUG_ASSERTIONS` | 14.1 KB every board | low | **done 2026-09-01** — ASM in `buildSrc`, §4.2 |
 | 2 | Same strip in the PAPK packer (`buildSrc`) | 8.4 KB this app, scales | low | **done 2026-09-01** — `--strip-debug`, §4.2 |
 | 3 | Emit `PICODROID_NATIVE_CLASSES` in shrunk form from `build.rs` (`shrink_class` already exists) | ~1.9 KB | low | small |
-| 4 | Shrink `java/**` class names under a `b/` prefix — **landed 2026-09-01, −10,758 B measured (§5.1)** | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
+| 4 | Shrink `java/**` class names under a `b/` prefix — **landed 2026-09-01, −10,758 B alone, −9,541 B on top of #1+#2 (§5.1)** | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
 | 5 | Match dispatch on shrunk names directly, retire `unshrink_class`'s original column | ~4.7 KB | medium | needs the X-macro |
 | 6 | Constant-pool compaction | ~9.1 KB | medium — bytecode renumbering | the §4 orphans are gone with #1/#2 (ASM rebuilds the pool); only pre-existing dead entries remain |
 | 7 | Shrink method/field names | ~13 KB | high — override consistency, Kotlin shim | only after #5 |
