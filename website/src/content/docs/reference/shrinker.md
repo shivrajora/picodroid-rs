@@ -63,13 +63,21 @@ Fourteen release maps are committed today:
 | `sdk/shrink-maps/v0.12.0.toml` | **Stable** — byte-identical to v0.11.0. The Pico 2 W networking bring-up, the FreeRTOS host simulator, the runtime-flash fixes, and the `picodroid-core` / `papk-format` / `pdb-protocol` extractions all landed outside the framework class set. |
 | `sdk/shrink-maps/v0.13.0.toml` | **Stable** — byte-identical to v0.12.0. The typed `java.net` exceptions, `HttpURLConnection` header/timeout surface, `InetAddress.getByName`, `ServerSocket.setSoTimeout`, and `SystemClock.setCurrentTimeMillis` all landed as methods on classes the v0.11.0 cut already named; the JVM, GC, and memory-diagnostics work added no `sdk/java` classes. |
 | `sdk/shrink-maps/v0.14.0.toml` | Adds the **concurrency + injection-point** surface (+14 classes, 135 → 149) — the pure-Java `java.util.concurrent` core set (`picodroid.concurrent.{Callable, Future, FutureTask, ExecutorService, ThreadPoolExecutor, TimeUnit, CountDownLatch, AtomicInteger, AtomicLong, AtomicBoolean, AtomicReference}`), `Thread$UncaughtExceptionHandler`, and the two injection points `javax.inject.Provider` / `picodroid.di.Lazy`. Every v0.13.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.15.0.toml` | Opens the **`b/` namespace for `java/**`** (+88 classes, 149 → 237) — `Object`, `String`, `StringBuilder`, the boxed types, the collection classes and interfaces, every builtin exception and the `java.lang.invoke` bootstrap names: every `java/**` class the framework references or pico-jvm serves. `a/` allocation is untouched; every v0.14.0 mapping copied verbatim. |
 
 ## v1 scope
 
 v1 shrinks **class names only**. Method and field names stay untouched
-for now — a later release map can add them (still append-only). The
-original 42 non-`java/**` framework classes collapse into a single
-synthetic package `a/`:
+for now — a later release map can add them (still append-only). Names
+collapse into two synthetic packages, each with its own counter: `a/`
+for framework classes (`picodroid/**`, `javax/**`; 42 of them in the first
+cut) and, since v0.15.0, `b/` for the `java/**` classes pico-jvm serves
+natively. The JVM reverse-translates `b/` names at its class-file
+boundary (`jvm/src/class_file/names.rs`) — its own tables, `catch`
+matching, `instanceof`, `Class.getName()` and native dispatch all keep
+seeing `java/lang/String` — and compares descriptors, which stay shrunk on
+flash, through a translating `desc_eq`. Both spellings of a `java/**` name
+remain valid, so a PAPK shrunk with an older map still loads.
 
 - Order: sort original internal names lexicographically.
 - Suffix: bijective base-26 (`A`, `B`, …, `Z`, `AA`, `AB`, …), skipping
@@ -168,8 +176,6 @@ When no map is active it's an identity passthrough — zero cost beyond one func
 
 `sdk/keep.toml` declares names the shrinker must never touch. In v1:
 
-- `java/**` (glob): pico-jvm's built-in handler hardcodes these names,
-  and every PAPK refers to them literally.
 - `picodroid/annotation/KeepName` (exact): the annotation class used
   by future method/field keeps in Java source.
 - `kotlin/**` (glob): the hand-written stdlib shim that rides inside
@@ -179,6 +185,9 @@ When no map is active it's an identity passthrough — zero cost beyond one func
 
 Add an entry here before adding new framework surface that Rust
 references by name in a way the reverse-translation layer can't cover.
+`java/**` is deliberately absent since v0.15.0: those names are shrunk
+under `b/` and undone inside pico-jvm, so nothing in Rust ever matches a
+shrunk `java/**` spelling.
 
 ## Cutting a release
 
@@ -192,10 +201,13 @@ find sdk/java -name '*.java' -print0 \
   | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
 
 # Generate the map. --base copies the previous release verbatim so the
-# append-only invariant is enforced automatically.
+# append-only invariant is enforced automatically; --extra-names feeds the
+# java/** names the framework never references itself from the committed
+# list of everything pico-jvm serves.
 cargo run -p class-shrink -- cut-release \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
+  --extra-names sdk/api-contract.tsv \
   --base sdk/shrink-maps/v<previous>.toml \
   --out  sdk/shrink-maps/v<new>.toml
 

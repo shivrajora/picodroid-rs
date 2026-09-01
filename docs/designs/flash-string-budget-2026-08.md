@@ -247,14 +247,36 @@ method literals (~865 B) shrink with them.
 
 ### 5.1 `java/**` — tractable, and cheaper than it looks
 
-The keep glob's stated reason no longer fully holds. Since T2.2 there are **no
-`java/**` SDK class files at all** — `java/lang/Object`, `String`,
-`StringBuilder` and friends exist only as *names* in `BUILTIN_CLASS_NAMES`
+> **Landed 2026-09-01 (map v0.15.0, branch `java-shrink-b-prefix`).** Measured on
+> the same `pico_enviro_mon` / `picoenvmon` `--release --shrink` build, main
+> (`72dd3bf`) vs. the change: **−10,758 B** (1,015,184 → 1,004,426). SDK corpus
+> 131,150 → 122,021 (**−9,129**), `picoenvmon.papk` 69,140 → 64,570
+> (**−4,570**), against **+1,920 B** of `.text` (the class-file boundary and the
+> translating descriptor compare) and **+1,021 B** of Rust `.rodata` (the 88-entry
+> `b/` → original table). `testbench_rp2040 --release --shrink` links at
+> 898,230 / 917,248 B. The design differs from the sketch below in one respect:
+> the JVM's tables stay in **original** names and `b/` is undone at the
+> `ClassFile` accessors (`jvm/src/class_file/names.rs`), so the "Rust-side
+> reduction" of §5 does not happen — that is what keeps pre-0.15 PAPKs loading
+> and `getName()` correct without a second copy of the names. Descriptors stay
+> shrunk on flash; `find_method` and the handful of literal descriptor compares
+> go through `desc_eq` / `desc_starts_with`. `cut-release` now harvests the
+> `java/**` names the SDK references and takes `--extra-names
+> sdk/api-contract.tsv` for the rest. Note the savings are **shrink-only**:
+> `bench/parity/ratchet.toml` and the rp2040 flash gate measure no-shrink
+> builds, where this change is pure cost — held to **+84 B** (rp2040) /
+> **+40 B** (rp2350) because the translating descriptor walk is guarded by
+> the table's emptiness and folds away.
+
+The keep glob's stated reason no longer fully holds. Since T2.2 the only
+`java/**` SDK class files are `java/lang/{Class,Math,System}` and
+`java/util/{Arrays,Collections}` — `java/lang/Object`, `String`, `StringBuilder`
+and the rest exist only as *names* in `BUILTIN_CLASS_NAMES`
 ([jvm/src/native/mod.rs:45](../../jvm/src/native/mod.rs#L45)); `BuiltinHandler`
 intercepts on method-not-found and `instanceof` walks `BUILTIN_INTERFACES`. So
-there is no class file to rewrite — only a name table, and the identical
-reverse-translation trick `unshrink_class` already performs for `picodroid/*`
-applies unchanged.
+for almost all of them there is no class file to rewrite — only names in other
+classes' constant pools — and a reverse translation at the point those names
+are read covers everything.
 
 Costs and traps:
 
@@ -341,7 +363,7 @@ Key gotchas when re-running:
 | 1 | Strip `LineNumberTable` / `StackMapTable` / `SourceFile` from the SDK corpus, gated on `CARGO_CFG_DEBUG_ASSERTIONS` | 14.1 KB every board | low | ~150 LOC in `build_support` + a class walker |
 | 2 | Same strip in the PAPK packer (`buildSrc`) | 8.4 KB this app, scales | low | mirrors #1 in Kotlin |
 | 3 | Emit `PICODROID_NATIVE_CLASSES` in shrunk form from `build.rs` (`shrink_class` already exists) | ~1.9 KB | low | small |
-| 4 | Shrink `java/**` class names under a `b/` prefix | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
+| 4 | Shrink `java/**` class names under a `b/` prefix — **landed 2026-09-01, −10,758 B measured (§5.1)** | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
 | 5 | Match dispatch on shrunk names directly, retire `unshrink_class`'s original column | ~4.7 KB | medium | needs the X-macro |
 | 6 | Constant-pool compaction | ~9.1 KB | medium — bytecode renumbering | largest |
 | 7 | Shrink method/field names | ~13 KB | high — override consistency, Kotlin shim | only after #5 |

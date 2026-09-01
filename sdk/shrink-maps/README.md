@@ -57,17 +57,35 @@ find sdk/java -name '*.java' -print0 \
 
 # Generate the map. Pass --base <previous-release-map> to enforce
 # append-only: existing entries are copied verbatim and only net-new
-# classes get fresh short names.
+# classes get fresh short names. --extra-names feeds the java/** names
+# the framework never references itself (RuntimeException, Iterator, …)
+# from the committed list of everything pico-jvm serves.
 cargo run -p class-shrink -- cut-release \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
+  --extra-names sdk/api-contract.tsv \
   --base sdk/shrink-maps/v<previous>.toml \
   --out  sdk/shrink-maps/v<new>.toml
 ```
 
-Then bump the `version` field in the root `Cargo.toml` and commit both
-files together. From that commit onwards, both `build.rs` and
-`scripts/build-apk.sh` automatically pick up the new map.
+Then bump the `version` field in `platforms/rp/Cargo.toml` (the root
+`Cargo.toml` is a virtual workspace) and commit both files together. From
+that commit onwards, both `build.rs` and `scripts/build-apk.sh`
+automatically pick up the new map.
+
+## Namespaces
+
+Shrunk names live in two synthetic packages, each allocated from its own
+counter so the suffix sequences never collide:
+
+| Prefix | Holds | Reverse-translated by |
+|---|---|---|
+| `a/` | framework classes (`picodroid/**`, `javax/**`) | picodroid-core's generated `unshrink_class` at native-dispatch entry |
+| `b/` | `java/**` classes pico-jvm serves natively — the ones defined in `sdk/java`, every one the framework references, and every owner in `sdk/api-contract.tsv` | pico-jvm itself, at the class-file boundary (`jvm/src/class_file/names.rs`). Nothing past that boundary sees a `b/` name; descriptors stay shrunk on flash and are compared through `desc_eq` |
+
+Both spellings of a `java/**` name stay valid in a PAPK, so a PAPK shrunk
+with an older map keeps loading on newer firmware. Both prefixes are
+reserved: an app class in package `a` or `b` would collide.
 
 ## Current releases
 
@@ -87,5 +105,6 @@ files together. From that commit onwards, both `build.rs` and
 | `v0.12.0.toml` | Stable — byte-identical to v0.11.0 (the Pico 2 W networking bring-up, FreeRTOS host sim, and crate extractions added no framework classes). |
 | `v0.13.0.toml` | Stable — byte-identical to v0.12.0 (the networking-maturity, JVM-correctness, and memory work extended existing classes rather than adding new ones). |
 | `v0.14.0.toml` | + 14 classes (135 → 149): the `java.util.concurrent` core set (`Callable`, `Future`, `FutureTask`, `ExecutorService`, `ThreadPoolExecutor`, `TimeUnit`, `CountDownLatch`, the four `Atomic*` types), `Thread.UncaughtExceptionHandler`, and the DI injection points `javax.inject.Provider` / `picodroid.di.Lazy`. v0.13.0 entries copied verbatim. |
+| `v0.15.0.toml` | + 88 `java/**` classes under the new `b/` namespace (149 → 237): everything the framework references or pico-jvm serves — `Object`, `String`, `StringBuilder`, the boxed types, the collection classes and interfaces, every builtin exception, the `java.lang.invoke` bootstrap names. The 149 `a/` entries copied verbatim; `a/` allocation is untouched. |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

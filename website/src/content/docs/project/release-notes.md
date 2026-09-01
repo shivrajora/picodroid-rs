@@ -20,6 +20,12 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - **`SharedPreferences.getAll()`** returns `Map<String, ?>` of every stored preference, matching Android. It replaces the picodroid-only `getAllKeys()`, which is gone (`getAll().keySet()` is the direct equivalent).
 - **`String.class` and other builtin class literals no longer throw.** `ldc` on a class the JVM serves natively (`String`, `Object`, `Runnable`, …) required a loaded class file and failed with an uncatchable error; it now resolves, and `"x".getClass() == String.class` holds.
 
+**Smaller `--shrink` images: `java/**` names shrink too**
+
+- **Shrink map v0.15.0 opens a second namespace, `b/`, for the `java/**` classes.** `java/lang/Object` alone appeared 109 times in the embedded framework corpus; with `--shrink`, it and the other 87 natively served `java/**` names (`String`, `StringBuilder`, the boxed types, the collections, every builtin exception) are now stored as `b/…` in both the framework corpus and app PAPKs, inside descriptors too. The JVM reverse-translates them at its class-file boundary, so `Class.getName()`, exception text, `catch`, `instanceof` and native dispatch are unchanged — `"x".getClass().getName()` is still `java.lang.String` — and a PAPK built with an older map keeps loading. `a/` allocation is untouched. See the [shrinker reference](/reference/shrinker/).
+- **`framework_class_excludes` works under `--shrink`.** The board key compared original names against shrunk file paths, so a `--shrink` build of `testbench_rp2040` panicked at build time; it now un-shrinks the path first.
+- **`ArrayStoreException` is catchable.** `System.arraycopy` threw it, but it was registered nowhere, so no `catch` — not even `Throwable` — matched it.
+
 ## v0.14.0 — 2026-08-31
 
 The languages-and-threads release. Kotlin becomes a supported app language end to end — build tooling, a stdlib shim, a documented subset, and five example apps validated on hardware. Java threading grows the pieces that were missing underneath it: monitors that know their owner, `synchronized` *methods* that actually lock, `Object.wait`/`notify`, a `java.lang.Thread`-shaped API, and a pure-Java `java.util.concurrent` core set. Compile-time dependency injection arrives in the Dagger/Hilt shape. And a code-wide bug bash fixed roughly forty defects across the JVM, framework, SDK and Kotlin shim, most of them wrong answers rather than crashes.
