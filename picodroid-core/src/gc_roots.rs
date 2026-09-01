@@ -67,7 +67,7 @@ struct Registry {
 // SAFETY: single-threaded access by construction. Registration happens on the
 // boot task before any other task exists; `visit_all` runs from the collector
 // with the world stopped. This is the same single-core contract the object
-// heap itself relies on (see app.rs's SharedHeapCell).
+// heap itself relies on (see boot.rs's SharedHeapCell).
 struct RegistryCell(core::cell::UnsafeCell<Registry>);
 unsafe impl Sync for RegistryCell {}
 

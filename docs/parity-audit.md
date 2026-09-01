@@ -73,7 +73,7 @@ G-graphics, X-cross-cutting).
 | THR-01 | ~~`Thread.start()` in sim never runs the Runnable~~ **RESOLVED 2026-07-28 (M7)**: the simulator runs the real FreeRTOS kernel, so `Thread.start` spawns a real task with a fresh `Jvm` on the shared heap, charges 16 KB + TCB at spawn and releases on exit — as the device does. The refusal survives only in the `cargo test` backing (`picodroid-core/src/hal/sim/rtos.rs`), which has no scheduler | none | — | resolved | V | M7 — landed |
 | THR-02 | ~~`BackgroundExecutor` re-queues onto the main/UI queue in sim~~ **RESOLVED 2026-07-28 (M7)**: `sim_boot.rs` spawns the same four `jvm-bg` worker tasks on the same queue the device uses | none | — | resolved | V | M7 — landed |
 | THR-03 | `synchronized` monitors are the **kernel's** recursive mutexes in both, and several tasks really contend them in sim now (follows THR-01/02). **Correction 2026-08-30:** from M7 until concurrency-parity WP0 the simulator's `monitor_enter`/`exit` were still `cfg(not(sim))` no-ops, so this row was wrong for a month — sim `synchronized` acquired nothing. Since WP0/WP1 both targets run the same owner/depth-tracking monitor store, `synchronized` *methods* lock too (WP2), and `Object.wait`/`notify` exist (WP5). What remains is core count: contention is single-core in sim, dual-core on device | IPB (narrowed) | Deadlocks needing genuine parallelism are still hardware-only | S3 | V | follows X1 |
-| THR-04 | Device FreeRTOS config declares SMP 2 cores (`configNUMBER_OF_CORES 2`) while heap safety rests on a "one JVM task at a time" single-core-pinning argument (`native_handler/concurrent.rs:34-59`, `hal/rp/boot.rs:120`). **2026-08-14:** `d445785` set `configRUN_MULTIPLE_PRIORITIES=1` on RP2350 (real SMP — different-priority tasks now genuinely run on both cores), so the single-core-safety argument no longer applies as stated; what remains is the explicit core-0 pinning of every JVM-adjacent task (`glue.rs` spawn arms, same commit) | — | Device-side soundness question flagged by the audit, not fully traced; if JVM tasks can truly interleave across cores, the sim (and the heap!) model is weaker than assumed | S2 | I | investigate (X1) |
+| THR-04 | ~~Device FreeRTOS config declares SMP 2 cores (`configNUMBER_OF_CORES 2`) while heap safety rests on a "one JVM task at a time" single-core-pinning argument~~ **TRACED AND GUARDED 2026-08-31 (X1).** Every Rust-spawned task was already explicitly pinned (five on core 0; `flashpark` and `cyw43` on core 1), and nothing that runs on core 1, on the FreeRTOS+TCP `IP-task`, or in any ISR touches the JVM heap, thread registry, monitors, executors, LVGL or the handle table — the heap model was sound. Two real gaps in the *enforcement*: (a) freertos-rust pins *after* `xTaskCreate`, and inside `xTaskCreate` the SMP kernel (`prvYieldForTask`, `configRUN_MULTIPLE_PRIORITIES 1`) dispatches a new priority-15 task to an idle core 1, so every runtime `Thread.start` child began executing on core 1 for ~1 µs until the IPI eviction — its prologue is `AtomicSection`-guarded (the cross-core task lock), so only bytecode could have raced, and no failure was ever attributed to it; (b) the `IP-task` was the one unpinned task in the system, by library default (`ipconfigIP_TASK_AFFINITY` unset). Closed by `platforms/rp/src/task_affinity.rs`: `task_affinity::spawn` is now the only way this family creates a task, takes the core as a named argument (`CORE0`/`CORE1`), and brackets create+pin in an `AtomicSection` (scheduler suspended, so no core can switch context before the mask lands); `ipconfigIP_TASK_AFFINITY` is declared explicitly (placement unchanged); a source-scan `#[test]` under `scripts/test.sh` (so CI) rejects any other `Task::new()`/`xTaskCreate*`/`.core_affinity(` and any core-1 task not in `CORE1_TASKS`. **Rejected on measurement:** `configTASK_DEFAULT_CORE_AFFINITY (1<<0)` + `configIDLE_AFFINITY 1` closes the same window but pins the *reaper* — only core 0's main idle task runs `prvCheckTasksWaitingTermination`, and unpinned it floats to idle core 1 while core 0 churns — so `threadparity` OOMed on `testbench_rp2350` (spawn failed after 19 checks) where the stock config passes; the guard asserts neither macro is set. Off-heap residue — `IO_IRQ_BANK0` live on both cores on `pico_enviro_mon_w` — recorded in `docs/quality-roadmap.md` | none | — | resolved | V | X1 — landed |
 | THR-05 | ~~Device `HalClock::sleep` returned early when a debugger requested a JVM stop; the sim's did not — an unwritten obligation on every family's `sleep`, surfaced by the family-neutral residue audit~~ **RESOLVED 2026-07-27 (`2ad75b4`, family-neutral stage 3b)**: the stop check moved into the shared `SystemClock.sleep` native and the device's hand-rolled early return was deleted, so `Thread.sleep` honours a debugger stop on every platform by construction | none | — | resolved | V | family-neutral 3b — landed |
 | THR-06 | `Thread.setPriority` is **advisory** on every target: all Java-interpreting tasks (UI task, `Thread.start` children, the background pool) run at the one JVM tier (FreeRTOS 15). The shared heap is lock-free on "a running JVM task keeps the core until it blocks", which needs time slicing off *and* equal priorities — until 2026-08-30 children ran at Android+10 (11–20) and the pool at 5, either of which let one Java task preempt another mid-heap-mutation or mid-LVGL call. Android treats the value as a scheduling hint; here the hint is stored and reported but never applied (`task_priority.rs`) | IPB | A CPU-bound `MAX_PRIORITY` thread gets no more CPU than a `MIN_PRIORITY` one; a busy loop at any priority starves equal-priority siblings until it blocks (slicing is off by design) | S3 | V | by design — the alternative is a global interpreter lock |
 
@@ -306,6 +306,19 @@ ask-first items are marked.
     correctness bug rather than a documentation gap. The cheapest first move
     belongs to X1 either way — a guard that a JVM-adjacent task cannot be
     spawned unpinned, so the invariant is checked rather than remembered.
+  - **Closed 2026-08-31.** Traced in full — the task inventory, every ISR,
+    the timer callback and the FreeRTOS+TCP hooks; the THR-04 row carries
+    the verdict. The invariant held by policy; what did not hold was its
+    *enforcement*, and one window and one library default had slipped
+    through. Landed: `task_affinity::spawn` as the single spawn path
+    (`platforms/rp/src/task_affinity.rs`), which takes the core as a named
+    argument and makes create+pin one scheduler-atomic step; an explicit
+    `ipconfigIP_TASK_AFFINITY`; and the source-scan guard in the same file
+    (runs under `scripts/test.sh`, so in CI). The first attempt — pinning
+    by kernel default — was reverted on HIL evidence (see the row): it pins
+    the idle-task reaper and `threadparity` OOMs. The dependent `volatile`
+    entry in the roadmap is therefore a documentation gap, not a
+    correctness bug.
 - **X2 — cfg-gating lint**: pre-commit grep for `not(feature = "family-rp")`-style gates
   that should name `sim` explicitly (BLD-02 hazard).
   - 2026-07-26: expected count lowered 4 → 2. `system/monitor_store.rs` moved to
@@ -407,8 +420,10 @@ comparison infrastructure.
   `configNUMBER_OF_CORES 2`. Cross-core interleavings
   (and the races only they expose) remain HIL-only, and single-core is the conservative
   side: the simulator will not manufacture an interleaving hardware cannot produce, but
-  hardware can produce ones it will not show you. THR-04's dual-core soundness question
-  compounds this until X1 resolves it.
+  hardware can produce ones it will not show you. THR-04 (X1, closed 2026-08-31)
+  established that no JVM-adjacent code runs off core 0 — and the guard in
+  `platforms/rp/src/task_affinity.rs` keeps it so — which puts those
+  interleavings outside the JVM heap by construction.
 - **Residual host inflation after M6.** Object slots are now 12 B on every target
   (OBJ-01 deleted), but `Frame` structs remain 80 B host vs 40 B device (OBJ-02) and
   the string pointer table 8 B vs 4 B per entry (OBJ-03) — small, strict-direction

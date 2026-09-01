@@ -148,6 +148,19 @@ extern uint32_t picodroid_get_runtime_counter(void);
 #define configRUN_MULTIPLE_PRIORITIES           1
 #define configTIMER_SERVICE_TASK_CORE_AFFINITY  ( 1 << 0 )
 #define configUSE_CORE_AFFINITY                 1
+/* Deliberately NOT set: configTASK_DEFAULT_CORE_AFFINITY and
+ * configIDLE_AFFINITY.  Pinning every task to core 0 by default looks like
+ * the obvious way to make "one core interprets Java" hold from creation,
+ * but it needs configIDLE_AFFINITY beside it (an idle task inheriting a
+ * core-0 mask leaves core 1 unschedulable), and pinning the idle tasks pins
+ * the *reaper*: only the main idle task — core 0's — runs
+ * prvCheckTasksWaitingTermination.  Left unpinned it floats to idle core 1
+ * while core 0 churns; pinned, a Thread.start/join loop that never lets
+ * core 0 idle leaks every finished child's stack until xTaskCreate fails
+ * (threadparity OOM on testbench_rp2350, 2026-08-31).  The create-then-pin
+ * window is closed in task_affinity::spawn instead, by suspending the
+ * scheduler around xTaskCreate + vTaskCoreAffinitySet; the guard there
+ * asserts neither macro is defined here (docs/parity-audit.md THR-04 / X1). */
 /* Hardware spinlock IDs reserved for FreeRTOS (spinlocks 26 and 27 = PICO_SPINLOCK_ID_OS1/OS2) */
 #define configSMP_SPINLOCK_0                    26
 #define configSMP_SPINLOCK_1                    27

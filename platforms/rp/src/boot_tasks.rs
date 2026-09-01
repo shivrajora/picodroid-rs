@@ -29,32 +29,21 @@
 
 use freertos_rust::*;
 
+use crate::task_affinity;
 use crate::task_priority;
 
 /// Create FreeRTOS tasks and start the scheduler (never returns).
 ///
-/// RP2040/RP2350 are dual-core:
-///   - PDB task on core 0 (priority 2) — listens for USB CDC installs
-///   - JVM task on core 0 (priority 1) — runs the app
+/// RP2040/RP2350 are dual-core; every task goes through
+/// `task_affinity::spawn`, which names its core (see that module for the
+/// invariant and its guard):
+///   - flashpark on core 1, cyw43 on core 1 (network boards)
+///   - pdb, fs, sensor, jvm-bg workers and the JVM task on core 0
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
-    // Core-1 flash parker.  Runtime flash erase/program must stop core 1
-    // first: any exception it takes during the XIP-off window fetches
-    // vectors and handler code from disconnected flash and locks the core
-    // up (RP40-1/-2 on rp2040 via the tick, which runs there; on rp2350 via
-    // the PendSV that core 0's yield IPI raises).  Created first and
-    // registered before the scheduler starts so every runtime flash path
-    // finds it; see hal/rp/core1_park.rs for the handshake.
-    {
-        let parker = Task::new()
-            .name("flashpark")
-            .stack_size(crate::boot_budget::FLASHPARK_STACK_WORDS)
-            .priority(TaskPriority(task_priority::PRIORITY_FLASH_PARK))
-            .core_affinity(0b10) // core 1 only
-            .start(move |_| crate::hal::core1_park::run_parker_task())
-            .unwrap();
-        crate::hal::core1_park::set_parker_task(parker);
-    }
-
+    // Installed before the first task exists: `task_affinity::spawn` runs
+    // every create+pin inside this section (a no-op until the scheduler
+    // starts, load-bearing for every runtime `Thread.start` after it).
+    //
     // JVM heap compound operations and the GC must be atomic against the
     // SMP kernel's equal-priority wake yield (prvYieldForTask uses `>=`, so
     // an unblocked equal-priority JVM task preempts at the allocator's
@@ -74,6 +63,25 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
             }
         }
         pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
+    }
+
+    // Core-1 flash parker.  Runtime flash erase/program must stop core 1
+    // first: any exception it takes during the XIP-off window fetches
+    // vectors and handler code from disconnected flash and locks the core
+    // up (RP40-1/-2 on rp2040 via the tick, which runs there; on rp2350 via
+    // the PendSV that core 0's yield IPI raises).  Created first and
+    // registered before the scheduler starts so every runtime flash path
+    // finds it; see hal/rp/core1_park.rs for the handshake.
+    {
+        let parker = task_affinity::spawn(
+            "flashpark",
+            crate::boot_budget::FLASHPARK_STACK_WORDS,
+            task_priority::PRIORITY_FLASH_PARK,
+            task_affinity::CORE1,
+            move |_| crate::hal::core1_park::run_parker_task(),
+        )
+        .unwrap();
+        crate::hal::core1_park::set_parker_task(parker);
     }
 
     // fs-worker: serialises all LittleFS access onto one core-0-pinned task.
@@ -103,13 +111,14 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // core 0 and core 1 is unreliable for flow-control counters shared
     // between the USB ISR and the PDB task.  Keeping both on core 0
     // avoids the issue entirely.
-    Task::new()
-        .name("pdb")
-        .stack_size(crate::boot_budget::PDB_STACK_WORDS)
-        .priority(TaskPriority(task_priority::PRIORITY_RT_1))
-        .core_affinity(0b01) // core 0 only
-        .start(move |_| crate::pdb::run_pdb_task())
-        .unwrap();
+    task_affinity::spawn(
+        "pdb",
+        crate::boot_budget::PDB_STACK_WORDS,
+        task_priority::PRIORITY_RT_1,
+        task_affinity::CORE0,
+        move |_| crate::pdb::run_pdb_task(),
+    )
+    .unwrap();
 
     // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
     // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
@@ -126,13 +135,14 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // mid-transfer only delays the CS deassert past an already-completed
     // frame, which the chip tolerates.
     #[cfg(network_cyw43)]
-    Task::new()
-        .name("cyw43")
-        .stack_size(crate::boot_budget::CYW43_STACK_WORDS)
-        .priority(TaskPriority(task_priority::PRIORITY_RT_2))
-        .core_affinity(0b10) // core 1 only
-        .start(move |_| crate::hal::wifi_task::run_cyw43_task())
-        .unwrap();
+    task_affinity::spawn(
+        "cyw43",
+        crate::boot_budget::CYW43_STACK_WORDS,
+        task_priority::PRIORITY_RT_2,
+        task_affinity::CORE1,
+        move |_| crate::hal::wifi_task::run_cyw43_task(),
+    )
+    .unwrap();
 
     // JVM task: runs the app in a loop, rebooting when a new install arrives.
     // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
@@ -141,12 +151,12 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // because each interrupt pushes an extended exception frame (~100 bytes)
     // when the FPU has been used (configENABLE_FPU=1). Size lives in
     // boot_budget so the sim pre-charges the identical amount (M4).
-    Task::new()
-        .name("jvm")
-        .stack_size(crate::boot_budget::JVM_STACK_WORDS)
-        .priority(TaskPriority(task_priority::PRIORITY_JVM_NORM))
-        .core_affinity(0b01) // core 0 only
-        .start(move |_| {
+    task_affinity::spawn(
+        "jvm",
+        crate::boot_budget::JVM_STACK_WORDS,
+        task_priority::PRIORITY_JVM_NORM,
+        task_affinity::CORE0,
+        move |_| {
             // Store our handle so pdb_task and child tasks can notify us.
             crate::pdb::pending::set_jvm_task(Task::current().unwrap());
             loop {
@@ -186,8 +196,9 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                 // Natural app exit — wait for pdb to install a new app.
                 CurrentTask::take_notification(true, Duration::infinite());
             }
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
 
     FreeRtosUtils::start_scheduler()
 }

@@ -16,6 +16,12 @@ pub use picodroid_core::framework_classes;
 mod fs;
 // Shared boot memory budget (device task stacks / sim pre-charge — M4).
 mod boot_budget;
+// Core placement for every task this family creates: the one spawn helper
+// (create+pin as a scheduler-atomic step), the CORE0/CORE1 masks, and the
+// source scan that keeps every spawn site honest (parity-audit THR-04 / X1).
+// Always compiled, like gc_root_registration: the helper is device-only, but
+// the guard must run under scripts/test.sh.
+mod task_affinity;
 // Task topology + the JVM supervisor loop. Bin-layer rather than HAL: it
 // drives fs / pdb / boot_budget, and only sat under hal/rp because it starts
 // the scheduler next to clock_init.

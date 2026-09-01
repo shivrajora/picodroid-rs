@@ -156,10 +156,10 @@ static MEMSTATS_REQUESTED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
 /// Device: latest window figures published for the PDB sysmon extension.
-/// Written by the main task (core 0) each window, read by the PDB task
-/// (core 1) — `AtomicU32` with plain `store`/`load` only, the
-/// `ACTIVE_JVM_THREADS` cross-core discipline (no RMW; staleness of up to
-/// one window is fine for telemetry).
+/// Written by the main task each window, read by the PDB task — both on
+/// core 0 since the same-core install flow — as `AtomicU32` with plain
+/// `store`/`load` only (no RMW; staleness of up to one window is fine for
+/// telemetry).
 #[cfg(not(feature = "sim"))]
 mod published {
     use core::sync::atomic::AtomicU32;

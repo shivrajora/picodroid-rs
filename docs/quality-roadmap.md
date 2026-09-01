@@ -338,6 +338,41 @@ ARCHITECTURE.md that `volatile` parses and is ignored; (3) only then consider `d
 load/store still needs `AtomicSection`. **Tradeoff:** step 3 taxes the hot `getfield`/`putfield`
 path for a guarantee nothing in-tree currently needs; do not pay it before X1 reports.
 
+**2026-08-31 — X1 reported (parity-audit THR-04).** Pinning is now enforced, not remembered:
+`task_affinity::spawn` (`platforms/rp/src/task_affinity.rs`) is the only way the RP family creates a
+task, names the core, and suspends the scheduler around create+pin — closing a real ~1 µs window in
+which every `Thread.start` child began on core 1 before freertos-rust's post-hoc `vTaskCoreAffinitySet`
+evicted it — and a source scan under `scripts/test.sh` rejects any other spawn. (Pinning by kernel
+default instead was tried and reverted on HIL: it pins the idle-task reaper and `threadparity` OOMs.)
+Step (1) is done and this entry is a documentation gap; steps (2) and (3) stand as written.
+
+### `IO_IRQ_BANK0` runs on both cores and services the button queue from core 1
+
+Found 2026-08-31 by the THR-04 / X1 trace — the one genuine cross-core race it turned up, and it is
+outside the JVM. On `pico_enviro_mon_w` the vector is unmasked twice: on core 0 for the buttons
+(`hal/rp/gpio.rs` `init_gpio_irq`, PROC0 routing) and on core 1 for the cyw43 host-wake line
+(`gpio::hostwake::init`, PROC1 routing, called from the cyw43 task). Both cores share one RAM vector
+table, and the handler body is not core-aware: after the host-wake block it unconditionally reads
+`proc0_ints`, calls `enqueue_gpio_event` and clears `INTR`. So a host-wake interrupt on core 1 — one
+per received frame — also services core 0's button path, and `enqueue_gpio_event`'s read-modify-write
+of `GPIO_QUEUE` / `GPIO_QUEUE_HEAD` / `GPIO_DROPPED` (plain `static mut`s) races core 0's own ISR, the
+UI task's `drain_gpio_event` and the PDB task's `inject`. Symmetrically, core 0's handler executes the
+host-wake block and RMWs `proc1_inte`, racing `picodroid_cyw43_hostwake_rearm` on core 1 — a lost
+re-arm degrades cyw43 RX to the 1000 ms poll fallback.
+
+Fix: branch on `sio_hw->cpuid` at the top of the handler — core 1 runs only the host-wake block,
+core 0 only the button loop (each core's `procN_ints` is already the right register for it). A few
+lines, but HIL-only to validate, so it was not folded into X1's change: it needs a `pico_enviro_mon_w`
+on the probe with button presses during traffic. **Tradeoff:** until then the race is a duplicated or
+lost button event coincident with a received frame, and a rare host-wake re-arm loss; neither reaches
+the JVM heap.
+
+Two smaller residues from the same trace, both narrow, both recorded rather than fixed: `RESETS.RESET`
+is RMW'd non-atomically from core 1 (cyw43 init, `pio_spi.rs`) and core 0 (`ensure_io_unreset` on any
+Java `Gpio` call, `gpio.rs` / `dma.rs`) — RP2350's atomic-alias addresses would close it; and the
+FreeRTOS+TCP `IP-task` (2 KB stack + TCB on network boards) is absent from `boot_budget::BOOT_TASKS`,
+so the simulator's boot charge is short by that much on those boards (parity-audit M4).
+
 ### Simulator leaks a pthread and TCB per finished Java thread
 
 Opened 2026-08-31; the mechanism is written up in full in

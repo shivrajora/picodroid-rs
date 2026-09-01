@@ -360,8 +360,7 @@ mod rtos_impl {
     // `MutexInnerImpl` is the trait carrying create/take/give for
     // `MutexRecursive` — the same import monitor_store.rs needs.
     use freertos_rust::{
-        CurrentTask, Duration, MutexInnerImpl, MutexRecursive, Queue, Semaphore, Task,
-        TaskPriority, Timer,
+        CurrentTask, Duration, MutexInnerImpl, MutexRecursive, Queue, Semaphore, Task, Timer,
     };
     use picodroid_core::rtos::{
         RawMutex, RawQueue, RawSem, RawTask, Rtos, TaskKind, TaskSpec, Timeout,
@@ -394,72 +393,56 @@ mod rtos_impl {
                 .stack_bytes
                 .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind));
             let words = (stack_bytes / 4) as u16;
-            let prio = TaskPriority(spec.priority);
 
-            // The filesystem worker must be pinned to core 0, because its
-            // flash writes disable XIP and this family executes from that
-            // same flash. Losing the pin is invisible everywhere it would be
-            // convenient to notice — the simulator's port is single-core, and
-            // a dual-core device only corrupts under a write racing an
-            // instruction fetch — so it is spelled out here rather than left
-            // to `spawn`'s general arm.
-            if spec.kind == TaskKind::FsWorker {
-                return Task::new()
-                    .name(spec.name)
-                    .stack_size(words)
-                    .priority(prio)
-                    .core_affinity(0b01)
-                    .start(move |_| body())
-                    .is_ok();
-            }
-
-            if spec.kind != TaskKind::JvmChild {
-                // Pinned to core 0 like everything else on this family: the
-                // sensor sampler and the jvm-bg workers run Java against the
-                // shared single-core JVM heap, and two equal-priority workers
-                // scheduled onto both cores would race it.  Core 1 is
-                // reserved for the cyw43 wifi task (PIO transport, see
-                // boot_tasks.rs) and the flash parker — the only tasks that
-                // opt out of this pin, and with configRUN_MULTIPLE_PRIORITIES=1
-                // on both chips an unpinned task here really would migrate.
-                return Task::new()
-                    .name(spec.name)
-                    .stack_size(words)
-                    .priority(prio)
-                    .core_affinity(0b01)
-                    .start(move |_| body())
-                    .is_ok();
-            }
-
-            // JVM child tasks carry two extra obligations, both of which
-            // belong to this family rather than to shared code:
+            // Every arm pins to core 0 through `task_affinity::spawn`, which
+            // also makes create+pin one scheduler-atomic step (see that
+            // module). What differs per kind is only who else must know:
             //
-            //  * Pin to core 0. The interpreter's heap safety rests on the
-            //    single-core assumption documented in app.rs.
-            //  * Register with the debug bridge, and deregister on exit, so
-            //    a stop request can reach the child and jvm_task's wait loop
-            //    unblocks. The spawn trampoline calls vTaskDelete(NULL)
-            //    after the body returns, reclaiming stack and TCB.
+            //  * The filesystem worker: its flash writes disable XIP and this
+            //    family executes from that same flash, so its core-0 pin is
+            //    not merely the heap rule — a dual-core device only corrupts
+            //    under a write racing an instruction fetch, and the simulator
+            //    (single-core port) can never show it.
+            //  * The sensor sampler and the jvm-bg workers run Java against
+            //    the shared single-core JVM heap; two equal-priority workers
+            //    on both cores would race it. Core 1 is reserved for the
+            //    cyw43 wifi task (PIO transport, see boot_tasks.rs) and the
+            //    flash parker — with configRUN_MULTIPLE_PRIORITIES=1 on both
+            //    chips an unpinned task really would migrate.
+            if spec.kind != TaskKind::JvmChild {
+                return crate::task_affinity::spawn(
+                    spec.name,
+                    words,
+                    spec.priority,
+                    crate::task_affinity::CORE0,
+                    move |_| body(),
+                )
+                .is_ok();
+            }
+
+            // JVM child tasks carry one extra obligation that belongs to
+            // this family rather than to shared code: register with the
+            // debug bridge, and deregister on exit, so a stop request can
+            // reach the child and jvm_task's wait loop unblocks. The spawn
+            // trampoline calls vTaskDelete(NULL) after the body returns,
+            // reclaiming stack and TCB.
             //
             // Ordering matters. The count goes up *before* the task exists,
             // as the simulator's does, and the child registers its own
             // handle as its first act rather than the parent registering
-            // it after `start` returns: a child at a higher priority than
-            // its parent runs the moment it is created and can finish its
-            // whole body before `start` even returns, and the parent would
-            // then push a handle to a task that no longer exists — leaving
-            // the count wrong (jvm_task waits forever for it) and
+            // it after `spawn` returns: a child at a higher priority than
+            // its parent runs the moment the section ends and can finish
+            // its whole body before `spawn` even returns, and the parent
+            // would then push a handle to a task that no longer exists —
+            // leaving the count wrong (jvm_task waits forever for it) and
             // `abort_all_child_delays` poking a deleted TCB.
-            //
-            // Written as a whole chain because `TaskBuilder`'s setters
-            // borrow the temporary and cannot be split across a `let`.
             crate::pdb::pending::note_child_spawning();
-            let spawned = Task::new()
-                .name(spec.name)
-                .stack_size(words)
-                .priority(prio)
-                .core_affinity(0b01)
-                .start(move |_| {
+            let spawned = crate::task_affinity::spawn(
+                spec.name,
+                words,
+                spec.priority,
+                crate::task_affinity::CORE0,
+                move |_| {
                     if let Ok(t) = Task::current() {
                         crate::pdb::pending::register_child_task(t);
                     }
@@ -467,7 +450,8 @@ mod rtos_impl {
                     if let Ok(t) = Task::current() {
                         crate::pdb::pending::deregister_child_task(t.raw_handle());
                     }
-                });
+                },
+            );
             match spawned {
                 Ok(_child) => true,
                 Err(_) => {

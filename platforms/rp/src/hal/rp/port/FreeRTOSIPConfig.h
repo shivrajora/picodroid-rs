@@ -50,6 +50,16 @@
 /* ---- IP task ---- */
 #define ipconfigIP_TASK_PRIORITY                (7)
 #define ipconfigIP_TASK_STACK_SIZE_WORDS         (512)  /* 2 KB */
+/* Either core, deliberately — the kernel default spelled out.  The IP task
+ * never touches JVM state: sockets are driven synchronously from the calling
+ * Java task (hal/rp/net.rs) and the stack's application hooks (net_init.c)
+ * touch only their own statics, so it need not join the core-0 pin that
+ * every JVM-adjacent task carries, and a busy Java thread (priority 15 > 7,
+ * no time slicing) cannot starve TCP.  The affinity guard
+ * (platforms/rp/src/task_affinity.rs) requires the choice to be written
+ * down; 0 would mean "whatever the kernel does", which is the same today but
+ * not a decision. */
+#define ipconfigIP_TASK_AFFINITY                ( ( 1 << 0 ) | ( 1 << 1 ) )
 
 /* ---- ARP ---- */
 #define ipconfigARP_CACHE_ENTRIES               (8)

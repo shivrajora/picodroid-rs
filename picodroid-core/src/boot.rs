@@ -30,9 +30,10 @@ mod prereserve_config {
 // ── Shared heap ──────────────────────────────────────────────────────────────
 //
 // All JVM threads share one heap (objects, arrays, strings), matching the
-// standard Java memory model. Only one JVM task runs at a time — the core is
-// single-core (the simulator models the same), JVM work is pinned to it, and
-// `configUSE_TIME_SLICING = 0` guarantees a running JVM task keeps the CPU
+// standard Java memory model. Only one JVM task runs at a time — every JVM
+// task is pinned to one core (the RP family enforces this in
+// `platforms/rp/src/task_affinity.rs`; the simulator's port is single-core),
+// and `configUSE_TIME_SLICING = 0` guarantees a running JVM task keeps the CPU
 // until it blocks (sleep / socket / queue), so switches between JVM tasks
 // land only at yield points, never mid-heap-mutation — so allocation needs
 // no global lock. Parked-mid-execute tasks' frames stay visible to GC via

@@ -321,7 +321,7 @@ Key settings that differ per family:
 
 Settings that are the same across all families (tick rate, stack sizes, hook
 enables, API includes) can be found in the existing RP config at
-`platforms/rp/src/hal/rp/FreeRTOSConfig.h`.
+`platforms/rp/mcus/rp/FreeRTOSConfig.h`.
 
 ## Cargo features
 
