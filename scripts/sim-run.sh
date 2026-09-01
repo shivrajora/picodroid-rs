@@ -99,9 +99,15 @@ run_test() {
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
 
-  # Build APK.
+  # Build APK, into a per-mode path rather than the shared
+  # build/apks/<app>.papk. Both shrink modes used to write that one file, so a
+  # concurrent sim.sh or pre-commit run on the same checkout could swap a
+  # shrunk papk under an unshrunk sim binary -- verify_compat then rejects it
+  # at load with FrameworkVersionMismatch, which reads as a code regression
+  # rather than two builds colliding.
   sim_log "  Building APK..."
-  local -a apk_args=(--app "$app" --board "$board")
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board "$board")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -109,8 +115,6 @@ run_test() {
     ERROR=$((ERROR + 1))
     return
   fi
-
-  local apk_path="$REPO_ROOT/build/apks/${app}.papk"
 
   # Build sim binary (release). PICODROID_SHRINK must match the APK's mode
   # or verify_compat will reject at load time.
@@ -210,7 +214,9 @@ run_enviro_smoke() {
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (board smoke, 25s) ---"
 
-  local -a apk_args=(--app "$app" --board pico_enviro_mon)
+  # Per-mode path -- see the note in run_test.
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board pico_enviro_mon)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -233,7 +239,7 @@ run_enviro_smoke() {
   fi
 
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
-  PICODROID_APK_PATH="$REPO_ROOT/build/apks/${app}.papk" \
+  PICODROID_APK_PATH="$apk_path" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
@@ -270,7 +276,9 @@ run_enviro_w_smoke() {
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (WiFi board smoke, 25s) ---"
 
-  local -a apk_args=(--app "$app" --board pico_enviro_mon_w)
+  # Per-mode path -- see the note in run_test.
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board pico_enviro_mon_w)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -293,7 +301,7 @@ run_enviro_w_smoke() {
   fi
 
   local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
-  PICODROID_APK_PATH="$REPO_ROOT/build/apks/${app}.papk" \
+  PICODROID_APK_PATH="$apk_path" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
