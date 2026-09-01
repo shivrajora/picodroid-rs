@@ -29,15 +29,35 @@ perl -e 'alarm 5; exec @ARGV' ./scripts/sim.sh --app blinky
 The blinky app loops forever; `perl -e 'alarm 5; exec @ARGV'` kills it after 5 seconds (macOS has no `timeout` command).
 Confirm expected output appears (e.g. `[HelloWorld] Hello, World!`, `[Benchmark] TOTAL: ... ms`, GPIO state changes).
 
-### 2. Full pre-commit suite
+### 2. Pre-commit suite
 
 ```bash
-./scripts/pre-commit
+./scripts/pre-commit          # after every change
+./scripts/pre-commit --full   # before pushing, and before a release
 ```
 
-This runs formatting (Java + Kotlin + `cargo fmt`), clippy across every board and the host tools, the embedded and flash-gate builds, the shadow-twin and cfg-hygiene guards, Java compilation for all apps, a langsuite conformance run, and all tests. Must end with `==> All checks passed.`
+Both tiers must end with `==> All checks passed.`
 
-Do not consider a code change complete until both of these pass.
+`./scripts/pre-commit` (the default, and what the git hook runs) is scoped to
+what actually changed and trimmed to the checks CI does not already cover: the
+shadow-twin and cfg-hygiene guards, `hil-tests.conf` drift, `apply_jvm_env`,
+markdown lint, and the binary-size ratchet always run, and the formatting,
+clippy and firmware-build lanes are selected by which of Rust / Java+Kotlin /
+markdown the change touched. Editing anything under `scripts/` promotes the run
+to `--full` automatically.
+
+`--full` is the unscoped gate: formatting (Java + Kotlin + `cargo fmt`), clippy
+across every board and the host tools, the staged `handle-table-32` and opt-in
+`mem-diag` legs, the embedded and flash-gate builds, Java compilation for all
+apps, the Java and Kotlin conformance suites, all tests, and the size ratchet on
+both boards.
+
+`--list` prints the stages a run would execute; `--serial` runs the lanes one at
+a time and streams to stdout, which is what to use when a parallel run fails and
+you want readable output. Per-run logs are kept under `build/pre-commit/`.
+
+Do not consider a code change complete until the sim smoke test and
+`./scripts/pre-commit` pass; run `--full` before you push.
 
 WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
 

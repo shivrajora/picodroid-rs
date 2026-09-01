@@ -90,7 +90,14 @@ resolve_board() {
   MANIFEST_DIR="$REPO_ROOT/platforms/$PLATFORM"
 
   # RP workspace shares the repo-root target/; ESP workspace has its own.
-  if [[ "$PLATFORM" == "rp" ]]; then
+  #
+  # CARGO_TARGET_DIR wins when set: pre-commit gives each parallel lane its own
+  # build directory (cargo serializes concurrent invocations that share one),
+  # and build_firmware looks for the ELF under TARGET_DIR. Hard-pinning this to
+  # $REPO_ROOT/target made every such lane report "Binary not found".
+  if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+    TARGET_DIR="$CARGO_TARGET_DIR"
+  elif [[ "$PLATFORM" == "rp" ]]; then
     TARGET_DIR="$REPO_ROOT/target"
   else
     TARGET_DIR="$MANIFEST_DIR/target"
@@ -172,6 +179,19 @@ resolve_board() {
 # Schema enforcement: platforms/rp/build.rs::emit_jvm_config.
 apply_jvm_env() {
   local board_toml="$1"
+
+  # Clear first, always. These are `rerun-if-env-changed` inputs to
+  # jvm/build.rs, so a value left over from a previous board silently rebuilds
+  # pico-jvm (and everything above it) for the next one -- and lints/links that
+  # board with the wrong tunables. pico_enviro_mon_w is the only board that
+  # sets one (gc_alloc_threshold = 128) and it used to be last in pre-commit's
+  # clippy loop, so every stage after it ran with a value no standalone
+  # invocation of the same script would have had. The two then took turns
+  # invalidating each other's cached pico-jvm in the shared target directory.
+  unset PICODROID_JVM_GC_ALLOC_THRESHOLD
+  unset PICODROID_JVM_SLOT_CHUNK_SHIFT
+  unset PICODROID_JVM_INLINE_ARRAY_DATA
+
   # Extract the [jvm] block: from "[jvm]" up to the next "[" line, or EOF.
   local block
   block=$(awk '
@@ -206,6 +226,28 @@ _export_jvm_kv() {
 # Returns the number of logical CPUs (cross-platform: Linux + macOS).
 cpu_count() {
   nproc 2>/dev/null || sysctl -n hw.logicalcpu
+}
+
+# Runs a command holding the repo-wide Gradle lock.
+#
+# pre-commit fans its stages out across parallel lanes, and two Gradle
+# invocations against one project directory contend on Gradle's own project
+# lock -- at best blocking, at worst the papk race that produces a
+# FrameworkVersionMismatch at `pdb install`. Every gradlew entry point goes
+# through here so at most one is ever live.
+#
+# The timeout is a deadlock detector, not a tuning knob: nothing in this repo
+# should hold the lock for ten minutes, and a nested acquisition (a Gradle task
+# invoking build-apk.sh without PICODROID_SKIP_GRADLE=1) would otherwise hang
+# forever with no clue why. flock is util-linux; without it, run unlocked --
+# callers that care run pre-commit --serial.
+gradle_lock_run() {
+  mkdir -p "$REPO_ROOT/build"
+  if command -v flock >/dev/null 2>&1; then
+    flock -w 600 "$REPO_ROOT/build/.gradle.lock" "$@"
+  else
+    "$@"
+  fi
 }
 
 # Prints available app names from the examples directory, one per line, indented.
@@ -250,12 +292,28 @@ print_memory_usage() {
 # Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
 # PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
 build_firmware() {
-  # Step 1: Build the APK for the selected app. The board goes along so the
-  # API contract check rejects classes this board excludes from its
-  # framework (framework_class_excludes) at build time, not on device.
-  bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
-
-  APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+  # Step 1: Build the APK for the selected app.
+  #
+  # PICODROID_PREBUILT_APK short-circuits this. pre-commit builds helloworld
+  # once in its serial prologue and points every firmware lane at that one
+  # file: without it each lane re-enters Gradle and then copies the result over
+  # build/apks/<app>.papk, so concurrent lanes race on the very file the flash
+  # gate and the size ratchet measure. Deliberately its own variable rather
+  # than PICODROID_APK_PATH, which is set by many callers for other reasons and
+  # has never meant "skip the build".
+  if [[ -n "${PICODROID_PREBUILT_APK:-}" ]]; then
+    APK_PATH="$PICODROID_PREBUILT_APK"
+    if [[ ! -f "$APK_PATH" ]]; then
+      echo "PICODROID_PREBUILT_APK does not exist: $APK_PATH" >&2
+      return 1
+    fi
+  else
+    # The board goes along so the API contract check rejects classes this
+    # board excludes from its framework (framework_class_excludes) at build
+    # time, not on device.
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
+    APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+  fi
 
   # Step 2: Build the firmware, embedding the APK.
   local jobs

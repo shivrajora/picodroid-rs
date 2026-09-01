@@ -128,5 +128,26 @@ reset_env
 apply_jvm_env "$TMPDIR/bounded.toml"
 assert_eq PICODROID_JVM_GC_ALLOC_THRESHOLD 64 "${PICODROID_JVM_GC_ALLOC_THRESHOLD:-}"
 
+# Test 5 — consecutive boards must not leak into each other. Deliberately NO
+# reset_env between the two calls: that is the real pre-commit sequence, where
+# resolve_board walks a board list in one shell. These are
+# `rerun-if-env-changed` inputs to jvm/build.rs, so a leaked value both rebuilds
+# pico-jvm for the next board and builds it with the wrong tunables.
+echo "==> test 5: a later board with no [jvm] block clears the previous board's values"
+reset_env
+apply_jvm_env "$TMPDIR/full.toml"
+assert_eq PICODROID_JVM_GC_ALLOC_THRESHOLD 128 "${PICODROID_JVM_GC_ALLOC_THRESHOLD:-}"
+apply_jvm_env "$TMPDIR/empty.toml"
+assert_unset PICODROID_JVM_GC_ALLOC_THRESHOLD "${PICODROID_JVM_GC_ALLOC_THRESHOLD:-}"
+assert_unset PICODROID_JVM_SLOT_CHUNK_SHIFT   "${PICODROID_JVM_SLOT_CHUNK_SHIFT:-}"
+assert_unset PICODROID_JVM_INLINE_ARRAY_DATA  "${PICODROID_JVM_INLINE_ARRAY_DATA:-}"
+
+# ...and a partial block clears the keys it does not set.
+apply_jvm_env "$TMPDIR/full.toml"
+apply_jvm_env "$TMPDIR/partial.toml"
+assert_eq PICODROID_JVM_SLOT_CHUNK_SHIFT 4 "${PICODROID_JVM_SLOT_CHUNK_SHIFT:-}"
+assert_unset PICODROID_JVM_GC_ALLOC_THRESHOLD "${PICODROID_JVM_GC_ALLOC_THRESHOLD:-}"
+assert_unset PICODROID_JVM_INLINE_ARRAY_DATA  "${PICODROID_JVM_INLINE_ARRAY_DATA:-}"
+
 echo
 echo "==> All apply_jvm_env checks passed."
