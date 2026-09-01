@@ -21,6 +21,16 @@ include in `main.rs`, as §0 requires.
 `native_table_macros.rs` anywhere in the tree; handlers still hand-match. The
 goal — making drift structurally impossible rather than test-enforced — stands.
 
+**Third parallel table (2026-08-31, android-parity E3).** The classfile-less
+builtins got the same treatment for the compile-time contract:
+`pico_jvm::native::BUILTIN_METHODS` (per-class method names, descriptor lists
+only where an arm is guarded) plus picodroid-core's
+`PLATFORM_BUILTIN_METHODS` (`Object.wait/notify/notifyAll`), consumed by
+`native_handler/api_contract.rs` to generate `sdk/api-contract.tsv`. Checked
+one way only — `builtin_method_rows_name_real_arms` proves every row's name
+is a literal in its dispatcher — so an arm without a row is a false-positive
+contract failure, not a silent hole. Same Phase-2 convergence target.
+
 ## DESIGN
 # Method-Level Native-Registry Cross-Check — Design (quality-roadmap.md Stage 2)
 

@@ -109,6 +109,26 @@ The two most common causes:
 entirely (legacy, pre-M1). Also fixed by rebuilding. See
 [Class-name shrinker](/reference/shrinker/) for the full compatibility story.
 
+## `api contract: FAILED` — the app build stops in `verifyApiContract`
+
+Apps compile against the host JDK's full `java.*`, but pico-jvm implements a
+subset; `verifyApiContract` (part of `assemblePapk`) rejects any `java.*`
+class or member the runtime does not serve *before* it can die on device as
+`NoSuchMethod`. The report (`examples/<app>/build/reports/api-contract.txt`)
+lists each reference with the reason, the call sites and a hint — e.g.
+`java/util/LinkedList` → use `ArrayList`, `String.matches` → no regex,
+`System.out` → `picodroid.util.Log`. Consult the
+[compatibility matrix](/reference/compatibility-matrix/) for the supported
+surface. An `EXCLUDED ON BOARD` section means the target board drops that
+class from its framework (`framework_class_excludes` in its `board.toml`);
+build for a larger board or probe-and-degrade.
+
+`-Ppicodroid.apiContract=warn` (or `off`) bypasses the check while
+experimenting, e.g. `./gradlew :examples:myapp:assemblePapk -Ppicodroid.apiContract=warn`.
+Do not edit `sdk/api-contract.tsv` — it is generated from the runtime's
+tables; to support a new member add the builtin arm and its
+`BUILTIN_METHODS` row, then run `scripts/gen-api-contract.sh`.
+
 ## `pdb install` says "Refusing to install"
 
 `pdb install` runs a host-side compatibility pre-flight against the

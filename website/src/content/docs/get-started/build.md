@@ -51,6 +51,13 @@ To skip the hook in exceptional cases: `git commit --no-verify`.
 
 App sources are compiled by the Gradle multi-project under the repo root. The `./gradlew` wrapper ships in-tree, so no separate Gradle install is required — only a JDK. App code targets Java 1.8 (configured in `build.gradle.kts`), but JDK 11 or later is required because the Java formatter tool needs it.
 
+Compilation is followed by `verifyApiContract`, which fails the build for any
+`java.*` class or member pico-jvm does not implement (see the
+[compatibility matrix](/reference/compatibility-matrix/) and
+[troubleshooting](/guides/troubleshooting/)). `scripts/build-apk.sh --board <name>`
+— passed automatically by `build.sh`, `flash.sh` and `sim.sh` — also rejects
+classes that board excludes from its framework.
+
 ```bash
 # macOS
 brew install openjdk

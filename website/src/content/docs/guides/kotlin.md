@@ -112,20 +112,25 @@ summarized in [Runtime limits](/reference/limits/).
 
 ## When `contractCheck` fails
 
-Every `kotlin/**` and `java/**` reference a Kotlin app makes is verified at
-build time by `:kotlin-shim:contractCheck` (your app's compiled classes are
-its input if it is registered as a fixture; the langsuite fixtures cover the
-stdlib surface either way). When a new idiom misses:
+Every `java/**` reference a Kotlin app makes is verified at build time by its
+own `verifyApiContract` task (part of `assemblePapk`, against the generated
+`sdk/api-contract.tsv`), and every `kotlin/**` reference by
+`:kotlin-shim:contractCheck` (your app's compiled classes are its input if it
+is registered as a fixture; the langsuite fixtures cover the stdlib surface
+either way). When a new idiom misses:
 
 - **`MISSING` (Direction A)** — the shim has no such member. The report
   prints a paste-ready Java signature. First ask whether the idiom has a
   cheaper spelling (this page's tables); if the member is genuinely worth
   serving, add a demo check to the langsuite apps *first* (unused shim
   members are a build **error**), then the shim member.
-- **`UNLISTED` (Direction C)** — the idiom reaches a `java/**` member not in
-  `kotlin-shim/jdk-allowlist.tsv`. If pico-jvm serves it, add the printed TSV
-  row (a test cross-checks that every owner is actually served); if not, the
-  idiom is unsupported — rewrite it.
+- **`api contract: FAILED` (`verifyApiContract`)** — the idiom reaches a
+  `java/**` member pico-jvm does not serve; the report names the member, the
+  call sites and a hint. The contract is generated from the runtime's own
+  tables, so the fix is a cheaper spelling of the idiom (this page's tables,
+  the [compatibility matrix](/reference/compatibility-matrix/)) or a new
+  builtin arm plus its `BUILTIN_METHODS` row, then
+  `scripts/gen-api-contract.sh`.
 - A runtime `NoSuchMethod` on a `kotlin/**` or `java/**` name that compiled
   fine means the class fell outside the fixture set — register the app in
   `kotlin-shim/build.gradle.kts`'s `shimFixtures` so the contract check sees

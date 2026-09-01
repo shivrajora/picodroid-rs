@@ -105,6 +105,16 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 
 ### java.* standard library
 
+Enforced at build time: every app's `verifyApiContract` Gradle task (part of
+`assemblePapk`, so `build-apk.sh`, `sim.sh`, `build.sh` and `flash.sh` all run
+it) rejects a `java.*` class or member pico-jvm does not serve, naming the
+call site and an alternative. `sdk/api-contract.tsv`, generated from the
+runtime's own tables (`scripts/gen-api-contract.sh`), is the machine-readable
+form of this section. With `--board <name>` (or `-Ppicodroid.board=<name>`)
+the same task also rejects classes that board drops from its framework
+(`framework_class_excludes`). `-Ppicodroid.apiContract=warn` downgrades the
+failure to a report while experimenting.
+
 | API | Status | Notes / alternative |
 |---|---|---|
 | `Object.clone()` / `Cloneable` | Partial | Shallow copy works, but **the `Cloneable` check is skipped** — `clone()` never throws `CloneNotSupportedException`. |

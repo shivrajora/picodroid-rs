@@ -18,10 +18,11 @@ Three structural findings dominate everything below.
 
 1. **There is no compile-time API contract.** Apps compile against the host
    JDK's full `java.*` — only `picodroid.*` comes from `:sdk`
-   (`buildSrc/…/PicodroidPapkPlugin.kt:51`, `--release 8`). So
-   `new LinkedList<>()`, `str.matches(…)`, and `System.out.println` all
-   compile cleanly and die at runtime with `NoSuchMethod`. Android's
-   `android.jar` *is* this contract. Closing it costs zero device bytes.
+   (`build.gradle.kts` sets `--release 8`; `PicodroidPapkPlugin.kt` adds only
+   `:sdk`). So `new LinkedList<>()`, `str.matches(…)`, and
+   `System.out.println` all compile cleanly and die at runtime with
+   `NoSuchMethod`. Android's `android.jar` *is* this contract. Closing it
+   costs zero device bytes. **Closed 2026-08-31 — see E3.**
 2. **RP2040 flash is the binding constraint.** The release image sits at
    915,663 / 917,248 bytes — **1,585 bytes free**. Every compiled SDK class
    is embedded on every board and loaded at boot
@@ -107,10 +108,10 @@ This is worth internalizing as the standing rule: **an SDK class that a board
 cannot use is pure flash cost on that board**, and Tier 1's cheap-looking
 Java additions are only cheap on RP2350.
 
-**Open follow-up:** a Gradle-side check that fails an *app* build which
-references a class excluded on its target board, instead of letting it
-surface at runtime. Worth building before any board actually excludes
-something.
+**Open follow-up — closed 2026-08-31 by E3:** `verifyApiContract` with
+`-Ppicodroid.board=<name>` (forwarded by `build-apk.sh --board`, which every
+board-aware script now passes) fails an *app* build that references a class
+the board excludes, naming the class, the call sites and the board.toml.
 
 ### E2. Native → Java synchronous upcall — **session 1 DONE 2026-08-29**
 
@@ -194,15 +195,50 @@ it is an `E0499`), because direct field use is already a partial borrow of
 **Still open:** T3.4 `Adapter.getView` + convertView recycling, which is the
 row-*views* half of what session 2 built the row-*data* half of.
 
-### E3. Compile-time API contract — not started
+### E3. Compile-time API contract — **phase 1 DONE 2026-08-31** (= T2.1)
 
-*Phase 1 (the valuable half).* A post-compile bytecode verifier in
-`PicodroidPapkPlugin.kt`: scan each app's constant pool against an allowlist
-**generated from the runtime's own tables** (`method_tables.rs`,
-`class_registry.rs`, the SDK class list) so the contract cannot drift from
-what the device actually implements. Fail the Gradle build with an
-actionable message, reusing the `API_HINTS` text. Cost **G**; risk low. This
-achieves `android.jar`'s purpose without the `android` namespace.
+*Phase 1.* `verifyApiContract`, a post-compile bytecode check in the
+`picodroid-papk` pipeline (`buildSrc/src/main/kotlin/picodroid/classfile/ApiContract.kt`
++ `ApiContractTask.kt`, between compile and `packPapk`, also under `check`),
+rejects every load-bearing `java/**` / `javax/**` reference an app's classes
+make that pico-jvm does not serve: `new LinkedList<>()`, `str.matches(…)`,
+`System.out`, `new String(char[])` and `class E extends RuntimeException` +
+`e.printStackTrace()` all fail the build with the reason, the call sites and
+a hint. The allowlist is **generated**: `sdk/api-contract.tsv` is written by
+picodroid-core's `api_contract_is_current` test
+(`native_handler/api_contract.rs`; regenerate with
+`scripts/gen-api-contract.sh`) from the SDK's `java/**` class files
+(descriptor-exact), `BUILTIN_CLASS_NAMES` and the new **`BUILTIN_METHODS`**
+table (`jvm/src/native/mod.rs` — the machine-readable form of the builtin
+rustdoc table: per-class method names, with descriptor lists only where an
+arm is descriptor-guarded and would mis-serve other overloads silently),
+`BUILTIN_SUPER` / `BUILTIN_INTERFACES` as hierarchy edges, and
+`PLATFORM_BUILTIN_METHODS` (`Object.wait/notify/notifyAll`). The committed
+file is checked for staleness in both `scripts/test.sh` lanes, so the
+contract cannot drift from the runtime; the roadmap's original sources
+(`method_tables.rs`, `class_registry.rs`) turned out to be `picodroid/*`-only
+— the class files plus the builtin tables are the real `java/**` truth. The
+verifier models `dispatch_native`: owner → `@extends` chain → `Object`;
+interface owners via any builtin or app implementor; app-typed owners walked
+through the app's classes to their `java/**` supertypes.
+`-Ppicodroid.apiContract=warn|off` is the escape hatch. Cost **G**: every
+new table is test-only or unreferenced at runtime.
+
+Triage of the 72 examples found no latent app bug — the three first-run
+failures were verifier gaps (`catch CloneNotSupportedException` is a static
+shape every `clone()` override emits, now a `@nameonly` row; `Appendable.append`
+arrives with the interface-typed descriptor; `EnumEntries.indexOf` is served
+by the shim subtype). It also closes E1's follow-up (above) and retires the
+hand-maintained `kotlin-shim/jdk-allowlist.tsv` / `ShimContract` Direction C:
+the Kotlin fixtures run `verifyApiContract` on their staged shim classes.
+
+Residuals: an arm without a `BUILTIN_METHODS` row is not machine-checked
+(it surfaces as a contract failure naming the row to add; the X-macro of
+`method-level-native-registry.md` Phase 2 is the structural fix); descriptor
+lists are trusted, not cross-checked; an interface member is accepted when
+*any* implementor serves it; `Enum.valueOf(Class,String)` and
+`Locale.ROOT/US` are tolerated static shapes; boardless builds (pre-commit,
+CI `assemblePapk`) check only the `java/**` contract.
 
 *Phase 2 (optional, later).* A restricted compile classpath — a stub jar of
 only the supported `java.*` subset — so IDE autocomplete matches reality
@@ -284,8 +320,8 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 
 ## Tier 2 — medium milestones (1–2 weeks each)
 
-- **T2.1 — compile-contract verifier (E3 phase 1).** Parallel Gradle-only
-  track; makes "it compiled" mean "it will run".
+- **T2.1 — compile-contract verifier (E3 phase 1).** **DONE 2026-08-31** —
+  see E3. "It compiled" now means "it will run" for the `java/**` surface.
 - **T2.2 — collection interfaces as builtins.** `java.util.Map`/`Set`/`List`/
   `Collection`/`Iterable`, `java.lang.CharSequence`/`Comparable`, implemented
   by the existing builtins, so `Map<String,String> m = new HashMap<>()` — the
@@ -370,7 +406,7 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 
 1. ~~E1 gating~~, ~~T1.1~~, ~~T1.2~~ (done)
 2. T2.7 shape corrections — early, before more code accretes on the wrong shapes
-3. Remaining Tier 1 + T2.1 verifier (parallel Gradle track)
+3. Remaining Tier 1 (~~T2.1 verifier~~ done 2026-08-31)
 4. T2.2 collection interfaces
 5. T2.4 line-number stack traces
 6. T2.6 JSON + T2.3 Thread parity
