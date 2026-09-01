@@ -23,8 +23,13 @@ data class StripStats(val bytesBefore: Int, val bytesAfter: Int, val cpBefore: I
  * Signature, InnerClasses, EnclosingMethod, NestHost/NestMembers,
  * PermittedSubclasses, MethodParameters, LocalVariable{,Type}Table,
  * StackMapTable, SourceDebugExtension, and any non-standard attribute.
- * Kept: Code (with max_stack/max_locals copied from the reader),
- * LineNumberTable, SourceFile, Exceptions, BootstrapMethods, ConstantValue.
+ * Kept: Code (with max_stack/max_locals copied from the reader), Exceptions,
+ * BootstrapMethods, ConstantValue — and LineNumberTable + SourceFile only while
+ * [keepLineNumbers] is true. pico-jvm reads LineNumberTable solely under
+ * `debug_assertions` (the host simulator's `(:line)` stack traces) and never
+ * reads SourceFile, so device-bound trees — the SDK corpus `build.rs` embeds in
+ * firmware and PAPKs built with `--strip-debug` — pass `false`
+ * (docs/designs/flash-string-budget-2026-08.md §4).
  * [renames] applies `@ShimName` (declaration and shim-internal call sites).
  *
  * `ClassWriter(0)` without a `ClassReader` argument rebuilds the constant pool
@@ -34,7 +39,11 @@ data class StripStats(val bytesBefore: Int, val bytesAfter: Int, val cpBefore: I
  * shape. Never "fix" it with COMPUTE_FRAMES — that needs a class hierarchy the
  * host JVM does not have for the picodroid SDK classes.
  */
-fun strip(bytes: ByteArray, renames: Map<MemberKey, String> = emptyMap()): Pair<ByteArray, StripStats> {
+fun strip(
+    bytes: ByteArray,
+    renames: Map<MemberKey, String> = emptyMap(),
+    keepLineNumbers: Boolean = true,
+): Pair<ByteArray, StripStats> {
     val cr = ClassReader(bytes)
     val cw = ClassWriter(0)
     var owner = ""
@@ -45,7 +54,7 @@ fun strip(bytes: ByteArray, renames: Map<MemberKey, String> = emptyMap()): Pair<
         }
 
         override fun visitSource(source: String?, debug: String?) {
-            super.visitSource(source, null)
+            if (keepLineNumbers) super.visitSource(source, null)
         }
 
         override fun visitAnnotation(descriptor: String, visible: Boolean): AnnotationVisitor? = null
@@ -93,6 +102,10 @@ fun strip(bytes: ByteArray, renames: Map<MemberKey, String> = emptyMap()): Pair<
                 override fun visitParameter(name: String?, access: Int) {}
 
                 override fun visitLocalVariable(name: String, descriptor: String, signature: String?, start: Label, end: Label, index: Int) {}
+
+                override fun visitLineNumber(line: Int, start: Label) {
+                    if (keepLineNumbers) super.visitLineNumber(line, start)
+                }
 
                 override fun visitLocalVariableAnnotation(
                     typeRef: Int, typePath: TypePath?, start: Array<Label>, end: Array<Label>, index: IntArray,

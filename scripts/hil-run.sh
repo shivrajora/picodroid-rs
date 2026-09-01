@@ -149,7 +149,9 @@ kill_process_group() {
 pdb_install_known_good() {
   local mode="$1" log_prefix="$2"
   local apk_path="$REPO_ROOT/build/apks/helloworld.papk"
-  local -a apk_args=(--app helloworld --board "$BOARD")
+  # --strip-debug on every PAPK built here: they all go to a device, whose
+  # firmware never reads LineNumberTable/SourceFile (build-apk.sh --help).
+  local -a apk_args=(--app helloworld --board "$BOARD" --strip-debug)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "${log_prefix}.known-good-build.log" 2>&1; then
     hil_log "  Known-good helloworld PAPK build failed"
@@ -215,7 +217,7 @@ run_pdb_test() {
       # The installed PAPK must match whatever mode the currently-flashed
       # firmware was built in, or verify_compat rejects the install.
       local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      local -a apk_args=(--app "$app" --board "$BOARD")
+      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
       [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building PAPK ($mode)..."
       if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${mode}.build.log" 2>&1; then
@@ -234,7 +236,7 @@ run_pdb_test() {
       local opp_mode="no-shrink"
       [[ "$mode" == "no-shrink" ]] && opp_mode="shrink"
       local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      local -a apk_args=(--app "$app" --board "$BOARD")
+      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
       [[ "$opp_mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building opposite-mode PAPK ($opp_mode) for $pdb_cmd..."
       if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
@@ -269,8 +271,10 @@ run_pdb_test() {
       # and framework-map-version are gone. Covers the realistic corruption
       # case (partial download, damaged SD card, etc.) that install-reject-*
       # version-mismatch rows don't exercise. Expect refusal + device alive.
-      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      local -a apk_args=(--app "$app" --board "$BOARD")
+      # Its own path: this fixture is truncated in place, and the shared
+      # build/apks/<app>.papk is what test.sh and sim.sh reuse afterwards.
+      local apk_path="$REPO_ROOT/build/apks/hil/${app}-truncated.papk"
+      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
       [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building PAPK for $pdb_cmd ($mode)..."
       if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
@@ -363,7 +367,7 @@ run_pdb_install_stress() {
   for sa in "${stress_apps[@]}"; do
     local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
     hil_log "  Building PAPK for $sa ($mode)..."
-    sa_args=(--app "$sa" --board "$BOARD")
+    sa_args=(--app "$sa" --board "$BOARD" --strip-debug)
     [[ "$mode" == "shrink" ]] && sa_args+=(--shrink)
     if ! bash "$SCRIPT_DIR/build-apk.sh" "${sa_args[@]}" > "$RUN_LOG_DIR/${sa}.pdb-${mode}.build.log" 2>&1; then
       hil_log "  BUILD FAILED (PAPK for $sa)"
@@ -479,7 +483,7 @@ run_test() {
 
   # Build APK (mode-tagged; --shrink iff this iteration is the shrunk one).
   hil_log "  Building APK..."
-  local -a apk_args=(--app "$app" --board "$BOARD")
+  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (APK)"

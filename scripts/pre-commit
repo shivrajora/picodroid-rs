@@ -386,7 +386,9 @@ stage_apk() {
   # Built once, here, in the serial prologue: every cargo lane embeds it, and
   # PICODROID_APK_PATH is a `rerun-if-env-changed` build.rs input, so a stable
   # path is also what keeps the lanes from invalidating each other.
-  bash "$SCRIPT_DIR/build-apk.sh" --app helloworld -o "$APK_PATH"
+  # --strip-debug: this snapshot only ever feeds firmware lanes (the clippy
+  # legs, the flash gate, the size ratchet), so it takes the device shape.
+  bash "$SCRIPT_DIR/build-apk.sh" --app helloworld --strip-debug -o "$APK_PATH"
 }
 
 stage_fmt_java() {

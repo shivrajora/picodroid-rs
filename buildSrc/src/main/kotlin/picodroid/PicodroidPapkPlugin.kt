@@ -16,11 +16,20 @@ import java.io.File
 /**
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
  *
- * Pipeline: compileJava -> verifyApiContract -> (optional) shrinkClasses ->
- * packPapk. Kotlin apps (`picodroid-papk-kotlin`): kapt (stubs + @Inject
- * processor) -> compileKotlin + compileJava -> stageClasses (+ shim) ->
- * stripClassMetadata -> verifyApiContract -> (optional) shrinkClasses ->
- * packPapk. Java-only apps take the first path untouched.
+ * Pipeline: compileJava -> verifyApiContract -> (optional) stripClassMetadata
+ * -> (optional) shrinkClasses -> packPapk. Kotlin apps (`picodroid-papk-kotlin`):
+ * kapt (stubs + @Inject processor) -> compileKotlin + compileJava ->
+ * stageClasses (+ shim) -> stripClassMetadata -> verifyApiContract ->
+ * (optional) shrinkClasses -> packPapk.
+ *
+ * Debug-attribute strip: `-Ppicodroid.stripDebug=true` (what
+ * `scripts/build-apk.sh --strip-debug` passes, from every device path) drops
+ * LineNumberTable + SourceFile from the packed classes — Java apps through a
+ * [ClassStripTask] stage, Kotlin apps through the strip they already run.
+ * Device firmware never reads them; the sim does, so sim paths leave the flag
+ * off and a Java PAPK built without it is byte-identical to compileJava's
+ * output. `./gradlew :examples:<app>:install` therefore pushes an unstripped
+ * (larger, still correct) PAPK unless the property is passed explicitly.
  *
  * `verifyApiContract` rejects java/… references pico-jvm does not serve
  * (the generated sdk/api-contract.tsv) and, with `-Ppicodroid.board=<name>`,
@@ -102,6 +111,15 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val manifest = PicodroidManifest.parse(manifestFile)
 
         val shrinkEnabled = isShrinkEnabled(target)
+        // -Ppicodroid.stripDebug=true (scripts/build-apk.sh --strip-debug): drop
+        // LineNumberTable + SourceFile from the packed classes, on top of what
+        // the strip already removes. Device firmware runs with debug_assertions
+        // off and never reads them; the sim does (its `(:line)` stack traces),
+        // so sim paths never pass it and Java PAPKs stay byte-identical without
+        // it. A -P property, never env: a warm daemon's environment is frozen.
+        val stripDebug = target.providers.gradleProperty("picodroid.stripDebug")
+            .map { it.equals("true", ignoreCase = true) || it == "1" }
+            .getOrElse(false)
         val frameworkMapVersion = target.rootProject.extra("picodroid.frameworkMapVersion") {
             ShrinkMapResolver.resolve(repoRoot, shrinkEnabled)
         }
@@ -141,6 +159,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             val stripTask = target.tasks.register("stripClassMetadata", StripClassMetadataTask::class.java) {
                 dependsOn(stageClasses)
                 inputDir.set(stagedDir)
+                keepLineNumbers.set(!stripDebug)
                 outputDir.set(target.layout.buildDirectory.dir("classes-stripped"))
                 reportFile.set(target.layout.buildDirectory.file("reports/strip-report.txt"))
             }
@@ -170,10 +189,25 @@ class PicodroidPapkPlugin : Plugin<Project> {
         }
         target.tasks.named("check") { dependsOn(verifyApiContract) }
 
+        // Java apps: the strip sits after verifyApiContract's input (which keeps
+        // reading compileJava's output, so its result never depends on the flag)
+        // and before shrink/pack. Kotlin apps were stripped above.
+        val strippedClassesInput: Provider<Directory> =
+            if (stripDebug && !target.plugins.hasPlugin("org.jetbrains.kotlin.jvm")) {
+                val stripTask = target.tasks.register("stripClassMetadata", ClassStripTask::class.java) {
+                    inputDir.set(rawClassesInput)
+                    keepLineNumbers.set(false)
+                    outputDir.set(target.layout.buildDirectory.dir("classes-stripped"))
+                }
+                stripTask.flatMap { it.outputDir }
+            } else {
+                rawClassesInput
+            }
+
         val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
             val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
-                inputDir.set(rawClassesInput)
+                inputDir.set(strippedClassesInput)
                 this.mapFile.set(mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
@@ -181,7 +215,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             }
             shrinkTask.flatMap { it.outputDir }
         } else {
-            rawClassesInput
+            strippedClassesInput
         }
 
         // Per-app `assets/` directory is opt-in: present it to papk-pack only
