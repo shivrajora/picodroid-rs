@@ -100,7 +100,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
         // arbitrary object; run its `toString()` before the native arm sees it.
-        if desc_str.starts_with("(Ljava/lang/Object;)")
+        if crate::class_file::desc_starts_with(desc_str.as_bytes(), b"(Ljava/lang/Object;)")
             && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
         {
             return Ok(());
@@ -208,7 +208,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             ("java/lang/String", "valueOf") => "(Ljava/lang/Object;)Ljava/lang/String;",
             _ => return Ok(false),
         };
-        if desc_str != target {
+        if !crate::class_file::desc_eq(desc_str.as_bytes(), target.as_bytes()) {
             return Ok(false);
         }
         let Some(&arg) = frames.last().ok_or(JvmError::InvalidBytecode)?.stack.last() else {
@@ -265,7 +265,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         desc_str: &str,
         frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
-        if desc_str != "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;" {
+        if !crate::class_file::desc_eq(
+            desc_str.as_bytes(),
+            b"(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
+        ) {
             return Ok(());
         }
         let Some(&Value::ArrayRef(arr)) =
@@ -575,7 +578,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // `Object.getClass()` resolves here rather than in a handler: it needs
         // the class-object cache (not part of NativeContext) so that
         // `obj.getClass() == MyClass.class` identity holds against `ldc`.
-        if method_name == "getClass" && descriptor == "()Ljava/lang/Class;" {
+        if method_name == "getClass"
+            && crate::class_file::desc_eq(descriptor.as_bytes(), b"()Ljava/lang/Class;")
+        {
             let name: Option<&'static str> = match args.first().copied() {
                 Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
                 Some(Value::Reference(_)) => Some("java/lang/String"),
@@ -601,7 +606,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // yet, so nothing is borrowed across the upcall.
         if method_name == "sort"
             && class_name == "java/util/ArrayList"
-            && descriptor == "(Ljava/util/Comparator;)V"
+            && crate::class_file::desc_eq(descriptor.as_bytes(), b"(Ljava/util/Comparator;)V")
         {
             self.sort_list_with_comparator(frames, args)?;
             return Ok(None);

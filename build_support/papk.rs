@@ -2,6 +2,7 @@
 //! APK + framework class embedding; PAPK flash-init section generation.
 
 use crate::config::collect_files;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -216,7 +217,18 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // If the active map covers our package version, shrink into a sibling
     // directory and point the embed step at the shrunk output. Otherwise
     // embed the raw Gradle output.
-    let embed_dir = apply_active_shrink(out, &classes_dir, root).unwrap_or(classes_dir);
+    // Under a shrink map the files sit at their shrunk paths (`a/XX.class`);
+    // keep the reverse map so `framework_class_excludes`, written in original
+    // names, still matches.
+    let (embed_dir, unshrink) = match apply_active_shrink(out, &classes_dir, root) {
+        Some((dir, map)) => (
+            dir,
+            map.iter_classes()
+                .map(|(from, to)| (to.to_string(), from.to_string()))
+                .collect::<HashMap<String, String>>(),
+        ),
+        None => (classes_dir, HashMap::new()),
+    };
 
     let mut class_files = collect_files(&embed_dir, "class");
     class_files.sort();
@@ -224,7 +236,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     let mut entries = String::new();
     let mut dropped: Vec<String> = Vec::new();
     for f in &class_files {
-        if let Some(name) = excluded_class_name(f, &embed_dir, excludes) {
+        if let Some(name) = excluded_class_name(f, &embed_dir, excludes, &unshrink) {
             dropped.push(name);
             continue;
         }
@@ -261,8 +273,14 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
 
 /// The JVM internal class name of `file` when the board excludes it, else
 /// `None`. Inner classes follow their outer class: excluding `a/B` drops
-/// `a/B$C` too.
-fn excluded_class_name(file: &Path, embed_dir: &Path, excludes: &[String]) -> Option<String> {
+/// `a/B$C` too. `unshrink` maps a shrunk path name back to the original the
+/// exclude list is written in (empty when no map is active).
+fn excluded_class_name(
+    file: &Path,
+    embed_dir: &Path,
+    excludes: &[String],
+    unshrink: &HashMap<String, String>,
+) -> Option<String> {
     if excludes.is_empty() {
         return None;
     }
@@ -271,6 +289,7 @@ fn excluded_class_name(file: &Path, embed_dir: &Path, excludes: &[String]) -> Op
         .with_extension("")
         .to_string_lossy()
         .replace(std::path::MAIN_SEPARATOR, "/");
+    let name = unshrink.get(&name).cloned().unwrap_or(name);
     let outer = name.split('$').next().unwrap_or(&name);
     excludes
         .iter()
@@ -280,7 +299,7 @@ fn excluded_class_name(file: &Path, embed_dir: &Path, excludes: &[String]) -> Op
 
 /// If shrinking is enabled and an active map covers the current picodroid
 /// version, load it, apply it to `classes_dir`, and return the path holding
-/// the shrunk outputs. Also publishes the map to
+/// the shrunk outputs together with the map. Also publishes the map to
 /// `target/picodroid/framework-mapping.toml` so `scripts/build-apk.sh` can
 /// find it without groping cargo metadata, and emits `framework_unshrink.rs`
 /// with a reverse-translation function.
@@ -289,7 +308,11 @@ fn excluded_class_name(file: &Path, embed_dir: &Path, excludes: &[String]) -> Op
 /// Returns `None` when shrinking is disabled (default) or no map is active —
 /// caller embeds raw javac output and the emitted unshrink function is an
 /// identity passthrough.
-fn apply_active_shrink(out: &Path, classes_dir: &Path, root: &Path) -> Option<PathBuf> {
+fn apply_active_shrink(
+    out: &Path,
+    classes_dir: &Path,
+    root: &Path,
+) -> Option<(PathBuf, class_shrink::mapping::ShrinkMap)> {
     if !shrink_enabled() {
         emit_identity_unshrink(out);
         return None;
@@ -327,7 +350,7 @@ fn apply_active_shrink(out: &Path, classes_dir: &Path, root: &Path) -> Option<Pa
         .unwrap_or_else(|e| panic!("framework shrink failed: {e}"));
 
     emit_unshrink_table(out, &map);
-    Some(shrunk_dir)
+    Some((shrunk_dir, map))
 }
 
 /// Emit identity `unshrink_class` / `shrink_class` functions — used when no
@@ -346,7 +369,14 @@ fn emit_identity_unshrink(out: &Path) {
 /// Emit `unshrink_class` (shrunk → original) and `shrink_class` (original
 /// → shrunk) based on the given map. Both use `match` on `&str` — compact
 /// and fast for the small framework set.
+///
+/// Only the framework (`a/`) namespace is emitted. `java/**` names live
+/// under `b/` and are reverse-translated by pico-jvm itself at its
+/// class-file boundary (`jvm/src/class_file/names.rs`), so dispatch never
+/// sees one; emitting them here too would spend flash on a second copy.
 fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
+    let java = class_shrink::rename::Namespace::Java.prefix();
+    let framework = || map.iter_classes().filter(|(_, to)| !to.starts_with(java));
     let mut body = String::new();
     body.push_str(
         "/// Reverse-translate a shrunk class name back to its original form. \n\
@@ -354,7 +384,7 @@ fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
          /// continue using the original internal names. Unknown names pass through.\n\
          pub fn unshrink_class(name: &str) -> &str {\n    match name {\n",
     );
-    for (from, to) in map.iter_classes() {
+    for (from, to) in framework() {
         body.push_str(&format!("        {to:?} => {from:?},\n"));
     }
     body.push_str("        other => other,\n    }\n}\n\n");
@@ -366,7 +396,7 @@ fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
          /// the shrunk form, so lookups would otherwise miss.\n\
          pub fn shrink_class(name: &str) -> &str {\n    match name {\n",
     );
-    for (from, to) in map.iter_classes() {
+    for (from, to) in framework() {
         body.push_str(&format!("        {from:?} => {to:?},\n"));
     }
     body.push_str("        other => other,\n    }\n}\n");

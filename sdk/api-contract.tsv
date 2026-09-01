@@ -48,6 +48,7 @@ java/io/InterruptedIOException
 java/lang/Appendable
 java/lang/ArithmeticException
 java/lang/ArrayIndexOutOfBoundsException
+java/lang/ArrayStoreException
 java/lang/AutoCloseable
 java/lang/AutoCloseable	close	()V
 java/lang/Boolean
@@ -518,6 +519,7 @@ javax/inject/Provider	get	()Ljava/lang/Object;
 @extends	java/io/InterruptedIOException	java/io/IOException
 @extends	java/lang/ArithmeticException	java/lang/RuntimeException
 @extends	java/lang/ArrayIndexOutOfBoundsException	java/lang/IndexOutOfBoundsException
+@extends	java/lang/ArrayStoreException	java/lang/RuntimeException
 @extends	java/lang/Byte	java/lang/Number
 @extends	java/lang/ClassCastException	java/lang/RuntimeException
 @extends	java/lang/Double	java/lang/Number

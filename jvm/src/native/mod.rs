@@ -117,6 +117,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/UnsupportedOperationException",
     "java/lang/IndexOutOfBoundsException",
     "java/lang/ArrayIndexOutOfBoundsException",
+    "java/lang/ArrayStoreException",
     "java/lang/StringIndexOutOfBoundsException",
     "java/lang/NumberFormatException",
     "java/lang/ExceptionInInitializerError",
@@ -662,17 +663,19 @@ fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
     let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
         return;
     };
-    let d = ctx.descriptor;
-    if d.starts_with("(Ljava/lang/String;") {
+    // Translating prefix compares: a shrunk corpus spells these `(Lb/…;`.
+    let d = ctx.descriptor.as_bytes();
+    let starts = crate::class_file::desc_starts_with;
+    if starts(d, b"(Ljava/lang/String;") {
         if let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() {
             ctx.objects.register_exception_message(obj_idx, msg_idx);
         }
-        if d.starts_with("(Ljava/lang/String;Ljava/lang/Throwable;") {
+        if starts(d, b"(Ljava/lang/String;Ljava/lang/Throwable;") {
             if let Some(Value::ObjectRef(cause)) = ctx.args.get(2).copied() {
                 ctx.objects.register_exception_cause(obj_idx, cause);
             }
         }
-    } else if d.starts_with("(Ljava/lang/Throwable;") {
+    } else if starts(d, b"(Ljava/lang/Throwable;") {
         if let Some(Value::ObjectRef(cause)) = ctx.args.get(1).copied() {
             ctx.objects.register_exception_cause(obj_idx, cause);
         }

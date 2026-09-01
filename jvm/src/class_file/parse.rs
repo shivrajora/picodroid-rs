@@ -183,12 +183,17 @@ impl Parsed {
             }
             let off = cp_offsets[ci];
             let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
-            // Check if it's java/lang/Object — if so, treat as no superclass
+            // Check if it's java/lang/Object — if so, treat as no superclass.
+            // Translated first: a shrunk corpus spells it `b/…`.
             let ui = utf8_idx as usize;
             if cp_tags.get(ui) == Some(&TAG_UTF8) {
                 let uoff = cp_offsets[ui];
                 let ulen = u16::from_be_bytes([data[uoff], data[uoff + 1]]) as usize;
-                if data.get(uoff + 2..uoff + 2 + ulen) == Some(b"java/lang/Object") {
+                if data
+                    .get(uoff + 2..uoff + 2 + ulen)
+                    .map(super::names::unshrink_java)
+                    == Some(b"java/lang/Object")
+                {
                     0
                 } else {
                     utf8_idx

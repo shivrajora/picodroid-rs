@@ -11,6 +11,7 @@
 //! Rewriting a Utf8 entry changes the CP's byte length but does NOT shift
 //! CP indices. The trailing section is therefore byte-copyable verbatim.
 
+use std::collections::HashSet;
 use std::io;
 
 /// One constant-pool entry. Non-Utf8 entries are stored as opaque payload
@@ -142,6 +143,46 @@ impl ClassFile {
             _ => None,
         })
     }
+
+    /// Which constant-pool entries point at each Utf8 slot, by role. Lets
+    /// callers tell a class name (`CONSTANT_Class`), a descriptor
+    /// (`CONSTANT_NameAndType` / `CONSTANT_MethodType`) and a string literal
+    /// (`CONSTANT_String`) apart even though all three are plain Utf8 bytes.
+    /// javac dedupes identical Utf8s, so one slot can carry several roles.
+    /// Own-member descriptors and attribute payloads (`Signature`, …) are
+    /// referenced only from the opaque tail and appear in no set.
+    pub fn utf8_refs(&self) -> Utf8Refs {
+        let mut refs = Utf8Refs::default();
+        for e in &self.entries {
+            let CpEntry::Other { tag, payload } = e else {
+                continue;
+            };
+            let idx = |at: usize| -> Option<usize> {
+                Some(u16::from_be_bytes([*payload.get(at)?, *payload.get(at + 1)?]) as usize)
+            };
+            match tag {
+                7 => refs.class_names.extend(idx(0)),
+                8 => refs.strings.extend(idx(0)),
+                12 => refs.descriptors.extend(idx(2)),
+                16 => refs.descriptors.extend(idx(0)),
+                _ => {}
+            }
+        }
+        refs
+    }
+}
+
+/// Utf8 slot indices grouped by the kind of entry that references them; see
+/// [`ClassFile::utf8_refs`].
+#[derive(Debug, Default)]
+pub struct Utf8Refs {
+    /// Referenced by a `CONSTANT_Class` — bare internal class names (or
+    /// array descriptors such as `[Ljava/lang/String;`).
+    pub class_names: HashSet<usize>,
+    /// Referenced as the descriptor of a `NameAndType` or `MethodType`.
+    pub descriptors: HashSet<usize>,
+    /// Referenced by a `CONSTANT_String` — `ldc` string literals.
+    pub strings: HashSet<usize>,
 }
 
 fn read_fixed(data: &[u8], p: &mut usize, tag: u8, len: usize) -> io::Result<CpEntry> {

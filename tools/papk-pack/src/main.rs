@@ -37,6 +37,10 @@ struct Args {
     /// host into LVGL-native RGB565 (little-endian per pixel) and emitted in
     /// the new `ASST` section.
     assets_dir: Option<PathBuf>,
+    /// The shrink map `--classes-dir` was rewritten with, when it was. The
+    /// entry-point check compares descriptors against what is actually in
+    /// the class files, so its `java/**` names must be shrunk the same way.
+    shrink_map: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -50,6 +54,7 @@ fn parse_args() -> Result<Args, String> {
     let mut classes_dir = None;
     let mut output = None;
     let mut assets_dir: Option<PathBuf> = None;
+    let mut shrink_map: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -104,6 +109,12 @@ fn parse_args() -> Result<Args, String> {
                     args.get(i).ok_or("--assets-dir requires a value")?,
                 ));
             }
+            "--shrink-map" => {
+                i += 1;
+                shrink_map = Some(PathBuf::from(
+                    args.get(i).ok_or("--shrink-map requires a value")?,
+                ));
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -135,6 +146,7 @@ fn parse_args() -> Result<Args, String> {
         classes_dir: classes_dir.ok_or("--classes-dir is required")?,
         output: output.ok_or("--output is required")?,
         assets_dir,
+        shrink_map,
     })
 }
 
@@ -149,11 +161,14 @@ fn print_usage() {
          \x20 --framework-map-version <semver> \\\n\
          \x20 --classes-dir <dir> \\\n\
          \x20 [--assets-dir <dir>] \\\n\
+         \x20 [--shrink-map <map.toml>] \\\n\
          \x20 --output <file.papk>\n\
          \n\
          At least one of --main-class, --activity, or --application must be provided.\n\
          --assets-dir is optional; PNG files in the directory are decoded into\n\
-         LVGL-native RGB565 and bundled in the ASSETS (ASST) section."
+         LVGL-native RGB565 and bundled in the ASSETS (ASST) section.\n\
+         --shrink-map names the class-shrink map --classes-dir was rewritten with,\n\
+         so the entry-point check matches descriptors in their shrunk spelling."
     );
 }
 
@@ -193,13 +208,12 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
             // A main-class must declare `public static void main(String[])`.
             // `Some(false)` = parsed and absent; `None` (unparseable) degrades
             // gracefully — we don't reject a class we merely failed to read.
+            // Shrunk classes spell `java/lang/String` as `b/…`, so the
+            // expected descriptor is rewritten with the same map first.
+            let main_desc =
+                shrunk_descriptor("([Ljava/lang/String;)V", args.shrink_map.as_deref())?;
             if matches!(
-                classcheck::class_has_method(
-                    bytes,
-                    "main",
-                    "([Ljava/lang/String;)V",
-                    classcheck::ACC_STATIC,
-                ),
+                classcheck::class_has_method(bytes, "main", &main_desc, classcheck::ACC_STATIC,),
                 Some(false)
             ) {
                 return Err(format!(
@@ -223,6 +237,23 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
         }
     }
     Ok(())
+}
+
+/// `desc` as it appears in class files rewritten with `map` — every
+/// `L<class>;` whose class the map renames is spelled the shrunk way.
+/// Without a map the descriptor is returned unchanged.
+fn shrunk_descriptor(desc: &str, map: Option<&Path>) -> Result<String, String> {
+    let Some(map_path) = map else {
+        return Ok(desc.to_string());
+    };
+    let map = class_shrink::mapping::ShrinkMap::load(map_path)
+        .map_err(|e| format!("--shrink-map {}: {e}", map_path.display()))?;
+    let byte_map = map
+        .iter_classes()
+        .map(|(from, to)| (from.as_bytes().to_vec(), to.as_bytes().to_vec()))
+        .collect();
+    let rewritten = class_shrink::descriptor::rewrite_descriptor(desc.as_bytes(), &byte_map);
+    String::from_utf8(rewritten).map_err(|e| format!("shrunk descriptor is not UTF-8: {e}"))
 }
 
 /// Recursively collects all .class files under `dir`.
@@ -511,6 +542,7 @@ mod pack_integration {
             classes_dir: classes_dir.clone(),
             output: work.join("out.papk"),
             assets_dir: None,
+            shrink_map: None,
         };
 
         let classes = collect_classes(&args.classes_dir).unwrap();

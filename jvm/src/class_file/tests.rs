@@ -447,3 +447,64 @@ fn truly_unknown_cp_tag_is_still_rejected() {
     let leaked: &'static [u8] = alloc::boxed::Box::leak(bytes.into_boxed_slice());
     assert_eq!(ClassFile::register(leaked).err(), Some("unknown CP tag"));
 }
+
+// ── Shrunk java/** names at the class-file boundary ─────────────────────────
+
+/// Build a class file whose `this_class`, `super_class` and one interface use
+/// the given names, leaked to `'static` like Flash-backed data.
+fn class_with_names(this: &str, sup: &str, iface: &str) -> &'static [u8] {
+    let mut b: Vec<u8> = alloc::vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34];
+    b.extend_from_slice(&7u16.to_be_bytes()); // cp_count: entries #1..#6
+    for (i, name) in [this, sup, iface].iter().enumerate() {
+        let utf8_idx = (2 * i + 2) as u16;
+        b.push(7); // #1 / #3 / #5: Class -> following Utf8
+        b.extend_from_slice(&utf8_idx.to_be_bytes());
+        b.push(1); // #2 / #4 / #6: Utf8
+        b.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        b.extend_from_slice(name.as_bytes());
+    }
+    b.extend_from_slice(&[0x00, 0x21, 0x00, 0x01, 0x00, 0x03]); // access, this=#1, super=#3
+    b.extend_from_slice(&[0x00, 0x01, 0x00, 0x05]); // one interface: #5
+    b.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // fields, methods, attributes
+    Box::leak(b.into_boxed_slice())
+}
+
+/// Every accessor that turns a `CONSTANT_Class` into a name reverse-translates
+/// a shrunk `b/…` spelling. Driven by the active map's first two entries, so
+/// the shrink lane of `scripts/test.sh` exercises real translations while the
+/// no-shrink lane checks the passthrough with original names.
+#[test]
+fn shrunk_java_names_are_translated_at_the_boundary() {
+    let pairs = super::names::JAVA_SHRINK_PAIRS;
+    let (sup_s, sup_o) = pairs
+        .first()
+        .copied()
+        .unwrap_or(("java/lang/Object", "java/lang/Object"));
+    let (if_s, if_o) = pairs
+        .get(1)
+        .copied()
+        .unwrap_or(("java/lang/Runnable", "java/lang/Runnable"));
+
+    let cf = ClassFile::register(class_with_names("app/Main", sup_s, if_s)).unwrap();
+    assert_eq!(cf.class_name(), Some(&b"app/Main"[..]));
+    if sup_o == "java/lang/Object" {
+        assert_eq!(
+            cf.super_class_name(),
+            None,
+            "Object super is elided even when shrunk"
+        );
+    } else {
+        assert_eq!(cf.super_class_name(), Some(sup_o.as_bytes()));
+    }
+    assert_eq!(cf.interface_name(0), Some(if_o.as_bytes()));
+    assert_eq!(cf.cp_class_name(3), Some(sup_o.as_bytes()));
+    assert_eq!(cf.cp_class_name(5), Some(if_o.as_bytes()));
+    // The raw Utf8 accessor still shows what is stored on flash.
+    assert_eq!(cf.cp_utf8(6), Some(if_s.as_bytes()));
+
+    // A shrunk `this_class` registers under its original name, lazily and eagerly.
+    let lazy = ClassFile::register(class_with_names(if_s, "java/lang/Object", if_s)).unwrap();
+    assert_eq!(lazy.class_name(), Some(if_o.as_bytes()));
+    let eager = ClassFile::parse(class_with_names(if_s, "java/lang/Object", if_s)).unwrap();
+    assert_eq!(eager.class_name(), Some(if_o.as_bytes()));
+}

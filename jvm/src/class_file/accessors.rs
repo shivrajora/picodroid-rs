@@ -53,6 +53,14 @@ impl ClassFile {
         data.get(off + 2..off + 2 + len)
     }
 
+    /// [`Self::cp_utf8`] for a slot that holds a class name: reverse-translates
+    /// a shrunk `b/…` name (`names::unshrink_java`). Every accessor that
+    /// resolves a `CONSTANT_Class` routes through here, so nothing past the
+    /// class-file boundary sees a shrunk `java/**` name.
+    pub fn cp_class_utf8(&self, index: u16) -> Option<&'static [u8]> {
+        self.cp_utf8(index).map(super::names::unshrink_java)
+    }
+
     /// Returns the Utf8 bytes for this class's name (e.g. b"apps/HelloWorld").
     ///
     /// Uses the name scanned at registration — does NOT trigger a full parse.
@@ -97,7 +105,7 @@ impl ClassFile {
         }
         let class_off = p.cp_offsets[ci];
         let class_name_utf8 = u16::from_be_bytes([data[class_off], data[class_off + 1]]);
-        let class_name = self.cp_utf8(class_name_utf8)?;
+        let class_name = self.cp_class_utf8(class_name_utf8)?;
 
         // Resolve name_and_type
         let ni = nat_idx as usize;
@@ -133,7 +141,7 @@ impl ClassFile {
         let off = p.cp_offsets[i];
         let data = self.data();
         let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
-        self.cp_utf8(utf8_idx)
+        self.cp_class_utf8(utf8_idx)
     }
 
     /// Returns the Utf8 bytes for this class's super class name (e.g. b"apps/Animal").
@@ -143,7 +151,7 @@ impl ClassFile {
         if idx == 0 {
             return None;
         }
-        self.cp_utf8(idx)
+        self.cp_class_utf8(idx)
     }
 
     /// Returns the field name bytes for the field at position `pos` in this class's own
@@ -171,7 +179,7 @@ impl ClassFile {
         }
         let class_off = p.cp_offsets[ci];
         let class_name_utf8 = u16::from_be_bytes([data[class_off], data[class_off + 1]]);
-        let class_name = self.cp_utf8(class_name_utf8)?;
+        let class_name = self.cp_class_utf8(class_name_utf8)?;
 
         let ni = nat_idx as usize;
         if p.cp_tags.get(ni) != Some(&TAG_NAME_AND_TYPE) {
@@ -200,7 +208,7 @@ impl ClassFile {
 
     /// Returns the Utf8 name bytes for the Nth implemented interface (0-based).
     pub fn interface_name(&self, pos: usize) -> Option<&'static [u8]> {
-        self.cp_utf8(*self.interfaces().get(pos)?)
+        self.cp_class_utf8(*self.interfaces().get(pos)?)
     }
 
     /// Resolves a CONSTANT_Integer CP entry to an i32.

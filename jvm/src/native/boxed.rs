@@ -161,7 +161,7 @@ fn char_static(method_name: &str, c: i32) -> Option<Value> {
 /// `valueOf(String)` shares a method name with the boxing `valueOf(primitive)`;
 /// the descriptor's first parameter tells them apart.
 fn is_string_arg(ctx: &NativeContext<'_>) -> bool {
-    ctx.descriptor.starts_with("(Ljava/lang/String;")
+    crate::class_file::desc_starts_with(ctx.descriptor.as_bytes(), b"(Ljava/lang/String;")
 }
 
 pub(crate) fn dispatch_integer(

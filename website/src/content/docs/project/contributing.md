@@ -109,7 +109,7 @@ See [Your first app](/get-started/first-app/) for supported language features an
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `picodroid-core/src/native_handler/` under the appropriate module
-2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. See [Class-name shrinker](/reference/shrinker/) for details.
+2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same: pico-jvm reverse-translates its `b/` namespace at the class-file boundary, so dispatch never sees a shrunk `java/**` name. See [Class-name shrinker](/reference/shrinker/) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/interpreter/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
 5. Update the relevant [API reference](/api/) page (e.g. [Peripherals](/api/peripherals/) for a new PIO method, [Graphics & UI](/api/ui/) for a new widget) with the new API surface
@@ -122,7 +122,7 @@ Shrink maps are tied 1:1 to picodroid package versions and are immutable
 once committed. Shrinking itself is **off by default** (opt-in per build
 via `--shrink`), but every release ships a committed map so
 `--shrink`-enabled builds have something to resolve against. When you
-bump the `version` in the root `Cargo.toml`, cut a fresh map in the
+bump the `version` in `platforms/rp/Cargo.toml`, cut a fresh map in the
 same commit:
 
 ```bash
@@ -133,12 +133,15 @@ find sdk/java -name '*.java' -print0 \
 cargo run -p class-shrink -- cut-release \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
+  --extra-names sdk/api-contract.tsv \
   --base sdk/shrink-maps/v<previous>.toml \
   --out  sdk/shrink-maps/v<new>.toml
 ```
 
 `--base` copies the previous map verbatim — existing entries never get
-renamed. See [docs/shrinker.md](/reference/shrinker/) for the full design.
+renamed. `--extra-names` adds the `java/**` names the framework never
+references itself, so apps' `RuntimeException` / `Iterator` / … shrink
+too. See [docs/shrinker.md](/reference/shrinker/) for the full design.
 
 ## Submitting Changes
 

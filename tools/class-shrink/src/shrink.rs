@@ -5,6 +5,10 @@
 //! descriptors). Method and field names are untouched. The parser is
 //! lossless in byte order outside the constant pool, so rewriting Utf8
 //! entries alone keeps every class file valid.
+//!
+//! Utf8 entries reached only through a `CONSTANT_String` are `ldc` string
+//! literals and are never rewritten, even when their text equals a mapped
+//! class name — a Java string `"java/lang/Object"` is user data.
 
 use std::collections::HashMap;
 use std::fs;
@@ -12,8 +16,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::classfile::{ClassFile, CpEntry};
-use crate::descriptor::{classify, rewrite_bare, rewrite_descriptor, RewriteKind};
+use crate::descriptor::{class_refs, classify, rewrite_bare, rewrite_descriptor, RewriteKind};
 use crate::mapping::ShrinkMap;
+use crate::rename::{base26_inverse, namespace_for, short_suffix, shrunk_name, Namespace};
 
 /// Recursively list every `.class` file under `root`, returning absolute
 /// paths sorted lexicographically (determinism).
@@ -76,7 +81,21 @@ pub fn shrink_directory(in_dir: &Path, out_dir: &Path, map: &ShrinkMap) -> io::R
     for file in &files {
         let bytes = fs::read(file)?;
         let mut cf = ClassFile::parse(&bytes)?;
-        for utf in cf.utf8_entries_mut() {
+        let refs = cf.utf8_refs();
+        for (i, entry) in cf.entries.iter_mut().enumerate() {
+            let CpEntry::Utf8(utf) = entry else {
+                continue;
+            };
+            // A Utf8 reached only through CONSTANT_String is an `ldc` literal:
+            // user data that merely looks like a class name. javac dedupes
+            // Utf8s, so a slot that is also a class name or a descriptor must
+            // still be rewritten — the class reference wins over the literal.
+            if refs.strings.contains(&i)
+                && !refs.class_names.contains(&i)
+                && !refs.descriptors.contains(&i)
+            {
+                continue;
+            }
             let payload = utf.clone();
             match classify(&payload) {
                 RewriteKind::BareName => {
@@ -113,17 +132,99 @@ pub fn shrink_directory(in_dir: &Path, out_dir: &Path, map: &ShrinkMap) -> io::R
     Ok(files.len())
 }
 
+/// `java/**` names this class refers to without defining: the bare names
+/// behind its `CONSTANT_Class` entries and the `L…;` object types in every
+/// descriptor-shaped Utf8 (member references, own members, signatures).
+/// These have no class file in the framework — pico-jvm serves them
+/// natively — so they only enter the map through the classes that use them.
+/// String literals are skipped for the same reason `shrink_directory`
+/// leaves them alone.
+fn referenced_java_names(cf: &ClassFile) -> Vec<String> {
+    let refs = cf.utf8_refs();
+    let mut out = Vec::new();
+    for (i, entry) in cf.entries.iter().enumerate() {
+        let CpEntry::Utf8(bytes) = entry else {
+            continue;
+        };
+        let is_class = refs.class_names.contains(&i);
+        let string_only = refs.strings.contains(&i) && !is_class && !refs.descriptors.contains(&i);
+        if string_only {
+            continue;
+        }
+        let mut push = |name: &[u8]| {
+            if let Ok(s) = std::str::from_utf8(name) {
+                if namespace_for(s) == Namespace::Java {
+                    out.push(s.to_string());
+                }
+            }
+        };
+        match classify(bytes) {
+            RewriteKind::BareName if is_class => push(bytes),
+            // Array-form class entries (`[Ljava/lang/String;`) land here too.
+            RewriteKind::Descriptor => {
+                for name in class_refs(bytes) {
+                    push(name);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Read additional original class names to allocate from a text file: one
+/// name per line, `#` comments ignored. Tab-separated lines are scanned
+/// field by field (bare internal names are taken as-is, descriptors
+/// contribute their `L…;` classes), so `sdk/api-contract.tsv` — the
+/// committed list of every `java/**` class pico-jvm serves — can be passed
+/// directly. That is how `java/**` names the framework never references
+/// itself (`java/lang/RuntimeException`, `java/util/Iterator`, …) still get
+/// a `b/` entry for the apps that do.
+pub fn read_extra_names(path: &Path) -> io::Result<Vec<String>> {
+    let text = fs::read_to_string(path)?;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("@hint") {
+            continue;
+        }
+        for field in line.split('\t').take(3) {
+            let bytes = field.as_bytes();
+            match classify(bytes) {
+                RewriteKind::BareName if is_internal_name(bytes) => out.push(field.to_string()),
+                RewriteKind::Descriptor => out.extend(
+                    class_refs(bytes)
+                        .into_iter()
+                        .filter_map(|n| std::str::from_utf8(n).ok())
+                        .map(String::from),
+                ),
+                _ => {}
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn is_internal_name(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'/'))
+}
+
 /// Walk `in_dir`'s class files, collect every class that's NOT kept by
-/// `keep`, sort deterministically, and extend `base` with freshly allocated
-/// shrunk names (append-only). Returns the updated map.
+/// `keep` — the classes defined there, the `java/**` names they refer to,
+/// and `extra_names` (see [`read_extra_names`]) — sort deterministically,
+/// and extend `base` with freshly allocated shrunk names (append-only).
+/// Each [`Namespace`] continues its own counter from where `base` left off.
+/// Returns the updated map.
 pub fn cut_release(
     in_dir: &Path,
     keep: &crate::keep::KeepList,
+    extra_names: &[String],
     base: ShrinkMap,
 ) -> io::Result<ShrinkMap> {
     let files = list_class_files(in_dir)?;
-    // Collect unique (own_name) entries.
-    let mut discovered: Vec<String> = Vec::new();
+    let mut discovered: Vec<String> = extra_names.to_vec();
     for file in &files {
         let bytes = fs::read(file)?;
         let cf = ClassFile::parse(&bytes)?;
@@ -132,26 +233,31 @@ pub fn cut_release(
                 discovered.push(s.to_string());
             }
         }
+        discovered.extend(referenced_java_names(&cf));
     }
     discovered.sort();
     discovered.dedup();
 
     let mut map = base;
-    // Next free raw allocator index: one past the highest raw index already
-    // consumed by an existing map entry. Derived by inverting each entry's
-    // shrunk suffix back to its raw index (rather than assuming it equals
-    // `map.classes.len()`) because a reserved-keyword skip consumes a raw
-    // index without producing a map entry — the count-based shortcut
-    // silently undercounts once any past cut has crossed one. Threaded by
-    // mutable reference through short_suffix so a skip advances this shared
-    // counter instead of desyncing from a per-call copy.
-    let mut next = map
-        .classes
-        .values()
-        .filter_map(|shrunk| crate::rename::base26_inverse(shrunk.strip_prefix("a/")?))
-        .map(|raw| raw + 1)
-        .max()
-        .unwrap_or(0);
+    // Next free raw allocator index per namespace: one past the highest raw
+    // index already consumed by an existing map entry under that prefix.
+    // Derived by inverting each entry's shrunk suffix back to its raw index
+    // (rather than assuming it equals the entry count) because a
+    // reserved-keyword skip consumes a raw index without producing a map
+    // entry — the count-based shortcut silently undercounts once any past
+    // cut has crossed one. Threaded by mutable reference through
+    // short_suffix so a skip advances the shared counter instead of
+    // desyncing from a per-call copy.
+    let mut next = [0usize; Namespace::ALL.len()];
+    for (slot, ns) in Namespace::ALL.iter().enumerate() {
+        next[slot] = map
+            .classes
+            .values()
+            .filter_map(|shrunk| base26_inverse(shrunk.strip_prefix(ns.prefix())?))
+            .map(|raw| raw + 1)
+            .max()
+            .unwrap_or(0);
+    }
     for name in discovered {
         if keep.is_kept(&name) {
             continue;
@@ -159,9 +265,13 @@ pub fn cut_release(
         if map.classes.contains_key(&name) {
             continue;
         }
-        let suffix = crate::rename::short_suffix(&mut next);
-        map.classes
-            .insert(name, crate::rename::shrunk_name(&suffix));
+        let ns = namespace_for(&name);
+        let slot = Namespace::ALL
+            .iter()
+            .position(|n| *n == ns)
+            .expect("every namespace is listed in Namespace::ALL");
+        let suffix = short_suffix(&mut next[slot]);
+        map.classes.insert(name, shrunk_name(ns, &suffix));
     }
     // Never emit a map that isn't a 1:1 mapping — a duplicate shrunk name
     // would silently corrupt any build using either colliding class.
@@ -184,13 +294,190 @@ mod tests {
         p
     }
 
+    fn utf8(s: &str) -> CpEntry {
+        CpEntry::Utf8(s.as_bytes().to_vec())
+    }
+
+    fn class(name_idx: u16) -> CpEntry {
+        CpEntry::Other {
+            tag: 7,
+            payload: name_idx.to_be_bytes().to_vec(),
+        }
+    }
+
+    fn string(utf8_idx: u16) -> CpEntry {
+        CpEntry::Other {
+            tag: 8,
+            payload: utf8_idx.to_be_bytes().to_vec(),
+        }
+    }
+
+    /// Build a minimal, member-less class file from 1-based constant-pool
+    /// entries; `this_class` indexes the `CONSTANT_Class` naming the class.
+    fn build_class(entries: Vec<CpEntry>, this_class: u16) -> Vec<u8> {
+        let mut all = vec![CpEntry::Other {
+            tag: 0,
+            payload: Vec::new(),
+        }];
+        all.extend(entries);
+        let mut tail = Vec::new();
+        tail.extend_from_slice(&0x0021u16.to_be_bytes()); // access_flags
+        tail.extend_from_slice(&this_class.to_be_bytes());
+        // super_class, interfaces_count, fields_count, methods_count,
+        // attributes_count — all zero.
+        tail.extend_from_slice(&[0u8; 10]);
+        ClassFile {
+            header: b"\xCA\xFE\xBA\xBE\x00\x00\x00\x34".to_vec(),
+            entries: all,
+            tail,
+        }
+        .serialize()
+    }
+
+    fn utf8_at(cf: &ClassFile, idx: usize) -> &[u8] {
+        match &cf.entries[idx] {
+            CpEntry::Utf8(b) => b,
+            other => panic!("entry {idx} is not Utf8: {other:?}"),
+        }
+    }
+
     #[test]
     fn cut_release_skips_kept() {
         // Without actually generating .class files we can smoke-test the
         // keep check by feeding an empty dir: nothing gets shrunk.
         let dir = tmp("cut-empty");
         let keep = KeepList::default();
-        let m = cut_release(&dir, &keep, ShrinkMap::new()).unwrap();
+        let m = cut_release(&dir, &keep, &[], ShrinkMap::new()).unwrap();
         assert!(m.classes.is_empty());
+    }
+
+    #[test]
+    fn cut_release_harvests_referenced_java_names_into_b() {
+        let dir = tmp("cut-harvest");
+        let bytes = build_class(
+            vec![
+                class(2),                      // #1 this_class
+                utf8("foo/Bar"),               // #2
+                class(4),                      // #3 super
+                utf8("java/lang/Object"),      // #4
+                utf8("(Ljava/lang/String;)V"), // #5 own-member descriptor (tail-only ref)
+                string(7),                     // #6 ldc literal
+                utf8("java/util/List"),        // #7 literal text — must NOT be harvested
+                class(9),                      // #8 array class entry
+                utf8("[Ljava/lang/Runnable;"), // #9
+                utf8("java/net/Socket"),       // #10 unreferenced bare name — not a class
+            ],
+            1,
+        );
+        fs::write(dir.join("Bar.class"), bytes).unwrap();
+        let m = cut_release(&dir, &KeepList::default(), &[], ShrinkMap::new()).unwrap();
+        let got: Vec<(&str, &str)> = m.iter_classes().collect();
+        assert_eq!(
+            got,
+            vec![
+                ("foo/Bar", "a/A"),
+                ("java/lang/Object", "b/A"),
+                ("java/lang/Runnable", "b/B"),
+                ("java/lang/String", "b/C"),
+            ]
+        );
+    }
+
+    #[test]
+    fn cut_release_continues_each_namespace_counter() {
+        let dir = tmp("cut-counters");
+        let bytes = build_class(
+            vec![
+                class(2),                 // #1
+                utf8("foo/Bar"),          // #2
+                class(4),                 // #3
+                utf8("java/lang/String"), // #4
+            ],
+            1,
+        );
+        fs::write(dir.join("Bar.class"), bytes).unwrap();
+        let mut base = ShrinkMap::new();
+        base.classes.insert("x/Y".into(), "a/C".into());
+        base.classes.insert("java/lang/Object".into(), "b/B".into());
+        let m = cut_release(&dir, &KeepList::default(), &[], base).unwrap();
+        assert_eq!(m.classes["x/Y"], "a/C");
+        assert_eq!(m.classes["java/lang/Object"], "b/B");
+        assert_eq!(m.classes["foo/Bar"], "a/D", "a/ continues after a/C");
+        assert_eq!(
+            m.classes["java/lang/String"], "b/C",
+            "b/ continues after b/B"
+        );
+    }
+
+    #[test]
+    fn extra_names_come_from_plain_lists_and_the_contract_tsv() {
+        let dir = tmp("extra-names");
+        let file = dir.join("names.tsv");
+        fs::write(
+            &file,
+            "# comment\n\
+             java/lang/RuntimeException\n\
+             java/util/Iterator\tnext\t()Ljava/lang/Object;\n\
+             @extends\tjava/lang/Error\tjava/lang/Throwable\n\
+             @nameonly\tjava/lang/CloneNotSupportedException\n\
+             @hint\tjava/lang/System\tout\tno stdout; see java/lang/Nope\n\
+             @hint\tjava/lang/Thread*\t\tglobs are not names\n",
+        )
+        .unwrap();
+        let mut names = read_extra_names(&file).unwrap();
+        names.sort();
+        names.dedup();
+        assert_eq!(
+            names,
+            vec![
+                "java/lang/CloneNotSupportedException",
+                "java/lang/Error",
+                "java/lang/Object",
+                "java/lang/RuntimeException",
+                "java/lang/Throwable",
+                "java/util/Iterator",
+            ]
+        );
+        let m = cut_release(&dir, &KeepList::default(), &names, ShrinkMap::new()).unwrap();
+        assert_eq!(m.classes["java/lang/RuntimeException"], "b/D");
+        assert_eq!(m.classes.len(), 6);
+    }
+
+    #[test]
+    fn shrink_directory_leaves_string_literals_alone() {
+        let in_dir = tmp("shrink-lit-in");
+        let out_dir = tmp("shrink-lit-out");
+        let bytes = build_class(
+            vec![
+                class(2),                 // #1 this_class
+                utf8("foo/Bar"),          // #2
+                string(4),                // #3 literal only
+                utf8("java/util/List"),   // #4 — mapped, but only an ldc literal
+                class(6),                 // #5 super
+                utf8("java/lang/Object"), // #6 — shared by a Class and a String (javac dedup)
+                string(6),                // #7
+            ],
+            1,
+        );
+        fs::write(in_dir.join("Bar.class"), bytes).unwrap();
+        let mut map = ShrinkMap::new();
+        map.classes.insert("foo/Bar".into(), "a/A".into());
+        map.classes.insert("java/util/List".into(), "b/A".into());
+        map.classes.insert("java/lang/Object".into(), "b/B".into());
+        assert_eq!(shrink_directory(&in_dir, &out_dir, &map).unwrap(), 1);
+
+        let out = fs::read(out_dir.join("a/A.class")).expect("written under shrunk name");
+        let cf = ClassFile::parse(&out).unwrap();
+        assert_eq!(utf8_at(&cf, 2), b"a/A");
+        assert_eq!(
+            utf8_at(&cf, 4),
+            b"java/util/List",
+            "literal-only slot untouched"
+        );
+        assert_eq!(
+            utf8_at(&cf, 6),
+            b"b/B",
+            "shared slot follows the class reference"
+        );
     }
 }

@@ -14,3 +14,5 @@ path = "src/main.rs"
 # `cargo build` fast; this dependency NEVER enters the firmware build graph.
 image = { version = "0.25", default-features = false, features = ["png"] }
 papk-format = { path = "../../papk-format", features = ["write"] }
+# Reads the active shrink map for `--shrink-map` (entry-point check on shrunk classes).
+class-shrink = { path = "../class-shrink" }

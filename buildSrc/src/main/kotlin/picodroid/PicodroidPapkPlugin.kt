@@ -170,8 +170,13 @@ class PicodroidPapkPlugin : Plugin<Project> {
         }
         target.tasks.named("check") { dependsOn(verifyApiContract) }
 
-        val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
-            val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
+        val shrinkMapFile = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
+            ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
+        } else {
+            null
+        }
+        val packClassesInput = if (shrinkMapFile != null) {
+            val mapFile = shrinkMapFile
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 inputDir.set(rawClassesInput)
                 this.mapFile.set(mapFile)
@@ -241,6 +246,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             if (appAssetsDir.isDirectory) {
                 assetsDir.set(appAssetsDir)
             }
+            shrinkMapFile?.let { this.shrinkMapFile.set(it) }
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)
             repoRootPath.set(repoRoot.absolutePath)

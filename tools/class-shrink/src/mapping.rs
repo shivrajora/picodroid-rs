@@ -372,4 +372,35 @@ mod tests {
         }
         assert!(checked > 0, "no committed maps found in {}", dir.display());
     }
+
+    /// Every committed entry lives in the namespace `rename::namespace_for`
+    /// assigns it: `java/**` under `b/`, everything else under `a/`. pico-jvm
+    /// reverse-translates only `b/` and picodroid-core only `a/`, so a name
+    /// filed under the wrong prefix would load but never dispatch.
+    #[test]
+    fn committed_maps_respect_namespaces() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/shrink-maps");
+        let mut checked = 0;
+        for entry in fs::read_dir(&dir).expect("read sdk/shrink-maps") {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            let map = ShrinkMap::load(&path).unwrap();
+            for (from, to) in map.iter_classes() {
+                let want = crate::rename::namespace_for(from).prefix();
+                assert!(
+                    to.starts_with(want),
+                    "{}: {from} -> {to} must be allocated under {want}",
+                    path.display()
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "no committed map entries found in {}",
+            dir.display()
+        );
+    }
 }

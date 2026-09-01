@@ -2,10 +2,19 @@
 //! Deterministic short-name allocator for class names.
 //!
 //! Given a set of classes to shrink (stable, sorted), allocate short internal
-//! names `a/A`, `a/B`, …, `a/Z`, `a/AA`, …. All classes land in a synthetic
-//! top-level package `a/` so descriptor length stays minimal. Java reserved
-//! keywords are skipped so generated names don't collide with language
-//! keywords (not a JVM requirement, but avoids surprising tool output).
+//! names `A`, `B`, …, `Z`, `AA`, … under one of two synthetic top-level
+//! packages, so descriptor length stays minimal:
+//!
+//! - `a/` — framework classes (`picodroid/**`, `javax/**`), reverse-translated
+//!   by picodroid-core's generated `unshrink_class` at native-dispatch entry.
+//! - `b/` — `java/**` classes, which pico-jvm serves natively and matches by
+//!   original name; the JVM reverse-translates `b/` names at the class-file
+//!   boundary (`jvm/src/class_file/names.rs`) and never sees them elsewhere.
+//!
+//! Each namespace has its own counter, so the two suffix sequences are
+//! allocated independently and never collide. Java reserved keywords are
+//! skipped so generated names don't collide with language keywords (not a
+//! JVM requirement, but avoids surprising tool output).
 //!
 //! Determinism: callers must sort input by original internal name (byte-wise)
 //! before calling. Given identical input this allocator produces identical
@@ -131,10 +140,43 @@ fn is_java_reserved(s: &str) -> bool {
     )
 }
 
-/// Compose a full shrunk internal name. The synthetic package `a/` prefix
-/// collapses all shrinkable classes under a single directory.
-pub fn shrunk_name(suffix: &str) -> String {
-    format!("a/{suffix}")
+/// Which synthetic package a shrunk name is allocated from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Namespace {
+    /// `a/` — framework classes, un-shrunk by picodroid-core at dispatch.
+    Framework,
+    /// `b/` — `java/**` classes, un-shrunk by pico-jvm at the class-file
+    /// boundary.
+    Java,
+}
+
+impl Namespace {
+    /// Every namespace, in allocation order.
+    pub const ALL: [Namespace; 2] = [Namespace::Framework, Namespace::Java];
+
+    /// The synthetic package prefix, including the trailing `/`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Namespace::Framework => "a/",
+            Namespace::Java => "b/",
+        }
+    }
+}
+
+/// The namespace an original internal class name is allocated from.
+/// `java/**` is the set pico-jvm interprets by name; everything else —
+/// including `javax/**`, which the JVM does not know — is framework.
+pub fn namespace_for(original: &str) -> Namespace {
+    if original.starts_with("java/") {
+        Namespace::Java
+    } else {
+        Namespace::Framework
+    }
+}
+
+/// Compose a full shrunk internal name from a namespace and a suffix.
+pub fn shrunk_name(ns: Namespace, suffix: &str) -> String {
+    format!("{}{suffix}", ns.prefix())
 }
 
 #[cfg(test)]
@@ -201,7 +243,19 @@ mod tests {
 
     #[test]
     fn shrunk_full_name_contains_synthetic_package() {
-        assert_eq!(shrunk_name("A"), "a/A");
-        assert_eq!(shrunk_name("AB"), "a/AB");
+        assert_eq!(shrunk_name(Namespace::Framework, "A"), "a/A");
+        assert_eq!(shrunk_name(Namespace::Framework, "AB"), "a/AB");
+        assert_eq!(shrunk_name(Namespace::Java, "A"), "b/A");
+    }
+
+    #[test]
+    fn java_names_allocate_from_their_own_namespace() {
+        assert_eq!(namespace_for("java/lang/Object"), Namespace::Java);
+        assert_eq!(namespace_for("java/util/Map$Entry"), Namespace::Java);
+        assert_eq!(namespace_for("picodroid/view/View"), Namespace::Framework);
+        // javax/** is not interpreted by the JVM and is already committed
+        // under a/ (javax/inject/Provider = a/EG); it must stay there.
+        assert_eq!(namespace_for("javax/inject/Provider"), Namespace::Framework);
+        assert_eq!(namespace_for("javaish/X"), Namespace::Framework);
     }
 }

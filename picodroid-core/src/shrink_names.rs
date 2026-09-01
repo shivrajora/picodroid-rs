@@ -21,6 +21,10 @@ include!(concat!(env!("OUT_DIR"), "/framework_unshrink.rs"));
 /// descriptors against original names — `method_tables.rs`, the API
 /// contract generator — must run them through this first, or every
 /// object-typed row fails only in the shrink lane of `scripts/test.sh`.
+///
+/// Both namespaces are undone: `a/` (framework, this crate's table) and
+/// `b/` (`java/**`, pico-jvm's table — the JVM translates those at its
+/// class-file boundary for names, but descriptors are read raw).
 #[cfg(test)]
 pub fn unshrink_descriptor(desc: &str) -> String {
     let mut out = String::with_capacity(desc.len());
@@ -32,7 +36,7 @@ pub fn unshrink_descriptor(desc: &str) -> String {
             .find(';')
             .unwrap_or_else(|| panic!("unterminated class ref in descriptor {desc:?}"));
         out.push('L');
-        out.push_str(unshrink_class(&tail[1..end]));
+        out.push_str(pico_jvm::unshrink_java_str(unshrink_class(&tail[1..end])));
         out.push(';');
         rest = &tail[end + 1..];
     }
@@ -57,5 +61,36 @@ mod tests {
             unshrink_descriptor(&input),
             "(Lpicodroid/content/Intent;I)Lpicodroid/view/View;"
         );
+    }
+
+    /// Over the whole embedded corpus no shrunk segment — `a/` or `b/` —
+    /// survives `unshrink_descriptor`, and once the active map carries `b/`
+    /// entries at least one `java/**` descriptor was actually translated
+    /// (otherwise the shrink lane would be silently vacuous).
+    #[test]
+    fn unshrink_descriptor_covers_java_names_in_the_corpus() {
+        let mut shrunk_java_seen = 0;
+        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+            let cf = pico_jvm::class_file::ClassFile::parse(bytes).expect("parse framework class");
+            for m in cf.methods() {
+                let raw = core::str::from_utf8(cf.cp_utf8(m.descriptor_index).unwrap()).unwrap();
+                let un = unshrink_descriptor(raw);
+                assert!(
+                    !un.contains("La/") && !un.contains("Lb/"),
+                    "shrunk segment survived: {raw} -> {un}"
+                );
+                if raw.contains("Lb/") {
+                    shrunk_java_seen += 1;
+                    assert!(un.contains("Ljava/"), "{raw} -> {un}");
+                }
+            }
+        }
+        let java_map_active = pico_jvm::unshrink_java_str("b/A") != "b/A";
+        if java_map_active && !crate::framework_classes::FRAMEWORK_CLASSES.is_empty() {
+            assert!(
+                shrunk_java_seen > 0,
+                "the active map shrinks java/** but no framework descriptor carries a b/ name"
+            );
+        }
     }
 }

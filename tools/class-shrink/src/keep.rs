@@ -4,8 +4,12 @@
 //! v1 only tracks class-name keeps (method/field keeps come with method/field
 //! shrinking in a later release). Patterns:
 //!
-//!   - `"java/**"`      — glob matching `java/lang/Object`, `java/util/HashMap`, etc.
+//!   - `"kotlin/**"`    — glob matching `kotlin/Unit`, `kotlin/jvm/internal/Intrinsics`, etc.
 //!   - `"picodroid/annotation/KeepName"` — literal internal name.
+//!
+//! `java/**` is not kept: those names are shrunk under the `b/` namespace and
+//! reverse-translated by pico-jvm at the class-file boundary (see
+//! `rename::Namespace`).
 //!
 //! Format: simple TOML; one source of truth committed at `sdk/keep.toml`.
 //!
@@ -14,7 +18,7 @@
 //! name = "picodroid/os/Activity"
 //!
 //! [[glob]]
-//! pattern = "java/**"
+//! pattern = "kotlin/**"
 //! ```
 
 use std::fs;
@@ -170,12 +174,13 @@ mod tests {
     }
 
     #[test]
-    fn glob_java_double_star() {
+    fn glob_double_star_spans_packages() {
         let mut k = KeepList::default();
-        k.globs.push("java/**".into());
-        assert!(k.is_kept("java/lang/Object"));
-        assert!(k.is_kept("java/util/Map$Entry"));
+        k.globs.push("kotlin/**".into());
+        assert!(k.is_kept("kotlin/Unit"));
+        assert!(k.is_kept("kotlin/jvm/internal/Intrinsics$Ref"));
         assert!(!k.is_kept("picodroid/pio/Gpio"));
+        assert!(!k.is_kept("java/lang/Object"));
     }
 
     #[test]
@@ -186,10 +191,10 @@ mod tests {
 name = "foo/Bar"
 
 [[glob]]
-pattern = "java/**"
+pattern = "kotlin/**"
 "#;
         let k = parse(text).unwrap();
         assert_eq!(k.exact, vec!["foo/Bar".to_string()]);
-        assert_eq!(k.globs, vec!["java/**".to_string()]);
+        assert_eq!(k.globs, vec!["kotlin/**".to_string()]);
     }
 }

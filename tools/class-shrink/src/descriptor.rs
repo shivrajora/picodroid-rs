@@ -89,6 +89,33 @@ pub fn rewrite_bare(src: &[u8], class_map: &HashMap<Vec<u8>, Vec<u8>>) -> Option
     class_map.get(src).cloned()
 }
 
+/// Every class name referenced as an `L…;` object type in `src`, in order of
+/// appearance (duplicates included). Segments that are not plain internal
+/// names — generic-signature payloads such as `java/util/List<TT` — are
+/// skipped. Used by `cut_release` to discover `java/**` names that have no
+/// class file of their own but appear in the framework's descriptors.
+pub fn class_refs(src: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < src.len() {
+        if src[i] == b'L' {
+            if let Some(end) = src[i + 1..].iter().position(|&b| b == b';') {
+                let name = &src[i + 1..i + 1 + end];
+                if name
+                    .iter()
+                    .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'/'))
+                {
+                    out.push(name);
+                }
+                i += end + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,6 +160,21 @@ mod tests {
         assert_eq!(
             rewrite_descriptor(b"Lother/Thing;", &m),
             b"Lother/Thing;".to_vec()
+        );
+    }
+
+    #[test]
+    fn class_refs_lists_object_types() {
+        assert_eq!(
+            class_refs(b"(Ljava/lang/String;I[Lfoo/Bar;)Ljava/util/List;"),
+            vec![&b"java/lang/String"[..], b"foo/Bar", b"java/util/List"]
+        );
+        assert!(class_refs(b"(II)J").is_empty());
+        // Generic signatures carry `<…>` payloads that are not class names;
+        // the bound inside `<T:…>` still is one.
+        assert_eq!(
+            class_refs(b"<T:Ljava/lang/Object;>Ljava/util/List<TT;>;"),
+            vec![&b"java/lang/Object"[..]]
         );
     }
 

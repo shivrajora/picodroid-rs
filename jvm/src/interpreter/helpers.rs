@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    class_file::ClassFile,
+    class_file::{desc_eq, unshrink_java_str, ClassFile},
     class_objects::ClassObjectCache,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -173,7 +173,11 @@ pub(super) fn find_method(
         for (mi, m) in cf.methods().iter().enumerate() {
             let mn = cf.cp_utf8(m.name_index)?;
             let md = cf.cp_utf8(m.descriptor_index)?;
-            if mn == method_name.as_bytes() && md == descriptor.as_bytes() {
+            // `desc_eq` is an exact byte compare first; the translating walk
+            // only runs for a same-named method whose descriptor spells a
+            // `java/**` class differently (shrunk corpus vs. Rust literal or
+            // older-map PAPK).
+            if mn == method_name.as_bytes() && desc_eq(md, descriptor.as_bytes()) {
                 return Some((ci, mi));
             }
         }
@@ -511,6 +515,10 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
         "java/lang/IndexOutOfBoundsException",
     ),
     (
+        "java/lang/ArrayStoreException",
+        "java/lang/RuntimeException",
+    ),
+    (
         "java/lang/StringIndexOutOfBoundsException",
         "java/lang/IndexOutOfBoundsException",
     ),
@@ -671,7 +679,7 @@ fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) 
         return false;
     };
     cf.interfaces().iter().any(|&idx| {
-        cf.cp_utf8(idx)
+        cf.cp_class_utf8(idx)
             .is_some_and(|sup| iface_reaches(classes, sup, target, depth - 1))
     })
 }
@@ -717,7 +725,7 @@ pub(super) fn is_instance_of(
         // Check implemented interfaces at this level, transitively.
         let cf = &classes[ci];
         for iface_idx in cf.interfaces() {
-            if let Some(iface_name) = cf.cp_utf8(*iface_idx) {
+            if let Some(iface_name) = cf.cp_class_utf8(*iface_idx) {
                 if iface_reaches(
                     classes,
                     iface_name,
@@ -927,7 +935,7 @@ fn find_default_method(
 /// Append `cf`'s direct superinterfaces to `queue` (deduplicated, bounded).
 fn push_interfaces(queue: &mut Vec<&'static [u8]>, cf: &ClassFile) {
     for &idx in cf.interfaces() {
-        if let Some(n) = cf.cp_utf8(idx) {
+        if let Some(n) = cf.cp_class_utf8(idx) {
             if queue.len() < MAX_IFACES && !queue.contains(&n) {
                 queue.push(n);
             }
@@ -935,13 +943,14 @@ fn push_interfaces(queue: &mut Vec<&'static [u8]>, cf: &ClassFile) {
     }
 }
 
-/// Extract the class name from the return type of a method descriptor.
-/// e.g. `"()Ljava/lang/Runnable;"` → `Some("java/lang/Runnable")`.
+/// Extract the class name from the return type of a method descriptor,
+/// reverse-translated: `"()Ljava/lang/Runnable;"` and its shrunk spelling
+/// `"()Lb/K;"` both give `Some("java/lang/Runnable")`.
 pub(super) fn descriptor_return_class(desc: &str) -> Option<&str> {
     let ret_start = desc.find(')')? + 1;
     let rest = &desc[ret_start..];
     if rest.starts_with('L') && rest.ends_with(';') {
-        Some(&rest[1..rest.len() - 1])
+        Some(unshrink_java_str(&rest[1..rest.len() - 1]))
     } else {
         None
     }

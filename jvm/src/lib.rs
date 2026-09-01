@@ -88,6 +88,7 @@ pub mod types;
 use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
+pub use class_file::{desc_eq, desc_starts_with, unshrink_java, unshrink_java_str};
 use class_objects::ClassObjectCache;
 use gc::GcState;
 use heap::StringTable;

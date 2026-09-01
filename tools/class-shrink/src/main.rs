@@ -7,11 +7,16 @@
 //!       Print the active map version (semver or "0.0.0" sentinel).
 //!
 //!   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
-//!                [--base <prev-map.toml>]
+//!                [--base <prev-map.toml>] [--extra-names <file>]...
 //!       Generate a new release map covering every non-kept class under
-//!       <classes-dir>. When --base is given, its entries are copied
-//!       verbatim and only net-new classes get fresh short names (the
-//!       append-only rule). Deterministic: same input → same output.
+//!       <classes-dir> (allocated under `a/`) plus every `java/**` name
+//!       those classes reference (allocated under `b/`, which pico-jvm
+//!       reverse-translates). --extra-names adds names from a text file —
+//!       one per line, or tab-separated rows such as sdk/api-contract.tsv,
+//!       which lists every java/** class pico-jvm serves. When --base is
+//!       given, its entries are copied verbatim and only net-new names get
+//!       fresh short names (the append-only rule). Deterministic: same
+//!       input → same output.
 //!
 //!   shrink-dir --in <dir> --out <dir> --map <file.toml>
 //!       Rewrite every .class file under --in using --map's classes and
@@ -82,6 +87,7 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
     let mut keep_path: Option<PathBuf> = None;
     let mut out_path: Option<PathBuf> = None;
     let mut base_path: Option<PathBuf> = None;
+    let mut extra_paths: Vec<PathBuf> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -99,6 +105,10 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
             }
             "--base" => {
                 base_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
+                i += 2;
+            }
+            "--extra-names" => {
+                extra_paths.push(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
             }
             _ => {
@@ -141,7 +151,17 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
         },
         None => ShrinkMap::new(),
     };
-    let map = match shrink::cut_release(&classes_dir, &keep, base) {
+    let mut extra_names: Vec<String> = Vec::new();
+    for p in &extra_paths {
+        match shrink::read_extra_names(p) {
+            Ok(names) => extra_names.extend(names),
+            Err(e) => {
+                eprintln!("Error reading --extra-names {}: {e}", p.display());
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let map = match shrink::cut_release(&classes_dir, &keep, &extra_names, base) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Error cutting release: {e}");
@@ -269,9 +289,11 @@ Subcommands:
       Print the active map version for the current picodroid package.
 
   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
-              [--base <prev-map.toml>]
-      Generate a release map covering non-kept classes. Append-only
-      when --base is provided (existing entries are preserved).
+              [--base <prev-map.toml>] [--extra-names <file>]...
+      Generate a release map covering non-kept classes (a/) and the
+      java/** names they reference (b/). --extra-names adds names from
+      a text file (sdk/api-contract.tsv works as-is). Append-only when
+      --base is provided (existing entries are preserved).
 
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,

@@ -42,6 +42,16 @@ abstract class PapkPackTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val assetsDir: DirectoryProperty
 
+    /**
+     * The class-shrink map [classesDir] was rewritten with, when shrinking is
+     * on. papk-pack validates the entry point against descriptors as stored,
+     * and a shrunk corpus spells `java/lang/String` as `b/…`.
+     */
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val shrinkMapFile: RegularFileProperty
+
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
@@ -76,6 +86,7 @@ abstract class PapkPackTask : DefaultTask() {
             "--output", out.absolutePath,
         )
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
+        shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }
 
         val pb = ProcessBuilder(args).directory(repoRoot)
         ProcessRun.runOrThrow(pb, "papk-pack")
