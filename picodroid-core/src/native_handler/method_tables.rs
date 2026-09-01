@@ -268,8 +268,10 @@ pub const CONCURRENT_HANDLED: &[Row] = &[
 
 /// `native_handler/sensors.rs`
 /// `native_handler/threads.rs`. `Object.wait`/`notify`/`notifyAll` are
-/// served there too but have no row: `java/lang/Object` is a builtin with
-/// no SDK class file to cross-check against (see that module's docs).
+/// served there too but have no row here: `java/lang/Object` is a builtin
+/// with no SDK class file to cross-check against. They are recorded in
+/// `PLATFORM_BUILTIN_METHODS` below instead, which feeds the generated
+/// compile-time contract.
 pub const THREADS_HANDLED: &[Row] = &[
     // picodroid/concurrent/Thread
     ("picodroid/concurrent/Thread", "adopt0", "()V"),
@@ -289,6 +291,22 @@ pub const THREADS_HANDLED: &[Row] = &[
     ("picodroid/concurrent/Thread", "start0", "()Z"),
     ("picodroid/concurrent/Thread", "yield0", "()V"),
 ];
+
+/// Methods of classfile-less `java/**` builtins that the *platform* handler
+/// serves rather than pico-jvm's `BuiltinHandler` — the embedder's half of
+/// `pico_jvm::native::BUILTIN_METHODS`, same row shape. Today that is only
+/// `Object.wait`/`notify`/`notifyAll` (`native_handler/threads.rs`, matched
+/// on name + descriptor for any receiver; `wait(long, int)` is not served).
+/// Outside the `ACC_NATIVE` diff above by construction; consumed by the API
+/// contract generator (`api_contract.rs`).
+pub const PLATFORM_BUILTIN_METHODS: &[(&str, &[pico_jvm::native::BuiltinMethodRow])] = &[(
+    "java/lang/Object",
+    &[
+        ("wait", &["()V", "(J)V"]),
+        ("notify", &["()V"]),
+        ("notifyAll", &["()V"]),
+    ],
+)];
 
 pub const SENSORS_HANDLED: &[Row] = &[
     // picodroid/hardware/SensorManager
@@ -628,49 +646,12 @@ pub const ALLOWED_UNHANDLED: &[Row] = &[];
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shrink_names::unshrink_descriptor;
     use pico_jvm::class_file::ClassFile;
     use std::collections::{BTreeMap, BTreeSet};
 
     /// JVMS §4.6 `ACC_NATIVE`.
     const ACC_NATIVE: u16 = 0x0100;
-
-    /// Un-shrink every `L<class>;` chunk of a descriptor. Loaded class
-    /// files under `PICODROID_SHRINK=1` embed *shrunk* class names in
-    /// descriptors (tools/class-shrink rewrites them), so without this every
-    /// object-typed row would fail only in the shrink lane of
-    /// `scripts/test.sh`.
-    fn unshrink_descriptor(desc: &str) -> String {
-        let mut out = String::with_capacity(desc.len());
-        let mut rest = desc;
-        while let Some(pos) = rest.find('L') {
-            let (head, tail) = rest.split_at(pos);
-            out.push_str(head);
-            let end = tail
-                .find(';')
-                .unwrap_or_else(|| panic!("unterminated class ref in descriptor {desc:?}"));
-            out.push('L');
-            out.push_str(crate::shrink_names::unshrink_class(&tail[1..end]));
-            out.push(';');
-            rest = &tail[end + 1..];
-        }
-        out.push_str(rest);
-        out
-    }
-
-    /// `unshrink_descriptor` must invert whatever the active shrink map did
-    /// to a descriptor — constructed via `shrink_class` so it exercises the
-    /// real map in the shrink lane and identity in the no-shrink lane.
-    #[test]
-    fn unshrink_descriptor_inverts_active_map() {
-        assert_eq!(unshrink_descriptor("(IJ)Z"), "(IJ)Z");
-        let intent = crate::shrink_names::shrink_class("picodroid/content/Intent");
-        let view = crate::shrink_names::shrink_class("picodroid/view/View");
-        let input = format!("(L{intent};I)L{view};");
-        assert_eq!(
-            unshrink_descriptor(&input),
-            "(Lpicodroid/content/Intent;I)Lpicodroid/view/View;"
-        );
-    }
 
     fn sdk_native_methods() -> BTreeSet<(String, String, String)> {
         let mut sdk = BTreeSet::new();
