@@ -4575,6 +4575,35 @@ fn builtin_methods_cover_every_dispatch_class() {
     }
 }
 
+/// `BUILTIN_INTERFACE_METHODS` names interfaces the JVM canonicalises and
+/// does not dispatch itself (their members resolve on the implementor).
+#[test]
+fn builtin_interface_methods_name_known_interfaces() {
+    for &(iface, rows) in BUILTIN_INTERFACE_METHODS {
+        assert!(
+            BUILTIN_CLASS_NAMES.contains(&iface),
+            "interface {iface:?} in BUILTIN_INTERFACE_METHODS is missing from BUILTIN_CLASS_NAMES"
+        );
+        assert!(
+            !BUILTIN_DISPATCH.iter().any(|(c, _)| *c == iface),
+            "{iface:?} has a dispatcher; list its methods in BUILTIN_METHODS instead"
+        );
+        assert!(!rows.is_empty(), "interface {iface:?} has no rows");
+        for (method, descs) in rows.iter() {
+            assert!(
+                !descs.is_empty(),
+                "{iface}.{method}: interface members are descriptor-exact"
+            );
+            for d in descs.iter() {
+                assert!(
+                    d.starts_with('(') && d.contains(')') && !d.ends_with(')'),
+                    "{iface}.{method}: {d:?} is not a JVM method descriptor"
+                );
+            }
+        }
+    }
+}
+
 /// The dispatcher source a class's rows are matched against.
 fn dispatcher_source(class: &str) -> &'static str {
     match class {

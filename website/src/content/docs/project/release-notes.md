@@ -5,6 +5,15 @@ description: "User-facing changes for Picodroid v0.4.0 onward."
 
 This page covers everything that landed in releases v0.4.0 through v0.14.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
+## Unreleased
+
+**Interface-typed collections, and a leaner framework**
+
+- **`Map<String, String> m = new HashMap<>();` is documented and pinned.** Interface-typed collections (`List`, `Set`, `Collection`, `Map`, `Iterable`) work as locals, fields, parameters, return types, cast and `instanceof` targets — they have worked since v0.14.0's interpreter work, but nothing said so and nothing tested it. `collectionsdemo` now covers the whole shape (including `Iterator.remove()`, `Map.Entry` as a declared type, and a user class implementing `Iterable`), and the [compatibility matrix](/reference/compatibility-matrix/) states the caveat: your app compiles against the JDK's *full* interfaces, so members picodroid does not implement (`map.forEach`, `list.removeIf`, `new TreeMap<>()`) compile and then fail at run time.
+- **Six framework classes deleted, ≈1.5 KB of flash reclaimed on every board.** `java.util.List`, `java.util.Comparator`, `java.lang.Comparable`, `Runnable`, `Cloneable` and `AutoCloseable` shipped as SDK source but were dead weight: apps compile against the JDK's declarations (which shadow the SDK's), and the JVM dispatches on the receiver's runtime class, so neither side ever read them. They are now JVM builtins like `Map` and `Set` already were. No app change is needed — the imports and semantics are unchanged. A new test refuses any future body-less `java.*` framework class.
+- **`SharedPreferences.getAll()`** returns `Map<String, ?>` of every stored preference, matching Android. It replaces the picodroid-only `getAllKeys()`, which is gone (`getAll().keySet()` is the direct equivalent).
+- **`String.class` and other builtin class literals no longer throw.** `ldc` on a class the JVM serves natively (`String`, `Object`, `Runnable`, …) required a loaded class file and failed with an uncatchable error; it now resolves, and `"x".getClass() == String.class` holds.
+
 ## v0.14.0 — 2026-08-31
 
 The languages-and-threads release. Kotlin becomes a supported app language end to end — build tooling, a stdlib shim, a documented subset, and five example apps validated on hardware. Java threading grows the pieces that were missing underneath it: monitors that know their owner, `synchronized` *methods* that actually lock, `Object.wait`/`notify`, a `java.lang.Thread`-shaped API, and a pure-Java `java.util.concurrent` core set. Compile-time dependency injection arrives in the Dagger/Hilt shape. And a code-wide bug bash fixed roughly forty defects across the JVM, framework, SDK and Kotlin shim, most of them wrong answers rather than crashes.

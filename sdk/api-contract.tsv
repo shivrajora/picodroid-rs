@@ -4,8 +4,8 @@
 # (picodroid-core/src/native_handler/api_contract.rs) from the runtime's
 # own tables; do not edit by hand. Regenerate with
 #     scripts/gen-api-contract.sh
-# after changing an SDK java/** class, BUILTIN_METHODS / BUILTIN_CLASS_NAMES
-# (jvm/src/native/mod.rs), BUILTIN_SUPER / BUILTIN_INTERFACES
+# after changing an SDK java/** class, BUILTIN_METHODS / BUILTIN_CLASS_NAMES /
+# BUILTIN_INTERFACE_METHODS (jvm/src/native/mod.rs), BUILTIN_SUPER / BUILTIN_INTERFACES
 # (jvm/src/interpreter/helpers.rs), or picodroid-core's
 # PLATFORM_BUILTIN_METHODS / CONTRACT_HINTS / TOLERATED.
 #
@@ -177,6 +177,7 @@ java/lang/Integer	valueOf	(I)Ljava/lang/Integer;
 java/lang/Integer	valueOf	(Ljava/lang/String;)Ljava/lang/Integer;
 java/lang/InterruptedException
 java/lang/Iterable
+java/lang/Iterable	iterator	()Ljava/util/Iterator;
 java/lang/Long
 java/lang/Long	<init>	
 java/lang/Long	byteValue	
@@ -487,15 +488,6 @@ java/util/LinkedHashSet	iterator
 java/util/LinkedHashSet	remove	
 java/util/LinkedHashSet	size	
 java/util/List
-java/util/List	add	(Ljava/lang/Object;)Z
-java/util/List	clear	()V
-java/util/List	contains	(Ljava/lang/Object;)Z
-java/util/List	get	(I)Ljava/lang/Object;
-java/util/List	isEmpty	()Z
-java/util/List	iterator	()Ljava/util/Iterator;
-java/util/List	set	(ILjava/lang/Object;)Ljava/lang/Object;
-java/util/List	size	()I
-java/util/List	sort	(Ljava/util/Comparator;)V
 java/util/Locale	ROOT	Ljava/util/Locale;
 java/util/Locale	US	Ljava/util/Locale;
 java/util/Map

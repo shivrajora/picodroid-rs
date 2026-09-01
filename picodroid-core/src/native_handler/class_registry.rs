@@ -271,4 +271,79 @@ mod tests {
              vacuous"
         );
     }
+
+    /// No embedded `java/**` class may be pure-abstract — every one must
+    /// declare at least one method this JVM could actually execute (a `Code`
+    /// attribute) or dispatch natively (`ACC_NATIVE`).
+    ///
+    /// A body-less `java/**` file earns nothing and costs everywhere:
+    ///
+    /// - **Apps never see it.** Both the SDK and every app compile with
+    ///   `javac --release 8` and no bootclasspath override (`build.gradle.kts`),
+    ///   so `java.*` resolves from the JDK's `ct.sym`, which precedes the SDK
+    ///   on the class path. A `sdk/java/java/util/Map.java` written "to
+    ///   document the supported subset" documents nothing — javac silently
+    ///   uses the JDK's `Map` instead.
+    /// - **The runtime never reads it.** `invokevirtual`/`invokeinterface`
+    ///   dispatch on the receiver's runtime class, not the constant pool's
+    ///   declared owner (`jvm/src/interpreter/ops_invoke.rs`), and
+    ///   `instanceof`/`checkcast` walk `BUILTIN_INTERFACES`
+    ///   (`jvm/src/interpreter/helpers.rs`), tolerating interfaces that have
+    ///   no class file at all.
+    /// - **Every board pays.** The SDK is embedded whole and loaded at boot
+    ///   (`build_support/papk.rs`, `boot.rs`), so it is flash on the RP2040
+    ///   too, whose program region has ~20 KB free against a 0 %-growth
+    ///   ratchet.
+    ///
+    /// `javax/**` is exempt: it is not in `ct.sym`, so `javax/inject/Provider`
+    /// genuinely must ship a class file for apps to compile against.
+    #[test]
+    fn no_bodiless_java_framework_classes() {
+        let mut java_classes = 0;
+        let mut bodiless: Vec<(&str, usize)> = Vec::new();
+        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+            let cf = ClassFile::parse(bytes).expect("parse framework class");
+            let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
+                .expect("class name is UTF-8");
+            // Un-shrink first: `java/**` is kept verbatim by sdk/keep.toml
+            // today, but if that ever changed a shrunk name would slip past
+            // the prefix filter and quietly make this test vacuous.
+            let original = crate::shrink_names::unshrink_class(loaded);
+            if !original.starts_with("java/") {
+                continue;
+            }
+            java_classes += 1;
+            // A method has a Code attribute iff it is neither abstract nor
+            // native (JVMS §4.7.3); `code_offset` is 0 when the parser found
+            // none — the same "has a body" signal `find_default_method` uses.
+            let has_body = cf
+                .methods()
+                .iter()
+                .any(|m| m.code_offset != 0 || m.access_flags & ACC_NATIVE != 0);
+            if !has_body {
+                bodiless.push((original, bytes.len()));
+            }
+        }
+        assert!(
+            bodiless.is_empty(),
+            "{} embedded java/** class(es) declare no method with a Code \
+             attribute or ACC_NATIVE: {:?} (name, .class bytes). javac \
+             --release 8 resolves java.* from the JDK's ct.sym, so no app \
+             compiles against these files, and dispatch goes by the receiver's \
+             runtime class, so the JVM never reads them — they are pure flash \
+             on every board. Delete the .java file; if user code needs the \
+             name as a lambda SAM, an instanceof/checkcast target, or a \
+             superinterface edge, add a BUILTIN_CLASS_NAMES row \
+             (jvm/src/native/mod.rs) or a BUILTIN_INTERFACES row \
+             (jvm/src/interpreter/helpers.rs) instead.",
+            bodiless.len(),
+            bodiless
+        );
+        assert!(
+            java_classes > 0,
+            "no java/** framework class seen — FRAMEWORK_CLASSES is empty \
+             (PICODROID_APK_PATH unset? use scripts/test.sh) or the prefix \
+             filter broke; this test is vacuous"
+        );
+    }
 }

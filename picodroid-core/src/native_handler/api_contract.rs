@@ -9,10 +9,12 @@
 //! Inputs, unioned:
 //! * the SDK's `java/**`/`javax/**` class files (`FRAMEWORK_CLASSES`) — every
 //!   non-private member, descriptor-exact; their `ACC_NATIVE` methods are
-//!   proven handled by `method_tables.rs`;
+//!   proven handled by `method_tables.rs` (only classes with bodies exist:
+//!   `no_bodiless_java_framework_classes`);
 //! * `pico_jvm::native::BUILTIN_METHODS` and this crate's
 //!   `PLATFORM_BUILTIN_METHODS` — the classfile-less builtins, name-level
-//!   unless the arm is descriptor-guarded;
+//!   unless the arm is descriptor-guarded — plus `BUILTIN_INTERFACE_METHODS`,
+//!   the lambda-targetable SAM members of the classfile-less interfaces;
 //! * `BUILTIN_CLASS_NAMES`, `BUILTIN_SUPER`, `BUILTIN_INTERFACES` — which
 //!   names resolve at all, and the hierarchy the verifier walks;
 //! * `TOLERATED` / `NAME_ONLY_CLASSES` — static shapes javac emits but never
@@ -211,7 +213,8 @@ mod tests {
     use pico_jvm::class_file::ClassFile;
     use pico_jvm::interpreter::{BUILTIN_INTERFACES, BUILTIN_SUPER};
     use pico_jvm::native::{
-        BuiltinMethodRow, BUILTIN_CLASS_NAMES, BUILTIN_METHODS, BUILTIN_SDK_HANDLED,
+        BuiltinMethodRow, BUILTIN_CLASS_NAMES, BUILTIN_INTERFACE_METHODS, BUILTIN_METHODS,
+        BUILTIN_SDK_HANDLED,
     };
     use std::collections::BTreeSet;
     use std::fmt::Write as _;
@@ -320,6 +323,7 @@ mod tests {
             }
         }
         builtin_rows(BUILTIN_METHODS, &mut rows);
+        builtin_rows(BUILTIN_INTERFACE_METHODS, &mut rows);
         builtin_rows(PLATFORM_BUILTIN_METHODS, &mut rows);
         // Platform natives on java/** classes (System.currentTimeMillis);
         // already exact rows from the class file, unioned for completeness.
@@ -372,8 +376,8 @@ mod tests {
              # (picodroid-core/src/native_handler/api_contract.rs) from the runtime's\n\
              # own tables; do not edit by hand. Regenerate with\n\
              #     scripts/gen-api-contract.sh\n\
-             # after changing an SDK java/** class, BUILTIN_METHODS / BUILTIN_CLASS_NAMES\n\
-             # (jvm/src/native/mod.rs), BUILTIN_SUPER / BUILTIN_INTERFACES\n\
+             # after changing an SDK java/** class, BUILTIN_METHODS / BUILTIN_CLASS_NAMES /\n\
+             # BUILTIN_INTERFACE_METHODS (jvm/src/native/mod.rs), BUILTIN_SUPER / BUILTIN_INTERFACES\n\
              # (jvm/src/interpreter/helpers.rs), or picodroid-core's\n\
              # PLATFORM_BUILTIN_METHODS / CONTRACT_HINTS / TOLERATED.\n\
              #\n\
@@ -483,8 +487,10 @@ mod tests {
         // Non-vacuity first: an empty FRAMEWORK_CLASSES (a bare `cargo test`
         // without PICODROID_APK_PATH) or a parser regression must not
         // silently generate a contract with no SDK rows.
+        // Six today: Class, Math, System, Arrays, Collections, javax/inject/Provider
+        // (the body-less java/** stubs were retired by T2.2).
         assert!(
-            contract.sdk_classes >= 12,
+            contract.sdk_classes >= 5,
             "only {} SDK java/javax class files seen — FRAMEWORK_CLASSES is empty (run \
              via scripts/test.sh or scripts/gen-api-contract.sh, which set \
              PICODROID_APK_PATH) or the class-file parser broke",
@@ -507,6 +513,8 @@ mod tests {
             ("java/lang/Object", "wait", "(J)V"),
             ("java/lang/String", "<init>", "([B)V"),
             ("javax/inject/Provider", "get", "()Ljava/lang/Object;"),
+            ("java/lang/Runnable", "run", "()V"),
+            ("java/util/List", "", ""),
         ] {
             assert!(
                 contract.rows.contains(&row(owner, name, desc)),

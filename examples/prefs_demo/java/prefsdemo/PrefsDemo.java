@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package prefsdemo;
 
+import java.util.Map;
 import picodroid.app.Application;
 import picodroid.content.SharedPreferences;
 import picodroid.util.Log;
@@ -98,27 +99,33 @@ public class PrefsDemo extends Application {
     p.edit().putString("a", "1").putString("b", "2").commit();
     p.edit().clear().commit();
     SharedPreferences q = SharedPreferences.open("demo5");
-    check("cleared has no keys", q.getAllKeys().length == 0);
+    check("cleared has no keys", q.getAll().isEmpty());
     check("cleared missing default", 99 == q.getInt("a", 99));
   }
 
   static void testPersistenceAcrossInstances() {
     SharedPreferences p = SharedPreferences.open("demo6");
     p.edit().clear().putString("greeting", "hello").putInt("n", 7).commit();
-    String[] keys = SharedPreferences.open("demo6").getAllKeys();
-    check("getAllKeys size", keys.length == 2);
+    // getAll() returns java.util.Map — an interface with no class file,
+    // served by the HashMap builtin. Consume it through the interface.
+    Map<String, ?> all = SharedPreferences.open("demo6").getAll();
+    check("getAll size", all.size() == 2);
+    check("getAll has greeting", all.containsKey("greeting"));
+    check("getAll has n", all.containsKey("n"));
+    check("getAll string value", "hello".equals(all.get("greeting")));
+    check("getAll boxed int value", Integer.valueOf(7).equals(all.get("n")));
     boolean sawGreeting = false;
     boolean sawN = false;
-    for (int i = 0; i < keys.length; i++) {
-      if ("greeting".equals(keys[i])) {
+    for (String k : all.keySet()) {
+      if ("greeting".equals(k)) {
         sawGreeting = true;
       }
-      if ("n".equals(keys[i])) {
+      if ("n".equals(k)) {
         sawN = true;
       }
     }
-    check("getAllKeys has greeting", sawGreeting);
-    check("getAllKeys has n", sawN);
+    check("getAll keySet has greeting", sawGreeting);
+    check("getAll keySet has n", sawN);
   }
 
   /** The Android idiom end-to-end: context.getSharedPreferences(...).edit()...apply(). */

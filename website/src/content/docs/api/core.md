@@ -276,9 +276,24 @@ public class Score implements Comparable<Score> {
 
 Used by `Arrays.sort` and `Collections.sort`. Boxed numerics (`Integer`, `Long`, `Float`, `Double`) and `String` already implement it.
 
-## `java.util.List`
+## Interface-typed collections
 
-A minimal `List<E>` interface (`size`, `get`, `set`, `add`, `contains`, `isEmpty`, `clear`) — implemented by `ArrayList`. Provided so `Collections.sort` / `reverse` can accept any list type. There are no other concrete `List` implementations in v1.
+`List<E>`, `Set<E>`, `Collection<E>`, `Map<K,V>` and `Iterable<E>` all work as declared types, parameter types and return types — `Map<String, String> m = new HashMap<>();` compiles and runs, as do interface-typed fields, `instanceof`, casts and the enhanced `for` loop:
+
+```java
+Map<String, Integer> scores = new HashMap<>();   // interface-typed
+List<String> names = new ArrayList<>();
+Set<String> seen = new HashSet<>();
+Collection<String> asCollection = names;         // widening works
+Iterable<String> asIterable = seen;
+
+static int total(Collection<Integer> values) { ... }   // interface parameter
+static Map<String, Integer> build() { ... }            // interface return
+```
+
+These interfaces are **built into the JVM** rather than shipped as SDK source: your app compiles against the JDK's own `java.util` declarations, and at run time the call dispatches on the receiver's actual class (`ArrayList`, `HashMap`, `HashSet`, or a class of your own). `ArrayList` is the only concrete `List` in v1.
+
+The catch: because the compiler sees the JDK's full interfaces, it will also accept members picodroid does **not** implement (`map.forEach`, `list.removeIf`, `Map.putAll`, `new TreeMap<>()`), which fail at run time instead of at build time. Stick to the members listed in the [compatibility matrix](/reference/compatibility-matrix/).
 
 ## `java.lang.Class`
 

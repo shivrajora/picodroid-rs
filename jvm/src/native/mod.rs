@@ -74,8 +74,19 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/util/Random",
     "java/util/Arrays",
     "java/lang/Math",
-    // Canonicalisation-only — handled by the user's NativeMethodHandler or
-    // referenced as interface/superclass names in user code.
+    // Canonicalisation-only — handled by the user's NativeMethodHandler, or
+    // named in user code as an interface, superclass, lambda SAM, or
+    // `instanceof`/`checkcast` target.
+    //
+    // The `java/**` interfaces here deliberately have no SDK `.java` file.
+    // Apps compile with `javac --release 8` and no bootclasspath override, so
+    // `java.*` resolves from the JDK's `ct.sym` and an SDK file would be
+    // shadowed — it could not document or restrict anything. At run time
+    // dispatch goes by the receiver's runtime class and `instanceof` walks
+    // `BUILTIN_INTERFACES`, so no class file is ever read for them either. A
+    // row here (plus a `BUILTIN_INTERFACES` row for superinterface edges) is
+    // the whole cost; `no_bodiless_java_framework_classes` in picodroid-core
+    // keeps it that way.
     "java/lang/System",
     "java/lang/Runnable",
     "java/util/Collections",
@@ -83,6 +94,9 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     "java/lang/Comparable",
     "java/util/Comparator",
     "java/lang/Cloneable",
+    // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
+    // proxy's interface canonicalises to "unknown" and `instanceof` fails.
+    "java/lang/AutoCloseable",
     // Classfile-less classes that user code may `new`, `checkcast` or
     // `instanceof` (every name in the interpreter's `BUILTIN_SUPER` /
     // `BUILTIN_INTERFACES` tables). A `new` of a name missing here yields
@@ -566,6 +580,31 @@ const MATH_METHODS: &[BuiltinMethodRow] = &[
 ];
 
 const SYSTEM_METHODS: &[BuiltinMethodRow] = &[("arraycopy", &[])];
+
+/// Abstract members of the classfile-less `java/**` interfaces that resolve
+/// on whatever implements them — a lambda proxy (`try_lambda_dispatch` runs
+/// the body for any call on the proxy), an app class (its own bytecode) or a
+/// builtin (its `BUILTIN_METHODS` rows). The compile-time contract resolves
+/// interfaces that builtins implement (`List`, `Map`, `CharSequence`, …)
+/// through `BUILTIN_INTERFACES`, so this is only the SAM set apps target
+/// with lambdas and that no builtin implements. Every key must be a
+/// `BUILTIN_CLASS_NAMES` name and not a dispatched class.
+pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
+    ("java/lang/Runnable", &[("run", &["()V"])]),
+    (
+        "java/util/Comparator",
+        &[("compare", &["(Ljava/lang/Object;Ljava/lang/Object;)I"])],
+    ),
+    (
+        "java/lang/Comparable",
+        &[("compareTo", &["(Ljava/lang/Object;)I"])],
+    ),
+    ("java/lang/AutoCloseable", &[("close", &["()V"])]),
+    (
+        "java/lang/Iterable",
+        &[("iterator", &["()Ljava/util/Iterator;"])],
+    ),
+];
 
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
 /// changing this table changes the dispatch behaviour. The
