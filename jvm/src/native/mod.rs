@@ -210,6 +210,363 @@ pub const BUILTIN_SDK_HANDLED: &[(&str, &str, &str)] = &[
     ("java/util/Arrays", "toString", "([S)Ljava/lang/String;"),
 ];
 
+/// One served member of a builtin class: `(name, descriptors)`.
+///
+/// Native dispatch is keyed on `(class, method name)`, so most arms serve
+/// every overload javac can resolve; those rows carry an empty descriptor
+/// list ("any descriptor"). A non-empty list names the only descriptors the
+/// arm serves *correctly* — any other overload reaches a wider arm and
+/// mis-serves silently: `new String(char[])` falls through to
+/// `Object.<init>` and yields a non-string, `Integer.parseInt(s, radix)`
+/// ignores the radix, `new ArrayList<>(other)` ignores the source,
+/// `StringBuilder.append(char[])` appends nothing.
+pub type BuiltinMethodRow = (&'static str, &'static [&'static str]);
+
+/// Every method the builtin dispatchers serve, per class — the
+/// machine-readable twin of the rustdoc table on [`BuiltinHandler`] and one
+/// input to the generated compile-time contract (`sdk/api-contract.tsv`,
+/// written by picodroid-core's `api_contract` test). Keys are exactly the
+/// classes of `BUILTIN_DISPATCH` (`builtin_methods_cover_every_dispatch_class`)
+/// and every name must be a literal in its dispatcher's source
+/// (`builtin_method_rows_name_real_arms`). The reverse — an arm with no row —
+/// is not machine-checked; it surfaces as a contract failure on the first
+/// app that uses the arm, naming the row to add here.
+///
+/// Members served outside these dispatchers are listed with their site:
+/// `Object.getClass` and `ArrayList.sort` resolve in
+/// `interpreter/ops_invoke.rs` before dispatch; `Object.wait/notify/notifyAll`
+/// are the embedder's (picodroid-core `PLATFORM_BUILTIN_METHODS`).
+pub const BUILTIN_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
+    ("java/lang/Object", OBJECT_METHODS),
+    ("java/lang/Class", CLASS_METHODS),
+    ("java/lang/Throwable", THROWABLE_METHODS),
+    ("java/lang/Exception", THROWABLE_METHODS),
+    ("java/lang/RuntimeException", THROWABLE_METHODS),
+    ("java/util/IllegalFormatException", THROWABLE_METHODS),
+    ("java/lang/Enum", ENUM_METHODS),
+    ("java/lang/StringBuilder", STRING_BUILDER_METHODS),
+    ("java/lang/String", STRING_METHODS),
+    ("java/lang/Integer", INTEGER_METHODS),
+    ("java/lang/Boolean", BOOLEAN_METHODS),
+    ("java/lang/Long", LONG_METHODS),
+    ("java/lang/Float", FLOAT_METHODS),
+    ("java/lang/Double", DOUBLE_METHODS),
+    ("java/lang/Character", CHARACTER_METHODS),
+    ("java/lang/Byte", BYTE_METHODS),
+    ("java/lang/Short", SHORT_METHODS),
+    ("java/util/ArrayList", ARRAY_LIST_METHODS),
+    ("java/util/HashMap", HASH_MAP_METHODS),
+    ("java/util/HashMap$KeySet", HASH_MAP_VIEW_METHODS),
+    ("java/util/HashMap$Values", HASH_MAP_VIEW_METHODS),
+    ("java/util/HashMap$EntrySet", HASH_MAP_VIEW_METHODS),
+    ("java/util/Map$Entry", MAP_ENTRY_METHODS),
+    ("java/util/HashSet", HASH_SET_METHODS),
+    ("java/util/LinkedHashMap", HASH_MAP_METHODS),
+    ("java/util/LinkedHashSet", HASH_SET_METHODS),
+    ("java/util/Iterator", ITERATOR_METHODS),
+    ("java/util/Random", RANDOM_METHODS),
+    ("java/util/Arrays", ARRAYS_METHODS),
+    ("java/lang/Math", MATH_METHODS),
+    ("java/lang/System", SYSTEM_METHODS),
+];
+
+const OBJECT_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("toString", &[]),
+    ("equals", &[]),
+    ("hashCode", &[]),
+    ("clone", &[]),
+    // Answered by the interpreter (needs the class-object cache), not an arm.
+    ("getClass", &["()Ljava/lang/Class;"]),
+];
+
+const CLASS_METHODS: &[BuiltinMethodRow] = &[("<init>", &[]), ("getName", &[])];
+
+/// `dispatch_throwable` and `dispatch_init_only` serve the same names.
+const THROWABLE_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("getMessage", &[]),
+    ("addSuppressed", &[]),
+    ("getSuppressed", &[]),
+    ("getCause", &[]),
+];
+
+const ENUM_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("name", &[]),
+    ("toString", &[]),
+    ("ordinal", &[]),
+    ("equals", &[]),
+    ("hashCode", &[]),
+    ("compareTo", &[]),
+];
+
+const STRING_BUILDER_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    // The arm switches on the argument's Value variant; an array or a
+    // non-String CharSequence argument appends nothing, hence the exact
+    // list. A call through `Appendable` carries that return type instead.
+    (
+        "append",
+        &[
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+            "(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;",
+            "(C)Ljava/lang/Appendable;",
+            "(Ljava/lang/CharSequence;)Ljava/lang/Appendable;",
+            "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
+            "(C)Ljava/lang/StringBuilder;",
+            "(Z)Ljava/lang/StringBuilder;",
+            "(I)Ljava/lang/StringBuilder;",
+            "(J)Ljava/lang/StringBuilder;",
+            "(F)Ljava/lang/StringBuilder;",
+            "(D)Ljava/lang/StringBuilder;",
+        ],
+    ),
+    ("length", &[]),
+    ("charAt", &[]),
+    ("toString", &[]),
+];
+
+const STRING_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &["([B)V", "([BII)V"]),
+    (
+        "format",
+        &["(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"],
+    ),
+    (
+        "valueOf",
+        &[
+            "(Ljava/lang/Object;)Ljava/lang/String;",
+            "(Z)Ljava/lang/String;",
+            "(C)Ljava/lang/String;",
+            "(I)Ljava/lang/String;",
+            "(J)Ljava/lang/String;",
+            "(F)Ljava/lang/String;",
+            "(D)Ljava/lang/String;",
+        ],
+    ),
+    ("length", &[]),
+    ("charAt", &[]),
+    ("isEmpty", &[]),
+    ("equals", &[]),
+    ("equalsIgnoreCase", &[]),
+    ("startsWith", &[]),
+    ("endsWith", &[]),
+    ("contains", &[]),
+    ("indexOf", &[]),
+    ("lastIndexOf", &[]),
+    ("compareTo", &[]),
+    ("substring", &[]),
+    ("trim", &[]),
+    ("toUpperCase", &[]),
+    ("toLowerCase", &[]),
+    ("concat", &[]),
+    ("hashCode", &[]),
+    ("toString", &[]),
+    ("toCharArray", &[]),
+    ("getBytes", &[]),
+    ("replace", &[]),
+    ("split", &[]),
+];
+
+/// The numeric wrappers share `boxed_dispatch!` + `dispatch_common` plus
+/// per-class parse / `toString` / `valueOf` arms: `$p` is the primitive
+/// descriptor, `$b` the boxed class, `$parse` the parse method. The radix
+/// overloads of `parseX` / `toString` / `valueOf` are not served (the
+/// radix argument is ignored), hence the exact lists.
+macro_rules! numeric_box_methods {
+    ($p:literal, $b:literal, $parse:literal) => {
+        &[
+            ("<init>", &[]),
+            (
+                "valueOf",
+                &[
+                    concat!("(", $p, ")L", $b, ";"),
+                    concat!("(Ljava/lang/String;)L", $b, ";"),
+                ],
+            ),
+            ($parse, &[concat!("(Ljava/lang/String;)", $p)]),
+            (
+                "toString",
+                &[
+                    "()Ljava/lang/String;",
+                    concat!("(", $p, ")Ljava/lang/String;"),
+                ],
+            ),
+            ("intValue", &[]),
+            ("longValue", &[]),
+            ("floatValue", &[]),
+            ("doubleValue", &[]),
+            ("shortValue", &[]),
+            ("byteValue", &[]),
+            ("equals", &[]),
+            ("hashCode", &[]),
+            ("compareTo", &[]),
+            ("compare", &[]),
+        ]
+    };
+}
+
+const INTEGER_METHODS: &[BuiltinMethodRow] =
+    numeric_box_methods!("I", "java/lang/Integer", "parseInt");
+const LONG_METHODS: &[BuiltinMethodRow] = numeric_box_methods!("J", "java/lang/Long", "parseLong");
+const DOUBLE_METHODS: &[BuiltinMethodRow] =
+    numeric_box_methods!("D", "java/lang/Double", "parseDouble");
+const BYTE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!("B", "java/lang/Byte", "parseByte");
+const SHORT_METHODS: &[BuiltinMethodRow] =
+    numeric_box_methods!("S", "java/lang/Short", "parseShort");
+const FLOAT_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    (
+        "valueOf",
+        &[
+            "(F)Ljava/lang/Float;",
+            "(Ljava/lang/String;)Ljava/lang/Float;",
+        ],
+    ),
+    ("parseFloat", &["(Ljava/lang/String;)F"]),
+    (
+        "toString",
+        &["()Ljava/lang/String;", "(F)Ljava/lang/String;"],
+    ),
+    ("intValue", &[]),
+    ("longValue", &[]),
+    ("floatValue", &[]),
+    ("doubleValue", &[]),
+    ("shortValue", &[]),
+    ("byteValue", &[]),
+    ("equals", &[]),
+    ("hashCode", &[]),
+    ("compareTo", &[]),
+    ("compare", &[]),
+    ("floatToIntBits", &[]),
+];
+
+const BOOLEAN_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("valueOf", &[]),
+    ("parseBoolean", &[]),
+    ("booleanValue", &[]),
+    ("toString", &[]),
+    ("equals", &[]),
+    ("hashCode", &[]),
+    ("compareTo", &[]),
+    ("compare", &[]),
+];
+
+const CHARACTER_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("valueOf", &[]),
+    ("charValue", &[]),
+    ("toString", &[]),
+    ("equals", &[]),
+    ("hashCode", &[]),
+    ("compareTo", &[]),
+    ("compare", &[]),
+    ("isDigit", &[]),
+    ("isLetter", &[]),
+    ("toUpperCase", &[]),
+    ("toLowerCase", &[]),
+];
+
+const ARRAY_LIST_METHODS: &[BuiltinMethodRow] = &[
+    // The copy constructor `<init>(Collection)` ignores its argument.
+    ("<init>", &["()V", "(I)V"]),
+    ("add", &[]),
+    ("get", &[]),
+    ("size", &[]),
+    ("isEmpty", &[]),
+    ("set", &[]),
+    ("remove", &[]),
+    ("clear", &[]),
+    ("iterator", &[]),
+    ("toArray", &[]),
+    ("contains", &[]),
+    // Resolved by the interpreter: the comparator is a Java upcall.
+    ("sort", &["(Ljava/util/Comparator;)V"]),
+];
+
+const HASH_MAP_METHODS: &[BuiltinMethodRow] = &[
+    // The copy constructor `<init>(Map)` ignores its argument.
+    ("<init>", &["()V", "(I)V", "(IF)V"]),
+    ("put", &[]),
+    ("get", &[]),
+    ("remove", &[]),
+    ("containsKey", &[]),
+    ("containsValue", &[]),
+    ("size", &[]),
+    ("isEmpty", &[]),
+    ("clear", &[]),
+    ("getOrDefault", &[]),
+    ("keySet", &[]),
+    ("values", &[]),
+    ("entrySet", &[]),
+];
+
+const HASH_MAP_VIEW_METHODS: &[BuiltinMethodRow] =
+    &[("iterator", &[]), ("size", &[]), ("contains", &[])];
+
+const MAP_ENTRY_METHODS: &[BuiltinMethodRow] = &[("getKey", &[]), ("getValue", &[])];
+
+const HASH_SET_METHODS: &[BuiltinMethodRow] = &[
+    // The copy constructor `<init>(Collection)` ignores its argument.
+    ("<init>", &["()V", "(I)V", "(IF)V"]),
+    ("add", &[]),
+    ("remove", &[]),
+    ("contains", &[]),
+    ("size", &[]),
+    ("isEmpty", &[]),
+    ("iterator", &[]),
+    ("clear", &[]),
+];
+
+const ITERATOR_METHODS: &[BuiltinMethodRow] = &[("hasNext", &[]), ("next", &[]), ("remove", &[])];
+
+const RANDOM_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    ("setSeed", &[]),
+    ("nextInt", &[]),
+    ("nextLong", &[]),
+    ("nextBoolean", &[]),
+    ("nextFloat", &[]),
+    ("nextDouble", &[]),
+    ("nextGaussian", &[]),
+    ("nextBytes", &[]),
+];
+
+/// Name-level on purpose: the arms are `atype`-driven and serve the range
+/// (`sort(a, from, to)`), `boolean[]` and `Object[]` overloads that the SDK's
+/// `Arrays.java` never declares (a call to an undeclared method on a loaded
+/// class falls through to native dispatch).
+const ARRAYS_METHODS: &[BuiltinMethodRow] = &[
+    ("sort", &[]),
+    ("fill", &[]),
+    ("copyOf", &[]),
+    ("toString", &[]),
+];
+
+const MATH_METHODS: &[BuiltinMethodRow] = &[
+    ("abs", &[]),
+    ("min", &[]),
+    ("max", &[]),
+    ("sqrt", &[]),
+    ("pow", &[]),
+    ("floor", &[]),
+    ("ceil", &[]),
+    ("round", &[]),
+    ("sin", &[]),
+    ("cos", &[]),
+    ("tan", &[]),
+    ("atan2", &[]),
+    ("toRadians", &[]),
+    ("toDegrees", &[]),
+    ("log", &[]),
+    ("log10", &[]),
+    ("exp", &[]),
+];
+
+const SYSTEM_METHODS: &[BuiltinMethodRow] = &[("arraycopy", &[])];
+
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
 /// changing this table changes the dispatch behaviour. The
 /// `builtin_dispatch_classes_subset_of_names` test asserts every class here is
@@ -774,6 +1131,9 @@ pub trait NativeMethodHandler {
 /// directly or forward to it.
 ///
 /// # Handled methods
+///
+/// [`BUILTIN_METHODS`] is the machine-readable form of this table (and the
+/// input the compile-time contract is generated from); keep the two in step.
 ///
 /// | Class | Methods |
 /// |---|---|
