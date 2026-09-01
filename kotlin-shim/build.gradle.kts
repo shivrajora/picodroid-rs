@@ -34,10 +34,11 @@ artifacts {
 
 // ── Contract check (roadmap Session 5) ──────────────────────────────────────
 // Every kotlin/** reference the fixture apps make must resolve in this shim
-// (Direction A), unused shim members are reported (B), and every java/**
-// reference — from the shim and from the fixtures — must be a row of
-// jdk-allowlist.tsv (C), which picodroid-core's `jdk_allowlist_owners_are_served`
-// test cross-checks against the JVM's builtin tables.
+// (Direction A) and unused shim members are reported (B). A member the walk
+// finds only on a java/** supertype is served when the generated API
+// contract (sdk/api-contract.tsv) serves it there; the java/** references
+// themselves are checked by every app's `verifyApiContract` task against
+// that same contract (the former hand-maintained Direction C allowlist).
 val shimFixtures: Configuration by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
@@ -58,10 +59,10 @@ dependencies {
 
 val contractCheck by tasks.registering(picodroid.ShimContractTask::class) {
     group = "verification"
-    description = "kotlin-shim contract: fixture kotlin/** refs resolve, unused members, JDK allowlist"
+    description = "kotlin-shim contract: fixture kotlin/** refs resolve, unused members"
     shimClasses.set(tasks.named<JavaCompile>("compileJava").flatMap { it.destinationDirectory })
     fixtureClasses.from(shimFixtures)
-    allowlistFile.set(layout.projectDirectory.file("jdk-allowlist.tsv"))
+    contractFile.set(rootProject.layout.projectDirectory.file("sdk/api-contract.tsv"))
     // Direction B is an error since Session 6 (tiers 0-2 shipped with an empty
     // unused list): a shim member no fixture references is dead weight in every
     // Kotlin PAPK, so add the demo check first, then the member.

@@ -2,7 +2,7 @@
 # Build a .papk file for a given Java example app.
 #
 # This is now a thin wrapper over Gradle's `:examples:<app>:assemblePapk`
-# task. The plugin code lives in buildSrc/ — see docs/writing-apps.md.
+# task. The plugin code lives in buildSrc/ (PicodroidPapkPlugin.kt).
 #
 # Usage:
 #   ./scripts/build-apk.sh -a helloworld
@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 APP=""
 OUTPUT=""
+BOARD=""
 
 usage() {
   cat <<EOF
@@ -25,6 +26,10 @@ Options:
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
                         PICODROID_SHRINK=1. See docs/shrinker.md.
+  -b, --board  <name>   Target board: the API contract check also rejects
+                        classes that board drops (framework_class_excludes
+                        in its board.toml). Without it only the java/**
+                        contract is checked.
   -h, --help            Show this help message
 
 Apps:
@@ -37,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)       usage; exit 0 ;;
     -a|--app)        APP="$2";    shift 2 ;;
     -o|--output)     OUTPUT="$2"; shift 2 ;;
+    -b|--board)      BOARD="$2";  shift 2 ;;
     --shrink)        export PICODROID_SHRINK=1; shift ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -78,6 +84,12 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   GRADLE_EXTRA_ARGS=()
   if [[ -n "${PICODROID_NET_TEST_HOST:-}" ]]; then
     GRADLE_EXTRA_ARGS+=("-PpicodroidNetTestHost=${PICODROID_NET_TEST_HOST}")
+  fi
+  # The target board, when the caller knows it: verifyApiContract then also
+  # rejects references to classes that board excludes from its framework.
+  # A -P property for the same daemon-freshness reason as the shrink flag.
+  if [[ -n "$BOARD" ]]; then
+    GRADLE_EXTRA_ARGS+=("-Ppicodroid.board=${BOARD}")
   fi
   # gradle_lock_run: pre-commit runs lanes in parallel and more than one can
   # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew

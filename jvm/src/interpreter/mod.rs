@@ -33,7 +33,7 @@ mod tests;
 pub(crate) use helpers::array_class_name;
 /// The classfile-less hierarchy tables, exported so an embedder's tests can
 /// cross-check the classes its Kotlin/Java surface names against what the
-/// JVM serves (picodroid-core's `jdk_allowlist_owners_are_served`).
+/// JVM serves (picodroid-core's API contract generator, `api_contract.rs`).
 pub use helpers::{BUILTIN_INTERFACES, BUILTIN_SUPER};
 
 use crate::tunables::GC_THRESHOLD;

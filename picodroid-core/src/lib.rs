@@ -117,6 +117,11 @@ mod native_class_registry_tests;
 #[cfg(test)]
 #[path = "native_handler/method_tables.rs"]
 mod native_method_tables_tests;
+// Compile-time API contract: generates sdk/api-contract.tsv from the
+// runtime's own tables (and fails when the committed copy is stale).
+#[cfg(test)]
+#[path = "native_handler/api_contract.rs"]
+mod native_api_contract_tests;
 // HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
 // status-line/header rules would otherwise be the untested kind this shim
 // list exists to prevent.

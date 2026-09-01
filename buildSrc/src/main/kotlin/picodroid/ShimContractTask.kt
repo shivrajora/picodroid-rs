@@ -15,15 +15,17 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import picodroid.classfile.ApiContract
 import picodroid.classfile.ClassEntry
 import picodroid.classfile.ShimContract
 import java.io.File
 
 /**
- * `:kotlin-shim:contractCheck` — runs [ShimContract] over the compiled shim,
- * the fixture apps' compiled classes and `jdk-allowlist.tsv`; fails the build
- * on a Direction-A miss, a rejected owner, an allowlist gap, or (when
- * [strictUnused]) an unused shim member.
+ * `:kotlin-shim:contractCheck` — runs [ShimContract] over the compiled shim
+ * and the fixture apps' compiled classes, resolving `java/…` supertypes
+ * through the generated API contract (`sdk/api-contract.tsv`); fails the
+ * build on a Direction-A miss, a rejected owner, or (when [strictUnused]) an
+ * unused shim member.
  */
 abstract class ShimContractTask : DefaultTask() {
     @get:InputDirectory
@@ -36,8 +38,8 @@ abstract class ShimContractTask : DefaultTask() {
     abstract val fixtureClasses: ConfigurableFileCollection
 
     @get:InputFile
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val allowlistFile: RegularFileProperty
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val contractFile: RegularFileProperty
 
     @get:Input
     abstract val strictUnused: Property<Boolean>
@@ -56,8 +58,8 @@ abstract class ShimContractTask : DefaultTask() {
     fun run() {
         val shim = classesUnder(shimClasses.get().asFile)
         val fixtures = fixtureClasses.files.filter { it.isDirectory }.flatMap { classesUnder(it) }
-        val allowlist = ShimContract.parseAllowlist(allowlistFile.get().asFile.readText())
-        val report = ShimContract.check(shim, fixtures, allowlist, ShimContract.ContractOptions(strictUnused.get()))
+        val contract = ApiContract.parse(contractFile.get().asFile.readText())
+        val report = ShimContract.check(shim, fixtures, contract, ShimContract.ContractOptions(strictUnused.get()))
         val text = report.render()
         reportFile.get().asFile.apply { parentFile.mkdirs(); writeText(text) }
         logger.lifecycle(text.trimEnd())

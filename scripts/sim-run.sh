@@ -107,7 +107,7 @@ run_test() {
   # rather than two builds colliding.
   sim_log "  Building APK..."
   local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
-  local -a apk_args=(--app "$app" -o "$apk_path")
+  local -a apk_args=(--app "$app" -o "$apk_path" --board "$board")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -216,7 +216,7 @@ run_enviro_smoke() {
 
   # Per-mode path -- see the note in run_test.
   local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
-  local -a apk_args=(--app "$app" -o "$apk_path")
+  local -a apk_args=(--app "$app" -o "$apk_path" --board pico_enviro_mon)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
@@ -278,7 +278,7 @@ run_enviro_w_smoke() {
 
   # Per-mode path -- see the note in run_test.
   local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
-  local -a apk_args=(--app "$app" -o "$apk_path")
+  local -a apk_args=(--app "$app" -o "$apk_path" --board pico_enviro_mon_w)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"

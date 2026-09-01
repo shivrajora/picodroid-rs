@@ -308,7 +308,10 @@ build_firmware() {
       return 1
     fi
   else
-    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP"
+    # The board goes along so the API contract check rejects classes this
+    # board excludes from its framework (framework_class_excludes) at build
+    # time, not on device.
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
     APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
   fi
 

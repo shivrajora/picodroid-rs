@@ -171,6 +171,10 @@ Inline to `java/lang/Math`: `abs(F)F`, `sqrt(D)D`, `max(FF)F`, `pow(DD)D`, `floo
 
 ## 5. `java/**` references
 
+*2026-08-31: the Session 5 allowlist this section seeded is retired; the
+generated `sdk/api-contract.tsv` (android-parity roadmap E3) is the `java/**`
+surface of record, enforced per app by `verifyApiContract`.*
+
 ### 5.1 Java picoenvmon baseline (`out/picoenvmon-java/tuples.tsv`, 24 classes) — the Session 5 allowlist seed
 
 | owner | members (kinds) |

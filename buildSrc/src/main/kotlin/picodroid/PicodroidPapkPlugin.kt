@@ -16,11 +16,16 @@ import java.io.File
 /**
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
  *
- * Pipeline: compileJava -> (optional) shrinkClasses -> packPapk.
- * Kotlin apps (`picodroid-papk-kotlin`): kapt (stubs + @Inject processor) ->
- * compileKotlin + compileJava -> stageClasses (+ shim) -> stripClassMetadata
- * -> (optional) shrinkClasses -> packPapk. Java-only apps take the first path
- * untouched.
+ * Pipeline: compileJava -> verifyApiContract -> (optional) shrinkClasses ->
+ * packPapk. Kotlin apps (`picodroid-papk-kotlin`): kapt (stubs + @Inject
+ * processor) -> compileKotlin + compileJava -> stageClasses (+ shim) ->
+ * stripClassMetadata -> verifyApiContract -> (optional) shrinkClasses ->
+ * packPapk. Java-only apps take the first path untouched.
+ *
+ * `verifyApiContract` rejects java/… references pico-jvm does not serve
+ * (the generated sdk/api-contract.tsv) and, with `-Ppicodroid.board=<name>`,
+ * classes that board excludes from its framework. `-Ppicodroid.apiContract=`
+ * `error` (default) | `warn` | `off`.
  *
  * Shrinking gate: enabled by Gradle property `picodroid.shrink=true` or env
  * `PICODROID_SHRINK=1`. When enabled and a map is committed for the current
@@ -144,6 +149,27 @@ class PicodroidPapkPlugin : Plugin<Project> {
             classesOutputDir
         }
 
+        // Compile-time API contract (docs/designs/android-parity-roadmap-2026-08.md
+        // E3): scan the pre-shrink classes — original names, and for Kotlin
+        // apps the staged+stripped shim too — against sdk/api-contract.tsv and
+        // the target board's framework_class_excludes. Both knobs are -P
+        // properties, never env: a warm daemon's environment is frozen.
+        val apiContractMode: Provider<String> =
+            target.providers.gradleProperty("picodroid.apiContract").orElse("error")
+        val boardName: Provider<String> = target.providers.gradleProperty("picodroid.board")
+        val verifyApiContract = target.tasks.register("verifyApiContract", ApiContractTask::class.java) {
+            group = "verification"
+            description = "Reject java/… references pico-jvm does not serve, and classes the target board excludes"
+            classesDir.set(rawClassesInput)
+            contractFile.set(repoRoot.resolve("sdk/api-contract.tsv"))
+            mode.set(apiContractMode)
+            this.boardName.set(boardName)
+            boardToml.set(target.layout.file(boardName.map { BoardResolver.boardToml(repoRoot, it) }))
+            reportFile.set(target.layout.buildDirectory.file("reports/api-contract.txt"))
+            onlyIf { mode.get() != "off" }
+        }
+        target.tasks.named("check") { dependsOn(verifyApiContract) }
+
         val packClassesInput = if (frameworkMapVersion != ShrinkMapResolver.UNRELEASED) {
             val mapFile = ShrinkMapResolver.mapFile(repoRoot, frameworkMapVersion)
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
@@ -204,6 +230,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
         compileJava.configure { dependsOn(genNetCfg) }
 
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
+            dependsOn(verifyApiContract)
             classesDir.set(packClassesInput)
             packageName.set(target.name)
             version.set(manifest.version)

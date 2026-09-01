@@ -14,3 +14,48 @@
 
 // Defines: pub fn unshrink_class(name: &str) -> &str;
 include!(concat!(env!("OUT_DIR"), "/framework_unshrink.rs"));
+
+/// Un-shrink every `L<class>;` chunk of a descriptor. Class files loaded
+/// under `PICODROID_SHRINK=1` embed *shrunk* class names in descriptors
+/// (tools/class-shrink rewrites them), so a test that compares loaded
+/// descriptors against original names — `method_tables.rs`, the API
+/// contract generator — must run them through this first, or every
+/// object-typed row fails only in the shrink lane of `scripts/test.sh`.
+#[cfg(test)]
+pub fn unshrink_descriptor(desc: &str) -> String {
+    let mut out = String::with_capacity(desc.len());
+    let mut rest = desc;
+    while let Some(pos) = rest.find('L') {
+        let (head, tail) = rest.split_at(pos);
+        out.push_str(head);
+        let end = tail
+            .find(';')
+            .unwrap_or_else(|| panic!("unterminated class ref in descriptor {desc:?}"));
+        out.push('L');
+        out.push_str(unshrink_class(&tail[1..end]));
+        out.push(';');
+        rest = &tail[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{shrink_class, unshrink_descriptor};
+
+    /// `unshrink_descriptor` must invert whatever the active shrink map did
+    /// to a descriptor — constructed via `shrink_class` so it exercises the
+    /// real map in the shrink lane and identity in the no-shrink lane.
+    #[test]
+    fn unshrink_descriptor_inverts_active_map() {
+        assert_eq!(unshrink_descriptor("(IJ)Z"), "(IJ)Z");
+        let intent = shrink_class("picodroid/content/Intent");
+        let view = shrink_class("picodroid/view/View");
+        let input = format!("(L{intent};I)L{view};");
+        assert_eq!(
+            unshrink_descriptor(&input),
+            "(Lpicodroid/content/Intent;I)Lpicodroid/view/View;"
+        );
+    }
+}

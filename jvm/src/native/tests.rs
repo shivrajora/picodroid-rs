@@ -4532,6 +4532,146 @@ fn builtin_dispatch_classes_subset_of_names() {
     }
 }
 
+/// `BUILTIN_METHODS` is keyed by exactly the classes `BUILTIN_DISPATCH`
+/// serves — a dispatcher without rows would make the generated contract
+/// reject every use of that class, and rows for a class nothing dispatches
+/// would admit calls that die at run time.
+#[test]
+fn builtin_methods_cover_every_dispatch_class() {
+    for &(name, _fn) in BUILTIN_DISPATCH {
+        assert!(
+            BUILTIN_METHODS.iter().any(|(c, _)| *c == name),
+            "class {name:?} is in BUILTIN_DISPATCH but has no BUILTIN_METHODS entry"
+        );
+    }
+    for &(name, rows) in BUILTIN_METHODS {
+        assert!(
+            BUILTIN_DISPATCH.iter().any(|(c, _)| *c == name),
+            "class {name:?} has BUILTIN_METHODS rows but no BUILTIN_DISPATCH entry"
+        );
+        assert!(
+            BUILTIN_CLASS_NAMES.contains(&name),
+            "class {name:?} in BUILTIN_METHODS is missing from BUILTIN_CLASS_NAMES"
+        );
+        assert!(
+            !rows.is_empty(),
+            "class {name:?} has an empty BUILTIN_METHODS list"
+        );
+        for (i, (method, descs)) in rows.iter().enumerate() {
+            assert!(
+                !rows[..i].iter().any(|(m, _)| m == method),
+                "{name}.{method} is listed twice in BUILTIN_METHODS"
+            );
+            for d in descs.iter() {
+                assert!(
+                    d.starts_with('(') && d.contains(')') && !d.ends_with(')'),
+                    "{name}.{method}: {d:?} is not a JVM method descriptor"
+                );
+                if *method == "<init>" {
+                    assert!(d.ends_with(")V"), "{name}.<init>: {d:?} must return void");
+                }
+            }
+        }
+    }
+}
+
+/// `BUILTIN_INTERFACE_METHODS` names interfaces the JVM canonicalises and
+/// does not dispatch itself (their members resolve on the implementor).
+#[test]
+fn builtin_interface_methods_name_known_interfaces() {
+    for &(iface, rows) in BUILTIN_INTERFACE_METHODS {
+        assert!(
+            BUILTIN_CLASS_NAMES.contains(&iface),
+            "interface {iface:?} in BUILTIN_INTERFACE_METHODS is missing from BUILTIN_CLASS_NAMES"
+        );
+        assert!(
+            !BUILTIN_DISPATCH.iter().any(|(c, _)| *c == iface),
+            "{iface:?} has a dispatcher; list its methods in BUILTIN_METHODS instead"
+        );
+        assert!(!rows.is_empty(), "interface {iface:?} has no rows");
+        for (method, descs) in rows.iter() {
+            assert!(
+                !descs.is_empty(),
+                "{iface}.{method}: interface members are descriptor-exact"
+            );
+            for d in descs.iter() {
+                assert!(
+                    d.starts_with('(') && d.contains(')') && !d.ends_with(')'),
+                    "{iface}.{method}: {d:?} is not a JVM method descriptor"
+                );
+            }
+        }
+    }
+}
+
+/// The dispatcher source a class's rows are matched against.
+fn dispatcher_source(class: &str) -> &'static str {
+    match class {
+        "java/lang/String" => include_str!("string.rs"),
+        "java/lang/StringBuilder" => include_str!("string_builder.rs"),
+        "java/util/ArrayList" => include_str!("collections.rs"),
+        "java/util/HashMap"
+        | "java/util/LinkedHashMap"
+        | "java/util/HashMap$KeySet"
+        | "java/util/HashMap$Values"
+        | "java/util/HashMap$EntrySet"
+        | "java/util/Map$Entry" => include_str!("hashmap.rs"),
+        "java/util/HashSet" | "java/util/LinkedHashSet" => include_str!("hashset.rs"),
+        "java/util/Iterator" => include_str!("iterator.rs"),
+        "java/util/Random" => include_str!("random.rs"),
+        "java/lang/Enum" => include_str!("enumeration.rs"),
+        "java/lang/Class" => include_str!("class_obj.rs"),
+        "java/lang/Math" => include_str!("math.rs"),
+        "java/util/Arrays" | "java/lang/System" => include_str!("arrays.rs"),
+        "java/lang/Integer"
+        | "java/lang/Boolean"
+        | "java/lang/Long"
+        | "java/lang/Float"
+        | "java/lang/Double"
+        | "java/lang/Character"
+        | "java/lang/Byte"
+        | "java/lang/Short" => include_str!("boxed.rs"),
+        // Object and the Throwable family are dispatched from this module.
+        _ => include_str!("mod.rs"),
+    }
+}
+
+/// Direction B of the builtin method table: every row names an arm that
+/// exists. Text-level — the name must appear as a string literal in the
+/// dispatcher's source — which is enough to catch a misspelt or stale row
+/// without building a receiver per class. The reverse direction (an arm
+/// with no row) is not checked here; it surfaces as a contract failure.
+#[test]
+fn builtin_method_rows_name_real_arms() {
+    let interpreter = include_str!("../interpreter/ops_invoke.rs");
+    let mut missing = alloc::vec::Vec::new();
+    for &(class, rows) in BUILTIN_METHODS {
+        let source = dispatcher_source(class);
+        for (method, _) in rows {
+            let literal = alloc::format!("\"{method}\"");
+            let served = match (class, *method) {
+                // Resolved by the interpreter before dispatch.
+                ("java/lang/Object", "getClass") | ("java/util/ArrayList", "sort") => {
+                    interpreter.contains(&literal)
+                }
+                // `boxed_dispatch!` matches any `*Value` accessor by suffix.
+                (c, m) if c.starts_with("java/lang/") && m.ends_with("Value") => {
+                    source.contains("ends_with(\"Value\")")
+                }
+                _ => source.contains(&literal),
+            };
+            if !served {
+                missing.push(alloc::format!("{class}.{method}"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "BUILTIN_METHODS rows with no matching string literal in their dispatcher \
+         (stale row or typo): {missing:?}"
+    );
+}
+
 /// Every primitive sort funnels through one `u64`-key sort (see
 /// `native::arrays`), so the float key transforms have to reproduce
 /// `total_cmp` exactly — including the cases that make a naive bitwise

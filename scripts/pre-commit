@@ -165,7 +165,7 @@ STAGES=(
   "fmt_java|jvm|fast|jvm|Java formatting"
   "fmt_kotlin|jvm|fast|jvm|Kotlin formatting"
   "lint_md|jvm|fast|md|markdown lint"
-  "gradle_typecheck|jvm|fast|jvm|gradle compileJava + kotlin-shim contract + @Inject processor tests"
+  "gradle_typecheck|jvm|fast|jvm|gradle verifyApiContract (compile + API contract) + kotlin-shim contract + @Inject processor tests"
 
   "fmt_rust|host|fast|rust|cargo fmt"
   "clippy_sim|host|fast|rust|clippy (sim)"
@@ -416,12 +416,15 @@ stage_lint_md() {
 }
 
 stage_gradle_typecheck() {
-  # :kotlin-shim:contractCheck compiles the Kotlin fixture apps and proves every
-  # kotlin/** reference they make resolves in the shim, every java/** reference
-  # is allowlisted, and nothing in the shim is dead (warning).
-  if ! (cd "$REPO_ROOT" && gradle_lock_run ./gradlew compileJava :kotlin-shim:contractCheck :inject:compiler:test --console=plain); then
+  # verifyApiContract compiles every app (it depends on compileJava /
+  # compileKotlin) and rejects any java/** reference pico-jvm does not serve
+  # (sdk/api-contract.tsv, generated from the runtime's tables — see
+  # scripts/gen-api-contract.sh). :kotlin-shim:contractCheck proves every
+  # kotlin/** reference the Kotlin fixture apps make resolves in the shim and
+  # nothing in the shim is dead.
+  if ! (cd "$REPO_ROOT" && gradle_lock_run ./gradlew verifyApiContract :kotlin-shim:contractCheck :inject:compiler:test --console=plain); then
     echo ""
-    echo "ERROR: Java compilation, the kotlin-shim contract, or the @Inject processor tests failed."
+    echo "ERROR: Java compilation, the API contract, the kotlin-shim contract, or the @Inject processor tests failed."
     return 1
   fi
 }

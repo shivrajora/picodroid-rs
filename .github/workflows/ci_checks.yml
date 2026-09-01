@@ -186,8 +186,9 @@ jobs:
       - name: Test the @Inject annotation processor
         run: ./gradlew :inject:compiler:test --console=plain
       # Every kotlin/** reference the Kotlin fixture apps make resolves in
-      # kotlin-shim, and every java/** reference is allowlisted
-      # (docs/designs/kotlin-roadmap-2026-08.md Session 5).
+      # kotlin-shim (docs/designs/kotlin-roadmap-2026-08.md Session 5). The
+      # java/** contract is enforced per app by verifyApiContract, which
+      # assemblePapk above runs (android-parity roadmap E3).
       - name: Kotlin shim contract
         run: ./gradlew :kotlin-shim:contractCheck --console=plain
   sim-smoke:
