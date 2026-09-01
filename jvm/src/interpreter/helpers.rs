@@ -114,12 +114,19 @@ fn resolve_class_literal(
     class_objects: &mut ClassObjectCache,
     name_bytes: &'static [u8],
 ) -> Result<Value, JvmError> {
-    // The class must be loaded so getName() can read back a stable name and
-    // bytecode that follows (e.g. checkcast, instanceof) can resolve it.
-    classes
-        .iter()
-        .find(|c| c.class_name() == Some(name_bytes))
-        .ok_or(JvmError::ClassNotFound)?;
+    // The name must be one the JVM can hand back out: a loaded class, or a
+    // builtin the interpreter already canonicalises (`String.class`,
+    // `Runnable.class` — classfile-less by design, see `BUILTIN_CLASS_NAMES`).
+    // Anything else would give getName() an unstable name and leave a
+    // following checkcast/instanceof unresolvable.
+    let loaded = classes.iter().any(|c| c.class_name() == Some(name_bytes));
+    if !loaded {
+        let is_builtin = core::str::from_utf8(name_bytes)
+            .is_ok_and(|n| crate::native::BUILTIN_CLASS_NAMES.contains(&n));
+        if !is_builtin {
+            return Err(JvmError::ClassNotFound);
+        }
+    }
     class_object_for_name(classes, strings, objects, class_objects, name_bytes)
 }
 
@@ -542,6 +549,12 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
 /// `java/util/List` is a `Collection` and an `Iterable`). Consulted by
 /// [`is_instance_of`] at every level of the superclass chain and of the
 /// interface walk. Same registration rule as [`BUILTIN_SUPER`].
+///
+/// Every `java/**` interface lives here rather than in `sdk/java/`: apps
+/// compile against the JDK's `ct.sym` (`javac --release 8`, no bootclasspath
+/// override), which shadows any SDK file of the same name, and dispatch goes
+/// by the receiver's runtime class — so a `.java` file would document
+/// nothing, serve nothing, and cost its `.class` size on every board.
 pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
     (
         "java/util/ArrayList",

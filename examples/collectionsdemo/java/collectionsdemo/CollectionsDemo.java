@@ -3,6 +3,7 @@ package collectionsdemo;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import picodroid.app.Application;
@@ -87,6 +89,8 @@ public class CollectionsDemo extends Application {
     testEntrySet();
     testLinkedHashAliases();
     testToArray();
+    testInterfaceTypedDeclarations();
+    testInterfaceTypedSignatures();
 
     String passStr = String.valueOf(passed);
     String failStr = String.valueOf(failed);
@@ -578,5 +582,131 @@ public class CollectionsDemo extends Application {
     Object[] objs = list.toArray();
     check("toArray() length", objs.length == 2);
     check("toArray empty", new ArrayList<String>().toArray(new String[0]).length == 0);
+  }
+
+  // ── Interface-typed collections ───────────────────────────────────────────
+  //
+  // `Map`, `Set`, `List`, `Collection` and `Iterable` are classfile-less
+  // builtins: the SDK ships no .java for them (javac resolves them from the
+  // JDK's ct.sym), and the JVM dispatches on the receiver's runtime class,
+  // so an interface-typed variable, parameter or return type never needs one.
+  // These two tests pin that end to end.
+
+  /** A user class implementing the classfile-less {@code java.lang.Iterable}. */
+  static class Pair implements Iterable<String> {
+    @Override
+    public Iterator<String> iterator() {
+      ArrayList<String> backing = new ArrayList<String>();
+      backing.add("x");
+      backing.add("y");
+      return backing.iterator();
+    }
+  }
+
+  static void testInterfaceTypedDeclarations() {
+    // The most basic Java idiom there is.
+    Map<String, String> m = new HashMap<>();
+    m.put("k", "v");
+    check("Map-typed get", "v".equals(m.get("k")));
+    check("Map-typed size", m.size() == 1);
+    check("Map-typed containsKey", m.containsKey("k"));
+
+    List<String> l = new ArrayList<>();
+    l.add("a");
+    l.add("b");
+    check("List-typed get", "a".equals(l.get(0)));
+    check("List-typed size", l.size() == 2);
+    check("List-typed contains", l.contains("b"));
+
+    Set<String> s = new HashSet<>();
+    check("Set-typed add", s.add("p"));
+    check("Set-typed dup add", !s.add("p"));
+    check("Set-typed contains", s.contains("p"));
+
+    // Widening to the supertypes, both directions of the hierarchy.
+    Collection<String> c = l;
+    check("Collection-typed size", c.size() == 2);
+    check("Collection-typed isEmpty", !c.isEmpty());
+
+    Iterable<String> viaSet = s;
+    int seen = 0;
+    for (String x : viaSet) {
+      if ("p".equals(x)) {
+        seen = seen + 1;
+      }
+    }
+    check("Iterable-typed for-each over Set", seen == 1);
+
+    Iterable<String> viaUserClass = new Pair();
+    StringBuilder sb = new StringBuilder();
+    for (String x : viaUserClass) {
+      sb.append(x);
+    }
+    check("Iterable-typed for-each over user class", sb.toString().equals("xy"));
+
+    // instanceof / checkcast against the interfaces.
+    Object o = s;
+    check("HashSet instanceof Collection", o instanceof Collection);
+    check("HashSet instanceof Iterable", o instanceof Iterable);
+    check("HashSet not instanceof Map", !(o instanceof Map));
+    Set<String> back = (Set<String>) o;
+    check("checkcast back to Set", back.size() == 1);
+
+    // An explicit Iterator through the interface, including remove().
+    List<String> victims = new ArrayList<>();
+    victims.add("keep");
+    victims.add("drop");
+    Iterator<String> it = victims.iterator();
+    while (it.hasNext()) {
+      if ("drop".equals(it.next())) {
+        it.remove();
+      }
+    }
+    check("Iterator-typed remove", victims.size() == 1);
+    check("Iterator-typed remove kept the other", "keep".equals(victims.get(0)));
+
+    // Map.Entry as a declared type.
+    Map<String, Integer> counts = new HashMap<>();
+    counts.put("one", Integer.valueOf(1));
+    Iterator<Map.Entry<String, Integer>> entries = counts.entrySet().iterator();
+    check("entrySet iterator hasNext", entries.hasNext());
+    Map.Entry<String, Integer> entry = entries.next();
+    check("Map.Entry-typed getKey", "one".equals(entry.getKey()));
+    check("Map.Entry-typed getValue", entry.getValue().intValue() == 1);
+  }
+
+  /** Interfaces as parameter and return types, called with the concrete builtins. */
+  static int total(Collection<Integer> values) {
+    int sum = 0;
+    for (Integer v : values) {
+      sum = sum + v.intValue();
+    }
+    return sum;
+  }
+
+  static Map<String, Integer> buildScores() {
+    Map<String, Integer> out = new HashMap<>();
+    out.put("a", Integer.valueOf(3));
+    out.put("b", Integer.valueOf(4));
+    return out;
+  }
+
+  static void testInterfaceTypedSignatures() {
+    ArrayList<Integer> list = new ArrayList<>();
+    list.add(Integer.valueOf(1));
+    list.add(Integer.valueOf(2));
+    check("Collection param from ArrayList", total(list) == 3);
+
+    HashSet<Integer> set = new HashSet<>();
+    set.add(Integer.valueOf(5));
+    set.add(Integer.valueOf(6));
+    check("Collection param from HashSet", total(set) == 11);
+
+    Map<String, Integer> scores = buildScores();
+    check("Map return size", scores.size() == 2);
+    check("Map return value", scores.get("b").intValue() == 4);
+
+    int viaValues = total(scores.values());
+    check("Collection param from map values view", viaValues == 7);
   }
 }

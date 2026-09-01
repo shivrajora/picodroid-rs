@@ -621,3 +621,31 @@ Verified: a full `./scripts/pre-commit` leaves `HEAD` unchanged and the CSV
 
 The file now changes only when something deliberately records into it: the two
 nightlies, or a hand-run `parity-bench.sh`.
+
+### Removed from the nightlies — 2026-08-31
+
+The two runners no longer record at all. `sim-run.sh` and `hil-run.sh` had
+their entire backfill/trend/commit block deleted, so a nightly now finishes at
+the results summary and goes straight to the email report. The 33 accumulated
+`chore(bench):` commits were the visible cost, and the metric history was not
+being read often enough to justify them.
+
+Note which of the two fixes this is. The section above records that suppressing
+only the *commit* trades an unwanted commit for a permanently dirty tree — the
+wrong fix, made twice. This removes the write, not the commit, so there is
+nothing left to be dirty about.
+
+What survives:
+
+- **The 67,239 existing rows.** `bench/parity/history.csv` is still tracked and
+  untouched; `bench-report.py` reads it exactly as before. The trend data simply
+  ends at 2026-08-31 rather than extending nightly.
+- **`parity-bench.sh`.** A hand-run benchmark still appends, still honors
+  `PICODROID_BENCH_RECORD=0`, and still leaves the row uncommitted for the
+  human who asked for it. That was always the deliberate path.
+- **`bench-backfill.py` and `bench-report.py`.** Both still work and are still
+  wired into pre-commit's size ratchet (`--ratchet --sizes-from`), which never
+  touched the CSV.
+
+So `PICODROID_BENCH_RECORD` now only has an effect in `parity-bench.sh`; in the
+runners there is no longer any append for it to suppress.

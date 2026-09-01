@@ -21,5 +21,22 @@ public class ClassLit extends Application {
     Log.i("ClassLit", this.getClass() == ClassLit.class ? "getClass==literal" : "getClass diff");
     Object boxed = "text";
     Log.i("ClassLit", "string getClass=" + boxed.getClass().getName());
+
+    // Class literals on the classfile-less builtins. `java.lang.String` and
+    // `java.lang.Runnable` are served natively and ship no .class file, so
+    // `ldc` resolves them through BUILTIN_CLASS_NAMES rather than the loaded
+    // class table.
+    Class<String> sc = String.class;
+    Log.i(
+        "ClassLit",
+        "java.lang.String".equals(sc.getName()) ? "builtin literal ok" : "builtin literal WRONG");
+    Log.i("ClassLit", sc == String.class ? "builtin literal same" : "builtin literal diff");
+    Log.i(
+        "ClassLit",
+        "x".getClass() == String.class ? "getClass==builtin literal" : "getClass!=builtin");
+    Class<Runnable> rc = Runnable.class;
+    Log.i(
+        "ClassLit",
+        "java.lang.Runnable".equals(rc.getName()) ? "iface literal ok" : "iface literal WRONG");
   }
 }

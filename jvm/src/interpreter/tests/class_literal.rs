@@ -17,6 +17,8 @@ use crate::gc::GcState;
 //   #5: Utf8        "m"
 //   #6: Utf8        "()Z"      ← booleanReturn
 //   #7: Utf8        "Code"
+//   #8: Class       -> #9      ← neither loaded nor a builtin
+//   #9: Utf8        "Q"
 //
 // Bytecode:
 //   ldc #1            (0x12 0x01)  → push T.class
@@ -33,7 +35,7 @@ use crate::gc::GcState;
 
 static CLASS_T_LDC_IDENTITY: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version
-    0x00, 0x08, // cp_count=8
+    0x00, 0x0A, // cp_count=10
     0x07, 0x00, 0x02, // #1 Class -> #2
     0x01, 0x00, 0x01, b'T', // #2 Utf8 "T"
     0x07, 0x00, 0x04, // #3 Class -> #4
@@ -42,6 +44,8 @@ static CLASS_T_LDC_IDENTITY: &[u8] = &[
     0x01, 0x00, 0x01, b'm', // #5 Utf8 "m"
     0x01, 0x00, 0x03, b'(', b')', b'Z', // #6 Utf8 "()Z"
     0x01, 0x00, 0x04, b'C', b'o', b'd', b'e', // #7 Utf8 "Code"
+    0x07, 0x00, 0x09, // #8 Class -> #9
+    0x01, 0x00, 0x01, b'Q', // #9 Utf8 "Q"
     0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // access=1, this=#1, super=#3
     0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ifaces=0, fields=0, methods=1
     0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00,
@@ -113,21 +117,42 @@ fn ldc_class_literal_pushes_object_ref() {
 
 #[test]
 fn ldc_class_for_unknown_class_errors() {
-    // CP entry #1 references a class named "T" — but we never load any class.
-    // resolve_class_literal must return ClassNotFound (not panic, not InvalidBytecode).
+    // CP index #8 is `Class -> #9 = "Q"`: not loaded, and not a builtin
+    // either. resolve_class_literal must return ClassNotFound (not panic,
+    // not InvalidBytecode).
     let cf = ClassFile::parse(CLASS_T_LDC_IDENTITY).expect("parse failed");
     let mut classes = Vec::new();
-    // Override: pretend T isn't loaded. Easiest way is to load a *different*
-    // class — but we only have one bytestring. So strip the test class entirely
-    // and run a snippet that ldcs an unknown CP class index. For this test we
-    // skip the orchestration and call resolve_ldc directly.
     classes.push(cf);
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut class_objects = ClassObjectCache::new();
 
-    // CP index #3 is `Class -> #4 = "java/lang/Object"`. That class is not
-    // loaded, so the resolver must return ClassNotFound.
+    let cf_ref = &classes[0];
+    let result = crate::interpreter::helpers::resolve_ldc(
+        cf_ref,
+        &classes,
+        &mut strings,
+        &mut objects,
+        &mut class_objects,
+        8,
+    );
+    assert_eq!(result, Err(JvmError::ClassNotFound));
+}
+
+#[test]
+fn ldc_class_for_builtin_name_resolves() {
+    // CP index #3 is `Class -> #4 = "java/lang/Object"`, which has no class
+    // file and never will: the `java/**` types the JVM serves natively are
+    // classfile-less by design (`BUILTIN_CLASS_NAMES`). `Object.class`,
+    // `String.class` and `Runnable.class` must still resolve — before the
+    // builtin arm this was an uncatchable ClassNotFound.
+    let cf = ClassFile::parse(CLASS_T_LDC_IDENTITY).expect("parse failed");
+    let mut classes = Vec::new();
+    classes.push(cf);
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut class_objects = ClassObjectCache::new();
+
     let cf_ref = &classes[0];
     let result = crate::interpreter::helpers::resolve_ldc(
         cf_ref,
@@ -137,5 +162,14 @@ fn ldc_class_for_unknown_class_errors() {
         &mut class_objects,
         3,
     );
-    assert_eq!(result, Err(JvmError::ClassNotFound));
+    let Ok(Value::ObjectRef(class_obj)) = result else {
+        panic!("expected a Class object for java/lang/Object, got {result:?}");
+    };
+    assert_eq!(objects.class_name(class_obj), Some("java/lang/Class"));
+    match objects.get_field(class_obj, 0) {
+        Some(Value::Reference(idx)) => {
+            assert_eq!(strings.resolve(idx), Some("java/lang/Object"));
+        }
+        other => panic!("expected Value::Reference for slot 0, got {other:?}"),
+    }
 }

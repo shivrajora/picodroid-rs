@@ -447,41 +447,6 @@ sim_log "  Results: $RESULTS_FILE"
 sim_log "  Logs:    $RUN_LOG_DIR/"
 sim_log "========================================="
 
-# Append this run's benchmark metrics to bench/parity/history.csv and print a
-# drift summary. Informational only -- a slow perf regression should surface in
-# the morning report, but it must never fail the correctness run.
-# (docs/perf-campaign-2026-08.md S0)
-if [[ -x "$SCRIPT_DIR/bench-backfill.py" && "${PICODROID_BENCH_RECORD:-1}" == "1" ]]; then
-  sim_log "Appending benchmark metrics to bench/parity/history.csv..."
-  python3 "$SCRIPT_DIR/bench-backfill.py" --run-dir "$RUN_LOG_DIR" --quiet 2>&1 |
-    while IFS= read -r line; do sim_log "  bench: $line"; done || \
-    sim_log "  Metric backfill failed (non-fatal)."
-  python3 "$SCRIPT_DIR/bench-report.py" --trend wall_ms --env sim \
-    --app benchmark --mode no-shrink 2>/dev/null | tail -6 |
-    while IFS= read -r line; do sim_log "  trend: $line"; done || true
-  # Keep the working tree clean. These runs append to a tracked file, so
-  # without this every morning starts dirty -- and the reflex response to a
-  # dirty generated file, `git checkout --`, would silently destroy any row
-  # no log can rebuild (an ad-hoc parity-bench run whose temp log directory
-  # is gone, or the pre-2026-08-28 size rows).
-  #
-  # Commits that one path only, via a pathspec commit rather than `git add`,
-  # so nothing else a human left staged gets swept in. --no-verify because the
-  # hook is the 15-minute suite and this is a data append, not a code change.
-  # Never pushes: the cron's own `git pull --ff-only` stays happy with
-  # unpushed local commits unless the remote diverged, and pushing is a
-  # decision for a human.
-  if ! git -C "$REPO_ROOT" diff --quiet -- bench/parity/history.csv 2>/dev/null; then
-    if git -C "$REPO_ROOT" commit -q --no-verify \
-         -m "chore(bench): sim metrics for $RUN_ID" \
-         -- bench/parity/history.csv 2>/dev/null; then
-      sim_log "  bench: committed metrics for $RUN_ID"
-    else
-      sim_log "  bench: metric commit failed (non-fatal, tree left dirty)"
-    fi
-  fi
-fi
-
 # Send email report.
 if [[ "$SEND_EMAIL" == "true" ]]; then
   sim_log "Sending email report..."
