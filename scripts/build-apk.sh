@@ -79,7 +79,11 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   if [[ -n "${PICODROID_NET_TEST_HOST:-}" ]]; then
     GRADLE_EXTRA_ARGS+=("-PpicodroidNetTestHost=${PICODROID_NET_TEST_HOST}")
   fi
-  (cd "$REPO_ROOT" && ./gradlew ":examples:$APP:assemblePapk" --console=plain \
+  # gradle_lock_run: pre-commit runs lanes in parallel and more than one can
+  # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew
+  # invocations against one project directory contend on Gradle's project lock,
+  # and the papk they race over is what `pdb install` version-checks.
+  (cd "$REPO_ROOT" && gradle_lock_run ./gradlew ":examples:$APP:assemblePapk" --console=plain \
     "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}" \
     ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"})
 fi
