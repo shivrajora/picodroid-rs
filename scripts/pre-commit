@@ -242,7 +242,12 @@ fi
 
 JOBS_TOTAL="$(cpu_count)"
 HOST_TARGET="$(host_target)"
-APK_PATH="$REPO_ROOT/build/apks/helloworld.papk"
+# Deliberately NOT build/apks/helloworld.papk. That path is shared with
+# sim.sh, test.sh and anyone else on this checkout, and it is the file the
+# clippy legs embed, the flash gate links and the size ratchet measures -- a
+# concurrent `sim.sh --app helloworld` would swap it mid-run and the ratchet
+# would gate on someone else's build. This copy belongs to the run.
+APK_PATH="$REPO_ROOT/build/apks/pre-commit/helloworld.papk"
 
 RUN_DIR="$REPO_ROOT/build/pre-commit/$(date -u '+%Y-%m-%dT%H%M%S')"
 mkdir -p "$RUN_DIR/size"
@@ -381,7 +386,7 @@ stage_apk() {
   # Built once, here, in the serial prologue: every cargo lane embeds it, and
   # PICODROID_APK_PATH is a `rerun-if-env-changed` build.rs input, so a stable
   # path is also what keeps the lanes from invalidating each other.
-  bash "$SCRIPT_DIR/build-apk.sh" --app helloworld
+  bash "$SCRIPT_DIR/build-apk.sh" --app helloworld -o "$APK_PATH"
 }
 
 stage_fmt_java() {
