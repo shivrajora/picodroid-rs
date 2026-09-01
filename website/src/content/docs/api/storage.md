@@ -74,8 +74,10 @@ if (prefs.contains("device_name")) {
 
 | Class | Methods |
 |-------|---------|
-| `SharedPreferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getBoolean(String, boolean def)`, `getAllKeys()`, `edit()` |
+| `SharedPreferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
 | `Editor` | `putString`, `putInt`, `putLong`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()` |
+
+`getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
 
 `commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `SharedPreferences` instances are not thread-safe — synchronize externally if shared.
 

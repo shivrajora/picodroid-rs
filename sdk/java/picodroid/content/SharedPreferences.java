@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
+import java.util.HashMap;
+import java.util.Map;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
@@ -79,10 +81,26 @@ public final class SharedPreferences {
     return (i >= 0 && types[i] == T_BOOL) ? (intVals[i] != 0) : def;
   }
 
-  public String[] getAllKeys() {
-    String[] out = new String[count];
+  /**
+   * Every stored preference, as an unmodifiable-by-convention map from key to boxed value ({@code
+   * String}, {@code Integer}, {@code Long} or {@code Boolean}). Mirrors {@code
+   * android.content.SharedPreferences.getAll()}. The map is a fresh copy: mutating it does not
+   * touch the stored preferences.
+   */
+  public Map<String, ?> getAll() {
+    HashMap<String, Object> out = new HashMap<String, Object>();
     for (int i = 0; i < count; i++) {
-      out[i] = keys[i];
+      byte t = types[i];
+      if (t == T_STRING) {
+        out.put(keys[i], strVals[i]);
+      } else if (t == T_INT) {
+        out.put(keys[i], Integer.valueOf(intVals[i]));
+      } else if (t == T_BOOL) {
+        out.put(keys[i], Boolean.valueOf(intVals[i] != 0));
+      } else if (t == T_LONG) {
+        long v = (((long) longValsHi[i]) << 32) | (((long) longValsLo[i]) & 0xffffffffL);
+        out.put(keys[i], Long.valueOf(v));
+      }
     }
     return out;
   }

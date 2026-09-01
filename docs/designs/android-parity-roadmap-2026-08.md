@@ -196,6 +196,16 @@ row-*views* half of what session 2 built the row-*data* half of.
 
 ### E3. Compile-time API contract — not started
 
+**Why this is now the *only* compile-time fence (2026-08-31).** Nothing hides
+the JDK: every javac in the tree runs `--release 8` with no `-bootclasspath` /
+`--system` override, so `java.*` resolves from `ct.sym` and the SDK's own
+`java/**` files are shadowed on the app compile classpath. Apps therefore
+type-check against the JDK's *full* `String`, `List`, `Map` and friends while
+the device serves a subset — `new TreeMap<>()`, `map.forEach`, `list.removeIf`
+all compile and fail at run time. T2.2 confirmed an SDK stub cannot fix this
+(javac ignores it); only a post-compile constant-pool check against the
+runtime's own tables can.
+
 *Phase 1 (the valuable half).* A post-compile bytecode verifier in
 `PicodroidPapkPlugin.kt`: scan each app's constant pool against an allowlist
 **generated from the runtime's own tables** (`method_tables.rs`,
@@ -273,7 +283,9 @@ boards benefit.
 **T1.8 — persistence fills.** `Intent` long/float/double extras;
 `SharedPreferences.getFloat`/`putFloat`; `File.getName`/`getParent`/
 `mkdirs`/`createNewFile`/`list()` (`list()` needs a `HalFs` readdir —
-LittleFS supports it). `getAll()`/`getStringSet` wait for T2.2.
+LittleFS supports it). ~~`getAll()`~~ shipped with T2.2 (`Map<String, ?>`,
+replacing `getAllKeys()`); `getStringSet`/`putStringSet` are still open and
+need a new blob type tag, not interface plumbing.
 
 **T1.9 — `setInputType` + password masking (PARTIAL — the setter already
 shipped).** `706e14c` landed `EditText.setInputType(int)` and the full
@@ -286,17 +298,51 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 
 - **T2.1 — compile-contract verifier (E3 phase 1).** Parallel Gradle-only
   track; makes "it compiled" mean "it will run".
-- **T2.2 — collection interfaces as builtins.** `java.util.Map`/`Set`/`List`/
-  `Collection`/`Iterable`, `java.lang.CharSequence`/`Comparable`, implemented
-  by the existing builtins, so `Map<String,String> m = new HashMap<>()` — the
-  most basic Java idiom there is — compiles. Pathfinder for builtin-interface
-  plumbing, and a prerequisite for JSON `keys()`, `getAll()`, and T3.3.
-  **Partial 2026-08-31:** the *runtime* half landed via Kotlin Sessions 3/4 —
-  `helpers.rs` `BUILTIN_INTERFACES` maps `ArrayList`→List/Collection/Iterable,
-  `HashMap`→Map, `HashSet`→Set, plus `HashMap$KeySet`/`$Values` and
-  `Appendable`, so `instanceof` and interface dispatch work. The *compile* half
-  is untouched: there are no `Map`/`Set`/`Collection` files in
-  `sdk/java/java/util/`, so the acceptance example above still will not compile.
+- **T2.2 — collection interfaces as builtins. DONE 2026-08-31**, but not as
+  written: **the premise of the "compile half" was false.** The *runtime* half
+  landed via Kotlin Sessions 3/4 — `helpers.rs` `BUILTIN_INTERFACES` maps
+  `ArrayList`→List/Collection/Iterable, `HashMap`→Map, `HashSet`→Set, plus
+  `HashMap$KeySet`/`$Values` and `Appendable`, so `instanceof` and interface
+  dispatch work. The compile half needed **nothing**: apps and the SDK compile
+  with `javac --release 8` and no bootclasspath override, so `java.*` resolves
+  from the JDK's `ct.sym`, which precedes the SDK on the class path.
+  `Map<String,String> m = new HashMap<>()` has compiled and run since `cd7fc57`
+  (2026-08-28) — `collectionsdemo` was already asserting it (`Map<String,Integer>
+  asMap = lm`, `rttidemo`'s `(List<?>) o`) when this entry was written claiming
+  the opposite. An SDK `Map.java` could not have helped: javac would shadow it.
+
+  What actually shipped instead, once the premise was corrected:
+
+  1. **The six body-less `java/**` SDK stubs are retired** — `java/util/List`
+     (601 B), `Comparator` (254 B), `java/lang/Comparable` (235 B),
+     `AutoCloseable` (187 B), `Runnable` (127 B), `Cloneable` (109 B). Every one
+     was invisible to app javac (shadowed by ct.sym), never read by dispatch
+     (which goes by the receiver's runtime class) and never read by RTTI (which
+     walks `BUILTIN_INTERFACES`) — yet embedded on every board and loaded at
+     boot. **≈1.5 KB of flash per board, reclaimed**; `java/lang/AutoCloseable`
+     gained the one `BUILTIN_CLASS_NAMES` row it needed as a lambda SAM.
+  2. **A hygiene test makes it permanent.** `no_bodiless_java_framework_classes`
+     (`class_registry.rs`) fails any embedded `java/**` class with no Code
+     attribute and no `ACC_NATIVE` method, so the next "let's add `Map.java` to
+     document the surface" is rejected at test time with the reason.
+     (`javax/**` is exempt — not in ct.sym, so `javax/inject/Provider` really
+     must ship.)
+  3. **Class literals on builtins stopped being fatal.** `resolve_class_literal`
+     required the class to be *loaded*, so `String.class` / `Object.class` were
+     an uncatchable `ClassNotFound` and `List.class` only worked by accident of
+     the stub existing. It now accepts `BUILTIN_CLASS_NAMES` names, with
+     `getClass() == String.class` identity preserved (`examples/classlit`).
+  4. **The idioms are pinned** by `collectionsdemo`'s `testInterfaceTyped*`
+     (interface-typed locals, params, returns, `Iterator.remove`, `Map.Entry`,
+     a user `Iterable`, `instanceof`/checkcast) — inside langsuite, so the claim
+     cannot go stale silently again.
+  5. **Proof consumer:** `SharedPreferences.getAll()` returning `Map<String, ?>`
+     replaces the non-Android `getAllKeys()`.
+
+  The real compile-time gap is the *opposite* of what this entry described: the
+  JDK's full interfaces are visible, so `TreeMap`, `map.forEach` and
+  `list.removeIf` compile and then die at run time. Closing that is **T2.1**,
+  and it is now the only thing standing between "it compiled" and "it runs".
 - **T2.3 — Thread parity.** **DONE 2026-08-30** (concurrency-parity WP4/WP5:
   `Thread` API, `Object.wait`/`notify`, `ACC_SYNCHRONIZED`, monitor store
   with ownership; `setPriority` advisory — parity-audit THR-06). Original
@@ -371,7 +417,8 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 1. ~~E1 gating~~, ~~T1.1~~, ~~T1.2~~ (done)
 2. T2.7 shape corrections — early, before more code accretes on the wrong shapes
 3. Remaining Tier 1 + T2.1 verifier (parallel Gradle track)
-4. T2.2 collection interfaces
+4. ~~T2.2 collection interfaces~~ (done — and it turned out to be a
+   stub-retirement plus a hygiene test, not new SDK classes)
 5. T2.4 line-number stack traces
 6. T2.6 JSON + T2.3 Thread parity
 7. T3.1 Bundle → `onCreate(Bundle)` → save/restore
