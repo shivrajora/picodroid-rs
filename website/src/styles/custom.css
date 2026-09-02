@@ -1,6 +1,6 @@
 /*
  * Match the picodroid logo accent — the orange in `src/assets/picodroid.svg`
- * (#e08840 ≈ hsl(27, 73%, 56%)).
+ * (#f97316 ≈ hsl(25, 95%, 53%)).
  *
  * Both themes have to be set. Starlight defines its accent ramp on bare
  * `:root` (dark) *and* on `:root[data-theme='light']`, and the latter wins on
@@ -17,14 +17,14 @@
 
 /* Dark (Starlight's default theme). */
 :root {
-  --sl-color-accent-low: hsl(27, 45%, 18%);
-  --sl-color-accent: hsl(27, 73%, 50%);
-  --sl-color-accent-high: hsl(27, 80%, 80%);
+  --sl-color-accent-low: hsl(25, 60%, 18%);
+  --sl-color-accent: hsl(25, 95%, 50%);
+  --sl-color-accent-high: hsl(25, 95%, 80%);
 }
 
 /* Light. */
 :root[data-theme='light'] {
-  --sl-color-accent-low: hsl(27, 80%, 90%);
-  --sl-color-accent: hsl(27, 80%, 36%);
-  --sl-color-accent-high: hsl(27, 75%, 24%);
+  --sl-color-accent-low: hsl(25, 95%, 90%);
+  --sl-color-accent: hsl(25, 90%, 36%);
+  --sl-color-accent-high: hsl(25, 85%, 24%);
 }
