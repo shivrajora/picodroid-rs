@@ -336,9 +336,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
-        // Delegate to domain-specific sub-handlers. Each sub-dispatcher
-        // reverse-translates its own class_name arg at entry; we pass the
-        // raw (possibly-shrunk) name through.
+        // Delegate to domain-specific sub-handlers.
         if let result @ Some(_) = pio::dispatch(class_name, method_name, ctx) {
             return result;
         }
