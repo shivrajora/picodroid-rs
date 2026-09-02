@@ -5,11 +5,11 @@
 //! names `A`, `B`, …, `Z`, `AA`, … under one of two synthetic top-level
 //! packages, so descriptor length stays minimal:
 //!
-//! - `a/` — framework classes (`picodroid/**`, `javax/**`), reverse-translated
-//!   by picodroid-core's generated `unshrink_class` at native-dispatch entry.
-//! - `b/` — `java/**` classes, which pico-jvm serves natively and matches by
-//!   original name; the JVM reverse-translates `b/` names at the class-file
-//!   boundary (`jvm/src/class_file/names.rs`) and never sees them elsewhere.
+//! - `a/` — framework classes (`picodroid/**`, `javax/**`).
+//! - `b/` — `java/**` classes, which pico-jvm serves natively.
+//!
+//! Neither is translated at run time: the Rust runtime matches both through
+//! constants generated from the active map (`build_support/names.rs`).
 //!
 //! Each namespace has its own counter, so the two suffix sequences are
 //! allocated independently and never collide. Java reserved keywords are

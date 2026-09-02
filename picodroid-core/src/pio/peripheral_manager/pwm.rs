@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use crate::shrink_names::c;
 
 /// Parses a "GPx" name string, allocates a Pwm object with default config (1 kHz, 0% duty,
 /// disabled), and initializes the hardware.
@@ -26,7 +27,7 @@ pub fn open_pwm(
         .filter(|&p| p <= 29)
         .ok_or(JvmError::InvalidReference)?;
 
-    let obj_idx = alloc_peripheral_with_id(objects, "picodroid/pio/Pwm", fields::pwm::PIN, pin)?;
+    let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Pwm, fields::pwm::PIN, pin)?;
 
     // Store default config fields
     objects

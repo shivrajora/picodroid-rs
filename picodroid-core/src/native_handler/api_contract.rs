@@ -192,6 +192,10 @@ pub const TOLERATED: &[(&str, &str, &str, &str)] = &[
 /// `(class, why)`.
 pub const NAME_ONLY_CLASSES: &[(&str, &str)] = &[
     (
+        "java/lang/invoke/LambdaMetafactory",
+        "bootstrap-method owner of every invokedynamic; the interpreter matches the name and builds the lambda itself",
+    ),
+    (
         "java/util/AbstractList",
         "compile-time superclass of the kotlin-shim's EnumEntriesList; its <init> falls through to Object",
     ),
@@ -232,8 +236,16 @@ mod tests {
     /// name-level row an empty desc.
     type Row = (String, String, String);
 
+    /// Rows are original names. The JVM's tables are spelled as loaded
+    /// (`c::` / `m::` / `d::`), so every input is reverse-translated — a
+    /// no-op for the SDK rows and the hand-written tables, which are
+    /// original already.
     fn row(owner: &str, name: &str, desc: &str) -> Row {
-        (owner.to_string(), name.to_string(), desc.to_string())
+        (
+            unshrink_class(owner).to_string(),
+            unshrink_member(name).to_string(),
+            unshrink_descriptor(desc),
+        )
     }
 
     fn utf8(cf: &ClassFile, index: u16, what: &str) -> String {
@@ -427,11 +439,19 @@ mod tests {
         out.push_str("#\n# ── Hierarchy ──\n");
         let mut edges: BTreeSet<String> = BTreeSet::new();
         for (child, parent) in BUILTIN_SUPER {
-            edges.insert(format!("@extends\t{child}\t{parent}"));
+            edges.insert(format!(
+                "@extends\t{}\t{}",
+                unshrink_class(child),
+                unshrink_class(parent)
+            ));
         }
         for (class, ifaces) in BUILTIN_INTERFACES {
             for i in ifaces.iter() {
-                edges.insert(format!("@implements\t{class}\t{i}"));
+                edges.insert(format!(
+                    "@implements\t{}\t{}",
+                    unshrink_class(class),
+                    unshrink_class(i)
+                ));
             }
         }
         for e in &edges {

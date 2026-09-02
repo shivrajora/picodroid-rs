@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::array_heap::encode_ref;
+use crate::names::c;
 use alloc::format;
 
 #[test]
@@ -80,8 +81,8 @@ fn gc_traces_suppressed_through_live_owner() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
-    let suppressed = objects.alloc("java/lang/RuntimeException").unwrap();
+    let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
+    let suppressed = objects.alloc(c::java_lang_RuntimeException).unwrap();
     objects.add_suppressed(owner, suppressed);
 
     // Only the owner is rooted; the suppressed Throwable is reachable
@@ -112,8 +113,8 @@ fn gc_drops_suppressed_table_with_owner() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
-    let suppressed = objects.alloc("java/lang/RuntimeException").unwrap();
+    let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
+    let suppressed = objects.alloc(c::java_lang_RuntimeException).unwrap();
     objects.add_suppressed(owner, suppressed);
 
     let frames = [];
@@ -142,7 +143,7 @@ fn gc_traces_exception_message_through_live_owner() {
 
     // A dynamically-built message ("x = " + v) is reachable only through
     // the message side table once the construction expression is done.
-    let owner = objects.alloc("java/lang/RuntimeException").unwrap();
+    let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
     let msg = strings.intern_dyn(b"dynamic message").unwrap();
     objects.register_exception_message(owner, msg);
 
@@ -1094,7 +1095,7 @@ fn gc_retains_hashmap_entries() {
     let statics = StaticFieldStore::new();
 
     // Create a HashMap with ObjectRef key and ObjectRef value
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
@@ -1132,7 +1133,7 @@ fn gc_collects_unreachable_hashmap() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
     objects.map_put(buf_idx, Value::Int(1), Value::Int(10), &strings);
@@ -1160,7 +1161,7 @@ fn gc_hashmap_key_keeps_object_alive() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
@@ -1189,7 +1190,7 @@ fn gc_hashmap_value_keeps_object_alive() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
@@ -1218,7 +1219,7 @@ fn gc_hashset_retains_members() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let set_obj = objects.alloc("java/util/HashSet").unwrap();
+    let set_obj = objects.alloc(c::java_util_HashSet).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(set_obj, 0, Value::Int(buf_idx as i32));
 
@@ -1254,7 +1255,7 @@ fn gc_stress_hashmap_churn() {
 
     let mut last_map = 0u16;
     for i in 0u16..200 {
-        let map_obj = objects.alloc("java/util/HashMap").unwrap();
+        let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
         let buf_idx = objects.map_alloc().unwrap();
         objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
         for j in 0..5 {
@@ -1308,7 +1309,7 @@ fn gc_stress_hashmap_large_map() {
     let statics = StaticFieldStore::new();
     let mut gc = GcState::new();
 
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
@@ -1368,12 +1369,12 @@ fn gc_collects_iterator() {
     let statics = StaticFieldStore::new();
 
     // Create a list and an iterator over it
-    let list_obj = objects.alloc("java/util/ArrayList").unwrap();
+    let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
     objects.list_add(buf_idx, Value::Int(10));
 
-    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
         iter_obj,
         IteratorState {
@@ -1416,13 +1417,13 @@ fn gc_iterator_pins_temporary_list() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let list_obj = objects.alloc("java/util/ArrayList").unwrap();
+    let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
-    let elem = objects.alloc("java/lang/Object").unwrap();
+    let elem = objects.alloc(c::java_lang_Object).unwrap();
     objects.list_add(buf_idx, Value::ObjectRef(elem));
 
-    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
         iter_obj,
         IteratorState {
@@ -1477,16 +1478,16 @@ fn gc_map_view_pins_temporary_map() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let map_obj = objects.alloc("java/util/HashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
-    let key = objects.alloc("java/lang/Object").unwrap();
+    let key = objects.alloc(c::java_lang_Object).unwrap();
     objects.map_put(buf_idx, Value::ObjectRef(key), Value::Int(1), &mut strings);
 
-    let view = objects.alloc("java/util/HashMap$KeySet").unwrap();
+    let view = objects.alloc(c::java_util_HashMap_KeySet).unwrap();
     objects.set_field(view, 0, Value::Int(buf_idx as i32));
     objects.set_field(view, 1, Value::ObjectRef(map_obj));
-    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
         iter_obj,
         IteratorState {
@@ -1523,12 +1524,12 @@ fn gc_retains_iterator_and_source() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let list_obj = objects.alloc("java/util/ArrayList").unwrap();
+    let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
     objects.list_add(buf_idx, Value::Int(10));
 
-    let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+    let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
         iter_obj,
         IteratorState {
@@ -1575,7 +1576,7 @@ fn gc_stress_iterator_churn() {
     let mut gc = GcState::new();
 
     // Create one ArrayList
-    let list_obj = objects.alloc("java/util/ArrayList").unwrap();
+    let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
     for i in 0..10 {
@@ -1585,7 +1586,7 @@ fn gc_stress_iterator_churn() {
     // Create 500 iterators on the same list, each abandoned after partial iteration
     let mut last_iter = 0u16;
     for i in 0u16..500 {
-        let iter_obj = objects.alloc("java/util/Iterator").unwrap();
+        let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
         objects.iter_register(
             iter_obj,
             IteratorState {
@@ -1894,7 +1895,7 @@ fn gc_traces_and_frees_linked_hash_map_like_hash_map() {
     let mut strings = StringTable::new();
     let statics = StaticFieldStore::new();
 
-    let map_obj = objects.alloc("java/util/LinkedHashMap").unwrap();
+    let map_obj = objects.alloc(c::java_util_LinkedHashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
     let key_obj = objects.alloc("Key").unwrap();

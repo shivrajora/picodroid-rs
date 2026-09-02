@@ -14,6 +14,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::PendingServiceOp;
 use super::{PendingOp, PicodroidNativeHandler};
+use crate::shrink_names::c;
 
 /// Try to handle a `(class, method)` call. Returns `Some(...)` only when
 /// this dispatcher recognises the method.
@@ -36,7 +37,7 @@ pub(super) fn dispatch(
     // NotificationManager.{notify,cancel} — gated on the class because
     // `notify` collides with `Object.notify()`, which the JVM's builtin
     // handler owns.
-    if class_name == "picodroid/app/NotificationManager" {
+    if class_name == c::picodroid_app_NotificationManager {
         return match method_name {
             m::notify => Some(handle_notification_notify(ctx)),
             m::cancel => Some(handle_notification_cancel(ctx)),

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::Executor;
+use crate::names::c;
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
@@ -392,7 +393,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 if count > u16::MAX as i32 {
                     // Unsatisfiable regardless of GC — `as u16` used to
                     // truncate the length silently (bugbash J5).
-                    return Err(self.runtime_fault("java/lang/OutOfMemoryError"));
+                    return Err(self.runtime_fault(c::java_lang_OutOfMemoryError));
                 }
                 match self.arrays.alloc(atype, count as u16) {
                     Some(arr_idx) => {
@@ -420,7 +421,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     return Err(JvmError::NegativeArraySize);
                 }
                 if count > u16::MAX as i32 {
-                    return Err(self.runtime_fault("java/lang/OutOfMemoryError"));
+                    return Err(self.runtime_fault(c::java_lang_OutOfMemoryError));
                 }
                 match self
                     .arrays

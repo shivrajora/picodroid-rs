@@ -7,6 +7,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::m;
 
 /// Java's `Random` LCG: `seed = (seed * 0x5DEECE66D + 0xB) & ((1 << 48) - 1)`.
 const MULTIPLIER: i64 = 0x5DEECE66D;
@@ -89,7 +90,7 @@ pub(crate) fn dispatch(
             ctx.objects.set_field(this, 1, Value::Null);
             Some(Ok(None))
         }
-        "setSeed" => {
+        m::setSeed => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -103,7 +104,7 @@ pub(crate) fn dispatch(
                 _ => Some(Err(JvmError::InvalidReference)),
             }
         }
-        "nextInt" => {
+        m::nextInt => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -145,7 +146,7 @@ pub(crate) fn dispatch(
                 }
             }
         }
-        "nextLong" => {
+        m::nextLong => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -162,7 +163,7 @@ pub(crate) fn dispatch(
             // half via `(int) -> long` cast, so we mirror that with a wrap.
             Some(Ok(Some(Value::Long((hi << 32).wrapping_add(lo)))))
         }
-        "nextBoolean" => {
+        m::nextBoolean => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -172,7 +173,7 @@ pub(crate) fn dispatch(
                 Err(e) => Some(Err(e)),
             }
         }
-        "nextFloat" => {
+        m::nextFloat => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -182,7 +183,7 @@ pub(crate) fn dispatch(
                 Err(e) => Some(Err(e)),
             }
         }
-        "nextDouble" => {
+        m::nextDouble => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -199,7 +200,7 @@ pub(crate) fn dispatch(
             let bits = (hi << 27) + lo;
             Some(Ok(Some(Value::Double(bits as f64 / (1u64 << 53) as f64))))
         }
-        "nextGaussian" => {
+        m::nextGaussian => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -232,7 +233,7 @@ pub(crate) fn dispatch(
                 return Some(Ok(Some(Value::Double(v1 * multiplier))));
             }
         }
-        "nextBytes" => {
+        m::nextBytes => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

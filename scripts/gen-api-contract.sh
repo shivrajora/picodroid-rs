@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Regenerate sdk/api-contract.tsv — the java/** surface pico-jvm serves —
-# from the runtime's own tables, and sdk/member-names.tsv — every method and
-# field the SDK declares (the source of the `shrink_names::m` consts) — then
-# prove both fresh copies pass their currency tests.
+# from the runtime's own tables, sdk/class-names.tsv — every class the
+# runtime may name (the source of the `c::` consts) — and
+# sdk/member-names.tsv — every method and field the SDK declares (the
+# source of the `m::` consts) — then prove the fresh copies pass their
+# currency tests.
 #
 # The generators are picodroid-core's `api_contract_is_current` and
 # `member_names_are_current` tests (picodroid-core/src/native_handler/
@@ -31,6 +33,11 @@ PICODROID_APK_PATH="$APK_PATH" PICODROID_UPDATE_API_CONTRACT=1 \
   cargo test -p picodroid-core --target "$HOST_TARGET" api_contract_is_current -- --nocapture 2>&1 \
   | grep -E "^wrote |^test result|panicked|error" || true
 
+echo "==> Regenerating sdk/class-names.tsv..."
+PICODROID_APK_PATH="$APK_PATH" PICODROID_UPDATE_CLASS_NAMES=1 \
+  cargo test -p picodroid-core --target "$HOST_TARGET" class_names_are_current -- --nocapture 2>&1 \
+  | grep -E "^wrote |^test result|panicked|error" || true
+
 echo "==> Regenerating sdk/member-names.tsv..."
 PICODROID_APK_PATH="$APK_PATH" PICODROID_UPDATE_MEMBER_NAMES=1 \
   cargo test -p picodroid-core --target "$HOST_TARGET" member_names_are_current -- --nocapture 2>&1 \
@@ -40,8 +47,8 @@ echo "==> Verifying the regenerated files pass their currency tests..."
 # A fresh member-names.tsv is a build.rs input (the m:: consts), so this run
 # also rebuilds against it.
 PICODROID_APK_PATH="$APK_PATH" \
-  cargo test -p picodroid-core --target "$HOST_TARGET" -- api_contract member_names 2>&1 \
+  cargo test -p picodroid-core --target "$HOST_TARGET" -- api_contract member_names class_names 2>&1 \
   | grep -E "^test |^test result"
 
 echo "==> Change against the committed copies:"
-(cd "$REPO_ROOT" && git --no-pager diff --stat -- sdk/api-contract.tsv sdk/member-names.tsv || true)
+(cd "$REPO_ROOT" && git --no-pager diff --stat -- sdk/api-contract.tsv sdk/member-names.tsv sdk/class-names.tsv || true)

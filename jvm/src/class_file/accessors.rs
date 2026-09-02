@@ -53,12 +53,11 @@ impl ClassFile {
         data.get(off + 2..off + 2 + len)
     }
 
-    /// [`Self::cp_utf8`] for a slot that holds a class name: reverse-translates
-    /// a shrunk `b/…` name (`names::unshrink_java`). Every accessor that
-    /// resolves a `CONSTANT_Class` routes through here, so nothing past the
-    /// class-file boundary sees a shrunk `java/**` name.
+    /// [`Self::cp_utf8`] for a slot that holds a class name. Names are used
+    /// exactly as the class file spells them: under `--shrink` every table
+    /// the JVM matches against is spelled the same way (`crate::names`).
     pub fn cp_class_utf8(&self, index: u16) -> Option<&'static [u8]> {
-        self.cp_utf8(index).map(super::names::unshrink_java)
+        self.cp_utf8(index)
     }
 
     /// Returns the Utf8 bytes for this class's name (e.g. b"apps/HelloWorld").

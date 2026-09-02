@@ -73,12 +73,16 @@ v0.16.0, **method and field names** (see [Member names](#member-names)).
 Class names collapse into two synthetic packages, each with its own counter: `a/`
 for framework classes (`picodroid/**`, `javax/**`; 42 of them in the first
 cut) and, since v0.15.0, `b/` for the `java/**` classes pico-jvm serves
-natively. The JVM reverse-translates `b/` names at its class-file
-boundary (`jvm/src/class_file/names.rs`) — its own tables, `catch`
-matching, `instanceof`, `Class.getName()` and native dispatch all keep
-seeing `java/lang/String` — and compares descriptors, which stay shrunk on
-flash, through a translating `desc_eq`. Both spellings of a `java/**` name
-remain valid, so a PAPK shrunk with an older map still loads.
+natively. Nothing translates either prefix back at run time: the Rust
+runtime is compiled against constants generated from the active map
+(`c::java_lang_String` is `"java/lang/String"` in a no-shrink build and
+`"b/AQ"` under `--shrink` — see [Native dispatch](#native-dispatch--every-name-generated)),
+so the JVM's tables, `catch` matching, `instanceof`, native dispatch and
+`Class.getName()` all use the one spelling the class files carry. A
+`--shrink` image contains no original name at all, exactly as a ProGuard
+build does; `"x".getClass().getName()` returns `b.AQ`. Build without
+`--shrink` for readable names, or pipe a shrunk log through
+`scripts/retrace.sh` (see [Reading a shrunk log](#reading-a-shrunk-log)).
 
 - Order: sort original internal names lexicographically.
 - Suffix: bijective base-26 (`A`, `B`, …, `Z`, `AA`, `AB`, …), skipping
@@ -104,21 +108,26 @@ and in your `MainActivity` override, and at every call site, so overrides
 and callers stay in lockstep without any per-class analysis. JVM method
 and field namespaces are disjoint, so one target serves both kinds.
 
+What is mapped: every method and field name the SDK declares, javac's
+synthetics (`$VALUES`, `lambda$…`, `access$…`) included, **and every
+member name in `sdk/api-contract.tsv`** — `toString`, `equals`,
+`hashCode`, `run`, `compare`, `compareTo`, `hasNext`, `next`, `close`,
+`getMessage`, `name`, `ordinal`, `get`, `put`, `size`, `append`, … Those
+belong to `java/**` classes that have no class file (pico-jvm serves them
+from Rust arms), and until v0.17.0 they were kept because the arms
+matched them by literal. The arms now match through the generated `m::`
+constants, so an app's `Point.toString()` and the interpreter's `"" +
+point` rename in lockstep and the mapped name is found exactly as the
+original was.
+
 What is never mapped (`cut-release` enforces all of it):
 
-- `<init>` / `<clinit>`, javac synthetics (`$VALUES`, `lambda$…`), names of
-  two characters or fewer, and every member of a `java/**` or `kotlin/**`
-  class or of an annotation interface;
-- **every member name in `sdk/api-contract.tsv`** — `toString`, `equals`,
-  `hashCode`, `run`, `compare`, `compareTo`, `hasNext`, `next`, `close`,
-  `getMessage`, `name`, `ordinal`, `get`, `put`, `size`, `append`, … These
-  belong to `java/**` classes that have **no class file** (pico-jvm serves
-  them from Rust arms), so the name itself is the contract: an app's
-  `Point.toString()` renamed to `q` would never be found by the
-  interpreter's `"" + point`, which invokes `toString` by literal and falls
-  through to the builtin `Object.toString`;
-- `[[member]]` entries in `sdk/keep.toml` (`main`, `injectMembers` — invoked
-  by literal from Rust on app classes).
+- `<init>` / `<clinit>`, names of two characters or fewer, and every
+  member of a `kotlin/**` class (the shim is reserved, not renamed) or of
+  an annotation interface;
+- `[[member]]` entries in `sdk/keep.toml` (`main`, `injectMembers` — app
+  entry points invoked by literal from Rust on classes the SDK never
+  declares, kept the way ProGuard keeps `main`).
 
 Targets are `a`–`z`, `A`–`Z`, then two characters (letter + letter/digit)
 with all-lowercase pairs excluded — apps declare members called `id`,
@@ -140,15 +149,16 @@ active map has member rows. `papk-pack --shrink-map` translates the
 `onCreate` it looks for in the entry point the same way.
 
 **Compatibility.** Class renames are additive, so an older PAPK keeps
-resolving on newer firmware. The first member map renamed *existing*
-members, which that rule cannot survive: firmware at or past the member
-floor (`compat::MEMBER_SHRINK_FLOOR` = `0.16.0`, recorded as
-`member-floor` in every map from there on) rejects a shrunk PAPK cut
-before it with `FrameworkVersionMismatch` (`pdb install` says *PAPK was
-shrunk before method/field names were*). Every workflow rebuilds PAPK and
-firmware together; the check turns the stale case into a clear error
-instead of a runtime `NoSuchMethod`. Un-keeping a member later would need
-a new floor — don't.
+resolving on newer firmware. A map that renames *existing* members
+breaks that rule, so it moves the member floor
+(`compat::MEMBER_SHRINK_FLOOR`, recorded as `member-floor` in every map
+from v0.16.0 on): v0.16.0 introduced member renames, v0.17.0 extended them
+to the contract members, and firmware at or past the floor rejects a
+shrunk PAPK cut before it with `FrameworkVersionMismatch` (`pdb install`
+says *PAPK was shrunk before method/field names were*). Every workflow
+rebuilds PAPK and firmware together; the check turns the stale case into
+a clear error instead of a runtime `NoSuchMethod`. Un-keeping another
+member later would need another floor.
 
 ## Enabling shrinking
 
@@ -176,8 +186,8 @@ sides of the build call it:
    framework classes, if shrinking is on and the active version isn't
    `0.0.0`, applies the map to them and embeds the shrunk output via
    `FRAMEWORK_CLASSES`. Also writes `framework_mapping_version.rs`
-   (the version string the firmware advertises) and
-   `framework_unshrink.rs` (the reverse-translation table).
+   (the version string the firmware advertises) and `names.rs` (the
+   `c::` / `m::` / `d::` constants, spelled through the same map).
 
 2. **Apps (`scripts/build-apk.sh`)**: if shrinking is on, runs
    `class-shrink shrink-dir` on the app's `.class` output. The map
@@ -256,54 +266,74 @@ Two things to keep in mind:
 | Firmware    | PAPK        | Accepted? | Why |
 |-------------|-------------|-----------|-----|
 | `0.0.0`     | `0.0.0`     | Yes       | Both unshrunk, names match. |
-| `v` ≥ 0.16.0 | `v'` < 0.16.0 | No (`FrameworkVersionMismatch`) | PAPK predates the member floor: its member names are unshrunk, the firmware's are not. |
+| `v` ≥ 0.17.0 | `v'` < 0.17.0 | No (`FrameworkVersionMismatch`) | PAPK predates the member floor: names the firmware now spells mapped are verbatim in the PAPK. |
 | `v` (≥1)    | `v'` (≥1) and `v' ≤ v` | Yes | Append-only maps: every shrunk name the PAPK uses is still present in firmware. |
 | `v` (≥1)    | `v'` (≥1) and `v' > v` | No (`FrameworkVersionMismatch`) | PAPK may reference shrunk names added after firmware's release. |
 | `0.0.0`     | non-zero    | No        | PAPK's shrunk refs don't exist in unshrunk firmware. |
 | non-zero    | `0.0.0`     | No        | PAPK's original refs don't exist in shrunk firmware. |
 | anything    | unversioned (legacy, pre-M1) | Only if firmware is `0.0.0` (`FrameworkVersionMissing` otherwise) | Backward compat. |
 
-## Native dispatch — class names reverse-translated, method names generated
+## Native dispatch — every name generated
+
+Rust never spells a Java class, member or descriptor as a string literal.
+`build_support/names.rs` — run by both `jvm/build.rs` and
+`picodroid-core/build.rs` — turns three committed lists into three
+`const` modules whose *values* are whatever the loaded framework spells:
+
+| Module | Source | Example | no-shrink | `--shrink` |
+|---|---|---|---|---|
+| `c::` | `sdk/class-names.tsv` + the contract's classes | `c::picodroid_pio_Gpio` | `"picodroid/pio/Gpio"` | `"a/S"` |
+| `m::` | `sdk/member-names.tsv` + the contract's members | `m::setValue` | `"setValue"` | `"uQ"` |
+| `d::` | `sdk/descriptors.tsv` | `d::String__V` | `"(Ljava/lang/String;)V"` | `"(Lb/AQ;)V"` |
 
 Every `(class, method)` match arm in `picodroid-core/src/native_handler/**`
-uses the **original** internal class name (e.g. `"picodroid/pio/Gpio"`). At
-each dispatcher's entry we call `crate::shrink_names::unshrink_class`
-once, so the incoming shrunk name is translated back to the original
-literal before the match runs. Method names take the other route: there is
-no runtime translation. `crate::shrink_names::m` holds one `const` per SDK
-method name whose *value* is whatever the loaded framework spells it, and
-every arm and upcall matches through it:
+and `jvm/src/native/**`, every `DISPATCH_SITES` row, every
+`PICODROID_NATIVE_CLASSES` / `BUILTIN_CLASS_NAMES` entry, every `catch`
+and `instanceof` table, and every Rust-side allocation goes through them:
 
 ```rust
-use crate::shrink_names::m;
+use crate::shrink_names::{c, m};
 
 pub fn dispatch(class_name: &str, method_name: &str, ctx: &mut NativeContext<'_>)
     -> Option<Result<Option<Value>, JvmError>>
 {
-    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
-        ("picodroid/pio/Gpio", m::setValue) => ...,   // m::setValue == "setValue", or "uQ" under --shrink
+        (c::picodroid_pio_Gpio, m::setValue) => ...,
         // ...
     }
 }
 ```
 
-`unshrink_class` is code-generated at build time by `picodroid-core/build.rs`
-(emitting `framework_unshrink.rs` into `OUT_DIR`) as a `match` on `&'static str`;
-when no map is active it's an identity passthrough — zero cost beyond one
-function call. The `m` module comes from the same build script
-(`framework_member_names.rs`), out of the committed `sdk/member-names.tsv`
-— every method the SDK declares, kept current by the
-`member_names_are_current` test and regenerated by
-`scripts/gen-api-contract.sh` — crossed with the active map. A `const` in a
-match pattern compiles to exactly the code the literal did, so dispatch
-costs nothing extra in either mode (and the shrunk 1–2-byte names make
-every failed-arm compare cheaper). Three tests keep this honest:
-`handled_rows_use_member_consts`, `no_sdk_method_literals_in_dispatch`
-(no `"setText"`-style literal anywhere in dispatch or upcall code) and
-`no_builtin_name_is_ever_mapped`. Test-only `unshrink_member` /
-`shrink_member` let the corpus-reading tests compare against
-original-name tables in both lanes.
+A `const` in a match pattern compiles to exactly the code the literal
+did, so dispatch costs nothing in either mode, and a shrink build has no
+second copy of any name — the `unshrink_class` match this replaced was
+12 KB of code plus 5 KB of original names in every shrink image. The
+lists are kept current by picodroid-core's `class_names_are_current` /
+`member_names_are_current` tests (`scripts/gen-api-contract.sh`
+regenerates them); `sdk/descriptors.tsv` is hand-maintained. Three tests
+keep the invariant: `handled_rows_use_member_consts`,
+`no_original_name_literals` (no `"java/…"`, `"picodroid/…"`, `"(L…;)…"`
+or served-member literal in any non-test source of either crate), and
+`names_agree_with_pico_jvm` (both crates generated the same spellings).
+`pre-commit --full` additionally links the rp2350 `--release --shrink`
+image and greps it (`scripts/check-shrunk-image.sh`). Test-only
+`unshrink_class` / `unshrink_member` / `unshrink_descriptor` and the
+fixture respeller `pico_jvm::names::spelled` let the corpus-reading tests
+and the JVM's hand-assembled class-file fixtures run in both lanes.
+
+## Reading a shrunk log
+
+A `--shrink` firmware prints mapped names in `Class.getName()`, uncaught
+exception banners, stack traces and `pdb` output. `scripts/retrace.sh`
+(`class-shrink retrace --map <file>`) is the host-side inverse, as
+ProGuard's `retrace` is: it substitutes `a/DK` / `a.DK` / `b/AK` / `b.AK`
+tokens and member targets in `.name(` position back to their originals
+and passes everything else through.
+
+```bash
+./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
+./scripts/retrace.sh sdk/shrink-maps/v0.17.0.toml < build/hil/logs/foo.shrink.log
+```
 
 ## Keep list
 
@@ -319,16 +349,13 @@ original-name tables in both lanes.
   these classes literally, and maps are generated from the SDK set anyway,
   so this documents the invariant more than it enforces it.
 
-- `[[member]]` names (`main`, `injectMembers`): methods Rust invokes by
-  literal on *app* classes. The much larger member keep set — every
-  `java/**` member pico-jvm serves — is not listed here; `cut-release`
-  reads it from `sdk/api-contract.tsv` (see [Member names](#member-names)).
+- `[[member]]` names (`main`, `injectMembers`): app entry points Rust
+  invokes by literal on classes the SDK never declares.
 
-Add an entry here before adding new framework surface that Rust
-references by name in a way the reverse-translation layer can't cover.
-`java/**` is deliberately absent since v0.15.0: those names are shrunk
-under `b/` and undone inside pico-jvm, so nothing in Rust ever matches a
-shrunk `java/**` spelling.
+Nothing else is kept. New framework surface referenced from Rust goes
+through the generated constants (`scripts/gen-api-contract.sh` adds the
+name to the lists); adding a keep is a permanent cost in every shrink
+image and, for a member, a compatibility floor.
 
 ## Cutting a release
 
@@ -348,13 +375,15 @@ find sdk/java -name '*.java' -print0 \
 # append-only invariant is enforced automatically; --extra-names feeds the
 # java/** names the framework never references itself from the committed
 # list of everything pico-jvm serves; --members allocates method/field
-# targets, keeping every --keep-contract member name and reserving every
-# name the --reserve tree spells.
+# targets for everything the SDK declares plus the --contract member
+# column, reserving every name the --reserve tree spells. --floor (not
+# shown) re-bases member-floor for a cut that renames names the previous
+# map left verbatim.
 cargo run -p class-shrink -- cut-release --members \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
-  --keep-contract sdk/api-contract.tsv \
+  --contract sdk/api-contract.tsv \
   --reserve kotlin-shim/build/classes/java/main \
   --base sdk/shrink-maps/v<previous>.toml \
   --version <new> \
@@ -371,9 +400,11 @@ up the new map automatically.
 - `tools/class-shrink/` — the shrinker binary and library.
 - `sdk/keep.toml` — keep list.
 - `sdk/shrink-maps/v*.toml` — one file per release, immutable.
-- `picodroid-core/src/shrink_names.rs` — one-line module that `include!`s the
-  generated `unshrink_class` function from `OUT_DIR` (each family, e.g.
-  `platforms/rp/src/shrink_names.rs`, re-exports it).
+- `sdk/class-names.tsv`, `sdk/member-names.tsv`, `sdk/descriptors.tsv` —
+  the inputs of the generated `c::` / `m::` / `d::` constants.
+- `picodroid-core/src/shrink_names.rs` and `jvm/src/names.rs` — one-line
+  modules that `include!` the generated `names.rs` from each crate's
+  `OUT_DIR`.
 
 ## What's generated at build time (OUT_DIR)
 
@@ -381,8 +412,9 @@ Always emitted:
 
 - `framework_mapping_version.rs` — `pub const FRAMEWORK_MAP_VERSION: &str = "…";`
   (`"0.0.0"` when shrinking is off).
-- `framework_unshrink.rs` — `unshrink_class(name) -> &str`. Identity
-  passthrough when shrinking is off; a reverse-lookup match when on.
+- `names.rs` — the `c::` / `m::` / `d::` constant modules
+  (`build_support/names.rs`), spelled through the active map; original
+  spellings when shrinking is off. Plus test-only reverse translators.
 - `framework_classes.rs` — `pub static FRAMEWORK_CLASSES: &[&[u8]] = &[…];`
   pointing at (shrunk or raw) class files, plus
   `FRAMEWORK_CLASSES_DEBUG_STRIPPED`. For a debug-assertions-off build the

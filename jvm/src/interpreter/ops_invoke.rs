@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
+use crate::names::{c, d, m};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
@@ -74,7 +75,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if stack_len >= arg_count {
                 match frame.stack[stack_len - arg_count] {
                     Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
-                    Value::Reference(_) => "java/lang/String",
+                    Value::Reference(_) => c::java_lang_String,
                     Value::ArrayRef(idx) => helpers::array_class_name(
                         self.arrays
                             .atype(idx)
@@ -100,7 +101,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
         // arbitrary object; run its `toString()` before the native arm sees it.
-        if crate::class_file::desc_starts_with(desc_str.as_bytes(), b"(Ljava/lang/Object;)")
+        if desc_str.starts_with(crate::names::d::p_Object__)
             && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
         {
             return Ok(());
@@ -108,7 +109,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Same for the objects inside `String.format`'s varargs array
         // (bugbash S4) — done here, on this executor, so no second
         // interpreter is monomorphised for the builtin handler.
-        if class_str == "java/lang/String" && name_str == "format" {
+        if class_str == c::java_lang_String && name_str == m::format {
             self.stringify_format_args(desc_str, frames)?;
         }
 
@@ -202,13 +203,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frames: &mut Vec<Frame>,
     ) -> Result<bool, JvmError> {
         let target = match (class_str, name_str) {
-            ("java/lang/StringBuilder", "append") => {
-                "(Ljava/lang/Object;)Ljava/lang/StringBuilder;"
-            }
-            ("java/lang/String", "valueOf") => "(Ljava/lang/Object;)Ljava/lang/String;",
+            (c::java_lang_StringBuilder, m::append) => d::Object__StringBuilder,
+            (c::java_lang_String, m::valueOf) => d::Object__String,
             _ => return Ok(false),
         };
-        if !crate::class_file::desc_eq(desc_str.as_bytes(), target.as_bytes()) {
+        if desc_str != target {
             return Ok(false);
         }
         let Some(&arg) = frames.last().ok_or(JvmError::InvalidBytecode)?.stack.last() else {
@@ -219,11 +218,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .objects
                 .class_name(idx)
                 .ok_or(JvmError::InvalidReference)?,
-            Value::ArrayRef(_) => "java/lang/Object",
+            Value::ArrayRef(_) => c::java_lang_Object,
             _ => return Ok(false),
         };
-        const TO_STRING: &str = "toString";
-        const TO_STRING_DESC: &str = "()Ljava/lang/String;";
+        const TO_STRING: &str = m::toString;
+        const TO_STRING_DESC: &str = d::__String;
         if let Some((ci, mi)) = helpers::find_method_walking_cached(
             &mut self.method_cache,
             self.classes,
@@ -265,10 +264,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         desc_str: &str,
         frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
-        if !crate::class_file::desc_eq(
-            desc_str.as_bytes(),
-            b"(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
-        ) {
+        if desc_str != crate::names::d::String_aObject__String {
             return Ok(());
         }
         let Some(&Value::ArrayRef(arr)) =
@@ -289,27 +285,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if matches!(
                 self.objects.class_name(obj),
                 Some(
-                    "java/lang/Integer"
-                        | "java/lang/Long"
-                        | "java/lang/Float"
-                        | "java/lang/Double"
-                        | "java/lang/Boolean"
-                        | "java/lang/Character"
-                        | "java/lang/Short"
-                        | "java/lang/Byte"
+                    c::java_lang_Integer
+                        | c::java_lang_Long
+                        | c::java_lang_Float
+                        | c::java_lang_Double
+                        | c::java_lang_Boolean
+                        | c::java_lang_Character
+                        | c::java_lang_Short
+                        | c::java_lang_Byte
                 )
             ) {
                 continue;
             }
             // The array is rooted through the operand stack; the returned
             // Reference is stored straight back into it.
-            if let Some(s @ Value::Reference(_)) = self.invoke_java(
-                frames,
-                Value::ObjectRef(obj),
-                "toString",
-                "()Ljava/lang/String;",
-                &[],
-            )? {
+            if let Some(s @ Value::Reference(_)) =
+                self.invoke_java(frames, Value::ObjectRef(obj), m::toString, d::__String, &[])?
+            {
                 if let Some(enc) = crate::array_heap::encode_ref(s) {
                     let _ = self.arrays.store(arr, i, enc);
                 }
@@ -391,7 +383,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // until `<init>` completes, so the rewrite is exhaustive; the
         // placeholder object becomes garbage and is collected normally.
         let string_init_swap = |frame: &mut Frame, args: &[Value], result: Option<Value>| -> bool {
-            if native_class != "java/lang/String" || name_str != "<init>" {
+            if native_class != c::java_lang_String || name_str != "<init>" {
                 return false;
             }
             let (Some(Value::ObjectRef(placeholder)), Some(Value::Reference(interned))) =
@@ -491,7 +483,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .cp_method_handle(bsm.method_ref)
             .ok_or(JvmError::InvalidBytecode)?;
         let (bsm_owner, _, _) = cf.cp_methodref(bsm_ref).ok_or(JvmError::InvalidBytecode)?;
-        if bsm_owner != b"java/lang/invoke/LambdaMetafactory" {
+        if bsm_owner != c::java_lang_invoke_LambdaMetafactory.as_bytes() {
             let owner = core::str::from_utf8(bsm_owner).unwrap_or("?");
             return Err(JvmError::UnsupportedInvokeDynamic(owner));
         }
@@ -505,7 +497,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // would call `<init>` on nothing — reject it up front.
         if !matches!(ref_kind, 5 | 6 | 7 | 9) {
             return Err(JvmError::UnsupportedInvokeDynamic(
-                "java/lang/invoke/LambdaMetafactory(newInvokeSpecial)",
+                "LambdaMetafactory(newInvokeSpecial)",
             ));
         }
 
@@ -578,12 +570,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // `Object.getClass()` resolves here rather than in a handler: it needs
         // the class-object cache (not part of NativeContext) so that
         // `obj.getClass() == MyClass.class` identity holds against `ldc`.
-        if method_name == "getClass"
-            && crate::class_file::desc_eq(descriptor.as_bytes(), b"()Ljava/lang/Class;")
-        {
+        if method_name == m::getClass && descriptor == crate::names::d::__Class {
             let name: Option<&'static str> = match args.first().copied() {
                 Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
-                Some(Value::Reference(_)) => Some("java/lang/String"),
+                Some(Value::Reference(_)) => Some(c::java_lang_String),
                 _ => None,
             };
             if let Some(name) = name {
@@ -604,9 +594,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // way back into the interpreter. Here the whole `Executor` — the real
         // handler included — is still in hand, and `ctx` has not been built
         // yet, so nothing is borrowed across the upcall.
-        if method_name == "sort"
-            && class_name == "java/util/ArrayList"
-            && crate::class_file::desc_eq(descriptor.as_bytes(), b"(Ljava/util/Comparator;)V")
+        if method_name == m::sort
+            && class_name == c::java_util_ArrayList
+            && descriptor == crate::names::d::Comparator__V
         {
             self.sort_list_with_comparator(frames, args)?;
             return Ok(None);
@@ -655,7 +645,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     // whose parent is Object reports no super name, and a
                     // name with neither class file nor table row still
                     // inherits Object's identity equals/hashCode/toString.
-                    None if current != "java/lang/Object" => "java/lang/Object",
+                    None if current != c::java_lang_Object => c::java_lang_Object,
                     None => break,
                 },
             };
@@ -813,7 +803,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             // reject it rather than silently leaving the list unsorted.
             let npe = self
                 .objects
-                .alloc("java/lang/NullPointerException")
+                .alloc(c::java_lang_NullPointerException)
                 .ok_or(JvmError::StackOverflow)?;
             return Err(JvmError::Exception(npe));
         }
@@ -844,8 +834,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         buf_idx: u16,
         cmp: Value,
     ) -> Result<(), JvmError> {
-        const COMPARE: &str = "compare";
-        const COMPARE_DESC: &str = "(Ljava/lang/Object;Ljava/lang/Object;)I";
+        const COMPARE: &str = m::compare;
+        const COMPARE_DESC: &str = d::Object_Object__I;
         let len = self.objects.list_len(buf_idx);
         for i in 1..len {
             let mut j = i;
@@ -887,7 +877,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .objects
                 .class_name(idx)
                 .ok_or(JvmError::InvalidReference),
-            Value::Reference(_) => Ok("java/lang/String"),
+            Value::Reference(_) => Ok(c::java_lang_String),
             _ => Err(JvmError::InvalidReference),
         }
     }
@@ -1000,7 +990,7 @@ fn lambda_frame(
             }
             Value::Null => {
                 let npe = objects
-                    .alloc("java/lang/NullPointerException")
+                    .alloc(c::java_lang_NullPointerException)
                     .ok_or(JvmError::StackOverflow)?;
                 return Err(JvmError::Exception(npe));
             }

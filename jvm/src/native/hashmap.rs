@@ -5,6 +5,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 /// Extract the map buffer index stored in field 0 of a HashMap receiver.
 fn get_map_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -34,7 +35,7 @@ pub(crate) fn dispatch(
                 .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
             Some(Ok(None))
         }
-        "put" => {
+        m::put => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -44,7 +45,7 @@ pub(crate) fn dispatch(
             let old = ctx.objects.map_put(buf_idx, key, value, ctx.strings);
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
-        "get" => {
+        m::get => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -53,7 +54,7 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(Value::Null))))
         }
-        "remove" => {
+        m::remove => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -62,7 +63,7 @@ pub(crate) fn dispatch(
             let old = ctx.objects.map_remove(buf_idx, key, ctx.strings);
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
-        "containsKey" => {
+        m::containsKey => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -71,7 +72,7 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_key(buf_idx, key, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        "containsValue" => {
+        m::containsValue => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -80,14 +81,14 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_value(buf_idx, value, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        "size" => {
+        m::size => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32))))
         }
-        "isEmpty" => {
+        m::isEmpty => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -96,7 +97,7 @@ pub(crate) fn dispatch(
                 (ctx.objects.map_len(buf_idx) == 0) as i32,
             ))))
         }
-        "clear" => {
+        m::clear => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -104,7 +105,7 @@ pub(crate) fn dispatch(
             ctx.objects.map_clear(buf_idx);
             Some(Ok(None))
         }
-        "getOrDefault" => {
+        m::getOrDefault => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -114,9 +115,9 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(default))))
         }
-        "keySet" => view(ctx, "java/util/HashMap$KeySet"),
-        "values" => view(ctx, "java/util/HashMap$Values"),
-        "entrySet" => view(ctx, "java/util/HashMap$EntrySet"),
+        m::keySet => view(ctx, c::java_util_HashMap_KeySet),
+        m::values => view(ctx, c::java_util_HashMap_Values),
+        m::entrySet => view(ctx, c::java_util_HashMap_EntrySet),
         _ => None,
     }
 }
@@ -157,16 +158,16 @@ pub(crate) fn dispatch_view(
         Err(e) => return Some(Err(e)),
     };
     match method_name {
-        "iterator" => {
+        m::iterator => {
             let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let source = match ctx.objects.class_name(recv) {
-                Some("java/util/HashMap$KeySet") => IterSource::MapKeys(buf_idx),
-                Some("java/util/HashMap$Values") => IterSource::MapValues(buf_idx),
+                Some(c::java_util_HashMap_KeySet) => IterSource::MapKeys(buf_idx),
+                Some(c::java_util_HashMap_Values) => IterSource::MapValues(buf_idx),
                 _ => IterSource::MapEntries(buf_idx),
             };
-            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+            let iter_obj = match ctx.objects.alloc(c::java_util_Iterator) {
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
@@ -182,19 +183,19 @@ pub(crate) fn dispatch_view(
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
-        "size" => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
+        m::size => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
         // contains(): `k in map.keys` / `v in map.values` — the entry view has
         // no useful equality (entries are fresh objects) and stays unanswered.
-        "contains" => {
+        m::contains => {
             let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let probe = ctx.args.get(1).copied().unwrap_or(Value::Null);
             let found = match ctx.objects.class_name(recv) {
-                Some("java/util/HashMap$KeySet") => {
+                Some(c::java_util_HashMap_KeySet) => {
                     ctx.objects.map_contains_key(buf_idx, probe, ctx.strings)
                 }
-                Some("java/util/HashMap$Values") => {
+                Some(c::java_util_HashMap_Values) => {
                     ctx.objects.map_contains_value(buf_idx, probe, ctx.strings)
                 }
                 _ => return None,
@@ -212,8 +213,8 @@ pub(crate) fn dispatch_entry(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     let slot = match method_name {
-        "getKey" => 0,
-        "getValue" => 1,
+        m::getKey => 0,
+        m::getValue => 1,
         _ => return None,
     };
     let Some(Value::ObjectRef(idx)) = ctx.args.first().copied() else {

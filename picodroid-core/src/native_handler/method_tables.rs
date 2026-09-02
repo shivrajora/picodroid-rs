@@ -710,8 +710,14 @@ mod tests {
                 );
             }
         }
+        // The JVM's rows are spelled as loaded; the platform tables above are
+        // original names, so reverse-translate before unioning.
         for &(class, method, desc) in pico_jvm::native::BUILTIN_SDK_HANDLED {
-            let row = (class.to_string(), method.to_string(), desc.to_string());
+            let row = (
+                crate::shrink_names::unshrink_class(class).to_string(),
+                unshrink_member(method).to_string(),
+                unshrink_descriptor(desc),
+            );
             assert!(
                 handled.insert(row),
                 "row duplicated between platform tables and BUILTIN_SDK_HANDLED: \

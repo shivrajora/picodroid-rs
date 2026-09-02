@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::names::c;
+use crate::names::spelled;
 
 // ── Test 1: Basic <clinit> via getstatic ─────────────────────────────────
 //
@@ -258,7 +260,7 @@ pub(super) static CLASS_CALLER: &[u8] = &[
 fn clinit_basic_getstatic() {
     // getstatic on C.x triggers <clinit> which sets x=42.
     // Method m() (index 1) does: getstatic C.x, ireturn
-    let cf = ClassFile::parse(CLASS_CLINIT_BASIC).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_CLINIT_BASIC)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -288,7 +290,7 @@ fn clinit_runs_only_once() {
     // m() does: getstatic D.x, getstatic D.x, iadd, ireturn
     // <clinit> sets x=10.  If clinit ran per-getstatic we'd still get 20,
     // but the real check is that it executes without error and returns 20.
-    let cf = ClassFile::parse(CLASS_CLINIT_RUNS_ONCE).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_CLINIT_RUNS_ONCE)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -436,7 +438,7 @@ static CLASS_CLINIT_THROWS_CAUGHT: &[u8] = &[
 
 #[test]
 fn clinit_throw_wraps_in_exception_in_initializer_error() {
-    let cf = ClassFile::parse(CLASS_CLINIT_THROWS).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_CLINIT_THROWS)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -462,7 +464,7 @@ fn clinit_throw_wraps_in_exception_in_initializer_error() {
         Err(JvmError::UncaughtException {
             exception_class, ..
         }) => {
-            assert_eq!(exception_class, "java/lang/ExceptionInInitializerError");
+            assert_eq!(exception_class, c::java_lang_ExceptionInInitializerError);
         }
         other => panic!("expected uncaught EIIE, got {other:?}"),
     }
@@ -472,7 +474,7 @@ fn clinit_throw_wraps_in_exception_in_initializer_error() {
 fn clinit_throw_eiie_caught_by_error_handler() {
     // m()'s catch(java/lang/Error) must receive the wrapper — proves both
     // the wrap and that EIIE -> Error resolves via the builtin hierarchy.
-    let cf = ClassFile::parse(CLASS_CLINIT_THROWS_CAUGHT).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_CLINIT_THROWS_CAUGHT)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -499,11 +501,11 @@ fn clinit_throw_eiie_caught_by_error_handler() {
     // The wrapper's cause must be the original RuntimeException, recorded
     // in the cause side table for Throwable.getCause().
     let eiie = (0..objects.slot_count() as u16)
-        .find(|&i| objects.class_name(i) == Some("java/lang/ExceptionInInitializerError"))
+        .find(|&i| objects.class_name(i) == Some(c::java_lang_ExceptionInInitializerError))
         .expect("EIIE object exists");
     let cause = objects.get_exception_cause(eiie).expect("cause recorded");
     assert_eq!(
         objects.class_name(cause),
-        Some("java/lang/RuntimeException")
+        Some(c::java_lang_RuntimeException)
     );
 }

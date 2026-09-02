@@ -8,21 +8,25 @@
 //!
 //!   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
 //!                [--base <prev-map.toml>] [--extra-names <file>]...
-//!                [--members --version <semver> --keep-contract <tsv>
-//!                 [--reserve <dir>]...]
+//!                [--members --version <semver> --contract <tsv>
+//!                 [--reserve <dir>]... [--floor]]
 //!       Generate a new release map covering every non-kept class under
 //!       <classes-dir> (allocated under `a/`) plus every `java/**` name
-//!       those classes reference (allocated under `b/`, which pico-jvm
-//!       reverse-translates). --extra-names adds names from a text file —
+//!       those classes reference (allocated under `b/`). --extra-names adds
+//!       names from a text file —
 //!       one per line, or tab-separated rows such as sdk/api-contract.tsv,
 //!       which lists every java/** class pico-jvm serves. When --base is
 //!       given, its entries are copied verbatim and only net-new names get
 //!       fresh short names (the append-only rule). Deterministic: same
 //!       input → same output.
-//!       --members also allocates [[member]] targets for the framework's
-//!       method and field names: --keep-contract's member column is never
-//!       mapped, --reserve trees (the kotlin-shim) never yield a target, and
-//!       --version becomes `member-floor` on the first member cut.
+//!       --members also allocates [[member]] targets for every method and
+//!       field name the SDK declares plus --contract's member column (the
+//!       java/** members the runtime serves); --reserve trees (the
+//!       kotlin-shim) never yield a target, and --version becomes
+//!       `member-floor` on the first member cut or with --floor.
+//!
+//!   retrace --map <file.toml>
+//!       Rewrite shrunk names in stdin back to originals (host-side inverse).
 //!
 //!   shrink-dir --in <dir> --out <dir> --map <file.toml>
 //!       Rewrite every .class file under --in using --map's classes and
@@ -51,6 +55,7 @@ fn main() -> ExitCode {
         "cut-release" => cmd_cut_release(&args[2..]),
         "shrink-dir" => cmd_shrink_dir(&args[2..]),
         "verify" => cmd_verify(&args[2..]),
+        "retrace" => cmd_retrace(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{}", USAGE);
             ExitCode::SUCCESS
@@ -98,6 +103,7 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
     let mut reserve_dirs: Vec<PathBuf> = Vec::new();
     let mut contract_path: Option<PathBuf> = None;
     let mut cut_version: Option<String> = None;
+    let mut floor = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -109,9 +115,13 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
                 reserve_dirs.push(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
             }
-            "--keep-contract" => {
+            "--contract" | "--keep-contract" => {
                 contract_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
+            }
+            "--floor" => {
+                floor = true;
+                i += 1;
             }
             "--version" => {
                 cut_version = Some(args.get(i + 1).expect("value").to_string());
@@ -203,12 +213,12 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
             Some(p) => match shrink::read_contract_member_names(p) {
                 Ok(n) => n,
                 Err(e) => {
-                    eprintln!("Error reading --keep-contract {}: {e}", p.display());
+                    eprintln!("Error reading --contract {}: {e}", p.display());
                     return ExitCode::from(1);
                 }
             },
             None => {
-                eprintln!("Error: --members requires --keep-contract <sdk/api-contract.tsv>");
+                eprintln!("Error: --members requires --contract <sdk/api-contract.tsv>");
                 return ExitCode::from(1);
             }
         };
@@ -216,6 +226,7 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
             reserve_dirs: &reserve_dirs,
             contract_names: &contract_names,
             version: &version,
+            floor,
         };
         if let Err(e) = shrink::cut_release_members(&classes_dir, &keep, &opts, &mut map) {
             eprintln!("Error cutting member map: {e}");
@@ -232,6 +243,45 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
         map.members.len(),
         out_path.display()
     );
+    ExitCode::SUCCESS
+}
+
+fn cmd_retrace(args: &[String]) -> ExitCode {
+    let mut map_path: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--map" => {
+                map_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
+                i += 2;
+            }
+            _ => {
+                eprintln!("Error: unknown flag '{}'", args[i]);
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let Some(map_path) = map_path else {
+        eprintln!("Error: --map is required");
+        return ExitCode::from(1);
+    };
+    let map = match ShrinkMap::load(&map_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error loading map {}: {e}", map_path.display());
+            return ExitCode::from(1);
+        }
+    };
+    let retracer = class_shrink::retrace::Retracer::new(&map);
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout().lock();
+    use std::io::{BufRead, Write};
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if writeln!(out, "{}", retracer.line(&line)).is_err() {
+            break;
+        }
+    }
     ExitCode::SUCCESS
 }
 
@@ -346,16 +396,23 @@ Subcommands:
 
   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
               [--base <prev-map.toml>] [--extra-names <file>]...
-              [--members --version <semver> --keep-contract <tsv>
-               [--reserve <dir>]...]
+              [--members --version <semver> --contract <tsv>
+               [--reserve <dir>]... [--floor]]
       Generate a release map covering non-kept classes (a/) and the
       java/** names they reference (b/). --extra-names adds names from
       a text file (sdk/api-contract.tsv works as-is). Append-only when
       --base is provided (existing entries are preserved).
-      --members also maps the framework's method/field names: the
-      --keep-contract member column is never mapped, --reserve trees
-      (the kotlin-shim) never yield a target, --version becomes the
-      member-floor on the first member cut.
+      --members also maps method/field names: everything the SDK
+      declares plus the --contract member column (the java/** members
+      the runtime serves), --reserve trees (the kotlin-shim) never
+      yield a target, --version becomes the member-floor on the first
+      member cut or whenever --floor is given (a cut that renames names
+      an older map left verbatim).
+
+  retrace --map <file.toml> [< log]
+      Rewrite shrunk names in text back to their originals — `a/DK`,
+      `a.DK`, `b/AK`, and member targets in `.name(` position — the
+      way ProGuard's retrace does. Reads stdin, writes stdout.
 
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,

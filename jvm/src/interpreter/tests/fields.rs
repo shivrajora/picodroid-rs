@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::gc::GcState;
+use crate::names::spelled;
+use crate::names::{c, m};
 
 // Class "F" extends Object, field "x:I", STATIC method m(LF;)I.
 // Bytecode: aload_0, bipush 42, putfield F.x, aload_0, getfield F.x, ireturn.
@@ -99,10 +101,10 @@ static CLASS_CHILD_SPEAK: &[u8] = &[
 #[test]
 fn field_slot_own_field_is_slot_0() {
     // CLASS_F_GETFIELD has one instance field "x" — slot 0
-    let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
-    assert_eq!(helpers::field_slot(&classes, "F", "x"), Some(0));
+    assert_eq!(helpers::field_slot(&classes, "F", m::x), Some(0));
 }
 
 #[test]
@@ -115,16 +117,16 @@ fn field_slot_inherited_field_is_slot_0() {
     // CLASS_F_GETFIELD alone for the own-field case.
     // For the *inherited* case, build a "Child" extending "F" — reuse CLASS_CHILD_NO_SPEAK
     // but that extends "Base" not "F". So just test the single-class slot lookup here.
-    let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
-    assert_eq!(helpers::field_slot(&classes, "F", "x"), Some(0));
+    assert_eq!(helpers::field_slot(&classes, "F", m::x), Some(0));
     assert_eq!(helpers::field_slot(&classes, "F", "z"), None); // non-existent field
 }
 
 #[test]
 fn is_instance_of_same_class() {
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     assert!(helpers::is_instance_of(&classes, "Base", "Base"));
@@ -133,8 +135,8 @@ fn is_instance_of_same_class() {
 #[test]
 fn is_instance_of_parent_class() {
     // Child extends Base → Child is-a Base
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
-    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).unwrap();
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
@@ -144,8 +146,8 @@ fn is_instance_of_parent_class() {
 #[test]
 fn is_instance_of_unrelated_class() {
     // Base is NOT a subclass of Child
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).unwrap();
-    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).unwrap();
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
@@ -156,7 +158,7 @@ fn is_instance_of_unrelated_class() {
 fn getfield_putfield_named_field_roundtrip() {
     // Load "F", alloc an F object, pass it as arg[0] to the static m(LF;)I.
     // Method stores 42 into field "x", then reads it back → should return 42.
-    let cf = ClassFile::parse(CLASS_F_GETFIELD).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -186,7 +188,7 @@ fn alloc_with_defaults_initializes_int_field_to_zero() {
     // Regression: uninitialized Java primitive fields used to read as Value::Null
     // and silently break int-typed opcodes.  Per JVMS §2.3/§2.4, alloc_with_defaults
     // must set "int x" to Value::Int(0) immediately after alloc — NOT leave it Null.
-    let cf = ClassFile::parse(CLASS_F_GETFIELD).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut objects = ObjectHeap::new();
@@ -213,8 +215,8 @@ fn shadowed_field_has_its_own_slot() {
     let a_cls = {
         let mut a = Asm::new();
         let this = a.class("A");
-        let obj = a.class("java/lang/Object");
-        a.field("x", "I");
+        let obj = a.class(c::java_lang_Object);
+        a.field(m::x, "I");
         a.finish(0x0001, this, obj, &[], None)
     };
     // class B extends A { int x; }  with
@@ -223,9 +225,9 @@ fn shadowed_field_has_its_own_slot() {
         let mut b = Asm::new();
         let this = b.class("B");
         let sup = b.class("A");
-        b.field("x", "I");
-        let fr_a = b.fieldref(sup, "x", "I");
-        let fr_b = b.fieldref(this, "x", "I");
+        b.field(m::x, "I");
+        let fr_a = b.fieldref(sup, m::x, "I");
+        let fr_b = b.fieldref(this, m::x, "I");
         let code = alloc::vec![
             0x2A, // aload_0
             0x04, // iconst_1
@@ -269,11 +271,11 @@ fn shadowed_field_has_its_own_slot() {
     };
     // The helper resolves distinct slots per declaring class...
     let classes: Vec<ClassFile> = alloc::vec![
-        ClassFile::parse(a_cls).unwrap(),
-        ClassFile::parse(b_cls).unwrap(),
+        ClassFile::parse(spelled(a_cls)).unwrap(),
+        ClassFile::parse(spelled(b_cls)).unwrap(),
     ];
-    let a_slot = helpers::field_slot_declared(&classes, "B", "A", "x").unwrap();
-    let b_slot = helpers::field_slot_declared(&classes, "B", "B", "x").unwrap();
+    let a_slot = helpers::field_slot_declared(&classes, "B", "A", m::x).unwrap();
+    let b_slot = helpers::field_slot_declared(&classes, "B", "B", m::x).unwrap();
     assert_ne!(a_slot, b_slot, "shadowed field must not alias its super's");
     // ...and end to end, writes through each Fieldref stay separate
     // (aliasing returned 22: the second putfield clobbered A.x).

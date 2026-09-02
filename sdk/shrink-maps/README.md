@@ -44,10 +44,11 @@ firmware rejects a PAPK whose map version is greater than the firmware's
 active version (a PAPK built against a newer release cannot run on older
 firmware). Equal-or-lower is accepted, because the append-only rule
 guarantees every name the PAPK uses is still present — with one floor:
-maps from v0.16.0 rename *existing* method and field names, so firmware at
-or past `compat::MEMBER_SHRINK_FLOOR` (0.16.0) rejects a shrunk PAPK cut
-before it. Never un-keep a member (move a name from the keep set into the
-map) after that: it would need a new floor.
+a map that renames names an older map spelled verbatim moves
+`compat::MEMBER_SHRINK_FLOOR` (0.16.0 for the first member map, 0.17.0
+when the `java/**` contract members joined it), and firmware at or past
+the floor rejects a shrunk PAPK cut before it. Un-keeping a member later
+would need another floor.
 
 ## Cutting a release
 
@@ -67,15 +68,18 @@ find sdk/java -name '*.java' -print0 \
 # classes get fresh short names. --extra-names feeds the java/** names
 # the framework never references itself (RuntimeException, Iterator, …)
 # from the committed list of everything pico-jvm serves. --members maps
-# method/field names too (since v0.16.0): every --keep-contract member
-# name is kept, every name the --reserve tree spells is never a target,
-# and --version becomes member-floor on the first member cut (carried
-# forward verbatim after that).
+# method/field names too: everything the SDK declares plus the
+# --contract member column (every java/** member the runtime serves —
+# toString, equals, hasNext, …; since v0.17.0 they are mapped, not
+# kept), every name the --reserve tree spells is never a target, and
+# --version becomes member-floor on the first member cut. Add --floor
+# only for a cut that renames names the previous map left verbatim —
+# it re-bases the floor and every older shrunk PAPK stops loading.
 cargo run -p class-shrink -- cut-release --members \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
-  --keep-contract sdk/api-contract.tsv \
+  --contract sdk/api-contract.tsv \
   --reserve kotlin-shim/build/classes/java/main \
   --base sdk/shrink-maps/v<previous>.toml \
   --version <new> \
@@ -92,14 +96,20 @@ automatically pick up the new map.
 Shrunk names live in two synthetic packages, each allocated from its own
 counter so the suffix sequences never collide:
 
-| Prefix | Holds | Reverse-translated by |
-|---|---|---|
-| `a/` | framework classes (`picodroid/**`, `javax/**`) | picodroid-core's generated `unshrink_class` at native-dispatch entry |
-| `b/` | `java/**` classes pico-jvm serves natively — the ones defined in `sdk/java`, every one the framework references, and every owner in `sdk/api-contract.tsv` | pico-jvm itself, at the class-file boundary (`jvm/src/class_file/names.rs`). Nothing past that boundary sees a `b/` name; descriptors stay shrunk on flash and are compared through `desc_eq` |
+| Prefix | Holds |
+|---|---|
+| `a/` | framework classes (`picodroid/**`, `javax/**`) |
+| `b/` | `java/**` classes pico-jvm serves natively — the ones defined in `sdk/java`, every one the framework references, and every owner in `sdk/api-contract.tsv` |
 
-Both spellings of a `java/**` name stay valid in a PAPK, so a PAPK shrunk
-with an older map keeps loading on newer firmware. Both prefixes are
-reserved: an app class in package `a` or `b` would collide.
+Nothing translates either prefix at run time. The Rust side names every
+class, member and descriptor through constants generated from the active
+map (`build_support/names.rs`: `c::picodroid_view_View`, `m::toString`,
+`d::String__V`), so a `--shrink` firmware's tables, `catch` matching,
+`instanceof`, native dispatch and `Class.getName()` all use the mapped
+spelling and the image carries no original name — ProGuard semantics.
+Build without `--shrink` for readable names, or pipe a shrunk log through
+`scripts/retrace.sh`. Both prefixes are reserved: an app class in package
+`a` or `b` would collide.
 
 ## Current releases
 
@@ -120,5 +130,7 @@ reserved: an app class in package `a` or `b` would collide.
 | `v0.13.0.toml` | Stable — byte-identical to v0.12.0 (the networking-maturity, JVM-correctness, and memory work extended existing classes rather than adding new ones). |
 | `v0.14.0.toml` | + 14 classes (135 → 149): the `java.util.concurrent` core set (`Callable`, `Future`, `FutureTask`, `ExecutorService`, `ThreadPoolExecutor`, `TimeUnit`, `CountDownLatch`, the four `Atomic*` types), `Thread.UncaughtExceptionHandler`, and the DI injection points `javax.inject.Provider` / `picodroid.di.Lazy`. v0.13.0 entries copied verbatim. |
 | `v0.15.0.toml` | + 88 `java/**` classes under the new `b/` namespace (149 → 237): everything the framework references or pico-jvm serves — `Object`, `String`, `StringBuilder`, the boxed types, the collection classes and interfaces, every builtin exception, the `java.lang.invoke` bootstrap names. The 149 `a/` entries copied verbatim; `a/` allocation is untouched. |
+| `v0.16.0.toml` | Schema 2: + 868 `[[member]]` rows — every method and field name the framework declares, keyed by bare name; `member-floor = 0.16.0`. Classes unchanged (238). |
+| `v0.17.0.toml` | + 125 members (868 → 993): the `java/**` contract members the runtime serves (`toString`, `hashCode`, `equals`, `hasNext`, …) and javac's `$` synthetics, previously kept; `member-floor` re-based to 0.17.0. Only `main` and `injectMembers` stay verbatim. Classes unchanged. |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

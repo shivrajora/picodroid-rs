@@ -4,9 +4,8 @@
 //! Every `dispatch_*` function in `lifecycle.rs` invokes a fixed Java `fire*`
 //! method on a framework class (View.fireClick, ToggleButton.fireCheckedChanged,
 //! …). Under `--shrink` the loaded class is renamed (e.g. `picodroid/widget/
-//! ToggleButton` → `a/AP`), so passing the original name to
-//! `jvm.invoke_instance` fails silently. The fix routes each name through
-//! `shrink_names::shrink_class`.
+//! ToggleButton` → `a/AP`), so every name here is spelled through
+//! `shrink_names::c` — the loaded spelling in either build mode.
 //!
 //! This module exists so the set of (class, method) pairs is declared ONCE.
 //! `lifecycle.rs` indexes into [`DISPATCH_SITES`] via the per-site constants
@@ -20,6 +19,7 @@
 // Indices read by `lifecycle.rs::dispatch_*`; unused from test builds, where
 // `mod lifecycle` is cfg'd out but the const table is still iterated.
 
+use crate::shrink_names::c;
 use crate::shrink_names::m;
 pub const BUTTON: usize = 0;
 pub const TOGGLE_BUTTON: usize = 1;
@@ -90,50 +90,50 @@ pub const THREAD_RUN: usize = 40;
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
 pub const DISPATCH_SITES: &[(&str, &str)] = &[
-    ("picodroid/view/View", m::fireClick),
-    ("picodroid/widget/CompoundButton", m::fireCheckedChanged),
-    ("picodroid/widget/CompoundButton", m::fireCheckedChanged),
-    ("picodroid/widget/CompoundButton", m::fireCheckedChanged),
-    ("picodroid/widget/SeekBar", m::fireProgressChanged),
-    ("picodroid/widget/Spinner", m::fireItemSelected),
-    ("picodroid/view/View", m::fireKey),
+    (c::picodroid_view_View, m::fireClick),
+    (c::picodroid_widget_CompoundButton, m::fireCheckedChanged),
+    (c::picodroid_widget_CompoundButton, m::fireCheckedChanged),
+    (c::picodroid_widget_CompoundButton, m::fireCheckedChanged),
+    (c::picodroid_widget_SeekBar, m::fireProgressChanged),
+    (c::picodroid_widget_Spinner, m::fireItemSelected),
+    (c::picodroid_view_View, m::fireKey),
     // Main-executor + background-pool drain invoke this static bridge,
     // which then calls `r.run()` via bytecode so lambda proxies resolve
     // through the interpreter's invokeinterface path.
-    ("picodroid/concurrent/Executors", m::dispatchRunnable),
-    ("picodroid/app/AlertDialog", m::fireButtonClick),
-    ("picodroid/app/Activity", m::onCreate),
-    ("picodroid/app/Activity", m::onStart),
-    ("picodroid/app/Activity", m::onResume),
-    ("picodroid/app/Activity", m::onPause),
-    ("picodroid/app/Activity", m::onStop),
-    ("picodroid/app/Activity", m::onDestroy),
-    ("picodroid/app/Activity", m::onBackPressed),
-    ("picodroid/view/View", m::fireTouch),
-    ("picodroid/widget/Keyboard", m::fireReady),
-    ("picodroid/app/Service", m::onCreate),
-    ("picodroid/app/Service", m::onStartCommand),
-    ("picodroid/app/Service", m::onBind),
-    ("picodroid/app/Service", m::onUnbind),
-    ("picodroid/app/Service", m::onDestroy),
-    ("picodroid/widget/EditText", m::fireEditorAction),
-    ("picodroid/widget/Snackbar", m::fireActionClick),
-    ("picodroid/widget/DatePicker", m::fireDateChanged),
-    ("picodroid/widget/TimePicker", m::fireTimeChanged),
-    ("picodroid/view/View", m::fireSwipe),
-    ("picodroid/widget/SwipeRefreshLayout", m::fireRefresh),
-    ("picodroid/widget/ListView", m::fireItemClick),
-    ("picodroid/view/View", m::fireFocusChange),
-    ("picodroid/widget/NumberPicker", m::fireStep),
-    ("picodroid/app/Activity", m::onRestart),
-    ("picodroid/widget/SeekBar", m::fireTrackingTouch),
-    ("picodroid/widget/EditText", m::fireTextChanged),
-    ("picodroid/widget/CompoundButton", m::fireCheckedChanged),
-    ("picodroid/app/AlertDialog", m::fireItemClick),
-    ("picodroid/view/View", m::fireLongClick),
-    ("picodroid/app/Activity", m::onActivityResult),
-    ("picodroid/app/Service", m::onRebind),
-    ("picodroid/concurrent/Thread", m::runWrapper),
+    (c::picodroid_concurrent_Executors, m::dispatchRunnable),
+    (c::picodroid_app_AlertDialog, m::fireButtonClick),
+    (c::picodroid_app_Activity, m::onCreate),
+    (c::picodroid_app_Activity, m::onStart),
+    (c::picodroid_app_Activity, m::onResume),
+    (c::picodroid_app_Activity, m::onPause),
+    (c::picodroid_app_Activity, m::onStop),
+    (c::picodroid_app_Activity, m::onDestroy),
+    (c::picodroid_app_Activity, m::onBackPressed),
+    (c::picodroid_view_View, m::fireTouch),
+    (c::picodroid_widget_Keyboard, m::fireReady),
+    (c::picodroid_app_Service, m::onCreate),
+    (c::picodroid_app_Service, m::onStartCommand),
+    (c::picodroid_app_Service, m::onBind),
+    (c::picodroid_app_Service, m::onUnbind),
+    (c::picodroid_app_Service, m::onDestroy),
+    (c::picodroid_widget_EditText, m::fireEditorAction),
+    (c::picodroid_widget_Snackbar, m::fireActionClick),
+    (c::picodroid_widget_DatePicker, m::fireDateChanged),
+    (c::picodroid_widget_TimePicker, m::fireTimeChanged),
+    (c::picodroid_view_View, m::fireSwipe),
+    (c::picodroid_widget_SwipeRefreshLayout, m::fireRefresh),
+    (c::picodroid_widget_ListView, m::fireItemClick),
+    (c::picodroid_view_View, m::fireFocusChange),
+    (c::picodroid_widget_NumberPicker, m::fireStep),
+    (c::picodroid_app_Activity, m::onRestart),
+    (c::picodroid_widget_SeekBar, m::fireTrackingTouch),
+    (c::picodroid_widget_EditText, m::fireTextChanged),
+    (c::picodroid_widget_CompoundButton, m::fireCheckedChanged),
+    (c::picodroid_app_AlertDialog, m::fireItemClick),
+    (c::picodroid_view_View, m::fireLongClick),
+    (c::picodroid_app_Activity, m::onActivityResult),
+    (c::picodroid_app_Service, m::onRebind),
+    (c::picodroid_concurrent_Thread, m::runWrapper),
 ];
 
 #[cfg(test)]
@@ -143,7 +143,7 @@ mod tests {
 
     /// Regression guard for the `--shrink`-breaks-callbacks bug (commit
     /// eba57c3). For every dispatch site, assert that
-    /// `shrink_class(original)` returns the name of a loaded framework
+    /// the site's class name is the name of a loaded framework
     /// class *and* that class declares the expected `fire*` method.
     /// Run under both `PICODROID_SHRINK=0` and `PICODROID_SHRINK=1` (see
     /// `scripts/test.sh`).
@@ -155,7 +155,7 @@ mod tests {
             .collect();
 
         for &(orig, method) in DISPATCH_SITES {
-            let shrunk = crate::shrink_names::shrink_class(orig);
+            let shrunk = orig;
             let cf = classes
                 .iter()
                 .find(|cf| cf.class_name() == Some(shrunk.as_bytes()))

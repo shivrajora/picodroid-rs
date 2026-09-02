@@ -194,6 +194,7 @@ STAGES=(
   "clippy_rp2350_ht32|arm8|full|rust|clippy (testbench_rp2350 + handle-table-32)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
   "size_rp2350|arm8|full|rust,jvm|size lane (rp2350)"
+  "shrink_image|arm8|full|rust,jvm|--shrink image carries no original Java name (rp2350 --release)"
   "clippy_enviro_w|arm8|full|rust|clippy (pico_enviro_mon_w)"
 
   "ratchet|epilogue|fast|rust,jvm|binary-size ratchet"
@@ -608,6 +609,20 @@ size_board() {
 
 stage_size_rp2040() { size_board testbench_rp2040; }
 stage_size_rp2350() { size_board testbench_rp2350; }
+
+# Unconditional shrinking's contract (docs/designs/unconditional-shrink-2026-09.md):
+# a --shrink firmware spells no original Java class, descriptor or served
+# member name anywhere. Link the rp2350 --release --shrink helloworld image
+# (its own PAPK: the shared APK_PATH is the no-shrink one) and grep it.
+stage_shrink_image() {
+  if ! bash "$SCRIPT_DIR/build.sh" --board testbench_rp2350 --app helloworld --release --shrink; then
+    echo ""
+    echo "ERROR: rp2350 --release --shrink build failed."
+    return 1
+  fi
+  local elf="${CARGO_TARGET_DIR:-$REPO_ROOT/target}/thumbv8m.main-none-eabihf/release/picodroid"
+  bash "$SCRIPT_DIR/check-shrunk-image.sh" "$elf"
+}
 
 stage_ratchet() {
   # Sibling of size/, not a child: a merge directory inside the tree being

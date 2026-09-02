@@ -11,6 +11,7 @@ use super::helpers::{
     extract_handle, extract_socket_ptr, throw_named_exception, throw_net_exception, NetOpCtx,
 };
 use super::socket_table;
+use crate::shrink_names::c;
 
 const BUF_SIZE: usize = 256;
 
@@ -37,7 +38,7 @@ pub fn native_create(
         return Err(throw_named_exception(
             objects,
             strings,
-            "java/net/SocketException",
+            c::java_net_SocketException,
             "too many open sockets",
         ));
     }

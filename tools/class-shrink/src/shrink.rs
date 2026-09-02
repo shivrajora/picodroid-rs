@@ -219,11 +219,11 @@ fn is_internal_name(bytes: &[u8]) -> bool {
 }
 
 /// Member names of every `java/**`/`javax/**` member pico-jvm serves — the
-/// `name` column of `sdk/api-contract.tsv`'s member rows. These are the
-/// names the interpreter and `BuiltinHandler` match by literal on *any*
-/// receiver (`toString`, `equals`, `run`, `compare`, `hasNext`, …), so they
-/// are never mapped: an app override renamed away from them would silently
-/// stop being found.
+/// `name` column of `sdk/api-contract.tsv`'s member rows. The runtime
+/// matches these on *any* receiver (`toString`, `equals`, `run`, `compare`,
+/// `hasNext`, …) through the generated `m::` consts, so they are mapped like
+/// every other member: an app override is renamed in lockstep by the same
+/// by-name map, and the JVM's arms compile to the same target.
 pub fn read_contract_member_names(path: &Path) -> io::Result<Vec<String>> {
     let text = fs::read_to_string(path)?;
     let mut out = Vec::new();
@@ -251,11 +251,17 @@ pub struct MemberCut<'a> {
     /// the same map, so a target colliding with one of its names would be
     /// ambiguous).
     pub reserve_dirs: &'a [PathBuf],
-    /// Names from [`read_contract_member_names`]: kept and reserved.
+    /// Names from [`read_contract_member_names`]: mapped (every one the
+    /// runtime serves gets a target even when no framework class declares
+    /// it) and reserved.
     pub contract_names: &'a [String],
     /// The release being cut; becomes `member-floor` on the first cut that
-    /// maps a member.
+    /// maps a member, or whenever `floor` asks for it.
     pub version: &'a str,
+    /// Re-base `member-floor` on `version`: this cut renames names an older
+    /// map spelled verbatim, so PAPKs shrunk before it must be rejected
+    /// (`compat::MEMBER_SHRINK_FLOOR`).
+    pub floor: bool,
 }
 
 /// `ACC_ANNOTATION` (JVMS §4.1): annotation interfaces' members are looked
@@ -282,10 +288,11 @@ fn member_census(dir: &Path, collect_candidates: bool) -> io::Result<MemberCensu
             .and_then(|n| std::str::from_utf8(n).ok())
             .unwrap_or("")
             .to_string();
-        // Members of classes pico-jvm serves by original name (`java/**`) and
-        // of the kotlin-shim stay verbatim; so do annotation members.
+        // Members of the kotlin-shim stay verbatim (it is reserved, not
+        // mapped); so do annotation members. Everything else the SDK
+        // declares — `picodroid/**`, `javax/**` and the `java/**` classes
+        // it ships bodies for — is a candidate.
         let shrinkable_owner = collect_candidates
-            && namespace_for(&own) == Namespace::Framework
             && !own.starts_with("kotlin/")
             && members.class_access & ACC_ANNOTATION == 0;
         for m in members.fields.iter().chain(members.methods.iter()) {
@@ -306,22 +313,23 @@ fn member_census(dir: &Path, collect_candidates: bool) -> io::Result<MemberCensu
     Ok(census)
 }
 
-/// `<init>`/`<clinit>` are JVMS-reserved; `$` marks javac synthetics
-/// (`$VALUES`, `lambda$…`, `access$…`) — class-internal, but not worth a
-/// const-identifier rule; names of ≤ 2 characters gain nothing.
+/// `<init>`/`<clinit>` are JVMS-reserved; names of ≤ 2 characters gain
+/// nothing. javac synthetics (`$VALUES`, `lambda$…`, `access$…`) are
+/// mapped like any other name — declaration and every reference are
+/// rewritten together by the ASM remapper, and no Rust code matches them.
 fn is_member_candidate(name: &str) -> bool {
-    !name.starts_with('<') && !name.contains('$') && name.len() > 2
+    !name.starts_with('<') && name.len() > 2
 }
 
 /// Extend `map.members` with a target for every candidate member name in
 /// `in_dir` (append-only: existing entries are kept verbatim and the
 /// allocator resumes past the highest target already handed out).
 ///
-/// Candidates: names declared by a framework class (`a/` namespace, not an
-/// annotation), minus `<init>`-style names, `$` synthetics, names of ≤ 2
-/// chars, `[[member]]` keeps and every contract name. Targets skip every
-/// name spelled anywhere in the corpus, the reserve trees, the contract, the
-/// keep list, or the map — so a target can never alias a name that stays.
+/// Candidates: names declared by an SDK class (not the kotlin-shim, not an
+/// annotation) plus every contract name, minus `<init>`-style names, names
+/// of ≤ 2 chars and `[[member]]` keeps. Targets skip every name spelled
+/// anywhere in the corpus, the reserve trees, the contract, the keep list,
+/// or the map — so a target can never alias a name that stays.
 pub fn cut_release_members(
     in_dir: &Path,
     keep: &crate::keep::KeepList,
@@ -338,7 +346,13 @@ pub fn cut_release_members(
     reserved.extend(map.members.keys().cloned());
     reserved.extend(map.members.values().cloned());
 
-    let contract: BTreeSet<&str> = opts.contract_names.iter().map(String::as_str).collect();
+    let mut candidates = corpus.candidates;
+    candidates.extend(
+        opts.contract_names
+            .iter()
+            .filter(|n| is_member_candidate(n))
+            .cloned(),
+    );
     let mut next = map
         .members
         .values()
@@ -347,8 +361,8 @@ pub fn cut_release_members(
         .max()
         .unwrap_or(0);
     let mut added = 0usize;
-    for name in corpus.candidates {
-        if keep.is_member_kept(&name) || contract.contains(name.as_str()) {
+    for name in candidates {
+        if keep.is_member_kept(&name) {
             continue;
         }
         if map.members.contains_key(&name) {
@@ -363,7 +377,7 @@ pub fn cut_release_members(
         map.members.insert(name, target);
         added += 1;
     }
-    if map.has_members() && map.member_floor.is_none() {
+    if map.has_members() && (map.member_floor.is_none() || opts.floor) {
         map.member_floor = Some(opts.version.to_string());
     }
     if let Err(e) = map.verify_injective() {
@@ -660,7 +674,7 @@ mod tests {
     /// `count`; `java/lang/Math` declares `abs` (kept owner). Only the
     /// framework names get targets, and no target equals a spelled name.
     #[test]
-    fn cut_release_members_allocates_only_framework_candidates() {
+    fn cut_release_members_maps_every_served_name() {
         let dir = tmp("cut-members");
         let widget = build_class_with(
             vec![
@@ -713,16 +727,26 @@ mod tests {
                 reserve_dirs: &[],
                 contract_names: &contract,
                 version: "0.16.0",
+                floor: false,
             },
             &mut map,
         )
         .unwrap();
         let got: Vec<(&str, &str)> = map.iter_members().collect();
-        // Sorted candidates: count, refresh, setText. Target `a` is spelled
-        // (referenced) in the corpus, so allocation starts at `b`.
+        // Sorted candidates: every declared name — the `java/**` owner's
+        // `abs`, the field, the synthetic — plus the contract's `toString`;
+        // `main` is kept, `id` too short, `<init>` reserved. Target `a` is
+        // spelled (referenced) in the corpus, so allocation starts at `b`.
         assert_eq!(
             got,
-            vec![("count", "b"), ("refresh", "c"), ("setText", "d")]
+            vec![
+                ("abs", "b"),
+                ("count", "c"),
+                ("lambda$x$0", "d"),
+                ("refresh", "e"),
+                ("setText", "f"),
+                ("toString", "g"),
+            ]
         );
         assert_eq!(map.member_floor.as_deref(), Some("0.16.0"));
 
@@ -742,12 +766,13 @@ mod tests {
                 reserve_dirs: &[],
                 contract_names: &contract,
                 version: "0.17.0",
+                floor: false,
             },
             &mut map,
         )
         .unwrap();
-        assert_eq!(map.members["zebra"], "e");
-        assert_eq!(map.members["setText"], "d");
+        assert_eq!(map.members["zebra"], "h");
+        assert_eq!(map.members["setText"], "f");
         assert_eq!(
             map.member_floor.as_deref(),
             Some("0.16.0"),
@@ -783,6 +808,7 @@ mod tests {
                 reserve_dirs: &[shim],
                 contract_names: &[],
                 version: "0.16.0",
+                floor: false,
             },
             &mut map,
         )

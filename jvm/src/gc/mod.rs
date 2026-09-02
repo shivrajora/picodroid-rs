@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::names::c;
 use crate::{
     array_heap::{ArrayHeap, ATYPE_REF},
     class_objects::ClassObjectCache,
@@ -23,10 +24,10 @@ fn owns_map_buf(class_name: Option<&str>) -> bool {
     matches!(
         class_name,
         Some(
-            "java/util/HashMap"
-                | "java/util/HashSet"
-                | "java/util/LinkedHashMap"
-                | "java/util/LinkedHashSet"
+            c::java_util_HashMap
+                | c::java_util_HashSet
+                | c::java_util_LinkedHashMap
+                | c::java_util_LinkedHashSet
         )
     )
 }
@@ -397,7 +398,7 @@ pub fn collect(
                 }
 
                 // ArrayList: scan backing list_bufs for references
-                if objects.class_name(idx) == Some("java/util/ArrayList") {
+                if objects.class_name(idx) == Some(c::java_util_ArrayList) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
                         for v in objects.list_iter(buf_idx as u16) {
                             push_ref(work, &v);
@@ -482,7 +483,7 @@ pub fn collect(
         let i = idx as u16;
         if objects.is_live(i) && !is_marked(obj_marks, i) {
             // Free ArrayList backing store if applicable
-            if objects.class_name(i) == Some("java/util/ArrayList") {
+            if objects.class_name(i) == Some(c::java_util_ArrayList) {
                 if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
                     objects.list_free(buf_idx as u16);
                 }
@@ -495,7 +496,7 @@ pub fn collect(
                 }
             }
             // Free the StringBuilder byte buffer if applicable
-            if cn == Some("java/lang/StringBuilder") {
+            if cn == Some(c::java_lang_StringBuilder) {
                 if let Some(Value::Int(buf_idx)) = objects.get_field(i, 0) {
                     objects.sb_free(buf_idx as u16);
                 }

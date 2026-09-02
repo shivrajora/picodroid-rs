@@ -220,6 +220,7 @@ pub fn opcode_name(op: u8) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::names::d;
 
     #[test]
     fn default_for_descriptor_covers_primitives_and_refs() {
@@ -231,7 +232,7 @@ mod tests {
         assert_eq!(default_for_descriptor(b"J"), Value::Long(0));
         assert_eq!(default_for_descriptor(b"F"), Value::Float(0.0));
         assert_eq!(default_for_descriptor(b"D"), Value::Double(0.0));
-        assert_eq!(default_for_descriptor(b"Ljava/lang/String;"), Value::Null);
+        assert_eq!(default_for_descriptor(d::t_String.as_bytes()), Value::Null);
         assert_eq!(default_for_descriptor(b"[I"), Value::Null);
         assert_eq!(default_for_descriptor(b""), Value::Null);
     }

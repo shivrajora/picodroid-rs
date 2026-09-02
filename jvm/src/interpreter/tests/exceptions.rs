@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::names::c;
+use crate::names::spelled;
 
 // ── Exception class "Exc" extends java/lang/Object ────────────────────────
 // CP (#1..#7, cp_count=8):
@@ -285,7 +287,7 @@ fn athrow_null_becomes_npe() {
     match run(CLASS_ATHROW_NULL).unwrap_err() {
         JvmError::UncaughtException {
             exception_class, ..
-        } => assert_eq!(exception_class, "java/lang/NullPointerException"),
+        } => assert_eq!(exception_class, c::java_lang_NullPointerException),
         other => panic!("expected NullPointerException, got {other:?}"),
     }
 }
@@ -364,87 +366,87 @@ fn builtin_throwable_hierarchy_resolves_without_classfiles() {
     let classes: [crate::class_file::ClassFile; 0] = [];
     assert!(is_instance_of(
         &classes,
-        "java/lang/RuntimeException",
-        "java/lang/Throwable"
+        c::java_lang_RuntimeException,
+        c::java_lang_Throwable
     ));
     assert!(is_instance_of(
         &classes,
-        "java/lang/RuntimeException",
-        "java/lang/Exception"
+        c::java_lang_RuntimeException,
+        c::java_lang_Exception
     ));
     assert!(is_instance_of(
         &classes,
-        "java/lang/NumberFormatException",
-        "java/lang/IllegalArgumentException"
+        c::java_lang_NumberFormatException,
+        c::java_lang_IllegalArgumentException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/lang/NullPointerException",
-        "java/lang/RuntimeException"
+        c::java_lang_NullPointerException,
+        c::java_lang_RuntimeException
     ));
     // Object-ward only — and unrelated targets still fail.
     assert!(!is_instance_of(
         &classes,
-        "java/lang/Throwable",
-        "java/lang/Exception"
+        c::java_lang_Throwable,
+        c::java_lang_Exception
     ));
     assert!(!is_instance_of(
         &classes,
-        "java/lang/RuntimeException",
-        "java/lang/Error"
+        c::java_lang_RuntimeException,
+        c::java_lang_Error
     ));
     // java.net taxonomy (typed network exceptions, NET-9).
     assert!(is_instance_of(
         &classes,
-        "java/net/ConnectException",
-        "java/net/SocketException"
+        c::java_net_ConnectException,
+        c::java_net_SocketException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/ConnectException",
-        "java/io/IOException"
+        c::java_net_ConnectException,
+        c::java_io_IOException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/BindException",
-        "java/net/SocketException"
+        c::java_net_BindException,
+        c::java_net_SocketException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/NoRouteToHostException",
-        "java/io/IOException"
+        c::java_net_NoRouteToHostException,
+        c::java_io_IOException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/SocketTimeoutException",
-        "java/io/InterruptedIOException"
+        c::java_net_SocketTimeoutException,
+        c::java_io_InterruptedIOException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/SocketTimeoutException",
-        "java/io/IOException"
+        c::java_net_SocketTimeoutException,
+        c::java_io_IOException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/UnknownHostException",
-        "java/io/IOException"
+        c::java_net_UnknownHostException,
+        c::java_io_IOException
     ));
     assert!(is_instance_of(
         &classes,
-        "java/net/ProtocolException",
-        "java/io/IOException"
+        c::java_net_ProtocolException,
+        c::java_io_IOException
     ));
     // Real-Java quirk, pinned: SocketTimeoutException extends
     // InterruptedIOException, NOT SocketException.
     assert!(!is_instance_of(
         &classes,
-        "java/net/SocketTimeoutException",
-        "java/net/SocketException"
+        c::java_net_SocketTimeoutException,
+        c::java_net_SocketException
     ));
     assert!(!is_instance_of(
         &classes,
-        "java/net/SocketException",
-        "java/net/ConnectException"
+        c::java_net_SocketException,
+        c::java_net_ConnectException
     ));
 }
 
@@ -629,7 +631,7 @@ impl NativeMethodHandler for NetFailHandler {
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
         if class_name == "Net" && method_name == "fail" {
-            let Some(idx) = ctx.objects.alloc("java/net/ConnectException") else {
+            let Some(idx) = ctx.objects.alloc(c::java_net_ConnectException) else {
                 return Some(Err(JvmError::StackOverflow));
             };
             if let Some(midx) = ctx.strings.intern_dyn(b"Connection refused") {
@@ -647,7 +649,7 @@ impl NativeMethodHandler for NetFailHandler {
 /// hierarchy to Throwable's dispatcher and returns the registered message.
 #[test]
 fn native_minted_net_exception_caught_by_ioexception_handler() {
-    let cf = ClassFile::parse(CLASS_TEST_NATIVE_NET_EXC).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_TEST_NATIVE_NET_EXC)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -771,8 +773,8 @@ static CLASS_CTOR_NATIVE_THROW_T: &[u8] = &[
 #[test]
 fn native_throw_in_ctor_then_reconstruct() {
     let mut classes: Vec<ClassFile> = Vec::new();
-    classes.push(ClassFile::parse(CLASS_CTOR_NATIVE_THROW_T).expect("parse T"));
-    classes.push(ClassFile::parse(CLASS_CTOR_NATIVE_THROW_C).expect("parse C"));
+    classes.push(ClassFile::parse(spelled(CLASS_CTOR_NATIVE_THROW_T)).expect("parse T"));
+    classes.push(ClassFile::parse(spelled(CLASS_CTOR_NATIVE_THROW_C)).expect("parse C"));
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = crate::array_heap::ArrayHeap::new();
@@ -805,7 +807,7 @@ fn frame_depth_cap_throws_stack_overflow_error() {
     use super::asm::{Asm, Method};
     let mut a = Asm::new();
     let this = a.class("R");
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let me = a.methodref(0x0A, this, "m", "()I");
     let code = [
         0xB8,
@@ -832,7 +834,7 @@ fn frame_depth_cap_throws_stack_overflow_error() {
     match run_multi(&[cls], 0, &[]) {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/StackOverflowError"),
+        }) => assert_eq!(exception_class, c::java_lang_StackOverflowError),
         other => panic!("expected StackOverflowError from the depth cap, got {other:?}"),
     }
 }
@@ -850,7 +852,7 @@ mod runtime_faults {
     fn faulting_class(body: &[u8], catch: Option<&str>) -> &'static [u8] {
         let mut a = Asm::new();
         let this = a.class("T");
-        let obj = a.class("java/lang/Object");
+        let obj = a.class(c::java_lang_Object);
         let c = catch.map(|c| a.class(c));
         let mut code = body.to_vec();
         code.push(0x04); // iconst_1
@@ -871,20 +873,20 @@ mod runtime_faults {
     #[test]
     fn division_by_zero_throws_catchable_arithmetic_exception() {
         for catch in [
-            "java/lang/ArithmeticException",
-            "java/lang/RuntimeException",
+            c::java_lang_ArithmeticException,
+            c::java_lang_RuntimeException,
         ] {
             let r = run(faulting_class(DIV_BY_ZERO, Some(catch)));
             assert_eq!(r.unwrap(), Some(Value::Int(7)), "catch {catch}");
         }
         // lrem 1 % 0: lconst_1 lconst_0 lrem pop2
         let body = &[0x0A, 0x09, 0x71, 0x58];
-        let r = run(faulting_class(body, Some("java/lang/ArithmeticException")));
+        let r = run(faulting_class(body, Some(c::java_lang_ArithmeticException)));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
         match run(faulting_class(DIV_BY_ZERO, None)) {
             Err(JvmError::UncaughtException {
                 exception_class, ..
-            }) => assert_eq!(exception_class, "java/lang/ArithmeticException"),
+            }) => assert_eq!(exception_class, c::java_lang_ArithmeticException),
             other => panic!("expected uncaught ArithmeticException, got {other:?}"),
         }
     }
@@ -894,9 +896,9 @@ mod runtime_faults {
         // iconst_2; newarray int; iconst_5; iaload; pop
         let body = &[0x05, 0xBC, 0x0A, 0x08, 0x2E, 0x57];
         for catch in [
-            "java/lang/ArrayIndexOutOfBoundsException",
-            "java/lang/IndexOutOfBoundsException",
-            "java/lang/RuntimeException",
+            c::java_lang_ArrayIndexOutOfBoundsException,
+            c::java_lang_IndexOutOfBoundsException,
+            c::java_lang_RuntimeException,
         ] {
             let r = run(faulting_class(body, Some(catch)));
             assert_eq!(r.unwrap(), Some(Value::Int(7)), "catch {catch}");
@@ -904,7 +906,7 @@ mod runtime_faults {
         match run(faulting_class(body, None)) {
             Err(JvmError::UncaughtException {
                 exception_class, ..
-            }) => assert_eq!(exception_class, "java/lang/ArrayIndexOutOfBoundsException"),
+            }) => assert_eq!(exception_class, c::java_lang_ArrayIndexOutOfBoundsException),
             other => panic!("expected uncaught AIOOBE, got {other:?}"),
         }
     }
@@ -914,21 +916,21 @@ mod runtime_faults {
         let athrow_null = &[0x01, 0xBF]; // aconst_null athrow
         let r = run(faulting_class(
             athrow_null,
-            Some("java/lang/NullPointerException"),
+            Some(c::java_lang_NullPointerException),
         ));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
         // aconst_null; iconst_0; iaload; pop — load through a null array.
         let null_load = &[0x01, 0x03, 0x2E, 0x57];
         let r = run(faulting_class(
             null_load,
-            Some("java/lang/NullPointerException"),
+            Some(c::java_lang_NullPointerException),
         ));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
         // arraylength on null.
         let null_len = &[0x01, 0xBE, 0x57];
         let r = run(faulting_class(
             null_len,
-            Some("java/lang/NullPointerException"),
+            Some(c::java_lang_NullPointerException),
         ));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
     }
@@ -938,7 +940,7 @@ mod runtime_faults {
         let body = &[0x02, 0xBC, 0x0A, 0x57]; // iconst_m1 newarray int pop
         let r = run(faulting_class(
             body,
-            Some("java/lang/NegativeArraySizeException"),
+            Some(c::java_lang_NegativeArraySizeException),
         ));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
     }
@@ -948,7 +950,7 @@ mod runtime_faults {
         // sipush 7000; bipush 10; imul → 70000; newarray byte — used to
         // silently truncate to 4464 elements.
         let body = &[0x11, 0x1B, 0x58, 0x10, 0x0A, 0x68, 0xBC, 0x08, 0x57];
-        let r = run(faulting_class(body, Some("java/lang/OutOfMemoryError")));
+        let r = run(faulting_class(body, Some(c::java_lang_OutOfMemoryError)));
         assert_eq!(r.unwrap(), Some(Value::Int(7)));
     }
 
@@ -960,7 +962,7 @@ mod runtime_faults {
         match run(faulting_class(body, None)) {
             Err(JvmError::UncaughtException {
                 exception_class, ..
-            }) => assert_eq!(exception_class, "java/lang/OutOfMemoryError"),
+            }) => assert_eq!(exception_class, c::java_lang_OutOfMemoryError),
             other => panic!("expected uncaught OutOfMemoryError, got {other:?}"),
         }
     }

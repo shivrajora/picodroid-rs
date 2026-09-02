@@ -12,12 +12,15 @@ use super::asm::{Asm, Method};
 use super::*;
 use crate::array_heap::ArrayHeap;
 use crate::class_objects::ClassObjectCache;
+use crate::names::spelled;
+use crate::names::{c, d, m};
 use alloc::vec;
 
-const OBJ: &str = "java/lang/Object";
-const CMP_IFACE: &str = "java/util/Comparator";
-const CMP_DESC: &str = "(Ljava/lang/Object;Ljava/lang/Object;)I";
-const LMF_DESC: &str = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;";
+const OBJ: &str = c::java_lang_Object;
+const CMP_IFACE: &str = c::java_util_Comparator;
+const CMP_DESC: &str = d::Object_Object__I;
+const LMF_DESC: &str =
+    d::MethodHandles_Lookup_String_MethodType_MethodType_MethodHandle_MethodType__CallSite;
 
 fn hi(i: u16) -> u8 {
     (i >> 8) as u8
@@ -44,7 +47,7 @@ impl Harness {
     fn new(classes_data: &[&'static [u8]]) -> Self {
         let mut classes: Vec<ClassFile> = Vec::new();
         for &data in classes_data {
-            classes.push(ClassFile::parse(data).expect("parse failed"));
+            classes.push(ClassFile::parse(spelled(data)).expect("parse failed"));
         }
         Self {
             classes,
@@ -60,7 +63,7 @@ impl Harness {
     /// Allocate a builtin `ArrayList` the way its native `<init>` does —
     /// a plain object whose field 0 holds a `list_store` buffer index.
     fn new_list(&mut self, items: &[i32]) -> (Value, u16) {
-        let obj = self.objects.alloc("java/util/ArrayList").expect("alloc");
+        let obj = self.objects.alloc(c::java_util_ArrayList).expect("alloc");
         let buf = self.objects.list_alloc().expect("list_alloc");
         self.objects.set_field(obj, 0, Value::Int(buf as i32));
         for &i in items {
@@ -110,8 +113,8 @@ fn sort_caller(extra: &[Method<'_>], iface_of: Option<&str>) -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class("Caller");
     let obj = a.class(OBJ);
-    let list = a.class("java/util/List");
-    let sort = a.methodref(0x0B, list, "sort", "(Ljava/util/Comparator;)V");
+    let list = a.class(c::java_util_List);
+    let sort = a.methodref(0x0B, list, m::sort, d::Comparator__V);
     let ifaces: Vec<u16> = iface_of.map(|n| a.class(n)).into_iter().collect();
     let code = vec![
         0x2A, // aload_0 — the list
@@ -126,7 +129,7 @@ fn sort_caller(extra: &[Method<'_>], iface_of: Option<&str>) -> &'static [u8] {
     let mut methods = vec![Method {
         access: 0x0009, // public static
         name: "m",
-        desc: "(Ljava/util/List;Ljava/util/Comparator;)V",
+        desc: d::List_Comparator__V,
         max_stack: 2,
         max_locals: 2,
         code: &code,
@@ -138,8 +141,8 @@ fn sort_caller(extra: &[Method<'_>], iface_of: Option<&str>) -> &'static [u8] {
 
 /// `compare(a, b)` = `a.intValue() - b.intValue()` — ascending order.
 fn ascending_compare(a: &mut Asm) -> Vec<u8> {
-    let integer = a.class("java/lang/Integer");
-    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let integer = a.class(c::java_lang_Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
     vec![
         0x2B, // aload_1 — a
         0xB6,
@@ -168,7 +171,7 @@ fn ascending_comparator_class() -> &'static [u8] {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "compare",
+            name: m::compare,
             desc: CMP_DESC,
             max_stack: 2,
             max_locals: 3,
@@ -224,16 +227,16 @@ fn lambda_sort_caller(
     let mut a = Asm::new();
     let this = a.class("Caller");
     let obj = a.class(OBJ);
-    let lmf = a.class("java/lang/invoke/LambdaMetafactory");
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
     let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
     let bsm = a.method_handle(6, lmf_ref);
     let body_ref = a.methodref(0x0A, this, "lam", body_desc);
     let body_handle = a.method_handle(6, body_ref);
     let sam_type = a.method_type(CMP_DESC);
     let inst_type = a.method_type(CMP_DESC);
-    let indy = a.invoke_dynamic(0, "compare", "()Ljava/util/Comparator;");
-    let list = a.class("java/util/List");
-    let sort = a.methodref(0x0B, list, "sort", "(Ljava/util/Comparator;)V");
+    let indy = a.invoke_dynamic(0, m::compare, d::__Comparator);
+    let list = a.class(c::java_util_List);
+    let sort = a.methodref(0x0B, list, m::sort, d::Comparator__V);
     let body_code = build_body(&mut a);
 
     let code = vec![
@@ -259,7 +262,7 @@ fn lambda_sort_caller(
             Method {
                 access: 0x0009,
                 name: "m",
-                desc: "(Ljava/util/List;)V",
+                desc: d::List__V,
                 max_stack: 3,
                 max_locals: 1,
                 code: &code,
@@ -284,8 +287,8 @@ fn upcall_invokes_lambda_comparator() {
     // Erased body: `(Object, Object)I`, unboxing both sides itself — the
     // javac shape, where the lambda body does its own conversions.
     let caller = lambda_sort_caller(CMP_DESC, 2, |a| {
-        let integer = a.class("java/lang/Integer");
-        let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+        let integer = a.class(c::java_lang_Integer);
+        let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
         vec![
             0x2A, // aload_0 — a (static body: no `this`)
             0xB6,
@@ -321,7 +324,7 @@ fn throwing_comparator_class() -> &'static [u8] {
     let this = a.class("Cmp");
     let obj = a.class(OBJ);
     let iface = a.class(CMP_IFACE);
-    let exc = a.class("java/lang/IllegalStateException");
+    let exc = a.class(c::java_lang_IllegalStateException);
     let ctor = a.methodref(0x0A, exc, "<init>", "()V");
     let body = vec![
         0xBB,
@@ -340,7 +343,7 @@ fn throwing_comparator_class() -> &'static [u8] {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "compare",
+            name: m::compare,
             desc: CMP_DESC,
             max_stack: 3,
             max_locals: 3,
@@ -359,9 +362,9 @@ fn upcall_exception_propagates_to_outer_catch() {
     let mut a = Asm::new();
     let this = a.class("Caller");
     let obj = a.class(OBJ);
-    let list = a.class("java/util/List");
-    let sort = a.methodref(0x0B, list, "sort", "(Ljava/util/Comparator;)V");
-    let thr = a.class("java/lang/Throwable");
+    let list = a.class(c::java_util_List);
+    let sort = a.methodref(0x0B, list, m::sort, d::Comparator__V);
+    let thr = a.class(c::java_lang_Throwable);
     let code = vec![
         0x2A, // 0: aload_0
         0x2B, // 1: aload_1
@@ -384,7 +387,7 @@ fn upcall_exception_propagates_to_outer_catch() {
         &[Method {
             access: 0x0009,
             name: "m",
-            desc: "(Ljava/util/List;Ljava/util/Comparator;)I",
+            desc: d::List_Comparator__I,
             max_stack: 3,
             max_locals: 2,
             code: &code,
@@ -416,7 +419,7 @@ fn upcall_uncaught_exception_propagates_out() {
     match h.execute(0, &[list, cmp]) {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/IllegalStateException"),
+        }) => assert_eq!(exception_class, c::java_lang_IllegalStateException),
         other => panic!("expected an uncaught IllegalStateException, got {other:?}"),
     }
 }
@@ -434,8 +437,8 @@ fn upcall_depth_capped() {
     let this = a.class("Cmp");
     let obj = a.class(OBJ);
     let iface = a.class(CMP_IFACE);
-    let list_c = a.class("java/util/List");
-    let sort = a.methodref(0x0B, list_c, "sort", "(Ljava/util/Comparator;)V");
+    let list_c = a.class(c::java_util_List);
+    let sort = a.methodref(0x0B, list_c, m::sort, d::Comparator__V);
     let body = vec![
         0x2B, // aload_1 — the first element, itself a list
         0x2A, // aload_0 — this, as the comparator
@@ -454,7 +457,7 @@ fn upcall_depth_capped() {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "compare",
+            name: m::compare,
             desc: CMP_DESC,
             max_stack: 3,
             max_locals: 3,
@@ -474,7 +477,7 @@ fn upcall_depth_capped() {
     match h.execute(0, &[list, Value::ObjectRef(cmp_obj)]) {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/StackOverflowError"),
+        }) => assert_eq!(exception_class, c::java_lang_StackOverflowError),
         other => panic!("expected StackOverflowError from the depth cap, got {other:?}"),
     }
 }
@@ -516,8 +519,8 @@ fn native_dispatch_works_during_upcall() {
     let iface = a.class(CMP_IFACE);
     let probe = a.class("Probe");
     let tick = a.methodref(0x0A, probe, "tick", "()I");
-    let integer = a.class("java/lang/Integer");
-    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let integer = a.class(c::java_lang_Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
     let body = vec![
         0xB8,
         hi(tick),
@@ -541,7 +544,7 @@ fn native_dispatch_works_during_upcall() {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "compare",
+            name: m::compare,
             desc: CMP_DESC,
             max_stack: 3,
             max_locals: 3,
@@ -593,8 +596,8 @@ fn sort_caller_clearing_locals() -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class("Caller");
     let obj = a.class(OBJ);
-    let list = a.class("java/util/List");
-    let sort = a.methodref(0x0B, list, "sort", "(Ljava/util/Comparator;)V");
+    let list = a.class(c::java_util_List);
+    let sort = a.methodref(0x0B, list, m::sort, d::Comparator__V);
     let code = vec![
         0x2A, // aload_0 — list onto the stack
         0x2B, // aload_1 — comparator onto the stack
@@ -617,7 +620,7 @@ fn sort_caller_clearing_locals() -> &'static [u8] {
         &[Method {
             access: 0x0009,
             name: "m",
-            desc: "(Ljava/util/List;Ljava/util/Comparator;)V",
+            desc: d::List_Comparator__V,
             max_stack: 2,
             max_locals: 2,
             code: &code,
@@ -664,8 +667,8 @@ fn upcall_survives_gc() {
     let this = a.class("Cmp");
     let obj = a.class(OBJ);
     let iface = a.class(CMP_IFACE);
-    let integer = a.class("java/lang/Integer");
-    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let integer = a.class(c::java_lang_Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
     let junk = a.class(OBJ);
     let junk_ctor = a.methodref(0x0A, junk, "<init>", "()V");
     let mut body = vec![];
@@ -700,7 +703,7 @@ fn upcall_survives_gc() {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "compare",
+            name: m::compare,
             desc: CMP_DESC,
             max_stack: 4,
             max_locals: 3,
@@ -751,7 +754,7 @@ fn upcall_null_comparator_throws_npe() {
     match h.execute(0, &[list, Value::Null]) {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/NullPointerException"),
+        }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
         other => panic!("expected NullPointerException, got {other:?}"),
     }
 }
@@ -780,12 +783,12 @@ impl NativeMethodHandler for TwiceHandler {
         }
         let f = ctx.args[0];
         let x = ctx.args[1];
-        let once = match self.invoke_java(ctx, f, "apply", "(I)I", &[x]) {
+        let once = match self.invoke_java(ctx, f, m::apply, "(I)I", &[x]) {
             Ok(Some(v)) => v,
             Ok(None) => return Some(Err(JvmError::InvalidReference)),
             Err(e) => return Some(Err(e)),
         };
-        match self.invoke_java(ctx, f, "apply", "(I)I", &[once]) {
+        match self.invoke_java(ctx, f, m::apply, "(I)I", &[once]) {
             Ok(Some(v)) => Some(Ok(Some(v))),
             Ok(None) => Some(Err(JvmError::InvalidReference)),
             Err(e) => Some(Err(e)),
@@ -813,7 +816,7 @@ fn twice_classes() -> (&'static [u8], &'static [u8]) {
         &[iface],
         &[Method {
             access: 0x0001,
-            name: "apply",
+            name: m::apply,
             desc: "(I)I",
             max_stack: 2,
             max_locals: 2,

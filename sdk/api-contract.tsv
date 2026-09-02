@@ -38,6 +38,7 @@
 #   java/lang/Enum.valueOf(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum; — the synthetic callee of every enum's valueOf(String); unsupported (compatibility matrix), never reached by the demos
 #   java/util/Locale.ROOTLjava/util/Locale; — kotlinc's uppercase()/lowercase() pass it to String.toUpperCase(Locale); getstatic on a classfile-less class reads null and the arm ignores it
 #   java/util/Locale.USLjava/util/Locale; — as ROOT
+#   java/lang/invoke/LambdaMetafactory (name only) — bootstrap-method owner of every invokedynamic; the interpreter matches the name and builds the lambda itself
 #   java/util/AbstractList (name only) — compile-time superclass of the kotlin-shim's EnumEntriesList; its <init> falls through to Object
 #   java/lang/NoSuchFieldError (name only) — catch_type in every $WhenMappings / $SwitchMap; never thrown by this JVM
 #   java/lang/CloneNotSupportedException (name only) — catch_type in every clone() override that calls super.clone(); Object.clone never throws it here
@@ -598,6 +599,7 @@ javax/inject/Provider	get	()Ljava/lang/Object;
 # ── Name-only classes ──
 @nameonly	java/lang/CloneNotSupportedException
 @nameonly	java/lang/NoSuchFieldError
+@nameonly	java/lang/invoke/LambdaMetafactory
 @nameonly	java/util/AbstractList
 #
 # ── Hints ──

@@ -5,6 +5,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 /// Extract the byte-buffer index stored in field 0 of a StringBuilder receiver.
 fn get_sb_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -48,7 +49,7 @@ pub(crate) fn dispatch(
     };
 
     match method_name {
-        "append" => {
+        m::append => {
             match ctx.args.get(1) {
                 Some(Value::Reference(idx)) => {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -96,11 +97,11 @@ pub(crate) fn dispatch(
             // append() returns `this` for chaining.
             Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
         }
-        "length" => {
+        m::length => {
             let len = ctx.objects.sb_len(buf) as i32;
             Some(Ok(Some(Value::Int(len))))
         }
-        "charAt" => {
+        m::charAt => {
             if let Some(Value::Int(i)) = ctx.args.get(1) {
                 match usize::try_from(*i)
                     .ok()
@@ -109,14 +110,14 @@ pub(crate) fn dispatch(
                     Some(ch) => Some(Ok(Some(Value::Int(ch as i32)))),
                     None => Some(Err(super::throw_named(
                         ctx,
-                        "java/lang/StringIndexOutOfBoundsException",
+                        c::java_lang_StringIndexOutOfBoundsException,
                     ))),
                 }
             } else {
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        "toString" => {
+        m::toString => {
             // Non-destructive, as on Android: the builder keeps its contents
             // and can be appended to (or stringified again) afterwards.
             let str_ref = ctx

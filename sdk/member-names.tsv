@@ -6,10 +6,10 @@
 #     scripts/gen-api-contract.sh
 # after adding, removing or renaming an SDK method or field.
 #
-# build_support/papk.rs turns the M rows into the `shrink_names::m` consts
-# (one per method name; value = the active shrink map's target under
-# --shrink, the original otherwise) that Rust native dispatch and the
-# lifecycle upcalls match SDK method names through.
+# build_support/names.rs turns the rows (with the contract's member column)
+# into the `m::` consts (one per name; value = the active shrink map's
+# target under --shrink, the original otherwise) that Rust native dispatch,
+# the JVM's builtin arms and the lifecycle upcalls match names through.
 F	$VALUES
 F	ACTION_DOWN
 F	ACTION_LONG_PRESS

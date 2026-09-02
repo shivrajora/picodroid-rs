@@ -7,12 +7,9 @@ use alloc::vec::Vec;
 use core::cell::OnceCell;
 
 mod accessors;
-mod names;
 mod parse;
 #[cfg(test)]
 mod tests;
-
-pub use names::{desc_eq, desc_starts_with, unshrink_java, unshrink_java_str};
 
 // Constant pool tag constants
 const TAG_UTF8: u8 = 1;
@@ -105,8 +102,7 @@ pub(crate) struct Parsed {
 pub struct ClassFile {
     data: &'static [u8],
     /// Pre-scanned class name (Flash-backed UTF8 bytes from the constant
-    /// pool), already reverse-translated by [`names::unshrink_java`] so a
-    /// shrunk `java/**` class registers under its original name.
+    /// pool), exactly as the class file spells it.
     name: &'static [u8],
     /// Fully-parsed internals; filled on first access via `parsed()`.
     /// Boxed so an unparsed ClassFile is one null pointer (8 B) instead of an
@@ -142,7 +138,7 @@ impl ClassFile {
     pub(crate) fn new_lazy(data: &'static [u8], name: &'static [u8]) -> Self {
         Self {
             data,
-            name: names::unshrink_java(name),
+            name,
             parsed: OnceCell::new(),
         }
     }
@@ -152,7 +148,7 @@ impl ClassFile {
         let _ = cell.set(Box::new(parsed));
         Self {
             data,
-            name: names::unshrink_java(name),
+            name,
             parsed: cell,
         }
     }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::Executor;
+use crate::names::c;
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
@@ -14,7 +15,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// flash to format, and the stack trace already names the cast site.
     /// Allocation failure degrades to `StackOverflow` like every native throw.
     pub(super) fn class_cast_exception(&mut self) -> JvmError {
-        self.runtime_fault("java/lang/ClassCastException")
+        self.runtime_fault(c::java_lang_ClassCastException)
     }
 
     /// Allocate `class` by name and return it as a thrown exception —
@@ -29,11 +30,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     }
 
     pub(super) fn arithmetic_exception(&mut self) -> JvmError {
-        self.runtime_fault("java/lang/ArithmeticException")
+        self.runtime_fault(c::java_lang_ArithmeticException)
     }
 
     pub(super) fn null_pointer_exception(&mut self) -> JvmError {
-        self.runtime_fault("java/lang/NullPointerException")
+        self.runtime_fault(c::java_lang_NullPointerException)
     }
 
     /// athrow (0xbf): pop an object reference and throw it as an exception.

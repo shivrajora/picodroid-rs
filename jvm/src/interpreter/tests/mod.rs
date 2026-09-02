@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::names::spelled;
 use crate::{
     class_file::ClassFile,
     gc::GcState,
@@ -26,7 +27,7 @@ impl NativeMethodHandler for NoopHandler {
 // ── Helper to run a single-class, single-method test ──────────────────────
 
 fn run(class_bytes: &'static [u8]) -> Result<Option<Value>, JvmError> {
-    let cf = ClassFile::parse(class_bytes).expect("parse failed");
+    let cf = ClassFile::parse(spelled(class_bytes)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -70,7 +71,7 @@ fn run_multi_with_heap(
 ) -> Result<Option<Value>, JvmError> {
     let mut classes: Vec<ClassFile> = Vec::new();
     for &data in classes_data {
-        let cf = ClassFile::parse(data).expect("parse failed");
+        let cf = ClassFile::parse(spelled(data)).expect("parse failed");
         classes.push(cf);
     }
     let mut strings = StringTable::new();

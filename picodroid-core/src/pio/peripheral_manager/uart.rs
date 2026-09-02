@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
+use crate::shrink_names::c;
 
 /// Parses a "UARTx" name string, allocates a UartDevice object with default config (9600 8N1),
 /// and initializes the hardware.
@@ -21,7 +22,7 @@ pub fn open_uart(
 
     let obj_idx = alloc_peripheral_with_id(
         objects,
-        "picodroid/pio/UartDevice",
+        c::picodroid_pio_UartDevice,
         fields::uart::UART_ID,
         uart_id,
     )?;

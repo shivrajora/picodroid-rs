@@ -13,6 +13,7 @@ pub use lvgl_list_view::reset_list_view_state;
 // `visit_item_click_listener_roots` is reached directly via the lvgl path in
 // `gc_visit_roots` (mirroring `button::visit_click_listener_roots`), so it is
 // not re-exported here.
+use crate::shrink_names::d;
 pub use lvgl_list_view::{drain_item_click_queue, lookup_item_click};
 
 pub fn list_view_native_create() -> Result<Option<Value>, JvmError> {
@@ -82,13 +83,7 @@ pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
 
     for i in 0..count {
         let item = handler
-            .invoke_java(
-                ctx,
-                adapter,
-                m::getItem,
-                "(I)Ljava/lang/Object;",
-                &[Value::Int(i)],
-            )?
+            .invoke_java(ctx, adapter, m::getItem, d::I__Object, &[Value::Int(i)])?
             .unwrap_or(Value::Null);
         // Mirrors `item == null ? "" : item.toString()`. A `Reference` is
         // already a String, and `String.toString()` returns `this`, so the
@@ -96,7 +91,7 @@ pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
         let text = match item {
             Value::Null => None,
             Value::Reference(idx) => Some(idx),
-            _ => match handler.invoke_java(ctx, item, m::toString, "()Ljava/lang/String;", &[])? {
+            _ => match handler.invoke_java(ctx, item, m::toString, d::__String, &[])? {
                 Some(Value::Reference(idx)) => Some(idx),
                 _ => None,
             },

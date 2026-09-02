@@ -5,6 +5,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 pub(crate) fn dispatch(
     method_name: &str,
@@ -15,7 +16,7 @@ pub(crate) fn dispatch(
     };
 
     match method_name {
-        "hasNext" => {
+        m::hasNext => {
             let state = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => s,
                 None => return Some(Err(JvmError::InvalidReference)),
@@ -23,7 +24,7 @@ pub(crate) fn dispatch(
             let len = source_len(ctx, &state.source);
             Some(Ok(Some(Value::Int((state.position < len) as i32))))
         }
-        "next" => {
+        m::next => {
             let (source, pos, expected) = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => (s.source, s.position, s.expected_len),
                 None => return Some(Err(JvmError::InvalidReference)),
@@ -34,13 +35,13 @@ pub(crate) fn dispatch(
                 // iterator (bugbash S6).
                 return Some(Err(super::throw_named(
                     ctx,
-                    "java/util/ConcurrentModificationException",
+                    c::java_util_ConcurrentModificationException,
                 )));
             }
             if pos >= len {
                 return Some(Err(super::throw_named(
                     ctx,
-                    "java/util/NoSuchElementException",
+                    c::java_util_NoSuchElementException,
                 )));
             }
             let value = match source {
@@ -49,7 +50,9 @@ pub(crate) fn dispatch(
                 IterSource::MapValues(buf) => map_entry(ctx, buf, pos).1,
                 IterSource::MapEntries(buf) => {
                     let (k, v) = map_entry(ctx, buf, pos);
-                    let Some(entry) = ctx.objects.alloc_with_field_count("java/util/Map$Entry", 2)
+                    let Some(entry) = ctx
+                        .objects
+                        .alloc_with_field_count(c::java_util_Map_Entry, 2)
                     else {
                         return Some(Err(JvmError::StackOverflow));
                     };
@@ -65,7 +68,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(Some(value)))
         }
-        "remove" => {
+        m::remove => {
             let (source, last, expected) = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => (s.source, s.last_returned, s.expected_len),
                 None => return Some(Err(JvmError::InvalidReference)),
@@ -74,13 +77,13 @@ pub(crate) fn dispatch(
             let Some(at) = last else {
                 return Some(Err(super::throw_named(
                     ctx,
-                    "java/lang/IllegalStateException",
+                    c::java_lang_IllegalStateException,
                 )));
             };
             if source_len(ctx, &source) != expected {
                 return Some(Err(super::throw_named(
                     ctx,
-                    "java/util/ConcurrentModificationException",
+                    c::java_util_ConcurrentModificationException,
                 )));
             }
             let removed = match source {

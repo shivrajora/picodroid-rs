@@ -9,27 +9,26 @@ use pico_jvm::{
 };
 
 use crate::executors::{background_pool, main_queue};
+use crate::shrink_names::c;
 
 pub fn dispatch(
     class_name: &str,
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
         // Factory methods return a fresh executor instance each call. The
         // Rust-side queues are static, so identity of the returned object
         // does not matter — every instance routes to the same inbox/pool.
-        ("picodroid/concurrent/Executors", m::mainExecutor) => {
-            let exec_class = crate::shrink_names::shrink_class("picodroid/concurrent/MainExecutor");
+        (c::picodroid_concurrent_Executors, m::mainExecutor) => {
+            let exec_class = c::picodroid_concurrent_MainExecutor;
             match ctx.objects.alloc(exec_class) {
                 Some(obj) => Some(Ok(Some(Value::ObjectRef(obj)))),
                 None => Some(Err(JvmError::StackOverflow)),
             }
         }
-        ("picodroid/concurrent/Executors", m::backgroundExecutor) => {
-            let exec_class =
-                crate::shrink_names::shrink_class("picodroid/concurrent/BackgroundExecutor");
+        (c::picodroid_concurrent_Executors, m::backgroundExecutor) => {
+            let exec_class = c::picodroid_concurrent_BackgroundExecutor;
             match ctx.objects.alloc(exec_class) {
                 Some(obj) => Some(Ok(Some(Value::ObjectRef(obj)))),
                 None => Some(Err(JvmError::StackOverflow)),
@@ -37,7 +36,7 @@ pub fn dispatch(
         }
 
         // execute(Runnable r): args[0] = this, args[1] = Runnable ObjectRef.
-        ("picodroid/concurrent/MainExecutor", m::execute) => {
+        (c::picodroid_concurrent_MainExecutor, m::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !main_queue::enqueue_runnable(*runnable) {
                     #[cfg(not(feature = "sim"))]
@@ -48,7 +47,7 @@ pub fn dispatch(
             }
             Some(Ok(None))
         }
-        ("picodroid/concurrent/BackgroundExecutor", m::execute) => {
+        (c::picodroid_concurrent_BackgroundExecutor, m::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !background_pool::submit(*runnable) {
                     #[cfg(not(feature = "sim"))]

@@ -55,106 +55,9 @@ pub fn emit_framework_map_version(out: &Path, root: &Path) {
         .unwrap_or_else(|e| panic!("cannot write framework_mapping_version.rs: {e}"));
 }
 
-/// Emit `framework_member_names.rs` into `out`: the `m::` const module every
-/// Rust dispatch arm and upcall names SDK methods through, plus the
-/// test-only `unshrink_member` / `shrink_member` translators.
-///
-/// The names come from the committed `sdk/member-names.tsv` (every method
-/// and field the SDK declares, in original spelling — kept current by
-/// picodroid-core's `member_names_are_current` test), not from the compiled
-/// corpus: the module must exist for a bare `cargo build` too, where no
-/// Gradle run happens. Each `M` row becomes
-/// `pub const <name>: &str = "<spelling>"` where the spelling is the active
-/// map's `[[member]]` target when shrinking is on and the map renames it,
-/// and the original otherwise — so a no-shrink build compiles to exactly
-/// the string literals it matched before. Consts are free: only the ones a
-/// `match` arm uses reach `.rodata`, and those replace an identical literal.
-pub fn emit_member_names(out: &Path, root: &Path) {
-    let tsv = root.join("sdk/member-names.tsv");
-    println!("cargo:rerun-if-changed={}", tsv.display());
-    let map = active_shrink_map(root);
-    let members: Vec<(bool, String)> = match fs::read_to_string(&tsv) {
-        Ok(text) => text
-            .lines()
-            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-            .filter_map(|l| {
-                let (kind, name) = l.split_once('\t')?;
-                Some((kind == "M", name.trim().to_string()))
-            })
-            .collect(),
-        Err(_) => {
-            println!(
-                "cargo:warning={} is missing — the m:: member-name module is empty; \
-                 run scripts/gen-api-contract.sh",
-                tsv.display()
-            );
-            Vec::new()
-        }
-    };
-    let target = |name: &str| -> String {
-        map.as_ref()
-            .and_then(|m| m.member_target(name))
-            .unwrap_or(name)
-            .to_string()
-    };
-    let mut body = String::from(
-        "/// SDK method names as the loaded framework spells them — the active\n\
-         /// shrink map's target under `--shrink`, the original otherwise. Generated\n\
-         /// by build_support/papk.rs from sdk/member-names.tsv; match on these,\n\
-         /// never on a string literal (`no_sdk_method_literals_in_dispatch`).\n\
-         #[allow(non_upper_case_globals, dead_code)]\n\
-         pub mod m {\n",
-    );
-    let mut seen = std::collections::HashSet::new();
-    for (is_method, name) in &members {
-        if !is_method {
-            continue;
-        }
-        let Some(ident) = rust_ident_for(name) else {
-            continue;
-        };
-        assert!(
-            seen.insert(ident.clone()),
-            "two SDK method names map to the Rust ident {ident}"
-        );
-        body.push_str(&format!(
-            "    pub const {ident}: &str = {:?};\n",
-            target(name)
-        ));
-    }
-    body.push_str("}\n\n");
-    // Test-only translators: the shrink lane reads member names out of the
-    // loaded corpus and must compare them against original-name tables.
-    body.push_str(
-        "/// Original spelling of a loaded member name (test-only: firmware never\n\
-         /// needs it — dispatch matches the shrunk spelling directly via `m::`).\n\
-         #[cfg(test)]\n\
-         pub fn unshrink_member(name: &str) -> &str {\n    match name {\n",
-    );
-    if let Some(map) = &map {
-        for (from, to) in map.iter_members() {
-            body.push_str(&format!("        {to:?} => {from:?},\n"));
-        }
-    }
-    body.push_str("        other => other,\n    }\n}\n\n");
-    body.push_str(
-        "/// Loaded spelling of an original member name (test-only).\n\
-         #[cfg(test)]\n\
-         pub fn shrink_member(name: &str) -> &str {\n    match name {\n",
-    );
-    if let Some(map) = &map {
-        for (from, to) in map.iter_members() {
-            body.push_str(&format!("        {from:?} => {to:?},\n"));
-        }
-    }
-    body.push_str("        other => other,\n    }\n}\n");
-    fs::write(out.join("framework_member_names.rs"), body)
-        .unwrap_or_else(|e| panic!("cannot write framework_member_names.rs: {e}"));
-}
-
 /// The active shrink map, or `None` when shrinking is off or no map covers
 /// the package version. Same resolution as [`apply_active_shrink`].
-fn active_shrink_map(root: &Path) -> Option<class_shrink::mapping::ShrinkMap> {
+pub fn active_shrink_map(root: &Path) -> Option<class_shrink::mapping::ShrinkMap> {
     let map_path = active_shrink_map_path(root)?;
     Some(
         class_shrink::mapping::ShrinkMap::load(&map_path)
@@ -184,35 +87,10 @@ fn active_shrink_map_path(root: &Path) -> Option<PathBuf> {
     Some(shrink_maps_dir.join(format!("v{active}.toml")))
 }
 
-/// The Rust identifier a Java method name is exposed as in `m::`. Java
-/// names that are Rust keywords are raw (`r#type`); the four that cannot be
-/// raw get a trailing underscore; javac synthetics (`$`) and `<init>`-style
-/// names, which no Rust code matches, get none.
-fn rust_ident_for(name: &str) -> Option<String> {
-    if name.is_empty() || name.contains('$') || name.starts_with('<') {
-        return None;
-    }
-    if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        || name.as_bytes()[0].is_ascii_digit()
-    {
-        return None;
-    }
-    Some(match name {
-        "self" | "super" | "crate" | "Self" => format!("{name}_"),
-        "as" | "break" | "const" | "continue" | "else" | "enum" | "extern" | "false" | "fn"
-        | "for" | "if" | "impl" | "in" | "let" | "loop" | "match" | "mod" | "move" | "mut"
-        | "pub" | "ref" | "return" | "static" | "struct" | "trait" | "true" | "type" | "unsafe"
-        | "use" | "where" | "while" | "async" | "await" | "dyn" | "abstract" | "become" | "box"
-        | "do" | "final" | "macro" | "override" | "priv" | "typeof" | "unsized" | "virtual"
-        | "yield" | "try" | "gen" => format!("r#{name}"),
-        _ => name.to_string(),
-    })
-}
-
 /// Shrinking is gated on the `PICODROID_SHRINK=1` env var — set by the
 /// `--shrink` flag on top-level scripts (build.sh / flash.sh / sim.sh /
 /// build-apk.sh). Any value other than `"1"` (including unset) is off.
-fn shrink_enabled() -> bool {
+pub fn shrink_enabled() -> bool {
     matches!(env::var("PICODROID_SHRINK").as_deref(), Ok("1"))
 }
 
@@ -299,10 +177,9 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// `root` is the repo root directory (where `gradlew`, `sdk/`, etc. live).
 /// Shrinking is only triggered when [`resolve_active_map_version`] returns
 /// a version other than the `"0.0.0"` sentinel *and* a matching map file
-/// exists. When shrinking runs, this function also writes
-/// `framework_unshrink.rs` — a reverse-translation table from shrunk name
-/// back to original, consumed by the native dispatch layer. When shrinking
-/// is off the emitted table is an identity passthrough.
+/// exists. The Rust side names classes through the `c::` consts
+/// `build_support/names.rs` generates from the same map (see
+/// `picodroid-core/build.rs::emit_names`), so nothing translates at run time.
 ///
 /// `excludes` are JVM internal class names (`picodroid/json/JSONObject`) the
 /// active board opts out of, from its `framework_class_excludes` key. The
@@ -326,7 +203,6 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
             b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\npub const FRAMEWORK_CLASSES_DEBUG_STRIPPED: bool = false;\n",
         )
         .unwrap();
-        emit_identity_unshrink(out);
         return;
     }
 
@@ -520,8 +396,7 @@ fn excluded_class_name(
 /// version, load it, apply it to `classes_dir`, and return the path holding
 /// the shrunk outputs together with the map. Also publishes the map to
 /// `target/picodroid/framework-mapping.toml` so `scripts/build-apk.sh` can
-/// find it without groping cargo metadata, and emits `framework_unshrink.rs`
-/// with a reverse-translation function.
+/// find it without groping cargo metadata.
 ///
 /// `root` is the repo root (where `Cargo.toml`, `sdk/`, `target/` live).
 /// Returns `None` when shrinking is disabled (default) or no map is active —
@@ -533,7 +408,6 @@ fn apply_active_shrink(
     root: &Path,
 ) -> Option<(PathBuf, class_shrink::mapping::ShrinkMap)> {
     if !shrink_enabled() {
-        emit_identity_unshrink(out);
         return None;
     }
     let shrink_maps_dir = root.join("sdk").join("shrink-maps");
@@ -549,7 +423,6 @@ fn apply_active_shrink(
     let pkg_version = read_package_version(&cargo_toml).ok()?;
     let active = resolve_active_map_version(&pkg_version, &shrink_maps_dir);
     if active == "0.0.0" {
-        emit_identity_unshrink(out);
         return None;
     }
     let map_path = shrink_maps_dir.join(format!("v{active}.toml"));
@@ -568,58 +441,7 @@ fn apply_active_shrink(
     class_shrink::shrink::shrink_directory(classes_dir, &shrunk_dir, &map)
         .unwrap_or_else(|e| panic!("framework shrink failed: {e}"));
 
-    emit_unshrink_table(out, &map);
     Some((shrunk_dir, map))
-}
-
-/// Emit identity `unshrink_class` / `shrink_class` functions — used when no
-/// shrink map is active. Returns input verbatim in both directions.
-fn emit_identity_unshrink(out: &Path) {
-    let content = "/// Reverse-translate a shrunk class name back to its original form. \n\
-                   /// No-shrink build: identity passthrough.\n\
-                   pub fn unshrink_class(name: &str) -> &str { name }\n\
-                   \n\
-                   /// Forward-translate an original class name to its shrunk form. \n\
-                   /// No-shrink build: identity passthrough.\n\
-                   pub fn shrink_class(name: &str) -> &str { name }\n";
-    fs::write(out.join("framework_unshrink.rs"), content).unwrap();
-}
-
-/// Emit `unshrink_class` (shrunk → original) and `shrink_class` (original
-/// → shrunk) based on the given map. Both use `match` on `&str` — compact
-/// and fast for the small framework set.
-///
-/// Only the framework (`a/`) namespace is emitted. `java/**` names live
-/// under `b/` and are reverse-translated by pico-jvm itself at its
-/// class-file boundary (`jvm/src/class_file/names.rs`), so dispatch never
-/// sees one; emitting them here too would spend flash on a second copy.
-fn emit_unshrink_table(out: &Path, map: &class_shrink::mapping::ShrinkMap) {
-    let java = class_shrink::rename::Namespace::Java.prefix();
-    let framework = || map.iter_classes().filter(|(_, to)| !to.starts_with(java));
-    let mut body = String::new();
-    body.push_str(
-        "/// Reverse-translate a shrunk class name back to its original form. \n\
-         /// Inserted at native-dispatch entry points so match arms in Rust can \n\
-         /// continue using the original internal names. Unknown names pass through.\n\
-         pub fn unshrink_class(name: &str) -> &str {\n    match name {\n",
-    );
-    for (from, to) in framework() {
-        body.push_str(&format!("        {to:?} => {from:?},\n"));
-    }
-    body.push_str("        other => other,\n    }\n}\n\n");
-
-    body.push_str(
-        "/// Forward-translate an original class name to its shrunk form. \n\
-         /// Used at `jvm.invoke_instance` / `invoke_instance_with_args` call sites \n\
-         /// that hardcode original framework class names — the loaded classes use \n\
-         /// the shrunk form, so lookups would otherwise miss.\n\
-         pub fn shrink_class(name: &str) -> &str {\n    match name {\n",
-    );
-    for (from, to) in framework() {
-        body.push_str(&format!("        {from:?} => {to:?},\n"));
-    }
-    body.push_str("        other => other,\n    }\n}\n");
-    fs::write(out.join("framework_unshrink.rs"), body).unwrap();
 }
 
 /// Generate the `apk_data()` accessor for the app `.papk`.

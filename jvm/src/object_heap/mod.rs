@@ -7,6 +7,7 @@ mod sb_store;
 
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
+use crate::names::c;
 use crate::types::{default_for_descriptor, Value};
 use alloc::vec::Vec;
 
@@ -24,21 +25,23 @@ const ENUM_IMPLICIT_FIELDS: usize = 2;
 fn default_field_count_for_native(class_name: &str) -> usize {
     match class_name {
         // Boxed wrappers store the unboxed value at slot 0.
-        "java/lang/Integer"
-        | "java/lang/Boolean"
-        | "java/lang/Long"
-        | "java/lang/Float"
-        | "java/lang/Double"
-        | "java/lang/Character"
-        | "java/lang/Byte"
-        | "java/lang/Short" => 1,
+        c::java_lang_Integer
+        | c::java_lang_Boolean
+        | c::java_lang_Long
+        | c::java_lang_Float
+        | c::java_lang_Double
+        | c::java_lang_Character
+        | c::java_lang_Byte
+        | c::java_lang_Short => 1,
         // HashMap views store the backing map_buf index at slot 0.
         // Views: map buffer at slot 0, the owning map object at slot 1 (GC pin).
-        "java/util/HashMap$KeySet" | "java/util/HashMap$Values" | "java/util/HashMap$EntrySet" => 2,
+        c::java_util_HashMap_KeySet
+        | c::java_util_HashMap_Values
+        | c::java_util_HashMap_EntrySet => 2,
         // Map$Entry objects yielded by entrySet(): key at slot 0, value at 1.
-        "java/util/Map$Entry" => 2,
+        c::java_util_Map_Entry => 2,
         // StringBuilder stores its backing sb_buf index at slot 0.
-        "java/lang/StringBuilder" => 1,
+        c::java_lang_StringBuilder => 1,
         _ => 0,
     }
 }
@@ -444,7 +447,7 @@ impl ObjectHeap {
                     }
                 }
                 None => {
-                    if current == "java/lang/Enum" {
+                    if current == c::java_lang_Enum {
                         enum_base = true;
                     }
                     break;
@@ -1181,7 +1184,7 @@ mod tests {
     #[test]
     fn exception_message_register_get_free() {
         let mut heap = ObjectHeap::new();
-        let obj = heap.alloc("java/lang/RuntimeException").unwrap();
+        let obj = heap.alloc(c::java_lang_RuntimeException).unwrap();
         assert_eq!(heap.get_exception_message(obj), None);
         heap.register_exception_message(obj, 7);
         assert_eq!(heap.get_exception_message(obj), Some(7));
@@ -1267,8 +1270,8 @@ mod tests {
     #[test]
     fn string_builder_instances_are_distinct() {
         let mut heap = ObjectHeap::new();
-        let idx1 = heap.alloc("java/lang/StringBuilder");
-        let idx2 = heap.alloc("java/lang/StringBuilder");
+        let idx1 = heap.alloc(c::java_lang_StringBuilder);
+        let idx2 = heap.alloc(c::java_lang_StringBuilder);
         assert!(idx1.is_some());
         assert_ne!(idx1, idx2);
     }

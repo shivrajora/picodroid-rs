@@ -4,6 +4,18 @@
 > §4.3 and §6.2, which found ~9.5 KB of original-form names and ~14 KB of
 > run-time name translation still in a `--shrink --release` image.
 
+> **Status — landed 2026-09-02** (branch `unconditional-shrink`, map
+> v0.17.0, package 0.17.0). As planned, with these differences: the
+> descriptor list `sdk/descriptors.tsv` is hand-named (`String_I__Object`,
+> `t_aString`, `p_String` for prefixes) rather than derived; `main` and
+> `injectMembers` stay verbatim (app entry points invoked by literal from
+> Rust — ProGuard keeps `main` too); javac's `$` synthetics are mapped as
+> well; the test-only fixture respeller `pico_jvm::names::spelled` lets the
+> JVM's hand-assembled class-file fixtures run in the shrink lane; and the
+> image check is `scripts/check-shrunk-image.sh` in `pre-commit --full`,
+> with `scripts/retrace.sh` / `class-shrink retrace` as the host inverse.
+> Measurements are in the closing section.
+
 ## 0. Decision
 
 Under `--shrink`, the firmware behaves like a ProGuard build: **no original
@@ -228,3 +240,26 @@ ratchet is the proof that no-shrink stays byte-identical).
 - **An older device PAPK stops loading** — by design; the floor error names
   the fix.
 - **Debuggability** — retrace, and the no-shrink build.
+
+## 8. Measured (2026-09-02, `picoenvmon` on `pico_enviro_mon`, `--release --shrink`)
+
+| | before (`86ebdfe`, map v0.16.0) | after (map v0.17.0) | Δ |
+|---|---:|---:|---:|
+| `Flash:` | 943,959 | 916,805 | **−27,154 (−2.9 %)** |
+| `.text` | 731,184 | 713,760 | −17,424 |
+| `.rodata` | 155,740 | 146,280 | −9,460 |
+| ├─ embedded SDK corpus (145 classes) | 79,169 | 78,323 | −846 |
+| └─ Rust literals, tables, consts | 76,571 | 67,957 | −8,614 |
+| `.papk_flash_init` (`picoenvmon.papk` + meta sector) | 54,295 | 54,025 | −270 |
+| original `picodroid/**` or `java/**` spellings in `.rodata` | 238 + 89 distinct | **0** | |
+
+`scripts/check-shrunk-image.sh` passes on the image. The sim `benchmark`
+app under `--shrink` reads 1,240–1,260 ms against 1,090–1,160 ms
+no-shrink in this session's runs (host timing, ±5 %); the no-shrink lane
+is unchanged from before. No-shrink firmware is not byte-identical this
+time: the §5.1 class-file boundary and the identity translators are gone
+from both modes, but two lookup tables replaced tests that cannot see
+through `--shrink` (`boxed_dispatch!`'s `ends_with("Value")`, `net_stub`'s
+`starts_with("picodroid/net/")`), and `bench/parity/ratchet.toml` moved
++119 B (`testbench_rp2040`) / +203 B (`testbench_rp2350`) for them.
+

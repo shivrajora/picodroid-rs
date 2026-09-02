@@ -5,6 +5,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 /// Sentinel value stored in the map backing store for HashSet entries.
 const SET_PRESENT: Value = Value::Int(1);
@@ -37,7 +38,7 @@ pub(crate) fn dispatch(
                 .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
             Some(Ok(None))
         }
-        "add" => {
+        m::add => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -49,7 +50,7 @@ pub(crate) fn dispatch(
                 .is_none();
             Some(Ok(Some(Value::Int(was_absent as i32))))
         }
-        "remove" => {
+        m::remove => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -58,7 +59,7 @@ pub(crate) fn dispatch(
             let was_present = ctx.objects.map_remove(buf_idx, elem, ctx.strings).is_some();
             Some(Ok(Some(Value::Int(was_present as i32))))
         }
-        "contains" => {
+        m::contains => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -67,14 +68,14 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_key(buf_idx, elem, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        "size" => {
+        m::size => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32))))
         }
-        "isEmpty" => {
+        m::isEmpty => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -85,7 +86,7 @@ pub(crate) fn dispatch(
         }
         // iterator(): the set's elements are the keys of its map buffer, so
         // the HashMap key-view iterator serves it unchanged (hash order).
-        "iterator" => {
+        m::iterator => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -93,7 +94,7 @@ pub(crate) fn dispatch(
             let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
-            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+            let iter_obj = match ctx.objects.alloc(c::java_util_Iterator) {
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
@@ -109,7 +110,7 @@ pub(crate) fn dispatch(
             );
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
-        "clear" => {
+        m::clear => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

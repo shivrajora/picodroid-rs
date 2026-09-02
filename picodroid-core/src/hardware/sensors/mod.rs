@@ -10,6 +10,7 @@
 //! on register/unregister. No JVM heap reference ever crosses the task
 //! boundary.
 
+use crate::shrink_names::c;
 use pico_jvm::{
     array_heap::ArrayHeap,
     object_heap::ObjectHeap,
@@ -209,9 +210,7 @@ pub fn get_default_sensor(
     }
 
     let obj = objects
-        .alloc(crate::shrink_names::shrink_class(
-            "picodroid/hardware/Sensor",
-        ))
+        .alloc(c::picodroid_hardware_Sensor)
         .ok_or(JvmError::StackOverflow)?;
 
     objects
@@ -307,7 +306,7 @@ pub fn register_listener(
             // free. Rooted via visit_gc_roots until unregisterListener.
             let event_obj = objects
                 .alloc_with_field_count(
-                    crate::shrink_names::shrink_class("picodroid/hardware/SensorEvent"),
+                    c::picodroid_hardware_SensorEvent,
                     event_fields::TIMESTAMP + 1,
                 )
                 .ok_or(JvmError::StackOverflow)?;

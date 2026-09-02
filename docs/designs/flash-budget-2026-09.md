@@ -300,9 +300,13 @@ that interaction, since `-Os` + LTO may behave differently from `-O3` + LTO.
 
 ### 6.2 Retire runtime class-name translation — ~19 KB
 
-> Planned as [unconditional-shrink-2026-09.md](unconditional-shrink-2026-09.md)
-> (2026-09-02): ProGuard semantics for `--shrink`, no original name anywhere
-> in the image, `Class.getName()` returns the mapped name.
+> **Landed 2026-09-02** as [unconditional-shrink-2026-09.md](unconditional-shrink-2026-09.md)
+> (map v0.17.0): ProGuard semantics for `--shrink`, no original name anywhere
+> in the image, `Class.getName()` returns the mapped name. Measured on this
+> build: **943,959 → 916,805 B (−27,154)** — `.text` −17,424, `.rodata`
+> −9,460 — more than the ~19 KB priced below because the contract members
+> and the JVM's own `java/**` literals went with it. `.rodata` now carries
+> zero original `picodroid/**` or `java/**` spellings (§4.3 is empty).
 
 August's #3/#5 priced this at ~4.7 KB of `.rodata`. The `.text` side was not
 counted then and is larger:

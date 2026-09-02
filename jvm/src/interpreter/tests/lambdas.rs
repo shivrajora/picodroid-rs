@@ -7,10 +7,12 @@
 //! local but not a descriptor parameter -- lines its arguments up too.
 use super::asm::{Asm, Method, ACC_INTERFACE};
 use super::*;
+use crate::names::{c, d, m};
 use alloc::vec;
 
-const OBJ: &str = "java/lang/Object";
-const LMF_DESC: &str = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;";
+const OBJ: &str = c::java_lang_Object;
+const LMF_DESC: &str =
+    d::MethodHandles_Lookup_String_MethodType_MethodType_MethodHandle_MethodType__CallSite;
 
 fn hi(i: u16) -> u8 {
     (i >> 8) as u8
@@ -32,7 +34,7 @@ fn func_iface(sam: &str) -> &'static [u8] {
         &[],
         &[Method {
             access: 0x0401,
-            name: "call",
+            name: m::call,
             desc: sam,
             max_stack: 0,
             max_locals: 0,
@@ -62,16 +64,16 @@ fn lambda_class(
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let lmf = a.class("java/lang/invoke/LambdaMetafactory");
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
     let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
     let bsm = a.method_handle(6, lmf_ref);
     let body_ref = a.methodref(0x0A, this, "lam", body_desc);
     let body_handle = a.method_handle(6, body_ref);
     let sam_type = a.method_type(sam);
     let inst_type = a.method_type(instantiated);
-    let indy = a.invoke_dynamic(0, "call", factory_desc);
+    let indy = a.invoke_dynamic(0, m::call, factory_desc);
     let func = a.class("Func");
-    let call = a.methodref(0x0B, func, "call", sam);
+    let call = a.methodref(0x0B, func, m::call, sam);
     let (push_arg, tail, ret_op) = build(&mut a);
     let sam_args = helpers::count_args(sam) as u8;
     let mut code = push_captures.to_vec();
@@ -110,14 +112,14 @@ fn lambda_class(
     )
 }
 
-const SAM_OBJ: &str = "(Ljava/lang/Object;)Ljava/lang/Object;";
+const SAM_OBJ: &str = d::Object__Object;
 
 /// `bipush 21; Integer.valueOf(I)` as the argument, `checkcast Integer;
 /// intValue()` as the tail, `ireturn`.
 fn boxed_int_arg_int_result(a: &mut Asm) -> (Vec<u8>, Vec<u8>, u8) {
-    let integer = a.class("java/lang/Integer");
-    let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
-    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let integer = a.class(c::java_lang_Integer);
+    let value_of = a.methodref(0x0A, integer, m::valueOf, d::I__Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
     (
         vec![0x10, 21, 0xB8, hi(value_of), lo(value_of)],
         vec![
@@ -140,7 +142,7 @@ fn unboxes_int_argument_and_boxes_int_return() {
         &[0x1A, 0x05, 0x68, 0xAC], // iload_0; iconst_2; imul; ireturn
         1,
         SAM_OBJ,
-        "(Ljava/lang/Integer;)Ljava/lang/Integer;",
+        d::Integer__Integer,
         "()LFunc;",
         "()I",
         &[],
@@ -153,19 +155,19 @@ fn unboxes_int_argument_and_boxes_int_return() {
 #[test]
 fn boxes_return_of_no_arg_body() {
     // lam()I = 5, called through call()Object.
-    let sam = "()Ljava/lang/Object;";
+    let sam = d::__Object;
     let t = lambda_class(
         "()I",
         &[0x08, 0xAC], // iconst_5; ireturn
         0,
         sam,
-        "()Ljava/lang/Integer;",
+        d::__Integer,
         "()LFunc;",
         "()I",
         &[],
         |a| {
-            let integer = a.class("java/lang/Integer");
-            let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+            let integer = a.class(c::java_lang_Integer);
+            let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
             (
                 vec![],
                 vec![
@@ -192,14 +194,14 @@ fn unboxes_long_argument_and_boxes_long_return() {
         &[0x1E, 0x0A, 0x61, 0xAD], // lload_0; lconst_1; ladd; lreturn
         2,
         SAM_OBJ,
-        "(Ljava/lang/Long;)Ljava/lang/Long;",
+        d::Long__Long,
         "()LFunc;",
         "()J",
         &[],
         |a| {
-            let long = a.class("java/lang/Long");
-            let value_of = a.methodref(0x0A, long, "valueOf", "(J)Ljava/lang/Long;");
-            let long_value = a.methodref(0x0A, long, "longValue", "()J");
+            let long = a.class(c::java_lang_Long);
+            let value_of = a.methodref(0x0A, long, m::valueOf, d::J__Long);
+            let long_value = a.methodref(0x0A, long, m::longValue, "()J");
             (
                 vec![0x06, 0x85, 0xB8, hi(value_of), lo(value_of)], // iconst_3; i2l; valueOf
                 vec![
@@ -226,14 +228,14 @@ fn captured_values_pass_through_untouched() {
         &[0x1A, 0x1B, 0x60, 0xAC], // iload_0; iload_1; iadd; ireturn
         2,
         SAM_OBJ,
-        "(Ljava/lang/Integer;)Ljava/lang/Integer;",
+        d::Integer__Integer,
         "(I)LFunc;",
         "()I",
         &[0x10, 40], // bipush 40
         |a| {
-            let integer = a.class("java/lang/Integer");
-            let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
-            let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+            let integer = a.class(c::java_lang_Integer);
+            let value_of = a.methodref(0x0A, integer, m::valueOf, d::I__Integer);
+            let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
             (
                 vec![0x05, 0xB8, hi(value_of), lo(value_of)], // iconst_2; valueOf
                 vec![
@@ -278,7 +280,7 @@ fn null_for_a_primitive_parameter_throws_npe() {
         &[0x1A, 0xAC],
         1,
         SAM_OBJ,
-        "(Ljava/lang/Integer;)Ljava/lang/Integer;",
+        d::Integer__Integer,
         "()LFunc;",
         "()I",
         &[],
@@ -288,7 +290,7 @@ fn null_for_a_primitive_parameter_throws_npe() {
     match run_multi(&classes, 1, &[]) {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/NullPointerException"),
+        }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
         other => panic!("expected an uncaught NPE, got {other:?}"),
     }
 }
@@ -305,20 +307,20 @@ fn instance_body_receiver_capture_consumes_no_parameter() {
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let lmf = a.class("java/lang/invoke/LambdaMetafactory");
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
     let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
     let bsm = a.method_handle(6, lmf_ref);
     // REF_invokeSpecial (7) on a private instance body, as javac emits.
     let body_ref = a.methodref(0x0A, this, "lam", "(I)I");
     let body_handle = a.method_handle(7, body_ref);
     let sam_type = a.method_type(SAM_OBJ);
-    let inst_type = a.method_type("(Ljava/lang/Integer;)Ljava/lang/Integer;");
-    let indy = a.invoke_dynamic(0, "call", "(Ljava/lang/Object;)LFunc;");
+    let inst_type = a.method_type(d::Integer__Integer);
+    let indy = a.invoke_dynamic(0, m::call, d::Object__Func);
     let func = a.class("Func");
-    let call = a.methodref(0x0B, func, "call", SAM_OBJ);
-    let integer = a.class("java/lang/Integer");
-    let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
-    let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let call = a.methodref(0x0B, func, m::call, SAM_OBJ);
+    let integer = a.class(c::java_lang_Integer);
+    let value_of = a.methodref(0x0A, integer, m::valueOf, d::I__Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
 
     // The captured receiver is only ever a local the body ignores, so any
     // object stands in for `this`: Integer(0) saves T needing an <init>.

@@ -11,6 +11,9 @@ use super::*;
 use crate::array_heap::ArrayHeap;
 use crate::class_objects::ClassObjectCache;
 use crate::gc::GcState;
+use crate::names::c;
+use crate::names::m;
+use crate::names::spelled;
 
 /// Single-class fixture: class "Lit" with static method m()I returning iconst_5.
 /// Smallest possible bytecode for repeated-invocation testing.
@@ -66,7 +69,7 @@ fn fresh_state() -> (
 fn execute_returns_none_for_void_with_no_return_value() {
     // Lit.m()I returns an int; reuse for a sanity check that single-class
     // execute() works as a baseline before the more complex multi-call tests.
-    let cf = ClassFile::parse(CLASS_LIT).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
@@ -90,7 +93,7 @@ fn execute_returns_none_for_void_with_no_return_value() {
 fn repeated_invocation_returns_same_result() {
     // Calling the same method twice with the same state must yield the same
     // value. Guards against caches / counters that would diverge on a hit.
-    let cf = ClassFile::parse(CLASS_LIT).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
@@ -117,13 +120,13 @@ fn statics_persist_across_execute_calls() {
     // Reuses CLASS_E + CLASS_CALLER from clinit.rs. First call triggers
     // E.<clinit> which sets E.val=99. The second call must reuse the
     // already-initialized static — not panic, not reset, not re-run clinit.
-    let cf_e = ClassFile::parse(super::clinit::CLASS_E).expect("parse E");
-    let cf_caller = ClassFile::parse(super::clinit::CLASS_CALLER).expect("parse Caller");
+    let cf_e = ClassFile::parse(spelled(super::clinit::CLASS_E)).expect("parse E");
+    let cf_caller = ClassFile::parse(spelled(super::clinit::CLASS_CALLER)).expect("parse Caller");
     let classes = alloc::vec![cf_e, cf_caller];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
 
-    assert!(!st.is_initialized(b"E"));
+    assert!(!st.is_initialized(m::E.as_bytes()));
     let r1 = execute(
         &classes,
         &mut s,
@@ -138,7 +141,7 @@ fn statics_persist_across_execute_calls() {
         &[],
     );
     assert_eq!(r1.unwrap(), Some(Value::Int(99)));
-    assert!(st.is_initialized(b"E"));
+    assert!(st.is_initialized(m::E.as_bytes()));
 
     let entries_after_first = st.values_iter().count();
     let r2 = execute(
@@ -174,7 +177,7 @@ fn gc_state_alloc_count_persists_across_execute_calls() {
     // `gc_alloc_threshold` (pre-commit runs this suite with board env
     // applied; pico_enviro_mon_w sets 64). 10 is under the enforced minimum
     // of 16, so the seed is threshold-proof.
-    let cf = ClassFile::parse(CLASS_LIT).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
@@ -205,14 +208,14 @@ fn need_gc_flag_triggers_collection_and_clears() {
     // execute() must observe it on entry, run a GC cycle, then clear both
     // the flag and the alloc_count so the next allocator call has a chance
     // to succeed. Verify both fields are reset after the call.
-    let cf = ClassFile::parse(CLASS_LIT).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
     // Give the emergency GC something to free: a need_gc collection that
     // frees nothing is a genuine OOM since bugbash J5 (the failed
     // allocation could never succeed on retry) and throws OutOfMemoryError.
-    let _garbage = o.alloc("java/lang/Object").unwrap();
+    let _garbage = o.alloc(c::java_lang_Object).unwrap();
     gc.need_gc = true;
     gc.alloc_count = 50;
     let r = execute(
@@ -244,7 +247,7 @@ fn object_heap_persists_across_execute_calls() {
     // Pre-allocating an object in the heap before execute() must not be
     // disturbed by the call. This is the contract sensors / lifecycle code
     // relies on when delivering events into a Java callback.
-    let cf = ClassFile::parse(CLASS_LIT).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
     let classes = alloc::vec![cf];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
@@ -277,10 +280,11 @@ fn invokevirtual_dispatches_consistently_across_repeated_calls() {
     // call. The second call must dispatch the same override and return the
     // same value — pins down the invariant that overrides don't drift on a
     // warm cache.
-    let cf_base = ClassFile::parse(super::invoke::CLASS_BASE_SPEAK).expect("parse Base");
-    let cf_child = ClassFile::parse(super::invoke::CLASS_CHILD_SPEAK).expect("parse Child");
+    let cf_base = ClassFile::parse(spelled(super::invoke::CLASS_BASE_SPEAK)).expect("parse Base");
+    let cf_child =
+        ClassFile::parse(spelled(super::invoke::CLASS_CHILD_SPEAK)).expect("parse Child");
     let cf_caller =
-        ClassFile::parse(super::invoke::CLASS_CALLER_INVOKEVIRTUAL).expect("parse Caller");
+        ClassFile::parse(spelled(super::invoke::CLASS_CALLER_INVOKEVIRTUAL)).expect("parse Caller");
     let classes = alloc::vec![cf_base, cf_child, cf_caller];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
@@ -312,9 +316,9 @@ fn invokevirtual_switches_dispatch_when_receiver_class_changes() {
     use crate::interpreter::tests::invoke::{
         CLASS_BASE_SPEAK, CLASS_CALLER_INVOKEVIRTUAL, CLASS_CHILD_SPEAK,
     };
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse Base");
-    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse Child");
-    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEVIRTUAL).expect("parse Caller");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse Base");
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).expect("parse Child");
+    let cf_caller = ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).expect("parse Caller");
     let classes = alloc::vec![cf_base, cf_child, cf_caller];
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;

@@ -5,11 +5,13 @@
 //! one — reporting each through the handler's `monitor_enter`/`monitor_exit`.
 use super::asm::{Asm, Method};
 use super::*;
+use crate::names::c;
+use crate::names::spelled;
 use crate::types::MonitorKey;
 use alloc::vec;
 use alloc::vec::Vec;
 
-const OBJECT: &str = "java/lang/Object";
+const OBJECT: &str = c::java_lang_Object;
 const ACC_SYNC: u16 = 0x0020;
 
 fn h(x: u16) -> u8 {
@@ -60,7 +62,7 @@ fn class_s() -> &'static [u8] {
     let this = a.class("S");
     let obj = a.class(OBJECT);
     let rec = a.methodref(0x0A, this, "rec", "(I)I");
-    let rte = a.class("java/lang/RuntimeException");
+    let rte = a.class(c::java_lang_RuntimeException);
     let rte_init = a.methodref(0x0A, rte, "<init>", "()V");
     let im = [0x08, 0xAC]; // iconst_5; ireturn
     let sm = [0x10, 7, 0xAC]; // bipush 7; ireturn
@@ -156,7 +158,7 @@ fn run_main(
 ) -> (Result<Option<Value>, JvmError>, Vec<Ev>, ObjectHeap) {
     let classes: Vec<ClassFile> = [class_s(), t]
         .iter()
-        .map(|d| ClassFile::parse(d).expect("parse failed"))
+        .map(|d| ClassFile::parse(spelled(d)).expect("parse failed"))
         .collect();
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
@@ -235,7 +237,7 @@ fn instance_and_static_synchronized_methods_lock_receiver_and_class_object() {
     let MonitorKey::Object(c) = class else {
         panic!("{class:?}")
     };
-    assert_eq!(objects.class_name(c), Some("java/lang/Class"));
+    assert_eq!(objects.class_name(c), Some(c::java_lang_Class));
 }
 
 #[test]
@@ -267,7 +269,7 @@ fn an_uncaught_exception_leaving_a_synchronized_method_releases_its_monitor() {
         matches!(
             r,
             Err(JvmError::UncaughtException {
-                exception_class: "java/lang/RuntimeException",
+                exception_class: c::java_lang_RuntimeException,
                 ..
             })
         ),

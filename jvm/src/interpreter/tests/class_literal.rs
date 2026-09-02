@@ -2,6 +2,8 @@
 use super::*;
 use crate::class_objects::ClassObjectCache;
 use crate::gc::GcState;
+use crate::names::c;
+use crate::names::spelled;
 
 // ── Class file used for `ldc CONSTANT_Class` testing ─────────────────────
 //
@@ -70,7 +72,7 @@ static CLASS_T_LDC_IDENTITY: &[u8] = &[
 fn ldc_class_literal_pushes_object_ref() {
     // Method m()I that does `ldc #1; ireturn` — but ireturn requires int, so we
     // reuse CLASS_T_LDC_IDENTITY's bytecode (returns boolean, encoded as int).
-    let cf = ClassFile::parse(CLASS_T_LDC_IDENTITY).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_T_LDC_IDENTITY)).expect("parse failed");
     let mut classes = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -104,7 +106,7 @@ fn ldc_class_literal_pushes_object_ref() {
     let class_obj = class_objects
         .lookup(name_idx)
         .expect("cache must have an entry for T after ldc");
-    assert_eq!(objects.class_name(class_obj), Some("java/lang/Class"));
+    assert_eq!(objects.class_name(class_obj), Some(c::java_lang_Class));
 
     // Slot 0 holds the class name as a Reference into the StringTable.
     match objects.get_field(class_obj, 0) {
@@ -120,7 +122,7 @@ fn ldc_class_for_unknown_class_errors() {
     // CP index #8 is `Class -> #9 = "Q"`: not loaded, and not a builtin
     // either. resolve_class_literal must return ClassNotFound (not panic,
     // not InvalidBytecode).
-    let cf = ClassFile::parse(CLASS_T_LDC_IDENTITY).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_T_LDC_IDENTITY)).expect("parse failed");
     let mut classes = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -146,7 +148,7 @@ fn ldc_class_for_builtin_name_resolves() {
     // classfile-less by design (`BUILTIN_CLASS_NAMES`). `Object.class`,
     // `String.class` and `Runnable.class` must still resolve — before the
     // builtin arm this was an uncatchable ClassNotFound.
-    let cf = ClassFile::parse(CLASS_T_LDC_IDENTITY).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_T_LDC_IDENTITY)).expect("parse failed");
     let mut classes = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();
@@ -165,10 +167,10 @@ fn ldc_class_for_builtin_name_resolves() {
     let Ok(Value::ObjectRef(class_obj)) = result else {
         panic!("expected a Class object for java/lang/Object, got {result:?}");
     };
-    assert_eq!(objects.class_name(class_obj), Some("java/lang/Class"));
+    assert_eq!(objects.class_name(class_obj), Some(c::java_lang_Class));
     match objects.get_field(class_obj, 0) {
         Some(Value::Reference(idx)) => {
-            assert_eq!(strings.resolve(idx), Some("java/lang/Object"));
+            assert_eq!(strings.resolve(idx), Some(c::java_lang_Object));
         }
         other => panic!("expected Value::Reference for slot 0, got {other:?}"),
     }

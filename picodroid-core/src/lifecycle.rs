@@ -19,7 +19,7 @@ use crate::dispatch_sites::{self, DISPATCH_SITES};
 #[cfg(not(test))]
 #[inline]
 fn dispatch_class(idx: usize) -> &'static str {
-    crate::shrink_names::shrink_class(DISPATCH_SITES[idx].0)
+    DISPATCH_SITES[idx].0
 }
 
 /// The `fire*` method name for the dispatch site at `idx`.
@@ -1526,7 +1526,7 @@ fn ensure_recycled_motion_event(
     if let Some(idx) = *recycled_motion_event() {
         return Some(idx);
     }
-    let class = crate::shrink_names::shrink_class("picodroid/view/MotionEvent");
+    let class = c::picodroid_view_MotionEvent;
     let n_fields = crate::graphics::fields::motion_event::RAW_Y + 1;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
@@ -1878,7 +1878,7 @@ fn ensure_recycled_key_event(
     if let Some(idx) = *recycled_key_event() {
         return Some(idx);
     }
-    let class = crate::shrink_names::shrink_class("picodroid/view/KeyEvent");
+    let class = c::picodroid_view_KeyEvent;
     let n_fields = crate::graphics::fields::key_event::KEY_CODE + 1;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
@@ -1979,4 +1979,5 @@ macro_rules! log_error {
         defmt::error!($fmt, defmt::Display2Format(&$val));
     };
 }
+use crate::shrink_names::c;
 use log_error;

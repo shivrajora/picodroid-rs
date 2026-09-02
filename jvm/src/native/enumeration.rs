@@ -2,6 +2,7 @@
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
+use crate::names::m;
 
 pub(crate) fn dispatch(
     method_name: &str,
@@ -10,7 +11,7 @@ pub(crate) fn dispatch(
     match method_name {
         // Identity hash in Java; the ordinal is just as stable per constant
         // and survives a GC's slot reuse, which the heap index would not.
-        "hashCode" => {
+        m::hashCode => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -28,27 +29,27 @@ pub(crate) fn dispatch(
             ctx.objects.set_field(obj_idx, 1, ordinal);
             Some(Ok(None))
         }
-        "name" | "toString" => {
+        m::name | m::toString => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let name = ctx.objects.get_field(obj_idx, 0).unwrap_or(Value::Null);
             Some(Ok(Some(name)))
         }
-        "ordinal" => {
+        m::ordinal => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let ordinal = ctx.objects.get_field(obj_idx, 1).unwrap_or(Value::Int(0));
             Some(Ok(Some(ordinal)))
         }
-        "equals" => {
+        m::equals => {
             // Reference equality
             let a = ctx.args.first().copied().unwrap_or(Value::Null);
             let b = ctx.args.get(1).copied().unwrap_or(Value::Null);
             Some(Ok(Some(Value::Int((a == b) as i32))))
         }
-        "compareTo" => {
+        m::compareTo => {
             let Value::ObjectRef(a_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };

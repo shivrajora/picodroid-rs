@@ -4,7 +4,7 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 //! picodroid-core build script.
 //!
-//! Emits `framework_classes.rs` / `framework_unshrink.rs`, plus every
+//! Emits `framework_classes.rs` / `names.rs`, plus every
 //! board-derived *neutral* artifact (JVM sizing, sensor table, button table,
 //! sleep, heap, background pool, handle table, display dimensions) and the
 //! board-capability cfgs.
@@ -35,6 +35,9 @@ mod lvgl;
 #[path = "../build_support/papk.rs"]
 mod papk;
 
+#[path = "../build_support/names.rs"]
+mod names;
+
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     // picodroid-core lives one directory below the repo root — the root is
@@ -49,7 +52,7 @@ fn main() {
     let board = board_cfg::resolve(&manifest_dir);
 
     papk::emit_framework_map_version(out, root);
-    papk::emit_member_names(out, root);
+    emit_names(out, root);
     papk::embed_framework_classes(out, root, &board_cfg::framework_class_excludes(&board));
 
     // A board that declares a capability must have the matching feature
@@ -125,4 +128,31 @@ fn emit_capability_cfgs_from_features() {
         println!("cargo:rustc-cfg=network_cyw43");
         println!("cargo:rustc-cfg=has_network");
     }
+}
+
+/// Emit the `c::` / `m::` / `d::` name consts (`build_support/names.rs`)
+/// through the active shrink map — the same map `embed_framework_classes`
+/// rewrites the corpus with, so the two can never disagree.
+fn emit_names(out: &std::path::Path, root: &std::path::Path) {
+    println!("cargo:rerun-if-env-changed=PICODROID_SHRINK");
+    let map = papk::active_shrink_map(root);
+    let class = |name: &str| -> Option<String> {
+        map.as_ref()
+            .and_then(|m| m.classes.get(name))
+            .map(String::from)
+    };
+    let member = |name: &str| -> Option<String> {
+        map.as_ref()
+            .and_then(|m| m.member_target(name))
+            .map(String::from)
+    };
+    names::emit_names(
+        out,
+        root,
+        &names::Targets {
+            class: &class,
+            member: &member,
+        },
+        map.is_some(),
+    );
 }

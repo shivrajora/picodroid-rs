@@ -6,25 +6,40 @@
 //! can avoid by feature-checking via
 //! `PackageManager.hasSystemFeature(FEATURE_WIFI)` first.
 
+use crate::shrink_names::c;
 use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::NativeContext;
+
+/// Every `picodroid/net/*` class, spelled as loaded — a prefix test cannot
+/// see through `--shrink`.
+const NET_CLASSES: &[&str] = &[
+    c::picodroid_net_DatagramPacket,
+    c::picodroid_net_DatagramSocket,
+    c::picodroid_net_HttpInputStream,
+    c::picodroid_net_HttpOutputStream,
+    c::picodroid_net_HttpURLConnection,
+    c::picodroid_net_InetAddress,
+    c::picodroid_net_NetworkInfo,
+    c::picodroid_net_ServerSocket,
+    c::picodroid_net_Socket,
+    c::picodroid_net_URL,
+];
 
 pub fn dispatch(
     class_name: &str,
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    let class_name = crate::shrink_names::unshrink_class(class_name);
-    if !class_name.starts_with("picodroid/net/") {
+    if !NET_CLASSES.contains(&class_name) {
         return None;
     }
 
     match (class_name, method_name) {
         // Status queries must remain callable so feature-unaware apps can
         // probe and fall back gracefully.
-        ("picodroid/net/NetworkInfo", m::isConnected) => Some(Ok(Some(Value::Int(0)))),
-        ("picodroid/net/NetworkInfo", m::getIpAddress) => Some(Ok(Some(Value::Int(0)))),
+        (c::picodroid_net_NetworkInfo, m::isConnected) => Some(Ok(Some(Value::Int(0)))),
+        (c::picodroid_net_NetworkInfo, m::getIpAddress) => Some(Ok(Some(Value::Int(0)))),
 
         // Everything else would need a live stack — surface a clean exception.
         _ => Some(Err(unsupported(ctx))),
@@ -32,7 +47,10 @@ pub fn dispatch(
 }
 
 fn unsupported(ctx: &mut NativeContext<'_>) -> JvmError {
-    match ctx.objects.alloc("java/lang/UnsupportedOperationException") {
+    match ctx
+        .objects
+        .alloc(c::java_lang_UnsupportedOperationException)
+    {
         Some(idx) => JvmError::Exception(idx),
         None => JvmError::StackOverflow,
     }

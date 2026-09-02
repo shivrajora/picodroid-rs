@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::gc::GcState;
+use crate::names::spelled;
 
 // ── Minimal class file layout ──────────────────────────────────────────────
 //
@@ -246,7 +247,7 @@ fn putstatic_persists_across_two_execute_calls() {
     //
     // We reuse CLASS_STATIC_ROUNDTRIP which does write-then-read in one method,
     // and verify the store is indeed shared by running it twice on the same store.
-    let cf = ClassFile::parse(CLASS_STATIC_ROUNDTRIP).expect("parse failed");
+    let cf = ClassFile::parse(spelled(CLASS_STATIC_ROUNDTRIP)).expect("parse failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut strings = StringTable::new();

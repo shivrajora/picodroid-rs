@@ -1,40 +1,56 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Generator for `sdk/member-names.tsv` — every method and field the SDK
-//! declares, in original spelling. `build_support/papk.rs::emit_member_names`
-//! turns the `M` rows into the `crate::shrink_names::m` consts that native
-//! dispatch and the lifecycle upcalls match SDK method names through, so the
-//! file has to exist for a bare `cargo build` (no Gradle, no corpus) and is
-//! therefore committed rather than derived at build time.
+//! Generators for the committed name lists behind the `c::` / `m::` consts,
+//! and the guards that keep unconditional shrinking honest.
 //!
-//! `member_names_are_current` regenerates the text from `FRAMEWORK_CLASSES`
-//! and compares it with the committed file; `scripts/gen-api-contract.sh`
-//! runs it with `PICODROID_UPDATE_MEMBER_NAMES=1` to rewrite the file. Both
-//! shrink lanes of `scripts/test.sh` must produce identical output (names are
-//! un-shrunk first).
+//! `sdk/member-names.tsv` — every method and field the SDK declares, in
+//! original spelling — and `sdk/class-names.tsv` — every class the runtime
+//! may name from Rust: the SDK's own classes, the `java/**` contract, the
+//! classfile-less builtins and the hierarchy tables — are turned by
+//! `build_support/names.rs` into the `crate::shrink_names::{c, m}` consts
+//! (and `pico_jvm::names::{c, m}`) that every dispatch arm, upcall, registry
+//! and allocation names Java things through. Both files have to exist for a
+//! bare `cargo build` (no Gradle, no corpus) and are therefore committed
+//! rather than derived at build time.
 //!
-//! Three guards live alongside it, because the member shrink's correctness
-//! rests on two invariants no compiler checks:
-//! * `handled_rows_use_member_consts` / `no_sdk_method_literals_in_dispatch`
-//!   — Rust matches SDK method names only through `m::`, never as a string
-//!   literal (a literal keeps matching in a no-shrink build and silently
-//!   stops under `--shrink`);
-//! * `no_builtin_name_is_ever_mapped` — no committed map renames a name the
-//!   JVM dispatches by literal on arbitrary receivers (`toString`, `run`,
-//!   `compare`, …: every `java/**` member in the contract, the builtin
-//!   tables, and the interpreter's special cases).
+//! `member_names_are_current` / `class_names_are_current` regenerate the
+//! text from `FRAMEWORK_CLASSES` and the runtime tables and compare it with
+//! the committed file; `scripts/gen-api-contract.sh` runs them with
+//! `PICODROID_UPDATE_MEMBER_NAMES=1` / `PICODROID_UPDATE_CLASS_NAMES=1` to
+//! rewrite the files. Both shrink lanes of `scripts/test.sh` must produce
+//! identical output (names are un-shrunk first).
+//!
+//! Three guards live alongside them, because unconditional shrinking rests
+//! on invariants no compiler checks:
+//! * `handled_rows_use_member_consts` — every handled SDK method is matched
+//!   through `m::` somewhere in the dispatch sources;
+//! * `no_original_name_literals` — no non-test source in `jvm/` or
+//!   `picodroid-core/` spells a class name, a descriptor naming a class, or
+//!   a served member name as a string literal (a literal keeps matching in
+//!   a no-shrink build and silently stops under `--shrink`, and puts the
+//!   original spelling back into flash);
+//! * `member_floor_matches_committed_maps` — `compat::MEMBER_SHRINK_FLOOR`
+//!   is the newest committed map's `member-floor`.
 //!
 //! Test-only, wired via `#[cfg(test)] #[path]` in `lib.rs` like
 //! `api_contract.rs`.
 
 #[cfg(test)]
 mod tests {
-    use crate::shrink_names::unshrink_member;
+    use crate::shrink_names::{unshrink_class, unshrink_member};
     use pico_jvm::class_file::ClassFile;
     use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
 
-    const MANIFEST_PATH: &str = "sdk/member-names.tsv";
-    const UPDATE_VAR: &str = "PICODROID_UPDATE_MEMBER_NAMES";
-    const COMMITTED: &str = include_str!("../../../sdk/member-names.tsv");
+    const MEMBERS_PATH: &str = "sdk/member-names.tsv";
+    const CLASSES_PATH: &str = "sdk/class-names.tsv";
+    const UPDATE_MEMBERS: &str = "PICODROID_UPDATE_MEMBER_NAMES";
+    const UPDATE_CLASSES: &str = "PICODROID_UPDATE_CLASS_NAMES";
+    const COMMITTED_MEMBERS: &str = include_str!("../../../sdk/member-names.tsv");
+    const COMMITTED_CLASSES: &str = include_str!("../../../sdk/class-names.tsv");
+
+    fn repo_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
 
     fn utf8(cf: &ClassFile, idx: u16) -> String {
         core::str::from_utf8(cf.cp_utf8(idx).expect("utf8 index"))
@@ -44,7 +60,7 @@ mod tests {
 
     /// `(is_method, original name)` for every declared member of every
     /// framework class, `<init>`/`<clinit>` excluded.
-    fn collect() -> (BTreeSet<(bool, String)>, usize) {
+    fn collect_members() -> (BTreeSet<(bool, String)>, usize) {
         let mut rows = BTreeSet::new();
         let mut classes = 0;
         for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
@@ -65,7 +81,7 @@ mod tests {
         (rows, classes)
     }
 
-    fn render(rows: &BTreeSet<(bool, String)>) -> String {
+    fn render_members(rows: &BTreeSet<(bool, String)>) -> String {
         let mut out = String::from(
             "# sdk/member-names.tsv — every method (M) and field (F) name the SDK declares.\n\
              #\n\
@@ -75,10 +91,10 @@ mod tests {
              #     scripts/gen-api-contract.sh\n\
              # after adding, removing or renaming an SDK method or field.\n\
              #\n\
-             # build_support/papk.rs turns the M rows into the `shrink_names::m` consts\n\
-             # (one per method name; value = the active shrink map's target under\n\
-             # --shrink, the original otherwise) that Rust native dispatch and the\n\
-             # lifecycle upcalls match SDK method names through.\n",
+             # build_support/names.rs turns the rows (with the contract's member column)\n\
+             # into the `m::` consts (one per name; value = the active shrink map's\n\
+             # target under --shrink, the original otherwise) that Rust native dispatch,\n\
+             # the JVM's builtin arms and the lifecycle upcalls match names through.\n",
         );
         for (is_method, name) in rows {
             out.push(if *is_method { 'M' } else { 'F' });
@@ -89,54 +105,193 @@ mod tests {
         out
     }
 
-    /// Method names of the manifest (`M` rows), i.e. every SDK method name.
-    fn sdk_method_names() -> BTreeSet<String> {
-        COMMITTED
+    /// `L…;` class references inside a descriptor.
+    fn class_refs(desc: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = desc;
+        while let Some(pos) = rest.find('L') {
+            let tail = &rest[pos..];
+            let Some(end) = tail.find(';') else { break };
+            out.push(tail[1..end].to_string());
+            rest = &tail[end + 1..];
+        }
+        out
+    }
+
+    /// Every class the runtime may name, in original spelling: the SDK's
+    /// own classes, everything the contract serves or references, and the
+    /// JVM's and this crate's class tables.
+    fn collect_classes() -> (BTreeSet<String>, usize) {
+        let mut names = BTreeSet::new();
+        let mut classes = 0;
+        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+            let cf = ClassFile::parse(bytes).expect("parse framework class");
+            classes += 1;
+            let loaded = core::str::from_utf8(cf.class_name().expect("class name")).unwrap();
+            names.insert(unshrink_class(loaded).to_string());
+        }
+        let contract = std::fs::read_to_string(repo_root().join("sdk/api-contract.tsv")).unwrap();
+        for line in contract.lines() {
+            if line.starts_with('#') || line.starts_with('@') || line.trim().is_empty() {
+                continue;
+            }
+            let mut f = line.split('\t');
+            if let Some(owner) = f.next() {
+                if !owner.is_empty() {
+                    names.insert(owner.to_string());
+                }
+            }
+            let _name = f.next();
+            if let Some(desc) = f.next() {
+                names.extend(class_refs(desc));
+            }
+        }
+        for n in pico_jvm::native::BUILTIN_CLASS_NAMES {
+            names.insert(unshrink_class(n).to_string());
+        }
+        for (child, parent) in pico_jvm::interpreter::BUILTIN_SUPER {
+            names.insert(unshrink_class(child).to_string());
+            names.insert(unshrink_class(parent).to_string());
+        }
+        for (class, ifaces) in pico_jvm::interpreter::BUILTIN_INTERFACES {
+            names.insert(unshrink_class(class).to_string());
+            for i in ifaces.iter() {
+                names.insert(unshrink_class(i).to_string());
+            }
+        }
+        for n in crate::native_class_registry_tests::PICODROID_NATIVE_CLASSES {
+            names.insert(unshrink_class(n).to_string());
+        }
+        for (class, _) in crate::dispatch_sites::DISPATCH_SITES {
+            names.insert(unshrink_class(class).to_string());
+        }
+        for (class, _) in crate::native_api_contract_tests::NAME_ONLY_CLASSES {
+            names.insert(class.to_string());
+        }
+        for (owner, _, _, _) in crate::native_api_contract_tests::TOLERATED {
+            names.insert(owner.to_string());
+        }
+        (names, classes)
+    }
+
+    fn render_classes(names: &BTreeSet<String>) -> String {
+        let mut out = String::from(
+            "# sdk/class-names.tsv — every Java class the runtime may name from Rust:\n\
+             # the SDK's own classes, the java/** and javax/** names pico-jvm serves,\n\
+             # and the classfile-less builtins.\n\
+             #\n\
+             # GENERATED by picodroid-core's `class_names_are_current` test\n\
+             # (picodroid-core/src/native_handler/member_names.rs); do not edit by hand.\n\
+             # Regenerate with\n\
+             #     scripts/gen-api-contract.sh\n\
+             # after adding, removing or renaming an SDK class or a builtin.\n\
+             #\n\
+             # build_support/names.rs turns each row into a `c::<ident>` const (value =\n\
+             # the active shrink map's target under --shrink, the original otherwise)\n\
+             # that Rust names the class through; never spell one as a literal.\n",
+        );
+        for n in names {
+            out.push_str(n);
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Every name the `m::` module carries: the manifest's rows plus the
+    /// contract's member column.
+    fn served_member_names() -> BTreeSet<String> {
+        let mut names: BTreeSet<String> = COMMITTED_MEMBERS
             .lines()
-            .filter(|l| l.starts_with("M\t"))
+            .filter(|l| l.starts_with("M\t") || l.starts_with("F\t"))
             .map(|l| l[2..].to_string())
+            .collect();
+        let contract = std::fs::read_to_string(repo_root().join("sdk/api-contract.tsv")).unwrap();
+        for line in contract.lines() {
+            if line.starts_with('#') || line.starts_with('@') || line.trim().is_empty() {
+                continue;
+            }
+            if let Some(name) = line.split('\t').nth(1) {
+                if !name.is_empty() {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                rs_files(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+
+    /// Non-test Rust sources of both crates that name Java things at run
+    /// time, as `(path, text with test modules and comments stripped)`.
+    fn runtime_sources() -> Vec<(PathBuf, String)> {
+        let root = repo_root();
+        let mut files = Vec::new();
+        rs_files(&root.join("jvm/src"), &mut files);
+        rs_files(&root.join("picodroid-core/src"), &mut files);
+        // Original-name tables and generators, test-only by construction.
+        let exempt = ["method_tables.rs", "api_contract.rs", "member_names.rs"];
+        files
+            .into_iter()
+            .filter(|p| {
+                let s = p.to_str().unwrap();
+                !s.contains("test") && !exempt.contains(&p.file_name().unwrap().to_str().unwrap())
+            })
+            .map(|p| {
+                let p = p.canonicalize().unwrap();
+                let text = std::fs::read_to_string(&p).unwrap();
+                // Drop the trailing `#[cfg(test)] mod tests { … }` and every
+                // comment line; what is left is what firmware compiles.
+                let mut kept = String::new();
+                let mut in_tests = false;
+                let mut lines = text.lines().peekable();
+                while let Some(line) = lines.next() {
+                    if line.trim() == "#[cfg(test)]"
+                        && lines.peek().is_some_and(|n| n.starts_with("mod "))
+                    {
+                        in_tests = true;
+                    }
+                    if in_tests || line.trim_start().starts_with("//") {
+                        kept.push('\n');
+                        continue;
+                    }
+                    kept.push_str(line);
+                    kept.push('\n');
+                }
+                (p, kept)
+            })
             .collect()
     }
 
     /// Source files that match or invoke SDK method names at runtime.
-    fn dispatch_sources() -> Vec<(std::path::PathBuf, String)> {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = Vec::new();
-        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            for e in std::fs::read_dir(dir).unwrap() {
-                let p = e.unwrap().path();
-                if p.is_dir() {
-                    walk(&p, out);
-                } else if p.extension().is_some_and(|x| x == "rs") {
-                    out.push(p);
-                }
-            }
-        }
-        walk(&root.join("native_handler"), &mut files);
-        for f in [
-            "dispatch_sites.rs",
-            "lifecycle.rs",
-            "service_lifecycle.rs",
-            "bg_worker.rs",
-            "boot.rs",
-            "hardware/sensors/mod.rs",
-            "graphics/widgets/list_view.rs",
-        ] {
-            files.push(root.join(f));
-        }
-        // Original-name tables, test-only by construction.
-        let exempt = [
-            "method_tables.rs",
-            "api_contract.rs",
-            "class_registry.rs",
-            "member_names.rs",
-        ];
-        files
+    fn dispatch_sources() -> Vec<(PathBuf, String)> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .canonicalize()
+            .unwrap();
+        runtime_sources()
             .into_iter()
-            .filter(|p| !exempt.contains(&p.file_name().unwrap().to_str().unwrap()))
-            .map(|p| {
-                let text = std::fs::read_to_string(&p).unwrap();
-                (p, text)
+            .filter(|(p, _)| {
+                p.starts_with(root.join("native_handler"))
+                    || [
+                        "dispatch_sites.rs",
+                        "lifecycle.rs",
+                        "service_lifecycle.rs",
+                        "bg_worker.rs",
+                        "boot.rs",
+                        "hardware/sensors/mod.rs",
+                        "graphics/widgets/list_view.rs",
+                    ]
+                    .iter()
+                    .any(|f| *p == root.join(f))
             })
             .collect()
     }
@@ -146,6 +301,7 @@ mod tests {
     #[test]
     fn handled_rows_use_member_consts() {
         let sources = dispatch_sources();
+        assert!(sources.len() > 10, "dispatch sources not found");
         let mut missing = Vec::new();
         for table in crate::native_method_tables_tests::ALL_HANDLED {
             for &(class, method, _) in *table {
@@ -167,108 +323,93 @@ mod tests {
         );
     }
 
-    /// No dispatch/upcall source spells an SDK method name as a string
-    /// literal. `"<init>"`, `"main"`, `"injectMembers"` and the like are not
-    /// SDK methods and stay literals.
+    /// No firmware source in `jvm/` or `picodroid-core/` spells a Java class
+    /// name, a descriptor that names a class, or a served member name in a
+    /// dispatch position as a string literal. Under `--shrink` such a
+    /// literal never matches the loaded spelling, and it puts the original
+    /// name back into the image the shrink exists to strip.
     #[test]
-    fn no_sdk_method_literals_in_dispatch() {
-        let names = sdk_method_names();
+    fn no_original_name_literals() {
+        let members = served_member_names();
         let mut offenders = Vec::new();
-        for (path, text) in dispatch_sources() {
+        for (path, text) in runtime_sources() {
             for (lineno, line) in text.lines().enumerate() {
                 let mut rest = line;
+                let mut prev_end = 0usize;
                 while let Some(start) = rest.find('"') {
                     let after = &rest[start + 1..];
                     let Some(end) = after.find('"') else { break };
                     let lit = &after[..end];
-                    if names.contains(lit) {
+                    let before = &line[..prev_end + start];
+                    let following = &after[end + 1..];
+                    // A class name anywhere inside the literal counts — a
+                    // message such as "expected java/lang/Foo" ships the
+                    // spelling just as a bare literal would.
+                    let is_class = ["java/", "javax/", "picodroid/"].iter().any(|prefix| {
+                        lit.match_indices(prefix).any(|(at, _)| {
+                            (at == 0 || !lit.as_bytes()[at - 1].is_ascii_alphanumeric())
+                                && lit[at + prefix.len()..]
+                                    .bytes()
+                                    .next()
+                                    .is_some_and(|b| b.is_ascii_alphabetic())
+                        })
+                    });
+                    let is_desc = ["Ljava/", "Ljavax/", "Lpicodroid/"]
+                        .iter()
+                        .any(|p| lit.contains(p) && lit.contains(';'));
+                    // A member literal counts wherever it can reach a name
+                    // compare: match arms, `==`, table rows, call arguments
+                    // and `const` initialisers. Prose that happens to share
+                    // a member's spelling (an op label in an error message)
+                    // is allow-listed by word.
+                    let b = before.trim_end();
+                    let f = following.trim_start();
+                    let dispatch_pos = f.starts_with("=>")
+                        || f.starts_with('|')
+                        || b.ends_with('|')
+                        || b.ends_with("==")
+                        || b.ends_with("!=")
+                        || b.ends_with('=')
+                        || ((b.ends_with('(') || b.ends_with(','))
+                            && (f.starts_with(',') || f.starts_with(')')));
+                    let prose = [
+                        "read", "wait", "connect", "send", "recv", "accept", "sensor", "target",
+                        "name",
+                    ];
+                    // `<init>` / `<clinit>` have no const (JVMS-reserved);
+                    // `main` / `injectMembers` are kept app entry points.
+                    let is_member = dispatch_pos
+                        && members.contains(lit)
+                        && !lit.starts_with('<')
+                        && !matches!(lit, "main" | "injectMembers")
+                        && !prose.contains(&lit);
+                    if is_class || is_desc || is_member {
                         offenders.push(format!(
                             "{}:{}: {:?}",
-                            path.strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                            path.strip_prefix(repo_root().canonicalize().unwrap())
                                 .unwrap()
                                 .display(),
                             lineno + 1,
                             lit
                         ));
                     }
-                    rest = &after[end + 1..];
+                    prev_end += start + 1 + end + 1;
+                    rest = following;
                 }
             }
         }
         assert!(
             offenders.is_empty(),
-            "SDK method names must be matched via `crate::shrink_names::m::<name>`, not a \
-             literal: {offenders:#?}"
+            "Java names must be spelled through the generated consts (`c::`, `d::`, \
+             `m::` — build_support/names.rs), never as a literal: {offenders:#?}"
         );
     }
 
-    /// Names the JVM dispatches by literal on any receiver — the whole
-    /// `java/**` contract plus the interpreter's own special cases — must
-    /// never appear as a `[[member]]` source in any committed map.
-    #[test]
-    fn no_builtin_name_is_ever_mapped() {
-        let mut fenced: BTreeSet<String> = BTreeSet::new();
-        for table in [
-            pico_jvm::native::BUILTIN_METHODS,
-            pico_jvm::native::BUILTIN_INTERFACE_METHODS,
-            crate::native_method_tables_tests::PLATFORM_BUILTIN_METHODS,
-        ] {
-            for &(_, rows) in table {
-                for &(name, _) in rows {
-                    fenced.insert(name.to_string());
-                }
-            }
-        }
-        for &(_, name, _) in pico_jvm::native::BUILTIN_SDK_HANDLED {
-            fenced.insert(name.to_string());
-        }
-        for name in [
-            "toString",
-            "compare",
-            "getClass",
-            "sort",
-            "append",
-            "valueOf",
-            "format",
-            "clone",
-            "main",
-            "injectMembers",
-        ] {
-            fenced.insert(name.to_string());
-        }
-        let contract =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sdk/api-contract.tsv");
-        fenced.extend(class_shrink::shrink::read_contract_member_names(&contract).unwrap());
-        assert!(fenced.len() > 80, "fence collapsed: {} names", fenced.len());
-
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sdk/shrink-maps");
-        let mut maps = 0;
-        for e in std::fs::read_dir(&dir).unwrap() {
-            let p = e.unwrap().path();
-            if p.extension().and_then(|x| x.to_str()) != Some("toml") {
-                continue;
-            }
-            let map = class_shrink::mapping::ShrinkMap::load(&p).unwrap();
-            maps += 1;
-            let bad: Vec<&str> = map
-                .iter_members()
-                .map(|(from, _)| from)
-                .filter(|from| fenced.contains(*from))
-                .collect();
-            assert!(
-                bad.is_empty(),
-                "{} maps names the runtime matches by literal — never un-keep: {bad:?}",
-                p.display()
-            );
-        }
-        assert!(maps > 0);
-    }
-
-    /// `compat::MEMBER_SHRINK_FLOOR` is the version of the first committed
-    /// map that carries `[[member]]` rows, and every such map records it.
+    /// `compat::MEMBER_SHRINK_FLOOR` is the newest committed map's
+    /// `member-floor`, and floors never go backwards across releases.
     #[test]
     fn member_floor_matches_committed_maps() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sdk/shrink-maps");
+        let dir = repo_root().join("sdk/shrink-maps");
         let mut with_members: Vec<(String, class_shrink::mapping::ShrinkMap)> = Vec::new();
         for e in std::fs::read_dir(&dir).unwrap() {
             let p = e.unwrap().path();
@@ -286,27 +427,63 @@ mod tests {
                 with_members.push((stem.to_string(), map));
             }
         }
-        if with_members.is_empty() {
-            return; // no member map cut yet — the floor is a promise, not a fact
-        }
-        with_members.sort_by_key(|(v, _)| compat::parse_semver(v).unwrap());
-        assert_eq!(
-            with_members[0].0,
-            compat::MEMBER_SHRINK_FLOOR,
-            "compat::MEMBER_SHRINK_FLOOR must name the first map with [[member]] rows"
+        assert!(
+            !with_members.is_empty(),
+            "no committed map carries [[member]] rows"
         );
+        with_members.sort_by_key(|(v, _)| compat::parse_semver(v).unwrap());
+        let mut last = (0, 0, 0);
         for (v, map) in &with_members {
-            assert_eq!(
-                map.member_floor.as_deref(),
-                Some(compat::MEMBER_SHRINK_FLOOR),
-                "v{v}.toml carries the wrong member-floor"
-            );
+            let floor = map
+                .member_floor
+                .as_deref()
+                .unwrap_or_else(|| panic!("v{v}.toml has members but no member-floor"));
+            let f = compat::parse_semver(floor).unwrap();
+            assert!(f >= last, "v{v}.toml lowers the member-floor to {floor}");
+            last = f;
         }
+        assert_eq!(
+            with_members.last().unwrap().1.member_floor.as_deref(),
+            Some(compat::MEMBER_SHRINK_FLOOR),
+            "compat::MEMBER_SHRINK_FLOOR must be the newest committed map's member-floor"
+        );
+    }
+
+    fn check_current(
+        what: &str,
+        path: &str,
+        generated: String,
+        committed: &str,
+        update_var: &str,
+        rows: usize,
+    ) {
+        if generated == committed {
+            return;
+        }
+        if std::env::var(update_var).as_deref() == Ok("1") {
+            let p = repo_root().join(path);
+            std::fs::write(&p, &generated)
+                .unwrap_or_else(|e| panic!("cannot write {}: {e}", p.display()));
+            eprintln!("wrote {} ({rows} rows)", p.display());
+            return;
+        }
+        let first_diff = generated
+            .lines()
+            .zip(committed.lines())
+            .position(|(a, b)| a != b)
+            .map(|i| i + 1)
+            .unwrap_or(generated.lines().count().min(committed.lines().count()) + 1);
+        let gen_line = generated.lines().nth(first_diff - 1).unwrap_or("<end>");
+        let com_line = committed.lines().nth(first_diff - 1).unwrap_or("<end>");
+        panic!(
+            "{path} is stale ({what}; first difference at line {first_diff}: generated \
+             {gen_line:?}, committed {com_line:?}); run scripts/gen-api-contract.sh"
+        );
     }
 
     #[test]
     fn member_names_are_current() {
-        let (rows, classes) = collect();
+        let (rows, classes) = collect_members();
         assert!(
             classes >= 100,
             "only {classes} framework classes seen — FRAMEWORK_CLASSES is empty (run via \
@@ -329,28 +506,39 @@ mod tests {
                 "expected SDK method {name} missing from the manifest"
             );
         }
-        let text = render(&rows);
-        if text == COMMITTED {
-            return;
+        check_current(
+            "the SDK's declared members changed",
+            MEMBERS_PATH,
+            render_members(&rows),
+            COMMITTED_MEMBERS,
+            UPDATE_MEMBERS,
+            rows.len(),
+        );
+    }
+
+    #[test]
+    fn class_names_are_current() {
+        let (names, classes) = collect_classes();
+        assert!(
+            classes >= 100,
+            "only {classes} framework classes seen — FRAMEWORK_CLASSES is empty (run via \
+             scripts/test.sh or scripts/gen-api-contract.sh, which set PICODROID_APK_PATH)"
+        );
+        for name in [
+            "java/lang/Object",
+            "java/lang/String",
+            "picodroid/view/View",
+            "picodroid/app/Activity",
+        ] {
+            assert!(names.contains(name), "expected class {name} missing");
         }
-        if std::env::var(UPDATE_VAR).as_deref() == Ok("1") {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
-                .join(MANIFEST_PATH);
-            std::fs::write(&path, &text)
-                .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
-            eprintln!("wrote {} ({} rows)", path.display(), rows.len());
-            return;
-        }
-        let first_diff = text
-            .lines()
-            .zip(COMMITTED.lines())
-            .position(|(a, b)| a != b)
-            .map(|i| i + 1)
-            .unwrap_or(text.lines().count().min(COMMITTED.lines().count()) + 1);
-        panic!(
-            "{MANIFEST_PATH} is stale (first difference at line {first_diff}); \
-             run scripts/gen-api-contract.sh"
+        check_current(
+            "the SDK's classes or the runtime's class tables changed",
+            CLASSES_PATH,
+            render_classes(&names),
+            COMMITTED_CLASSES,
+            UPDATE_CLASSES,
+            names.len(),
         );
     }
 }

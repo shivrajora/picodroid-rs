@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
+use crate::shrink_names::c;
 
 /// Parses an "I2Cx" name string, allocates an I2cDevice object with default config (100 kHz),
 /// and initializes the hardware.
@@ -21,7 +22,7 @@ pub fn open_i2c(
 
     let obj_idx = alloc_peripheral_with_id(
         objects,
-        "picodroid/pio/I2cDevice",
+        c::picodroid_pio_I2cDevice,
         fields::i2c::I2C_ID,
         i2c_id,
     )?;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::names::{c, d};
 use crate::{
-    class_file::{desc_eq, unshrink_java_str, ClassFile},
+    class_file::ClassFile,
     class_objects::ClassObjectCache,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -150,7 +151,7 @@ pub(super) fn class_object_for_name(
         return Ok(Value::ObjectRef(obj));
     }
     let obj = objects
-        .alloc_with_defaults("java/lang/Class", classes)
+        .alloc_with_defaults(c::java_lang_Class, classes)
         .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(obj, 0, Value::Reference(name_idx))
@@ -173,11 +174,7 @@ pub(super) fn find_method(
         for (mi, m) in cf.methods().iter().enumerate() {
             let mn = cf.cp_utf8(m.name_index)?;
             let md = cf.cp_utf8(m.descriptor_index)?;
-            // `desc_eq` is an exact byte compare first; the translating walk
-            // only runs for a same-named method whose descriptor spells a
-            // `java/**` class differently (shrunk corpus vs. Rust literal or
-            // older-map PAPK).
-            if mn == method_name.as_bytes() && desc_eq(md, descriptor.as_bytes()) {
+            if mn == method_name.as_bytes() && md == descriptor.as_bytes() {
                 return Some((ci, mi));
             }
         }
@@ -271,14 +268,14 @@ pub(super) fn return_kind(desc: &[u8]) -> u8 {
 /// `Integer.valueOf` and `op_new` + `<init>` lay it out. `None` on OOM.
 pub(super) fn box_primitive(objects: &mut ObjectHeap, kind: u8, v: Value) -> Option<Value> {
     let class = match kind {
-        b'I' => "java/lang/Integer",
-        b'J' => "java/lang/Long",
-        b'F' => "java/lang/Float",
-        b'D' => "java/lang/Double",
-        b'Z' => "java/lang/Boolean",
-        b'C' => "java/lang/Character",
-        b'B' => "java/lang/Byte",
-        b'S' => "java/lang/Short",
+        b'I' => c::java_lang_Integer,
+        b'J' => c::java_lang_Long,
+        b'F' => c::java_lang_Float,
+        b'D' => c::java_lang_Double,
+        b'Z' => c::java_lang_Boolean,
+        b'C' => c::java_lang_Character,
+        b'B' => c::java_lang_Byte,
+        b'S' => c::java_lang_Short,
         _ => return Some(v),
     };
     let idx = objects.alloc(class)?;
@@ -372,7 +369,7 @@ fn field_slot_in(
             Some(i) => i,
             None => {
                 // Not in loaded classes — check if it's java/lang/Enum
-                if current == "java/lang/Enum" {
+                if current == c::java_lang_Enum {
                     enum_base = true;
                 }
                 break;
@@ -422,133 +419,136 @@ fn field_slot_in(
 /// instead of producing an `"unknown"` object that no catch clause matches
 /// — the `builtin_hierarchy_names_are_registered` test enforces it.
 pub const BUILTIN_SUPER: &[(&str, &str)] = &[
-    ("java/lang/Throwable", "java/lang/Object"),
-    ("java/lang/Exception", "java/lang/Throwable"),
-    ("java/lang/Error", "java/lang/Throwable"),
-    ("java/lang/RuntimeException", "java/lang/Exception"),
+    (c::java_lang_Throwable, c::java_lang_Object),
+    (c::java_lang_Exception, c::java_lang_Throwable),
+    (c::java_lang_Error, c::java_lang_Throwable),
+    (c::java_lang_RuntimeException, c::java_lang_Exception),
     // Thread primitives (picodroid.concurrent.Thread, Object.wait/notify).
-    ("java/lang/InterruptedException", "java/lang/Exception"),
+    (c::java_lang_InterruptedException, c::java_lang_Exception),
     (
-        "java/lang/IllegalThreadStateException",
-        "java/lang/IllegalArgumentException",
+        c::java_lang_IllegalThreadStateException,
+        c::java_lang_IllegalArgumentException,
     ),
     (
-        "java/lang/IllegalMonitorStateException",
-        "java/lang/RuntimeException",
+        c::java_lang_IllegalMonitorStateException,
+        c::java_lang_RuntimeException,
     ),
     // picodroid.concurrent's ExecutorService/Future (pure Java) throw these
     // by their JDK names, alloc-by-name like the java.net family.
     (
-        "java/util/concurrent/ExecutionException",
-        "java/lang/Exception",
+        c::java_util_concurrent_ExecutionException,
+        c::java_lang_Exception,
     ),
     (
-        "java/util/concurrent/CancellationException",
-        "java/lang/IllegalStateException",
+        c::java_util_concurrent_CancellationException,
+        c::java_lang_IllegalStateException,
     ),
     (
-        "java/util/concurrent/TimeoutException",
-        "java/lang/Exception",
+        c::java_util_concurrent_TimeoutException,
+        c::java_lang_Exception,
     ),
     (
-        "java/util/concurrent/RejectedExecutionException",
-        "java/lang/RuntimeException",
+        c::java_util_concurrent_RejectedExecutionException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/IllegalArgumentException",
-        "java/lang/RuntimeException",
+        c::java_lang_IllegalArgumentException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/NullPointerException",
-        "java/lang/RuntimeException",
+        c::java_lang_NullPointerException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/IllegalStateException",
-        "java/lang/RuntimeException",
+        c::java_lang_IllegalStateException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/ArithmeticException",
-        "java/lang/RuntimeException",
-    ),
-    ("java/lang/ClassCastException", "java/lang/RuntimeException"),
-    (
-        "java/lang/UnsupportedOperationException",
-        "java/lang/RuntimeException",
+        c::java_lang_ArithmeticException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/IndexOutOfBoundsException",
-        "java/lang/RuntimeException",
+        c::java_lang_ClassCastException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/util/NoSuchElementException",
-        "java/lang/RuntimeException",
+        c::java_lang_UnsupportedOperationException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/NumberFormatException",
-        "java/lang/IllegalArgumentException",
+        c::java_lang_IndexOutOfBoundsException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/util/IllegalFormatException",
-        "java/lang/IllegalArgumentException",
+        c::java_util_NoSuchElementException,
+        c::java_lang_RuntimeException,
+    ),
+    (
+        c::java_lang_NumberFormatException,
+        c::java_lang_IllegalArgumentException,
+    ),
+    (
+        c::java_util_IllegalFormatException,
+        c::java_lang_IllegalArgumentException,
     ),
     // Checked exceptions thrown alloc-by-name from natives (net stack).
     // Mirrors the real java.net hierarchy so superclass catches behave
     // exactly as on Android — note SocketTimeoutException descends from
     // InterruptedIOException, NOT SocketException (real-Java quirk).
-    ("java/io/IOException", "java/lang/Exception"),
-    ("java/io/InterruptedIOException", "java/io/IOException"),
+    (c::java_io_IOException, c::java_lang_Exception),
+    (c::java_io_InterruptedIOException, c::java_io_IOException),
     (
-        "java/net/SocketTimeoutException",
-        "java/io/InterruptedIOException",
+        c::java_net_SocketTimeoutException,
+        c::java_io_InterruptedIOException,
     ),
-    ("java/net/SocketException", "java/io/IOException"),
-    ("java/net/ConnectException", "java/net/SocketException"),
+    (c::java_net_SocketException, c::java_io_IOException),
+    (c::java_net_ConnectException, c::java_net_SocketException),
     (
-        "java/net/NoRouteToHostException",
-        "java/net/SocketException",
+        c::java_net_NoRouteToHostException,
+        c::java_net_SocketException,
     ),
-    ("java/net/BindException", "java/net/SocketException"),
-    ("java/net/UnknownHostException", "java/io/IOException"),
-    ("java/net/ProtocolException", "java/io/IOException"),
+    (c::java_net_BindException, c::java_net_SocketException),
+    (c::java_net_UnknownHostException, c::java_io_IOException),
+    (c::java_net_ProtocolException, c::java_io_IOException),
     (
-        "java/lang/ArrayIndexOutOfBoundsException",
-        "java/lang/IndexOutOfBoundsException",
-    ),
-    (
-        "java/lang/ArrayStoreException",
-        "java/lang/RuntimeException",
+        c::java_lang_ArrayIndexOutOfBoundsException,
+        c::java_lang_IndexOutOfBoundsException,
     ),
     (
-        "java/lang/StringIndexOutOfBoundsException",
-        "java/lang/IndexOutOfBoundsException",
+        c::java_lang_ArrayStoreException,
+        c::java_lang_RuntimeException,
     ),
     (
-        "java/lang/NegativeArraySizeException",
-        "java/lang/RuntimeException",
+        c::java_lang_StringIndexOutOfBoundsException,
+        c::java_lang_IndexOutOfBoundsException,
     ),
     (
-        "java/util/ConcurrentModificationException",
-        "java/lang/RuntimeException",
+        c::java_lang_NegativeArraySizeException,
+        c::java_lang_RuntimeException,
     ),
-    ("java/lang/OutOfMemoryError", "java/lang/Error"),
-    ("java/lang/ExceptionInInitializerError", "java/lang/Error"),
-    ("java/lang/StackOverflowError", "java/lang/Error"),
+    (
+        c::java_util_ConcurrentModificationException,
+        c::java_lang_RuntimeException,
+    ),
+    (c::java_lang_OutOfMemoryError, c::java_lang_Error),
+    (c::java_lang_ExceptionInInitializerError, c::java_lang_Error),
+    (c::java_lang_StackOverflowError, c::java_lang_Error),
     // Boxed numerics descend from Number, as Kotlin's `checkcast
     // java/lang/Number` before every `intValue()` unboxing of a generic
     // element requires. No `X → java/lang/Object` rows: `is_instance_of`
     // answers `Object` up front and `dispatch_native` falls through to
     // Object for any class without a row.
-    ("java/lang/Integer", "java/lang/Number"),
-    ("java/lang/Long", "java/lang/Number"),
-    ("java/lang/Float", "java/lang/Number"),
-    ("java/lang/Double", "java/lang/Number"),
-    ("java/lang/Short", "java/lang/Number"),
-    ("java/lang/Byte", "java/lang/Number"),
+    (c::java_lang_Integer, c::java_lang_Number),
+    (c::java_lang_Long, c::java_lang_Number),
+    (c::java_lang_Float, c::java_lang_Number),
+    (c::java_lang_Double, c::java_lang_Number),
+    (c::java_lang_Short, c::java_lang_Number),
+    (c::java_lang_Byte, c::java_lang_Number),
     // Insertion-ordered collections are aliases of the hash-ordered ones
     // (documented divergence): `mutableMapOf()` / `mutableSetOf()` are
     // inline and emit `new java/util/LinkedHashMap` at the call site.
-    ("java/util/LinkedHashMap", "java/util/HashMap"),
-    ("java/util/LinkedHashSet", "java/util/HashSet"),
+    (c::java_util_LinkedHashMap, c::java_util_HashMap),
+    (c::java_util_LinkedHashSet, c::java_util_HashSet),
 ];
 
 /// Interfaces implemented by classfile-less builtin classes, flattened to
@@ -565,68 +565,68 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
 /// nothing, serve nothing, and cost its `.class` size on every board.
 pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
     (
-        "java/util/ArrayList",
+        c::java_util_ArrayList,
         &[
-            "java/util/List",
-            "java/util/Collection",
-            "java/lang/Iterable",
+            c::java_util_List,
+            c::java_util_Collection,
+            c::java_lang_Iterable,
         ],
     ),
-    ("java/util/HashMap", &["java/util/Map"]),
+    (c::java_util_HashMap, &[c::java_util_Map]),
     (
-        "java/util/HashSet",
+        c::java_util_HashSet,
         &[
-            "java/util/Set",
-            "java/util/Collection",
-            "java/lang/Iterable",
-        ],
-    ),
-    (
-        "java/util/HashMap$KeySet",
-        &[
-            "java/util/Set",
-            "java/util/Collection",
-            "java/lang/Iterable",
+            c::java_util_Set,
+            c::java_util_Collection,
+            c::java_lang_Iterable,
         ],
     ),
     (
-        "java/util/HashMap$Values",
-        &["java/util/Collection", "java/lang/Iterable"],
-    ),
-    (
-        "java/util/HashMap$EntrySet",
+        c::java_util_HashMap_KeySet,
         &[
-            "java/util/Set",
-            "java/util/Collection",
-            "java/lang/Iterable",
+            c::java_util_Set,
+            c::java_util_Collection,
+            c::java_lang_Iterable,
         ],
     ),
     (
-        "java/lang/String",
-        &["java/lang/CharSequence", "java/lang/Comparable"],
+        c::java_util_HashMap_Values,
+        &[c::java_util_Collection, c::java_lang_Iterable],
     ),
     (
-        "java/lang/StringBuilder",
-        &["java/lang/CharSequence", "java/lang/Appendable"],
-    ),
-    ("java/lang/Integer", &["java/lang/Comparable"]),
-    ("java/lang/Long", &["java/lang/Comparable"]),
-    ("java/lang/Float", &["java/lang/Comparable"]),
-    ("java/lang/Double", &["java/lang/Comparable"]),
-    ("java/lang/Short", &["java/lang/Comparable"]),
-    ("java/lang/Byte", &["java/lang/Comparable"]),
-    ("java/lang/Boolean", &["java/lang/Comparable"]),
-    ("java/lang/Character", &["java/lang/Comparable"]),
-    ("java/lang/Enum", &["java/lang/Comparable"]),
-    (
-        "java/util/List",
-        &["java/util/Collection", "java/lang/Iterable"],
+        c::java_util_HashMap_EntrySet,
+        &[
+            c::java_util_Set,
+            c::java_util_Collection,
+            c::java_lang_Iterable,
+        ],
     ),
     (
-        "java/util/Set",
-        &["java/util/Collection", "java/lang/Iterable"],
+        c::java_lang_String,
+        &[c::java_lang_CharSequence, c::java_lang_Comparable],
     ),
-    ("java/util/Collection", &["java/lang/Iterable"]),
+    (
+        c::java_lang_StringBuilder,
+        &[c::java_lang_CharSequence, c::java_lang_Appendable],
+    ),
+    (c::java_lang_Integer, &[c::java_lang_Comparable]),
+    (c::java_lang_Long, &[c::java_lang_Comparable]),
+    (c::java_lang_Float, &[c::java_lang_Comparable]),
+    (c::java_lang_Double, &[c::java_lang_Comparable]),
+    (c::java_lang_Short, &[c::java_lang_Comparable]),
+    (c::java_lang_Byte, &[c::java_lang_Comparable]),
+    (c::java_lang_Boolean, &[c::java_lang_Comparable]),
+    (c::java_lang_Character, &[c::java_lang_Comparable]),
+    (c::java_lang_Enum, &[c::java_lang_Comparable]),
+    (
+        c::java_util_List,
+        &[c::java_util_Collection, c::java_lang_Iterable],
+    ),
+    (
+        c::java_util_Set,
+        &[c::java_util_Collection, c::java_lang_Iterable],
+    ),
+    (c::java_util_Collection, &[c::java_lang_Iterable]),
 ];
 
 /// Linear scan of a name-keyed table. Opaque to the optimiser: with the
@@ -695,7 +695,7 @@ pub(super) fn is_instance_of(
     // Every reference is an Object — including lambda proxies and
     // handler-allocated objects whose class has neither a class file nor a
     // table row.
-    if target_class == "java/lang/Object" {
+    if target_class == c::java_lang_Object {
         return true;
     }
     let mut current: &str = runtime_class;
@@ -760,7 +760,7 @@ pub(crate) fn array_class_name(atype: u8) -> &'static str {
         ATYPE_SHORT => "[S",
         ATYPE_INT => "[I",
         ATYPE_LONG => "[J",
-        _ => "[Ljava/lang/Object;",
+        _ => d::t_aObject,
     }
 }
 
@@ -783,7 +783,7 @@ pub(super) fn value_is_instance(
             let runtime_class = objects.class_name(idx).unwrap_or("");
             is_instance_of(classes, runtime_class, target)
         }
-        Value::Reference(_) => is_instance_of(classes, "java/lang/String", target),
+        Value::Reference(_) => is_instance_of(classes, c::java_lang_String, target),
         Value::ArrayRef(idx) => match target.as_bytes().first() {
             Some(b'[') => {
                 let atype = arrays.atype(idx).unwrap_or(crate::array_heap::ATYPE_REF);
@@ -793,7 +793,7 @@ pub(super) fn value_is_instance(
                     array_class_name(atype) == target
                 }
             }
-            _ => matches!(target, "java/lang/Object" | "java/lang/Cloneable"),
+            _ => matches!(target, c::java_lang_Object | c::java_lang_Cloneable),
         },
         _ => false,
     }
@@ -943,14 +943,13 @@ fn push_interfaces(queue: &mut Vec<&'static [u8]>, cf: &ClassFile) {
     }
 }
 
-/// Extract the class name from the return type of a method descriptor,
-/// reverse-translated: `"()Ljava/lang/Runnable;"` and its shrunk spelling
-/// `"()Lb/K;"` both give `Some("java/lang/Runnable")`.
+/// Extract the class name from the return type of a method descriptor:
+/// `"()Ljava/lang/Runnable;"` gives `Some("java/lang/Runnable")`.
 pub(super) fn descriptor_return_class(desc: &str) -> Option<&str> {
     let ret_start = desc.find(')')? + 1;
     let rest = &desc[ret_start..];
     if rest.starts_with('L') && rest.ends_with(';') {
-        Some(unshrink_java_str(&rest[1..rest.len() - 1]))
+        Some(&rest[1..rest.len() - 1])
     } else {
         None
     }

@@ -18,90 +18,91 @@
 /// the build when an SDK class declares a `native` method without an entry
 /// here (the bug class behind the `hardware/Sensor*` and `picodroid/pio/*`
 /// registration misses, ca7e535 / 741f882).
+use crate::shrink_names::c;
 pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
-    "picodroid/pio/Adc",
-    "picodroid/pio/Gpio",
-    "picodroid/pio/I2cDevice",
-    "picodroid/pio/PeripheralManager",
-    "picodroid/pio/Pwm",
-    "picodroid/pio/SpiDevice",
-    "picodroid/pio/UartDevice",
-    "picodroid/os/SystemClock",
-    "picodroid/os/Runtime",
-    "picodroid/debug/DisplayDebug",
-    "picodroid/util/Log",
-    "picodroid/concurrent/Thread",
-    "picodroid/concurrent/Executor",
-    "picodroid/concurrent/Executors",
-    "picodroid/concurrent/MainExecutor",
-    "picodroid/concurrent/BackgroundExecutor",
-    "picodroid/app/Application",
-    "picodroid/app/Activity",
-    "picodroid/app/Service",
-    "picodroid/os/IBinder",
-    "picodroid/app/Notification",
-    "picodroid/app/NotificationManager",
-    "picodroid/content/Context",
-    "picodroid/content/Intent",
-    "picodroid/content/ServiceConnection",
-    "picodroid/content/pm/PackageManager",
-    "picodroid/view/View",
-    "picodroid/view/ViewGroup",
-    "picodroid/view/MotionEvent",
-    "picodroid/view/KeyEvent",
-    "picodroid/view/OnKeyListener",
-    "picodroid/view/OnSwipeListener",
-    "picodroid/view/OnTouchListener",
-    "picodroid/view/GestureDetector",
-    "picodroid/view/GestureDetector$OnGestureListener",
-    "picodroid/view/ViewPropertyAnimator",
-    "picodroid/graphics/Theme",
-    "picodroid/graphics/drawable/Drawable",
-    "picodroid/graphics/drawable/GradientDrawable",
-    "picodroid/graphics/drawable/GradientDrawable$Orientation",
-    "picodroid/graphics/Display",
-    "picodroid/widget/TextView",
-    "picodroid/widget/Button",
-    "picodroid/widget/LinearLayout",
-    "picodroid/widget/ProgressBar",
-    "picodroid/widget/Switch",
-    "picodroid/widget/ListView",
-    "picodroid/widget/NumberPicker",
-    "picodroid/widget/ImageView",
-    "picodroid/widget/ToggleButton",
-    "picodroid/widget/CompoundButton",
-    "picodroid/widget/SeekBar",
-    "picodroid/widget/CheckBox",
-    "picodroid/widget/RadioButton",
-    "picodroid/widget/ScrollView",
-    "picodroid/widget/FrameLayout",
-    "picodroid/widget/Spinner",
-    "picodroid/widget/DatePicker",
-    "picodroid/widget/TimePicker",
-    "picodroid/widget/EditText",
-    "picodroid/widget/Toast",
-    "picodroid/widget/Snackbar",
-    "picodroid/widget/SwipeRefreshLayout",
-    "picodroid/app/AlertDialog",
-    "picodroid/app/AlertDialog$Builder",
-    "picodroid/widget/Keyboard",
-    "picodroid/net/Socket",
-    "picodroid/net/ServerSocket",
-    "picodroid/net/DatagramSocket",
-    "picodroid/net/DatagramPacket",
-    "picodroid/net/InetAddress",
-    "picodroid/net/NetworkInfo",
-    "picodroid/net/URL",
-    "picodroid/net/HttpURLConnection",
-    "picodroid/net/HttpInputStream",
-    "picodroid/net/HttpOutputStream",
-    "picodroid/io/File",
-    "picodroid/io/FileInputStream",
-    "picodroid/io/FileOutputStream",
-    "picodroid/hardware/Sensor",
-    "picodroid/hardware/SensorEvent",
-    "picodroid/hardware/SensorEventListener",
-    "picodroid/hardware/SensorManager",
+    c::picodroid_pio_Adc,
+    c::picodroid_pio_Gpio,
+    c::picodroid_pio_I2cDevice,
+    c::picodroid_pio_PeripheralManager,
+    c::picodroid_pio_Pwm,
+    c::picodroid_pio_SpiDevice,
+    c::picodroid_pio_UartDevice,
+    c::picodroid_os_SystemClock,
+    c::picodroid_os_Runtime,
+    c::picodroid_debug_DisplayDebug,
+    c::picodroid_util_Log,
+    c::picodroid_concurrent_Thread,
+    c::picodroid_concurrent_Executor,
+    c::picodroid_concurrent_Executors,
+    c::picodroid_concurrent_MainExecutor,
+    c::picodroid_concurrent_BackgroundExecutor,
+    c::picodroid_app_Application,
+    c::picodroid_app_Activity,
+    c::picodroid_app_Service,
+    c::picodroid_os_IBinder,
+    c::picodroid_app_Notification,
+    c::picodroid_app_NotificationManager,
+    c::picodroid_content_Context,
+    c::picodroid_content_Intent,
+    c::picodroid_content_ServiceConnection,
+    c::picodroid_content_pm_PackageManager,
+    c::picodroid_view_View,
+    c::picodroid_view_ViewGroup,
+    c::picodroid_view_MotionEvent,
+    c::picodroid_view_KeyEvent,
+    c::picodroid_view_OnKeyListener,
+    c::picodroid_view_OnSwipeListener,
+    c::picodroid_view_OnTouchListener,
+    c::picodroid_view_GestureDetector,
+    c::picodroid_view_GestureDetector_OnGestureListener,
+    c::picodroid_view_ViewPropertyAnimator,
+    c::picodroid_graphics_Theme,
+    c::picodroid_graphics_drawable_Drawable,
+    c::picodroid_graphics_drawable_GradientDrawable,
+    c::picodroid_graphics_drawable_GradientDrawable_Orientation,
+    c::picodroid_graphics_Display,
+    c::picodroid_widget_TextView,
+    c::picodroid_widget_Button,
+    c::picodroid_widget_LinearLayout,
+    c::picodroid_widget_ProgressBar,
+    c::picodroid_widget_Switch,
+    c::picodroid_widget_ListView,
+    c::picodroid_widget_NumberPicker,
+    c::picodroid_widget_ImageView,
+    c::picodroid_widget_ToggleButton,
+    c::picodroid_widget_CompoundButton,
+    c::picodroid_widget_SeekBar,
+    c::picodroid_widget_CheckBox,
+    c::picodroid_widget_RadioButton,
+    c::picodroid_widget_ScrollView,
+    c::picodroid_widget_FrameLayout,
+    c::picodroid_widget_Spinner,
+    c::picodroid_widget_DatePicker,
+    c::picodroid_widget_TimePicker,
+    c::picodroid_widget_EditText,
+    c::picodroid_widget_Toast,
+    c::picodroid_widget_Snackbar,
+    c::picodroid_widget_SwipeRefreshLayout,
+    c::picodroid_app_AlertDialog,
+    c::picodroid_app_AlertDialog_Builder,
+    c::picodroid_widget_Keyboard,
+    c::picodroid_net_Socket,
+    c::picodroid_net_ServerSocket,
+    c::picodroid_net_DatagramSocket,
+    c::picodroid_net_DatagramPacket,
+    c::picodroid_net_InetAddress,
+    c::picodroid_net_NetworkInfo,
+    c::picodroid_net_URL,
+    c::picodroid_net_HttpURLConnection,
+    c::picodroid_net_HttpInputStream,
+    c::picodroid_net_HttpOutputStream,
+    c::picodroid_io_File,
+    c::picodroid_io_FileInputStream,
+    c::picodroid_io_FileOutputStream,
+    c::picodroid_hardware_Sensor,
+    c::picodroid_hardware_SensorEvent,
+    c::picodroid_hardware_SensorEventListener,
+    c::picodroid_hardware_SensorManager,
 ];
 
 /// (class, method) → one-line hint pointing at the picodroid equivalent for an
@@ -112,47 +113,47 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
 /// are the un-shrunk `picodroid/*` form (the miss site un-shrinks first).
 pub const API_HINTS: &[(&str, &str, &str)] = &[
     (
-        "picodroid/app/Activity",
+        c::picodroid_app_Activity,
         "runOnUiThread",
         "use Executors.mainExecutor().execute(Runnable)",
     ),
     (
-        "picodroid/app/Activity",
+        c::picodroid_app_Activity,
         "findViewById",
         "no resource IDs — keep your View references, or use View.setTag/getTag",
     ),
     (
-        "picodroid/view/View",
+        c::picodroid_view_View,
         "findViewById",
         "no resource IDs — keep your View references, or use setTag/getTag",
     ),
     (
-        "picodroid/view/View",
+        c::picodroid_view_View,
         "post",
         "use Executors.mainExecutor().execute(Runnable)",
     ),
     (
-        "picodroid/view/View",
+        c::picodroid_view_View,
         "postDelayed",
         "no Handler — use ViewPropertyAnimator timers or Executors.mainExecutor()",
     ),
     (
-        "picodroid/app/Activity",
+        c::picodroid_app_Activity,
         "getLayoutInflater",
         "no XML layouts — build Views programmatically",
     ),
     (
-        "picodroid/app/Activity",
+        c::picodroid_app_Activity,
         "getResources",
         "no Resources — bundle files under assets/ and use the generated AssetConstants",
     ),
     (
-        "picodroid/content/Context",
+        c::picodroid_content_Context,
         "getResources",
         "no Resources — bundle files under assets/ and use the generated AssetConstants",
     ),
     (
-        "picodroid/content/Context",
+        c::picodroid_content_Context,
         "registerReceiver",
         "no BroadcastReceiver — use a bound Service or a direct callback",
     ),
@@ -181,24 +182,25 @@ pub fn is_excluded_on_this_board(class: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{api_hint, API_HINTS, PICODROID_NATIVE_CLASSES};
+    use crate::shrink_names::{c, m};
     use pico_jvm::class_file::ClassFile;
     use pico_jvm::native::BUILTIN_CLASS_NAMES;
 
     #[test]
     fn api_hint_lookup() {
         assert_eq!(
-            api_hint("picodroid/app/Activity", "runOnUiThread"),
+            api_hint(c::picodroid_app_Activity, "runOnUiThread"),
             Some("use Executors.mainExecutor().execute(Runnable)")
         );
         // Unknown (class, method) → no hint.
-        assert_eq!(api_hint("picodroid/app/Activity", "onCreate"), None);
+        assert_eq!(api_hint(c::picodroid_app_Activity, m::onCreate), None);
         // getSystemService is implemented now, so it must not carry a hint
         // telling callers to avoid it.
         assert_eq!(
-            api_hint("picodroid/content/Context", "getSystemService"),
+            api_hint(c::picodroid_content_Context, m::getSystemService),
             None
         );
-        assert_eq!(api_hint("picodroid/widget/TextView", "setText"), None);
+        assert_eq!(api_hint(c::picodroid_widget_TextView, m::setText), None);
     }
 
     /// A hint that names a non-existent picodroid class can never fire (the
@@ -247,12 +249,13 @@ mod tests {
 
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");
-            let original = crate::shrink_names::unshrink_class(loaded);
-            if !(PICODROID_NATIVE_CLASSES.contains(&original)
-                || BUILTIN_CLASS_NAMES.contains(&original)
-                || ALLOWED_UNREGISTERED.contains(&original))
+            // The registries are spelled as loaded (`c::`), so the loaded
+            // name compares directly — exactly what dispatch does.
+            if !(PICODROID_NATIVE_CLASSES.contains(&loaded)
+                || BUILTIN_CLASS_NAMES.contains(&loaded)
+                || ALLOWED_UNREGISTERED.contains(&loaded))
             {
-                missing.push(original);
+                missing.push(crate::shrink_names::unshrink_class(loaded));
             }
         }
         assert!(

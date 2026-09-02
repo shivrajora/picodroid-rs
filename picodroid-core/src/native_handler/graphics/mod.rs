@@ -11,6 +11,7 @@ use pico_jvm::{
     NativeContext,
 };
 
+use crate::shrink_names::c;
 pub use backend::GraphicsBackend;
 use lvgl_backend::LvglBackend;
 
@@ -21,31 +22,31 @@ use lvgl_backend::LvglBackend;
 fn is_view(class_name: &str) -> bool {
     matches!(
         class_name,
-        "picodroid/view/View"
-            | "picodroid/view/ViewGroup"
-            | "picodroid/widget/TextView"
-            | "picodroid/widget/Button"
-            | "picodroid/widget/CompoundButton"
-            | "picodroid/widget/AdapterView"
-            | "picodroid/widget/LinearLayout"
-            | "picodroid/widget/ProgressBar"
-            | "picodroid/widget/Switch"
-            | "picodroid/widget/ToggleButton"
-            | "picodroid/widget/ListView"
-            | "picodroid/widget/ImageView"
-            | "picodroid/widget/SeekBar"
-            | "picodroid/widget/CheckBox"
-            | "picodroid/widget/RadioButton"
-            | "picodroid/widget/RadioGroup"
-            | "picodroid/widget/ScrollView"
-            | "picodroid/widget/FrameLayout"
-            | "picodroid/widget/Spinner"
-            | "picodroid/widget/DatePicker"
-            | "picodroid/widget/TimePicker"
-            | "picodroid/widget/SwipeRefreshLayout"
-            | "picodroid/widget/EditText"
-            | "picodroid/widget/Keyboard"
-            | "picodroid/widget/NumberPicker"
+        c::picodroid_view_View
+            | c::picodroid_view_ViewGroup
+            | c::picodroid_widget_TextView
+            | c::picodroid_widget_Button
+            | c::picodroid_widget_CompoundButton
+            | c::picodroid_widget_AdapterView
+            | c::picodroid_widget_LinearLayout
+            | c::picodroid_widget_ProgressBar
+            | c::picodroid_widget_Switch
+            | c::picodroid_widget_ToggleButton
+            | c::picodroid_widget_ListView
+            | c::picodroid_widget_ImageView
+            | c::picodroid_widget_SeekBar
+            | c::picodroid_widget_CheckBox
+            | c::picodroid_widget_RadioButton
+            | c::picodroid_widget_RadioGroup
+            | c::picodroid_widget_ScrollView
+            | c::picodroid_widget_FrameLayout
+            | c::picodroid_widget_Spinner
+            | c::picodroid_widget_DatePicker
+            | c::picodroid_widget_TimePicker
+            | c::picodroid_widget_SwipeRefreshLayout
+            | c::picodroid_widget_EditText
+            | c::picodroid_widget_Keyboard
+            | c::picodroid_widget_NumberPicker
     )
 }
 
@@ -55,15 +56,15 @@ fn is_view(class_name: &str) -> bool {
 fn is_view_group(class_name: &str) -> bool {
     matches!(
         class_name,
-        "picodroid/view/ViewGroup"
-            | "picodroid/widget/AdapterView"
-            | "picodroid/widget/LinearLayout"
-            | "picodroid/widget/FrameLayout"
-            | "picodroid/widget/ScrollView"
-            | "picodroid/widget/SwipeRefreshLayout"
-            | "picodroid/widget/Spinner"
-            | "picodroid/widget/RadioGroup"
-            | "picodroid/widget/ListView"
+        c::picodroid_view_ViewGroup
+            | c::picodroid_widget_AdapterView
+            | c::picodroid_widget_LinearLayout
+            | c::picodroid_widget_FrameLayout
+            | c::picodroid_widget_ScrollView
+            | c::picodroid_widget_SwipeRefreshLayout
+            | c::picodroid_widget_Spinner
+            | c::picodroid_widget_RadioGroup
+            | c::picodroid_widget_ListView
     )
 }
 
@@ -84,37 +85,38 @@ fn dispatch_with<B: GraphicsBackend>(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    let class_name = crate::shrink_names::unshrink_class(class_name);
     // Class-specific first — these take precedence over inherited View methods
     // so subclass-defined names don't collide with a future View-level setter.
     let class_hit = match class_name {
-        "picodroid/graphics/Display" => be.dispatch_display(method_name, ctx),
-        "picodroid/debug/DisplayDebug" => be.dispatch_display_debug(method_name, ctx),
-        "picodroid/widget/TextView" => be.dispatch_text_view(method_name, ctx),
-        "picodroid/widget/Button" => be.dispatch_button(method_name, ctx),
-        "picodroid/widget/LinearLayout" => be.dispatch_linear_layout(method_name, ctx),
-        "picodroid/widget/ProgressBar" => be.dispatch_progress_bar(method_name, ctx),
-        "picodroid/widget/Switch" => be.dispatch_switch(method_name, ctx),
-        "picodroid/widget/ToggleButton" => be.dispatch_toggle_button(method_name, ctx),
-        "picodroid/widget/ListView" => be.dispatch_list_view(method_name, ctx),
-        "picodroid/widget/NumberPicker" => be.dispatch_number_picker(method_name, ctx),
-        "picodroid/widget/SeekBar" => be.dispatch_seek_bar(method_name, ctx),
-        "picodroid/widget/CheckBox" => be.dispatch_check_box(method_name, ctx),
-        "picodroid/widget/RadioButton" => be.dispatch_radio_button(method_name, ctx),
-        "picodroid/widget/ImageView" => be.dispatch_image_view(method_name, ctx),
-        "picodroid/widget/ScrollView" => be.dispatch_scroll_view(method_name, ctx),
-        "picodroid/widget/FrameLayout" => be.dispatch_frame_layout(method_name, ctx),
-        "picodroid/widget/Spinner" => be.dispatch_spinner(method_name, ctx),
-        "picodroid/widget/DatePicker" => be.dispatch_date_picker(method_name, ctx),
-        "picodroid/widget/TimePicker" => be.dispatch_time_picker(method_name, ctx),
-        "picodroid/widget/EditText" => be.dispatch_edit_text(method_name, ctx),
-        "picodroid/widget/Toast" => be.dispatch_toast(method_name, ctx),
-        "picodroid/widget/Snackbar" => be.dispatch_snackbar(method_name, ctx),
-        "picodroid/widget/SwipeRefreshLayout" => be.dispatch_swipe_refresh_layout(method_name, ctx),
-        "picodroid/app/AlertDialog" => be.dispatch_alert_dialog(method_name, ctx),
-        "picodroid/widget/Keyboard" => be.dispatch_keyboard(method_name, ctx),
-        "picodroid/view/ViewPropertyAnimator" => be.dispatch_view_animator(method_name, ctx),
-        "picodroid/graphics/drawable/GradientDrawable" => {
+        c::picodroid_graphics_Display => be.dispatch_display(method_name, ctx),
+        c::picodroid_debug_DisplayDebug => be.dispatch_display_debug(method_name, ctx),
+        c::picodroid_widget_TextView => be.dispatch_text_view(method_name, ctx),
+        c::picodroid_widget_Button => be.dispatch_button(method_name, ctx),
+        c::picodroid_widget_LinearLayout => be.dispatch_linear_layout(method_name, ctx),
+        c::picodroid_widget_ProgressBar => be.dispatch_progress_bar(method_name, ctx),
+        c::picodroid_widget_Switch => be.dispatch_switch(method_name, ctx),
+        c::picodroid_widget_ToggleButton => be.dispatch_toggle_button(method_name, ctx),
+        c::picodroid_widget_ListView => be.dispatch_list_view(method_name, ctx),
+        c::picodroid_widget_NumberPicker => be.dispatch_number_picker(method_name, ctx),
+        c::picodroid_widget_SeekBar => be.dispatch_seek_bar(method_name, ctx),
+        c::picodroid_widget_CheckBox => be.dispatch_check_box(method_name, ctx),
+        c::picodroid_widget_RadioButton => be.dispatch_radio_button(method_name, ctx),
+        c::picodroid_widget_ImageView => be.dispatch_image_view(method_name, ctx),
+        c::picodroid_widget_ScrollView => be.dispatch_scroll_view(method_name, ctx),
+        c::picodroid_widget_FrameLayout => be.dispatch_frame_layout(method_name, ctx),
+        c::picodroid_widget_Spinner => be.dispatch_spinner(method_name, ctx),
+        c::picodroid_widget_DatePicker => be.dispatch_date_picker(method_name, ctx),
+        c::picodroid_widget_TimePicker => be.dispatch_time_picker(method_name, ctx),
+        c::picodroid_widget_EditText => be.dispatch_edit_text(method_name, ctx),
+        c::picodroid_widget_Toast => be.dispatch_toast(method_name, ctx),
+        c::picodroid_widget_Snackbar => be.dispatch_snackbar(method_name, ctx),
+        c::picodroid_widget_SwipeRefreshLayout => {
+            be.dispatch_swipe_refresh_layout(method_name, ctx)
+        }
+        c::picodroid_app_AlertDialog => be.dispatch_alert_dialog(method_name, ctx),
+        c::picodroid_widget_Keyboard => be.dispatch_keyboard(method_name, ctx),
+        c::picodroid_view_ViewPropertyAnimator => be.dispatch_view_animator(method_name, ctx),
+        c::picodroid_graphics_drawable_GradientDrawable => {
             be.dispatch_gradient_drawable(method_name, ctx)
         }
         _ => None,

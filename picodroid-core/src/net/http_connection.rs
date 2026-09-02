@@ -27,6 +27,7 @@ use super::http_head::{
     reason_phrase, status_line_of, write_bytes, write_usize,
 };
 use super::http_table;
+use crate::shrink_names::c;
 
 const RX_BUF_SIZE: usize = 1024;
 const TX_BUF_SIZE: usize = 512;
@@ -628,7 +629,7 @@ fn chunked_read(
                     return Err(throw_named_exception(
                         objects,
                         strings,
-                        "java/net/ProtocolException",
+                        c::java_net_ProtocolException,
                         "malformed chunked framing",
                     ));
                 }
@@ -648,7 +649,7 @@ fn chunked_read(
             return Err(throw_named_exception(
                 objects,
                 strings,
-                "java/net/ProtocolException",
+                c::java_net_ProtocolException,
                 "unexpected end of stream inside chunked body",
             ));
         }
@@ -686,7 +687,7 @@ fn parse_response_head(
             return Err(throw_named_exception(
                 objects,
                 strings,
-                "java/net/ProtocolException",
+                c::java_net_ProtocolException,
                 "unexpected end of stream",
             ));
         }
@@ -706,7 +707,7 @@ fn parse_response_head(
                     return Err(throw_named_exception(
                         objects,
                         strings,
-                        "java/net/ProtocolException",
+                        c::java_net_ProtocolException,
                         &msg,
                     ));
                 }

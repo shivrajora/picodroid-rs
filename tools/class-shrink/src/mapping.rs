@@ -498,11 +498,17 @@ mod tests {
                     ),
                 }
             }
+            // A cut may raise the floor (it renamed names the previous map
+            // spelled verbatim, e.g. v0.17.0's contract members) but never
+            // lower it or drop it.
             if let Some(floor) = &prev.member_floor {
-                assert_eq!(
-                    next.member_floor.as_ref(),
-                    Some(floor),
-                    "{next_name} must carry {prev_name}'s member-floor forward"
+                let n = next
+                    .member_floor
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{next_name} drops {prev_name}'s member-floor"));
+                assert!(
+                    crate::version::parse_semver(n) >= crate::version::parse_semver(floor),
+                    "{next_name} lowers the member-floor from {floor} ({prev_name}) to {n}"
                 );
             }
         }

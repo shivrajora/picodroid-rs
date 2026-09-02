@@ -8,9 +8,14 @@ The append-only invariant is what makes cross-version compatibility predictable:
 
 Maps carry class names (`[[class]]`, `a/` framework and `b/` `java/**`
 namespaces) and, since schema 2 / v0.16.0, member names (`[[member]]`,
-owner-agnostic). This tool rewrites class names and *allocates* member
+owner-agnostic; since v0.17.0 every name the runtime serves, the `java/**`
+contract included). This tool rewrites class names and *allocates* member
 names; the member rewrite itself is the Gradle-side ASM pass
 (`buildSrc/.../ShrinkMembersTask.kt`), which rebuilds the constant pool.
+Nothing in firmware translates a mapped name back: the Rust runtime is
+compiled against constants generated from the same map
+(`build_support/names.rs`), and `retrace` is the host-side inverse for
+logs.
 
 ## Usage as a library
 
@@ -39,11 +44,14 @@ class-shrink cut-release --members \
     --classes-dir build/classes \
     --keep sdk/keep.toml \
     --extra-names sdk/api-contract.tsv \
-    --keep-contract sdk/api-contract.tsv \
+    --contract sdk/api-contract.tsv \
     --reserve kotlin-shim/build/classes/java/main \
-    --base sdk/shrink-maps/v0.15.0.toml \
-    --version 0.16.0 \
-    --out sdk/shrink-maps/v0.16.0.toml
+    --base sdk/shrink-maps/v0.16.0.toml \
+    --version 0.17.0 \
+    --out sdk/shrink-maps/v0.17.0.toml
+
+# Read a --shrink firmware's log with original names
+./scripts/sim.sh --app foo --shrink 2>&1 | class-shrink retrace --map sdk/shrink-maps/v0.17.0.toml
 
 # Rewrite every .class file under --in using --map's classes
 class-shrink shrink-dir \

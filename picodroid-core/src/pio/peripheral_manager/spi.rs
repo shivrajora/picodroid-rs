@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
+use crate::shrink_names::c;
 
 /// Parses a "SPIx" name string, allocates a SpiDevice object with default config (1 MHz, MODE_0),
 /// and initializes the hardware.
@@ -21,7 +22,7 @@ pub fn open_spi(
 
     let obj_idx = alloc_peripheral_with_id(
         objects,
-        "picodroid/pio/SpiDevice",
+        c::picodroid_pio_SpiDevice,
         fields::spi::SPI_ID,
         spi_id,
     )?;

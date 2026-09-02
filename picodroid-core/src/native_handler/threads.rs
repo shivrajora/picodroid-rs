@@ -25,6 +25,7 @@ use pico_jvm::{
     NativeContext,
 };
 
+use crate::shrink_names::c;
 use crate::threads::{self, Outcome};
 
 /// Allocate a builtin exception by name with `msg`, the way the net stack's
@@ -70,7 +71,7 @@ fn interrupted(ctx: &mut NativeContext<'_>, what: &str) -> JvmError {
     throw_named_exception(
         ctx.objects,
         ctx.strings,
-        "java/lang/InterruptedException",
+        c::java_lang_InterruptedException,
         what,
     )
 }
@@ -96,7 +97,7 @@ fn object_wait(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
         return Err(throw_named_exception(
             ctx.objects,
             ctx.strings,
-            "java/lang/IllegalMonitorStateException",
+            c::java_lang_IllegalMonitorStateException,
             "current thread is not owner",
         ));
     }
@@ -117,7 +118,7 @@ fn object_notify(ctx: &mut NativeContext<'_>, all: bool) -> Result<Option<Value>
         return Err(throw_named_exception(
             ctx.objects,
             ctx.strings,
-            "java/lang/IllegalMonitorStateException",
+            c::java_lang_IllegalMonitorStateException,
             "current thread is not owner",
         ));
     }
@@ -171,7 +172,7 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
                 let (class, method) =
                     crate::dispatch_sites::DISPATCH_SITES[crate::dispatch_sites::THREAD_RUN];
                 if let Err(e) = jvm.invoke_static_with_args(
-                    crate::shrink_names::shrink_class(class),
+                    class,
                     method,
                     &[Value::ObjectRef(this)],
                     heap,
@@ -215,14 +216,14 @@ pub fn dispatch(
         Some(Value::ObjectRef(_) | Value::ArrayRef(_) | Value::Reference(_))
     ) {
         match (method_name, ctx.descriptor) {
-            ("wait", "()V" | "(J)V") => return Some(object_wait(ctx)),
+            (m::wait, "()V" | "(J)V") => return Some(object_wait(ctx)),
             (m::notify, "()V") => return Some(object_notify(ctx, false)),
-            ("notifyAll", "()V") => return Some(object_notify(ctx, true)),
+            (m::notifyAll, "()V") => return Some(object_notify(ctx, true)),
             _ => {}
         }
     }
 
-    if crate::shrink_names::unshrink_class(class_name) != "picodroid/concurrent/Thread" {
+    if class_name != c::picodroid_concurrent_Thread {
         return None;
     }
     Some(match method_name {

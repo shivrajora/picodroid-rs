@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::names::c;
 
 // ── Array opcode tests ────────────────────────────────────────────────────
 // Common 5-line header (lines 1-5 identical across all ()I test classes):
@@ -205,7 +206,7 @@ fn negative_array_size_throws_java_exception() {
     match run(CLASS_NEGATIVE_ARRAY_SIZE).unwrap_err() {
         JvmError::UncaughtException {
             exception_class, ..
-        } => assert_eq!(exception_class, "java/lang/NegativeArraySizeException"),
+        } => assert_eq!(exception_class, c::java_lang_NegativeArraySizeException),
         other => panic!("expected NegativeArraySizeException, got {other:?}"),
     }
 }
@@ -215,7 +216,7 @@ fn iaload_out_of_bounds_throws_java_exception() {
     match run(CLASS_IALOAD_OUT_OF_BOUNDS).unwrap_err() {
         JvmError::UncaughtException {
             exception_class, ..
-        } => assert_eq!(exception_class, "java/lang/ArrayIndexOutOfBoundsException"),
+        } => assert_eq!(exception_class, c::java_lang_ArrayIndexOutOfBoundsException),
         other => panic!("expected ArrayIndexOutOfBoundsException, got {other:?}"),
     }
 }

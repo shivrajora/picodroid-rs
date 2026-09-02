@@ -5,13 +5,15 @@
 //! `java/lang/String` whatever the constant pool declared.
 use super::asm::{Asm, ACC_INTERFACE};
 use super::*;
+use crate::names::{c, d};
+use crate::names::{m, spelled};
 use crate::native::BUILTIN_CLASS_NAMES;
 use alloc::vec;
 
 fn iface(name: &str, supers: &[&str]) -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class(name);
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let sups: Vec<u16> = supers.iter().map(|s| a.class(s)).collect();
     a.finish(ACC_INTERFACE, this, obj, &sups, None)
 }
@@ -26,7 +28,7 @@ fn plain_class(name: &str, sup: &str, ifaces: &[&str]) -> &'static [u8] {
 
 fn parse_all(data: &[&'static [u8]]) -> Vec<ClassFile> {
     data.iter()
-        .map(|d| ClassFile::parse(d).expect("parse"))
+        .map(|d| ClassFile::parse(spelled(d)).expect("parse"))
         .collect()
 }
 
@@ -68,42 +70,42 @@ fn builtin_collections_and_boxes_implement_their_interfaces() {
     let classes: Vec<ClassFile> = Vec::new();
     let is = |rt: &str, t: &str| helpers::is_instance_of(&classes, rt, t);
     for t in [
-        "java/util/List",
-        "java/util/Collection",
-        "java/lang/Iterable",
-        "java/lang/Object",
+        c::java_util_List,
+        c::java_util_Collection,
+        c::java_lang_Iterable,
+        c::java_lang_Object,
     ] {
-        assert!(is("java/util/ArrayList", t), "ArrayList is a {t}");
+        assert!(is(c::java_util_ArrayList, t), "ArrayList is a {t}");
     }
-    assert!(!is("java/util/ArrayList", "java/util/Map"));
-    assert!(!is("java/util/ArrayList", "java/util/Set"));
-    assert!(is("java/util/HashMap", "java/util/Map"));
-    assert!(is("java/util/HashMap$KeySet", "java/util/Set"));
-    assert!(is("java/util/HashMap$Values", "java/lang/Iterable"));
+    assert!(!is(c::java_util_ArrayList, c::java_util_Map));
+    assert!(!is(c::java_util_ArrayList, c::java_util_Set));
+    assert!(is(c::java_util_HashMap, c::java_util_Map));
+    assert!(is(c::java_util_HashMap_KeySet, c::java_util_Set));
+    assert!(is(c::java_util_HashMap_Values, c::java_lang_Iterable));
     for t in [
-        "java/lang/Number",
-        "java/lang/Comparable",
-        "java/lang/Object",
+        c::java_lang_Number,
+        c::java_lang_Comparable,
+        c::java_lang_Object,
     ] {
-        assert!(is("java/lang/Integer", t), "Integer is a {t}");
-        assert!(is("java/lang/Float", t), "Float is a {t}");
+        assert!(is(c::java_lang_Integer, t), "Integer is a {t}");
+        assert!(is(c::java_lang_Float, t), "Float is a {t}");
     }
-    assert!(!is("java/lang/Integer", "java/lang/Long"));
-    assert!(!is("java/lang/Boolean", "java/lang/Number"));
-    assert!(is("java/lang/String", "java/lang/CharSequence"));
-    assert!(is("java/lang/String", "java/lang/Comparable"));
-    assert!(is("java/lang/StringBuilder", "java/lang/CharSequence"));
+    assert!(!is(c::java_lang_Integer, c::java_lang_Long));
+    assert!(!is(c::java_lang_Boolean, c::java_lang_Number));
+    assert!(is(c::java_lang_String, c::java_lang_CharSequence));
+    assert!(is(c::java_lang_String, c::java_lang_Comparable));
+    assert!(is(c::java_lang_StringBuilder, c::java_lang_CharSequence));
     assert!(is(
-        "java/util/NoSuchElementException",
-        "java/lang/RuntimeException"
+        c::java_util_NoSuchElementException,
+        c::java_lang_RuntimeException
     ));
     assert!(is(
-        "java/util/NoSuchElementException",
-        "java/lang/Throwable"
+        c::java_util_NoSuchElementException,
+        c::java_lang_Throwable
     ));
     assert!(is(
-        "java/lang/ClassCastException",
-        "java/lang/RuntimeException"
+        c::java_lang_ClassCastException,
+        c::java_lang_RuntimeException
     ));
 }
 
@@ -113,18 +115,18 @@ fn builtin_collections_and_boxes_implement_their_interfaces() {
 #[test]
 fn superinterfaces_are_walked_transitively() {
     let classes = parse_all(&[
-        iface("KList", &["java/util/List"]),
-        plain_class("Base", "java/lang/Object", &[]),
+        iface("KList", &[c::java_util_List]),
+        plain_class("Base", c::java_lang_Object, &[]),
         plain_class("Sub", "Base", &["KList"]),
     ]);
     let is = |rt: &str, t: &str| helpers::is_instance_of(&classes, rt, t);
     assert!(is("Sub", "KList"));
-    assert!(is("Sub", "java/util/List"));
-    assert!(is("Sub", "java/util/Collection"));
-    assert!(is("Sub", "java/lang/Iterable"));
+    assert!(is("Sub", c::java_util_List));
+    assert!(is("Sub", c::java_util_Collection));
+    assert!(is("Sub", c::java_lang_Iterable));
     assert!(is("Sub", "Base"));
-    assert!(is("Sub", "java/lang/Object"));
-    assert!(!is("Sub", "java/util/Map"));
+    assert!(is("Sub", c::java_lang_Object));
+    assert!(!is("Sub", c::java_util_Map));
     assert!(!is("Base", "KList"));
 }
 
@@ -139,7 +141,7 @@ fn deep_interface_chains_and_missing_interfaces_are_tolerated() {
         iface("Bottom", &["Left", "Right"]),
         plain_class(
             "Impl",
-            "java/lang/Object",
+            c::java_lang_Object,
             &["Bottom", "kotlin/jvm/internal/markers/KMappedMarker"],
         ),
     ]);
@@ -147,8 +149,8 @@ fn deep_interface_chains_and_missing_interfaces_are_tolerated() {
     assert!(is("Impl", "Top"));
     assert!(is("Impl", "Right"));
     assert!(is("Impl", "kotlin/jvm/internal/markers/KMappedMarker"));
-    assert!(is("Impl", "java/lang/Object"));
-    assert!(!is("Impl", "java/lang/Runnable"));
+    assert!(is("Impl", c::java_lang_Object));
+    assert!(!is("Impl", c::java_lang_Runnable));
 }
 
 /// Hand-assembled cycles must terminate (valid class files cannot cycle).
@@ -157,7 +159,7 @@ fn interface_cycle_terminates() {
     let classes = parse_all(&[
         iface("A", &["B"]),
         iface("B", &["A"]),
-        plain_class("C", "java/lang/Object", &["A"]),
+        plain_class("C", c::java_lang_Object, &["A"]),
     ]);
     assert!(helpers::is_instance_of(&classes, "C", "B"));
     assert!(!helpers::is_instance_of(&classes, "C", "Nope"));
@@ -175,27 +177,27 @@ fn strings_and_arrays_have_runtime_classes() {
     let s = Value::Reference(0);
     let is = |v: Value, t: &str| helpers::value_is_instance(&classes, &objects, &arrays, v, t);
     for t in [
-        "java/lang/String",
-        "java/lang/CharSequence",
-        "java/lang/Comparable",
-        "java/lang/Object",
+        c::java_lang_String,
+        c::java_lang_CharSequence,
+        c::java_lang_Comparable,
+        c::java_lang_Object,
     ] {
         assert!(is(s, t), "String is a {t}");
     }
-    assert!(!is(s, "java/util/ArrayList"));
-    assert!(!is(s, "java/lang/Integer"));
+    assert!(!is(s, c::java_util_ArrayList));
+    assert!(!is(s, c::java_lang_Integer));
     assert!(is(ints, "[I"));
     assert!(!is(ints, "[F"));
-    assert!(!is(ints, "[Ljava/lang/Object;"));
-    assert!(is(ints, "java/lang/Object"));
-    assert!(is(ints, "java/lang/Cloneable"));
-    assert!(!is(ints, "java/lang/String"));
-    assert!(is(refs, "[Ljava/lang/Object;"));
-    assert!(is(refs, "[Ljava/lang/String;")); // element class not recorded
+    assert!(!is(ints, d::t_aObject));
+    assert!(is(ints, c::java_lang_Object));
+    assert!(is(ints, c::java_lang_Cloneable));
+    assert!(!is(ints, c::java_lang_String));
+    assert!(is(refs, d::t_aObject));
+    assert!(is(refs, d::t_aString)); // element class not recorded
     assert!(is(refs, "[[I"));
     assert!(!is(refs, "[I"));
-    assert!(!is(Value::Null, "java/lang/Object"));
-    assert!(!is(Value::Int(1), "java/lang/Integer"));
+    assert!(!is(Value::Null, c::java_lang_Object));
+    assert!(!is(Value::Int(1), c::java_lang_Integer));
 }
 
 // ── End to end: checkcast / instanceof / ClassCastException ───────────────
@@ -205,7 +207,7 @@ fn strings_and_arrays_have_runtime_classes() {
 fn cast_class(target: &str, catch: Option<&str>) -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class("T");
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let s = a.string("str");
     let t = a.class(target);
     let c = catch.map(|c| a.class(c));
@@ -230,9 +232,9 @@ fn cast_class(target: &str, catch: Option<&str>) -> &'static [u8] {
 #[test]
 fn checkcast_passes_for_string_targets() {
     for t in [
-        "java/lang/String",
-        "java/lang/CharSequence",
-        "java/lang/Object",
+        c::java_lang_String,
+        c::java_lang_CharSequence,
+        c::java_lang_Object,
     ] {
         assert_eq!(
             run(cast_class(t, None)).unwrap(),
@@ -245,25 +247,25 @@ fn checkcast_passes_for_string_targets() {
 #[test]
 fn failed_checkcast_throws_catchable_class_cast_exception() {
     let r = run(cast_class(
-        "java/util/ArrayList",
-        Some("java/lang/ClassCastException"),
+        c::java_util_ArrayList,
+        Some(c::java_lang_ClassCastException),
     ));
     assert_eq!(r.unwrap(), Some(Value::Int(7)));
     // Superclass catches match too (builtin_super chain).
     let r = run(cast_class(
-        "java/util/ArrayList",
-        Some("java/lang/RuntimeException"),
+        c::java_util_ArrayList,
+        Some(c::java_lang_RuntimeException),
     ));
     assert_eq!(r.unwrap(), Some(Value::Int(7)));
 }
 
 #[test]
 fn uncaught_class_cast_exception_names_its_class() {
-    let r = run(cast_class("java/util/ArrayList", None));
+    let r = run(cast_class(c::java_util_ArrayList, None));
     match r {
         Err(JvmError::UncaughtException {
             exception_class, ..
-        }) => assert_eq!(exception_class, "java/lang/ClassCastException"),
+        }) => assert_eq!(exception_class, c::java_lang_ClassCastException),
         other => panic!("expected uncaught ClassCastException, got {other:?}"),
     }
 }
@@ -300,7 +302,7 @@ fn class_cast_exception_is_alloc_by_name() {
     };
     assert_eq!(
         ex.objects.class_name(e),
-        Some("java/lang/ClassCastException")
+        Some(c::java_lang_ClassCastException)
     );
 }
 
@@ -308,7 +310,7 @@ fn class_cast_exception_is_alloc_by_name() {
 fn instanceof_class(load: &[u8], target: &str) -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class("T");
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let s = a.string("str");
     let t = a.class(target);
     let mut code: Vec<u8> = Vec::new();
@@ -322,15 +324,15 @@ fn instanceof_class(load: &[u8], target: &str) -> &'static [u8] {
 fn instanceof_sees_strings_arrays_and_null() {
     let ldc_str: &[u8] = &[0x12, 0xFF];
     assert_eq!(
-        run(instanceof_class(ldc_str, "java/lang/String")).unwrap(),
+        run(instanceof_class(ldc_str, c::java_lang_String)).unwrap(),
         Some(Value::Int(1))
     );
     assert_eq!(
-        run(instanceof_class(ldc_str, "java/lang/Comparable")).unwrap(),
+        run(instanceof_class(ldc_str, c::java_lang_Comparable)).unwrap(),
         Some(Value::Int(1))
     );
     assert_eq!(
-        run(instanceof_class(ldc_str, "java/util/List")).unwrap(),
+        run(instanceof_class(ldc_str, c::java_util_List)).unwrap(),
         Some(Value::Int(0))
     );
     // iconst_2; newarray int (0xBC 0x0A)
@@ -344,12 +346,12 @@ fn instanceof_sees_strings_arrays_and_null() {
         Some(Value::Int(0))
     );
     assert_eq!(
-        run(instanceof_class(int_array, "java/lang/Object")).unwrap(),
+        run(instanceof_class(int_array, c::java_lang_Object)).unwrap(),
         Some(Value::Int(1))
     );
     let null: &[u8] = &[0x01];
     assert_eq!(
-        run(instanceof_class(null, "java/lang/Object")).unwrap(),
+        run(instanceof_class(null, c::java_lang_Object)).unwrap(),
         Some(Value::Int(0))
     );
 }
@@ -358,8 +360,8 @@ fn instanceof_sees_strings_arrays_and_null() {
 fn checkcast_null_passes() {
     let mut a = Asm::new();
     let this = a.class("T");
-    let obj = a.class("java/lang/Object");
-    let t = a.class("java/util/ArrayList");
+    let obj = a.class(c::java_lang_Object);
+    let t = a.class(c::java_util_ArrayList);
     let code = [0x01, 0xC0, (t >> 8) as u8, t as u8, 0x57, 0x04, 0xAC];
     let cls = a.finish(0x0001, this, obj, &[], Some((1, &code, &[])));
     assert_eq!(run(cls).unwrap(), Some(Value::Int(1)));
@@ -378,7 +380,7 @@ fn string_call(
 ) -> &'static [u8] {
     let mut a = Asm::new();
     let this = a.class("T");
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let sa = a.string("a");
     let sb = a.string("b");
     let owner = a.class(owner);
@@ -401,30 +403,37 @@ fn comparable_compare_to_on_a_string_reaches_the_string_dispatcher() {
         true,
         0xB9,
         0x0B,
-        "java/lang/Comparable",
-        "compareTo",
-        "(Ljava/lang/Object;)I",
+        c::java_lang_Comparable,
+        m::compareTo,
+        d::Object__I,
     );
     assert_eq!(run(cls).unwrap(), Some(Value::Int(-1)));
 }
 
 #[test]
 fn char_sequence_length_on_a_string() {
-    let cls = string_call(false, 0xB9, 0x0B, "java/lang/CharSequence", "length", "()I");
+    let cls = string_call(
+        false,
+        0xB9,
+        0x0B,
+        c::java_lang_CharSequence,
+        m::length,
+        "()I",
+    );
     assert_eq!(run(cls).unwrap(), Some(Value::Int(1)));
 }
 
 #[test]
 fn object_hash_code_and_equals_on_a_string() {
-    let cls = string_call(false, 0xB6, 0x0A, "java/lang/Object", "hashCode", "()I");
+    let cls = string_call(false, 0xB6, 0x0A, c::java_lang_Object, m::hashCode, "()I");
     assert_eq!(run(cls).unwrap(), Some(Value::Int(97)));
     let cls = string_call(
         true,
         0xB6,
         0x0A,
-        "java/lang/Object",
-        "equals",
-        "(Ljava/lang/Object;)Z",
+        c::java_lang_Object,
+        m::equals,
+        d::Object__Z,
     );
     assert_eq!(run(cls).unwrap(), Some(Value::Int(0)));
 }
@@ -438,7 +447,7 @@ fn object_hash_code_and_equals_on_a_string() {
 fn identity_call(name: &str, desc: &str, two_args: bool) -> Vec<&'static [u8]> {
     let mut a = Asm::new();
     let this = a.class("T");
-    let obj = a.class("java/lang/Object");
+    let obj = a.class(c::java_lang_Object);
     let p = a.class("P");
     let m = a.methodref(0x0A, p, name, desc);
     let mut code = vec![0xBB, (p >> 8) as u8, p as u8, 0x59];
@@ -447,14 +456,14 @@ fn identity_call(name: &str, desc: &str, two_args: bool) -> Vec<&'static [u8]> {
     }
     code.extend_from_slice(&[0xB6, (m >> 8) as u8, m as u8, 0xAC]);
     let t = a.finish(0x0001, this, obj, &[], Some((3, &code, &[])));
-    vec![plain_class("P", "java/lang/Object", &[]), t]
+    vec![plain_class("P", c::java_lang_Object, &[]), t]
 }
 
 #[test]
 fn identity_equals_and_hash_code_on_a_plain_user_class() {
-    let classes = identity_call("equals", "(Ljava/lang/Object;)Z", true);
+    let classes = identity_call(m::equals, d::Object__Z, true);
     assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(1)));
-    let classes = identity_call("hashCode", "()I", false);
+    let classes = identity_call(m::hashCode, "()I", false);
     assert!(matches!(
         run_multi(&classes, 1, &[]).unwrap(),
         Some(Value::Int(_))

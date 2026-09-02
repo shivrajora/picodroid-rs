@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use crate::shrink_names::c;
 
 /// Parses a "GPxx" name string and allocates a Gpio object on the heap.
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPxx" string
@@ -28,7 +29,7 @@ pub fn open_gpio(
         pin = pin.wrapping_mul(10).wrapping_add(d);
     }
 
-    let obj_idx = alloc_peripheral_with_id(objects, "picodroid/pio/Gpio", fields::gpio::PIN, pin)?;
+    let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Gpio, fields::gpio::PIN, pin)?;
 
     Ok(Some(Value::ObjectRef(obj_idx)))
 }

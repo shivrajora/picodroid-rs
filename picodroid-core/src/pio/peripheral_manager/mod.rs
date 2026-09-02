@@ -11,6 +11,7 @@ mod pwm;
 mod spi;
 mod uart;
 
+use crate::shrink_names::c;
 pub use adc::open_adc;
 pub use gpio::open_gpio;
 pub use i2c::open_i2c;
@@ -20,9 +21,7 @@ pub use uart::open_uart;
 
 pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
     let idx = objects
-        .alloc(crate::shrink_names::shrink_class(
-            "picodroid/pio/PeripheralManager",
-        ))
+        .alloc(c::picodroid_pio_PeripheralManager)
         .ok_or(JvmError::StackOverflow)?;
     Ok(Some(Value::ObjectRef(idx)))
 }

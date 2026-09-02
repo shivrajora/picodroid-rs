@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 fn extract_array(args: &[Value]) -> Result<u16, JvmError> {
     match args.first().copied().unwrap_or(Value::Null) {
@@ -28,10 +29,10 @@ pub(crate) fn dispatch(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
-        "sort" => Some(dispatch_sort(ctx)),
-        "fill" => Some(dispatch_fill(ctx)),
-        "copyOf" => Some(dispatch_copy_of(ctx)),
-        "toString" => Some(dispatch_to_string(ctx)),
+        m::sort => Some(dispatch_sort(ctx)),
+        m::fill => Some(dispatch_fill(ctx)),
+        m::copyOf => Some(dispatch_copy_of(ctx)),
+        m::toString => Some(dispatch_to_string(ctx)),
         _ => None,
     }
 }
@@ -54,10 +55,13 @@ fn range_args(
         return Err(JvmError::InvalidReference);
     };
     if from > to {
-        return Err(throw_named(ctx, "java/lang/IllegalArgumentException"));
+        return Err(throw_named(ctx, c::java_lang_IllegalArgumentException));
     }
     if from < 0 || to as usize > len {
-        return Err(throw_named(ctx, "java/lang/ArrayIndexOutOfBoundsException"));
+        return Err(throw_named(
+            ctx,
+            c::java_lang_ArrayIndexOutOfBoundsException,
+        ));
     }
     Ok((from as usize, to as usize))
 }
@@ -228,7 +232,7 @@ pub(crate) fn dispatch_system(
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method_name {
-        "arraycopy" => Some(dispatch_arraycopy(ctx)),
+        m::arraycopy => Some(dispatch_arraycopy(ctx)),
         _ => None,
     }
 }
@@ -258,7 +262,7 @@ fn dispatch_arraycopy(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
     let src_type = ctx.arrays.atype(src).ok_or(JvmError::InvalidReference)?;
     let dest_type = ctx.arrays.atype(dest).ok_or(JvmError::InvalidReference)?;
     if src_type != dest_type {
-        return Err(throw_named(ctx, "java/lang/ArrayStoreException"));
+        return Err(throw_named(ctx, c::java_lang_ArrayStoreException));
     }
     let src_len = ctx.arrays.length(src).ok_or(JvmError::InvalidReference)? as i64;
     let dest_len = ctx.arrays.length(dest).ok_or(JvmError::InvalidReference)? as i64;
@@ -268,7 +272,7 @@ fn dispatch_arraycopy(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
         || src_pos as i64 + len as i64 > src_len
         || dest_pos as i64 + len as i64 > dest_len
     {
-        return Err(throw_named(ctx, "java/lang/IndexOutOfBoundsException"));
+        return Err(throw_named(ctx, c::java_lang_IndexOutOfBoundsException));
     }
 
     let (src_pos, dest_pos, len) = (src_pos as usize, dest_pos as usize, len as usize);

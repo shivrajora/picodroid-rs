@@ -25,16 +25,19 @@
 //! | `v` (≥1)    | `v'` > `v`  | `Mismatch` — PAPK from future   |
 //! | anything    | `None`      | OK iff firmware = `0.0.0`, else `Missing` |
 //!
-//! The floor: maps from [`MEMBER_SHRINK_FLOOR`] on also rename method and
-//! field names (`[[member]]` rows). Class renames are additive — an older
-//! PAPK keeps resolving on newer firmware because every name it uses is
-//! still there — but the first member map renamed *existing* members, so a
-//! PAPK cut before it still calls `setText` on a framework that now declares
-//! `aB`. Both sides are rebuilt together by every workflow; the check just
-//! makes the stale case a clear error instead of `NoSuchMethod` at runtime.
-//! (The floor is a constant here rather than a wire field because host and
-//! device link this same crate; a picodroid-core test pins it to the first
-//! committed map with member entries.)
+//! The floor: maps from [`MEMBER_SHRINK_FLOOR`] on rename method and field
+//! names (`[[member]]` rows) that an older map spelled verbatim. Class
+//! renames are additive — an older PAPK keeps resolving on newer firmware
+//! because every name it uses is still there — but a map that renames
+//! *existing* members leaves a PAPK cut before it calling `toString` on a
+//! framework that now declares `xy`. v0.16.0 introduced member renames;
+//! v0.17.0 extended them to every name the runtime serves (the `java/**`
+//! contract, previously kept), so the floor moved with it. Both sides are
+//! rebuilt together by every workflow; the check just makes the stale case
+//! a clear error instead of `NoSuchMethod` at runtime. (The floor is a
+//! constant here rather than a wire field because host and device link this
+//! same crate; a picodroid-core test pins it to the newest committed map's
+//! `member-floor`.)
 //!
 //! See `docs/shrinker.md` for the broader design.
 
@@ -60,8 +63,8 @@ pub enum CompatError {
 }
 
 /// First shrink-map release whose map renames members (see the crate docs).
-pub const MEMBER_SHRINK_FLOOR: &str = "0.16.0";
-const MEMBER_SHRINK_FLOOR_TUPLE: (u32, u32, u32) = (0, 16, 0);
+pub const MEMBER_SHRINK_FLOOR: &str = "0.17.0";
+const MEMBER_SHRINK_FLOOR_TUPLE: (u32, u32, u32) = (0, 17, 0);
 
 /// Apply the compatibility rule. `papk_version = None` means the PAPK has
 /// no `framework-map-version` manifest key (legacy pre-M1 PAPK). Returns

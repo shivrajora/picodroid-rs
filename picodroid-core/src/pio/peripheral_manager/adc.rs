@@ -7,6 +7,7 @@ use pico_jvm::{
 
 use super::super::fields;
 use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use crate::shrink_names::c;
 
 /// Parses a "GPx" name string (GP26–GP29), allocates an Adc object, and initializes the hardware.
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPx" string
@@ -24,7 +25,7 @@ pub fn open_adc(
         return Err(JvmError::InvalidReference);
     }
 
-    let obj_idx = alloc_peripheral_with_id(objects, "picodroid/pio/Adc", fields::adc::PIN, pin)?;
+    let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Adc, fields::adc::PIN, pin)?;
 
     // Initialize hardware: configure GPIO pin for analog input and enable ADC
     #[cfg(not(test))]

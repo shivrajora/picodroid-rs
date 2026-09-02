@@ -12,6 +12,7 @@ use super::helpers::{
     extract_handle, extract_socket_ptr, throw_io_exception, throw_net_exception, NetOpCtx,
 };
 use super::socket_table;
+use crate::shrink_names::c;
 
 /// ServerSocket.nativeListen(int port) — create, bind, listen; return handle.
 ///
@@ -73,7 +74,7 @@ pub fn accept_native(
 
     // Allocate a new Socket object and set its handle field.
     let obj_idx = objects
-        .alloc(crate::shrink_names::shrink_class("picodroid/net/Socket"))
+        .alloc(c::picodroid_net_Socket)
         .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(obj_idx, fields::socket::HANDLE, Value::Int(client_handle))

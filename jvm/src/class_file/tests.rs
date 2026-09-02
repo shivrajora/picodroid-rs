@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::names::m;
+use crate::names::spelled;
 
 // Minimal valid .class file:
 //   class "TC" extends java/lang/Object
@@ -130,55 +132,55 @@ static TRUNCATED: &[u8] = &[0xCA, 0xFE, 0xBA, 0xBE];
 
 #[test]
 fn parse_minimal_class_succeeds() {
-    let result = ClassFile::parse(MINIMAL_CLASS);
+    let result = ClassFile::parse(spelled(MINIMAL_CLASS));
     assert!(result.is_ok(), "expected Ok but got {:?}", result.err());
 }
 
 #[test]
 fn class_name_is_tc() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     // class_name_index resolves to CP #2, the Utf8 entry for "TC"
     assert_eq!(cf.class_name(), Some(b"TC" as &[u8]));
 }
 
 #[test]
 fn one_method_parsed() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     assert_eq!(cf.methods().len(), 1);
 }
 
 #[test]
 fn method_name_is_run() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     // methods[0].name_index = #5 ("run")
     assert_eq!(
         cf.cp_utf8(cf.methods()[0].name_index),
-        Some(b"run" as &[u8])
+        Some(m::run.as_bytes() as &[u8])
     );
 }
 
 #[test]
 fn method_code_is_return() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     // The only bytecode instruction is 0xB1 (return)
     assert_eq!(cf.method_code(&cf.methods()[0]), &[0xB1u8]);
 }
 
 #[test]
 fn bad_magic_returns_error() {
-    let result = ClassFile::parse(BAD_MAGIC);
+    let result = ClassFile::parse(spelled(BAD_MAGIC));
     assert_eq!(result.unwrap_err(), "bad magic");
 }
 
 #[test]
 fn truncated_returns_error() {
-    let result = ClassFile::parse(TRUNCATED);
+    let result = ClassFile::parse(spelled(TRUNCATED));
     assert!(result.is_err(), "expected Err for truncated input");
 }
 
 #[test]
 fn cp_utf8_wrong_tag_returns_none() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     // CP #1 is a Class entry (tag=7), not a Utf8 entry — must return None
     assert_eq!(cf.cp_utf8(1), None);
 }
@@ -186,37 +188,37 @@ fn cp_utf8_wrong_tag_returns_none() {
 #[test]
 fn super_class_name_is_none_for_object_parent() {
     // MINIMAL_CLASS extends java/lang/Object — should return None
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     assert_eq!(cf.super_class_name(), None);
 }
 
 #[test]
 fn super_class_name_returns_bytes_for_nonobject_parent() {
-    let cf = ClassFile::parse(CLASS_NONOBJECT_SUPER).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_NONOBJECT_SUPER)).unwrap();
     assert_eq!(cf.super_class_name(), Some(b"Base" as &[u8]));
 }
 
 #[test]
 fn class_name_is_child_for_nonobject_super() {
-    let cf = ClassFile::parse(CLASS_NONOBJECT_SUPER).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_NONOBJECT_SUPER)).unwrap();
     assert_eq!(cf.class_name(), Some(b"Child" as &[u8]));
 }
 
 #[test]
 fn field_count_one_for_class_with_field() {
-    let cf = ClassFile::parse(CLASS_WITH_FIELD).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_WITH_FIELD)).unwrap();
     assert_eq!(cf.fields().len(), 1);
 }
 
 #[test]
 fn field_name_is_x_for_class_with_field() {
-    let cf = ClassFile::parse(CLASS_WITH_FIELD).unwrap();
-    assert_eq!(cf.field_name(0), Some(b"x" as &[u8]));
+    let cf = ClassFile::parse(spelled(CLASS_WITH_FIELD)).unwrap();
+    assert_eq!(cf.field_name(0), Some(m::x.as_bytes() as &[u8]));
 }
 
 #[test]
 fn field_count_zero_for_minimal_class() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     assert_eq!(cf.fields().len(), 0);
 }
 
@@ -295,28 +297,28 @@ static CLASS_WITH_IFACE: &[u8] = &[
 
 #[test]
 fn is_interface_returns_true_for_acc_interface() {
-    let cf = ClassFile::parse(CLASS_INTERFACE_FLAG).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_INTERFACE_FLAG)).unwrap();
     assert!(cf.is_interface());
     assert!(!cf.is_abstract());
 }
 
 #[test]
 fn is_abstract_returns_true_for_acc_abstract() {
-    let cf = ClassFile::parse(CLASS_ABSTRACT_FLAG).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_ABSTRACT_FLAG)).unwrap();
     assert!(cf.is_abstract());
     assert!(!cf.is_interface());
 }
 
 #[test]
 fn normal_class_is_neither_interface_nor_abstract() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     assert!(!cf.is_interface());
     assert!(!cf.is_abstract());
 }
 
 #[test]
 fn interface_name_resolves_for_class_with_one_interface() {
-    let cf = ClassFile::parse(CLASS_WITH_IFACE).unwrap();
+    let cf = ClassFile::parse(spelled(CLASS_WITH_IFACE)).unwrap();
     assert_eq!(cf.interfaces().len(), 1);
     assert_eq!(cf.interface_name(0), Some(b"Runnable" as &[u8]));
     assert_eq!(cf.interface_name(1), None);
@@ -324,7 +326,7 @@ fn interface_name_resolves_for_class_with_one_interface() {
 
 #[test]
 fn no_interfaces_for_minimal_class() {
-    let cf = ClassFile::parse(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     assert_eq!(cf.interfaces().len(), 0);
 }
 
@@ -337,7 +339,7 @@ fn no_interfaces_for_minimal_class() {
 
 #[test]
 fn register_does_not_trigger_full_parse() {
-    let cf = ClassFile::register(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
     assert!(
         !cf.is_parsed(),
         "ClassFile::register must stay lazy — a full parse here defeats the \
@@ -353,7 +355,7 @@ fn register_does_not_trigger_full_parse() {
 
 #[test]
 fn accessor_access_triggers_parse() {
-    let cf = ClassFile::register(MINIMAL_CLASS).unwrap();
+    let cf = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
     assert!(!cf.is_parsed());
     let _ = cf.methods();
     assert!(
@@ -364,8 +366,8 @@ fn accessor_access_triggers_parse() {
 
 #[test]
 fn untouched_registered_classes_stay_unparsed() {
-    let touched = ClassFile::register(MINIMAL_CLASS).unwrap();
-    let untouched = ClassFile::register(CLASS_NONOBJECT_SUPER).unwrap();
+    let touched = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
+    let untouched = ClassFile::register(spelled(CLASS_NONOBJECT_SUPER)).unwrap();
 
     // Simulate a run that references only `touched`. `class_name()` on both
     // must stay lazy (it's the most common lookup path).
@@ -423,9 +425,9 @@ static CLASS_WITH_CONDY_MODULE_PACKAGE: &[u8] = &[
 
 #[test]
 fn condy_module_and_package_cp_entries_are_skipped() {
-    let cf = ClassFile::register(CLASS_WITH_CONDY_MODULE_PACKAGE).expect("register");
+    let cf = ClassFile::register(spelled(CLASS_WITH_CONDY_MODULE_PACKAGE)).expect("register");
     assert_eq!(cf.class_name(), Some(&b"Cd"[..]));
-    let cf = ClassFile::parse(CLASS_WITH_CONDY_MODULE_PACKAGE).expect("parse");
+    let cf = ClassFile::parse(spelled(CLASS_WITH_CONDY_MODULE_PACKAGE)).expect("parse");
     assert_eq!(cf.class_name(), Some(&b"Cd"[..]));
     // Parent is java/lang/Object, which reports as None.
     assert_eq!(cf.super_class_name(), None);
@@ -445,66 +447,8 @@ fn truly_unknown_cp_tag_is_still_rejected() {
         .expect("Module entry");
     bytes[at] = 21;
     let leaked: &'static [u8] = alloc::boxed::Box::leak(bytes.into_boxed_slice());
-    assert_eq!(ClassFile::register(leaked).err(), Some("unknown CP tag"));
-}
-
-// ── Shrunk java/** names at the class-file boundary ─────────────────────────
-
-/// Build a class file whose `this_class`, `super_class` and one interface use
-/// the given names, leaked to `'static` like Flash-backed data.
-fn class_with_names(this: &str, sup: &str, iface: &str) -> &'static [u8] {
-    let mut b: Vec<u8> = alloc::vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34];
-    b.extend_from_slice(&7u16.to_be_bytes()); // cp_count: entries #1..#6
-    for (i, name) in [this, sup, iface].iter().enumerate() {
-        let utf8_idx = (2 * i + 2) as u16;
-        b.push(7); // #1 / #3 / #5: Class -> following Utf8
-        b.extend_from_slice(&utf8_idx.to_be_bytes());
-        b.push(1); // #2 / #4 / #6: Utf8
-        b.extend_from_slice(&(name.len() as u16).to_be_bytes());
-        b.extend_from_slice(name.as_bytes());
-    }
-    b.extend_from_slice(&[0x00, 0x21, 0x00, 0x01, 0x00, 0x03]); // access, this=#1, super=#3
-    b.extend_from_slice(&[0x00, 0x01, 0x00, 0x05]); // one interface: #5
-    b.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // fields, methods, attributes
-    Box::leak(b.into_boxed_slice())
-}
-
-/// Every accessor that turns a `CONSTANT_Class` into a name reverse-translates
-/// a shrunk `b/…` spelling. Driven by the active map's first two entries, so
-/// the shrink lane of `scripts/test.sh` exercises real translations while the
-/// no-shrink lane checks the passthrough with original names.
-#[test]
-fn shrunk_java_names_are_translated_at_the_boundary() {
-    let pairs = super::names::JAVA_SHRINK_PAIRS;
-    let (sup_s, sup_o) = pairs
-        .first()
-        .copied()
-        .unwrap_or(("java/lang/Object", "java/lang/Object"));
-    let (if_s, if_o) = pairs
-        .get(1)
-        .copied()
-        .unwrap_or(("java/lang/Runnable", "java/lang/Runnable"));
-
-    let cf = ClassFile::register(class_with_names("app/Main", sup_s, if_s)).unwrap();
-    assert_eq!(cf.class_name(), Some(&b"app/Main"[..]));
-    if sup_o == "java/lang/Object" {
-        assert_eq!(
-            cf.super_class_name(),
-            None,
-            "Object super is elided even when shrunk"
-        );
-    } else {
-        assert_eq!(cf.super_class_name(), Some(sup_o.as_bytes()));
-    }
-    assert_eq!(cf.interface_name(0), Some(if_o.as_bytes()));
-    assert_eq!(cf.cp_class_name(3), Some(sup_o.as_bytes()));
-    assert_eq!(cf.cp_class_name(5), Some(if_o.as_bytes()));
-    // The raw Utf8 accessor still shows what is stored on flash.
-    assert_eq!(cf.cp_utf8(6), Some(if_s.as_bytes()));
-
-    // A shrunk `this_class` registers under its original name, lazily and eagerly.
-    let lazy = ClassFile::register(class_with_names(if_s, "java/lang/Object", if_s)).unwrap();
-    assert_eq!(lazy.class_name(), Some(if_o.as_bytes()));
-    let eager = ClassFile::parse(class_with_names(if_s, "java/lang/Object", if_s)).unwrap();
-    assert_eq!(eager.class_name(), Some(if_o.as_bytes()));
+    assert_eq!(
+        ClassFile::register(spelled(leaked)).err(),
+        Some("unknown CP tag")
+    );
 }

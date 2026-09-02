@@ -24,6 +24,7 @@ mod class_registry;
 pub use class_registry::PICODROID_NATIVE_CLASSES;
 
 pub mod state;
+use crate::shrink_names::c;
 pub use state::{PendingActivityOp, PendingOp, PendingServiceOp};
 
 pub struct PicodroidNativeHandler {
@@ -368,8 +369,6 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         if let result @ Some(_) = sensors::dispatch(class_name, method_name, ctx) {
             return result;
         }
-
-        let class_name = crate::shrink_names::unshrink_class(class_name);
         // Service / notification dispatch — needs `self` for the pending-op
         // queue, so it lives outside the module-style sub-dispatchers above.
         if let result @ Some(_) = app_services::dispatch(self, class_name, method_name, ctx) {
@@ -382,40 +381,40 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // `graphics/` because it calls *back* into Java:
             // `invoke_java` needs the arm to lend back this very `&mut self`,
             // and the graphics sub-dispatchers only receive `&mut LvglBackend`.
-            ("picodroid/widget/ListView", m::nativeBindAdapter) => {
+            (c::picodroid_widget_ListView, m::nativeBindAdapter) => {
                 Some(crate::graphics::widgets::list_view_bind_adapter(self, ctx))
             }
-            ("picodroid/util/Log", m::v) => {
+            (c::picodroid_util_Log, m::v) => {
                 Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", m::d) => {
+            (c::picodroid_util_Log, m::d) => {
                 Some(log::log(LogLevel::Debug, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", m::i) => {
+            (c::picodroid_util_Log, m::i) => {
                 Some(log::log(LogLevel::Info, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", m::w) => {
+            (c::picodroid_util_Log, m::w) => {
                 Some(log::log(LogLevel::Warn, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", m::e) => {
+            (c::picodroid_util_Log, m::e) => {
                 Some(log::log(LogLevel::Error, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/os/Runtime", m::gcTimeNanos) => {
+            (c::picodroid_os_Runtime, m::gcTimeNanos) => {
                 Some(Ok(Some(Value::Long(self.gc_time_ns as i64))))
             }
-            ("picodroid/os/Runtime", m::gcCount) => {
+            (c::picodroid_os_Runtime, m::gcCount) => {
                 Some(Ok(Some(Value::Int(self.gc_count as i32))))
             }
-            ("picodroid/os/Runtime", m::gcFreed) => {
+            (c::picodroid_os_Runtime, m::gcFreed) => {
                 Some(Ok(Some(Value::Int(self.gc_freed as i32))))
             }
-            ("picodroid/os/Runtime", m::resetGcStats) => {
+            (c::picodroid_os_Runtime, m::resetGcStats) => {
                 self.gc_time_ns = 0;
                 self.gc_count = 0;
                 self.gc_freed = 0;
                 Some(Ok(None))
             }
-            ("picodroid/os/Runtime", m::usedMemory) => {
+            (c::picodroid_os_Runtime, m::usedMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 let used32 = used.min(u32::MAX as usize) as u32;
@@ -424,10 +423,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 }
                 Some(Ok(Some(Value::Long(used as i64))))
             }
-            ("picodroid/os/Runtime", m::peakMemory) => {
+            (c::picodroid_os_Runtime, m::peakMemory) => {
                 Some(Ok(Some(Value::Long(self.peak_used as i64))))
             }
-            ("picodroid/os/Runtime", m::resetPeakMemory) => {
+            (c::picodroid_os_Runtime, m::resetPeakMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 self.peak_used = used.min(u32::MAX as usize) as u32;

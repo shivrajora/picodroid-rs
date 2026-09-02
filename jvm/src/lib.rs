@@ -76,6 +76,7 @@ pub mod heap;
 pub mod interpreter;
 #[cfg(feature = "mem-diag")]
 pub mod mem_diag;
+pub mod names;
 pub mod native;
 pub mod object_heap;
 #[cfg(feature = "parity-metrics")]
@@ -88,7 +89,6 @@ pub mod types;
 use alloc::vec::Vec;
 use array_heap::ArrayHeap;
 use class_file::ClassFile;
-pub use class_file::{desc_eq, desc_starts_with, unshrink_java, unshrink_java_str};
 use class_objects::ClassObjectCache;
 use gc::GcState;
 use heap::StringTable;

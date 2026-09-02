@@ -116,7 +116,7 @@ fn connection_find(conn_ref: u16) -> Option<usize> {
 }
 
 fn dispatch_class(idx: usize) -> &'static str {
-    crate::shrink_names::shrink_class(DISPATCH_SITES[idx].0)
+    DISPATCH_SITES[idx].0
 }
 
 fn dispatch_method(idx: usize) -> &'static str {

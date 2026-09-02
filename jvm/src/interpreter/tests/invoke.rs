@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::gc::GcState;
+use crate::names::c;
+use crate::names::spelled;
 
 // Class "Base" extends Object, method speak()I returns iconst_1, ireturn.
 //
@@ -224,9 +226,10 @@ fn invokevirtual_uses_override_in_subclass() {
     // Child overrides speak() → returns 2.
     // Caller.m(LBase;)I does invokevirtual Base.speak()I on a Child object.
     // Expected: Child.speak() is dispatched → Value::Int(2).
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
-    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse CHILD failed");
-    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEVIRTUAL).expect("parse CALLER failed");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse BASE failed");
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).expect("parse CHILD failed");
+    let cf_caller =
+        ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).expect("parse CALLER failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
@@ -257,9 +260,11 @@ fn invokevirtual_uses_override_in_subclass() {
 #[test]
 fn invokevirtual_walks_up_to_base_when_subclass_has_no_override() {
     // ChildNS extends Base but has no speak() → invokevirtual must walk to Base.speak() → returns 1.
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
-    let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
-    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEVIRTUAL).expect("parse CALLER failed");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse BASE failed");
+    let cf_child_ns =
+        ClassFile::parse(spelled(CLASS_CHILD_NO_SPEAK)).expect("parse CHILDNS failed");
+    let cf_caller =
+        ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).expect("parse CALLER failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child_ns);
@@ -293,10 +298,11 @@ fn invokestatic_walks_up_to_base_when_subclass_has_no_inherited_static() {
     // up to the superclass when the subclass doesn't declare the method.
     // Base declares `public static int get() { return 3; }`. ChildNS extends Base, has no get().
     // Caller.m() does `invokestatic ChildNS.get()I` and is expected to return 3.
-    let cf_base = ClassFile::parse(CLASS_BASE_GET_STATIC).expect("parse BASE failed");
-    let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
-    let cf_caller =
-        ClassFile::parse(CLASS_CALLER_INVOKESTATIC_INHERITED).expect("parse CALLER failed");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_GET_STATIC)).expect("parse BASE failed");
+    let cf_child_ns =
+        ClassFile::parse(spelled(CLASS_CHILD_NO_SPEAK)).expect("parse CHILDNS failed");
+    let cf_caller = ClassFile::parse(spelled(CLASS_CALLER_INVOKESTATIC_INHERITED))
+        .expect("parse CALLER failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child_ns);
@@ -327,9 +333,10 @@ fn invokestatic_walks_up_to_base_when_subclass_has_no_inherited_static() {
 fn invokeinterface_dispatches_to_runtime_class_override() {
     // Caller.m(LBase;)I calls speak() via invokeinterface on a Child object.
     // Child overrides speak() to return 2 → should return Int(2).
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
-    let cf_child = ClassFile::parse(CLASS_CHILD_SPEAK).expect("parse CHILD failed");
-    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse BASE failed");
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).expect("parse CHILD failed");
+    let cf_caller =
+        ClassFile::parse(spelled(CLASS_CALLER_INVOKEINTERFACE)).expect("parse CALLER failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
@@ -360,9 +367,11 @@ fn invokeinterface_dispatches_to_runtime_class_override() {
 #[test]
 fn invokeinterface_walks_up_to_base_when_subclass_has_no_override() {
     // ChildNS has no speak() → invokeinterface must walk to Base.speak() → returns 1.
-    let cf_base = ClassFile::parse(CLASS_BASE_SPEAK).expect("parse BASE failed");
-    let cf_child_ns = ClassFile::parse(CLASS_CHILD_NO_SPEAK).expect("parse CHILDNS failed");
-    let cf_caller = ClassFile::parse(CLASS_CALLER_INVOKEINTERFACE).expect("parse CALLER failed");
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse BASE failed");
+    let cf_child_ns =
+        ClassFile::parse(spelled(CLASS_CHILD_NO_SPEAK)).expect("parse CHILDNS failed");
+    let cf_caller =
+        ClassFile::parse(spelled(CLASS_CALLER_INVOKEINTERFACE)).expect("parse CALLER failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child_ns);
@@ -533,7 +542,10 @@ fn indy_caller(bsm_ref: u16, impl_kind: u8) -> &'static [u8] {
     out.extend_from_slice(&base[..8]);
     out.extend_from_slice(&32u16.to_be_bytes()); // cp_count: 31 entries
     out.extend_from_slice(&base[10..cp_end]);
-    for s in [&b"java/lang/invoke/LambdaMetafactory"[..], b"metafactory"] {
+    for s in [
+        &c::java_lang_invoke_LambdaMetafactory.as_bytes()[..],
+        b"metafactory",
+    ] {
         out.push(0x01);
         out.extend_from_slice(&(s.len() as u16).to_be_bytes());
         out.extend_from_slice(s);
@@ -778,10 +790,10 @@ static CLASS_INSTANCEOF_CALLER: &[u8] = &[
 fn invokeinterface_dispatches_on_anonymous_class() {
     // Outer$1 implements IFace.get()I → returns 3.
     // AnonCaller.m(LIFace;)I calls invokeinterface IFace.get() on an Outer$1 object.
-    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
-    let cf_anon = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
-    let cf_caller =
-        ClassFile::parse(CLASS_ANON_CALLER_INVOKEINTERFACE).expect("parse AnonCaller failed");
+    let cf_iface = ClassFile::parse(spelled(CLASS_IFACE)).expect("parse IFace failed");
+    let cf_anon = ClassFile::parse(spelled(CLASS_ANON1)).expect("parse Outer$1 failed");
+    let cf_caller = ClassFile::parse(spelled(CLASS_ANON_CALLER_INVOKEINTERFACE))
+        .expect("parse AnonCaller failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_iface);
     classes.push(cf_anon);
@@ -811,10 +823,10 @@ fn invokeinterface_dispatches_on_anonymous_class() {
 #[test]
 fn instanceof_anonymous_class_against_interface() {
     // Outer$1 implements IFace. instanceof IFace on an Outer$1 object should return 1.
-    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
-    let cf_anon = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
+    let cf_iface = ClassFile::parse(spelled(CLASS_IFACE)).expect("parse IFace failed");
+    let cf_anon = ClassFile::parse(spelled(CLASS_ANON1)).expect("parse Outer$1 failed");
     let cf_caller =
-        ClassFile::parse(CLASS_INSTANCEOF_CALLER).expect("parse InstanceOfCaller failed");
+        ClassFile::parse(spelled(CLASS_INSTANCEOF_CALLER)).expect("parse InstanceOfCaller failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_iface);
     classes.push(cf_anon);
@@ -845,11 +857,11 @@ fn instanceof_anonymous_class_against_interface() {
 fn multiple_anonymous_classes_dispatch_independently() {
     // Outer$1.get()I returns 3, Outer$2.get()I returns 7.
     // Invoke both via invokeinterface and verify distinct results.
-    let cf_iface = ClassFile::parse(CLASS_IFACE).expect("parse IFace failed");
-    let cf_anon1 = ClassFile::parse(CLASS_ANON1).expect("parse Outer$1 failed");
-    let cf_anon2 = ClassFile::parse(CLASS_ANON2).expect("parse Outer$2 failed");
-    let cf_caller =
-        ClassFile::parse(CLASS_ANON_CALLER_INVOKEINTERFACE).expect("parse AnonCaller failed");
+    let cf_iface = ClassFile::parse(spelled(CLASS_IFACE)).expect("parse IFace failed");
+    let cf_anon1 = ClassFile::parse(spelled(CLASS_ANON1)).expect("parse Outer$1 failed");
+    let cf_anon2 = ClassFile::parse(spelled(CLASS_ANON2)).expect("parse Outer$2 failed");
+    let cf_caller = ClassFile::parse(spelled(CLASS_ANON_CALLER_INVOKEINTERFACE))
+        .expect("parse AnonCaller failed");
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_iface);
     classes.push(cf_anon1);

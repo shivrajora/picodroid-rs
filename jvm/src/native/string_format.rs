@@ -13,6 +13,7 @@ use crate::array_heap::decode_ref;
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
+use crate::names::c;
 
 #[derive(Default, Clone, Copy)]
 struct Spec {
@@ -29,7 +30,7 @@ struct Spec {
 
 /// Build and return an IllegalFormatException for the exception unwinding path.
 fn fmt_err(ctx: &mut NativeContext<'_>) -> JvmError {
-    match ctx.objects.alloc("java/util/IllegalFormatException") {
+    match ctx.objects.alloc(c::java_util_IllegalFormatException) {
         Some(idx) => JvmError::Exception(idx),
         None => JvmError::StackOverflow,
     }
@@ -40,14 +41,14 @@ fn fmt_err(ctx: &mut NativeContext<'_>) -> JvmError {
 fn unbox(ctx: &NativeContext<'_>, v: Value) -> Value {
     if let Value::ObjectRef(idx) = v {
         if let Some(
-            "java/lang/Integer"
-            | "java/lang/Boolean"
-            | "java/lang/Long"
-            | "java/lang/Float"
-            | "java/lang/Double"
-            | "java/lang/Character"
-            | "java/lang/Short"
-            | "java/lang/Byte",
+            c::java_lang_Integer
+            | c::java_lang_Boolean
+            | c::java_lang_Long
+            | c::java_lang_Float
+            | c::java_lang_Double
+            | c::java_lang_Character
+            | c::java_lang_Short
+            | c::java_lang_Byte,
         ) = ctx.objects.class_name(idx)
         {
             return ctx.objects.get_field(idx, 0).unwrap_or(Value::Null);

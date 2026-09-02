@@ -7,9 +7,10 @@
 //! `java/util/Locale`.
 use super::asm::{Asm, Method, ACC_INTERFACE};
 use super::*;
+use crate::names::{c, d, m};
 use alloc::vec;
 
-const OBJ: &str = "java/lang/Object";
+const OBJ: &str = c::java_lang_Object;
 const F_DESC: &str = "()I";
 
 fn hi(i: u16) -> u8 {
@@ -168,7 +169,7 @@ fn default_found_when_superclass_chain_leaves_the_loaded_set() {
     // interface defaults.
     let classes = [
         iface_f("I", &[], Some(1)),
-        class_f("C", "java/lang/RuntimeException", &["I"], 0x0001, None),
+        class_f("C", c::java_lang_RuntimeException, &["I"], 0x0001, None),
     ];
     assert_eq!(run_with(&classes).unwrap(), Some(Value::Int(1)));
 }
@@ -220,8 +221,8 @@ fn class_with_to_string(name: &str, s: &str) -> &'static [u8] {
         &[],
         &[Method {
             access: 0x0001,
-            name: "toString",
-            desc: "()Ljava/lang/String;",
+            name: m::toString,
+            desc: d::__String,
             max_stack: 1,
             max_locals: 1,
             code: &code,
@@ -240,17 +241,12 @@ fn append_then(
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let sb = a.class("java/lang/StringBuilder");
+    let sb = a.class(c::java_lang_StringBuilder);
     let seed = a.string("x=");
-    let init = a.methodref(0x0A, sb, "<init>", "(Ljava/lang/String;)V");
-    let append = a.methodref(
-        0x0A,
-        sb,
-        "append",
-        "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
-    );
-    let to_s = a.methodref(0x0A, sb, "toString", "()Ljava/lang/String;");
-    let string = a.class("java/lang/String");
+    let init = a.methodref(0x0A, sb, "<init>", d::String__V);
+    let append = a.methodref(0x0A, sb, m::append, d::Object__StringBuilder);
+    let to_s = a.methodref(0x0A, sb, m::toString, d::__String);
+    let string = a.class(c::java_lang_String);
     let tail = a.methodref(0x0A, string, tail, "()I");
     let arg = push_arg(&mut a);
     let mut code = vec![
@@ -294,8 +290,8 @@ fn push_new(name: &'static str) -> impl FnOnce(&mut Asm) -> Vec<u8> {
 }
 
 fn push_boxed_12345(a: &mut Asm) -> Vec<u8> {
-    let integer = a.class("java/lang/Integer");
-    let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
+    let integer = a.class(c::java_lang_Integer);
+    let value_of = a.methodref(0x0A, integer, m::valueOf, d::I__Integer);
     vec![0x11, 0x30, 0x39, 0xB8, hi(value_of), lo(value_of)] // sipush 12345
 }
 
@@ -304,22 +300,25 @@ fn append_object_runs_a_java_to_string() {
     // The receiver survives the frame push + re-execution: the seeded
     // prefix is still there and the override's text follows it.
     let p = class_with_to_string("P", "hey");
-    assert_eq!(append_then(&[p], "hashCode", push_new("P")), jhash("x=hey"));
+    assert_eq!(
+        append_then(&[p], m::hashCode, push_new("P")),
+        jhash("x=hey")
+    );
 }
 
 #[test]
 fn append_object_formats_boxed_null_and_identity() {
     assert_eq!(
-        append_then(&[], "hashCode", push_boxed_12345),
+        append_then(&[], m::hashCode, push_boxed_12345),
         jhash("x=12345")
     );
     assert_eq!(
-        append_then(&[], "hashCode", |_| vec![0x01]),
+        append_then(&[], m::hashCode, |_| vec![0x01]),
         jhash("x=null")
     );
     // No override: the identity `P2@hhhh` form (7 chars) is appended.
     let p2 = class_f("P2", OBJ, &[], 0x0001, None);
-    assert_eq!(append_then(&[p2], "length", push_new("P2")), 2 + 7);
+    assert_eq!(append_then(&[p2], m::length, push_new("P2")), 2 + 7);
 }
 
 /// `m()I`: `<push arg>; String.valueOf(Object); String.hashCode(); ireturn`.
@@ -327,14 +326,9 @@ fn value_of_hash(extra: &[&'static [u8]], push_arg: impl FnOnce(&mut Asm) -> Vec
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let string = a.class("java/lang/String");
-    let value_of = a.methodref(
-        0x0A,
-        string,
-        "valueOf",
-        "(Ljava/lang/Object;)Ljava/lang/String;",
-    );
-    let hash = a.methodref(0x0A, string, "hashCode", "()I");
+    let string = a.class(c::java_lang_String);
+    let value_of = a.methodref(0x0A, string, m::valueOf, d::Object__String);
+    let hash = a.methodref(0x0A, string, m::hashCode, "()I");
     let mut code = push_arg(&mut a);
     code.extend_from_slice(&[
         0xB8,
@@ -379,16 +373,11 @@ fn locale_root_reads_null_and_is_ignored_by_to_upper_case() {
     let this = a.class("T");
     let obj = a.class(OBJ);
     let s = a.string("ab");
-    let locale = a.class("java/util/Locale");
-    let root = a.fieldref(locale, "ROOT", "Ljava/util/Locale;");
-    let string = a.class("java/lang/String");
-    let upper = a.methodref(
-        0x0A,
-        string,
-        "toUpperCase",
-        "(Ljava/util/Locale;)Ljava/lang/String;",
-    );
-    let hash = a.methodref(0x0A, string, "hashCode", "()I");
+    let locale = a.class(c::java_util_Locale);
+    let root = a.fieldref(locale, m::ROOT, d::t_Locale);
+    let string = a.class(c::java_lang_String);
+    let upper = a.methodref(0x0A, string, m::toUpperCase, d::Locale__String);
+    let hash = a.methodref(0x0A, string, m::hashCode, "()I");
     let code = [
         0x12,
         lo(s),
@@ -418,14 +407,9 @@ fn map_with_k7(map_class: &str, build_rest: impl FnOnce(&mut Asm, u16) -> Vec<u8
     let map = a.class(map_class);
     let init = a.methodref(0x0A, map, "<init>", "()V");
     let k = a.string("k");
-    let integer = a.class("java/lang/Integer");
-    let value_of = a.methodref(0x0A, integer, "valueOf", "(I)Ljava/lang/Integer;");
-    let put = a.methodref(
-        0x0A,
-        map,
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-    );
+    let integer = a.class(c::java_lang_Integer);
+    let value_of = a.methodref(0x0A, integer, m::valueOf, d::I__Integer);
+    let put = a.methodref(0x0A, map, m::put, d::Object_Object__Object);
     let mut code = vec![
         0xBB,
         hi(map),
@@ -460,19 +444,19 @@ fn map_with_k7(map_class: &str, build_rest: impl FnOnce(&mut Asm, u16) -> Vec<u8
 #[test]
 fn entry_set_iteration_yields_map_entries() {
     // key.hashCode() + value.intValue() = 'k' + 7.
-    let got = map_with_k7("java/util/HashMap", |a, map| {
-        let entry_set = a.methodref(0x0A, map, "entrySet", "()Ljava/util/Set;");
-        let set = a.class("java/util/Set");
-        let iterator = a.methodref(0x0B, set, "iterator", "()Ljava/util/Iterator;");
-        let iter = a.class("java/util/Iterator");
-        let next = a.methodref(0x0B, iter, "next", "()Ljava/lang/Object;");
-        let entry = a.class("java/util/Map$Entry");
-        let get_key = a.methodref(0x0B, entry, "getKey", "()Ljava/lang/Object;");
-        let get_value = a.methodref(0x0B, entry, "getValue", "()Ljava/lang/Object;");
-        let string = a.class("java/lang/String");
-        let hash = a.methodref(0x0A, string, "hashCode", "()I");
-        let integer = a.class("java/lang/Integer");
-        let int_value = a.methodref(0x0A, integer, "intValue", "()I");
+    let got = map_with_k7(c::java_util_HashMap, |a, map| {
+        let entry_set = a.methodref(0x0A, map, m::entrySet, d::__Set);
+        let set = a.class(c::java_util_Set);
+        let iterator = a.methodref(0x0B, set, m::iterator, d::__Iterator);
+        let iter = a.class(c::java_util_Iterator);
+        let next = a.methodref(0x0B, iter, m::next, d::__Object);
+        let entry = a.class(c::java_util_Map_Entry);
+        let get_key = a.methodref(0x0B, entry, m::getKey, d::__Object);
+        let get_value = a.methodref(0x0B, entry, m::getValue, d::__Object);
+        let string = a.class(c::java_lang_String);
+        let hash = a.methodref(0x0A, string, m::hashCode, "()I");
+        let integer = a.class(c::java_lang_Integer);
+        let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
         vec![
             0x2A, // aload_0
             0xB6,
@@ -524,12 +508,12 @@ fn entry_set_iteration_yields_map_entries() {
 #[test]
 fn linked_hash_map_is_a_map_backed_by_the_hash_map_dispatcher() {
     // get("k").intValue() + (map instanceof Map) = 7 + 1.
-    let got = map_with_k7("java/util/LinkedHashMap", |a, map| {
+    let got = map_with_k7(c::java_util_LinkedHashMap, |a, map| {
         let k = a.string("k");
-        let get = a.methodref(0x0A, map, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
-        let integer = a.class("java/lang/Integer");
-        let int_value = a.methodref(0x0A, integer, "intValue", "()I");
-        let map_iface = a.class("java/util/Map");
+        let get = a.methodref(0x0A, map, m::get, d::Object__Object);
+        let integer = a.class(c::java_lang_Integer);
+        let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
+        let map_iface = a.class(c::java_util_Map);
         vec![
             0x2A,
             0x12,
@@ -556,14 +540,14 @@ fn linked_hash_map_is_a_map_backed_by_the_hash_map_dispatcher() {
 #[test]
 fn aliases_sit_in_the_builtin_hierarchy() {
     let is = |c, t| helpers::is_instance_of(&[], c, t);
-    assert!(is("java/util/LinkedHashMap", "java/util/HashMap"));
-    assert!(is("java/util/LinkedHashMap", "java/util/Map"));
-    assert!(is("java/util/LinkedHashSet", "java/util/Set"));
-    assert!(is("java/util/LinkedHashSet", "java/lang/Iterable"));
-    assert!(is("java/util/HashMap$EntrySet", "java/util/Set"));
-    assert!(is("java/util/HashMap$EntrySet", "java/lang/Iterable"));
-    assert!(is("java/util/Map$Entry", "java/util/Map$Entry"));
-    assert!(!is("java/util/LinkedHashMap", "java/util/Set"));
+    assert!(is(c::java_util_LinkedHashMap, c::java_util_HashMap));
+    assert!(is(c::java_util_LinkedHashMap, c::java_util_Map));
+    assert!(is(c::java_util_LinkedHashSet, c::java_util_Set));
+    assert!(is(c::java_util_LinkedHashSet, c::java_lang_Iterable));
+    assert!(is(c::java_util_HashMap_EntrySet, c::java_util_Set));
+    assert!(is(c::java_util_HashMap_EntrySet, c::java_lang_Iterable));
+    assert!(is(c::java_util_Map_Entry, c::java_util_Map_Entry));
+    assert!(!is(c::java_util_LinkedHashMap, c::java_util_Set));
 }
 
 #[test]
@@ -572,19 +556,14 @@ fn to_array_returns_a_fresh_object_array() {
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let list = a.class("java/util/ArrayList");
+    let list = a.class(c::java_util_ArrayList);
     let init = a.methodref(0x0A, list, "<init>", "()V");
     let s = a.string("a");
-    let add = a.methodref(0x0A, list, "add", "(Ljava/lang/Object;)Z");
-    let string = a.class("java/lang/String");
-    let to_array = a.methodref(
-        0x0A,
-        list,
-        "toArray",
-        "([Ljava/lang/Object;)[Ljava/lang/Object;",
-    );
-    let string_arr = a.class("[Ljava/lang/String;");
-    let length = a.methodref(0x0A, string, "length", "()I");
+    let add = a.methodref(0x0A, list, m::add, d::Object__Z);
+    let string = a.class(c::java_lang_String);
+    let to_array = a.methodref(0x0A, list, m::toArray, d::aObject__aObject);
+    let string_arr = a.class(d::t_aString);
+    let length = a.methodref(0x0A, string, m::length, "()I");
     let code = [
         0xBB,
         hi(list),
@@ -635,7 +614,7 @@ fn object_clone_on_an_array_dispatches_by_array_class() {
     let mut a = Asm::new();
     let this = a.class("T");
     let obj = a.class(OBJ);
-    let clone = a.methodref(0x0A, obj, "clone", "()Ljava/lang/Object;");
+    let clone = a.methodref(0x0A, obj, m::clone, d::__Object);
     let int_arr = a.class("[I");
     let code = [
         0x05, // iconst_2

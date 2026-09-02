@@ -10,6 +10,7 @@ use pico_jvm::types::{JvmError, Value};
 use crate::hal::types::{NetError, NetErrorKind};
 
 use super::socket_table;
+use crate::shrink_names::c;
 
 /// Allocate an exception of `class` carrying `msg` and wrap it as a thrown
 /// Java exception. Alloc-by-name with builtin-hierarchy catch matching — the
@@ -43,7 +44,7 @@ pub fn throw_io_exception(
     strings: &mut StringTable,
     msg: &str,
 ) -> JvmError {
-    throw_named_exception(objects, strings, "java/io/IOException", msg)
+    throw_named_exception(objects, strings, c::java_io_IOException, msg)
 }
 
 /// Which socket operation a [`NetError`] came from — picks the Java
@@ -86,31 +87,31 @@ pub fn throw_net_exception(
     use NetErrorKind as K;
     let dynamic: alloc::string::String;
     let (class, msg): (&'static str, &str) = match (e.kind, op) {
-        (K::Refused, NetOpCtx::Connect) => ("java/net/ConnectException", "Connection refused"),
+        (K::Refused, NetOpCtx::Connect) => (c::java_net_ConnectException, "Connection refused"),
         (K::TimedOut, NetOpCtx::Connect) => {
-            ("java/net/SocketTimeoutException", "connect timed out")
+            (c::java_net_SocketTimeoutException, "connect timed out")
         }
-        (K::TimedOut, NetOpCtx::Recv) => ("java/net/SocketTimeoutException", "Read timed out"),
-        (K::TimedOut, NetOpCtx::Accept) => ("java/net/SocketTimeoutException", "Accept timed out"),
+        (K::TimedOut, NetOpCtx::Recv) => (c::java_net_SocketTimeoutException, "Read timed out"),
+        (K::TimedOut, NetOpCtx::Accept) => (c::java_net_SocketTimeoutException, "Accept timed out"),
         (K::Unreachable, NetOpCtx::Connect) => {
-            ("java/net/NoRouteToHostException", "Host unreachable")
+            (c::java_net_NoRouteToHostException, "Host unreachable")
         }
-        (K::AddrInUse, NetOpCtx::Bind) => ("java/net/BindException", "Address already in use"),
+        (K::AddrInUse, NetOpCtx::Bind) => (c::java_net_BindException, "Address already in use"),
         (K::HostLookup, NetOpCtx::Dns(host)) => {
             dynamic = format!("Unable to resolve host \"{host}\"");
-            ("java/net/UnknownHostException", dynamic.as_str())
+            (c::java_net_UnknownHostException, dynamic.as_str())
         }
-        (K::Closed, _) => ("java/net/SocketException", "Connection reset"),
+        (K::Closed, _) => (c::java_net_SocketException, "Connection reset"),
         // Any other bind failure stays a SocketException — `DatagramSocket(int)`
         // declares `throws SocketException` (as java.net does), so the thrown
         // type must never be a plain IOException the declaration can't cover.
         (_, NetOpCtx::Bind) => {
             dynamic = format!("bind failed (err {})", e.raw);
-            ("java/net/SocketException", dynamic.as_str())
+            (c::java_net_SocketException, dynamic.as_str())
         }
         _ => {
             dynamic = format!("{} failed (err {})", op.op_name(), e.raw);
-            ("java/io/IOException", dynamic.as_str())
+            (c::java_io_IOException, dynamic.as_str())
         }
     };
     throw_named_exception(objects, strings, class, msg)
@@ -122,7 +123,7 @@ pub fn throw_socket_closed(objects: &mut ObjectHeap, strings: &mut StringTable) 
     throw_named_exception(
         objects,
         strings,
-        "java/net/SocketException",
+        c::java_net_SocketException,
         "Socket is closed",
     )
 }

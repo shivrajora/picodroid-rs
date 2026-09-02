@@ -36,6 +36,7 @@ pub(crate) use helpers::array_class_name;
 /// JVM serves (picodroid-core's API contract generator, `api_contract.rs`).
 pub use helpers::{BUILTIN_INTERFACES, BUILTIN_SUPER};
 
+use crate::names::c;
 use crate::tunables::GC_THRESHOLD;
 
 /// Java frame-stack depth beyond which a push throws `StackOverflowError`.
@@ -344,9 +345,9 @@ fn handle_exception<H: NativeMethodHandler>(
         });
         if let Some(clinit_idx) = crossed_clinit {
             let exc_class = ex.objects.class_name(obj_idx).unwrap_or("");
-            let is_error = helpers::is_instance_of(ex.classes, exc_class, "java/lang/Error");
+            let is_error = helpers::is_instance_of(ex.classes, exc_class, c::java_lang_Error);
             if !is_error {
-                if let Some(wrapper) = ex.objects.alloc("java/lang/ExceptionInInitializerError") {
+                if let Some(wrapper) = ex.objects.alloc(c::java_lang_ExceptionInInitializerError) {
                     ex.objects.register_exception_cause(wrapper, obj_idx);
                     // Synthesize "<original class>: <msg>" so uncaught traces
                     // stay readable without calling getCause().
@@ -808,7 +809,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
                 ex.gc_state.alloc_count = 0;
                 if for_failed_alloc && freed == 0 {
-                    let e = ex.runtime_fault_obj("java/lang/OutOfMemoryError")?;
+                    let e = ex.runtime_fault_obj(c::java_lang_OutOfMemoryError)?;
                     handle_exception(ex, frames, e, base_depth)?;
                     continue;
                 }
@@ -837,11 +838,11 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 // without touching each site. Other JvmErrors stay hard —
                 // they signal interpreter/native bugs, not program faults.
                 Err(JvmError::ArrayIndexOutOfBounds) => {
-                    let e = ex.runtime_fault_obj("java/lang/ArrayIndexOutOfBoundsException")?;
+                    let e = ex.runtime_fault_obj(c::java_lang_ArrayIndexOutOfBoundsException)?;
                     handle_exception(ex, frames, e, base_depth)?;
                 }
                 Err(JvmError::NegativeArraySize) => {
-                    let e = ex.runtime_fault_obj("java/lang/NegativeArraySizeException")?;
+                    let e = ex.runtime_fault_obj(c::java_lang_NegativeArraySizeException)?;
                     handle_exception(ex, frames, e, base_depth)?;
                 }
                 Err(e) => return Err(e),
@@ -861,7 +862,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
 
     fn stack_overflow_error(&mut self) -> Result<u16, JvmError> {
         self.objects
-            .alloc("java/lang/StackOverflowError")
+            .alloc(c::java_lang_StackOverflowError)
             .ok_or(JvmError::StackOverflow)
     }
 }

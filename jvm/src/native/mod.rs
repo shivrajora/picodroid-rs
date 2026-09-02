@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::names::{c, d, m};
 use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
@@ -44,36 +45,36 @@ type BuiltinDispatchFn =
 ///   because `BuiltinHandler` knows what to do with them.
 pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // Dispatched builtins (kept in lockstep with BUILTIN_DISPATCH below).
-    "java/lang/Object",
-    "java/lang/Class",
-    "java/lang/Throwable",
-    "java/lang/Exception",
-    "java/lang/RuntimeException",
-    "java/util/IllegalFormatException",
-    "java/lang/Enum",
-    "java/lang/StringBuilder",
-    "java/lang/String",
-    "java/lang/Integer",
-    "java/lang/Boolean",
-    "java/lang/Long",
-    "java/lang/Float",
-    "java/lang/Double",
-    "java/lang/Character",
-    "java/lang/Byte",
-    "java/lang/Short",
-    "java/util/ArrayList",
-    "java/util/HashMap",
-    "java/util/HashMap$KeySet",
-    "java/util/HashMap$Values",
-    "java/util/HashMap$EntrySet",
-    "java/util/Map$Entry",
-    "java/util/HashSet",
-    "java/util/LinkedHashMap",
-    "java/util/LinkedHashSet",
-    "java/util/Iterator",
-    "java/util/Random",
-    "java/util/Arrays",
-    "java/lang/Math",
+    c::java_lang_Object,
+    c::java_lang_Class,
+    c::java_lang_Throwable,
+    c::java_lang_Exception,
+    c::java_lang_RuntimeException,
+    c::java_util_IllegalFormatException,
+    c::java_lang_Enum,
+    c::java_lang_StringBuilder,
+    c::java_lang_String,
+    c::java_lang_Integer,
+    c::java_lang_Boolean,
+    c::java_lang_Long,
+    c::java_lang_Float,
+    c::java_lang_Double,
+    c::java_lang_Character,
+    c::java_lang_Byte,
+    c::java_lang_Short,
+    c::java_util_ArrayList,
+    c::java_util_HashMap,
+    c::java_util_HashMap_KeySet,
+    c::java_util_HashMap_Values,
+    c::java_util_HashMap_EntrySet,
+    c::java_util_Map_Entry,
+    c::java_util_HashSet,
+    c::java_util_LinkedHashMap,
+    c::java_util_LinkedHashSet,
+    c::java_util_Iterator,
+    c::java_util_Random,
+    c::java_util_Arrays,
+    c::java_lang_Math,
     // Canonicalisation-only — handled by the user's NativeMethodHandler, or
     // named in user code as an interface, superclass, lambda SAM, or
     // `instanceof`/`checkcast` target.
@@ -87,61 +88,61 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // row here (plus a `BUILTIN_INTERFACES` row for superinterface edges) is
     // the whole cost; `no_bodiless_java_framework_classes` in picodroid-core
     // keeps it that way.
-    "java/lang/System",
-    "java/lang/Runnable",
-    "java/util/Collections",
-    "java/util/List",
-    "java/lang/Comparable",
-    "java/util/Comparator",
-    "java/lang/Cloneable",
+    c::java_lang_System,
+    c::java_lang_Runnable,
+    c::java_util_Collections,
+    c::java_util_List,
+    c::java_lang_Comparable,
+    c::java_util_Comparator,
+    c::java_lang_Cloneable,
     // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
     // proxy's interface canonicalises to "unknown" and `instanceof` fails.
-    "java/lang/AutoCloseable",
+    c::java_lang_AutoCloseable,
     // Classfile-less classes that user code may `new`, `checkcast` or
     // `instanceof` (every name in the interpreter's `BUILTIN_SUPER` /
     // `BUILTIN_INTERFACES` tables). A `new` of a name missing here yields
     // an `"unknown"`-class object that no catch clause ever matches.
-    "java/lang/Number",
-    "java/lang/CharSequence",
-    "java/lang/Appendable",
-    "java/lang/Iterable",
-    "java/util/Collection",
-    "java/util/Set",
-    "java/util/Map",
-    "java/lang/Error",
-    "java/lang/IllegalArgumentException",
-    "java/lang/IllegalStateException",
-    "java/lang/NullPointerException",
-    "java/lang/ArithmeticException",
-    "java/lang/ClassCastException",
-    "java/lang/UnsupportedOperationException",
-    "java/lang/IndexOutOfBoundsException",
-    "java/lang/ArrayIndexOutOfBoundsException",
-    "java/lang/ArrayStoreException",
-    "java/lang/StringIndexOutOfBoundsException",
-    "java/lang/NumberFormatException",
-    "java/lang/ExceptionInInitializerError",
-    "java/lang/StackOverflowError",
-    "java/lang/NegativeArraySizeException",
-    "java/util/ConcurrentModificationException",
-    "java/lang/OutOfMemoryError",
-    "java/lang/InterruptedException",
-    "java/lang/IllegalThreadStateException",
-    "java/lang/IllegalMonitorStateException",
-    "java/util/concurrent/ExecutionException",
-    "java/util/concurrent/CancellationException",
-    "java/util/concurrent/TimeoutException",
-    "java/util/concurrent/RejectedExecutionException",
-    "java/util/NoSuchElementException",
-    "java/io/IOException",
-    "java/io/InterruptedIOException",
-    "java/net/SocketTimeoutException",
-    "java/net/SocketException",
-    "java/net/ConnectException",
-    "java/net/NoRouteToHostException",
-    "java/net/BindException",
-    "java/net/UnknownHostException",
-    "java/net/ProtocolException",
+    c::java_lang_Number,
+    c::java_lang_CharSequence,
+    c::java_lang_Appendable,
+    c::java_lang_Iterable,
+    c::java_util_Collection,
+    c::java_util_Set,
+    c::java_util_Map,
+    c::java_lang_Error,
+    c::java_lang_IllegalArgumentException,
+    c::java_lang_IllegalStateException,
+    c::java_lang_NullPointerException,
+    c::java_lang_ArithmeticException,
+    c::java_lang_ClassCastException,
+    c::java_lang_UnsupportedOperationException,
+    c::java_lang_IndexOutOfBoundsException,
+    c::java_lang_ArrayIndexOutOfBoundsException,
+    c::java_lang_ArrayStoreException,
+    c::java_lang_StringIndexOutOfBoundsException,
+    c::java_lang_NumberFormatException,
+    c::java_lang_ExceptionInInitializerError,
+    c::java_lang_StackOverflowError,
+    c::java_lang_NegativeArraySizeException,
+    c::java_util_ConcurrentModificationException,
+    c::java_lang_OutOfMemoryError,
+    c::java_lang_InterruptedException,
+    c::java_lang_IllegalThreadStateException,
+    c::java_lang_IllegalMonitorStateException,
+    c::java_util_concurrent_ExecutionException,
+    c::java_util_concurrent_CancellationException,
+    c::java_util_concurrent_TimeoutException,
+    c::java_util_concurrent_RejectedExecutionException,
+    c::java_util_NoSuchElementException,
+    c::java_io_IOException,
+    c::java_io_InterruptedIOException,
+    c::java_net_SocketTimeoutException,
+    c::java_net_SocketException,
+    c::java_net_ConnectException,
+    c::java_net_NoRouteToHostException,
+    c::java_net_BindException,
+    c::java_net_UnknownHostException,
+    c::java_net_ProtocolException,
 ];
 
 /// Every `(declaring class, method, descriptor)` the built-in handler serves
@@ -159,70 +160,66 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
 /// construction.
 pub const BUILTIN_SDK_HANDLED: &[(&str, &str, &str)] = &[
     // java/lang/Class
-    ("java/lang/Class", "getName", "()Ljava/lang/String;"),
+    (c::java_lang_Class, m::getName, d::__String),
     // java/lang/Math
-    ("java/lang/Math", "abs", "(D)D"),
-    ("java/lang/Math", "abs", "(F)F"),
-    ("java/lang/Math", "abs", "(I)I"),
-    ("java/lang/Math", "abs", "(J)J"),
-    ("java/lang/Math", "atan2", "(DD)D"),
-    ("java/lang/Math", "ceil", "(D)D"),
-    ("java/lang/Math", "cos", "(D)D"),
-    ("java/lang/Math", "exp", "(D)D"),
-    ("java/lang/Math", "floor", "(D)D"),
-    ("java/lang/Math", "log", "(D)D"),
-    ("java/lang/Math", "log10", "(D)D"),
-    ("java/lang/Math", "max", "(DD)D"),
-    ("java/lang/Math", "max", "(FF)F"),
-    ("java/lang/Math", "max", "(II)I"),
-    ("java/lang/Math", "max", "(JJ)J"),
-    ("java/lang/Math", "min", "(DD)D"),
-    ("java/lang/Math", "min", "(FF)F"),
-    ("java/lang/Math", "min", "(II)I"),
-    ("java/lang/Math", "min", "(JJ)J"),
-    ("java/lang/Math", "pow", "(DD)D"),
-    ("java/lang/Math", "round", "(D)J"),
-    ("java/lang/Math", "round", "(F)I"),
-    ("java/lang/Math", "sin", "(D)D"),
-    ("java/lang/Math", "sqrt", "(D)D"),
-    ("java/lang/Math", "tan", "(D)D"),
-    ("java/lang/Math", "toDegrees", "(D)D"),
-    ("java/lang/Math", "toRadians", "(D)D"),
+    (c::java_lang_Math, m::abs, "(D)D"),
+    (c::java_lang_Math, m::abs, "(F)F"),
+    (c::java_lang_Math, m::abs, "(I)I"),
+    (c::java_lang_Math, m::abs, "(J)J"),
+    (c::java_lang_Math, m::atan2, "(DD)D"),
+    (c::java_lang_Math, m::ceil, "(D)D"),
+    (c::java_lang_Math, m::cos, "(D)D"),
+    (c::java_lang_Math, m::exp, "(D)D"),
+    (c::java_lang_Math, m::floor, "(D)D"),
+    (c::java_lang_Math, m::log, "(D)D"),
+    (c::java_lang_Math, m::log10, "(D)D"),
+    (c::java_lang_Math, m::max, "(DD)D"),
+    (c::java_lang_Math, m::max, "(FF)F"),
+    (c::java_lang_Math, m::max, "(II)I"),
+    (c::java_lang_Math, m::max, "(JJ)J"),
+    (c::java_lang_Math, m::min, "(DD)D"),
+    (c::java_lang_Math, m::min, "(FF)F"),
+    (c::java_lang_Math, m::min, "(II)I"),
+    (c::java_lang_Math, m::min, "(JJ)J"),
+    (c::java_lang_Math, m::pow, "(DD)D"),
+    (c::java_lang_Math, m::round, "(D)J"),
+    (c::java_lang_Math, m::round, "(F)I"),
+    (c::java_lang_Math, m::sin, "(D)D"),
+    (c::java_lang_Math, m::sqrt, "(D)D"),
+    (c::java_lang_Math, m::tan, "(D)D"),
+    (c::java_lang_Math, m::toDegrees, "(D)D"),
+    (c::java_lang_Math, m::toRadians, "(D)D"),
     // java/lang/System
-    (
-        "java/lang/System",
-        "arraycopy",
-        "(Ljava/lang/Object;ILjava/lang/Object;II)V",
-    ),
+    (c::java_lang_System, m::arraycopy, d::Object_I_Object_I_I__V),
     // java/util/Arrays
-    ("java/util/Arrays", "copyOf", "([BI)[B"),
-    ("java/util/Arrays", "copyOf", "([CI)[C"),
-    ("java/util/Arrays", "copyOf", "([DI)[D"),
-    ("java/util/Arrays", "copyOf", "([FI)[F"),
-    ("java/util/Arrays", "copyOf", "([II)[I"),
-    ("java/util/Arrays", "copyOf", "([JI)[J"),
-    ("java/util/Arrays", "copyOf", "([SI)[S"),
-    ("java/util/Arrays", "fill", "([BB)V"),
-    ("java/util/Arrays", "fill", "([CC)V"),
-    ("java/util/Arrays", "fill", "([DD)V"),
-    ("java/util/Arrays", "fill", "([FF)V"),
-    ("java/util/Arrays", "fill", "([II)V"),
-    ("java/util/Arrays", "fill", "([JJ)V"),
-    ("java/util/Arrays", "fill", "([SS)V"),
-    ("java/util/Arrays", "sort", "([B)V"),
-    ("java/util/Arrays", "sort", "([C)V"),
-    ("java/util/Arrays", "sort", "([D)V"),
-    ("java/util/Arrays", "sort", "([F)V"),
-    ("java/util/Arrays", "sort", "([I)V"),
-    ("java/util/Arrays", "sort", "([J)V"),
-    ("java/util/Arrays", "sort", "([S)V"),
-    ("java/util/Arrays", "toString", "([B)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([C)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([D)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([F)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([I)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([J)Ljava/lang/String;"),
-    ("java/util/Arrays", "toString", "([S)Ljava/lang/String;"),
+    (c::java_util_Arrays, m::copyOf, "([BI)[B"),
+    (c::java_util_Arrays, m::copyOf, "([CI)[C"),
+    (c::java_util_Arrays, m::copyOf, "([DI)[D"),
+    (c::java_util_Arrays, m::copyOf, "([FI)[F"),
+    (c::java_util_Arrays, m::copyOf, "([II)[I"),
+    (c::java_util_Arrays, m::copyOf, "([JI)[J"),
+    (c::java_util_Arrays, m::copyOf, "([SI)[S"),
+    (c::java_util_Arrays, m::fill, "([BB)V"),
+    (c::java_util_Arrays, m::fill, "([CC)V"),
+    (c::java_util_Arrays, m::fill, "([DD)V"),
+    (c::java_util_Arrays, m::fill, "([FF)V"),
+    (c::java_util_Arrays, m::fill, "([II)V"),
+    (c::java_util_Arrays, m::fill, "([JJ)V"),
+    (c::java_util_Arrays, m::fill, "([SS)V"),
+    (c::java_util_Arrays, m::sort, "([B)V"),
+    (c::java_util_Arrays, m::sort, "([C)V"),
+    (c::java_util_Arrays, m::sort, "([D)V"),
+    (c::java_util_Arrays, m::sort, "([F)V"),
+    (c::java_util_Arrays, m::sort, "([I)V"),
+    (c::java_util_Arrays, m::sort, "([J)V"),
+    (c::java_util_Arrays, m::sort, "([S)V"),
+    (c::java_util_Arrays, m::toString, d::aB__String),
+    (c::java_util_Arrays, m::toString, d::aC__String),
+    (c::java_util_Arrays, m::toString, d::aD__String),
+    (c::java_util_Arrays, m::toString, d::aF__String),
+    (c::java_util_Arrays, m::toString, d::aI__String),
+    (c::java_util_Arrays, m::toString, d::aJ__String),
+    (c::java_util_Arrays, m::toString, d::aS__String),
 ];
 
 /// One served member of a builtin class: `(name, descriptors)`.
@@ -252,68 +249,68 @@ pub type BuiltinMethodRow = (&'static str, &'static [&'static str]);
 /// `interpreter/ops_invoke.rs` before dispatch; `Object.wait/notify/notifyAll`
 /// are the embedder's (picodroid-core `PLATFORM_BUILTIN_METHODS`).
 pub const BUILTIN_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
-    ("java/lang/Object", OBJECT_METHODS),
-    ("java/lang/Class", CLASS_METHODS),
-    ("java/lang/Throwable", THROWABLE_METHODS),
-    ("java/lang/Exception", THROWABLE_METHODS),
-    ("java/lang/RuntimeException", THROWABLE_METHODS),
-    ("java/util/IllegalFormatException", THROWABLE_METHODS),
-    ("java/lang/Enum", ENUM_METHODS),
-    ("java/lang/StringBuilder", STRING_BUILDER_METHODS),
-    ("java/lang/String", STRING_METHODS),
-    ("java/lang/Integer", INTEGER_METHODS),
-    ("java/lang/Boolean", BOOLEAN_METHODS),
-    ("java/lang/Long", LONG_METHODS),
-    ("java/lang/Float", FLOAT_METHODS),
-    ("java/lang/Double", DOUBLE_METHODS),
-    ("java/lang/Character", CHARACTER_METHODS),
-    ("java/lang/Byte", BYTE_METHODS),
-    ("java/lang/Short", SHORT_METHODS),
-    ("java/util/ArrayList", ARRAY_LIST_METHODS),
-    ("java/util/HashMap", HASH_MAP_METHODS),
-    ("java/util/HashMap$KeySet", HASH_MAP_VIEW_METHODS),
-    ("java/util/HashMap$Values", HASH_MAP_VIEW_METHODS),
-    ("java/util/HashMap$EntrySet", HASH_MAP_VIEW_METHODS),
-    ("java/util/Map$Entry", MAP_ENTRY_METHODS),
-    ("java/util/HashSet", HASH_SET_METHODS),
-    ("java/util/LinkedHashMap", HASH_MAP_METHODS),
-    ("java/util/LinkedHashSet", HASH_SET_METHODS),
-    ("java/util/Iterator", ITERATOR_METHODS),
-    ("java/util/Random", RANDOM_METHODS),
-    ("java/util/Arrays", ARRAYS_METHODS),
-    ("java/lang/Math", MATH_METHODS),
-    ("java/lang/System", SYSTEM_METHODS),
+    (c::java_lang_Object, OBJECT_METHODS),
+    (c::java_lang_Class, CLASS_METHODS),
+    (c::java_lang_Throwable, THROWABLE_METHODS),
+    (c::java_lang_Exception, THROWABLE_METHODS),
+    (c::java_lang_RuntimeException, THROWABLE_METHODS),
+    (c::java_util_IllegalFormatException, THROWABLE_METHODS),
+    (c::java_lang_Enum, ENUM_METHODS),
+    (c::java_lang_StringBuilder, STRING_BUILDER_METHODS),
+    (c::java_lang_String, STRING_METHODS),
+    (c::java_lang_Integer, INTEGER_METHODS),
+    (c::java_lang_Boolean, BOOLEAN_METHODS),
+    (c::java_lang_Long, LONG_METHODS),
+    (c::java_lang_Float, FLOAT_METHODS),
+    (c::java_lang_Double, DOUBLE_METHODS),
+    (c::java_lang_Character, CHARACTER_METHODS),
+    (c::java_lang_Byte, BYTE_METHODS),
+    (c::java_lang_Short, SHORT_METHODS),
+    (c::java_util_ArrayList, ARRAY_LIST_METHODS),
+    (c::java_util_HashMap, HASH_MAP_METHODS),
+    (c::java_util_HashMap_KeySet, HASH_MAP_VIEW_METHODS),
+    (c::java_util_HashMap_Values, HASH_MAP_VIEW_METHODS),
+    (c::java_util_HashMap_EntrySet, HASH_MAP_VIEW_METHODS),
+    (c::java_util_Map_Entry, MAP_ENTRY_METHODS),
+    (c::java_util_HashSet, HASH_SET_METHODS),
+    (c::java_util_LinkedHashMap, HASH_MAP_METHODS),
+    (c::java_util_LinkedHashSet, HASH_SET_METHODS),
+    (c::java_util_Iterator, ITERATOR_METHODS),
+    (c::java_util_Random, RANDOM_METHODS),
+    (c::java_util_Arrays, ARRAYS_METHODS),
+    (c::java_lang_Math, MATH_METHODS),
+    (c::java_lang_System, SYSTEM_METHODS),
 ];
 
 const OBJECT_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("toString", &[]),
-    ("equals", &[]),
-    ("hashCode", &[]),
-    ("clone", &[]),
+    (m::toString, &[]),
+    (m::equals, &[]),
+    (m::hashCode, &[]),
+    (m::clone, &[]),
     // Answered by the interpreter (needs the class-object cache), not an arm.
-    ("getClass", &["()Ljava/lang/Class;"]),
+    (m::getClass, &[d::__Class]),
 ];
 
-const CLASS_METHODS: &[BuiltinMethodRow] = &[("<init>", &[]), ("getName", &[])];
+const CLASS_METHODS: &[BuiltinMethodRow] = &[("<init>", &[]), (m::getName, &[])];
 
 /// `dispatch_throwable` and `dispatch_init_only` serve the same names.
 const THROWABLE_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("getMessage", &[]),
-    ("addSuppressed", &[]),
-    ("getSuppressed", &[]),
-    ("getCause", &[]),
+    (m::getMessage, &[]),
+    (m::addSuppressed, &[]),
+    (m::getSuppressed, &[]),
+    (m::getCause, &[]),
 ];
 
 const ENUM_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("name", &[]),
-    ("toString", &[]),
-    ("ordinal", &[]),
-    ("equals", &[]),
-    ("hashCode", &[]),
-    ("compareTo", &[]),
+    (m::name, &[]),
+    (m::toString, &[]),
+    (m::ordinal, &[]),
+    (m::equals, &[]),
+    (m::hashCode, &[]),
+    (m::compareTo, &[]),
 ];
 
 const STRING_BUILDER_METHODS: &[BuiltinMethodRow] = &[
@@ -322,66 +319,63 @@ const STRING_BUILDER_METHODS: &[BuiltinMethodRow] = &[
     // non-String CharSequence argument appends nothing, hence the exact
     // list. A call through `Appendable` carries that return type instead.
     (
-        "append",
+        m::append,
         &[
-            "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
-            "(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;",
-            "(C)Ljava/lang/Appendable;",
-            "(Ljava/lang/CharSequence;)Ljava/lang/Appendable;",
-            "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
-            "(C)Ljava/lang/StringBuilder;",
-            "(Z)Ljava/lang/StringBuilder;",
-            "(I)Ljava/lang/StringBuilder;",
-            "(J)Ljava/lang/StringBuilder;",
-            "(F)Ljava/lang/StringBuilder;",
-            "(D)Ljava/lang/StringBuilder;",
+            d::String__StringBuilder,
+            d::CharSequence__StringBuilder,
+            d::C__Appendable,
+            d::CharSequence__Appendable,
+            d::Object__StringBuilder,
+            d::C__StringBuilder,
+            d::Z__StringBuilder,
+            d::I__StringBuilder,
+            d::J__StringBuilder,
+            d::F__StringBuilder,
+            d::D__StringBuilder,
         ],
     ),
-    ("length", &[]),
-    ("charAt", &[]),
-    ("toString", &[]),
+    (m::length, &[]),
+    (m::charAt, &[]),
+    (m::toString, &[]),
 ];
 
 const STRING_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &["([B)V", "([BII)V"]),
+    (m::format, &[d::String_aObject__String]),
     (
-        "format",
-        &["(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"],
-    ),
-    (
-        "valueOf",
+        m::valueOf,
         &[
-            "(Ljava/lang/Object;)Ljava/lang/String;",
-            "(Z)Ljava/lang/String;",
-            "(C)Ljava/lang/String;",
-            "(I)Ljava/lang/String;",
-            "(J)Ljava/lang/String;",
-            "(F)Ljava/lang/String;",
-            "(D)Ljava/lang/String;",
+            d::Object__String,
+            d::Z__String,
+            d::C__String,
+            d::I__String,
+            d::J__String,
+            d::F__String,
+            d::D__String,
         ],
     ),
-    ("length", &[]),
-    ("charAt", &[]),
-    ("isEmpty", &[]),
-    ("equals", &[]),
-    ("equalsIgnoreCase", &[]),
-    ("startsWith", &[]),
-    ("endsWith", &[]),
-    ("contains", &[]),
-    ("indexOf", &[]),
-    ("lastIndexOf", &[]),
-    ("compareTo", &[]),
-    ("substring", &[]),
-    ("trim", &[]),
-    ("toUpperCase", &[]),
-    ("toLowerCase", &[]),
-    ("concat", &[]),
-    ("hashCode", &[]),
-    ("toString", &[]),
-    ("toCharArray", &[]),
-    ("getBytes", &[]),
-    ("replace", &[]),
-    ("split", &[]),
+    (m::length, &[]),
+    (m::charAt, &[]),
+    (m::isEmpty, &[]),
+    (m::equals, &[]),
+    (m::equalsIgnoreCase, &[]),
+    (m::startsWith, &[]),
+    (m::endsWith, &[]),
+    (m::contains, &[]),
+    (m::indexOf, &[]),
+    (m::lastIndexOf, &[]),
+    (m::compareTo, &[]),
+    (m::substring, &[]),
+    (m::trim, &[]),
+    (m::toUpperCase, &[]),
+    (m::toLowerCase, &[]),
+    (m::concat, &[]),
+    (m::hashCode, &[]),
+    (m::toString, &[]),
+    (m::toCharArray, &[]),
+    (m::getBytes, &[]),
+    (m::replace, &[]),
+    (m::split, &[]),
 ];
 
 /// The numeric wrappers share `boxed_dispatch!` + `dispatch_common` plus
@@ -390,163 +384,170 @@ const STRING_METHODS: &[BuiltinMethodRow] = &[
 /// overloads of `parseX` / `toString` / `valueOf` are not served (the
 /// radix argument is ignored), hence the exact lists.
 macro_rules! numeric_box_methods {
-    ($p:literal, $b:literal, $parse:literal) => {
+    ($box_from_prim:expr, $box_from_string:expr, $parse:expr, $parse_desc:expr, $prim_to_string:expr) => {
         &[
             ("<init>", &[]),
-            (
-                "valueOf",
-                &[
-                    concat!("(", $p, ")L", $b, ";"),
-                    concat!("(Ljava/lang/String;)L", $b, ";"),
-                ],
-            ),
-            ($parse, &[concat!("(Ljava/lang/String;)", $p)]),
-            (
-                "toString",
-                &[
-                    "()Ljava/lang/String;",
-                    concat!("(", $p, ")Ljava/lang/String;"),
-                ],
-            ),
-            ("intValue", &[]),
-            ("longValue", &[]),
-            ("floatValue", &[]),
-            ("doubleValue", &[]),
-            ("shortValue", &[]),
-            ("byteValue", &[]),
-            ("equals", &[]),
-            ("hashCode", &[]),
-            ("compareTo", &[]),
-            ("compare", &[]),
+            (m::valueOf, &[$box_from_prim, $box_from_string]),
+            ($parse, &[$parse_desc]),
+            (m::toString, &[d::__String, $prim_to_string]),
+            (m::intValue, &[]),
+            (m::longValue, &[]),
+            (m::floatValue, &[]),
+            (m::doubleValue, &[]),
+            (m::shortValue, &[]),
+            (m::byteValue, &[]),
+            (m::equals, &[]),
+            (m::hashCode, &[]),
+            (m::compareTo, &[]),
+            (m::compare, &[]),
         ]
     };
 }
 
-const INTEGER_METHODS: &[BuiltinMethodRow] =
-    numeric_box_methods!("I", "java/lang/Integer", "parseInt");
-const LONG_METHODS: &[BuiltinMethodRow] = numeric_box_methods!("J", "java/lang/Long", "parseLong");
-const DOUBLE_METHODS: &[BuiltinMethodRow] =
-    numeric_box_methods!("D", "java/lang/Double", "parseDouble");
-const BYTE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!("B", "java/lang/Byte", "parseByte");
-const SHORT_METHODS: &[BuiltinMethodRow] =
-    numeric_box_methods!("S", "java/lang/Short", "parseShort");
+const INTEGER_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
+    d::I__Integer,
+    d::String__Integer,
+    m::parseInt,
+    d::String__I,
+    d::I__String
+);
+const LONG_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
+    d::J__Long,
+    d::String__Long,
+    m::parseLong,
+    d::String__J,
+    d::J__String
+);
+const DOUBLE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
+    d::D__Double,
+    d::String__Double,
+    m::parseDouble,
+    d::String__D,
+    d::D__String
+);
+const BYTE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
+    d::B__Byte,
+    d::String__Byte,
+    m::parseByte,
+    d::String__B,
+    d::B__String
+);
+const SHORT_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
+    d::S__Short,
+    d::String__Short,
+    m::parseShort,
+    d::String__S,
+    d::S__String
+);
 const FLOAT_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    (
-        "valueOf",
-        &[
-            "(F)Ljava/lang/Float;",
-            "(Ljava/lang/String;)Ljava/lang/Float;",
-        ],
-    ),
-    ("parseFloat", &["(Ljava/lang/String;)F"]),
-    (
-        "toString",
-        &["()Ljava/lang/String;", "(F)Ljava/lang/String;"],
-    ),
-    ("intValue", &[]),
-    ("longValue", &[]),
-    ("floatValue", &[]),
-    ("doubleValue", &[]),
-    ("shortValue", &[]),
-    ("byteValue", &[]),
-    ("equals", &[]),
-    ("hashCode", &[]),
-    ("compareTo", &[]),
-    ("compare", &[]),
-    ("floatToIntBits", &[]),
+    (m::valueOf, &[d::F__Float, d::String__Float]),
+    (m::parseFloat, &[d::String__F]),
+    (m::toString, &[d::__String, d::F__String]),
+    (m::intValue, &[]),
+    (m::longValue, &[]),
+    (m::floatValue, &[]),
+    (m::doubleValue, &[]),
+    (m::shortValue, &[]),
+    (m::byteValue, &[]),
+    (m::equals, &[]),
+    (m::hashCode, &[]),
+    (m::compareTo, &[]),
+    (m::compare, &[]),
+    (m::floatToIntBits, &[]),
 ];
 
 const BOOLEAN_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("valueOf", &[]),
-    ("parseBoolean", &[]),
-    ("booleanValue", &[]),
-    ("toString", &[]),
-    ("equals", &[]),
-    ("hashCode", &[]),
-    ("compareTo", &[]),
-    ("compare", &[]),
+    (m::valueOf, &[]),
+    (m::parseBoolean, &[]),
+    (m::booleanValue, &[]),
+    (m::toString, &[]),
+    (m::equals, &[]),
+    (m::hashCode, &[]),
+    (m::compareTo, &[]),
+    (m::compare, &[]),
 ];
 
 const CHARACTER_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("valueOf", &[]),
-    ("charValue", &[]),
-    ("toString", &[]),
-    ("equals", &[]),
-    ("hashCode", &[]),
-    ("compareTo", &[]),
-    ("compare", &[]),
-    ("isDigit", &[]),
-    ("isLetter", &[]),
-    ("toUpperCase", &[]),
-    ("toLowerCase", &[]),
+    (m::valueOf, &[]),
+    (m::charValue, &[]),
+    (m::toString, &[]),
+    (m::equals, &[]),
+    (m::hashCode, &[]),
+    (m::compareTo, &[]),
+    (m::compare, &[]),
+    (m::isDigit, &[]),
+    (m::isLetter, &[]),
+    (m::toUpperCase, &[]),
+    (m::toLowerCase, &[]),
 ];
 
 const ARRAY_LIST_METHODS: &[BuiltinMethodRow] = &[
     // The copy constructor `<init>(Collection)` ignores its argument.
     ("<init>", &["()V", "(I)V"]),
-    ("add", &[]),
-    ("get", &[]),
-    ("size", &[]),
-    ("isEmpty", &[]),
-    ("set", &[]),
-    ("remove", &[]),
-    ("clear", &[]),
-    ("iterator", &[]),
-    ("toArray", &[]),
-    ("contains", &[]),
+    (m::add, &[]),
+    (m::get, &[]),
+    (m::size, &[]),
+    (m::isEmpty, &[]),
+    (m::set, &[]),
+    (m::remove, &[]),
+    (m::clear, &[]),
+    (m::iterator, &[]),
+    (m::toArray, &[]),
+    (m::contains, &[]),
     // Resolved by the interpreter: the comparator is a Java upcall.
-    ("sort", &["(Ljava/util/Comparator;)V"]),
+    (m::sort, &[d::Comparator__V]),
 ];
 
 const HASH_MAP_METHODS: &[BuiltinMethodRow] = &[
     // The copy constructor `<init>(Map)` ignores its argument.
     ("<init>", &["()V", "(I)V", "(IF)V"]),
-    ("put", &[]),
-    ("get", &[]),
-    ("remove", &[]),
-    ("containsKey", &[]),
-    ("containsValue", &[]),
-    ("size", &[]),
-    ("isEmpty", &[]),
-    ("clear", &[]),
-    ("getOrDefault", &[]),
-    ("keySet", &[]),
-    ("values", &[]),
-    ("entrySet", &[]),
+    (m::put, &[]),
+    (m::get, &[]),
+    (m::remove, &[]),
+    (m::containsKey, &[]),
+    (m::containsValue, &[]),
+    (m::size, &[]),
+    (m::isEmpty, &[]),
+    (m::clear, &[]),
+    (m::getOrDefault, &[]),
+    (m::keySet, &[]),
+    (m::values, &[]),
+    (m::entrySet, &[]),
 ];
 
 const HASH_MAP_VIEW_METHODS: &[BuiltinMethodRow] =
-    &[("iterator", &[]), ("size", &[]), ("contains", &[])];
+    &[(m::iterator, &[]), (m::size, &[]), (m::contains, &[])];
 
-const MAP_ENTRY_METHODS: &[BuiltinMethodRow] = &[("getKey", &[]), ("getValue", &[])];
+const MAP_ENTRY_METHODS: &[BuiltinMethodRow] = &[(m::getKey, &[]), (m::getValue, &[])];
 
 const HASH_SET_METHODS: &[BuiltinMethodRow] = &[
     // The copy constructor `<init>(Collection)` ignores its argument.
     ("<init>", &["()V", "(I)V", "(IF)V"]),
-    ("add", &[]),
-    ("remove", &[]),
-    ("contains", &[]),
-    ("size", &[]),
-    ("isEmpty", &[]),
-    ("iterator", &[]),
-    ("clear", &[]),
+    (m::add, &[]),
+    (m::remove, &[]),
+    (m::contains, &[]),
+    (m::size, &[]),
+    (m::isEmpty, &[]),
+    (m::iterator, &[]),
+    (m::clear, &[]),
 ];
 
-const ITERATOR_METHODS: &[BuiltinMethodRow] = &[("hasNext", &[]), ("next", &[]), ("remove", &[])];
+const ITERATOR_METHODS: &[BuiltinMethodRow] =
+    &[(m::hasNext, &[]), (m::next, &[]), (m::remove, &[])];
 
 const RANDOM_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
-    ("setSeed", &[]),
-    ("nextInt", &[]),
-    ("nextLong", &[]),
-    ("nextBoolean", &[]),
-    ("nextFloat", &[]),
-    ("nextDouble", &[]),
-    ("nextGaussian", &[]),
-    ("nextBytes", &[]),
+    (m::setSeed, &[]),
+    (m::nextInt, &[]),
+    (m::nextLong, &[]),
+    (m::nextBoolean, &[]),
+    (m::nextFloat, &[]),
+    (m::nextDouble, &[]),
+    (m::nextGaussian, &[]),
+    (m::nextBytes, &[]),
 ];
 
 /// Name-level on purpose: the arms are `atype`-driven and serve the range
@@ -554,33 +555,33 @@ const RANDOM_METHODS: &[BuiltinMethodRow] = &[
 /// `Arrays.java` never declares (a call to an undeclared method on a loaded
 /// class falls through to native dispatch).
 const ARRAYS_METHODS: &[BuiltinMethodRow] = &[
-    ("sort", &[]),
-    ("fill", &[]),
-    ("copyOf", &[]),
-    ("toString", &[]),
+    (m::sort, &[]),
+    (m::fill, &[]),
+    (m::copyOf, &[]),
+    (m::toString, &[]),
 ];
 
 const MATH_METHODS: &[BuiltinMethodRow] = &[
-    ("abs", &[]),
-    ("min", &[]),
-    ("max", &[]),
-    ("sqrt", &[]),
-    ("pow", &[]),
-    ("floor", &[]),
-    ("ceil", &[]),
-    ("round", &[]),
-    ("sin", &[]),
-    ("cos", &[]),
-    ("tan", &[]),
-    ("atan2", &[]),
-    ("toRadians", &[]),
-    ("toDegrees", &[]),
-    ("log", &[]),
-    ("log10", &[]),
-    ("exp", &[]),
+    (m::abs, &[]),
+    (m::min, &[]),
+    (m::max, &[]),
+    (m::sqrt, &[]),
+    (m::pow, &[]),
+    (m::floor, &[]),
+    (m::ceil, &[]),
+    (m::round, &[]),
+    (m::sin, &[]),
+    (m::cos, &[]),
+    (m::tan, &[]),
+    (m::atan2, &[]),
+    (m::toRadians, &[]),
+    (m::toDegrees, &[]),
+    (m::log, &[]),
+    (m::log10, &[]),
+    (m::exp, &[]),
 ];
 
-const SYSTEM_METHODS: &[BuiltinMethodRow] = &[("arraycopy", &[])];
+const SYSTEM_METHODS: &[BuiltinMethodRow] = &[(m::arraycopy, &[])];
 
 /// Abstract members of the classfile-less `java/**` interfaces that resolve
 /// on whatever implements them — a lambda proxy (`try_lambda_dispatch` runs
@@ -591,20 +592,14 @@ const SYSTEM_METHODS: &[BuiltinMethodRow] = &[("arraycopy", &[])];
 /// with lambdas and that no builtin implements. Every key must be a
 /// `BUILTIN_CLASS_NAMES` name and not a dispatched class.
 pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
-    ("java/lang/Runnable", &[("run", &["()V"])]),
+    (c::java_lang_Runnable, &[(m::run, &["()V"])]),
     (
-        "java/util/Comparator",
-        &[("compare", &["(Ljava/lang/Object;Ljava/lang/Object;)I"])],
+        c::java_util_Comparator,
+        &[(m::compare, &[d::Object_Object__I])],
     ),
-    (
-        "java/lang/Comparable",
-        &[("compareTo", &["(Ljava/lang/Object;)I"])],
-    ),
-    ("java/lang/AutoCloseable", &[("close", &["()V"])]),
-    (
-        "java/lang/Iterable",
-        &[("iterator", &["()Ljava/util/Iterator;"])],
-    ),
+    (c::java_lang_Comparable, &[(m::compareTo, &[d::Object__I])]),
+    (c::java_lang_AutoCloseable, &[(m::close, &["()V"])]),
+    (c::java_lang_Iterable, &[(m::iterator, &[d::__Iterator])]),
 ];
 
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:
@@ -612,43 +607,43 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
 /// `builtin_dispatch_classes_subset_of_names` test asserts every class here is
 /// also in [`BUILTIN_CLASS_NAMES`] so canonicalisation cannot drift.
 const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
-    ("java/lang/Object", dispatch_object),
-    ("java/lang/Class", class_obj::dispatch),
-    ("java/lang/Throwable", dispatch_throwable),
-    ("java/lang/Exception", dispatch_init_only),
-    ("java/lang/RuntimeException", dispatch_init_only),
-    ("java/util/IllegalFormatException", dispatch_init_only),
-    ("java/lang/Enum", enumeration::dispatch),
-    ("java/lang/StringBuilder", string_builder::dispatch),
-    ("java/lang/String", string::dispatch),
-    ("java/lang/Integer", boxed::dispatch_integer),
-    ("java/lang/Boolean", boxed::dispatch_boolean),
-    ("java/lang/Long", boxed::dispatch_long),
-    ("java/lang/Float", boxed::dispatch_float),
-    ("java/lang/Double", boxed::dispatch_double),
-    ("java/lang/Character", boxed::dispatch_character),
-    ("java/lang/Byte", boxed::dispatch_byte),
-    ("java/lang/Short", boxed::dispatch_short),
-    ("java/util/ArrayList", collections::dispatch),
-    ("java/util/HashMap", hashmap::dispatch),
-    ("java/util/HashMap$KeySet", hashmap::dispatch_view),
-    ("java/util/HashMap$Values", hashmap::dispatch_view),
-    ("java/util/HashMap$EntrySet", hashmap::dispatch_view),
-    ("java/util/Map$Entry", hashmap::dispatch_entry),
-    ("java/util/HashSet", hashset::dispatch),
+    (c::java_lang_Object, dispatch_object),
+    (c::java_lang_Class, class_obj::dispatch),
+    (c::java_lang_Throwable, dispatch_throwable),
+    (c::java_lang_Exception, dispatch_init_only),
+    (c::java_lang_RuntimeException, dispatch_init_only),
+    (c::java_util_IllegalFormatException, dispatch_init_only),
+    (c::java_lang_Enum, enumeration::dispatch),
+    (c::java_lang_StringBuilder, string_builder::dispatch),
+    (c::java_lang_String, string::dispatch),
+    (c::java_lang_Integer, boxed::dispatch_integer),
+    (c::java_lang_Boolean, boxed::dispatch_boolean),
+    (c::java_lang_Long, boxed::dispatch_long),
+    (c::java_lang_Float, boxed::dispatch_float),
+    (c::java_lang_Double, boxed::dispatch_double),
+    (c::java_lang_Character, boxed::dispatch_character),
+    (c::java_lang_Byte, boxed::dispatch_byte),
+    (c::java_lang_Short, boxed::dispatch_short),
+    (c::java_util_ArrayList, collections::dispatch),
+    (c::java_util_HashMap, hashmap::dispatch),
+    (c::java_util_HashMap_KeySet, hashmap::dispatch_view),
+    (c::java_util_HashMap_Values, hashmap::dispatch_view),
+    (c::java_util_HashMap_EntrySet, hashmap::dispatch_view),
+    (c::java_util_Map_Entry, hashmap::dispatch_entry),
+    (c::java_util_HashSet, hashset::dispatch),
     // Insertion-ordered aliases (documented divergence: hash order). The
     // no-arg `mutableMapOf()`/`mutableSetOf()` are inline in Kotlin and emit
     // `new java/util/LinkedHashMap` at the call site.
-    ("java/util/LinkedHashMap", hashmap::dispatch),
-    ("java/util/LinkedHashSet", hashset::dispatch),
-    ("java/util/Iterator", iterator::dispatch),
-    ("java/util/Random", random::dispatch),
-    ("java/util/Arrays", arrays::dispatch),
-    ("java/lang/Math", math::dispatch),
+    (c::java_util_LinkedHashMap, hashmap::dispatch),
+    (c::java_util_LinkedHashSet, hashset::dispatch),
+    (c::java_util_Iterator, iterator::dispatch),
+    (c::java_util_Random, random::dispatch),
+    (c::java_util_Arrays, arrays::dispatch),
+    (c::java_lang_Math, math::dispatch),
     // System is otherwise canonicalisation-only (currentTimeMillis lives in
     // the platform handler, which dispatches first); arraycopy is pure array
     // machinery, so it belongs to the builtins.
-    ("java/lang/System", arrays::dispatch_system),
+    (c::java_lang_System, arrays::dispatch_system),
 ];
 
 /// If the receiver is a Throwable being constructed with a String and/or a
@@ -663,19 +658,17 @@ fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
     let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
         return;
     };
-    // Translating prefix compares: a shrunk corpus spells these `(Lb/…;`.
-    let d = ctx.descriptor.as_bytes();
-    let starts = crate::class_file::desc_starts_with;
-    if starts(d, b"(Ljava/lang/String;") {
+    let desc = ctx.descriptor;
+    if desc.starts_with(crate::names::d::p_String) {
         if let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() {
             ctx.objects.register_exception_message(obj_idx, msg_idx);
         }
-        if starts(d, b"(Ljava/lang/String;Ljava/lang/Throwable;") {
+        if desc.starts_with(crate::names::d::p_String_Throwable) {
             if let Some(Value::ObjectRef(cause)) = ctx.args.get(2).copied() {
                 ctx.objects.register_exception_cause(obj_idx, cause);
             }
         }
-    } else if starts(d, b"(Ljava/lang/Throwable;") {
+    } else if desc.starts_with(crate::names::d::p_Throwable) {
         if let Some(Value::ObjectRef(cause)) = ctx.args.get(1).copied() {
             ctx.objects.register_exception_cause(obj_idx, cause);
         }
@@ -712,13 +705,13 @@ fn throwable_add_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>
     };
     match ctx.args.get(1).copied() {
         Some(Value::ObjectRef(t)) if t == owner => {
-            Err(throw_named(ctx, "java/lang/IllegalArgumentException"))
+            Err(throw_named(ctx, c::java_lang_IllegalArgumentException))
         }
         Some(Value::ObjectRef(t)) => {
             ctx.objects.add_suppressed(owner, t);
             Ok(None)
         }
-        Some(Value::Null) | None => Err(throw_named(ctx, "java/lang/NullPointerException")),
+        Some(Value::Null) | None => Err(throw_named(ctx, c::java_lang_NullPointerException)),
         Some(_) => Err(JvmError::InvalidReference),
     }
 }
@@ -764,10 +757,10 @@ fn dispatch_init_only(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        "getMessage" => Some(throwable_get_message(ctx)),
-        "addSuppressed" => Some(throwable_add_suppressed(ctx)),
-        "getSuppressed" => Some(throwable_get_suppressed(ctx)),
-        "getCause" => Some(throwable_get_cause(ctx)),
+        m::getMessage => Some(throwable_get_message(ctx)),
+        m::addSuppressed => Some(throwable_add_suppressed(ctx)),
+        m::getSuppressed => Some(throwable_get_suppressed(ctx)),
+        m::getCause => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }
@@ -795,20 +788,20 @@ fn dispatch_object(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        "toString" => match ctx.args.first().copied() {
+        m::toString => match ctx.args.first().copied() {
             Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(idx)))),
             Some(v @ (Value::ObjectRef(_) | Value::ArrayRef(_))) => {
                 Some(identity_to_string(ctx, v))
             }
             _ => None,
         },
-        "equals" => match (ctx.args.first().copied(), ctx.args.get(1).copied()) {
+        m::equals => match (ctx.args.first().copied(), ctx.args.get(1).copied()) {
             (Some(a @ (Value::ObjectRef(_) | Value::ArrayRef(_))), Some(b)) => {
                 Some(Ok(Some(Value::Int((a == b) as i32))))
             }
             _ => None,
         },
-        "hashCode" => match ctx.args.first().copied() {
+        m::hashCode => match ctx.args.first().copied() {
             Some(Value::ObjectRef(idx) | Value::ArrayRef(idx)) => {
                 Some(Ok(Some(Value::Int(idx as i32))))
             }
@@ -823,7 +816,7 @@ fn dispatch_object(
         // clone() on a non-Cloneable succeeds instead of throwing
         // CloneNotSupportedException (consistent with the unchecked array
         // clone above).
-        "clone" => match ctx.args.first() {
+        m::clone => match ctx.args.first() {
             Some(Value::ObjectRef(idx)) => Some(
                 ctx.objects
                     .clone_object(*idx)
@@ -881,14 +874,14 @@ fn dispatch_throwable(
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        "getMessage" => Some(throwable_get_message(ctx)),
+        m::getMessage => Some(throwable_get_message(ctx)),
         // addSuppressed stores for real (try-with-resources emits these
         // calls when close() throws); getSuppressed returns the recorded
         // array. Java contract honored: addSuppressed(null) throws NPE,
         // addSuppressed(this) throws IllegalArgumentException.
-        "addSuppressed" => Some(throwable_add_suppressed(ctx)),
-        "getSuppressed" => Some(throwable_get_suppressed(ctx)),
-        "getCause" => Some(throwable_get_cause(ctx)),
+        m::addSuppressed => Some(throwable_add_suppressed(ctx)),
+        m::getSuppressed => Some(throwable_get_suppressed(ctx)),
+        m::getCause => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }
@@ -1207,7 +1200,7 @@ impl NativeMethodHandler for BuiltinHandler {
     ) -> Option<Result<Option<Value>, JvmError>> {
         // Array clone: class name starts with '[' and method is "clone".
         // Needed for enum Color.values() which clones the internal $VALUES array.
-        if class_name.starts_with('[') && method_name == "clone" {
+        if class_name.starts_with('[') && method_name == m::clone {
             if let Some(Value::ArrayRef(idx)) = ctx.args.first().copied() {
                 return Some(
                     ctx.arrays

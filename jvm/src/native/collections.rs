@@ -6,6 +6,7 @@ use crate::{
 };
 
 use super::NativeContext;
+use crate::names::{c, m};
 
 /// Extract the list buffer index stored in field 0 of an ArrayList receiver.
 fn get_list_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -21,7 +22,7 @@ fn get_list_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
 /// Java's ArrayList throws IndexOutOfBoundsException (catchable) for a bad
 /// index — `i as usize` on a negative index simply misses the buffer.
 fn index_out_of_bounds(ctx: &mut NativeContext<'_>) -> JvmError {
-    super::throw_named(ctx, "java/lang/IndexOutOfBoundsException")
+    super::throw_named(ctx, c::java_lang_IndexOutOfBoundsException)
 }
 
 /// Value equality for ArrayList.contains — uses value-based equality for
@@ -59,7 +60,7 @@ pub(crate) fn dispatch(
                 .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
             Some(Ok(None))
         }
-        "add" => {
+        m::add => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -82,7 +83,7 @@ pub(crate) fn dispatch(
                 Some(Ok(Some(Value::Int(1))))
             }
         }
-        "get" => {
+        m::get => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -95,14 +96,14 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        "size" => {
+        m::size => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.list_len(buf_idx) as i32))))
         }
-        "isEmpty" => {
+        m::isEmpty => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -111,7 +112,7 @@ pub(crate) fn dispatch(
                 (ctx.objects.list_len(buf_idx) == 0) as i32,
             ))))
         }
-        "set" => {
+        m::set => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -128,7 +129,7 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        "remove" => {
+        m::remove => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -154,7 +155,7 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        "clear" => {
+        m::clear => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -162,7 +163,7 @@ pub(crate) fn dispatch(
             ctx.objects.list_clear(buf_idx);
             Some(Ok(None))
         }
-        "iterator" => {
+        m::iterator => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -170,7 +171,7 @@ pub(crate) fn dispatch(
             let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
-            let iter_obj = match ctx.objects.alloc("java/util/Iterator") {
+            let iter_obj = match ctx.objects.alloc(c::java_util_Iterator) {
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
@@ -190,7 +191,7 @@ pub(crate) fn dispatch(
         // list's length — the array argument is neither filled nor returned
         // (documented divergence; Kotlin's `toTypedArray()` passes an empty
         // one and reads the result).
-        "toArray" => {
+        m::toArray => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -209,7 +210,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(Some(Value::ArrayRef(arr))))
         }
-        "contains" => {
+        m::contains => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

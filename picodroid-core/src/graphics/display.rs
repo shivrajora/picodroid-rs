@@ -14,6 +14,7 @@ use super::view;
 // Singleton
 // ---------------------------------------------------------------------------
 
+use crate::shrink_names::c;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 /// Heap index of the singleton `Display` object (`u16::MAX` = not yet allocated).
@@ -49,10 +50,7 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
     // class, in which case we must re-allocate rather than hand back garbage.
     if existing != u16::MAX
         && objects.is_live(existing)
-        && objects.class_name(existing)
-            == Some(crate::shrink_names::shrink_class(
-                "picodroid/graphics/Display",
-            ))
+        && objects.class_name(existing) == Some(c::picodroid_graphics_Display)
     {
         return Ok(Some(Value::ObjectRef(existing)));
     }
@@ -62,9 +60,7 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
     with_gfx(|g| g.init(hal::display::WIDTH, hal::display::HEIGHT));
 
     let idx = objects
-        .alloc(crate::shrink_names::shrink_class(
-            "picodroid/graphics/Display",
-        ))
+        .alloc(c::picodroid_graphics_Display)
         .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(
@@ -148,9 +144,7 @@ pub fn poll_touch(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
     match hal::touch::read_point() {
         Some((x, y)) => {
             let idx = objects
-                .alloc(crate::shrink_names::shrink_class(
-                    "picodroid/view/MotionEvent",
-                ))
+                .alloc(c::picodroid_view_MotionEvent)
                 .ok_or(JvmError::StackOverflow)?;
             objects
                 .set_field(idx, fields::motion_event::ACTION, Value::Int(0))

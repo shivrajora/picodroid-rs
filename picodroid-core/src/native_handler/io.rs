@@ -32,20 +32,19 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
-        ("picodroid/io/File", m::exists) => Some(file_bool(ctx, backend::exists)),
-        ("picodroid/io/File", m::isFile) => Some(file_bool(ctx, backend::is_file)),
-        ("picodroid/io/File", m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
-        ("picodroid/io/File", m::length) => Some(file_length(ctx)),
-        ("picodroid/io/File", m::delete) => Some(file_bool(ctx, backend::delete)),
-        ("picodroid/io/File", m::mkdir) => Some(file_bool(ctx, backend::mkdir)),
-        ("picodroid/io/File", m::renameTo) => Some(file_rename_to(ctx)),
-        ("picodroid/io/FileInputStream", m::read) => Some(fis_read(ctx)),
-        ("picodroid/io/FileInputStream", m::available) => Some(fis_available(ctx)),
-        ("picodroid/io/FileOutputStream", m::initStream) => Some(fos_init_stream(ctx)),
-        ("picodroid/io/FileOutputStream", m::write) => Some(fos_write(ctx)),
-        ("picodroid/io/FileOutputStream", m::flush) => Some(Ok(None)),
+        (c::picodroid_io_File, m::exists) => Some(file_bool(ctx, backend::exists)),
+        (c::picodroid_io_File, m::isFile) => Some(file_bool(ctx, backend::is_file)),
+        (c::picodroid_io_File, m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
+        (c::picodroid_io_File, m::length) => Some(file_length(ctx)),
+        (c::picodroid_io_File, m::delete) => Some(file_bool(ctx, backend::delete)),
+        (c::picodroid_io_File, m::mkdir) => Some(file_bool(ctx, backend::mkdir)),
+        (c::picodroid_io_File, m::renameTo) => Some(file_rename_to(ctx)),
+        (c::picodroid_io_FileInputStream, m::read) => Some(fis_read(ctx)),
+        (c::picodroid_io_FileInputStream, m::available) => Some(fis_available(ctx)),
+        (c::picodroid_io_FileOutputStream, m::initStream) => Some(fos_init_stream(ctx)),
+        (c::picodroid_io_FileOutputStream, m::write) => Some(fos_write(ctx)),
+        (c::picodroid_io_FileOutputStream, m::flush) => Some(Ok(None)),
         _ => None,
     }
 }
@@ -188,7 +187,7 @@ fn checked_range(
     let ok = off >= 0 && len >= 0 && (off as usize).saturating_add(len as usize) <= arr_len;
     if !ok {
         return Err(
-            match ctx.objects.alloc("java/lang/IndexOutOfBoundsException") {
+            match ctx.objects.alloc(c::java_lang_IndexOutOfBoundsException) {
                 Some(idx) => JvmError::Exception(idx),
                 None => JvmError::StackOverflow,
             },
@@ -298,6 +297,7 @@ fn store_bytes_into_array(
 // storage by implementing one trait rather than editing this file.
 #[cfg(not(test))]
 use crate::hal::fs as backend;
+use crate::shrink_names::c;
 
 #[cfg(test)]
 mod backend {
@@ -434,21 +434,21 @@ mod tests {
         let fis = stream_over(
             &mut objects,
             &mut strings,
-            "picodroid/io/FileInputStream",
+            c::picodroid_io_FileInputStream,
             "/bugbash-f6-in",
             b"hello",
         );
         let fos = stream_over(
             &mut objects,
             &mut strings,
-            "picodroid/io/FileOutputStream",
+            c::picodroid_io_FileOutputStream,
             "/bugbash-f6-out",
             b"",
         );
         let buf = arrays.alloc(ATYPE_BYTE, 4).unwrap();
         for (class, this, m) in [
-            ("picodroid/io/FileInputStream", fis, m::read),
-            ("picodroid/io/FileOutputStream", fos, m::write),
+            (c::picodroid_io_FileInputStream, fis, m::read),
+            (c::picodroid_io_FileOutputStream, fos, m::write),
         ] {
             for (off, len) in [(0, -1), (-1, 2), (3, 2), (0, 5), (i32::MAX, 1)] {
                 let r = call(
@@ -469,14 +469,14 @@ mod tests {
                 };
                 assert_eq!(
                     objects.class_name(idx),
-                    Some("java/lang/IndexOutOfBoundsException"),
+                    Some(c::java_lang_IndexOutOfBoundsException),
                     "{m}(off={off}, len={len})"
                 );
             }
         }
         // A well-formed read still works: 4 bytes of "hello" into the buffer.
         let r = call(
-            "picodroid/io/FileInputStream",
+            c::picodroid_io_FileInputStream,
             m::read,
             &[
                 Value::ObjectRef(fis),
@@ -492,7 +492,7 @@ mod tests {
         assert_eq!(arrays.load(buf, 0), Some(b'h' as i32));
         // len == 0 reads nothing and returns 0 (InputStream contract).
         let r = call(
-            "picodroid/io/FileInputStream",
+            c::picodroid_io_FileInputStream,
             m::read,
             &[
                 Value::ObjectRef(fis),
