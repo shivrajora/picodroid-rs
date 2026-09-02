@@ -4364,7 +4364,7 @@ fn arrays_to_string_null() {
 /// canonicalise its name to a stable `&'static str`.
 #[test]
 fn builtin_dispatch_classes_subset_of_names() {
-    for &(dispatch_name, _fn) in BUILTIN_DISPATCH {
+    for &(dispatch_name, _hash, _fn) in BUILTIN_DISPATCH {
         assert!(
             BUILTIN_CLASS_NAMES.iter().any(|&n| n == dispatch_name),
             "class {dispatch_name:?} appears in BUILTIN_DISPATCH but is missing from BUILTIN_CLASS_NAMES"
@@ -4378,7 +4378,7 @@ fn builtin_dispatch_classes_subset_of_names() {
 /// would admit calls that die at run time.
 #[test]
 fn builtin_methods_cover_every_dispatch_class() {
-    for &(name, _fn) in BUILTIN_DISPATCH {
+    for &(name, _hash, _fn) in BUILTIN_DISPATCH {
         assert!(
             BUILTIN_METHODS.iter().any(|(c, _)| *c == name),
             "class {name:?} is in BUILTIN_DISPATCH but has no BUILTIN_METHODS entry"
@@ -4386,7 +4386,7 @@ fn builtin_methods_cover_every_dispatch_class() {
     }
     for &(name, rows) in BUILTIN_METHODS {
         assert!(
-            BUILTIN_DISPATCH.iter().any(|(c, _)| *c == name),
+            BUILTIN_DISPATCH.iter().any(|(c, _, _)| *c == name),
             "class {name:?} has BUILTIN_METHODS rows but no BUILTIN_DISPATCH entry"
         );
         assert!(
@@ -4425,7 +4425,7 @@ fn builtin_interface_methods_name_known_interfaces() {
             "interface {iface:?} in BUILTIN_INTERFACE_METHODS is missing from BUILTIN_CLASS_NAMES"
         );
         assert!(
-            !BUILTIN_DISPATCH.iter().any(|(c, _)| *c == iface),
+            !BUILTIN_DISPATCH.iter().any(|(c, _, _)| *c == iface),
             "{iface:?} has a dispatcher; list its methods in BUILTIN_METHODS instead"
         );
         assert!(!rows.is_empty(), "interface {iface:?} has no rows");
@@ -5276,4 +5276,17 @@ fn format_s_object_without_interpreter_uses_identity_shape() {
         out.starts_with("com.example.Thing@") && out.len() == "com.example.Thing@".len() + 4,
         "{out}"
     );
+}
+
+/// The hash column of `BUILTIN_DISPATCH` is `name_hash` of its class column
+/// — the lookup in `BuiltinHandler::dispatch` compares hashes first.
+#[test]
+fn builtin_dispatch_hash_column_matches_names() {
+    for &(name, hash, _) in BUILTIN_DISPATCH {
+        assert_eq!(
+            hash,
+            crate::class_file::name_hash(name.as_bytes()),
+            "stale hash for {name}"
+        );
+    }
 }

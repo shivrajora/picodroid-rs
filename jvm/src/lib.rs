@@ -509,14 +509,9 @@ fn find_method_by_name(
     class_name: &str,
     method_name: &str,
 ) -> Result<(usize, usize), JvmError> {
-    classes
-        .iter()
-        .enumerate()
-        .find_map(|(ci, cf)| {
-            let cn = cf.class_name()?;
-            if cn != class_name.as_bytes() {
-                return None;
-            }
+    class_file::find_class(classes, class_name.as_bytes())
+        .map(|ci| (ci, &classes[ci]))
+        .and_then(|(ci, cf)| {
             cf.methods().iter().enumerate().find_map(|(mi, m)| {
                 let mn = cf.cp_utf8(m.name_index)?;
                 if mn == method_name.as_bytes() {

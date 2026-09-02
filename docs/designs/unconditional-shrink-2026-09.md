@@ -253,10 +253,42 @@ ratchet is the proof that no-shrink stays byte-identical).
 | `.papk_flash_init` (`picoenvmon.papk` + meta sector) | 54,295 | 54,025 | −270 |
 | original `picodroid/**` or `java/**` spellings in `.rodata` | 238 + 89 distinct | **0** | |
 
-`scripts/check-shrunk-image.sh` passes on the image. The sim `benchmark`
-app under `--shrink` reads 1,240–1,260 ms against 1,090–1,160 ms
-no-shrink in this session's runs (host timing, ±5 %); the no-shrink lane
-is unchanged from before. No-shrink firmware is not byte-identical this
+`scripts/check-shrunk-image.sh` passes on the image.
+
+### 8.1 The shrink-mode slowdown, found and fixed
+
+Twenty interleaved sim runs per mode showed `--shrink` **16 % slower** in
+`TOTAL`, all of it in two sections: `string_operations` +73 % and
+`object_allocation` +23 % (Welch t, p < 10⁻⁴; arithmetic and dispatch
+flat). An `LD_PRELOAD` shim counting `bcmp` calls by return address (no
+`perf` on this host) put the cause in one line: **3.2 M compare calls
+no-shrink, 57 M shrunk**, all from linear scans over the loaded class list
+(`find_method`, `find_method_walking`, `find_default_method`,
+`superclass_chain`, `alloc_with_defaults`, `op_new`,
+`class_name_to_static_in`) and `find_method`'s per-method name compare.
+Original names have many lengths, so `&[u8] ==` rejected almost every
+candidate on the length check; under `--shrink` every framework and
+`java/**` class is exactly four bytes and every candidate went to `bcmp`.
+A first guess — the framework handler's `(class, method)` arm chain, now
+gated by a pointer cache — changed nothing, which is what sent me to the
+shim.
+
+Fix (`jvm/src/class_file/mod.rs`): every registered `ClassFile` carries an
+FNV hash of its name; `find_class` compares one `u32` per class before any
+bytes; `name_eq` is an inlined loop for slices up to 16 bytes; every scan
+routes through them. Compare calls: **310 k no-shrink, 372 k shrunk**
+(from 3.2 M / 57 M). Twenty runs again, same interleaving:
+
+| section | no-shrink | shrink | Δ |
+|---|---:|---:|---:|
+| `string_operations` | 118.5 ± 1 | 112.5 ± 1 | −5.1 % |
+| `object_allocation` | 205.2 ± 2 | 199.6 ± 1 | −2.7 % |
+| `interface_dispatch` | 69.3 ± 1 | 65.8 ± 1 | −5.1 % |
+| `TOTAL` | 1,171.7 ± 9 | 1,145.3 ± 19 | **−2.3 %** (p < 10⁻⁴) |
+
+Shrunk is now faster, as shorter names should make it. The no-shrink lane
+gained too (its own 3.2 M compares were the same scans on the app's and
+`java/**` names). Device numbers are in §8.2. No-shrink firmware is not byte-identical this
 time: the §5.1 class-file boundary and the identity translators are gone
 from both modes, but two lookup tables replaced tests that cannot see
 through `--shrink` (`boxed_dispatch!`'s `ends_with("Value")`, `net_stub`'s

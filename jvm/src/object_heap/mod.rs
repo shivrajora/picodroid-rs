@@ -364,7 +364,9 @@ impl ObjectHeap {
     /// so byte-equality on `&'static str` is fast.
     fn intern_class(&mut self, name: &'static str) -> u16 {
         for (i, &existing) in self.class_table.iter().enumerate() {
-            if existing == name {
+            if core::ptr::eq(existing.as_ptr(), name.as_ptr()) && existing.len() == name.len()
+                || crate::class_file::name_eq(existing.as_bytes(), name.as_bytes())
+            {
                 return i as u16;
             }
         }
@@ -425,9 +427,7 @@ impl ObjectHeap {
         // in `classes` (builtins/native), whose names are already `'static`.
         let mut canonical_name: &'static str = class_name;
         loop {
-            let ci = classes
-                .iter()
-                .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()));
+            let ci = crate::class_file::find_class(classes, current.as_bytes());
             match ci {
                 Some(i) => {
                     if chain.is_empty() {

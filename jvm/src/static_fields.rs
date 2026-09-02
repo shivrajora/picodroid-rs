@@ -36,7 +36,9 @@ impl Default for StaticFieldStore {
 impl StaticFieldStore {
     /// Returns `true` if the class's `<clinit>` has already run (or been scheduled).
     pub fn is_initialized(&self, class_name: &[u8]) -> bool {
-        self.initialized.contains(&class_name)
+        self.initialized
+            .iter()
+            .any(|c| crate::class_file::name_eq(c, class_name))
     }
 
     /// Mark a class as initialized so its `<clinit>` is not re-entered.

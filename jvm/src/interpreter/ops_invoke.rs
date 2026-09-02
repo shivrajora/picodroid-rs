@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
+use crate::class_file::find_class;
 use crate::names::{c, d, m};
 use crate::{
     frame::Frame,
@@ -894,10 +895,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let class_name =
             core::str::from_utf8(class_name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
         // Refuse to instantiate abstract classes or interfaces
-        if let Some(target_cf) = self
-            .classes
-            .iter()
-            .find(|c| c.class_name().is_some_and(|n| n == class_name.as_bytes()))
+        if let Some(target_cf) =
+            find_class(self.classes, class_name.as_bytes()).map(|i| &self.classes[i])
         {
             if target_cf.is_interface() || target_cf.is_abstract() {
                 return Err(JvmError::AbstractMethodError);
@@ -1034,9 +1033,7 @@ fn find_super_class<'a>(
     classes: &'a [crate::class_file::ClassFile],
     class_name: &str,
 ) -> Option<&'a str> {
-    let cf = classes
-        .iter()
-        .find(|cf| cf.class_name().is_some_and(|n| n == class_name.as_bytes()))?;
+    let cf = find_class(classes, class_name.as_bytes()).map(|i| &classes[i])?;
     let super_bytes = cf.super_class_name()?;
     core::str::from_utf8(super_bytes).ok()
 }

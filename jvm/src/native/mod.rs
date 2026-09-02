@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::class_file::{name_eq, name_hash};
 use crate::names::{c, d, m};
 use crate::{
     array_heap::ArrayHeap,
@@ -606,44 +607,165 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
 /// changing this table changes the dispatch behaviour. The
 /// `builtin_dispatch_classes_subset_of_names` test asserts every class here is
 /// also in [`BUILTIN_CLASS_NAMES`] so canonicalisation cannot drift.
-const BUILTIN_DISPATCH: &[(&str, BuiltinDispatchFn)] = &[
-    (c::java_lang_Object, dispatch_object),
-    (c::java_lang_Class, class_obj::dispatch),
-    (c::java_lang_Throwable, dispatch_throwable),
-    (c::java_lang_Exception, dispatch_init_only),
-    (c::java_lang_RuntimeException, dispatch_init_only),
-    (c::java_util_IllegalFormatException, dispatch_init_only),
-    (c::java_lang_Enum, enumeration::dispatch),
-    (c::java_lang_StringBuilder, string_builder::dispatch),
-    (c::java_lang_String, string::dispatch),
-    (c::java_lang_Integer, boxed::dispatch_integer),
-    (c::java_lang_Boolean, boxed::dispatch_boolean),
-    (c::java_lang_Long, boxed::dispatch_long),
-    (c::java_lang_Float, boxed::dispatch_float),
-    (c::java_lang_Double, boxed::dispatch_double),
-    (c::java_lang_Character, boxed::dispatch_character),
-    (c::java_lang_Byte, boxed::dispatch_byte),
-    (c::java_lang_Short, boxed::dispatch_short),
-    (c::java_util_ArrayList, collections::dispatch),
-    (c::java_util_HashMap, hashmap::dispatch),
-    (c::java_util_HashMap_KeySet, hashmap::dispatch_view),
-    (c::java_util_HashMap_Values, hashmap::dispatch_view),
-    (c::java_util_HashMap_EntrySet, hashmap::dispatch_view),
-    (c::java_util_Map_Entry, hashmap::dispatch_entry),
-    (c::java_util_HashSet, hashset::dispatch),
-    // Insertion-ordered aliases (documented divergence: hash order). The
-    // no-arg `mutableMapOf()`/`mutableSetOf()` are inline in Kotlin and emit
-    // `new java/util/LinkedHashMap` at the call site.
-    (c::java_util_LinkedHashMap, hashmap::dispatch),
-    (c::java_util_LinkedHashSet, hashset::dispatch),
-    (c::java_util_Iterator, iterator::dispatch),
-    (c::java_util_Random, random::dispatch),
-    (c::java_util_Arrays, arrays::dispatch),
-    (c::java_lang_Math, math::dispatch),
-    // System is otherwise canonicalisation-only (currentTimeMillis lives in
-    // the platform handler, which dispatches first); arraycopy is pure array
-    // machinery, so it belongs to the builtins.
-    (c::java_lang_System, arrays::dispatch_system),
+/// `(class, name_hash(class), dispatcher)` — the hash column lets
+/// `dispatch` find the row with one hash of a four-byte name and integer
+/// compares, whatever the spelling (see `class_file::name_hash`).
+const BUILTIN_DISPATCH: &[(&str, u32, BuiltinDispatchFn)] = &[
+    (
+        c::java_lang_Object,
+        name_hash(c::java_lang_Object.as_bytes()),
+        dispatch_object,
+    ),
+    (
+        c::java_lang_Class,
+        name_hash(c::java_lang_Class.as_bytes()),
+        class_obj::dispatch,
+    ),
+    (
+        c::java_lang_Throwable,
+        name_hash(c::java_lang_Throwable.as_bytes()),
+        dispatch_throwable,
+    ),
+    (
+        c::java_lang_Exception,
+        name_hash(c::java_lang_Exception.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_lang_RuntimeException,
+        name_hash(c::java_lang_RuntimeException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_util_IllegalFormatException,
+        name_hash(c::java_util_IllegalFormatException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_lang_Enum,
+        name_hash(c::java_lang_Enum.as_bytes()),
+        enumeration::dispatch,
+    ),
+    (
+        c::java_lang_StringBuilder,
+        name_hash(c::java_lang_StringBuilder.as_bytes()),
+        string_builder::dispatch,
+    ),
+    (
+        c::java_lang_String,
+        name_hash(c::java_lang_String.as_bytes()),
+        string::dispatch,
+    ),
+    (
+        c::java_lang_Integer,
+        name_hash(c::java_lang_Integer.as_bytes()),
+        boxed::dispatch_integer,
+    ),
+    (
+        c::java_lang_Boolean,
+        name_hash(c::java_lang_Boolean.as_bytes()),
+        boxed::dispatch_boolean,
+    ),
+    (
+        c::java_lang_Long,
+        name_hash(c::java_lang_Long.as_bytes()),
+        boxed::dispatch_long,
+    ),
+    (
+        c::java_lang_Float,
+        name_hash(c::java_lang_Float.as_bytes()),
+        boxed::dispatch_float,
+    ),
+    (
+        c::java_lang_Double,
+        name_hash(c::java_lang_Double.as_bytes()),
+        boxed::dispatch_double,
+    ),
+    (
+        c::java_lang_Character,
+        name_hash(c::java_lang_Character.as_bytes()),
+        boxed::dispatch_character,
+    ),
+    (
+        c::java_lang_Byte,
+        name_hash(c::java_lang_Byte.as_bytes()),
+        boxed::dispatch_byte,
+    ),
+    (
+        c::java_lang_Short,
+        name_hash(c::java_lang_Short.as_bytes()),
+        boxed::dispatch_short,
+    ),
+    (
+        c::java_util_ArrayList,
+        name_hash(c::java_util_ArrayList.as_bytes()),
+        collections::dispatch,
+    ),
+    (
+        c::java_util_HashMap,
+        name_hash(c::java_util_HashMap.as_bytes()),
+        hashmap::dispatch,
+    ),
+    (
+        c::java_util_HashMap_KeySet,
+        name_hash(c::java_util_HashMap_KeySet.as_bytes()),
+        hashmap::dispatch_view,
+    ),
+    (
+        c::java_util_HashMap_Values,
+        name_hash(c::java_util_HashMap_Values.as_bytes()),
+        hashmap::dispatch_view,
+    ),
+    (
+        c::java_util_HashMap_EntrySet,
+        name_hash(c::java_util_HashMap_EntrySet.as_bytes()),
+        hashmap::dispatch_view,
+    ),
+    (
+        c::java_util_Map_Entry,
+        name_hash(c::java_util_Map_Entry.as_bytes()),
+        hashmap::dispatch_entry,
+    ),
+    (
+        c::java_util_HashSet,
+        name_hash(c::java_util_HashSet.as_bytes()),
+        hashset::dispatch,
+    ),
+    (
+        c::java_util_LinkedHashMap,
+        name_hash(c::java_util_LinkedHashMap.as_bytes()),
+        hashmap::dispatch,
+    ),
+    (
+        c::java_util_LinkedHashSet,
+        name_hash(c::java_util_LinkedHashSet.as_bytes()),
+        hashset::dispatch,
+    ),
+    (
+        c::java_util_Iterator,
+        name_hash(c::java_util_Iterator.as_bytes()),
+        iterator::dispatch,
+    ),
+    (
+        c::java_util_Random,
+        name_hash(c::java_util_Random.as_bytes()),
+        random::dispatch,
+    ),
+    (
+        c::java_util_Arrays,
+        name_hash(c::java_util_Arrays.as_bytes()),
+        arrays::dispatch,
+    ),
+    (
+        c::java_lang_Math,
+        name_hash(c::java_lang_Math.as_bytes()),
+        math::dispatch,
+    ),
+    (
+        c::java_lang_System,
+        name_hash(c::java_lang_System.as_bytes()),
+        arrays::dispatch_system,
+    ),
 ];
 
 /// If the receiver is a Throwable being constructed with a String and/or a
@@ -953,14 +1075,8 @@ impl NativeContext<'_> {
     /// String (e.g. `Class.getName().replace('.', '/')`) whose backing `Vec` the
     /// GC can free, leaving any retained pointer dangling.
     pub fn canonical_class_name(&self, name: &str) -> Option<&'static str> {
-        for cf in self.classes {
-            if let Some(n) = cf.class_name() {
-                if n == name.as_bytes() {
-                    return core::str::from_utf8(n).ok();
-                }
-            }
-        }
-        None
+        let cf = crate::class_file::find_class(self.classes, name.as_bytes())?;
+        core::str::from_utf8(self.classes[cf].class_name()?).ok()
     }
 }
 
@@ -1211,8 +1327,11 @@ impl NativeMethodHandler for BuiltinHandler {
             }
             return Some(Err(JvmError::InvalidReference));
         }
-        for &(name, dispatch_fn) in BUILTIN_DISPATCH {
-            if name == class_name {
+        // Hash first: under `--shrink` every name here is the same four-byte
+        // length, so a plain compare was a `bcmp` call per row.
+        let hash = name_hash(class_name.as_bytes());
+        for &(name, name_hash, dispatch_fn) in BUILTIN_DISPATCH {
+            if name_hash == hash && name_eq(name.as_bytes(), class_name.as_bytes()) {
                 return dispatch_fn(method_name, ctx);
             }
         }

@@ -104,6 +104,9 @@ pub struct ClassFile {
     /// Pre-scanned class name (Flash-backed UTF8 bytes from the constant
     /// pool), exactly as the class file spells it.
     name: &'static [u8],
+    /// [`name_hash`] of `name`, so a lookup by name compares one `u32` per
+    /// registered class before touching bytes — see [`find_class`].
+    name_hash: u32,
     /// Fully-parsed internals; filled on first access via `parsed()`.
     /// Boxed so an unparsed ClassFile is one null pointer (8 B) instead of an
     /// inlined ~176 B of empty Vec headers — saves ~21 KB on 128 framework
@@ -139,6 +142,7 @@ impl ClassFile {
         Self {
             data,
             name,
+            name_hash: name_hash(name),
             parsed: OnceCell::new(),
         }
     }
@@ -149,6 +153,7 @@ impl ClassFile {
         Self {
             data,
             name,
+            name_hash: name_hash(name),
             parsed: cell,
         }
     }
@@ -156,6 +161,12 @@ impl ClassFile {
     /// Returns the pre-scanned class name (does not trigger a full parse).
     pub(crate) fn scanned_name(&self) -> &'static [u8] {
         self.name
+    }
+
+    /// Whether this class is named `name`, given `hash == name_hash(name)`.
+    #[inline]
+    pub fn is_named(&self, name: &[u8], hash: u32) -> bool {
+        self.name_hash == hash && name_eq(self.name, name)
     }
 
     /// Approximate RAM held by this class's lazily-parsed metadata, as
@@ -264,4 +275,56 @@ impl<'a> Cursor<'a> {
     fn pos(&self) -> usize {
         self.pos
     }
+}
+
+/// FNV-1a over a class name. Every registered class carries its hash, so a
+/// lookup by name is one integer compare per class before any bytes are
+/// read. That matters under `--shrink`: every framework and `java/**` class
+/// is then a four-byte `a/XX` / `b/XX` name, so the length check that used
+/// to reject almost every candidate passes for all of them, and a plain
+/// byte compare became a `bcmp` call per class per lookup (17× the compare
+/// calls of a no-shrink run, 73 % slower string benchmarks).
+///
+/// Out of line, like [`name_eq`] and [`find_class`]: inlined at every scan
+/// site these cost 8 KB of rp2040 flash, and a local `bl` is no dearer than
+/// the `bcmp` call they replace.
+#[inline(never)]
+pub const fn name_hash(name: &[u8]) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    let mut i = 0;
+    while i < name.len() {
+        h ^= name[i] as u32;
+        h = h.wrapping_mul(0x0100_0193);
+        i += 1;
+    }
+    h
+}
+
+/// Equality for the short byte strings the JVM matches on — class, method
+/// and field names, descriptors. Up to 16 bytes it is an inlined loop
+/// rather than a `bcmp` call, which is what a two- or four-byte shrunk name
+/// wants; longer slices take the library path.
+#[inline(never)]
+pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    if a.len() <= 16 {
+        for i in 0..a.len() {
+            if a[i] != b[i] {
+                return false;
+            }
+        }
+        true
+    } else {
+        a == b
+    }
+}
+
+/// Index of the registered class named `name`, if any. The one lookup
+/// every resolution path funnels through; see [`name_hash`].
+#[inline(never)]
+pub fn find_class(classes: &[ClassFile], name: &[u8]) -> Option<usize> {
+    let hash = name_hash(name);
+    classes.iter().position(|cf| cf.is_named(name, hash))
 }

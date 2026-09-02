@@ -237,7 +237,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             // JVMS §5.5 step 2: preparation — every static field gets its
             // typed default before `<clinit>` runs.  Putstatic in `<clinit>`
             // then overwrites these with any explicit initializers.
-            if let Some(cf) = self.classes.iter().find(|c| c.class_name() == Some(cn)) {
+            if let Some(cf) =
+                crate::class_file::find_class(self.classes, cn).map(|i| &self.classes[i])
+            {
                 for fi in cf.static_fields() {
                     if let (Some(name), Some(desc)) =
                         (cf.cp_utf8(fi.name_index), cf.field_descriptor(fi))

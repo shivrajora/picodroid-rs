@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::names::{c, d};
 use crate::{
-    class_file::ClassFile,
+    class_file::{find_class, name_eq, ClassFile},
     class_objects::ClassObjectCache,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -120,7 +120,7 @@ fn resolve_class_literal(
     // `Runnable.class` — classfile-less by design, see `BUILTIN_CLASS_NAMES`).
     // Anything else would give getName() an unstable name and leave a
     // following checkcast/instanceof unresolvable.
-    let loaded = classes.iter().any(|c| c.class_name() == Some(name_bytes));
+    let loaded = find_class(classes, name_bytes).is_some();
     if !loaded {
         let is_builtin = core::str::from_utf8(name_bytes)
             .is_ok_and(|n| crate::native::BUILTIN_CLASS_NAMES.contains(&n));
@@ -166,17 +166,13 @@ pub(super) fn find_method(
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    for (ci, cf) in classes.iter().enumerate() {
-        let cn = cf.class_name()?;
-        if cn != class_name.as_bytes() {
-            continue;
-        }
-        for (mi, m) in cf.methods().iter().enumerate() {
-            let mn = cf.cp_utf8(m.name_index)?;
-            let md = cf.cp_utf8(m.descriptor_index)?;
-            if mn == method_name.as_bytes() && md == descriptor.as_bytes() {
-                return Some((ci, mi));
-            }
+    let ci = find_class(classes, class_name.as_bytes())?;
+    let cf = &classes[ci];
+    for (mi, m) in cf.methods().iter().enumerate() {
+        let mn = cf.cp_utf8(m.name_index)?;
+        let md = cf.cp_utf8(m.descriptor_index)?;
+        if name_eq(mn, method_name.as_bytes()) && name_eq(md, descriptor.as_bytes()) {
+            return Some((ci, mi));
         }
     }
     None
@@ -328,10 +324,7 @@ pub(super) fn field_slot_declared(
     // name-only walk below.
     let mut declaring: Option<&str> = None;
     let mut current = declared_class;
-    while let Some(ci) = classes
-        .iter()
-        .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
-    {
+    while let Some(ci) = find_class(classes, current.as_bytes()) {
         let cf = &classes[ci];
         let declares = (0..cf.fields().len()).any(|fi| {
             cf.field_name(fi)
@@ -362,10 +355,7 @@ fn field_slot_in(
     let mut enum_base = false;
     let mut current: &str = class_name;
     loop {
-        let ci = match classes
-            .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
-        {
+        let ci = match find_class(classes, current.as_bytes()) {
             Some(i) => i,
             None => {
                 // Not in loaded classes — check if it's java/lang/Enum
@@ -393,7 +383,7 @@ fn field_slot_in(
         // With a known declaring class, only its own field table may match;
         // shadowing classes above/below it keep their own slots.
         let this_declares = match declaring {
-            Some(d) => cf.class_name().is_some_and(|n| n == d.as_bytes()),
+            Some(d) => cf.class_name().is_some_and(|n| name_eq(n, d.as_bytes())),
             None => true,
         };
         for fi in 0..cf.fields().len() {
@@ -675,7 +665,7 @@ fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) 
             return true;
         }
     }
-    let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(iface)) else {
+    let Some(cf) = find_class(classes, iface).map(|i| &classes[i]) else {
         return false;
     };
     cf.interfaces().iter().any(|&idx| {
@@ -706,10 +696,7 @@ pub(super) fn is_instance_of(
         if builtin_interfaces(current).contains(&target_class) {
             return true;
         }
-        let ci = match classes
-            .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
-        {
+        let ci = match find_class(classes, current.as_bytes()) {
             Some(i) => i,
             None => {
                 // No classfile — follow the builtin hierarchy.
@@ -821,23 +808,14 @@ pub(super) fn find_clinit(classes: &[ClassFile], class_name: &[u8]) -> Option<(u
 pub(super) fn superclass_chain(classes: &[ClassFile], class_name: &[u8]) -> Vec<&'static [u8]> {
     let mut chain: Vec<&'static [u8]> = Vec::new();
     // Find the Flash-backed &'static [u8] for the initial class name.
-    let mut current: Option<&'static [u8]> = classes
-        .iter()
-        .find(|cf| cf.class_name() == Some(class_name))
-        .and_then(|cf| cf.class_name());
+    let mut current: Option<&'static [u8]> =
+        find_class(classes, class_name).and_then(|i| classes[i].class_name());
     while let Some(name) = current {
         chain.push(name);
-        let super_name = classes
-            .iter()
-            .find(|cf| cf.class_name() == Some(name))
-            .and_then(|cf| cf.super_class_name());
+        let super_name = find_class(classes, name).and_then(|i| classes[i].super_class_name());
         // Only follow superclasses that are in our loaded class set.
-        current = super_name.and_then(|sn| {
-            classes
-                .iter()
-                .find(|cf| cf.class_name() == Some(sn))
-                .and_then(|cf| cf.class_name())
-        });
+        current =
+            super_name.and_then(|sn| find_class(classes, sn).and_then(|i| classes[i].class_name()));
     }
     chain.reverse(); // root-first
     chain
@@ -864,10 +842,7 @@ pub(super) fn find_method_walking(
         if let Some(result) = find_method(classes, current, method_name, descriptor) {
             return Some(result);
         }
-        let Some(ci) = classes
-            .iter()
-            .position(|cf| cf.class_name().is_some_and(|n| n == current.as_bytes()))
-        else {
+        let Some(ci) = find_class(classes, current.as_bytes()) else {
             break;
         };
         let Some(super_bytes) = classes[ci].super_class_name() else {
@@ -900,7 +875,7 @@ fn find_default_method(
 ) -> Option<(usize, usize)> {
     let mut queue: Vec<&'static [u8]> = Vec::new();
     let mut current = start_class;
-    while let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(current)) {
+    while let Some(cf) = find_class(classes, current).map(|i| &classes[i]) {
         push_interfaces(&mut queue, cf);
         match cf.super_class_name() {
             Some(s) => current = s,
@@ -912,7 +887,7 @@ fn find_default_method(
     while i < queue.len() {
         let name = queue[i];
         i += 1;
-        let Some(cf) = classes.iter().find(|cf| cf.class_name() == Some(name)) else {
+        let Some(cf) = find_class(classes, name).map(|i| &classes[i]) else {
             continue;
         };
         push_interfaces(&mut queue, cf);
@@ -972,24 +947,20 @@ pub(super) fn class_name_to_static_in(
     name: &str,
 ) -> &'static str {
     // 1. Loaded user classes (Flash-backed)
-    for cf in classes.iter() {
-        if let Some(cn) = cf.class_name() {
-            if cn == name.as_bytes() {
-                if let Ok(s) = core::str::from_utf8(cn) {
-                    return s;
-                }
-            }
+    if let Some(cn) = find_class(classes, name.as_bytes()).and_then(|i| classes[i].class_name()) {
+        if let Ok(s) = core::str::from_utf8(cn) {
+            return s;
         }
     }
     // 2. JVM builtins
     for &builtin in crate::native::BUILTIN_CLASS_NAMES {
-        if builtin == name {
+        if name_eq(builtin.as_bytes(), name.as_bytes()) {
             return builtin;
         }
     }
     // 3. Host-supplied native classes
     for &extra in extra_native_classes {
-        if extra == name {
+        if name_eq(extra.as_bytes(), name.as_bytes()) {
             return extra;
         }
     }
