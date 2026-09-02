@@ -300,6 +300,10 @@ that interaction, since `-Os` + LTO may behave differently from `-O3` + LTO.
 
 ### 6.2 Retire runtime class-name translation — ~19 KB
 
+> Planned as [unconditional-shrink-2026-09.md](unconditional-shrink-2026-09.md)
+> (2026-09-02): ProGuard semantics for `--shrink`, no original name anywhere
+> in the image, `Class.getName()` returns the mapped name.
+
 August's #3/#5 priced this at ~4.7 KB of `.rodata`. The `.text` side was not
 counted then and is larger:
 
