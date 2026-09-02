@@ -10,8 +10,8 @@
 //!   PAPK over USB, so the device never reboots into an incompatible image.
 //!
 //! Keeping the rule in one `no_std` crate prevents the two paths from
-//! drifting as the shrink-map design evolves (e.g. when method-level
-//! shrinking lands and adds new compat conditions).
+//! drifting as the shrink-map design evolves — which is what let the
+//! method-level shrink add its floor rule below in one place.
 //!
 //! ## Compatibility rules
 //!
@@ -20,9 +20,21 @@
 //! | `0.0.0`     | `0.0.0`     | OK — both unshrunk              |
 //! | `0.0.0`     | non-zero    | `Mismatch` — asymmetric         |
 //! | non-zero    | `0.0.0`     | `Mismatch` — asymmetric         |
+//! | `v` ≥ floor | `v'` < floor | `PredatesMemberShrink`          |
 //! | `v` (≥1)    | `v'` ≤ `v`  | OK — append-only invariant      |
 //! | `v` (≥1)    | `v'` > `v`  | `Mismatch` — PAPK from future   |
 //! | anything    | `None`      | OK iff firmware = `0.0.0`, else `Missing` |
+//!
+//! The floor: maps from [`MEMBER_SHRINK_FLOOR`] on also rename method and
+//! field names (`[[member]]` rows). Class renames are additive — an older
+//! PAPK keeps resolving on newer firmware because every name it uses is
+//! still there — but the first member map renamed *existing* members, so a
+//! PAPK cut before it still calls `setText` on a framework that now declares
+//! `aB`. Both sides are rebuilt together by every workflow; the check just
+//! makes the stale case a clear error instead of `NoSuchMethod` at runtime.
+//! (The floor is a constant here rather than a wire field because host and
+//! device link this same crate; a picodroid-core test pins it to the first
+//! committed map with member entries.)
 //!
 //! See `docs/shrinker.md` for the broader design.
 
@@ -41,7 +53,15 @@ pub enum CompatError {
     /// and the firmware is past the `0.0.0` sentinel — can't tell whether
     /// it's compatible, so reject.
     Missing,
+    /// PAPK was shrunk with a map older than [`MEMBER_SHRINK_FLOOR`] against
+    /// firmware at or past it: its member names are unshrunk, the
+    /// firmware's are not. Rebuild the PAPK.
+    PredatesMemberShrink,
 }
+
+/// First shrink-map release whose map renames members (see the crate docs).
+pub const MEMBER_SHRINK_FLOOR: &str = "0.16.0";
+const MEMBER_SHRINK_FLOOR_TUPLE: (u32, u32, u32) = (0, 16, 0);
 
 /// Apply the compatibility rule. `papk_version = None` means the PAPK has
 /// no `framework-map-version` manifest key (legacy pre-M1 PAPK). Returns
@@ -69,6 +89,9 @@ pub fn check(papk_version: Option<&str>, firmware_version: &str) -> Result<(), C
     if papk_zero != fw_zero {
         // One side shrunk, the other not — asymmetric, reject.
         return Err(CompatError::Mismatch);
+    }
+    if fw >= MEMBER_SHRINK_FLOOR_TUPLE && pv < MEMBER_SHRINK_FLOOR_TUPLE {
+        return Err(CompatError::PredatesMemberShrink);
     }
     if pv <= fw {
         Ok(())
@@ -180,6 +203,36 @@ mod tests {
     }
 
     // ── check: malformed input ──────────────────────────────────────────
+
+    #[test]
+    fn floor_constant_and_tuple_agree() {
+        assert_eq!(
+            parse_semver(MEMBER_SHRINK_FLOOR),
+            Some(MEMBER_SHRINK_FLOOR_TUPLE)
+        );
+    }
+
+    #[test]
+    fn papk_before_member_floor_rejected_on_firmware_at_or_past_it() {
+        assert_eq!(
+            check(Some("0.15.0"), MEMBER_SHRINK_FLOOR),
+            Err(CompatError::PredatesMemberShrink)
+        );
+        assert_eq!(
+            check(Some("0.15.0"), "0.17.0"),
+            Err(CompatError::PredatesMemberShrink)
+        );
+        // At or past the floor on both sides: the append-only rule applies.
+        assert_eq!(
+            check(Some(MEMBER_SHRINK_FLOOR), MEMBER_SHRINK_FLOOR),
+            Ok(())
+        );
+        assert_eq!(check(Some(MEMBER_SHRINK_FLOOR), "0.17.0"), Ok(()));
+        // Both before the floor: unchanged.
+        assert_eq!(check(Some("0.14.0"), "0.15.0"), Ok(()));
+        // Newer-than-firmware still loses to the future-PAPK rule.
+        assert_eq!(check(Some("0.17.0"), "0.15.0"), Err(CompatError::Mismatch));
+    }
 
     #[test]
     fn bad_papk_version_returns_bad_version() {

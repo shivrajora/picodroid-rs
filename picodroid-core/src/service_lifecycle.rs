@@ -16,6 +16,7 @@
 
 #![cfg(not(test))]
 
+use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, SharedJvmHeap};
 
@@ -669,7 +670,7 @@ fn invoke_connection_connected(
     let extra = [Value::ObjectRef(binder_ref)];
     match jvm.invoke_instance_with_args(
         conn_class,
-        "onServiceConnected",
+        m::onServiceConnected,
         conn_ref,
         &extra,
         heap,
@@ -691,7 +692,13 @@ fn invoke_connection_disconnected(
         Some(s) => s,
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
-    match jvm.invoke_instance(conn_class, "onServiceDisconnected", conn_ref, heap, handler) {
+    match jvm.invoke_instance(
+        conn_class,
+        m::onServiceDisconnected,
+        conn_ref,
+        heap,
+        handler,
+    ) {
         Ok(()) => crate::lifecycle::LifecycleControl::Continue,
         Err(JvmError::Interrupted) => crate::lifecycle::LifecycleControl::Break,
         Err(_) => crate::lifecycle::LifecycleControl::Continue,

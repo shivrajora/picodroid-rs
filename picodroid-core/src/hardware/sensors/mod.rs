@@ -647,7 +647,7 @@ fn deliver_event(
 
     jvm.invoke_instance_with_args(
         static_class,
-        "onSensorChanged",
+        crate::shrink_names::m::onSensorChanged,
         listener_obj,
         &[Value::ObjectRef(event_obj)],
         heap,

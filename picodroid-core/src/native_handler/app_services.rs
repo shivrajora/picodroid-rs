@@ -8,6 +8,7 @@
 //! callbacks (onCreate, onStartCommand, onBind, ...) run between frames in
 //! [`crate::service_lifecycle`].
 
+use crate::shrink_names::m;
 use pico_jvm::native::NativeContext;
 use pico_jvm::types::{JvmError, Value};
 
@@ -26,10 +27,10 @@ pub(super) fn dispatch(
     // matched on method name regardless of receiver class because the JVM
     // dispatches with the runtime subclass (Activity/Application/...).
     match method_name {
-        "startService" => return Some(handle_start_service(handler, ctx)),
-        "stopService" => return Some(handle_stop_service(handler, ctx)),
-        "bindService" => return Some(handle_bind_service(handler, ctx)),
-        "unbindService" => return Some(handle_unbind_service(handler, ctx)),
+        m::startService => return Some(handle_start_service(handler, ctx)),
+        m::stopService => return Some(handle_stop_service(handler, ctx)),
+        m::bindService => return Some(handle_bind_service(handler, ctx)),
+        m::unbindService => return Some(handle_unbind_service(handler, ctx)),
         _ => {}
     }
     // NotificationManager.{notify,cancel} — gated on the class because
@@ -37,18 +38,18 @@ pub(super) fn dispatch(
     // handler owns.
     if class_name == "picodroid/app/NotificationManager" {
         return match method_name {
-            "notify" => Some(handle_notification_notify(ctx)),
-            "cancel" => Some(handle_notification_cancel(ctx)),
+            m::notify => Some(handle_notification_notify(ctx)),
+            m::cancel => Some(handle_notification_cancel(ctx)),
             _ => None,
         };
     }
     // Service-specific methods — these arrive with the runtime Service
     // subclass as `class_name`, so we don't gate on it.
     match method_name {
-        "stopSelf" => Some(handle_stop_self(handler, ctx)),
-        "stopSelfResult" => Some(handle_stop_self_result(handler, ctx)),
-        "startForeground" => Some(handle_start_foreground(handler, ctx)),
-        "stopForeground" => Some(handle_stop_foreground(handler, ctx)),
+        m::stopSelf => Some(handle_stop_self(handler, ctx)),
+        m::stopSelfResult => Some(handle_stop_self_result(handler, ctx)),
+        m::startForeground => Some(handle_start_foreground(handler, ctx)),
+        m::stopForeground => Some(handle_stop_foreground(handler, ctx)),
         _ => None,
     }
 }

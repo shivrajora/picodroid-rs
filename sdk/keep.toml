@@ -1,7 +1,12 @@
 # Framework keep list — names that must NOT be renamed by the shrinker.
 #
-# v1 shrinks only class names (methods/fields are deferred to a later
-# release map). Add entries here as "never rename this class".
+# Classes: `[[class]]` / `[[glob]]` below. Members (methods and fields, mapped
+# by bare name since map v0.16.0): `[[member]]`, plus — the bulk of the set —
+# every member name in sdk/api-contract.tsv, which `cut-release --keep-contract`
+# reads directly: those are the java/** members pico-jvm dispatches by literal
+# on any receiver (toString, equals, run, compare, hasNext, getMessage, …), so
+# an override renamed away from them would silently stop being found.
+# Un-keeping a member later is compat-breaking (compat::MEMBER_SHRINK_FLOOR).
 #
 # java/** is deliberately NOT kept. Those names are shrunk under the `b/`
 # namespace (tools/class-shrink/src/rename.rs); pico-jvm reverse-translates
@@ -13,6 +18,14 @@
 # recognizes `@KeepName` annotations on user classes later.
 [[class]]
 name = "picodroid/annotation/KeepName"
+
+# Invoked by literal from Rust on APP classes (boot.rs / lifecycle.rs), so they
+# must stay verbatim even if the SDK ever declares them.
+[[member]]
+name = "main"
+
+[[member]]
+name = "injectMembers"
 
 # The kotlin/** stdlib shim (kotlin-shim/) rides inside Kotlin apps' PAPKs and
 # is never renamed. Maps are generated from the SDK set, so this documents the

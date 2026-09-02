@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::shrink_names::m;
 use pico_jvm::types::MonitorKey;
 use pico_jvm::{
     types::{JvmError, Value},
@@ -381,36 +382,40 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // `graphics/` because it calls *back* into Java:
             // `invoke_java` needs the arm to lend back this very `&mut self`,
             // and the graphics sub-dispatchers only receive `&mut LvglBackend`.
-            ("picodroid/widget/ListView", "nativeBindAdapter") => {
+            ("picodroid/widget/ListView", m::nativeBindAdapter) => {
                 Some(crate::graphics::widgets::list_view_bind_adapter(self, ctx))
             }
-            ("picodroid/util/Log", "v") => {
+            ("picodroid/util/Log", m::v) => {
                 Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", "d") => {
+            ("picodroid/util/Log", m::d) => {
                 Some(log::log(LogLevel::Debug, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", "i") => {
+            ("picodroid/util/Log", m::i) => {
                 Some(log::log(LogLevel::Info, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", "w") => {
+            ("picodroid/util/Log", m::w) => {
                 Some(log::log(LogLevel::Warn, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/util/Log", "e") => {
+            ("picodroid/util/Log", m::e) => {
                 Some(log::log(LogLevel::Error, ctx.args, ctx.strings).map(|_| None))
             }
-            ("picodroid/os/Runtime", "gcTimeNanos") => {
+            ("picodroid/os/Runtime", m::gcTimeNanos) => {
                 Some(Ok(Some(Value::Long(self.gc_time_ns as i64))))
             }
-            ("picodroid/os/Runtime", "gcCount") => Some(Ok(Some(Value::Int(self.gc_count as i32)))),
-            ("picodroid/os/Runtime", "gcFreed") => Some(Ok(Some(Value::Int(self.gc_freed as i32)))),
-            ("picodroid/os/Runtime", "resetGcStats") => {
+            ("picodroid/os/Runtime", m::gcCount) => {
+                Some(Ok(Some(Value::Int(self.gc_count as i32))))
+            }
+            ("picodroid/os/Runtime", m::gcFreed) => {
+                Some(Ok(Some(Value::Int(self.gc_freed as i32))))
+            }
+            ("picodroid/os/Runtime", m::resetGcStats) => {
                 self.gc_time_ns = 0;
                 self.gc_count = 0;
                 self.gc_freed = 0;
                 Some(Ok(None))
             }
-            ("picodroid/os/Runtime", "usedMemory") => {
+            ("picodroid/os/Runtime", m::usedMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 let used32 = used.min(u32::MAX as usize) as u32;
@@ -419,10 +424,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 }
                 Some(Ok(Some(Value::Long(used as i64))))
             }
-            ("picodroid/os/Runtime", "peakMemory") => {
+            ("picodroid/os/Runtime", m::peakMemory) => {
                 Some(Ok(Some(Value::Long(self.peak_used as i64))))
             }
-            ("picodroid/os/Runtime", "resetPeakMemory") => {
+            ("picodroid/os/Runtime", m::resetPeakMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 self.peak_used = used.min(u32::MAX as usize) as u32;
@@ -432,11 +437,11 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // Match any class name: invokevirtual dispatches with the runtime
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
-            (_, "startActivity") => {
+            (_, m::startActivity) => {
                 self.enqueue_activity_push(ctx, None, 0);
                 Some(Ok(None))
             }
-            (_, "startActivityForResult") => {
+            (_, m::startActivityForResult) => {
                 // args[0] = this (Activity), args[1] = Intent, args[2] = int requestCode.
                 // The receiver is the caller that will get onActivityResult.
                 let caller_ref = match ctx.args.first() {
@@ -450,7 +455,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 self.enqueue_activity_push(ctx, Some(request_code), caller_ref);
                 Some(Ok(None))
             }
-            (_, "setResult") => {
+            (_, m::setResult) => {
                 // args[0] = this (Activity), args[1] = int resultCode,
                 // optional args[2] = Intent. Recorded on the caller's stack
                 // entry, delivered to its launcher on finish.
@@ -473,7 +478,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // exactly the top, and that's the documented Android behavior
             // ("a paused Activity finishing itself" doesn't happen unless
             // the app is misbehaving anyway).
-            (_, "getIntent") => {
+            (_, m::getIntent) => {
                 // args[0] = this (an Activity). Returns the Intent retained on
                 // the stack entry at push time, or null for the boot Activity
                 // — Android's contract.
@@ -486,7 +491,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     None => Value::Null,
                 })))
             }
-            (_, "finish") => {
+            (_, m::finish) => {
                 // args[0] = this. Android's finish() is idempotent per
                 // Activity (mFinished) and a no-op on one already destroyed;
                 // without these guards `finish(); finish();` queued two Pops

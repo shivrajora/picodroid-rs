@@ -6,6 +6,12 @@ Used by `picodroid`'s `build.rs` to apply the active release shrink map to compi
 
 The append-only invariant is what makes cross-version compatibility predictable: an old PAPK runs on new firmware as long as the firmware's map version ≥ the PAPK's map version.
 
+Maps carry class names (`[[class]]`, `a/` framework and `b/` `java/**`
+namespaces) and, since schema 2 / v0.16.0, member names (`[[member]]`,
+owner-agnostic). This tool rewrites class names and *allocates* member
+names; the member rewrite itself is the Gradle-side ASM pass
+(`buildSrc/.../ShrinkMembersTask.kt`), which rebuilds the constant pool.
+
 ## Usage as a library
 
 ```toml
@@ -14,10 +20,11 @@ class-shrink = { path = "tools/class-shrink" }
 ```
 
 ```rust
-use class_shrink::{mapping, shrink};
+use class_shrink::{mapping::ShrinkMap, shrink};
 
-let map = mapping::load_from_toml("sdk/shrink-maps/v0.1.0.toml")?;
-let rewritten = shrink::rewrite(original_class_bytes, &map)?;
+let map = ShrinkMap::load(Path::new("sdk/shrink-maps/v0.16.0.toml"))?;
+shrink::shrink_directory(&classes_in, &classes_out, &map)?;
+let short = map.member_target("setText"); // Some("uQ") under a member map
 ```
 
 ## Usage as a CLI
@@ -26,12 +33,17 @@ let rewritten = shrink::rewrite(original_class_bytes, &map)?;
 # Print the active map version (semver or "0.0.0" sentinel)
 class-shrink print-version --cargo-toml Cargo.toml --shrink-maps-dir sdk/shrink-maps
 
-# Cut a new release map covering every non-kept class under <dir>
-class-shrink cut-release \
+# Cut a new release map: every non-kept class under <dir> (a/), the java/**
+# names it references (b/), and — with --members — its method/field names
+class-shrink cut-release --members \
     --classes-dir build/classes \
     --keep sdk/keep.toml \
-    --out sdk/shrink-maps/v0.2.0.toml \
-    --base sdk/shrink-maps/v0.1.0.toml
+    --extra-names sdk/api-contract.tsv \
+    --keep-contract sdk/api-contract.tsv \
+    --reserve kotlin-shim/build/classes/java/main \
+    --base sdk/shrink-maps/v0.15.0.toml \
+    --version 0.16.0 \
+    --out sdk/shrink-maps/v0.16.0.toml
 
 # Rewrite every .class file under --in using --map's classes
 class-shrink shrink-dir \
@@ -40,7 +52,7 @@ class-shrink shrink-dir \
     --map sdk/shrink-maps/v0.1.0.toml
 ```
 
-See `docs/shrinker.md` in the parent repo for the full map format and design.
+See `website/src/content/docs/reference/shrinker.md` in the parent repo for the full map format and design.
 
 ## Status
 

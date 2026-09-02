@@ -517,9 +517,9 @@ impl<'a> Papk<'a> {
     pub fn verify_compat(&self, firmware_version: &str) -> Result<(), PapkError> {
         compat::check(self.framework_map_version(), firmware_version).map_err(|e| match e {
             compat::CompatError::Missing => PapkError::FrameworkVersionMissing,
-            compat::CompatError::Mismatch | compat::CompatError::BadVersion => {
-                PapkError::FrameworkVersionMismatch
-            }
+            compat::CompatError::Mismatch
+            | compat::CompatError::BadVersion
+            | compat::CompatError::PredatesMemberShrink => PapkError::FrameworkVersionMismatch,
         })
     }
 
@@ -950,6 +950,16 @@ mod tests {
             build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.2.0")]);
         assert_eq!(
             parse_leaked(papk).verify_compat("0.1.0"),
+            Err(PapkError::FrameworkVersionMismatch)
+        );
+    }
+
+    #[test]
+    fn verify_compat_rejects_papk_before_member_floor() {
+        let papk =
+            build_papk_with_manifest(&[("main-class", "x/Y"), ("framework-map-version", "0.15.0")]);
+        assert_eq!(
+            parse_leaked(papk).verify_compat(compat::MEMBER_SHRINK_FLOOR),
             Err(PapkError::FrameworkVersionMismatch)
         );
     }

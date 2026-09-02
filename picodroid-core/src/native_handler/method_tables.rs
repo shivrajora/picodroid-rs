@@ -648,7 +648,7 @@ pub const ALLOWED_UNHANDLED: &[Row] = &[];
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shrink_names::unshrink_descriptor;
+    use crate::shrink_names::{unshrink_descriptor, unshrink_member};
     use pico_jvm::class_file::ClassFile;
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -666,10 +666,11 @@ mod tests {
                 if m.access_flags & ACC_NATIVE == 0 {
                     continue;
                 }
-                let name =
+                let name = unshrink_member(
                     core::str::from_utf8(cf.cp_utf8(m.name_index).expect("method name utf8"))
-                        .expect("method name is UTF-8")
-                        .to_string();
+                        .expect("method name is UTF-8"),
+                )
+                .to_string();
                 let desc = core::str::from_utf8(
                     cf.cp_utf8(m.descriptor_index).expect("method descriptor"),
                 )

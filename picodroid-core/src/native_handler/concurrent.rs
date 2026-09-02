@@ -2,6 +2,7 @@
 //! Native dispatch for `picodroid.concurrent.Executors` and the built-in
 //! `MainExecutor` / `BackgroundExecutor` instances.
 
+use crate::shrink_names::m;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
@@ -19,14 +20,14 @@ pub fn dispatch(
         // Factory methods return a fresh executor instance each call. The
         // Rust-side queues are static, so identity of the returned object
         // does not matter — every instance routes to the same inbox/pool.
-        ("picodroid/concurrent/Executors", "mainExecutor") => {
+        ("picodroid/concurrent/Executors", m::mainExecutor) => {
             let exec_class = crate::shrink_names::shrink_class("picodroid/concurrent/MainExecutor");
             match ctx.objects.alloc(exec_class) {
                 Some(obj) => Some(Ok(Some(Value::ObjectRef(obj)))),
                 None => Some(Err(JvmError::StackOverflow)),
             }
         }
-        ("picodroid/concurrent/Executors", "backgroundExecutor") => {
+        ("picodroid/concurrent/Executors", m::backgroundExecutor) => {
             let exec_class =
                 crate::shrink_names::shrink_class("picodroid/concurrent/BackgroundExecutor");
             match ctx.objects.alloc(exec_class) {
@@ -36,7 +37,7 @@ pub fn dispatch(
         }
 
         // execute(Runnable r): args[0] = this, args[1] = Runnable ObjectRef.
-        ("picodroid/concurrent/MainExecutor", "execute") => {
+        ("picodroid/concurrent/MainExecutor", m::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !main_queue::enqueue_runnable(*runnable) {
                     #[cfg(not(feature = "sim"))]
@@ -47,7 +48,7 @@ pub fn dispatch(
             }
             Some(Ok(None))
         }
-        ("picodroid/concurrent/BackgroundExecutor", "execute") => {
+        ("picodroid/concurrent/BackgroundExecutor", m::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !background_pool::submit(*runnable) {
                     #[cfg(not(feature = "sim"))]

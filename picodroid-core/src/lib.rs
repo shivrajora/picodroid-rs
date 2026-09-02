@@ -122,6 +122,11 @@ mod native_method_tables_tests;
 #[cfg(test)]
 #[path = "native_handler/api_contract.rs"]
 mod native_api_contract_tests;
+// SDK member-name manifest: generates sdk/member-names.tsv (the source of
+// the `shrink_names::m` consts) and fails when the committed copy is stale.
+#[cfg(test)]
+#[path = "native_handler/member_names.rs"]
+mod native_member_names_tests;
 // HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
 // status-line/header rules would otherwise be the untested kind this shim
 // list exists to prevent.

@@ -8,6 +8,8 @@
 //!
 //!   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
 //!                [--base <prev-map.toml>] [--extra-names <file>]...
+//!                [--members --version <semver> --keep-contract <tsv>
+//!                 [--reserve <dir>]...]
 //!       Generate a new release map covering every non-kept class under
 //!       <classes-dir> (allocated under `a/`) plus every `java/**` name
 //!       those classes reference (allocated under `b/`, which pico-jvm
@@ -17,6 +19,10 @@
 //!       given, its entries are copied verbatim and only net-new names get
 //!       fresh short names (the append-only rule). Deterministic: same
 //!       input → same output.
+//!       --members also allocates [[member]] targets for the framework's
+//!       method and field names: --keep-contract's member column is never
+//!       mapped, --reserve trees (the kotlin-shim) never yield a target, and
+//!       --version becomes `member-floor` on the first member cut.
 //!
 //!   shrink-dir --in <dir> --out <dir> --map <file.toml>
 //!       Rewrite every .class file under --in using --map's classes and
@@ -88,9 +94,29 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
     let mut out_path: Option<PathBuf> = None;
     let mut base_path: Option<PathBuf> = None;
     let mut extra_paths: Vec<PathBuf> = Vec::new();
+    let mut members = false;
+    let mut reserve_dirs: Vec<PathBuf> = Vec::new();
+    let mut contract_path: Option<PathBuf> = None;
+    let mut cut_version: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--members" => {
+                members = true;
+                i += 1;
+            }
+            "--reserve" => {
+                reserve_dirs.push(PathBuf::from(args.get(i + 1).expect("value")));
+                i += 2;
+            }
+            "--keep-contract" => {
+                contract_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
+                i += 2;
+            }
+            "--version" => {
+                cut_version = Some(args.get(i + 1).expect("value").to_string());
+                i += 2;
+            }
             "--classes-dir" => {
                 classes_dir = Some(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
@@ -161,20 +187,49 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
             }
         }
     }
-    let map = match shrink::cut_release(&classes_dir, &keep, &extra_names, base) {
+    let mut map = match shrink::cut_release(&classes_dir, &keep, &extra_names, base) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Error cutting release: {e}");
             return ExitCode::from(1);
         }
     };
+    if members {
+        let Some(version) = cut_version else {
+            eprintln!("Error: --members requires --version <semver>");
+            return ExitCode::from(1);
+        };
+        let contract_names = match &contract_path {
+            Some(p) => match shrink::read_contract_member_names(p) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("Error reading --keep-contract {}: {e}", p.display());
+                    return ExitCode::from(1);
+                }
+            },
+            None => {
+                eprintln!("Error: --members requires --keep-contract <sdk/api-contract.tsv>");
+                return ExitCode::from(1);
+            }
+        };
+        let opts = shrink::MemberCut {
+            reserve_dirs: &reserve_dirs,
+            contract_names: &contract_names,
+            version: &version,
+        };
+        if let Err(e) = shrink::cut_release_members(&classes_dir, &keep, &opts, &mut map) {
+            eprintln!("Error cutting member map: {e}");
+            return ExitCode::from(1);
+        }
+    }
     if let Err(e) = map.save(&out_path) {
         eprintln!("Error saving map: {e}");
         return ExitCode::from(1);
     }
     eprintln!(
-        "Cut release map with {} classes → {}",
+        "Cut release map with {} classes, {} members → {}",
         map.classes.len(),
+        map.members.len(),
         out_path.display()
     );
     ExitCode::SUCCESS
@@ -263,9 +318,10 @@ fn cmd_verify(args: &[String]) -> ExitCode {
         };
         match map.verify_injective() {
             Ok(()) => eprintln!(
-                "ok: {} ({} classes, 1:1)",
+                "ok: {} ({} classes, {} members, 1:1)",
                 path.display(),
-                map.classes.len()
+                map.classes.len(),
+                map.members.len()
             ),
             Err(e) => {
                 eprintln!("FAIL: {}: {e}", path.display());
@@ -281,7 +337,7 @@ fn cmd_verify(args: &[String]) -> ExitCode {
 }
 
 const USAGE: &str = "\
-class-shrink — Java class-name shrinker for picodroid
+class-shrink — Java class/member-name shrinker for picodroid
 
 Subcommands:
 
@@ -290,14 +346,21 @@ Subcommands:
 
   cut-release --classes-dir <dir> --keep <keep.toml> --out <file.toml>
               [--base <prev-map.toml>] [--extra-names <file>]...
+              [--members --version <semver> --keep-contract <tsv>
+               [--reserve <dir>]...]
       Generate a release map covering non-kept classes (a/) and the
       java/** names they reference (b/). --extra-names adds names from
       a text file (sdk/api-contract.tsv works as-is). Append-only when
       --base is provided (existing entries are preserved).
+      --members also maps the framework's method/field names: the
+      --keep-contract member column is never mapped, --reserve trees
+      (the kotlin-shim) never yield a target, --version becomes the
+      member-floor on the first member cut.
 
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,
-      writing results under --out at their new internal names.
+      writing results under --out at their new internal names. Member
+      renames are applied by the Gradle ShrinkMembersTask (ASM), not here.
 
   verify <map.toml> [<map.toml> ...]
       Check each map is a 1:1 original -> shrunk mapping (no duplicate

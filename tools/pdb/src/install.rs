@@ -178,6 +178,8 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
                         "version mismatch (asymmetric --shrink, or PAPK newer than firmware)",
                     compat::CompatError::Missing =>
                         "PAPK predates the framework-map-version manifest key",
+                    compat::CompatError::PredatesMemberShrink =>
+                        "PAPK was shrunk before method/field names were (map < member floor); rebuild it",
                     compat::CompatError::BadVersion => "unparseable version string",
                 },
             );

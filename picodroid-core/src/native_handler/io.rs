@@ -2,6 +2,7 @@
 //! `java/io/*` native methods — minimal File / FileInputStream / FileOutputStream
 //! backed by LittleFS on hardware and by an in-process map in sim.
 
+use crate::shrink_names::m;
 use alloc::vec::Vec;
 use pico_jvm::{
     array_heap::{ArrayHeap, ATYPE_BYTE},
@@ -33,18 +34,18 @@ pub fn dispatch(
 ) -> Option<Result<Option<Value>, JvmError>> {
     let class_name = crate::shrink_names::unshrink_class(class_name);
     match (class_name, method_name) {
-        ("picodroid/io/File", "exists") => Some(file_bool(ctx, backend::exists)),
-        ("picodroid/io/File", "isFile") => Some(file_bool(ctx, backend::is_file)),
-        ("picodroid/io/File", "isDirectory") => Some(file_bool(ctx, backend::is_dir)),
-        ("picodroid/io/File", "length") => Some(file_length(ctx)),
-        ("picodroid/io/File", "delete") => Some(file_bool(ctx, backend::delete)),
-        ("picodroid/io/File", "mkdir") => Some(file_bool(ctx, backend::mkdir)),
-        ("picodroid/io/File", "renameTo") => Some(file_rename_to(ctx)),
-        ("picodroid/io/FileInputStream", "read") => Some(fis_read(ctx)),
-        ("picodroid/io/FileInputStream", "available") => Some(fis_available(ctx)),
-        ("picodroid/io/FileOutputStream", "initStream") => Some(fos_init_stream(ctx)),
-        ("picodroid/io/FileOutputStream", "write") => Some(fos_write(ctx)),
-        ("picodroid/io/FileOutputStream", "flush") => Some(Ok(None)),
+        ("picodroid/io/File", m::exists) => Some(file_bool(ctx, backend::exists)),
+        ("picodroid/io/File", m::isFile) => Some(file_bool(ctx, backend::is_file)),
+        ("picodroid/io/File", m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
+        ("picodroid/io/File", m::length) => Some(file_length(ctx)),
+        ("picodroid/io/File", m::delete) => Some(file_bool(ctx, backend::delete)),
+        ("picodroid/io/File", m::mkdir) => Some(file_bool(ctx, backend::mkdir)),
+        ("picodroid/io/File", m::renameTo) => Some(file_rename_to(ctx)),
+        ("picodroid/io/FileInputStream", m::read) => Some(fis_read(ctx)),
+        ("picodroid/io/FileInputStream", m::available) => Some(fis_available(ctx)),
+        ("picodroid/io/FileOutputStream", m::initStream) => Some(fos_init_stream(ctx)),
+        ("picodroid/io/FileOutputStream", m::write) => Some(fos_write(ctx)),
+        ("picodroid/io/FileOutputStream", m::flush) => Some(Ok(None)),
         _ => None,
     }
 }
@@ -446,8 +447,8 @@ mod tests {
         );
         let buf = arrays.alloc(ATYPE_BYTE, 4).unwrap();
         for (class, this, m) in [
-            ("picodroid/io/FileInputStream", fis, "read"),
-            ("picodroid/io/FileOutputStream", fos, "write"),
+            ("picodroid/io/FileInputStream", fis, m::read),
+            ("picodroid/io/FileOutputStream", fos, m::write),
         ] {
             for (off, len) in [(0, -1), (-1, 2), (3, 2), (0, 5), (i32::MAX, 1)] {
                 let r = call(
@@ -476,7 +477,7 @@ mod tests {
         // A well-formed read still works: 4 bytes of "hello" into the buffer.
         let r = call(
             "picodroid/io/FileInputStream",
-            "read",
+            m::read,
             &[
                 Value::ObjectRef(fis),
                 Value::ArrayRef(buf),
@@ -492,7 +493,7 @@ mod tests {
         // len == 0 reads nothing and returns 0 (InputStream contract).
         let r = call(
             "picodroid/io/FileInputStream",
-            "read",
+            m::read,
             &[
                 Value::ObjectRef(fis),
                 Value::ArrayRef(buf),

@@ -20,6 +20,13 @@ include in `main.rs`, as §0 requires.
 `picodroid-core/src/native_handler/tables/` directory and no
 `native_table_macros.rs` anywhere in the tree; handlers still hand-match. The
 goal — making drift structurally impossible rather than test-enforced — stands.
+It is no longer a prerequisite for method-name shrinking, though: §5.2 of
+`flash-string-budget-2026-08.md` landed (map v0.16.0) with arms matching
+through build-generated `shrink_names::m::<name>` consts instead of literals
+(`no_sdk_method_literals_in_dispatch`, `handled_rows_use_member_consts`), and
+the `unshrink_method` this doc anticipated at line ~235 was never needed —
+dispatch matches the shrunk spelling directly, at zero runtime cost. An X-macro
+would emit `m::` paths rather than literals.
 
 **Third parallel table (2026-08-31, android-parity E3).** The classfile-less
 builtins got the same treatment for the compile-time contract:

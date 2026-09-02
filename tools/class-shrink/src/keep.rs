@@ -29,6 +29,8 @@ use std::path::Path;
 pub struct KeepList {
     pub exact: Vec<String>,
     pub globs: Vec<String>,
+    /// Member names never mapped (`[[member]]`).
+    pub members: Vec<String>,
 }
 
 impl KeepList {
@@ -49,6 +51,11 @@ impl KeepList {
             }
         }
         false
+    }
+
+    /// Returns true if `member_name` is listed under `[[member]]`.
+    pub fn is_member_kept(&self, member_name: &str) -> bool {
+        self.members.iter().any(|k| k == member_name)
     }
 }
 
@@ -135,12 +142,17 @@ fn parse(text: &str) -> io::Result<KeepList> {
             section = Some("glob");
             continue;
         }
+        if line == "[[member]]" {
+            section = Some("member");
+            continue;
+        }
         if let Some((k, v)) = line.split_once('=') {
             let k = k.trim();
             let v = v.trim().trim_matches('"');
             match (section, k) {
                 (Some("class"), "name") => keep.exact.push(v.to_string()),
                 (Some("glob"), "pattern") => keep.globs.push(v.to_string()),
+                (Some("member"), "name") => keep.members.push(v.to_string()),
                 _ => {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -192,9 +204,15 @@ name = "foo/Bar"
 
 [[glob]]
 pattern = "kotlin/**"
+
+[[member]]
+name = "main"
 "#;
         let k = parse(text).unwrap();
         assert_eq!(k.exact, vec!["foo/Bar".to_string()]);
         assert_eq!(k.globs, vec!["kotlin/**".to_string()]);
+        assert_eq!(k.members, vec!["main".to_string()]);
+        assert!(k.is_member_kept("main"));
+        assert!(!k.is_member_kept("onCreate"));
     }
 }

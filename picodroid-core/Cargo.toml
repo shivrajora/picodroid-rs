@@ -84,6 +84,9 @@ freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = tr
 # manifest, so the tests build one rather than hand-rolling bytes that could
 # drift from the format.
 papk-format = { path = "../papk-format", features = ["write"] }
+# Reads the committed shrink maps for the member-name guard tests
+# (native_handler/member_names.rs); a build-dependency already, host-only.
+class-shrink = { path = "../tools/class-shrink" }
 
 [build-dependencies]
 # Compiles the vendored LVGL C sources; this crate owns that build because it

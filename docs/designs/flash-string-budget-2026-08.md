@@ -338,6 +338,37 @@ Costs and traps:
 
 ### 5.2 Method/field names — the biggest prize and the hardest
 
+> **Landed 2026-09-01 (map v0.16.0, branch `member-shrink`).** Measured on
+> `pico_enviro_mon` / `picoenvmon` `--release --shrink`, main `2fb3d9e` (§4 +
+> §5.1 composed) vs. the change: **959,911 → 943,959 B (−15,952)**. Stripped SDK
+> corpus 114,731 → 103,864 (**−10,867**), `picoenvmon.papk` (stripped) 60,123 →
+> 58,283 (**−1,840**; app-private names stay verbatim), the rest is the
+> dispatch/upcall literal blob and `method_tables`-adjacent text leaving
+> `.rodata`. `testbench_rp2040` `helloworld --release --shrink` links at
+> **872,853 → 859,307 / 917,248 B (−13,546)**, `testbench_rp2350` at
+> **900,149 → 886,015 B (−14,134)** — baselines rebuilt from `2fb3d9e` with the
+> same toolchain and lockfile. The design differs from the sketch below in every
+> obstacle: (1) no X-macro and no `unshrink_method` — `build.rs` generates one
+> `const` per SDK method name (`shrink_names::m::setText`, value = the map's
+> target under `--shrink`, the original otherwise) from the committed
+> `sdk/member-names.tsv`, and every arm/upcall matches through it, so dispatch
+> costs nothing and the literal blob disappears (sim `benchmark` TOTAL 1,178 →
+> 1,089 ms under `--shrink`); (2) the map is global **by name**, so overrides and
+> callers rename in lockstep with no per-class analysis, and the keep set is
+> exactly `sdk/api-contract.tsv`'s member column — every `java/**` member the
+> runtime matches by literal on any receiver — plus `main`/`injectMembers`;
+> (3) `<init>`, `$` synthetics and names ≤ 2 chars stay; (4) the kotlin-shim
+> needs no rename: it rides in the PAPK and is rewritten by the same map, its
+> names only *reserved* so no target aliases one (`cut-release --reserve`). The
+> rewrite is an ASM `ClassRemapper` in `buildSrc` (`ShrinkMembersTask`), not
+> `tools/class-shrink` — `ClassWriter(0)` rebuilds the constant pool, which
+> dissolves the shared-`Utf8` trap (an enum constant's field name *is* the
+> `String` its `<init>` receives; verified on `TimeUnit`). One real cost:
+> unlike §5.1, older shrunk PAPKs cannot keep loading (existing members were
+> renamed), so `compat::MEMBER_SHRINK_FLOOR = 0.16.0` rejects them with a clear
+> error; every workflow rebuilds both sides together. No-shrink images are
+> byte-identical (consts fold to the old literals); the ratchet is flat.
+
 12,988 B projected, but four real obstacles:
 
 1. **Rust dispatch matches method names as literals.** Every arm in
@@ -359,6 +390,7 @@ Costs and traps:
    members; it must be shrunk in the same pass or it breaks.
 
 Do this only after §4 and §5.1 are banked, and only with the X-macro landed.
+*(As landed: after §4 and §5.1, without the X-macro — see the status block.)*
 
 ## 6. Opportunity 3 — constant-pool compaction (9.1 KB)
 
@@ -408,9 +440,9 @@ Key gotchas when re-running:
 | 2 | Same strip in the PAPK packer (`buildSrc`) | 8.4 KB this app, scales | low | **done 2026-09-01** — `--strip-debug`, §4.2 |
 | 3 | Emit `PICODROID_NATIVE_CLASSES` in shrunk form from `build.rs` (`shrink_class` already exists) | ~1.9 KB | low | small |
 | 4 | Shrink `java/**` class names under a `b/` prefix — **landed 2026-09-01, −10,758 B alone, −9,541 B on top of #1+#2 (§5.1)** | ~10.7 KB | medium — `getName`, `catch`, `instanceof` | map v0.15 + JVM name tables |
-| 5 | Match dispatch on shrunk names directly, retire `unshrink_class`'s original column | ~4.7 KB | medium | needs the X-macro |
+| 5 | Match dispatch on shrunk names directly, retire `unshrink_class`'s original column | ~4.7 KB | medium | the `m::` const mechanism from #7 applied to class names (`c::`); no X-macro needed, and it also removes the per-native-call `unshrink_class` match |
 | 6 | Constant-pool compaction | ~9.1 KB | medium — bytecode renumbering | the §4 orphans are gone with #1/#2 (ASM rebuilds the pool); only pre-existing dead entries remain |
-| 7 | Shrink method/field names | ~13 KB | high — override consistency, Kotlin shim | only after #5 |
+| 7 | Shrink method/field names — **landed 2026-09-01, −15,952 B on top of #1+#2+#4 (§5.2)** | ~13 KB | high — override consistency, Kotlin shim | map v0.16.0; did not need #5 |
 
 Steps 1–3 are **24.4 KB (2.4% of flash) at low risk** and are independent of
 each other. On `testbench_rp2040` — 896,343 bytes against an 896 K ceiling —

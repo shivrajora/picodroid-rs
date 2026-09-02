@@ -8,8 +8,11 @@
 //! predictable (old PAPKs run on new firmware as long as the firmware's
 //! map version ≥ the PAPK's map version).
 //!
-//! M1 exposes only the version-resolution machinery. Actual bytecode
-//! rewriting lands in M3.
+//! Class names are rewritten here (`shrink`); member names are allocated
+//! here (`shrink::cut_release_members`, schema-2 `[[member]]` rows) and
+//! rewritten by the Gradle-side ASM `ShrinkMembersTask`. Since the first
+//! member map (v0.16.0) an older shrunk PAPK no longer runs on newer
+//! firmware — see `compat::MEMBER_SHRINK_FLOOR`.
 
 pub mod classfile;
 pub mod descriptor;

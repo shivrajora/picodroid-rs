@@ -55,6 +55,160 @@ pub fn emit_framework_map_version(out: &Path, root: &Path) {
         .unwrap_or_else(|e| panic!("cannot write framework_mapping_version.rs: {e}"));
 }
 
+/// Emit `framework_member_names.rs` into `out`: the `m::` const module every
+/// Rust dispatch arm and upcall names SDK methods through, plus the
+/// test-only `unshrink_member` / `shrink_member` translators.
+///
+/// The names come from the committed `sdk/member-names.tsv` (every method
+/// and field the SDK declares, in original spelling — kept current by
+/// picodroid-core's `member_names_are_current` test), not from the compiled
+/// corpus: the module must exist for a bare `cargo build` too, where no
+/// Gradle run happens. Each `M` row becomes
+/// `pub const <name>: &str = "<spelling>"` where the spelling is the active
+/// map's `[[member]]` target when shrinking is on and the map renames it,
+/// and the original otherwise — so a no-shrink build compiles to exactly
+/// the string literals it matched before. Consts are free: only the ones a
+/// `match` arm uses reach `.rodata`, and those replace an identical literal.
+pub fn emit_member_names(out: &Path, root: &Path) {
+    let tsv = root.join("sdk/member-names.tsv");
+    println!("cargo:rerun-if-changed={}", tsv.display());
+    let map = active_shrink_map(root);
+    let members: Vec<(bool, String)> = match fs::read_to_string(&tsv) {
+        Ok(text) => text
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .filter_map(|l| {
+                let (kind, name) = l.split_once('\t')?;
+                Some((kind == "M", name.trim().to_string()))
+            })
+            .collect(),
+        Err(_) => {
+            println!(
+                "cargo:warning={} is missing — the m:: member-name module is empty; \
+                 run scripts/gen-api-contract.sh",
+                tsv.display()
+            );
+            Vec::new()
+        }
+    };
+    let target = |name: &str| -> String {
+        map.as_ref()
+            .and_then(|m| m.member_target(name))
+            .unwrap_or(name)
+            .to_string()
+    };
+    let mut body = String::from(
+        "/// SDK method names as the loaded framework spells them — the active\n\
+         /// shrink map's target under `--shrink`, the original otherwise. Generated\n\
+         /// by build_support/papk.rs from sdk/member-names.tsv; match on these,\n\
+         /// never on a string literal (`no_sdk_method_literals_in_dispatch`).\n\
+         #[allow(non_upper_case_globals, dead_code)]\n\
+         pub mod m {\n",
+    );
+    let mut seen = std::collections::HashSet::new();
+    for (is_method, name) in &members {
+        if !is_method {
+            continue;
+        }
+        let Some(ident) = rust_ident_for(name) else {
+            continue;
+        };
+        assert!(
+            seen.insert(ident.clone()),
+            "two SDK method names map to the Rust ident {ident}"
+        );
+        body.push_str(&format!(
+            "    pub const {ident}: &str = {:?};\n",
+            target(name)
+        ));
+    }
+    body.push_str("}\n\n");
+    // Test-only translators: the shrink lane reads member names out of the
+    // loaded corpus and must compare them against original-name tables.
+    body.push_str(
+        "/// Original spelling of a loaded member name (test-only: firmware never\n\
+         /// needs it — dispatch matches the shrunk spelling directly via `m::`).\n\
+         #[cfg(test)]\n\
+         pub fn unshrink_member(name: &str) -> &str {\n    match name {\n",
+    );
+    if let Some(map) = &map {
+        for (from, to) in map.iter_members() {
+            body.push_str(&format!("        {to:?} => {from:?},\n"));
+        }
+    }
+    body.push_str("        other => other,\n    }\n}\n\n");
+    body.push_str(
+        "/// Loaded spelling of an original member name (test-only).\n\
+         #[cfg(test)]\n\
+         pub fn shrink_member(name: &str) -> &str {\n    match name {\n",
+    );
+    if let Some(map) = &map {
+        for (from, to) in map.iter_members() {
+            body.push_str(&format!("        {from:?} => {to:?},\n"));
+        }
+    }
+    body.push_str("        other => other,\n    }\n}\n");
+    fs::write(out.join("framework_member_names.rs"), body)
+        .unwrap_or_else(|e| panic!("cannot write framework_member_names.rs: {e}"));
+}
+
+/// The active shrink map, or `None` when shrinking is off or no map covers
+/// the package version. Same resolution as [`apply_active_shrink`].
+fn active_shrink_map(root: &Path) -> Option<class_shrink::mapping::ShrinkMap> {
+    let map_path = active_shrink_map_path(root)?;
+    Some(
+        class_shrink::mapping::ShrinkMap::load(&map_path)
+            .unwrap_or_else(|e| panic!("failed to load {}: {e}", map_path.display())),
+    )
+}
+
+/// Path of the active shrink map file, if any (see [`active_shrink_map`]).
+fn active_shrink_map_path(root: &Path) -> Option<PathBuf> {
+    if !shrink_enabled() {
+        return None;
+    }
+    let shrink_maps_dir = root.join("sdk").join("shrink-maps");
+    let cargo_toml = {
+        let rp = root.join("platforms/rp/Cargo.toml");
+        if rp.exists() {
+            rp
+        } else {
+            root.join("Cargo.toml")
+        }
+    };
+    let pkg_version = read_package_version(&cargo_toml).ok()?;
+    let active = resolve_active_map_version(&pkg_version, &shrink_maps_dir);
+    if active == "0.0.0" {
+        return None;
+    }
+    Some(shrink_maps_dir.join(format!("v{active}.toml")))
+}
+
+/// The Rust identifier a Java method name is exposed as in `m::`. Java
+/// names that are Rust keywords are raw (`r#type`); the four that cannot be
+/// raw get a trailing underscore; javac synthetics (`$`) and `<init>`-style
+/// names, which no Rust code matches, get none.
+fn rust_ident_for(name: &str) -> Option<String> {
+    if name.is_empty() || name.contains('$') || name.starts_with('<') {
+        return None;
+    }
+    if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || name.as_bytes()[0].is_ascii_digit()
+    {
+        return None;
+    }
+    Some(match name {
+        "self" | "super" | "crate" | "Self" => format!("{name}_"),
+        "as" | "break" | "const" | "continue" | "else" | "enum" | "extern" | "false" | "fn"
+        | "for" | "if" | "impl" | "in" | "let" | "loop" | "match" | "mod" | "move" | "mut"
+        | "pub" | "ref" | "return" | "static" | "struct" | "trait" | "true" | "type" | "unsafe"
+        | "use" | "where" | "while" | "async" | "await" | "dyn" | "abstract" | "become" | "box"
+        | "do" | "final" | "macro" | "override" | "priv" | "typeof" | "unsized" | "virtual"
+        | "yield" | "try" | "gen" => format!("r#{name}"),
+        _ => name.to_string(),
+    })
+}
+
 /// Shrinking is gated on the `PICODROID_SHRINK=1` env var — set by the
 /// `--shrink` flag on top-level scripts (build.sh / flash.sh / sim.sh /
 /// build-apk.sh). Any value other than `"1"` (including unset) is off.
@@ -215,16 +369,36 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // fingerprint, so no rerun-if-env-changed is needed. Cargo sets it to the
     // empty string when on, hence the presence test.
     let strip_debug = env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_none();
-    let (gradle_task, classes_dir) = if strip_debug {
-        (
+    // With a member-shrinking map active, embed the tree the ASM
+    // `ShrinkMembersTask` wrote on top of that choice (member names renamed,
+    // class names still original — `apply_active_shrink` renames those next).
+    // The map path travels as a -P property: a warm Gradle daemon's
+    // environment is frozen, so env would silently go stale.
+    let member_map = active_shrink_map(root).filter(|m| m.has_members());
+    let mut gradle_args: Vec<String> = Vec::new();
+    let (gradle_task, classes_dir) = match (strip_debug, &member_map) {
+        (true, None) => (
             ":sdk:stripClasses",
             root.join("sdk/build/classes-stripped/java/main"),
-        )
-    } else {
-        (":sdk:compileJava", root.join("sdk/build/classes/java/main"))
+        ),
+        (false, None) => (":sdk:compileJava", root.join("sdk/build/classes/java/main")),
+        (true, Some(_)) => (
+            ":sdk:shrinkMembersStripped",
+            root.join("sdk/build/classes-members-stripped/java/main"),
+        ),
+        (false, Some(_)) => (
+            ":sdk:shrinkMembersRaw",
+            root.join("sdk/build/classes-members-raw/java/main"),
+        ),
     };
+    if member_map.is_some() {
+        let map_path = active_shrink_map_path(root).expect("member map has a path");
+        println!("cargo:rerun-if-changed={}", map_path.display());
+        gradle_args.push(format!("-Ppicodroid.shrinkMap={}", map_path.display()));
+    }
     let status = Command::new(&gradlew)
         .arg(gradle_task)
+        .args(&gradle_args)
         .arg("--console=plain")
         .arg("-q")
         .current_dir(root)
@@ -246,11 +420,11 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
         "{} holds no .class files after ./gradlew {gradle_task}",
         classes_dir.display()
     );
-    if strip_debug {
+    if strip_debug || member_map.is_some() {
         let raw_count = collect_files(&root.join("sdk/build/classes/java/main"), "class").len();
         assert_eq!(
             class_count, raw_count,
-            "stripped SDK tree has {class_count} classes but compileJava produced {raw_count}"
+            "{gradle_task} produced {class_count} classes but compileJava produced {raw_count}"
         );
     }
 

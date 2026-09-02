@@ -49,6 +49,7 @@ fn main() {
     let board = board_cfg::resolve(&manifest_dir);
 
     papk::emit_framework_map_version(out, root);
+    papk::emit_member_names(out, root);
     papk::embed_framework_classes(out, root, &board_cfg::framework_class_excludes(&board));
 
     // A board that declares a capability must have the matching feature

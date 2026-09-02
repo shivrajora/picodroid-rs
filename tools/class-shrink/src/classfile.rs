@@ -10,6 +10,13 @@
 //!
 //! Rewriting a Utf8 entry changes the CP's byte length but does NOT shift
 //! CP indices. The trailing section is therefore byte-copyable verbatim.
+//!
+//! [`ClassFile::members`] walks the tail read-only (attributes skipped by
+//! length) so `cut-release` can enumerate declared members; member
+//! *rewriting* is not done here — the Gradle-side ASM pass
+//! (`buildSrc/.../ShrinkMembersTask.kt`) owns that, because it rebuilds the
+//! constant pool and so never has to split a Utf8 slot shared between a
+//! member name and an `ldc` string literal.
 
 use std::collections::HashSet;
 use std::io;
@@ -172,6 +179,106 @@ impl ClassFile {
     }
 }
 
+/// One declared field or method, as read by [`ClassFile::members`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberInfo {
+    pub access_flags: u16,
+    pub name: Vec<u8>,
+    pub descriptor: Vec<u8>,
+}
+
+/// The declared members of a class file plus its own access flags.
+#[derive(Clone, Debug, Default)]
+pub struct Members {
+    /// The class's `access_flags` (`ACC_ANNOTATION` = 0x2000, `ACC_ENUM` = 0x4000, …).
+    pub class_access: u16,
+    pub fields: Vec<MemberInfo>,
+    pub methods: Vec<MemberInfo>,
+}
+
+impl ClassFile {
+    fn utf8(&self, idx: usize) -> io::Result<&[u8]> {
+        match self.entries.get(idx) {
+            Some(CpEntry::Utf8(b)) => Ok(b),
+            _ => Err(invalid(&format!("CP #{idx} is not a Utf8"))),
+        }
+    }
+
+    /// Enumerate the declared fields and methods by walking the tail:
+    /// `access_flags, this_class, super_class, interfaces[], fields[],
+    /// methods[]`, with every attribute skipped by its `attribute_length`
+    /// (JVMS §4.1). Read-only; nothing is interpreted past the member
+    /// headers.
+    pub fn members(&self) -> io::Result<Members> {
+        let t = &self.tail;
+        let mut p = 0usize;
+        let u2 = |p: &mut usize| -> io::Result<usize> {
+            let v = t
+                .get(*p..*p + 2)
+                .ok_or_else(|| invalid("truncated class body"))?;
+            *p += 2;
+            Ok(u16::from_be_bytes([v[0], v[1]]) as usize)
+        };
+        let class_access = u2(&mut p)? as u16;
+        let _this = u2(&mut p)?;
+        let _super = u2(&mut p)?;
+        let ifaces = u2(&mut p)?;
+        p += 2 * ifaces;
+        let mut out = Members {
+            class_access,
+            ..Default::default()
+        };
+        for kind in 0..2 {
+            let count = u2(&mut p)?;
+            for _ in 0..count {
+                let access_flags = u2(&mut p)? as u16;
+                let name = self.utf8(u2(&mut p)?)?.to_vec();
+                let descriptor = self.utf8(u2(&mut p)?)?.to_vec();
+                let attrs = u2(&mut p)?;
+                for _ in 0..attrs {
+                    let _name = u2(&mut p)?;
+                    let len = t
+                        .get(p..p + 4)
+                        .ok_or_else(|| invalid("truncated attribute"))?;
+                    p += 4 + u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+                    if p > t.len() {
+                        return Err(invalid("attribute overruns class body"));
+                    }
+                }
+                let info = MemberInfo {
+                    access_flags,
+                    name,
+                    descriptor,
+                };
+                if kind == 0 {
+                    out.fields.push(info);
+                } else {
+                    out.methods.push(info);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Member names this class *references* — the `name_index` of every
+    /// `CONSTANT_NameAndType` (field refs, method refs, `invokedynamic`
+    /// call-site names). Together with [`members`](Self::members) this is
+    /// the complete set of member names a class file spells out.
+    pub fn referenced_member_names(&self) -> Vec<&[u8]> {
+        let mut out = Vec::new();
+        for e in &self.entries {
+            let CpEntry::Other { tag: 12, payload } = e else {
+                continue;
+            };
+            let idx = u16::from_be_bytes([payload[0], payload[1]]) as usize;
+            if let Some(CpEntry::Utf8(b)) = self.entries.get(idx) {
+                out.push(b.as_slice());
+            }
+        }
+        out
+    }
+}
+
 /// Utf8 slot indices grouped by the kind of entry that references them; see
 /// [`ClassFile::utf8_refs`].
 #[derive(Debug, Default)]
@@ -252,6 +359,19 @@ mod tests {
         let utf8s: Vec<Vec<u8>> = cf.utf8_entries_mut().map(|b| b.clone()).collect();
         assert!(utf8s.contains(&b"java/lang/Object".to_vec()));
         assert!(utf8s.contains(&b"A".to_vec()));
+    }
+
+    #[test]
+    fn enumerates_members_and_references() {
+        let cf = ClassFile::parse(&sample_class_a()).unwrap();
+        let m = cf.members().unwrap();
+        assert_eq!(m.class_access, 0x0021);
+        assert!(m.fields.is_empty());
+        assert_eq!(m.methods.len(), 1);
+        assert_eq!(m.methods[0].name, b"<init>");
+        assert_eq!(m.methods[0].descriptor, b"()V");
+        assert_eq!(m.methods[0].access_flags, 0x0001);
+        assert_eq!(cf.referenced_member_names(), vec![b"<init>".as_slice()]);
     }
 
     #[test]

@@ -209,7 +209,7 @@ pub const NAME_ONLY_CLASSES: &[(&str, &str)] = &[
 mod tests {
     use super::{CONTRACT_HINTS, NAME_ONLY_CLASSES, TOLERATED};
     use crate::native_method_tables_tests::{ALL_HANDLED, PLATFORM_BUILTIN_METHODS};
-    use crate::shrink_names::{unshrink_class, unshrink_descriptor};
+    use crate::shrink_names::{unshrink_class, unshrink_descriptor, unshrink_member};
     use pico_jvm::class_file::ClassFile;
     use pico_jvm::interpreter::{BUILTIN_INTERFACES, BUILTIN_SUPER};
     use pico_jvm::native::{
@@ -265,7 +265,7 @@ mod tests {
                 if m.access_flags & ACC_PRIVATE != 0 {
                     continue;
                 }
-                let name = utf8(&cf, m.name_index, "method name");
+                let name = unshrink_member(&utf8(&cf, m.name_index, "method name")).to_string();
                 if name == "<clinit>" {
                     continue;
                 }
@@ -275,7 +275,7 @@ mod tests {
             // FieldInfo carries no access flags; a private field row is
             // harmless (javac already refuses the access).
             for f in cf.fields().iter().chain(cf.static_fields()) {
-                let name = utf8(&cf, f.name_index, "field name");
+                let name = unshrink_member(&utf8(&cf, f.name_index, "field name")).to_string();
                 let desc = utf8(&cf, f.descriptor_index, "field descriptor");
                 rows.insert((class.to_string(), name, unshrink_descriptor(&desc)));
             }

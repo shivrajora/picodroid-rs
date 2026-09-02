@@ -13,6 +13,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.21")
     // Class-file strip/prune/shake for Kotlin apps (picodroid.classfile.*).
     implementation("org.ow2.asm:asm:9.7")
+    // ClassRemapper for the member-name shrink (ShrinkMembersTask).
+    implementation("org.ow2.asm:asm-commons:9.7")
 }
 
 gradlePlugin {

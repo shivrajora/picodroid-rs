@@ -6,6 +6,7 @@
 //! loading, and shared heap management remain in `app.rs`.
 
 #[cfg(not(test))]
+use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 #[cfg(not(test))]
 use pico_jvm::{Jvm, SharedJvmHeap};
@@ -116,7 +117,7 @@ pub(crate) fn run_application(
         }
     };
 
-    match jvm.invoke_instance(application_class, "onCreate", obj_ref, heap, handler) {
+    match jvm.invoke_instance(application_class, m::onCreate, obj_ref, heap, handler) {
         Ok(()) => {}
         Err(JvmError::Interrupted) => return,
         Err(e) => {

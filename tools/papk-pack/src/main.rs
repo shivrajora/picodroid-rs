@@ -212,6 +212,9 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
             // expected descriptor is rewritten with the same map first.
             let main_desc =
                 shrunk_descriptor("([Ljava/lang/String;)V", args.shrink_map.as_deref())?;
+            if shrunk_member("main", args.shrink_map.as_deref())? != "main" {
+                return Err("the shrink map renames `main` — sdk/keep.toml must keep it".into());
+            }
             if matches!(
                 classcheck::class_has_method(bytes, "main", &main_desc, classcheck::ACC_STATIC,),
                 Some(false)
@@ -225,8 +228,9 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
         _ => {
             // onCreate is optional (the framework default is a no-op), so a
             // missing one is only a hint.
+            let on_create = shrunk_member("onCreate", args.shrink_map.as_deref())?;
             if matches!(
-                classcheck::class_has_method(bytes, "onCreate", "", 0),
+                classcheck::class_has_method(bytes, &on_create, "", 0),
                 Some(false)
             ) {
                 eprintln!(
@@ -237,6 +241,17 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
         }
     }
     Ok(())
+}
+
+/// `name` as it appears in class files rewritten with `map`'s `[[member]]`
+/// rows (the Gradle `shrinkMembers` pass); unchanged without a map.
+fn shrunk_member(name: &str, map: Option<&Path>) -> Result<String, String> {
+    let Some(map_path) = map else {
+        return Ok(name.to_string());
+    };
+    let map = class_shrink::mapping::ShrinkMap::load(map_path)
+        .map_err(|e| format!("--shrink-map {}: {e}", map_path.display()))?;
+    Ok(map.member_target(name).unwrap_or(name).to_string())
 }
 
 /// `desc` as it appears in class files rewritten with `map` — every

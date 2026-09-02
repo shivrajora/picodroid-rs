@@ -18,6 +18,7 @@
 //! docs/mem-session-2026-08.md for the measured cost).
 
 use crate::executors::background_pool;
+use crate::shrink_names::m;
 
 /// Install [`worker_body`] as the pool's worker loop. Call before
 /// `background_pool::spawn()`.
@@ -53,7 +54,7 @@ fn worker_body(worker_id: u32) {
         // Runnable.run interface method.
         if let Err(e) = j.invoke_static_with_args(
             crate::shrink_names::shrink_class("picodroid/concurrent/Executors"),
-            "dispatchRunnable",
+            m::dispatchRunnable,
             &[pico_jvm::types::Value::ObjectRef(obj_ref)],
             heap,
             &mut handler,

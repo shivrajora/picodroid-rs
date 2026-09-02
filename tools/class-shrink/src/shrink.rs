@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Top-level driver: apply a [`ShrinkMap`] to a directory of `.class` files.
 //!
-//! v1 rewrites only class names (and class-name substrings inside
-//! descriptors). Method and field names are untouched. The parser is
-//! lossless in byte order outside the constant pool, so rewriting Utf8
-//! entries alone keeps every class file valid.
+//! This tool rewrites class names (and class-name substrings inside
+//! descriptors). The parser is lossless in byte order outside the constant
+//! pool, so rewriting Utf8 entries alone keeps every class file valid.
+//! Member names are *allocated* here ([`cut_release_members`]) but rewritten
+//! by the Gradle-side ASM pass (`ShrinkMembersTask`), which rebuilds the
+//! constant pool and so never has to split a Utf8 shared between a member
+//! name and a string literal.
 //!
 //! Utf8 entries reached only through a `CONSTANT_String` are `ldc` string
 //! literals and are never rewritten, even when their text equals a mapped
@@ -18,7 +21,11 @@ use std::path::{Path, PathBuf};
 use crate::classfile::{ClassFile, CpEntry};
 use crate::descriptor::{class_refs, classify, rewrite_bare, rewrite_descriptor, RewriteKind};
 use crate::mapping::ShrinkMap;
-use crate::rename::{base26_inverse, namespace_for, short_suffix, shrunk_name, Namespace};
+use crate::rename::{
+    base26_inverse, member_inverse, member_suffix, namespace_for, short_suffix, shrunk_name,
+    Namespace,
+};
+use std::collections::BTreeSet;
 
 /// Recursively list every `.class` file under `root`, returning absolute
 /// paths sorted lexicographically (determinism).
@@ -211,6 +218,161 @@ fn is_internal_name(bytes: &[u8]) -> bool {
         .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'/'))
 }
 
+/// Member names of every `java/**`/`javax/**` member pico-jvm serves — the
+/// `name` column of `sdk/api-contract.tsv`'s member rows. These are the
+/// names the interpreter and `BuiltinHandler` match by literal on *any*
+/// receiver (`toString`, `equals`, `run`, `compare`, `hasNext`, …), so they
+/// are never mapped: an app override renamed away from them would silently
+/// stop being found.
+pub fn read_contract_member_names(path: &Path) -> io::Result<Vec<String>> {
+    let text = fs::read_to_string(path)?;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() || line.starts_with('#') || line.starts_with('@') {
+            continue;
+        }
+        let mut fields = line.split('\t');
+        let _owner = fields.next();
+        if let Some(name) = fields.next() {
+            if !name.is_empty() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+/// Inputs to [`cut_release_members`] beyond the corpus and keep list.
+pub struct MemberCut<'a> {
+    /// Class trees whose member names must never be handed out as targets
+    /// (the kotlin-shim: it rides inside Kotlin PAPKs and is rewritten with
+    /// the same map, so a target colliding with one of its names would be
+    /// ambiguous).
+    pub reserve_dirs: &'a [PathBuf],
+    /// Names from [`read_contract_member_names`]: kept and reserved.
+    pub contract_names: &'a [String],
+    /// The release being cut; becomes `member-floor` on the first cut that
+    /// maps a member.
+    pub version: &'a str,
+}
+
+/// `ACC_ANNOTATION` (JVMS §4.1): annotation interfaces' members are looked
+/// up by name from annotation payloads, which no remapper rewrites.
+const ACC_ANNOTATION: u16 = 0x2000;
+
+/// Candidate member names of one class tree, and every member name it
+/// spells (declared or referenced) — the latter is the reserve set.
+struct MemberCensus {
+    candidates: BTreeSet<String>,
+    spelled: BTreeSet<String>,
+}
+
+fn member_census(dir: &Path, collect_candidates: bool) -> io::Result<MemberCensus> {
+    let mut census = MemberCensus {
+        candidates: BTreeSet::new(),
+        spelled: BTreeSet::new(),
+    };
+    for file in list_class_files(dir)? {
+        let bytes = fs::read(&file)?;
+        let cf = ClassFile::parse(&bytes)?;
+        let members = cf.members()?;
+        let own = read_own_name(&cf)
+            .and_then(|n| std::str::from_utf8(n).ok())
+            .unwrap_or("")
+            .to_string();
+        // Members of classes pico-jvm serves by original name (`java/**`) and
+        // of the kotlin-shim stay verbatim; so do annotation members.
+        let shrinkable_owner = collect_candidates
+            && namespace_for(&own) == Namespace::Framework
+            && !own.starts_with("kotlin/")
+            && members.class_access & ACC_ANNOTATION == 0;
+        for m in members.fields.iter().chain(members.methods.iter()) {
+            let Ok(name) = std::str::from_utf8(&m.name) else {
+                continue;
+            };
+            census.spelled.insert(name.to_string());
+            if shrinkable_owner && is_member_candidate(name) {
+                census.candidates.insert(name.to_string());
+            }
+        }
+        for name in cf.referenced_member_names() {
+            if let Ok(s) = std::str::from_utf8(name) {
+                census.spelled.insert(s.to_string());
+            }
+        }
+    }
+    Ok(census)
+}
+
+/// `<init>`/`<clinit>` are JVMS-reserved; `$` marks javac synthetics
+/// (`$VALUES`, `lambda$…`, `access$…`) — class-internal, but not worth a
+/// const-identifier rule; names of ≤ 2 characters gain nothing.
+fn is_member_candidate(name: &str) -> bool {
+    !name.starts_with('<') && !name.contains('$') && name.len() > 2
+}
+
+/// Extend `map.members` with a target for every candidate member name in
+/// `in_dir` (append-only: existing entries are kept verbatim and the
+/// allocator resumes past the highest target already handed out).
+///
+/// Candidates: names declared by a framework class (`a/` namespace, not an
+/// annotation), minus `<init>`-style names, `$` synthetics, names of ≤ 2
+/// chars, `[[member]]` keeps and every contract name. Targets skip every
+/// name spelled anywhere in the corpus, the reserve trees, the contract, the
+/// keep list, or the map — so a target can never alias a name that stays.
+pub fn cut_release_members(
+    in_dir: &Path,
+    keep: &crate::keep::KeepList,
+    opts: &MemberCut<'_>,
+    map: &mut ShrinkMap,
+) -> io::Result<()> {
+    let corpus = member_census(in_dir, true)?;
+    let mut reserved: BTreeSet<String> = corpus.spelled;
+    for dir in opts.reserve_dirs {
+        reserved.extend(member_census(dir, false)?.spelled);
+    }
+    reserved.extend(opts.contract_names.iter().cloned());
+    reserved.extend(keep.members.iter().cloned());
+    reserved.extend(map.members.keys().cloned());
+    reserved.extend(map.members.values().cloned());
+
+    let contract: BTreeSet<&str> = opts.contract_names.iter().map(String::as_str).collect();
+    let mut next = map
+        .members
+        .values()
+        .filter_map(|t| member_inverse(t))
+        .map(|raw| raw + 1)
+        .max()
+        .unwrap_or(0);
+    let mut added = 0usize;
+    for name in corpus.candidates {
+        if keep.is_member_kept(&name) || contract.contains(name.as_str()) {
+            continue;
+        }
+        if map.members.contains_key(&name) {
+            continue;
+        }
+        let target = loop {
+            let t = member_suffix(&mut next);
+            if !reserved.contains(&t) {
+                break t;
+            }
+        };
+        map.members.insert(name, target);
+        added += 1;
+    }
+    if map.has_members() && map.member_floor.is_none() {
+        map.member_floor = Some(opts.version.to_string());
+    }
+    if let Err(e) = map.verify_injective() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+    }
+    eprintln!("members: {added} new targets allocated");
+    Ok(())
+}
+
 /// Walk `in_dir`'s class files, collect every class that's NOT kept by
 /// `keep` — the classes defined there, the `java/**` names they refer to,
 /// and `extra_names` (see [`read_extra_names`]) — sort deterministically,
@@ -315,17 +477,46 @@ mod tests {
     /// Build a minimal, member-less class file from 1-based constant-pool
     /// entries; `this_class` indexes the `CONSTANT_Class` naming the class.
     fn build_class(entries: Vec<CpEntry>, this_class: u16) -> Vec<u8> {
+        build_class_with(entries, this_class, 0x0021, &[], &[])
+    }
+
+    fn nat(name_idx: u16, desc_idx: u16) -> CpEntry {
+        let mut payload = name_idx.to_be_bytes().to_vec();
+        payload.extend_from_slice(&desc_idx.to_be_bytes());
+        CpEntry::Other { tag: 12, payload }
+    }
+
+    /// [`build_class`] with `(name_idx, desc_idx)` fields and methods; each
+    /// member gets one dummy 3-byte attribute so the length-skip is exercised.
+    fn build_class_with(
+        entries: Vec<CpEntry>,
+        this_class: u16,
+        access: u16,
+        fields: &[(u16, u16)],
+        methods: &[(u16, u16)],
+    ) -> Vec<u8> {
         let mut all = vec![CpEntry::Other {
             tag: 0,
             payload: Vec::new(),
         }];
         all.extend(entries);
         let mut tail = Vec::new();
-        tail.extend_from_slice(&0x0021u16.to_be_bytes()); // access_flags
+        tail.extend_from_slice(&access.to_be_bytes());
         tail.extend_from_slice(&this_class.to_be_bytes());
-        // super_class, interfaces_count, fields_count, methods_count,
-        // attributes_count — all zero.
-        tail.extend_from_slice(&[0u8; 10]);
+        tail.extend_from_slice(&[0u8; 4]); // super_class, interfaces_count
+        for table in [fields, methods] {
+            tail.extend_from_slice(&(table.len() as u16).to_be_bytes());
+            for &(name, desc) in table {
+                tail.extend_from_slice(&0x0001u16.to_be_bytes());
+                tail.extend_from_slice(&name.to_be_bytes());
+                tail.extend_from_slice(&desc.to_be_bytes());
+                tail.extend_from_slice(&1u16.to_be_bytes()); // attributes_count
+                tail.extend_from_slice(&name.to_be_bytes()); // attribute_name_index (any Utf8)
+                tail.extend_from_slice(&3u32.to_be_bytes());
+                tail.extend_from_slice(&[7, 7, 7]);
+            }
+        }
+        tail.extend_from_slice(&[0u8; 2]); // attributes_count
         ClassFile {
             header: b"\xCA\xFE\xBA\xBE\x00\x00\x00\x34".to_vec(),
             entries: all,
@@ -441,6 +632,162 @@ mod tests {
         let m = cut_release(&dir, &KeepList::default(), &names, ShrinkMap::new()).unwrap();
         assert_eq!(m.classes["java/lang/RuntimeException"], "b/D");
         assert_eq!(m.classes.len(), 6);
+    }
+
+    #[test]
+    fn contract_member_names_come_from_column_two() {
+        let dir = tmp("contract-members");
+        let file = dir.join("api-contract.tsv");
+        fs::write(
+            &file,
+            "# comment\n\
+             java/lang/Object\n\
+             java/lang/Object\ttoString\t\n\
+             java/util/Iterator\tnext\t()Ljava/lang/Object;\n\
+             java/util/Iterator\thasNext\t()Z\n\
+             @extends\tjava/lang/Error\tjava/lang/Throwable\n\
+             @hint\tjava/lang/System\tout\tno stdout\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_contract_member_names(&file).unwrap(),
+            vec!["hasNext", "next", "toString"]
+        );
+    }
+
+    /// `foo/Widget` declares `setText`, `refresh`, `toString` (contract),
+    /// `main` (keep), `id` (too short), `<init>`, `lambda$x$0` and a field
+    /// `count`; `java/lang/Math` declares `abs` (kept owner). Only the
+    /// framework names get targets, and no target equals a spelled name.
+    #[test]
+    fn cut_release_members_allocates_only_framework_candidates() {
+        let dir = tmp("cut-members");
+        let widget = build_class_with(
+            vec![
+                class(2),                      // #1
+                utf8("foo/Widget"),            // #2
+                utf8("setText"),               // #3
+                utf8("(Ljava/lang/String;)V"), // #4
+                utf8("refresh"),               // #5
+                utf8("()V"),                   // #6
+                utf8("toString"),              // #7  contract-kept
+                utf8("()Ljava/lang/String;"),  // #8
+                utf8("main"),                  // #9  keep.toml
+                utf8("id"),                    // #10 too short
+                utf8("<init>"),                // #11
+                utf8("lambda$x$0"),            // #12 synthetic
+                utf8("count"),                 // #13 field
+                utf8("I"),                     // #14
+                nat(16, 6),                    // #15 referenced member `a` — reserved
+                utf8("a"),                     // #16
+            ],
+            1,
+            0x0021,
+            &[(13, 14)],
+            &[(3, 4), (5, 6), (7, 8), (9, 6), (10, 6), (11, 6), (12, 6)],
+        );
+        fs::write(dir.join("Widget.class"), widget).unwrap();
+        let math = build_class_with(
+            vec![
+                class(2),               // #1
+                utf8("java/lang/Math"), // #2
+                utf8("abs"),            // #3
+                utf8("(I)I"),           // #4
+            ],
+            1,
+            0x0021,
+            &[],
+            &[(3, 4)],
+        );
+        fs::create_dir_all(dir.join("java/lang")).unwrap();
+        fs::write(dir.join("java/lang/Math.class"), math).unwrap();
+
+        let mut keep = KeepList::default();
+        keep.members.push("main".into());
+        let contract = vec!["toString".to_string()];
+        let mut map = ShrinkMap::new();
+        cut_release_members(
+            &dir,
+            &keep,
+            &MemberCut {
+                reserve_dirs: &[],
+                contract_names: &contract,
+                version: "0.16.0",
+            },
+            &mut map,
+        )
+        .unwrap();
+        let got: Vec<(&str, &str)> = map.iter_members().collect();
+        // Sorted candidates: count, refresh, setText. Target `a` is spelled
+        // (referenced) in the corpus, so allocation starts at `b`.
+        assert_eq!(
+            got,
+            vec![("count", "b"), ("refresh", "c"), ("setText", "d")]
+        );
+        assert_eq!(map.member_floor.as_deref(), Some("0.16.0"));
+
+        // Append-only resume: a second cut with a new member continues.
+        let more = build_class_with(
+            vec![class(2), utf8("foo/Other"), utf8("zebra"), utf8("()V")],
+            1,
+            0x0021,
+            &[],
+            &[(3, 4)],
+        );
+        fs::write(dir.join("Other.class"), more).unwrap();
+        cut_release_members(
+            &dir,
+            &keep,
+            &MemberCut {
+                reserve_dirs: &[],
+                contract_names: &contract,
+                version: "0.17.0",
+            },
+            &mut map,
+        )
+        .unwrap();
+        assert_eq!(map.members["zebra"], "e");
+        assert_eq!(map.members["setText"], "d");
+        assert_eq!(
+            map.member_floor.as_deref(),
+            Some("0.16.0"),
+            "floor is sticky"
+        );
+    }
+
+    #[test]
+    fn reserve_dirs_block_targets() {
+        let dir = tmp("cut-reserve-corpus");
+        let shim = tmp("cut-reserve-shim");
+        let widget = build_class_with(
+            vec![class(2), utf8("foo/Widget"), utf8("refresh"), utf8("()V")],
+            1,
+            0x0021,
+            &[],
+            &[(3, 4)],
+        );
+        fs::write(dir.join("Widget.class"), widget).unwrap();
+        let shim_cls = build_class_with(
+            vec![class(2), utf8("kotlin/Unit"), utf8("a"), utf8("()V")],
+            1,
+            0x0021,
+            &[],
+            &[(3, 4)],
+        );
+        fs::write(shim.join("Unit.class"), shim_cls).unwrap();
+        let mut map = ShrinkMap::new();
+        cut_release_members(
+            &dir,
+            &KeepList::default(),
+            &MemberCut {
+                reserve_dirs: &[shim],
+                contract_names: &[],
+                version: "0.16.0",
+            },
+            &mut map,
+        )
+        .unwrap();
+        assert_eq!(map.members["refresh"], "b", "`a` is spelled by the shim");
     }
 
     #[test]

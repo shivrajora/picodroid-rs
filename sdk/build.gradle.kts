@@ -24,3 +24,24 @@ val stripClasses by tasks.registering(picodroid.ClassStripTask::class) {
     keepLineNumbers.set(false)
     outputDir.set(layout.buildDirectory.dir("classes-stripped/java/main"))
 }
+
+// Member-name shrink of the SDK corpus (docs/designs/flash-string-budget-2026-08.md
+// §5.2). build.rs invokes one of these — with `-Ppicodroid.shrinkMap=<abs path>`
+// — when the firmware is built with PICODROID_SHRINK=1 and the active map has
+// `[[member]]` rows, then runs the Rust class-name pass on the output. Two
+// variants because the input differs by build: the stripped tree for device
+// firmware, compileJava's raw tree for debug_assertions (sim) builds; distinct
+// output directories so neither build can overwrite what the other embedded.
+val shrinkMapFile = layout.file(providers.gradleProperty("picodroid.shrinkMap").map { File(it) })
+val shrinkMembersStripped by tasks.registering(picodroid.ShrinkMembersTask::class) {
+    description = "Apply the shrink map's member renames to the stripped SDK classes"
+    inputDir.set(stripClasses.flatMap { it.outputDir })
+    mapFile.set(shrinkMapFile)
+    outputDir.set(layout.buildDirectory.dir("classes-members-stripped/java/main"))
+}
+val shrinkMembersRaw by tasks.registering(picodroid.ShrinkMembersTask::class) {
+    description = "Apply the shrink map's member renames to the raw SDK classes"
+    inputDir.set(tasks.named<JavaCompile>("compileJava").flatMap { it.destinationDirectory })
+    mapFile.set(shrinkMapFile)
+    outputDir.set(layout.buildDirectory.dir("classes-members-raw/java/main"))
+}

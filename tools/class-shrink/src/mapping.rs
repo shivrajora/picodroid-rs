@@ -1,26 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Release-versioned shrink map: original → shrunk class name pairs.
+//! Release-versioned shrink map: original → shrunk name pairs for classes
+//! and, since schema 2, for members (methods and fields).
 //!
-//! The v1 map is class-only. Methods and fields are deferred to a later
-//! release; existing entries will stay untouched when that happens
-//! (append-only invariant).
+//! Members share one namespace: the map is keyed by bare member name, not
+//! by owner, so `setText` renames the same way in every class that declares
+//! or calls it — that is what keeps an app's override in lockstep with the
+//! framework method it overrides. JVM method and field namespaces are
+//! disjoint, so one target per original name serves both kinds.
+//!
+//! Both sections are append-only across releases. `member-floor` records
+//! the first release that carried member entries: a PAPK shrunk before it
+//! still spells every member in full and cannot run on firmware at or past
+//! it (`compat::MEMBER_SHRINK_FLOOR`).
 //!
 //! On-disk format (`sdk/shrink-maps/v<semver>.toml`): hand-authored-looking
-//! minimal TOML — one table per class. A zero-dep writer/reader is enough
+//! minimal TOML — one table per entry. A zero-dep writer/reader is enough
 //! for the shapes we use, so we avoid pulling in a full toml crate.
 //!
 //! ```toml
-//! # v0.1.0
-//! schema = 1
+//! # v0.16.0
+//! schema = 2
+//! member-floor = "0.16.0"
 //!
 //! [[class]]
 //! from = "picodroid/pio/Gpio"
 //! to   = "a/A"
 //!
-//! [[class]]
-//! from = "picodroid/pio/PeripheralManager"
-//! to   = "a/B"
+//! [[member]]
+//! from = "nativeCreate"
+//! to   = "aB"
 //! ```
+//!
+//! Schema-1 files (classes only) still load; their member section is empty.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -28,8 +39,8 @@ use std::io;
 use std::path::Path;
 
 /// Current on-disk schema version for map files. Bump when the file format
-/// changes incompatibly.
-pub const SCHEMA_VERSION: u32 = 1;
+/// changes incompatibly. Every schema up to this one is still readable.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A loaded shrink map.
 #[derive(Clone, Debug, Default)]
@@ -37,6 +48,11 @@ pub struct ShrinkMap {
     /// Original internal class name → shrunk internal class name.
     /// `BTreeMap` for deterministic iteration order.
     pub classes: BTreeMap<String, String>,
+    /// Original member (method or field) name → shrunk name. Owner-agnostic.
+    pub members: BTreeMap<String, String>,
+    /// First release whose map carried member entries, carried forward
+    /// verbatim by every later cut. `None` while no member has been mapped.
+    pub member_floor: Option<String>,
 }
 
 impl ShrinkMap {
@@ -49,12 +65,36 @@ impl ShrinkMap {
         self.classes.iter().map(|(k, v)| (k.as_str(), v.as_str()))
     }
 
+    /// Sorted iter over (original, shrunk) member pairs.
+    pub fn iter_members(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.members.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
+    /// Whether the map renames any member.
+    pub fn has_members(&self) -> bool {
+        !self.members.is_empty()
+    }
+
+    /// The shrunk spelling of a member name, or `None` if it is unmapped.
+    pub fn member_target(&self, original: &str) -> Option<&str> {
+        self.members.get(original).map(String::as_str)
+    }
+
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let mut out = String::new();
         out.push_str(&format!("# Shrink map (schema v{SCHEMA_VERSION})\n"));
-        out.push_str(&format!("schema = {SCHEMA_VERSION}\n\n"));
+        out.push_str(&format!("schema = {SCHEMA_VERSION}\n"));
+        if let Some(floor) = &self.member_floor {
+            out.push_str(&format!("member-floor = {}\n", toml_string(floor)));
+        }
+        out.push('\n');
         for (from, to) in self.iter_classes() {
             out.push_str("[[class]]\n");
+            out.push_str(&format!("from = {}\n", toml_string(from)));
+            out.push_str(&format!("to   = {}\n\n", toml_string(to)));
+        }
+        for (from, to) in self.iter_members() {
+            out.push_str("[[member]]\n");
             out.push_str(&format!("from = {}\n", toml_string(from)));
             out.push_str(&format!("to   = {}\n\n", toml_string(to)));
         }
@@ -66,9 +106,9 @@ impl ShrinkMap {
         parse(&text)
     }
 
-    /// Whether the map shrinks any classes.
+    /// Whether the map shrinks anything at all.
     pub fn is_empty(&self) -> bool {
-        self.classes.is_empty()
+        self.classes.is_empty() && self.members.is_empty()
     }
 
     /// Find shrunk names that more than one original class maps to.
@@ -82,9 +122,23 @@ impl ShrinkMap {
     /// the sorted list of originals that claim it; empty means the map is
     /// injective.
     pub fn duplicate_targets(&self) -> Vec<(String, Vec<String>)> {
+        Self::duplicate_targets_in(&self.classes)
+    }
+
+    /// [`duplicate_targets`](Self::duplicate_targets) for the member table.
+    /// Members are their own namespace: a member target never collides with
+    /// a class target (class targets carry a `/`).
+    pub fn duplicate_member_targets(&self) -> Vec<(String, Vec<String>)> {
+        Self::duplicate_targets_in(&self.members)
+    }
+
+    fn duplicate_targets_in(table: &BTreeMap<String, String>) -> Vec<(String, Vec<String>)> {
         let mut by_target: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for (from, to) in self.iter_classes() {
-            by_target.entry(to).or_default().push(from);
+        for (from, to) in table {
+            by_target
+                .entry(to.as_str())
+                .or_default()
+                .push(from.as_str());
         }
         by_target
             .into_iter()
@@ -101,7 +155,8 @@ impl ShrinkMap {
     /// Assert the map is an injective original → shrunk mapping. Returns a
     /// human-readable error listing every collision if not.
     pub fn verify_injective(&self) -> Result<(), String> {
-        let dups = self.duplicate_targets();
+        let mut dups = self.duplicate_targets();
+        dups.extend(self.duplicate_member_targets());
         if dups.is_empty() {
             return Ok(());
         }
@@ -134,29 +189,44 @@ fn toml_string(s: &str) -> String {
 /// Lightweight parser tailored to the exact layout `save` produces.
 /// Supports:
 ///   - blank / comment-only lines
-///   - `schema = N`
-///   - `[[class]]` table headers
-///   - `key = "value"` inside class tables (keys: `from`, `to`)
+///   - `schema = N` (1 or 2)
+///   - `member-floor = "x.y.z"` (schema 2)
+///   - `[[class]]` / `[[member]]` table headers
+///   - `key = "value"` inside tables (keys: `from`, `to`)
 fn parse(text: &str) -> io::Result<ShrinkMap> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Section {
+        None,
+        Class,
+        Member,
+    }
     let mut map = ShrinkMap::new();
-    let mut in_class = false;
+    let mut section = Section::None;
     let mut cur_from: Option<String> = None;
     let mut cur_to: Option<String> = None;
 
     let flush = |map: &mut ShrinkMap,
-                 in_class: &mut bool,
+                 section: &mut Section,
                  from: &mut Option<String>,
                  to: &mut Option<String>|
      -> io::Result<()> {
-        if *in_class {
+        if *section != Section::None {
+            let kind = if *section == Section::Class {
+                "[[class]]"
+            } else {
+                "[[member]]"
+            };
             let f = from.take().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "[[class]] missing 'from'")
+                io::Error::new(io::ErrorKind::InvalidData, format!("{kind} missing 'from'"))
             })?;
             let t = to.take().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "[[class]] missing 'to'")
+                io::Error::new(io::ErrorKind::InvalidData, format!("{kind} missing 'to'"))
             })?;
-            map.classes.insert(f, t);
-            *in_class = false;
+            match *section {
+                Section::Class => map.classes.insert(f, t),
+                _ => map.members.insert(f, t),
+            };
+            *section = Section::None;
         }
         Ok(())
     };
@@ -166,28 +236,42 @@ fn parse(text: &str) -> io::Result<ShrinkMap> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if line == "[[class]]" {
-            flush(&mut map, &mut in_class, &mut cur_from, &mut cur_to)?;
-            in_class = true;
+        if line == "[[class]]" || line == "[[member]]" {
+            flush(&mut map, &mut section, &mut cur_from, &mut cur_to)?;
+            section = if line == "[[class]]" {
+                Section::Class
+            } else {
+                Section::Member
+            };
             continue;
         }
         if let Some((k, v)) = parse_kv(line) {
-            if k == "schema" {
+            if section == Section::None && k == "schema" {
                 let n: u32 = v.parse().map_err(|_| {
                     io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("line {}: bad schema number", lineno + 1),
                     )
                 })?;
-                if n != SCHEMA_VERSION {
+                if n == 0 || n > SCHEMA_VERSION {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("unsupported map schema {n} (want {SCHEMA_VERSION})"),
+                        format!("unsupported map schema {n} (want 1..={SCHEMA_VERSION})"),
                     ));
                 }
                 continue;
             }
-            if in_class {
+            if section == Section::None && k == "member-floor" {
+                let val = strip_quotes(&v).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("line {}: expected quoted string", lineno + 1),
+                    )
+                })?;
+                map.member_floor = Some(val);
+                continue;
+            }
+            if section != Section::None {
                 // Expect `"..."` quoted string
                 let val = strip_quotes(&v).ok_or_else(|| {
                     io::Error::new(
@@ -208,7 +292,13 @@ fn parse(text: &str) -> io::Result<ShrinkMap> {
             format!("line {}: unrecognized content: {raw:?}", lineno + 1),
         ));
     }
-    flush(&mut map, &mut in_class, &mut cur_from, &mut cur_to)?;
+    flush(&mut map, &mut section, &mut cur_from, &mut cur_to)?;
+    if map.has_members() && map.member_floor.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "map has [[member]] entries but no member-floor",
+        ));
+    }
     Ok(map)
 }
 
@@ -267,6 +357,52 @@ mod tests {
     fn rejects_unknown_schema() {
         let text = "schema = 99\n";
         assert!(parse(text).is_err());
+        assert!(parse("schema = 0\n").is_err());
+    }
+
+    #[test]
+    fn schema_1_files_load_with_no_members() {
+        let text = "schema = 1\n\n[[class]]\nfrom = \"a/B\"\nto   = \"a/A\"\n";
+        let m = parse(text).unwrap();
+        assert_eq!(m.classes.len(), 1);
+        assert!(!m.has_members());
+        assert_eq!(m.member_floor, None);
+    }
+
+    #[test]
+    fn members_round_trip_with_floor() {
+        let mut m = ShrinkMap::new();
+        m.classes.insert("picodroid/pio/Gpio".into(), "a/A".into());
+        m.members.insert("nativeCreate".into(), "a".into());
+        m.members.insert("setText".into(), "aB".into());
+        m.member_floor = Some("0.16.0".into());
+        let td = std::env::temp_dir().join(format!("cs-map-members-{}", std::process::id()));
+        let _ = fs::remove_file(&td);
+        m.save(&td).unwrap();
+        let back = ShrinkMap::load(&td).unwrap();
+        assert_eq!(back.classes, m.classes);
+        assert_eq!(back.members, m.members);
+        assert_eq!(back.member_floor.as_deref(), Some("0.16.0"));
+        assert_eq!(back.member_target("setText"), Some("aB"));
+        assert_eq!(back.member_target("other"), None);
+        assert!(!back.is_empty());
+    }
+
+    #[test]
+    fn members_without_a_floor_are_rejected() {
+        let text = "schema = 2\n\n[[member]]\nfrom = \"setText\"\nto   = \"aB\"\n";
+        assert!(parse(text).is_err());
+    }
+
+    #[test]
+    fn duplicate_member_targets_are_detected() {
+        let mut m = ShrinkMap::new();
+        m.members.insert("setText".into(), "aB".into());
+        m.members.insert("getText".into(), "aB".into());
+        m.member_floor = Some("0.16.0".into());
+        assert_eq!(m.duplicate_member_targets().len(), 1);
+        assert!(m.duplicate_targets().is_empty());
+        assert!(m.verify_injective().is_err());
     }
 
     #[test]
@@ -348,6 +484,26 @@ mod tests {
                          maps are append-only"
                     ),
                 }
+            }
+            for (from, to) in prev.iter_members() {
+                match next.members.get(from) {
+                    Some(t) if t == to => {}
+                    Some(t) => panic!(
+                        "{next_name} remaps member {from}: {to} ({prev_name}) -> {t}; \
+                         maps are append-only"
+                    ),
+                    None => panic!(
+                        "{next_name} drops member {from} -> {to} present in {prev_name}; \
+                         maps are append-only"
+                    ),
+                }
+            }
+            if let Some(floor) = &prev.member_floor {
+                assert_eq!(
+                    next.member_floor.as_ref(),
+                    Some(floor),
+                    "{next_name} must carry {prev_name}'s member-floor forward"
+                );
             }
         }
     }

@@ -140,6 +140,62 @@ fn is_java_reserved(s: &str) -> bool {
     )
 }
 
+/// Alphabet of a member target's first character (and of every 1-char
+/// target): `a`–`z` then `A`–`Z`.
+const MEMBER_FIRST: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+/// Alphabet of a member target's second character: letters then digits.
+const MEMBER_SECOND: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+/// Member (method/field) short names: raw index `n` → `a`…`z`, `A`…`Z`
+/// (52 one-char names), then two-char names `<first><second>` over
+/// [`MEMBER_FIRST`] × [`MEMBER_SECOND`]. All-lowercase pairs are skipped —
+/// apps really do declare members called `id`, `io`, `eq`, `of`, and the
+/// kotlin-shim has `to` — as are Java keywords. Like [`short_suffix`],
+/// `raw` is one shared counter threaded through the whole cut.
+pub fn member_suffix(raw: &mut usize) -> String {
+    loop {
+        let n = *raw;
+        *raw += 1;
+        let s = member_name(n);
+        let all_lower = s.len() == 2 && s.bytes().all(|b| b.is_ascii_lowercase());
+        if !all_lower && !is_java_reserved(&s) {
+            return s;
+        }
+    }
+}
+
+fn member_name(n: usize) -> String {
+    if n < MEMBER_FIRST.len() {
+        return (MEMBER_FIRST[n] as char).to_string();
+    }
+    let n = n - MEMBER_FIRST.len();
+    let first = MEMBER_FIRST[(n / MEMBER_SECOND.len()) % MEMBER_FIRST.len()];
+    let second = MEMBER_SECOND[n % MEMBER_SECOND.len()];
+    // Beyond two characters the sequence wraps; the corpus is ~1000 names
+    // against 52 + 52·62 targets, so this is unreachable in practice.
+    assert!(
+        n < MEMBER_FIRST.len() * MEMBER_SECOND.len(),
+        "member allocator exhausted"
+    );
+    String::from_utf8(vec![first, second]).unwrap()
+}
+
+/// Invert [`member_name`]: the raw index that produced `s`, or `None` if
+/// `s` is not a member target shape. Used to resume the counter from a base
+/// map's existing targets.
+pub fn member_inverse(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    match b.len() {
+        1 => MEMBER_FIRST.iter().position(|&c| c == b[0]),
+        2 => {
+            let first = MEMBER_FIRST.iter().position(|&c| c == b[0])?;
+            let second = MEMBER_SECOND.iter().position(|&c| c == b[1])?;
+            Some(MEMBER_FIRST.len() + first * MEMBER_SECOND.len() + second)
+        }
+        _ => None,
+    }
+}
+
 /// Which synthetic package a shrunk name is allocated from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Namespace {
@@ -239,6 +295,44 @@ mod tests {
             let s = short_suffix(&mut raw);
             assert!(seen.insert(s.clone()), "duplicate suffix produced: {s}");
         }
+    }
+
+    #[test]
+    fn member_targets_are_short_unique_and_never_lowercase_pairs() {
+        let mut raw = 0usize;
+        let mut seen = std::collections::HashSet::new();
+        let mut first = Vec::new();
+        // 52 + 52·62 − 26·26 lowercase pairs − keywords ≈ 2,600 usable targets.
+        for _ in 0..2500 {
+            let s = member_suffix(&mut raw);
+            assert!(s.len() <= 2, "{s}");
+            assert!(
+                !(s.len() == 2 && s.bytes().all(|b| b.is_ascii_lowercase())),
+                "{s} is an all-lowercase pair"
+            );
+            assert!(!is_java_reserved(&s));
+            assert!(seen.insert(s.clone()), "duplicate member target {s}");
+            if first.len() < 54 {
+                first.push(s);
+            }
+        }
+        assert_eq!(first[0], "a");
+        assert_eq!(first[25], "z");
+        assert_eq!(first[26], "A");
+        assert_eq!(first[51], "Z");
+        assert_eq!(first[52], "aA", "first pair skips a..az (all lowercase)");
+        assert_eq!(first[53], "aB");
+    }
+
+    #[test]
+    fn member_inverse_round_trips() {
+        for n in 0..(52 + 52 * 62) {
+            let s = member_name(n);
+            assert_eq!(member_inverse(&s), Some(n), "{n} → {s}");
+        }
+        assert_eq!(member_inverse(""), None);
+        assert_eq!(member_inverse("abc"), None);
+        assert_eq!(member_inverse("1a"), None);
     }
 
     #[test]

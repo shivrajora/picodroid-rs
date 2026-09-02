@@ -17,7 +17,7 @@ import java.io.File
  * Picodroid .papk build plugin. Applied per-app under `examples/<app>/`.
  *
  * Pipeline: compileJava -> verifyApiContract -> (optional) stripClassMetadata
- * -> (optional) shrinkClasses -> packPapk. Kotlin apps (`picodroid-papk-kotlin`):
+ * -> (optional) shrinkMembers -> (optional) shrinkClasses -> packPapk. Kotlin apps (`picodroid-papk-kotlin`):
  * kapt (stubs + @Inject processor) -> compileKotlin + compileJava ->
  * stageClasses (+ shim) -> stripClassMetadata -> verifyApiContract ->
  * (optional) shrinkClasses -> packPapk.
@@ -212,10 +212,25 @@ class PicodroidPapkPlugin : Plugin<Project> {
         } else {
             null
         }
+        // Member renames (ASM, `[[member]]` rows) go first, on original class
+        // names; the Rust class pass follows. Absent when the map has no
+        // members, so pre-member maps build exactly as before.
+        val memberShrunkInput: Provider<Directory> =
+            if (shrinkMapFile != null && picodroid.classfile.ShrinkMapMembers.parse(shrinkMapFile).isNotEmpty()) {
+                val mapFile = shrinkMapFile
+                val membersTask = target.tasks.register("shrinkMembers", ShrinkMembersTask::class.java) {
+                    inputDir.set(strippedClassesInput)
+                    this.mapFile.set(mapFile)
+                    outputDir.set(target.layout.buildDirectory.dir("classes-members"))
+                }
+                membersTask.flatMap { it.outputDir }
+            } else {
+                strippedClassesInput
+            }
         val packClassesInput = if (shrinkMapFile != null) {
             val mapFile = shrinkMapFile
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
-                inputDir.set(strippedClassesInput)
+                inputDir.set(memberShrunkInput)
                 this.mapFile.set(mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)

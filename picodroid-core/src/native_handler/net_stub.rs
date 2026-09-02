@@ -6,6 +6,7 @@
 //! can avoid by feature-checking via
 //! `PackageManager.hasSystemFeature(FEATURE_WIFI)` first.
 
+use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::NativeContext;
 
@@ -22,8 +23,8 @@ pub fn dispatch(
     match (class_name, method_name) {
         // Status queries must remain callable so feature-unaware apps can
         // probe and fall back gracefully.
-        ("picodroid/net/NetworkInfo", "isConnected") => Some(Ok(Some(Value::Int(0)))),
-        ("picodroid/net/NetworkInfo", "getIpAddress") => Some(Ok(Some(Value::Int(0)))),
+        ("picodroid/net/NetworkInfo", m::isConnected) => Some(Ok(Some(Value::Int(0)))),
+        ("picodroid/net/NetworkInfo", m::getIpAddress) => Some(Ok(Some(Value::Int(0)))),
 
         // Everything else would need a live stack — surface a clean exception.
         _ => Some(Err(unsupported(ctx))),

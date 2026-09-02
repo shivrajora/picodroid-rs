@@ -43,7 +43,11 @@ Each PAPK stores `framework-map-version` in its manifest. At load time the
 firmware rejects a PAPK whose map version is greater than the firmware's
 active version (a PAPK built against a newer release cannot run on older
 firmware). Equal-or-lower is accepted, because the append-only rule
-guarantees every name the PAPK uses is still present.
+guarantees every name the PAPK uses is still present — with one floor:
+maps from v0.16.0 rename *existing* method and field names, so firmware at
+or past `compat::MEMBER_SHRINK_FLOOR` (0.16.0) rejects a shrunk PAPK cut
+before it. Never un-keep a member (move a name from the keep set into the
+map) after that: it would need a new floor.
 
 ## Cutting a release
 
@@ -55,16 +59,26 @@ TMP=$(mktemp -d)
 find sdk/java -name '*.java' -print0 \
   | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
 
+# The kotlin-shim's member names must never become member targets.
+./gradlew :kotlin-shim:compileJava -q
+
 # Generate the map. Pass --base <previous-release-map> to enforce
 # append-only: existing entries are copied verbatim and only net-new
 # classes get fresh short names. --extra-names feeds the java/** names
 # the framework never references itself (RuntimeException, Iterator, …)
-# from the committed list of everything pico-jvm serves.
-cargo run -p class-shrink -- cut-release \
+# from the committed list of everything pico-jvm serves. --members maps
+# method/field names too (since v0.16.0): every --keep-contract member
+# name is kept, every name the --reserve tree spells is never a target,
+# and --version becomes member-floor on the first member cut (carried
+# forward verbatim after that).
+cargo run -p class-shrink -- cut-release --members \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
+  --keep-contract sdk/api-contract.tsv \
+  --reserve kotlin-shim/build/classes/java/main \
   --base sdk/shrink-maps/v<previous>.toml \
+  --version <new> \
   --out  sdk/shrink-maps/v<new>.toml
 ```
 

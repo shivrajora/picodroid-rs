@@ -134,7 +134,7 @@ public class MyApp extends Application {
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `picodroid-core/src/native_handler/` under the appropriate module
-2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same: pico-jvm reverse-translates its `b/` namespace at the class-file boundary, so dispatch never sees a shrunk `java/**` name. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
+2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. The **method** name goes through the generated `shrink_names::m` consts, never a string literal: `("picodroid/pio/Gpio", m::setValue) =>` (the const's value is the map's shrunk spelling under `--shrink`; a literal would silently stop matching there — `no_sdk_method_literals_in_dispatch` refuses it). A new SDK method first needs a row in `sdk/member-names.tsv`: run `scripts/gen-api-contract.sh`. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same: pico-jvm reverse-translates its `b/` namespace at the class-file boundary, so dispatch never sees a shrunk `java/**` name. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/interpreter/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
 5. Update the relevant `website/src/content/docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
@@ -153,7 +153,10 @@ TMP=$(mktemp -d)
 find sdk/java -name '*.java' -print0 \
   | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
 
-cargo run -p class-shrink -- cut-release \
+./gradlew :kotlin-shim:compileJava -q
+cargo run -p class-shrink -- cut-release --members \
+  --keep-contract sdk/api-contract.tsv --reserve kotlin-shim/build/classes/java/main \
+  --version <new> \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \

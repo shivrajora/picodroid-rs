@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Java-binding shim for `picodroid.widget.ListView`.
 
+use crate::shrink_names::m;
 use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
@@ -74,7 +75,7 @@ pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
         return Ok(None);
     }
 
-    let count = match handler.invoke_java(ctx, adapter, "getCount", "()I", &[])? {
+    let count = match handler.invoke_java(ctx, adapter, m::getCount, "()I", &[])? {
         Some(Value::Int(n)) => n,
         _ => return Err(JvmError::InvalidReference),
     };
@@ -84,7 +85,7 @@ pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
             .invoke_java(
                 ctx,
                 adapter,
-                "getItem",
+                m::getItem,
                 "(I)Ljava/lang/Object;",
                 &[Value::Int(i)],
             )?
@@ -95,7 +96,7 @@ pub fn list_view_bind_adapter<H: pico_jvm::native::NativeMethodHandler>(
         let text = match item {
             Value::Null => None,
             Value::Reference(idx) => Some(idx),
-            _ => match handler.invoke_java(ctx, item, "toString", "()Ljava/lang/String;", &[])? {
+            _ => match handler.invoke_java(ctx, item, m::toString, "()Ljava/lang/String;", &[])? {
                 Some(Value::Reference(idx)) => Some(idx),
                 _ => None,
             },
