@@ -1,5 +1,10 @@
 # Flash string budget — where the bytes go, and what to do about it
 
+> **Superseded 2026-09-02** by [flash-budget-2026-09.md](flash-budget-2026-09.md),
+> which re-measures the image after §4, §5.1 and §5.2 landed and ranks the
+> next levers (`opt-level`, runtime class-name translation, SDK tree-shake,
+> float support, LVGL config). Kept for the method and the before numbers.
+
 > Measured 2026-08-31 against `1438e87` on a `--shrink --release` build of
 > `picoenvmon` for `pico_enviro_mon`. Every number below came from reading the
 > linked ELF and the class corpora it embeds, not from estimation, unless a row
