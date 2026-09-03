@@ -248,6 +248,12 @@ pub(crate) fn dispatch_float(
     if method_name == m::parseFloat {
         return Some(parse_f64(ctx).map(|v| Some(Value::Float(v as f32))));
     }
+    if method_name == m::intBitsToFloat {
+        return Some(match ctx.args.first() {
+            Some(Value::Int(bits)) => Ok(Some(Value::Float(f32::from_bits(*bits as u32)))),
+            _ => Err(JvmError::InvalidReference),
+        });
+    }
     if method_name == m::valueOf && is_string_arg(ctx) {
         return Some(
             parse_f64(ctx).and_then(|v| box_value(c::java_lang_Float, Value::Float(v as f32), ctx)),

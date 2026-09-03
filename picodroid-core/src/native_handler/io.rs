@@ -37,6 +37,7 @@ pub fn dispatch(
         (c::picodroid_io_File, m::isFile) => Some(file_bool(ctx, backend::is_file)),
         (c::picodroid_io_File, m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
         (c::picodroid_io_File, m::length) => Some(file_length(ctx)),
+        (c::picodroid_io_File, m::createNewFile) => Some(file_bool(ctx, create_new_file)),
         (c::picodroid_io_File, m::delete) => Some(file_bool(ctx, backend::delete)),
         (c::picodroid_io_File, m::mkdir) => Some(file_bool(ctx, backend::mkdir)),
         (c::picodroid_io_File, m::renameTo) => Some(file_rename_to(ctx)),
@@ -50,6 +51,13 @@ pub fn dispatch(
 }
 
 // ── File helpers ───────────────────────────────────────────────────────────
+
+/// `File.createNewFile()`: an empty write creates the file (`HalFs::write_at`
+/// opens with CREATE); the exists check gives Android's `false` for a path
+/// that is already there.
+fn create_new_file(path: &str) -> bool {
+    !backend::exists(path) && backend::write_at(path, 0, &[]) >= 0
+}
 
 fn file_bool(
     ctx: &mut NativeContext<'_>,

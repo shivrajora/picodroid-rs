@@ -45,6 +45,7 @@ pub const PIO_HANDLED: &[Row] = &[
     ("picodroid/pio/Adc", "readValue", "()D"),
     // picodroid/pio/Gpio
     ("picodroid/pio/Gpio", "close", "()V"),
+    ("picodroid/pio/Gpio", "getValue", "()Z"),
     ("picodroid/pio/Gpio", "setDirection", "(I)V"),
     ("picodroid/pio/Gpio", "setValue", "(Z)V"),
     // picodroid/pio/I2cDevice
@@ -113,6 +114,7 @@ pub const PIO_HANDLED: &[Row] = &[
 /// `native_handler/io.rs`
 pub const IO_HANDLED: &[Row] = &[
     // picodroid/io/File
+    ("picodroid/io/File", "createNewFile", "()Z"),
     ("picodroid/io/File", "delete", "()Z"),
     ("picodroid/io/File", "exists", "()Z"),
     ("picodroid/io/File", "isDirectory", "()Z"),
@@ -491,6 +493,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/ViewPropertyAnimator", "nativeSetEndAction", "(ILjava/lang/Runnable;)V"),
     ("picodroid/view/ViewPropertyAnimator", "nativeStart", "(IIFIII)V"),
     // picodroid/widget/Button
+    ("picodroid/widget/Button", "getText", "()Ljava/lang/CharSequence;"),
     ("picodroid/widget/Button", "nativeCreate", "(Ljava/lang/String;)I"),
     ("picodroid/widget/Button", "setText", "(Ljava/lang/String;)V"),
     // picodroid/widget/CheckBox
@@ -591,6 +594,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/Switch", "setChecked", "(Z)V"),
     ("picodroid/widget/Switch", "toggle", "()V"),
     // picodroid/widget/TextView
+    ("picodroid/widget/TextView", "getText", "()Ljava/lang/CharSequence;"),
     ("picodroid/widget/TextView", "nativeCreate", "()I"),
     ("picodroid/widget/TextView", "setIncludeFontPadding", "(Z)V"),
     ("picodroid/widget/TextView", "setText", "(Ljava/lang/String;)V"),

@@ -108,6 +108,9 @@ pub fn dispatch(
         (c::picodroid_pio_Gpio, m::setValue) => {
             Some(crate::pio::gpio::set_value_native(ctx.args, ctx.objects))
         }
+        (c::picodroid_pio_Gpio, m::getValue) => {
+            Some(crate::pio::gpio::get_value_native(ctx.args, ctx.objects))
+        }
         (c::picodroid_pio_Gpio, m::close) => Some(Ok(None)),
         _ => None,
     }
