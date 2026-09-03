@@ -108,6 +108,10 @@ where
         .start(body)
 }
 
+#[cfg(test)]
+#[path = "../../../test_support/source_scan.rs"]
+mod source_scan;
+
 /// Source scan — see the module docs for what it enforces and why it reads
 /// text: the spawn sites live in `boot_tasks.rs` and `glue.rs::rtos_impl`,
 /// both `cfg(not(test))`, so under `cargo test` there is nothing to call.
@@ -115,87 +119,27 @@ where
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use super::source_scan::{read_stripped, sources};
+
     const SELF: &str = "task_affinity.rs";
 
     fn crate_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
     }
 
-    /// Every file with one of `exts` under `dir`, except this one: it
-    /// quotes every token the scans look for, in string literals no comment
-    /// stripper removes, and its one real `Task::new()` is checked on its
-    /// own by `spawn_is_scheduler_atomic`.
-    fn sources(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                sources(&path, exts, out);
-            } else if path.file_name().is_some_and(|n| n != SELF)
-                && path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| exts.contains(&e))
-            {
-                out.push(path);
-            }
-        }
-    }
-
-    /// Source with comments removed — `//` to end of line and `/* … */`
-    /// blocks — so a comment that mentions `xTaskCreate`, or quotes a call,
-    /// can neither trip a rule nor satisfy one.
-    fn strip_comments(text: &str) -> String {
-        let mut out = String::with_capacity(text.len());
-        let mut rest = text;
-        loop {
-            let (at, block) = match (rest.find("//"), rest.find("/*")) {
-                (None, None) => {
-                    out.push_str(rest);
-                    return out;
-                }
-                (Some(l), None) => (l, false),
-                (None, Some(b)) => (b, true),
-                (Some(l), Some(b)) => {
-                    if l < b {
-                        (l, false)
-                    } else {
-                        (b, true)
-                    }
-                }
-            };
-            out.push_str(&rest[..at]);
-            rest = if block {
-                match rest[at + 2..].find("*/") {
-                    Some(n) => &rest[at + 2 + n + 2..],
-                    None => "",
-                }
-            } else {
-                // Keep the newline: line structure matters to the config
-                // check below.
-                match rest[at..].find('\n') {
-                    Some(n) => &rest[at + n..],
-                    None => "",
-                }
-            };
-        }
-    }
-
-    fn read_stripped(path: &Path) -> String {
-        let text = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        strip_comments(&text)
-    }
-
+    /// `path` relative to the repo root, for messages.
     fn rel(path: &Path) -> String {
         let root = crate_root();
         let root = root.parent().and_then(Path::parent).unwrap_or(&root);
-        path.strip_prefix(root)
-            .unwrap_or(path)
-            .display()
-            .to_string()
+        super::source_scan::rel(root, path)
+    }
+
+    /// Every file with one of `exts` under `dir`, except this one: it quotes
+    /// every token the scans look for, in string literals no comment stripper
+    /// removes, and its one real `Task::new()` is checked on its own by
+    /// `spawn_is_scheduler_atomic`.
+    fn own_sources(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
+        sources(dir, exts, Some(SELF), out)
     }
 
     struct Site {
@@ -210,7 +154,7 @@ mod tests {
     /// Every `task_affinity::spawn(` call under `platforms/rp/src`.
     fn spawn_sites() -> Vec<Site> {
         let mut files = Vec::new();
-        sources(&crate_root().join("src"), &["rs"], &mut files);
+        own_sources(&crate_root().join("src"), &["rs"], &mut files);
         files.sort();
         let mut sites = Vec::new();
         for file in files {
@@ -312,23 +256,20 @@ mod tests {
     }
 
     /// Rule 1, other half: `spawn` is the only way a task is created or
-    /// moved. Covers this crate's Rust and C, and every shared module in
-    /// picodroid-core except the simulator's own RTOS backing.
+    /// moved. Covers this crate's Rust and C. The shared modules in
+    /// picodroid-core are covered by that crate's own seam guard
+    /// (`rtos::seam_guard`), which bans every direct kernel call there —
+    /// one owner per tree, so a second family does not have to scan core.
     #[test]
     fn no_task_is_created_or_moved_outside_spawn() {
         let mut files = Vec::new();
-        sources(&crate_root().join("src"), &["rs", "c", "h"], &mut files);
-        let core_src = crate_root().join("../../picodroid-core/src");
-        let mut core_files = Vec::new();
-        sources(&core_src, &["rs"], &mut core_files);
-        core_files.retain(|p| !p.components().any(|c| c.as_os_str() == "sim"));
-        files.extend(core_files);
+        own_sources(&crate_root().join("src"), &["rs", "c", "h"], &mut files);
         files.sort();
         assert!(
             files.iter().any(|p| p.ends_with("glue.rs"))
-                && files.iter().any(|p| p.ends_with("rtos.rs")),
-            "scanner found neither glue.rs nor picodroid-core's rtos.rs — the \
-             path layout changed, not the code"
+                && files.iter().any(|p| p.ends_with("boot_tasks.rs")),
+            "scanner found neither glue.rs nor boot_tasks.rs — the path layout \
+             changed, not the code"
         );
 
         let banned = [

@@ -42,28 +42,10 @@ use crate::task_priority;
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // Installed before the first task exists: `task_affinity::spawn` runs
     // every create+pin inside this section (a no-op until the scheduler
-    // starts, load-bearing for every runtime `Thread.start` after it).
-    //
-    // JVM heap compound operations and the GC must be atomic against the
-    // SMP kernel's equal-priority wake yield (prvYieldForTask uses `>=`, so
-    // an unblocked equal-priority JVM task preempts at the allocator's
-    // xTaskResumeAll inside an arena resize — the picoenvmon span-overlap
-    // corruption). Scheduler suspension nests safely with heap_4's own.
-    {
-        extern "C" {
-            fn vTaskSuspendAll();
-            fn xTaskResumeAll() -> i32;
-        }
-        fn heap_atomic_enter() {
-            unsafe { vTaskSuspendAll() };
-        }
-        fn heap_atomic_exit() {
-            unsafe {
-                xTaskResumeAll();
-            }
-        }
-        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
-    }
+    // starts, load-bearing for every runtime `Thread.start` after it). The
+    // installer is core's, shared with the simulator's boot, so the two make
+    // the same promise; its docs carry the SMP reasoning.
+    picodroid_core::rtos::freertos::install_heap_atomic_hooks();
 
     // Core-1 flash parker.  Runtime flash erase/program must stop core 1
     // first: any exception it takes during the XIP-off window fetches

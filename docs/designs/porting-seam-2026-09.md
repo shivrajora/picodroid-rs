@@ -770,3 +770,33 @@ the whole read/write path through the geometry helpers; pre-commit green.
 175,720 (+112)** — the assert message and the monomorphised adapter; more
 than the ≈0 predicted, and still −1,328 B cumulative. Hardware: the bench
 session that follows (A8).
+
+### A8 — S8 landed: one hooks installer, one scanner, a seam guard (2026-09-03)
+
+§3.I and §3.J as written. `picodroid_core::rtos::freertos::install_heap_atomic_hooks`
+replaces the fourteen lines both boots carried (`boot_tasks.rs` and
+`sim_boot.rs` each make one call); `rtos.rs` became `rtos/mod.rs` to hold
+it. `test_support/source_scan.rs` owns the walker, the comment stripper and
+the path helper; `task_affinity.rs` includes it and keeps only its rules,
+and its "nothing creates a task outside `spawn`" test now scans this crate
+alone. Core's new `rtos::seam_guard` scans `picodroid-core/src` — minus
+`hal/sim/**`, `rtos/freertos.rs` and itself — for any FreeRTOS API name
+(`vTaskDelay`, `xQueueSend`, `pvPortMalloc`, …), `freertos_rust`,
+`Task::new()`, `.core_affinity(`, `set_core_affinity(` and `CurrentTask::`,
+and pins that it saw `lifecycle.rs`, `threads.rs`, `main_queue.rs` and
+`sim_boot.rs`. `gc_root_scan.rs` keeps its own eight-line walker: a nested
+`#[path]` inside a `#[path]`-included file resolves against a directory
+named after the module, which is the fallback §3.J allowed for.
+
+**Both scans were sabotaged before this landed**, per the lesson B6/B8
+recorded three times. A `vTaskDelay(1)` planted in `lifecycle.rs` failed
+the seam guard with `lifecycle.rs: vTaskDelay`; a `"Task::new()"` planted
+in `app.rs` failed the affinity scan with `platforms/rp/src/app.rs:
+Task::new()`. (The first attempt at the second sabotage used a real
+`freertos_rust::Task::new()`, which does not compile on the host and so
+proved nothing — recorded so the next person plants a string literal.)
+
+Verified: `cargo test -p picodroid-core` 302 (+2), `-p picodroid` 44;
+helloworld in the simulator; pre-commit green. **Flash, rp2040
+`--release`: `.text` 696,292 (+12 over S7), `.rodata` 175,720 (0)** — the
+shared installer is a call where the block was inline; cumulative −1,316 B.

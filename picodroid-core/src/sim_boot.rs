@@ -91,33 +91,9 @@ pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
 /// Returns when the JVM task has finished the app and ended the scheduler.
 fn run(model: &'static BootBudgetModel, run_app: fn()) {
     // JVM heap compound operations and the GC are scheduler-atomic here
-    // exactly as on a device (`platforms/rp/src/boot_tasks.rs` installs the
-    // same pair). The single-core POSIX port has not been seen to interleave
-    // them — the bug-bash `threadstress` soak ran clean before these hooks
-    // existed (B0) — but a task at another priority does preempt at every
-    // kernel call, the guard costs a counter increment, and with it the two
-    // boots make the same promise: no `AtomicSection` is a silent no-op on
-    // one target and real on the other. Keep this block and the device's in
-    // lockstep.
-    {
-        extern "C" {
-            fn vTaskSuspendAll();
-            fn xTaskResumeAll() -> i32;
-        }
-        fn heap_atomic_enter() {
-            // SAFETY: FFI into the kernel; nests with the allocator's own
-            // suspension, as on device.
-            unsafe { vTaskSuspendAll() };
-        }
-        fn heap_atomic_exit() {
-            // SAFETY: as above; the return value (whether a yield happened)
-            // is not needed.
-            unsafe {
-                xTaskResumeAll();
-            }
-        }
-        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
-    }
+    // exactly as on a device: the same installer, so no `AtomicSection` is a
+    // silent no-op on one target and real on the other.
+    crate::rtos::freertos::install_heap_atomic_hooks();
 
     // The filesystem worker first, matching the device's order: it has to
     // exist before anything can ask it for a file. Its stack charge rides the
