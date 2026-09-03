@@ -60,13 +60,21 @@ picodroid_core::declare_sim_global_allocator!();
 // Host-testable pure-logic slices of RP HAL drivers. The rest of `hal::rp`
 // is ARM-only and cfg-gated out on the host; these modules have no
 // `rp-pico`/`rp235x-hal` deps, so pulling them in directly via `#[path]`
-// lets their `#[cfg(test)]` blocks run under `scripts/test.sh`.
+// lets their `#[cfg(test)]` blocks run under `scripts/test.sh`. A driver
+// whose tests live in a file that is *not* listed here has tests that never
+// run — `pwm` and `adc` were exactly that until 2026-09.
 #[cfg(test)]
-#[path = "hal/rp/i2c/protocol.rs"]
-mod hal_rp_i2c_protocol_tests;
+#[path = "hal/rp/adc/math.rs"]
+mod hal_rp_adc_math_tests;
 #[cfg(test)]
-#[path = "hal/rp/spi/protocol.rs"]
-mod hal_rp_spi_protocol_tests;
+#[path = "hal/rp/i2c/timing.rs"]
+mod hal_rp_i2c_timing_tests;
+#[cfg(test)]
+#[path = "hal/rp/pwm/math.rs"]
+mod hal_rp_pwm_math_tests;
+#[cfg(test)]
+#[path = "hal/rp/spi/xfer.rs"]
+mod hal_rp_spi_xfer_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.
 

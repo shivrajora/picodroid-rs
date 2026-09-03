@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pub mod protocol;
+pub mod xfer;
 
 use core::cell::UnsafeCell;
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use pico_jvm::array_heap::ArrayHeap;
 
-use protocol::{
+use xfer::{
     clock_divisors, SpiOp, SpiXferState, MAX_STAGING_LEN, SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH,
 };
 

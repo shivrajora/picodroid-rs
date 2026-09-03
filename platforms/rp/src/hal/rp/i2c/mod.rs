@@ -21,14 +21,14 @@
 //! re-pending after an in-ISR mask change). The CPU never busy-spins on
 //! peripheral state — every wait point yields to FreeRTOS via the wake
 //! semaphore.
-pub mod protocol;
+pub mod timing;
 
 use core::cell::UnsafeCell;
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use pico_jvm::array_heap::ArrayHeap;
 
-use protocol::{
+use timing::{
     fs_spklen, ic_con_for_speed, scl_counts, sda_tx_hold_count, FIFO_DEPTH, IC_DATA_CMD_READ,
     IC_DATA_CMD_STOP, INTR_RX_FULL, INTR_STOP_DET, INTR_TX_ABRT, INTR_TX_EMPTY, MAX_XFER_LEN,
 };

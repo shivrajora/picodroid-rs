@@ -40,12 +40,10 @@ mod names;
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    // picodroid-core lives one directory below the repo root — the root is
-    // where gradlew, sdk/, and Cargo.toml are.
+    // The repo root is where gradlew, sdk/, build_support/ and Cargo.toml
+    // are; `config::repo_root` finds it the same way for every crate.
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = manifest_dir
-        .parent()
-        .expect("picodroid-core must be a direct subdirectory of the repo root");
+    let root = &config::repo_root(&manifest_dir);
 
     // Resolve the active board across platform families (None for boardless
     // builds such as `cargo build -p picodroid-core`).

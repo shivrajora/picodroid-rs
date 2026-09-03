@@ -1,35 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! PWM: slice/channel routing and the register writes. The arithmetic is
+//! in [`math`], where it can be tested on the host.
+
+pub mod math;
+
 use super::clock::PCLK_HZ;
-
-// Compute (div_int, wrap) for a target PWM frequency.
-//
-// PWM freq ≈ PCLK_HZ / (div_int * (wrap + 1))
-//
-// Strategy: choose the highest possible wrap value (for duty-cycle resolution)
-// while keeping div_int in [1, 255]. Fractional division (frac) is not used,
-// keeping register writes simple.
-fn clock_params(freq_hz: f64) -> (u8, u16) {
-    // Integer approximation: truncate freq to u32, clamp to ≥ 1 Hz
-    let freq_u32 = (freq_hz as u32).max(1);
-    let period = PCLK_HZ / freq_u32;
-    // Smallest div_int such that wrap = period / div_int fits in u16.
-    let div_int = period.div_ceil(65536).clamp(1, 255) as u8;
-    // Rounded division for wrap
-    let wrap = ((period + div_int as u32 / 2) / div_int as u32).clamp(1, 65535) as u16;
-    (div_int, wrap)
-}
-
-// Convert duty cycle percentage (0.0–100.0) to a compare register value.
-// Uses u64 scaled integer arithmetic to avoid f64 methods not available in no_std
-// and to prevent overflow when wrap is large (up to 65535).
-fn duty_to_cc(duty_cycle: f64, wrap: u16) -> u16 {
-    let scale: u64 = 1000;
-    let duty_scaled = (duty_cycle * scale as f64) as u64; // e.g. 33.3% → 33300
-    let top = wrap as u64 + 1;
-    // Rounded: cc = (duty_scaled * top + scale/2) / (scale * 100)
-    let cc = (duty_scaled * top + scale / 2) / (scale * 100);
-    cc.min(top) as u16
-}
+use math::{clock_params, duty_to_cc};
 
 // Disable slice → write DIV/TOP/CC → optionally re-enable.
 //
@@ -66,7 +42,7 @@ fn do_apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
 
     let slice = (pin / 2) % 8;
     let channel = pin % 2;
-    let (div_int, wrap) = clock_params(freq_hz);
+    let (div_int, wrap) = clock_params(PCLK_HZ, freq_hz);
     let cc = duty_to_cc(duty_cycle, wrap);
 
     match slice {
@@ -118,53 +94,4 @@ pub fn init(pin: u8) {
 /// Apply full PWM configuration — used by setEnabled, setPwmFrequencyHz, setPwmDutyCycle.
 pub fn apply(pin: u8, freq_hz: f64, duty_cycle: f64, enabled: bool) {
     do_apply(pin, freq_hz, duty_cycle, enabled);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clock_params_1khz_rp2040_div1() {
-        // At 125 MHz, 1 kHz → period = 125_000
-        // div_int = ceil(125000/65536) = 2, wrap = round(125000/2) = 62500
-        let (div_int, wrap) = clock_params(1000.0);
-        assert_eq!(div_int, 2);
-        assert_eq!(wrap, 62500);
-    }
-
-    #[test]
-    fn clock_params_50hz_fits_in_u16() {
-        // 50 Hz → period = 2_500_000
-        // div_int = ceil(2500000/65536) = 39, wrap = round(2500000/39) = 64103
-        let (div_int, wrap) = clock_params(50.0);
-        assert!(div_int >= 1 && div_int <= 255);
-        assert!(wrap <= 65535);
-    }
-
-    #[test]
-    fn clock_params_20khz_div1() {
-        // 20 kHz → period = 6250
-        // div_int = 1, wrap = 6250
-        let (div_int, wrap) = clock_params(20_000.0);
-        assert_eq!(div_int, 1);
-        assert_eq!(wrap, 6250);
-    }
-
-    #[test]
-    fn duty_to_cc_50_percent() {
-        // wrap=9999, 50% → cc = round(0.5 * 10000) = 5000
-        assert_eq!(duty_to_cc(50.0, 9999), 5000);
-    }
-
-    #[test]
-    fn duty_to_cc_0_percent() {
-        assert_eq!(duty_to_cc(0.0, 9999), 0);
-    }
-
-    #[test]
-    fn duty_to_cc_100_percent() {
-        // 100% → cc = wrap + 1 = 10000, clamped to 10000
-        assert_eq!(duty_to_cc(100.0, 9999), 10000);
-    }
 }

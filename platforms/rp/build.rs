@@ -43,15 +43,8 @@ use std::path::PathBuf;
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    // platforms/rp → platforms → repo root
-    let repo_root = manifest_dir
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let is_embedded = matches!(target_arch.as_str(), "arm" | "xtensa");
+    let repo_root = config::repo_root(&manifest_dir);
+    let is_embedded = config::is_embedded();
 
     // Parse board config for the active board (both ARM and sim).
     let board = board_cfg::resolve(&manifest_dir);

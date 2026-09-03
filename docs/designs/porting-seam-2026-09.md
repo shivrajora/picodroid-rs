@@ -667,3 +667,22 @@ Verified: `cargo test` for `pdb-protocol` (31), `pdb` (16), `picodroid`
 in the simulator; pre-commit green. **Flash, rp2040 `--release`:
 byte-identical** — the same bytes, emitted from a different crate.
 `pdb ping` on hardware is owed and batched into S6's bench session.
+
+### A4 — S4 landed: honest names, live tests, one root (2026-09-03)
+
+`hal/rp/i2c/protocol.rs` is `i2c/timing.rs` and `spi/protocol.rs` is
+`spi/xfer.rs` (not the predecessor's `spi/regs.rs`: the file's load-bearing
+content is the live `SpiXferState`, not registers). `pwm.rs` and `adc.rs`
+are directories now, each with a `math.rs` that has no register in it and a
+`#[path]` shim in `main.rs`, so their tests compile on the host for the
+first time: 8 pwm and 3 adc, with the pwm ones taking the peripheral clock
+as an argument and checked at both 125 and 150 MHz — the old ones assumed
+125 MHz and would have failed on the default (rp2350) board had they ever
+run. `build_support/config.rs` gained `repo_root` (walks up to the
+directory holding `build_support/`) and `is_embedded`; both build scripts
+call them instead of counting `.parent()`s differently.
+
+Verified: `cargo test -p picodroid` 45 (34 + 11), `-p picodroid-core` 274;
+helloworld in the simulator; pre-commit green. **Flash, rp2040 `--release`:
+byte-identical** — a constant passed as an argument inlines to the same
+code.
