@@ -414,10 +414,10 @@ Everything described in this doc has landed: the PIO transport
 them by name; `INSTR_CYW43_POLLS` is a Rust `AtomicU32`, so cast it in gdb
 batch scripts (`*(unsigned int *)&INSTR_CYW43_POLLS`).
 
-One honest gap: acceptance criteria 5–6 (the full HIL suite at 49 PASS / 0 FAIL
-and a green `./scripts/pre-commit`) were not re-run for the PIO landing itself —
-only the ad-hoc validation recorded in the Outcome section was. `d445785`'s
-49 PASS / 0 FAIL run covers the adjacent flash-park change.
+~~One honest gap: acceptance criteria 5–6 (the full HIL suite at 49 PASS / 0 FAIL
+and a green `./scripts/pre-commit`) were not re-run for the PIO landing itself.~~
+*2026-09-02:* stale — `ac4bd74`'s commit message records "HIL 49 PASS / 0 FAIL,
+pre-commit green" for the PIO landing, and the nightly HIL has run on it since.
 
 ## Related
 

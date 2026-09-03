@@ -117,7 +117,7 @@ Audit result: **no site converts a raw `lv_obj_t*` back into a Java handle by ca
 4. **`keyboard.rs` SYSTEM_KEYBOARD_HANDLE** — verify `reset_keyboard_state()` (called in the same `app.rs` block) nulls it; the keyboard is lazily re-created, so slot reuse is fine.
 5. **`animations.rs`** — no code change (stores i32 handles, resolves via `lookup`); `cancel_subtree` **stays** — it prevents one frame of animating a dying subtree and is the belt to the table's suspenders.
 6. **Widgets + events.rs registration sites (~30 `register`, ~90 `lookup`)** — zero signature changes; recompile only.
-7. **`socket_table.rs` / `http_table.rs`** — out of scope here; once the widget table soaks, extract a generic `generational_registry<const N>` and adopt (they additionally need their explicit `remove()` mapped to `invalidate`).
+7. **`socket_table.rs` / `http_table.rs`** — out of scope here; once the widget table soaks, extract a generic `generational_registry<const N>` and adopt (they additionally need their explicit `remove()` mapped to `invalidate`). *2026-09-02:* the no-op-`remove()` leak this warned about is closed — `e8a05ef` gave both tables real slot-reusing `remove()` (now under `picodroid-core/src/net/`); the shared generic registry extraction is still open.
 
 ## 6. (e) Sanitizer fold-in
 

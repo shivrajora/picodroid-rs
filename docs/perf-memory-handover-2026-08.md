@@ -12,7 +12,13 @@ Companion context: `docs/picoenvmon-qa.md` (2026-08-16 update + open panic),
 
 ---
 
-## 1. P0 — device-only panic under combined stress (open)
+## 1. P0 — device-only panic under combined stress — **FIXED 2026-08-17 (`0c1326d`)**
+
+*2026-09-02:* root cause was FreeRTOS SMP equal-priority wake preemption
+(`prvYieldForTask`) interleaving compound heap mutations; the fix is
+`pico_jvm::atomic_section` around them, validated by a clean 16-min repro.
+Full write-up in `docs/picoenvmon-qa.md` (2026-08-17 section). The analysis
+below is kept as the original record.
 
 The one genuine crasher. ~4 min into an on-device soak (Live screen + Logger on,
 dashboard serving at 2 s cadence, pdb input churn), core 0 panicked:

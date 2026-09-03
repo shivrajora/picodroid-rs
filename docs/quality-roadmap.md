@@ -18,8 +18,8 @@ PEM-3 prereserve retune has its own runbook: `picoenvmon-soak-handover-2026-08.m
 
 ### Handle sanitizer + GC-stress variant in the nightly sim run
 
-Enable `PICODROID_HANDLE_SANITIZER=1` in `scripts/sim-run.sh` (the per-push CI smoke job
-already sets it), and add a variant pass with `gc_alloc_threshold` forced low (~16) for the
+~~Enable `PICODROID_HANDLE_SANITIZER=1` in `scripts/sim-run.sh`~~ (*done* — parity X3,
+2026-07-19: `sim-run.sh` defaults it on for every row), and add a variant pass with `gc_alloc_threshold` forced low (~16) for the
 UI-heavy rows. Use-after-free via stale handles and GC-rooting sweeps are the two most frequent
 serious bug classes in this repo's history (4 GC-rooting fixes, 3 UAF fixes); both are
 probabilistic, and the sanitizer + forced-frequent GC make them near-deterministic.
@@ -44,6 +44,11 @@ and the 2026-08-17 session recovered ~14 KB of class-metadata duplication plus ~
 byte[] payload on top; see docs/perf-memory-handover-2026-08.md §5 and docs/mem-session-2026-08.md.)
 **Tradeoff:** legitimate feature growth trips thresholds — keep it report-only to avoid
 baseline-update fatigue.
+
+*2026-09-02:* the checked-in baseline + trend half **landed** as the perf-campaign size
+ratchet — `bench/parity/ratchet.toml` per board, `scripts/bench-report.py --ratchet`,
+`parity-bench.sh --size-only`, and the CI `size-ratchet` job (it fails on growth rather
+than warning). Only Stage 2 below (a region-percentage gate) remains open.
 
 *2026-08-11 (`2eb9b19`):* premise partly overtaken — the build report now measures flash
 against `LENGTH(FLASH)` of the program region (99% real usage was previously reported as
@@ -345,6 +350,10 @@ which every `Thread.start` child began on core 1 before freertos-rust's post-hoc
 evicted it — and a source scan under `scripts/test.sh` rejects any other spawn. (Pinning by kernel
 default instead was tried and reverted on HIL: it pins the idle-task reaper and `threadparity` OOMs.)
 Step (1) is done and this entry is a documentation gap; steps (2) and (3) stand as written.
+
+*2026-09-02:* step (2) is also done — `ARCHITECTURE.md`'s invariant table (same commit,
+`4a56a96`) records that `volatile` is ignored and no barriers are emitted. Only step (3)
+remains, and X1's conclusion means it is explicitly *not* to be paid.
 
 ### `IO_IRQ_BANK0` runs on both cores and services the button queue from core 1
 

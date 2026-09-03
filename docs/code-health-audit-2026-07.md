@@ -507,7 +507,11 @@ Verified against the tree, not against this list's own wording:
   `set -e`, and `lib.sh`'s sed-TOML parsing is untouched. `hil-run.sh` was not
   rewritten; it grew 671 → 725 lines.
 - **17 — DONE** (`23fa075`), as recorded.
-- 11 and 13 are untouched.
+- 11 is untouched (`lifecycle.rs` is now 1,983 lines, 0 tests).
+- **13 — partial** (*2026-09-02*): the in-crate monitor tests exist
+  (`jvm/src/interpreter/tests/synchronized.rs`, concurrency-parity WP2); the
+  facade tests, `invoke_*` consolidation and `map_store`/`iter_store` tests are
+  still untouched.
 
 ## Appendix: invariants verified directly during this audit
 

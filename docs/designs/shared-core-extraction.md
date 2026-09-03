@@ -536,6 +536,10 @@ checks what actually registered rather than what the source says. Deferred
 only to keep this commit's scope to the move; it costs a little RP2040 flash
 for the message, so land it with the flash delta measurement.
 
+*2026-09-02:* **landed** — `platforms/rp/src/gc_root_registration.rs` asserts
+`provider_count() == core EXPECTED + platform EXPECTED` after `register_all`,
+with a comment naming this item.
+
 ### A3 — the Stage 9 shadow-twin guard needs an allowlist (Stage 4b)
 
 §4 Stage 9 specifies a guard that fails if any relative path exists under
