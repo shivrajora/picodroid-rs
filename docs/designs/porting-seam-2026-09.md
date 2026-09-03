@@ -686,3 +686,32 @@ Verified: `cargo test -p picodroid` 45 (34 + 11), `-p picodroid-core` 274;
 helloworld in the simulator; pre-commit green. **Flash, rp2040 `--release`:
 byte-identical** — a constant passed as an argument inlines to the same
 code.
+
+### A5 — S5 landed: the Java-array wrappers are trait defaults (2026-09-03)
+
+§3.D as written. `hal::array_io` stages a Java `byte[]` through a 64-byte
+stack buffer; `HalI2c::{write,read}` and `HalSpi::{transfer,write}` have
+default bodies over the slice methods, so a family implements
+`write_slice`/`read_slice` and `write_raw`/`transfer_raw` and gets the
+`picodroid.pio` entry points for free. Four hand-written copies are gone on
+the RP side, four on the simulator's, four delegations in `glue.rs`, four in
+`test_platform.rs`. Nine helper tests cover the staging: exact bytes, only
+`len` of a longer array, copy-back of what the bus produced and no more, the
+empty read, the error path, and the cap — inclusive at 64, refused at 65,
+clamped when a family claims more than the buffer.
+
+Two things fell out. `SpiXferState` lost its 64-byte `staging` buffer and
+`SpiOp::WriteOnly`: only the deleted Java `write` used the interrupt-driven
+write-only path (slices go through DMA), so clippy on the device build
+flagged the variant the moment its one constructor was gone. And the
+simulator's Java `I2cDevice.read` now answers through `read_slice` — the
+BME688 fake at 0x77 — instead of zeros, which is better parity, recorded
+here so nobody hunts for why a sim read changed.
+
+Verified: `cargo test -p picodroid` 44 (one staging test retired),
+`-p picodroid-core` 283 (+9); helloworld, `i2cdemo` (its bus scan runs
+through the default `write` → `write_slice`) and `spidemo` (its transfers
+through `transfer_raw`'s loopback) in the simulator; pre-commit green.
+**Flash, rp2040 `--release`: `.text` 696,104 (−1,672), `.rodata` 175,608
+(+56), net −1,616 B.** E3's prediction held with room to spare; the
+fallback is not needed.

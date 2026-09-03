@@ -90,24 +90,6 @@ impl crate::hal::HalI2c for TestHal {
     fn read_slice(_i2c_id: u8, _address: u8, _buf: &mut [u8]) -> i32 {
         -1
     }
-    fn write(
-        _i2c_id: u8,
-        _address: u32,
-        _data_idx: u16,
-        _len: usize,
-        _arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        -1
-    }
-    fn read(
-        _i2c_id: u8,
-        _address: u32,
-        _buf_idx: u16,
-        _len: usize,
-        _arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        -1
-    }
 }
 
 impl crate::hal::HalAdc for TestHal {
@@ -127,23 +109,6 @@ impl crate::hal::HalSpi for TestHal {
     fn reconfigure(_spi_id: u8, _freq_hz: u32, _mode: u32) {}
     fn write_raw(_spi_id: u8, _data: &[u8]) {}
     fn transfer_raw(_spi_id: u8, _tx: &[u8], _rx: &mut [u8]) {}
-    fn transfer(
-        _spi_id: u8,
-        _tx_idx: u16,
-        _rx_idx: u16,
-        _len: usize,
-        _arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        -1
-    }
-    fn write(
-        _spi_id: u8,
-        _data_idx: u16,
-        _len: usize,
-        _arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        -1
-    }
 }
 
 impl crate::hal::HalUart for TestHal {

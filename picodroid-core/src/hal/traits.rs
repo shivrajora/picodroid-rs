@@ -84,20 +84,38 @@ pub trait HalTouch {
 }
 
 pub trait HalI2c {
+    /// Largest Java-array transfer the default [`HalI2c::write`] /
+    /// [`HalI2c::read`] stage on the stack, in bytes; never more than
+    /// [`crate::hal::array_io::STAGING_CAP`]. A family whose bus takes more
+    /// overrides the two methods rather than this.
+    const JAVA_XFER_MAX: usize = crate::hal::array_io::STAGING_CAP;
+
     fn init(i2c_id: u8);
     fn set_speed(i2c_id: u8, hz: u32);
     fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32;
     fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32;
+
     /// Transfer straight out of / into a JVM byte array, addressed by heap
-    /// index rather than a slice.
+    /// index rather than a slice — the `picodroid.pio.I2cDevice` entry point.
     ///
-    /// The `_slice` pair above is for driver code inside this crate, which
-    /// already holds a borrow. These are for the `picodroid.pio` natives,
-    /// where the buffer is a Java array: taking `&ArrayHeap` lets the
-    /// platform bounds-check and copy in one place, instead of every native
-    /// materialising a temporary slice.
-    fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32;
-    fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32;
+    /// Defaulted over [`HalI2c::write_slice`] through
+    /// [`crate::hal::array_io`]: the staging, the cap check and the copy are
+    /// the same for every family, so a family writes the slice pair and
+    /// nothing else. Returns `-1` when `len` exceeds `JAVA_XFER_MAX`, else
+    /// what the bus said.
+    fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
+        crate::hal::array_io::i2c_write(Self::JAVA_XFER_MAX, arrays, data_idx, len, |data| {
+            Self::write_slice(i2c_id, address as u8, data)
+        })
+    }
+
+    /// The read half of [`HalI2c::write`]: `0` for `len == 0`, `-1` past the
+    /// cap, else the bus result with the bytes it produced copied back.
+    fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
+        crate::hal::array_io::i2c_read(Self::JAVA_XFER_MAX, arrays, buf_idx, len, |buf| {
+            Self::read_slice(i2c_id, address as u8, buf)
+        })
+    }
 }
 
 pub trait HalAdc {
@@ -111,14 +129,37 @@ pub trait HalPwm {
 }
 
 pub trait HalSpi {
+    /// Largest Java-array transfer the default [`HalSpi::transfer`] /
+    /// [`HalSpi::write`] stage on the stack, in bytes; never more than
+    /// [`crate::hal::array_io::STAGING_CAP`]. A family whose bus takes more
+    /// overrides the two methods rather than this.
+    const JAVA_XFER_MAX: usize = crate::hal::array_io::STAGING_CAP;
+
     fn init(spi_id: u8);
     fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32);
     fn write_raw(spi_id: u8, data: &[u8]);
     fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]);
-    /// JVM-array-addressed counterparts of the `_raw` pair — see
-    /// [`HalI2c::write`] for why the natives take `&ArrayHeap`.
-    fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32;
-    fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32;
+
+    /// JVM-array-addressed counterparts of the `_raw` pair — the
+    /// `picodroid.pio.SpiDevice` entry points, defaulted over them through
+    /// [`crate::hal::array_io`] for the reason [`HalI2c::write`] gives.
+    /// `transfer` returns `len`, `0` for an empty transfer, or `-1` past the
+    /// cap; `write` the same, with nothing read back.
+    fn transfer(spi_id: u8, tx_idx: u16, rx_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
+        crate::hal::array_io::spi_transfer(
+            Self::JAVA_XFER_MAX,
+            arrays,
+            tx_idx,
+            rx_idx,
+            len,
+            |tx, rx| Self::transfer_raw(spi_id, tx, rx),
+        )
+    }
+    fn write(spi_id: u8, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
+        crate::hal::array_io::spi_write(Self::JAVA_XFER_MAX, arrays, data_idx, len, |data| {
+            Self::write_raw(spi_id, data)
+        })
+    }
 }
 
 pub trait HalUart {

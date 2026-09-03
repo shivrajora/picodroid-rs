@@ -136,24 +136,6 @@ impl picodroid_core::hal::HalI2c for Platform {
     fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
         crate::hal::i2c::read_slice(i2c_id, address, buf)
     }
-    fn write(
-        i2c_id: u8,
-        address: u32,
-        data_idx: u16,
-        len: usize,
-        arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::i2c::write(i2c_id, address, data_idx, len, arrays)
-    }
-    fn read(
-        i2c_id: u8,
-        address: u32,
-        buf_idx: u16,
-        len: usize,
-        arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::i2c::read(i2c_id, address, buf_idx, len, arrays)
-    }
 }
 
 impl picodroid_core::hal::HalAdc for Platform {
@@ -186,23 +168,6 @@ impl picodroid_core::hal::HalSpi for Platform {
     }
     fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
         crate::hal::spi::transfer_raw(spi_id, tx, rx)
-    }
-    fn transfer(
-        spi_id: u8,
-        tx_idx: u16,
-        rx_idx: u16,
-        len: usize,
-        arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::spi::transfer(spi_id, tx_idx, rx_idx, len, arrays)
-    }
-    fn write(
-        spi_id: u8,
-        data_idx: u16,
-        len: usize,
-        arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::spi::write(spi_id, data_idx, len, arrays)
     }
 }
 

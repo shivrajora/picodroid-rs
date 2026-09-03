@@ -18,6 +18,10 @@
 
 pub mod types;
 
+// Java `byte[]` staging for the bus natives — what the `HalI2c` / `HalSpi`
+// default methods are built on.
+pub mod array_io;
+
 // The host implementation of the hardware surface, shared by every family
 // rather than copied into each one — see the module docs for why.
 #[cfg(any(test, feature = "sim"))]
