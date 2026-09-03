@@ -3,6 +3,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
+// The seam's types, re-exported so `hal::gpio::Pull` keeps resolving for a
+// family whose `mod chip` routes here in simulator builds.
+pub use crate::hal::types::{EdgeTrigger, GpioEvent, Pull};
+
 static GPIO_OE: AtomicU32 = AtomicU32::new(0);
 static GPIO_OUT: AtomicU32 = AtomicU32::new(0);
 static GPIO_IN: AtomicU32 = AtomicU32::new(0xFFFF_FFFF); // default: all high (pull-up)
@@ -36,13 +40,6 @@ pub fn set_value_silent(pin: u8, high: bool) {
 
 // ── Input ────────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy)]
-pub enum Pull {
-    None,
-    Up,
-    Down,
-}
-
 pub fn set_input(pin: u8, pull: Pull) {
     GPIO_OE.fetch_and(!(1u32 << pin), Ordering::Relaxed);
     match pull {
@@ -66,29 +63,14 @@ pub fn read(pin: u8) -> bool {
 
 // ── Edge interrupt stubs ─────────────────────────────────────────────────────
 
-#[derive(Clone, Copy)]
-pub enum EdgeTrigger {
-    Rising,
-    Falling,
-    Both,
-}
-
 pub fn enable_edge_irq(_pin: u8, _edge: EdgeTrigger) {}
 pub fn disable_edge_irq(_pin: u8) {}
 pub fn init_gpio_irq() {}
 
-#[derive(Clone, Copy)]
-pub struct GpioEvent {
-    pub pin: u8,
-    pub rising: bool,
-    /// µs timestamp (wrapping) captured at inject time, mirroring the ISR
-    /// capture on hardware. The contact debounce in `lvgl::events` compares
-    /// these; synthetic edges must carry real host time or every event
-    /// after the first would land inside the debounce window and be eaten.
-    pub t_us: u32,
-}
-
-/// Synthetic button-edge queue. On hardware these edges come from the GPIO
+/// Synthetic button-edge queue. `GpioEvent::t_us` is real host time captured
+/// at inject time, mirroring the ISR capture on hardware: the debounce
+/// compares enqueue-time deltas, so a synthetic edge with a stale stamp would
+/// land inside the window and be eaten. On hardware these edges come from the GPIO
 /// IRQ; the host sim has no GPIO peripheral, so the input front-ends in
 /// `hal::sim::display` (keyboard + control channel) call [`inject`] instead.
 /// A `Mutex` (rather than the `static mut` used elsewhere in this file)

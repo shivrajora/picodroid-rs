@@ -62,13 +62,13 @@ impl picodroid_core::hal::HalGpio for Platform {
         crate::hal::gpio::set_value(pin, high)
     }
     fn set_input(pin: u8, pull: Pull) {
-        crate::hal::gpio::set_input(pin, to_family_pull(pull))
+        crate::hal::gpio::set_input(pin, pull)
     }
     fn read(pin: u8) -> bool {
         crate::hal::gpio::read(pin)
     }
     fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
-        crate::hal::gpio::enable_edge_irq(pin, to_family_edge(edge))
+        crate::hal::gpio::enable_edge_irq(pin, edge)
     }
     fn disable_edge_irq(pin: u8) {
         crate::hal::gpio::disable_edge_irq(pin)
@@ -80,37 +80,13 @@ impl picodroid_core::hal::HalGpio for Platform {
         crate::hal::gpio::inject(pin, rising)
     }
     fn drain_gpio_event() -> Option<GpioEvent> {
-        crate::hal::gpio::drain_gpio_event().map(|e| GpioEvent {
-            pin: e.pin,
-            rising: e.rising,
-            t_us: e.t_us,
-        })
+        crate::hal::gpio::drain_gpio_event()
     }
     fn has_pending_event() -> bool {
         crate::hal::gpio::has_pending_event()
     }
     fn wait_for_button_event() {
         crate::hal::gpio::wait_for_button_event()
-    }
-}
-
-// The family HAL keeps its own copies of these enums for now; they are
-// field-identical to the shared ones, and these two converters are all that
-// stands between them. When `hal/sim/` moves into picodroid-core (stage 8)
-// and `hal/rp/` adopts the shared types directly, both disappear.
-fn to_family_pull(p: Pull) -> crate::hal::gpio::Pull {
-    match p {
-        Pull::None => crate::hal::gpio::Pull::None,
-        Pull::Up => crate::hal::gpio::Pull::Up,
-        Pull::Down => crate::hal::gpio::Pull::Down,
-    }
-}
-
-fn to_family_edge(e: EdgeTrigger) -> crate::hal::gpio::EdgeTrigger {
-    match e {
-        EdgeTrigger::Rising => crate::hal::gpio::EdgeTrigger::Rising,
-        EdgeTrigger::Falling => crate::hal::gpio::EdgeTrigger::Falling,
-        EdgeTrigger::Both => crate::hal::gpio::EdgeTrigger::Both,
     }
 }
 

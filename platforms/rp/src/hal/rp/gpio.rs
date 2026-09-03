@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use core::cell::UnsafeCell;
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+// The seam's own types, not local copies: shared code names these, and the
+// converters `glue.rs` used to carry between two identical enums are gone.
+use picodroid_core::hal::types::{EdgeTrigger, GpioEvent, Pull};
 
 // ── Output ───────────────────────────────────────────────────────────────────
 
@@ -58,13 +61,6 @@ pub fn set_value(pin: u8, high: bool) {
 
 // ── Input ────────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy)]
-pub enum Pull {
-    None,
-    Up,
-    Down,
-}
-
 pub fn set_input(pin: u8, pull: Pull) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
@@ -106,13 +102,6 @@ pub fn read(pin: u8) -> bool {
 }
 
 // ── Edge interrupt ───────────────────────────────────────────────────────────
-
-#[derive(Clone, Copy)]
-pub enum EdgeTrigger {
-    Rising,
-    Falling,
-    Both,
-}
 
 pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
     #[cfg(feature = "chip-rp2350")]
@@ -297,18 +286,10 @@ extern "C" fn IO_IRQ_BANK0() {
 }
 
 // ── Event queue (ISR-safe ring buffer) ───────────────────────────────────────
-
-#[derive(Clone, Copy)]
-pub struct GpioEvent {
-    pub pin: u8,
-    pub rising: bool,
-    /// µs timestamp (wrapping, TIMERAWL low word) captured in the ISR at
-    /// enqueue time. The contact debounce in `lvgl::events` compares these
-    /// rather than a drain-time clock: edges can sit in this queue for
-    /// hundreds of ms while the UI task stalls on an Activity transition,
-    /// so only ISR-time deltas measure the switch itself.
-    pub t_us: u32,
-}
+//
+// `GpioEvent::t_us` is the TIMERAWL low word captured here, in the ISR, at
+// enqueue time — see the field's doc in `picodroid_core::hal::types` for why
+// the debounce needs enqueue-time deltas rather than a drain-time clock.
 
 // Raw 32-bit µs timestamp (TIMERAWL low word). A single volatile read —
 // ISR-safe, no hi/lo latch. Wraps every ~71.6 min, which is fine for the

@@ -21,10 +21,11 @@
 //! `uart::reconfigure` (used by the pio natives, never asserted). A trait
 //! bound cannot fall behind that way.
 //!
-//! Two things the retired assertions covered are checked elsewhere rather
+//! One thing the retired assertions covered is checked elsewhere rather
 //! than dropped: the `display::WIDTH`/`HEIGHT`/`BAND_HEIGHT`/`SCROLL_LIMIT`
-//! constants by the drift assertion in [`super`], and the family `gpio`
-//! enums by `glue.rs`'s conversion functions.
+//! constants, by the drift assertion in [`super`]. The family `gpio` enums
+//! need no check any more — `hal/rp/gpio.rs` uses `picodroid_core::hal::types`
+//! directly, so there is nothing to drift.
 //!
 //! `pdb_usb` left for the same reason as the rest: its six functions are now
 //! exactly the `picodroid_core::pdb::PdbTransport` surface, and

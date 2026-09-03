@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Hardware Abstraction Layer for this family — every chip-specific symbol
-//! lives under here, behind one `#[cfg]` that selects `rp/` or `sim/`.
+//! lives under here, behind one `#[cfg]` that selects `rp/` or the shared
+//! simulator in `picodroid_core::hal::sim`.
 //!
 //! # Where the contract lives
 //!
@@ -62,13 +63,17 @@ pub use chip::system_clock;
 pub use chip::touch;
 pub use chip::uart;
 
+// The debug-bridge byte pipe. Both arms have a module of this name: the
+// device's is the USB CDC driver, the simulator's a stub for machinery no
+// host can stand in for. Its only consumer (`pdb/platform.rs`) is device-only.
+#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
+pub use chip::pdb_usb;
+
 // Boot & flash: device-only. The shared simulator has no counterpart — a
 // reset vector and an XIP flash region are not things a host process has —
 // and the empty stubs that used to stand in for them were reachable from
 // nothing, so they are gone. Both consumers (`main`'s `#[entry]` and
 // `packagemanager`) carry this same gate.
-#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
-pub use chip::pdb_usb;
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::{boot, flash};
 
@@ -84,11 +89,14 @@ pub use chip::net;
 // The cyw43 bring-up task. Device-only: the shared simulator has no such
 // module, and nothing in a simulator build would drive it. Exposed here
 // rather than reached as `hal::rp::…` because `chip` is private — the same
-// indirection every other peripheral goes through.
+// indirection every peripheral that code outside `hal` reaches goes through.
+// (`dma`, `pio_spi` and `trng` are not re-exported: they are internal to the
+// family and reached only by their sibling modules.)
 #[cfg(all(network_cyw43, not(any(test, feature = "sim"))))]
 pub use chip::wifi_task;
 
-// Compile-time HAL CONTRACT v1 enforcement. Never executed; type-checked only.
+// Compile-time assertions for the parts no trait covers (`boot`, `flash`).
+// Never executed; type-checked only.
 mod contract;
 
 // Display geometry is generated twice from one board.toml: this family's
