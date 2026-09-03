@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package stringdemo;
 
+import java.util.ArrayList;
 import java.util.IllegalFormatException;
 import java.util.Locale;
+import java.util.Objects;
 import picodroid.app.Application;
 import picodroid.util.Log;
 
@@ -88,6 +90,8 @@ public class StringDemo extends Application {
     testFormatErrors();
     testParsePrimitives();
     testParseErrors();
+    testJoin();
+    testObjects();
 
     String passStr = String.valueOf(passed);
     String failStr = String.valueOf(failed);
@@ -442,5 +446,61 @@ public class StringDemo extends Application {
       caught = true;
     }
     check("parseByte range throws NFE", caught);
+  }
+
+  // ── String.join / java.util.Objects ───────────────────────────────────────
+
+  static void testJoin() {
+    check("join varargs", "a, b, c".equals(String.join(", ", "a", "b", "c")));
+    check("join single", "only".equals(String.join("-", "only")));
+    check("join empty delimiter", "xy".equals(String.join("", "x", "y")));
+    check("join null element", "a/null/c".equals(String.join("/", "a", null, "c")));
+    String[] arr = {"p", "q"};
+    check("join String[]", "p+q".equals(String.join("+", arr)));
+    ArrayList<String> list = new ArrayList<String>();
+    check("join empty list", "".equals(String.join(",", list)));
+    list.add("one");
+    list.add("two");
+    check("join ArrayList", "one,two".equals(String.join(",", list)));
+  }
+
+  static void testObjects() {
+    Named a = new Named("x");
+    Named b = new Named("x");
+    Named sameRef = a;
+    check("Objects.equals same ref", Objects.equals(a, sameRef));
+    check("Objects.equals null null", Objects.equals(null, null));
+    check("Objects.equals null vs obj", !Objects.equals(null, a));
+    check("Objects.equals obj vs null", !Objects.equals(a, null));
+    check("Objects.equals strings", Objects.equals("ab", "a" + "b"));
+    check("Objects.equals identity default", !Objects.equals(a, b));
+    check("Objects.hashCode null", Objects.hashCode(null) == 0);
+    check("Objects.hashCode string", Objects.hashCode("ab") == "ab".hashCode());
+    check("Objects.hash empty", Objects.hash() == 1);
+    check("Objects.hash one", Objects.hash("ab") == 31 + "ab".hashCode());
+    check("Objects.hash null elem", Objects.hash((Object) null) == 31);
+    check("Objects.toString null", "null".equals(Objects.toString(null)));
+    check("Objects.toString override", "Named(x)".equals(Objects.toString(a)));
+    check("Objects.toString default", "dflt".equals(Objects.toString(null, "dflt")));
+    check(
+        "Objects.toString non-null ignores default",
+        "Named(x)".equals(Objects.toString(a, "dflt")));
+    check("Objects.isNull", Objects.isNull(null) && !Objects.isNull(a));
+    check("Objects.nonNull", Objects.nonNull(a) && !Objects.nonNull(null));
+    check("requireNonNull returns arg", Objects.requireNonNull(a) == a);
+    boolean threw = false;
+    try {
+      Objects.requireNonNull(null, "must not be null");
+    } catch (NullPointerException e) {
+      threw = "must not be null".equals(e.getMessage());
+    }
+    check("requireNonNull throws NPE with message", threw);
+    threw = false;
+    try {
+      Objects.requireNonNull(null);
+    } catch (NullPointerException e) {
+      threw = true;
+    }
+    check("requireNonNull throws NPE", threw);
   }
 }

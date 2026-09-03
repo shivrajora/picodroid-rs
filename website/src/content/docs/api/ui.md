@@ -440,11 +440,12 @@ import picodroid.widget.TextView;
 TextView label = new TextView();
 label.setText("Hello, World!");
 label.setTextColor(Color.WHITE);
+String current = label.getText().toString();   // CharSequence, as on Android
 ```
 
 ### `picodroid.widget.Button`
 
-A clickable button with a text label. Extends `TextView`, so `setText` and `setTextColor` are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
+A clickable button with a text label. Extends `TextView`, so `setText`, `getText` and `setTextColor` are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
 
 ```java
 import picodroid.view.View;

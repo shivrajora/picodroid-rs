@@ -53,6 +53,8 @@ J__StringBuilder	(J)Ljava/lang/StringBuilder;
 CharSequence__Appendable	(Ljava/lang/CharSequence;)Ljava/lang/Appendable;
 CharSequence__StringBuilder	(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;
 CharSequence_CharSequence__String	(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;
+CharSequence_Iterable__String	(Ljava/lang/CharSequence;Ljava/lang/Iterable;)Ljava/lang/String;
+CharSequence_aCharSequence__String	(Ljava/lang/CharSequence;[Ljava/lang/CharSequence;)Ljava/lang/String;
 Class_String__Enum	(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;
 Enum__I	(Ljava/lang/Enum;)I
 Integer__I	(Ljava/lang/Integer;)I

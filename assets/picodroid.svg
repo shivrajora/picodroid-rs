@@ -35,33 +35,41 @@
     strokes on a 130-unit cap height / 100-unit x-height with the baseline at
     y=830. Bowls are true circles, which is what gives the face its Poppins /
     Nunito flavour.
+
+    Spacing is by constant optical area, not by constant edge gap: for every
+    adjacent pair the white between the two ink profiles (measured over the
+    cap-height band, with the profile depth capped at 20 units so the eye is
+    not led into a counter) is held to ~4600 square units. That is what puts
+    "dr" 31 units apart and "od" only 12 — a uniform edge gap makes flat-sided
+    pairs look cramped and round-sided pairs look gappy. Kerning falls out of
+    the same measurement: "ro" tucks the r's shoulder 7 units over the o.
   -->
   <g fill="none" stroke="#f97316" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
     <!-- P -->
-    <path d="M131 815V700"/>
-    <path d="M131 700a45 36 0 0 1 0 72"/>
+    <path d="M108 815V700"/>
+    <path d="M108 700a36 36 0 0 1 0 72"/>
     <!-- i -->
-    <path d="M211 815v-85"/>
+    <path d="M197 815v-85"/>
     <!-- c -->
-    <path d="M314.8 757.5a35 35 0 1 0 0 45"/>
+    <path d="M310.8 757.5a35 35 0 1 0 0 45"/>
     <!-- o -->
-    <circle cx="400" cy="780" r="35"/>
+    <circle cx="388" cy="780" r="35"/>
     <!-- d -->
-    <circle cx="512" cy="780" r="35"/>
-    <path d="M547 675v140"/>
+    <circle cx="500" cy="780" r="35"/>
+    <path d="M535 675v140"/>
     <!-- r -->
-    <path d="M589 815v-85"/>
-    <path d="M589 768a38 38 0 0 1 38-38"/>
+    <path d="M596 815v-85"/>
+    <path d="M596 768a38 38 0 0 1 38-38"/>
     <!-- o -->
-    <circle cx="704" cy="780" r="35"/>
+    <circle cx="706" cy="780" r="35"/>
     <!-- i -->
-    <path d="M781 815v-85"/>
+    <path d="M794 815v-85"/>
     <!-- d -->
-    <circle cx="858" cy="780" r="35"/>
-    <path d="M893 675v140"/>
+    <circle cx="881" cy="780" r="35"/>
+    <path d="M916 675v140"/>
   </g>
 
   <!-- Tittles -->
-  <circle cx="211" cy="698" r="16" fill="#f97316"/>
-  <circle cx="781" cy="698" r="16" fill="#f97316"/>
+  <circle cx="197" cy="698" r="16" fill="#f97316"/>
+  <circle cx="794" cy="698" r="16" fill="#f97316"/>
 </svg>

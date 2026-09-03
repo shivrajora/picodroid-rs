@@ -43,6 +43,8 @@ public class MainActivity extends Activity {
     title.setText("bug bash");
     root.addView(title);
     launchBtn = new Button("launch");
+    check("TextView.getText round-trip", "bug bash".equals(title.getText().toString()));
+    check("Button.getText round-trip", "launch".equals(launchBtn.getText().toString()));
     launchBtn.setSize(200, 40);
     launchBtn.setOnClickListener(
         v -> {

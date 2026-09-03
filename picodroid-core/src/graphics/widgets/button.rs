@@ -36,3 +36,15 @@ pub fn button_set_text(
     lvgl_button::set_text(id, text);
     Ok(None)
 }
+
+/// `Button.getText()` — the child label's text (see `TextView.getText`).
+pub fn button_get_text(
+    args: &[Value],
+    strings: &mut StringTable,
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let mut buf = [0u8; 256];
+    let len = lvgl_button::get_text(id, &mut buf).unwrap_or(0);
+    super::text_view::intern_text(&buf[..len], strings)
+}

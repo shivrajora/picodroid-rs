@@ -377,6 +377,13 @@ const STRING_METHODS: &[BuiltinMethodRow] = &[
     (m::getBytes, &[]),
     (m::replace, &[]),
     (m::split, &[]),
+    (
+        m::join,
+        &[
+            d::CharSequence_aCharSequence__String,
+            d::CharSequence_Iterable__String,
+        ],
+    ),
 ];
 
 /// The numeric wrappers share `boxed_dispatch!` + `dispatch_common` plus
@@ -456,6 +463,7 @@ const FLOAT_METHODS: &[BuiltinMethodRow] = &[
     (m::compareTo, &[]),
     (m::compare, &[]),
     (m::floatToIntBits, &[]),
+    (m::intBitsToFloat, &[]),
 ];
 
 const BOOLEAN_METHODS: &[BuiltinMethodRow] = &[

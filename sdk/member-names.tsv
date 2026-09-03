@@ -28,6 +28,7 @@ F	CENTER_VERTICAL
 F	CYAN
 F	DAYS
 F	DIR
+F	DIRECTION_IN
 F	DIRECTION_OUT_INITIALLY_HIGH
 F	DIRECTION_OUT_INITIALLY_LOW
 F	DONE
@@ -188,6 +189,7 @@ F	TYPE_TEXT_VARIATION_EMAIL_ADDRESS
 F	TYPE_TEXT_VARIATION_PASSWORD
 F	TYPE_TEXT_VARIATION_URI
 F	T_BOOL
+F	T_FLOAT
 F	T_INT
 F	T_LONG
 F	T_REMOVED
@@ -431,6 +433,7 @@ M	cos
 M	countDown
 M	crc32
 M	create
+M	createNewFile
 M	current
 M	current0
 M	currentKind0
@@ -447,6 +450,7 @@ M	e
 M	edit
 M	elapsedRealtimeNanos
 M	encode
+M	equals
 M	execute
 M	exists
 M	exit0
@@ -480,6 +484,7 @@ M	gcCount
 M	gcFreed
 M	gcTimeNanos
 M	get
+M	getAbsolutePath
 M	getAction
 M	getAdapter
 M	getAddress
@@ -509,6 +514,7 @@ M	getDisplay
 M	getDuration
 M	getErrorStream
 M	getEventTime
+M	getFloat
 M	getHeaderField
 M	getHeaderFieldKey
 M	getHeight
@@ -542,6 +548,8 @@ M	getOnItemClickListener
 M	getOnItemSelectedListener
 M	getOutputStream
 M	getPackageManager
+M	getParent
+M	getParentFile
 M	getPath
 M	getPort
 M	getPriority
@@ -586,6 +594,8 @@ M	grow
 M	hasExtra
 M	hasFocus
 M	hasSystemFeature
+M	hash
+M	hashCode
 M	hide
 M	i
 M	incrementAndGet
@@ -609,6 +619,7 @@ M	isFocusable
 M	isFocused
 M	isIndeterminate
 M	isInterrupted
+M	isNull
 M	isQueued
 M	isShutdown
 M	isTerminated
@@ -632,6 +643,7 @@ M	max
 M	merge
 M	min
 M	mkdir
+M	mkdirs
 M	nativeApply
 M	nativeBindAdapter
 M	nativeCancel
@@ -691,6 +703,7 @@ M	nativeStart
 M	newFixedThreadPool
 M	newSingleThreadExecutor
 M	nextPoolId
+M	nonNull
 M	notify
 M	notifyDataSetChanged
 M	onAccuracyChanged
@@ -757,6 +770,7 @@ M	pollTouch
 M	pow
 M	putBoolean
 M	putExtra
+M	putFloat
 M	putInt
 M	putLong
 M	putString
@@ -779,6 +793,7 @@ M	removeView
 M	renameTo
 M	report
 M	requestFocus
+M	requireNonNull
 M	resetGcStats
 M	resetPeakMemory
 M	reverse

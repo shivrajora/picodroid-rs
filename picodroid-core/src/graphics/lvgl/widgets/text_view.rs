@@ -21,6 +21,33 @@ pub(in crate::graphics) fn set_text(id: i32, text: &str) {
     unsafe { lv_label_set_text(handle_table::lookup(id), buf.as_ptr() as *const c_char) };
 }
 
+/// Copy the label's current text into `dst` (capped at 256 bytes). Returns
+/// the byte length written, or `None` when LVGL returned a null pointer.
+pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
+    let cstr = unsafe { lv_label_get_text(handle_table::lookup(id)) };
+    copy_cstr(cstr, dst)
+}
+
+/// Bounded copy of a NUL-terminated LVGL string. `c_char` is `i8` on x86_64
+/// and `u8` on ARM; the cast is unconditional for portability.
+pub(in crate::graphics) fn copy_cstr(cstr: *const c_char, dst: &mut [u8; 256]) -> Option<usize> {
+    if cstr.is_null() {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    let cstr = cstr as *const u8;
+    let mut len = 0usize;
+    unsafe {
+        while len < dst.len() && *cstr.add(len) != 0 {
+            len += 1;
+        }
+    }
+    for (i, slot) in dst[..len].iter_mut().enumerate() {
+        *slot = unsafe { *cstr.add(i) };
+    }
+    Some(len)
+}
+
 pub(in crate::graphics) fn set_text_color(id: i32, argb: u32) {
     let color = lv_color_t {
         red: ((argb >> 16) & 0xFF) as u8,

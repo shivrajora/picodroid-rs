@@ -89,6 +89,7 @@ java/util/Locale
 java/util/Map
 java/util/Map$Entry
 java/util/NoSuchElementException
+java/util/Objects
 java/util/Random
 java/util/Set
 java/util/concurrent/CancellationException

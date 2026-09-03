@@ -26,4 +26,8 @@ public class Button extends TextView {
 
   @Override
   public native void setText(String text);
+
+  /** Re-declared like {@link #setText}: reads the child label, not the button box. */
+  @Override
+  public native CharSequence getText();
 }

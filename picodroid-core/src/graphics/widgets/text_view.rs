@@ -25,6 +25,27 @@ pub fn text_view_set_text(
     Ok(None)
 }
 
+/// `TextView.getText()` — the label text as a fresh dyn string; an empty
+/// string when LVGL has none, never `null` (Android returns "" too).
+pub fn text_view_get_text(
+    args: &[Value],
+    strings: &mut StringTable,
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let mut buf = [0u8; 256];
+    let len = lvgl_text_view::get_text(id, &mut buf).unwrap_or(0);
+    intern_text(&buf[..len], strings)
+}
+
+pub(super) fn intern_text(
+    bytes: &[u8],
+    strings: &mut StringTable,
+) -> Result<Option<Value>, JvmError> {
+    let ref_idx = strings.intern_dyn(bytes).ok_or(JvmError::StackOverflow)?;
+    Ok(Some(Value::Reference(ref_idx)))
+}
+
 /// `TextView.setTextColor(int argb)`
 pub fn text_view_set_text_color(
     args: &[Value],

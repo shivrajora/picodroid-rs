@@ -5290,3 +5290,101 @@ fn builtin_dispatch_hash_column_matches_names() {
         );
     }
 }
+
+// ── String.join ───────────────────────────────────────────────────────────
+
+fn join_array(
+    ctx: &mut StrCtx,
+    delim: &'static [u8],
+    parts: &[Option<&'static [u8]>],
+) -> alloc::string::String {
+    let d = ctx.intern(delim);
+    let arr = ctx
+        .arrays
+        .alloc(crate::array_heap::ATYPE_REF, parts.len() as u16)
+        .unwrap();
+    for (i, p) in parts.iter().enumerate() {
+        let raw = match p {
+            Some(bytes) => {
+                let Value::Reference(r) = ctx.intern(bytes) else {
+                    unreachable!()
+                };
+                ((r as u32) | crate::array_heap::REF_TAG) as i32
+            }
+            None => 0,
+        };
+        ctx.arrays.store(arr, i, raw);
+    }
+    let r = ctx
+        .dispatch(
+            m::join,
+            d::CharSequence_aCharSequence__String,
+            &[d, Value::ArrayRef(arr)],
+        )
+        .unwrap()
+        .unwrap();
+    alloc::string::ToString::to_string(ctx.resolve(r))
+}
+
+#[test]
+fn string_join_varargs_basic() {
+    let mut ctx = StrCtx::new();
+    assert_eq!(
+        join_array(&mut ctx, b", ", &[Some(b"a"), Some(b"b"), Some(b"c")]),
+        "a, b, c"
+    );
+}
+
+#[test]
+fn string_join_varargs_empty_and_single() {
+    let mut ctx = StrCtx::new();
+    assert_eq!(join_array(&mut ctx, b"-", &[]), "");
+    assert_eq!(join_array(&mut ctx, b"-", &[Some(b"only")]), "only");
+    assert_eq!(join_array(&mut ctx, b"", &[Some(b"x"), Some(b"y")]), "xy");
+}
+
+#[test]
+fn string_join_varargs_null_element_prints_null() {
+    let mut ctx = StrCtx::new();
+    assert_eq!(
+        join_array(&mut ctx, b"/", &[Some(b"a"), None, Some(b"c")]),
+        "a/null/c"
+    );
+}
+
+#[test]
+fn string_join_rejects_non_string_element() {
+    let mut ctx = StrCtx::new();
+    let d = ctx.intern(b",");
+    let arr = ctx.arrays.alloc(crate::array_heap::ATYPE_REF, 1).unwrap();
+    let inner = ctx.arrays.alloc(crate::array_heap::ATYPE_REF, 0).unwrap();
+    ctx.arrays.store(
+        arr,
+        0,
+        ((inner as u32) | crate::array_heap::ARRAY_TAG) as i32,
+    );
+    let r = ctx.dispatch(
+        m::join,
+        d::CharSequence_aCharSequence__String,
+        &[d, Value::ArrayRef(arr)],
+    );
+    assert!(matches!(r, Err(JvmError::InvalidReference)));
+}
+
+#[test]
+fn string_join_unknown_descriptor_is_not_served() {
+    let mut ctx = StrCtx::new();
+    let d = ctx.intern(b",");
+    let mut nctx = NativeContext {
+        classes: &[],
+        descriptor: "(Ljava/lang/String;)Ljava/lang/String;",
+        args: &[d],
+        strings: &mut ctx.strings,
+        objects: &mut ctx.objects,
+        arrays: &mut ctx.arrays,
+        upcall: None,
+    };
+    assert!(BuiltinHandler
+        .dispatch(c::java_lang_String, m::join, &mut nctx)
+        .is_none());
+}
