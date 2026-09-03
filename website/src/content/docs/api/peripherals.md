@@ -60,13 +60,18 @@ gpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
 gpio.setValue(true);    // drive high
 gpio.setValue(false);   // drive low
 gpio.close();           // or use try-with-resources
+
+Gpio sense = pm.openGpio("GP16");
+sense.setDirection(Gpio.DIRECTION_IN);
+boolean high = sense.getValue();   // read the pin
 ```
 
 | Member | Description |
 |--------|-------------|
+| `DIRECTION_IN` = 0 | `setDirection` constant: input, no pull (as Android Things). Read it with `getValue()`; the sim reads such a pin `LOW`, hardware reads whatever drives the pad. |
 | `DIRECTION_OUT_INITIALLY_HIGH` = 1 | `setDirection` constant: output, start high. |
 | `DIRECTION_OUT_INITIALLY_LOW` = 2 | `setDirection` constant: output, start low. |
-| `void setDirection(int)` / `void setValue(boolean)` / `void close()` | Configure direction, drive the pin, release it. |
+| `void setDirection(int)` / `void setValue(boolean)` / `boolean getValue()` / `void close()` | Configure direction, drive the pin, read its level, release it. |
 
 ## `picodroid.pio.UartDevice`
 
