@@ -20,6 +20,6 @@ pub fn run_pdb_task() -> ! {
         platform::CdcTransport,
         coordinator::PdbCoreCoordinator,
         platform::FreeRtosSysmon,
-        crate::packagemanager::RpPapkFlash,
+        crate::packagemanager::RpPapkFlash::new(),
     )
 }

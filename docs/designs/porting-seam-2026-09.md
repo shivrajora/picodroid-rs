@@ -741,3 +741,32 @@ into the bench session after S7:** scripted input through navdemo in the
 simulator, and on hardware real buttons and touch, `pdb input
 tap/swipe/keyevent`, idle-sleep wake, and S3's `pdb ping`. Recorded as A8
 when run.
+
+### A7 — S7 landed: the flash slot is an adapter, the geometry is one type (2026-09-03)
+
+§3.F and §3.G as written. `install::slot` holds `PapkSlotFlash` (three
+constants, `erase_range`, `program_range`, `reset`), `PapkSlot<F>` (the
+`PapkFlash` impl: meta sector plus whole data sectors on erase, page bounds
+and offsets on write, `build_meta_page` programmed last) and `read_mapped`
+(the boot-time read of an installed image through a memory-mapped slot).
+The family's `packagemanager/mod.rs` is a `RpFlash: PapkSlotFlash` over
+`hal::flash`'s two primitives and `type RpPapkFlash = PapkSlot<RpFlash>`;
+`flash.rs` lost its thirty-line PAPK layer and its two layout constants, and
+`read_flash_papk` is one call. Its three `debug_assert!`s on the filesystem
+region — which never ran on a device — are one `assert!` with a
+`&'static str`. `FsGeometry` gained `DEFAULT` (a `const`, so the family
+asserts its flash matches at compile time), `resolve` and `check_prog`;
+both backing stores call them, and the RP store's `geometry()` override and
+two constants are gone. Eight slot tests: erase rounding, page placement,
+the last page fits and the next is refused without reaching flash, the
+commit page, the constants, and `read_mapped` on an installed, an erased,
+and an over-long image.
+
+Verified on the host: `cargo test -p picodroid-core` 300 (+8),
+`-p picodroid` 44; helloworld in the simulator; `bootcount` on a fresh
+isolated image (`PICODROID_SIM_FS`) three runs, `Boot #1`, `#2`, `#3` —
+the whole read/write path through the geometry helpers; pre-commit green.
+**Flash, rp2040 `--release`: `.text` 696,280 (+76 over S6), `.rodata`
+175,720 (+112)** — the assert message and the monomorphised adapter; more
+than the ≈0 predicted, and still −1,328 B cumulative. Hardware: the bench
+session that follows (A8).

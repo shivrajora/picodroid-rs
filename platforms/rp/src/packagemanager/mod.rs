@@ -2,9 +2,11 @@
 //! This family's half of PAPK install.
 //!
 //! The orchestration — validate, park, erase, stream, verify, commit — is
-//! `picodroid_core::install`. What is left here is the flash slot itself:
-//! where it sits, how it erases, and the linker section probe-rs writes when
-//! it flashes an ELF.
+//! `picodroid_core::install`, and the slot arithmetic on top of the flash
+//! primitives is its `PapkSlot`. What is left here is what only this family
+//! can say: where the slot sits, how big it is, how a range is erased and
+//! programmed, how the chip resets, and the linker section probe-rs writes
+//! when it flashes an ELF.
 
 #[cfg(not(any(test, feature = "sim")))]
 pub mod flash;
@@ -14,38 +16,34 @@ pub use rp_flash::RpPapkFlash;
 
 #[cfg(not(any(test, feature = "sim")))]
 mod rp_flash {
-    use picodroid_core::install::PapkFlash;
+    use picodroid_core::install::{PapkSlot, PapkSlotFlash};
 
-    /// This family's PAPK slot, as `picodroid_core::install` sees it.
-    ///
-    /// Zero-sized: the slot is a fixed region named by linker symbols and
-    /// chip-gated constants, not something with instance state. It exists to
-    /// carry the trait.
-    pub struct RpPapkFlash;
+    /// This family's PAPK slot primitives: a fixed region named by chip-gated
+    /// constants, erased and programmed by the ROM routines in `hal::flash`.
+    pub struct RpFlash;
 
-    // SAFETY: every method delegates to `hal::flash`, whose erase/program
-    // primitives disable XIP for the duration of the ROM call and run from
-    // RAM. `run_install` parks the JVM core before reaching any of them,
-    // which is the condition the trait documents.
-    unsafe impl PapkFlash for RpPapkFlash {
-        fn max_data_size(&self) -> usize {
-            super::flash::PAPK_MAX_DATA_SIZE
+    // SAFETY: every primitive delegates to `hal::flash`, whose erase/program
+    // routines disable XIP for the duration of the ROM call and run from RAM.
+    // `run_install` parks the JVM core before reaching any of them, which is
+    // the condition the trait documents.
+    unsafe impl PapkSlotFlash for RpFlash {
+        const META_OFFSET: u32 = super::flash::PAPK_FLASH_META_OFFSET;
+        const MAX_DATA_SIZE: usize = super::flash::PAPK_MAX_DATA_SIZE;
+        const SECTOR_SIZE: usize = super::flash::FLASH_SECTOR_SIZE;
+
+        unsafe fn erase_range(flash_offset: u32, len: usize) {
+            super::flash::flash_erase_range(flash_offset, len)
         }
 
-        unsafe fn erase_region(&mut self, papk_len: usize) {
-            super::flash::flash_erase_papk_region(papk_len)
+        unsafe fn program_range(flash_offset: u32, data: &[u8]) {
+            super::flash::flash_program_range(flash_offset, data.as_ptr(), data.len())
         }
 
-        unsafe fn write_page(&mut self, page_index: u32, page: &[u8; 256]) -> bool {
-            super::flash::flash_write_page(page_index, page)
-        }
-
-        unsafe fn commit_metadata(&mut self, len: u32) {
-            super::flash::flash_commit_metadata(len)
-        }
-
-        fn trigger_reset(&mut self) -> ! {
+        fn reset() -> ! {
             super::flash::flash_trigger_reset()
         }
     }
+
+    /// This family's slot, as `picodroid_core::install` sees it.
+    pub type RpPapkFlash = PapkSlot<RpFlash>;
 }

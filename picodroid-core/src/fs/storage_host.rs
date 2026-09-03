@@ -77,10 +77,8 @@ impl HostFileStorage {
     }
 
     fn seek_block(&mut self, block: u32, offset: u32, len: usize) -> Result<(), LfsError> {
-        if block >= self.block_count || (offset as usize) + len > BLOCK_SIZE {
-            return Err(LfsError::Invalid);
-        }
-        let pos = u64::from(block) * BLOCK_SIZE as u64 + u64::from(offset);
+        let pos =
+            super::FsBackingStore::geometry(self).resolve(self.block_count, block, offset, len)?;
         self.file
             .seek(SeekFrom::Start(pos))
             .map_err(|_| LfsError::Io)?;
@@ -119,9 +117,7 @@ impl LfsStorage for HostFileStorage {
     }
 
     fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), LfsError> {
-        if !(offset as usize).is_multiple_of(PROG_SIZE) || !data.len().is_multiple_of(PROG_SIZE) {
-            return Err(LfsError::Invalid);
-        }
+        super::FsBackingStore::geometry(self).check_prog(offset, data.len())?;
         self.seek_block(block, offset, data.len())?;
         self.file.write_all(data).map_err(|_| LfsError::Io)?;
         self.file.sync_all().map_err(|_| LfsError::Io)
