@@ -34,9 +34,9 @@
 // (Tests run on the host where HAL crates like rp-pico are unavailable.)
 //
 // There is no `sim/` directory here any more. Every module it held is
-// picodroid-core's, including the `pdb_usb` stub that used to stay behind.
-// The `boot`/`flash` stubs that went with it are gone entirely: one empty
-// function and two constants that no simulator build could reach.
+// picodroid-core's. The `boot`/`flash`/`pdb_usb` stubs that went with it are
+// gone entirely: one empty function, two constants and an empty USB module
+// that no simulator build could reach.
 #[cfg(any(feature = "sim", test))]
 use picodroid_core::hal::sim as chip;
 
@@ -63,10 +63,10 @@ pub use chip::system_clock;
 pub use chip::touch;
 pub use chip::uart;
 
-// The debug-bridge byte pipe. Both arms have a module of this name: the
-// device's is the USB CDC driver, the simulator's a stub for machinery no
-// host can stand in for. Its only consumer (`pdb/platform.rs`) is device-only.
-#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
+// The debug-bridge byte pipe: the USB CDC driver, device-only like its one
+// consumer (`pdb/platform.rs`). The simulator ships no endpoint, so there is
+// no stub to route to.
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::pdb_usb;
 
 // Boot & flash: device-only. The shared simulator has no counterpart — a

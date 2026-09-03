@@ -65,9 +65,6 @@ picodroid_core::declare_sim_global_allocator!();
 #[path = "hal/rp/i2c/protocol.rs"]
 mod hal_rp_i2c_protocol_tests;
 #[cfg(test)]
-#[path = "hal/rp/pdb_usb/protocol.rs"]
-mod hal_rp_pdb_usb_protocol_tests;
-#[cfg(test)]
 #[path = "hal/rp/spi/protocol.rs"]
 mod hal_rp_spi_protocol_tests;
 // The native_handler test shims moved to picodroid-core along with the

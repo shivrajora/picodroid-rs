@@ -646,3 +646,24 @@ that proves the model crossed the seam intact; `cargo test -p picodroid`
 green. **Flash, rp2040 `--release`: byte-identical** (`.text` 697,776 /
 `.rodata` 175,552 / `.data` 2,300), as it must be for a simulator-only
 change.
+
+### A3 — S3 landed: one USB identity (2026-09-03)
+
+§3.E as written. `pdb_protocol::usb` owns VID 0x1209 / PID 0xCDC0 and the
+two strings; `tools/pdb`'s port scan imports them instead of restating
+them. `picodroid_core::pdb::usb_cdc` builds the device, configuration,
+string and line-coding tables from those constants with `const fn` — the
+string descriptors are encoded at compile time and a renamed string that no
+longer fits its table fails the build rather than truncating on the wire.
+The family's `hal/rp/pdb_usb/protocol.rs` and its `#[path]` test shim are
+gone (its six `assemble_u32_le` tests with it — the function was
+`u32::from_le_bytes`), and so is the simulator's empty `pdb_usb` stub: the
+family's `pub use chip::pdb_usb` is device-only now, like its one consumer.
+Ten descriptor tests run in core, one of them the new "identity agrees with
+the protocol crate" check.
+
+Verified: `cargo test` for `pdb-protocol` (31), `pdb` (16), `picodroid`
+(34 — the 14 that moved are gone) and `picodroid-core` (274); helloworld
+in the simulator; pre-commit green. **Flash, rp2040 `--release`:
+byte-identical** — the same bytes, emitted from a different crate.
+`pdb ping` on hardware is owed and batched into S6's bench session.
