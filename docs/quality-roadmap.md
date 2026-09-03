@@ -355,7 +355,7 @@ Step (1) is done and this entry is a documentation gap; steps (2) and (3) stand 
 `4a56a96`) records that `volatile` is ignored and no barriers are emitted. Only step (3)
 remains, and X1's conclusion means it is explicitly *not* to be paid.
 
-### `IO_IRQ_BANK0` runs on both cores and services the button queue from core 1
+### ~~`IO_IRQ_BANK0` runs on both cores and services the button queue from core 1~~ — FIXED 2026-09-02
 
 Found 2026-08-31 by the THR-04 / X1 trace — the one genuine cross-core race it turned up, and it is
 outside the JVM. On `pico_enviro_mon_w` the vector is unmasked twice: on core 0 for the buttons
@@ -375,6 +375,26 @@ lines, but HIL-only to validate, so it was not folded into X1's change: it needs
 on the probe with button presses during traffic. **Tradeoff:** until then the race is a duplicated or
 lost button event coincident with a received frame, and a rare host-wake re-arm loss; neither reaches
 the JVM heap.
+
+*2026-09-02:* fixed as prescribed — `IO_IRQ_BANK0` reads SIO CPUID first (`core_num()` in
+`hal/rp/gpio.rs`): core 1 runs only the host-wake block and returns, core 0 only the button loop.
+Bench evidence on `pico_enviro_mon_w` (`picoenvmon`, 1 Hz dashboard GETs from the host, 20 min per
+run). Because `pdb input keyevent` feeds the queue directly and never enters the ISR, presses came
+from a temporary GP15 output-enable toggler (drives the pad low exactly like button Y; ~3.3
+presses/s through the real core-0 ISR), and temporary counters in the handler were reported from
+`drain_gpio_event`:
+
+| firmware | core 1 entered button loop | core 1 saw a pending button IRQ | core 0 saw host-wake bit | presses → down / up dispatched | HTTP ≥ 1 s / samples |
+|---|---|---|---|---|---|
+| main, unfixed | 28 595 | 5 (serviced from core 1) | 0 | 3088 → 3088 / 3087 | 9 / 852 |
+| fixed | 0 | 6 (observed, not serviced) | 1 | 3064 → 3065 / 3064 | 14 / 908 |
+
+The unfixed run's five collisions happened to lose nothing in this window — the race is real
+but narrow — and the fixed handler never crossed cores; the one core-0 entry that found the
+host-wake bit set left `PROC1_INTE` alone instead of masking it. The ≥ 1 s HTTP samples have the
+same shape on both runs — 8 s curl timeouts mid-body (8 vs 11) plus one or two samples in the
+1–1.5 s band — so nothing in the host-wake path moved, but the timeouts themselves are not
+attributed here.
 
 Two smaller residues from the same trace, both narrow, both recorded rather than fixed: `RESETS.RESET`
 is RMW'd non-atomically from core 1 (cyw43 init, `pio_spi.rs`) and core 0 (`ensure_io_unreset` on any

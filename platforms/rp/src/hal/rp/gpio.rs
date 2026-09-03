@@ -199,6 +199,13 @@ pub fn init_gpio_irq() {
 /// cannot unmask core 0's NVIC, so with no button board calling
 /// `init_gpio_irq` on core 0 the interrupt never delivered —
 /// `instr_hostwake_irqs` stayed 0 on HW.)
+///
+/// The vector itself is shared: both cores dispatch `IO_IRQ_BANK0` to the
+/// same handler through one RAM vector table, and on a board with buttons
+/// core 0 unmasks it too. The handler therefore branches on SIO CPUID so
+/// the host-wake block only ever runs on core 1 and the button loop only
+/// on core 0 — otherwise a core-0 button edge RMWs `PROC1_INTE` against
+/// the re-arm, and a core-1 host-wake services core 0's button queue.
 #[cfg(network_cyw43)]
 pub mod hostwake {
     use rp235x_hal::pac;
@@ -259,19 +266,27 @@ extern "C" fn IO_IRQ_BANK0() {
     #[cfg(feature = "chip-rp2350")]
     const NUM_REGS: usize = 6;
 
-    // Host-wake first (delivered to core 1 via PROC1 routing): a level
-    // interrupt is not latched in INTR, so the generic clear below cannot
-    // silence it — mask it and let the post-poll hook re-arm once the chip
-    // has been serviced.
-    #[cfg(network_cyw43)]
-    {
-        let ints = p.IO_BANK0.proc1_ints(hostwake::REG_IDX).read().bits();
-        if ints & hostwake::LEVEL_HIGH_BIT != 0 {
-            p.IO_BANK0
-                .proc1_inte(hostwake::REG_IDX)
-                .modify(|r, w| unsafe { w.bits(r.bits() & !hostwake::LEVEL_HIGH_BIT) });
-            unsafe { picodroid_cyw43_hostwake_notify_from_isr() };
+    // One handler, two cores, one source each. The NVIC is banked and the
+    // IO bank's INTE/INTS are per-core (PROC0_* / PROC1_*), so the core
+    // that took the interrupt is the only one whose registers matter here:
+    // core 1 owns the cyw43 host-wake line, core 0 owns the buttons. Never
+    // cross over — the other core's path is a plain RMW race (button queue
+    // statics, `PROC1_INTE` against the post-poll re-arm).
+    if core_num() != 0 {
+        // A level interrupt is not latched in INTR, so the button loop's
+        // W1C clear could not silence it — mask it and let the post-poll
+        // hook re-arm once the chip has been serviced.
+        #[cfg(network_cyw43)]
+        {
+            let ints = p.IO_BANK0.proc1_ints(hostwake::REG_IDX).read().bits();
+            if ints & hostwake::LEVEL_HIGH_BIT != 0 {
+                p.IO_BANK0
+                    .proc1_inte(hostwake::REG_IDX)
+                    .modify(|r, w| unsafe { w.bits(r.bits() & !hostwake::LEVEL_HIGH_BIT) });
+                unsafe { picodroid_cyw43_hostwake_notify_from_isr() };
+            }
         }
+        return;
     }
 
     for reg_idx in 0..NUM_REGS {
@@ -308,6 +323,17 @@ pub struct GpioEvent {
     /// hundreds of ms while the UI task stalls on an Activity transition,
     /// so only ISR-time deltas measure the switch itself.
     pub t_us: u32,
+}
+
+/// SIO CPUID: 0 on core 0, 1 on core 1 (C twin: `get_core_num()` in
+/// `pico_shim.h`). Read-only register, ISR-safe.
+fn core_num() -> u32 {
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+    let p = unsafe { pac::Peripherals::steal() };
+    p.SIO.cpuid().read().bits()
 }
 
 // Raw 32-bit µs timestamp (TIMERAWL low word). A single volatile read —

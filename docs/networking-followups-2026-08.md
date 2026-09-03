@@ -115,7 +115,11 @@ the ISR masks it and notifies the cyw43 task
 (`picodroid_cyw43_hostwake_notify_from_isr`; PROC1 routing, so arm/ISR/
 re-arm all run on core 1 — the banked NVIC makes core-0 routing
 undeliverable from a core-1 init, the first attempt's HW-caught bug), and
-`CYW43_POST_POLL_HOOK` re-arms it after every poll. Data toggling on the
+`CYW43_POST_POLL_HOOK` re-arms it after every poll. Since 2026-09-02 the
+shared handler branches on SIO CPUID first, so on the button board the
+host-wake block is core-1-only by construction and a core-0 button edge
+never touches `PROC1_INTE` (bank0 entry in `docs/quality-roadmap.md`).
+Data toggling on the
 shared PIO DATA pad can fire it spuriously mid-transfer, but mask-on-fire
 bounds that to one extra workless poll. The poll timeout is now a 1 s
 safety net (was the sole 100 ms RX path);
