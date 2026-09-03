@@ -4,6 +4,9 @@
 #
 # Usage: ./scripts/retrace.sh [<map.toml>] < shrunk.log > readable.log
 #        ./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
+#        # an app-shrunk PAPK (--shrink-app) needs its own merged map:
+#        ./scripts/sim.sh --app foo --shrink --shrink-app 2>&1 \
+#          | ./scripts/retrace.sh build/apks/foo.shrink-map.toml
 #
 # Without an argument the active map for this checkout's package version is
 # used (`class-shrink print-version`, the same resolution the firmware and

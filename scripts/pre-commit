@@ -612,16 +612,18 @@ stage_size_rp2350() { size_board testbench_rp2350; }
 
 # Unconditional shrinking's contract (docs/designs/unconditional-shrink-2026-09.md):
 # a --shrink firmware spells no original Java class, descriptor or served
-# member name anywhere. Link the rp2350 --release --shrink helloworld image
-# (its own PAPK: the shared APK_PATH is the no-shrink one) and grep it.
+# member name anywhere. Link the rp2350 --release --shrink --shrink-app
+# helloworld image (its own PAPK: the shared APK_PATH is the no-shrink one)
+# and grep it — with --shrink-app the embedded PAPK must not spell the app's
+# own package either.
 stage_shrink_image() {
-  if ! bash "$SCRIPT_DIR/build.sh" --board testbench_rp2350 --app helloworld --release --shrink; then
+  if ! bash "$SCRIPT_DIR/build.sh" --board testbench_rp2350 --app helloworld --release --shrink --shrink-app; then
     echo ""
-    echo "ERROR: rp2350 --release --shrink build failed."
+    echo "ERROR: rp2350 --release --shrink --shrink-app build failed."
     return 1
   fi
   local elf="${CARGO_TARGET_DIR:-$REPO_ROOT/target}/thumbv8m.main-none-eabihf/release/picodroid"
-  bash "$SCRIPT_DIR/check-shrunk-image.sh" "$elf"
+  bash "$SCRIPT_DIR/check-shrunk-image.sh" "$elf" helloworld/
 }
 
 stage_ratchet() {

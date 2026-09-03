@@ -37,6 +37,16 @@ Anything added to the framework between releases stays un-shrunk (full
 names in `.class` files) until the next release folds it in. This keeps
 the release→map relationship one-to-one and avoids churn on every commit.
 
+## App maps are build outputs, not release maps
+
+A release map never carries `c/` rows. `--shrink-app` (`build-apk.sh`)
+cuts a **per-PAPK** map at build time — `class-shrink cut-app` copies the
+active release map and appends the app's own classes under `c/` and its
+private member names, resuming the release allocator so no target
+collides. That merged file lands next to the PAPK
+(`build/apks/<app>.shrink-map.toml`), is the PAPK's retrace key, and is
+regenerated on every build; nothing under `sdk/shrink-maps/` changes.
+
 ## Versioning & PAPK compatibility
 
 Each PAPK stores `framework-map-version` in its manifest. At load time the

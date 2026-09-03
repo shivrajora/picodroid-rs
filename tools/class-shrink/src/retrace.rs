@@ -6,8 +6,10 @@
 //! uncaught-exception banners, `pdb` output, `Log` lines that embed a class
 //! name. Both halves of a map are bijections (`a/XX` / `b/XX` for classes,
 //! by-name targets for members), so reading such a log is a token
-//! substitution: a class token is any `a/XX`, `a.XX`, `b/XX` or `b.XX` run
-//! bounded by non-identifier characters; a member token is an identifier
+//! substitution: a class token is any `a/XX`, `a.XX`, `b/XX`, `b.XX`,
+//! `c/XX` or `c.XX` run (optionally with the `_MembersInjector` tail an
+//! app-shrunk map gives injector classes) bounded by non-identifier
+//! characters; a member token is an identifier
 //! that is a map target and sits in `.name(` / `.name` position or at the
 //! end of a `Class.method` pair. Everything else passes through.
 
@@ -46,8 +48,9 @@ impl Retracer {
         let mut out = String::with_capacity(line.len());
         let mut i = 0;
         while i < b.len() {
-            // Class token: `[ab][/.][A-Z]+`, not preceded by an identifier byte.
-            if (b[i] == b'a' || b[i] == b'b')
+            // Class token: `[abc][/.][A-Z]+(_MembersInjector)?`, not preceded
+            // by an identifier byte.
+            if matches!(b[i], b'a' | b'b' | b'c')
                 && i + 2 < b.len()
                 && (b[i + 1] == b'/' || b[i + 1] == b'.')
                 && b[i + 2].is_ascii_uppercase()
@@ -56,6 +59,10 @@ impl Retracer {
                 let mut j = i + 2;
                 while j < b.len() && b[j].is_ascii_uppercase() {
                     j += 1;
+                }
+                const INJECTOR_TAIL: &[u8] = b"_MembersInjector";
+                if b[j..].starts_with(INJECTOR_TAIL) {
+                    j += INJECTOR_TAIL.len();
                 }
                 if j >= b.len() || !is_ident(b[j]) {
                     if let Some(orig) = self.classes.get(&line[i..j]) {
@@ -105,7 +112,25 @@ mod tests {
             .insert("java/lang/NullPointerException".into(), "b/AK".into());
         m.members.insert("setText".into(), "eL".into());
         m.members.insert("toString".into(), "xy".into());
+        m.classes.insert("app/Main".into(), "c/A".into());
+        m.classes.insert(
+            "app/Main_MembersInjector".into(),
+            "c/A_MembersInjector".into(),
+        );
+        m.members.insert("formatLux".into(), "qZ".into());
         m
+    }
+
+    #[test]
+    fn app_classes_and_injectors_retrace() {
+        let r = Retracer::new(&map());
+        assert_eq!(r.line("at c/A.qZ(pc=3)"), "at app/Main.formatLux(pc=3)");
+        assert_eq!(r.line("push c.A"), "push app.Main");
+        assert_eq!(
+            r.line("injectMembers failed: c/A_MembersInjector"),
+            "injectMembers failed: app/Main_MembersInjector"
+        );
+        assert_eq!(r.line("c/AB_Foo stays"), "c/AB_Foo stays");
     }
 
     #[test]

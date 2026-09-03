@@ -22,7 +22,10 @@ name = "picodroid/annotation/KeepName"
 
 # App entry points invoked by literal from Rust (boot.rs / lifecycle.rs) on
 # classes the SDK never declares — the generated `_MembersInjector` and the
-# main class — so they stay verbatim, as ProGuard keeps `main`.
+# main class — so they stay verbatim, as ProGuard keeps `main`. Under
+# --shrink-app (class-shrink cut-app) the injector CLASS is renamed after its
+# component (`c/A` → `c/A_MembersInjector`) so lifecycle.rs's derivation
+# still resolves; these two member names are what it then invokes.
 [[member]]
 name = "main"
 

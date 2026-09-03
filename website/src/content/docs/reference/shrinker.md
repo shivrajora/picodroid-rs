@@ -175,6 +175,54 @@ The flag exports `PICODROID_SHRINK=1`, which both `build.rs` and
 `build-apk.sh` pick up. Without it, both sides emit the `0.0.0`
 sentinel and no framework `.class` bytes are touched.
 
+## App shrinking (`--shrink-app`)
+
+`--shrink-app` (on `build-apk.sh`, `build.sh`, `flash.sh`, `sim.sh`;
+env `PICODROID_SHRINK_APP=1`) renames the **app's own** classes and
+private members too, ProGuard-style. It requires `--shrink`: the app's
+member targets are allocated by continuing the release map's counter,
+so there is nothing to build on without that map.
+
+What happens, per PAPK build (`buildSrc` task `cutAppShrinkMap`):
+
+1. `class-shrink cut-app` copies the active release map and appends
+   - every class the app defines, under a third prefix `c/` (`c/A`,
+     `c/B`, …), except `kotlin/**` (the shim is kept, see below);
+   - every method/field name an app class declares that is longer than
+     two characters and not already in the release map (SDK overrides
+     such as `onCreate` rename in lockstep through the release rows),
+     not kept (`main`, `injectMembers`), and not spelled by a kept class.
+     Targets skip every name the app tree, `sdk/member-names.tsv`,
+     `sdk/api-contract.tsv`, the keep list and the release map spell.
+2. `shrinkMembers`, `shrinkClasses` and `papk-pack` read that **merged**
+   map instead of the release map. `papk-pack` spells the manifest entry
+   (`main-class` / `activity` / `application`) through it.
+3. `build-apk.sh` copies the merged map next to the PAPK as
+   `build/apks/<app>.shrink-map.toml`. That file is the PAPK's retrace
+   key: `./scripts/retrace.sh build/apks/<app>.shrink-map.toml < log`.
+
+The firmware is untouched: it resolves app classes only through the
+PAPK's own class table, and `framework-map-version` still names the
+release map. The one structural dependency is the `@Inject` support —
+`lifecycle.rs` derives `<runtime class name, $→_>_MembersInjector` from
+the component's name — so `cut-app` names an injector after its
+component's shrunk name (`c/A` → `c/A_MembersInjector`); an injector
+whose component is kept is kept too.
+
+Consequences and limits:
+
+- `Class.getName()` on an app class returns `c.A`; string literals are
+  never rewritten, so an app that compares `getName()` against its own
+  name literal sees a mismatch (`examples/classlit` accepts either).
+- Log lines, stack traces and `pdb` output spell `c/A.qZ` — retrace with
+  the app map, not the release map.
+- Default-package classes and packages named `a/`, `b/` or `c/` are
+  rejected by `cut-app` (they would alias the synthetic prefixes).
+- Generic `Signature` attributes are not rewritten; device PAPKs strip
+  them, an unstripped (sim) PAPK keeps original names inside them.
+- The kotlin-shim stays verbatim: its classes are keep-globbed and its
+  member names are neither candidates nor targets.
+
 ## How builds consume the active map
 
 When `PICODROID_SHRINK=1`, `class-shrink print-version` resolves the
@@ -190,11 +238,11 @@ sides of the build call it:
    `c::` / `m::` / `d::` constants, spelled through the same map).
 
 2. **Apps (`scripts/build-apk.sh`)**: if shrinking is on, runs
-   `class-shrink shrink-dir` on the app's `.class` output. The map
-   covers framework classes only, so the app's own classes pass
-   through unchanged — only cross-references like
+   `class-shrink shrink-dir` on the app's `.class` output. The release
+   map covers framework classes only, so by default the app's own
+   classes pass through unchanged — only cross-references like
    `Lpicodroid/app/Application;` in the app's super_class get
-   rewritten.
+   rewritten. `--shrink-app` (below) extends that to the app itself.
 
 3. **PAPK manifest**: `papk-pack` writes the active version (or
    `0.0.0` when shrinking is off) into the `framework-map-version`

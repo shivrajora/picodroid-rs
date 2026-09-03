@@ -25,6 +25,11 @@
 //!       kotlin-shim) never yield a target, and --version becomes
 //!       `member-floor` on the first member cut or with --floor.
 //!
+//!   cut-app --classes-dir <dir> --base <release-map.toml> --out <file.toml>
+//!           [--keep <keep.toml>] [--reserve-names <file>]... [--reserve <dir>]...
+//!       Extend the active release map with one app's own classes (`c/`)
+//!       and private member names — the per-PAPK `--shrink-app` map.
+//!
 //!   retrace --map <file.toml>
 //!       Rewrite shrunk names in stdin back to originals (host-side inverse).
 //!
@@ -53,6 +58,7 @@ fn main() -> ExitCode {
     match args[1].as_str() {
         "print-version" => cmd_print_version(&args[2..]),
         "cut-release" => cmd_cut_release(&args[2..]),
+        "cut-app" => cmd_cut_app(&args[2..]),
         "shrink-dir" => cmd_shrink_dir(&args[2..]),
         "verify" => cmd_verify(&args[2..]),
         "retrace" => cmd_retrace(&args[2..]),
@@ -246,6 +252,86 @@ fn cmd_cut_release(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn cmd_cut_app(args: &[String]) -> ExitCode {
+    let mut classes_dir: Option<PathBuf> = None;
+    let mut base_path: Option<PathBuf> = None;
+    let mut keep_path: Option<PathBuf> = None;
+    let mut out_path: Option<PathBuf> = None;
+    let mut reserve_dirs: Vec<PathBuf> = Vec::new();
+    let mut reserve_name_files: Vec<PathBuf> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let value = || args.get(i + 1).expect("value");
+        match args[i].as_str() {
+            "--classes-dir" => classes_dir = Some(PathBuf::from(value())),
+            "--base" => base_path = Some(PathBuf::from(value())),
+            "--keep" => keep_path = Some(PathBuf::from(value())),
+            "--out" => out_path = Some(PathBuf::from(value())),
+            "--reserve" => reserve_dirs.push(PathBuf::from(value())),
+            "--reserve-names" => reserve_name_files.push(PathBuf::from(value())),
+            other => {
+                eprintln!("Error: unknown flag '{other}'");
+                return ExitCode::from(1);
+            }
+        }
+        i += 2;
+    }
+    let (Some(classes_dir), Some(base_path), Some(out_path)) = (classes_dir, base_path, out_path)
+    else {
+        eprintln!("Error: cut-app needs --classes-dir, --base and --out");
+        return ExitCode::from(1);
+    };
+    let keep = match keep_path {
+        Some(p) => match KeepList::load(&p) {
+            Ok(k) => k,
+            Err(e) => {
+                eprintln!("Error loading keep list {}: {e}", p.display());
+                return ExitCode::from(1);
+            }
+        },
+        None => KeepList::default(),
+    };
+    let base = match ShrinkMap::load(&base_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error loading base map {}: {e}", base_path.display());
+            return ExitCode::from(1);
+        }
+    };
+    let mut reserve_names: Vec<String> = Vec::new();
+    for p in &reserve_name_files {
+        match shrink::read_member_name_list(p) {
+            Ok(names) => reserve_names.extend(names),
+            Err(e) => {
+                eprintln!("Error reading --reserve-names {}: {e}", p.display());
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let opts = shrink::AppCut {
+        reserve_dirs: &reserve_dirs,
+        reserve_names: &reserve_names,
+    };
+    let map = match shrink::cut_app(&classes_dir, &keep, base, &opts) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error cutting app map: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(e) = map.save(&out_path) {
+        eprintln!("Error saving map: {e}");
+        return ExitCode::from(1);
+    }
+    eprintln!(
+        "Cut app map with {} classes, {} members → {}",
+        map.classes.len(),
+        map.members.len(),
+        out_path.display()
+    );
+    ExitCode::SUCCESS
+}
+
 fn cmd_retrace(args: &[String]) -> ExitCode {
     let mut map_path: Option<PathBuf> = None;
     let mut i = 0;
@@ -409,10 +495,22 @@ Subcommands:
       member cut or whenever --floor is given (a cut that renames names
       an older map left verbatim).
 
+  cut-app --classes-dir <dir> --base <release-map.toml> --out <file.toml>
+          [--keep <keep.toml>] [--reserve-names <file>]... [--reserve <dir>]...
+      Extend a release map with one app's own classes (c/) and private
+      member names — the per-PAPK, opt-in `--shrink-app` map. The output
+      is the base map plus the app rows, so every consumer reads it as a
+      release map. A `<X>_MembersInjector` class follows its component's
+      shrunk name (the runtime derives it). --reserve-names lists names
+      that must never become targets (sdk/member-names.tsv and
+      sdk/api-contract.tsv); --reserve trees likewise by class file.
+
   retrace --map <file.toml> [< log]
       Rewrite shrunk names in text back to their originals — `a/DK`,
-      `a.DK`, `b/AK`, and member targets in `.name(` position — the
-      way ProGuard's retrace does. Reads stdin, writes stdout.
+      `a.DK`, `b/AK`, `c/A`, and member targets in `.name(` position —
+      the way ProGuard's retrace does. Reads stdin, writes stdout. Pass
+      the per-app map (build/apks/<app>.shrink-map.toml) for an
+      app-shrunk PAPK.
 
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,

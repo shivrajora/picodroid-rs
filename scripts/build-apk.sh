@@ -27,6 +27,12 @@ Options:
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
                         PICODROID_SHRINK=1. See docs/shrinker.md.
+      --shrink-app      Also rename this app's own classes (c/…) and private
+                        members, ProGuard-style, through a per-build map cut
+                        on top of the release map. Requires --shrink. Also
+                        honored via PICODROID_SHRINK_APP=1. Writes the merged
+                        map next to the PAPK (<app>.shrink-map.toml) for
+                        scripts/retrace.sh.
       --strip-debug     Drop LineNumberTable/SourceFile (and the rest of the
                         class-metadata strip) from the packed classes. For
                         device-bound PAPKs: that firmware never reads them.
@@ -49,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     -o|--output)     OUTPUT="$2"; shift 2 ;;
     -b|--board)      BOARD="$2";  shift 2 ;;
     --shrink)        export PICODROID_SHRINK=1; shift ;;
+    --shrink-app)    export PICODROID_SHRINK_APP=1; shift ;;
     --strip-debug)   STRIP_DEBUG=1; shift ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -57,6 +64,13 @@ done
 if [[ -z "$APP" ]]; then
   echo "Error: --app is required" >&2
   usage
+  exit 1
+fi
+
+# App shrinking allocates the app's member targets past the release map's
+# counter, so it has nothing to build on without that map.
+if [[ "${PICODROID_SHRINK_APP:-}" == "1" && "${PICODROID_SHRINK:-}" != "1" ]]; then
+  echo "Error: --shrink-app needs --shrink as well (it extends the active release shrink map)" >&2
   exit 1
 fi
 
@@ -111,6 +125,7 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   # and the papk they race over is what `pdb install` version-checks.
   (cd "$REPO_ROOT" && gradle_lock_run ./gradlew ":examples:$APP:assemblePapk" --console=plain \
     "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}" \
+    "-Ppicodroid.shrinkApp=${PICODROID_SHRINK_APP:-0}" \
     ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"})
 fi
 
@@ -122,3 +137,20 @@ fi
 cp "$GRADLE_PAPK" "$OUTPUT"
 size=$(stat -c%s "$OUTPUT" 2>/dev/null || stat -f%z "$OUTPUT")
 echo "==> Wrote $OUTPUT ($size bytes)"
+
+# The merged (release + app) map is this PAPK's retrace key: keep it next to
+# the PAPK, named after it, so `scripts/retrace.sh <map>` finds it. Removed
+# when app shrinking is off so a stale map never outlives the build that
+# made it.
+MAP_OUTPUT="${OUTPUT%.papk}.shrink-map.toml"
+if [[ "${PICODROID_SHRINK_APP:-}" == "1" ]]; then
+  GRADLE_MAP="$APP_DIR/build/papk/${APP}.shrink-map.toml"
+  if [[ ! -f "$GRADLE_MAP" ]]; then
+    echo "Error: expected app shrink map not found: $GRADLE_MAP" >&2
+    exit 1
+  fi
+  cp "$GRADLE_MAP" "$MAP_OUTPUT"
+  echo "==> Wrote $MAP_OUTPUT (retrace with: ./scripts/retrace.sh $MAP_OUTPUT < log)"
+else
+  rm -f "$MAP_OUTPUT"
+fi

@@ -7,11 +7,13 @@
 //!
 //! - `a/` — framework classes (`picodroid/**`, `javax/**`).
 //! - `b/` — `java/**` classes, which pico-jvm serves natively.
+//! - `c/` — an app's own classes (`cut-app`, opt-in per PAPK build).
 //!
-//! Neither is translated at run time: the Rust runtime matches both through
-//! constants generated from the active map (`build_support/names.rs`).
+//! None is translated at run time: the Rust runtime matches `a/` and `b/`
+//! through constants generated from the active map
+//! (`build_support/names.rs`) and never spells an app class at all.
 //!
-//! Each namespace has its own counter, so the two suffix sequences are
+//! Each namespace has its own counter, so the suffix sequences are
 //! allocated independently and never collide. Java reserved keywords are
 //! skipped so generated names don't collide with language keywords (not a
 //! JVM requirement, but avoids surprising tool output).
@@ -204,24 +206,39 @@ pub enum Namespace {
     /// `b/` — `java/**` classes, un-shrunk by pico-jvm at the class-file
     /// boundary.
     Java,
+    /// `c/` — an app's own classes, allocated per PAPK build by `cut-app`.
+    /// Never in a release map; the runtime resolves them only through the
+    /// PAPK's own class table.
+    App,
 }
 
 impl Namespace {
     /// Every namespace, in allocation order.
-    pub const ALL: [Namespace; 2] = [Namespace::Framework, Namespace::Java];
+    pub const ALL: [Namespace; 3] = [Namespace::Framework, Namespace::Java, Namespace::App];
 
     /// The synthetic package prefix, including the trailing `/`.
     pub fn prefix(self) -> &'static str {
         match self {
             Namespace::Framework => "a/",
             Namespace::Java => "b/",
+            Namespace::App => "c/",
         }
     }
 }
 
-/// The namespace an original internal class name is allocated from.
+/// Whether `name` sits under one of the synthetic packages — an *original*
+/// name that does would alias a shrunk one, so cuts reject it.
+pub fn is_synthetic_name(name: &str) -> bool {
+    Namespace::ALL
+        .iter()
+        .any(|ns| name.starts_with(ns.prefix()))
+}
+
+/// The namespace an original *referenced* class name is allocated from.
 /// `java/**` is the set pico-jvm interprets by name; everything else —
-/// including `javax/**`, which the JVM does not know — is framework.
+/// including `javax/**`, which the JVM does not know — is framework. App
+/// classes are never classified here: `cut_app` tags them [`Namespace::App`]
+/// explicitly, by being defined in the app tree.
 pub fn namespace_for(original: &str) -> Namespace {
     if original.starts_with("java/") {
         Namespace::Java
@@ -340,6 +357,17 @@ mod tests {
         assert_eq!(shrunk_name(Namespace::Framework, "A"), "a/A");
         assert_eq!(shrunk_name(Namespace::Framework, "AB"), "a/AB");
         assert_eq!(shrunk_name(Namespace::Java, "A"), "b/A");
+        assert_eq!(shrunk_name(Namespace::App, "A"), "c/A");
+    }
+
+    #[test]
+    fn synthetic_prefixes_are_recognised() {
+        assert!(is_synthetic_name("a/AB"));
+        assert!(is_synthetic_name("b/A"));
+        assert!(is_synthetic_name("c/A_MembersInjector"));
+        assert!(!is_synthetic_name("app/Main"));
+        assert!(!is_synthetic_name("abc/Main"));
+        assert!(!is_synthetic_name("Main"));
     }
 
     #[test]

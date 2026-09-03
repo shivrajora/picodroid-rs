@@ -22,6 +22,8 @@ Options:
   -r, --release        Build in release mode
       --shrink         Apply the active release class-name shrink map
                        (off by default; see docs/shrinker.md)
+      --shrink-app     Also rename the app's own classes and private members
+                       (requires --shrink; see build-apk.sh --shrink-app)
   -h, --help           Show this help message
 
 Boards:
@@ -47,6 +49,10 @@ EOF
       ;;
     --shrink)
       export PICODROID_SHRINK=1
+      shift
+      ;;
+    --shrink-app)
+      export PICODROID_SHRINK_APP=1
       shift
       ;;
     *)

@@ -12,9 +12,15 @@ public class ClassLit extends Application {
     Log.i("ClassLit", "name=" + a.getName());
     Log.i("ClassLit", a == b ? "same" : "diff");
     // Java spec: getName() returns the dot-form binary name, cached so
-    // repeat calls hand back the same string. App classes are never
-    // renamed, so the literal holds in both build modes.
-    Log.i("ClassLit", "classlit.ClassLit".equals(a.getName()) ? "dot-form ok" : "dot-form WRONG");
+    // repeat calls hand back the same string. Under --shrink-app the app's
+    // own classes are renamed too (ProGuard semantics: "c.A"), so accept
+    // either the literal or a dot-form synthetic name — never a slash.
+    String name = a.getName();
+    Log.i(
+        "ClassLit",
+        "classlit.ClassLit".equals(name) || (name.startsWith("c.") && name.indexOf('/') < 0)
+            ? "dot-form ok"
+            : "dot-form WRONG");
     // Framework and java/** classes ARE renamed under --shrink (ProGuard
     // semantics: getName() returns the mapped name, e.g. "b.AQ"), so those
     // checks compare spellings for consistency and dot-form rather than

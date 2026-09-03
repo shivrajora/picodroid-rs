@@ -39,8 +39,13 @@ struct Args {
     assets_dir: Option<PathBuf>,
     /// The shrink map `--classes-dir` was rewritten with, when it was. The
     /// entry-point check compares descriptors against what is actually in
-    /// the class files, so its `java/**` names must be shrunk the same way.
+    /// the class files, so its `java/**` names must be shrunk the same way;
+    /// and an app-shrunk map (`--shrink-app`) renames the entry class
+    /// itself, so the manifest entry is spelled through it too.
     shrink_map: Option<PathBuf>,
+    /// The entry class as the manifest named it, when the map renamed it —
+    /// for error messages only.
+    entry_original: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -147,7 +152,33 @@ fn parse_args() -> Result<Args, String> {
         output: output.ok_or("--output is required")?,
         assets_dir,
         shrink_map,
+        entry_original: None,
     })
+}
+
+/// Spell the manifest entry class the way the packed class files do: an
+/// app-shrunk map (`class-shrink cut-app`) renames app classes under `c/`,
+/// so the class the manifest names is present under its shrunk name. The
+/// release map alone never renames an app class, so this is the identity
+/// for a plain `--shrink` build and without a map.
+fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
+    let Some(map) = args.shrink_map.as_deref() else {
+        return Ok(());
+    };
+    for slot in [
+        &mut args.main_class,
+        &mut args.activity,
+        &mut args.application,
+    ] {
+        if let Some(name) = slot.as_deref() {
+            let shrunk = shrunk_class(name, Some(map))?;
+            if shrunk != name {
+                args.entry_original = Some(name.to_string());
+                *slot = Some(shrunk);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn print_usage() {
@@ -168,7 +199,8 @@ fn print_usage() {
          --assets-dir is optional; PNG files in the directory are decoded into\n\
          LVGL-native RGB565 and bundled in the ASSETS (ASST) section.\n\
          --shrink-map names the class-shrink map --classes-dir was rewritten with,\n\
-         so the entry-point check matches descriptors in their shrunk spelling."
+         so the entry-point check matches descriptors in their shrunk spelling and\n\
+         an app-shrunk (cut-app) map renames the manifest entry class itself."
     );
 }
 
@@ -195,8 +227,13 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
         None => {
             let mut names: Vec<&str> = classes.iter().map(|(n, _)| n.as_str()).collect();
             names.sort_unstable();
+            let original = args
+                .entry_original
+                .as_deref()
+                .map(|o| format!(" (manifest spelling '{o}')"))
+                .unwrap_or_default();
             return Err(format!(
-                "manifest {kind} '{entry}' is not among the packed classes.\n  \
+                "manifest {kind} '{entry}'{original} is not among the packed classes.\n  \
                  Packed: {}",
                 names.join(", ")
             ));
@@ -252,6 +289,21 @@ fn shrunk_member(name: &str, map: Option<&Path>) -> Result<String, String> {
     let map = class_shrink::mapping::ShrinkMap::load(map_path)
         .map_err(|e| format!("--shrink-map {}: {e}", map_path.display()))?;
     Ok(map.member_target(name).unwrap_or(name).to_string())
+}
+
+/// `name` as it appears in class files rewritten with `map`'s `[[class]]`
+/// rows; unchanged when the map does not rename it or without a map.
+fn shrunk_class(name: &str, map: Option<&Path>) -> Result<String, String> {
+    let Some(map_path) = map else {
+        return Ok(name.to_string());
+    };
+    let map = class_shrink::mapping::ShrinkMap::load(map_path)
+        .map_err(|e| format!("--shrink-map {}: {e}", map_path.display()))?;
+    Ok(map
+        .classes
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| name.to_string()))
 }
 
 /// `desc` as it appears in class files rewritten with `map` — every
@@ -464,11 +516,18 @@ fn main() {
         );
     }
 
+    // Spell the entry class the way the packed classes do: a plain --shrink
+    // build leaves app classes under their own names, an --shrink-app build
+    // renames them under c/, and the manifest must name what is packed.
+    let mut args = args;
+    if let Err(msg) = shrink_entry_point(&mut args) {
+        eprintln!("Error: {msg}");
+        std::process::exit(1);
+    }
+
     // Validate the manifest entry point against the packed classes — catches
     // a typo'd `activity=`/`main-class=`/`application=` at build time instead
-    // of a runtime NoSuchMethod on device. App class files keep their own
-    // names under shrinking (only framework refs are rewritten), so the entry
-    // class is present under its original name; no unshrink mapping needed.
+    // of a runtime NoSuchMethod on device.
     if let Err(msg) = validate_entry_point(&args, &classes) {
         eprintln!("Error: {msg}");
         std::process::exit(1);
@@ -558,6 +617,7 @@ mod pack_integration {
             output: work.join("out.papk"),
             assets_dir: None,
             shrink_map: None,
+            entry_original: None,
         };
 
         let classes = collect_classes(&args.classes_dir).unwrap();

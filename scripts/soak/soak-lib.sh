@@ -7,6 +7,9 @@ NAV="${SOAK_NAV:-/tmp/soak-nav.log}"
 FLAG="${SOAK_FLAG:-/tmp/soak-PANIC}"
 SEL_FILE=/tmp/soak-hub-selection   # 0=Live 1=History 2=Network 3=Settings
 SCREENS=(Live History Network Settings)
+# Matched against `activity: push <Class>` RTT lines by ORIGINAL name: build
+# the soak firmware without --shrink-app (or retrace the log with the app's
+# build/apks/picoenvmon.shrink-map.toml first) or nothing here matches.
 CLASSES=(LiveActivity HistoryActivity NetworkActivity SettingsActivity)
 
 ts() { date '+%H:%M:%S'; }

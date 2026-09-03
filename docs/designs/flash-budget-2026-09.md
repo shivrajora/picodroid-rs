@@ -416,16 +416,20 @@ shipped `picoenvmon` image is ~14 KB, and the `defmt`/RTT path is separate
 (1,490 B) so logging survives. Under `-Os` this bucket is 3.7 KB, so it
 matters more at `opt-level 3`.
 
-### 6.7 App PAPK obfuscation — ~9 KB, in the PAPK slot *(projected)*
+### 6.7 App PAPK obfuscation — 9.3 KB, in the PAPK slot *(landed 2026-09-02, `--shrink-app`)*
 
 Shrinking `picoenvmon/*` class names to a third prefix (`c/`) saves 3,071 B
 as `Class` entries and 2,790 B inside descriptors; renaming the 333
 app-private member names (4,572 B) at 2–3 chars saves ~3,500 B. Together
-**~9.4 KB of 50.2 KB**. Entry points (`main-class`, `activity`,
-`application`, `@Inject` targets, `LocalBinder`) must be kept, and
-`Class.getName()`/stack traces degrade unless the map ships with the PAPK.
+**~9.4 KB of 50.2 KB** projected; measured **49,929 → 40,632 B (−9,297 B,
+18.6 %)** for the stripped `picoenvmon` PAPK and 917,393 → 908,096 B for the
+rp2350 release image. Landed as `scripts/build-apk.sh --shrink-app`
+(`class-shrink cut-app`, see the shrinker reference): entry points are
+*mapped* rather than kept (`papk-pack` spells the manifest entry through the
+merged map, the `_MembersInjector` class follows its component's shrunk
+name), and the merged map ships next to the PAPK as its retrace key.
 Because the PAPK lives in `PAPK_FLASH` (§3), this relieves the 1 MB app slot
-and OTA transfer time, not the program-region ceiling — which is why it sits
+and OTA transfer time, not the program-region ceiling — which is why it sat
 below §6.1–§6.6 despite being pure toolchain work.
 
 ### 6.8 Shared cross-class string table — ~23 KB upper bound *(projected)*

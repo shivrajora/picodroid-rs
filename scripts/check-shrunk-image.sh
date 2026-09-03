@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prove a --shrink firmware image carries no original Java name.
 #
-# Usage: ./scripts/check-shrunk-image.sh <elf> [<papk>]
+# Usage: ./scripts/check-shrunk-image.sh <elf> [<app-package-prefix>]
 #
 # Scans every allocated section of the ELF (so .rodata, .text, .data and the
 # embedded PAPK in .papk_flash_init) for the spellings unconditional shrinking
@@ -10,10 +10,15 @@
 # in a dispatch-looking position. Any hit is a leak — a literal that dodged
 # the `c::` / `m::` / `d::` consts (build_support/names.rs) — and fails the
 # check with the offending strings listed. Runs in `pre-commit --full`
-# against the rp2350 --release --shrink helloworld image.
+# against the rp2350 --release --shrink --shrink-app helloworld image.
+#
+# With an app package prefix (e.g. `helloworld/`), also proves --shrink-app
+# renamed the app's own classes: the embedded PAPK must not spell the
+# prefix anywhere but a string literal, and helloworld has none.
 set -euo pipefail
 
-ELF="${1:?usage: check-shrunk-image.sh <elf>}"
+ELF="${1:?usage: check-shrunk-image.sh <elf> [<app-package-prefix>]}"
+APP_PREFIX="${2:-}"
 OBJCOPY="${OBJCOPY:-arm-none-eabi-objcopy}"
 if ! command -v "$OBJCOPY" >/dev/null 2>&1; then
   OBJCOPY=llvm-objcopy
@@ -58,4 +63,12 @@ if strings -n 4 "$tmp/image.bin" | grep -qE "$members"; then
   exit 1
 fi
 
-echo "OK: $ELF carries no original Java class, descriptor or served member name."
+if [[ -n "$APP_PREFIX" ]]; then
+  if strings -n 6 "$tmp/image.bin" | grep -qF "$APP_PREFIX"; then
+    echo "ERROR: --shrink-app image $ELF still spells the app package '$APP_PREFIX':" >&2
+    strings -n 6 "$tmp/image.bin" | grep -F "$APP_PREFIX" | sort -u | sed 's/^/    /' >&2
+    exit 1
+  fi
+fi
+
+echo "OK: $ELF carries no original Java class, descriptor or served member name${APP_PREFIX:+, nor the app package '$APP_PREFIX'}."

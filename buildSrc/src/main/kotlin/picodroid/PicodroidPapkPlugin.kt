@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid
 
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPlugin
@@ -40,6 +41,12 @@ import java.io.File
  * `PICODROID_SHRINK=1`. When enabled and a map is committed for the current
  * Cargo-root version, the map is applied; otherwise we pass the "0.0.0"
  * sentinel and skip the rewrite.
+ *
+ * App shrinking (`picodroid.shrinkApp=true` / `PICODROID_SHRINK_APP=1`, on
+ * top of the shrink gate): a [CutAppMapTask] stage extends the release map
+ * with this app's own classes (`c/`) and private members, and the shrink and
+ * pack stages read that merged map. Invisible to firmware — the manifest
+ * keeps the release `framework-map-version`.
  */
 class PicodroidPapkPlugin : Plugin<Project> {
     override fun apply(target: Project) {
@@ -111,6 +118,11 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val manifest = PicodroidManifest.parse(manifestFile)
 
         val shrinkEnabled = isShrinkEnabled(target)
+        // -Ppicodroid.shrinkApp=true (scripts/build-apk.sh --shrink-app): also
+        // rename this app's own classes (c/) and private members through a
+        // per-build map cut on top of the release map. Needs that release
+        // map — the app's member targets are allocated past its counter.
+        val shrinkAppEnabled = isShrinkAppEnabled(target)
         // -Ppicodroid.stripDebug=true (scripts/build-apk.sh --strip-debug): drop
         // LineNumberTable + SourceFile from the packed classes, on top of what
         // the strip already removes. Device firmware runs with debug_assertions
@@ -212,15 +224,52 @@ class PicodroidPapkPlugin : Plugin<Project> {
         } else {
             null
         }
+        if (shrinkAppEnabled && shrinkMapFile == null) {
+            throw GradleException(
+                "picodroid.shrinkApp needs an active release shrink map: pass --shrink " +
+                    "(picodroid.shrink=1) as well, and make sure sdk/shrink-maps/ has a map " +
+                    "for this package version"
+            )
+        }
+        // App shrinking: cut the merged (release + app) map on the stripped,
+        // pre-shrink tree; every later stage reads it instead of the release
+        // map. A task output, so it is wired as a provider.
+        val appMapFile: Provider<org.gradle.api.file.RegularFile>? =
+            if (shrinkAppEnabled && shrinkMapFile != null) {
+                val cutTask = target.tasks.register("cutAppShrinkMap", CutAppMapTask::class.java) {
+                    description = "Cut the per-app shrink map (app classes under c/, private members)"
+                    inputDir.set(strippedClassesInput)
+                    baseMapFile.set(shrinkMapFile)
+                    keepFile.set(repoRoot.resolve("sdk/keep.toml"))
+                    reserveNameFiles.from(
+                        repoRoot.resolve("sdk/member-names.tsv"),
+                        repoRoot.resolve("sdk/api-contract.tsv"),
+                    )
+                    outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.shrink-map.toml"))
+                    this.hostTarget.set(hostTarget)
+                    repoRootPath.set(repoRoot.absolutePath)
+                }
+                cutTask.flatMap { it.outputFile }
+            } else {
+                null
+            }
+        // The map a downstream stage rewrites with: the merged app map when
+        // app shrinking is on, else the release map.
+        fun wireActiveMap(property: org.gradle.api.file.RegularFileProperty) {
+            if (appMapFile != null) property.set(appMapFile) else property.set(shrinkMapFile)
+        }
         // Member renames (ASM, `[[member]]` rows) go first, on original class
         // names; the Rust class pass follows. Absent when the map has no
-        // members, so pre-member maps build exactly as before.
+        // members, so pre-member maps build exactly as before. The app map is
+        // a task output and cannot be inspected at configuration time; it has
+        // at least the release rows plus the app's, so register on the flag.
         val memberShrunkInput: Provider<Directory> =
-            if (shrinkMapFile != null && picodroid.classfile.ShrinkMapMembers.parse(shrinkMapFile).isNotEmpty()) {
-                val mapFile = shrinkMapFile
+            if (shrinkMapFile != null &&
+                (shrinkAppEnabled || picodroid.classfile.ShrinkMapMembers.parse(shrinkMapFile).isNotEmpty())
+            ) {
                 val membersTask = target.tasks.register("shrinkMembers", ShrinkMembersTask::class.java) {
                     inputDir.set(strippedClassesInput)
-                    this.mapFile.set(mapFile)
+                    wireActiveMap(this.mapFile)
                     outputDir.set(target.layout.buildDirectory.dir("classes-members"))
                 }
                 membersTask.flatMap { it.outputDir }
@@ -228,10 +277,9 @@ class PicodroidPapkPlugin : Plugin<Project> {
                 strippedClassesInput
             }
         val packClassesInput = if (shrinkMapFile != null) {
-            val mapFile = shrinkMapFile
             val shrinkTask = target.tasks.register("shrinkClasses", ClassShrinkTask::class.java) {
                 inputDir.set(memberShrunkInput)
-                this.mapFile.set(mapFile)
+                wireActiveMap(this.mapFile)
                 outputDir.set(target.layout.buildDirectory.dir("classes-shrunk"))
                 this.hostTarget.set(hostTarget)
                 repoRootPath.set(repoRoot.absolutePath)
@@ -298,7 +346,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             if (appAssetsDir.isDirectory) {
                 assetsDir.set(appAssetsDir)
             }
-            shrinkMapFile?.let { this.shrinkMapFile.set(it) }
+            if (shrinkMapFile != null) wireActiveMap(this.shrinkMapFile)
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)
             repoRootPath.set(repoRoot.absolutePath)
@@ -340,6 +388,14 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val prop = project.findProperty("picodroid.shrink") as? String
         if (prop != null) return prop.equals("true", ignoreCase = true) || prop == "1"
         val env = System.getenv("PICODROID_SHRINK")
+        return env == "1"
+    }
+
+    /** Same shape as [isShrinkEnabled]: `-Ppicodroid.shrinkApp`, else `PICODROID_SHRINK_APP=1`. */
+    private fun isShrinkAppEnabled(project: Project): Boolean {
+        val prop = project.findProperty("picodroid.shrinkApp") as? String
+        if (prop != null) return prop.equals("true", ignoreCase = true) || prop == "1"
+        val env = System.getenv("PICODROID_SHRINK_APP")
         return env == "1"
     }
 
