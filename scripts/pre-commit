@@ -400,6 +400,9 @@ stage_apk() {
   # path is also what keeps the lanes from invalidating each other.
   # --strip-debug: this snapshot only ever feeds firmware lanes (the clippy
   # legs, the flash gate, the size ratchet), so it takes the device shape.
+  # Without --keep-lines, so the debug-profile flash gate measures a PAPK
+  # with no app line table (the SDK's rides in the firmware regardless);
+  # helloworld's would be a few dozen bytes.
   bash "$SCRIPT_DIR/build-apk.sh" --app helloworld --strip-debug -o "$APK_PATH"
 }
 
@@ -499,7 +502,7 @@ clippy_sim_features() {
   fi
 }
 
-stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350"; }
+stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-numbers"; }
 
 # Keeps the opt-in memory diagnostics compiling and warning-clean
 # (docs/memory-diagnostics.md); the firmware flash budget for mem-diag is

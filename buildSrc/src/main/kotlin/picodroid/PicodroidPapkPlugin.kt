@@ -26,10 +26,12 @@ import java.io.File
  * Debug-attribute strip: `-Ppicodroid.stripDebug=true` (what
  * `scripts/build-apk.sh --strip-debug` passes, from every device path) drops
  * LineNumberTable + SourceFile from the packed classes — Java apps through a
- * [ClassStripTask] stage, Kotlin apps through the strip they already run.
- * Device firmware never reads them; the sim does, so sim paths leave the flag
- * off and a Java PAPK built without it is byte-identical to compileJava's
- * output. `./gradlew :examples:<app>:install` therefore pushes an unstripped
+ * [ClassStripTask] stage, Kotlin apps through the strip they already run —
+ * unless `-Ppicodroid.keepLineNumbers=true` (`--keep-lines`) keeps those two
+ * for a firmware built with the `line-numbers` cargo feature, whose stack
+ * traces print `(File.java:39)`. Sim paths leave stripDebug off and a Java
+ * PAPK built without it is byte-identical to compileJava's output.
+ * `./gradlew :examples:<app>:install` therefore pushes an unstripped
  * (larger, still correct) PAPK unless the property is passed explicitly.
  *
  * `verifyApiContract` rejects java/… references pico-jvm does not serve
@@ -125,11 +127,17 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val shrinkAppEnabled = isShrinkAppEnabled(target)
         // -Ppicodroid.stripDebug=true (scripts/build-apk.sh --strip-debug): drop
         // LineNumberTable + SourceFile from the packed classes, on top of what
-        // the strip already removes. Device firmware runs with debug_assertions
-        // off and never reads them; the sim does (its `(:line)` stack traces),
-        // so sim paths never pass it and Java PAPKs stay byte-identical without
-        // it. A -P property, never env: a warm daemon's environment is frozen.
+        // the strip already removes — for release firmware, whose JVM is built
+        // without the `line-numbers` feature and never reads them.
+        // -Ppicodroid.keepLineNumbers=true (--keep-lines) keeps exactly those
+        // two through the strip for a debug-profile firmware that prints
+        // `(File.java:39)` frames. Sim paths pass neither and Java PAPKs stay
+        // byte-identical. -P properties, never env: a warm daemon's
+        // environment is frozen.
         val stripDebug = target.providers.gradleProperty("picodroid.stripDebug")
+            .map { it.equals("true", ignoreCase = true) || it == "1" }
+            .getOrElse(false)
+        val keepLines = target.providers.gradleProperty("picodroid.keepLineNumbers")
             .map { it.equals("true", ignoreCase = true) || it == "1" }
             .getOrElse(false)
         val frameworkMapVersion = target.rootProject.extra("picodroid.frameworkMapVersion") {
@@ -171,7 +179,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             val stripTask = target.tasks.register("stripClassMetadata", StripClassMetadataTask::class.java) {
                 dependsOn(stageClasses)
                 inputDir.set(stagedDir)
-                keepLineNumbers.set(!stripDebug)
+                keepLineNumbers.set(!stripDebug || keepLines)
                 outputDir.set(target.layout.buildDirectory.dir("classes-stripped"))
                 reportFile.set(target.layout.buildDirectory.file("reports/strip-report.txt"))
             }
@@ -208,7 +216,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             if (stripDebug && !target.plugins.hasPlugin("org.jetbrains.kotlin.jvm")) {
                 val stripTask = target.tasks.register("stripClassMetadata", ClassStripTask::class.java) {
                     inputDir.set(rawClassesInput)
-                    keepLineNumbers.set(false)
+                    keepLineNumbers.set(keepLines)
                     outputDir.set(target.layout.buildDirectory.dir("classes-stripped"))
                 }
                 stripTask.flatMap { it.outputDir }

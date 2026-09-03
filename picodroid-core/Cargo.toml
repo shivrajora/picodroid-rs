@@ -51,6 +51,10 @@ handle-table-32 = []
 parity-metrics  = []
 parity-fbhash   = []
 mem-diag        = []
+# Stack-trace source positions; forwarded to pico-jvm, and read by build.rs
+# (CARGO_FEATURE_LINE_NUMBERS) to embed the SDK tree that keeps
+# LineNumberTable/SourceFile. See platforms/rp/Cargo.toml.
+line-numbers    = ["pico-jvm/line-numbers"]
 
 [dependencies]
 pico-jvm      = { path = "../jvm" }

@@ -7,6 +7,11 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Stack traces name the source line — on device too (roadmap T2.4)**
+
+- **Uncaught-exception frames now read `at pkg.Class.method(Class.java:42)`**, Android's `StackTraceElement` spelling, in the simulator and in debug-profile device firmware (`scripts/flash.sh`'s default). Before, only the simulator resolved a line — as `(:42)` — and a device printed the bytecode offset, `(pc=9)`, because the firmware's `LineNumberTable` parser was gated on `debug_assertions`, which every device build turns off. The gate is now a `line-numbers` cargo feature; it is on for `sim.sh` and debug-profile `flash.sh` / `build.sh`, and off for `--release` (HIL, CI, the size ratchet), which keeps the ~15 KB of SDK line tables out of release flash. `PICODROID_LINE_NUMBERS=0|1` overrides. A build with the feature also keeps the tables in its PAPK (`build-apk.sh --strip-debug --keep-lines`); mixing a with-lines PAPK and a release firmware, or the reverse, is harmless.
+- **Release logs resolve on the host.** `scripts/retrace.sh [--app <name>] < device.log` turns a release firmware's `(pc=9)` frames into the same `(Class.java:42)` frames from the unstripped class trees this checkout compiled, composed with the shrink-map un-shrinking it already did — one pass reads a `--release --shrink` log. Overloads that disagree list every candidate (`Class.java:12|40`). A class without a `SourceFile` prints `(Unknown Source:42)`. No RAM cost: the per-method table offset is a `u16` in `MethodInfo`'s padding.
+
 **The small Android methods people reach for first (map v0.18.0, package 0.18.0)**
 
 - **`TextView.getText()`** (and `Button.getText()`) returns `CharSequence`, as on Android, so `getText().toString()` works unchanged.

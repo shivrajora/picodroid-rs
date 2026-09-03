@@ -254,10 +254,8 @@ impl Parsed {
             let mut max_stack = 0u16;
             let mut max_locals = 0u16;
             let mut exception_table: Vec<ExceptionEntry> = Vec::new();
-            #[cfg(debug_assertions)]
-            let mut lnt_offset = 0usize;
-            #[cfg(debug_assertions)]
-            let mut lnt_len = 0usize;
+            #[cfg(feature = "line-numbers")]
+            let mut lnt_offset = 0u16;
 
             for _ in 0..attr_count {
                 let attr_name_idx = c.u16().ok_or("truncated")?;
@@ -302,8 +300,8 @@ impl Parsed {
                             catch_type_index,
                         });
                     }
-                    // Debug: scan Code sub-attributes for LineNumberTable.
-                    #[cfg(debug_assertions)]
+                    // line-numbers: scan Code sub-attributes for LineNumberTable.
+                    #[cfg(feature = "line-numbers")]
                     {
                         let sub_count = c.u16().ok_or("truncated")? as usize;
                         for _ in 0..sub_count {
@@ -320,8 +318,7 @@ impl Parsed {
                                 }
                             };
                             if is_lnt && lnt_offset == 0 {
-                                lnt_offset = sub_start;
-                                lnt_len = sub_len;
+                                lnt_offset = u16::try_from(sub_start).unwrap_or(0);
                             }
                             c.pos = sub_start + sub_len;
                         }
@@ -342,15 +339,16 @@ impl Parsed {
                 max_locals,
                 access_flags,
                 exception_table,
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "line-numbers")]
                 lnt_offset,
-                #[cfg(debug_assertions)]
-                lnt_len,
             });
         }
 
-        // Parse class-level attributes (looking for BootstrapMethods)
+        // Parse class-level attributes (looking for BootstrapMethods, and
+        // SourceFile when line numbers are on)
         let mut bootstrap_methods: Vec<BootstrapMethod> = Vec::new();
+        #[cfg(feature = "line-numbers")]
+        let mut source_file_index = 0u16;
         let class_attr_count = c.u16().ok_or("truncated")? as usize;
         for _ in 0..class_attr_count {
             let attr_name_idx = c.u16().ok_or("truncated")?;
@@ -365,6 +363,18 @@ impl Parsed {
                     data.get(off + 2..off + 2 + slen) == Some(b"BootstrapMethods")
                 }
             };
+            #[cfg(feature = "line-numbers")]
+            {
+                let ni = attr_name_idx as usize;
+                let is_source_file = attr_len == 2 && cp_tags.get(ni) == Some(&TAG_UTF8) && {
+                    let off = cp_offsets[ni];
+                    let slen = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+                    data.get(off + 2..off + 2 + slen) == Some(b"SourceFile")
+                };
+                if is_source_file {
+                    source_file_index = c.u16().ok_or("truncated")?;
+                }
+            }
 
             if is_bootstrap {
                 let num_methods = c.u16().ok_or("truncated")? as usize;
@@ -404,6 +414,8 @@ impl Parsed {
             access_flags,
             interfaces,
             bootstrap_methods,
+            #[cfg(feature = "line-numbers")]
+            source_file_index,
         })
     }
 }

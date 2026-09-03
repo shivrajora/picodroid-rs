@@ -330,6 +330,27 @@ print_memory_usage() {
 # Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
 # PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
 build_firmware() {
+  # Line numbers in stack traces — `(File.java:39)` frames instead of
+  # `(pc=9)` — ride the `line-numbers` cargo feature plus the
+  # LineNumberTable/SourceFile the PAPK and the embedded SDK keep. On for
+  # debug-profile firmware (the flash.sh default, where a developer is reading
+  # RTT) and off for --release, which HIL, the size ratchet and CI build:
+  # the SDK tables alone are ~15 KB of flash on every board
+  # (docs/designs/flash-string-budget-2026-08.md §4). PICODROID_LINE_NUMBERS=0|1
+  # overrides either way. Resolved before the PAPK build because the PAPK
+  # must keep its tables for the same firmware; FIRMWARE_FEATURES is an
+  # output so flash.sh's `cargo run` links the identical feature set.
+  local lines="${PICODROID_LINE_NUMBERS:-}"
+  if [[ -z "$lines" ]]; then
+    if [[ "${PROFILE:-debug}" == "release" ]]; then lines=0; else lines=1; fi
+  fi
+  FIRMWARE_FEATURES="$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}"
+  local keep_lines=()
+  if [[ "$lines" == "1" ]]; then
+    FIRMWARE_FEATURES="$FIRMWARE_FEATURES,line-numbers"
+    keep_lines=(--keep-lines)
+  fi
+
   # Step 1: Build the APK for the selected app.
   #
   # PICODROID_PREBUILT_APK short-circuits this. pre-commit builds helloworld
@@ -349,10 +370,11 @@ build_firmware() {
     # The board goes along so the API contract check rejects classes this
     # board excludes from its framework (framework_class_excludes) at build
     # time, not on device. --strip-debug because this PAPK is bound for a
-    # firmware built with debug-assertions off (the --config lines below):
-    # that JVM never reads LineNumberTable/SourceFile, so they are dead flash
-    # there. sim.sh builds its own PAPK without the flag and keeps (:line).
-    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug ${BOARD:+--board "$BOARD"}
+    # device: everything the JVM skips by length is dead flash there.
+    # --keep-lines rides along exactly when the firmware gets the
+    # line-numbers feature (above). sim.sh builds its own PAPK unstripped.
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug \
+      ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"}
     APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
   fi
 
@@ -389,7 +411,7 @@ build_firmware() {
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
+    --features "$FIRMWARE_FEATURES" \
     "${EXTRA_BUILD_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"; then
     echo "cargo build failed: $PACKAGE ($BOARD, $TARGET, $PROFILE)" >&2

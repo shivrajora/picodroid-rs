@@ -257,12 +257,16 @@ sides of the build call it:
 
 Independent of the shrink map, and applied to everything bound for a device:
 the `.class` files a device firmware carries lose the attributes pico-jvm
-never reads there. `LineNumberTable` is parsed only in `debug_assertions`
-builds (it feeds the `(:line)` in stack traces), and `SourceFile` and
-`StackMapTable` have no reader at all — picodroid does not run a bytecode
-verifier. Device firmware is built with debug-assertions off in both
-profiles, so the three were dead flash: about 14 KB of SDK corpus on every
-board plus 10–15 % of each PAPK. The measurements and the design are in
+never reads there. `StackMapTable` has no reader at all — picodroid does not
+run a bytecode verifier — and `LineNumberTable` + `SourceFile` are read only
+by a firmware built with the `line-numbers` cargo feature, which feeds the
+`(File.java:42)` in stack traces. `scripts/flash.sh` enables that feature for
+its default debug profile and drops it for `--release`, and builds the PAPK
+to match (`build-apk.sh --strip-debug --keep-lines` keeps just those two
+attributes). Release firmware therefore carries none of the three: about
+15 KB of SDK corpus on every board plus 10–15 % of each PAPK, and its stack
+traces print the bytecode offset, `(pc=9)`, which `scripts/retrace.sh`
+resolves on the host (below). The measurements and the design are in
 [docs/designs/flash-string-budget-2026-08.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/flash-string-budget-2026-08.md)
 §4.
 
@@ -378,9 +382,21 @@ ProGuard's `retrace` is: it substitutes `a/DK` / `a.DK` / `b/AK` / `b.AK`
 tokens and member targets in `.name(` position back to their originals
 and passes everything else through.
 
+It also resolves stack-trace frames. A release firmware carries no
+`LineNumberTable` and prints `at pkg.Class.method(pc=9)`; `retrace.sh`
+reads the unstripped class trees this checkout compiled — the SDK's
+`sdk/build/classes/java/main` always, the app's with `--app <name>` — and
+rewrites the frame to the `at pkg.Class.method(Class.java:42)` the sim and
+a debug-profile device print themselves. Names are un-shrunk first, so the
+two compose. A frame that resolves to nothing is left alone; overloads of
+one name that disagree list every candidate (`Class.java:12|40`), since
+the frame carries no descriptor. The trees must come from the same sources
+the device is running.
+
 ```bash
 ./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
 ./scripts/retrace.sh sdk/shrink-maps/v0.17.0.toml < build/hil/logs/foo.shrink.log
+./scripts/retrace.sh --app foo < rtt-release.log   # (pc=N) -> (Foo.java:LINE)
 ```
 
 ## Keep list

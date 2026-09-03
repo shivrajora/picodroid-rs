@@ -41,6 +41,11 @@ fi
 # The dispatch_sites test needs FRAMEWORK_CLASSES embedded, which requires
 # PICODROID_APK_PATH at build.rs time. Build helloworld once and reuse it
 # for both shrink modes.
+# Host tests run with line numbers on, as the sim does: the LineNumberTable
+# unit tests and the framework-classes embed invariant both exercise that
+# side. Workspace-wide --features needs the pkg/feature spelling.
+LINE_NUMBER_FEATURES="pico-jvm/line-numbers,picodroid-core/line-numbers,picodroid/line-numbers"
+
 APK_PATH="$REPO_ROOT/build/apks/helloworld.papk"
 if [[ ! -f "$APK_PATH" ]]; then
   echo "==> Building helloworld APK (required for framework-class embedding)..."
@@ -50,6 +55,7 @@ fi
 echo "==> Running tests (no-shrink)..."
 PICODROID_APK_PATH="$APK_PATH" \
   cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+    --features "$LINE_NUMBER_FEATURES" \
   "${TEST_PROFILE_ARGS[@]}"
 
 # Re-build the APK under the active shrink map so the embedded framework
@@ -67,4 +73,5 @@ bash "$REPO_ROOT/scripts/build-apk.sh" --app helloworld --shrink -o "$SHRINK_APK
 echo "==> Running tests (shrink)..."
 PICODROID_APK_PATH="$SHRINK_APK_PATH" PICODROID_SHRINK=1 \
   cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+    --features "$LINE_NUMBER_FEATURES" \
   "${TEST_PROFILE_ARGS[@]}"

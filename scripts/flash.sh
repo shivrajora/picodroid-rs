@@ -19,7 +19,11 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   -b, --board <board>  Target board (default: testbench_rp2350)
   -a, --app  <app>     App to build and flash (default: blinky)
-  -r, --release        Build in release mode
+  -r, --release        Build in release mode. Also drops the line-numbers
+                       feature: debug builds print (File.java:39) stack-trace
+                       frames, release builds print (pc=N) — resolve those
+                       on the host with scripts/retrace.sh.
+                       PICODROID_LINE_NUMBERS=0|1 overrides either way.
       --shrink         Apply the active release class-name shrink map
                        (off by default; see docs/shrinker.md)
       --shrink-app     Also rename the app's own classes and private members
@@ -76,6 +80,6 @@ PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS run \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
   --no-default-features \
-  --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
+  --features "$FIRMWARE_FEATURES" \
   "${EXTRA_BUILD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"

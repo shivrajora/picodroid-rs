@@ -154,8 +154,10 @@ kill_process_group() {
 pdb_install_known_good() {
   local mode="$1" log_prefix="$2"
   local apk_path="$REPO_ROOT/build/apks/helloworld.papk"
-  # --strip-debug on every PAPK built here: they all go to a device, whose
-  # firmware never reads LineNumberTable/SourceFile (build-apk.sh --help).
+  # --strip-debug on every PAPK built here: they all go to a release-profile
+  # firmware, built without the line-numbers feature, which never reads
+  # LineNumberTable/SourceFile (build-apk.sh --help). Its (pc=N) frames
+  # resolve on the host through scripts/retrace.sh.
   local -a apk_args=(--app helloworld --board "$BOARD" --strip-debug)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "${log_prefix}.known-good-build.log" 2>&1; then
