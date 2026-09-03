@@ -355,18 +355,25 @@ impl Parsed {
             let attr_len = c.u32().ok_or("truncated")? as usize;
             let attr_start = c.pos();
 
-            let attr_name_is = |want: &[u8]| {
+            let is_bootstrap = {
                 let ni = attr_name_idx as usize;
                 cp_tags.get(ni) == Some(&TAG_UTF8) && {
                     let off = cp_offsets[ni];
                     let slen = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
-                    data.get(off + 2..off + 2 + slen) == Some(want)
+                    data.get(off + 2..off + 2 + slen) == Some(b"BootstrapMethods")
                 }
             };
-            let is_bootstrap = attr_name_is(b"BootstrapMethods");
             #[cfg(feature = "line-numbers")]
-            if attr_len == 2 && attr_name_is(b"SourceFile") {
-                source_file_index = c.u16().ok_or("truncated")?;
+            {
+                let ni = attr_name_idx as usize;
+                let is_source_file = attr_len == 2 && cp_tags.get(ni) == Some(&TAG_UTF8) && {
+                    let off = cp_offsets[ni];
+                    let slen = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+                    data.get(off + 2..off + 2 + slen) == Some(b"SourceFile")
+                };
+                if is_source_file {
+                    source_file_index = c.u16().ok_or("truncated")?;
+                }
             }
 
             if is_bootstrap {
