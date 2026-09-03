@@ -59,13 +59,13 @@ pub struct MethodInfo {
     pub access_flags: u16,
     /// Exception table parsed from the Code attribute.
     pub exception_table: Vec<ExceptionEntry>,
-    /// Byte offset of the LineNumberTable body (entry_count u16 + entries) inside
-    /// the Flash-backed class data. 0 = not present. Debug builds only.
-    #[cfg(debug_assertions)]
-    pub lnt_offset: usize,
-    /// Byte length of the LineNumberTable body (= 2 + entry_count*4). Debug builds only.
-    #[cfg(debug_assertions)]
-    pub lnt_len: usize,
+    /// Byte offset of the LineNumberTable body (entry_count u16 + entries)
+    /// inside the Flash-backed class data; 0 = not present. A `u16` lands in
+    /// this struct's alignment padding, so it costs no RAM per method; a
+    /// class file past 64 KB (none ships) records 0 and its frames print
+    /// `pc=`. `line-numbers` feature only.
+    #[cfg(feature = "line-numbers")]
+    pub lnt_offset: u16,
 }
 
 #[derive(Debug)]
@@ -90,6 +90,9 @@ pub(crate) struct Parsed {
     pub access_flags: u16,
     pub interfaces: Vec<u16>,
     pub bootstrap_methods: Vec<BootstrapMethod>,
+    /// CP index of the `SourceFile` attribute's Utf8 (0 = none).
+    #[cfg(feature = "line-numbers")]
+    pub source_file_index: u16,
 }
 
 /// A class file backed by a `&'static [u8]` slice in Flash.

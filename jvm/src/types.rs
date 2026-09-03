@@ -53,9 +53,12 @@ pub struct StackTraceEntry {
     pub class_name: &'static str,
     pub method_name: &'static str,
     pub pc: usize,
-    /// Source line resolved from the `LineNumberTable`. Debug builds only.
-    #[cfg(debug_assertions)]
+    /// Source line resolved from the `LineNumberTable`. `line-numbers` only.
+    #[cfg(feature = "line-numbers")]
     pub line: Option<u16>,
+    /// The class's `SourceFile` attribute (`Main.java`). `line-numbers` only.
+    #[cfg(feature = "line-numbers")]
+    pub source_file: Option<&'static str>,
 }
 
 /// Errors that can occur during JVM execution.
@@ -133,13 +136,17 @@ impl fmt::Display for JvmError {
                     write!(f, ": {}", msg)?;
                 }
                 for entry in trace {
-                    #[cfg(debug_assertions)]
+                    // Android's StackTraceElement spelling: `(File.java:39)`,
+                    // `(Unknown Source:39)` when the class has no SourceFile,
+                    // and the bytecode offset when there is no line at all.
+                    #[cfg(feature = "line-numbers")]
                     if let Some(line) = entry.line {
                         write!(
                             f,
-                            "\n    at {}.{}(:{})",
+                            "\n    at {}.{}({}:{})",
                             dotted(entry.class_name),
                             entry.method_name,
+                            entry.source_file.unwrap_or("Unknown Source"),
                             line
                         )?;
                         continue;

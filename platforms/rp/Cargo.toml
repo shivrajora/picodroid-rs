@@ -18,6 +18,11 @@ parity-fbhash = ["picodroid-core/parity-fbhash"]
 # Firmware: PICODROID_EXTRA_FEATURES=mem-diag (RP2350-first; RP2040 is a
 # manual, flash-budget-checked opt-in).
 mem-diag = ["pico-jvm/mem-diag", "picodroid-core/mem-diag"]
+# Source positions in uncaught-exception traces (`(File.java:39)` instead of
+# `(pc=9)`). scripts/sim.sh always enables it; scripts/flash.sh enables it
+# for debug-profile firmware and drops it for --release (~15 KB of flash for
+# the SDK LineNumberTable/SourceFile on every board). Never a default.
+line-numbers = ["pico-jvm/line-numbers", "picodroid-core/line-numbers"]
 # Board selection (user-facing — pick exactly one for embedded builds).
 # Each forwards a marker feature of the same name to picodroid-core so its
 # build.rs resolves the same board.toml and generates the neutral config from

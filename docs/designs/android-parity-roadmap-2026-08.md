@@ -393,13 +393,23 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 - **T2.4 — line-number stack traces.** Parse `LineNumberTable`; the project's
   own "biggest debugging quality-of-life win remaining". Schedule early: it
   multiplies the velocity of everything after it.
-  **Partial — and this was already true when the roadmap was written.**
-  `fce8241` landed line numbers on 2026-05-06, three and a half months before
-  this doc (`0dcd3fa`, 2026-08-18): `class_file/mod.rs` carries
-  `lnt_offset`/`lnt_len`, `parse.rs` scans the Code sub-attributes, and
-  `tests/exceptions.rs` pins the rendered format. Only the release half is
-  open — it is all `#[cfg(debug_assertions)]`-gated — and since `flash.sh`
-  defaults to debug builds, that gap bites less than the entry implies.
+  **DONE 2026-09-02.** `fce8241` had landed line numbers on 2026-05-06 —
+  `parse.rs` scans the Code sub-attributes, `tests/exceptions.rs` pins the
+  format — but all of it was `#[cfg(debug_assertions)]`-gated, and the
+  earlier claim here that `flash.sh`'s debug default therefore kept lines
+  was wrong: `lib.sh build_firmware` forces
+  `--config profile.dev.debug-assertions=false` in *both* profiles (the
+  RP2040 flash gate), so no device image ever had the parser, and the
+  2026-09-01 strip removed the tables from the bytes as well. Now: a
+  `line-numbers` cargo feature is the only gate (JVM, `build.rs` tree
+  choice, `framework_classes.rs` invariant); the sim and debug-profile
+  `flash.sh` firmware have it and print Android's
+  `at pkg.Class.method(File.java:39)` (a `SourceFile` reader came with it);
+  release firmware prints `(pc=N)` and `scripts/retrace.sh [--app <app>]`
+  resolves those on the host from the unstripped class trees, composed with
+  the shrink-map un-shrinking it already did. Zero RAM (`lnt_offset` is a
+  `u16` in `MethodInfo`'s padding); ~15 KB of flash for the SDK tables,
+  debug-profile images only (flash-string-budget §4).
 - **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
   embedder arms can upcall; T3.4 is unblocked.
 - **T2.6 — JSON.** `picodroid.json.JSONObject`/`JSONArray`/`JSONException`

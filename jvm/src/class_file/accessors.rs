@@ -322,18 +322,31 @@ impl ClassFile {
         Some((bsm_idx, nat_idx))
     }
 
-    /// Maps a bytecode PC to its source line number via a linear scan of the
-    /// Flash-backed LineNumberTable. Returns `None` if no LNT was recorded
-    /// (native method, compiled without `-g:lines`, or release build).
-    #[cfg(debug_assertions)]
-    pub fn pc_to_line(&self, m: &MethodInfo, pc: usize) -> Option<u16> {
-        if m.lnt_offset == 0 || m.lnt_len < 2 {
+    /// The class's `SourceFile` attribute (`Main.java`), when it carries one.
+    #[cfg(feature = "line-numbers")]
+    pub fn source_file(&self) -> Option<&'static [u8]> {
+        let idx = self.parsed().source_file_index;
+        if idx == 0 {
             return None;
         }
+        self.cp_utf8(idx)
+    }
+
+    /// Maps a bytecode PC to its source line number via a linear scan of the
+    /// Flash-backed LineNumberTable. Returns `None` if no LNT was recorded
+    /// (native method, compiled without `-g:lines`, or a stripped class).
+    #[cfg(feature = "line-numbers")]
+    pub fn pc_to_line(&self, m: &MethodInfo, pc: usize) -> Option<u16> {
+        let off = m.lnt_offset as usize;
         let data = self.data();
-        let entry_count = u16::from_be_bytes([data[m.lnt_offset], data[m.lnt_offset + 1]]) as usize;
-        let entries_start = m.lnt_offset + 2;
-        let max_entries = (m.lnt_len.saturating_sub(2)) / 4;
+        if off == 0 || off + 2 > data.len() {
+            return None;
+        }
+        let entry_count = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
+        let entries_start = off + 2;
+        // The attribute's own length was checked at parse time; clamp against
+        // the class bytes so a corrupt count can never read past them.
+        let max_entries = (data.len() - entries_start) / 4;
         let n = entry_count.min(max_entries);
         let mut best: Option<u16> = None;
         for i in 0..n {

@@ -30,7 +30,7 @@
 //!       Extend the active release map with one app's own classes (`c/`)
 //!       and private member names — the per-PAPK `--shrink-app` map.
 //!
-//!   retrace --map <file.toml>
+//!   retrace [--map <file.toml>] [--classes <dir>]...
 //!       Rewrite shrunk names in stdin back to originals (host-side inverse).
 //!
 //!   shrink-dir --in <dir> --out <dir> --map <file.toml>
@@ -334,11 +334,16 @@ fn cmd_cut_app(args: &[String]) -> ExitCode {
 
 fn cmd_retrace(args: &[String]) -> ExitCode {
     let mut map_path: Option<PathBuf> = None;
+    let mut class_dirs: Vec<PathBuf> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--map" => {
                 map_path = Some(PathBuf::from(args.get(i + 1).expect("value")));
+                i += 2;
+            }
+            "--classes" => {
+                class_dirs.push(PathBuf::from(args.get(i + 1).expect("value")));
                 i += 2;
             }
             _ => {
@@ -347,18 +352,28 @@ fn cmd_retrace(args: &[String]) -> ExitCode {
             }
         }
     }
-    let Some(map_path) = map_path else {
-        eprintln!("Error: --map is required");
+    if map_path.is_none() && class_dirs.is_empty() {
+        eprintln!("Error: pass --map <file.toml> and/or --classes <dir>");
         return ExitCode::from(1);
+    }
+    // No map (an unshrunk firmware) still resolves `pc=` frames.
+    let map = match &map_path {
+        Some(p) => match ShrinkMap::load(p) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Error loading map {}: {e}", p.display());
+                return ExitCode::from(1);
+            }
+        },
+        None => ShrinkMap::new(),
     };
-    let map = match ShrinkMap::load(&map_path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Error loading map {}: {e}", map_path.display());
+    let mut retracer = class_shrink::retrace::Retracer::new(&map);
+    for dir in &class_dirs {
+        if let Err(e) = retracer.load_classes(dir) {
+            eprintln!("Error reading classes under {}: {e}", dir.display());
             return ExitCode::from(1);
         }
-    };
-    let retracer = class_shrink::retrace::Retracer::new(&map);
+    }
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     use std::io::{BufRead, Write};
@@ -505,12 +520,16 @@ Subcommands:
       that must never become targets (sdk/member-names.tsv and
       sdk/api-contract.tsv); --reserve trees likewise by class file.
 
-  retrace --map <file.toml> [< log]
+  retrace [--map <file.toml>] [--classes <dir>]... [< log]
       Rewrite shrunk names in text back to their originals — `a/DK`,
       `a.DK`, `b/AK`, `c/A`, and member targets in `.name(` position —
       the way ProGuard's retrace does. Reads stdin, writes stdout. Pass
       the per-app map (build/apks/<app>.shrink-map.toml) for an
-      app-shrunk PAPK.
+      app-shrunk PAPK. Each --classes tree (unstripped, original names:
+      sdk/build/classes/java/main, examples/<app>/build/classes) also
+      turns release firmware's `Class.method(pc=N)` frames into the
+      `Class.method(File.java:LINE)` the sim prints; overloads that
+      disagree list every candidate (`File.java:12|40`).
 
   shrink-dir --in <dir> --out <dir> --map <file.toml>
       Rewrite every .class file under --in using --map's classes,

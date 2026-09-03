@@ -279,6 +279,137 @@ impl ClassFile {
     }
 }
 
+/// One method's `LineNumberTable`, as read by [`ClassFile::line_info`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MethodLines {
+    pub name: Vec<u8>,
+    pub descriptor: Vec<u8>,
+    /// `(start_pc, line)` pairs in file order — ascending `start_pc` per
+    /// JVMS §4.7.12, which [`MethodLines::line_at`] relies on.
+    pub entries: Vec<(u16, u16)>,
+}
+
+impl MethodLines {
+    /// The line for a bytecode offset: the last entry whose `start_pc` is at
+    /// or before `pc` — the same rule pico-jvm's `pc_to_line` applies on
+    /// device, so a host retrace reproduces the device's own answer.
+    pub fn line_at(&self, pc: u16) -> Option<u16> {
+        let mut best = None;
+        for &(start, line) in &self.entries {
+            if start <= pc {
+                best = Some(line);
+            } else {
+                break;
+            }
+        }
+        best
+    }
+}
+
+/// Source positions of one class: its `SourceFile` and every method's
+/// `LineNumberTable`, from an unstripped host tree.
+#[derive(Clone, Debug, Default)]
+pub struct LineInfo {
+    pub source_file: Option<Vec<u8>>,
+    pub methods: Vec<MethodLines>,
+}
+
+impl ClassFile {
+    /// Read the class's `SourceFile` and each method's `LineNumberTable`.
+    /// The same tail walk as [`members`](Self::members), descending into
+    /// `Code` (past the bytecode and exception table) for its
+    /// sub-attributes and into the class attributes for `SourceFile`;
+    /// everything else is skipped by length.
+    pub fn line_info(&self) -> io::Result<LineInfo> {
+        let t = &self.tail;
+        let u2 = |p: &mut usize| -> io::Result<usize> {
+            let v = t
+                .get(*p..*p + 2)
+                .ok_or_else(|| invalid("truncated class body"))?;
+            *p += 2;
+            Ok(u16::from_be_bytes([v[0], v[1]]) as usize)
+        };
+        let u4 = |p: &mut usize| -> io::Result<usize> {
+            let v = t
+                .get(*p..*p + 4)
+                .ok_or_else(|| invalid("truncated class body"))?;
+            *p += 4;
+            Ok(u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize)
+        };
+        let utf8_is = |idx: usize, want: &[u8]| self.utf8(idx).map(|b| b == want).unwrap_or(false);
+        let mut p = 0usize;
+        let _access = u2(&mut p)?;
+        let _this = u2(&mut p)?;
+        let _super = u2(&mut p)?;
+        let ifaces = u2(&mut p)?;
+        p += 2 * ifaces;
+        let mut out = LineInfo::default();
+        for kind in 0..2 {
+            let count = u2(&mut p)?;
+            for _ in 0..count {
+                let _access = u2(&mut p)?;
+                let name = self.utf8(u2(&mut p)?)?.to_vec();
+                let descriptor = self.utf8(u2(&mut p)?)?.to_vec();
+                let attrs = u2(&mut p)?;
+                let mut entries = Vec::new();
+                for _ in 0..attrs {
+                    let attr_name = u2(&mut p)?;
+                    let len = u4(&mut p)?;
+                    let end = p + len;
+                    if end > t.len() {
+                        return Err(invalid("attribute overruns class body"));
+                    }
+                    if kind == 1 && utf8_is(attr_name, b"Code") {
+                        let mut q = p + 4; // max_stack, max_locals
+                        let code_len = u4(&mut q)?;
+                        q += code_len;
+                        let handlers = u2(&mut q)?;
+                        q += 8 * handlers;
+                        let subs = u2(&mut q)?;
+                        for _ in 0..subs {
+                            let sub_name = u2(&mut q)?;
+                            let sub_len = u4(&mut q)?;
+                            let sub_end = q + sub_len;
+                            if utf8_is(sub_name, b"LineNumberTable") {
+                                let n = u2(&mut q)?;
+                                for _ in 0..n {
+                                    let start = u2(&mut q)? as u16;
+                                    let line = u2(&mut q)? as u16;
+                                    entries.push((start, line));
+                                }
+                            }
+                            q = sub_end;
+                        }
+                    }
+                    p = end;
+                }
+                if kind == 1 {
+                    out.methods.push(MethodLines {
+                        name,
+                        descriptor,
+                        entries,
+                    });
+                }
+            }
+        }
+        let attrs = u2(&mut p)?;
+        for _ in 0..attrs {
+            let attr_name = u2(&mut p)?;
+            let len = u4(&mut p)?;
+            let end = p + len;
+            if end > t.len() {
+                return Err(invalid("attribute overruns class body"));
+            }
+            if len == 2 && utf8_is(attr_name, b"SourceFile") {
+                let idx = u2(&mut p)?;
+                out.source_file = Some(self.utf8(idx)?.to_vec());
+            }
+            p = end;
+        }
+        Ok(out)
+    }
+}
+
 /// Utf8 slot indices grouped by the kind of entry that references them; see
 /// [`ClassFile::utf8_refs`].
 #[derive(Debug, Default)]
@@ -372,6 +503,32 @@ mod tests {
         assert_eq!(m.methods[0].descriptor, b"()V");
         assert_eq!(m.methods[0].access_flags, 0x0001);
         assert_eq!(cf.referenced_member_names(), vec![b"<init>".as_slice()]);
+    }
+
+    #[test]
+    fn reads_source_file_and_line_table() {
+        let cf = ClassFile::parse(&sample_class_a()).unwrap();
+        let info = cf.line_info().unwrap();
+        assert_eq!(info.source_file.as_deref(), Some(b"A.java".as_slice()));
+        assert_eq!(info.methods.len(), 1);
+        let m = &info.methods[0];
+        assert_eq!(m.name, b"<init>");
+        assert_eq!(m.entries, vec![(0, 1)]);
+        assert_eq!(m.line_at(0), Some(1));
+        assert_eq!(m.line_at(4), Some(1));
+    }
+
+    #[test]
+    fn line_at_picks_the_last_entry_at_or_before_pc() {
+        let m = MethodLines {
+            entries: vec![(0, 10), (5, 11), (9, 14)],
+            ..Default::default()
+        };
+        assert_eq!(m.line_at(0), Some(10));
+        assert_eq!(m.line_at(4), Some(10));
+        assert_eq!(m.line_at(5), Some(11));
+        assert_eq!(m.line_at(40), Some(14));
+        assert_eq!(MethodLines::default().line_at(3), None);
     }
 
     #[test]

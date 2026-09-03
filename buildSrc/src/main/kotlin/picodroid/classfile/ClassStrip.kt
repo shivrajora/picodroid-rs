@@ -25,10 +25,11 @@ data class StripStats(val bytesBefore: Int, val bytesAfter: Int, val cpBefore: I
  * StackMapTable, SourceDebugExtension, and any non-standard attribute.
  * Kept: Code (with max_stack/max_locals copied from the reader), Exceptions,
  * BootstrapMethods, ConstantValue — and LineNumberTable + SourceFile only while
- * [keepLineNumbers] is true. pico-jvm reads LineNumberTable solely under
- * `debug_assertions` (the host simulator's `(:line)` stack traces) and never
- * reads SourceFile, so device-bound trees — the SDK corpus `build.rs` embeds in
- * firmware and PAPKs built with `--strip-debug` — pass `false`
+ * [keepLineNumbers] is true. pico-jvm reads both solely under its
+ * `line-numbers` cargo feature (the `(File.java:39)` stack-trace frames of the
+ * sim and debug-profile firmware), so the trees bound for such a build — the
+ * `:sdk:stripClassesLines` corpus, PAPKs built with `--strip-debug
+ * --keep-lines` — pass `true`, and release-bound trees pass `false`
  * (docs/designs/flash-string-budget-2026-08.md §4).
  * [renames] applies `@ShimName` (declaration and shim-internal call sites).
  *

@@ -131,7 +131,7 @@ run_test() {
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim,$board_feature" >> "$build_log" 2>&1; then
+    --features "sim,$board_feature,line-numbers" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
     echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -231,7 +231,7 @@ run_enviro_smoke() {
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim,board-pico-enviro-mon" >> "$build_log" 2>&1; then
+    --features "sim,board-pico-enviro-mon,line-numbers" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim, enviro board)"
     echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -293,7 +293,7 @@ run_enviro_w_smoke() {
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim,board-pico-enviro-mon-w" >> "$build_log" 2>&1; then
+    --features "sim,board-pico-enviro-mon-w,line-numbers" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim, enviro-w board)"
     echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))

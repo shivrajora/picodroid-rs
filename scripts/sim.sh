@@ -169,7 +169,8 @@ if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
   ENV_VARS+=(PICODROID_SHRINK=1)
 fi
 
-FEATURES="sim,$BOARD_FEATURE"
+# line-numbers: the sim always prints (File.java:39) stack-trace frames.
+FEATURES="sim,$BOARD_FEATURE,line-numbers"
 if [[ -n "$MEM_DIAG" ]]; then
   FEATURES="$FEATURES,mem-diag"
   # Sensible defaults when diagnostics are compiled in: monitor is always
