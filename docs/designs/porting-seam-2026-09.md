@@ -800,3 +800,49 @@ Verified: `cargo test -p picodroid-core` 302 (+2), `-p picodroid` 44;
 helloworld in the simulator; pre-commit green. **Flash, rp2040
 `--release`: `.text` 696,292 (+12 over S7), `.rodata` 175,720 (0)** — the
 shared installer is a call where the block was inline; cumulative −1,316 B.
+
+### A9 — the bench session for S3, S6 and S7 (2026-09-03)
+
+**`testbench_rp2350`**, the only board attached; the rp2040 half of every
+hardware gate below is owed, as B7/B9/B14 recorded for their stages. Firmware
+at S7 (`f09b698`), debug profile with line numbers, flashed with
+`scripts/flash.sh`.
+
+| Check | Result |
+|---|---|
+| boot + RTT (helloworld) | passes |
+| `pdb ping` (S3's descriptors) | `picodroid/2.1`, max PAPK 1020 KB, framework-map 0.0.0 — the host tool found the device by the identity it now imports from `pdb-protocol` |
+| `pdb sysmon` | 11 tasks decode: pdb, IDLE0/1, flashpark, Tmr Svc, fs, 4× jvm-bg, jvm |
+| `pdb install` ×3 (navdemo, helloworld, navdemo) | `Install complete.` each time — the `PapkSlot` erase/page/commit path on real flash |
+| device-side `STATUS_INCOMPAT` (a `--shrink` PAPK against no-shrink firmware, `--skip-host-check --expect-rejected`) | refused with `framework-map-version mismatch`; `pdb ping` answered afterwards, so the board was still running and its flash intact |
+| `pdb input tap 110 55`, `input swipe 200 120 40 120 200` | acknowledged (`STATUS_OK`) — the `TouchOverride` path through the bridge |
+| `pdb input keyevent 4` | `INPUT returned ERR (no such key)` — correct on a board with no `[[button]]` |
+| `bootcount` across a reflash | run 1 counted from `#1`; run 2, after a full reflash, resumed at `#101` — the value run 1 wrote survived, through `FsGeometry` and the unchanged flash primitives |
+
+Two things the session could not show. The probe's RTT attach dies when
+an install resets the board (the first `flash.sh` exited with
+`Error: Exception` at that moment), so the navdemo log lines a tap should
+produce on hardware were not captured; the bridge acknowledged the tap and
+the same path was watched end to end in the simulator instead — see below.
+And with no buttons on this board the idle-sleep wake and the real-button
+edge path were not exercised; the ring is the same type the simulator
+drove, and `inject` is the only device-side change to it.
+
+**Simulator, scripted input (S6):** on `pico_enviro_mon`, `input keyevent
+23` (the board's ENTER) pressed "Open Detail" and `input back` finished
+it — `Home: launching Detail → Detail.onCreate → Detail.onDestroy →
+Home.onRestart`, the full cycle through the shared ring. On
+`testbench_rp2350`, `input tap 110 55` opened Detail through the shared
+override; `input back` was refused ("no buttons on this board"), as it
+should be.
+
+**An observation that is not this doc's to fix.** `bootcount` re-runs its
+`Application.onCreate` continuously on this board — about once a second on
+this branch, and at the branch point `80aad79` on main about seven times a
+second (216 `Boot #` lines in ~30 s, `#750` → `#965`). `helloworld` does
+not. It is pre-existing, so it is recorded here rather than chased; the
+likely shape is a notification left pending on the JVM task after
+`run_app` returns (the fs worker notifies its waiter; `wake_all_parked`
+notifies parked tasks), which makes the supervisor's "wait for the next
+install" return at once. The persistence check above does not depend on
+it: what run 2 read was what run 1 wrote.
