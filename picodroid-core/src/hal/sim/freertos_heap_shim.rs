@@ -17,7 +17,7 @@
 //! first (docs/parity-audit.md MEM-04/M4).
 //!
 //! Device bytes for kernel objects still enter the arena, but through the
-//! *model*: `boot_budget.rs` charges each task the stack words and TCB
+//! *model*: `hal::sim::boot_budget` charges each task the stack bytes and TCB
 //! estimate the device would have allocated, at the moment the task is really
 //! created. So the arena sees device numbers while the host sees host ones,
 //! and neither is a guess about the other

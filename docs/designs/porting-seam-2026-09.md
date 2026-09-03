@@ -614,3 +614,35 @@ gcstress / blinky in the simulator. One note for the next reader: the
 simulator embeds the app at build time, so the first `blinky` run after a
 Rust change spends its whole `alarm 5` compiling and prints nothing; run it
 once with a longer alarm, then the five-second form is meaningful.
+
+### A2 — S2 landed: the simulator boots from one place (2026-09-03)
+
+§3.H as written, with one addition found on the way in. The generated
+`apk_data.rs` (from `build_support/papk.rs`) named `crate::sim_allocator` —
+an alias that existed only because the RP `main.rs` happened to declare it.
+A second family's simulator would have failed to compile on its first build
+with an error pointing into `OUT_DIR`. The generator now spells the shared
+path (`::picodroid_core::hal::sim::allocator::bypass()`), and the
+"ESP crate has no capped allocator" branch beside it, which was already
+dead, is gone. That is the porting seam's whole thesis in one line: an
+obligation nobody wrote down, discovered by the build.
+
+What moved: the ledger, `black_box` and all, `precharge`, `report`, the
+charge/release pair (`picodroid-core/src/hal/sim/boot_budget.rs`, 3 new
+unit tests); the sim `main` body and the closing banner (`sim_boot::main`);
+the forwarding allocator (`declare_sim_global_allocator!`). What stayed:
+the stack constants, `default_stack_bytes` and a `static MODEL` in the
+family's `boot_budget.rs`. `BootLeaves`, `glue::run_sim`, the family's
+`charge_task_spawn`/`release_task_spawn` wrappers and their sim/test cfg
+fork are deleted; the family's `fs/mod.rs` is device-only, since the host
+image is mounted by `sim_boot::main`. `register_sim_platform!` takes
+`gc_roots`, `boot_budget`, `run_app` and emits `sim_main()` under the
+invoking crate's `sim` feature. `platforms/rp/src`: −201 lines.
+
+Verified: the boot banner reconciles exactly (`charged 71464 B of 71464 B
+modeled`) on every smoke and on the capped `-l 200` run — the one number
+that proves the model crossed the seam intact; `cargo test -p picodroid`
+(48 pass, no cfg fork needed) and `-p picodroid-core` (261 pass); pre-commit
+green. **Flash, rp2040 `--release`: byte-identical** (`.text` 697,776 /
+`.rodata` 175,552 / `.data` 2,300), as it must be for a simulator-only
+change.

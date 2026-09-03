@@ -74,9 +74,9 @@ pub mod rtos;
 #[cfg(not(test))]
 pub mod service_lifecycle;
 pub mod shrink_names;
-// Simulator boot topology — the host's `boot_tasks.rs`. Family policy
-// arrives as `BootLeaves`; see the module docs and
-// docs/designs/family-neutral-residue.md B11.
+// The simulator's `main` and task topology — the host's `main.rs` plus
+// `boot_tasks.rs`. Family policy arrives as `register_sim_platform!`
+// parameters; see the module docs and docs/designs/porting-seam-2026-09.md E6.
 #[cfg(all(feature = "sim", not(test)))]
 pub mod sim_boot;
 pub mod task_priority;

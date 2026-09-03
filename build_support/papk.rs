@@ -469,14 +469,12 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
         let fallback = env::var("PICODROID_APK_PATH").unwrap_or_default();
         // On device the APK lives in flash (XIP) and costs zero heap; the
         // sim must not charge it to the simulated heap either
-        // (docs/parity-audit.md APK-01/M3). The RP sim exposes a heap-cap
-        // bypass for exactly this class of host-only allocation; the ESP
-        // crate has no capped allocator yet, so it gets a no-op.
-        let bypass_stmt = if env::var("CARGO_PKG_NAME").as_deref() == Ok("picodroid") {
-            "let _flash_xip = crate::sim_allocator::bypass();"
-        } else {
-            "// (no heap-cap bypass: this crate has no capped sim allocator)"
-        };
+        // (docs/parity-audit.md APK-01/M3): the shared simulator exposes a
+        // heap-cap bypass for exactly this class of host-only allocation.
+        // Every family reaches the one shared capped allocator through
+        // picodroid-core, so the bypass is spelled by its crate path rather
+        // than through an alias the family's `main.rs` would have to declare.
+        let bypass_stmt = "let _flash_xip = ::picodroid_core::hal::sim::allocator::bypass();";
         let generated = format!(
             "/// Sim builds load the APK from disk at startup; the runtime\n\
              /// `PICODROID_APK_PATH` env var wins over the build-time fallback.\n\

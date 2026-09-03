@@ -4,12 +4,12 @@
 //! A family's HAL impls already serve both arms — they delegate through its
 //! `hal` module, whose `mod chip` selects this crate's [`super`] in simulator
 //! builds — so the HAL needs nothing here. What every family *did* duplicate
-//! is the other two registrations: an `Rtos` backed by host threads (351
-//! lines of it, which had already drifted into a near-copy inside this crate)
-//! and the simulator half of [`crate::host::PlatformHooks`].
+//! is everything else: an `Rtos` backed by the hosted kernel, the simulator
+//! half of [`crate::host::PlatformHooks`], the boot-budget bookkeeping, and
+//! the simulator's `main`.
 //!
-//! [`crate::register_sim_platform`] generates both. The family supplies the
-//! two leaves that are genuinely its own — see the macro's docs.
+//! [`crate::register_sim_platform`] generates all of it. The family supplies
+//! the three leaves that are genuinely its own — see the macro's docs.
 
 use crate::host::NativeHeapStats;
 
@@ -38,57 +38,75 @@ pub fn native_heap_stats() -> NativeHeapStats {
     }
 }
 
-/// Register this crate's simulator as the platform's RTOS and hooks.
+/// Register this crate's simulator as the platform's RTOS and hooks, and
+/// generate the simulator's `main`.
 ///
-/// Covers the two registrations a simulator build would otherwise hand-write.
+/// Covers the registrations a simulator build would otherwise hand-write.
 /// The HAL is not among them: a family's own HAL impls already reach the
 /// shared simulator through its `hal` module's `mod chip` dispatch, so one set
 /// of impls serves hardware and simulator alike.
 ///
-/// Two parameters, both genuinely the family's own:
+/// Three parameters, all genuinely the family's own:
 ///
-/// - `gc_roots` — the family's GC root registration. Required, not defaulted,
-///   for the same reason [`crate::host::PlatformHooks::register_gc_roots`] is:
-///   a family with no native modules holding Java references should write that
-///   down deliberately rather than have the question go unasked.
-/// - `charge_task_spawn` — bill the family's boot budget for the stack and TCB
-///   the device would have allocated for this task, and return that stack size
-///   in bytes. A parameter rather than a hook because the boot budget is
-///   chip-gated platform data; routing it through the seam would export it to
-///   shared code for no reason. The return value is how stack *sizing* stays
-///   with the platform too (`crate::rtos`): the FreeRTOS backing creates a real
-///   task from the same number it charges, so the two cannot disagree. The
-///   `cargo test` backing calls it only for the `Thread.start` it refuses, and
-///   discards the number.
-/// - `release_task_spawn` — undo that charge when the task's body returns.
-///   Only the kernel backing has an exit to call it from; under the `cargo
-///   test` backing nothing ran, so nothing is released.
+/// - `gc_roots` — the family's GC root registration, a `fn()`. Required, not
+///   defaulted, for the same reason [`crate::host::PlatformHooks::register_gc_roots`]
+///   is: a family with no native modules holding Java references should write
+///   that down deliberately rather than have the question go unasked.
+/// - `boot_budget` — a `static` [`super::boot_budget::BootBudgetModel`]: the
+///   tasks the device creates at boot, their stack sizes, and the TCB and
+///   queue estimates. Chip-gated platform data, so it crosses as a parameter
+///   rather than as a `PlatformHooks` method every device family would also
+///   have to stub. The shared engine charges the arena from it, sizes every
+///   kernel task from it (so the charge and the allocation are one number),
+///   and asserts at the end of boot that the two routes reconcile.
+/// - `run_app` — a `fn()` that runs the family's app to completion. The
+///   family's, because where the app bytes come from is a property of its
+///   flash layout and build.
+///
+/// The generated `sim_main()` is emitted under `#[cfg(feature = "sim")]` of
+/// the *invoking* crate, so a family's simulator feature must be named `sim`
+/// (every script already assumes it). `main.rs` calls it and nothing else.
 ///
 /// ```ignore
 /// #[cfg(any(test, feature = "sim"))]
 /// picodroid_core::register_sim_platform! {
-///     gc_roots = crate::gc_root_registration::register_all,
-///     charge_task_spawn = crate::boot_budget::charge_task_spawn,
-///     release_task_spawn = crate::boot_budget::release_task_spawn,
+///     gc_roots    = crate::gc_root_registration::register_all,
+///     boot_budget = crate::boot_budget::MODEL,
+///     run_app     = crate::app::run_jvm,
+/// }
+///
+/// #[cfg(feature = "sim")]
+/// fn main() {
+///     glue::sim_main()
 /// }
 /// ```
 #[macro_export]
 macro_rules! register_sim_platform {
     (
         gc_roots = $gc_roots:path,
-        charge_task_spawn = $charge:path,
-        release_task_spawn = $release:path $(,)?
+        boot_budget = $boot_budget:path,
+        run_app = $run_app:path $(,)?
     ) => {
         const _: () = {
-            use $crate::hal::sim::rtos;
+            use $crate::hal::sim::{boot_budget, rtos};
             use $crate::rtos::{RawMutex, RawQueue, RawSem, RawTask, TaskSpec, Timeout};
+
+            /// Bill the family's model for a task the kernel is creating, and
+            /// report the stack size in bytes the device would have given it.
+            fn charge(spec: &TaskSpec) -> u32 {
+                boot_budget::charge_task_spawn(&$boot_budget, spec)
+            }
+            /// Undo [`charge`] when the task's body returns.
+            fn release(spec: &TaskSpec) {
+                boot_budget::release_task_spawn(&$boot_budget, spec)
+            }
 
             /// The shared simulator, as the platform registers it.
             struct SimPlatform;
 
             unsafe impl $crate::rtos::Rtos for SimPlatform {
                 fn spawn(spec: &TaskSpec, body: ::alloc::boxed::Box<dyn FnOnce() + Send>) -> bool {
-                    rtos::spawn(spec, body, $charge, $release)
+                    rtos::spawn(spec, body, charge, release)
                 }
                 fn queue_create(depth: usize) -> RawQueue {
                     rtos::queue_create(depth)
@@ -184,5 +202,13 @@ macro_rules! register_sim_platform {
             $crate::set_rtos!(SimPlatform);
             $crate::set_platform_hooks!(SimPlatform);
         };
+
+        /// The simulator's `main`: hand this family's boot-budget model and
+        /// its app to `picodroid_core::sim_boot::main`, which owns the
+        /// sequence.
+        #[cfg(feature = "sim")]
+        pub fn sim_main() {
+            $crate::sim_boot::main(&$boot_budget, $run_app)
+        }
     };
 }

@@ -106,22 +106,16 @@ fn wait_deadline(t: Timeout) -> Option<Duration> {
 
 /// Spawn a host thread for `spec`, except for [`TaskKind::JvmChild`].
 ///
-/// `charge_task` is called when a JVM child is refused, so the platform can
-/// bill its boot budget for the stack and TCB the device would have
-/// allocated. It is a parameter rather than a hook because the boot budget is
-/// chip-gated platform data that shared code has no business reading. Its
-/// return value — the device-modeled stack size — is only meaningful to the
-/// FreeRTOS backing, which sizes a real task from it; here the charge is the
-/// whole point and the number is discarded.
-///
-/// `release_task` is unused in this backing and exists so the two `rtos`
-/// modules stay interchangeable: nothing is released because nothing ran.
-/// A refused `Thread.start` has no exit to hook, and the host threads this
-/// *does* spawn model device tasks that live for the process.
+/// `_charge_task` and `_release_task` are unused in this backing and exist so
+/// the two `rtos` modules stay interchangeable. Nothing is charged, because
+/// there is no armed arena under `cargo test` to charge; and nothing is
+/// released, because nothing ran — a refused `Thread.start` has no exit to
+/// hook, and the host threads this *does* spawn model device tasks that live
+/// for the process.
 pub fn spawn(
     spec: &TaskSpec,
     body: Box<dyn FnOnce() + Send>,
-    charge_task: fn(&TaskSpec) -> u32,
+    _charge_task: fn(&TaskSpec) -> u32,
     _release_task: fn(&TaskSpec),
 ) -> bool {
     // A JVM child task must NOT become a host thread. The object heap is not
@@ -132,7 +126,7 @@ pub fn spawn(
     //
     // Erroring would misrepresent the device worse than skipping, and running
     // it synchronously would invert concurrency ordering and can deadlock on
-    // the main queue — so warn, charge, skip.
+    // the main queue — so warn and skip.
     if spec.kind == TaskKind::JvmChild {
         // Parity/CI lanes treat the no-op as fatal: an app whose threads
         // never ran must not report PASS (docs/parity-audit.md THR-01; real
@@ -150,7 +144,6 @@ pub fn spawn(
              no-op in the simulator (on device they run as a FreeRTOS task)",
             spec.name
         );
-        charge_task(spec);
         drop(body);
         return false;
     }

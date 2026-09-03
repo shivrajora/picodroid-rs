@@ -21,6 +21,9 @@
 
 pub mod adc;
 pub mod allocator;
+// The boot-budget engine: charges the arena from a family's model of the
+// device's boot-time tasks (`register_sim_platform!`'s `boot_budget`).
+pub mod boot_budget;
 pub mod delay;
 pub mod display;
 // `pvPortMalloc` and friends for the hosted kernel, which is compiled without

@@ -143,7 +143,8 @@ pub fn current_thread_is_task() -> bool {
 /// `release_task` undoes the charge when the task's body returns. The device
 /// gets this for free — `vTaskDelete(NULL)` returns the stack and TCB to the
 /// heap they came from — and without it every finished Java thread would leak
-/// its 16 KB from the model (`boot_budget.rs`'s deliberate leak, now paired).
+/// its 16 KB from the model (the boot budget's deliberate leak, now paired;
+/// see `hal::sim::boot_budget`).
 /// The task itself does not end here; see [`park_finished_task`].
 pub fn spawn(
     spec: &TaskSpec,

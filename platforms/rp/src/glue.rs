@@ -706,57 +706,16 @@ impl PlatformHooks for PlatformHost {
 picodroid_core::set_platform_hooks!(PlatformHost);
 
 // ── Simulator ────────────────────────────────────────────────────────────────
-
-/// Bill the boot budget for a task the simulator is creating (or, under the
-/// test backing, for the `Thread.start` it refuses to run), and report the
-/// stack size in bytes the device would have given it.
-///
-/// A wrapper rather than passing `boot_budget::charge_task_spawn` directly:
-/// that function is `cfg(feature = "sim")`, since a plain host test build has
-/// no arena to charge, and the cfg belongs next to the budget it guards. The
-/// stack size is still answered in that build, because it is policy rather
-/// than accounting.
-#[cfg(any(test, feature = "sim"))]
-fn charge_task_spawn(spec: &picodroid_core::rtos::TaskSpec) -> u32 {
-    #[cfg(feature = "sim")]
-    {
-        crate::boot_budget::charge_task_spawn(spec)
-    }
-    #[cfg(not(feature = "sim"))]
-    {
-        spec.stack_bytes
-            .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind))
-    }
-}
-
-/// Undo [`charge_task_spawn`] when the task's body returns. See
-/// `boot_budget::release_task_spawn`; a no-op wherever there is no arena.
-#[cfg(any(test, feature = "sim"))]
-fn release_task_spawn(spec: &picodroid_core::rtos::TaskSpec) {
-    #[cfg(feature = "sim")]
-    crate::boot_budget::release_task_spawn(spec);
-    #[cfg(not(feature = "sim"))]
-    let _ = spec;
-}
-
+//
+// Everything the simulator needs from this family is three leaves: which GC
+// roots to register, the boot memory model to charge, and the function that
+// runs the app. `picodroid_core` generates the `Rtos` and `PlatformHooks`
+// registrations and the simulator's `main` from them
+// (docs/designs/porting-seam-2026-09.md E6); `main.rs` calls the generated
+// `sim_main`.
 #[cfg(any(test, feature = "sim"))]
 picodroid_core::register_sim_platform! {
-    gc_roots = crate::gc_root_registration::register_all,
-    charge_task_spawn = charge_task_spawn,
-    release_task_spawn = release_task_spawn,
-}
-
-/// Boot the simulator: hand `picodroid_core::sim_boot` this family's three
-/// leaves and let it own the sequence.
-///
-/// The sequence itself is not ours — it names the background pool, the JVM
-/// task and the scheduler handoff, none of which is RP-specific, so it lives
-/// with the simulator in `picodroid-core`
-/// (`docs/designs/family-neutral-residue.md` B11). What is ours is here.
-#[cfg(feature = "sim")]
-pub(crate) fn run_sim() {
-    picodroid_core::sim_boot::run(picodroid_core::sim_boot::BootLeaves {
-        run_app: crate::app::run_jvm,
-        report_boot_budget: crate::boot_budget::report_boot_budget,
-    })
+    gc_roots    = crate::gc_root_registration::register_all,
+    boot_budget = crate::boot_budget::MODEL,
+    run_app     = crate::app::run_jvm,
 }
