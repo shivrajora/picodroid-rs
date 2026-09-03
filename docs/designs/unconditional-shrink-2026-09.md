@@ -286,9 +286,61 @@ routes through them. Compare calls: **310 k no-shrink, 372 k shrunk**
 | `interface_dispatch` | 69.3 ± 1 | 65.8 ± 1 | −5.1 % |
 | `TOTAL` | 1,171.7 ± 9 | 1,145.3 ± 19 | **−2.3 %** (p < 10⁻⁴) |
 
-Shrunk is now faster, as shorter names should make it. The no-shrink lane
-gained too (its own 3.2 M compares were the same scans on the app's and
-`java/**` names). Device numbers are in §8.2. No-shrink firmware is not byte-identical this
+On a quiet machine (twenty more interleaved runs, nothing else on the
+host) `TOTAL` is at parity — 1,143.4 ± 23 vs 1,143.0 ± 7 ms, p = 0.93 —
+with the lookup-heavy sections 3–5 % faster shrunk (`string_operations`
+−5.0 %, `array_operations` −3.3 %, `control_flow` −4.2 %) and
+`method_dispatch` / `interface_dispatch` 5.3 % slower, a residual that
+reproduces across two builds of the fixed code and is not yet explained
+(the invoke path hits a pointer-keyed cache, so it is not a name compare;
+layout is the working hypothesis). The no-shrink lane's own 3.2 M compares
+were the same scans on the app's and `java/**` names, so it gained too.
+
+### 8.2 On the device (`testbench_rp2350`, `--release`, 20 runs per image)
+
+Four images: the pre-fix and post-fix trees, each in both modes; one
+`probe-rs run` per image and then reset-and-attach for the remaining runs.
+Run-to-run noise on one image is ±5 ms of 167 s (0.003 %), so every delta
+below is statistically certain; what limits interpretation is placement
+(§8.3).
+
+| section | pre-fix no-shrink | pre-fix shrink | Δ | post-fix no-shrink | post-fix shrink | Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| `string_operations` | 15,289 | 36,424 | **+138 %** | 18,626 | 20,594 | +10.6 % |
+| `object_allocation` | 21,795 | 36,911 | **+69 %** | 26,114 | 26,685 | +2.2 % |
+| `method_dispatch` | 34,510 | 34,754 | +0.7 % | 39,952 | 27,829 | −30 % |
+| `interface_dispatch` | 26,808 | 26,429 | −1.4 % | 31,112 | 22,662 | −27 % |
+| `int_arithmetic` | 18,010 | 14,285 | −21 % | 25,516 | 14,174 | −44 % |
+| `TOTAL` | 167,593 | 200,191 | **+19.5 %** | 197,178 | 163,587 | −17 % |
+
+(ms, mean of 20; every σ ≤ 5 ms.)
+
+The regression was real and larger on the device than in the sim:
++19.5 % overall, +138 % on string operations, +69 % on allocation. The
+cleanest read of the fix is the two **shrink** images, whose interpreter
+loop happens to sit in the same cache-favourable place (`int_arithmetic`
+14,285 vs 14,174, −0.8 %): the fix takes `string_operations` −43.5 %,
+`object_allocation` −27.7 %, `method_dispatch` −19.9 %,
+`interface_dispatch` −14.3 % and `TOTAL` −18.3 % (200.2 → 163.6 s), and
+the post-fix shrink image is the fastest of the four in every section but
+one.
+
+### 8.3 What the device cannot tell you: placement
+
+The two **no-shrink** images differ only in the lookup code, yet
+`int_arithmetic` — a pure bytecode loop that touches none of it — reads
+18,010 vs 25,516 ms (+42 %), and `TOTAL` +17.7 %. `nm` shows
+`Executor<H>::run` (32 KB) moved by 120 bytes, from `0x1004d0f9` to
+`0x1004d171`; the RP2350 XIP cache is 16 KB, so where that loop lands
+dominates everything that runs through it. `docs/perf-campaign-2026-08.md`
+put this "XIP/icache layout band" at ±5 % from three runs; on this
+benchmark it is ±40 % per section. Consequences: cross-build device
+comparisons are only meaningful for sections that exercise the change
+(here the lookup-heavy ones), and the post-fix no-shrink column above is a
+placement-unlucky build, not a slower interpreter (the sim, which has no
+such effect, shows no-shrink unchanged). Pinning the interpreter loop's
+alignment in the linker script would make device builds comparable; not
+done here. No-shrink firmware is not byte-identical this
 time: the §5.1 class-file boundary and the identity translators are gone
 from both modes, but two lookup tables replaced tests that cannot see
 through `--shrink` (`boxed_dispatch!`'s `ends_with("Value")`, `net_stub`'s
