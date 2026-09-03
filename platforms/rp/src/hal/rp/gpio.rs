@@ -3,6 +3,7 @@ use core::cell::UnsafeCell;
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 // The seam's own types, not local copies: shared code names these, and the
 // converters `glue.rs` used to carry between two identical enums are gone.
+use picodroid_core::hal::event_ring::GpioEventRing;
 use picodroid_core::hal::types::{EdgeTrigger, GpioEvent, Pull};
 
 // ── Output ───────────────────────────────────────────────────────────────────
@@ -285,7 +286,12 @@ extern "C" fn IO_IRQ_BANK0() {
     }
 }
 
-// ── Event queue (ISR-safe ring buffer) ───────────────────────────────────────
+// ── Event queue ──────────────────────────────────────────────────────────────
+//
+// The ring itself is `picodroid_core::hal::event_ring` — one producer (this
+// ISR, or `inject` with the ISR masked), one consumer (the UI task). What is
+// this family's: the timestamp it stamps on each edge, and the semaphore it
+// gives so the idle path can sleep until the next one.
 //
 // `GpioEvent::t_us` is the TIMERAWL low word captured here, in the ISR, at
 // enqueue time — see the field's doc in `picodroid_core::hal::types` for why
@@ -312,37 +318,18 @@ fn now_us() -> u32 {
 // survive until the next indev read. Scripted input arrives at ~2 edges per
 // 56 ms, so the old 16-slot ring overflowed — and dropped edges silently —
 // after ~400 ms of stall (2026-07-23 stress-run PEM-1).
-const GPIO_QUEUE_SIZE: usize = 64;
-static mut GPIO_QUEUE: [GpioEvent; GPIO_QUEUE_SIZE] = [GpioEvent {
-    pin: 0,
-    rising: false,
-    t_us: 0,
-}; GPIO_QUEUE_SIZE];
-static mut GPIO_QUEUE_HEAD: usize = 0;
-static mut GPIO_QUEUE_TAIL: usize = 0;
-// ISR-side drop tally, reported from `drain_gpio_event` (task context).
-// Single writer (ISR) / reader tolerates a stale read.
-static mut GPIO_DROPPED: u32 = 0;
-static mut GPIO_DROP_REPORTED: u32 = 0;
+static EVENTS: GpioEventRing<64> = GpioEventRing::new();
 
+/// ISR context (or task context with the ISR masked — see `inject`).
 fn enqueue_gpio_event(pin: u8, rising: bool) {
-    unsafe {
-        let next = (GPIO_QUEUE_HEAD + 1) % GPIO_QUEUE_SIZE;
-        if next != GPIO_QUEUE_TAIL {
-            GPIO_QUEUE[GPIO_QUEUE_HEAD] = GpioEvent {
-                pin,
-                rising,
-                t_us: now_us(),
-            };
-            GPIO_QUEUE_HEAD = next;
-            // Wake any task blocked in `wait_for_button_event()`. Latches if
-            // nothing is currently waiting (binary semaphore).
+    if EVENTS.enqueue(pin, rising, now_us()) {
+        // Wake any task blocked in `wait_for_button_event()`. Latches if
+        // nothing is currently waiting (binary semaphore).
+        unsafe {
             if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
                 let mut ctx = InterruptContext::new();
                 sem.give_from_isr(&mut ctx);
             }
-        } else {
-            GPIO_DROPPED = GPIO_DROPPED.wrapping_add(1);
         }
     }
 }
@@ -355,30 +342,19 @@ fn enqueue_gpio_event(pin: u8, rising: bool) {
 /// `lvgl::events` drops the unpaired release. Used by the PDB `CMD_INPUT`
 /// handler to drive the device from the host (`pdb input keyevent …`).
 pub fn inject(pin: u8, rising: bool) {
-    enqueue_gpio_event(pin, rising);
+    // The ring has one producer context, and it is the ISR. This is the PDB
+    // task, on the same core the ISR runs on, so mask interrupts for the few
+    // instructions of the enqueue. The hand-written ring this replaced had
+    // no such guard: a real edge landing mid-inject could clobber a slot.
+    cortex_m::interrupt::free(|_| enqueue_gpio_event(pin, rising));
 }
 
 pub fn drain_gpio_event() -> Option<GpioEvent> {
-    unsafe {
-        let dropped = GPIO_DROPPED;
-        if dropped != GPIO_DROP_REPORTED {
-            GPIO_DROP_REPORTED = dropped;
-            defmt::warn!(
-                "gpio: event queue overflow — {} button edge(s) dropped since boot",
-                dropped
-            );
-        }
-        if GPIO_QUEUE_TAIL == GPIO_QUEUE_HEAD {
-            return None;
-        }
-        let ev = GPIO_QUEUE[GPIO_QUEUE_TAIL];
-        GPIO_QUEUE_TAIL = (GPIO_QUEUE_TAIL + 1) % GPIO_QUEUE_SIZE;
-        Some(ev)
-    }
+    EVENTS.drain()
 }
 
 pub fn has_pending_event() -> bool {
-    unsafe { GPIO_QUEUE_TAIL != GPIO_QUEUE_HEAD }
+    EVENTS.has_pending()
 }
 
 // ── Wake semaphore (signalled from IO_IRQ_BANK0 ISR) ─────────────────────────

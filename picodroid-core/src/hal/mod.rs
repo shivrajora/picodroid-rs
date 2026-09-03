@@ -21,6 +21,10 @@ pub mod types;
 // Java `byte[]` staging for the bus natives — what the `HalI2c` / `HalSpi`
 // default methods are built on.
 pub mod array_io;
+// The GPIO edge ring between an interrupt and the UI task, and the scripted
+// touch a debug bridge engages — both were copied per family before.
+pub mod event_ring;
+pub mod touch_override;
 
 // The host implementation of the hardware surface, shared by every family
 // rather than copied into each one — see the module docs for why.

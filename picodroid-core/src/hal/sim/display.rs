@@ -66,14 +66,12 @@ static mut MOUSE_X: u16 = 0;
 static mut MOUSE_Y: u16 = 0;
 
 /// Scripted-touch override (control channel `touch down|move|up`). While
-/// active it replaces the mouse sample in [`mouse_state`], so scripted
+/// engaged it replaces the mouse sample in [`mouse_state`], so scripted
 /// touches run the exact same XPT2046-emulation pipeline as real mouse
-/// input. Atomics: the control channel reader runs on its own thread.
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering as AtomOrd};
-static TOUCH_OVERRIDE_ACTIVE: AtomicBool = AtomicBool::new(false);
-static TOUCH_OVERRIDE_PRESSED: AtomicBool = AtomicBool::new(false);
-/// Packed (x << 16) | y so position updates are a single atomic store.
-static TOUCH_OVERRIDE_POS: AtomicU32 = AtomicU32::new(0);
+/// input. The state machine is core's, the same one the RP family's touch
+/// driver uses; the control channel reader drives it from its own thread.
+use crate::hal::touch_override::{OverrideSample, TouchOverride};
+static TOUCH_OVERRIDE: TouchOverride = TouchOverride::new();
 
 // ── Public API (matches hal::display contract) ──────────────────────────────
 
@@ -304,35 +302,28 @@ pub fn is_window_open() -> bool {
 /// active it replaces the mouse sample in [`mouse_state`]. Shared by the
 /// control channel and the `hal::sim::touch` override shims (HAL contract).
 pub fn set_touch_override(x: u16, y: u16) {
-    TOUCH_OVERRIDE_POS.store(((x as u32) << 16) | y as u32, AtomOrd::Relaxed);
-    TOUCH_OVERRIDE_PRESSED.store(true, AtomOrd::Relaxed);
-    TOUCH_OVERRIDE_ACTIVE.store(true, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE.inject(x, y)
 }
 
 /// Lift the scripted touch but keep the override engaged, so the RELEASE edge
 /// is observed from the scripted position before mouse sampling resumes.
 pub fn touch_override_release() {
-    TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE.release()
 }
 
 /// Disengage the override entirely; [`mouse_state`] returns to the real mouse.
 pub fn clear_touch_override() {
-    TOUCH_OVERRIDE_PRESSED.store(false, AtomOrd::Relaxed);
-    TOUCH_OVERRIDE_ACTIVE.store(false, AtomOrd::Relaxed);
+    TOUCH_OVERRIDE.clear()
 }
 
 /// Returns `(pressed, x, y)` — the most recent mouse state sampled by
 /// `update_window()`.
 pub fn mouse_state() -> (bool, u16, u16) {
-    if TOUCH_OVERRIDE_ACTIVE.load(AtomOrd::Relaxed) {
-        let packed = TOUCH_OVERRIDE_POS.load(AtomOrd::Relaxed);
-        return (
-            TOUCH_OVERRIDE_PRESSED.load(AtomOrd::Relaxed),
-            (packed >> 16) as u16,
-            (packed & 0xFFFF) as u16,
-        );
+    match TOUCH_OVERRIDE.sample() {
+        OverrideSample::Inactive => unsafe { (MOUSE_PRESSED, MOUSE_X, MOUSE_Y) },
+        OverrideSample::Pressed(x, y) => (true, x, y),
+        OverrideSample::Lifted(x, y) => (false, x, y),
     }
-    unsafe { (MOUSE_PRESSED, MOUSE_X, MOUSE_Y) }
 }
 
 // ── Button emulation (sim only) ─────────────────────────────────────────────

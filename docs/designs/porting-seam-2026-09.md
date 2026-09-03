@@ -715,3 +715,29 @@ through `transfer_raw`'s loopback) in the simulator; pre-commit green.
 **Flash, rp2040 `--release`: `.text` 696,104 (−1,672), `.rodata` 175,608
 (+56), net −1,616 B.** E3's prediction held with room to spare; the
 fallback is not needed.
+
+### A6 — S6 landed: one event ring, one touch override (2026-09-03)
+
+§3.B and §3.C as written, E2 included: the simulator's `hal/sim/gpio.rs`
+holds `Mutex<GpioEventRing<64>>` — the device's ring at the device's size,
+so a stalled simulator drops and warns exactly as a stalled device does
+where the old unbounded `VecDeque` hid it. The device keeps its timestamp
+(`now_us`) and its wake semaphore beside the ring; `inject` now runs under
+`cortex_m::interrupt::free`, which closes a real race the hand-written ring
+had (the PDB task and the ISR both wrote it, with nothing between them).
+`TouchOverride` replaces the three atomics in `hal/rp/touch.rs` and the
+three in `hal/sim/display.rs`; both readers `match` on `OverrideSample`.
+Nine tests: ring order, capacity `N - 1` (a ring using all `N` slots fails
+it), wrap-around, the drop tally, an empty ring; the override's state
+machine, re-press after release, release without inject, full-range
+coordinates through the packing.
+
+Verified on the host: `cargo test -p picodroid` 44, `-p picodroid-core`
+292; helloworld in the simulator; pre-commit green. **Flash, rp2040
+`--release`: `.text` 696,204 (+100 over S5), `.rodata` 175,608 (0)** — the
+acquire/release pairs and the interrupt mask, within the ±50–100 B
+expected; cumulative −1,516 B against the baseline. **Owed and batched
+into the bench session after S7:** scripted input through navdemo in the
+simulator, and on hardware real buttons and touch, `pdb input
+tap/swipe/keyevent`, idle-sleep wake, and S3's `pdb ping`. Recorded as A8
+when run.
