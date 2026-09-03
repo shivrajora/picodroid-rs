@@ -7,6 +7,16 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The small Android methods people reach for first (map v0.18.0, package 0.18.0)**
+
+- **`TextView.getText()`** (and `Button.getText()`) returns `CharSequence`, as on Android, so `getText().toString()` works unchanged.
+- **`Gpio.DIRECTION_IN` and `getValue()`** — a pin can now be read, not only driven. `DIRECTION_IN` carries no pull (Android Things semantics); the simulator reads such a pin `LOW`.
+- **`java.util.Objects`** — `equals`, `hashCode`, `hash`, `toString(o)`, `toString(o, default)`, `requireNonNull` (both forms), `isNull`, `nonNull`. A real class, so `equals`/`hashCode`/`toString` reach your overrides.
+- **`String.join`** for `join(delim, a, b, …)` / `String[]` and `join(delim, ArrayList)`; elements must be `String` or `null`. **`Float.intBitsToFloat`**.
+- **`File.getName`/`getParent`/`getParentFile`/`getAbsolutePath`/`mkdirs`/`createNewFile`.**
+- **`SharedPreferences.getFloat` / `Editor.putFloat`** (new blob type tag; existing preference files load unchanged).
+- Flash: +5.9 KB on both boards (about 2.4 KB of it Java class bytes, `Objects.class` alone 1.1 KB). Map v0.18.0 folds the new class and members in; the member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 still install.
+
 **`--shrink` is now unconditional — ProGuard semantics (map v0.17.0, package 0.17.0)**
 
 - **A `--shrink` firmware carries no original Java name anywhere.** Previously the runtime kept both spellings of every framework class (a 300-arm `unshrink_class` match translated `a/AB` back to `picodroid/view/View` on every native call), undid the `b/` prefix for `java/**` names at the JVM's class-file boundary, and kept the ~125 `java/**` member names it dispatches by literal (`toString`, `hashCode`, `equals`, `hasNext`, …) unmapped. All three are gone: every class, member and descriptor the Rust runtime names is now a build-generated constant (`c::picodroid_view_View`, `m::toString`, `d::String__V` — `build_support/names.rs`) whose value is the loaded spelling, the contract members and javac's `$` synthetics are mapped like everything else, and the image is checked after linking (`scripts/check-shrunk-image.sh`, in `pre-commit --full`). `picoenvmon` on `pico_enviro_mon` (`--release --shrink`): see the [flash budget](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/flash-budget-2026-09.md) §6.2 for the measured delta. No-shrink builds are byte-identical.

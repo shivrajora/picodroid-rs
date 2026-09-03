@@ -1,0 +1,4988 @@
+# Shrink map (schema v2)
+schema = 2
+member-floor = "0.17.0"
+
+[[class]]
+from = "java/io/IOException"
+to   = "b/A"
+
+[[class]]
+from = "java/io/InterruptedIOException"
+to   = "b/B"
+
+[[class]]
+from = "java/lang/Appendable"
+to   = "b/C"
+
+[[class]]
+from = "java/lang/ArithmeticException"
+to   = "b/D"
+
+[[class]]
+from = "java/lang/ArrayIndexOutOfBoundsException"
+to   = "b/E"
+
+[[class]]
+from = "java/lang/ArrayStoreException"
+to   = "b/CK"
+
+[[class]]
+from = "java/lang/AutoCloseable"
+to   = "b/F"
+
+[[class]]
+from = "java/lang/Boolean"
+to   = "b/G"
+
+[[class]]
+from = "java/lang/Byte"
+to   = "b/H"
+
+[[class]]
+from = "java/lang/CharSequence"
+to   = "b/I"
+
+[[class]]
+from = "java/lang/Character"
+to   = "b/J"
+
+[[class]]
+from = "java/lang/Class"
+to   = "b/K"
+
+[[class]]
+from = "java/lang/ClassCastException"
+to   = "b/L"
+
+[[class]]
+from = "java/lang/CloneNotSupportedException"
+to   = "b/M"
+
+[[class]]
+from = "java/lang/Cloneable"
+to   = "b/N"
+
+[[class]]
+from = "java/lang/Comparable"
+to   = "b/O"
+
+[[class]]
+from = "java/lang/Double"
+to   = "b/P"
+
+[[class]]
+from = "java/lang/Enum"
+to   = "b/Q"
+
+[[class]]
+from = "java/lang/Error"
+to   = "b/R"
+
+[[class]]
+from = "java/lang/Exception"
+to   = "b/S"
+
+[[class]]
+from = "java/lang/ExceptionInInitializerError"
+to   = "b/T"
+
+[[class]]
+from = "java/lang/Float"
+to   = "b/U"
+
+[[class]]
+from = "java/lang/IllegalArgumentException"
+to   = "b/V"
+
+[[class]]
+from = "java/lang/IllegalMonitorStateException"
+to   = "b/W"
+
+[[class]]
+from = "java/lang/IllegalStateException"
+to   = "b/X"
+
+[[class]]
+from = "java/lang/IllegalThreadStateException"
+to   = "b/Y"
+
+[[class]]
+from = "java/lang/IndexOutOfBoundsException"
+to   = "b/Z"
+
+[[class]]
+from = "java/lang/Integer"
+to   = "b/AA"
+
+[[class]]
+from = "java/lang/InterruptedException"
+to   = "b/AB"
+
+[[class]]
+from = "java/lang/Iterable"
+to   = "b/AC"
+
+[[class]]
+from = "java/lang/Long"
+to   = "b/AD"
+
+[[class]]
+from = "java/lang/Math"
+to   = "b/AE"
+
+[[class]]
+from = "java/lang/NegativeArraySizeException"
+to   = "b/AF"
+
+[[class]]
+from = "java/lang/NoSuchFieldError"
+to   = "b/AG"
+
+[[class]]
+from = "java/lang/NullPointerException"
+to   = "b/AH"
+
+[[class]]
+from = "java/lang/Number"
+to   = "b/AI"
+
+[[class]]
+from = "java/lang/NumberFormatException"
+to   = "b/AJ"
+
+[[class]]
+from = "java/lang/Object"
+to   = "b/AK"
+
+[[class]]
+from = "java/lang/OutOfMemoryError"
+to   = "b/AL"
+
+[[class]]
+from = "java/lang/Runnable"
+to   = "b/AM"
+
+[[class]]
+from = "java/lang/RuntimeException"
+to   = "b/AN"
+
+[[class]]
+from = "java/lang/Short"
+to   = "b/AO"
+
+[[class]]
+from = "java/lang/StackOverflowError"
+to   = "b/AP"
+
+[[class]]
+from = "java/lang/String"
+to   = "b/AQ"
+
+[[class]]
+from = "java/lang/StringBuilder"
+to   = "b/AR"
+
+[[class]]
+from = "java/lang/StringIndexOutOfBoundsException"
+to   = "b/AS"
+
+[[class]]
+from = "java/lang/System"
+to   = "b/AT"
+
+[[class]]
+from = "java/lang/Throwable"
+to   = "b/AU"
+
+[[class]]
+from = "java/lang/UnsupportedOperationException"
+to   = "b/AV"
+
+[[class]]
+from = "java/lang/invoke/CallSite"
+to   = "b/AW"
+
+[[class]]
+from = "java/lang/invoke/LambdaMetafactory"
+to   = "b/AX"
+
+[[class]]
+from = "java/lang/invoke/MethodHandle"
+to   = "b/AY"
+
+[[class]]
+from = "java/lang/invoke/MethodHandles"
+to   = "b/AZ"
+
+[[class]]
+from = "java/lang/invoke/MethodHandles$Lookup"
+to   = "b/BA"
+
+[[class]]
+from = "java/lang/invoke/MethodType"
+to   = "b/BB"
+
+[[class]]
+from = "java/net/BindException"
+to   = "b/BC"
+
+[[class]]
+from = "java/net/ConnectException"
+to   = "b/BD"
+
+[[class]]
+from = "java/net/NoRouteToHostException"
+to   = "b/BE"
+
+[[class]]
+from = "java/net/ProtocolException"
+to   = "b/BF"
+
+[[class]]
+from = "java/net/SocketException"
+to   = "b/BG"
+
+[[class]]
+from = "java/net/SocketTimeoutException"
+to   = "b/BH"
+
+[[class]]
+from = "java/net/UnknownHostException"
+to   = "b/BI"
+
+[[class]]
+from = "java/util/AbstractList"
+to   = "b/BJ"
+
+[[class]]
+from = "java/util/ArrayList"
+to   = "b/BK"
+
+[[class]]
+from = "java/util/Arrays"
+to   = "b/BL"
+
+[[class]]
+from = "java/util/Collection"
+to   = "b/BM"
+
+[[class]]
+from = "java/util/Collections"
+to   = "b/BN"
+
+[[class]]
+from = "java/util/Comparator"
+to   = "b/BO"
+
+[[class]]
+from = "java/util/ConcurrentModificationException"
+to   = "b/BP"
+
+[[class]]
+from = "java/util/HashMap"
+to   = "b/BQ"
+
+[[class]]
+from = "java/util/HashMap$EntrySet"
+to   = "b/BR"
+
+[[class]]
+from = "java/util/HashMap$KeySet"
+to   = "b/BS"
+
+[[class]]
+from = "java/util/HashMap$Values"
+to   = "b/BT"
+
+[[class]]
+from = "java/util/HashSet"
+to   = "b/BU"
+
+[[class]]
+from = "java/util/IllegalFormatException"
+to   = "b/BV"
+
+[[class]]
+from = "java/util/Iterator"
+to   = "b/BW"
+
+[[class]]
+from = "java/util/LinkedHashMap"
+to   = "b/BX"
+
+[[class]]
+from = "java/util/LinkedHashSet"
+to   = "b/BY"
+
+[[class]]
+from = "java/util/List"
+to   = "b/BZ"
+
+[[class]]
+from = "java/util/Locale"
+to   = "b/CA"
+
+[[class]]
+from = "java/util/Map"
+to   = "b/CB"
+
+[[class]]
+from = "java/util/Map$Entry"
+to   = "b/CC"
+
+[[class]]
+from = "java/util/NoSuchElementException"
+to   = "b/CD"
+
+[[class]]
+from = "java/util/Objects"
+to   = "b/CL"
+
+[[class]]
+from = "java/util/Random"
+to   = "b/CE"
+
+[[class]]
+from = "java/util/Set"
+to   = "b/CF"
+
+[[class]]
+from = "java/util/concurrent/CancellationException"
+to   = "b/CG"
+
+[[class]]
+from = "java/util/concurrent/ExecutionException"
+to   = "b/CH"
+
+[[class]]
+from = "java/util/concurrent/RejectedExecutionException"
+to   = "b/CI"
+
+[[class]]
+from = "java/util/concurrent/TimeoutException"
+to   = "b/CJ"
+
+[[class]]
+from = "javax/inject/Provider"
+to   = "a/EG"
+
+[[class]]
+from = "picodroid/app/Activity"
+to   = "a/A"
+
+[[class]]
+from = "picodroid/app/AlertDialog"
+to   = "a/DG"
+
+[[class]]
+from = "picodroid/app/AlertDialog$1"
+to   = "a/DH"
+
+[[class]]
+from = "picodroid/app/AlertDialog$Builder"
+to   = "a/DI"
+
+[[class]]
+from = "picodroid/app/Application"
+to   = "a/B"
+
+[[class]]
+from = "picodroid/app/IBinder"
+to   = "a/BT"
+
+[[class]]
+from = "picodroid/app/Notification"
+to   = "a/BU"
+
+[[class]]
+from = "picodroid/app/Notification$Builder"
+to   = "a/BV"
+
+[[class]]
+from = "picodroid/app/NotificationManager"
+to   = "a/BW"
+
+[[class]]
+from = "picodroid/app/Service"
+to   = "a/BX"
+
+[[class]]
+from = "picodroid/concurrent/AtomicBoolean"
+to   = "a/EH"
+
+[[class]]
+from = "picodroid/concurrent/AtomicInteger"
+to   = "a/EI"
+
+[[class]]
+from = "picodroid/concurrent/AtomicLong"
+to   = "a/EJ"
+
+[[class]]
+from = "picodroid/concurrent/AtomicReference"
+to   = "a/EK"
+
+[[class]]
+from = "picodroid/concurrent/BackgroundExecutor"
+to   = "a/AS"
+
+[[class]]
+from = "picodroid/concurrent/Callable"
+to   = "a/EL"
+
+[[class]]
+from = "picodroid/concurrent/CountDownLatch"
+to   = "a/EM"
+
+[[class]]
+from = "picodroid/concurrent/Executor"
+to   = "a/AT"
+
+[[class]]
+from = "picodroid/concurrent/ExecutorService"
+to   = "a/EN"
+
+[[class]]
+from = "picodroid/concurrent/Executors"
+to   = "a/AU"
+
+[[class]]
+from = "picodroid/concurrent/Future"
+to   = "a/EO"
+
+[[class]]
+from = "picodroid/concurrent/FutureTask"
+to   = "a/EP"
+
+[[class]]
+from = "picodroid/concurrent/MainExecutor"
+to   = "a/AV"
+
+[[class]]
+from = "picodroid/concurrent/Thread"
+to   = "a/C"
+
+[[class]]
+from = "picodroid/concurrent/Thread$UncaughtExceptionHandler"
+to   = "a/EQ"
+
+[[class]]
+from = "picodroid/concurrent/ThreadPoolExecutor"
+to   = "a/ER"
+
+[[class]]
+from = "picodroid/concurrent/TimeUnit"
+to   = "a/ES"
+
+[[class]]
+from = "picodroid/content/Context"
+to   = "a/AW"
+
+[[class]]
+from = "picodroid/content/DialogInterface"
+to   = "a/CJ"
+
+[[class]]
+from = "picodroid/content/DialogInterface$OnClickListener"
+to   = "a/CK"
+
+[[class]]
+from = "picodroid/content/DialogInterface$OnDismissListener"
+to   = "a/CL"
+
+[[class]]
+from = "picodroid/content/DialogInterface$OnMultiChoiceClickListener"
+to   = "a/DJ"
+
+[[class]]
+from = "picodroid/content/Editor"
+to   = "a/D"
+
+[[class]]
+from = "picodroid/content/Intent"
+to   = "a/BY"
+
+[[class]]
+from = "picodroid/content/Preferences"
+to   = "a/E"
+
+[[class]]
+from = "picodroid/content/ServiceConnection"
+to   = "a/BZ"
+
+[[class]]
+from = "picodroid/content/SharedPreferences"
+to   = "a/DK"
+
+[[class]]
+from = "picodroid/content/SharedPreferences$Editor"
+to   = "a/DL"
+
+[[class]]
+from = "picodroid/content/pm/PackageManager"
+to   = "a/AX"
+
+[[class]]
+from = "picodroid/debug/DisplayDebug"
+to   = "a/CM"
+
+[[class]]
+from = "picodroid/di/ActivitySingletonComponent"
+to   = "a/CA"
+
+[[class]]
+from = "picodroid/di/ApplicationComponent"
+to   = "a/CB"
+
+[[class]]
+from = "picodroid/di/Lazy"
+to   = "a/ET"
+
+[[class]]
+from = "picodroid/graphics/Color"
+to   = "a/F"
+
+[[class]]
+from = "picodroid/graphics/Display"
+to   = "a/G"
+
+[[class]]
+from = "picodroid/graphics/Theme"
+to   = "a/BG"
+
+[[class]]
+from = "picodroid/graphics/drawable/Drawable"
+to   = "a/BH"
+
+[[class]]
+from = "picodroid/graphics/drawable/GradientDrawable"
+to   = "a/BI"
+
+[[class]]
+from = "picodroid/graphics/drawable/GradientDrawable$Orientation"
+to   = "a/BJ"
+
+[[class]]
+from = "picodroid/hardware/Sensor"
+to   = "a/AY"
+
+[[class]]
+from = "picodroid/hardware/SensorEvent"
+to   = "a/AZ"
+
+[[class]]
+from = "picodroid/hardware/SensorEventListener"
+to   = "a/BA"
+
+[[class]]
+from = "picodroid/hardware/SensorManager"
+to   = "a/BB"
+
+[[class]]
+from = "picodroid/io/File"
+to   = "a/H"
+
+[[class]]
+from = "picodroid/io/FileInputStream"
+to   = "a/I"
+
+[[class]]
+from = "picodroid/io/FileOutputStream"
+to   = "a/J"
+
+[[class]]
+from = "picodroid/net/DatagramPacket"
+to   = "a/K"
+
+[[class]]
+from = "picodroid/net/DatagramSocket"
+to   = "a/L"
+
+[[class]]
+from = "picodroid/net/HttpInputStream"
+to   = "a/BC"
+
+[[class]]
+from = "picodroid/net/HttpOutputStream"
+to   = "a/BD"
+
+[[class]]
+from = "picodroid/net/HttpURLConnection"
+to   = "a/DM"
+
+[[class]]
+from = "picodroid/net/HttpUrlConnection"
+to   = "a/BE"
+
+[[class]]
+from = "picodroid/net/InetAddress"
+to   = "a/M"
+
+[[class]]
+from = "picodroid/net/NetworkInfo"
+to   = "a/N"
+
+[[class]]
+from = "picodroid/net/ServerSocket"
+to   = "a/O"
+
+[[class]]
+from = "picodroid/net/Socket"
+to   = "a/P"
+
+[[class]]
+from = "picodroid/net/URL"
+to   = "a/DN"
+
+[[class]]
+from = "picodroid/net/Url"
+to   = "a/BF"
+
+[[class]]
+from = "picodroid/os/IBinder"
+to   = "a/DP"
+
+[[class]]
+from = "picodroid/os/Runtime"
+to   = "a/Q"
+
+[[class]]
+from = "picodroid/os/SystemClock"
+to   = "a/R"
+
+[[class]]
+from = "picodroid/pio/Adc"
+to   = "a/S"
+
+[[class]]
+from = "picodroid/pio/Gpio"
+to   = "a/T"
+
+[[class]]
+from = "picodroid/pio/I2cDevice"
+to   = "a/U"
+
+[[class]]
+from = "picodroid/pio/PeripheralManager"
+to   = "a/V"
+
+[[class]]
+from = "picodroid/pio/Pwm"
+to   = "a/W"
+
+[[class]]
+from = "picodroid/pio/SpiDevice"
+to   = "a/X"
+
+[[class]]
+from = "picodroid/pio/UartDevice"
+to   = "a/Y"
+
+[[class]]
+from = "picodroid/text/InputType"
+to   = "a/DQ"
+
+[[class]]
+from = "picodroid/text/TextWatcher"
+to   = "a/DR"
+
+[[class]]
+from = "picodroid/util/Log"
+to   = "a/Z"
+
+[[class]]
+from = "picodroid/view/GestureDetector"
+to   = "a/BK"
+
+[[class]]
+from = "picodroid/view/GestureDetector$OnGestureListener"
+to   = "a/BL"
+
+[[class]]
+from = "picodroid/view/GestureDetector$SimpleOnGestureListener"
+to   = "a/DS"
+
+[[class]]
+from = "picodroid/view/Gravity"
+to   = "a/DT"
+
+[[class]]
+from = "picodroid/view/KeyEvent"
+to   = "a/AQ"
+
+[[class]]
+from = "picodroid/view/MotionEvent"
+to   = "a/AA"
+
+[[class]]
+from = "picodroid/view/OnKeyListener"
+to   = "a/AR"
+
+[[class]]
+from = "picodroid/view/OnSwipeListener"
+to   = "a/CE"
+
+[[class]]
+from = "picodroid/view/OnTouchListener"
+to   = "a/BM"
+
+[[class]]
+from = "picodroid/view/View"
+to   = "a/AB"
+
+[[class]]
+from = "picodroid/view/View$OnClickListener"
+to   = "a/CN"
+
+[[class]]
+from = "picodroid/view/View$OnFocusChangeListener"
+to   = "a/CO"
+
+[[class]]
+from = "picodroid/view/View$OnLongClickListener"
+to   = "a/DU"
+
+[[class]]
+from = "picodroid/view/ViewGroup"
+to   = "a/CP"
+
+[[class]]
+from = "picodroid/view/ViewGroup$LayoutParams"
+to   = "a/CQ"
+
+[[class]]
+from = "picodroid/view/ViewPropertyAnimator"
+to   = "a/BN"
+
+[[class]]
+from = "picodroid/view/animation/AccelerateDecelerateInterpolator"
+to   = "a/DV"
+
+[[class]]
+from = "picodroid/view/animation/AccelerateInterpolator"
+to   = "a/DW"
+
+[[class]]
+from = "picodroid/view/animation/DecelerateInterpolator"
+to   = "a/DX"
+
+[[class]]
+from = "picodroid/view/animation/Interpolator"
+to   = "a/DY"
+
+[[class]]
+from = "picodroid/view/animation/LinearInterpolator"
+to   = "a/DZ"
+
+[[class]]
+from = "picodroid/view/inputmethod/EditorInfo"
+to   = "a/CC"
+
+[[class]]
+from = "picodroid/widget/Adapter"
+to   = "a/CR"
+
+[[class]]
+from = "picodroid/widget/AdapterView"
+to   = "a/CS"
+
+[[class]]
+from = "picodroid/widget/AdapterView$OnItemClickListener"
+to   = "a/CT"
+
+[[class]]
+from = "picodroid/widget/AdapterView$OnItemSelectedListener"
+to   = "a/EA"
+
+[[class]]
+from = "picodroid/widget/AlertDialog"
+to   = "a/BO"
+
+[[class]]
+from = "picodroid/widget/AlertDialog$1"
+to   = "a/BP"
+
+[[class]]
+from = "picodroid/widget/AlertDialog$Builder"
+to   = "a/BQ"
+
+[[class]]
+from = "picodroid/widget/ArrayAdapter"
+to   = "a/CU"
+
+[[class]]
+from = "picodroid/widget/BaseAdapter"
+to   = "a/CV"
+
+[[class]]
+from = "picodroid/widget/Button"
+to   = "a/AC"
+
+[[class]]
+from = "picodroid/widget/CheckBox"
+to   = "a/AD"
+
+[[class]]
+from = "picodroid/widget/CompoundButton"
+to   = "a/CW"
+
+[[class]]
+from = "picodroid/widget/CompoundButton$OnCheckedChangeListener"
+to   = "a/CX"
+
+[[class]]
+from = "picodroid/widget/DatePicker"
+to   = "a/CF"
+
+[[class]]
+from = "picodroid/widget/DatePicker$OnDateChangedListener"
+to   = "a/CY"
+
+[[class]]
+from = "picodroid/widget/EditText"
+to   = "a/AE"
+
+[[class]]
+from = "picodroid/widget/FrameLayout"
+to   = "a/AF"
+
+[[class]]
+from = "picodroid/widget/FrameLayout$LayoutParams"
+to   = "a/CZ"
+
+[[class]]
+from = "picodroid/widget/ImageView"
+to   = "a/AG"
+
+[[class]]
+from = "picodroid/widget/Keyboard"
+to   = "a/BR"
+
+[[class]]
+from = "picodroid/widget/Keyboard$OnReadyListener"
+to   = "a/DA"
+
+[[class]]
+from = "picodroid/widget/LinearLayout"
+to   = "a/AH"
+
+[[class]]
+from = "picodroid/widget/LinearLayout$LayoutParams"
+to   = "a/DB"
+
+[[class]]
+from = "picodroid/widget/ListView"
+to   = "a/AI"
+
+[[class]]
+from = "picodroid/widget/NumberPicker"
+to   = "a/EB"
+
+[[class]]
+from = "picodroid/widget/NumberPicker$OnValueChangeListener"
+to   = "a/EC"
+
+[[class]]
+from = "picodroid/widget/OnEditorActionListener"
+to   = "a/CD"
+
+[[class]]
+from = "picodroid/widget/ProgressBar"
+to   = "a/AJ"
+
+[[class]]
+from = "picodroid/widget/RadioButton"
+to   = "a/ED"
+
+[[class]]
+from = "picodroid/widget/RadioGroup"
+to   = "a/EE"
+
+[[class]]
+from = "picodroid/widget/RadioGroup$OnCheckedChangeListener"
+to   = "a/EF"
+
+[[class]]
+from = "picodroid/widget/ScrollView"
+to   = "a/AK"
+
+[[class]]
+from = "picodroid/widget/SeekBar"
+to   = "a/AL"
+
+[[class]]
+from = "picodroid/widget/SeekBar$OnSeekBarChangeListener"
+to   = "a/DC"
+
+[[class]]
+from = "picodroid/widget/Snackbar"
+to   = "a/CG"
+
+[[class]]
+from = "picodroid/widget/Spinner"
+to   = "a/AM"
+
+[[class]]
+from = "picodroid/widget/Spinner$OnItemSelectedListener"
+to   = "a/DD"
+
+[[class]]
+from = "picodroid/widget/SwipeRefreshLayout"
+to   = "a/CH"
+
+[[class]]
+from = "picodroid/widget/SwipeRefreshLayout$OnRefreshListener"
+to   = "a/DE"
+
+[[class]]
+from = "picodroid/widget/Switch"
+to   = "a/AN"
+
+[[class]]
+from = "picodroid/widget/TextView"
+to   = "a/AO"
+
+[[class]]
+from = "picodroid/widget/TimePicker"
+to   = "a/CI"
+
+[[class]]
+from = "picodroid/widget/TimePicker$OnTimeChangedListener"
+to   = "a/DF"
+
+[[class]]
+from = "picodroid/widget/Toast"
+to   = "a/BS"
+
+[[class]]
+from = "picodroid/widget/ToggleButton"
+to   = "a/AP"
+
+[[member]]
+from = "$VALUES"
+to   = "w9"
+
+[[member]]
+from = "$values"
+to   = "xA"
+
+[[member]]
+from = "ACTION_DOWN"
+to   = "a"
+
+[[member]]
+from = "ACTION_LONG_PRESS"
+to   = "b"
+
+[[member]]
+from = "ACTION_MOVE"
+to   = "c"
+
+[[member]]
+from = "ACTION_UP"
+to   = "f"
+
+[[member]]
+from = "BLACK"
+to   = "g"
+
+[[member]]
+from = "BLUE"
+to   = "h"
+
+[[member]]
+from = "BOTTOM"
+to   = "j"
+
+[[member]]
+from = "BUTTON_NEGATIVE"
+to   = "k"
+
+[[member]]
+from = "BUTTON_NEUTRAL"
+to   = "l"
+
+[[member]]
+from = "BUTTON_POSITIVE"
+to   = "m"
+
+[[member]]
+from = "CANCELLED"
+to   = "o"
+
+[[member]]
+from = "CENTER"
+to   = "p"
+
+[[member]]
+from = "CENTER_HORIZONTAL"
+to   = "q"
+
+[[member]]
+from = "CENTER_VERTICAL"
+to   = "r"
+
+[[member]]
+from = "CYAN"
+to   = "s"
+
+[[member]]
+from = "DAYS"
+to   = "t"
+
+[[member]]
+from = "DIR"
+to   = "u"
+
+[[member]]
+from = "DIRECTION_IN"
+to   = "Aq"
+
+[[member]]
+from = "DIRECTION_OUT_INITIALLY_HIGH"
+to   = "z"
+
+[[member]]
+from = "DIRECTION_OUT_INITIALLY_LOW"
+to   = "A"
+
+[[member]]
+from = "DONE"
+to   = "B"
+
+[[member]]
+from = "END"
+to   = "C"
+
+[[member]]
+from = "FEATURE_WIFI"
+to   = "D"
+
+[[member]]
+from = "FILL"
+to   = "F"
+
+[[member]]
+from = "FILL_HORIZONTAL"
+to   = "G"
+
+[[member]]
+from = "FILL_VERTICAL"
+to   = "H"
+
+[[member]]
+from = "FLING_MIN_PX"
+to   = "I"
+
+[[member]]
+from = "GONE"
+to   = "J"
+
+[[member]]
+from = "GREEN"
+to   = "K"
+
+[[member]]
+from = "HORIZONTAL"
+to   = "L"
+
+[[member]]
+from = "HOURS"
+to   = "M"
+
+[[member]]
+from = "HTTP_ACCEPTED"
+to   = "N"
+
+[[member]]
+from = "HTTP_BAD_REQUEST"
+to   = "O"
+
+[[member]]
+from = "HTTP_CREATED"
+to   = "P"
+
+[[member]]
+from = "HTTP_FORBIDDEN"
+to   = "Q"
+
+[[member]]
+from = "HTTP_INTERNAL_ERROR"
+to   = "R"
+
+[[member]]
+from = "HTTP_MOVED_PERM"
+to   = "S"
+
+[[member]]
+from = "HTTP_MOVED_TEMP"
+to   = "T"
+
+[[member]]
+from = "HTTP_NOT_FOUND"
+to   = "U"
+
+[[member]]
+from = "HTTP_NOT_MODIFIED"
+to   = "V"
+
+[[member]]
+from = "HTTP_NO_CONTENT"
+to   = "W"
+
+[[member]]
+from = "HTTP_OK"
+to   = "X"
+
+[[member]]
+from = "HTTP_UNAUTHORIZED"
+to   = "Y"
+
+[[member]]
+from = "HTTP_UNAVAILABLE"
+to   = "Z"
+
+[[member]]
+from = "HW_FLOW_CONTROL_AUTO_RTSCTS"
+to   = "aA"
+
+[[member]]
+from = "HW_FLOW_CONTROL_NONE"
+to   = "aB"
+
+[[member]]
+from = "IME_ACTION_DONE"
+to   = "aC"
+
+[[member]]
+from = "IME_ACTION_GO"
+to   = "aD"
+
+[[member]]
+from = "IME_ACTION_NEXT"
+to   = "aE"
+
+[[member]]
+from = "IME_ACTION_NONE"
+to   = "aF"
+
+[[member]]
+from = "IME_ACTION_PREVIOUS"
+to   = "aG"
+
+[[member]]
+from = "IME_ACTION_SEARCH"
+to   = "aH"
+
+[[member]]
+from = "IME_ACTION_SEND"
+to   = "aI"
+
+[[member]]
+from = "IME_ACTION_UNSPECIFIED"
+to   = "aJ"
+
+[[member]]
+from = "INSTANCE"
+to   = "aK"
+
+[[member]]
+from = "INTERP_ACCELERATE"
+to   = "aL"
+
+[[member]]
+from = "INTERP_ACCEL_DECEL"
+to   = "aM"
+
+[[member]]
+from = "INTERP_DECELERATE"
+to   = "aN"
+
+[[member]]
+from = "INTERP_LINEAR"
+to   = "aO"
+
+[[member]]
+from = "INVISIBLE"
+to   = "aP"
+
+[[member]]
+from = "KEYCODE_BACK"
+to   = "aQ"
+
+[[member]]
+from = "KEYCODE_DPAD_CENTER"
+to   = "aR"
+
+[[member]]
+from = "KEYCODE_DPAD_DOWN"
+to   = "aS"
+
+[[member]]
+from = "KEYCODE_DPAD_LEFT"
+to   = "aT"
+
+[[member]]
+from = "KEYCODE_DPAD_RIGHT"
+to   = "aU"
+
+[[member]]
+from = "KEYCODE_DPAD_UP"
+to   = "aV"
+
+[[member]]
+from = "LEFT"
+to   = "aW"
+
+[[member]]
+from = "LEFT_RIGHT"
+to   = "aX"
+
+[[member]]
+from = "LENGTH_INDEFINITE"
+to   = "aY"
+
+[[member]]
+from = "LENGTH_LONG"
+to   = "aZ"
+
+[[member]]
+from = "LENGTH_SHORT"
+to   = "a0"
+
+[[member]]
+from = "LIST_MODE_ITEMS"
+to   = "a1"
+
+[[member]]
+from = "LIST_MODE_MULTI"
+to   = "a2"
+
+[[member]]
+from = "LIST_MODE_SINGLE"
+to   = "a3"
+
+[[member]]
+from = "MAGENTA"
+to   = "a4"
+
+[[member]]
+from = "MAGIC"
+to   = "a5"
+
+[[member]]
+from = "MATCH_PARENT"
+to   = "a6"
+
+[[member]]
+from = "MAX_BLOB"
+to   = "a7"
+
+[[member]]
+from = "MAX_ENTRIES"
+to   = "a8"
+
+[[member]]
+from = "MAX_KEY_LEN"
+to   = "a9"
+
+[[member]]
+from = "MAX_LIST_ITEMS"
+to   = "bA"
+
+[[member]]
+from = "MAX_PRIORITY"
+to   = "bB"
+
+[[member]]
+from = "MAX_REQUEST_HEADERS"
+to   = "bC"
+
+[[member]]
+from = "MAX_STRING_VAL"
+to   = "bD"
+
+[[member]]
+from = "MICROSECONDS"
+to   = "bE"
+
+[[member]]
+from = "MILLISECONDS"
+to   = "bF"
+
+[[member]]
+from = "MINUTES"
+to   = "bG"
+
+[[member]]
+from = "MIN_PRIORITY"
+to   = "bH"
+
+[[member]]
+from = "MODE_0"
+to   = "bI"
+
+[[member]]
+from = "MODE_1"
+to   = "bJ"
+
+[[member]]
+from = "MODE_2"
+to   = "bK"
+
+[[member]]
+from = "MODE_3"
+to   = "bL"
+
+[[member]]
+from = "MODE_NUMBER"
+to   = "bM"
+
+[[member]]
+from = "MODE_PRIVATE"
+to   = "bN"
+
+[[member]]
+from = "MODE_SPECIAL"
+to   = "bO"
+
+[[member]]
+from = "MODE_TEXT_LOWER"
+to   = "bP"
+
+[[member]]
+from = "MODE_TEXT_UPPER"
+to   = "bQ"
+
+[[member]]
+from = "NANOSECONDS"
+to   = "bR"
+
+[[member]]
+from = "NEW"
+to   = "bS"
+
+[[member]]
+from = "NORM_PRIORITY"
+to   = "bT"
+
+[[member]]
+from = "NOTIFICATION_SERVICE"
+to   = "bU"
+
+[[member]]
+from = "NO_GRAVITY"
+to   = "bV"
+
+[[member]]
+from = "NO_ID"
+to   = "bW"
+
+[[member]]
+from = "PARITY_EVEN"
+to   = "bX"
+
+[[member]]
+from = "PARITY_NONE"
+to   = "bY"
+
+[[member]]
+from = "PARITY_ODD"
+to   = "bZ"
+
+[[member]]
+from = "PROPERTY_ALPHA"
+to   = "b0"
+
+[[member]]
+from = "PROPERTY_ROTATION"
+to   = "b1"
+
+[[member]]
+from = "PROPERTY_SCALE_X"
+to   = "b2"
+
+[[member]]
+from = "PROPERTY_SCALE_Y"
+to   = "b3"
+
+[[member]]
+from = "PROPERTY_TRANSLATION_X"
+to   = "b4"
+
+[[member]]
+from = "PROPERTY_TRANSLATION_Y"
+to   = "b5"
+
+[[member]]
+from = "PROPERTY_X"
+to   = "b6"
+
+[[member]]
+from = "PROPERTY_Y"
+to   = "b7"
+
+[[member]]
+from = "RED"
+to   = "b8"
+
+[[member]]
+from = "RESULT_CANCELED"
+to   = "b9"
+
+[[member]]
+from = "RESULT_FIRST_USER"
+to   = "cA"
+
+[[member]]
+from = "RESULT_OK"
+to   = "cB"
+
+[[member]]
+from = "RIGHT"
+to   = "cC"
+
+[[member]]
+from = "ROOT"
+to   = "xB"
+
+[[member]]
+from = "RUNNING"
+to   = "cD"
+
+[[member]]
+from = "SCALE_1X"
+to   = "cE"
+
+[[member]]
+from = "SCALE_CENTER"
+to   = "cF"
+
+[[member]]
+from = "SCALE_CENTER_CROP"
+to   = "cG"
+
+[[member]]
+from = "SCALE_FIT_CENTER"
+to   = "cH"
+
+[[member]]
+from = "SCALE_FIT_XY"
+to   = "cI"
+
+[[member]]
+from = "SCALE_TILE"
+to   = "cJ"
+
+[[member]]
+from = "SECONDS"
+to   = "cK"
+
+[[member]]
+from = "SENSOR_DELAY_FASTEST"
+to   = "cL"
+
+[[member]]
+from = "SENSOR_DELAY_GAME"
+to   = "cM"
+
+[[member]]
+from = "SENSOR_DELAY_NORMAL"
+to   = "cN"
+
+[[member]]
+from = "SENSOR_DELAY_UI"
+to   = "cO"
+
+[[member]]
+from = "SENSOR_SERVICE"
+to   = "cP"
+
+[[member]]
+from = "SENSOR_STATUS_ACCURACY_HIGH"
+to   = "cQ"
+
+[[member]]
+from = "SENSOR_STATUS_ACCURACY_LOW"
+to   = "cR"
+
+[[member]]
+from = "SENSOR_STATUS_ACCURACY_MEDIUM"
+to   = "cS"
+
+[[member]]
+from = "SENSOR_STATUS_UNRELIABLE"
+to   = "cT"
+
+[[member]]
+from = "SPEED_FAST"
+to   = "cU"
+
+[[member]]
+from = "SPEED_STANDARD"
+to   = "cV"
+
+[[member]]
+from = "START"
+to   = "cW"
+
+[[member]]
+from = "START_FLAG_REDELIVERY"
+to   = "cX"
+
+[[member]]
+from = "START_FLAG_RETRY"
+to   = "cY"
+
+[[member]]
+from = "START_NOT_STICKY"
+to   = "cZ"
+
+[[member]]
+from = "START_REDELIVER_INTENT"
+to   = "c0"
+
+[[member]]
+from = "START_STICKY"
+to   = "c1"
+
+[[member]]
+from = "SWIPE_DOWN"
+to   = "c2"
+
+[[member]]
+from = "SWIPE_LEFT"
+to   = "c3"
+
+[[member]]
+from = "SWIPE_RIGHT"
+to   = "c4"
+
+[[member]]
+from = "SWIPE_UP"
+to   = "c5"
+
+[[member]]
+from = "TAG"
+to   = "c6"
+
+[[member]]
+from = "TAP_SLOP_PX"
+to   = "c7"
+
+[[member]]
+from = "TOP"
+to   = "c8"
+
+[[member]]
+from = "TOP_BOTTOM"
+to   = "c9"
+
+[[member]]
+from = "TRANSPARENT"
+to   = "dA"
+
+[[member]]
+from = "TYPE_ACCELEROMETER"
+to   = "dB"
+
+[[member]]
+from = "TYPE_ALL"
+to   = "dC"
+
+[[member]]
+from = "TYPE_AMBIENT_TEMPERATURE"
+to   = "dD"
+
+[[member]]
+from = "TYPE_CLASS_DATETIME"
+to   = "dE"
+
+[[member]]
+from = "TYPE_CLASS_NUMBER"
+to   = "dF"
+
+[[member]]
+from = "TYPE_CLASS_PHONE"
+to   = "dG"
+
+[[member]]
+from = "TYPE_CLASS_TEXT"
+to   = "dH"
+
+[[member]]
+from = "TYPE_GAS_RESISTANCE"
+to   = "dI"
+
+[[member]]
+from = "TYPE_GYROSCOPE"
+to   = "dJ"
+
+[[member]]
+from = "TYPE_LIGHT"
+to   = "dK"
+
+[[member]]
+from = "TYPE_MAGNETIC_FIELD"
+to   = "dL"
+
+[[member]]
+from = "TYPE_MASK_CLASS"
+to   = "dM"
+
+[[member]]
+from = "TYPE_MASK_FLAGS"
+to   = "dN"
+
+[[member]]
+from = "TYPE_MASK_VARIATION"
+to   = "dP"
+
+[[member]]
+from = "TYPE_NUMBER_FLAG_DECIMAL"
+to   = "dQ"
+
+[[member]]
+from = "TYPE_NUMBER_FLAG_SIGNED"
+to   = "dR"
+
+[[member]]
+from = "TYPE_PRESSURE"
+to   = "dS"
+
+[[member]]
+from = "TYPE_PROXIMITY"
+to   = "dT"
+
+[[member]]
+from = "TYPE_RELATIVE_HUMIDITY"
+to   = "dU"
+
+[[member]]
+from = "TYPE_TEXT_VARIATION_EMAIL_ADDRESS"
+to   = "dV"
+
+[[member]]
+from = "TYPE_TEXT_VARIATION_PASSWORD"
+to   = "dW"
+
+[[member]]
+from = "TYPE_TEXT_VARIATION_URI"
+to   = "dX"
+
+[[member]]
+from = "T_BOOL"
+to   = "dY"
+
+[[member]]
+from = "T_FLOAT"
+to   = "Ar"
+
+[[member]]
+from = "T_INT"
+to   = "dZ"
+
+[[member]]
+from = "T_LONG"
+to   = "d0"
+
+[[member]]
+from = "T_REMOVED"
+to   = "d1"
+
+[[member]]
+from = "T_STRING"
+to   = "d2"
+
+[[member]]
+from = "VERSION"
+to   = "d3"
+
+[[member]]
+from = "VERTICAL"
+to   = "d4"
+
+[[member]]
+from = "VISIBLE"
+to   = "d5"
+
+[[member]]
+from = "WHICH_NEGATIVE_INTERNAL"
+to   = "d6"
+
+[[member]]
+from = "WHICH_NEUTRAL_INTERNAL"
+to   = "d7"
+
+[[member]]
+from = "WHICH_POSITIVE_INTERNAL"
+to   = "d8"
+
+[[member]]
+from = "WHITE"
+to   = "d9"
+
+[[member]]
+from = "WRAP_CONTENT"
+to   = "eA"
+
+[[member]]
+from = "YELLOW"
+to   = "eB"
+
+[[member]]
+from = "abs"
+to   = "xC"
+
+[[member]]
+from = "accept"
+to   = "eC"
+
+[[member]]
+from = "access$000"
+to   = "xD"
+
+[[member]]
+from = "access$100"
+to   = "xE"
+
+[[member]]
+from = "access$1002"
+to   = "xF"
+
+[[member]]
+from = "access$1100"
+to   = "xG"
+
+[[member]]
+from = "access$302"
+to   = "xH"
+
+[[member]]
+from = "access$402"
+to   = "xI"
+
+[[member]]
+from = "access$502"
+to   = "xJ"
+
+[[member]]
+from = "access$602"
+to   = "xK"
+
+[[member]]
+from = "access$700"
+to   = "xL"
+
+[[member]]
+from = "access$802"
+to   = "xM"
+
+[[member]]
+from = "access$902"
+to   = "xN"
+
+[[member]]
+from = "accuracy"
+to   = "eD"
+
+[[member]]
+from = "action"
+to   = "eE"
+
+[[member]]
+from = "actionListener"
+to   = "eF"
+
+[[member]]
+from = "adapter"
+to   = "eG"
+
+[[member]]
+from = "add"
+to   = "xO"
+
+[[member]]
+from = "addAndGet"
+to   = "eH"
+
+[[member]]
+from = "addItem"
+to   = "eI"
+
+[[member]]
+from = "addRequestProperty"
+to   = "eJ"
+
+[[member]]
+from = "addSuppressed"
+to   = "xP"
+
+[[member]]
+from = "addTextChangedListener"
+to   = "eK"
+
+[[member]]
+from = "addView"
+to   = "eL"
+
+[[member]]
+from = "address"
+to   = "eM"
+
+[[member]]
+from = "adopt0"
+to   = "eN"
+
+[[member]]
+from = "afterTextChanged"
+to   = "eO"
+
+[[member]]
+from = "alive"
+to   = "eP"
+
+[[member]]
+from = "alpha"
+to   = "eQ"
+
+[[member]]
+from = "alphaTo"
+to   = "eR"
+
+[[member]]
+from = "animate"
+to   = "eS"
+
+[[member]]
+from = "app"
+to   = "eT"
+
+[[member]]
+from = "append"
+to   = "xQ"
+
+[[member]]
+from = "appendHeader"
+to   = "eU"
+
+[[member]]
+from = "apply"
+to   = "eV"
+
+[[member]]
+from = "applyTo"
+to   = "eW"
+
+[[member]]
+from = "argb"
+to   = "eX"
+
+[[member]]
+from = "arraycopy"
+to   = "xR"
+
+[[member]]
+from = "atan2"
+to   = "xS"
+
+[[member]]
+from = "available"
+to   = "eY"
+
+[[member]]
+from = "await"
+to   = "eZ"
+
+[[member]]
+from = "awaitTermination"
+to   = "e0"
+
+[[member]]
+from = "backgroundExecutor"
+to   = "e1"
+
+[[member]]
+from = "base"
+to   = "e2"
+
+[[member]]
+from = "beforeTextChanged"
+to   = "e3"
+
+[[member]]
+from = "bindService"
+to   = "e4"
+
+[[member]]
+from = "bindView"
+to   = "e5"
+
+[[member]]
+from = "booleanValue"
+to   = "xT"
+
+[[member]]
+from = "boundView"
+to   = "e6"
+
+[[member]]
+from = "build"
+to   = "e7"
+
+[[member]]
+from = "buildRequestHeaders"
+to   = "e8"
+
+[[member]]
+from = "buttonCount"
+to   = "e9"
+
+[[member]]
+from = "buttons"
+to   = "fA"
+
+[[member]]
+from = "byteValue"
+to   = "xU"
+
+[[member]]
+from = "bytesToString"
+to   = "fB"
+
+[[member]]
+from = "calibrate"
+to   = "fC"
+
+[[member]]
+from = "call"
+to   = "fD"
+
+[[member]]
+from = "callable"
+to   = "fE"
+
+[[member]]
+from = "cancel"
+to   = "fF"
+
+[[member]]
+from = "ceil"
+to   = "xV"
+
+[[member]]
+from = "charAt"
+to   = "xW"
+
+[[member]]
+from = "charValue"
+to   = "xX"
+
+[[member]]
+from = "check"
+to   = "fG"
+
+[[member]]
+from = "checkHeader"
+to   = "fH"
+
+[[member]]
+from = "checkKey"
+to   = "fI"
+
+[[member]]
+from = "checkedId"
+to   = "fJ"
+
+[[member]]
+from = "checkedItems"
+to   = "fK"
+
+[[member]]
+from = "checkedMask"
+to   = "fL"
+
+[[member]]
+from = "clamp"
+to   = "fM"
+
+[[member]]
+from = "clampMs"
+to   = "fN"
+
+[[member]]
+from = "clear"
+to   = "xY"
+
+[[member]]
+from = "clearCheck"
+to   = "fO"
+
+[[member]]
+from = "clearRequested"
+to   = "fP"
+
+[[member]]
+from = "clearState"
+to   = "fQ"
+
+[[member]]
+from = "clone"
+to   = "xZ"
+
+[[member]]
+from = "close"
+to   = "x0"
+
+[[member]]
+from = "colorBackground"
+to   = "fR"
+
+[[member]]
+from = "colorOnPrimary"
+to   = "fS"
+
+[[member]]
+from = "colorOutline"
+to   = "fT"
+
+[[member]]
+from = "colorPrimary"
+to   = "fU"
+
+[[member]]
+from = "colorSurface"
+to   = "fV"
+
+[[member]]
+from = "colorText"
+to   = "fW"
+
+[[member]]
+from = "colorTextSecondary"
+to   = "fX"
+
+[[member]]
+from = "commit"
+to   = "fY"
+
+[[member]]
+from = "compare"
+to   = "x1"
+
+[[member]]
+from = "compareAndSet"
+to   = "fZ"
+
+[[member]]
+from = "compareTo"
+to   = "x2"
+
+[[member]]
+from = "concat"
+to   = "x3"
+
+[[member]]
+from = "connect"
+to   = "f0"
+
+[[member]]
+from = "connectTimeout"
+to   = "f1"
+
+[[member]]
+from = "contains"
+to   = "x4"
+
+[[member]]
+from = "containsCrLf"
+to   = "f2"
+
+[[member]]
+from = "containsKey"
+to   = "x5"
+
+[[member]]
+from = "containsValue"
+to   = "x6"
+
+[[member]]
+from = "convert"
+to   = "f3"
+
+[[member]]
+from = "copyOf"
+to   = "x7"
+
+[[member]]
+from = "cos"
+to   = "x8"
+
+[[member]]
+from = "count"
+to   = "f4"
+
+[[member]]
+from = "countDown"
+to   = "f5"
+
+[[member]]
+from = "crc32"
+to   = "f6"
+
+[[member]]
+from = "create"
+to   = "f7"
+
+[[member]]
+from = "createNewFile"
+to   = "As"
+
+[[member]]
+from = "current"
+to   = "f8"
+
+[[member]]
+from = "current0"
+to   = "f9"
+
+[[member]]
+from = "currentKind0"
+to   = "gA"
+
+[[member]]
+from = "currentThread"
+to   = "gB"
+
+[[member]]
+from = "currentTimeMillis"
+to   = "x9"
+
+[[member]]
+from = "daemon"
+to   = "gC"
+
+[[member]]
+from = "data"
+to   = "gD"
+
+[[member]]
+from = "dateChangedListener"
+to   = "gE"
+
+[[member]]
+from = "decode"
+to   = "gF"
+
+[[member]]
+from = "decrementAndGet"
+to   = "gG"
+
+[[member]]
+from = "defaultHandler"
+to   = "gH"
+
+[[member]]
+from = "delete"
+to   = "gI"
+
+[[member]]
+from = "disconnect"
+to   = "gJ"
+
+[[member]]
+from = "dismiss"
+to   = "gK"
+
+[[member]]
+from = "dispatchRunnable"
+to   = "gL"
+
+[[member]]
+from = "doOutput"
+to   = "gM"
+
+[[member]]
+from = "doubleValue"
+to   = "yA"
+
+[[member]]
+from = "downEvent"
+to   = "gN"
+
+[[member]]
+from = "duration"
+to   = "gO"
+
+[[member]]
+from = "durationMs"
+to   = "gP"
+
+[[member]]
+from = "edit"
+to   = "gQ"
+
+[[member]]
+from = "editorActionListener"
+to   = "gR"
+
+[[member]]
+from = "elapsedRealtimeNanos"
+to   = "gS"
+
+[[member]]
+from = "enabled"
+to   = "gT"
+
+[[member]]
+from = "encode"
+to   = "gU"
+
+[[member]]
+from = "endAction"
+to   = "gV"
+
+[[member]]
+from = "endsWith"
+to   = "yB"
+
+[[member]]
+from = "entrySet"
+to   = "yC"
+
+[[member]]
+from = "equals"
+to   = "yD"
+
+[[member]]
+from = "equalsIgnoreCase"
+to   = "yE"
+
+[[member]]
+from = "error"
+to   = "gW"
+
+[[member]]
+from = "eventTime"
+to   = "gX"
+
+[[member]]
+from = "execute"
+to   = "gY"
+
+[[member]]
+from = "exists"
+to   = "gZ"
+
+[[member]]
+from = "exit0"
+to   = "g0"
+
+[[member]]
+from = "exp"
+to   = "yF"
+
+[[member]]
+from = "fill"
+to   = "yG"
+
+[[member]]
+from = "fillColor"
+to   = "g1"
+
+[[member]]
+from = "findButton"
+to   = "g2"
+
+[[member]]
+from = "finish"
+to   = "g3"
+
+[[member]]
+from = "fireActionClick"
+to   = "g4"
+
+[[member]]
+from = "fireButtonClick"
+to   = "g5"
+
+[[member]]
+from = "fireCheckedChanged"
+to   = "g6"
+
+[[member]]
+from = "fireClick"
+to   = "g7"
+
+[[member]]
+from = "fireDateChanged"
+to   = "g8"
+
+[[member]]
+from = "fireEditorAction"
+to   = "g9"
+
+[[member]]
+from = "fireFocusChange"
+to   = "hA"
+
+[[member]]
+from = "fireItemClick"
+to   = "hB"
+
+[[member]]
+from = "fireItemSelected"
+to   = "hC"
+
+[[member]]
+from = "fireKey"
+to   = "hD"
+
+[[member]]
+from = "fireLongClick"
+to   = "hE"
+
+[[member]]
+from = "fireProgressChanged"
+to   = "hF"
+
+[[member]]
+from = "fireReady"
+to   = "hG"
+
+[[member]]
+from = "fireRefresh"
+to   = "hH"
+
+[[member]]
+from = "fireStep"
+to   = "hI"
+
+[[member]]
+from = "fireSwipe"
+to   = "hJ"
+
+[[member]]
+from = "fireTextChanged"
+to   = "hK"
+
+[[member]]
+from = "fireTimeChanged"
+to   = "hL"
+
+[[member]]
+from = "fireTouch"
+to   = "hM"
+
+[[member]]
+from = "fireTrackingTouch"
+to   = "hN"
+
+[[member]]
+from = "fixedLength"
+to   = "hO"
+
+[[member]]
+from = "floatToIntBits"
+to   = "yH"
+
+[[member]]
+from = "floatValue"
+to   = "yI"
+
+[[member]]
+from = "floor"
+to   = "yJ"
+
+[[member]]
+from = "flush"
+to   = "hP"
+
+[[member]]
+from = "focusable"
+to   = "hQ"
+
+[[member]]
+from = "format"
+to   = "yK"
+
+[[member]]
+from = "gcCount"
+to   = "hR"
+
+[[member]]
+from = "gcFreed"
+to   = "hS"
+
+[[member]]
+from = "gcTimeNanos"
+to   = "hT"
+
+[[member]]
+from = "get"
+to   = "yL"
+
+[[member]]
+from = "getAbsolutePath"
+to   = "At"
+
+[[member]]
+from = "getAction"
+to   = "hU"
+
+[[member]]
+from = "getAdapter"
+to   = "hV"
+
+[[member]]
+from = "getAddress"
+to   = "hW"
+
+[[member]]
+from = "getAll"
+to   = "hX"
+
+[[member]]
+from = "getAlpha"
+to   = "hY"
+
+[[member]]
+from = "getAndAdd"
+to   = "hZ"
+
+[[member]]
+from = "getAndDecrement"
+to   = "h0"
+
+[[member]]
+from = "getAndIncrement"
+to   = "h1"
+
+[[member]]
+from = "getAndSet"
+to   = "h2"
+
+[[member]]
+from = "getBoolean"
+to   = "h3"
+
+[[member]]
+from = "getBooleanExtra"
+to   = "h4"
+
+[[member]]
+from = "getByAddress"
+to   = "h5"
+
+[[member]]
+from = "getByName"
+to   = "h6"
+
+[[member]]
+from = "getBytes"
+to   = "yM"
+
+[[member]]
+from = "getCause"
+to   = "yN"
+
+[[member]]
+from = "getCheckedRadioButtonId"
+to   = "h7"
+
+[[member]]
+from = "getChildAt"
+to   = "h8"
+
+[[member]]
+from = "getChildCount"
+to   = "h9"
+
+[[member]]
+from = "getClass"
+to   = "yO"
+
+[[member]]
+from = "getConnectTimeout"
+to   = "iA"
+
+[[member]]
+from = "getContentLength"
+to   = "iB"
+
+[[member]]
+from = "getContentText"
+to   = "iC"
+
+[[member]]
+from = "getContentTitle"
+to   = "iD"
+
+[[member]]
+from = "getCount"
+to   = "iE"
+
+[[member]]
+from = "getData"
+to   = "iG"
+
+[[member]]
+from = "getDay"
+to   = "iH"
+
+[[member]]
+from = "getDefaultSensor"
+to   = "iI"
+
+[[member]]
+from = "getDefaultUncaughtExceptionHandler"
+to   = "iJ"
+
+[[member]]
+from = "getDisplay"
+to   = "iK"
+
+[[member]]
+from = "getDuration"
+to   = "iL"
+
+[[member]]
+from = "getErrorStream"
+to   = "iM"
+
+[[member]]
+from = "getEventTime"
+to   = "iN"
+
+[[member]]
+from = "getFloat"
+to   = "Au"
+
+[[member]]
+from = "getHeaderField"
+to   = "iO"
+
+[[member]]
+from = "getHeaderFieldKey"
+to   = "iP"
+
+[[member]]
+from = "getHeight"
+to   = "iQ"
+
+[[member]]
+from = "getHost"
+to   = "iR"
+
+[[member]]
+from = "getHostAddress"
+to   = "iS"
+
+[[member]]
+from = "getHour"
+to   = "iT"
+
+[[member]]
+from = "getId"
+to   = "iU"
+
+[[member]]
+from = "getInputStream"
+to   = "iV"
+
+[[member]]
+from = "getInstance"
+to   = "iW"
+
+[[member]]
+from = "getInt"
+to   = "iX"
+
+[[member]]
+from = "getIntExtra"
+to   = "iY"
+
+[[member]]
+from = "getIntent"
+to   = "iZ"
+
+[[member]]
+from = "getInterpolation"
+to   = "i0"
+
+[[member]]
+from = "getIpAddress"
+to   = "i1"
+
+[[member]]
+from = "getItem"
+to   = "i2"
+
+[[member]]
+from = "getItemId"
+to   = "i3"
+
+[[member]]
+from = "getKey"
+to   = "yP"
+
+[[member]]
+from = "getKeyCode"
+to   = "i4"
+
+[[member]]
+from = "getLayoutParams"
+to   = "i5"
+
+[[member]]
+from = "getLeft"
+to   = "i6"
+
+[[member]]
+from = "getLength"
+to   = "i7"
+
+[[member]]
+from = "getLong"
+to   = "i8"
+
+[[member]]
+from = "getMaxValue"
+to   = "i9"
+
+[[member]]
+from = "getMaximumRange"
+to   = "jA"
+
+[[member]]
+from = "getMessage"
+to   = "yQ"
+
+[[member]]
+from = "getMinDelay"
+to   = "jB"
+
+[[member]]
+from = "getMinValue"
+to   = "jC"
+
+[[member]]
+from = "getMinute"
+to   = "jD"
+
+[[member]]
+from = "getMonth"
+to   = "jE"
+
+[[member]]
+from = "getName"
+to   = "yR"
+
+[[member]]
+from = "getOnFocusChangeListener"
+to   = "jF"
+
+[[member]]
+from = "getOnItemClickListener"
+to   = "jG"
+
+[[member]]
+from = "getOnItemSelectedListener"
+to   = "jH"
+
+[[member]]
+from = "getOrDefault"
+to   = "yS"
+
+[[member]]
+from = "getOutputStream"
+to   = "jI"
+
+[[member]]
+from = "getPackageManager"
+to   = "jJ"
+
+[[member]]
+from = "getParent"
+to   = "Av"
+
+[[member]]
+from = "getParentFile"
+to   = "Aw"
+
+[[member]]
+from = "getPath"
+to   = "jK"
+
+[[member]]
+from = "getPort"
+to   = "jL"
+
+[[member]]
+from = "getPriority"
+to   = "jM"
+
+[[member]]
+from = "getProgress"
+to   = "jN"
+
+[[member]]
+from = "getProtocol"
+to   = "jO"
+
+[[member]]
+from = "getRawAddress"
+to   = "jP"
+
+[[member]]
+from = "getRawX"
+to   = "jQ"
+
+[[member]]
+from = "getRawY"
+to   = "jR"
+
+[[member]]
+from = "getReadTimeout"
+to   = "jS"
+
+[[member]]
+from = "getRequestMethod"
+to   = "jT"
+
+[[member]]
+from = "getRequestProperty"
+to   = "jU"
+
+[[member]]
+from = "getResolution"
+to   = "jV"
+
+[[member]]
+from = "getResponseCode"
+to   = "jW"
+
+[[member]]
+from = "getResponseMessage"
+to   = "jX"
+
+[[member]]
+from = "getRotation"
+to   = "jY"
+
+[[member]]
+from = "getScaleX"
+to   = "jZ"
+
+[[member]]
+from = "getScaleY"
+to   = "j0"
+
+[[member]]
+from = "getSelectedItemPosition"
+to   = "j1"
+
+[[member]]
+from = "getSharedPreferences"
+to   = "j2"
+
+[[member]]
+from = "getStartDelay"
+to   = "j3"
+
+[[member]]
+from = "getStep"
+to   = "j4"
+
+[[member]]
+from = "getString"
+to   = "j5"
+
+[[member]]
+from = "getStringExtra"
+to   = "j6"
+
+[[member]]
+from = "getSuppressed"
+to   = "yT"
+
+[[member]]
+from = "getSystemService"
+to   = "j7"
+
+[[member]]
+from = "getTag"
+to   = "j8"
+
+[[member]]
+from = "getTargetClassName"
+to   = "j9"
+
+[[member]]
+from = "getText"
+to   = "kA"
+
+[[member]]
+from = "getTop"
+to   = "kB"
+
+[[member]]
+from = "getTranslationX"
+to   = "kC"
+
+[[member]]
+from = "getTranslationY"
+to   = "kD"
+
+[[member]]
+from = "getType"
+to   = "kE"
+
+[[member]]
+from = "getURL"
+to   = "kF"
+
+[[member]]
+from = "getUncaughtExceptionHandler"
+to   = "kG"
+
+[[member]]
+from = "getValue"
+to   = "yU"
+
+[[member]]
+from = "getVendor"
+to   = "kH"
+
+[[member]]
+from = "getVisibility"
+to   = "kI"
+
+[[member]]
+from = "getWidth"
+to   = "kJ"
+
+[[member]]
+from = "getX"
+to   = "kK"
+
+[[member]]
+from = "getY"
+to   = "kL"
+
+[[member]]
+from = "getYear"
+to   = "kM"
+
+[[member]]
+from = "gradientEnd"
+to   = "kN"
+
+[[member]]
+from = "gradientOrientation"
+to   = "kO"
+
+[[member]]
+from = "gradientStart"
+to   = "kP"
+
+[[member]]
+from = "gravity"
+to   = "kQ"
+
+[[member]]
+from = "grow"
+to   = "kR"
+
+[[member]]
+from = "handle"
+to   = "kS"
+
+[[member]]
+from = "handler"
+to   = "kT"
+
+[[member]]
+from = "hasExtra"
+to   = "kU"
+
+[[member]]
+from = "hasFocus"
+to   = "kV"
+
+[[member]]
+from = "hasGradient"
+to   = "kW"
+
+[[member]]
+from = "hasNext"
+to   = "yV"
+
+[[member]]
+from = "hasSystemFeature"
+to   = "kX"
+
+[[member]]
+from = "hash"
+to   = "Ax"
+
+[[member]]
+from = "hashCode"
+to   = "yW"
+
+[[member]]
+from = "headerCount"
+to   = "kY"
+
+[[member]]
+from = "headerNames"
+to   = "kZ"
+
+[[member]]
+from = "headerValues"
+to   = "k0"
+
+[[member]]
+from = "height"
+to   = "k1"
+
+[[member]]
+from = "hide"
+to   = "k2"
+
+[[member]]
+from = "host"
+to   = "k3"
+
+[[member]]
+from = "i2cId"
+to   = "k4"
+
+[[member]]
+from = "incrementAndGet"
+to   = "k5"
+
+[[member]]
+from = "indeterminate"
+to   = "k6"
+
+[[member]]
+from = "indexOf"
+to   = "yX"
+
+[[member]]
+from = "initStream"
+to   = "k7"
+
+[[member]]
+from = "instance"
+to   = "k8"
+
+[[member]]
+from = "intBitsToFloat"
+to   = "Ay"
+
+[[member]]
+from = "intVals"
+to   = "k9"
+
+[[member]]
+from = "intValue"
+to   = "yY"
+
+[[member]]
+from = "interpolatorCode"
+to   = "lA"
+
+[[member]]
+from = "interrupt"
+to   = "lB"
+
+[[member]]
+from = "interrupted"
+to   = "lC"
+
+[[member]]
+from = "is24HourView"
+to   = "lD"
+
+[[member]]
+from = "isAlive"
+to   = "lE"
+
+[[member]]
+from = "isCancelled"
+to   = "lF"
+
+[[member]]
+from = "isChecked"
+to   = "lG"
+
+[[member]]
+from = "isConnected"
+to   = "lH"
+
+[[member]]
+from = "isDaemon"
+to   = "lI"
+
+[[member]]
+from = "isDigit"
+to   = "yZ"
+
+[[member]]
+from = "isDirectory"
+to   = "lJ"
+
+[[member]]
+from = "isDone"
+to   = "lK"
+
+[[member]]
+from = "isEmpty"
+to   = "y0"
+
+[[member]]
+from = "isEnabled"
+to   = "lL"
+
+[[member]]
+from = "isFile"
+to   = "lM"
+
+[[member]]
+from = "isFocusable"
+to   = "lN"
+
+[[member]]
+from = "isFocused"
+to   = "lO"
+
+[[member]]
+from = "isIndeterminate"
+to   = "lP"
+
+[[member]]
+from = "isInterrupted"
+to   = "lQ"
+
+[[member]]
+from = "isLetter"
+to   = "y1"
+
+[[member]]
+from = "isNull"
+to   = "Az"
+
+[[member]]
+from = "isQueued"
+to   = "lR"
+
+[[member]]
+from = "isShutdown"
+to   = "lS"
+
+[[member]]
+from = "isTerminated"
+to   = "lT"
+
+[[member]]
+from = "items"
+to   = "lU"
+
+[[member]]
+from = "itemsJoined"
+to   = "lV"
+
+[[member]]
+from = "itemsListener"
+to   = "lW"
+
+[[member]]
+from = "iterator"
+to   = "y2"
+
+[[member]]
+from = "join"
+to   = "lX"
+
+[[member]]
+from = "join0"
+to   = "lY"
+
+[[member]]
+from = "joinItems"
+to   = "lZ"
+
+[[member]]
+from = "keyCode"
+to   = "l0"
+
+[[member]]
+from = "keySet"
+to   = "y3"
+
+[[member]]
+from = "keys"
+to   = "l1"
+
+[[member]]
+from = "lambda$new$0"
+to   = "y4"
+
+[[member]]
+from = "lambda$track$0"
+to   = "y5"
+
+[[member]]
+from = "lastIndexOf"
+to   = "y6"
+
+[[member]]
+from = "lastSampleEvent"
+to   = "l2"
+
+[[member]]
+from = "layoutParams"
+to   = "l3"
+
+[[member]]
+from = "lazySet"
+to   = "l4"
+
+[[member]]
+from = "length"
+to   = "y7"
+
+[[member]]
+from = "listMode"
+to   = "l5"
+
+[[member]]
+from = "listener"
+to   = "l6"
+
+[[member]]
+from = "load"
+to   = "l7"
+
+[[member]]
+from = "locate"
+to   = "l8"
+
+[[member]]
+from = "locateOrAppend"
+to   = "l9"
+
+[[member]]
+from = "log"
+to   = "y8"
+
+[[member]]
+from = "log10"
+to   = "y9"
+
+[[member]]
+from = "longPressFired"
+to   = "mA"
+
+[[member]]
+from = "longValsHi"
+to   = "mB"
+
+[[member]]
+from = "longValsLo"
+to   = "mC"
+
+[[member]]
+from = "longValue"
+to   = "zA"
+
+[[member]]
+from = "mainExecutor"
+to   = "mD"
+
+[[member]]
+from = "make"
+to   = "mE"
+
+[[member]]
+from = "makeText"
+to   = "mF"
+
+[[member]]
+from = "max"
+to   = "zB"
+
+[[member]]
+from = "maxRange"
+to   = "mG"
+
+[[member]]
+from = "maxValue"
+to   = "mH"
+
+[[member]]
+from = "merge"
+to   = "zC"
+
+[[member]]
+from = "message"
+to   = "mI"
+
+[[member]]
+from = "method"
+to   = "mJ"
+
+[[member]]
+from = "min"
+to   = "zD"
+
+[[member]]
+from = "minDelay"
+to   = "mK"
+
+[[member]]
+from = "minValue"
+to   = "mL"
+
+[[member]]
+from = "mkdir"
+to   = "mM"
+
+[[member]]
+from = "mkdirs"
+to   = "AA"
+
+[[member]]
+from = "multiChoiceListener"
+to   = "mN"
+
+[[member]]
+from = "name"
+to   = "zE"
+
+[[member]]
+from = "nanos"
+to   = "mO"
+
+[[member]]
+from = "nativeApply"
+to   = "mP"
+
+[[member]]
+from = "nativeBindAdapter"
+to   = "mQ"
+
+[[member]]
+from = "nativeCancel"
+to   = "mR"
+
+[[member]]
+from = "nativeConnect"
+to   = "mS"
+
+[[member]]
+from = "nativeContentLength"
+to   = "mT"
+
+[[member]]
+from = "nativeCreate"
+to   = "mU"
+
+[[member]]
+from = "nativeCreateIndeterminate"
+to   = "mV"
+
+[[member]]
+from = "nativeCreateWithList"
+to   = "mW"
+
+[[member]]
+from = "nativeCreateWithMax"
+to   = "mX"
+
+[[member]]
+from = "nativeCreateWithText"
+to   = "mY"
+
+[[member]]
+from = "nativeDisconnect"
+to   = "mZ"
+
+[[member]]
+from = "nativeDismiss"
+to   = "m0"
+
+[[member]]
+from = "nativeGetProperty"
+to   = "m1"
+
+[[member]]
+from = "nativeHandle"
+to   = "m2"
+
+[[member]]
+from = "nativeHeaderField"
+to   = "m3"
+
+[[member]]
+from = "nativeHeaderFieldAt"
+to   = "m4"
+
+[[member]]
+from = "nativeIsFocused"
+to   = "m5"
+
+[[member]]
+from = "nativeListen"
+to   = "m6"
+
+[[member]]
+from = "nativePerformItemClick"
+to   = "m7"
+
+[[member]]
+from = "nativeReadResponseCode"
+to   = "m8"
+
+[[member]]
+from = "nativeRegisterActionClickListener"
+to   = "m9"
+
+[[member]]
+from = "nativeRegisterButtonClickListener"
+to   = "nA"
+
+[[member]]
+from = "nativeRegisterChangeListener"
+to   = "nB"
+
+[[member]]
+from = "nativeRegisterCheckedChangeListener"
+to   = "nC"
+
+[[member]]
+from = "nativeRegisterClickListener"
+to   = "nD"
+
+[[member]]
+from = "nativeRegisterDateChangedListener"
+to   = "nE"
+
+[[member]]
+from = "nativeRegisterEditorActionListener"
+to   = "nF"
+
+[[member]]
+from = "nativeRegisterFocusChangeListener"
+to   = "nG"
+
+[[member]]
+from = "nativeRegisterItemClickListener"
+to   = "nH"
+
+[[member]]
+from = "nativeRegisterItemSelectedListener"
+to   = "nI"
+
+[[member]]
+from = "nativeRegisterKeyListener"
+to   = "nJ"
+
+[[member]]
+from = "nativeRegisterLongClickListener"
+to   = "nK"
+
+[[member]]
+from = "nativeRegisterPicker"
+to   = "nL"
+
+[[member]]
+from = "nativeRegisterReadyListener"
+to   = "nM"
+
+[[member]]
+from = "nativeRegisterRefreshListener"
+to   = "nN"
+
+[[member]]
+from = "nativeRegisterSwipeListener"
+to   = "nO"
+
+[[member]]
+from = "nativeRegisterTextChangedListener"
+to   = "nP"
+
+[[member]]
+from = "nativeRegisterTimeChangedListener"
+to   = "nQ"
+
+[[member]]
+from = "nativeRegisterTouchListener"
+to   = "nR"
+
+[[member]]
+from = "nativeRequestFocus"
+to   = "nS"
+
+[[member]]
+from = "nativeResolve"
+to   = "nT"
+
+[[member]]
+from = "nativeResponseMessage"
+to   = "nU"
+
+[[member]]
+from = "nativeSetAction"
+to   = "nV"
+
+[[member]]
+from = "nativeSetAlpha"
+to   = "nW"
+
+[[member]]
+from = "nativeSetDuration"
+to   = "nX"
+
+[[member]]
+from = "nativeSetEnabled"
+to   = "nY"
+
+[[member]]
+from = "nativeSetEndAction"
+to   = "nZ"
+
+[[member]]
+from = "nativeSetFlexGrow"
+to   = "n0"
+
+[[member]]
+from = "nativeSetFocusable"
+to   = "n1"
+
+[[member]]
+from = "nativeSetMode"
+to   = "n2"
+
+[[member]]
+from = "nativeSetProgress"
+to   = "n3"
+
+[[member]]
+from = "nativeSetProperty"
+to   = "n4"
+
+[[member]]
+from = "nativeSetText"
+to   = "n5"
+
+[[member]]
+from = "nativeSetTextarea"
+to   = "n6"
+
+[[member]]
+from = "nativeSetVisibility"
+to   = "n7"
+
+[[member]]
+from = "nativeShow"
+to   = "n8"
+
+[[member]]
+from = "nativeStart"
+to   = "n9"
+
+[[member]]
+from = "negativeListener"
+to   = "oA"
+
+[[member]]
+from = "negativeText"
+to   = "oB"
+
+[[member]]
+from = "neutralListener"
+to   = "oC"
+
+[[member]]
+from = "neutralText"
+to   = "oD"
+
+[[member]]
+from = "newFixedThreadPool"
+to   = "oE"
+
+[[member]]
+from = "newSingleThreadExecutor"
+to   = "oF"
+
+[[member]]
+from = "next"
+to   = "zF"
+
+[[member]]
+from = "nextAutoId"
+to   = "oG"
+
+[[member]]
+from = "nextBoolean"
+to   = "zG"
+
+[[member]]
+from = "nextBytes"
+to   = "zH"
+
+[[member]]
+from = "nextDouble"
+to   = "zI"
+
+[[member]]
+from = "nextFloat"
+to   = "zJ"
+
+[[member]]
+from = "nextGaussian"
+to   = "zK"
+
+[[member]]
+from = "nextId"
+to   = "oH"
+
+[[member]]
+from = "nextInt"
+to   = "zL"
+
+[[member]]
+from = "nextLong"
+to   = "zM"
+
+[[member]]
+from = "nextPoolId"
+to   = "oI"
+
+[[member]]
+from = "nonNull"
+to   = "AB"
+
+[[member]]
+from = "notify"
+to   = "zN"
+
+[[member]]
+from = "notifyAll"
+to   = "zO"
+
+[[member]]
+from = "notifyDataSetChanged"
+to   = "oJ"
+
+[[member]]
+from = "onAccuracyChanged"
+to   = "oK"
+
+[[member]]
+from = "onActivityResult"
+to   = "oL"
+
+[[member]]
+from = "onBackPressed"
+to   = "oM"
+
+[[member]]
+from = "onBind"
+to   = "oN"
+
+[[member]]
+from = "onCheckedChangeListener"
+to   = "oO"
+
+[[member]]
+from = "onCheckedChanged"
+to   = "oP"
+
+[[member]]
+from = "onClick"
+to   = "oQ"
+
+[[member]]
+from = "onClickListener"
+to   = "oR"
+
+[[member]]
+from = "onCreate"
+to   = "oS"
+
+[[member]]
+from = "onDateChanged"
+to   = "oT"
+
+[[member]]
+from = "onDestroy"
+to   = "oU"
+
+[[member]]
+from = "onDismiss"
+to   = "oV"
+
+[[member]]
+from = "onEditorAction"
+to   = "oW"
+
+[[member]]
+from = "onFling"
+to   = "oX"
+
+[[member]]
+from = "onFocusChange"
+to   = "oY"
+
+[[member]]
+from = "onFocusChangeListener"
+to   = "oZ"
+
+[[member]]
+from = "onItemClick"
+to   = "o0"
+
+[[member]]
+from = "onItemClickListener"
+to   = "o1"
+
+[[member]]
+from = "onItemSelected"
+to   = "o2"
+
+[[member]]
+from = "onItemSelectedListener"
+to   = "o3"
+
+[[member]]
+from = "onKey"
+to   = "o4"
+
+[[member]]
+from = "onKeyListener"
+to   = "o5"
+
+[[member]]
+from = "onLongClick"
+to   = "o6"
+
+[[member]]
+from = "onLongClickListener"
+to   = "o7"
+
+[[member]]
+from = "onLongPress"
+to   = "o8"
+
+[[member]]
+from = "onNothingSelected"
+to   = "o9"
+
+[[member]]
+from = "onPause"
+to   = "pA"
+
+[[member]]
+from = "onProgressChanged"
+to   = "pB"
+
+[[member]]
+from = "onReady"
+to   = "pC"
+
+[[member]]
+from = "onReadyListener"
+to   = "pD"
+
+[[member]]
+from = "onRebind"
+to   = "pE"
+
+[[member]]
+from = "onRefresh"
+to   = "pF"
+
+[[member]]
+from = "onRestart"
+to   = "pG"
+
+[[member]]
+from = "onResume"
+to   = "pH"
+
+[[member]]
+from = "onSeekBarChangeListener"
+to   = "pI"
+
+[[member]]
+from = "onSensorChanged"
+to   = "pJ"
+
+[[member]]
+from = "onServiceConnected"
+to   = "pK"
+
+[[member]]
+from = "onServiceDisconnected"
+to   = "pL"
+
+[[member]]
+from = "onSingleTap"
+to   = "pM"
+
+[[member]]
+from = "onStart"
+to   = "pN"
+
+[[member]]
+from = "onStartCommand"
+to   = "pO"
+
+[[member]]
+from = "onStartTrackingTouch"
+to   = "pP"
+
+[[member]]
+from = "onStop"
+to   = "pQ"
+
+[[member]]
+from = "onStopTrackingTouch"
+to   = "pR"
+
+[[member]]
+from = "onSwipe"
+to   = "pS"
+
+[[member]]
+from = "onSwipeListener"
+to   = "pT"
+
+[[member]]
+from = "onTextChanged"
+to   = "pU"
+
+[[member]]
+from = "onTimeChanged"
+to   = "pV"
+
+[[member]]
+from = "onTouch"
+to   = "pW"
+
+[[member]]
+from = "onTouchListener"
+to   = "pX"
+
+[[member]]
+from = "onUnbind"
+to   = "pY"
+
+[[member]]
+from = "onValueChange"
+to   = "pZ"
+
+[[member]]
+from = "onValueChangeListener"
+to   = "p0"
+
+[[member]]
+from = "open"
+to   = "p1"
+
+[[member]]
+from = "openAdcPin"
+to   = "p2"
+
+[[member]]
+from = "openConnection"
+to   = "p3"
+
+[[member]]
+from = "openGpio"
+to   = "p4"
+
+[[member]]
+from = "openI2cDevice"
+to   = "p5"
+
+[[member]]
+from = "openPwm"
+to   = "p6"
+
+[[member]]
+from = "openSpiDevice"
+to   = "p7"
+
+[[member]]
+from = "openUartDevice"
+to   = "p8"
+
+[[member]]
+from = "ordinal"
+to   = "zP"
+
+[[member]]
+from = "orientation"
+to   = "p9"
+
+[[member]]
+from = "parseBoolean"
+to   = "zQ"
+
+[[member]]
+from = "parseByte"
+to   = "zR"
+
+[[member]]
+from = "parseDouble"
+to   = "zS"
+
+[[member]]
+from = "parseFloat"
+to   = "zT"
+
+[[member]]
+from = "parseInt"
+to   = "zU"
+
+[[member]]
+from = "parseLong"
+to   = "zV"
+
+[[member]]
+from = "parseShort"
+to   = "zW"
+
+[[member]]
+from = "parseUnsignedInt"
+to   = "qA"
+
+[[member]]
+from = "path"
+to   = "qB"
+
+[[member]]
+from = "peakMemory"
+to   = "qC"
+
+[[member]]
+from = "performCheckedChange"
+to   = "qD"
+
+[[member]]
+from = "performClick"
+to   = "qE"
+
+[[member]]
+from = "performItemClick"
+to   = "qF"
+
+[[member]]
+from = "performItemSelected"
+to   = "qG"
+
+[[member]]
+from = "performLongClick"
+to   = "qH"
+
+[[member]]
+from = "performLongClickNative"
+to   = "qI"
+
+[[member]]
+from = "performProgressChange"
+to   = "qJ"
+
+[[member]]
+from = "performTrackingTouch"
+to   = "qK"
+
+[[member]]
+from = "pin"
+to   = "qL"
+
+[[member]]
+from = "pollTouch"
+to   = "qM"
+
+[[member]]
+from = "poolSeq"
+to   = "qN"
+
+[[member]]
+from = "port"
+to   = "qO"
+
+[[member]]
+from = "pos"
+to   = "qP"
+
+[[member]]
+from = "positiveListener"
+to   = "qQ"
+
+[[member]]
+from = "positiveText"
+to   = "qR"
+
+[[member]]
+from = "pow"
+to   = "zX"
+
+[[member]]
+from = "priority"
+to   = "qS"
+
+[[member]]
+from = "progress"
+to   = "qT"
+
+[[member]]
+from = "protocol"
+to   = "qU"
+
+[[member]]
+from = "put"
+to   = "zY"
+
+[[member]]
+from = "putBoolean"
+to   = "qV"
+
+[[member]]
+from = "putExtra"
+to   = "qW"
+
+[[member]]
+from = "putFloat"
+to   = "AC"
+
+[[member]]
+from = "putInt"
+to   = "qX"
+
+[[member]]
+from = "putLong"
+to   = "qY"
+
+[[member]]
+from = "putString"
+to   = "qZ"
+
+[[member]]
+from = "queue"
+to   = "q0"
+
+[[member]]
+from = "queued"
+to   = "q1"
+
+[[member]]
+from = "radius"
+to   = "q2"
+
+[[member]]
+from = "rawX"
+to   = "q3"
+
+[[member]]
+from = "rawY"
+to   = "q4"
+
+[[member]]
+from = "read"
+to   = "q5"
+
+[[member]]
+from = "readByte"
+to   = "q6"
+
+[[member]]
+from = "readInt32"
+to   = "q7"
+
+[[member]]
+from = "readInt32LE"
+to   = "q8"
+
+[[member]]
+from = "readTimeout"
+to   = "q9"
+
+[[member]]
+from = "readValue"
+to   = "rA"
+
+[[member]]
+from = "receive"
+to   = "rB"
+
+[[member]]
+from = "recv"
+to   = "rC"
+
+[[member]]
+from = "refreshFromAdapter"
+to   = "rD"
+
+[[member]]
+from = "refreshListener"
+to   = "rE"
+
+[[member]]
+from = "registerListener"
+to   = "rF"
+
+[[member]]
+from = "registerNativeItemClick"
+to   = "rG"
+
+[[member]]
+from = "registerNativeItemSelected"
+to   = "rH"
+
+[[member]]
+from = "remove"
+to   = "zZ"
+
+[[member]]
+from = "removeAllViews"
+to   = "rI"
+
+[[member]]
+from = "removeTextChangedListener"
+to   = "rJ"
+
+[[member]]
+from = "removeView"
+to   = "rK"
+
+[[member]]
+from = "renameTo"
+to   = "rL"
+
+[[member]]
+from = "replace"
+to   = "z0"
+
+[[member]]
+from = "report"
+to   = "rM"
+
+[[member]]
+from = "requestFocus"
+to   = "rN"
+
+[[member]]
+from = "requireNonNull"
+to   = "AD"
+
+[[member]]
+from = "resetGcStats"
+to   = "rO"
+
+[[member]]
+from = "resetPeakMemory"
+to   = "rP"
+
+[[member]]
+from = "resolution"
+to   = "rQ"
+
+[[member]]
+from = "result"
+to   = "rR"
+
+[[member]]
+from = "reverse"
+to   = "z1"
+
+[[member]]
+from = "rgb"
+to   = "rS"
+
+[[member]]
+from = "rotation"
+to   = "rT"
+
+[[member]]
+from = "rotationTo"
+to   = "rU"
+
+[[member]]
+from = "round"
+to   = "z2"
+
+[[member]]
+from = "run"
+to   = "z3"
+
+[[member]]
+from = "runWrapper"
+to   = "rV"
+
+[[member]]
+from = "scaleX"
+to   = "rW"
+
+[[member]]
+from = "scaleXTo"
+to   = "rX"
+
+[[member]]
+from = "scaleY"
+to   = "rY"
+
+[[member]]
+from = "scaleYTo"
+to   = "rZ"
+
+[[member]]
+from = "send"
+to   = "r0"
+
+[[member]]
+from = "sensor"
+to   = "r1"
+
+[[member]]
+from = "serializedSize"
+to   = "r2"
+
+[[member]]
+from = "set"
+to   = "z4"
+
+[[member]]
+from = "setAction"
+to   = "r3"
+
+[[member]]
+from = "setAdapter"
+to   = "r4"
+
+[[member]]
+from = "setAlpha"
+to   = "r5"
+
+[[member]]
+from = "setBackground"
+to   = "r6"
+
+[[member]]
+from = "setBackgroundColor"
+to   = "r7"
+
+[[member]]
+from = "setBaudrate"
+to   = "r8"
+
+[[member]]
+from = "setChecked"
+to   = "r9"
+
+[[member]]
+from = "setCheckedId"
+to   = "sA"
+
+[[member]]
+from = "setColor"
+to   = "sB"
+
+[[member]]
+from = "setConnectTimeout"
+to   = "sC"
+
+[[member]]
+from = "setContentText"
+to   = "sD"
+
+[[member]]
+from = "setContentTitle"
+to   = "sE"
+
+[[member]]
+from = "setContentView"
+to   = "sF"
+
+[[member]]
+from = "setCornerRadius"
+to   = "sG"
+
+[[member]]
+from = "setCurrentTimeMillis"
+to   = "sH"
+
+[[member]]
+from = "setDaemon"
+to   = "sI"
+
+[[member]]
+from = "setDataSize"
+to   = "sJ"
+
+[[member]]
+from = "setDate"
+to   = "sK"
+
+[[member]]
+from = "setDefaultUncaughtExceptionHandler"
+to   = "sL"
+
+[[member]]
+from = "setDirection"
+to   = "sM"
+
+[[member]]
+from = "setDoOutput"
+to   = "sN"
+
+[[member]]
+from = "setDuration"
+to   = "sO"
+
+[[member]]
+from = "setEditText"
+to   = "sP"
+
+[[member]]
+from = "setEnabled"
+to   = "sQ"
+
+[[member]]
+from = "setFixedLengthStreamingMode"
+to   = "sR"
+
+[[member]]
+from = "setFocusable"
+to   = "sS"
+
+[[member]]
+from = "setFrequency"
+to   = "sT"
+
+[[member]]
+from = "setGradient"
+to   = "sU"
+
+[[member]]
+from = "setGravity"
+to   = "sV"
+
+[[member]]
+from = "setHardwareFlowControl"
+to   = "sW"
+
+[[member]]
+from = "setHint"
+to   = "sX"
+
+[[member]]
+from = "setId"
+to   = "sY"
+
+[[member]]
+from = "setImageSource"
+to   = "sZ"
+
+[[member]]
+from = "setIncludeFontPadding"
+to   = "s0"
+
+[[member]]
+from = "setInputType"
+to   = "s1"
+
+[[member]]
+from = "setInterpolator"
+to   = "s2"
+
+[[member]]
+from = "setIs24HourView"
+to   = "s3"
+
+[[member]]
+from = "setItems"
+to   = "s4"
+
+[[member]]
+from = "setLayoutParams"
+to   = "s5"
+
+[[member]]
+from = "setLength"
+to   = "s6"
+
+[[member]]
+from = "setMax"
+to   = "s7"
+
+[[member]]
+from = "setMaxValue"
+to   = "s8"
+
+[[member]]
+from = "setMessage"
+to   = "s9"
+
+[[member]]
+from = "setMinValue"
+to   = "tA"
+
+[[member]]
+from = "setMode"
+to   = "tB"
+
+[[member]]
+from = "setMultiChoiceItems"
+to   = "tC"
+
+[[member]]
+from = "setName"
+to   = "tD"
+
+[[member]]
+from = "setNegativeButton"
+to   = "tE"
+
+[[member]]
+from = "setNeutralButton"
+to   = "tF"
+
+[[member]]
+from = "setOnCheckedChangeListener"
+to   = "tG"
+
+[[member]]
+from = "setOnClickListener"
+to   = "tH"
+
+[[member]]
+from = "setOnDateChangedListener"
+to   = "tI"
+
+[[member]]
+from = "setOnEditorActionListener"
+to   = "tJ"
+
+[[member]]
+from = "setOnFocusChangeListener"
+to   = "tK"
+
+[[member]]
+from = "setOnItemClickListener"
+to   = "tL"
+
+[[member]]
+from = "setOnItemSelectedListener"
+to   = "tM"
+
+[[member]]
+from = "setOnKeyListener"
+to   = "tN"
+
+[[member]]
+from = "setOnLongClickListener"
+to   = "tO"
+
+[[member]]
+from = "setOnReadyListener"
+to   = "tP"
+
+[[member]]
+from = "setOnRefreshListener"
+to   = "tQ"
+
+[[member]]
+from = "setOnSeekBarChangeListener"
+to   = "tR"
+
+[[member]]
+from = "setOnSwipeListener"
+to   = "tS"
+
+[[member]]
+from = "setOnTimeChangedListener"
+to   = "tT"
+
+[[member]]
+from = "setOnTouchListener"
+to   = "tU"
+
+[[member]]
+from = "setOnValueChangedListener"
+to   = "tV"
+
+[[member]]
+from = "setOrientation"
+to   = "tW"
+
+[[member]]
+from = "setPadding"
+to   = "tX"
+
+[[member]]
+from = "setParity"
+to   = "tY"
+
+[[member]]
+from = "setPosition"
+to   = "tZ"
+
+[[member]]
+from = "setPositiveButton"
+to   = "t0"
+
+[[member]]
+from = "setPriority"
+to   = "t1"
+
+[[member]]
+from = "setProgress"
+to   = "t2"
+
+[[member]]
+from = "setPwmDutyCycle"
+to   = "t3"
+
+[[member]]
+from = "setPwmFrequencyHz"
+to   = "t4"
+
+[[member]]
+from = "setReadTimeout"
+to   = "t5"
+
+[[member]]
+from = "setRefreshing"
+to   = "t6"
+
+[[member]]
+from = "setRequestMethod"
+to   = "t7"
+
+[[member]]
+from = "setRequestProperty"
+to   = "t8"
+
+[[member]]
+from = "setResult"
+to   = "t9"
+
+[[member]]
+from = "setRotation"
+to   = "uA"
+
+[[member]]
+from = "setScale"
+to   = "uB"
+
+[[member]]
+from = "setScaleType"
+to   = "uC"
+
+[[member]]
+from = "setScaleX"
+to   = "uD"
+
+[[member]]
+from = "setScaleY"
+to   = "uE"
+
+[[member]]
+from = "setSeed"
+to   = "z5"
+
+[[member]]
+from = "setShowKeyboardOnTouch"
+to   = "uF"
+
+[[member]]
+from = "setSingleChoiceItems"
+to   = "uG"
+
+[[member]]
+from = "setSize"
+to   = "uH"
+
+[[member]]
+from = "setSoTimeout"
+to   = "uI"
+
+[[member]]
+from = "setSpacing"
+to   = "uJ"
+
+[[member]]
+from = "setSpeed"
+to   = "uK"
+
+[[member]]
+from = "setStartDelay"
+to   = "uL"
+
+[[member]]
+from = "setStep"
+to   = "uM"
+
+[[member]]
+from = "setStopBits"
+to   = "uN"
+
+[[member]]
+from = "setStroke"
+to   = "uO"
+
+[[member]]
+from = "setTag"
+to   = "uP"
+
+[[member]]
+from = "setText"
+to   = "uQ"
+
+[[member]]
+from = "setTextColor"
+to   = "uR"
+
+[[member]]
+from = "setTextOff"
+to   = "uS"
+
+[[member]]
+from = "setTextOn"
+to   = "uT"
+
+[[member]]
+from = "setTime"
+to   = "uU"
+
+[[member]]
+from = "setTimeout"
+to   = "uV"
+
+[[member]]
+from = "setTint"
+to   = "uW"
+
+[[member]]
+from = "setTitle"
+to   = "uX"
+
+[[member]]
+from = "setTranslationX"
+to   = "uY"
+
+[[member]]
+from = "setTranslationY"
+to   = "uZ"
+
+[[member]]
+from = "setUncaughtExceptionHandler"
+to   = "u0"
+
+[[member]]
+from = "setValue"
+to   = "u1"
+
+[[member]]
+from = "setVisibility"
+to   = "u2"
+
+[[member]]
+from = "shortValue"
+to   = "z6"
+
+[[member]]
+from = "show"
+to   = "u3"
+
+[[member]]
+from = "showFps"
+to   = "u4"
+
+[[member]]
+from = "shutdown"
+to   = "u5"
+
+[[member]]
+from = "shutdownNow"
+to   = "u6"
+
+[[member]]
+from = "sin"
+to   = "z7"
+
+[[member]]
+from = "size"
+to   = "z8"
+
+[[member]]
+from = "sleep"
+to   = "u7"
+
+[[member]]
+from = "sleep0"
+to   = "u8"
+
+[[member]]
+from = "slot"
+to   = "u9"
+
+[[member]]
+from = "sort"
+to   = "z9"
+
+[[member]]
+from = "spiId"
+to   = "vA"
+
+[[member]]
+from = "split"
+to   = "Aa"
+
+[[member]]
+from = "sqrt"
+to   = "Ab"
+
+[[member]]
+from = "start"
+to   = "vB"
+
+[[member]]
+from = "start0"
+to   = "vC"
+
+[[member]]
+from = "startActivity"
+to   = "vD"
+
+[[member]]
+from = "startActivityForResult"
+to   = "vE"
+
+[[member]]
+from = "startDelayMs"
+to   = "vF"
+
+[[member]]
+from = "startForeground"
+to   = "vG"
+
+[[member]]
+from = "startService"
+to   = "vH"
+
+[[member]]
+from = "started"
+to   = "vI"
+
+[[member]]
+from = "startsWith"
+to   = "Ac"
+
+[[member]]
+from = "state"
+to   = "vJ"
+
+[[member]]
+from = "step"
+to   = "vK"
+
+[[member]]
+from = "stopForeground"
+to   = "vL"
+
+[[member]]
+from = "stopSelf"
+to   = "vM"
+
+[[member]]
+from = "stopSelfResult"
+to   = "vN"
+
+[[member]]
+from = "stopService"
+to   = "vO"
+
+[[member]]
+from = "strVals"
+to   = "vP"
+
+[[member]]
+from = "strokeColor"
+to   = "vQ"
+
+[[member]]
+from = "strokeWidth"
+to   = "vR"
+
+[[member]]
+from = "submit"
+to   = "vS"
+
+[[member]]
+from = "substring"
+to   = "Ad"
+
+[[member]]
+from = "tag"
+to   = "vT"
+
+[[member]]
+from = "tags"
+to   = "vU"
+
+[[member]]
+from = "tan"
+to   = "Ae"
+
+[[member]]
+from = "target"
+to   = "vV"
+
+[[member]]
+from = "targetClassName"
+to   = "vW"
+
+[[member]]
+from = "text"
+to   = "vX"
+
+[[member]]
+from = "timeChangedListener"
+to   = "vY"
+
+[[member]]
+from = "timestamp"
+to   = "vZ"
+
+[[member]]
+from = "title"
+to   = "v0"
+
+[[member]]
+from = "tmpPath"
+to   = "v1"
+
+[[member]]
+from = "toArray"
+to   = "Af"
+
+[[member]]
+from = "toCharArray"
+to   = "Ag"
+
+[[member]]
+from = "toDegrees"
+to   = "Ah"
+
+[[member]]
+from = "toLowerCase"
+to   = "Ai"
+
+[[member]]
+from = "toMicros"
+to   = "v2"
+
+[[member]]
+from = "toMillis"
+to   = "v3"
+
+[[member]]
+from = "toMinutes"
+to   = "v4"
+
+[[member]]
+from = "toNanos"
+to   = "v5"
+
+[[member]]
+from = "toRadians"
+to   = "Aj"
+
+[[member]]
+from = "toSeconds"
+to   = "v6"
+
+[[member]]
+from = "toString"
+to   = "Ak"
+
+[[member]]
+from = "toUpperCase"
+to   = "Al"
+
+[[member]]
+from = "toggle"
+to   = "v7"
+
+[[member]]
+from = "track"
+to   = "v8"
+
+[[member]]
+from = "transfer"
+to   = "v9"
+
+[[member]]
+from = "translationX"
+to   = "wA"
+
+[[member]]
+from = "translationXTo"
+to   = "wB"
+
+[[member]]
+from = "translationY"
+to   = "wC"
+
+[[member]]
+from = "translationYTo"
+to   = "wD"
+
+[[member]]
+from = "trim"
+to   = "Am"
+
+[[member]]
+from = "type"
+to   = "wE"
+
+[[member]]
+from = "types"
+to   = "wF"
+
+[[member]]
+from = "uartId"
+to   = "wG"
+
+[[member]]
+from = "unbindService"
+to   = "wH"
+
+[[member]]
+from = "uncaughtException"
+to   = "wI"
+
+[[member]]
+from = "unregisterListener"
+to   = "wJ"
+
+[[member]]
+from = "update"
+to   = "wK"
+
+[[member]]
+from = "updateLabel"
+to   = "wL"
+
+[[member]]
+from = "url"
+to   = "wM"
+
+[[member]]
+from = "usedMemory"
+to   = "wN"
+
+[[member]]
+from = "validName"
+to   = "wO"
+
+[[member]]
+from = "value"
+to   = "wP"
+
+[[member]]
+from = "valueOf"
+to   = "An"
+
+[[member]]
+from = "values"
+to   = "Ao"
+
+[[member]]
+from = "vendor"
+to   = "wQ"
+
+[[member]]
+from = "view"
+to   = "wR"
+
+[[member]]
+from = "visibility"
+to   = "wS"
+
+[[member]]
+from = "wait"
+to   = "Ap"
+
+[[member]]
+from = "watcherCount"
+to   = "wT"
+
+[[member]]
+from = "watchers"
+to   = "wU"
+
+[[member]]
+from = "weight"
+to   = "wV"
+
+[[member]]
+from = "width"
+to   = "wW"
+
+[[member]]
+from = "withEndAction"
+to   = "wX"
+
+[[member]]
+from = "worker"
+to   = "wY"
+
+[[member]]
+from = "workers"
+to   = "wZ"
+
+[[member]]
+from = "write"
+to   = "w0"
+
+[[member]]
+from = "writeByte"
+to   = "w1"
+
+[[member]]
+from = "writeInt32"
+to   = "w2"
+
+[[member]]
+from = "writeInt32LE"
+to   = "w3"
+
+[[member]]
+from = "wtf"
+to   = "w4"
+
+[[member]]
+from = "xTo"
+to   = "w5"
+
+[[member]]
+from = "yTo"
+to   = "w6"
+
+[[member]]
+from = "yield"
+to   = "w7"
+
+[[member]]
+from = "yield0"
+to   = "w8"
+
