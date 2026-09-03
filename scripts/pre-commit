@@ -160,6 +160,7 @@ STAGES=(
   "cfg_gates|guards|fast|always|sim/family-rp cfg-gate hygiene"
   "hil_conf|guards|fast|always|hil-tests.conf against the source tree"
   "jvm_env|guards|fast|always|apply_jvm_env propagation"
+  "device_lock|guards|fast|scripts|device-lock state machine (test-device-lock.sh)"
   "apk|guards|fast|rust,jvm|helloworld APK (shared by every cargo lane)"
 
   "fmt_java|jvm|fast|jvm|Java formatting"
@@ -379,6 +380,16 @@ stage_jvm_env() {
     echo "ERROR: apply_jvm_env smoke test failed. The [jvm] board.toml parser"
     echo "       in scripts/lib.sh is not propagating values to the right"
     echo "       PICODROID_JVM_* env vars. Fix before committing."
+    return 1
+  fi
+}
+
+stage_device_lock() {
+  if ! bash "$SCRIPT_DIR/test-device-lock.sh"; then
+    echo ""
+    echo "ERROR: device-lock state machine test failed (scripts/device-lock.sh,"
+    echo "       lib.sh::require_device_lock). Every board script depends on it;"
+    echo "       fix before committing."
     return 1
   fi
 }

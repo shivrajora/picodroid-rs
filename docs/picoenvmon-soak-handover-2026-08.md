@@ -35,20 +35,27 @@ What changed since the original plan was written:
 ## Build & flash
 
 ```bash
-pkill -f 'probe-r[s]'   # bracket trick is mandatory; bare pattern self-kills
+# Pinned lease: outlives the launching session, blocks the 4 AM hil-run
+# (it records a SKIP) and every other session's flash.sh until `release`.
+PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh break --force   # only if a stale holder is shown by `status`
+PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin --note "picoenvmon soak"
+export PICODROID_DEVICE_OWNER=soak   # flash.sh below must present the same owner
 env $(grep -v '^#' .wifi-creds.env | xargs) \
   PICODROID_EXTRA_FEATURES=mem-diag PICODROID_MEMDIAG_OFFENSIVE=1 \
   ./scripts/flash.sh --board pico_enviro_mon_w --app picoenvmon --release \
   > /tmp/soak-rtt.log 2>&1 &
 ```
 
-Operational rules (unchanged, learned the hard way): flash.sh never exits —
-its background task ending IS a panic alarm; never overlap flash attempts;
-never run sim.sh concurrently for the same app; disable or plan around the
-3 AM sim-run / 4 AM hil-run cron (the 4 AM one pkills the probe and may
-flash the attached board — comment the crontab entries with a marker and
-re-enable at teardown). The RTT log grows ~10 MB/hour under load; put it
-somewhere with room.
+Operational rules (learned the hard way): flash.sh never exits — its
+background task ending IS a panic alarm; never run sim.sh concurrently for
+the same app. The pinned device lease replaces the old "comment out the
+crontab" rule: the 4 AM hil-run queues for an hour and then records a SKIP
+instead of pkilling the probe, and other sessions' flash attempts exit 75.
+The soak drivers (`scripts/soak/`) present the `soak` owner on every pdb
+call; a `FAIL key=N device-busy` line in the nav log means the lease was
+broken or never pinned. At teardown:
+`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh release`. The RTT log
+grows ~10 MB/hour under load; put it somewhere with room.
 
 Offensive-build overhead is acceptable for soaking: the per-alloc
 span/overlap sweep is O(live objects) and the measured production-build

@@ -63,6 +63,9 @@ EOF
 done
 
 resolve_board "$BOARD"
+# Before the build, so a busy board fails in a second rather than after
+# minutes of cargo. The lease stays with this session until released.
+require_device_lock --board "$BOARD" --app "$APP"
 build_firmware
 
 # Step 3: Flash the firmware (build is already up-to-date, so this just flashes).

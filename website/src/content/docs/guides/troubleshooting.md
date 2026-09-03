@@ -23,6 +23,21 @@ This is expected. `flash.sh` flashes the firmware and then streams RTT log outpu
 ./scripts/flash.sh --app helloworld &
 ```
 
+## `device lock: busy -- held by ...` (exit code 75)
+
+The board is a single shared resource, and every script that touches it (`flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through `scripts/device-lock.sh` first. A free board is acquired automatically for your session and kept until you give it back; a busy one makes the script exit 75 and name the holder.
+
+```bash
+./scripts/device-lock.sh status           # who holds it, since when, who is queued
+./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
+./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
+./scripts/device-lock.sh break --force    # evict a holder who is really gone
+```
+
+A lease dies with the process that took it (your shell, or your Claude Code session), so a closed session never wedges the board. Long unattended runs that must survive their launcher take a pinned lease instead: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin`, and release it at teardown.
+
+If probe-rs itself reports `Failed to open probe` while the lock says the board is free, a stale `probe-rs` is still holding the USB interface: `./scripts/device-lock.sh release` kills it (never `pkill -f probe-rs`, which also kills any shell whose command line mentions it).
+
 ## `blinky` loops forever in the simulator
 
 The blinky app blinks an LED in an infinite loop, which means the simulator will never exit. Kill it after a timeout:

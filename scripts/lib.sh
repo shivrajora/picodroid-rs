@@ -250,6 +250,44 @@ gradle_lock_run() {
   fi
 }
 
+# Takes the machine-wide lease on the attached dev board for the caller's
+# session, or exits 75 (EX_TEMPFAIL) with the holder and a hint.
+#
+# One probe, one board, several parallel sessions: every script that flashes,
+# power-cycles or talks pdb to the board calls this first. If the board is
+# free the lease is taken and kept -- it belongs to the *session* (inside
+# Claude the claude process, in a terminal the shell that ran the script),
+# not to this command, so a flash followed by pdb calls needs no ceremony and
+# nothing can interleave. Release with `./scripts/device-lock.sh release`.
+# The lease evaporates on its own when the owning process exits.
+#
+# Optional leading `--wait SECS` queues instead of failing. Remaining args are
+# only used to label the lease in `status`.
+#
+# PICODROID_DEVICE_LOCK=0 skips the check (emergencies). Without flock the
+# check is skipped too, matching gradle_lock_run.
+require_device_lock() {
+  if [[ "${PICODROID_DEVICE_LOCK:-1}" == "0" ]]; then
+    echo "WARNING: PICODROID_DEVICE_LOCK=0 -- touching the board without the device lock" >&2
+    return 0
+  fi
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "WARNING: flock not found -- touching the board without the device lock" >&2
+    return 0
+  fi
+  local wait_args=()
+  if [[ "${1:-}" == "--wait" ]]; then
+    wait_args=(--wait "${2:-}")
+    shift 2
+  fi
+  # $PPID in a sourced function is the parent of the script, i.e. the shell
+  # (or Claude session) that launched it -- the lease must outlive the script.
+  PICODROID_DEVICE_OWNER_PID="${PICODROID_DEVICE_OWNER_PID:-${CLAUDE_PID:-$PPID}}" \
+    bash "$SCRIPT_DIR/device-lock.sh" acquire ${wait_args[@]+"${wait_args[@]}"} \
+      --note "$(basename "$0") $*" \
+    || exit $?
+}
+
 # Prints available app names from the examples directory, one per line, indented.
 list_apps() {
   local examples_dir="$1"

@@ -23,6 +23,14 @@ if [[ $# -eq 0 ]]; then
   set -- --help
 fi
 
+# pdb mutates device state (install reboots the app, keyevents drive the UI
+# another session may be measuring), so it shares the board lease with
+# probe-rs. Help and host-side enumeration do not need it.
+case "$1" in
+  -h|--help|devices) ;;
+  *) require_device_lock "$@" ;;
+esac
+
 HOST_TARGET="$(host_target)"
 
 cargo run \

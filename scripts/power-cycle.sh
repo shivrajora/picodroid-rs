@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
+require_device_lock
+
 USB_HUB=$(detect_usb_hub)
 
 if [[ -z "$USB_HUB" ]]; then

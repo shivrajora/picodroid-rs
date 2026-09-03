@@ -97,7 +97,9 @@ kill $ECHO_PID $HTTP_PID
 
 Kill by PID, never by pattern — `pkill -f`/`pgrep -f` with a literal that
 appears in the caller's own command line kills the caller (this bit twice
-during the 2026-08-15 session; exit code 144 is the tell). A persistent
+during the 2026-08-15 session; exit code 144 is the tell). For probe-rs
+specifically, `./scripts/device-lock.sh release` does the kill by exact
+process name. A persistent
 systemd user service (+ `loginctl enable-linger`) is the fallback if
 always-on listeners turn out to be wanted for manual testing too.
 
@@ -133,6 +135,9 @@ http_get|net|90|HttpGet[]:] status=200;HttpGet[]:] read [0-9]+ body bytes;HttpGe
   `build/hil/logs/<run>/netdemo.*.log` for the three patterns.
 - Cron context (for reference): `0 4 * * *` runs
   `./scripts/hil-run.sh >> build/hil/cron.log` from the repo working tree;
-  sim-run at 3 AM; never let a manual flash/debug session overlap 4 AM —
-  probe-rs holds the USB claim and concurrent papk builds race
-  (`build/apks/<app>.papk` is shared).
+  sim-run at 3 AM. Since the device lock (`scripts/device-lock.sh`) the
+  4 AM run queues behind whoever holds the board for up to `HIL_LOCK_WAIT`
+  (1 h) and otherwise records `SKIP hil-run (device busy: …)` — a manual
+  session overlapping 4 AM no longer collides on the probe, it just delays
+  or skips the nightly. Concurrent papk builds in the *same* checkout still
+  race (`build/apks/<app>.papk` is shared); worktrees have their own.
