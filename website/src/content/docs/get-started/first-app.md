@@ -68,7 +68,7 @@ The build pipeline is a Gradle multi-project with a custom `picodroid-papk` plug
 
 The build files in `settings.gradle.kts` and `examples/*/build.gradle.kts` are standard Gradle projects. Opening the repo in IntelliJ IDEA ("Open as Gradle project") or VS Code (with the Red Hat Java + Gradle extensions) gives autocomplete, jump-to-def, and inline error reporting for all framework and app sources.
 
-Pass `--shrink` (off by default) to apply the active class-name shrink map — `build-apk.sh` will rewrite framework class references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own class names stay unchanged, so the `application=` value in the manifest remains valid. See [Class-name shrinker](/reference/shrinker/) for details.
+Pass `--shrink` (off by default) to apply the active release shrink map — `build-apk.sh` will rewrite framework class and member references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own class names stay unchanged, so the `application=` value in the manifest remains valid. Add `--shrink-app` to rename your own classes and private members as well; the manifest still names `myapp/MyApp` and `papk-pack` maps the entry class for you. See [Shrinker](/reference/shrinker/) for details.
 
 ## Application Lifecycle
 

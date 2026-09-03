@@ -51,6 +51,8 @@ String vd = String.valueOf(2.71828);  // "2.71828"
 String[] parts = "a,b,c".split(",");           // ["a", "b", "c"]
 String r       = "foo bar".replace(' ', '_'); // "foo_bar"
 String c       = "Hello, ".concat("World");    // "Hello, World"
+String j       = String.join(", ", "a", "b", "c");           // "a, b, c"
+String j2      = String.join("/", new String[] {"x", "y"});  // "x/y"
 char[] chs     = "abc".toCharArray();          // {'a', 'b', 'c'}
 int    h       = "abc".hashCode();             // standard Java String hash
 
@@ -60,6 +62,9 @@ String msg = String.format("Score: %d (%.1f%%)", 42, 87.5);  // "Score: 42 (87.5
 
 `String.format` supports the conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with the flags
 `-` `0` `+` `(space)` `,` `#`, plus width and precision (e.g. `%-8s`, `%08.2f`).
+
+`String.join(delimiter, …)` takes varargs, a `String[]`, or an `ArrayList<String>`
+(`Iterable`); the elements must be `String` or `null`.
 
 > **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
 >
@@ -263,6 +268,24 @@ Collections.reverse(nums);  // [3, 2, 1]
 | `Collections.sort(List)` | Stable mergesort over a `List`. Elements must implement `Comparable`. |
 | `Collections.reverse(List)` | Reverse the list in place. |
 
+## `java.util.Objects`
+
+The null-safe static helpers, shipped as a real class in the SDK so that `equals`, `hashCode` and
+`toString` dispatch to your own overrides:
+
+```java
+import java.util.Objects;
+
+boolean same = Objects.equals(a, b);            // true when both null, else a.equals(b)
+int h        = Objects.hash(name, id, 3);       // 31·h + hashCode over the boxed arguments
+int h0       = Objects.hashCode(null);          // 0
+String s     = Objects.toString(null, "none");  // "none"; toString(o) is String.valueOf(o)
+Objects.requireNonNull(cfg, "cfg");             // throws NullPointerException("cfg")
+if (Objects.nonNull(x) && Objects.isNull(y)) { /* ... */ }
+```
+
+`hash(Object...)` boxes its arguments; prefer `hashCode(o)` for a single value on a hot path.
+
 ## `java.lang.Comparable`
 
 ```java
@@ -369,6 +392,9 @@ Character c = Character.valueOf('X');     char    cv = c.charValue();
 
 You rarely call these directly: `ArrayList<Integer>` and `HashMap` keys/values **autobox** through
 `valueOf` and auto-unbox through the `*Value()` accessors.
+
+`Float.floatToIntBits(f)` and `Float.intBitsToFloat(i)` round-trip the IEEE-754 bit pattern — for a
+bit-exact `equals`/`hashCode`, or to keep a float in an `int` slot.
 
 ## Exceptions
 

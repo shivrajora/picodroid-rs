@@ -120,9 +120,21 @@ The two most common causes:
    version bumped past what the firmware knows). Rebuild the PAPK
    against the current source tree.
 
+3. **PAPK was shrunk before method/field names were.** Since map
+   v0.17.0 the firmware's own dispatch uses the mapped member names, so
+   a PAPK shrunk with an older map is refused by a v0.17.0-or-later
+   firmware even though older maps are otherwise accepted (the member
+   floor). Rebuild the PAPK; `pdb install` names this reason
+   explicitly.
+
+`--shrink-app` never causes a mismatch: the per-app map extends the
+release map without changing `framework-map-version`, so a
+`--shrink-app` PAPK installs on any `--shrink` firmware of the same
+release.
+
 `FrameworkVersionMissing` means the PAPK predates the manifest key
 entirely (legacy, pre-M1). Also fixed by rebuilding. See
-[Class-name shrinker](/reference/shrinker/) for the full compatibility story.
+[Shrinker](/reference/shrinker/) for the full compatibility story.
 
 ## `api contract: FAILED` — the app build stops in `verifyApiContract`
 
@@ -151,7 +163,8 @@ device's running firmware before erasing flash. Two messages you may see:
 
 1. **"PAPK is incompatible with running firmware"** — the PAPK and the
    running firmware disagree about `--shrink` (or the PAPK's release map
-   version is newer). The on-device PAPK is untouched. Rebuild the PAPK
+   is newer than the firmware's, or older than its member floor). The
+   on-device PAPK is untouched. Rebuild the PAPK
    with the matching `--shrink` setting and re-run `pdb install`.
 
 2. **"Firmware advertises 'picodroid/2.0', which predates the

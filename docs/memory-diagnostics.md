@@ -217,7 +217,7 @@ does not exist, not "runtime-checked off":
   `load()`/`store()` only (the `ACTIVE_JVM_THREADS` discipline in
   `pdb/pending.rs`).
 - **The monitor never allocates**: device output is `defmt` with scalar
-  args; sim output goes through `println!` under `sim_allocator::bypass()`
+  args; sim output goes through `println!` under `picodroid_core::hal::sim::allocator::bypass()`
   so the report cannot perturb the numbers it reports. Never build a
   `String`/`Vec` for monitor output.
 - `parity::ALLOCS` (parity-metrics) stays separate from

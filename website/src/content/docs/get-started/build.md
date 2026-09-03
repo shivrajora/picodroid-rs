@@ -37,7 +37,7 @@ cargo install elf2uf2-rs                # optional: needed for --uf2 flag
 
 ### Local CI (pre-commit hook)
 
-The pre-commit hook runs Java formatting check, `cargo fmt`, APK build, Clippy (RP2040, RP2350, and sim), firmware build, and tests before each commit.
+The pre-commit hook runs `scripts/pre-commit` in its **fast** tier: the guards that exist only locally (shadow-twin, cfg hygiene, `hil-tests.conf` drift, markdown lint, the binary-size ratchet) plus whichever formatting, clippy and firmware-build lanes the changed files call for — a docs-only commit takes seconds. `./scripts/pre-commit --full` is the unscoped gate (every board's clippy, every firmware build, the tests in both shrink modes, the conformance suites) and is what to run before pushing. `--list` prints the stages a run would execute; `--serial` streams one lane at a time. See [Contributing](/project/contributing/#pre-commit-hook).
 
 Install the hook after cloning by symlinking so it stays in sync with `scripts/pre-commit`:
 
@@ -143,16 +143,19 @@ Pass `--app <name>` to select which example to build or flash:
 
 The `--app` flag selects which example to build. `build.sh` compiles the Java sources into a `.papk` file and embeds it into the firmware — no Cargo feature flags are involved.
 
-### Shrinking class names
+### Shrinking
 
-Both `build.sh` and `flash.sh` accept `--shrink`, which applies the active release class-name shrink map (off by default):
+Both `build.sh` and `flash.sh` accept `--shrink`, which applies the active release shrink map (off by default): framework class names and method/field names become one- or two-character synthetic names in the firmware and in the PAPK, ProGuard-style. `--shrink-app` on top renames the app's own classes and private members as well; it requires `--shrink` and writes the app's map next to the PAPK as `build/apks/<app>.shrink-map.toml`:
 
 ```bash
 ./scripts/build.sh --app helloworld --release --shrink
 ./scripts/flash.sh --app helloworld --release --shrink
+./scripts/flash.sh --app helloworld --release --shrink --shrink-app
 ```
 
-Firmware and PAPK must be built with the same setting, or the install is rejected with a version mismatch — see [Class-name shrinker](/reference/shrinker/).
+Firmware and PAPK must be built with the same `--shrink` setting, or the install is rejected with a version mismatch — see [Shrinker](/reference/shrinker/). A shrunk firmware prints the mapped names in `Class.getName()`, stack traces and logs; `./scripts/retrace.sh < log` (with the per-app map for a `--shrink-app` build) turns them back into the originals.
+
+Independently of shrinking, every device build strips the `.class` debug attributes pico-jvm never reads on a device. Debug-profile builds keep source line numbers (the `line-numbers` cargo feature, `build-apk.sh --keep-lines`), so an uncaught exception prints `at pkg.Class.method(File.java:42)`; `--release` builds print the bytecode offset, `(pc=N)`, which `./scripts/retrace.sh --app <name> < log` resolves on the host. See [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs).
 
 ## Generating a UF2 file
 

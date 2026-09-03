@@ -44,7 +44,7 @@ try (FileInputStream in = new FileInputStream(new File("/data/log.txt"))) {
 
 | Class | Selected methods |
 |-------|------------------|
-| `File` | constructor `File(String path)`; `getPath()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `renameTo(File)` |
+| `File` | constructor `File(String path)`; `getPath()`, `getAbsolutePath()`, `getName()`, `getParent()`, `getParentFile()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `mkdirs()`, `createNewFile()`, `renameTo(File)` |
 | `FileInputStream` | constructors `(File)`, `(String path)`; `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
 | `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)`, `flush()`, `close()` |
 
@@ -52,7 +52,7 @@ try (FileInputStream in = new FileInputStream(new File("/data/log.txt"))) {
 
 Typed key-value settings store inspired by Jetpack DataStore. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` on the LittleFS volume.
 
-Supported value types: `String`, `int`, `long`, `boolean`. Limits: 64 entries per file, 63-char keys, 1024-char string values, 4 KB total blob.
+Supported value types: `String`, `int`, `long`, `float`, `boolean`. Limits: 64 entries per file, 63-char keys, 1024-char string values, 4 KB total blob.
 
 ```java
 import picodroid.content.SharedPreferences;
@@ -74,10 +74,10 @@ if (prefs.contains("device_name")) {
 
 | Class | Methods |
 |-------|---------|
-| `SharedPreferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
-| `Editor` | `putString`, `putInt`, `putLong`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()` |
+| `SharedPreferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getFloat(String, float def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
+| `Editor` | `putString`, `putInt`, `putLong`, `putFloat`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()`, `apply()` (same as `commit()`, synchronous) |
 
-`getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
+`getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long`, `Float` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
 
 `commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `SharedPreferences` instances are not thread-safe — synchronize externally if shared.
 

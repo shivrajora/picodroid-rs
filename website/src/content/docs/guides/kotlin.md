@@ -19,8 +19,8 @@ app costs a few hundred bytes over its Java twin.
 
 - Sources live in `kotlin/<package>/` and the app's `build.gradle.kts` applies
   `picodroid-papk-kotlin` (Kotlin 2.1). Everything downstream —
-  `build-apk.sh`, the simulator, `flash.sh`, `pdb`, class-name shrinking — is
-  identical to the Java pipeline.
+  `build-apk.sh`, the simulator, `flash.sh`, `pdb`, shrinking (`--shrink-app`
+  leaves the `kotlin/**` shim verbatim) — is identical to the Java pipeline.
 - Formatting is `bash scripts/format_kotlin.sh format` (ktfmt, the Kotlin twin
   of the repo's google-java-format hook); the pre-commit suite enforces it.
 - Compile-time DI works unchanged: the annotation processor runs through kapt

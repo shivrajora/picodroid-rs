@@ -68,6 +68,33 @@ serializes concurrent invocations that share one build directory. The first
 `--full` run after checkout therefore pays a cold build for the two ARM
 directories; `--clean` removes them. Per-run logs land in `build/pre-commit/`.
 
+## Sharing One Dev Board
+
+One probe, one board, and often more than one session wanting it — a second
+terminal, an agent working in a worktree, the nightly HIL run. Every script
+that touches the board (`flash.sh`, `power-cycle.sh`, `pdb.sh`,
+`parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through
+`scripts/device-lock.sh` first. If the board is free the script acquires it
+for your session and keeps it until you release, so a flash followed by a few
+`pdb` calls needs no ceremony; if someone else holds it the script exits with
+code 75, names the holder, and tells you how to wait.
+
+```bash
+./scripts/device-lock.sh status           # who holds it, since when, who is queued
+./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
+./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
+./scripts/device-lock.sh break --force    # evict a holder who is really gone
+```
+
+A lease dies with the process that took it (your shell, or the agent
+session), so a closed window never wedges the board. An unattended run that
+must outlive its launcher pins the lease instead:
+`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin` before
+the flash, `release` at teardown. Never `pkill -f probe-rs` to free the probe
+— the pattern matches any shell whose command line mentions it, your own
+included; `release` kills the right process by name. `PICODROID_DEVICE_LOCK=0`
+bypasses the check, for emergencies only.
+
 ## Code Style
 
 ### Rust

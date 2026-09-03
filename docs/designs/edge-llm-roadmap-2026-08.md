@@ -375,7 +375,7 @@ mcus/stm32/stm32h747xi.{toml,x}}`. `build.rs` imports `build_support/*` via
 `#[path]`. Boot: clock tree to 480 MHz, caches on, `hal::HalClock`, defmt-RTT,
 FreeRTOS started with the JVM task + pdb task (no flash parker, no sensor
 sampler). `glue.rs` implements `PlatformHooks` (`picodroid-core/src/host.rs`)
-and the `__pd_rtos_*` externs (`picodroid-core/src/rtos.rs`) — copy
+and the `__pd_rtos_*` externs (`picodroid-core/src/rtos/mod.rs`) — copy
 `platforms/rp/src/glue.rs` structurally, delete the RP-only parts. Unimplemented
 HAL traits are explicit `unimplemented!()` stubs listed in the design doc.
 
@@ -456,7 +456,7 @@ table. Soak: 1 h `aichat` + nav under `--mem-diag` on both boards.
 - HAL seam: `picodroid-core/src/hal/traits.rs` (11 traits: Display, Gpio,
   Clock, Touch, I2c, Adc, Pwm, Spi, Uart, Net, Fs); RP impls in
   `platforms/rp/src/glue.rs`; sim impls in `picodroid-core/src/hal/sim/`.
-- RTOS seam: `picodroid-core/src/rtos.rs` (`__pd_rtos_*`); platform hooks:
+- RTOS seam: `picodroid-core/src/rtos/mod.rs` (`__pd_rtos_*`); platform hooks:
   `picodroid-core/src/host.rs::PlatformHooks`.
 - FreeRTOS C build: `build_support/freertos.rs`, keyed by the MCU toml
   (`freertos_port`, `freertos_port_extra_includes`, `freertos_c_defines`,

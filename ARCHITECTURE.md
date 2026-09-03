@@ -48,7 +48,7 @@ in `platforms/rp/` is this family and nothing else.
 | [`drivers/`](picodroid-core/src/drivers/) | Peripheral drivers (CYW43, ST7789, XPT2046, BME688, LTR559) | `[hardware]` |
 | [`mem_diag.rs`](picodroid-core/src/mem_diag.rs) | Memory monitor | `[picodroid]` |
 | [`lvgl_ffi.rs`](picodroid-core/src/lvgl_ffi.rs) | Hand-written LVGL C bindings | `[hardware]` |
-| [`shrink_names.rs`](picodroid-core/src/shrink_names.rs) | Runtime class-name un-shrinking | `[picodroid]` |
+| [`shrink_names.rs`](picodroid-core/src/shrink_names.rs) | `include!` of the build-generated `c::` / `m::` / `d::` name constants ([`build_support/names.rs`](build_support/names.rs)); nothing translates a name back at run time | `[picodroid]` |
 
 ### `platforms/rp/src/` — this family only
 
@@ -118,6 +118,8 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 - `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
 
 [build_support/network.rs](build_support/network.rs) takes `mcu_family` and reads `platforms/<family>/src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP; a future family using esp-idf/lwIP should add a parallel network module rather than extending this one.
+
+[build_support/names.rs](build_support/names.rs) runs from both `jvm/build.rs` and `picodroid-core/build.rs`. From `sdk/class-names.tsv`, `sdk/member-names.tsv`, `sdk/descriptors.tsv` and `sdk/api-contract.tsv` it generates the `c::` / `m::` / `d::` constant modules every Rust dispatch site matches on — spelled through the active shrink map under `PICODROID_SHRINK=1` and verbatim otherwise — so a `--shrink` image carries no original Java name and a no-shrink image is byte-identical to one built before the shrinker existed. `no_original_name_literals` and `names_agree_with_pico_jvm` keep both crates on the generated spellings.
 
 ### Naming convention
 

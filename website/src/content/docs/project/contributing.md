@@ -25,25 +25,78 @@ Always use the test script — bare `cargo test` fails because the default targe
 
 ## Pre-commit Hook
 
-The pre-commit hook runs automatically on `git commit` and checks:
-
-1. Java formatting (`google-java-format`)
-2. Rust formatting (`cargo fmt`)
-3. Clippy (RP2040, RP2350, and simulator targets)
-4. Embedded firmware build
-5. All tests
-
 Install it after cloning:
 
 ```bash
 ln -s ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
-You can also run it manually at any time:
+It runs in two tiers, both of which fan their stages out across parallel lanes:
 
 ```bash
-./scripts/pre-commit
+./scripts/pre-commit          # fast (default, and what the hook runs)
+./scripts/pre-commit --full   # everything — run before you push
 ```
+
+**`--fast`** is scoped to what actually changed and trimmed to the checks CI
+does not already run. A docs-only commit gets markdown lint and the guards; a
+one-file Rust change adds `cargo fmt`, sim + RP2040 clippy, the RP2040 debug
+flash gate and the size ratchet. Editing anything under `scripts/` promotes the
+run to `--full`, since a script change can invalidate any lane's assumptions.
+
+**`--full`** runs every check unscoped: all five board clippy legs, the staged
+`handle-table-32` and opt-in `mem-diag` legs, every firmware build, the test
+suite in both shrink modes, the Java and Kotlin conformance suites in the
+simulator, and the size ratchet on both boards.
+
+What the fast tier is allowed to skip is not a guess. `.github/workflows/ci_checks.yml`
+already runs the board clippy legs, both boards in debug and release, `test.sh`,
+every example APK, both formatters, and a 14-app sim smoke covering all three
+langsuites. The checks that exist *only* locally — the shadow-twin and
+cfg-hygiene guards, `hil-tests.conf` drift, `apply_jvm_env`, markdown lint, and
+the binary-size ratchet — run at every tier.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--list` | Print the stages that would run, grouped by lane, and exit. |
+| `--serial` | One lane at a time, streaming to stdout. Use it to debug a failure. |
+| `--since <ref>` | Scope against `<ref>` instead of the index or working tree. |
+| `--clean` | Delete the per-lane build directories. |
+
+Each cargo lane gets its own `CARGO_TARGET_DIR` (`target/` for host,
+`target-thumbv6m/` and `target-thumbv8m/` for the two ARM triples) because cargo
+serializes concurrent invocations that share one build directory. The first
+`--full` run after checkout therefore pays a cold build for the two ARM
+directories; `--clean` removes them. Per-run logs land in `build/pre-commit/`.
+
+## Sharing One Dev Board
+
+One probe, one board, and often more than one session wanting it — a second
+terminal, an agent working in a worktree, the nightly HIL run. Every script
+that touches the board (`flash.sh`, `power-cycle.sh`, `pdb.sh`,
+`parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through
+`scripts/device-lock.sh` first. If the board is free the script acquires it
+for your session and keeps it until you release, so a flash followed by a few
+`pdb` calls needs no ceremony; if someone else holds it the script exits with
+code 75, names the holder, and tells you how to wait.
+
+```bash
+./scripts/device-lock.sh status           # who holds it, since when, who is queued
+./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
+./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
+./scripts/device-lock.sh break --force    # evict a holder who is really gone
+```
+
+A lease dies with the process that took it (your shell, or the agent
+session), so a closed window never wedges the board. An unattended run that
+must outlive its launcher pins the lease instead:
+`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin` before
+the flash, `release` at teardown. Never `pkill -f probe-rs` to free the probe
+— the pattern matches any shell whose command line mentions it, your own
+included; `release` kills the right process by name. `PICODROID_DEVICE_LOCK=0`
+bypasses the check, for emergencies only.
 
 ## Code Style
 
@@ -109,7 +162,7 @@ See [Your first app](/get-started/first-app/) for supported language features an
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `picodroid-core/src/native_handler/` under the appropriate module
-2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Use the **original** internal class name in the match arm (e.g. `"picodroid/pio/Gpio"`) — the dispatcher calls `shrink_names::unshrink_class` at entry so names stay readable in source regardless of the active shrink map. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same: pico-jvm reverse-translates its `b/` namespace at the class-file boundary, so dispatch never sees a shrunk `java/**` name. See [Class-name shrinker](/reference/shrinker/) for details.
+2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Both names go through the generated `shrink_names` consts, never a string literal: `(c::picodroid_pio_Gpio, m::setValue) =>` (each const's value is the map's shrunk spelling under `--shrink` and the original otherwise; a literal would silently stop matching under `--shrink` and put the original name back into flash — `no_original_name_literals` refuses it). A new SDK class or method first needs a row in `sdk/class-names.tsv` / `sdk/member-names.tsv`: run `scripts/gen-api-contract.sh`. Descriptors that name a class come from `sdk/descriptors.tsv` (`d::String__V`); add a row by hand. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same, with `c::java_lang_System`. See [Shrinker](/reference/shrinker/) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `jvm/src/interpreter/helpers.rs` — otherwise virtual dispatch will silently break
 4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
 5. Update the relevant [API reference](/api/) page (e.g. [Peripherals](/api/peripherals/) for a new PIO method, [Graphics & UI](/api/ui/) for a new widget) with the new API surface
@@ -130,7 +183,10 @@ TMP=$(mktemp -d)
 find sdk/java -name '*.java' -print0 \
   | xargs -0 javac --release 8 -Xlint:-options -d "$TMP"
 
-cargo run -p class-shrink -- cut-release \
+./gradlew :kotlin-shim:compileJava -q
+cargo run -p class-shrink -- cut-release --members \
+  --contract sdk/api-contract.tsv --reserve kotlin-shim/build/classes/java/main \
+  --version <new> \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
@@ -141,7 +197,11 @@ cargo run -p class-shrink -- cut-release \
 `--base` copies the previous map verbatim — existing entries never get
 renamed. `--extra-names` adds the `java/**` names the framework never
 references itself, so apps' `RuntimeException` / `Iterator` / … shrink
-too. See [docs/shrinker.md](/reference/shrinker/) for the full design.
+too; `--contract` maps the members the runtime serves on those classes.
+If a new SDK class or member is used from Rust before the next cut, run
+`scripts/gen-api-contract.sh` so `sdk/class-names.tsv` /
+`sdk/member-names.tsv` — the sources of the generated `c::` / `m::`
+constants — know about it. See [Shrinker](/reference/shrinker/) for the full design.
 
 ## Submitting Changes
 

@@ -249,17 +249,22 @@ follow [Your first app](/get-started/first-app/).
 
 ## Shrinking
 
-The class-name [shrinker](/reference/shrinker/) **never rewrites an app's own
-class names** — it only rewrites framework references (`picodroid.*` classes from
-`sdk/java`). The active shrink map is built from the framework source tree alone;
-your app's classes are never fed into it, so they pass through unchanged.
+Under `--shrink` the [shrinker](/reference/shrinker/) rewrites only framework
+references — the `picodroid.*` and `java.*` classes and the member names the
+release map covers. The release map is cut from the framework source tree
+alone, so your app's own class names pass through unchanged, and your
+`application=` / `activity=` / `main-class=` value (e.g. `myapp/MyApp`) is
+identical in the shrunk and unshrunk PAPK. Only the references baked into your
+`.class` bytes (the `picodroid/app/Application` superclass, an `onCreate`
+override) are rewritten, and the firmware's copies are rewritten the same way.
 
-This means your `application=` / `activity=` / `main-class=` value (e.g.
-`myapp/MyApp`) is **identical in the shrunk and unshrunk PAPK** — it stays valid
-under `--shrink`. Only the *superclass reference* baked into your `.class` bytes
-(e.g. `picodroid/app/Application`) gets rewritten when shrinking is on, and that
-is transparent because the firmware's matching framework classes are rewritten
-the same way. You never need a keep entry for your own classes.
+Under `--shrink --shrink-app` your own classes are renamed too (`myapp/MyApp`
+→ `c/A`) and `papk-pack` spells the manifest entry through the per-app map, so
+the manifest you write keeps saying `myapp/MyApp` while the packed manifest
+names the class that is actually in the PAPK. The entry points Rust invokes by
+name — `main` and the generated `injectMembers` — are kept by `sdk/keep.toml`.
+You never need a keep entry for your own classes in either mode. See
+[App shrinking](/reference/shrinker/#app-shrinking---shrink-app).
 
 ## Runtime dispatch and errors
 
@@ -305,7 +310,7 @@ refused before flashing:
 ```text
 Refusing to install: PAPK is incompatible with running firmware.
   ...
-  Rebuild the PAPK with matching --shrink setting (see docs/shrinker.md).
+  Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).
 ```
 
 The fix is almost always to rebuild the PAPK with the same `--shrink` setting as
