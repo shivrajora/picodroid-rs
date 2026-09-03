@@ -27,7 +27,7 @@ Options:
   -o, --output <file>   Output path (default: build/apks/<app>.papk)
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
-                        PICODROID_SHRINK=1. See docs/shrinker.md.
+                        PICODROID_SHRINK=1. See website/src/content/docs/reference/shrinker.md.
       --shrink-app      Also rename this app's own classes (c/…) and private
                         members, ProGuard-style, through a per-build map cut
                         on top of the release map. Requires --shrink. Also

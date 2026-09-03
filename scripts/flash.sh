@@ -25,7 +25,7 @@ Options:
                        on the host with scripts/retrace.sh.
                        PICODROID_LINE_NUMBERS=0|1 overrides either way.
       --shrink         Apply the active release class-name shrink map
-                       (off by default; see docs/shrinker.md)
+                       (off by default; see website/src/content/docs/reference/shrinker.md)
       --shrink-app     Also rename the app's own classes and private members
                        (requires --shrink; see build-apk.sh --shrink-app)
   -h, --help           Show this help message
