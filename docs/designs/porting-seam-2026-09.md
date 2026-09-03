@@ -846,3 +846,49 @@ likely shape is a notification left pending on the JVM task after
 notifies parked tasks), which makes the supervisor's "wait for the next
 install" return at once. The persistence check above does not depend on
 it: what run 2 read was what run 1 wrote.
+
+### A10 — S9 and S10 landed; closing measurement (2026-09-03)
+
+`picodroid_core::porting` (§3.A) re-exports every seam item and carries the
+seven-part checklist as its module doc. Its two tests scan the seam files
+and the crate: 41 items today — the 20 traits (`HalDisplay` … `HalFs`,
+`Rtos`, `PlatformHooks`, `PdbTransport`, `SysmonSource`, `CoreCoordinator`,
+`PapkFlash`, `InstallTransport`, `PapkSlotFlash`, `FsBackingStore`) and the
+21 exported macros (nine `set_hal_*!`, `set_hal!`, `set_hal_fs!`,
+`set_hal_net!`, `set_rtos!`, `set_platform_hooks!`, `register_sim_platform!`,
+`declare_sim_global_allocator!`, the five `pd_*!`) — each of which must be
+named in `porting.rs` and in the website's porting guide, with the count
+pinned so an empty scan cannot pass.
+
+The porting guide is rewritten around that module (§7): the real tree, the
+seven kinds of obligation, one table for the HAL traits, new sections for
+the kernel (including the `scheduler_running` trap and the `FsWorker` pin),
+the hooks, the filesystem, the debug bridge and installer, the simulator,
+the supervisor-loop checklist, logging, the build script, and the guards a
+port inherits; networking retitled as family-owned; the `[background_pool]
+priority` row fixed (must be 15), `network_type` marked as parser-enforced,
+`handle_slots` and `framework_class_excludes` added. The two anchors other
+pages link to survive; `npm run build` in `website/` passes.
+`ARCHITECTURE.md` gained the module-map rows, the four-pair allowlist, and
+three boundary rules (wire formats live in protocol crates; simulator policy
+crosses as macro parameters; shared code reaches the kernel only through
+`rtos`); its website mirror, `docs/parity-audit.md` (TCH-01, the boot-budget
+split), `shared-core-extraction.md` §5 and `freertos-host-sim.md` are
+refreshed.
+
+**Closing measurement, rp2040 `--release`, baseline `80aad79` → S10:**
+
+| Section | Baseline | End | Delta |
+|---|---:|---:|---:|
+| `.text` | 697,776 | 696,292 | **−1,484** |
+| `.rodata` | 175,552 | 175,720 | **+168** |
+| `.data` | 2,300 | 2,300 | 0 |
+
+**Net −1,316 B** against a budget of ≤ ~2 KB *growth*: S5's trait defaults
+paid for every seam crossing the rest of the plan added (S6 +100, S7 +188,
+S8 +12). The size ratchet's baseline is accepted at the new figure.
+`platforms/rp/src`: 8,774 → 7952 lines.
+
+**Still owed:** the rp2040 half of the S3/S6/S7 hardware gates, and a
+real-button board for the idle-wake path (A9). **Not this doc's:** the
+`bootcount` re-run observed on both this branch and main (A9).

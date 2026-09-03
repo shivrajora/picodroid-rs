@@ -67,6 +67,9 @@ pub mod pd_log;
 // Debug bridge protocol. Always compiled: it is a wire format with a host
 // counterpart, so its framing and encoders are exactly what wants tests.
 pub mod pdb;
+// What a port provides — every seam item re-exported, with the checklist as
+// its module doc and a test that keeps both complete.
+pub mod porting;
 // Ungated: `peripheral_manager`'s ref-name parsing is pure logic and carries
 // host unit tests.
 pub mod pio;

@@ -476,8 +476,11 @@ this whole exercise:
    `HalPwm`/`HalSpi`/`HalUart` (+ `HalNet`, `HalFs` if the board has them).
 3. An `Rtos` impl (FreeRTOS port, Embassy adapter, whatever) with its
    `TaskKind` → stack/affinity policy, and a `PlatformHooks` impl.
-4. One `glue.rs` invoking the three registration macros.
-5. Optionally a PDB transport and a PAPK flash region for install support.
+4. One `glue.rs` invoking the registration macros (`set_hal!`, `set_hal_fs!`,
+   `set_hal_net!`, `set_rtos!`, `set_platform_hooks!`, `register_sim_platform!`).
+5. Optionally the four debug-bridge/install traits (`PdbTransport`,
+   `SysmonSource`, `CoreCoordinator`, `PapkSlotFlash`) and a PAPK flash slot.
+   *(Updated 2026-09-03; `picodroid_core::porting` is the live list.)*
 6. **Zero edits to `picodroid-core`.** The simulator, every widget, the
    lifecycle, the JVM natives, sensor plumbing, and the registry guards all
    come for free.
