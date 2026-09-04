@@ -7,6 +7,11 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Debug firmware boots on the Pico 2 W again; every board keeps a main-stack floor**
+
+- The core-0 main stack is whatever `.data` + `.bss` leave of RAM. The network boards' statics had squeezed it to 4.4 KB, and the debug-profile image (the one `flash.sh` builds by default, with line-number traces) faulted at boot before its first log line. The RP2350 heap arena is now 408 KB instead of 416 KB, which leaves at least 12 KB on every RP2350 board; picoenvmon still fits.
+- Every firmware build now prints its main-stack headroom and fails when it drops below 8 KB (`MAIN_STACK_FLOOR_BYTES` in `scripts/lib.sh`), so static growth can no longer eat the stack silently.
+
 **Networking seams for FreeRTOS+TCP families; apps can tell WiFi from Ethernet (map v0.19.0, package 0.19.0)**
 
 - **`NetworkInfo.getType()`** returns `ConnectivityManager.TYPE_WIFI` (1) or `TYPE_ETHERNET` (9), or `TYPE_NONE` (-1) on a board without networking. The new `picodroid.net.ConnectivityManager` holds Android's constants; it has no instance, because a board has one link.

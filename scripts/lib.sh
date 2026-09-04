@@ -304,6 +304,11 @@ list_boards() {
 }
 
 # Prints flash/RAM usage for a given ELF. Requires FLASH_MAX, RAM_MAX, SIZE_TOOL.
+# Minimum RAM every firmware image must leave for the core-0 main stack (boot,
+# then all core-0 interrupts). See print_memory_usage. 8 KB: the release W
+# images ran soaks on 4.7 KB, the debug W image faulted at 4.4 KB.
+MAIN_STACK_FLOOR_BYTES=8192
+
 print_memory_usage() {
   local elf="$1"
   if ! command -v "$SIZE_TOOL" &>/dev/null; then
@@ -323,7 +328,22 @@ print_memory_usage() {
   printf "  Flash: %d / %d bytes (%d%% of program region; chip total %d)\n" \
     "$flash" "$PROGRAM_FLASH_MAX" "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$FLASH_MAX"
   printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
+  # What .data + .bss leave of RAM is the core-0 main stack: the boot path,
+  # then every core-0 interrupt for the life of the firmware (flip-link puts
+  # it below .bss, so an overflow runs off the start of RAM and the core
+  # locks up before a single log line). Static growth erodes it silently —
+  # the network boards were down to 4.4 KB when their debug image stopped
+  # booting (2026-09-04) — so a build that leaves less than the floor fails
+  # here, in every script that builds firmware, instead of on the board.
+  local headroom=$(( RAM_MAX - ram ))
+  printf "  Main stack headroom: %d bytes (floor %d)\n" "$headroom" "$MAIN_STACK_FLOOR_BYTES"
   echo ""
+  if (( headroom < MAIN_STACK_FLOOR_BYTES )); then
+    echo "ERROR: main stack headroom ${headroom} B is below the ${MAIN_STACK_FLOOR_BYTES} B floor" >&2
+    echo "       (.data + .bss = ${ram} of ${RAM_MAX} B). Trim static RAM — the heap arena" >&2
+    echo "       (mcus/<family>/<mcu>.toml heap_kb) or lv_mem_kb — before this image boots." >&2
+    return 1
+  fi
 }
 
 # Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.

@@ -29,7 +29,7 @@
 #define configSTACK_DEPTH_TYPE                  uint32_t
 
 /* Heap: single-sourced from mcus/rp/<mcu>.toml `heap_kb` (RP2040 128 KB of
- * 256 KB RAM, RP2350 416 KB of 520 KB RAM). build_support/freertos.rs
+ * 256 KB RAM, RP2350 408 KB of 520 KB RAM). build_support/freertos.rs
  * injects -DconfigTOTAL_HEAP_SIZE into this C build, and
  * platforms/rp/build.rs::emit_heap_config generates the same value for the
  * simulator's default heap cap — resize it in the toml and every consumer
@@ -49,6 +49,12 @@
  *   (docs/parity-audit.md V4): FreeRTOS overhead — task stacks + TCBs +
  *   queues — is ~85 KB, not the ~25-30 KB this comment once estimated, and
  *   the then-uncapped sim never saw any of it.
+ * - 2026-09-04: 416 → 408 KB. Not for the heap's sake: the core-0 main stack
+ *   is the RAM left after .data + .bss, and the network boards' statics had
+ *   squeezed it to 4.4 KB — the debug image faulted at boot (a stack overflow
+ *   past the RAM start locks the core: the fault handler cannot push its own
+ *   frame). 8 KB back gives every RP2350 board >= 12 KB; scripts/lib.sh
+ *   enforces MAIN_STACK_FLOOR_BYTES from now on.
  *
  * If you push this higher, re-measure `arm-none-eabi-size` first: total
  * static RAM must stay well below LENGTH(RAM). Measured 2026-07-18 on

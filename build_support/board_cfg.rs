@@ -151,7 +151,7 @@ pub fn emit_heap_config(out: &Path, board: &Option<ResolvedBoard>) {
             let (path, mcu) = b.mcu();
             mcu_heap_kb(&mcu, &path) as usize * 1024
         }
-        None => 416 * 1024,
+        None => 408 * 1024,
     };
     write_generated(
         out,

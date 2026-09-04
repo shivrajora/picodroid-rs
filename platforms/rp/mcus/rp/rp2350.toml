@@ -8,7 +8,16 @@ core_count = 2
 # FreeRTOS heap arena (configTOTAL_HEAP_SIZE) — single source of truth.
 # Injected into the FreeRTOS C build AND the sim's default heap cap
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
-heap_kb = 416
+#
+# 2026-09-04: 416 → 408 KB. The core-0 main stack (boot, then every core-0
+# interrupt for the life of the firmware) is whatever .data + .bss leave of
+# the 520 KB; the arena is most of .bss. The network boards' extra statics
+# (cyw43 state, buffer descriptors, DNS cache) had squeezed it to 4.4 KB and
+# the debug-profile image faulted at boot before its first log line. 408 KB
+# keeps at least 12 KB on every RP2350 board; scripts/lib.sh fails a build
+# whose headroom drops below MAIN_STACK_FLOOR_BYTES. picoenvmon still fits:
+# the simulator cap that models a 408 KB device heap (376 KB) runs it clean.
+heap_kb = 408
 size_tool = "arm-none-eabi-size"
 freertos_port = "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure"
 pico_shim = "src/hal/rp/port/pico_shim_rp2350.c"
