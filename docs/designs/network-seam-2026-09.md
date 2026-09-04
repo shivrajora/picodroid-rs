@@ -341,6 +341,7 @@ same each time). W boards are not ratcheted; this table is the record.
 | S0 baseline (`fedf6cb`) | 1,223,218 | 4 | 527,800 | 0 |
 | S1 cyw43 bindings leave core | 1,223,218 | 4 | 527,800 | 0 |
 | S2 link kind is a build fact | 1,223,218 | 4 | 527,800 | 0 |
+| S3 shared C glue, entropy + descriptor seams | 1,223,158 | 4 | 527,800 | −60 |
 
 ## 10. Amendments
 
@@ -417,3 +418,35 @@ Nothing in core gates on `network_cyw43` any more; the family still does
 (host-wake, `pio_spi`, `trng`, the cyw43 task), which is what a per-chip cfg
 is for. Checks: `./scripts/pre-commit --full` green (8m23s, ratchet +0), the three
 sim smokes, release `netdemo` on the Pico 2 W green, W image byte-identical.
+
+### A6 — S3: the stack glue is shared, the build is stack-generic (2026-09-03)
+
+`net_init.c`, `libc_str.c` and `FreeRTOSIPConfig.h` moved to
+`picodroid-core/net-freertos-tcp/` (README there). `net_init.c` binds two
+link-time symbols instead of naming a chip: the link driver's
+`pxPicodroidNetLink_FillInterfaceDescriptor` (renamed in
+`NetworkInterface_CYW43.c`) and the family's `picodroid_port_entropy32`
+(new `platforms/rp/src/hal/rp/entropy.rs`: TRNG word when buffered, else a
+timer-mixed LCG; `trng.rs` now exposes `try_random_u32()` and its RP timer
+line left the shared code). It also carries a `_Static_assert` that the tick
+is 1 ms. The shared `FreeRTOSIPConfig.h` includes the family's
+`FreeRTOSIPConfig_family.h` first (RP: the affinity choice and its
+rationale) and never defines affinity itself; priority and stack are
+`#ifndef` defaults. `build_support/network.rs` is stack-generic:
+`build_freertos_tcp(&NetStackBuild { … })` takes the kernel port include,
+the family port dir and the link sources; it refuses a stale
+`FreeRTOSIPConfig.h` in the family port dir and watches that whole
+directory so a file appearing there re-runs the check. `build_cyw43_driver`
+lost its `mcu_family == "rp"` branch and the cyw43 identity left the
+FreeRTOS+TCP unit. `platforms/rp/build.rs` gates on `has_network` and
+dispatches on `network_type`. Two host tests pin the invariants:
+`picodroid-core/src/hal/freertos_tcp/config_guard.rs` (shared header
+invariants, the two seam symbols, no chip name in the shared glue) and
+`platforms/rp/src/hal/rp/cyw43/config_guard.rs` (ioctl timeout floor, the
+family header holds only family choices). The affinity scan in
+`task_affinity.rs` reads the family header. Checks: `./scripts/test.sh`
+(the new guards, the porting checklist, the affinity scans), the stale
+header rejection proven by hand, `pico_enviro_mon_w` built by hand,
+`./scripts/pre-commit --full` green (5m57s), sim smokes, release `netdemo`
+on the Pico 2 W green (DHCP lease and TCP connect prove the entropy seam).
+Size: −60 B on the W image.

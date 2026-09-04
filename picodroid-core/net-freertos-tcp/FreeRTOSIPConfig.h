@@ -1,16 +1,25 @@
 /*
- * FreeRTOS+TCP configuration for picodroid (RP2350 + CYW43439 WiFi).
+ * FreeRTOS+TCP configuration for picodroid — the shared policy every
+ * FreeRTOS+TCP family compiles (docs/designs/network-seam-2026-09.md D7).
  *
  * All buffers come out of the shared FreeRTOS heap_4 arena (heap_kb in the
- * MCU toml, injected as configTOTAL_HEAP_SIZE — 416 KB on RP2350), which the
- * IP stack shares with the JVM and every task stack. The #ifndef-wrapped
- * values below are testbench defaults; heap-constrained boards override
- * them per-board via `net_*` keys in board.toml (see
- * build_support/network.rs::net_config_overrides).
+ * MCU toml, injected as configTOTAL_HEAP_SIZE), which the IP stack shares
+ * with the JVM and every task stack. The #ifndef-wrapped values below are
+ * testbench defaults; heap-constrained boards override them per-board via
+ * `net_*` keys in board.toml (see build_support/network.rs::net_config_overrides).
+ *
+ * What a family may set is in its FreeRTOSIPConfig_family.h, included
+ * first: ipconfigIP_TASK_AFFINITY (required on a multi-core family; see
+ * task_affinity.rs), and optionally ipconfigIP_TASK_PRIORITY /
+ * ipconfigIP_TASK_STACK_SIZE_WORDS. Everything else is policy shared by
+ * every family; change it here, for all of them.
  */
 
 #ifndef FREERTOS_IP_CONFIG_H
 #define FREERTOS_IP_CONFIG_H
+
+/* The family's part comes first so its choices win the #ifndef defaults. */
+#include "FreeRTOSIPConfig_family.h"
 
 /* ---- Core protocol support ---- */
 #define ipconfigUSE_IPv4                        (1)
@@ -48,18 +57,15 @@
 #endif
 
 /* ---- IP task ---- */
+#ifndef ipconfigIP_TASK_PRIORITY
 #define ipconfigIP_TASK_PRIORITY                (7)
+#endif
+#ifndef ipconfigIP_TASK_STACK_SIZE_WORDS
 #define ipconfigIP_TASK_STACK_SIZE_WORDS         (512)  /* 2 KB */
-/* Either core, deliberately — the kernel default spelled out.  The IP task
- * never touches JVM state: sockets are driven synchronously from the calling
- * Java task (hal/rp/net.rs) and the stack's application hooks (net_init.c)
- * touch only their own statics, so it need not join the core-0 pin that
- * every JVM-adjacent task carries, and a busy Java thread (priority 15 > 7,
- * no time slicing) cannot starve TCP.  The affinity guard
- * (platforms/rp/src/task_affinity.rs) requires the choice to be written
- * down; 0 would mean "whatever the kernel does", which is the same today but
- * not a decision. */
-#define ipconfigIP_TASK_AFFINITY                ( ( 1 << 0 ) | ( 1 << 1 ) )
+#endif
+/* ipconfigIP_TASK_AFFINITY is deliberately NOT defined here: core placement
+ * is a family decision, made in FreeRTOSIPConfig_family.h (a single-core
+ * family leaves it out; FreeRTOS+TCP only uses it when > 0). */
 
 /* ---- ARP ---- */
 #define ipconfigARP_CACHE_ENTRIES               (8)
@@ -94,7 +100,7 @@
 #define ipconfigZERO_COPY_TX_DRIVER             (0)
 #define ipconfigZERO_COPY_RX_DRIVER             (0)
 
-/* Byte order — ARM Cortex-M is little-endian */
+/* Byte order — every supported core is little-endian (Cortex-M, Xtensa, RISC-V) */
 #define ipconfigBYTE_ORDER                      pdFREERTOS_LITTLE_ENDIAN
 
 /* ---- Callbacks / hooks ---- */

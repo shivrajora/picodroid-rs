@@ -120,6 +120,11 @@ mod native_class_registry_tests;
 #[cfg(test)]
 #[path = "native_handler/method_tables.rs"]
 mod native_method_tables_tests;
+// The shared FreeRTOS+TCP glue in net-freertos-tcp/ is C, compiled by each
+// family's build.rs; its invariants are pinned by a host text scan here.
+#[cfg(test)]
+#[path = "hal/freertos_tcp/config_guard.rs"]
+mod hal_freertos_tcp_config_guard_tests;
 // Compile-time API contract: generates sdk/api-contract.tsv from the
 // runtime's own tables (and fails when the committed copy is stale).
 #[cfg(test)]

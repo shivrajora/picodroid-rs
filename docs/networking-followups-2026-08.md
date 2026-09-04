@@ -206,4 +206,6 @@ gate are written up in the auto-memory
 lower `CYW43_IOCTL_TIMEOUT_US` below 500 ms, do not override
 `ipconfigBUFFER_PADDING`, keep `ipconfigINCLUDE_FULL_INET_ADDR=1`) are
 commented at their definition sites in
-`platforms/rp/src/hal/rp/port/cyw43_configport.h` and `FreeRTOSIPConfig.h`.
+`platforms/rp/src/hal/rp/port/cyw43_configport.h` and
+`picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h` (shared since the
+network-seam work; host tests pin them).

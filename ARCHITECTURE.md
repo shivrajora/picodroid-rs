@@ -117,7 +117,7 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 - `freertos_vector_aliases` — semicolon-separated `CMSIS=portasm` linker aliases
 - `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
 
-[build_support/network.rs](build_support/network.rs) takes `mcu_family` and reads `platforms/<family>/src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP; a future family using esp-idf/lwIP should add a parallel network module rather than extending this one.
+[build_support/network.rs](build_support/network.rs) compiles FreeRTOS+TCP, the shared stack glue in `picodroid-core/net-freertos-tcp/`, and the link-driver sources a family lists in `NetStackBuild`; a `network_type` of `cyw43` also compiles the vendored cyw43 driver with the family's port file. Nothing in it names a chip family; the family's `build.rs` supplies its kernel port include and its port directory (`docs/designs/network-seam-2026-09.md`).
 
 [build_support/names.rs](build_support/names.rs) runs from both `jvm/build.rs` and `picodroid-core/build.rs`. From `sdk/class-names.tsv`, `sdk/member-names.tsv`, `sdk/descriptors.tsv` and `sdk/api-contract.tsv` it generates the `c::` / `m::` / `d::` constant modules every Rust dispatch site matches on — spelled through the active shrink map under `PICODROID_SHRINK=1` and verbatim otherwise — so a `--shrink` image carries no original Java name and a no-shrink image is byte-identical to one built before the shrinker existed. `no_original_name_literals` and `names_agree_with_pico_jvm` keep both crates on the generated spellings.
 

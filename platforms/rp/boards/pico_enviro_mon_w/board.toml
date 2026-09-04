@@ -18,7 +18,7 @@ lv_mem_kb = 48
 idle_timeout_ms = 0
 
 # FreeRTOS+TCP heap tuning (defaults in parentheses — see
-# src/hal/rp/port/FreeRTOSIPConfig.h). picoenvmon is the canonical
+# picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h). picoenvmon is the canonical
 # heap-constrained target; the IP stack shares the 416 KB heap_4 arena with
 # the JVM, so this board halves the buffer budget relative to the testbench
 # defaults: the app serves one short HTTP page at a time (listen backlog is

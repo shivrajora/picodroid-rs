@@ -392,8 +392,10 @@ mod tests {
 
         // FreeRTOS+TCP creates the IP task itself. Whatever it chooses, it
         // must choose, so the placement of every task in the system is
-        // written down somewhere the scan can read.
-        let ip = crate_root().join("src/hal/rp/port/FreeRTOSIPConfig.h");
+        // written down somewhere the scan can read. The shared policy header
+        // (picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h) never defines
+        // it; the family's part does.
+        let ip = crate_root().join("src/hal/rp/port/FreeRTOSIPConfig_family.h");
         assert!(
             defines(&ip)
                 .iter()
