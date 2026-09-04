@@ -90,8 +90,8 @@ pub use chip::net;
 // module, and nothing in a simulator build would drive it. Exposed here
 // rather than reached as `hal::rp::…` because `chip` is private — the same
 // indirection every peripheral that code outside `hal` reaches goes through.
-// (`dma`, `pio_spi` and `trng` are not re-exported: they are internal to the
-// family and reached only by their sibling modules.)
+// (`dma`, `pio_spi`, `trng` and the `cyw43` bindings are not re-exported: they
+// are internal to the family and reached only by their sibling modules.)
 #[cfg(all(network_cyw43, not(any(test, feature = "sim"))))]
 pub use chip::wifi_task;
 

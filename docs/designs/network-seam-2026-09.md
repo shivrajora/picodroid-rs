@@ -337,6 +337,7 @@ same each time). W boards are not ratcheted; this table is the record.
 | Stage | text | data | bss | Δ text vs S0 |
 |---|---|---|---|---|
 | S0 baseline (`fedf6cb`) | 1,223,218 | 4 | 527,800 | 0 |
+| S1 cyw43 bindings leave core | 1,223,218 | 4 | 527,800 | 0 |
 
 ## 10. Amendments
 
@@ -378,3 +379,16 @@ headers … status=200 message=OK`. The test host ran a TCP echo on :7000 and
 a Python HTTP server on :8000 (`scratchpad/net_listeners.py`); both logged
 the board's connections. The two `cyw43: ioctl cmd 263 error status -5`
 lines are NET-1 (known, harmless).
+
+### A4 — S1 done: cyw43 bindings live in the family (2026-09-03)
+
+`picodroid-core/src/drivers/cyw43.rs` → `platforms/rp/src/hal/rp/cyw43/mod.rs`,
+content unchanged; `wifi_task.rs` reaches it as `super::cyw43`. Core has no
+cyw43 module any more (the `network-cyw43` feature and `network_cyw43` cfg
+still exist until S2). The bindings are not re-exported from `hal/mod.rs`:
+nothing outside the family's `hal::rp` needs them yet, and an unused
+re-export is a clippy error under `--deny=warnings` (S5 adds the re-export
+when `boot_tasks.rs` names `Cyw43Link`). Checks: W-board clippy clean, the
+three sim smokes, `./scripts/pre-commit` (ratchet +0), release `netdemo` on
+the Pico 2 W green (`net: up, ip 192.168.1.90`, echo round trip, `Done.`).
+Size: identical to S0.

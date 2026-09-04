@@ -27,6 +27,10 @@ pub mod uart;
 
 #[cfg(has_network)]
 pub mod net;
+// CYW43439 driver bindings and the WiFi bring-up task. Family code: the
+// chip is a link driver, not a framework concern (docs/designs/network-seam-2026-09.md D6).
+#[cfg(network_cyw43)]
+pub mod cyw43;
 #[cfg(network_cyw43)]
 pub mod pio_spi;
 // TRNG entropy for the network stack (NET-6). RP2350-only hardware; the

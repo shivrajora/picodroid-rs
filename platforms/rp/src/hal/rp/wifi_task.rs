@@ -6,7 +6,7 @@
 
 use freertos_rust::*;
 
-use crate::drivers::cyw43;
+use super::cyw43;
 
 extern "C" {
     /// C glue in net_init.c — registers the CYW43 network interface,
