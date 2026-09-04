@@ -87,3 +87,13 @@ pub enum NetErrorKind {
     /// Anything else; `raw` carries the family code.
     Other,
 }
+
+/// What kind of link a board's network driver is. For logs and for a
+/// driver's own use; Java's answer (`FEATURE_WIFI` / `FEATURE_ETHERNET`,
+/// `NetworkInfo.getType()`) comes from the `network_link_<kind>` cfg that
+/// `board_cfg.rs` emits from `network_type`, never from this value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkKind {
+    Wifi,
+    Ethernet,
+}

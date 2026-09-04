@@ -102,10 +102,13 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     )
     .unwrap();
 
-    // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
-    // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
+    // The network link task (Pico 2 W only): core's `run_link_task` drives
+    // this family's cyw43 link driver — driver init, MAC, IP stack start,
+    // WiFi join, then the driver poll loop.
     //
-    // Pinned to core 1 so core 0 stays free for the JVM.  This is safe under
+    // Pinned to core 1 so core 0 stays free for the JVM, and because
+    // `Cyw43Link::init` arms the host-wake IRQ on the calling core's NVIC
+    // bank (the RP2350 banks them per core).  This is safe under
     // real SMP (configRUN_MULTIPLE_PRIORITIES=1) because the gSPI transport
     // is PIO+DMA (`hal/rp/pio_spi.rs`): bus frames are clocked by the PIO
     // state machine and fed by DMA, so they complete autonomously no matter
@@ -122,7 +125,9 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
         crate::boot_budget::CYW43_STACK_WORDS,
         task_priority::PRIORITY_RT_2,
         task_affinity::CORE1,
-        move |_| crate::hal::wifi_task::run_cyw43_task(),
+        move |_| {
+            picodroid_core::hal::freertos_tcp::run_link_task(crate::hal::cyw43::link::Cyw43Link)
+        },
     )
     .unwrap();
 

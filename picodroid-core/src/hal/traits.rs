@@ -201,6 +201,43 @@ pub trait HalNet {
     fn dns_resolve(hostname: &str) -> Result<u32, NetError>;
 }
 
+/// A network link driver, as `hal::freertos_tcp::run_link_task` drives it
+/// (docs/designs/network-seam-2026-09.md). The family writes one per
+/// `network_type` — a WiFi chip, an SPI Ethernet MAC, an on-chip MAC — next
+/// to its C `NetworkInterface_<X>.c`, and spawns the runner on a task of its
+/// own choosing (core, stack, priority are the family's).
+///
+/// Every method runs on that task, in this order: [`init`](Self::init),
+/// [`mac`](Self::mac), then the shared C glue starts the IP stack, then
+/// [`bring_up`](Self::bring_up), then [`service`](Self::service) after every
+/// wake or timeout. Link-up is never asked here: shared code reads it from
+/// the IP stack (`HalNet::is_network_up`).
+pub trait NetLink {
+    /// What this link is. Logs only; Java reads the `network_link_<kind>` cfg.
+    const KIND: crate::hal::types::LinkKind;
+    /// Short name for logs: "cyw43", "w5500", "emac".
+    const NAME: &'static str;
+    /// How long the runner waits for a wake before calling `service` anyway.
+    /// `None` means this link needs no host service loop — an on-chip MAC
+    /// whose vendored driver runs its own task. The runner then returns
+    /// after `bring_up` and the family's task ends.
+    const SERVICE_TIMEOUT_MS: Option<u32>;
+    /// Reset the chip, load firmware, register the calling task as the wake
+    /// target (`crate::rtos::task_current()`). Runs before the IP stack
+    /// exists. `Err(code)` parks the task forever; the stack never starts.
+    fn init(&mut self) -> Result<(), i32>;
+    /// The MAC the endpoint is filled with: read from the chip (a WiFi
+    /// module's OTP) or supplied by the board or family (an SPI MAC has
+    /// none).
+    fn mac(&mut self) -> [u8; 6];
+    /// Runs once after the stack started: join the access point, unmask the
+    /// interrupt pin, start auto-negotiation. May be empty.
+    fn bring_up(&mut self);
+    /// One service pass after every wake or timeout: poll the chip, drain
+    /// its receive queue. Never called when `SERVICE_TIMEOUT_MS` is `None`.
+    fn service(&mut self);
+}
+
 /// Persistent storage behind `picodroid.io.File` and friends.
 ///
 /// Deliberately path-in / value-out with no handle type: LittleFS on the

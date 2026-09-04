@@ -131,7 +131,7 @@ fn main() {
                             extra_includes: &extra_includes,
                             extra_defines: &extra_defines,
                         });
-                        // hal/rp/wifi_task.rs bakes these in via option_env!;
+                        // hal/rp/cyw43/link.rs bakes these in via option_env!;
                         // without the rerun hints a credential/auth change is
                         // a cargo no-op and the old values stay in the firmware.
                         println!("cargo:rerun-if-env-changed=PICODROID_WIFI_SSID");

@@ -25,8 +25,9 @@ pub mod system_clock;
 pub mod touch;
 pub mod uart;
 
-// CYW43439 driver bindings and the WiFi bring-up task. Family code: the
-// chip is a link driver, not a framework concern (docs/designs/network-seam-2026-09.md D6).
+// The CYW43439 link driver: bindings plus `cyw43::link::Cyw43Link`, which
+// core's `run_link_task` drives. Family code: the chip is a link driver,
+// not a framework concern (docs/designs/network-seam-2026-09.md D6).
 #[cfg(network_cyw43)]
 pub mod cyw43;
 #[cfg(network_cyw43)]
@@ -38,5 +39,3 @@ pub mod pio_spi;
 pub mod entropy;
 #[cfg(all(has_network, feature = "chip-rp2350"))]
 pub mod trng;
-#[cfg(network_cyw43)]
-pub mod wifi_task;

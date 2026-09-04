@@ -44,5 +44,6 @@ mod traits;
 
 pub use facade::*;
 pub use traits::{
-    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch, HalUart,
+    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch,
+    HalUart, NetLink,
 };

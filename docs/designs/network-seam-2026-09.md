@@ -316,6 +316,9 @@ Both shapes use the same six items: `NetLink`, `run_link_task`,
   `libc_shims: false` field would handle it.
 - W-board device rows in `scripts/hil-tests.conf` remain the NET-7 handover's job.
 - The shrink map: new Java names stay un-shrunk until a release cut on `main`.
+- `picodroid_net_ip_event` logs `net: down` on every 3-second stack retry while
+  the link is not up (30 lines in a 90 s NONET soak). Log it once per
+  transition instead; a core-only change, not part of this seam work.
 
 ## 8. Docs and guards
 
@@ -343,6 +346,7 @@ same each time). W boards are not ratcheted; this table is the record.
 | S2 link kind is a build fact | 1,223,218 | 4 | 527,800 | 0 |
 | S3 shared C glue, entropy + descriptor seams | 1,223,158 | 4 | 527,800 | −60 |
 | S4 socket layer to core (`FreeRtosTcpNet`) | 1,223,398 | 4 | 527,800 | +180 |
+| S5 `NetLink` + `run_link_task`; cyw43 is a link driver | 1,223,534 | 4 | 527,800 | +316 |
 
 ## 10. Amendments
 
@@ -484,3 +488,39 @@ The three connect-failure cases on the board, with the ladder on its new
 clock: nothing listening on the test host → `Connection refused`; a silent
 LAN address → `Host unreachable`; a silent routed address → `connect timed
 out`. Same answers as before the move.
+
+### A8 — `main` merged after S4: the `third_party/` rename landed (2026-09-04)
+
+`main` gained `ebb70b0` (every submodule under `third_party/`) while S1–S4
+were in flight. Merged as `9746276` after S4, before S5. Two conflicts, both
+expected from A1: `build_support/network.rs` (the branch's rewrite wins; its
+two submodule constants now read `third_party/…`) and one line of the
+website architecture page. `platforms/rp/build.rs`'s cyw43 include dir moved
+to `third_party/` in the same commit. From here on every path in this doc
+and in the code says `third_party/`.
+
+### A9 — S5: the bring-up order is core's; cyw43 is a link driver (2026-09-04)
+
+`NetLink` (`hal/traits.rs`) and `LinkKind` (`hal/types.rs`) are the
+contract; `run_link_task` (`hal/freertos_tcp/mod.rs`) is the bring-up every
+link needs: `init` → `mac` → `picodroid_net_stack_init` → `bring_up` → the
+service loop on `rtos::task_wait_notification`, or return when the link
+needs no service task. `wifi_task.rs` became `hal/rp/cyw43/link.rs`:
+`Cyw43Link` with the credentials, the auth map, the log shim and the poll
+counter, all moved word for word into the trait's methods. `boot_tasks.rs`
+spawns `run_link_task(Cyw43Link)` on the same task, core, stack and priority
+as before. The porting checklist gained item 8 (`EXPECTED_SEAM_ITEMS` 41 →
+42), and the porting guide's networking section is now "The network": what
+core gives you, what you write, the reference. Checks: W-board clippy, the
+porting tests, `./scripts/pre-commit --full` (7m47s, ratchet +0), sim
+smokes, `netexception` in the W-board simulator, release `netdemo` on the
+Pico 2 W green (the join line now comes from `rp/cyw43/link.rs`). Size:
++136 B over S4 (the generic runner and its log lines).
+
+The NONET soak (a wrong SSID, 90 s of RTT) logged `net: down` 30 times and
+`net: up` never, once every 3 s. The same soak on the pre-S5 tree gives the
+same picture: that is FreeRTOS+TCP's own 3-second initialisation retry,
+which calls the down hook each time the link driver's `pfInitialise`
+returns pdFAIL. NET-2's flapping was an up/down alternation while a join was
+still in progress; there is none. Not a regression. Follow-up recorded in
+§7: log the down event only on a transition.

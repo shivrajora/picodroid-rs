@@ -19,7 +19,59 @@
 use core::ffi::c_void;
 
 use crate::hal::types::{NetError, NetErrorKind};
-use crate::hal::HalNet;
+use crate::hal::{HalNet, NetLink};
+use crate::rtos::{task_wait_notification, Timeout};
+
+extern "C" {
+    /// The shared stack glue (`picodroid-core/net-freertos-tcp/net_init.c`):
+    /// registers the board's link driver, fills a DHCP endpoint with `mac`,
+    /// and starts the FreeRTOS+TCP IP task.
+    fn picodroid_net_stack_init(mac: *const u8);
+}
+
+/// The bring-up every link needs, in the order every link needs it. The
+/// body of the network task a family spawns:
+///
+/// ```ignore
+/// task_affinity::spawn("cyw43", STACK, PRIORITY, CORE1,
+///     move |_| picodroid_core::hal::freertos_tcp::run_link_task(Cyw43Link))
+/// ```
+///
+/// Returns only for a link with no service loop (`SERVICE_TIMEOUT_MS ==
+/// None`); the family's task then ends. If `init` fails the task parks for
+/// ever and the stack never starts — a board without its link is a board
+/// without a network, not a reboot loop.
+pub fn run_link_task<L: NetLink>(mut link: L) {
+    crate::pd_info!("net: link {} init", L::NAME);
+    if let Err(code) = link.init() {
+        crate::pd_error!("net: link {} init failed ({}); no network", L::NAME, code);
+        loop {
+            task_wait_notification(Timeout::Forever);
+        }
+    }
+    let mac = link.mac();
+    crate::pd_info!(
+        "net: mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0],
+        mac[1],
+        mac[2],
+        mac[3],
+        mac[4],
+        mac[5]
+    );
+    // SAFETY: called once, on the link task, after the driver is up; the C
+    // side copies the six bytes before returning.
+    unsafe { picodroid_net_stack_init(mac.as_ptr()) };
+    link.bring_up();
+    let Some(timeout_ms) = L::SERVICE_TIMEOUT_MS else {
+        crate::pd_info!("net: link {} needs no service task", L::NAME);
+        return;
+    };
+    loop {
+        task_wait_notification(Timeout::Ms(timeout_ms));
+        link.service();
+    }
+}
 
 /// The FreeRTOS+TCP socket layer. Register with `set_hal_net!(FreeRtosTcpNet)`.
 pub struct FreeRtosTcpNet;
