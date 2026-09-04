@@ -10,6 +10,7 @@
 #   ./scripts/hil-run.sh --board testbench_rp2040 --app langsuite_kt --no-email
 #   ./scripts/hil-run.sh --no-email       # skip email report
 #   ./scripts/hil-run.sh --include-hw     # also run hardware-peripheral tests
+#   ./scripts/hil-run.sh --app netdemo --no-email   # one `net` row (needs .wifi-creds.env)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -70,6 +71,13 @@ Options:
                   test runs once per mode to catch regressions on either side.
   --no-email      Skip sending the email report
   -h, --help      Show this help message
+
+net rows (netdemo, http_get) build the row's own W-board firmware with the
+WiFi credentials from the gitignored .wifi-creds.env at the repo root
+(PICODROID_WIFI_SSID=... / PICODROID_WIFI_PASS=...), point the app at this
+machine's LAN IP, and run an echo server (7000) and an HTTP server (8000)
+here for the duration. Without the creds file, or when the row's MCU is not
+the one on the probe, they are SKIPped with a reason.
 EOF
       exit 0
       ;;
@@ -88,6 +96,22 @@ if [[ -z "$PROBE_CHIP" ]]; then
   echo "ERROR: no probe-rs chip mapping for this board's MCU (see resolve_board in lib.sh)." >&2
   exit 1
 fi
+
+# The command-line board is the one physically on the probe. `net` rows
+# switch resolve_board to their own (W) board for one row and come back to
+# this one afterwards; a row whose MCU differs from DEFAULT_MCU is skipped
+# rather than flashed onto the wrong chip.
+DEFAULT_BOARD="$BOARD"
+DEFAULT_MCU="$MCU"
+
+# `net` row prerequisites, checked once. Only presence is logged, never values.
+NET_CREDS_FILE="$REPO_ROOT/.wifi-creds.env"
+HAVE_NET_CREDS=false
+if [[ -f "$NET_CREDS_FILE" ]] \
+   && grep -qE '^PICODROID_WIFI_SSID=.+' "$NET_CREDS_FILE" 2>/dev/null; then
+  HAVE_NET_CREDS=true
+fi
+NET_TEST_HOST="$(host_lan_ip || true)"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -456,7 +480,7 @@ send_report() {
 # released on every exit path.
 export PICODROID_DEVICE_OWNER="${PICODROID_DEVICE_OWNER:-hil-run}"
 export PICODROID_DEVICE_OWNER_PID=$$
-trap 'bash "$SCRIPT_DIR/device-lock.sh" release >/dev/null 2>&1 || true' EXIT
+trap 'stop_net_listeners; bash "$SCRIPT_DIR/device-lock.sh" release >/dev/null 2>&1 || true' EXIT
 hil_log "Waiting for the device lock (up to ${HIL_LOCK_WAIT}s)..."
 lock_rc=0
 bash "$SCRIPT_DIR/device-lock.sh" acquire --wait "$HIL_LOCK_WAIT" \
@@ -503,26 +527,40 @@ fi
 hil_log "========================================="
 hil_log "HIL Run: $RUN_ID"
 hil_log "========================================="
+hil_log "Board on probe: $DEFAULT_BOARD ($DEFAULT_MCU)"
+hil_log "net rows: creds $([[ "$HAVE_NET_CREDS" == "true" ]] && echo present || echo MISSING) (.wifi-creds.env), test host ${NET_TEST_HOST:-NONE}"
 
 PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 
 run_test() {
-  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5"
+  local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" row_board="${6:-}"
   local tag="${app}[${mode}]"
   local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
 
   TOTAL=$((TOTAL + 1))
-  hil_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
+  hil_log "--- [$TOTAL] $tag ($category, ${timeout}s${row_board:+, board $row_board}) ---"
+
+  # Per-row board (net rows): resolve_board swaps BOARD_FEATURE/TARGET/... for
+  # this row; the caller restores DEFAULT_BOARD afterwards.
+  local board="$DEFAULT_BOARD"
+  if [[ -n "$row_board" ]]; then
+    resolve_board "$row_board"
+    board="$row_board"
+  fi
 
   # Power cycle devices to ensure clean state.
   power_cycle_all
 
   # Build APK (mode-tagged; --shrink iff this iteration is the shrunk one).
   hil_log "  Building APK..."
-  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
+  local -a apk_args=(--app "$app" --board "$board" --strip-debug)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
-  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+  # net rows: bake this machine's LAN IP into the app's NetTestConfig.HOST
+  # (build-apk.sh forwards the env var as a per-invocation Gradle property).
+  local -a apk_env=()
+  [[ "$category" == "net" ]] && apk_env+=(PICODROID_NET_TEST_HOST="$NET_TEST_HOST")
+  if ! env "${apk_env[@]}" bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (APK)"
     echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -538,6 +576,14 @@ run_test() {
   hil_log "  Building firmware (release)..."
   local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  # net rows: WiFi credentials are option_env! in the W firmware. Read straight
+  # from the creds file into the env array; they never touch a log line.
+  if [[ "$category" == "net" ]]; then
+    local cred
+    while IFS= read -r cred; do
+      cargo_env+=("$cred")
+    done < <(grep -E '^PICODROID_WIFI_(SSID|PASS|AUTH)=' "$NET_CREDS_FILE")
+  fi
   if ! env "${cargo_env[@]}" cargo build \
     -p picodroid \
     --release \
@@ -577,7 +623,7 @@ run_test() {
 
   local result=1  # assume failure
 
-  if [[ "$category" == "term" || "$category" == "hw" ]]; then
+  if [[ "$category" == "term" || "$category" == "hw" || "$category" == "net" ]]; then
     # Poll for expected output, kill early on match.
     local elapsed=0
     while kill -0 "$run_pid" 2>/dev/null && [[ $elapsed -lt $effective_timeout ]]; do
@@ -645,13 +691,50 @@ for MODE in "${MODES[@]}"; do
   hil_log "Mode: $MODE"
   hil_log "========================================="
 
-  while IFS='|' read -r app category timeout patterns pdb_cmd; do
+  # The 5th column is the pdb command for pdb rows and the board for net rows.
+  while IFS='|' read -r app category timeout patterns extra; do
+    pdb_cmd="$extra"
     # Skip comments and blank lines.
     [[ "$app" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$app" ]] && continue
 
     # If specific app requested, skip others.
     if [[ -n "$SPECIFIC_APP" && "$app" != "$SPECIFIC_APP" ]]; then
+      continue
+    fi
+
+    # net rows: W-board firmware + creds + host listeners. Skip with a reason
+    # when a prerequisite is missing so a checkout without bench creds, or a
+    # different board on the probe, stays green instead of red.
+    if [[ "$category" == "net" ]]; then
+      net_skip=""
+      if [[ "$HAVE_NET_CREDS" != "true" ]]; then
+        net_skip="no .wifi-creds.env"
+      elif [[ -z "$NET_TEST_HOST" ]]; then
+        net_skip="no LAN IP"
+      else
+        resolve_board "$extra"
+        row_mcu="$MCU"
+        resolve_board "$DEFAULT_BOARD"
+        if [[ "$row_mcu" != "$DEFAULT_MCU" ]]; then
+          net_skip="row board $extra is $row_mcu, probe has $DEFAULT_MCU"
+        fi
+      fi
+      if [[ -n "$net_skip" ]]; then
+        hil_log "SKIP $app[$MODE] ($net_skip)"
+        echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        continue
+      fi
+      if ! start_net_listeners "$RUN_LOG_DIR"; then
+        hil_log "ERROR $app[$MODE] ($NET_LISTENER_ERR)"
+        echo "ERROR $app[$MODE] (listeners)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        TOTAL=$((TOTAL + 1))
+        continue
+      fi
+      run_test "$app" "$category" "$timeout" "$patterns" "$MODE" "$extra"
+      resolve_board "$DEFAULT_BOARD"
       continue
     fi
 
@@ -706,6 +789,7 @@ done
 
 # Give the board back before the summary and email (the EXIT trap is the
 # safety net for every other exit path). This also kills a lingering probe-rs.
+stop_net_listeners
 bash "$SCRIPT_DIR/device-lock.sh" release 2>&1 | while IFS= read -r line; do hil_log "  lock: $line"; done || true
 
 # Summary.
