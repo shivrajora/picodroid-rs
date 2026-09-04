@@ -99,7 +99,7 @@ cache miss against the same `ucRepCount`, so an unresolvable host aborts
 in ≈1.5 s), and SYN-retransmission exhaustion (≥9 s) all converge on
 `eCLOSE_WAIT`; `-ETIMEDOUT` (-116) only appears when a finite block time
 expires first. The HAL classifies -128 by elapsed time (`tcp_connect` in
-`platforms/rp/src/hal/rp/net.rs`: <1 s → Refused, ≤6 s → Unreachable
+`picodroid-core/src/hal/freertos_tcp/mod.rs` (was `platforms/rp/src/hal/rp/net.rs`): <1 s → Refused, ≤6 s → Unreachable
 (NoRouteToHostException), else TimedOut — the stack's timing ladder keeps
 the causes far apart). If the upstream rebase changes which state an
 aborted connect lands in, re-verify all three netdemo failure cases on

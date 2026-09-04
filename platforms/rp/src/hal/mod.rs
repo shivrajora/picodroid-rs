@@ -83,7 +83,9 @@ pub use chip::{boot, flash};
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::core1_park;
 
-#[cfg(has_network)]
+// Host sockets for the simulator and the host tests. On the device the
+// socket layer is core's `FreeRtosTcpNet`, registered in glue.rs.
+#[cfg(all(has_network, any(test, feature = "sim")))]
 pub use chip::net;
 
 // The cyw43 bring-up task. Device-only: the shared simulator has no such

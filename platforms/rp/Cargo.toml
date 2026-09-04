@@ -56,7 +56,7 @@ sim = ["picodroid-core/sim", "dep:freertos-rust"]
 [dependencies]
 # No `compat` / `pdb-protocol` here: this crate names neither. Both still
 # reach the binary through picodroid-core, which does use them.
-picodroid-core = { path = "../../picodroid-core", features = ["littlefs"] }
+picodroid-core = { path = "../../picodroid-core", features = ["littlefs", "freertos-tcp"] }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
 embedded-hal = { version = "1.0.0" }

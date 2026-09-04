@@ -53,25 +53,6 @@ fn wifi_auth_mode() -> Option<u32> {
     }
 }
 
-/// Network up/down events from FreeRTOS+TCP (net_init.c hook).
-/// `ip_nbo` is the endpoint address in network byte order within a
-/// little-endian u32, so the first octet is the low byte.
-#[no_mangle]
-pub extern "C" fn picodroid_net_ip_event(up: u32, ip_nbo: u32) {
-    let o = ip_nbo.to_le_bytes();
-    if up != 0 {
-        defmt::info!(
-            "net: up, ip {=u8}.{=u8}.{=u8}.{=u8}",
-            o[0],
-            o[1],
-            o[2],
-            o[3]
-        );
-    } else {
-        defmt::warn!("net: down");
-    }
-}
-
 /// CYW43 driver log shim: receives the already-formatted message from
 /// the C-side mini formatter (picodroid_cyw43_log_fmt in cyw43_port.c).
 ///

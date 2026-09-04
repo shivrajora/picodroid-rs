@@ -20,7 +20,9 @@
 //!    write the slice pair and stop. [`GpioEventRing`] and [`TouchOverride`]
 //!    are the edge queue and scripted-touch state machine every family
 //!    needs — use them rather than writing your own.
-//!    [`HalNet`] only on a board with `has_network`, via [`set_hal_net!`];
+//!    [`HalNet`] only on a board with `has_network`, via [`set_hal_net!`]
+//!    (a FreeRTOS+TCP family registers core's `FreeRtosTcpNet` there —
+//!    feature `freertos-tcp` — and writes no socket code);
 //!    [`HalFs`] via [`set_hal_fs!`] — see item 4.
 //! 2. **The kernel (trait + macro).** Implement [`Rtos`] and register with
 //!    [`set_rtos!`]. Stack sizes are **bytes**; map [`TaskKind`] to your
@@ -102,6 +104,8 @@ pub use crate::set_platform_hooks;
 // ── 4. filesystem ──────────────────────────────────────────────────────────
 #[cfg(all(feature = "littlefs", not(test)))]
 pub use crate::fs::{init_device, spawn_worker, FsBackingStore, FsGeometry, LittleFsHal};
+#[cfg(all(feature = "freertos-tcp", has_network, not(any(test, feature = "sim"))))]
+pub use crate::hal::freertos_tcp::FreeRtosTcpNet;
 
 // ── 5. debug bridge and installer ──────────────────────────────────────────
 pub use crate::install::{

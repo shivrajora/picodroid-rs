@@ -27,6 +27,10 @@ sim        = ["dep:freertos-rust"]
 # A family that opts in supplies an `fs::FsBackingStore` and registers
 # `fs::LittleFsHal` (docs/designs/family-neutral-residue.md D2).
 littlefs   = ["dep:littlefs-rust"]
+# The FreeRTOS+TCP socket layer and link runner (hal/freertos_tcp). A family
+# on FreeRTOS+TCP turns it on and registers `FreeRtosTcpNet`; a family on
+# another IP stack implements HalNet itself and links none of this.
+freertos-tcp = []
 # Board selection — forwarded by the binary crate's board-* features so this
 # crate's build.rs can resolve the same board.toml and generate the neutral
 # config (JVM sizing, sensor/button tables, display dims) from it.

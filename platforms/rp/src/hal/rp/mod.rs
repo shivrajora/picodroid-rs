@@ -25,8 +25,6 @@ pub mod system_clock;
 pub mod touch;
 pub mod uart;
 
-#[cfg(has_network)]
-pub mod net;
 // CYW43439 driver bindings and the WiFi bring-up task. Family code: the
 // chip is a link driver, not a framework concern (docs/designs/network-seam-2026-09.md D6).
 #[cfg(network_cyw43)]

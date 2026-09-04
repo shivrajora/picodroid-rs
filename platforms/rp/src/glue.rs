@@ -214,15 +214,20 @@ picodroid_core::set_hal! {
 #[cfg(not(test))]
 picodroid_core::set_hal_fs!(picodroid_core::fs::LittleFsHal);
 
-#[cfg(has_network)]
+// The device socket layer is core's FreeRTOS+TCP implementation; this
+// family only picks it (docs/designs/network-seam-2026-09.md D4). The
+// simulator and the host tests keep the host-socket arm below.
+#[cfg(all(has_network, not(any(test, feature = "sim"))))]
+picodroid_core::set_hal_net!(picodroid_core::hal::freertos_tcp::FreeRtosTcpNet);
+
+#[cfg(all(has_network, any(test, feature = "sim")))]
 mod net_glue {
     use super::Platform;
     use core::ffi::c_void;
     use picodroid_core::hal::types::NetError;
 
-    // Both chip arms (rp and the shared simulator) return the shared
-    // `hal::types::NetError` directly — each family classifies its own
-    // errno space at its boundary, so this glue is a pure pass-through.
+    // The shared simulator's host sockets return the shared
+    // `hal::types::NetError` directly, so this glue is a pure pass-through.
     impl picodroid_core::hal::HalNet for Platform {
         fn tcp_socket() -> Result<*mut c_void, NetError> {
             crate::hal::net::tcp_socket()

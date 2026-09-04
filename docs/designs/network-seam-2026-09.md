@@ -342,6 +342,7 @@ same each time). W boards are not ratcheted; this table is the record.
 | S1 cyw43 bindings leave core | 1,223,218 | 4 | 527,800 | 0 |
 | S2 link kind is a build fact | 1,223,218 | 4 | 527,800 | 0 |
 | S3 shared C glue, entropy + descriptor seams | 1,223,158 | 4 | 527,800 | −60 |
+| S4 socket layer to core (`FreeRtosTcpNet`) | 1,223,398 | 4 | 527,800 | +180 |
 
 ## 10. Amendments
 
@@ -450,3 +451,36 @@ header rejection proven by hand, `pico_enviro_mon_w` built by hand,
 `./scripts/pre-commit --full` green (5m57s), sim smokes, release `netdemo`
 on the Pico 2 W green (DHCP lease and TCP connect prove the entropy seam).
 Size: −60 B on the W image.
+
+### A7 — S4: the socket layer is core's `FreeRtosTcpNet` (2026-09-03)
+
+`platforms/rp/src/hal/rp/net.rs` → `picodroid-core/src/hal/freertos_tcp/mod.rs`
+as `pub struct FreeRtosTcpNet; impl HalNet`, behind the new core feature
+`freertos-tcp` plus `has_network` and `not(any(test, feature = "sim"))`. The
+family registers it with one line, `set_hal_net!(FreeRtosTcpNet)`, next to
+`set_hal_fs!(LittleFsHal)`; its 14-line forwarding `impl HalNet for Platform`
+survives only for the simulator and host tests, which keep host sockets.
+The connect ladder times itself with `hal::system_clock::elapsed_realtime_nanos`
+(the seam guard forbids `xTaskGetTickCount` in core; the thresholds are the
+same milliseconds). `picodroid_net_ip_event` moved here too, logging through
+`pd_info!`/`pd_warn!` with the same text. The trait impl carries the same
+`allow(clippy::not_unsafe_ptr_arg_deref)` as the facade, for the same reason.
+
+Sizes. W image +240 B over S3 (the trait impl and the clock facade calls are
+not inlined the way the family's free functions were; the log lines moved
+from defmt typed hints to `{}`). `testbench_rp2040`, which compiles none of
+this, measured +4 B in the pre-commit size lane; a symbol-by-symbol
+comparison of the S3 commit and the S4 tree (`arm-none-eabi-nm -S`) found
+identical section sizes and no symbol whose size changed — only the crate
+hash suffixes differ, because a new Cargo feature changes the metadata hash
+and the linker orders the renamed symbols differently. Accepted with a
+`size:` trailer as linker padding, not code.
+
+Checks: W-board clippy, `./scripts/pre-commit --full` (every lane green
+except the +4 B ratchet, accepted), sim smokes, `netexception` in the W-board
+simulator (5 PASS, `ALL PASS` — host sockets intact), release `netdemo` on
+the Pico 2 W green with the up/down events now logged from core.
+The three connect-failure cases on the board, with the ladder on its new
+clock: nothing listening on the test host → `Connection refused`; a silent
+LAN address → `Host unreachable`; a silent routed address → `connect timed
+out`. Same answers as before the move.
