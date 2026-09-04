@@ -96,7 +96,7 @@ A family is its own binary crate under `platforms/<name>/`, depending on `picodr
 
 ### HAL CONTRACT v2
 
-The contract is the trait set in [`picodroid_core::hal`](picodroid-core/src/hal/traits.rs): `HalDisplay`, `HalGpio`, `HalClock`, `HalTouch`, `HalI2c`, `HalAdc`, `HalPwm`, `HalSpi`, `HalUart`, `HalFs`, and `HalNet` under `cfg(has_network)`. A family implements them and calls `set_hal!`, which emits the `#[no_mangle]` shims that core's facade binds at link time. A drifted signature fails to compile at the impl.
+The contract is the trait set in [`picodroid_core::hal`](picodroid-core/src/hal/traits.rs): `HalDisplay`, `HalGpio`, `HalClock`, `HalTouch`, `HalI2c`, `HalAdc`, `HalPwm`, `HalSpi`, `HalUart`, `HalFs`, `HalNet` under `cfg(has_network)`, and `NetLink` — the network link driver a FreeRTOS+TCP family writes for its chip, driven by core's `run_link_task` (`docs/designs/network-seam-2026-09.md`). A family implements them and calls `set_hal!`, which emits the `#[no_mangle]` shims that core's facade binds at link time. A drifted signature fails to compile at the impl.
 
 This replaced v1's hand-written doc-block plus matching assertion list. The two had fallen out of step: converting to traits found `net::udp_sendto`/`udp_recvfrom` and `i2c::{write,read}` / `spi::{transfer,write}` / `uart::reconfigure` in live use by the natives and named in neither half.
 

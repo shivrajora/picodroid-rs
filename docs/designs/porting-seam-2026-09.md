@@ -892,3 +892,10 @@ S8 +12). The size ratchet's baseline is accepted at the new figure.
 **Still owed:** the rp2040 half of the S3/S6/S7 hardware gates, and a
 real-button board for the idle-wake path (A9). **Not this doc's:** the
 `bootcount` re-run observed on both this branch and main (A9).
+
+### A11 — E8 closed: networking has its own doc (2026-09-04)
+
+`docs/designs/network-seam-2026-09.md` did what E8 deferred. The porting
+guide's "Networking is family-owned today" section became "The network";
+`picodroid_core::porting` gained item 8 and the `NetLink` seam
+(`EXPECTED_SEAM_ITEMS` 41 → 42).

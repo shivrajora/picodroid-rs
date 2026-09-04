@@ -167,7 +167,7 @@ creds-from-environment plumbing, the HIL-host listeners, and a `net` category â€
 `drivers/cyw43.rs` exposes `WPA3_SAE_AES` / `WPA3_WPA2_AES` and
 `wifi_join` takes an auth override; `PICODROID_WIFI_AUTH`
 (`open|wpa2|wpa3|wpa2wpa3`, unset = historical automatic choice) selects it
-at build time in `wifi_task.rs`. `platforms/rp/build.rs` now emits
+at build time in `hal/rp/cyw43/link.rs` (was `wifi_task.rs`). `platforms/rp/build.rs` now emits
 `rerun-if-env-changed` for SSID/PASS/AUTH â€” previously a credential change
 was a cargo no-op. Untested against a real WPA3 AP (none on the bench);
 WPA2 verified unaffected on HW.

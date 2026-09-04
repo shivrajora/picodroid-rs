@@ -1,7 +1,8 @@
 # Networking seams for FreeRTOS + FreeRTOS+TCP families
 
-Status: in progress (2026-09-03). Branch `refactor/network-seam`, worktree
-`.claude/worktrees/network-seam`, base `main` at `fedf6cb`.
+Status: done on branch `refactor/network-seam` (2026-09-04), not yet merged to
+`main`. Worktree `.claude/worktrees/network-seam`, base `main` at `fedf6cb`,
+`main` merged back in after S4 (A8).
 
 Successor to `family-neutral-residue.md` §6 ("Phase N — networking") and to
 `porting-seam-2026-09.md` E8, which deferred networking to "its own doc".
@@ -551,3 +552,34 @@ the W-board simulator; the host tests. On the Pico 2 W, the
 +420 B over S5; the ratcheted boards grow by the stub arm, the member name
 and the feature string (`testbench_rp2040` +168 B) plus the embedded class
 (`testbench_rp2350` +404 B), accepted with size trailers.
+
+### A11 — closing (2026-09-04)
+
+Seven stage commits and one merge of `main`. What a FreeRTOS + FreeRTOS+TCP
+family now writes for networking: `NetworkInterface_<X>.c` (defining
+`pxPicodroidNetLink_FillInterfaceDescriptor`), a `NetLink` type, a
+`picodroid_port_entropy32`, a `FreeRTOSIPConfig_family.h`, a spawn of
+`run_link_task`, one `build_freertos_tcp(&NetStackBuild { … })` call and one
+`set_hal_net!(FreeRtosTcpNet)`. Everything else — sockets, stack start-up,
+the five hooks, the IP policy — is core's. The Ethernet checklists in §6
+were re-read against the finished seams; nothing in them needs a core
+change.
+
+Final numbers (§9): the W image grew 736 B over S0 (the trait-object-free
+socket layer as a trait impl, the generic runner, the log lines, the Java
+additions); the ratcheted boards grew only in S6 (+168 B / +404 B) plus 4 B
+of linker padding in S4, all accepted with trailers. `platforms/rp/src`
+lost `net.rs` and `wifi_task.rs` (549 lines) and gained `cyw43/link.rs`,
+`entropy.rs` and the family IP header (~200 lines); core gained
+`hal/freertos_tcp/` and `net-freertos-tcp/` (~700 lines).
+
+The final `./scripts/pre-commit --full` is green in every lane but one: the
+`--shrink` image check reports `picodroid/net/ConnectivityManager`, which
+is the expected leak until the next release cut on `main` folds the new
+names into the shrink map. The website builds with its link check. The
+worktree's `.cargo/config.toml` carries the stripped rustflags arrays of the
+worktree recipe and was never staged.
+
+Owed: nothing on the Pico 2 W — every stage ran there. Not run: an rp2040
+board (no rp2040 board has a network; its image is covered by the ratchet).
+The follow-ups in §7 stand.
