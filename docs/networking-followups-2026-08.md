@@ -137,7 +137,16 @@ harvest is still sampling the timer-seeded LCG fills in, and every TRNG
 word XOR-mixes into the LCG state so even the fallback stream stops being
 predictable after the first harvest.
 
-## NET-7: HIL coverage for networking — PARTIAL 2026-08-15
+## NET-7: HIL coverage for networking — DONE 2026-09-04
+
+**2026-09-04: the device half landed.** `scripts/hil-tests.conf` has a `net`
+category with two rows (`netdemo`, `http_get`) built as `testbench_rp2350w`
+firmware. `hil-run.sh` reads `.wifi-creds.env` into the firmware build,
+bakes the host's LAN IP into the app, and runs the echo (7000) and HTTP
+(8000) servers itself (`lib.sh::start_net_listeners`); `sim-run.sh` runs the
+same rows against loopback. Details and the pattern correction are in
+`docs/nightly-networking-handover.md`. The 2026-08-15 status follows.
+
 
 Landed:
 

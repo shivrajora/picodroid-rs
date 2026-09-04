@@ -7,7 +7,26 @@ red instead of waiting for someone to flash a demo by hand. Written to be
 executed cold; every seam named below was verified in the tree at handover
 time.
 
-## The fact that makes this cheap
+## Status: landed 2026-09-04
+
+Everything under "Work items" is in the tree:
+
+- `net` category in `scripts/hil-tests.conf`, validated by
+  `scripts/check-hil-conf.sh` (board column required, `has_network = true`).
+- `scripts/lib.sh`: `host_lan_ip`, `start_net_listeners`,
+  `stop_net_listeners` (kill by PID; shared by both runners).
+- `scripts/hil-run.sh`: per-row board via the 5th column, creds read from
+  `.wifi-creds.env` into the firmware build (never logged), LAN IP into the
+  APK build, SKIP with a reason when creds are missing or the row's MCU is
+  not the one on the probe, listeners started before the first `net` row
+  and stopped on exit.
+- `scripts/sim-run.sh`: runs `net` rows against 127.0.0.1 with the same
+  listeners.
+
+One correction to §6 below: the apps log `"  status="` with leading spaces,
+so the device line is `HttpGet:   status=200` and the row uses
+`HttpGet[]:] +status=200` (the pattern as written here never matched).
+
 
 **The attached HIL board is physically a Pico 2 W.** Verified 2026-08-15:
 `testbench_rp2350w` firmware was flashed onto the attached board and joined

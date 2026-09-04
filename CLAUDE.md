@@ -59,7 +59,7 @@ you want readable output. Per-run logs are kept under `build/pre-commit/`.
 Do not consider a code change complete until the sim smoke test and
 `./scripts/pre-commit` pass; run `--full` before you push.
 
-WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
+WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root. `hil-run.sh` reads that file itself for the `net` rows of `hil-tests.conf` and SKIPs them when it is missing.
 
 ## Shared dev board: the device lock
 
