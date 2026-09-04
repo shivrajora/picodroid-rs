@@ -9,10 +9,10 @@ use std::path::Path;
 /// Compile LVGL C sources into a static library.
 ///
 /// `repo_root` must be the absolute path to the repository root so that
-/// `vendor/lvgl` and `lv_conf.h` can be located regardless of which
+/// `third_party/lvgl` and `lv_conf.h` can be located regardless of which
 /// `platforms/<family>/` directory the build.rs runs from.
 pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>, repo_root: &Path) {
-    let lvgl_src = repo_root.join("vendor/lvgl/src");
+    let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
         return;
     }
@@ -42,7 +42,7 @@ pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>, repo_root
         })
         .collect();
 
-    let lvgl_dir = repo_root.join("vendor/lvgl");
+    let lvgl_dir = repo_root.join("third_party/lvgl");
     let mut build = cc::Build::new();
     build
         .include(repo_root)

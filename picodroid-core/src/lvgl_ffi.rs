@@ -92,7 +92,7 @@ const LV_INDEV_GESTURE_CNT: usize = 6;
 /// it is a single byte.
 pub type lv_indev_gesture_type_t = u8;
 
-/// Layout matches `lv_indev_data_t` in vendor/lvgl/src/indev/lv_indev.h.
+/// Layout matches `lv_indev_data_t` in third_party/lvgl/src/indev/lv_indev.h.
 /// The leading `gesture_type` / `gesture_data` arrays were added in v9.5.0
 /// and `state` was reordered to precede `point`. We don't fill the gesture
 /// fields ourselves — LVGL initialises them — so we just need the offsets
@@ -141,7 +141,7 @@ pub const LV_ANIM_OFF: lv_anim_enable_t = 0;
 pub const LV_ANIM_ON: lv_anim_enable_t = 1;
 
 pub type lv_event_code_t = u32;
-// Values verified against vendor/lvgl/src/misc/lv_event.h in LVGL 9.5.0.
+// Values verified against third_party/lvgl/src/misc/lv_event.h in LVGL 9.5.0.
 // See project_lvgl_ffi_constants.md memory: wrong values silently route to
 // wrong handlers and can cause infinite render loops.
 //
@@ -180,7 +180,7 @@ pub const LV_FLEX_ALIGN_END: lv_flex_align_t = 1;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
 /// Linear-gradient direction. Values verified against
-/// vendor/lvgl/src/misc/lv_style.h. v1 GradientDrawable only exposes
+/// third_party/lvgl/src/misc/lv_style.h. v1 GradientDrawable only exposes
 /// NONE / VER / HOR — LINEAR (arbitrary angle) and RADIAL are deferred.
 pub type lv_grad_dir_t = u32;
 pub const LV_GRAD_DIR_NONE: lv_grad_dir_t = 0;
@@ -188,7 +188,7 @@ pub const LV_GRAD_DIR_VER: lv_grad_dir_t = 1;
 pub const LV_GRAD_DIR_HOR: lv_grad_dir_t = 2;
 
 /// Direction bitmask used by `lv_indev_get_gesture_dir`. Verified against
-/// vendor/lvgl/src/misc/lv_area.h:78-86. Only one of LEFT/RIGHT/TOP/BOTTOM
+/// third_party/lvgl/src/misc/lv_area.h:78-86. Only one of LEFT/RIGHT/TOP/BOTTOM
 /// is set per gesture event; HOR / VER / ALL are convenience composites.
 pub type lv_dir_t = u8;
 pub const LV_DIR_NONE: lv_dir_t = 0x00;
@@ -200,7 +200,7 @@ pub const LV_DIR_HOR: lv_dir_t = LV_DIR_LEFT | LV_DIR_RIGHT;
 pub const LV_DIR_VER: lv_dir_t = LV_DIR_TOP | LV_DIR_BOTTOM;
 
 /// Scrollbar visibility mode. Values verified against
-/// vendor/lvgl/src/core/lv_obj_scroll.h:31-36. Plain C enum → 1 byte under
+/// third_party/lvgl/src/core/lv_obj_scroll.h:31-36. Plain C enum → 1 byte under
 /// `-fshort-enums` (see build_support/lvgl.rs), same as `lv_dir_t` above.
 /// Only OFF is exposed for now: EditText hides scrollbars to match Android.
 pub type lv_scrollbar_mode_t = u8;
@@ -229,7 +229,7 @@ pub struct lv_calendar_date_t {
 }
 
 /// Soft-keyboard mode. Verified against
-/// vendor/lvgl/src/widgets/keyboard/lv_keyboard.h. Only the four
+/// third_party/lvgl/src/widgets/keyboard/lv_keyboard.h. Only the four
 /// "primary" modes are exposed; the various "user-defined" modes are
 /// deferred until apps need custom layouts.
 pub type lv_keyboard_mode_t = u32;
@@ -240,7 +240,7 @@ pub const LV_KEYBOARD_MODE_NUMBER: lv_keyboard_mode_t = 3;
 pub type lv_style_selector_t = u32;
 
 /// Part selectors for style setters. Verified against
-/// `vendor/lvgl/src/core/lv_obj_style.h:61-63`. The selector u32 packs both
+/// `third_party/lvgl/src/core/lv_obj_style.h:61-63`. The selector u32 packs both
 /// the part (high bits) and the state (low bits); passing `0` selects
 /// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
@@ -251,7 +251,7 @@ pub type lv_part_t = u32;
 /// `lv_style_prop_t` is `uint8_t` in LVGL 9 (`lv_types.h`).
 pub type lv_style_prop_t = u8;
 
-/// Style property ids from `vendor/lvgl/src/misc/lv_style.h` — the
+/// Style property ids from `third_party/lvgl/src/misc/lv_style.h` — the
 /// `lv_style_prop_t` enum mixes explicit `= N` anchors with implicit
 /// ordinals, so these are pinned by `tests::lv_style_prop_constants_match_vendored_header`.
 /// Only the props the animation engine reads back are declared.
@@ -277,7 +277,7 @@ pub const LV_BUTTONMATRIX_CTRL_CHECKED: u16 = 0x0100;
 pub const LV_BUTTONMATRIX_BUTTON_NONE: u32 = 0xFFFF;
 
 /// Inner-alignment mode for `lv_image`. Verified against
-/// `vendor/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid
+/// `third_party/lvgl/src/widgets/image/lv_image.h:43-59`. The picodroid
 /// `ImageView` exposes a subset that maps to Android's `ScaleType` enum;
 /// `LV_IMAGE_ALIGN_CENTER` (the default after `setScaleType` is unset)
 /// renders unscaled and centered.
@@ -289,7 +289,7 @@ pub const LV_IMAGE_ALIGN_CONTAIN: lv_image_align_t = 13;
 pub const LV_IMAGE_ALIGN_COVER: lv_image_align_t = 14;
 
 /// LVGL color format (`lv_color_format_t`). Values from
-/// `vendor/lvgl/src/misc/lv_color.h`. Only the formats picodroid emits
+/// `third_party/lvgl/src/misc/lv_color.h`. Only the formats picodroid emits
 /// from `papk-pack` are exposed here.
 pub type lv_color_format_t = u8;
 pub const LV_COLOR_FORMAT_RGB888: lv_color_format_t = 0x0F;
@@ -297,10 +297,10 @@ pub const LV_COLOR_FORMAT_ARGB8888: lv_color_format_t = 0x10;
 pub const LV_COLOR_FORMAT_RGB565: lv_color_format_t = 0x12;
 
 /// Magic byte at the top of `lv_image_header_t::magic` for a v9 image
-/// descriptor. See `vendor/lvgl/src/draw/lv_image_dsc.h`.
+/// descriptor. See `third_party/lvgl/src/draw/lv_image_dsc.h`.
 pub const LV_IMAGE_HEADER_MAGIC: u8 = 0x19;
 
-/// Mirror of `lv_image_header_t` (`vendor/lvgl/src/draw/lv_image_dsc.h:98-107`).
+/// Mirror of `lv_image_header_t` (`third_party/lvgl/src/draw/lv_image_dsc.h:98-107`).
 ///
 /// The C struct uses bitfields packed into 32-bit words. We encode the same
 /// bits manually into `flags` (low byte = magic, next byte = cf, top 16 = flags)
@@ -333,7 +333,7 @@ impl lv_image_header_t {
     }
 }
 
-/// Mirror of `lv_image_dsc_t` (`vendor/lvgl/src/draw/lv_image_dsc.h:110-138`).
+/// Mirror of `lv_image_dsc_t` (`third_party/lvgl/src/draw/lv_image_dsc.h:110-138`).
 /// `data` points into XIP-mapped flash for bundled assets, so the descriptor
 /// itself can live in RAM without needing to copy the pixel buffer.
 #[repr(C)]
@@ -853,7 +853,7 @@ mod tests {
     //! the Rust constants we depend on still match.
     use super::*;
 
-    const LV_EVENT_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_event.h");
+    const LV_EVENT_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_event.h");
 
     /// Extract the ordinal of `name` from the `lv_event_code_t` enum body.
     /// Returns `None` if the enum or the name is missing.
@@ -938,18 +938,22 @@ mod tests {
     //    LV_GRAD_DIR_*, LV_SCROLLBAR_MODE_*): tiny enums whose upstream
     //    reshuffling is near-inconceivable relative to parse maintenance.
 
-    const LV_GROUP_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_group.h");
-    const LV_OBJ_STYLE_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_obj_style.h");
-    const LV_OBJ_HEADER: &str = include_str!("../../vendor/lvgl/src/core/lv_obj.h");
-    const LV_COLOR_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_color.h");
-    const LV_AREA_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_area.h");
-    const LV_FLEX_HEADER: &str = include_str!("../../vendor/lvgl/src/layouts/flex/lv_flex.h");
+    const LV_GROUP_HEADER: &str = include_str!("../../third_party/lvgl/src/core/lv_group.h");
+    const LV_OBJ_STYLE_HEADER: &str =
+        include_str!("../../third_party/lvgl/src/core/lv_obj_style.h");
+    const LV_OBJ_HEADER: &str = include_str!("../../third_party/lvgl/src/core/lv_obj.h");
+    const LV_COLOR_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_color.h");
+    const LV_AREA_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_area.h");
+    const LV_FLEX_HEADER: &str = include_str!("../../third_party/lvgl/src/layouts/flex/lv_flex.h");
     const LV_BTNMATRIX_HEADER: &str =
-        include_str!("../../vendor/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.h");
-    const LV_IMAGE_HEADER: &str = include_str!("../../vendor/lvgl/src/widgets/image/lv_image.h");
-    const LV_IMAGE_DSC_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_image_dsc.h");
-    const LV_DRAW_RECT_HEADER: &str = include_str!("../../vendor/lvgl/src/draw/lv_draw_rect.h");
-    const LV_STYLE_HEADER: &str = include_str!("../../vendor/lvgl/src/misc/lv_style.h");
+        include_str!("../../third_party/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.h");
+    const LV_IMAGE_HEADER: &str =
+        include_str!("../../third_party/lvgl/src/widgets/image/lv_image.h");
+    const LV_IMAGE_DSC_HEADER: &str =
+        include_str!("../../third_party/lvgl/src/draw/lv_image_dsc.h");
+    const LV_DRAW_RECT_HEADER: &str =
+        include_str!("../../third_party/lvgl/src/draw/lv_draw_rect.h");
+    const LV_STYLE_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_style.h");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the

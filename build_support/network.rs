@@ -19,9 +19,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The vendored FreeRTOS+TCP checkout (picodroid's fork), relative to the repo root.
-const TCP_SUBMODULE: &str = "vendor/freertos-plus-tcp";
+const TCP_SUBMODULE: &str = "third_party/freertos-plus-tcp";
 /// The vendored cyw43 driver checkout (picodroid's fork), relative to the repo root.
-const CYW43_SUBMODULE: &str = "vendor/cyw43-driver";
+const CYW43_SUBMODULE: &str = "third_party/cyw43-driver";
 /// The FreeRTOS kernel checkout, relative to the repo root.
 const KERNEL_SUBMODULE: &str = "third_party/FreeRTOS-Kernel";
 

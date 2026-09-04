@@ -155,8 +155,7 @@ picodroid-rs/
 ├── scripts/            # Build, flash, sim, pdb, test, HIL, and pre-commit scripts
 ├── website/            # Astro Starlight documentation site
 ├── docs/               # Engineering docs: designs, audits, dated bug records
-├── third_party/        # Git submodules (FreeRTOS-Kernel, littlefs fork)
-└── vendor/             # Submodules + downloaded libs (LVGL, FreeRTOS+TCP, cyw43-driver fork)
+└── third_party/        # All third-party code: submodules (FreeRTOS-Kernel, LVGL, FreeRTOS+TCP, cyw43-driver fork), littlefs fork, formatter JARs
 ```
 
 ## Attribution

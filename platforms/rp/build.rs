@@ -111,7 +111,7 @@ fn main() {
                         let link_sources = [PathBuf::from(format!(
                             "{family_port_dir}/net/NetworkInterface_CYW43.c"
                         ))];
-                        let extra_includes = [repo_root.join("vendor/cyw43-driver/src")];
+                        let extra_includes = [repo_root.join("third_party/cyw43-driver/src")];
                         let extra_defines = [
                             (
                                 "CYW43_CONFIG_FILE".to_string(),

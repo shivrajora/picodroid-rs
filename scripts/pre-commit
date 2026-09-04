@@ -110,7 +110,7 @@ classify_changes() {
     # `case` globs match `/` too, so a bare *.rs covers every depth.
     case "$f" in
       *.rs|*Cargo.toml|*Cargo.lock|.cargo/config.toml|build_support/*|\
-      platforms/*.toml|platforms/*.h|platforms/*.x|third_party/*|vendor/*|\
+      platforms/*.toml|platforms/*.h|platforms/*.x|third_party/*|\
       rust-toolchain*|.gitmodules)
         BUCKET_RUST=1 ;;
     esac

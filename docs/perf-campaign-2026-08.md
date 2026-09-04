@@ -266,7 +266,7 @@ It is reachable exactly two ways, and both are closed:
   `LV_COLOR_FORMAT_RGB565` into every image and has a `color_format_guard`
   test module enforcing it.
 - **An intermediate layer requesting it.** Every `lv_draw_layer_create` call
-  site in `vendor/lvgl` passes `ARGB8888`, `A8`, or `NATIVE`. None passes
+  site in `third_party/lvgl` passes `ARGB8888`, `A8`, or `NATIVE`. None passes
   `PREMULTIPLIED`.
 
 ```text
@@ -523,9 +523,12 @@ reverted. That is the honest ledger.
   anyone quotes a number.
 - **F4 (framework class tree-shaking)** is real but a large change, and flash
   is no longer tight enough to justify it.
-- **`Value` 16 B → 8 B** remains the largest memory lever in the codebase and
-  still deserves its own design doc. It is a redesign with a single
-  cliff-shaped payoff, not a hill to climb.
+- **`Value` 16 B → 8 B** remains the largest memory lever in the codebase.
+  Evaluated and designed 2026-09-03 — `designs/value-slot-8b.md`: two-slot
+  longs behind an 8 B `Slot` storage type, the 16 B `Value` kept as the
+  transit type so opcodes and natives do not change. Expected ~20 KB on the
+  enviro boards and a few KB elsewhere. Deferred; tracked in
+  `quality-roadmap.md` (Memory footprint).
 
 ---
 
