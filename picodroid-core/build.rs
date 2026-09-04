@@ -40,12 +40,10 @@ mod names;
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    // picodroid-core lives one directory below the repo root — the root is
-    // where gradlew, sdk/, and Cargo.toml are.
+    // The repo root is where gradlew, sdk/, build_support/ and Cargo.toml
+    // are; `config::repo_root` finds it the same way for every crate.
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = manifest_dir
-        .parent()
-        .expect("picodroid-core must be a direct subdirectory of the repo root");
+    let root = &config::repo_root(&manifest_dir);
 
     // Resolve the active board across platform families (None for boardless
     // builds such as `cargo build -p picodroid-core`).
@@ -124,8 +122,13 @@ fn emit_capability_cfgs_from_features() {
         println!("cargo:rustc-cfg=sensor_ltr559");
         println!("cargo:rustc-cfg=any_sensor");
     }
-    if std::env::var("CARGO_FEATURE_NETWORK_CYW43").is_ok() {
-        println!("cargo:rustc-cfg=network_cyw43");
+    // The link kind, not the chip: core never gates on a `network_<type>`.
+    if std::env::var("CARGO_FEATURE_NETWORK_WIFI").is_ok() {
+        println!("cargo:rustc-cfg=network_link_wifi");
+        println!("cargo:rustc-cfg=has_network");
+    }
+    if std::env::var("CARGO_FEATURE_NETWORK_ETHERNET").is_ok() {
+        println!("cargo:rustc-cfg=network_link_ethernet");
         println!("cargo:rustc-cfg=has_network");
     }
 }

@@ -185,16 +185,20 @@ loads on 0.18 firmware because every existing entry is copied verbatim.
   app that builds a class name from a string and expects to match it — there
   is no `Class.forName`, so this is currently only visible in log text — sees
   the original in its own string and the mapped name from the runtime.
-- Nothing changes for apps: `--shrink` already renames every SDK reference in
-  the PAPK; app-private names stay as they are (app-class obfuscation under a
-  `c/` prefix is a separate, optional follow-up — flash-budget §6.7).
+- Nothing changes for apps under `--shrink` alone: it already renames every
+  SDK reference in the PAPK, and app-private names stay as they are.
+  App-class obfuscation under a `c/` prefix landed separately as the opt-in
+  `--shrink-app` (1eed0b8, 2026-09-02; flash-budget §6.7).
 
 ## 5. Tooling that makes this liveable
 
 - **`class-shrink retrace <map> < log`** — the host-side inverse, as
   ProGuard's `retrace`. Both maps are bijections (`a/XX`, `b/XX`, and the
   by-name member targets), so it is a token substitution over `a.XX` /
-  `a/XX` / `b.XX` / `b/XX` and `.<target>(`. `hil-run.sh` and `sim-run.sh`
+  `a/XX` / `b.XX` / `b/XX` and `.<target>(` — plus `c/XX` and the
+  `_MembersInjector` tail for a `--shrink-app` map, and, since 9c7760c, the
+  `Class.method(pc=N)` frames of a release firmware resolved to
+  `File.java:LINE` from the host class trees. `hil-run.sh` and `sim-run.sh`
   pipe shrink-lane logs through it before pattern matching, so nightly
   expectations keep reading original names. Java conformance suites
   (`langsuite*`) run no-shrink today and stay that way.
@@ -205,6 +209,8 @@ loads on 0.18 firmware because every existing entry is copied verbatim.
   to the size ratchet and in CI's size-ratchet job for the shrink build.
 - `sdk/shrink-maps/README.md` and `website/…/advanced-config.md` gain the
   ProGuard framing: `--shrink` = obfuscated names, retrace to read them.
+  *(Done — the README with 47bc221, advanced-config in the 2026-09-03 docs
+  sweep.)*
 
 ## 6. Order of work
 

@@ -62,13 +62,13 @@ impl picodroid_core::hal::HalGpio for Platform {
         crate::hal::gpio::set_value(pin, high)
     }
     fn set_input(pin: u8, pull: Pull) {
-        crate::hal::gpio::set_input(pin, to_family_pull(pull))
+        crate::hal::gpio::set_input(pin, pull)
     }
     fn read(pin: u8) -> bool {
         crate::hal::gpio::read(pin)
     }
     fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
-        crate::hal::gpio::enable_edge_irq(pin, to_family_edge(edge))
+        crate::hal::gpio::enable_edge_irq(pin, edge)
     }
     fn disable_edge_irq(pin: u8) {
         crate::hal::gpio::disable_edge_irq(pin)
@@ -80,37 +80,13 @@ impl picodroid_core::hal::HalGpio for Platform {
         crate::hal::gpio::inject(pin, rising)
     }
     fn drain_gpio_event() -> Option<GpioEvent> {
-        crate::hal::gpio::drain_gpio_event().map(|e| GpioEvent {
-            pin: e.pin,
-            rising: e.rising,
-            t_us: e.t_us,
-        })
+        crate::hal::gpio::drain_gpio_event()
     }
     fn has_pending_event() -> bool {
         crate::hal::gpio::has_pending_event()
     }
     fn wait_for_button_event() {
         crate::hal::gpio::wait_for_button_event()
-    }
-}
-
-// The family HAL keeps its own copies of these enums for now; they are
-// field-identical to the shared ones, and these two converters are all that
-// stands between them. When `hal/sim/` moves into picodroid-core (stage 8)
-// and `hal/rp/` adopts the shared types directly, both disappear.
-fn to_family_pull(p: Pull) -> crate::hal::gpio::Pull {
-    match p {
-        Pull::None => crate::hal::gpio::Pull::None,
-        Pull::Up => crate::hal::gpio::Pull::Up,
-        Pull::Down => crate::hal::gpio::Pull::Down,
-    }
-}
-
-fn to_family_edge(e: EdgeTrigger) -> crate::hal::gpio::EdgeTrigger {
-    match e {
-        EdgeTrigger::Rising => crate::hal::gpio::EdgeTrigger::Rising,
-        EdgeTrigger::Falling => crate::hal::gpio::EdgeTrigger::Falling,
-        EdgeTrigger::Both => crate::hal::gpio::EdgeTrigger::Both,
     }
 }
 
@@ -160,24 +136,6 @@ impl picodroid_core::hal::HalI2c for Platform {
     fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
         crate::hal::i2c::read_slice(i2c_id, address, buf)
     }
-    fn write(
-        i2c_id: u8,
-        address: u32,
-        data_idx: u16,
-        len: usize,
-        arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::i2c::write(i2c_id, address, data_idx, len, arrays)
-    }
-    fn read(
-        i2c_id: u8,
-        address: u32,
-        buf_idx: u16,
-        len: usize,
-        arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::i2c::read(i2c_id, address, buf_idx, len, arrays)
-    }
 }
 
 impl picodroid_core::hal::HalAdc for Platform {
@@ -210,23 +168,6 @@ impl picodroid_core::hal::HalSpi for Platform {
     }
     fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
         crate::hal::spi::transfer_raw(spi_id, tx, rx)
-    }
-    fn transfer(
-        spi_id: u8,
-        tx_idx: u16,
-        rx_idx: u16,
-        len: usize,
-        arrays: &mut pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::spi::transfer(spi_id, tx_idx, rx_idx, len, arrays)
-    }
-    fn write(
-        spi_id: u8,
-        data_idx: u16,
-        len: usize,
-        arrays: &pico_jvm::array_heap::ArrayHeap,
-    ) -> i32 {
-        crate::hal::spi::write(spi_id, data_idx, len, arrays)
     }
 }
 
@@ -273,15 +214,20 @@ picodroid_core::set_hal! {
 #[cfg(not(test))]
 picodroid_core::set_hal_fs!(picodroid_core::fs::LittleFsHal);
 
-#[cfg(has_network)]
+// The device socket layer is core's FreeRTOS+TCP implementation; this
+// family only picks it (docs/designs/network-seam-2026-09.md D4). The
+// simulator and the host tests keep the host-socket arm below.
+#[cfg(all(has_network, not(any(test, feature = "sim"))))]
+picodroid_core::set_hal_net!(picodroid_core::hal::freertos_tcp::FreeRtosTcpNet);
+
+#[cfg(all(has_network, any(test, feature = "sim")))]
 mod net_glue {
     use super::Platform;
     use core::ffi::c_void;
     use picodroid_core::hal::types::NetError;
 
-    // Both chip arms (rp and the shared simulator) return the shared
-    // `hal::types::NetError` directly — each family classifies its own
-    // errno space at its boundary, so this glue is a pure pass-through.
+    // The shared simulator's host sockets return the shared
+    // `hal::types::NetError` directly, so this glue is a pure pass-through.
     impl picodroid_core::hal::HalNet for Platform {
         fn tcp_socket() -> Result<*mut c_void, NetError> {
             crate::hal::net::tcp_socket()
@@ -730,57 +676,16 @@ impl PlatformHooks for PlatformHost {
 picodroid_core::set_platform_hooks!(PlatformHost);
 
 // ── Simulator ────────────────────────────────────────────────────────────────
-
-/// Bill the boot budget for a task the simulator is creating (or, under the
-/// test backing, for the `Thread.start` it refuses to run), and report the
-/// stack size in bytes the device would have given it.
-///
-/// A wrapper rather than passing `boot_budget::charge_task_spawn` directly:
-/// that function is `cfg(feature = "sim")`, since a plain host test build has
-/// no arena to charge, and the cfg belongs next to the budget it guards. The
-/// stack size is still answered in that build, because it is policy rather
-/// than accounting.
-#[cfg(any(test, feature = "sim"))]
-fn charge_task_spawn(spec: &picodroid_core::rtos::TaskSpec) -> u32 {
-    #[cfg(feature = "sim")]
-    {
-        crate::boot_budget::charge_task_spawn(spec)
-    }
-    #[cfg(not(feature = "sim"))]
-    {
-        spec.stack_bytes
-            .unwrap_or_else(|| crate::boot_budget::default_stack_bytes(spec.kind))
-    }
-}
-
-/// Undo [`charge_task_spawn`] when the task's body returns. See
-/// `boot_budget::release_task_spawn`; a no-op wherever there is no arena.
-#[cfg(any(test, feature = "sim"))]
-fn release_task_spawn(spec: &picodroid_core::rtos::TaskSpec) {
-    #[cfg(feature = "sim")]
-    crate::boot_budget::release_task_spawn(spec);
-    #[cfg(not(feature = "sim"))]
-    let _ = spec;
-}
-
+//
+// Everything the simulator needs from this family is three leaves: which GC
+// roots to register, the boot memory model to charge, and the function that
+// runs the app. `picodroid_core` generates the `Rtos` and `PlatformHooks`
+// registrations and the simulator's `main` from them
+// (docs/designs/porting-seam-2026-09.md E6); `main.rs` calls the generated
+// `sim_main`.
 #[cfg(any(test, feature = "sim"))]
 picodroid_core::register_sim_platform! {
-    gc_roots = crate::gc_root_registration::register_all,
-    charge_task_spawn = charge_task_spawn,
-    release_task_spawn = release_task_spawn,
-}
-
-/// Boot the simulator: hand `picodroid_core::sim_boot` this family's three
-/// leaves and let it own the sequence.
-///
-/// The sequence itself is not ours — it names the background pool, the JVM
-/// task and the scheduler handoff, none of which is RP-specific, so it lives
-/// with the simulator in `picodroid-core`
-/// (`docs/designs/family-neutral-residue.md` B11). What is ours is here.
-#[cfg(feature = "sim")]
-pub(crate) fn run_sim() {
-    picodroid_core::sim_boot::run(picodroid_core::sim_boot::BootLeaves {
-        run_app: crate::app::run_jvm,
-        report_boot_budget: crate::boot_budget::report_boot_budget,
-    })
+    gc_roots    = crate::gc_root_registration::register_all,
+    boot_budget = crate::boot_budget::MODEL,
+    run_app     = crate::app::run_jvm,
 }

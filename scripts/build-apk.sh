@@ -16,6 +16,7 @@ APP=""
 OUTPUT=""
 BOARD=""
 STRIP_DEBUG=0
+KEEP_LINES=0
 
 usage() {
   cat <<EOF
@@ -26,7 +27,7 @@ Options:
   -o, --output <file>   Output path (default: build/apks/<app>.papk)
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
-                        PICODROID_SHRINK=1. See docs/shrinker.md.
+                        PICODROID_SHRINK=1. See website/src/content/docs/reference/shrinker.md.
       --shrink-app      Also rename this app's own classes (c/…) and private
                         members, ProGuard-style, through a per-build map cut
                         on top of the release map. Requires --shrink. Also
@@ -35,8 +36,11 @@ Options:
                         scripts/retrace.sh.
       --strip-debug     Drop LineNumberTable/SourceFile (and the rest of the
                         class-metadata strip) from the packed classes. For
-                        device-bound PAPKs: that firmware never reads them.
-                        Sim paths leave it off to keep (:line) stack traces.
+                        device-bound PAPKs; release firmware never reads them.
+                        Sim paths leave it off to keep (File.java:line) frames.
+      --keep-lines      With --strip-debug: keep LineNumberTable/SourceFile
+                        through the strip, for a firmware built with the
+                        line-numbers cargo feature (flash.sh debug profile).
   -b, --board  <name>   Target board: the API contract check also rejects
                         classes that board drops (framework_class_excludes
                         in its board.toml). Without it only the java/**
@@ -57,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --shrink)        export PICODROID_SHRINK=1; shift ;;
     --shrink-app)    export PICODROID_SHRINK_APP=1; shift ;;
     --strip-debug)   STRIP_DEBUG=1; shift ;;
+    --keep-lines)    KEEP_LINES=1; shift ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
@@ -112,12 +117,17 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
     GRADLE_EXTRA_ARGS+=("-Ppicodroid.board=${BOARD}")
   fi
   # Debug-attribute strip for device-bound PAPKs
-  # (docs/designs/flash-string-budget-2026-08.md §4). Device firmware is built
-  # with debug-assertions off (lib.sh build_firmware) and never reads
-  # LineNumberTable/SourceFile; the sim does, which is why sim.sh never passes
-  # this. A -P property for the same daemon-freshness reason as the shrink flag.
+  # (docs/designs/flash-string-budget-2026-08.md §4). Release firmware is
+  # built without the `line-numbers` cargo feature and never reads
+  # LineNumberTable/SourceFile; a debug-profile firmware has the feature and
+  # prints `(File.java:39)` frames from them, so lib.sh build_firmware adds
+  # --keep-lines for it. sim.sh passes neither: its PAPK is never stripped.
+  # -P properties for the same daemon-freshness reason as the shrink flag.
   if [[ "$STRIP_DEBUG" == "1" ]]; then
     GRADLE_EXTRA_ARGS+=("-Ppicodroid.stripDebug=true")
+  fi
+  if [[ "$KEEP_LINES" == "1" ]]; then
+    GRADLE_EXTRA_ARGS+=("-Ppicodroid.keepLineNumbers=true")
   fi
   # gradle_lock_run: pre-commit runs lanes in parallel and more than one can
   # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew

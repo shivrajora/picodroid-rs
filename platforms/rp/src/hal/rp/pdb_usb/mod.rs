@@ -7,15 +7,16 @@
 //! Both RP2040 and RP2350 share the same USB 1.1 controller at the same memory
 //! addresses, so one driver covers both chips.
 
-pub mod protocol;
-
 use core::cell::UnsafeCell;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Queue};
 
-use protocol::{assemble_u32_le, CONFIG_DESC, DEVICE_DESC, LINE_CODING, STR0, STR1, STR2};
+// The descriptor tables are the shared reference set, built from the
+// identity in `pdb_protocol::usb`; this driver owns only the endpoint
+// machinery underneath them.
+use picodroid_core::pdb::usb_cdc::{CONFIG_DESC, DEVICE_DESC, LINE_CODING, STR0, STR1, STR2};
 
 // ── Register addresses ──────────────────────────────────────────────────────
 
@@ -520,7 +521,7 @@ pub fn queue_read_u32_le() -> u32 {
     let b1 = queue_read_byte();
     let b2 = queue_read_byte();
     let b3 = queue_read_byte();
-    assemble_u32_le(b0, b1, b2, b3)
+    u32::from_le_bytes([b0, b1, b2, b3])
 }
 
 /// Wait for the previous EP1 IN transfer to complete.

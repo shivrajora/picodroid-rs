@@ -7,7 +7,7 @@ Most builds work without touching anything below — these files are here when y
 
 ## `lv_conf.h`
 
-LVGL is vendored in `vendor/lvgl/` and configured via the repo-root [`lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/lv_conf.h). It overrides selected upstream defaults:
+LVGL is vendored in `third_party/lvgl/` and configured via the repo-root [`lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/lv_conf.h). It overrides selected upstream defaults:
 
 | Symbol | Picodroid value | Why |
 |---|---|---|
@@ -16,7 +16,7 @@ LVGL is vendored in `vendor/lvgl/` and configured via the repo-root [`lv_conf.h`
 | `LV_USE_LODEPNG` / `LV_USE_LIBPNG` | `0` | Both PNG decoders disabled — PNG is decoded at PAPK-pack time, never on-device. See [Bundled image assets](/guides/assets/). |
 | `LV_FONT_MONTSERRAT_*` | tuned per-board | Only the sizes the framework actually renders are pulled in. |
 
-Bumping LVGL: vendor at `vendor/lvgl`, then re-vet `lv_conf.h` against `vendor/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
+Bumping LVGL: vendor at `third_party/lvgl`, then re-vet `lv_conf.h` against `third_party/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
 
 ## `Embed.toml`
 
@@ -84,8 +84,18 @@ App projects under `examples/` build as subprojects of the picodroid repo by def
 
 This is path indirection only — there is no published Maven artifact or project template; the app still composes the picodroid build (e.g. via an included build).
 
+The remaining `picodroid.*` properties are per-build switches that the top-level scripts set for you (`scripts/build-apk.sh` passes them as `-P` rather than through the environment, because a long-lived Gradle daemon would otherwise keep a stale value):
+
+- `picodroid.shrink` — `1`/`true` applies the active release shrink map (`--shrink`; env fallback `PICODROID_SHRINK=1`).
+- `picodroid.shrinkApp` — also rename this app's own classes and private members (`--shrink-app`; env fallback `PICODROID_SHRINK_APP=1`). Needs `picodroid.shrink`.
+- `picodroid.stripDebug` — drop the `.class` debug attributes pico-jvm never reads on a device (`build-apk.sh --strip-debug`; every device path passes it).
+- `picodroid.keepLineNumbers` — with `stripDebug`, keep `LineNumberTable` and `SourceFile` for a firmware built with the `line-numbers` feature (`--keep-lines`; the debug-profile `flash.sh` / `build.sh` default).
+- `picodroid.apiContract` — `error` (default), `warn` or `off` for the `verifyApiContract` check.
+
+See [Shrinker](/reference/shrinker/) and [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs) for what each one changes.
+
 ## See also
 
 - [Cargo aliases](/reference/cargo-aliases/) — board-specific build commands.
-- [Class-name shrinker](/reference/shrinker/) — release-versioned framework class renaming.
+- [Shrinker](/reference/shrinker/) — release-versioned renaming of framework class and member names, `--shrink-app` for the app's own names, and `retrace.sh` for reading a shrunk log.
 - [Porting guide](/reference/porting-guide/) — board.toml, FreeRTOSConfig, HAL contract.

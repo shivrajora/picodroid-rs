@@ -21,12 +21,12 @@ ARM code, and that is where the next order of magnitude is:
 | `opt-level = "s"` for the release profile (LVGL/FreeRTOS C follow via cc-rs) | **−224,552 B (−23.8 %)** | measured, §6.1 — needs a HIL benchmark before adoption |
 | `opt-level = "z"` | −270,260 B (−28.6 %) | measured, §6.1 |
 | C code alone at `-Os`, Rust untouched at 3 | **−81,552 B (−8.6 %)** | measured, §6.1 — no JVM-speed exposure |
-| Retire `shrink_class` / `unshrink_class` in favour of `c::` consts | ~19 KB | measured components, §6.2 |
+| Retire `shrink_class` / `unshrink_class` in favour of `c::` consts | **−27,154 B** (943,959 → 916,805) | **landed 2026-09-02**, §6.2 |
 | App-driven tree-shake of the embedded SDK corpus | ~19.8 KB for this app | projected, §6.3 |
 | Float parse/format in `core` (`Double.toString` round-trip search + `parseDouble`) | up to ~25 KB | measured components, §6.4 |
 | LVGL config (ARGB8888 blend, blur, shadow, transform, unused widgets) | ~20–35 KB | measured components, §6.5 |
 | `pdb` + USB CDC as a product-image feature gate | ~14 KB | measured components, §6.6 |
-| App PAPK class/member obfuscation | ~9 KB, **outside the program region** | projected, §6.7 |
+| App PAPK class/member obfuscation (`--shrink-app`) | **−9,297 B** PAPK (49,929 → 40,632), **outside the program region** | **landed 2026-09-02**, §6.7 |
 
 One bookkeeping correction that changes how the PAPK-side numbers should be
 read: **the embedded PAPK does not live in the program region** (§3). The
@@ -471,13 +471,13 @@ and the heap-census work, not here.
 |---|---|---:|---|---|
 | 1a | C at `-Os` (`CFLAGS` in `build_support/lvgl.rs`, `freertos.rs`) | 81.5 KB | UI render speed, check with the UI benches | one line + ratchet |
 | 1b | Benchmark profile-wide `opt-level = "s"` on HIL; adopt if the JVM `benchmark` delta is acceptable | 224.5 KB (incl. 1a) | JVM speed, needs measurement | profile line + ratchet + `lib.sh` rp2040 LTO rule |
-| 2 | `c::` class consts; retire `shrink_class`/`unshrink_class`; emit `PICODROID_NATIVE_CLASSES` via them | ~17 KB | low — same pattern as `m::` | build.rs generator + arm rewrite |
+| 2 | `c::` class consts; retire `shrink_class`/`unshrink_class`; emit `PICODROID_NATIVE_CLASSES` via them — **landed 2026-09-02** (47bc221, map v0.17.0) | −27,154 B measured | — | done: `build_support/names.rs` + every arm on `c::`/`m::`/`d::` |
 | 3 | Teach `lib.sh`/ratchet to exclude `PAPK_FLASH` from `Flash:` | 0 B, correct gate | none | small |
 | 4 | LVGL: ARGB8888 blend, blur, shadow off; font without kerning | ~18 KB | low–medium, visual check | `lv_conf.h` + font convert |
 | 5 | `java_float_layout` via `format_shortest` | ~8 KB | low, conformance tests exist | `object_heap/mod.rs` |
 | 6 | App-driven SDK tree-shake + derived `LV_USE_*` | ~20 KB + ~19 KB | medium — root discipline, `pdb install` guard | build.rs + board/app cfg |
 | 7 | `no-pdb` product feature | ~14 KB | low | feature flag |
-| 8 | App PAPK obfuscation (`c/` prefix + private members) | ~9 KB (PAPK slot) | medium | `class-shrink` + keep rules |
+| 8 | App PAPK obfuscation (`c/` prefix + private members) — **landed 2026-09-02** (1eed0b8, `--shrink-app`) | −9,297 B PAPK measured | — | done: `class-shrink cut-app` + the `main`/`injectMembers` keeps |
 | 9 | Shared string table | ~23 KB | high — format change | after 6 |
 
 Each step must advance `bench/parity/ratchet.toml` in the same commit, per

@@ -18,6 +18,33 @@ DEFMT_LOG = "debug"
 
 Override it per-invocation by exporting `DEFMT_LOG` before `flash.sh` (e.g. `DEFMT_LOG=trace`). On hardware, `Log.i(TAG, msg)` arrives over RTT as `TAG: msg`; in the simulator the same call prints `[TAG] msg`.
 
+### Stack traces and shrunk logs
+
+An uncaught exception prints a Java-style trace — the exception class and message, then one frame per call in Android's `StackTraceElement` spelling:
+
+```text
+Exception in thread "main" java.lang.RuntimeException: kaboom
+    at tracedemo.TraceDemo.deepest(TraceDemo.java:41)
+    at tracedemo.TraceDemo.middle(TraceDemo.java:37)
+```
+
+That is what the simulator and a debug-profile device firmware (`flash.sh`'s default) print: both are built with the `line-numbers` cargo feature, which keeps `LineNumberTable` and `SourceFile` in the class files. A `--release` firmware leaves the tables out of flash and prints the bytecode offset instead, `at tracedemo.TraceDemo.deepest(pc=9)`. Resolve those on the host from the class trees this checkout compiled:
+
+```bash
+./scripts/retrace.sh --app tracedemo < device.log      # (pc=N) -> (TraceDemo.java:41)
+```
+
+A class without a `SourceFile` prints `(Unknown Source:41)`; overloads whose lines disagree list every candidate (`TraceDemo.java:12|40`). The trees must come from the same build the device runs, or a line can be off.
+
+The same script un-shrinks a `--shrink` log. A shrunk firmware prints the mapped names everywhere — `Class.getName()`, exception banners, frames (`a.DK.uQ` where a no-shrink build says `picodroid.view.View.setText`), `pdb` output — and `retrace.sh` substitutes the originals back using the active release map. A PAPK built with `--shrink-app` also renames the app's own classes (`c.A.qZ`); retrace it with the map `build-apk.sh` wrote next to the PAPK:
+
+```bash
+./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
+./scripts/retrace.sh build/apks/foo.shrink-map.toml --app foo < device.log
+```
+
+`examples/tracedemo` throws a three-deep uncaught exception so you can see each form. What is renamed, the map format and the compatibility rules are on the [Shrinker](/reference/shrinker/) page.
+
 ### Host Simulator
 
 The host simulator lets you run apps on your development machine without hardware. Hardware calls are stubbed with logged output, making it useful for testing app logic and debugging JVM behaviour.
@@ -221,8 +248,10 @@ PAPK is incompatible with running firmware.
   PAPK     framework-map-version = ...
   Firmware framework-map-version = ...
   Reason: ...
-  Rebuild the PAPK with matching --shrink setting (see docs/shrinker.md).
+  Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).
 ```
+
+`Reason` is one of three: the two sides disagree about `--shrink` (one of them reports `0.0.0`); the PAPK's map is newer than the firmware's; or *PAPK was shrunk before method/field names were (map < member floor)* — a firmware at v0.17.0 or later dispatches on mapped member names and refuses a PAPK shrunk with an older map even though older maps are otherwise accepted. `--shrink-app` does not enter into it: the per-app map extends the release map without changing `framework-map-version`, so a `--shrink-app` PAPK installs on any `--shrink` firmware of the same release.
 
 The same condition can surface as a firmware-load panic, `PAPK framework-map-version incompatible with firmware`. **Recovery:** rebuild the APK and firmware with the *same* `--shrink` flag, or rebuild the PAPK without `--shrink` to match a non-shrunk firmware, or reflash matching firmware. The shrinker is documented in [Shrinker](/reference/shrinker/); the panic and recovery steps are in [`PAPK framework-map-version incompatible with firmware`](/guides/troubleshooting/#papk-framework-map-version-incompatible-with-firmware).
 

@@ -42,28 +42,10 @@ use crate::task_priority;
 pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     // Installed before the first task exists: `task_affinity::spawn` runs
     // every create+pin inside this section (a no-op until the scheduler
-    // starts, load-bearing for every runtime `Thread.start` after it).
-    //
-    // JVM heap compound operations and the GC must be atomic against the
-    // SMP kernel's equal-priority wake yield (prvYieldForTask uses `>=`, so
-    // an unblocked equal-priority JVM task preempts at the allocator's
-    // xTaskResumeAll inside an arena resize — the picoenvmon span-overlap
-    // corruption). Scheduler suspension nests safely with heap_4's own.
-    {
-        extern "C" {
-            fn vTaskSuspendAll();
-            fn xTaskResumeAll() -> i32;
-        }
-        fn heap_atomic_enter() {
-            unsafe { vTaskSuspendAll() };
-        }
-        fn heap_atomic_exit() {
-            unsafe {
-                xTaskResumeAll();
-            }
-        }
-        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
-    }
+    // starts, load-bearing for every runtime `Thread.start` after it). The
+    // installer is core's, shared with the simulator's boot, so the two make
+    // the same promise; its docs carry the SMP reasoning.
+    picodroid_core::rtos::freertos::install_heap_atomic_hooks();
 
     // Core-1 flash parker.  Runtime flash erase/program must stop core 1
     // first: any exception it takes during the XIP-off window fetches
@@ -120,10 +102,13 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
     )
     .unwrap();
 
-    // CYW43 WiFi task (Pico 2 W only): initialises the WiFi driver, starts the
-    // FreeRTOS+TCP IP stack, joins WiFi, then enters the driver poll loop.
+    // The network link task (Pico 2 W only): core's `run_link_task` drives
+    // this family's cyw43 link driver — driver init, MAC, IP stack start,
+    // WiFi join, then the driver poll loop.
     //
-    // Pinned to core 1 so core 0 stays free for the JVM.  This is safe under
+    // Pinned to core 1 so core 0 stays free for the JVM, and because
+    // `Cyw43Link::init` arms the host-wake IRQ on the calling core's NVIC
+    // bank (the RP2350 banks them per core).  This is safe under
     // real SMP (configRUN_MULTIPLE_PRIORITIES=1) because the gSPI transport
     // is PIO+DMA (`hal/rp/pio_spi.rs`): bus frames are clocked by the PIO
     // state machine and fed by DMA, so they complete autonomously no matter
@@ -140,7 +125,9 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
         crate::boot_budget::CYW43_STACK_WORDS,
         task_priority::PRIORITY_RT_2,
         task_affinity::CORE1,
-        move |_| crate::hal::wifi_task::run_cyw43_task(),
+        move |_| {
+            picodroid_core::hal::freertos_tcp::run_link_task(crate::hal::cyw43::link::Cyw43Link)
+        },
     )
     .unwrap();
 

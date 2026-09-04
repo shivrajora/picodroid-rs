@@ -4,10 +4,10 @@
 # buildSrc is deliberately out of scope, as it is for Java.
 set -e
 
-VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
+THIRD_PARTY_DIR="$(cd "$(dirname "$0")/.." && pwd)/third_party"
 JAR_VERSION="0.64"
 JAR_NAME="ktfmt-${JAR_VERSION}-with-dependencies.jar"
-JAR_PATH="${VENDOR_DIR}/${JAR_NAME}"
+JAR_PATH="${THIRD_PARTY_DIR}/${JAR_NAME}"
 JAR_URL="https://repo1.maven.org/maven2/com/facebook/ktfmt/${JAR_VERSION}/${JAR_NAME}"
 # Update this when bumping JAR_VERSION: shasum -a 256 <downloaded-jar>
 JAR_SHA256="5b3d5286fd2defcc7dc8e28c21ddf156cc6b2d8682bdcd929ce4333e7a6201f2"
@@ -18,7 +18,7 @@ verify_jar() {
 
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "==> Downloading ktfmt ${JAR_VERSION}..."
-  mkdir -p "$VENDOR_DIR"
+  mkdir -p "$THIRD_PARTY_DIR"
   curl -fsSL "$JAR_URL" -o "$JAR_PATH"
   echo "==> Downloaded to ${JAR_PATH}"
 fi

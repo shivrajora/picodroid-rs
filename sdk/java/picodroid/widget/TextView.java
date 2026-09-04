@@ -25,6 +25,13 @@ public class TextView extends View {
 
   public native void setText(String text);
 
+  /**
+   * Mirrors Android's {@code TextView.getText()}: the label's current text as a {@link
+   * CharSequence} (a {@link String} at runtime), so the {@code getText().toString()} idiom works
+   * unchanged. Returns an empty string for a label with no text.
+   */
+  public native CharSequence getText();
+
   public native void setTextColor(int argb);
 
   /**

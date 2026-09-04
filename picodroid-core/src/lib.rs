@@ -67,6 +67,9 @@ pub mod pd_log;
 // Debug bridge protocol. Always compiled: it is a wire format with a host
 // counterpart, so its framing and encoders are exactly what wants tests.
 pub mod pdb;
+// What a port provides — every seam item re-exported, with the checklist as
+// its module doc and a test that keeps both complete.
+pub mod porting;
 // Ungated: `peripheral_manager`'s ref-name parsing is pure logic and carries
 // host unit tests.
 pub mod pio;
@@ -74,9 +77,9 @@ pub mod rtos;
 #[cfg(not(test))]
 pub mod service_lifecycle;
 pub mod shrink_names;
-// Simulator boot topology — the host's `boot_tasks.rs`. Family policy
-// arrives as `BootLeaves`; see the module docs and
-// docs/designs/family-neutral-residue.md B11.
+// The simulator's `main` and task topology — the host's `main.rs` plus
+// `boot_tasks.rs`. Family policy arrives as `register_sim_platform!`
+// parameters; see the module docs and docs/designs/porting-seam-2026-09.md E6.
 #[cfg(all(feature = "sim", not(test)))]
 pub mod sim_boot;
 pub mod task_priority;
@@ -117,6 +120,11 @@ mod native_class_registry_tests;
 #[cfg(test)]
 #[path = "native_handler/method_tables.rs"]
 mod native_method_tables_tests;
+// The shared FreeRTOS+TCP glue in net-freertos-tcp/ is C, compiled by each
+// family's build.rs; its invariants are pinned by a host text scan here.
+#[cfg(test)]
+#[path = "hal/freertos_tcp/config_guard.rs"]
+mod hal_freertos_tcp_config_guard_tests;
 // Compile-time API contract: generates sdk/api-contract.tsv from the
 // runtime's own tables (and fails when the committed copy is stale).
 #[cfg(test)]

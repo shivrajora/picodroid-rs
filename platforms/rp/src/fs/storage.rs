@@ -5,15 +5,20 @@
 //! Reads are XIP-direct (memcpy from memory-mapped flash).  Writes and
 //! erases disable XIP and invoke ROM flash routines — the dangerous bits
 //! live in [`crate::hal::flash`] and are already proven by the PAPK
-//! install path.
+//! install path. The block arithmetic and the alignment rule are
+//! [`FsGeometry`]'s, shared with the host image.
 
 use littlefs_rust::{Error as LfsError, Storage as LfsStorage};
+use picodroid_core::fs::{FsBackingStore, FsGeometry};
 
 use crate::hal::flash;
 
-pub const BLOCK_SIZE: usize = flash::FLASH_SECTOR_SIZE; // 4096
-pub const PROG_SIZE: usize = flash::FLASH_PAGE_SIZE; // 256
-pub const READ_SIZE: usize = 16;
+/// This flash *is* the default geometry — checked, not assumed.
+const GEOMETRY: FsGeometry = FsGeometry::DEFAULT;
+const _: () = {
+    assert!(GEOMETRY.block as usize == flash::FLASH_SECTOR_SIZE);
+    assert!(GEOMETRY.prog as usize == flash::FLASH_PAGE_SIZE);
+};
 
 pub struct FlashStorage {
     start_offset: u32,
@@ -25,15 +30,14 @@ impl FlashStorage {
         let (start_offset, len) = flash::fs_region_bounds();
         Self {
             start_offset,
-            block_count: len / BLOCK_SIZE as u32,
+            block_count: len / GEOMETRY.block,
         }
     }
 
+    /// Flash-relative offset of `(block, offset)`, checked against the region.
     fn resolve(&self, block: u32, offset: u32, len: usize) -> Result<u32, LfsError> {
-        if block >= self.block_count || (offset as usize) + len > BLOCK_SIZE {
-            return Err(LfsError::Invalid);
-        }
-        Ok(self.start_offset + block * BLOCK_SIZE as u32 + offset)
+        let within = GEOMETRY.resolve(self.block_count, block, offset, len)?;
+        Ok(self.start_offset + within as u32)
     }
 }
 
@@ -43,17 +47,9 @@ impl Default for FlashStorage {
     }
 }
 
-impl picodroid_core::fs::FsBackingStore for FlashStorage {
+impl FsBackingStore for FlashStorage {
     fn block_count(&self) -> u32 {
         self.block_count
-    }
-
-    fn geometry(&self) -> picodroid_core::fs::FsGeometry {
-        picodroid_core::fs::FsGeometry {
-            block: BLOCK_SIZE as u32,
-            prog: PROG_SIZE as u32,
-            read: READ_SIZE as u32,
-        }
     }
 }
 
@@ -69,17 +65,15 @@ impl LfsStorage for FlashStorage {
     }
 
     fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), LfsError> {
-        if !(offset as usize).is_multiple_of(PROG_SIZE) || !data.len().is_multiple_of(PROG_SIZE) {
-            return Err(LfsError::Invalid);
-        }
+        GEOMETRY.check_prog(offset, data.len())?;
         let addr = self.resolve(block, offset, data.len())?;
         unsafe { flash::flash_program_range(addr, data.as_ptr(), data.len()) };
         Ok(())
     }
 
     fn erase(&mut self, block: u32) -> Result<(), LfsError> {
-        let addr = self.resolve(block, 0, BLOCK_SIZE)?;
-        unsafe { flash::flash_erase_range(addr, BLOCK_SIZE) };
+        let addr = self.resolve(block, 0, GEOMETRY.block as usize)?;
+        unsafe { flash::flash_erase_range(addr, GEOMETRY.block as usize) };
         Ok(())
     }
 }

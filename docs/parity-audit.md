@@ -121,7 +121,7 @@ G-graphics, X-cross-cutting).
 
 | ID | Divergence | Class | Symptom | Sev | Conf | Fix |
 |---|---|---|---|---|---|---|
-| TCH-01 | Sim synthesizes XPT2046 12-bit ADC codes from mouse/FIFO and runs them through the **same driver** (median filter, calibration, ±2 LSB jitter, `picodroid-core/src/hal/sim/touch.rs`); buttons converge on the same `GpioEvent` queue (`picodroid-core/src/hal/sim/gpio.rs` vs `hal/rp/gpio.rs:185-249`) | IS | Downstream input pipeline byte-identical; a genuine parity asset | — | V | — |
+| TCH-01 | Sim synthesizes XPT2046 12-bit ADC codes from mouse/FIFO and runs them through the **same driver** (median filter, calibration, ±2 LSB jitter, `picodroid-core/src/hal/sim/touch.rs`); buttons converge on the same `GpioEventRing` type (`picodroid-core/src/hal/event_ring.rs`, used by `hal/sim/gpio.rs` behind a mutex and by `hal/rp/gpio.rs` bare), bounded and warning on overflow on both | IS | Downstream input pipeline byte-identical; a genuine parity asset | — | V | — |
 | TCH-02 | 4-point touch calibration compiled out of sim entirely (`lvgl/calibration.rs`) | IPB | Calibration UI/logic untestable in sim | S3 | V | register-only |
 | TCH-03 | Real-world electrical noise (phantom IRQ edges — the GP15 incident) only approximated by injected sequences | IPB | IRQ-storm/bounce classes need HIL or scripted-noise injection | S3 | V | register-only |
 
@@ -249,7 +249,7 @@ ask-first items are marked.
   arena space, so sim OOMs somewhat earlier than device until M6 lands — strict-direction
   (conservative) and accepted; decided at check-in.
 - **M4 — boot-overhead pre-charge from a shared budget table.** New
-  `hal/boot_budget.rs` (today `platforms/rp/src/boot_budget.rs`):
+  `hal/boot_budget.rs` (the engine is `picodroid-core/src/hal/sim/boot_budget.rs`; the family's model is `platforms/rp/src/boot_budget.rs`):
   `BOOT_TASKS: &[BootTask { name, stack_words, .. }]` consumed by
   *both* device boot (`hal/rp/boot.rs` / `os.rs` stack literals become these consts —
   single source by construction) and sim boot, which performs **real arena allocations**
@@ -515,7 +515,7 @@ strict early-OOM, parity-strict threading with M7 deferred, both P and G tiers):
   semantics tests. Host thread internals (lvgl-tick, control-channel) bypassed.
   Gotcha for posterity: leaked pre-charge allocations must pass through
   `black_box` — optimized builds legally elide unused mallocs.
-- **M4** — `boot_budget.rs` (today `platforms/rp/src/boot_budget.rs`): shared
+- **M4** — `boot_budget.rs` (the engine is `picodroid-core/src/hal/sim/boot_budget.rs`; the family's model is `platforms/rp/src/boot_budget.rs`): shared
   task table (device spawn sites consume the
   constants; sim performs real arena allocations in boot order + charges
   `Thread.start` 16 KB+TCB at call time). Sim boot now reads 83.2 KB at

@@ -51,7 +51,7 @@ than 1–2 s earlier during association; join→lease latency re-checked on HW
 
 ## NET-3: upstream the `bsscfg:event_msgs` fix — PR PREPARED 2026-08-15
 
-Branch `upstream-bsscfg-event-msgs` in `vendor/cyw43-driver` carries the
+Branch `upstream-bsscfg-event-msgs` in `third_party/cyw43-driver` carries the
 isolated, marker-free fix rebased onto the fork's upstream base; the full
 handover (pre-flight refresh against upstream main, submission commands,
 PR body, post-merge rebase guidance) is `docs/upstream-cyw43-bsscfg-pr.md`.
@@ -73,7 +73,7 @@ recipes. With atomic sections gone, NET-5 is now unblocked.
 
 ## Vendored FreeRTOS+TCP is now a fork (2026-08-15)
 
-`vendor/freertos-plus-tcp` points at the `picodroid` branch of
+`third_party/freertos-plus-tcp` points at the `picodroid` branch of
 `shivrajora/FreeRTOS-Plus-TCP` (V4.4.1 + `e43e446f`), mirroring the
 cyw43-driver arrangement, with the same `PICODROID`-marker build assertion
 in `build_support/network.rs`. The carried fix: an RST received in SYN-SENT
@@ -99,7 +99,7 @@ cache miss against the same `ucRepCount`, so an unresolvable host aborts
 in ≈1.5 s), and SYN-retransmission exhaustion (≥9 s) all converge on
 `eCLOSE_WAIT`; `-ETIMEDOUT` (-116) only appears when a finite block time
 expires first. The HAL classifies -128 by elapsed time (`tcp_connect` in
-`platforms/rp/src/hal/rp/net.rs`: <1 s → Refused, ≤6 s → Unreachable
+`picodroid-core/src/hal/freertos_tcp/mod.rs` (was `platforms/rp/src/hal/rp/net.rs`): <1 s → Refused, ≤6 s → Unreachable
 (NoRouteToHostException), else TimedOut — the stack's timing ladder keeps
 the causes far apart). If the upstream rebase changes which state an
 aborted connect lands in, re-verify all three netdemo failure cases on
@@ -171,7 +171,7 @@ creds-from-environment plumbing, the HIL-host listeners, and a `net` category �
 `drivers/cyw43.rs` exposes `WPA3_SAE_AES` / `WPA3_WPA2_AES` and
 `wifi_join` takes an auth override; `PICODROID_WIFI_AUTH`
 (`open|wpa2|wpa3|wpa2wpa3`, unset = historical automatic choice) selects it
-at build time in `wifi_task.rs`. `platforms/rp/build.rs` now emits
+at build time in `hal/rp/cyw43/link.rs` (was `wifi_task.rs`). `platforms/rp/build.rs` now emits
 `rerun-if-env-changed` for SSID/PASS/AUTH — previously a credential change
 was a cargo no-op. Untested against a real WPA3 AP (none on the bench);
 WPA2 verified unaffected on HW.
@@ -210,4 +210,6 @@ gate are written up in the auto-memory
 lower `CYW43_IOCTL_TIMEOUT_US` below 500 ms, do not override
 `ipconfigBUFFER_PADDING`, keep `ipconfigINCLUDE_FULL_INET_ADDR=1`) are
 commented at their definition sites in
-`platforms/rp/src/hal/rp/port/cyw43_configport.h` and `FreeRTOSIPConfig.h`.
+`platforms/rp/src/hal/rp/port/cyw43_configport.h` and
+`picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h` (shared since the
+network-seam work; host tests pin them).

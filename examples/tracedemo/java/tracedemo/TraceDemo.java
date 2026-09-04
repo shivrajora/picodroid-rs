@@ -5,19 +5,21 @@ import picodroid.app.Application;
 import picodroid.util.Log;
 
 /**
- * Showcases Java-style stack traces: exception class + message header, plus per-frame source line
- * numbers from the {@code LineNumberTable} Code sub-attribute. A 3-deep call chain throws an
+ * Showcases Java-style stack traces: exception class + message header, plus per-frame source
+ * positions from the {@code SourceFile} attribute and the {@code LineNumberTable} Code
+ * sub-attribute, in Android's {@code StackTraceElement} spelling. A 3-deep call chain throws an
  * uncaught {@code RuntimeException("kaboom")}; the JVM prints
  *
  * <pre>
  * Exception in thread "main" java.lang.RuntimeException: kaboom
- *     at tracedemo.TraceDemo.deepest(:29)
- *     at tracedemo.TraceDemo.middle(:25)
+ *     at tracedemo.TraceDemo.deepest(TraceDemo.java:41)
+ *     at tracedemo.TraceDemo.middle(TraceDemo.java:37)
  *     ...
  * </pre>
  *
- * In release builds, line numbers are omitted (zero RAM/parse cost) and frames fall back to the
- * {@code (pc=N)} bytecode-offset format.
+ * That is the sim and debug-profile device firmware ({@code line-numbers} cargo feature). Release
+ * firmware leaves the tables out of flash and prints the {@code (pc=N)} bytecode offset instead;
+ * pipe its log through {@code scripts/retrace.sh --app tracedemo} to get the same frames back.
  */
 public class TraceDemo extends Application {
 

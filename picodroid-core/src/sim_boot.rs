@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Task topology for the simulator — `boot_tasks.rs` for the host.
+//! The simulator's `main` and task topology — `main.rs` plus `boot_tasks.rs`
+//! for the host.
 //!
-//! Deliberately the same shape as a device's `start_tasks`, in the same order,
-//! because that is most of the point of running the real kernel here: the
-//! simulator stops taking its own shortcuts (a synchronous filesystem behind a
-//! `std::sync::Mutex`, an executor pool that falls back to the main queue) and
-//! starts exercising the code paths hardware runs
+//! Deliberately the same shape as a device boot, in the same order, because
+//! that is most of the point of running the real kernel here: the simulator
+//! stops taking its own shortcuts (a synchronous filesystem behind a
+//! `std::sync::Mutex`, an executor pool that falls back to the main queue)
+//! and starts exercising the code paths hardware runs
 //! (`docs/designs/freertos-host-sim.md` §1.2).
 //!
 //! # Why this is here and not in the family crate
 //!
 //! It was in `platforms/rp` for one day. Roughly four fifths of it names
-//! nothing family-specific — the pool, the JVM task, the child-drain wait, the
-//! scheduler handoff — so a second family's simulator would have copied it
+//! nothing family-specific — arming the allocator, the boot-budget precharge,
+//! the pool, the JVM task, the child-drain wait, the scheduler handoff, the
+//! closing heap banner — so a second family's simulator would have copied it
 //! verbatim, which is exactly the mechanism that gave the removed ESP scaffold
 //! seventeen drifting sim-stub twins (`docs/designs/family-neutral-residue.md`
-//! §0, B11). The simulator lives in this crate; its boot sequence belongs with
-//! it.
+//! §0, B11). The simulator lives in this crate; its boot sequence belongs
+//! with it.
 //!
-//! What genuinely is family policy arrives as [`BootLeaves`], the same shape
-//! `register_sim_platform!` already uses for the other simulator leaves (that
-//! doc's D6): stack sizing and the boot-budget model are chip-gated data this
-//! crate has no business reading.
-//!
-//! It carried a third leaf, `extra_boot_tasks`, whose only caller spawned the
-//! LittleFS worker. Stage 5 moved `fs` into this crate, so the sequence now
-//! spawns that worker itself and the hook is gone — as B11 said it would be.
+//! What genuinely is family policy arrives as `register_sim_platform!`
+//! parameters and reaches [`main`] as arguments: the boot-budget model
+//! (chip-gated data this crate has no business reading) and the function
+//! that runs the family's app (`docs/designs/porting-seam-2026-09.md` E6).
+//! The generated `sim_main()` in the family's `glue.rs` is the one line that
+//! joins them.
 //!
 //! # What this is *not*
 //!
@@ -40,58 +40,60 @@
 use alloc::boxed::Box;
 use std::panic::AssertUnwindSafe;
 
+use crate::hal::sim::allocator;
+use crate::hal::sim::boot_budget::{self, BootBudgetModel};
 use crate::hal::sim::rtos as sim_rtos;
 use crate::rtos::{self, TaskKind, TaskSpec};
 
-/// The family policy this boot sequence needs, and nothing more.
+/// Boot the simulator and run one app to completion.
 ///
-/// Function pointers rather than a trait: there is exactly one simulator per
-/// process and each of these is a leaf, so a vtable would buy indirection and
-/// no dispatch.
-pub struct BootLeaves {
-    /// Run the app to completion. The family's, because where the app bytes
-    /// come from is a property of its flash layout and build
-    /// (`platforms/rp/src/app.rs`).
-    pub run_app: fn(),
+/// Everything before the scheduler handoff is the work a device also does
+/// pre-scheduler (arming the heap model, mounting the filesystem); everything
+/// after only runs once the JVM task has ended the scheduler. One app per
+/// process, as `sim-run.sh` already assumes.
+pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
+    // Start device-heap accounting at the sim's "reset vector". Everything
+    // before this is host-runtime noise; everything after is charged to the
+    // heap_4 arena exactly as the device charges its FreeRTOS heap.
+    allocator::arm();
+    // Charge the FreeRTOS boot structures (task stacks, TCBs, queues) the
+    // device allocates from this same arena — measured at ~85 KB on HW (V4).
+    boot_budget::precharge(model);
+    allocator::checkpoint("baseline");
 
-    /// Assert the boot budget adds up, once every task exists. Chip-gated
-    /// arithmetic, so the family owns it.
-    pub report_boot_budget: fn(),
+    // The host-file image has the same block layout as a device's flash
+    // region, so its bytes stay interchangeable with a flash dump.
+    #[cfg(feature = "littlefs")]
+    if let Err(e) = crate::fs::init_host_image() {
+        eprintln!("[sim][fs] init failed: {}", e);
+    }
+    allocator::checkpoint("post-fs-init");
+
+    run(model, run_app);
+
+    allocator::checkpoint("final");
+
+    let (current, peak, limit) = allocator::heap_stats();
+    if limit == usize::MAX {
+        println!("[sim] heap: peak {} KB (unlimited)", peak / 1024);
+    } else {
+        println!(
+            "[sim] heap: peak {} KB / {} KB limit ({} KB current)",
+            peak / 1024,
+            limit / 1024,
+            current / 1024,
+        );
+    }
 }
 
 /// Create the boot tasks, then hand this thread to the scheduler.
 ///
-/// Returns when the JVM task has finished the app and ended the scheduler —
-/// one app per process, as `sim-run.sh` already assumes.
-pub fn run(leaves: BootLeaves) {
+/// Returns when the JVM task has finished the app and ended the scheduler.
+fn run(model: &'static BootBudgetModel, run_app: fn()) {
     // JVM heap compound operations and the GC are scheduler-atomic here
-    // exactly as on a device (`platforms/rp/src/boot_tasks.rs` installs the
-    // same pair). The single-core POSIX port has not been seen to interleave
-    // them — the bug-bash `threadstress` soak ran clean before these hooks
-    // existed (B0) — but a task at another priority does preempt at every
-    // kernel call, the guard costs a counter increment, and with it the two
-    // boots make the same promise: no `AtomicSection` is a silent no-op on
-    // one target and real on the other. Keep this block and the device's in
-    // lockstep.
-    {
-        extern "C" {
-            fn vTaskSuspendAll();
-            fn xTaskResumeAll() -> i32;
-        }
-        fn heap_atomic_enter() {
-            // SAFETY: FFI into the kernel; nests with the allocator's own
-            // suspension, as on device.
-            unsafe { vTaskSuspendAll() };
-        }
-        fn heap_atomic_exit() {
-            // SAFETY: as above; the return value (whether a yield happened)
-            // is not needed.
-            unsafe {
-                xTaskResumeAll();
-            }
-        }
-        pico_jvm::atomic_section::set_hooks(heap_atomic_enter, heap_atomic_exit);
-    }
+    // exactly as on a device: the same installer, so no `AtomicSection` is a
+    // silent no-op on one target and real on the other.
+    crate::rtos::freertos::install_heap_atomic_hooks();
 
     // The filesystem worker first, matching the device's order: it has to
     // exist before anything can ask it for a file. Its stack charge rides the
@@ -114,8 +116,7 @@ pub fn run(leaves: BootLeaves) {
 
     // The JVM task, through the same seam every other task uses — so its
     // stack size and its boot-budget charge come from the platform's
-    // registered hooks rather than from two more fields here.
-    let run_app = leaves.run_app;
+    // registered hooks rather than from two more arguments here.
     let spec = TaskSpec {
         name: "jvm",
         kind: TaskKind::Jvm,
@@ -164,7 +165,7 @@ pub fn run(leaves: BootLeaves) {
     // the device figure. Deliberately before the scheduler starts:
     // `Thread.start` charges through the same counter, and once the app runs
     // the total stops being a boot number.
-    (leaves.report_boot_budget)();
+    boot_budget::report(model);
 
     sim_rtos::start_scheduler();
 }

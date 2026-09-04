@@ -100,8 +100,12 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
         if (started) {
             return
         }
-        if (!PackageManager.getInstance().hasSystemFeature(PackageManager.FEATURE_WIFI)) {
-            Log.i(TAG, "net: no WiFi on this board")
+        val pm = PackageManager.getInstance()
+        if (
+            !pm.hasSystemFeature(PackageManager.FEATURE_WIFI) &&
+                !pm.hasSystemFeature(PackageManager.FEATURE_ETHERNET)
+        ) {
+            Log.i(TAG, "net: no network link on this board")
             return
         }
         started = true

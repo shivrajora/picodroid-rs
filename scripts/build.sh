@@ -21,7 +21,7 @@ Options:
   -r, --release        Build in release mode (default: debug)
   -u, --uf2            Convert output ELF to UF2 (requires elf2uf2-rs)
       --shrink         Apply the active release class-name shrink map
-                       (off by default; see docs/shrinker.md)
+                       (off by default; see website/src/content/docs/reference/shrinker.md)
       --shrink-app     Also rename the app's own classes and private members
                        (requires --shrink; see build-apk.sh --shrink-app)
   -h, --help           Show this help message

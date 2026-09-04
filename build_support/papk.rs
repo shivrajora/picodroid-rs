@@ -168,11 +168,12 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 
 /// Compile the picodroid framework Java sources through Gradle, optionally
 /// apply the active shrink map, and embed each `.class` file as a
-/// `&'static [u8]` into `framework_classes.rs`. Firmware built with
-/// `debug_assertions` off (every device build) embeds `:sdk:stripClasses`'
-/// output — the classes without `LineNumberTable` / `SourceFile` /
-/// `StackMapTable`, which that JVM never reads — and the generated file says
-/// so in `FRAMEWORK_CLASSES_DEBUG_STRIPPED`; see the gate below.
+/// `&'static [u8]` into `framework_classes.rs`. Every build embeds a stripped
+/// tree (no `StackMapTable`, annotations, …, which the JVM never reads):
+/// `:sdk:stripClassesLines` keeps `LineNumberTable` / `SourceFile` when the
+/// `line-numbers` cargo feature is on (the sim, debug-profile firmware) and
+/// `:sdk:stripClasses` drops them otherwise. The generated file records the
+/// choice in `FRAMEWORK_CLASSES_LINE_NUMBERS`; see the gate below.
 ///
 /// `root` is the repo root directory (where `gradlew`, `sdk/`, etc. live).
 /// Shrinking is only triggered when [`resolve_active_map_version`] returns
@@ -200,7 +201,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     if env::var("PICODROID_APK_PATH").is_err() {
         fs::write(
             out.join("framework_classes.rs"),
-            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\npub const FRAMEWORK_CLASSES_DEBUG_STRIPPED: bool = false;\n",
+            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\npub const FRAMEWORK_CLASSES_LINE_NUMBERS: bool = false;\n",
         )
         .unwrap();
         return;
@@ -232,19 +233,19 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     } else {
         "gradlew"
     });
-    // Device firmware compiles with debug_assertions off in both profiles
-    // (scripts/lib.sh build_firmware), which compiles out the JVM's only
-    // LineNumberTable reader (jvm/src/class_file/parse.rs, under
-    // `#[cfg(debug_assertions)]`); SourceFile and StackMapTable have no reader
-    // at all. Embed the tree `:sdk:stripClasses` writes without them (~14 KB
-    // of flash on every board, docs/designs/flash-string-budget-2026-08.md §4)
-    // and keep compileJava's raw tree for debug_assertions builds — the sim,
-    // whose stack traces resolve `(:line)` from it. CARGO_CFG_DEBUG_ASSERTIONS
-    // is the exact gate: it tracks the `--config profile.dev.debug-assertions`
-    // override (DEBUG and PROFILE do not) and is part of cargo's build-script
-    // fingerprint, so no rerun-if-env-changed is needed. Cargo sets it to the
-    // empty string when on, hence the presence test.
-    let strip_debug = env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_none();
+    // The JVM reads LineNumberTable and SourceFile only under the
+    // `line-numbers` cargo feature (jvm/src/class_file/parse.rs), which the
+    // sim and debug-profile firmware enable and release firmware does not;
+    // StackMapTable and the rest have no reader at all. Embed the tree that
+    // matches: `:sdk:stripClassesLines` keeps the two attributes, plain
+    // `:sdk:stripClasses` drops them too (~15 KB of flash on every board,
+    // docs/designs/flash-string-budget-2026-08.md §4). CARGO_FEATURE_* is set
+    // for this package's own features and is part of cargo's build-script
+    // fingerprint, so no rerun-if-env-changed is needed. Not the profile, and
+    // not debug_assertions: device firmware turns those off in both profiles
+    // (scripts/lib.sh build_firmware), which is exactly why line numbers were
+    // never available on device before the feature existed.
+    let lines = env::var_os("CARGO_FEATURE_LINE_NUMBERS").is_some();
     // With a member-shrinking map active, embed the tree the ASM
     // `ShrinkMembersTask` wrote on top of that choice (member names renamed,
     // class names still original — `apply_active_shrink` renames those next).
@@ -252,19 +253,22 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // environment is frozen, so env would silently go stale.
     let member_map = active_shrink_map(root).filter(|m| m.has_members());
     let mut gradle_args: Vec<String> = Vec::new();
-    let (gradle_task, classes_dir) = match (strip_debug, &member_map) {
-        (true, None) => (
+    let (gradle_task, classes_dir) = match (lines, &member_map) {
+        (false, None) => (
             ":sdk:stripClasses",
             root.join("sdk/build/classes-stripped/java/main"),
         ),
-        (false, None) => (":sdk:compileJava", root.join("sdk/build/classes/java/main")),
-        (true, Some(_)) => (
+        (true, None) => (
+            ":sdk:stripClassesLines",
+            root.join("sdk/build/classes-stripped-lines/java/main"),
+        ),
+        (false, Some(_)) => (
             ":sdk:shrinkMembersStripped",
             root.join("sdk/build/classes-members-stripped/java/main"),
         ),
-        (false, Some(_)) => (
-            ":sdk:shrinkMembersRaw",
-            root.join("sdk/build/classes-members-raw/java/main"),
+        (true, Some(_)) => (
+            ":sdk:shrinkMembersStrippedLines",
+            root.join("sdk/build/classes-members-stripped-lines/java/main"),
         ),
     };
     if member_map.is_some() {
@@ -296,13 +300,13 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
         "{} holds no .class files after ./gradlew {gradle_task}",
         classes_dir.display()
     );
-    if strip_debug || member_map.is_some() {
-        let raw_count = collect_files(&root.join("sdk/build/classes/java/main"), "class").len();
-        assert_eq!(
-            class_count, raw_count,
-            "{gradle_task} produced {class_count} classes but compileJava produced {raw_count}"
-        );
-    }
+    // Every embedded tree derives from compileJava's: a class the strip or
+    // member shrink lost would surface on device as NoClassDefFound.
+    let raw_count = collect_files(&root.join("sdk/build/classes/java/main"), "class").len();
+    assert_eq!(
+        class_count, raw_count,
+        "{gradle_task} produced {class_count} classes but compileJava produced {raw_count}"
+    );
 
     // If the active map covers our package version, shrink into a sibling
     // directory and point the embed step at the shrunk output. Otherwise
@@ -357,11 +361,11 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     let content = format!(
         "pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n\
          pub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[\n{dropped_entries}];\n\
-         /// True when the embedded classes came from `:sdk:stripClasses` (no\n\
-         /// LineNumberTable / SourceFile / StackMapTable), i.e. the firmware was\n\
-         /// built with `debug_assertions` off. Pinned to `!cfg!(debug_assertions)`\n\
-         /// by a picodroid-core test.\n\
-         pub const FRAMEWORK_CLASSES_DEBUG_STRIPPED: bool = {strip_debug};\n"
+         /// True when the embedded classes came from `:sdk:stripClassesLines`\n\
+         /// (LineNumberTable / SourceFile kept, StackMapTable etc. dropped), i.e.\n\
+         /// the build has the `line-numbers` feature. Pinned to\n\
+         /// `cfg!(feature = \"line-numbers\")` by a picodroid-core test.\n\
+         pub const FRAMEWORK_CLASSES_LINE_NUMBERS: bool = {lines};\n"
     );
     fs::write(out.join("framework_classes.rs"), content).unwrap();
 }
@@ -465,14 +469,12 @@ pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
         let fallback = env::var("PICODROID_APK_PATH").unwrap_or_default();
         // On device the APK lives in flash (XIP) and costs zero heap; the
         // sim must not charge it to the simulated heap either
-        // (docs/parity-audit.md APK-01/M3). The RP sim exposes a heap-cap
-        // bypass for exactly this class of host-only allocation; the ESP
-        // crate has no capped allocator yet, so it gets a no-op.
-        let bypass_stmt = if env::var("CARGO_PKG_NAME").as_deref() == Ok("picodroid") {
-            "let _flash_xip = crate::sim_allocator::bypass();"
-        } else {
-            "// (no heap-cap bypass: this crate has no capped sim allocator)"
-        };
+        // (docs/parity-audit.md APK-01/M3): the shared simulator exposes a
+        // heap-cap bypass for exactly this class of host-only allocation.
+        // Every family reaches the one shared capped allocator through
+        // picodroid-core, so the bypass is spelled by its crate path rather
+        // than through an alias the family's `main.rs` would have to declare.
+        let bypass_stmt = "let _flash_xip = ::picodroid_core::hal::sim::allocator::bypass();";
         let generated = format!(
             "/// Sim builds load the APK from disk at startup; the runtime\n\
              /// `PICODROID_APK_PATH` env var wins over the build-time fallback.\n\

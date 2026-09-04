@@ -22,6 +22,8 @@ public final class SharedPreferences {
   static final byte T_INT = 2;
   static final byte T_LONG = 3;
   static final byte T_BOOL = 5;
+  // 4 is Editor.T_REMOVED. Floats are stored as Float.floatToIntBits in intVals.
+  static final byte T_FLOAT = 6;
 
   static final int MAX_ENTRIES = 64;
   static final int MAX_KEY_LEN = 63;
@@ -76,6 +78,11 @@ public final class SharedPreferences {
     return (((long) longValsHi[i]) << 32) | (((long) longValsLo[i]) & 0xffffffffL);
   }
 
+  public float getFloat(String key, float def) {
+    int i = indexOf(key);
+    return (i >= 0 && types[i] == T_FLOAT) ? Float.intBitsToFloat(intVals[i]) : def;
+  }
+
   public boolean getBoolean(String key, boolean def) {
     int i = indexOf(key);
     return (i >= 0 && types[i] == T_BOOL) ? (intVals[i] != 0) : def;
@@ -95,6 +102,8 @@ public final class SharedPreferences {
         out.put(keys[i], strVals[i]);
       } else if (t == T_INT) {
         out.put(keys[i], Integer.valueOf(intVals[i]));
+      } else if (t == T_FLOAT) {
+        out.put(keys[i], Float.valueOf(Float.intBitsToFloat(intVals[i])));
       } else if (t == T_BOOL) {
         out.put(keys[i], Boolean.valueOf(intVals[i] != 0));
       } else if (t == T_LONG) {
@@ -255,7 +264,7 @@ public final class SharedPreferences {
         }
         strVals[i] = bytesToString(buf, p, vlen);
         p += vlen;
-      } else if (type == T_INT || type == T_BOOL) {
+      } else if (type == T_INT || type == T_FLOAT || type == T_BOOL) {
         if (type == T_BOOL) {
           if (p + 1 > len - 4) {
             return false;
@@ -315,7 +324,7 @@ public final class SharedPreferences {
         for (int j = 0; j < vlen; j++) {
           out[p++] = (byte) v.charAt(j);
         }
-      } else if (t == T_INT) {
+      } else if (t == T_INT || t == T_FLOAT) {
         writeInt32LE(out, p, intVals[i]);
         p += 4;
       } else if (t == T_BOOL) {
@@ -339,7 +348,7 @@ public final class SharedPreferences {
       byte t = types[i];
       if (t == T_STRING) {
         n += 2 + strVals[i].length();
-      } else if (t == T_INT) {
+      } else if (t == T_INT || t == T_FLOAT) {
         n += 4;
       } else if (t == T_BOOL) {
         n += 1;
@@ -462,6 +471,14 @@ public final class SharedPreferences {
       types[i] = SharedPreferences.T_LONG;
       longValsLo[i] = (int) value;
       longValsHi[i] = (int) (value >>> 32);
+      return this;
+    }
+
+    public Editor putFloat(String key, float value) {
+      checkKey(key);
+      int i = slot(key);
+      types[i] = SharedPreferences.T_FLOAT;
+      intVals[i] = Float.floatToIntBits(value);
       return this;
     }
 

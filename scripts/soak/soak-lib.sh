@@ -2,6 +2,11 @@
 # Shared helpers for the picoenvmon device soak (2026-08-16).
 # Every press is verified against the RTT log (new `key:`/`activity:` lines).
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The soak owns the board through a pinned lease
+# (`PICODROID_DEVICE_OWNER=soak device-lock.sh acquire --pin` before the
+# flash). Every pdb.sh call must present the same owner, whatever CLAUDE_*
+# the launching session leaked into the environment.
+export PICODROID_DEVICE_OWNER="${PICODROID_DEVICE_OWNER:-soak}"
 RTT="${SOAK_RTT:-/tmp/soak-rtt.log}"
 NAV="${SOAK_NAV:-/tmp/soak-nav.log}"
 FLAG="${SOAK_FLAG:-/tmp/soak-PANIC}"
@@ -37,7 +42,13 @@ press() {
   local key=$1 expect=${2:-} t=${3:-5} off
   [ -f "$FLAG" ] && return 9
   off=$(rtt_off)
-  if ! "$REPO/scripts/pdb.sh" input keyevent "$key" >/dev/null 2>&1; then
+  local rc=0
+  "$REPO/scripts/pdb.sh" input keyevent "$key" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 75 ]; then
+    # Lost the board lease (someone broke it, or the soak was started
+    # without --pin): distinct from a pdb transport failure.
+    nav "FAIL key=$key device-busy"; return 4
+  elif [ "$rc" -ne 0 ]; then
     nav "FAIL key=$key pdb-exit"; return 1
   fi
   if ! await_line "$off" "key: code=$key" 3; then

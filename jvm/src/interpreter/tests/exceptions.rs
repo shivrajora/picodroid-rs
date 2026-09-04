@@ -477,7 +477,7 @@ fn athrow_superclass_not_caught_by_subclass() {
 //   - LineNumberTable: 1 entry, start_pc=0 → line 10
 //
 // The athrow fires at inst_pc=7; pc_to_line(7) must return Some(10).
-#[cfg(debug_assertions)]
+#[cfg(feature = "line-numbers")]
 static CLASS_TEST_UNCAUGHT_WITH_LNT: &[u8] = &[
     0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version 52
     0x00, 0x0F, // cp_count=15
@@ -512,30 +512,109 @@ static CLASS_TEST_UNCAUGHT_WITH_LNT: &[u8] = &[
     0x00, 0x00, // class_attrs_count=0
 ];
 
+// CLASS_TEST_UNCAUGHT_WITH_LNT plus a `SourceFile` attribute:
+//   - cp_count: 15 → 17  (adds #15 Utf8 "SourceFile", #16 Utf8 "T.java")
+//   - class_attrs_count: 0 → 1, the attribute pointing at #16
+#[cfg(feature = "line-numbers")]
+static CLASS_TEST_UNCAUGHT_WITH_LNT_AND_SOURCE: &[u8] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, // magic + version 52
+    0x00, 0x11, // cp_count=17
+    // #1..#14 identical to CLASS_TEST_UNCAUGHT_WITH_LNT
+    0x07, 0x00, 0x02, 0x01, 0x00, 0x01, b'T', 0x07, 0x00, 0x04, 0x01, 0x00, 0x10, b'j', b'a', b'v',
+    b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'O', b'b', b'j', b'e', b'c', b't', 0x07, 0x00, 0x06,
+    0x01, 0x00, 0x03, b'E', b'x', b'c', 0x0A, 0x00, 0x05, 0x00, 0x08, 0x0C, 0x00, 0x09, 0x00, 0x0A,
+    0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', 0x01, 0x00, 0x03, b'(', b')', b'V', 0x01,
+    0x00, 0x01, b'm', 0x01, 0x00, 0x03, b'(', b')', b'I', 0x01, 0x00, 0x04, b'C', b'o', b'd', b'e',
+    0x01, 0x00, 0x0F, b'L', b'i', b'n', b'e', b'N', b'u', b'm', b'b', b'e', b'r', b'T', b'a', b'b',
+    b'l', b'e', // #15 Utf8 "SourceFile" (len=10)
+    0x01, 0x00, 0x0A, b'S', b'o', b'u', b'r', b'c', b'e', b'F', b'i', b'l', b'e',
+    // #16 Utf8 "T.java" (len=6)
+    0x01, 0x00, 0x06, b'T', b'.', b'j', b'a', b'v', b'a',
+    // class meta: access=1, this=#1, super=#3, ifaces=0, fields=0, methods=1
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    // Method[0]: access=1, name=#11(0x0B), desc=#12(0x0C), attrs=1
+    0x00, 0x01, 0x00, 0x0B, 0x00, 0x0C, 0x00, 0x01,
+    // Code attr: name=#13(0x0D), len=34(0x22)
+    0x00, 0x0D, 0x00, 0x00, 0x00, 0x22, // max_stack=2, max_locals=1, code_len=10
+    0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0A, 0xBB, 0x00,
+    0x05, // new #5 (Exc) — offset 0
+    0x59, // dup — offset 3
+    0xB7, 0x00, 0x07, // invokespecial #7 — offset 4
+    0xBF, // athrow — offset 7 (inst_pc=7)
+    0x03, 0xAC, // iconst_0, ireturn (unreachable)
+    0x00, 0x00, // exc_table_len=0
+    0x00, 0x01, // code_attrs_count=1
+    0x00, 0x0E, // LNT attr_name_idx=#14
+    0x00, 0x00, 0x00, 0x06, // LNT attr_len=6
+    0x00, 0x01, // LNT entry_count=1
+    0x00, 0x00, // start_pc=0
+    0x00, 0x0A, // line_number=10
+    0x00, 0x01, // class_attrs_count=1
+    0x00, 0x0F, // SourceFile attr_name_idx=#15
+    0x00, 0x00, 0x00, 0x02, // attr_len=2
+    0x00, 0x10, // sourcefile_index=#16
+];
+
 /// LineNumberTable parsed from Code sub-attributes → trace entry carries line number.
-#[cfg(debug_assertions)]
+#[cfg(feature = "line-numbers")]
 #[test]
 fn uncaught_exception_trace_has_line_number() {
     let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT_WITH_LNT], 1, &[]);
     match result {
         Err(JvmError::UncaughtException { trace, .. }) => {
             assert_eq!(trace[0].line, Some(10));
+            assert_eq!(trace[0].source_file, None);
         }
         other => panic!("expected UncaughtException, got {:?}", other),
     }
 }
 
-/// Display of UncaughtException uses `:N` line format when LNT is present.
-#[cfg(debug_assertions)]
+/// A line without a SourceFile renders Android's `(Unknown Source:N)`.
+#[cfg(feature = "line-numbers")]
 #[test]
 fn uncaught_exception_display_uses_line_format() {
     let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT_WITH_LNT], 1, &[]);
     let s = alloc::format!("{}", result.unwrap_err());
-    assert!(s.contains(":10"), "expected ':10' in '{s}'");
+    assert!(
+        s.contains("at T.m(Unknown Source:10)"),
+        "expected '(Unknown Source:10)' in '{s}'"
+    );
     assert!(
         !s.contains("pc="),
         "should not contain 'pc=' when line known: '{s}'"
     );
+}
+
+/// SourceFile + LineNumberTable render the full `(File.java:N)` frame.
+#[cfg(feature = "line-numbers")]
+#[test]
+fn uncaught_exception_display_uses_source_file() {
+    let result = run_multi(
+        &[CLASS_EXC, CLASS_TEST_UNCAUGHT_WITH_LNT_AND_SOURCE],
+        1,
+        &[],
+    );
+    match &result {
+        Err(JvmError::UncaughtException { trace, .. }) => {
+            assert_eq!(trace[0].line, Some(10));
+            assert_eq!(trace[0].source_file, Some("T.java"));
+        }
+        other => panic!("expected UncaughtException, got {:?}", other),
+    }
+    let s = alloc::format!("{}", result.unwrap_err());
+    assert!(
+        s.contains("at T.m(T.java:10)"),
+        "expected '(T.java:10)' in '{s}'"
+    );
+}
+
+/// Without the feature the same class still runs and frames print `pc=`.
+#[cfg(not(feature = "line-numbers"))]
+#[test]
+fn uncaught_exception_display_falls_back_to_pc() {
+    let result = run_multi(&[CLASS_EXC, CLASS_TEST_UNCAUGHT], 1, &[]);
+    let s = alloc::format!("{}", result.unwrap_err());
+    assert!(s.contains("at T.m(pc=7)"), "expected '(pc=7)' in '{s}'");
 }
 
 // ── Native-minted alloc-by-name exception caught by superclass handler ────

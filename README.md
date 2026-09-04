@@ -112,7 +112,7 @@ The full docs are published at **<https://shivrajora.github.io/picodroid-rs/>** 
 - [Tutorials](https://shivrajora.github.io/picodroid-rs/tutorials/multi-screen-app/) — guided builds: a [multi-screen app](https://shivrajora.github.io/picodroid-rs/tutorials/multi-screen-app/) and a [background service](https://shivrajora.github.io/picodroid-rs/tutorials/background-service/)
 - [Java API](https://shivrajora.github.io/picodroid-rs/api/) — split by area: [core](https://shivrajora.github.io/picodroid-rs/api/core/), [system](https://shivrajora.github.io/picodroid-rs/api/system/), [services](https://shivrajora.github.io/picodroid-rs/api/services/), [peripherals](https://shivrajora.github.io/picodroid-rs/api/peripherals/), [storage](https://shivrajora.github.io/picodroid-rs/api/storage/), [networking](https://shivrajora.github.io/picodroid-rs/api/networking/), [sensors](https://shivrajora.github.io/picodroid-rs/api/sensors/), [UI](https://shivrajora.github.io/picodroid-rs/api/ui/)
 - [Guides](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/) — [embedded gotchas](https://shivrajora.github.io/picodroid-rs/guides/embedded-gotchas/), [button-only navigation](https://shivrajora.github.io/picodroid-rs/guides/button-navigation/), [debugging](https://shivrajora.github.io/picodroid-rs/guides/debugging/), [bundled image assets](https://shivrajora.github.io/picodroid-rs/guides/assets/)
-- [Reference](https://shivrajora.github.io/picodroid-rs/reference/limits/) — [limits & memory budgets](https://shivrajora.github.io/picodroid-rs/reference/limits/), the [manifest schema](https://shivrajora.github.io/picodroid-rs/reference/manifest/), the [class-name shrinker](https://shivrajora.github.io/picodroid-rs/reference/shrinker/)
+- [Reference](https://shivrajora.github.io/picodroid-rs/reference/limits/) — [limits & memory budgets](https://shivrajora.github.io/picodroid-rs/reference/limits/), the [manifest schema](https://shivrajora.github.io/picodroid-rs/reference/manifest/), the [shrinker](https://shivrajora.github.io/picodroid-rs/reference/shrinker/), the [porting guide](https://shivrajora.github.io/picodroid-rs/reference/porting-guide/)
 - [Release notes](https://shivrajora.github.io/picodroid-rs/project/release-notes/) — v0.4.0 → v0.14.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
@@ -124,17 +124,19 @@ picodroid-rs/
 │   └── src/            # no_std + alloc only; no hardware dependencies
 │
 ├── picodroid-core/     # Family-neutral framework crate: JVM natives, lifecycle,
-│   └── src/            # graphics, networking, drivers, install, host-simulator HAL
+│   └── src/            # graphics, networking, drivers, install, host-simulator HAL,
+│                       # and porting.rs: the checklist a new MCU family implements
 │
 ├── platforms/
 │   └── rp/             # RP-family firmware crate (RP2040 + RP2350)
 │       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon / _w)
 │       ├── mcus/       # Per-MCU linker scripts, FreeRTOS config, heap sizes
-│       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb task, install path
+│       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb transport, flash slot
 │
 ├── sdk/                # Android-compatible Java API (picodroid.*)
 │   ├── java/           # Framework Java sources (compiled into firmware Flash)
-│   ├── keep.toml       # Class-name shrinker keep list
+│   ├── keep.toml       # Shrinker keep list
+│   ├── *.tsv           # Generated name lists behind the runtime's c::/m::/d:: constants
 │   └── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
 │
 ├── examples/           # Example apps (Java or Kotlin sources + a PicodroidManifest.xml)
@@ -146,15 +148,14 @@ picodroid-rs/
 ├── tools/
 │   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
 │   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
-│   ├── class-shrink/   # Host tool: release-tied class-name shrinker (see reference/shrinker)
+│   ├── class-shrink/   # Host tool: class/member-name shrinker — release maps, per-app maps, retrace
 │   └── pdb/            # Host tool: push apps, inject input, and monitor device health
 │
 ├── build_support/      # Shared build-script logic (boards, FreeRTOS, network, PAPK embed)
 ├── scripts/            # Build, flash, sim, pdb, test, HIL, and pre-commit scripts
 ├── website/            # Astro Starlight documentation site
 ├── docs/               # Engineering docs: designs, audits, dated bug records
-├── third_party/        # Git submodules (FreeRTOS-Kernel, littlefs fork)
-└── vendor/             # Submodules + downloaded libs (LVGL, FreeRTOS+TCP, cyw43-driver fork)
+└── third_party/        # All third-party code: submodules (FreeRTOS-Kernel, LVGL, FreeRTOS+TCP, cyw43-driver fork), littlefs fork, formatter JARs
 ```
 
 ## Attribution

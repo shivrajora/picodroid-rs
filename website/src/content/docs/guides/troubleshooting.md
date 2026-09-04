@@ -23,6 +23,21 @@ This is expected. `flash.sh` flashes the firmware and then streams RTT log outpu
 ./scripts/flash.sh --app helloworld &
 ```
 
+## `device lock: busy -- held by ...` (exit code 75)
+
+The board is a single shared resource, and every script that touches it (`flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through `scripts/device-lock.sh` first. A free board is acquired automatically for your session and kept until you give it back; a busy one makes the script exit 75 and name the holder.
+
+```bash
+./scripts/device-lock.sh status           # who holds it, since when, who is queued
+./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
+./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
+./scripts/device-lock.sh break --force    # evict a holder who is really gone
+```
+
+A lease dies with the process that took it (your shell, or your Claude Code session), so a closed session never wedges the board. Long unattended runs that must survive their launcher take a pinned lease instead: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin`, and release it at teardown.
+
+If probe-rs itself reports `Failed to open probe` while the lock says the board is free, a stale `probe-rs` is still holding the USB interface: `./scripts/device-lock.sh release` kills it (never `pkill -f probe-rs`, which also kills any shell whose command line mentions it).
+
 ## `blinky` loops forever in the simulator
 
 The blinky app blinks an LED in an infinite loop, which means the simulator will never exit. Kill it after a timeout:
@@ -105,9 +120,21 @@ The two most common causes:
    version bumped past what the firmware knows). Rebuild the PAPK
    against the current source tree.
 
+3. **PAPK was shrunk before method/field names were.** Since map
+   v0.17.0 the firmware's own dispatch uses the mapped member names, so
+   a PAPK shrunk with an older map is refused by a v0.17.0-or-later
+   firmware even though older maps are otherwise accepted (the member
+   floor). Rebuild the PAPK; `pdb install` names this reason
+   explicitly.
+
+`--shrink-app` never causes a mismatch: the per-app map extends the
+release map without changing `framework-map-version`, so a
+`--shrink-app` PAPK installs on any `--shrink` firmware of the same
+release.
+
 `FrameworkVersionMissing` means the PAPK predates the manifest key
 entirely (legacy, pre-M1). Also fixed by rebuilding. See
-[Class-name shrinker](/reference/shrinker/) for the full compatibility story.
+[Shrinker](/reference/shrinker/) for the full compatibility story.
 
 ## `api contract: FAILED` — the app build stops in `verifyApiContract`
 
@@ -136,7 +163,8 @@ device's running firmware before erasing flash. Two messages you may see:
 
 1. **"PAPK is incompatible with running firmware"** — the PAPK and the
    running firmware disagree about `--shrink` (or the PAPK's release map
-   version is newer). The on-device PAPK is untouched. Rebuild the PAPK
+   is newer than the firmware's, or older than its member floor). The
+   on-device PAPK is untouched. Rebuild the PAPK
    with the matching `--shrink` setting and re-run `pdb install`.
 
 2. **"Firmware advertises 'picodroid/2.0', which predates the
@@ -173,12 +201,12 @@ Three common causes:
 
 ## Networking
 
-### Build fails with `vendor/cyw43-driver is the unpatched upstream`
+### Build fails with `third_party/cyw43-driver is the unpatched upstream`
 
-The `vendor/cyw43-driver` submodule moved to the patched picodroid fork. A checkout cloned before the switch still points at upstream, and the network build fails early rather than producing broken WiFi firmware. Re-sync the submodule:
+The `third_party/cyw43-driver` submodule moved to the patched picodroid fork. A checkout cloned before the switch still points at upstream, and the network build fails early rather than producing broken WiFi firmware. Re-sync the submodule:
 
 ```bash
-git submodule sync && git submodule update --init vendor/cyw43-driver
+git submodule sync && git submodule update --init third_party/cyw43-driver
 ```
 
 ### RTT shows `wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining`

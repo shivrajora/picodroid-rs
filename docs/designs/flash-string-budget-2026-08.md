@@ -232,6 +232,25 @@ Consequence: sim builds keep `debug_assertions` on and would keep their line
 numbers; only the firmware image loses them, and only where it could not have
 read them anyway.
 
+**Superseded 2026-09-02 (roadmap T2.4).** The gate is now the `line-numbers`
+cargo feature, end to end: the JVM's `LineNumberTable` + `SourceFile` readers
+(`jvm/`), `build.rs`'s tree choice (`CARGO_FEATURE_LINE_NUMBERS`, also in the
+build-script fingerprint) and the `framework_classes.rs` invariant.
+`debug_assertions` is not consulted anywhere any more — it was never true on a
+device, so "debug build" had silently meant "no line numbers" on hardware. The
+feature is on for the sim and for debug-profile `flash.sh` firmware (frames
+print `(File.java:39)`), off for `--release` (HIL, the size ratchet, CI —
+frames print `(pc=N)`, resolved on the host by `scripts/retrace.sh`).
+`PICODROID_LINE_NUMBERS=0|1` overrides `build_firmware`'s profile default. The
+ratchet measures release, so this section's savings stand; a debug-profile
+image is ~15 KB larger than its release twin for the SDK tables plus the app's.
+Measured 2026-09-02, `build.sh --board testbench_rp2040 --app helloworld`
+(debug profile, feature on): 894,095 B of the 917,248 B program region —
+23 KB of headroom left on the flash gate — and RAM 227,992 B, identical to the
+release ratchet row, because `MethodInfo.lnt_offset` is a `u16` in padding.
+Raw SDK table bytes for reference: `LineNumberTable` 13,748 + `SourceFile`
+1,160 over 145 classes; `picoenvmon` adds 6,056 + 280 of its own.
+
 ### 4.2 Where it hooks in — as landed (2026-09-01)
 
 Two call sites, because the app PAPK and the SDK corpus are packed by different
@@ -256,6 +275,14 @@ the only attributes it parses).
   generated `framework_classes.rs` carries `FRAMEWORK_CLASSES_DEBUG_STRIPPED`,
   and `picodroid-core/src/framework_classes.rs` pins it to
   `!cfg!(debug_assertions)` and to the embedded bytes.
+  *Since 2026-09-02:* a sibling `:sdk:stripClassesLines` (`keepLineNumbers =
+  true`, `classes-stripped-lines/`) is what a `line-numbers` build embeds, with
+  `shrinkMembersStrippedLines` as its member-shrink twin; the raw `compileJava`
+  tree is embedded by nothing any more (`shrinkMembersRaw` is gone), so the sim
+  runs the same class shape as the device. The constant is now
+  `FRAMEWORK_CLASSES_LINE_NUMBERS`, pinned to `cfg!(feature = "line-numbers")`:
+  `StackMapTable` absent in every build, `LineNumberTable` + `SourceFile`
+  present exactly when the feature is on.
 - **App PAPK** — `PicodroidPapkPlugin` reads `-Ppicodroid.stripDebug=true`
   (what `scripts/build-apk.sh --strip-debug` passes): Java apps get a
   `stripClassMetadata` stage between `verifyApiContract` and `shrinkClasses` /
@@ -263,8 +290,14 @@ the only attributes it parses).
   Every device path passes the flag — `lib.sh build_firmware` (so `build.sh`,
   `flash.sh`, CI and the size ratchet), `hil-run.sh`, pre-commit's firmware
   snapshot. Sim paths (`sim.sh`, `sim-run.sh`, `test.sh`) do not, so a
-  dev-profile sim run still resolves `(:line)` for app frames and a Java PAPK
-  built without the flag is byte-identical to before.
+  dev-profile sim run still resolves line numbers for app frames and a Java
+  PAPK built without the flag is byte-identical to before. *Since 2026-09-02:*
+  `--keep-lines` (`-Ppicodroid.keepLineNumbers=true`) keeps exactly
+  `LineNumberTable` + `SourceFile` through the strip; `build_firmware` adds it
+  whenever the firmware gets the `line-numbers` feature, so a debug-profile
+  PAPK is stripped-with-lines and a release PAPK fully stripped. Mismatches are
+  harmless in both directions: a with-lines PAPK on release firmware is skipped
+  by attribute length, a stripped PAPK on line-numbers firmware prints `(pc=N)`.
 
 `tools/class-shrink` is untouched: its opaque-tail `ClassFile` rewrites the
 stripped output's `Utf8` entries exactly as it did the raw output's (Kotlin
@@ -470,7 +503,13 @@ file's header.
   `--strip-debug` and run via `sim.sh --apk` prints `(pc=9)` — both confirmed
   after the change. `--release` sim builds
   (`sim-run.sh` lanes, CI `sim-smoke`) embed the stripped corpus, consistent
-  with a JVM whose `pc_to_line` is compiled out.
+  with a JVM whose `pc_to_line` is compiled out. *2026-09-02:* every sim build
+  now passes `line-numbers` (`sim.sh`, `sim-run.sh`, `test.sh`), release
+  profile included, and embeds the stripped-with-lines corpus; the frame
+  spelling became Android's `(TraceDemo.java:39)`.
+- ~~Line numbers on device?~~ Roadmap T2.4, done 2026-09-02 — see the note
+  under §4.1: `line-numbers` feature for debug-profile firmware, host
+  `retrace.sh` resolution of `(pc=N)` for release logs.
 - Would a shared cross-class constant pool (one dedup'd string table for the
   whole SDK corpus, indices into it) beat per-class shrinking outright?
   `java/lang/Object` ×109 and `()V` ×104 suggest the corpus-wide duplication is

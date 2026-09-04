@@ -26,7 +26,11 @@ through build-generated `shrink_names::m::<name>` consts instead of literals
 (`no_original_name_literals`, `handled_rows_use_member_consts`), and
 the `unshrink_method` this doc anticipated at line ~235 was never needed —
 dispatch matches the shrunk spelling directly, at zero runtime cost. An X-macro
-would emit `m::` paths rather than literals.
+would emit `m::` paths rather than literals. Since 47bc221 (unconditional
+shrink, 2026-09-02) nothing un-shrinks at run time at all: `unshrink_class` and
+the `unshrink_descriptor` sketched below are gone, dispatch keys are the
+generated `c::` / `m::` / `d::` consts, and the body's references to them are
+historical.
 
 **Third parallel table (2026-08-31, android-parity E3).** The classfile-less
 builtins got the same treatment for the compile-time contract:

@@ -5,13 +5,19 @@ description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simu
 
 `picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`URL`, `HttpURLConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
 
-Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and `network_type = "cyw43"` in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs: `NetworkInfo.isConnected()` returns `false`, and anything that would touch the network throws `UnsupportedOperationException`. Probe with `NetworkInfo.isConnected()` (or `PackageManager.hasSystemFeature(FEATURE_WIFI)`) and degrade, rather than assuming a socket will open.
+Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and a `network_type` (one of the known link types — `"cyw43"` today) in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs: `NetworkInfo.isConnected()` returns `false`, and anything that would touch the network throws `UnsupportedOperationException`. Probe with `NetworkInfo.isConnected()` (or `PackageManager.hasSystemFeature(FEATURE_WIFI)`) and degrade, rather than assuming a socket will open.
 
 A flash-constrained board may go further and leave the unusable classes out of its firmware entirely — `testbench_rp2040` ships only `NetworkInfo`, since networking will never be supported there (see `framework_class_excludes` in [limits](/reference/limits/#runtime-limits)). On such a board the missing classes fail to resolve instead of throwing, so the probe-and-degrade path is the portable one.
 
 `InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free. `InetAddress.getByName("host")` resolves a hostname (or parses a dotted-quad literal without touching the network) and throws `java.net.UnknownHostException` on failure.
 
 ## Network status
+
+Which kind of link the board has is a build-time fact. `NetworkInfo.getType()` returns
+`ConnectivityManager.TYPE_WIFI` (1) or `ConnectivityManager.TYPE_ETHERNET` (9), and
+`ConnectivityManager.TYPE_NONE` (-1) on a board without networking. `PackageManager`'s
+`FEATURE_WIFI` and `FEATURE_ETHERNET` answer the same question through
+`hasSystemFeature`; an app that only needs *a* network should accept either.
 
 On hardware the WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in `onCreate()` races the link. Poll `NetworkInfo.isConnected()` against a deadline instead of checking it once:
 
@@ -241,7 +247,7 @@ See [`examples/netexception/`](https://github.com/shivrajora/picodroid-rs/tree/m
 
 > **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
 >
-> Network builds require the `vendor/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init vendor/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
+> Network builds require the `third_party/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init third_party/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
 
 > **WiFi credentials:** on hardware, the firmware joins the network named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time** (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). They are baked into the image, so rebuild after changing them and never commit images built with real credentials. Without an SSID the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
 

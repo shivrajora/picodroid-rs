@@ -23,3 +23,10 @@ parity-metrics = []
 # sim<->device equality-checked, and never reset; mem-diag counters are plain
 # non-atomic fields (thumbv6m-safe) that reset per monitor window.
 mem-diag = []
+# Source positions in uncaught-exception traces: parse `LineNumberTable` and
+# `SourceFile` so frames print `(File.java:39)` instead of `(pc=9)`. On for
+# the host simulator and for debug-profile device firmware (scripts/flash.sh
+# default); off for release firmware, where the tables would cost ~15 KB of
+# flash on every board. Off = the attributes are skipped by length, exactly
+# as before, and a PAPK that still carries them is harmless.
+line-numbers = []

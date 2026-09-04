@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use papk_format::{AssetSpec, EntryPoint, ManifestSpec, PapkBuilder};
 
 /// LVGL `lv_color_format_t` value for native RGB565 little-endian. Verified
-/// against `vendor/lvgl/src/misc/lv_color.h` (`LV_COLOR_FORMAT_RGB565`) —
+/// against `third_party/lvgl/src/misc/lv_color.h` (`LV_COLOR_FORMAT_RGB565`) —
 /// drift-guarded by the test module at the bottom of this file.
 const LV_COLOR_FORMAT_RGB565: u8 = 0x12;
 
@@ -654,7 +654,7 @@ mod color_format_guard {
     //! for one constant).
     use super::LV_COLOR_FORMAT_RGB565;
 
-    const LV_COLOR_HEADER: &str = include_str!("../../../vendor/lvgl/src/misc/lv_color.h");
+    const LV_COLOR_HEADER: &str = include_str!("../../../third_party/lvgl/src/misc/lv_color.h");
 
     fn lookup_assigned_hex(body: &str, name: &str) -> Option<u32> {
         for line in body.lines() {

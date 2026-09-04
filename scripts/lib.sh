@@ -250,6 +250,44 @@ gradle_lock_run() {
   fi
 }
 
+# Takes the machine-wide lease on the attached dev board for the caller's
+# session, or exits 75 (EX_TEMPFAIL) with the holder and a hint.
+#
+# One probe, one board, several parallel sessions: every script that flashes,
+# power-cycles or talks pdb to the board calls this first. If the board is
+# free the lease is taken and kept -- it belongs to the *session* (inside
+# Claude the claude process, in a terminal the shell that ran the script),
+# not to this command, so a flash followed by pdb calls needs no ceremony and
+# nothing can interleave. Release with `./scripts/device-lock.sh release`.
+# The lease evaporates on its own when the owning process exits.
+#
+# Optional leading `--wait SECS` queues instead of failing. Remaining args are
+# only used to label the lease in `status`.
+#
+# PICODROID_DEVICE_LOCK=0 skips the check (emergencies). Without flock the
+# check is skipped too, matching gradle_lock_run.
+require_device_lock() {
+  if [[ "${PICODROID_DEVICE_LOCK:-1}" == "0" ]]; then
+    echo "WARNING: PICODROID_DEVICE_LOCK=0 -- touching the board without the device lock" >&2
+    return 0
+  fi
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "WARNING: flock not found -- touching the board without the device lock" >&2
+    return 0
+  fi
+  local wait_args=()
+  if [[ "${1:-}" == "--wait" ]]; then
+    wait_args=(--wait "${2:-}")
+    shift 2
+  fi
+  # $PPID in a sourced function is the parent of the script, i.e. the shell
+  # (or Claude session) that launched it -- the lease must outlive the script.
+  PICODROID_DEVICE_OWNER_PID="${PICODROID_DEVICE_OWNER_PID:-${CLAUDE_PID:-$PPID}}" \
+    bash "$SCRIPT_DIR/device-lock.sh" acquire ${wait_args[@]+"${wait_args[@]}"} \
+      --note "$(basename "$0") $*" \
+    || exit $?
+}
+
 # Prints available app names from the examples directory, one per line, indented.
 list_apps() {
   local examples_dir="$1"
@@ -266,6 +304,11 @@ list_boards() {
 }
 
 # Prints flash/RAM usage for a given ELF. Requires FLASH_MAX, RAM_MAX, SIZE_TOOL.
+# Minimum RAM every firmware image must leave for the core-0 main stack (boot,
+# then all core-0 interrupts). See print_memory_usage. 8 KB: the release W
+# images ran soaks on 4.7 KB, the debug W image faulted at 4.4 KB.
+MAIN_STACK_FLOOR_BYTES=8192
+
 print_memory_usage() {
   local elf="$1"
   if ! command -v "$SIZE_TOOL" &>/dev/null; then
@@ -285,13 +328,49 @@ print_memory_usage() {
   printf "  Flash: %d / %d bytes (%d%% of program region; chip total %d)\n" \
     "$flash" "$PROGRAM_FLASH_MAX" "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$FLASH_MAX"
   printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
+  # What .data + .bss leave of RAM is the core-0 main stack: the boot path,
+  # then every core-0 interrupt for the life of the firmware (flip-link puts
+  # it below .bss, so an overflow runs off the start of RAM and the core
+  # locks up before a single log line). Static growth erodes it silently —
+  # the network boards were down to 4.4 KB when their debug image stopped
+  # booting (2026-09-04) — so a build that leaves less than the floor fails
+  # here, in every script that builds firmware, instead of on the board.
+  local headroom=$(( RAM_MAX - ram ))
+  printf "  Main stack headroom: %d bytes (floor %d)\n" "$headroom" "$MAIN_STACK_FLOOR_BYTES"
   echo ""
+  if (( headroom < MAIN_STACK_FLOOR_BYTES )); then
+    echo "ERROR: main stack headroom ${headroom} B is below the ${MAIN_STACK_FLOOR_BYTES} B floor" >&2
+    echo "       (.data + .bss = ${ram} of ${RAM_MAX} B). Trim static RAM — the heap arena" >&2
+    echo "       (mcus/<family>/<mcu>.toml heap_kb) or lv_mem_kb — before this image boots." >&2
+    return 1
+  fi
 }
 
 # Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.
 # Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
 # PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
 build_firmware() {
+  # Line numbers in stack traces — `(File.java:39)` frames instead of
+  # `(pc=9)` — ride the `line-numbers` cargo feature plus the
+  # LineNumberTable/SourceFile the PAPK and the embedded SDK keep. On for
+  # debug-profile firmware (the flash.sh default, where a developer is reading
+  # RTT) and off for --release, which HIL, the size ratchet and CI build:
+  # the SDK tables alone are ~15 KB of flash on every board
+  # (docs/designs/flash-string-budget-2026-08.md §4). PICODROID_LINE_NUMBERS=0|1
+  # overrides either way. Resolved before the PAPK build because the PAPK
+  # must keep its tables for the same firmware; FIRMWARE_FEATURES is an
+  # output so flash.sh's `cargo run` links the identical feature set.
+  local lines="${PICODROID_LINE_NUMBERS:-}"
+  if [[ -z "$lines" ]]; then
+    if [[ "${PROFILE:-debug}" == "release" ]]; then lines=0; else lines=1; fi
+  fi
+  FIRMWARE_FEATURES="$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}"
+  local keep_lines=()
+  if [[ "$lines" == "1" ]]; then
+    FIRMWARE_FEATURES="$FIRMWARE_FEATURES,line-numbers"
+    keep_lines=(--keep-lines)
+  fi
+
   # Step 1: Build the APK for the selected app.
   #
   # PICODROID_PREBUILT_APK short-circuits this. pre-commit builds helloworld
@@ -311,10 +390,11 @@ build_firmware() {
     # The board goes along so the API contract check rejects classes this
     # board excludes from its framework (framework_class_excludes) at build
     # time, not on device. --strip-debug because this PAPK is bound for a
-    # firmware built with debug-assertions off (the --config lines below):
-    # that JVM never reads LineNumberTable/SourceFile, so they are dead flash
-    # there. sim.sh builds its own PAPK without the flag and keeps (:line).
-    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug ${BOARD:+--board "$BOARD"}
+    # device: everything the JVM skips by length is dead flash there.
+    # --keep-lines rides along exactly when the firmware gets the
+    # line-numbers feature (above). sim.sh builds its own PAPK unstripped.
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug \
+      ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"}
     APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
   fi
 
@@ -351,7 +431,7 @@ build_firmware() {
     --jobs "$jobs" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" \
+    --features "$FIRMWARE_FEATURES" \
     "${EXTRA_BUILD_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"; then
     echo "cargo build failed: $PACKAGE ($BOARD, $TARGET, $PROFILE)" >&2

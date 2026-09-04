@@ -30,7 +30,10 @@ import picoenvmon.util.Formatter;
  */
 @Singleton
 public class NetworkManager implements Runnable {
-  /** Board has no WiFi hardware ({@code FEATURE_WIFI} absent) — thread never starts. */
+  /**
+   * Board has no network link ({@code FEATURE_WIFI} and {@code FEATURE_ETHERNET} absent) — thread
+   * never starts.
+   */
   public static final int STATE_NO_WIFI = 0;
 
   /** Waiting for the join + DHCP (~10 s on hardware; instant in sim). */
@@ -90,8 +93,10 @@ public class NetworkManager implements Runnable {
     if (started) {
       return;
     }
-    if (!PackageManager.getInstance().hasSystemFeature(PackageManager.FEATURE_WIFI)) {
-      Log.i(TAG, "net: no WiFi on this board");
+    PackageManager pm = PackageManager.getInstance();
+    if (!pm.hasSystemFeature(PackageManager.FEATURE_WIFI)
+        && !pm.hasSystemFeature(PackageManager.FEATURE_ETHERNET)) {
+      Log.i(TAG, "net: no network link on this board");
       return;
     }
     started = true;

@@ -1,14 +1,17 @@
 ---
-title: "Class-name Shrinker"
-description: "How the build-time class-name shrinker trims framework class names from PAPKs."
+title: "Shrinker"
+description: "The build-time name shrinker: framework class and member names under --shrink, the app's own names under --shrink-app, and how to read a shrunk log."
 ---
 
-Picodroid ships a build-time class-name shrinker (`tools/class-shrink/`)
-that rewrites framework `.class` files to use short synthetic names
-(`picodroid/pio/Gpio` → `a/S`, etc.). It trims a few kilobytes from
-firmware Flash and from every `.papk` without any change to Java source
-or to the native dispatch layer — the translation is completely
-transparent at runtime.
+Picodroid ships a build-time name shrinker (`tools/class-shrink/` plus a
+Gradle ASM pass) that rewrites `.class` files to use short synthetic
+names — `picodroid/pio/Gpio` → `a/S`, `java/lang/String` → `b/AQ`,
+`setText` → `uQ` — the way ProGuard and R8 do. It trims kilobytes from
+firmware flash and from every `.papk` without any change to Java source:
+the Rust runtime is compiled against the same spellings, so nothing is
+translated back at run time. `--shrink-app` extends the rename to an
+app's own classes and members, and `scripts/retrace.sh` turns a shrunk
+log back into original names.
 
 **Shrinking is off by default**, matching Android's "R8 off by default"
 behavior. Opt in on any build by passing `--shrink` to the top-level
@@ -45,7 +48,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Fourteen release maps are committed today:
+Eighteen release maps are committed today, `v0.1.0` through `v0.18.0`:
 
 | Map | Covers |
 |-----|--------|
@@ -63,8 +66,10 @@ Fourteen release maps are committed today:
 | `sdk/shrink-maps/v0.12.0.toml` | **Stable** — byte-identical to v0.11.0. The Pico 2 W networking bring-up, the FreeRTOS host simulator, the runtime-flash fixes, and the `picodroid-core` / `papk-format` / `pdb-protocol` extractions all landed outside the framework class set. |
 | `sdk/shrink-maps/v0.13.0.toml` | **Stable** — byte-identical to v0.12.0. The typed `java.net` exceptions, `HttpURLConnection` header/timeout surface, `InetAddress.getByName`, `ServerSocket.setSoTimeout`, and `SystemClock.setCurrentTimeMillis` all landed as methods on classes the v0.11.0 cut already named; the JVM, GC, and memory-diagnostics work added no `sdk/java` classes. |
 | `sdk/shrink-maps/v0.14.0.toml` | Adds the **concurrency + injection-point** surface (+14 classes, 135 → 149) — the pure-Java `java.util.concurrent` core set (`picodroid.concurrent.{Callable, Future, FutureTask, ExecutorService, ThreadPoolExecutor, TimeUnit, CountDownLatch, AtomicInteger, AtomicLong, AtomicBoolean, AtomicReference}`), `Thread$UncaughtExceptionHandler`, and the two injection points `javax.inject.Provider` / `picodroid.di.Lazy`. Every v0.13.0 mapping copied verbatim. |
-| `sdk/shrink-maps/v0.16.0.toml` | Schema 2: adds the **`[[member]]` section** — 868 method and field names of the framework mapped to 1–2-character targets (every v0.15.0 class mapping copied verbatim, class allocation untouched) and `member-floor = "0.16.0"`. Everything in `sdk/api-contract.tsv`'s member column, `<init>`, javac synthetics and names ≤ 2 chars stay verbatim. |
 | `sdk/shrink-maps/v0.15.0.toml` | Opens the **`b/` namespace for `java/**`** (+88 classes, 149 → 237) — `Object`, `String`, `StringBuilder`, the boxed types, the collection classes and interfaces, every builtin exception and the `java.lang.invoke` bootstrap names: every `java/**` class the framework references or pico-jvm serves. `a/` allocation is untouched; every v0.14.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.16.0.toml` | Schema 2: adds the **`[[member]]` section** — 868 method and field names of the framework mapped to 1–2-character targets (every v0.15.0 class mapping copied verbatim, class allocation untouched) and `member-floor = "0.16.0"`. Everything in `sdk/api-contract.tsv`'s member column, `<init>`, javac synthetics and names ≤ 2 chars stay verbatim. |
+| `sdk/shrink-maps/v0.17.0.toml` | Maps the **last kept names** (+125 members, 868 → 993): the `java/**` contract members the runtime serves (`toString`, `hashCode`, `equals`, `hasNext`, …) and javac's `$` synthetics, previously kept because the Rust arms matched them by literal — the arms now match through the generated `m::` constants. `member-floor` re-based to `0.17.0`; only `main` and `injectMembers` stay verbatim. Classes unchanged (238). |
+| `sdk/shrink-maps/v0.18.0.toml` | Adds the **Tier 1 small-methods** surface — one class (`java.util.Objects`, 238 → 239) and 14 members (993 → 1007): `getFloat` / `putFloat`, `DIRECTION_IN`, `createNewFile` / `mkdirs` / `getParent` / `getParentFile` / `getAbsolutePath`, `hash` / `isNull` / `nonNull` / `requireNonNull`, `intBitsToFloat`, `T_FLOAT`. `member-floor` stays `0.17.0`; every v0.17.0 mapping copied verbatim. |
 
 ## Scope
 
@@ -257,12 +262,16 @@ sides of the build call it:
 
 Independent of the shrink map, and applied to everything bound for a device:
 the `.class` files a device firmware carries lose the attributes pico-jvm
-never reads there. `LineNumberTable` is parsed only in `debug_assertions`
-builds (it feeds the `(:line)` in stack traces), and `SourceFile` and
-`StackMapTable` have no reader at all — picodroid does not run a bytecode
-verifier. Device firmware is built with debug-assertions off in both
-profiles, so the three were dead flash: about 14 KB of SDK corpus on every
-board plus 10–15 % of each PAPK. The measurements and the design are in
+never reads there. `StackMapTable` has no reader at all — picodroid does not
+run a bytecode verifier — and `LineNumberTable` + `SourceFile` are read only
+by a firmware built with the `line-numbers` cargo feature, which feeds the
+`(File.java:42)` in stack traces. `scripts/flash.sh` enables that feature for
+its default debug profile and drops it for `--release`, and builds the PAPK
+to match (`build-apk.sh --strip-debug --keep-lines` keeps just those two
+attributes). Release firmware therefore carries none of the three: about
+15 KB of SDK corpus on every board plus 10–15 % of each PAPK, and its stack
+traces print the bytecode offset, `(pc=9)`, which `scripts/retrace.sh`
+resolves on the host (below). The measurements and the design are in
 [docs/designs/flash-string-budget-2026-08.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/flash-string-budget-2026-08.md)
 §4.
 
@@ -378,9 +387,21 @@ ProGuard's `retrace` is: it substitutes `a/DK` / `a.DK` / `b/AK` / `b.AK`
 tokens and member targets in `.name(` position back to their originals
 and passes everything else through.
 
+It also resolves stack-trace frames. A release firmware carries no
+`LineNumberTable` and prints `at pkg.Class.method(pc=9)`; `retrace.sh`
+reads the unstripped class trees this checkout compiled — the SDK's
+`sdk/build/classes/java/main` always, the app's with `--app <name>` — and
+rewrites the frame to the `at pkg.Class.method(Class.java:42)` the sim and
+a debug-profile device print themselves. Names are un-shrunk first, so the
+two compose. A frame that resolves to nothing is left alone; overloads of
+one name that disagree list every candidate (`Class.java:12|40`), since
+the frame carries no descriptor. The trees must come from the same sources
+the device is running.
+
 ```bash
 ./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
-./scripts/retrace.sh sdk/shrink-maps/v0.17.0.toml < build/hil/logs/foo.shrink.log
+./scripts/retrace.sh sdk/shrink-maps/v0.18.0.toml < build/hil/logs/foo.shrink.log
+./scripts/retrace.sh --app foo < rtt-release.log   # (pc=N) -> (Foo.java:LINE)
 ```
 
 ## Keep list

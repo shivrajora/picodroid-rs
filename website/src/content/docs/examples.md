@@ -23,7 +23,7 @@ Simple apps to verify your setup and get familiar with the build/flash workflow.
 | Example | Class | Description |
 |---------|-------|-------------|
 | `helloworld` | `helloworld.HelloWorld` | Prints "Hello, World!" via `Log.i()` |
-| `blinky` | `blinky.LedBlink` | Blinks the onboard LED on GP25 every 500 ms |
+| `blinky` | `blinky.LedBlink` | Blinks the onboard LED on GP25 every 500 ms, and reads GP16 back as an input (`Gpio.DIRECTION_IN` / `getValue()`) |
 
 ## Peripherals
 
@@ -44,7 +44,7 @@ On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-sty
 | Example | Class | Description |
 |---------|-------|-------------|
 | `bootcount` | `bootcount.BootCount` | Persists a boot counter across reboots using `picodroid.io.File` / `FileInputStream` / `FileOutputStream` |
-| `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `boolean`) via `SharedPreferences.open()` / `edit().commit()` |
+| `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `float`, `boolean`) via `SharedPreferences.open()` / `edit().commit()`, and walks the `File` path helpers (`getName`, `getParent`, `getParentFile`, `mkdirs`, `createNewFile`) |
 
 ## Networking
 
@@ -93,7 +93,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
-| `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, `"" + obj`/`append(Object)`/`valueOf(Object)` through `toString()`, `toUpperCase(Locale)`, plus exhaustive printf-style conversions, flags, widths, and precision |
+| `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, `"" + obj`/`append(Object)`/`valueOf(Object)` through `toString()`, `toUpperCase(Locale)`, plus exhaustive printf-style conversions, flags, widths, and precision; `String.join` and the `java.util.Objects` helpers |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
@@ -158,7 +158,7 @@ Benchmarks and stress tests for the JVM runtime and allocator. Reference: [Syste
 | `graphicsbench` | `graphicsbench.GraphicsBench` | LVGL render-pipeline benchmark — exercises the draw/refresh path across several test cases and reports a composite SCORE |
 | `gcstress` | `gcstress.GcStress` | GC stress test: exercises the mark-sweep collector under object churn, linked chains, circular references, string churn, and array churn; reports cycle count, freed entries, and GC time via `picodroid.os.Runtime` |
 | `heapstress` | `heapstress.HeapStress` | Allocation/fragmentation stress test exercising the array arena allocator and emergency-GC path |
-| `tracedemo` | `tracedemo.TraceDemo` | Bytecode-level tracing harness — exercises the JVM's diagnostic trace mode for verifying interpreter behavior under controlled inputs |
+| `tracedemo` | `tracedemo.TraceDemo` | Stack-trace showcase — a three-deep uncaught `RuntimeException` prints `at tracedemo.TraceDemo.deepest(TraceDemo.java:41)` in the sim and in debug firmware; release firmware prints `(pc=N)`, which `scripts/retrace.sh --app tracedemo` resolves on the host |
 | `bugbash` | `bugbash.BugBash` | Pure-logic regression checks for the 2026-08-30 bug bash — each check names the defect id it pins, proving through real bytecode what the unit tests guard in Rust |
 | `bugbash_ui` | `bugbashui.BugBashUiApp` | Lifecycle half of the bug-bash regression app — self-driving Activity/Service walk covering `finish()` idempotence, service bind limits, and pending-op delivery |
 | `executorstress` | `executorstress.ExecutorStress` | GC-rooting stress for Runnables in flight in the executor queues: posts lambdas whose only reference is the queued executor word, then forces collections before the queue drains |

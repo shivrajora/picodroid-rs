@@ -7,12 +7,13 @@
 //! drifted from the originals before it was removed. A simulator that is
 //! shared cannot drift.
 //!
-//! `pdb_usb` is a stub for machinery no simulator can stand in for (the USB
-//! debug bridge). There are deliberately no `boot` / `flash` stubs beside
-//! it: an empty `clock_init` and two flash constants that no simulator build
-//! could reach were shape parity and nothing more, so `crate::hal`'s
-//! re-exports of those two are gated to device builds instead. A family
-//! whose simulator models a real flash region defines its own module.
+//! There are deliberately no `boot` / `flash` / `pdb_usb` stubs here: an
+//! empty `clock_init`, two flash constants and an empty USB module that no
+//! simulator build could reach were shape parity and nothing more, so a
+//! family's re-exports of those three are gated to device builds instead. A
+//! family whose simulator models a real flash region defines its own module.
+//! (The debug bridge's *protocol* does compile on the host — see
+//! `crate::pdb::usb_cdc` for where the endpoint question is recorded.)
 //!
 //! Sibling modules here call each other directly (`super::gpio::inject`)
 //! rather than through [`crate::hal`]'s facade: the facade would route back
@@ -21,6 +22,9 @@
 
 pub mod adc;
 pub mod allocator;
+// The boot-budget engine: charges the arena from a family's model of the
+// device's boot-time tasks (`register_sim_platform!`'s `boot_budget`).
+pub mod boot_budget;
 pub mod delay;
 pub mod display;
 // `pvPortMalloc` and friends for the hosted kernel, which is compiled without
@@ -32,7 +36,6 @@ pub mod heap4;
 pub mod i2c;
 pub mod input_pin;
 pub mod output_pin;
-pub mod pdb_usb;
 pub mod platform;
 pub mod pwm;
 // `hal::sim::rtos` is the real FreeRTOS kernel — every simulator *run* gets

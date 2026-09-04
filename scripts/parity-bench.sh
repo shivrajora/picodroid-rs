@@ -258,6 +258,9 @@ fi
 
 if $DO_HIL; then
   echo "==> HIL parity bench (board $BOARD; flashes the attached device)"
+  # One lease for the whole campaign; the flash.sh calls below re-acquire
+  # idempotently under the same session identity.
+  require_device_lock --hil --boards "$BOARD"
   LOG_DIR="${LOG_DIR:-$(mktemp -d)}"
   for app in "${APPS[@]}"; do
     # flash.sh stays attached streaming RTT; bench apps print their totals

@@ -170,7 +170,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
                   PAPK     framework-map-version = {}\n\
                   Firmware framework-map-version = {}\n\
                   Reason: {}\n\
-                  Rebuild the PAPK with matching --shrink setting (see docs/shrinker.md).",
+                  Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).",
                 papk_fmv.unwrap_or("(none)"),
                 device.framework_map_version,
                 match e {
@@ -230,7 +230,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
             "device rejected install: STATUS_INCOMPAT — {msg}\n\
               PAPK     framework-map-version = {}\n\
               Firmware framework-map-version = {}\n\
-              Rebuild the PAPK with matching --shrink setting (see docs/shrinker.md).",
+              Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).",
             papk_fmv.unwrap_or("(none)"),
             device.framework_map_version,
         );

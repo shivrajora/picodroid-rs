@@ -13,13 +13,10 @@ pub const PAPK_FLASH_XIP_BASE: usize = 0x1030_0000;
 #[cfg(feature = "chip-rp2350")]
 pub const PAPK_FLASH_META_OFFSET: u32 = 0x0030_0000;
 
-// The boot-meta layout itself (magic, flags, len, sector size) belongs to
-// `papk_format::flash_image`, which the build script that bakes the initial
-// image also uses. Only where the sector *sits* on this family's flash is
-// ours to say.
-pub const PAPK_BOOT_META_SIZE: usize = papk_format::flash_image::META_SIZE;
-const PAPK_SLOT_OFFSET_FROM_META: usize = PAPK_BOOT_META_SIZE;
-
+// The boot-meta layout (magic, flags, len, sector size) belongs to
+// `papk_format::flash_image`, and the slot arithmetic on top of it to
+// `picodroid_core::install::PapkSlot`. Only where the slot *sits* on this
+// family's flash, and how big it is, is ours to say.
 pub const PAPK_MAX_DATA_SIZE: usize = 1020 * 1024; // 1020 KB (1 MB slot minus 4 KB metadata sector)
 
 /// XIP base address for both supported chips.
@@ -42,9 +39,15 @@ extern "C" {
 pub fn fs_region_bounds() -> (u32, u32) {
     let start = (&raw const __fs_start) as usize;
     let end = (&raw const __fs_end) as usize;
-    debug_assert!(start >= XIP_BASE && end > start);
-    debug_assert!(start.is_multiple_of(FLASH_SECTOR_SIZE));
-    debug_assert!(end.is_multiple_of(FLASH_SECTOR_SIZE));
+    // A real assert: device builds compile debug assertions out, and a
+    // misplaced region is a corrupted filesystem, not a diagnostic.
+    assert!(
+        start >= XIP_BASE
+            && end > start
+            && start.is_multiple_of(FLASH_SECTOR_SIZE)
+            && end.is_multiple_of(FLASH_SECTOR_SIZE),
+        "fs region: not sector-aligned or outside XIP flash"
+    );
     ((start - XIP_BASE) as u32, (end - start) as u32)
 }
 
@@ -69,16 +72,8 @@ pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
 /// Must only be called before the FreeRTOS scheduler starts (single-core,
 /// no concurrent flash writes possible).
 pub unsafe fn read_flash_papk() -> Option<&'static [u8]> {
-    // The header is XIP-mapped, so it can simply be read as bytes. Erased
-    // flash fails the magic check, which is how a never-installed device
-    // takes the `None` path.
-    let header = core::slice::from_raw_parts(
-        PAPK_FLASH_XIP_BASE as *const u8,
-        papk_format::flash_image::HEADER_LEN,
-    );
-    let meta = papk_format::flash_image::parse_meta(header, PAPK_MAX_DATA_SIZE)?;
-    let data_ptr = (PAPK_FLASH_XIP_BASE + PAPK_SLOT_OFFSET_FROM_META) as *const u8;
-    Some(core::slice::from_raw_parts(data_ptr, meta.len as usize))
+    // The slot is XIP-mapped, so the shared reader walks it in place.
+    picodroid_core::install::read_mapped(PAPK_FLASH_XIP_BASE as *const u8, PAPK_MAX_DATA_SIZE)
 }
 
 // ── Flash operations (XIP-disabled) ──────────────────────────────────────────
@@ -247,38 +242,6 @@ unsafe fn flash_program_range_xip_off(flash_offset: u32, data: *const u8, len: u
     with_xip_disabled!(flash_range_program, |program| {
         program(flash_offset, data, len)
     });
-}
-
-// ── PAPK helpers (layered on the primitives above) ───────────────────────────
-
-/// Erase the flash sectors needed to hold `papk_len` bytes plus the metadata sector.
-pub unsafe fn flash_erase_papk_region(papk_len: usize) {
-    let data_erase = papk_len.div_ceil(FLASH_SECTOR_SIZE) * FLASH_SECTOR_SIZE;
-    let total_erase = PAPK_BOOT_META_SIZE + data_erase;
-    flash_erase_range(PAPK_FLASH_META_OFFSET, total_erase);
-}
-
-/// Write one 256-byte flash page into the PAPK data region.
-pub unsafe fn flash_write_page(page_index: u32, data: &[u8; 256]) -> bool {
-    let offset_within_slot = page_index as usize * 256;
-    if offset_within_slot + 256 > PAPK_MAX_DATA_SIZE {
-        return false;
-    }
-    let flash_offset =
-        PAPK_FLASH_META_OFFSET + PAPK_BOOT_META_SIZE as u32 + offset_within_slot as u32;
-    flash_program_range(flash_offset, data.as_ptr(), 256);
-    true
-}
-
-/// Write the PapkBootMeta header to sector 0, committing the install atomically.
-///
-/// The page is built here, while XIP is still enabled: `build_meta_page` is
-/// an ordinary `.text` call, and only `flash_program_range` below is
-/// RAM-resident and drops XIP — for the duration of the ROM call and no
-/// longer.
-pub unsafe fn flash_commit_metadata(len: u32) {
-    let meta_page = papk_format::flash_image::build_meta_page(len);
-    flash_program_range(PAPK_FLASH_META_OFFSET, meta_page.as_ptr(), 256);
 }
 
 // ── Reset ────────────────────────────────────────────────────────────────────

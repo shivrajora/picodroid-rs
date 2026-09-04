@@ -31,8 +31,10 @@ pub fn dispatch(
             // args[0] = this, args[1] = feature name String
             let supported = match ctx.args.get(1) {
                 Some(Value::Reference(idx)) => match ctx.strings.resolve(*idx) {
-                    // FEATURE_WIFI: board has a wireless driver compiled in.
-                    Some("picodroid.hardware.wifi") => cfg!(has_network),
+                    // The link kind, a build fact (board_cfg.rs emits
+                    // network_link_<kind> from board.toml's network_type).
+                    Some("picodroid.hardware.wifi") => cfg!(network_link_wifi),
+                    Some("picodroid.hardware.ethernet") => cfg!(network_link_ethernet),
                     _ => false,
                 },
                 _ => false,

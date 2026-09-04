@@ -108,6 +108,11 @@ impl GraphicsBackend for LvglBackend {
                 ctx.strings,
                 ctx.objects,
             )),
+            m::getText => Some(widgets::text_view_get_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
             m::setTextColor => Some(widgets::text_view_set_text_color(ctx.args, ctx.objects)),
             m::setIncludeFontPadding => Some(widgets::text_view_set_include_font_padding(
                 ctx.args,
@@ -121,6 +126,7 @@ impl GraphicsBackend for LvglBackend {
         match method {
             m::nativeCreate => Some(widgets::button_native_create(ctx.args, ctx.strings)),
             m::setText => Some(widgets::button_set_text(ctx.args, ctx.strings, ctx.objects)),
+            m::getText => Some(widgets::button_get_text(ctx.args, ctx.strings, ctx.objects)),
             _ => None,
         }
     }

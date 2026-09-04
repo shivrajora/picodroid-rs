@@ -27,7 +27,8 @@ static BaseType_t xInterfaceUp = pdFALSE;
 extern cyw43_t cyw43_state;
 
 /* The interface descriptor registered with FreeRTOS+TCP.  Set by
- * pxCYW43_FillInterfaceDescriptor (the storage lives in net_init.c);
+ * pxPicodroidNetLink_FillInterfaceDescriptor (the storage lives in the
+ * shared net_init.c);
  * RX frames must be stamped with THIS descriptor or endpoint lookup
  * returns NULL and every received frame is dropped. */
 static NetworkInterface_t *pxRegisteredInterface = NULL;
@@ -122,9 +123,12 @@ static BaseType_t xCYW43_GetPhyLinkStatus(NetworkInterface_t *pxInterface) {
     return xCYW43_LinkIsUp();
 }
 
-/* ---- Public: register the CYW43 interface with FreeRTOS+TCP ---- */
+/* ---- Public: register the CYW43 interface with FreeRTOS+TCP ----
+ * This is the one symbol the shared stack glue
+ * (picodroid-core/net-freertos-tcp/net_init.c) binds to; every link driver
+ * defines it under exactly this name. */
 
-NetworkInterface_t *pxCYW43_FillInterfaceDescriptor(
+NetworkInterface_t *pxPicodroidNetLink_FillInterfaceDescriptor(
     BaseType_t xEMACIndex,
     NetworkInterface_t *pxInterface) {
     (void)xEMACIndex;

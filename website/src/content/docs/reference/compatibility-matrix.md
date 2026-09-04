@@ -76,7 +76,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 |---|---|---|
 | `Intent` | Partial | Explicit (class-targeted) intents + extras. No implicit intents / `IntentFilter` resolution. |
 | `Context` | Partial | `getMainExecutor`, `getDisplay`, service access. No `getSystemService` (services are exposed directly), no `getResources` (bundle files under `assets/` → generated `AssetConstants`), no `registerReceiver` (no `BroadcastReceiver`). |
-| `SharedPreferences` / `Editor` | Full | Backed by LittleFS. |
+| `SharedPreferences` / `Editor` | Partial | Backed by LittleFS. `getString`/`getInt`/`getLong`/`getFloat`/`getBoolean`, `getAll`, `contains`, and the matching `put*`, `remove`, `clear`, `commit`, `apply` (synchronous). No `getStringSet`/`putStringSet`, no `OnSharedPreferenceChangeListener`. |
 | `DialogInterface` | Full | `OnClickListener`, `OnDismissListener`, `OnMultiChoiceClickListener`, button constants. |
 
 ### android.os
@@ -131,6 +131,8 @@ failure to a report while experimenting.
 | `HashSet.iterator()` | Full | `for (x : set)` and every iterating idiom on a set; hash order, like the map views. Iterators and map views keep a **temporary** collection alive for as long as they do (`for (String w : text.split(" "))`, `for (e : makeMap().entrySet())`) — the GC pins the iterator's source. |
 | `Map.putAll` / `List.listIterator` / `Arrays.equals` | Unsupported | No builtin arm: copy with an `entrySet()` loop, iterate by index, compare arrays element-wise. Kotlin: `map += otherMap`, `list.last { }` / `indexOfLast { }` / `findLast { }` (they walk a `listIterator`) and `contentEquals` hit these. |
 | `Float.isNaN(f)` / `Double.isNaN(d)` / `isInfinite` statics | Unsupported | Use `f != f` for NaN and a magnitude compare for infinity (Kotlin's `isNaN()`/`isInfinite()`/`isFinite()` inline to these statics). |
+| `String.join` | Partial | `join(delim, a, b, …)` / `join(delim, String[])` and `join(delim, ArrayList)`; elements must be `String` or `null` (a `StringBuilder` element throws). Any other `Iterable` is rejected. |
+| `java.util.Objects` | Full | `equals`, `hashCode`, `hash`, `toString(o)`, `toString(o, default)`, `requireNonNull` (both forms), `isNull`, `nonNull`. A real class, so `equals`/`hashCode`/`toString` reach your overrides. |
 | `String(char[])` | Unsupported | Only the `byte[]` constructors exist; build with `StringBuilder.append(char)` (Kotlin: `chars.concatToString()` does this). |
 | `Math.round` | Partial | Rounds half **away from zero** (`Math.round(-2.5f)` is `-3`; Java gives `-2`). Kotlin's `roundToInt()`/`roundToLong()` shim spells out Java's `floor(x + 0.5)` and is exact. |
 | `String.replace(target, replacement)` | Partial | An empty `target` leaves the string unchanged (Java interleaves the replacement between every char). |

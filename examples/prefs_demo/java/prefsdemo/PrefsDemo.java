@@ -4,6 +4,7 @@ package prefsdemo;
 import java.util.Map;
 import picodroid.app.Application;
 import picodroid.content.SharedPreferences;
+import picodroid.io.File;
 import picodroid.util.Log;
 
 public class PrefsDemo extends Application {
@@ -37,6 +38,8 @@ public class PrefsDemo extends Application {
     testClear();
     testPersistenceAcrossInstances();
     testContextIdiomAndApply();
+    testFloat();
+    testFileHelpers();
 
     Log.i(TAG, "Results: " + passed + " passed, " + failed + " failed");
     if (failed == 0) {
@@ -135,5 +138,45 @@ public class PrefsDemo extends Application {
     SharedPreferences q = getSharedPreferences("demo7", MODE_PRIVATE);
     check("getSharedPreferences + apply persists", "context".equals(q.getString("source", "")));
     check("apply persisted int", q.getInt("mode", -1) == 0);
+  }
+
+  static void testFloat() {
+    SharedPreferences p = SharedPreferences.open("demo8");
+    p.edit().clear().putFloat("ratio", 0.75f).putFloat("neg", -1.5e-3f).putInt("i", 3).commit();
+    SharedPreferences q = SharedPreferences.open("demo8");
+    check("readback float", q.getFloat("ratio", 0f) == 0.75f);
+    check("readback negative float", q.getFloat("neg", 0f) == -1.5e-3f);
+    check("float wrong-type falls back", q.getFloat("i", 9f) == 9f);
+    check("int does not read as float", q.getInt("ratio", -1) == -1);
+    check("float missing default", q.getFloat("nope", 2.5f) == 2.5f);
+    check("getAll boxes Float", Float.valueOf(0.75f).equals(q.getAll().get("ratio")));
+    q.edit().putFloat("ratio", 1.25f).commit();
+    check("float overwrite", SharedPreferences.open("demo8").getFloat("ratio", 0f) == 1.25f);
+  }
+
+  static void testFileHelpers() {
+    File f = new File("/pd_demo/sub/leaf.txt");
+    check("getName", "leaf.txt".equals(f.getName()));
+    check("getParent", "/pd_demo/sub".equals(f.getParent()));
+    check("getParentFile path", "/pd_demo/sub".equals(f.getParentFile().getPath()));
+    check("getAbsolutePath keeps rooted", "/pd_demo/sub/leaf.txt".equals(f.getAbsolutePath()));
+    check("getAbsolutePath roots relative", "/rel".equals(new File("rel").getAbsolutePath()));
+    check("getParent of root child", "/".equals(new File("/x").getParent()));
+    check("getParent of bare name is null", new File("x").getParent() == null);
+    check("getParentFile of bare name is null", new File("x").getParentFile() == null);
+
+    File dir = f.getParentFile();
+    new File("/pd_demo/sub/leaf.txt").delete();
+    new File("/pd_demo/sub").delete();
+    new File("/pd_demo").delete();
+    check("mkdirs creates chain", dir.mkdirs());
+    check("mkdirs result isDirectory", dir.isDirectory());
+    check("mkdirs on existing is false", !dir.mkdirs());
+    check("createNewFile creates", f.createNewFile());
+    check("created file exists", f.exists() && f.isFile());
+    check("created file is empty", f.length() == 0L);
+    check("createNewFile on existing is false", !f.createNewFile());
+    check("delete file", f.delete());
+    check("delete dirs", new File("/pd_demo/sub").delete() && new File("/pd_demo").delete());
   }
 }

@@ -63,13 +63,49 @@ pub struct FsGeometry {
     pub read: u32,
 }
 
+impl FsGeometry {
+    /// The RP family's NOR flash and the host image that mirrors it: 4 KB
+    /// erase blocks, 256-byte program pages, 16-byte reads. A `const` so a
+    /// family can assert its flash matches at compile time.
+    pub const DEFAULT: FsGeometry = FsGeometry {
+        block: 4096,
+        prog: 256,
+        read: 16,
+    };
+
+    /// Byte offset of `(block, offset)` from the start of the store, or
+    /// `Err(Invalid)` if `len` bytes there would leave the block or the
+    /// device. Every backing store needs exactly this check in front of
+    /// every operation; keeping it here means none of them can get the
+    /// comparison wrong differently.
+    pub fn resolve(
+        &self,
+        block_count: u32,
+        block: u32,
+        offset: u32,
+        len: usize,
+    ) -> Result<u64, LfsError> {
+        if block >= block_count || offset as usize + len > self.block as usize {
+            return Err(LfsError::Invalid);
+        }
+        Ok(u64::from(block) * u64::from(self.block) + u64::from(offset))
+    }
+
+    /// `Err(Invalid)` unless a write of `len` bytes at `offset` is aligned to
+    /// whole program pages — what NOR flash requires, and what the host image
+    /// enforces so its bytes stay interchangeable with a flash dump.
+    pub fn check_prog(&self, offset: u32, len: usize) -> Result<(), LfsError> {
+        let prog = self.prog as usize;
+        if !(offset as usize).is_multiple_of(prog) || !len.is_multiple_of(prog) {
+            return Err(LfsError::Invalid);
+        }
+        Ok(())
+    }
+}
+
 impl Default for FsGeometry {
     fn default() -> Self {
-        Self {
-            block: 4096,
-            prog: 256,
-            read: 16,
-        }
+        Self::DEFAULT
     }
 }
 

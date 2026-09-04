@@ -24,7 +24,8 @@ HIL_CONF="$SCRIPT_DIR/hil-tests.conf"
 HIL_DIR="$REPO_ROOT/build/hil"
 HIL_LOG_DIR="$HIL_DIR/logs"
 HIL_RESULTS_DIR="$HIL_DIR/results"
-HIL_LOCK="$HIL_DIR/hil.lock"
+# How long the nightly queues for the board before recording a SKIP.
+HIL_LOCK_WAIT="${HIL_LOCK_WAIT:-3600}"
 
 BOARD="testbench_rp2350"
 
@@ -125,9 +126,13 @@ wait_for_probe() {
   hil_log "  WARNING: Probe not detected within ${PROBE_POLL_TIMEOUT}s"
 }
 
+# -x matches the process name only. `pkill -f probe-rs` matched any command
+# line containing the string -- including an operator's shell or wrapper.
+kill_probe_rs() { pkill -x -U "$(id -u)" probe-rs 2>/dev/null || true; }
+
 recover_probe() {
   hil_log "Recovering probe..."
-  pkill -f "probe-rs" 2>/dev/null || true
+  kill_probe_rs
   sleep 1
   power_cycle_all
 }
@@ -149,8 +154,10 @@ kill_process_group() {
 pdb_install_known_good() {
   local mode="$1" log_prefix="$2"
   local apk_path="$REPO_ROOT/build/apks/helloworld.papk"
-  # --strip-debug on every PAPK built here: they all go to a device, whose
-  # firmware never reads LineNumberTable/SourceFile (build-apk.sh --help).
+  # --strip-debug on every PAPK built here: they all go to a release-profile
+  # firmware, built without the line-numbers feature, which never reads
+  # LineNumberTable/SourceFile (build-apk.sh --help). Its (pc=N) frames
+  # resolve on the host through scripts/retrace.sh.
   local -a apk_args=(--app helloworld --board "$BOARD" --strip-debug)
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "${log_prefix}.known-good-build.log" 2>&1; then
@@ -431,11 +438,41 @@ run_pdb_install_stress() {
 
 mkdir -p "$HIL_LOG_DIR" "$HIL_RESULTS_DIR"
 
-# Acquire exclusive lock (blocks if another run is in progress).
-exec 9>"$HIL_LOCK"
-hil_log "Waiting for hardware lock..."
-flock 9
-hil_log "Lock acquired."
+send_report() {
+  [[ "$SEND_EMAIL" == "true" ]] || return 0
+  hil_log "Sending email report..."
+  python3 "$SCRIPT_DIR/hil-email.py" \
+    --results "$RESULTS_FILE" \
+    --log-dir "$HIL_LOG_DIR" \
+    --run-id "$RUN_ID" \
+    --sha "$COMMIT_SHA" 2>&1 | while IFS= read -r line; do hil_log "  email: $line"; done || \
+    hil_log "  Email sending failed (non-fatal)."
+}
+
+# Take the machine-wide board lease (scripts/device-lock.sh). Interactive
+# sessions hold it across their flash/pdb work; the nightly queues behind
+# them FIFO for up to HIL_LOCK_WAIT seconds and otherwise records a SKIP so
+# the email says why nothing ran. The lease belongs to this process and is
+# released on every exit path.
+export PICODROID_DEVICE_OWNER="${PICODROID_DEVICE_OWNER:-hil-run}"
+export PICODROID_DEVICE_OWNER_PID=$$
+trap 'bash "$SCRIPT_DIR/device-lock.sh" release >/dev/null 2>&1 || true' EXIT
+hil_log "Waiting for the device lock (up to ${HIL_LOCK_WAIT}s)..."
+lock_rc=0
+bash "$SCRIPT_DIR/device-lock.sh" acquire --wait "$HIL_LOCK_WAIT" \
+  --note "nightly hil-run $(date '+%Y-%m-%d %H:%M')" 2>&1 \
+  | while IFS= read -r line; do hil_log "  lock: $line"; done || lock_rc=$?
+if [[ $lock_rc -ne 0 ]]; then
+  holder="$(bash "$SCRIPT_DIR/device-lock.sh" status --short)"
+  COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
+  RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
+  hil_log "SKIPPED: device lock not acquired within ${HIL_LOCK_WAIT}s ($holder)"
+  echo "SKIP hil-run (device busy: $holder)" > "$RESULTS_FILE"
+  send_report
+  exit 1
+fi
+hil_log "Device lock acquired."
 
 # Pull latest code.
 hil_log "Pulling latest code..."
@@ -515,7 +552,7 @@ run_test() {
   fi
 
   # Clean up any lingering probe-rs from previous test, then wait for probe.
-  pkill -f "probe-rs" 2>/dev/null || true
+  kill_probe_rs
   sleep 2
 
   # Flash the pre-built ELF and capture RTT output.
@@ -667,8 +704,9 @@ for MODE in "${MODES[@]}"; do
   done < "$HIL_CONF"
 done
 
-# Release lock.
-flock -u 9
+# Give the board back before the summary and email (the EXIT trap is the
+# safety net for every other exit path). This also kills a lingering probe-rs.
+bash "$SCRIPT_DIR/device-lock.sh" release 2>&1 | while IFS= read -r line; do hil_log "  lock: $line"; done || true
 
 # Summary.
 hil_log "========================================="
@@ -678,16 +716,7 @@ hil_log "  Results: $RESULTS_FILE"
 hil_log "  Logs:    $RUN_LOG_DIR/"
 hil_log "========================================="
 
-# Send email report.
-if [[ "$SEND_EMAIL" == "true" ]]; then
-  hil_log "Sending email report..."
-  python3 "$SCRIPT_DIR/hil-email.py" \
-    --results "$RESULTS_FILE" \
-    --log-dir "$HIL_LOG_DIR" \
-    --run-id "$RUN_ID" \
-    --sha "$COMMIT_SHA" 2>&1 | while IFS= read -r line; do hil_log "  email: $line"; done || \
-    hil_log "  Email sending failed (non-fatal)."
-fi
+send_report
 
 # Exit with failure if any tests failed.
 [[ $FAIL -eq 0 && $ERROR -eq 0 ]]

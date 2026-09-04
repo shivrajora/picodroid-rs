@@ -6,9 +6,9 @@ use serialport::SerialPortType;
 
 use crate::protocol::{recv_response, send_frame, CMD_PING, STATUS_OK};
 
-/// USB VID/PID for picodroid CDC device (pid.codes open-source VID).
-pub const PICODROID_VID: u16 = 0x1209;
-pub const PICODROID_PID: u16 = 0xCDC0;
+// The device's descriptors are built from these same two constants, so the
+// scan and the firmware cannot disagree about what a picodroid looks like.
+use pdb_protocol::usb::{PID as PICODROID_PID, VID as PICODROID_VID};
 
 const PROBE_BAUD: u32 = 115_200;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);

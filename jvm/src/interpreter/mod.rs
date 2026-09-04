@@ -426,8 +426,10 @@ fn deliver_exception<H: NativeMethodHandler>(
                 class_name: cn,
                 method_name: mn,
                 pc: f.inst_pc,
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "line-numbers")]
                 line: cf.pc_to_line(method, f.inst_pc),
+                #[cfg(feature = "line-numbers")]
+                source_file: cf.source_file().and_then(|b| core::str::from_utf8(b).ok()),
             })
         })
         .collect();

@@ -12,7 +12,7 @@
     "sdk/shrink-maps/README.md"
   ],
   "ignores": [
-    "vendor/**",
+    "third_party/**",
     "node_modules/**",
     "build/**",
     "target/**",

@@ -26,6 +26,7 @@
 pub mod framing;
 pub mod input;
 pub mod sysmon;
+pub mod usb_cdc;
 
 pub use framing::send_response;
 pub use sysmon::{SysmonSample, SysmonSource, TaskSample, MAX_TASKS};

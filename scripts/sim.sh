@@ -49,7 +49,7 @@ Options:
       --no-sanitize-handles Disable the handle sanitizer (or set
                             PICODROID_HANDLE_SANITIZER=0)
       --shrink              Apply the active release class-name shrink map
-                            (off by default; see docs/shrinker.md)
+                            (off by default; see website/src/content/docs/reference/shrinker.md)
       --shrink-app          Also rename the app's own classes and private
                             members (requires --shrink; see build-apk.sh)
   -m, --mem-diag            Compile in the memory diagnostics (mem-diag
@@ -169,7 +169,8 @@ if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
   ENV_VARS+=(PICODROID_SHRINK=1)
 fi
 
-FEATURES="sim,$BOARD_FEATURE"
+# line-numbers: the sim always prints (File.java:39) stack-trace frames.
+FEATURES="sim,$BOARD_FEATURE,line-numbers"
 if [[ -n "$MEM_DIAG" ]]; then
   FEATURES="$FEATURES,mem-diag"
   # Sensible defaults when diagnostics are compiled in: monitor is always

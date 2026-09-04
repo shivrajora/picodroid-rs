@@ -8,6 +8,9 @@ pub use super::fields::gpio as fields;
 
 use crate::hal::gpio as platform;
 
+/// `Gpio.DIRECTION_IN` in `sdk/java/picodroid/pio/Gpio.java`.
+const DIRECTION_IN: i32 = 0;
+
 pub fn set_direction_native(
     args: &[Value],
     objects: &ObjectHeap,
@@ -17,8 +20,19 @@ pub fn set_direction_native(
         Some(Value::Int(d)) => *d,
         _ => return Err(JvmError::InvalidReference),
     };
-    platform::set_direction(pin, direction);
+    if direction == DIRECTION_IN {
+        // Android Things `DIRECTION_IN` carries no pull; the sim reads such a
+        // pin LOW, hardware reads whatever drives it.
+        platform::set_input(pin, platform::Pull::None);
+    } else {
+        platform::set_direction(pin, direction);
+    }
     Ok(None)
+}
+
+pub fn get_value_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let pin = extract_pin(args, objects)?;
+    Ok(Some(Value::Int(platform::read(pin) as i32)))
 }
 
 pub fn set_value_native(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {

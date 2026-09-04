@@ -21,14 +21,13 @@
 //! re-pending after an in-ISR mask change). The CPU never busy-spins on
 //! peripheral state — every wait point yields to FreeRTOS via the wake
 //! semaphore.
-pub mod protocol;
+pub mod timing;
 
 use core::cell::UnsafeCell;
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
-use pico_jvm::array_heap::ArrayHeap;
 
-use protocol::{
+use timing::{
     fs_spklen, ic_con_for_speed, scl_counts, sda_tx_hold_count, FIFO_DEPTH, IC_DATA_CMD_READ,
     IC_DATA_CMD_STOP, INTR_RX_FULL, INTR_STOP_DET, INTR_TX_ABRT, INTR_TX_EMPTY, MAX_XFER_LEN,
 };
@@ -640,41 +639,5 @@ pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
         _ => read_internal(i2c_id, &p.I2C1, address, buf),
     };
     lock.give();
-    result
-}
-
-// ── Java I2cDevice entrypoints ───────────────────────────────────────────────
-
-/// Java `I2cDevice.write` shim — copies the source array into a stack buffer
-/// and reuses `write_slice`. Returns `len` on success, `-1` on NACK/abort.
-pub fn write(i2c_id: u8, address: u32, data_idx: u16, len: usize, arrays: &ArrayHeap) -> i32 {
-    if len > MAX_XFER_LEN {
-        return -1;
-    }
-    let mut buf = [0u8; MAX_XFER_LEN];
-    for (i, slot) in buf.iter_mut().enumerate().take(len) {
-        *slot = arrays.load(data_idx, i).unwrap_or(0) as u8;
-    }
-    write_slice(i2c_id, address as u8, &buf[..len])
-}
-
-/// Java `I2cDevice.read` shim — reads into a stack buffer via `read_slice`,
-/// then copies into the destination array. Returns `len` on success, `-1` on
-/// NACK/abort.
-pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
-    if len == 0 {
-        return 0;
-    }
-    if len > MAX_XFER_LEN {
-        return -1;
-    }
-    let mut buf = [0u8; MAX_XFER_LEN];
-    let result = read_slice(i2c_id, address as u8, &mut buf[..len]);
-    if result > 0 {
-        let n = (result as usize).min(len);
-        for (i, &byte) in buf.iter().enumerate().take(n) {
-            arrays.store(buf_idx, i, byte as i32);
-        }
-    }
     result
 }

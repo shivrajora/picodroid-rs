@@ -5,12 +5,12 @@
 
 pub const SPI_FIFO_DEPTH: usize = 8;
 pub const SMALL_XFER_THRESHOLD: usize = 8;
-pub const MAX_STAGING_LEN: usize = 64;
 
+/// What the interrupt-driven path is doing. Write-only transfers go through
+/// DMA, so the ISR only ever sees full-duplex work.
 #[derive(Clone, Copy, PartialEq)]
 pub enum SpiOp {
     Idle,
-    WriteOnly,
     FullDuplex,
 }
 
@@ -21,7 +21,6 @@ pub struct SpiXferState {
     pub len: usize,
     pub tx_idx: usize,
     pub rx_idx: usize,
-    pub staging: [u8; MAX_STAGING_LEN],
 }
 
 unsafe impl Send for SpiXferState {}
@@ -35,7 +34,6 @@ impl SpiXferState {
             len: 0,
             tx_idx: 0,
             rx_idx: 0,
-            staging: [0; MAX_STAGING_LEN],
         }
     }
 }
@@ -61,8 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn small_xfer_fits_in_staging_and_fifo() {
-        assert!(SMALL_XFER_THRESHOLD <= MAX_STAGING_LEN);
+    fn small_xfer_fits_in_fifo() {
         assert!(SMALL_XFER_THRESHOLD <= SPI_FIFO_DEPTH);
     }
 
@@ -84,19 +81,10 @@ mod tests {
         assert!(s.rx_ptr.is_null());
     }
 
-    #[test]
-    fn new_state_staging_is_zeroed() {
-        let s = SpiXferState::new();
-        assert!(s.staging.iter().all(|&b| b == 0));
-        assert_eq!(s.staging.len(), MAX_STAGING_LEN);
-    }
-
     // ── SpiOp equality ───────────────────────────────────────────────────
 
     #[test]
     fn spi_op_variants_distinct() {
-        assert!(SpiOp::Idle != SpiOp::WriteOnly);
-        assert!(SpiOp::WriteOnly != SpiOp::FullDuplex);
         assert!(SpiOp::Idle != SpiOp::FullDuplex);
     }
 

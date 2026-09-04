@@ -236,6 +236,23 @@ object_heap/mod.rs), turn recurring review questions into tests/lints (the regis
 and conf drift guard are the pattern); keep only what can't be automated as a short
 CONTRIBUTING checklist.
 
+## Memory footprint
+
+### `Value` 16 B → 8 B via a two-slot `Slot` storage type *(deferred, design done 2026-09-03)*
+
+Split `long`/`double` into two 4-byte halves (the JVM-spec category-2 layout) and store
+frames, the object fields arena and the ArrayList/HashMap buffers as an 8-byte `Slot`,
+keeping the 16-byte `Value` as the transit type so the opcode handlers and all ~400 native
+arms stay untouched (~12 files in `jvm/` change). Objects shrink ~40 %; the enviro boards'
+boot-claimed fields arena drops 40 → 20 KB (~11 % of picoenvmon's peak heap); arrays,
+strings and class metadata are unaffected, so this is the largest lever *left*, not a large
+one. Full evaluation, design and staging: `designs/value-slot-8b.md`. **Tradeoff:**
+long/double opcodes do two extra slot moves each (the sim benchmark sections will show it;
+the device total stays under the 4 % measurability floor), ~1–3 KB flash risk on RP2040
+from the inlined tag check, and five hand-numbered native field-slot tables shift by one
+after every `long`/`double` field — they need a class-file-driven test before anything else.
+Measure with `--mem-diag` first: S5 showed a complete, correct change can still return 0 B.
+
 ## Memory-diagnostics follow-ups
 
 (The `mem-diag` feature — monitor, growth sentinel, offensive checks, histogram — landed

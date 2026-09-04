@@ -5,7 +5,7 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use crate::names::{c, d, m};
 
 pub(crate) fn dispatch(
     method_name: &str,
@@ -562,6 +562,65 @@ pub(crate) fn dispatch(
                 ctx.arrays.store(arr, i, tagged);
             }
             Some(Ok(Some(Value::ArrayRef(arr))))
+        }
+        // ── String.join ──────────────────────────────────────────────
+        // `join(CharSequence, CharSequence...)` over a ref array, and
+        // `join(CharSequence, Iterable)` over a builtin ArrayList (the only
+        // classfile-less Iterable whose elements are reachable from here).
+        // Elements are strings or null ("null", as Java prints it); any
+        // other CharSequence is rejected rather than silently skipped.
+        m::join
+            if ctx.descriptor == d::CharSequence_aCharSequence__String
+                || ctx.descriptor == d::CharSequence_Iterable__String =>
+        {
+            let Some(Value::Reference(delim_idx)) = ctx.args.first() else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let elements: alloc::vec::Vec<Value> = match ctx.args.get(1) {
+                Some(Value::ArrayRef(arr)) => {
+                    let n = ctx.arrays.length(*arr).unwrap_or(0) as usize;
+                    (0..n)
+                        .map(|i| {
+                            crate::array_heap::decode_ref(ctx.arrays.load(*arr, i).unwrap_or(0))
+                        })
+                        .collect()
+                }
+                Some(Value::ObjectRef(obj))
+                    if ctx.objects.class_name(*obj) == Some(c::java_util_ArrayList) =>
+                {
+                    let Some(Value::Int(buf)) = ctx.objects.get_field(*obj, 0) else {
+                        return Some(Err(JvmError::InvalidReference));
+                    };
+                    let buf = buf as u16;
+                    (0..ctx.objects.list_len(buf))
+                        .map(|i| ctx.objects.list_get(buf, i).unwrap_or(Value::Null))
+                        .collect()
+                }
+                _ => return Some(Err(JvmError::InvalidReference)),
+            };
+            let mut out: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+            let delim = ctx
+                .strings
+                .resolve(*delim_idx)
+                .unwrap_or("")
+                .as_bytes()
+                .to_vec();
+            for (i, e) in elements.iter().enumerate() {
+                if i > 0 {
+                    out.extend_from_slice(&delim);
+                }
+                match e {
+                    Value::Reference(r) => {
+                        out.extend_from_slice(ctx.strings.resolve(*r).unwrap_or("").as_bytes())
+                    }
+                    Value::Null => out.extend_from_slice(b"null"),
+                    _ => return Some(Err(JvmError::InvalidReference)),
+                }
+            }
+            match ctx.strings.intern_dyn(&out) {
+                Some(r) => Some(Ok(Some(Value::Reference(r)))),
+                None => Some(Err(JvmError::StackOverflow)),
+            }
         }
         _ => None,
     }

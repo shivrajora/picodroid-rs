@@ -48,6 +48,7 @@ pub mod greeting;
 pub mod input;
 pub mod keycodes;
 pub mod sysmon;
+pub mod usb;
 
 pub use crc32::Crc32;
 

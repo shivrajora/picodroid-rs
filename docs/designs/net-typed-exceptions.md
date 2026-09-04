@@ -66,7 +66,7 @@ that commit).
   Android taxonomy at all today.
 - **Inverted recv semantics (the nastiest trap):** on device,
   `FreeRTOS_recv` returns **`0` on SO_RCVTIMEO expiry** and **−128 on
-  peer close** (`vendor/freertos-plus-tcp/source/FreeRTOS_Sockets.c:4155-4321`);
+  peer close** (`third_party/freertos-plus-tcp/source/FreeRTOS_Sockets.c:4155-4321`);
   on sim, `read()` returns **`Ok(0)` on peer close (EOF)** and an **error on
   timeout**. Shared code above the HAL cannot currently be correct on both.
   (`http_connection.rs:303-306` treats `Ok(0)` as EOF — right on sim, wrong
@@ -354,3 +354,12 @@ before any consumer changes) → Phase 3 + 3b together (natives + SDK + both
 examples in one tree state, since throws clauses force the example updates)
 → Phase 4 (tests/roster/docs) → sim validation → HW validation → pre-commit.
 Roughly: 1 session, with HW validation the long pole.
+
+---
+
+**Amendment (2026-09-03, network-seam work).** The device-side mapping
+described above (`hal/rp/net.rs`) now lives in
+`picodroid-core/src/hal/freertos_tcp/mod.rs` as `FreeRtosTcpNet`, shared by
+every FreeRTOS+TCP family; the connect ladder times itself with the clock
+facade instead of the kernel tick. The contract is unchanged. See
+`docs/designs/network-seam-2026-09.md` D4.

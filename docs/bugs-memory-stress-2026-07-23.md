@@ -104,7 +104,7 @@ Verified-correct pieces (don't re-investigate):
 - Group wiring: `push_activity_group()` runs **before** `onCreate`
   (`platforms/rp/src/lifecycle.rs:428`) and binds the keypad indev
   (`events.rs:226-268`); `lv_button` and `lv_switch` are `group_def=TRUE` in the
-  vendored LVGL (`vendor/lvgl/src/widgets/button/lv_button.c:35`) so the Save
+  vendored LVGL (`third_party/lvgl/src/widgets/button/lv_button.c:35`) so the Save
   button auto-joins the active group in creation order
   (temp, hum, lux pickers → units switch → save button).
 - Java→native registration: `View.setOnClickListener` →

@@ -6,7 +6,7 @@ Written to be executed cold.
 
 ## Context
 
-`vendor/cyw43-driver` is the `picodroid` branch of `shivrajora/cyw43-driver`
+`third_party/cyw43-driver` is the `picodroid` branch of `shivrajora/cyw43-driver`
 — upstream `georgerobotics/cyw43-driver` at `055d642` plus one squashed
 commit (`120081e`) carrying four `PICODROID`-marked patches in
 `src/cyw43_ll.c`:
@@ -24,13 +24,13 @@ commit (`120081e`) carrying four `PICODROID`-marked patches in
 
 ## Current prepared state
 
-Branch **`upstream-bsscfg-event-msgs`** in `vendor/cyw43-driver`, commit
+Branch **`upstream-bsscfg-event-msgs`** in `third_party/cyw43-driver`, commit
 `d03e19c`, based directly on `055d642` (the fork's upstream base). It
 contains only patch 1, with the `PICODROID` marker removed and a commit
 message written for an outside audience. Verify it's still there:
 
 ```bash
-cd vendor/cyw43-driver
+cd third_party/cyw43-driver
 git log --oneline -1 upstream-bsscfg-event-msgs   # d03e19c cyw43_ll: zero the bsscfg index ...
 git show upstream-bsscfg-event-msgs --stat        # 1 file changed, 6 insertions(+)
 ```
@@ -41,7 +41,7 @@ git show upstream-bsscfg-event-msgs --stat        # 1 file changed, 6 insertions
    2026-08 fork; upstream may have moved:
 
    ```bash
-   cd vendor/cyw43-driver
+   cd third_party/cyw43-driver
    git remote add upstream https://github.com/georgerobotics/cyw43-driver.git 2>/dev/null
    git fetch upstream
    git log --oneline 055d642..upstream/main -- src/cyw43_ll.c
@@ -60,7 +60,7 @@ git show upstream-bsscfg-event-msgs --stat        # 1 file changed, 6 insertions
 ## Submit
 
 ```bash
-cd vendor/cyw43-driver
+cd third_party/cyw43-driver
 git push fork upstream-bsscfg-event-msgs
 gh pr create --repo georgerobotics/cyw43-driver \
   --head shivrajora:upstream-bsscfg-event-msgs \

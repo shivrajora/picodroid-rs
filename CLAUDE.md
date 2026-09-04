@@ -61,6 +61,18 @@ Do not consider a code change complete until the sim smoke test and
 
 WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root.
 
+## Shared dev board: the device lock
+
+One board, one probe, several parallel sessions. `flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil` and `hil-run.sh` take a machine-wide lease through `scripts/device-lock.sh` (`lib.sh::require_device_lock`). If the board is free the script acquires it for **this session** (owner `claude:<session id>`, alive as long as the session is) and keeps it until you release, so a flash followed by pdb calls needs no ceremony. If another session holds it the script exits 75 with the holder and a hint. Waiters queue FIFO.
+
+```bash
+./scripts/device-lock.sh status
+./scripts/device-lock.sh acquire --wait   # queue; run it with run_in_background and you are notified on acquisition
+./scripts/device-lock.sh release          # when you are done with the board; also kills your lingering probe-rs
+```
+
+Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `release` does the right thing. Overnight soaks launched with `setsid nohup` need a lease that outlives the session: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin` before the flash, `release` at teardown. The 4 AM `hil-run.sh` waits up to an hour, then records a SKIP. `PICODROID_DEVICE_LOCK=0` bypasses the check (emergencies only).
+
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >
 > **When debugging memory (heap growth, churn, OOM, corruption):** opt-in monitors and offensive checks exist — see `docs/memory-diagnostics.md` (`./scripts/sim.sh --app <app> --mem-diag`).

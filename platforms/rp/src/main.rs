@@ -12,7 +12,9 @@ mod boards;
 pub use picodroid_core::dispatch_sites;
 pub use picodroid_core::drivers;
 pub use picodroid_core::framework_classes;
-#[cfg(not(test))]
+// Device-only: the simulator mounts its host-file image from
+// `picodroid_core::sim_boot`, so nothing in a simulator build reaches this.
+#[cfg(not(any(test, feature = "sim")))]
 mod fs;
 // Shared boot memory budget (device task stacks / sim pre-charge — M4).
 mod boot_budget;
@@ -47,64 +49,36 @@ mod pdb;
 #[cfg(not(test))]
 pub use picodroid_core::service_lifecycle;
 pub use picodroid_core::shrink_names;
-// The capped simulator heap and its heap_4 arena live in picodroid-core now;
-// only the `#[global_allocator]` attribute has to stay in a binary crate, so
-// this is a forwarder rather than a copy. Unarmed the allocator is a
-// pass-through to the system one, so plain host tests are unaffected.
-#[cfg(any(test, feature = "sim"))]
-use picodroid_core::hal::sim::allocator as sim_allocator;
 pub use picodroid_core::task_priority;
 
-/// Routes every allocation to the simulator's capped allocator in
-/// picodroid-core.
-///
-/// A `#[global_allocator]` must be a `static` of the binary crate, so the
-/// instance cannot simply be core's. All four methods are forwarded rather
-/// than leaning on the trait defaults: the defaults would re-enter *this*
-/// type, which happens to be equivalent today only because `CappedAllocator`
-/// also takes them — forwarding explicitly keeps that a non-question if it
-/// ever overrides `realloc`.
+// The capped simulator heap and its heap_4 arena live in picodroid-core; only
+// the `#[global_allocator]` attribute has to stay in a binary crate, so this
+// is one macro call rather than a copy of the forwarder.
 #[cfg(any(test, feature = "sim"))]
-struct SimGlobalAlloc;
-
-#[cfg(any(test, feature = "sim"))]
-unsafe impl core::alloc::GlobalAlloc for SimGlobalAlloc {
-    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        core::alloc::GlobalAlloc::alloc(&sim_allocator::GLOBAL, layout)
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        core::alloc::GlobalAlloc::dealloc(&sim_allocator::GLOBAL, ptr, layout)
-    }
-    unsafe fn realloc(
-        &self,
-        ptr: *mut u8,
-        layout: core::alloc::Layout,
-        new_size: usize,
-    ) -> *mut u8 {
-        core::alloc::GlobalAlloc::realloc(&sim_allocator::GLOBAL, ptr, layout, new_size)
-    }
-    unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
-        core::alloc::GlobalAlloc::alloc_zeroed(&sim_allocator::GLOBAL, layout)
-    }
-}
-
-#[cfg(any(test, feature = "sim"))]
-#[global_allocator]
-static SIM_GLOBAL: SimGlobalAlloc = SimGlobalAlloc;
+picodroid_core::declare_sim_global_allocator!();
 
 // Host-testable pure-logic slices of RP HAL drivers. The rest of `hal::rp`
 // is ARM-only and cfg-gated out on the host; these modules have no
 // `rp-pico`/`rp235x-hal` deps, so pulling them in directly via `#[path]`
-// lets their `#[cfg(test)]` blocks run under `scripts/test.sh`.
+// lets their `#[cfg(test)]` blocks run under `scripts/test.sh`. A driver
+// whose tests live in a file that is *not* listed here has tests that never
+// run — `pwm` and `adc` were exactly that until 2026-09.
 #[cfg(test)]
-#[path = "hal/rp/i2c/protocol.rs"]
-mod hal_rp_i2c_protocol_tests;
+#[path = "hal/rp/adc/math.rs"]
+mod hal_rp_adc_math_tests;
 #[cfg(test)]
-#[path = "hal/rp/pdb_usb/protocol.rs"]
-mod hal_rp_pdb_usb_protocol_tests;
+#[path = "hal/rp/i2c/timing.rs"]
+mod hal_rp_i2c_timing_tests;
 #[cfg(test)]
-#[path = "hal/rp/spi/protocol.rs"]
-mod hal_rp_spi_protocol_tests;
+#[path = "hal/rp/pwm/math.rs"]
+mod hal_rp_pwm_math_tests;
+#[cfg(test)]
+#[path = "hal/rp/spi/xfer.rs"]
+mod hal_rp_spi_xfer_tests;
+// Text scans over the cyw43 port's C config (no hardware deps).
+#[cfg(test)]
+#[path = "hal/rp/cyw43/config_guard.rs"]
+mod hal_rp_cyw43_config_guard_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.
 
@@ -145,39 +119,12 @@ fn main() -> ! {
 
 #[cfg(feature = "sim")]
 fn main() {
-    // Start device-heap accounting at the sim's "reset vector". Everything
-    // before this is host-runtime noise; everything after is charged to the
-    // heap_4 arena exactly as the device charges its FreeRTOS heap.
-    sim_allocator::arm();
-    // Charge the FreeRTOS boot structures (task stacks, TCBs, queues) the
-    // device allocates from this same arena — measured at ~85 KB on HW (V4).
-    boot_budget::precharge_boot_budget();
-    sim_allocator::checkpoint("baseline");
-
-    if let Err(e) = fs::init() {
-        eprintln!("[sim][fs] init failed: {}", e);
-    }
-    sim_allocator::checkpoint("post-fs-init");
-
-    // Hand this thread to `xPortStartScheduler` and run the JVM as a task,
-    // exactly as the device does — so everything above has to be the work the
-    // device also does pre-scheduler (fs mount, allocator arming), and
-    // everything below only runs once the JVM task has ended the scheduler.
-    glue::run_sim();
-
-    sim_allocator::checkpoint("final");
-
-    let (current, peak, limit) = sim_allocator::heap_stats();
-    if limit == usize::MAX {
-        println!("[sim] heap: peak {} KB (unlimited)", peak / 1024);
-    } else {
-        println!(
-            "[sim] heap: peak {} KB / {} KB limit ({} KB current)",
-            peak / 1024,
-            limit / 1024,
-            current / 1024,
-        );
-    }
+    // Arming the heap model, the boot-budget precharge, the host filesystem
+    // image, the scheduler handoff and the closing heap banner are the
+    // simulator's own sequence (`picodroid_core::sim_boot::main`). This
+    // family contributes its three leaves through `register_sim_platform!`
+    // in `glue.rs`, which generates `sim_main`.
+    glue::sim_main()
 }
 
 // Cortex-M exception handlers and FreeRTOS application hooks (family-rp only).

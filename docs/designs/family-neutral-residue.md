@@ -1201,3 +1201,53 @@ created — and decision 1's file inventory no longer matches the tree (the
 bit-bang `cyw43_bus_spi.c` is deleted; the transport is Rust now). Phase N's
 scope must be re-measured against the post-`ac4bd74` tree before execution
 rather than executed from §6's numbers.
+
+### B17 — closed out; the successor is `porting-seam-2026-09.md` (2026-09-03)
+
+Stages 6 and 7 never ran. A 2026-09-02 re-audit measured what they would
+have touched and found the tree had moved on; the work is re-planned in
+`docs/designs/porting-seam-2026-09.md`, which supersedes §4 Stage 6, Stage 7
+and §6 of this doc. Corrections to the body, so a reader is not sent looking
+for things that are not there:
+
+- **§3.I `GpioEventRing` never landed.** `picodroid-core/src/hal/event_ring.rs`
+  does not exist. The successor's E2 changes the shape: the simulator adopts
+  the same ring (wrapped in a `Mutex`) rather than keeping its `VecDeque`,
+  because the device ring already has two writers and the simulator's queue
+  was unbounded where the device's drops.
+- **Stage 6's "deletion of the dead `I2cOp`/`I2cXferState` and their
+  tests" was already done** by the IRQ-flow rewrite; `hal/rp/i2c/protocol.rs:6-9`
+  records it. `SpiOp`/`SpiXferState` in `spi/protocol.rs` are live, not dead;
+  only the rename applies, and the successor picks `spi/xfer.rs` over
+  `spi/regs.rs` because the file's content is transfer state, not registers.
+- **The claim at §6 that "the porting guide has no networking section at all
+  today" is stale**: `317acf1` added one (`porting-guide.md:199-229`).
+- **§6's line counts are 2–3× stale** after the 2026-08 WiFi bring-up (B16
+  said so; here are the numbers): `net.rs` 302 → 381, `wifi_task.rs` 68 →
+  168, `NetworkInterface_CYW43.c` 166 → 224, `net_init.c` 132 → 151,
+  `cyw43_port.c` 377, plus two files that did not exist: `pio_spi.rs` 606
+  and `trng.rs` 114. Networking stays family-owned by decision (successor E8).
+- **`platforms/rp/src` is 8,774 lines at `80aad79`**, not the 7,006 B14
+  recorded — networking growth, not regression of the extraction.
+- **`pwm.rs`'s deferral stands, but its six tests never compiled** (no host
+  `#[path]` shim), and would have failed: they assume 125 MHz while the
+  default board is 150 MHz. `adc.rs` has three more dead tests. The successor's
+  S4 fixes both.
+- **Stage 7's doc items** were mostly not done: the porting guide still
+  describes `pdb_usb`/`boot`/`flash` as free-function modules, the six-item
+  list still names `Rtos` + `PlatformHooks` rather than the four traits, the
+  filesystem section never names `FsBackingStore`, and `ARCHITECTURE.md` has
+  neither boundary rule. The `PAPK_FLASH_MAGIC` retype instruction *is* gone.
+  All of it moves to the successor's S10.
+
+### B18 — Phase N executed by `network-seam-2026-09.md` (2026-09-04)
+
+§6's four decisions were carried out on branch `refactor/network-seam`,
+three of them changed with reasons recorded there: the shared C lives in
+`picodroid-core/net-freertos-tcp/` rather than `platforms/shared/` (D1);
+the socket layer is core's `FreeRtosTcpNet` behind the Cargo feature
+`freertos-tcp` rather than a board-key cfg (D4); the runner
+(`run_link_task`) moved to core while the cyw43 driver and its spawn stayed
+in the family as the reference link driver (D6). The entropy seam is
+`picodroid_port_entropy32` as §6(2) said. The porting guide now has a
+networking section ("The network").

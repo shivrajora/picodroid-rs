@@ -35,6 +35,37 @@ pub struct BoardConfig {
     pub jvm: Option<HashMap<String, String>>,
 }
 
+/// The repository root, found from a crate's manifest directory by walking
+/// up to the directory that holds `build_support/`. A crate one level down
+/// (`picodroid-core`) and one two levels down (`platforms/<family>`) resolve
+/// it the same way, and a family placed anywhere under `platforms/` needs no
+/// hand-counted `.parent()` chain.
+pub fn repo_root(manifest_dir: &Path) -> PathBuf {
+    let mut dir = manifest_dir;
+    loop {
+        if dir.join("build_support").is_dir() {
+            return dir.to_path_buf();
+        }
+        dir = dir.parent().unwrap_or_else(|| {
+            panic!(
+                "no build_support/ directory above {} — is this crate inside the repo?",
+                manifest_dir.display()
+            )
+        });
+    }
+}
+
+/// Whether this build targets a bare-metal device rather than the host: the
+/// target architectures a family might be built for.
+pub fn is_embedded() -> bool {
+    matches!(
+        env::var("CARGO_CFG_TARGET_ARCH")
+            .unwrap_or_default()
+            .as_str(),
+        "arm" | "xtensa" | "riscv32"
+    )
+}
+
 const KNOWN_SENSOR_KINDS: &[&str] = &["bme688", "ltr559"];
 const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC"];
 

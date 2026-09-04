@@ -33,9 +33,70 @@ use super::heap4::Heap4;
 /// The simulator's allocator instance.
 ///
 /// The `#[global_allocator]` *attribute* is only legal in a binary crate, so
-/// the platform registers a newtype that forwards here. The instance itself
+/// the platform registers a newtype that forwards here —
+/// [`crate::declare_sim_global_allocator`] writes it. The instance itself
 /// lives beside the accounting functions because they all reach it directly.
 pub static GLOBAL: CappedAllocator = CappedAllocator::new();
+
+/// Declare the binary crate's `#[global_allocator]` as a forwarder to
+/// [`GLOBAL`].
+///
+/// A `#[global_allocator]` must be a `static` of the binary crate, so the
+/// instance cannot simply be this crate's; every family would otherwise copy
+/// the same forwarding newtype. All four methods are forwarded rather than
+/// leaning on the trait defaults: the defaults would re-enter the newtype,
+/// which happens to be equivalent today only because `CappedAllocator` also
+/// takes them — forwarding explicitly keeps that a non-question if it ever
+/// overrides `realloc`. Unarmed, the allocator is a pass-through to the
+/// system one, so a plain host test build is unaffected.
+///
+/// ```ignore
+/// #[cfg(any(test, feature = "sim"))]
+/// picodroid_core::declare_sim_global_allocator!();
+/// ```
+#[macro_export]
+macro_rules! declare_sim_global_allocator {
+    () => {
+        /// Routes every allocation to the simulator's capped allocator in
+        /// picodroid-core.
+        struct SimGlobalAlloc;
+
+        unsafe impl ::core::alloc::GlobalAlloc for SimGlobalAlloc {
+            unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
+                ::core::alloc::GlobalAlloc::alloc(&$crate::hal::sim::allocator::GLOBAL, layout)
+            }
+            unsafe fn dealloc(&self, ptr: *mut u8, layout: ::core::alloc::Layout) {
+                ::core::alloc::GlobalAlloc::dealloc(
+                    &$crate::hal::sim::allocator::GLOBAL,
+                    ptr,
+                    layout,
+                )
+            }
+            unsafe fn realloc(
+                &self,
+                ptr: *mut u8,
+                layout: ::core::alloc::Layout,
+                new_size: usize,
+            ) -> *mut u8 {
+                ::core::alloc::GlobalAlloc::realloc(
+                    &$crate::hal::sim::allocator::GLOBAL,
+                    ptr,
+                    layout,
+                    new_size,
+                )
+            }
+            unsafe fn alloc_zeroed(&self, layout: ::core::alloc::Layout) -> *mut u8 {
+                ::core::alloc::GlobalAlloc::alloc_zeroed(
+                    &$crate::hal::sim::allocator::GLOBAL,
+                    layout,
+                )
+            }
+        }
+
+        #[global_allocator]
+        static SIM_GLOBAL: SimGlobalAlloc = SimGlobalAlloc;
+    };
+}
 
 thread_local! {
     /// Nonzero while the current thread is inside a [`bypass`] region. Reads and

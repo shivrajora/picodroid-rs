@@ -58,7 +58,7 @@ def parse_gitmodules():
 
     out = []
     for section in parser.sections():
-        # section is like 'submodule "vendor/lvgl"'
+        # section is like 'submodule "third_party/lvgl"'
         m = re.match(r'submodule "(.+)"$', section)
         if not m:
             continue

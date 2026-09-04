@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use pico_jvm::array_heap::ArrayHeap;
-
 use core::cell::RefCell;
 
 pub fn init(_i2c_id: u8) {}
@@ -27,19 +25,6 @@ pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
     );
     sim_bme688_respond(address, reg, buf);
     buf.len() as i32
-}
-
-pub fn write(i2c_id: u8, address: u32, _data_idx: u16, len: usize, _arrays: &ArrayHeap) -> i32 {
-    println!("[sim] I2C{i2c_id} write addr=0x{address:02x} len={len}");
-    len as i32
-}
-
-pub fn read(i2c_id: u8, address: u32, buf_idx: u16, len: usize, arrays: &mut ArrayHeap) -> i32 {
-    println!("[sim] I2C{i2c_id} read addr=0x{address:02x} len={len} → zeros");
-    for i in 0..len {
-        arrays.store(buf_idx, i, 0);
-    }
-    len as i32
 }
 
 // ── Sim-only BME688 fake ────────────────────────────────────────────────────

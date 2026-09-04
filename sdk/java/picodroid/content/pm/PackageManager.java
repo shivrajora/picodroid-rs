@@ -6,8 +6,11 @@ package picodroid.content.pm;
  * PackageManager.hasSystemFeature(String)} API.
  */
 public class PackageManager {
-  /** Board has WiFi networking (FreeRTOS+TCP + a wireless driver). */
+  /** The board's network link is WiFi. */
   public static final String FEATURE_WIFI = "picodroid.hardware.wifi";
+
+  /** The board's network link is wired Ethernet. */
+  public static final String FEATURE_ETHERNET = "picodroid.hardware.ethernet";
 
   private static final PackageManager INSTANCE = new PackageManager();
 

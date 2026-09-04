@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// ADC reference voltage and resolution
-const VREF: f64 = 3.3;
-const ADC_MAX: f64 = 4095.0; // 12-bit ADC
+//! ADC: pad routing, the conversion trigger and the result read. The
+//! scaling is in [`math`], where it can be tested on the host.
+
+pub mod math;
 
 /// Configure a GPIO pin (26–29) for ADC analog input and enable the ADC peripheral.
 pub fn init(pin: u8) {
@@ -58,32 +59,5 @@ pub fn read(pin: u8) -> f64 {
     // Poll READY bit (busy-wait for conversion to complete, typically ~2 µs)
     while p.ADC.cs().read().ready().bit_is_clear() {}
 
-    // Convert 12-bit raw result to voltage
-    let raw = p.ADC.result().read().result().bits() as f64;
-    raw * VREF / ADC_MAX
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn adc_min_raw_gives_zero_volts() {
-        let voltage = 0.0_f64 * VREF / ADC_MAX;
-        assert_eq!(voltage, 0.0);
-    }
-
-    #[test]
-    fn adc_max_raw_gives_vref() {
-        let voltage = ADC_MAX * VREF / ADC_MAX;
-        // Should equal VREF (3.3 V) within floating point precision
-        assert!((voltage - 3.3).abs() < 1e-10);
-    }
-
-    #[test]
-    fn adc_midscale_raw_gives_half_vref() {
-        // 2047 / 4095 * 3.3 ≈ 1.6496…
-        let voltage = 2047.0_f64 * VREF / ADC_MAX;
-        assert!(voltage > 1.64 && voltage < 1.66);
-    }
+    math::raw_to_volts(p.ADC.result().read().result().bits())
 }

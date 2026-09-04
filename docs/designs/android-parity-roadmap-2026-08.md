@@ -265,12 +265,37 @@ too.
 | T1.1 | StringBuilder per-instance buffers | N | **DONE** |
 | T1.2 | `HttpURLConnection` request/response headers | N | **DONE** |
 | T1.3 | Widget fidelity fills | N | open |
-| T1.4 | `TextView`/`EditText` text surface | N | open |
+| T1.4 | `TextView`/`EditText` text surface | N | **partial** (`getText` shipped 2026-09-02) |
 | T1.5 | Input & sensor fills | N | open |
-| T1.6 | `Gpio` input | N | open |
-| T1.7 | `java.util.Objects`, `String.join` | B | open |
-| T1.8 | Persistence fills | N | open |
+| T1.6 | `Gpio` input | N | **partial** (`getValue`/`DIRECTION_IN` shipped 2026-09-02; edge callback open) |
+| T1.7 | `java.util.Objects`, `String.join` | B/S-small | **DONE** 2026-09-02 |
+| T1.8 | Persistence fills | N | **partial** (`File` name/parent/mkdirs/createNewFile, prefs float shipped 2026-09-02) |
 | T1.9 | `EditText.setInputType` + password masking | N/S-small | **partial** (see below) |
+
+**Shipped 2026-09-02 — the Tier 1 core set.** `TextView.getText()` (and
+`Button.getText()`) returning `CharSequence`; `Gpio.DIRECTION_IN` +
+`getValue()` over the existing `HalGpio::set_input`/`read`; `java.util.Objects`
+as a body-ful `sdk/java/java/util/Objects.java` (not the "B" the table
+promised: `equals`/`hashCode`/`toString` must virtual-dispatch to user
+overrides, which only bytecode can do — so it is an S-small class on every
+board); `String.join` (varargs and `ArrayList`) and `Float.intBitsToFloat` as
+builtins; `File.getName`/`getParent`/`getParentFile`/`getAbsolutePath`/
+`mkdirs`/`createNewFile`; `SharedPreferences.getFloat`/`Editor.putFloat`
+(blob tag 6, still `VERSION` 1). **Until the next release map is cut** the
+`java/util/Objects` name is un-shrunk and `stage_shrink_image` in
+`pre-commit --full` reports exactly that one leak; the v0.18.0 cut on `main`
+clears it.
+
+**High priority — next (deferred 2026-09-02, in this order):**
+
+1. `File.list()` / `listFiles()` — needs a `HalFs::read_dir` on the trait,
+   facade, `set_hal_fs!` shim, the sim and the LittleFS impl.
+2. `Context.getFilesDir()` / `openFileInput` / `openFileOutput` / `deleteFile`
+   / `fileList()` — thin Java over `picodroid.io.*`.
+3. `TextView.setTextSize(float)` / `(int unit, float)`, `append`, `setGravity`
+   — `append` is pure Java, the other two are LVGL-side natives.
+4. `Gpio` edge callback — a `dispatch_sites.rs` row plus a GC-root provider
+   for the retained listener (`EXPECTED_PROVIDERS` bump).
 
 **T1.1 — StringBuilder per-instance buffers (DONE).** Every builder shared
 one global LIFO buffer, so two concurrently-alive builders interleaved
@@ -393,13 +418,23 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 - **T2.4 — line-number stack traces.** Parse `LineNumberTable`; the project's
   own "biggest debugging quality-of-life win remaining". Schedule early: it
   multiplies the velocity of everything after it.
-  **Partial — and this was already true when the roadmap was written.**
-  `fce8241` landed line numbers on 2026-05-06, three and a half months before
-  this doc (`0dcd3fa`, 2026-08-18): `class_file/mod.rs` carries
-  `lnt_offset`/`lnt_len`, `parse.rs` scans the Code sub-attributes, and
-  `tests/exceptions.rs` pins the rendered format. Only the release half is
-  open — it is all `#[cfg(debug_assertions)]`-gated — and since `flash.sh`
-  defaults to debug builds, that gap bites less than the entry implies.
+  **DONE 2026-09-02.** `fce8241` had landed line numbers on 2026-05-06 —
+  `parse.rs` scans the Code sub-attributes, `tests/exceptions.rs` pins the
+  format — but all of it was `#[cfg(debug_assertions)]`-gated, and the
+  earlier claim here that `flash.sh`'s debug default therefore kept lines
+  was wrong: `lib.sh build_firmware` forces
+  `--config profile.dev.debug-assertions=false` in *both* profiles (the
+  RP2040 flash gate), so no device image ever had the parser, and the
+  2026-09-01 strip removed the tables from the bytes as well. Now: a
+  `line-numbers` cargo feature is the only gate (JVM, `build.rs` tree
+  choice, `framework_classes.rs` invariant); the sim and debug-profile
+  `flash.sh` firmware have it and print Android's
+  `at pkg.Class.method(File.java:39)` (a `SourceFile` reader came with it);
+  release firmware prints `(pc=N)` and `scripts/retrace.sh [--app <app>]`
+  resolves those on the host from the unstripped class trees, composed with
+  the shrink-map un-shrinking it already did. Zero RAM (`lnt_offset` is a
+  `u16` in `MethodInfo`'s padding); ~15 KB of flash for the SDK tables,
+  debug-profile images only (flash-string-budget §4).
 - **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
   embedder arms can upcall; T3.4 is unblocked.
 - **T2.6 — JSON.** `picodroid.json.JSONObject`/`JSONArray`/`JSONException`

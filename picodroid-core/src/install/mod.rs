@@ -28,7 +28,9 @@
 //! [`orchestrator`] pin both.
 
 mod orchestrator;
+pub mod slot;
 pub mod transport;
 
 pub use orchestrator::{run_install, CoreCoordinator, PapkFlash};
+pub use slot::{read_mapped, PapkSlot, PapkSlotFlash};
 pub use transport::{InstallError, InstallTransport, ReadError};

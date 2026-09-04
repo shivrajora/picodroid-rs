@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Hardware Abstraction Layer for this family — every chip-specific symbol
-//! lives under here, behind one `#[cfg]` that selects `rp/` or `sim/`.
+//! lives under here, behind one `#[cfg]` that selects `rp/` or the shared
+//! simulator in `picodroid_core::hal::sim`.
 //!
 //! # Where the contract lives
 //!
@@ -33,9 +34,9 @@
 // (Tests run on the host where HAL crates like rp-pico are unavailable.)
 //
 // There is no `sim/` directory here any more. Every module it held is
-// picodroid-core's, including the `pdb_usb` stub that used to stay behind.
-// The `boot`/`flash` stubs that went with it are gone entirely: one empty
-// function and two constants that no simulator build could reach.
+// picodroid-core's. The `boot`/`flash`/`pdb_usb` stubs that went with it are
+// gone entirely: one empty function, two constants and an empty USB module
+// that no simulator build could reach.
 #[cfg(any(feature = "sim", test))]
 use picodroid_core::hal::sim as chip;
 
@@ -62,13 +63,17 @@ pub use chip::system_clock;
 pub use chip::touch;
 pub use chip::uart;
 
+// The debug-bridge byte pipe: the USB CDC driver, device-only like its one
+// consumer (`pdb/platform.rs`). The simulator ships no endpoint, so there is
+// no stub to route to.
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
+pub use chip::pdb_usb;
+
 // Boot & flash: device-only. The shared simulator has no counterpart — a
 // reset vector and an XIP flash region are not things a host process has —
 // and the empty stubs that used to stand in for them were reachable from
 // nothing, so they are gone. Both consumers (`main`'s `#[entry]` and
 // `packagemanager`) carry this same gate.
-#[cfg_attr(any(feature = "sim", test), allow(unused_imports))]
-pub use chip::pdb_usb;
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::{boot, flash};
 
@@ -78,17 +83,23 @@ pub use chip::{boot, flash};
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::core1_park;
 
-#[cfg(has_network)]
+// Host sockets for the simulator and the host tests. On the device the
+// socket layer is core's `FreeRtosTcpNet`, registered in glue.rs.
+#[cfg(all(has_network, any(test, feature = "sim")))]
 pub use chip::net;
 
-// The cyw43 bring-up task. Device-only: the shared simulator has no such
+// The cyw43 link driver (`cyw43::link::Cyw43Link`, which boot_tasks.rs hands
+// to core's `run_link_task`). Device-only: the shared simulator has no such
 // module, and nothing in a simulator build would drive it. Exposed here
 // rather than reached as `hal::rp::…` because `chip` is private — the same
-// indirection every other peripheral goes through.
+// indirection every peripheral that code outside `hal` reaches goes through.
+// (`dma`, `pio_spi` and `trng` are not re-exported: they are internal to the
+// family and reached only by their sibling modules.)
 #[cfg(all(network_cyw43, not(any(test, feature = "sim"))))]
-pub use chip::wifi_task;
+pub use chip::cyw43;
 
-// Compile-time HAL CONTRACT v1 enforcement. Never executed; type-checked only.
+// Compile-time assertions for the parts no trait covers (`boot`, `flash`).
+// Never executed; type-checked only.
 mod contract;
 
 // Display geometry is generated twice from one board.toml: this family's

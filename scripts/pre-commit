@@ -110,7 +110,7 @@ classify_changes() {
     # `case` globs match `/` too, so a bare *.rs covers every depth.
     case "$f" in
       *.rs|*Cargo.toml|*Cargo.lock|.cargo/config.toml|build_support/*|\
-      platforms/*.toml|platforms/*.h|platforms/*.x|third_party/*|vendor/*|\
+      platforms/*.toml|platforms/*.h|platforms/*.x|third_party/*|\
       rust-toolchain*|.gitmodules)
         BUCKET_RUST=1 ;;
     esac
@@ -160,6 +160,7 @@ STAGES=(
   "cfg_gates|guards|fast|always|sim/family-rp cfg-gate hygiene"
   "hil_conf|guards|fast|always|hil-tests.conf against the source tree"
   "jvm_env|guards|fast|always|apply_jvm_env propagation"
+  "device_lock|guards|fast|scripts|device-lock state machine (test-device-lock.sh)"
   "apk|guards|fast|rust,jvm|helloworld APK (shared by every cargo lane)"
 
   "fmt_java|jvm|fast|jvm|Java formatting"
@@ -383,12 +384,25 @@ stage_jvm_env() {
   fi
 }
 
+stage_device_lock() {
+  if ! bash "$SCRIPT_DIR/test-device-lock.sh"; then
+    echo ""
+    echo "ERROR: device-lock state machine test failed (scripts/device-lock.sh,"
+    echo "       lib.sh::require_device_lock). Every board script depends on it;"
+    echo "       fix before committing."
+    return 1
+  fi
+}
+
 stage_apk() {
   # Built once, here, in the serial prologue: every cargo lane embeds it, and
   # PICODROID_APK_PATH is a `rerun-if-env-changed` build.rs input, so a stable
   # path is also what keeps the lanes from invalidating each other.
   # --strip-debug: this snapshot only ever feeds firmware lanes (the clippy
   # legs, the flash gate, the size ratchet), so it takes the device shape.
+  # Without --keep-lines, so the debug-profile flash gate measures a PAPK
+  # with no app line table (the SDK's rides in the firmware regardless);
+  # helloworld's would be a few dozen bytes.
   bash "$SCRIPT_DIR/build-apk.sh" --app helloworld --strip-debug -o "$APK_PATH"
 }
 
@@ -488,7 +502,7 @@ clippy_sim_features() {
   fi
 }
 
-stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350"; }
+stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-numbers"; }
 
 # Keeps the opt-in memory diagnostics compiling and warning-clean
 # (docs/memory-diagnostics.md); the firmware flash budget for mem-diag is

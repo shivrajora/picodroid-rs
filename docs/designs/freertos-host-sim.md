@@ -601,3 +601,7 @@ scheduler, and Cocoa wants the window there. Untested — this project simulates
 on Linux, which is why retiring the host-thread runtime was acceptable. Anyone
 bringing the simulator up on a Mac should expect to do §2.6's window-pump
 restructure first.
+
+> **2026-09-03:** `BootLeaves` itself is gone. `register_sim_platform!` now takes
+> the family's leaves (`gc_roots`, `boot_budget`, `run_app`) and generates the
+> simulator's `main`; see `docs/designs/porting-seam-2026-09.md` E6 / A2.

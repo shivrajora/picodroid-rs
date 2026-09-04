@@ -110,7 +110,7 @@ export default defineConfig({
             { label: 'Manifest', slug: 'reference/manifest' },
             { label: 'Cargo aliases', slug: 'reference/cargo-aliases' },
             { label: 'pdb commands', slug: 'reference/pdb-commands' },
-            { label: 'Class-name shrinker', slug: 'reference/shrinker' },
+            { label: 'Shrinker', slug: 'reference/shrinker' },
             { label: 'Advanced configuration', slug: 'reference/advanced-config' },
             { label: 'JVM tunables', slug: 'reference/jvm-tunables' },
             { label: 'Porting guide', slug: 'reference/porting-guide' },
