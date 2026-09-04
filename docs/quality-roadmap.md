@@ -109,6 +109,15 @@ code). The rp2040 gap above bites harder now: `testbench_rp2040` excludes the wh
 testing (an app that touches an excluded class must fail to load cleanly, not
 mysteriously), and no rp2040 hardware row exists to test it.
 
+*2026-09-04 (bank0 core split, `a496caf`):* another change that compiled for rp2040 and
+moved its image (+16 B, `core_num()` + the CPUID branch in `IO_IRQ_BANK0`) but only ran on
+`pico_enviro_mon_w` — the full roster passed there 37/37, and `testbench_rp2040` was never
+on the probe. **Backlog:** put a `testbench_rp2040` on the bench and run
+`hil-run.sh --board testbench_rp2040` (the rp2040 build has no core-1 unmask at all, so the
+branch must be a no-op there — boot, buttons-less roster, flash gate). The same session left
+two more single-board checks undone for want of a board swap: `testbench_rp2350w` `http_get`
+(host-wake is that board's only bank0 source) and a `pico_enviro_mon` (non-W) key press.
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**
