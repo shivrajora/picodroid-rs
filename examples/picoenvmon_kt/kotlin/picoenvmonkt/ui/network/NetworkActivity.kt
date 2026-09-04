@@ -20,7 +20,7 @@ import picoenvmonkt.util.hms
 /**
  * Network status screen (reached from the Home hub). On WiFi-less boards it degrades to a single
  * "not available" message — the hub entry is shown everywhere so the feature is discoverable, and
- * this screen is where the `FEATURE_WIFI` probe's answer becomes visible.
+ * this screen is where the `FEATURE_WIFI` / `FEATURE_ETHERNET` probe's answer becomes visible.
  *
  * Callbacks arrive via [NetworkManager.Listener] on the main executor, so all widget mutation here
  * happens on the main thread.

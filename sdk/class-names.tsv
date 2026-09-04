@@ -150,6 +150,7 @@ picodroid/hardware/SensorManager
 picodroid/io/File
 picodroid/io/FileInputStream
 picodroid/io/FileOutputStream
+picodroid/net/ConnectivityManager
 picodroid/net/DatagramPacket
 picodroid/net/DatagramSocket
 picodroid/net/HttpInputStream

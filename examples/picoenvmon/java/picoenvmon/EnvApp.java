@@ -33,7 +33,7 @@ public class EnvApp extends Application {
     Theme.colorTextSecondary = Color.argb(255, 160, 180, 188);
     Theme.colorOutline = Color.argb(255, 56, 80, 92);
 
-    // No-op on boards without WiFi (FEATURE_WIFI probe inside).
+    // No-op on boards without a network link (FEATURE_WIFI / FEATURE_ETHERNET probe inside).
     networkManager.start();
 
     startActivity(new Intent(HomeActivity.class));

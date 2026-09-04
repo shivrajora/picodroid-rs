@@ -16,7 +16,8 @@ import picoenvmon.util.TimeFormat;
 /**
  * Network status screen (reached from the Home hub). On WiFi-less boards it degrades to a single
  * "not available" message — the hub entry is shown everywhere so the feature is discoverable, and
- * this screen is where the {@code FEATURE_WIFI} probe's answer becomes visible.
+ * this screen is where the {@code FEATURE_WIFI} / {@code FEATURE_ETHERNET} probe's answer becomes
+ * visible.
  *
  * <p>Callbacks arrive via {@link NetworkManager.Listener} on the main executor, so all widget
  * mutation here happens on the main thread.

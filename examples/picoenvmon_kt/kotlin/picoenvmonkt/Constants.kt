@@ -21,8 +21,8 @@ const val READING_COUNT = 5
 const val RING_CAPACITY = 60
 
 /**
- * `NetworkManager` states. Board has no WiFi hardware (`FEATURE_WIFI` absent) — thread never
- * starts.
+ * `NetworkManager` states. Board has no network link (`FEATURE_WIFI` / `FEATURE_ETHERNET` absent) —
+ * thread never starts.
  */
 const val STATE_NO_WIFI = 0
 

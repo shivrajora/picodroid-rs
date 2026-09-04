@@ -347,6 +347,7 @@ same each time). W boards are not ratcheted; this table is the record.
 | S3 shared C glue, entropy + descriptor seams | 1,223,158 | 4 | 527,800 | −60 |
 | S4 socket layer to core (`FreeRtosTcpNet`) | 1,223,398 | 4 | 527,800 | +180 |
 | S5 `NetLink` + `run_link_task`; cyw43 is a link driver | 1,223,534 | 4 | 527,800 | +316 |
+| S6 Java: `ConnectivityManager`, `getType()`, `FEATURE_ETHERNET` | 1,223,954 | 4 | 527,800 | +736 |
 
 ## 10. Amendments
 
@@ -524,3 +525,29 @@ which calls the down hook each time the link driver's `pfInitialise`
 returns pdFAIL. NET-2's flapping was an up/down alternation while a join was
 still in progress; there is none. Not a regression. Follow-up recorded in
 §7: log the down event only on a transition.
+
+### A10 — S6: apps can tell WiFi from Ethernet (2026-09-04)
+
+`picodroid.net.ConnectivityManager` (constants only: `TYPE_NONE = -1`,
+`TYPE_WIFI = 1`, `TYPE_ETHERNET = 9`), `NetworkInfo.getType()` (a static
+native, like its siblings), `PackageManager.FEATURE_ETHERNET`. The natives
+answer from the `network_link_<kind>` cfgs: `getType()` returns 1 / 9 / −1,
+`hasSystemFeature` answers `FEATURE_WIFI` and `FEATURE_ETHERNET` by kind
+instead of "any network"; the no-network stub returns `TYPE_NONE`. The name
+tables were regenerated (`ConnectivityManager`, the four fields; `getType`
+already existed). `testbench_rp2040` excludes the class from its image
+(javac inlines the constants, so apps lose nothing). picoenvmon (Java and
+Kotlin) gates its network thread on either feature and says "no network
+link" instead of "no WiFi". Docs: the networking API page.
+
+Checks: `./scripts/pre-commit --full` green in every lane but one — the
+`--shrink` image still spells `picodroid/net/ConnectivityManager`, the one
+expected leak until the next release cut folds the new names into the
+shrink map (`sdk/shrink-maps/README.md`); the sim smokes; `netexception` in
+the W-board simulator; the host tests. On the Pico 2 W, the
+`pico_enviro_mon_w` firmware runs picoenvmon through the widened gate:
+`net: link cyw43 init` → `net: mac …` → `wifi: join …` → `net: up, ip
+192.168.1.90` → `PicoEnvMon: net: up, ip=192.168.1.90`. Sizes: W image
++420 B over S5; the ratcheted boards grow by the stub arm, the member name
+and the feature string (`testbench_rp2040` +168 B) plus the embedded class
+(`testbench_rp2350` +404 B), accepted with size trailers.
