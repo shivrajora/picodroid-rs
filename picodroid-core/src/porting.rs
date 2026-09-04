@@ -63,7 +63,8 @@
 //!    install (`platforms/rp/src/boot_tasks.rs` is the reference; do not put
 //!    a stop check in your HAL `sleep` — shared code owns it). Your `build.rs`
 //!    emits the capability `cfg`s (`has_display`, `has_touch`, `has_buttons`,
-//!    `has_network`, `network_<type>`, `any_sensor`, `sensor_<kind>`) from
+//!    `has_network`, `network_<type>`, `network_link_<kind>`, `any_sensor`,
+//!    `sensor_<kind>`) from
 //!    `board.toml` through `build_support::board_cfg`, and reads
 //!    [`board_cfg`]. LVGL is compiled by *this* crate's build script — never
 //!    by a family. Logging is [`pd_info!`] and friends: defmt on device,

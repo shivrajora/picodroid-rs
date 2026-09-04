@@ -163,15 +163,38 @@ pub fn emit_heap_config(out: &Path, board: &Option<ResolvedBoard>) {
     );
 }
 
-/// Emit `has_network` / `network_<type>` rustc cfgs from board.toml.
-/// board.toml is the single source of truth; Rust code gates on these cfgs
-/// rather than on Cargo features.
-pub fn emit_network_cfgs(board: &Option<ResolvedBoard>) {
-    const KNOWN_NETWORK_TYPES: &[&str] = &["cyw43"];
+/// Known `network_type` values and the link kind each one is.
+///
+/// One row per link chip. The type gates the driver's own code through
+/// `cfg(network_<type>)`; the kind is what Java sees — `hasSystemFeature`
+/// with `FEATURE_WIFI` / `FEATURE_ETHERNET` and `NetworkInfo.getType()` —
+/// through `cfg(network_link_<kind>)`. A new link chip is one row here plus
+/// a `picodroid-core/network-<kind>` forward in the family's Cargo.toml
+/// (docs/designs/network-seam-2026-09.md D8).
+pub const KNOWN_NETWORK_TYPES: &[(&str, &str)] = &[("cyw43", "wifi")];
 
+/// The link kinds a board can be. Each has a `picodroid-core/network-<kind>`
+/// Cargo feature that the family forwards for the board.
+pub const LINK_KINDS: &[&str] = &["wifi", "ethernet"];
+
+/// The link kind of a `network_type`, or `None` for a type not in the table.
+pub fn network_link_kind(network_type: &str) -> Option<&'static str> {
+    KNOWN_NETWORK_TYPES
+        .iter()
+        .find(|(t, _)| *t == network_type)
+        .map(|(_, kind)| *kind)
+}
+
+/// Emit `has_network` / `network_<type>` / `network_link_<kind>` rustc cfgs
+/// from board.toml. board.toml is the single source of truth; Rust code gates
+/// on these cfgs rather than on Cargo features.
+pub fn emit_network_cfgs(board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(has_network)");
-    for t in KNOWN_NETWORK_TYPES {
+    for (t, _) in KNOWN_NETWORK_TYPES {
         println!("cargo:rustc-check-cfg=cfg(network_{t})");
+    }
+    for k in LINK_KINDS {
+        println!("cargo:rustc-check-cfg=cfg(network_link_{k})");
     }
 
     let Some(p) = props(board) else { return };
@@ -180,12 +203,15 @@ pub fn emit_network_cfgs(board: &Option<ResolvedBoard>) {
     }
     println!("cargo:rustc-cfg=has_network");
 
-    if let Some(t) = p.get("network_type") {
-        if !KNOWN_NETWORK_TYPES.contains(&t.as_str()) {
-            panic!("board.toml: unknown network_type '{t}' (known: {KNOWN_NETWORK_TYPES:?})");
-        }
-        println!("cargo:rustc-cfg=network_{t}");
-    }
+    let known: Vec<&str> = KNOWN_NETWORK_TYPES.iter().map(|(t, _)| *t).collect();
+    let Some(t) = p.get("network_type") else {
+        panic!("board.toml: has_network = true needs a network_type (known: {known:?})");
+    };
+    let Some(kind) = network_link_kind(t) else {
+        panic!("board.toml: unknown network_type '{t}' (known: {known:?})");
+    };
+    println!("cargo:rustc-cfg=network_{t}");
+    println!("cargo:rustc-cfg=network_link_{kind}");
 }
 
 /// Emit `OUT_DIR/sensor_table.rs` plus the `sensor_<kind>` / `any_sensor`
@@ -576,6 +602,18 @@ pub fn assert_forwarded_features_match(board: &Option<ResolvedBoard>) {
         check(kind, declared, &format!("sensor-{kind}"));
     }
 
-    let net = b.cfg.props.get("network_type").map(String::as_str);
-    check("network_type=cyw43", net == Some("cyw43"), "network-cyw43");
+    // The board's link kind (from the KNOWN_NETWORK_TYPES table) must match
+    // exactly one forwarded `network-<kind>` feature.
+    let net_kind = b
+        .cfg
+        .props
+        .get("network_type")
+        .and_then(|t| network_link_kind(t));
+    for k in LINK_KINDS {
+        check(
+            &format!("network link kind {k}"),
+            net_kind == Some(k),
+            &format!("network-{k}"),
+        );
+    }
 }

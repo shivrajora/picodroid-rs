@@ -10,6 +10,8 @@ an amendment is appended in §10, never a silent change.
 
 ## 0. Why this exists
 
+Two repo words used below. A *seam* is a place where core code and family code meet: a trait, a macro, or a C symbol. The *ratchet* is the size check in pre-commit that fails when the firmware grows.
+
 The ask: design the right platform interfaces for networking, with Ethernet
 coming later, so that porting picodroid to a new chip family is easy as long
 as the family runs FreeRTOS and FreeRTOS+TCP.
@@ -76,7 +78,7 @@ host-wake block in `gpio.rs`. About 690 lines enter core; 173 leave it.
 ### D1 — Shared C lives in `picodroid-core/net-freertos-tcp/`
 
 A non-`src` directory in core, not `platforms/shared/net-freertos-tcp/` as
-`family-neutral-residue.md` §6(1) said. Precedent: `picodroid-core/freertos-host/`
+`family-neutral-residue.md` §6(1) said. There is already an example of this: `picodroid-core/freertos-host/`
 is a C directory compiled by a build script. A porter's model stays "core is
 not mine, `platforms/<family>` is mine". The shadow-twin guard compares only
 the two `src` trees, so this location is safe. Compile ownership stays with the
@@ -103,7 +105,7 @@ LCG, XOR-mixing every TRNG word as before).
 `picodroid-core/src/hal/freertos_tcp/mod.rs`, gated on the core Cargo feature
 `freertos-tcp` AND `cfg(has_network)` AND `not(any(test, feature = "sim"))`.
 The family registers it with `set_hal_net!(FreeRtosTcpNet)`. Same shape as
-`LittleFsHal` (feature `littlefs`, `set_hal_fs!(LittleFsHal)`). Amends §6(3),
+`LittleFsHal` (feature `littlefs`, `set_hal_fs!(LittleFsHal)`). Changes what §6(3),
 which wanted a board key: the IP stack is a family choice, not a board choice.
 `not(test)` keeps `FreeRTOS_*` out of core's tests. `not(sim)` keeps host
 sockets in the simulator, whose build also sees `has_network` from the W
@@ -123,7 +125,7 @@ The 1 ms-tick assumption behind `SO_RCVTIMEO` becomes a
 
 ### D6 — The runner is core code; the driver and the spawn stay in the family
 
-Amends §6(4) ("`wifi_task` → core over `Rtos::spawn`"). User decision 2. The
+Changes what §6(4) ("`wifi_task` → core over `Rtos::spawn`"). User decision 2. The
 spawn stays in `boot_tasks.rs` so the `task_affinity` scans keep seeing it and
 the family keeps choosing core, stack and priority. No new `TaskKind`.
 
@@ -140,7 +142,7 @@ leave affinity out: FreeRTOS+TCP defaults it to 0 and only uses it when > 0.
 `build_support/board_cfg.rs` holds `KNOWN_NETWORK_TYPES: [(type, kind)]` =
 `[("cyw43", "wifi")]` and emits `cfg(network_link_wifi)` or
 `cfg(network_link_ethernet)` next to `network_<type>`. Core's Cargo features
-become `network-wifi` / `network-ethernet` (both imply `has-network`);
+become `network-wifi` / `network-ethernet` (each turns on `has-network` too);
 `network-cyw43` goes away. Correct in sim and on device with no runtime state;
 `hasSystemFeature` and `getType()` are `cfg!()`s. A new link chip is one table
 row. `has_network = true` without `network_type` becomes a build error.
@@ -190,7 +192,7 @@ the RP trampoline deletes the task afterwards).
 `SERVICE_TIMEOUT_MS = Some(1000)`; `init` = `cyw43::init`,
 `set_poll_task(task_current())`, `wifi_set_up(STA)`, `hostwake::init()` (must
 run on this task, on core 1); `mac` = `cyw43::get_mac()`; `bring_up` = the
-SSID/PASS/AUTH `option_env!` join, moved verbatim; `service` =
+SSID/PASS/AUTH `option_env!` join, moved word for word; `service` =
 `INSTR_CYW43_POLLS += 1; cyw43::poll()`.
 
 ### 3.C C symbols
@@ -222,7 +224,7 @@ pub fn build_freertos_tcp(b: &NetStackBuild<'_>);    // no mcu_family, no cyw43 
 pub fn build_cyw43_driver(repo_root, freertos_config_dir, kernel_port_include, family_port_dir, heap_kb, overrides);
 ```
 
-`build_freertos_tcp` keeps the fork-marker assert and the source filter, always
+`build_freertos_tcp` keeps the check that the submodule is picodroid's fork and the source filter, always
 compiles `shared_dir/net_init.c` and `shared_dir/libc_str.c` (FreeRTOS+TCP's
 DNS files need the string functions, not only cyw43), and panics if a stale
 `{family_port_dir}/FreeRTOSIPConfig.h` exists. `build_cyw43_driver` must run
@@ -237,7 +239,7 @@ FreeRTOS+TCP archive.
   over `LINK_KINDS`.
 - `picodroid-core/Cargo.toml`: `network-wifi = ["has-network"]`,
   `network-ethernet = ["has-network"]`, `freertos-tcp = []`.
-- `picodroid-core/build.rs` boardless fallback: by kind.
+- `picodroid-core/build.rs` no-board build (features only, no board.toml): by kind.
 - `platforms/rp/Cargo.toml`: W boards forward `picodroid-core/network-wifi`;
   the always-on list gains `"freertos-tcp"`.
 - No new board keys.
@@ -338,6 +340,7 @@ same each time). W boards are not ratcheted; this table is the record.
 |---|---|---|---|---|
 | S0 baseline (`fedf6cb`) | 1,223,218 | 4 | 527,800 | 0 |
 | S1 cyw43 bindings leave core | 1,223,218 | 4 | 527,800 | 0 |
+| S2 link kind is a build fact | 1,223,218 | 4 | 527,800 | 0 |
 
 ## 10. Amendments
 
@@ -392,3 +395,25 @@ when `boot_tasks.rs` names `Cyw43Link`). Checks: W-board clippy clean, the
 three sim smokes, `./scripts/pre-commit` (ratchet +0), release `netdemo` on
 the Pico 2 W green (`net: up, ip 192.168.1.90`, echo round trip, `Done.`).
 Size: identical to S0.
+
+### A5 — S2: the link kind is a build fact (2026-09-03)
+
+`build_support/board_cfg.rs` now holds `KNOWN_NETWORK_TYPES: [(type, kind)]`
+= `[("cyw43", "wifi")]`, `LINK_KINDS = ["wifi", "ethernet"]` and
+`network_link_kind()`. `emit_network_cfgs` declares check-cfgs for every
+type and kind, emits `network_<type>` and `network_link_<kind>`, and now
+refuses `has_network = true` without a `network_type` (that used to pass
+silently). `assert_forwarded_features_match` loops over `LINK_KINDS`. Core's
+Cargo features are `network-wifi` / `network-ethernet` (both imply
+`has-network`); `network-cyw43` is gone, and the no-board build (features only, no board.toml) in
+`picodroid-core/build.rs` emits the kind cfg, never a chip cfg. The two W
+boards forward `picodroid-core/network-wifi`. Proven by hand on
+`testbench_rp2350w`: no `network_type` → `board.toml: has_network = true
+needs a network_type (known: ["cyw43"])`; `network_type = "w5500"` →
+`board.toml: unknown network_type 'w5500' (known: ["cyw43"])`; forwarding
+`network-ethernet` instead → `board 'testbench_rp2350w' declares network
+link kind wifi=true but picodroid-core feature 'network-wifi' is off.`
+Nothing in core gates on `network_cyw43` any more; the family still does
+(host-wake, `pio_spi`, `trng`, the cyw43 task), which is what a per-chip cfg
+is for. Checks: `./scripts/pre-commit --full` green (8m23s, ratchet +0), the three
+sim smokes, release `netdemo` on the Pico 2 W green, W image byte-identical.

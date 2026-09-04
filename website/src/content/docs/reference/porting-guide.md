@@ -320,7 +320,7 @@ kernel build, `board_cfg::emit_neutral(out, &board, Pins::Owned)`,
 `board_cfg::emit_jvm_env_vars`, and the four `papk::*` embed calls.
 `config::repo_root` and `config::is_embedded` are shared; do not derive
 them by hand. The capability `cfg`s — `has_display`, `has_touch`,
-`has_buttons`, `has_network`, `network_<type>`, `any_sensor`,
+`has_buttons`, `has_network`, `network_<type>`, `network_link_<kind>`, `any_sensor`,
 `sensor_<kind>` — are emitted from `board.toml` by `board_cfg`, not set by
 Cargo features. **Do not compile LVGL**: `picodroid-core`'s build script
 owns it, and two builders mean duplicate symbols.
@@ -433,7 +433,7 @@ board-my-board = ["chip-nrf52840", "picodroid-core/board-my-board"]
 
 Each `board-*` feature forwards a marker feature of the same name to
 `picodroid-core`, plus every capability feature the board declares
-(`picodroid-core/sensor-bme688`, `picodroid-core/network-cyw43`, …);
+(`picodroid-core/sensor-bme688`, `picodroid-core/network-wifi`, …);
 `board_cfg::assert_forwarded_features_match` fails the build otherwise. Add
 the HAL crate as an optional, target-gated dependency:
 
@@ -505,8 +505,8 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `mcu` | string | yes | `"rp2040"` or `"rp2350"` (the schema is family-agnostic). |
-| `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + driver). |
-| `network_type` | string | no | Required when `has_network = true`. Only `"cyw43"` is supported today; the build script rejects any other value, and checks it against the forwarded `network-*` feature. |
+| `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + a link driver). Needs `network_type`. |
+| `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
