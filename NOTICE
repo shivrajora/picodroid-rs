@@ -30,7 +30,7 @@ FreeRTOS MIT License can be found in third_party/FreeRTOS-Kernel/LICENSE.md.
 MIT is a permissive license and is GPL-3.0 compatible.
 
 ================================================================================
-LVGL (v9.2.2)
+LVGL (v9.5.0)
 ================================================================================
 Location:    third_party/lvgl/
 License:     MIT License
@@ -102,6 +102,18 @@ License:     Apache-2.0
 Copyright:   Google LLC
 
 Used only as a build-time Java formatting tool. Not included in firmware or
+runtime libraries. Apache-2.0 is one-way GPL-3.0 compatible (consumable).
+
+================================================================================
+ktfmt (v0.64) - build tooling only
+================================================================================
+Location:    third_party/ktfmt-0.64-with-dependencies.jar
+License:     Apache-2.0
+Copyright:   Meta Platforms, Inc. and affiliates
+
+Used only as a build-time Kotlin formatting tool (scripts/format_kotlin.sh).
+The with-dependencies JAR bundles the Kotlin compiler (JetBrains, Apache-2.0)
+and google-java-format (Google LLC, Apache-2.0). Not included in firmware or
 runtime libraries. Apache-2.0 is one-way GPL-3.0 compatible (consumable).
 
 ================================================================================
