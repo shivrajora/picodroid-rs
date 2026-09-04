@@ -144,5 +144,6 @@ app class in package `a`, `b` or `c`.
 | `v0.16.0.toml` | Schema 2: + 868 `[[member]]` rows — every method and field name the framework declares, keyed by bare name; `member-floor = 0.16.0`. Classes unchanged (238). |
 | `v0.17.0.toml` | + 125 members (868 → 993): the `java/**` contract members the runtime serves (`toString`, `hashCode`, `equals`, `hasNext`, …) and javac's `$` synthetics, previously kept; `member-floor` re-based to 0.17.0. Only `main` and `injectMembers` stay verbatim. Classes unchanged. |
 | `v0.18.0.toml` | + 1 class (238 → 239): `java/util/Objects`; + 14 members (993 → 1007): the Tier 1 fills — `getFloat` / `putFloat`, `DIRECTION_IN`, `createNewFile` / `mkdirs` / `getParent` / `getParentFile` / `getAbsolutePath`, `hash` / `isNull` / `nonNull` / `requireNonNull`, `intBitsToFloat`, `T_FLOAT`. `member-floor` stays 0.17.0. |
+| `v0.19.0.toml` | + 1 class (239 → 240): `picodroid/net/ConnectivityManager`; + 4 members (1007 → 1011): `TYPE_NONE` / `TYPE_WIFI` / `TYPE_ETHERNET` / `FEATURE_ETHERNET` (`getType` was already a target). Member floor unchanged (0.17.0). |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.
