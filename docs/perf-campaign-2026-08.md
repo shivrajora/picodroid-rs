@@ -266,7 +266,7 @@ It is reachable exactly two ways, and both are closed:
   `LV_COLOR_FORMAT_RGB565` into every image and has a `color_format_guard`
   test module enforcing it.
 - **An intermediate layer requesting it.** Every `lv_draw_layer_create` call
-  site in `vendor/lvgl` passes `ARGB8888`, `A8`, or `NATIVE`. None passes
+  site in `third_party/lvgl` passes `ARGB8888`, `A8`, or `NATIVE`. None passes
   `PREMULTIPLIED`.
 
 ```text

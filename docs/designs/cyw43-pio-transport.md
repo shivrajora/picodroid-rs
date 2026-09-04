@@ -241,7 +241,7 @@ this summary.
 
 ### The seam is small — 5 functions
 
-The driver only needs (`vendor/cyw43-driver/src/cyw43_spi.h`):
+The driver only needs (`third_party/cyw43-driver/src/cyw43_spi.h`):
 
 ```c
 int  cyw43_spi_init(cyw43_int_t *self);

@@ -84,8 +84,8 @@ Java source files must follow [Google Java Style](https://google.github.io/style
 ## Building and Flashing
 
 ```bash
-# Clone with submodules (third_party/FreeRTOS-Kernel, vendor/lvgl,
-# vendor/freertos-plus-tcp, vendor/cyw43-driver)
+# Clone with submodules (third_party/FreeRTOS-Kernel, third_party/lvgl,
+# third_party/freertos-plus-tcp, third_party/cyw43-driver)
 git clone --recurse-submodules https://github.com/shivrajora/picodroid-rs
 cd picodroid-rs
 
@@ -97,14 +97,14 @@ cd picodroid-rs
 ```
 
 :::caution[Existing checkouts: cyw43-driver moved to a fork]
-`vendor/cyw43-driver` now points at the patched picodroid fork. A checkout
+`third_party/cyw43-driver` now points at the patched picodroid fork. A checkout
 cloned before the switch must run
 
 ```bash
-git submodule sync && git submodule update --init vendor/cyw43-driver
+git submodule sync && git submodule update --init third_party/cyw43-driver
 ```
 
-or the build fails early with `vendor/cyw43-driver is the unpatched upstream`.
+or the build fails early with `third_party/cyw43-driver is the unpatched upstream`.
 :::
 
 ### Choosing a board

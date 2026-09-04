@@ -66,7 +66,7 @@ that commit).
   Android taxonomy at all today.
 - **Inverted recv semantics (the nastiest trap):** on device,
   `FreeRTOS_recv` returns **`0` on SO_RCVTIMEO expiry** and **−128 on
-  peer close** (`vendor/freertos-plus-tcp/source/FreeRTOS_Sockets.c:4155-4321`);
+  peer close** (`third_party/freertos-plus-tcp/source/FreeRTOS_Sockets.c:4155-4321`);
   on sim, `read()` returns **`Ok(0)` on peer close (EOF)** and an **error on
   timeout**. Shared code above the HAL cannot currently be correct on both.
   (`http_connection.rs:303-306` treats `Ok(0)` as EOF — right on sim, wrong

@@ -201,12 +201,12 @@ Three common causes:
 
 ## Networking
 
-### Build fails with `vendor/cyw43-driver is the unpatched upstream`
+### Build fails with `third_party/cyw43-driver is the unpatched upstream`
 
-The `vendor/cyw43-driver` submodule moved to the patched picodroid fork. A checkout cloned before the switch still points at upstream, and the network build fails early rather than producing broken WiFi firmware. Re-sync the submodule:
+The `third_party/cyw43-driver` submodule moved to the patched picodroid fork. A checkout cloned before the switch still points at upstream, and the network build fails early rather than producing broken WiFi firmware. Re-sync the submodule:
 
 ```bash
-git submodule sync && git submodule update --init vendor/cyw43-driver
+git submodule sync && git submodule update --init third_party/cyw43-driver
 ```
 
 ### RTT shows `wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining`

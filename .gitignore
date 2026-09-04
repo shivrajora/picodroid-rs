@@ -9,13 +9,10 @@ target/
 target-thumbv6m/
 target-thumbv8m/
 
-# Downloaded tooling (google-java-format JAR, etc.)
-vendor/
-# LVGL is a git submodule — must not be ignored
-!vendor/lvgl/
-!vendor/freertos-plus-tcp/
-!vendor/cyw43-driver/
-!vendor/cyw43-firmware/
+# Downloaded tooling (google-java-format and ktfmt JARs, fetched on demand by
+# scripts/format_java.sh / format_kotlin.sh). Everything else under
+# third_party/ is a submodule or vendored source and is tracked.
+third_party/*.jar
 
 # Build artifacts (compiled classes, packaged APKs)
 build/

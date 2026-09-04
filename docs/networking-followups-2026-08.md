@@ -51,7 +51,7 @@ than 1–2 s earlier during association; join→lease latency re-checked on HW
 
 ## NET-3: upstream the `bsscfg:event_msgs` fix — PR PREPARED 2026-08-15
 
-Branch `upstream-bsscfg-event-msgs` in `vendor/cyw43-driver` carries the
+Branch `upstream-bsscfg-event-msgs` in `third_party/cyw43-driver` carries the
 isolated, marker-free fix rebased onto the fork's upstream base; the full
 handover (pre-flight refresh against upstream main, submission commands,
 PR body, post-merge rebase guidance) is `docs/upstream-cyw43-bsscfg-pr.md`.
@@ -73,7 +73,7 @@ recipes. With atomic sections gone, NET-5 is now unblocked.
 
 ## Vendored FreeRTOS+TCP is now a fork (2026-08-15)
 
-`vendor/freertos-plus-tcp` points at the `picodroid` branch of
+`third_party/freertos-plus-tcp` points at the `picodroid` branch of
 `shivrajora/FreeRTOS-Plus-TCP` (V4.4.1 + `e43e446f`), mirroring the
 cyw43-driver arrangement, with the same `PICODROID`-marker build assertion
 in `build_support/network.rs`. The carried fix: an RST received in SYN-SENT

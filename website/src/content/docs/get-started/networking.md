@@ -13,7 +13,7 @@ The WiFi firmware driver is a git submodule, and it must be the **picodroid fork
 
 ```bash
 git submodule sync
-git submodule update --init vendor/cyw43-driver
+git submodule update --init third_party/cyw43-driver
 ```
 
 If the submodule is the unpatched upstream, the device build stops early with exactly this instruction — it does not build a broken image.

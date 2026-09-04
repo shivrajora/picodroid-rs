@@ -73,7 +73,7 @@ fn collect_asset_rows(papk: &Papk) -> Result<Option<Vec<AssetInfo>>, String> {
 }
 
 /// Translate an LVGL color format byte to a friendly label. Values match
-/// `vendor/lvgl/src/misc/lv_color.h` `lv_color_format_t`.
+/// `third_party/lvgl/src/misc/lv_color.h` `lv_color_format_t`.
 fn cf_label(cf: u8) -> &'static str {
     match cf {
         0x0F => "RGB888",

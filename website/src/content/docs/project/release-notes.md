@@ -7,6 +7,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**All third-party code lives under `third_party/`**
+
+- The `vendor/` tree is gone. The LVGL, FreeRTOS+TCP and cyw43-driver submodules now sit beside FreeRTOS-Kernel and the littlefs fork under `third_party/`, and `scripts/format_java.sh` / `format_kotlin.sh` download their JARs there (`third_party/*.jar` is gitignored). The submodule names changed with the paths, so **existing checkouts must run** `git submodule sync && git submodule update --init` after pulling, then delete the stale `vendor/` directory. The build-time fork guards now say `third_party/cyw43-driver is the unpatched upstream` (and the FreeRTOS+TCP equivalent); the header drift guards, `build_support`, `NOTICE` and the docs follow the move.
+
 **Stack traces name the source line — on device too (roadmap T2.4)**
 
 - **Uncaught-exception frames now read `at pkg.Class.method(Class.java:42)`**, Android's `StackTraceElement` spelling, in the simulator and in debug-profile device firmware (`scripts/flash.sh`'s default). Before, only the simulator resolved a line — as `(:42)` — and a device printed the bytecode offset, `(pc=9)`, because the firmware's `LineNumberTable` parser was gated on `debug_assertions`, which every device build turns off. The gate is now a `line-numbers` cargo feature; it is on for `sim.sh` and debug-profile `flash.sh` / `build.sh`, and off for `--release` (HIL, CI, the size ratchet), which keeps the ~15 KB of SDK line tables out of release flash. `PICODROID_LINE_NUMBERS=0|1` overrides. A build with the feature also keeps the tables in its PAPK (`build-apk.sh --strip-debug --keep-lines`); mixing a with-lines PAPK and a release firmware, or the reverse, is harmless.

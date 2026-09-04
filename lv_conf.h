@@ -78,7 +78,7 @@
      * for. It can only be hit two ways, and both are closed: an asset in that
      * format (papk-pack bakes LV_COLOR_FORMAT_RGB565 into every image, with a
      * guard test in tools/papk-pack), or an intermediate layer requesting it
-     * (every lv_draw_layer_create call site in vendor/lvgl passes ARGB8888,
+     * (every lv_draw_layer_create call site in third_party/lvgl passes ARGB8888,
      * A8 or NATIVE -- none passes PREMULTIPLIED). Worth 11,292 bytes across
      * blend_image_to_ and blend_color_to_. */
     #define LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED 0

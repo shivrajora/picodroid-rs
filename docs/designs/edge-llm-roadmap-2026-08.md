@@ -357,7 +357,7 @@ Pin every seam before writing platform code. Must settle, with evidence:
   `[touch] driver = "ft6206"` (I2C cap touch; `set_calibration` is a no-op)
   with parser/codegen in `build_support/board_cfg.rs` + tests.
 - **Networking**: on-board Ethernet (LAN8742 RMII) via
-  `vendor/freertos-plus-tcp/source/portable/NetworkInterface/STM32` (present)
+  `third_party/freertos-plus-tcp/source/portable/NetworkInterface/STM32` (present)
   — no WiFi credentials, no cyw43. The `FreeRTOS_*` extern block in
   `platforms/rp/src/hal/rp/net.rs` is family-neutral; move it into
   `picodroid-core` per `docs/designs/family-neutral-residue.md` ("networking
@@ -467,7 +467,7 @@ table. Soak: 1 h `aichat` + nav under `--mem-diag` on both boards.
 - Board config parsing/codegen: `build_support/config.rs`,
   `build_support/board_cfg.rs` (unknown sections silently dropped — add tests).
 - Networking build: `build_support/network.rs`; TCP stack
-  `vendor/freertos-plus-tcp` (shivrajora fork — re-carry the RST patch on any
+  `third_party/freertos-plus-tcp` (shivrajora fork — re-carry the RST patch on any
   rebase, `project_freertos_tcp_fork_rst_fix`); RP socket bindings
   `platforms/rp/src/hal/rp/net.rs`; Java-facing layer `picodroid-core/src/net/`.
 - pdb: `picodroid-core/src/pdb/mod.rs::PdbTransport`; RP impl

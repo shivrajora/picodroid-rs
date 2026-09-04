@@ -145,7 +145,7 @@ The contract is `picodroid_core::hal`'s traits — `HalDisplay`, `HalGpio`, `Hal
 - `freertos_vector_aliases` — semicolon-separated `CMSIS=portasm` linker aliases
 - `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
 
-[build_support/network.rs](https://github.com/shivrajora/picodroid-rs/blob/main/build_support/network.rs) takes `mcu_family` and reads `platforms/<family>/src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP (it also guards that `vendor/cyw43-driver` is the patched picodroid fork, failing the build early with a submodule-sync hint otherwise); a future family bringing its own vendor IP stack (e.g. lwIP) should add a parallel network module rather than extending this one.
+[build_support/network.rs](https://github.com/shivrajora/picodroid-rs/blob/main/build_support/network.rs) takes `mcu_family` and reads `platforms/<family>/src/hal/<family>/port` for the network glue. Today network is CYW43+FreeRTOS+TCP and only ships on RP (it also guards that `third_party/cyw43-driver` is the patched picodroid fork, failing the build early with a submodule-sync hint otherwise); a future family bringing its own vendor IP stack (e.g. lwIP) should add a parallel network module rather than extending this one.
 
 ### Naming convention
 

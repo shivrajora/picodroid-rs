@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
-VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
+THIRD_PARTY_DIR="$(cd "$(dirname "$0")/.." && pwd)/third_party"
 JAR_VERSION="1.36.1"
 JAR_NAME="google-java-format-${JAR_VERSION}-all-deps.jar"
-JAR_PATH="${VENDOR_DIR}/${JAR_NAME}"
+JAR_PATH="${THIRD_PARTY_DIR}/${JAR_NAME}"
 JAR_URL="https://github.com/google/google-java-format/releases/download/v${JAR_VERSION}/${JAR_NAME}"
 # Update this when bumping JAR_VERSION: shasum -a 256 <downloaded-jar>
 JAR_SHA256="25b400f003089d23cc5320cdaf1a16cabee19b8aa3434d0ff021b3d9f42154b4"
@@ -15,7 +15,7 @@ verify_jar() {
 
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "==> Downloading google-java-format ${JAR_VERSION}..."
-  mkdir -p "$VENDOR_DIR"
+  mkdir -p "$THIRD_PARTY_DIR"
   curl -fsSL "$JAR_URL" -o "$JAR_PATH"
   echo "==> Downloaded to ${JAR_PATH}"
 fi

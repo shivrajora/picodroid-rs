@@ -7,7 +7,7 @@ Most builds work without touching anything below — these files are here when y
 
 ## `lv_conf.h`
 
-LVGL is vendored in `vendor/lvgl/` and configured via the repo-root [`lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/lv_conf.h). It overrides selected upstream defaults:
+LVGL is vendored in `third_party/lvgl/` and configured via the repo-root [`lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/lv_conf.h). It overrides selected upstream defaults:
 
 | Symbol | Picodroid value | Why |
 |---|---|---|
@@ -16,7 +16,7 @@ LVGL is vendored in `vendor/lvgl/` and configured via the repo-root [`lv_conf.h`
 | `LV_USE_LODEPNG` / `LV_USE_LIBPNG` | `0` | Both PNG decoders disabled — PNG is decoded at PAPK-pack time, never on-device. See [Bundled image assets](/guides/assets/). |
 | `LV_FONT_MONTSERRAT_*` | tuned per-board | Only the sizes the framework actually renders are pulled in. |
 
-Bumping LVGL: vendor at `vendor/lvgl`, then re-vet `lv_conf.h` against `vendor/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
+Bumping LVGL: vendor at `third_party/lvgl`, then re-vet `lv_conf.h` against `third_party/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
 
 ## `Embed.toml`
 

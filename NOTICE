@@ -32,18 +32,18 @@ MIT is a permissive license and is GPL-3.0 compatible.
 ================================================================================
 LVGL (v9.2.2)
 ================================================================================
-Location:    vendor/lvgl/
+Location:    third_party/lvgl/
 License:     MIT License
 Copyright:   2021 LVGL Kft
 
 This project vendors LVGL (Light and Versatile Graphics Library) under the
 MIT License. A copy of the LVGL MIT License can be found in
-vendor/lvgl/LICENCE.txt. MIT is GPL-3.0 compatible.
+third_party/lvgl/LICENCE.txt. MIT is GPL-3.0 compatible.
 
 ================================================================================
 LZ4 Library
 ================================================================================
-Location:    vendor/lvgl/src/libs/lz4/
+Location:    third_party/lvgl/src/libs/lz4/
 License:     BSD-2-Clause
 Copyright:   2011-2020, Yann Collet
 
@@ -95,9 +95,9 @@ Safe Rust wrapper around `littlefs-rust-core`. Provides the Filesystem / File
 / Storage types used by src/fs/. (Same BSD-3-Clause terms as above apply.)
 
 ================================================================================
-google-java-format (v1.35.0) - build tooling only
+google-java-format (v1.36.1) - build tooling only
 ================================================================================
-Location:    vendor/google-java-format-1.35.0-all-deps.jar
+Location:    third_party/google-java-format-1.36.1-all-deps.jar
 License:     Apache-2.0
 Copyright:   Google LLC
 
@@ -164,8 +164,8 @@ compatible.
 ================================================================================
 cyw43-driver
 ================================================================================
-Location:    vendor/cyw43-driver/
-License:     dual: vendor/cyw43-driver/LICENSE OR vendor/cyw43-driver/LICENSE.RP
+Location:    third_party/cyw43-driver/
+License:     dual: third_party/cyw43-driver/LICENSE OR third_party/cyw43-driver/LICENSE.RP
 Copyright:   2019-2022 George Robotics Pty Ltd
 
 Used here under the alternate LICENSE.RP terms (the "Raspberry Pi silicon"

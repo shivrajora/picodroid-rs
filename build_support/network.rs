@@ -42,7 +42,7 @@ pub fn net_config_overrides(props: &HashMap<String, String>) -> Vec<(String, Str
     defines
 }
 
-/// Compile the CYW43 WiFi driver (C sources from vendor/cyw43-driver).
+/// Compile the CYW43 WiFi driver (C sources from third_party/cyw43-driver).
 ///
 /// `repo_root` is the absolute path to the repository root.
 pub fn build_cyw43_driver(
@@ -52,17 +52,17 @@ pub fn build_cyw43_driver(
     heap_kb: u32,
     net_overrides: &[(String, String)],
 ) {
-    let cyw43_src = repo_root.join("vendor/cyw43-driver/src");
+    let cyw43_src = repo_root.join("third_party/cyw43-driver/src");
     if !cyw43_src.exists() {
         println!(
-            "cargo:warning=CYW43 driver submodule not found at vendor/cyw43-driver — \
-             run: git submodule update --init vendor/cyw43-driver"
+            "cargo:warning=CYW43 driver submodule not found at third_party/cyw43-driver — \
+             run: git submodule update --init third_party/cyw43-driver"
         );
         return;
     }
 
     let port_dir = format!("src/hal/{mcu_family}/port");
-    let cyw43_dir = repo_root.join("vendor/cyw43-driver");
+    let cyw43_dir = repo_root.join("third_party/cyw43-driver");
     let freertos_include = repo_root.join("third_party/FreeRTOS-Kernel/include");
 
     let mut build = cc::Build::new();
@@ -107,7 +107,7 @@ pub fn build_cyw43_driver(
         let text = std::fs::read_to_string(&ll).expect("read vendored cyw43_ll.c");
         assert!(
             text.contains("PICODROID"),
-            "vendor/cyw43-driver is the unpatched upstream — run `git submodule sync && git submodule update --init vendor/cyw43-driver` to fetch the picodroid fork"
+            "third_party/cyw43-driver is the unpatched upstream — run `git submodule sync && git submodule update --init third_party/cyw43-driver` to fetch the picodroid fork"
         );
     }
 
@@ -131,7 +131,7 @@ pub fn build_cyw43_driver(
     println!("cargo:rerun-if-changed={port_dir}/cyw43_configport.h");
 }
 
-/// Compile FreeRTOS+TCP (C sources from vendor/freertos-plus-tcp).
+/// Compile FreeRTOS+TCP (C sources from third_party/freertos-plus-tcp).
 ///
 /// `repo_root` is the absolute path to the repository root.
 pub fn build_freertos_tcp(
@@ -141,11 +141,11 @@ pub fn build_freertos_tcp(
     heap_kb: u32,
     net_overrides: &[(String, String)],
 ) {
-    let tcp_src = repo_root.join("vendor/freertos-plus-tcp/source");
+    let tcp_src = repo_root.join("third_party/freertos-plus-tcp/source");
     if !tcp_src.exists() {
         println!(
-            "cargo:warning=FreeRTOS+TCP submodule not found at vendor/freertos-plus-tcp — \
-             run: git submodule update --init vendor/freertos-plus-tcp"
+            "cargo:warning=FreeRTOS+TCP submodule not found at third_party/freertos-plus-tcp — \
+             run: git submodule update --init third_party/freertos-plus-tcp"
         );
         return;
     }
@@ -158,12 +158,12 @@ pub fn build_freertos_tcp(
         let text = std::fs::read_to_string(&tcp_ip).expect("read vendored FreeRTOS_TCP_IP.c");
         assert!(
             text.contains("PICODROID"),
-            "vendor/freertos-plus-tcp is the unpatched upstream — run `git submodule sync && git submodule update --init vendor/freertos-plus-tcp` to fetch the picodroid fork"
+            "third_party/freertos-plus-tcp is the unpatched upstream — run `git submodule sync && git submodule update --init third_party/freertos-plus-tcp` to fetch the picodroid fork"
         );
     }
 
     let port_dir = format!("src/hal/{mcu_family}/port");
-    let cyw43_src = repo_root.join("vendor/cyw43-driver/src");
+    let cyw43_src = repo_root.join("third_party/cyw43-driver/src");
     let freertos_include = repo_root.join("third_party/FreeRTOS-Kernel/include");
 
     let all_c_files = collect_files(&tcp_src, "c");
