@@ -99,6 +99,9 @@ pub fn dispatch(
         (c::picodroid_net_NetworkInfo, m::getIpAddress) => {
             Some(crate::net::network_info::get_ip_address_native())
         }
+        (c::picodroid_net_NetworkInfo, m::getType) => {
+            Some(crate::net::network_info::get_type_native())
+        }
 
         // ── HttpURLConnection ───────────────────────────────────────────
         (c::picodroid_net_HttpURLConnection, m::nativeConnect) => Some(

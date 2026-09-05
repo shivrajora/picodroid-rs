@@ -106,7 +106,7 @@ traits are the whole contract.
 | `HalPwm` | 2 | `init(pin)`, `apply(pin, freq_hz, duty_pct, enabled)`. |
 | `HalSpi` | 4 + 2 defaulted | `init`, `reconfigure`, `write_raw`, `transfer_raw`. The Java-array `transfer`/`write` are defaulted. |
 | `HalUart` | 4 | `init`, `write_byte`, `read_byte` (-1 when empty), `reconfigure(baud, data, parity, stop, flow)`. |
-| `HalNet` | 14 | Only on a board with `has_network = true`; registered with `set_hal_net!`, not `set_hal!`. See [Networking](#networking-is-family-owned-today). |
+| `HalNet` | 14 | Only on a board with `has_network = true`; registered with `set_hal_net!`, not `set_hal!`. See [The network](#the-network). |
 | `HalFs` | 10 | Registered with `set_hal_fs!`. Usually `set_hal_fs!(picodroid_core::fs::LittleFsHal)` — see [The filesystem](#4-the-filesystem). |
 
 `set_hal!` takes the nine bus and display traits at once; there are also
@@ -304,10 +304,15 @@ checklist. `platforms/rp/src/boot_tasks.rs` is the reference:
 2. Loop: clear the stop flag; `run_app`; abort any child task delays;
    `picodroid_core::threads::wake_all_parked()`; wait until the count of
    live child tasks reaches zero.
-3. If the bridge asked for a flash park, acknowledge and block; when
-   released, go round again. Otherwise block until the next install.
+3. Block until the bridge asks for a flash park (an install always opens
+   with one), acknowledge, and block until it releases you or resets the
+   chip; when released, go round again.
 4. Never return from the task — its stack is the app's.
 5. Do not put a stop check in your `HalClock::sleep`; shared code owns that.
+6. Every one of those waits must re-check its condition after waking. The
+   task collects notifications it did not ask for — `fs::with_fs` alone
+   leaves one latched per call when the worker outranks the JVM — and a
+   bare wait returns at once (the `bootcount` re-run of 2026-09).
 
 ### `build.rs`
 
@@ -320,7 +325,7 @@ kernel build, `board_cfg::emit_neutral(out, &board, Pins::Owned)`,
 `board_cfg::emit_jvm_env_vars`, and the four `papk::*` embed calls.
 `config::repo_root` and `config::is_embedded` are shared; do not derive
 them by hand. The capability `cfg`s — `has_display`, `has_touch`,
-`has_buttons`, `has_network`, `network_<type>`, `any_sensor`,
+`has_buttons`, `has_network`, `network_<type>`, `network_link_<kind>`, `any_sensor`,
 `sensor_<kind>` — are emitted from `board.toml` by `board_cfg`, not set by
 Cargo features. **Do not compile LVGL**: `picodroid-core`'s build script
 owns it, and two builders mean duplicate symbols.
@@ -344,37 +349,59 @@ and `panic-probe`.
 - If you are multi-core, write your own placement discipline; the RP
   family's `task_affinity.rs` and its source scan are the reference.
 
-## Networking is family-owned today
+## The network
 
-Only needed when a board sets `has_network = true`. `HalNet` is the trait,
-gated by `cfg(has_network)` and registered with `set_hal_net!`:
+Only needed when a board sets `has_network = true`. The socket contract is
+the `HalNet` trait (14 functions, registered with `set_hal_net!`). If your
+family runs FreeRTOS and FreeRTOS+TCP, you do not implement it: core does,
+and you write only the link driver for your chip. Design:
+`docs/designs/network-seam-2026-09.md`.
 
-```rust
-use core::ffi::c_void;
-use picodroid_core::hal::NetError;
+**What core gives you** (feature `freertos-tcp`):
 
-fn tcp_socket() -> Result<*mut c_void, NetError>;
-fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError>;
-fn tcp_send(sock: *mut c_void, data: &[u8]) -> Result<usize, NetError>;
-fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError>;
-fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError>;
-fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError>;
-fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError>;
-fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError>;
-fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError>;
-fn close(sock: *mut c_void);
-fn set_recv_timeout(sock: *mut c_void, ms: u32);
-fn is_network_up() -> bool;
-fn get_ip_address() -> u32;
-fn dns_resolve(hostname: &str) -> Result<u32, NetError>;
-```
+- `FreeRtosTcpNet` — the `HalNet` implementation over FreeRTOS+TCP sockets.
+  Register it: `picodroid_core::set_hal_net!(picodroid_core::hal::freertos_tcp::FreeRtosTcpNet);`
+- `run_link_task` — the bring-up every link needs, in order: driver init,
+  MAC, IP stack start, bring-up, then the service loop.
+- `picodroid-core/net-freertos-tcp/` — the shared C: `net_init.c` (stack
+  start and the five FreeRTOS+TCP application hooks), `libc_str.c`, and the
+  shared `FreeRTOSIPConfig.h` policy. Your `build.rs` compiles it, because
+  it must see your `FreeRTOSConfig.h`.
+- `picodroid_net_ip_event` — logs the up/down transitions.
 
-Sockets are opaque handles owned by your IP stack; shared code only passes
-them back. Addresses are IPv4 packed into a `u32`. Everything below the
-socket API — the IP stack, the WiFi driver, its task, its C port — is
-family code today: the RP family's `hal/rp/net.rs` (FreeRTOS+TCP),
-`wifi_task.rs` and `port/net/` are the reference, and they will move into a
-shared home when a second networking family exists.
+**What you write:**
+
+- `NetworkInterface_<X>.c`, against FreeRTOS+TCP's own `NetworkInterface_t`
+  (`pfInitialise`, `pfOutput`, `pfGetPhyLinkStatus`, an RX path that posts
+  `eNetworkRxEvent`). It must define
+  `NetworkInterface_t *pxPicodroidNetLink_FillInterfaceDescriptor(BaseType_t, NetworkInterface_t *)`,
+  the one name the shared glue binds to. A vendored driver with its own
+  `pxXXX_FillInterfaceDescriptor` gets a five-line forwarder.
+- A type implementing `NetLink` for the same chip: `KIND` (`LinkKind::Wifi`
+  or `Ethernet`, for logs), `NAME`, `SERVICE_TIMEOUT_MS` (`None` when the
+  vendored driver runs its own task), `init`, `mac`, `bring_up`, `service`.
+- `src/hal/<family>/port/FreeRTOSIPConfig_family.h`: your IP-task affinity
+  (required on a multi-core family), optionally priority and stack size.
+- `uint32_t picodroid_port_entropy32(void)`, in Rust with `#[no_mangle]`:
+  one random word per call, never failing (hardware RNG when you have one,
+  a timer-mixed fallback when you do not).
+- The spawn, in your boot code, on a task with your own core and stack:
+  `run_link_task(MyLink)`.
+- In `build.rs`: `build_support::network::build_freertos_tcp(&NetStackBuild { kernel_port_include, family_port_dir, link_sources: [your NetworkInterface_<X>.c, …], … })`.
+  For an on-chip MAC add the vendored `portable/NetworkInterface/<Vendor>/NetworkInterface.c`,
+  `Common/phyHandling.c` and `portable/NetworkInterface/include` there.
+- In `board.toml`: `has_network = true` and `network_type = "<x>"`, with a
+  row `("<x>", "wifi" | "ethernet")` in `build_support::board_cfg::KNOWN_NETWORK_TYPES`
+  and a forward of `picodroid-core/network-<kind>` in your board feature.
+
+Sockets are handles core never looks inside; addresses are IPv4 packed into
+a `u32` (first octet in the top byte). Java learns the link kind from the
+`network_link_<kind>` cfg: `PackageManager.FEATURE_WIFI` / `FEATURE_ETHERNET`
+and `NetworkInfo.getType()`.
+
+**Reference:** the RP family's cyw43 WiFi driver — `hal/rp/cyw43/`
+(bindings and `Cyw43Link`), `hal/rp/port/net/` (`NetworkInterface_CYW43.c`,
+`cyw43_port.c`), `hal/rp/entropy.rs`, and the spawn in `boot_tasks.rs`.
 
 ## HAL dispatch
 
@@ -433,7 +460,7 @@ board-my-board = ["chip-nrf52840", "picodroid-core/board-my-board"]
 
 Each `board-*` feature forwards a marker feature of the same name to
 `picodroid-core`, plus every capability feature the board declares
-(`picodroid-core/sensor-bme688`, `picodroid-core/network-cyw43`, …);
+(`picodroid-core/sensor-bme688`, `picodroid-core/network-wifi`, …);
 `board_cfg::assert_forwarded_features_match` fails the build otherwise. Add
 the HAL crate as an optional, target-gated dependency:
 
@@ -505,8 +532,8 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `mcu` | string | yes | `"rp2040"` or `"rp2350"` (the schema is family-agnostic). |
-| `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + driver). |
-| `network_type` | string | no | Required when `has_network = true`. Only `"cyw43"` is supported today; the build script rejects any other value, and checks it against the forwarded `network-*` feature. |
+| `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + a link driver). Needs `network_type`. |
+| `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |

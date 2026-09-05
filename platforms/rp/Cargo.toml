@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "picodroid"
-version = "0.18.0"
+version = "0.19.0"
 license = "GPL-3.0-only"
 
 [features]
@@ -32,15 +32,16 @@ line-numbers = ["pico-jvm/line-numbers", "picodroid-core/line-numbers"]
 board-testbench-rp2040 = ["chip-rp2040", "picodroid-core/board-testbench-rp2040"]
 board-testbench-rp2350 = ["chip-rp2350", "picodroid-core/board-testbench-rp2350"]
 board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
-board-pico-enviro-mon-w = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon-w", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559", "picodroid-core/network-cyw43"]
-board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350w", "picodroid-core/network-cyw43"]
+board-pico-enviro-mon-w = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon-w", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559", "picodroid-core/network-wifi"]
+board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350w", "picodroid-core/network-wifi"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
 # MCU family grouping (internal — forwarded to picodroid-core so both crates
 # see the same family feature without requiring duplicate cfg flags).
 family-rp = ["picodroid-core/family-rp"]
-# Capability cfgs (has_display / has_touch / has_network / network_<type>) are emitted
+# Capability cfgs (has_display / has_touch / has_network / network_<type> /
+# network_link_<kind>) are emitted
 # by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
 # Staged generational handle table on 32-bit targets (audit P1-9): replaces
 # the zero-cost-cast nativeHandle path (which dangles after widget delete —
@@ -55,7 +56,7 @@ sim = ["picodroid-core/sim", "dep:freertos-rust"]
 [dependencies]
 # No `compat` / `pdb-protocol` here: this crate names neither. Both still
 # reach the binary through picodroid-core, which does use them.
-picodroid-core = { path = "../../picodroid-core", features = ["littlefs"] }
+picodroid-core = { path = "../../picodroid-core", features = ["littlefs", "freertos-tcp"] }
 pico-jvm = { path = "../../jvm" }
 papk-format = { path = "../../papk-format" }
 embedded-hal = { version = "1.0.0" }

@@ -25,14 +25,17 @@ pub mod system_clock;
 pub mod touch;
 pub mod uart;
 
-#[cfg(has_network)]
-pub mod net;
+// The CYW43439 link driver: bindings plus `cyw43::link::Cyw43Link`, which
+// core's `run_link_task` drives. Family code: the chip is a link driver,
+// not a framework concern (docs/designs/network-seam-2026-09.md D6).
+#[cfg(network_cyw43)]
+pub mod cyw43;
 #[cfg(network_cyw43)]
 pub mod pio_spi;
-// TRNG entropy for the network stack (NET-6). RP2350-only hardware; the
-// consumer (net_init.c's xApplicationGetRandomNumber) only exists in
-// network builds, and the only network board is RP2350-based.
-#[cfg(all(network_cyw43, feature = "chip-rp2350"))]
+// The family's entropy seam for the shared FreeRTOS+TCP glue
+// (picodroid_port_entropy32), and the RP2350 TRNG behind it (NET-6). Both
+// exist only in network builds.
+#[cfg(has_network)]
+pub mod entropy;
+#[cfg(all(has_network, feature = "chip-rp2350"))]
 pub mod trng;
-#[cfg(network_cyw43)]
-pub mod wifi_task;

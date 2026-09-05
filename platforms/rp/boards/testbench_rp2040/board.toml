@@ -17,7 +17,7 @@ mcu = "rp2040"
 # classes plus the native node pool are more flash than this region can
 # spare, and the build derives their exclusion from the missing key — do
 # not list them below. JSON apps need a 2350-class board (examples/jsondemo).
-framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch"
+framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch;picodroid/net/ConnectivityManager"
 
 [display]
 driver = "st7789"

@@ -11,6 +11,9 @@
 //! ever acquired a caller, so it was removed. Re-add a constant when the
 //! call that needs it arrives, rather than restoring the set wholesale.
 
+/// The link driver built on these bindings (`Cyw43Link: NetLink`).
+pub mod link;
+
 /// CYW43 authentication modes (matches CYW43_AUTH_* in cyw43_ll.h).
 pub mod auth {
     pub const OPEN: u32 = 0;

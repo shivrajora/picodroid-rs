@@ -75,6 +75,10 @@ mod hal_rp_pwm_math_tests;
 #[cfg(test)]
 #[path = "hal/rp/spi/xfer.rs"]
 mod hal_rp_spi_xfer_tests;
+// Text scans over the cyw43 port's C config (no hardware deps).
+#[cfg(test)]
+#[path = "hal/rp/cyw43/config_guard.rs"]
+mod hal_rp_cyw43_config_guard_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.
 

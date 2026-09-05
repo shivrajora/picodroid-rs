@@ -55,7 +55,7 @@ the durable value of this investigation.
 - **Standing instrumentation** (silent, gdb-read only — never log the hot
   path): `instr_tx_ok/tx_fail`, `instr_rx_ok/…nobuf/…queue/…noiface` in
   `NetworkInterface_CYW43.c`; `instr_hostwake_reads/high` in `cyw43_port.c`;
-  `INSTR_CYW43_POLLS` in `wifi_task.rs` (~10/s baseline from the 100 ms
+  `INSTR_CYW43_POLLS` in `hal/rp/cyw43/link.rs` (was `wifi_task.rs`) (~10/s baseline from the 100 ms
   fallback). These are the first read on any future core-1 RX regression.
 
 ## How we got here

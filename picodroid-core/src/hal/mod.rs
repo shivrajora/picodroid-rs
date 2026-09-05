@@ -31,11 +31,19 @@ pub mod touch_override;
 #[cfg(any(test, feature = "sim"))]
 pub mod sim;
 
+// The FreeRTOS+TCP socket layer a device family registers instead of writing
+// its own (`set_hal_net!(FreeRtosTcpNet)`). Feature-gated like `fs`
+// (`littlefs`): a family on another IP stack links none of it. Never in the
+// simulator (host sockets) or in core's own tests (no kernel to link).
+#[cfg(all(feature = "freertos-tcp", has_network, not(any(test, feature = "sim"))))]
+pub mod freertos_tcp;
+
 mod facade;
 mod macros;
 mod traits;
 
 pub use facade::*;
 pub use traits::{
-    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch, HalUart,
+    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch,
+    HalUart, NetLink,
 };

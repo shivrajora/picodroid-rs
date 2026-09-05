@@ -4,9 +4,6 @@
 pub mod st7789;
 pub mod xpt2046;
 
-#[cfg(network_cyw43)]
-pub mod cyw43;
-
 #[cfg(any(sensor_bme688, test))]
 pub mod bme688;
 

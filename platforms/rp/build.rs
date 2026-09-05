@@ -80,29 +80,69 @@ fn main() {
                 &repo_root,
             );
 
-            if b.cfg.props.get("network_type").map(String::as_str) == Some("cyw43") {
+            // The network: FreeRTOS+TCP plus the shared glue from
+            // picodroid-core, plus the link driver this board's
+            // `network_type` names (docs/designs/network-seam-2026-09.md).
+            if b.cfg.props.get("has_network").map(String::as_str) == Some("true") {
+                // board_cfg::emit_network_cfgs already refused a missing or
+                // unknown network_type.
+                let network_type = b.cfg.props.get("network_type").cloned().unwrap_or_default();
                 let heap_kb = board_cfg::mcu_heap_kb(&mcu, &mcu_toml_path);
                 let net_overrides = network::net_config_overrides(&b.cfg.props);
-                network::build_cyw43_driver(
-                    &mcu_family,
-                    &freertos_config_dir,
-                    &repo_root,
-                    heap_kb,
-                    &net_overrides,
-                );
-                network::build_freertos_tcp(
-                    &mcu_family,
-                    &freertos_config_dir,
-                    &repo_root,
-                    heap_kb,
-                    &net_overrides,
-                );
-                // wifi_task.rs bakes these in via option_env!; without the
-                // rerun hints a credential/auth change is a cargo no-op and
-                // the old values stay in the firmware.
-                println!("cargo:rerun-if-env-changed=PICODROID_WIFI_SSID");
-                println!("cargo:rerun-if-env-changed=PICODROID_WIFI_PASS");
-                println!("cargo:rerun-if-env-changed=PICODROID_WIFI_AUTH");
+                let freertos_port = mcu
+                    .get("freertos_port")
+                    .unwrap_or_else(|| panic!("MCU toml missing 'freertos_port': {mcu_toml_path}"));
+                let kernel_port_include = repo_root
+                    .join("third_party/FreeRTOS-Kernel/portable")
+                    .join(freertos_port);
+                let family_port_dir = format!("src/hal/{mcu_family}/port");
+                match network_type.as_str() {
+                    "cyw43" => {
+                        // Driver first: its one strcmp resolves from the
+                        // freertos_tcp archive's libc_str.c.
+                        network::build_cyw43_driver(
+                            &repo_root,
+                            &freertos_config_dir,
+                            &kernel_port_include,
+                            &family_port_dir,
+                            heap_kb,
+                            &net_overrides,
+                        );
+                        let link_sources = [PathBuf::from(format!(
+                            "{family_port_dir}/net/NetworkInterface_CYW43.c"
+                        ))];
+                        let extra_includes = [repo_root.join("third_party/cyw43-driver/src")];
+                        let extra_defines = [
+                            (
+                                "CYW43_CONFIG_FILE".to_string(),
+                                Some("\"cyw43_configport.h\"".to_string()),
+                            ),
+                            ("CYW43_USE_SPI".to_string(), Some("1".to_string())),
+                            ("CYW43_LWIP".to_string(), Some("0".to_string())),
+                        ];
+                        network::build_freertos_tcp(&network::NetStackBuild {
+                            repo_root: &repo_root,
+                            freertos_config_dir: &freertos_config_dir,
+                            kernel_port_include: &kernel_port_include,
+                            family_port_dir: &family_port_dir,
+                            heap_kb,
+                            overrides: &net_overrides,
+                            link_sources: &link_sources,
+                            extra_includes: &extra_includes,
+                            extra_defines: &extra_defines,
+                        });
+                        // hal/rp/cyw43/link.rs bakes these in via option_env!;
+                        // without the rerun hints a credential/auth change is
+                        // a cargo no-op and the old values stay in the firmware.
+                        println!("cargo:rerun-if-env-changed=PICODROID_WIFI_SSID");
+                        println!("cargo:rerun-if-env-changed=PICODROID_WIFI_PASS");
+                        println!("cargo:rerun-if-env-changed=PICODROID_WIFI_AUTH");
+                    }
+                    other => panic!(
+                        "platforms/rp/build.rs: no link driver for network_type '{other}' \
+                         (add a match arm and a NetworkInterface_<X>.c)"
+                    ),
+                }
             }
         }
     }

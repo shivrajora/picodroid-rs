@@ -122,8 +122,13 @@ fn emit_capability_cfgs_from_features() {
         println!("cargo:rustc-cfg=sensor_ltr559");
         println!("cargo:rustc-cfg=any_sensor");
     }
-    if std::env::var("CARGO_FEATURE_NETWORK_CYW43").is_ok() {
-        println!("cargo:rustc-cfg=network_cyw43");
+    // The link kind, not the chip: core never gates on a `network_<type>`.
+    if std::env::var("CARGO_FEATURE_NETWORK_WIFI").is_ok() {
+        println!("cargo:rustc-cfg=network_link_wifi");
+        println!("cargo:rustc-cfg=has_network");
+    }
+    if std::env::var("CARGO_FEATURE_NETWORK_ETHERNET").is_ok() {
+        println!("cargo:rustc-cfg=network_link_ethernet");
         println!("cargo:rustc-cfg=has_network");
     }
 }

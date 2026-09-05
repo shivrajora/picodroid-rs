@@ -29,6 +29,18 @@
 //! whole safety argument for the raw pointer in [`Work`], and it is why
 //! `submit` must not gain a timeout: a caller that gave up early would leave
 //! the worker writing into a dead frame.
+//!
+//! # The notification may outlive the call
+//!
+//! `submit` waits on the caller's task notification, but only while `done` is
+//! still clear. When the worker outranks the caller (the fs worker does) it
+//! runs the closure inside the caller's `queue_send` and has already notified
+//! by the time `submit` looks at `done` — so `submit` returns with that
+//! notification latched on the caller's task. That is within the seam's
+//! contract (a notification is a wakeup, and every waiter re-checks its own
+//! condition), but it means a *bare* `task_wait_notification` on a task that
+//! has called `submit` returns at once. The JVM supervisor loop learned this
+//! the hard way (`platforms/rp/src/boot_tasks.rs`).
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;

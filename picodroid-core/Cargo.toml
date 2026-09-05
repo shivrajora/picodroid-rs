@@ -27,6 +27,10 @@ sim        = ["dep:freertos-rust"]
 # A family that opts in supplies an `fs::FsBackingStore` and registers
 # `fs::LittleFsHal` (docs/designs/family-neutral-residue.md D2).
 littlefs   = ["dep:littlefs-rust"]
+# The FreeRTOS+TCP socket layer and link runner (hal/freertos_tcp). A family
+# on FreeRTOS+TCP turns it on and registers `FreeRtosTcpNet`; a family on
+# another IP stack implements HalNet itself and links none of this.
+freertos-tcp = []
 # Board selection — forwarded by the binary crate's board-* features so this
 # crate's build.rs can resolve the same board.toml and generate the neutral
 # config (JVM sizing, sensor/button tables, display dims) from it.
@@ -38,12 +42,15 @@ board-pico-enviro-mon   = []
 board-pico-enviro-mon-w = []
 # Board capability features — activated by the binary crate's board features and
 # forwarded here so picodroid-core can emit the matching rustc-cfgs.
-# Each new board capability (sensor, network type, etc.) needs a feature here
-# so the driver code in picodroid-core compiles correctly for that board.
+# Each new board capability (sensor, network link kind, etc.) needs a feature
+# here so the driver code in picodroid-core compiles correctly for that board.
 sensor-bme688   = ["any-sensor"]
 sensor-ltr559   = ["any-sensor"]
 any-sensor      = []
-network-cyw43   = ["has-network"]
+# The board's network link kind — build_support::board_cfg::KNOWN_NETWORK_TYPES
+# maps a board.toml `network_type` to one of these. Both imply has-network.
+network-wifi     = ["has-network"]
+network-ethernet = ["has-network"]
 has-network     = []
 # Diagnostics / staged-rollout features, forwarded from the binary crate so
 # shared code compiles the same way the platform crate does.

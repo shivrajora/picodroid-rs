@@ -20,7 +20,9 @@
 //!    write the slice pair and stop. [`GpioEventRing`] and [`TouchOverride`]
 //!    are the edge queue and scripted-touch state machine every family
 //!    needs — use them rather than writing your own.
-//!    [`HalNet`] only on a board with `has_network`, via [`set_hal_net!`];
+//!    [`HalNet`] only on a board with `has_network`, via [`set_hal_net!`]
+//!    (a FreeRTOS+TCP family registers core's `FreeRtosTcpNet` there —
+//!    feature `freertos-tcp` — and writes no socket code);
 //!    [`HalFs`] via [`set_hal_fs!`] — see item 4.
 //! 2. **The kernel (trait + macro).** Implement [`Rtos`] and register with
 //!    [`set_rtos!`]. Stack sizes are **bytes**; map [`TaskKind`] to your
@@ -63,11 +65,25 @@
 //!    install (`platforms/rp/src/boot_tasks.rs` is the reference; do not put
 //!    a stop check in your HAL `sleep` — shared code owns it). Your `build.rs`
 //!    emits the capability `cfg`s (`has_display`, `has_touch`, `has_buttons`,
-//!    `has_network`, `network_<type>`, `any_sensor`, `sensor_<kind>`) from
+//!    `has_network`, `network_<type>`, `network_link_<kind>`, `any_sensor`,
+//!    `sensor_<kind>`) from
 //!    `board.toml` through `build_support::board_cfg`, and reads
 //!    [`board_cfg`]. LVGL is compiled by *this* crate's build script — never
 //!    by a family. Logging is [`pd_info!`] and friends: defmt on device,
 //!    `eprintln` on the host, so link a defmt sink.
+//!
+//! 8. **The network (optional, FreeRTOS+TCP families).** Enable this crate's
+//!    `freertos-tcp` feature. Write a `NetworkInterface_<X>.c` against
+//!    FreeRTOS+TCP's own `NetworkInterface_t` that defines
+//!    `pxPicodroidNetLink_FillInterfaceDescriptor`; implement [`NetLink`]
+//!    for the same chip; ship `FreeRTOSIPConfig_family.h` (your IP-task
+//!    affinity) and `uint32_t picodroid_port_entropy32(void)`; spawn
+//!    [`run_link_task`] from your boot on a task with your own core and
+//!    stack; register `set_hal_net!(FreeRtosTcpNet)`. Compile it all with
+//!    `build_support::network::build_freertos_tcp(&NetStackBuild { … })`.
+//!    [`LinkKind`] is for logs — Java's link kind is the `network_link_<kind>`
+//!    cfg from `board.toml`'s `network_type`. Reference: the RP family's
+//!    `hal/rp/cyw43/` and `hal/rp/port/net/`.
 //!
 //! What is deliberately *not* here: anything under `platforms/rp/src/hal/rp`.
 //! That is the reference implementation of the items above, not a contract.
@@ -76,9 +92,10 @@
 pub use crate::hal::array_io;
 pub use crate::hal::event_ring::GpioEventRing;
 pub use crate::hal::touch_override::{OverrideSample, TouchOverride};
-pub use crate::hal::types::{EdgeTrigger, GpioEvent, NetError, NetErrorKind, Pull};
+pub use crate::hal::types::{EdgeTrigger, GpioEvent, LinkKind, NetError, NetErrorKind, Pull};
 pub use crate::hal::{
-    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch, HalUart,
+    HalAdc, HalClock, HalDisplay, HalFs, HalGpio, HalI2c, HalNet, HalPwm, HalSpi, HalTouch,
+    HalUart, NetLink,
 };
 pub use crate::{
     set_hal, set_hal_adc, set_hal_clock, set_hal_display, set_hal_fs, set_hal_gpio, set_hal_i2c,
@@ -101,6 +118,8 @@ pub use crate::set_platform_hooks;
 // ── 4. filesystem ──────────────────────────────────────────────────────────
 #[cfg(all(feature = "littlefs", not(test)))]
 pub use crate::fs::{init_device, spawn_worker, FsBackingStore, FsGeometry, LittleFsHal};
+#[cfg(all(feature = "freertos-tcp", has_network, not(any(test, feature = "sim"))))]
+pub use crate::hal::freertos_tcp::{run_link_task, FreeRtosTcpNet};
 
 // ── 5. debug bridge and installer ──────────────────────────────────────────
 pub use crate::install::{
@@ -154,7 +173,7 @@ mod tests {
     /// Pinned like `EXPECTED_PROVIDERS`: a seam trait or exported macro that
     /// is added or removed changes this number, so the scan cannot pass on an
     /// empty match — and whoever changes it has to read this list.
-    const EXPECTED_SEAM_ITEMS: usize = 41;
+    const EXPECTED_SEAM_ITEMS: usize = 42;
 
     fn src() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src")

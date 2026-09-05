@@ -14,6 +14,19 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - **picoenvmon's weather row comes from open-meteo JSON** (`current.temperature_2m` plus the WMO `weather_code` mapped to text, e.g. `Overcast +17C`) instead of wttr.in's plain-text one-liner, in both the Java and Kotlin twins. Same fail-soft contract and 4 s timeouts.
 - New `examples/jsondemo` conformance app (also a `jsondemo` HIL row) covering parsing, coercion, mutation, identity, serialization, the error cases and a GC-stress loop over the pool.
 
+**Debug firmware boots on the Pico 2 W again; every board keeps a main-stack floor**
+
+- The core-0 main stack is whatever `.data` + `.bss` leave of RAM. The network boards' statics had squeezed it to 4.4 KB, and the debug-profile image (the one `flash.sh` builds by default, with line-number traces) faulted at boot before its first log line. The RP2350 heap arena is now 408 KB instead of 416 KB, which leaves at least 12 KB on every RP2350 board; picoenvmon still fits.
+- Every firmware build now prints its main-stack headroom and fails when it drops below 8 KB (`MAIN_STACK_FLOOR_BYTES` in `scripts/lib.sh`), so static growth can no longer eat the stack silently.
+
+**Networking seams for FreeRTOS+TCP families; apps can tell WiFi from Ethernet (map v0.19.0, package 0.19.0)**
+
+- **`NetworkInfo.getType()`** returns `ConnectivityManager.TYPE_WIFI` (1) or `TYPE_ETHERNET` (9), or `TYPE_NONE` (-1) on a board without networking. The new `picodroid.net.ConnectivityManager` holds Android's constants; it has no instance, because a board has one link.
+- **`PackageManager.FEATURE_ETHERNET`.** `hasSystemFeature` now answers `FEATURE_WIFI` and `FEATURE_ETHERNET` by the board's link kind instead of "any network"; picoenvmon's network thread accepts either.
+- **Porting.** A family that runs FreeRTOS and FreeRTOS+TCP writes no socket code any more: core's `FreeRtosTcpNet` is registered with one line, the stack glue and IP policy live in `picodroid-core/net-freertos-tcp/`, and the family writes a `NetworkInterface_<X>.c` plus a `NetLink` for its chip (the RP family's cyw43 driver is the reference). The porting guide's "The network" section walks through it; SPI MACs such as the W5500 and on-chip MACs both fit. Design: `docs/designs/network-seam-2026-09.md`.
+- **`board.toml`:** `has_network = true` now requires a `network_type`; the build emits `network_link_wifi` / `network_link_ethernet` from the `(type, kind)` table in `build_support/board_cfg.rs`, and the core features are `network-wifi` / `network-ethernet`.
+- Flash: the Pico 2 W images +736 B; `testbench_rp2040` +172 B and `testbench_rp2350` +404 B (the Java additions). Map v0.19.0 folds `ConnectivityManager` and its fields in; the member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 or v0.18.0 still install.
+
 **All third-party code lives under `third_party/`**
 
 - The `vendor/` tree is gone. The LVGL, FreeRTOS+TCP and cyw43-driver submodules now sit beside FreeRTOS-Kernel and the littlefs fork under `third_party/`, and `scripts/format_java.sh` / `format_kotlin.sh` download their JARs there (`third_party/*.jar` is gitignored). The submodule names changed with the paths, so **existing checkouts must run** `git submodule sync && git submodule update --init` after pulling, then delete the stale `vendor/` directory. The build-time fork guards now say `third_party/cyw43-driver is the unpatched upstream` (and the FreeRTOS+TCP equivalent); the header drift guards, `build_support`, `NOTICE` and the docs follow the move.

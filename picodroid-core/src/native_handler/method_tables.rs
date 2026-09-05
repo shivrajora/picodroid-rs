@@ -206,6 +206,7 @@ pub const NET_HANDLED: &[Row] = &[
     ),
     // picodroid/net/NetworkInfo
     ("picodroid/net/NetworkInfo", "getIpAddress", "()I"),
+    ("picodroid/net/NetworkInfo", "getType", "()I"),
     ("picodroid/net/NetworkInfo", "isConnected", "()Z"),
     // picodroid/net/ServerSocket
     (

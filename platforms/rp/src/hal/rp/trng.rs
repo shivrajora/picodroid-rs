@@ -3,15 +3,14 @@
 //!
 //! Non-blocking by design: each finished collection round yields a 192-bit
 //! EHR that is buffered as six words; a caller arriving with the buffer
-//! empty and the next round still sampling gets `false` and falls back to
-//! the timer-seeded LCG in `net_init.c` (which additionally XOR-mixes every
+//! empty and the next round still sampling gets `None` and falls back to
+//! the timer-seeded LCG in `entropy.rs` (which additionally XOR-mixes every
 //! TRNG word we do hand out, so the fallback stream degrades gracefully
 //! instead of staying predictable).
 //!
-//! Single-caller contract: only `xApplicationGetRandomNumber` /
-//! `ulApplicationGetNextSequenceNumber` reach this, and FreeRTOS+TCP calls
-//! both from the IP task — so the buffer needs no locking. Keep it that way
-//! or add a critical section.
+//! Single-caller contract: only `entropy::picodroid_port_entropy32` reaches
+//! this, and FreeRTOS+TCP calls it from the IP task alone — so the buffer
+//! needs no locking. Keep it that way or add a critical section.
 
 use rp235x_hal::pac;
 
@@ -92,23 +91,16 @@ fn try_refill(trng: &pac::TRNG) -> bool {
     true
 }
 
-/// C hook for `net_init.c`'s `xApplicationGetRandomNumber`.
-///
-/// Writes a hardware-random word and returns true, or returns false when
-/// no entropy is buffered yet (caller falls back to its LCG).
-#[no_mangle]
-pub extern "C" fn picodroid_trng_random_u32(out: *mut u32) -> bool {
-    if out.is_null() {
-        return false;
-    }
+/// One hardware-random word, or `None` when no entropy is buffered yet
+/// (the caller falls back to its LCG).
+pub fn try_random_u32() -> Option<u32> {
     let p = unsafe { pac::Peripherals::steal() };
     ensure_init(&p);
     unsafe {
         if AVAILABLE == 0 && !try_refill(&p.TRNG) {
-            return false;
+            return None;
         }
         AVAILABLE -= 1;
-        *out = BUFFER[AVAILABLE];
+        Some(BUFFER[AVAILABLE])
     }
-    true
 }

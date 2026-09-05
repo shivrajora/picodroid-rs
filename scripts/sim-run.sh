@@ -70,6 +70,10 @@ sim_log() { timestamp_log "$@"; }
 
 mkdir -p "$SIM_LOG_DIR" "$SIM_RESULTS_DIR"
 
+# net rows start an echo + HTTP server on this host; make sure they are gone
+# on every exit path.
+trap 'stop_net_listeners' EXIT
+
 # Pull latest code.
 sim_log "Pulling latest code..."
 git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do sim_log "  git: $line"; done || true
@@ -109,7 +113,10 @@ run_test() {
   local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
   local -a apk_args=(--app "$app" -o "$apk_path" --board "$board")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
-  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+  # net rows talk to 127.0.0.1 (the NetTestConfig.HOST default; sim sockets
+  # are host sockets). Drop any inherited test-host override so a stale
+  # export cannot point the sim elsewhere.
+  if ! env -u PICODROID_NET_TEST_HOST bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
     echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -350,8 +357,9 @@ for MODE in "${MODES[@]}"; do
   sim_log "========================================="
 
   # Parse config and run tests. The 5th column is the pdb command for pdb
-  # rows and an optional board override for sim rows (e.g. netexception
-  # needs the network-enabled W board's sim build).
+  # rows, an optional board override for sim rows (e.g. netexception needs
+  # the network-enabled W board's sim build) and the required board for net
+  # rows.
   while IFS='|' read -r app category timeout patterns extra; do
     # Skip comments and blank lines.
     [[ "$app" =~ ^[[:space:]]*# ]] && continue
@@ -386,7 +394,18 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
-    if [[ "$category" == "sim" && -n "${extra:-}" ]]; then
+    # net rows need the host-side echo (7000) and HTTP (8000) servers.
+    if [[ "$category" == "net" ]]; then
+      if ! start_net_listeners "$RUN_LOG_DIR"; then
+        sim_log "ERROR $app[$MODE] ($NET_LISTENER_ERR)"
+        echo "ERROR $app[$MODE] (listeners)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        TOTAL=$((TOTAL + 1))
+        continue
+      fi
+    fi
+
+    if [[ ( "$category" == "sim" || "$category" == "net" ) && -n "${extra:-}" ]]; then
       run_test "$app" "$category" "$timeout" "$patterns" "$MODE" "$extra"
     else
       run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
@@ -446,6 +465,8 @@ for MODE in "${MODES[@]}"; do
     run_enviro_w_smoke "$MODE" picoenvmon_kt picoenvmon_kt-enviro-w PicoEnvMonKt
   fi
 done
+
+stop_net_listeners
 
 # Summary.
 sim_log "========================================="

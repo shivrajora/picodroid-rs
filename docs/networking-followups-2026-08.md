@@ -99,7 +99,7 @@ cache miss against the same `ucRepCount`, so an unresolvable host aborts
 in ≈1.5 s), and SYN-retransmission exhaustion (≥9 s) all converge on
 `eCLOSE_WAIT`; `-ETIMEDOUT` (-116) only appears when a finite block time
 expires first. The HAL classifies -128 by elapsed time (`tcp_connect` in
-`platforms/rp/src/hal/rp/net.rs`: <1 s → Refused, ≤6 s → Unreachable
+`picodroid-core/src/hal/freertos_tcp/mod.rs` (was `platforms/rp/src/hal/rp/net.rs`): <1 s → Refused, ≤6 s → Unreachable
 (NoRouteToHostException), else TimedOut — the stack's timing ladder keeps
 the causes far apart). If the upstream rebase changes which state an
 aborted connect lands in, re-verify all three netdemo failure cases on
@@ -115,7 +115,11 @@ the ISR masks it and notifies the cyw43 task
 (`picodroid_cyw43_hostwake_notify_from_isr`; PROC1 routing, so arm/ISR/
 re-arm all run on core 1 — the banked NVIC makes core-0 routing
 undeliverable from a core-1 init, the first attempt's HW-caught bug), and
-`CYW43_POST_POLL_HOOK` re-arms it after every poll. Data toggling on the
+`CYW43_POST_POLL_HOOK` re-arms it after every poll. Since 2026-09-02 the
+shared handler branches on SIO CPUID first, so on the button board the
+host-wake block is core-1-only by construction and a core-0 button edge
+never touches `PROC1_INTE` (bank0 entry in `docs/quality-roadmap.md`).
+Data toggling on the
 shared PIO DATA pad can fire it spuriously mid-transfer, but mask-on-fire
 bounds that to one extra workless poll. The poll timeout is now a 1 s
 safety net (was the sole 100 ms RX path);
@@ -133,7 +137,16 @@ harvest is still sampling the timer-seeded LCG fills in, and every TRNG
 word XOR-mixes into the LCG state so even the fallback stream stops being
 predictable after the first harvest.
 
-## NET-7: HIL coverage for networking — PARTIAL 2026-08-15
+## NET-7: HIL coverage for networking — DONE 2026-09-04
+
+**2026-09-04: the device half landed.** `scripts/hil-tests.conf` has a `net`
+category with two rows (`netdemo`, `http_get`) built as `testbench_rp2350w`
+firmware. `hil-run.sh` reads `.wifi-creds.env` into the firmware build,
+bakes the host's LAN IP into the app, and runs the echo (7000) and HTTP
+(8000) servers itself (`lib.sh::start_net_listeners`); `sim-run.sh` runs the
+same rows against loopback. Details and the pattern correction are in
+`docs/nightly-networking-handover.md`. The 2026-08-15 status follows.
+
 
 Landed:
 
@@ -167,7 +180,7 @@ creds-from-environment plumbing, the HIL-host listeners, and a `net` category �
 `drivers/cyw43.rs` exposes `WPA3_SAE_AES` / `WPA3_WPA2_AES` and
 `wifi_join` takes an auth override; `PICODROID_WIFI_AUTH`
 (`open|wpa2|wpa3|wpa2wpa3`, unset = historical automatic choice) selects it
-at build time in `wifi_task.rs`. `platforms/rp/build.rs` now emits
+at build time in `hal/rp/cyw43/link.rs` (was `wifi_task.rs`). `platforms/rp/build.rs` now emits
 `rerun-if-env-changed` for SSID/PASS/AUTH — previously a credential change
 was a cargo no-op. Untested against a real WPA3 AP (none on the bench);
 WPA2 verified unaffected on HW.
@@ -206,4 +219,6 @@ gate are written up in the auto-memory
 lower `CYW43_IOCTL_TIMEOUT_US` below 500 ms, do not override
 `ipconfigBUFFER_PADDING`, keep `ipconfigINCLUDE_FULL_INET_ADDR=1`) are
 commented at their definition sites in
-`platforms/rp/src/hal/rp/port/cyw43_configport.h` and `FreeRTOSIPConfig.h`.
+`platforms/rp/src/hal/rp/port/cyw43_configport.h` and
+`picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h` (shared since the
+network-seam work; host tests pin them).

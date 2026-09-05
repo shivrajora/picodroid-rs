@@ -40,6 +40,8 @@ pub fn dispatch(
         // probe and fall back gracefully.
         (c::picodroid_net_NetworkInfo, m::isConnected) => Some(Ok(Some(Value::Int(0)))),
         (c::picodroid_net_NetworkInfo, m::getIpAddress) => Some(Ok(Some(Value::Int(0)))),
+        // ConnectivityManager.TYPE_NONE
+        (c::picodroid_net_NetworkInfo, m::getType) => Some(Ok(Some(Value::Int(-1)))),
 
         // Everything else would need a live stack — surface a clean exception.
         _ => Some(Err(unsupported(ctx))),

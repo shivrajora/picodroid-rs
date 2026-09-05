@@ -1239,3 +1239,15 @@ for things that are not there:
   filesystem section never names `FsBackingStore`, and `ARCHITECTURE.md` has
   neither boundary rule. The `PAPK_FLASH_MAGIC` retype instruction *is* gone.
   All of it moves to the successor's S10.
+
+### B18 — Phase N executed by `network-seam-2026-09.md` (2026-09-04)
+
+§6's four decisions were carried out on branch `refactor/network-seam`,
+three of them changed with reasons recorded there: the shared C lives in
+`picodroid-core/net-freertos-tcp/` rather than `platforms/shared/` (D1);
+the socket layer is core's `FreeRtosTcpNet` behind the Cargo feature
+`freertos-tcp` rather than a board-key cfg (D4); the runner
+(`run_link_task`) moved to core while the cyw43 driver and its spawn stayed
+in the family as the reference link driver (D6). The entropy seam is
+`picodroid_port_entropy32` as §6(2) said. The porting guide now has a
+networking section ("The network").
