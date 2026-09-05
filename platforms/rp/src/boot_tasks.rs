@@ -155,9 +155,18 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                 crate::pdb::pending::abort_all_child_delays();
                 picodroid_core::threads::wake_all_parked();
 
-                // Wait for all child threads to deregister.  Loop because
-                // notifications may arrive from pdb_task (consumed harmlessly)
-                // before the last child calls notify_jvm().
+                // Every wait below re-checks the condition it is waiting for.
+                // That is the rtos seam's contract for task notifications —
+                // "look again", not a credit — and this task collects
+                // notifications it never asked for: the fs worker outranks
+                // us, so `SerialWorker::submit` returns with the completion
+                // notification still latched on us, once per `with_fs` call.
+                // A bare wait here returned at once, and `bootcount` re-ran
+                // `Application.onCreate` seven times a second
+                // (docs/designs/porting-seam-2026-09.md A9).
+
+                // Wait for all child threads to deregister; the last one
+                // notifies us.
                 while crate::pdb::pending::ACTIVE_JVM_THREADS
                     .load(core::sync::atomic::Ordering::Acquire)
                     > 0
@@ -165,23 +174,28 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // If pdb_task requested a flash install, park core 0.
-                // Signal CORE0_PARKED then block.  PDB (higher priority on
-                // the same core) will perform the flash write and either
-                // reset or call release().  On release the notification
-                // wakes us and we restart the JVM loop.
-                if crate::pdb::pending::FLASH_PARK_REQUESTED
+                // Natural app exit: nothing to do until pdb_task installs a
+                // new app, and an install always opens with a park request
+                // (`CoreCoordinator::request_stop_and_park`), so that is the
+                // condition. An app that was stopped for an install already
+                // has the request pending and falls straight through.
+                while !crate::pdb::pending::FLASH_PARK_REQUESTED
                     .load(core::sync::atomic::Ordering::Acquire)
                 {
-                    crate::pdb::pending::CORE0_PARKED
-                        .store(true, core::sync::atomic::Ordering::Release);
-                    let _ = CurrentTask::take_notification(true, Duration::infinite());
-                    // PDB released us (error path) — restart loop.
-                    continue;
+                    CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // Natural app exit — wait for pdb to install a new app.
-                CurrentTask::take_notification(true, Duration::infinite());
+                // pdb_task requested a flash install: park core 0. Signal
+                // CORE0_PARKED then block. PDB (higher priority on the same
+                // core) performs the flash write and either resets the chip
+                // or, on the error path, clears CORE0_PARKED and wakes us —
+                // then we restart the JVM loop.
+                crate::pdb::pending::CORE0_PARKED
+                    .store(true, core::sync::atomic::Ordering::Release);
+                while crate::pdb::pending::CORE0_PARKED.load(core::sync::atomic::Ordering::Acquire)
+                {
+                    let _ = CurrentTask::take_notification(true, Duration::infinite());
+                }
             }
         },
     )

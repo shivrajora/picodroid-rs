@@ -845,7 +845,13 @@ likely shape is a notification left pending on the JVM task after
 `run_app` returns (the fs worker notifies its waiter; `wake_all_parked`
 notifies parked tasks), which makes the supervisor's "wait for the next
 install" return at once. The persistence check above does not depend on
-it: what run 2 read was what run 1 wrote.
+it: what run 2 read was what run 1 wrote. *Fixed 2026-09-04:* the shape
+was right in outline and wrong in detail — the latched notification came
+from `SerialWorker::submit`, whose F14 fix (77c3157) skips its wait once
+`done` is set, which with the fs worker outranking the JVM is every call.
+The supervisor loop's two bare waits now re-check their conditions
+(`FLASH_PARK_REQUESTED`, `CORE0_PARKED`), the way the rtos seam's contract
+always required.
 
 ### A10 — S9 and S10 landed; closing measurement (2026-09-03)
 

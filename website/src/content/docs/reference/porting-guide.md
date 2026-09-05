@@ -304,10 +304,15 @@ checklist. `platforms/rp/src/boot_tasks.rs` is the reference:
 2. Loop: clear the stop flag; `run_app`; abort any child task delays;
    `picodroid_core::threads::wake_all_parked()`; wait until the count of
    live child tasks reaches zero.
-3. If the bridge asked for a flash park, acknowledge and block; when
-   released, go round again. Otherwise block until the next install.
+3. Block until the bridge asks for a flash park (an install always opens
+   with one), acknowledge, and block until it releases you or resets the
+   chip; when released, go round again.
 4. Never return from the task — its stack is the app's.
 5. Do not put a stop check in your `HalClock::sleep`; shared code owns that.
+6. Every one of those waits must re-check its condition after waking. The
+   task collects notifications it did not ask for — `fs::with_fs` alone
+   leaves one latched per call when the worker outranks the JVM — and a
+   bare wait returns at once (the `bootcount` re-run of 2026-09).
 
 ### `build.rs`
 
