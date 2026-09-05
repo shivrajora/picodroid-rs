@@ -351,4 +351,41 @@ S7, S8.
 
 ## Amendments
 
-None yet.
+### A1 (2026-09-04) — TLS cost measured; S5 estimate and S1 slot math corrected
+
+Measured with a minimal `cortex-m-rt` binary for `thumbv8m.main-none-eabihf`
+built under this repo's release profile (`opt-level = 3`, fat LTO), a fake
+socket, and `embedded-tls 0.17` (`default-features = false`, blocking API,
+`Aes128GcmSha256`, ECDHE P-256, RSA off). Numbers are `.text` deltas over
+the 2.8 KB baseline binary:
+
+| Variant | Flash (opt 3) | Flash (opt z, for reference) |
+|---------|--------------:|-----------------------------:|
+| TLS 1.3 client, `NoVerify` | +72 KB | +37 KB |
+| + P-256 ECDSA verify for a pinned server key | +83 KB | +42 KB |
+| + `webpki` X.509 chain verification | does not build | does not build |
+
+RAM: the two record buffers dominate, 16,640 B each (33 KB `.bss`) for
+full-size 16 KB records. `TlsConfig::with_max_fragment_length` can request
+2 KB or 4 KB records, cutting that to roughly 5–9 KB if the store server
+honours the extension (our own server will). Handshake stack was not
+measured; expect several KB.
+
+`webpki` fails because `rustls-webpki` pulls in `ring`, whose ARM assembly
+is ARM-mode and does not assemble for Thumb-2 (`r13 not allowed here`,
+`lo register required`). Full chain verification is therefore off the
+table on Cortex-M33 with this stack. The S5 position 2 design is a custom
+`TlsVerifier` that pins the store's SPKI and checks `CertificateVerify`
+with the P-256 code already linked, which is the +83 KB row.
+
+Corrections to the body:
+
+- §2 and S5 said "60–80 KB plus ~16 KB RAM per connection". Read: **~83 KB
+  flash for the pinned variant at the project's opt-level, 33 KB RAM with
+  default record size, 5–9 KB with a reduced fragment length.**
+- S1 said 4 × 512 KB slots out of the 2816 KB firmware reservation. The
+  current RP2350 release image is 1,176 KB of text, leaving 1,640 KB; four
+  512 KB slots do not fit. Read: **slot geometry is decided in S1 from the
+  measured image plus TLS plus the system apps, with 3 × 384 KB as the
+  starting assumption**, and the firmware region shrinks accordingly in
+  `rp2350.x`.
