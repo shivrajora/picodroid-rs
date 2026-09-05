@@ -46,6 +46,12 @@ pub mod lifecycle;
 pub mod lvgl_ffi;
 #[cfg(all(feature = "mem-diag", not(test)))]
 pub mod mem_diag;
+// JSON node pool, parser and serializer behind `JSONObject`/`JSONArray`.
+// Board-gated by the `has_json` board.toml key (default off) — pure
+// `alloc`, so it compiles and tests on the host whenever the cfg is on,
+// which boardless builds always have.
+#[cfg(has_json)]
+pub mod json;
 pub mod monitor_store;
 pub mod threads;
 pub mod ui_thread;

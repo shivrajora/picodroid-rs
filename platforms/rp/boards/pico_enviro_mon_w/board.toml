@@ -8,6 +8,10 @@
 # anything the Enviro+ Pack uses (GP6/7/10 LED, GP12-15 buttons, GP16-20
 # display, I2C0 sensors).
 mcu = "rp2350"
+# picodroid.json (JSONObject/JSONArray, native node pool). Off by default;
+# on here because the 2816K program region has the room. See
+# framework_class_excludes in the porting guide for what "off" drops.
+has_json = true
 has_network = true
 network_type = "cyw43"
 lv_dpi = 166

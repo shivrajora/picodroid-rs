@@ -13,6 +13,10 @@ mcu = "rp2040"
 # Java, ~17 KB of class files) is also left out: the RP2040 image sits within
 # a few KB of its 896K ceiling, and Thread + Executors cover this board's
 # needs. Apps that use them need a 2350-class board (examples/jucdemo).
+# picodroid.json stays off too (no `has_json = true` here): the three
+# classes plus the native node pool are more flash than this region can
+# spare, and the build derives their exclusion from the missing key — do
+# not list them below. JSON apps need a 2350-class board (examples/jsondemo).
 framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch"
 
 [display]

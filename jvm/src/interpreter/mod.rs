@@ -519,8 +519,10 @@ fn truncate_frames<H: NativeMethodHandler>(
     }
 }
 
-/// Let the handler drop the monitors of entities a collection just freed
-/// (see [`NativeMethodHandler::monitors_prune`]). Runs before any allocation
+/// Let the handler drop the monitors — and any other slot-keyed native
+/// state — of entities a collection just freed (see
+/// [`NativeMethodHandler::monitors_prune`] and
+/// [`NativeMethodHandler::native_state_prune`]). Runs before any allocation
 /// can recycle a slot, so "not live" means "freed by this collection".
 pub(crate) fn prune_monitors<H: NativeMethodHandler>(
     handler: &mut H,
@@ -529,12 +531,14 @@ pub(crate) fn prune_monitors<H: NativeMethodHandler>(
     strings: &StringTable,
 ) {
     use crate::types::MonitorKey;
-    handler.monitors_prune(&|key| match key {
+    let live = |key: MonitorKey| match key {
         MonitorKey::Object(i) => objects.is_live(i),
         MonitorKey::Array(i) => arrays.is_live(i),
         // Static strings live in Flash and are never freed.
         MonitorKey::String(i) => (i as usize) < strings.dyn_start() || strings.is_dyn_live(i),
-    });
+    };
+    handler.monitors_prune(&live);
+    handler.native_state_prune(&live);
 }
 
 #[allow(clippy::too_many_arguments)]

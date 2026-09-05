@@ -1,6 +1,10 @@
 # Board: TestBench (WiFi) — Waveshare 2.8" Pico display (ST7789 + XPT2046)
 # on a Raspberry Pi Pico 2 W (RP2350 + CYW43439 WiFi)
 mcu = "rp2350"
+# picodroid.json (JSONObject/JSONArray, native node pool). Off by default;
+# on here because the 2816K program region has the room. See
+# framework_class_excludes in the porting guide for what "off" drops.
+has_json = true
 has_network = true
 network_type = "cyw43"
 

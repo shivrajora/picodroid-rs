@@ -85,6 +85,7 @@ export default defineConfig({
             { label: 'Peripherals', slug: 'api/peripherals' },
             { label: 'Storage', slug: 'api/storage' },
             { label: 'Networking', slug: 'api/networking' },
+            { label: 'JSON', slug: 'api/json' },
             { label: 'Sensors', slug: 'api/sensors' },
             { label: 'Graphics & UI', slug: 'api/ui' },
           ],

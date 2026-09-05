@@ -1,5 +1,9 @@
 # Board: TestBench — Waveshare 2.8" Pico display (ST7789 + XPT2046)
 mcu = "rp2350"
+# picodroid.json (JSONObject/JSONArray, native node pool). Off by default;
+# on here because the 2816K program region has the room. See
+# framework_class_excludes in the porting guide for what "off" drops.
+has_json = true
 
 [display]
 driver = "st7789"

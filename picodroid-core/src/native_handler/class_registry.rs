@@ -31,6 +31,8 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_os_Runtime,
     c::picodroid_debug_DisplayDebug,
     c::picodroid_util_Log,
+    // JSONArray declares no natives of its own: it calls JSONObject's.
+    c::picodroid_json_JSONObject,
     c::picodroid_concurrent_Thread,
     c::picodroid_concurrent_Executor,
     c::picodroid_concurrent_Executors,

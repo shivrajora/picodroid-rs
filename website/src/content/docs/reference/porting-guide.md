@@ -511,7 +511,8 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
-| `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. |
+| `has_json` | bool | no | If `true`, ships `picodroid.json` (`JSONObject`/`JSONArray`/`JSONException` and the native node pool behind them). Off by default: a board that leaves it off drops those classes from its embedded SDK and compiles the parser out, and apps built for it fail the API contract if they reference them. |
+| `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. Classes owned by a feature switch (`has_json`) are added automatically; listing one by hand while the switch is on fails the build. |
 | `linker_script` | string | no | Path to a custom `memory.x` (defaults to `mcus/<family>/<mcu>.x`). |
 
 ### `[display]` — display controller (ST7789 over SPI)

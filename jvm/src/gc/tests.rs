@@ -1942,3 +1942,49 @@ fn gc_traces_and_frees_linked_hash_map_like_hash_map() {
         "buffer slot was not freed"
     );
 }
+
+#[test]
+fn collect_now_prunes_native_state_with_the_sweep_result() {
+    // `native_state_prune` is the hook a handler uses to drop native storage
+    // keyed by heap slots (the JSON node pool binds each wrapper's slot). It
+    // must fire on the frameless `collect_now` path too, after the sweep and
+    // with `live` answering for the slots this collection freed.
+    use crate::native::{NativeContext, NativeMethodHandler};
+    use crate::types::{JvmError, MonitorKey};
+
+    struct Recorder {
+        seen: Vec<(u16, bool)>,
+        probe: Vec<u16>,
+    }
+    impl NativeMethodHandler for Recorder {
+        fn dispatch(
+            &mut self,
+            _class_name: &str,
+            _method_name: &str,
+            _ctx: &mut NativeContext<'_>,
+        ) -> Option<Result<Option<Value>, JvmError>> {
+            None
+        }
+        fn native_state_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
+            for &slot in &self.probe {
+                self.seen.push((slot, live(MonitorKey::Object(slot))));
+            }
+        }
+    }
+
+    let mut heap = crate::SharedJvmHeap::new();
+    let dead = heap.objects.alloc("Garbage").unwrap();
+    let kept = heap.objects.alloc("Kept").unwrap();
+    heap.statics.set(b"K", b"f", Value::ObjectRef(kept));
+    heap.gc_state.need_gc = true;
+
+    let mut handler = Recorder {
+        seen: Vec::new(),
+        probe: alloc::vec![dead, kept],
+    };
+    heap.collect_now(&mut handler);
+
+    assert_eq!(handler.seen, alloc::vec![(dead, false), (kept, true)]);
+    assert!(!heap.objects.is_live(dead));
+    assert!(heap.objects.is_live(kept));
+}

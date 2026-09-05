@@ -7,6 +7,13 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`picodroid.json`: `JSONObject`, `JSONArray`, `JSONException` (roadmap T2.6)**
+
+- **Android's `org.json` API, under `picodroid.json`.** The full method surface of `JSONObject` and `JSONArray` — constructors from text, `Map`, `Collection` and arrays, `get`/`opt` with Android's coercions, `put`/`putOpt`/`accumulate`/`append`/`remove`, `keys`/`names`/`keySet`, `toString`/`toString(indent)`, `quote`/`numberToString`/`wrap`, the `NULL` sentinel — and a checked `JSONException`. Documents live in a native node pool: a wrapper holds only its node's index, values materialize on `get`, and a child wrapper shares its parent's node (mutations are visible both ways, as on Android). Nodes are reclaimed with the garbage collector through a new `native_state_prune` handler hook, which fires right after every collection the way `monitors_prune` does. The parser is strict RFC 8259; the pool is capped at 2048 nodes and 16 KiB of strings. See [JSON](/api/json/).
+- **One board switch.** `has_json = true` in `board.toml` turns the whole feature on — the four RP2350 boards set it. `testbench_rp2040` does not: the three classes leave its embedded SDK and the parser compiles out, so it pays nothing, and `verifyApiContract --board testbench_rp2040` rejects an app that uses JSON at build time instead of on the device.
+- **picoenvmon's weather row comes from open-meteo JSON** (`current.temperature_2m` plus the WMO `weather_code` mapped to text, e.g. `Overcast +17C`) instead of wttr.in's plain-text one-liner, in both the Java and Kotlin twins. Same fail-soft contract and 4 s timeouts.
+- New `examples/jsondemo` conformance app (also a `jsondemo` HIL row) covering parsing, coercion, mutation, identity, serialization, the error cases and a GC-stress loop over the pool.
+
 **All third-party code lives under `third_party/`**
 
 - The `vendor/` tree is gone. The LVGL, FreeRTOS+TCP and cyw43-driver submodules now sit beside FreeRTOS-Kernel and the littlefs fork under `third_party/`, and `scripts/format_java.sh` / `format_kotlin.sh` download their JARs there (`third_party/*.jar` is gitignored). The submodule names changed with the paths, so **existing checkouts must run** `git submodule sync && git submodule update --init` after pulling, then delete the stale `vendor/` directory. The build-time fork guards now say `third_party/cyw43-driver is the unpatched upstream` (and the FreeRTOS+TCP equivalent); the header drift guards, `build_support`, `NOTICE` and the docs follow the move.

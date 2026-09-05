@@ -178,6 +178,14 @@ impl ObjectHeap {
         core::mem::take(&mut self.alloc_events)
     }
 
+    /// Charge `n` allocations that happened outside this heap on Java's
+    /// behalf — native storage a handler grew for a Java object (the JSON
+    /// node pool's nodes) — so the GC pacer sees pressure it could not
+    /// otherwise observe. Folded in with the heap's own events.
+    pub fn charge_alloc_events(&mut self, n: u16) {
+        self.alloc_events = self.alloc_events.saturating_add(n);
+    }
+
     /// Enable/disable the per-class allocation histogram (mem-diag). The
     /// platform layer turns this on from a runtime flag; it defaults off so
     /// device mem-diag builds pay one branch per alloc and nothing else.

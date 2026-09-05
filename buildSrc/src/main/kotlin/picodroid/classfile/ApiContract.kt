@@ -158,21 +158,43 @@ object ApiContract {
     }
 
     /**
-     * The top-level `framework_class_excludes = "a;b,c"` key of a board.toml
-     * — the same hand-rolled, line-based read as `build_support/board_cfg.rs`
-     * (`;` or `,` separated, one line, top level only).
+     * The `picodroid.json` classes, owned by the top-level `has_json` board.toml
+     * key: a board that does not set it to `true` drops them from its framework
+     * (`build_support/board_cfg.rs`), so an app built for that board must not
+     * reference them either.
+     */
+    private val JSON_CLASSES = setOf(
+        "picodroid/json/JSONObject",
+        "picodroid/json/JSONArray",
+        "picodroid/json/JSONException",
+    )
+
+    /**
+     * What a board.toml drops: its top-level `framework_class_excludes = "a;b,c"`
+     * key plus the classes its feature switches leave out (`has_json`) — the
+     * same hand-rolled, line-based read as `build_support/board_cfg.rs`
+     * (`;` or `,` separated, one line each, top level only).
      */
     fun parseBoardExcludes(toml: String): Set<String> {
+        var listed = emptySet<String>()
+        var hasJson = false
         for (raw in toml.lineSequence()) {
             val line = raw.trim()
             if (line.startsWith("[")) break
+            if (line.startsWith("has_json")) {
+                hasJson = topLevelValue(line, "has_json") == "true"
+                continue
+            }
             if (!line.startsWith("framework_class_excludes")) continue
-            val rest = line.substringAfter("framework_class_excludes").trimStart().removePrefix("=").trim()
-            val value = rest.trim('"', '\'')
-            return value.split(';', ',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val value = topLevelValue(line, "framework_class_excludes")
+            listed = value.split(';', ',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         }
-        return emptySet()
+        return if (hasJson) listed else listed + JSON_CLASSES
     }
+
+    /** The unquoted value of a `key = value` line. */
+    private fun topLevelValue(line: String, key: String): String =
+        line.substringAfter(key).trimStart().removePrefix("=").trim().trim('"', '\'')
 
     private class AppClass(
         val name: String,

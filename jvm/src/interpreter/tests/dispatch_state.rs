@@ -355,3 +355,60 @@ fn invokevirtual_switches_dispatch_when_receiver_class_changes() {
     );
     assert_eq!(r_base.unwrap(), Some(Value::Int(1)));
 }
+
+#[test]
+fn emergency_gc_inside_execute_prunes_native_state() {
+    // The interpreter's own collection (here the need_gc emergency path) must
+    // call `native_state_prune` right after the sweep, before the method can
+    // allocate into a recycled slot — the same window `monitors_prune` gets.
+    use crate::types::MonitorKey;
+
+    struct Recorder {
+        probe: u16,
+        seen: Vec<bool>,
+    }
+    impl NativeMethodHandler for Recorder {
+        fn dispatch(
+            &mut self,
+            _class_name: &str,
+            _method_name: &str,
+            _ctx: &mut NativeContext<'_>,
+        ) -> Option<Result<Option<Value>, JvmError>> {
+            None
+        }
+        fn native_state_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
+            self.seen.push(live(MonitorKey::Object(self.probe)));
+        }
+    }
+
+    let cf = ClassFile::parse(spelled(CLASS_LIT)).expect("parse");
+    let classes = alloc::vec![cf];
+    let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
+    let garbage = o.alloc(c::java_lang_Object).unwrap();
+    let mut h = Recorder {
+        probe: garbage,
+        seen: Vec::new(),
+    };
+    gc.need_gc = true;
+    gc.alloc_count = 50;
+    let r = execute(
+        &classes,
+        &mut s,
+        &mut o,
+        &mut a,
+        &mut st,
+        &mut gc,
+        &mut co,
+        &mut h,
+        0,
+        0,
+        &[],
+    );
+    assert!(r.is_ok());
+    assert_eq!(
+        h.seen,
+        alloc::vec![false],
+        "hook fires once, after the sweep freed the probe"
+    );
+    assert!(!o.is_live(garbage));
+}
