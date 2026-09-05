@@ -10,6 +10,9 @@ mod app_services;
 mod concurrent;
 mod graphics;
 mod io;
+// Board-gated by the `has_json` board.toml key, like `net` by `has_network`.
+#[cfg(has_json)]
+mod json;
 #[cfg(has_network)]
 mod net;
 #[cfg(not(has_network))]
@@ -355,6 +358,10 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         if let result @ Some(_) = io::dispatch(class_name, method_name, ctx) {
             return result;
         }
+        #[cfg(has_json)]
+        if let result @ Some(_) = json::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
         #[cfg(has_network)]
         if let result @ Some(_) = net::dispatch(class_name, method_name, ctx) {
             return result;
@@ -570,9 +577,21 @@ impl NativeMethodHandler for PicodroidNativeHandler {
 
     fn monitors_clear(&mut self) {
         crate::monitor_store::clear();
+        #[cfg(has_json)]
+        crate::json::pool::with_pool(|p| p.clear());
     }
 
     fn monitors_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
         crate::monitor_store::prune_dead(live);
+    }
+
+    /// The JSON node pool binds each `JSONObject`/`JSONArray` wrapper by its
+    /// heap slot; drop the bindings the sweep freed and reclaim what no
+    /// wrapper reaches any more (json::pool module docs).
+    fn native_state_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
+        #[cfg(has_json)]
+        crate::json::pool::with_pool(|p| p.prune(&|slot| live(MonitorKey::Object(slot))));
+        #[cfg(not(has_json))]
+        let _ = live;
     }
 }

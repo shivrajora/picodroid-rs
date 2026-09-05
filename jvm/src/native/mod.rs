@@ -1250,6 +1250,19 @@ pub trait NativeMethodHandler {
     /// keep any monitor that is still held. The default is a no-op.
     fn monitors_prune(&mut self, _live: &dyn Fn(MonitorKey) -> bool) {}
 
+    /// Drop any other native state keyed by heap slots the collector just
+    /// freed.
+    ///
+    /// Same contract and timing as
+    /// [`monitors_prune`](NativeMethodHandler::monitors_prune): called right
+    /// after every collection, before any allocation can recycle a slot,
+    /// with `live` answering whether the entity a key names survived. For
+    /// handler tables that map a Java object's slot to native storage (the
+    /// JSON node pool binds each `JSONObject` wrapper to its node this way):
+    /// without the prune, a new object landing in a dead wrapper's slot
+    /// would inherit its native state. The default is a no-op.
+    fn native_state_prune(&mut self, _live: &dyn Fn(MonitorKey) -> bool) {}
+
     /// Visit object / array / string references held in native state so the
     /// GC keeps them alive across cycles.
     ///

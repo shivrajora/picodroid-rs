@@ -2,6 +2,8 @@
 package picoenvmon.net;
 
 import java.io.IOException;
+import picodroid.json.JSONException;
+import picodroid.json.JSONObject;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
@@ -9,15 +11,15 @@ import picodroid.util.Log;
 import picoenvmon.EnvApp;
 
 /**
- * One-line weather via wttr.in over plain HTTP (no TLS exists on this platform). Strictly
- * fail-soft: this depends on a third-party endpoint and real internet, so every failure — DNS,
- * timeout, non-200, garbage — returns null and the UI renders "unavailable". Nothing in CI ever
- * asserts on weather content.
+ * Current weather from open-meteo over plain HTTP (no TLS exists on this platform), parsed with
+ * {@link JSONObject}. Strictly fail-soft: this depends on a third-party endpoint and real internet,
+ * so every failure — DNS, timeout, non-200, garbage — returns null and the UI renders
+ * "unavailable". Nothing in CI ever asserts on weather content.
  *
  * <p>The fetch runs on the NetworkManager thread, serially with dashboard serving, so it must be
- * time-bounded: a stalled wttr.in with no timeouts starved the serve loop for a whole 25 s smoke
+ * time-bounded: a stalled endpoint with no timeouts starved the serve loop for a whole 25 s smoke
  * run (nightly 2026-08-18). Connect and read timeouts bound each blocking network call at {@code
- * TIMEOUT_MS}; the tiny fixed-size reply keeps the read count small.
+ * TIMEOUT_MS}; the reply is a few hundred bytes, so the read count stays small.
  */
 public final class WeatherFetcher {
   private static final String TAG = EnvApp.TAG;
@@ -31,19 +33,27 @@ public final class WeatherFetcher {
    */
   public static final String CITY = "San Mateo";
 
-  /** wttr.in location path — '+' for spaces, state suffix disambiguates. */
-  private static final String CITY_PATH = "San+Mateo,California";
+  /** Coordinates of {@link #CITY}, the same build-time constants. */
+  private static final String LAT = "37.56";
 
-  /** %25 is a URL-escaped '%': the format params are %C (condition) and %t (temperature). */
-  private static final String WEATHER_URL = "http://wttr.in/" + CITY_PATH + "?format=%25C+%25t";
+  private static final String LON = "-122.32";
 
-  private static final int MAX_REPLY_BYTES = 128;
+  /** Current temperature and WMO weather code only, so the reply stays under 400 bytes. */
+  private static final String WEATHER_URL =
+      "http://api.open-meteo.com/v1/forecast?latitude="
+          + LAT
+          + "&longitude="
+          + LON
+          + "&current=temperature_2m,weather_code";
+
+  private static final int MAX_REPLY_BYTES = 512;
 
   private WeatherFetcher() {}
 
   /**
-   * Fetch the one-liner, e.g. "Partly cloudy +11C". Returns null on any failure. ASCII-sanitized:
-   * wttr.in emits UTF-8 condition glyphs and degree signs the LVGL font lacks.
+   * Fetch the current conditions as a one-liner, e.g. "Overcast +17C". Returns null on any failure.
+   * ASCII by construction: the description comes from the WMO code table below and the reply's only
+   * non-ASCII bytes (the degree sign in {@code current_units}) are never displayed.
    */
   public static String fetch() {
     HttpURLConnection conn = null;
@@ -67,12 +77,15 @@ public final class WeatherFetcher {
         }
         total += n;
       }
-      String line = sanitize(buf, total);
-      if (line.isEmpty()) {
+      if (total == 0) {
         return null;
       }
+      String line = describe(new String(buf, 0, total));
       Log.i(TAG, "weather: " + line);
       return line;
+    } catch (JSONException e) {
+      Log.i(TAG, "weather: bad reply: " + e.getMessage());
+      return null;
     } catch (IOException e) {
       Log.i(TAG, "weather: fetch failed: " + e.getMessage());
       return null;
@@ -88,26 +101,66 @@ public final class WeatherFetcher {
     }
   }
 
-  /** Printable-ASCII filter: multi-byte glyphs collapse to single spaces, CR/LF end the line. */
-  private static String sanitize(byte[] buf, int len) {
-    StringBuilder sb = new StringBuilder();
-    boolean lastSpace = true;
-    for (int i = 0; i < len; i++) {
-      int b = buf[i] & 0xFF;
-      if (b == '\r' || b == '\n') {
-        break;
-      }
-      if (b >= 0x20 && b < 0x7F) {
-        boolean space = b == ' ';
-        if (!(space && lastSpace)) {
-          sb.append((char) b);
-        }
-        lastSpace = space;
-      } else if (!lastSpace) {
-        sb.append(' ');
-        lastSpace = true;
-      }
+  /** "Overcast +17C" from the reply's {@code current} object. */
+  static String describe(String json) throws JSONException {
+    JSONObject current = new JSONObject(json).getJSONObject("current");
+    double celsius = current.getDouble("temperature_2m");
+    int rounded = (int) (celsius >= 0 ? celsius + 0.5 : celsius - 0.5);
+    return wmoText(current.getInt("weather_code"))
+        + " "
+        + (rounded >= 0 ? "+" : "")
+        + rounded
+        + "C";
+  }
+
+  /** The WMO 4677 weather codes open-meteo reports, in its own wording. */
+  static String wmoText(int code) {
+    switch (code) {
+      case 0:
+        return "Clear";
+      case 1:
+        return "Mainly clear";
+      case 2:
+        return "Partly cloudy";
+      case 3:
+        return "Overcast";
+      case 45:
+      case 48:
+        return "Fog";
+      case 51:
+      case 53:
+      case 55:
+        return "Drizzle";
+      case 56:
+      case 57:
+        return "Freezing drizzle";
+      case 61:
+      case 63:
+      case 65:
+        return "Rain";
+      case 66:
+      case 67:
+        return "Freezing rain";
+      case 71:
+      case 73:
+      case 75:
+        return "Snow";
+      case 77:
+        return "Snow grains";
+      case 80:
+      case 81:
+      case 82:
+        return "Showers";
+      case 85:
+      case 86:
+        return "Snow showers";
+      case 95:
+        return "Thunderstorm";
+      case 96:
+      case 99:
+        return "Thunderstorm with hail";
+      default:
+        return "Code " + code;
     }
-    return sb.toString().trim();
   }
 }

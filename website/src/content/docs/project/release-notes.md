@@ -7,6 +7,13 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`picodroid.json`: `JSONObject`, `JSONArray`, `JSONException` (roadmap T2.6)**
+
+- **Android's `org.json` API, under `picodroid.json`.** The full method surface of `JSONObject` and `JSONArray` — constructors from text, `Map`, `Collection` and arrays, `get`/`opt` with Android's coercions, `put`/`putOpt`/`accumulate`/`append`/`remove`, `keys`/`names`/`keySet`, `toString`/`toString(indent)`, `quote`/`numberToString`/`wrap`, the `NULL` sentinel — and a checked `JSONException`. Documents live in a native node pool: a wrapper holds only its node's index, values materialize on `get`, and a child wrapper shares its parent's node (mutations are visible both ways, as on Android). Nodes are reclaimed with the garbage collector through a new `native_state_prune` handler hook, which fires right after every collection the way `monitors_prune` does. The parser is strict RFC 8259; the pool is capped at 2048 nodes and 16 KiB of strings. See [JSON](/api/json/).
+- **One board switch.** `has_json = true` in `board.toml` turns the whole feature on — the four RP2350 boards set it. `testbench_rp2040` does not: the three classes leave its embedded SDK and the parser compiles out, so it pays nothing, and `verifyApiContract --board testbench_rp2040` rejects an app that uses JSON at build time instead of on the device.
+- **picoenvmon's weather row comes from open-meteo JSON** (`current.temperature_2m` plus the WMO `weather_code` mapped to text, e.g. `Overcast +17C`) instead of wttr.in's plain-text one-liner, in both the Java and Kotlin twins. Same fail-soft contract and 4 s timeouts.
+- New `examples/jsondemo` conformance app (also a `jsondemo` HIL row) covering parsing, coercion, mutation, identity, serialization, the error cases and a GC-stress loop over the pool.
+
 **`net: down` is logged once per change, not once per retry**
 
 - While a WiFi join keeps failing, FreeRTOS+TCP re-runs its link initialisation every 3 s and fired the down hook each time, so the RTT log filled with `net: down` lines that carried no news. The hook now remembers the last state and logs only a transition: one `net: down`, then `net: up, ip …` when the join succeeds, and `net: up` again only if the address changes.

@@ -202,8 +202,10 @@ app degrades gracefully there — the Network screen shows "WiFi not available")
   `System.currentTimeMillis`; History rows show `HH:MM`, the sample dialog shows
   the full date, ALERT log lines carry `[HH:MM:SS]`. All times UTC
   (`TimeFormat.UTC_OFFSET_MINUTES` to shift display).
-- **Weather** — one-line wttr.in fetch (plain HTTP), strictly fail-soft
-  ("unavailable" on any failure); city is a constant in `WeatherFetcher`.
+- **Weather** — one open-meteo fetch (plain HTTP; `current` temperature and
+  WMO weather code parsed with `picodroid.json`, mapped to "Overcast +17C"),
+  strictly fail-soft ("unavailable" on any failure); city and coordinates are
+  constants in `WeatherFetcher`.
 - **Network screen** — 4th hub entry: status, IP, URL, time, weather + a Refresh
   button (X). A/B/X/Y model unchanged.
 

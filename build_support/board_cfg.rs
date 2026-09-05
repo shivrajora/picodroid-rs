@@ -54,12 +54,63 @@ impl ResolvedBoard {
 /// has no room to spare. Excluding a class here keeps it off boards that
 /// cannot afford it; apps built for such a board must not reference it.
 /// Empty for boardless builds and for boards that set nothing.
+///
+/// Feature-owned classes are appended here from their board.toml switch
+/// rather than hand-listed: `has_json` off drops [`JSON_CLASSES`] (and the
+/// Rust side goes with it, `cfg(has_json)`), so one key controls the whole
+/// feature. Listing one of those classes by hand while the switch is on is
+/// a contradiction and fails the build.
 pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
-    board
+    let mut list: Vec<String> = board
         .as_ref()
         .and_then(|b| b.cfg.props.get("framework_class_excludes"))
         .map(|v| config::parse_str_list(v))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let json_listed = list.iter().any(|e| JSON_CLASSES.contains(&e.as_str()));
+    if has_json(board) {
+        if let Some(b) = board {
+            assert!(
+                !json_listed,
+                "board '{}' sets has_json = true but framework_class_excludes names a \
+                 picodroid/json class — drop has_json instead of listing the classes",
+                b.name
+            );
+        }
+    } else {
+        for c in JSON_CLASSES {
+            if !list.iter().any(|e| e == c) {
+                list.push((*c).to_string());
+            }
+        }
+    }
+    list
+}
+
+/// The SDK classes the `has_json` board.toml key owns, in JVM internal
+/// form. Inner classes follow their outer class through the embed step.
+pub const JSON_CLASSES: &[&str] = &[
+    "picodroid/json/JSONObject",
+    "picodroid/json/JSONArray",
+    "picodroid/json/JSONException",
+];
+
+/// The optional top-level `has_json = true` board.toml key: whether this
+/// board ships `picodroid.json` (the SDK classes and the Rust node pool).
+/// Off by default so a flash- or RAM-tight board pays nothing for it; on
+/// for boardless builds so the host tests cover the parser.
+pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
+    match props(board) {
+        None => true,
+        Some(p) => p.get("has_json").map(String::as_str) == Some("true"),
+    }
+}
+
+/// Emit the `has_json` rustc cfg from board.toml (see [`has_json`]).
+pub fn emit_json_cfg(board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(has_json)");
+    if has_json(board) {
+        println!("cargo:rustc-cfg=has_json");
+    }
 }
 
 /// Resolve the active board for a crate whose manifest lives at
@@ -97,6 +148,7 @@ pub fn resolve(manifest_dir: &Path) -> Option<ResolvedBoard> {
 pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_heap_config(out, board);
     emit_network_cfgs(board);
+    emit_json_cfg(board);
     emit_sensor_config(out, board);
     emit_button_config(out, board);
     emit_background_pool_config(out, board);

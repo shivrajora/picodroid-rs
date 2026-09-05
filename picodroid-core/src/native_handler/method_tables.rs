@@ -623,9 +623,126 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/ToggleButton", "toggle", "()V"),
 ];
 
+/// `native_handler/json.rs` — every `JSONObject`/`JSONArray` native is a
+/// static on `JSONObject`, one name per overload.
+pub const JSON_HANDLED: &[Row] = &[
+    // picodroid/json/JSONObject
+    (
+        "picodroid/json/JSONObject",
+        "nativeBind",
+        "(Ljava/lang/Object;I)V",
+    ),
+    ("picodroid/json/JSONObject", "nativeBoolValue", "(I)Z"),
+    (
+        "picodroid/json/JSONObject",
+        "nativeChild",
+        "(ILjava/lang/String;)I",
+    ),
+    ("picodroid/json/JSONObject", "nativeChildAt", "(II)I"),
+    ("picodroid/json/JSONObject", "nativeDoubleValue", "(I)D"),
+    ("picodroid/json/JSONObject", "nativeIntValue", "(I)I"),
+    (
+        "picodroid/json/JSONObject",
+        "nativeKeyAt",
+        "(II)Ljava/lang/String;",
+    ),
+    ("picodroid/json/JSONObject", "nativeKind", "(I)I"),
+    (
+        "picodroid/json/JSONObject",
+        "nativeLastError",
+        "()Ljava/lang/String;",
+    ),
+    ("picodroid/json/JSONObject", "nativeLength", "(I)I"),
+    ("picodroid/json/JSONObject", "nativeLongValue", "(I)J"),
+    (
+        "picodroid/json/JSONObject",
+        "nativeNewArray",
+        "(Ljava/lang/Object;)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeNewObject",
+        "(Ljava/lang/Object;)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeParse",
+        "(Ljava/lang/Object;Ljava/lang/String;Z)I",
+    ),
+    ("picodroid/json/JSONObject", "nativePoolNodes", "()I"),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutBool",
+        "(ILjava/lang/String;Z)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutDouble",
+        "(ILjava/lang/String;D)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutInt",
+        "(ILjava/lang/String;I)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutLong",
+        "(ILjava/lang/String;J)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutNode",
+        "(ILjava/lang/String;I)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutNull",
+        "(ILjava/lang/String;)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativePutString",
+        "(ILjava/lang/String;Ljava/lang/String;)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeQuote",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeRemove",
+        "(ILjava/lang/String;)V",
+    ),
+    ("picodroid/json/JSONObject", "nativeRemoveAt", "(II)V"),
+    ("picodroid/json/JSONObject", "nativeSetBool", "(IIZ)I"),
+    ("picodroid/json/JSONObject", "nativeSetDouble", "(IID)I"),
+    ("picodroid/json/JSONObject", "nativeSetInt", "(III)I"),
+    ("picodroid/json/JSONObject", "nativeSetLong", "(IIJ)I"),
+    ("picodroid/json/JSONObject", "nativeSetNode", "(III)I"),
+    ("picodroid/json/JSONObject", "nativeSetNull", "(II)I"),
+    (
+        "picodroid/json/JSONObject",
+        "nativeSetString",
+        "(IILjava/lang/String;)I",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeStringValue",
+        "(I)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/json/JSONObject",
+        "nativeToString",
+        "(II)Ljava/lang/String;",
+    ),
+];
+
 pub const ALL_HANDLED: &[&[Row]] = &[
     PIO_HANDLED,
     IO_HANDLED,
+    JSON_HANDLED,
     NET_HANDLED,
     OS_HANDLED,
     CONCURRENT_HANDLED,

@@ -220,7 +220,7 @@ jobs:
       # CI-simulated.
       - name: Run sim smoke subset
         run: |
-          for app in helloworld hellokt gcstress gcstress_kt langsuite langsuite_kt langsuite_kt_stdlib injectdemo_kt callbacktest picoenvmon picoenvmon_kt prefs_demo clinitdemo heapstress classlit tracedemo; do
+          for app in helloworld hellokt gcstress gcstress_kt langsuite langsuite_kt langsuite_kt_stdlib injectdemo_kt callbacktest picoenvmon picoenvmon_kt prefs_demo clinitdemo heapstress classlit tracedemo jsondemo; do
             bash scripts/sim-run.sh --app "$app" --no-email
           done
   formatting:

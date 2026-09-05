@@ -437,12 +437,27 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   debug-profile images only (flash-string-budget §4).
 - **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
   embedder arms can upcall; T3.4 is unblocked.
-- **T2.6 — JSON.** `picodroid.json.JSONObject`/`JSONArray`/`JSONException`
-  with exact `org.json` signatures. Native handle-backed parse tree with
-  strings materialized on `get`, so no native code holds `ObjectRef`s. Three
-  S-classes (E1-gated) plus `native_handler/json.rs`. Retires picoenvmon's
-  hand-rolled parser. *Namespace note:* Android ships this as `org.json`; the
-  picodroid-namespace rule makes it `picodroid.json`.
+- **T2.6 — JSON. DONE 2026-09-04.** `picodroid.json.JSONObject`/`JSONArray`/
+  `JSONException` with Android's full `org.json` surface for the two classes.
+  Native node pool (`picodroid-core/src/json/`: pool, strict RFC 8259 parser,
+  `JSONStringer`-style serializer) plus `native_handler/json.rs`; wrappers hold
+  an `int` node index, values materialize on `get`, child wrappers share the
+  parent's node (identity semantics). No native code holds a JVM reference —
+  what it needed instead was to learn when a wrapper dies: a new
+  `NativeMethodHandler::native_state_prune` hook, called from the same funnel
+  as `monitors_prune`, drops dead wrappers' bindings and sweeps unreachable
+  nodes. *What differed from the plan:* there was no hand-rolled parser to
+  retire — picoenvmon was on wttr.in's plain-text one-liner — so the consumer
+  is an open-meteo JSON fetch (both twins); the Java side owns every boxing
+  and coercion decision so the natives are one typed primitive each and need
+  no descriptor rows; the pool charges its nodes to the GC pacer
+  (`ObjectHeap::charge_alloc_events`) because native `Vec`s are invisible to
+  it; and E1 gating became a board switch, `has_json = true` in board.toml,
+  which derives both the class exclusion (firmware and `verifyApiContract`)
+  and the `cfg(has_json)` for the Rust side — on for the four RP2350 boards,
+  off for `testbench_rp2040`. `examples/jsondemo` is the conformance app.
+  *Namespace note:* Android ships this as `org.json`; the picodroid-namespace
+  rule makes it `picodroid.json`.
 - **T2.7 — shape corrections. DONE 2026-08-31.** `Service extends Context`
   and `onStartCommand(Intent, int flags, int startId)` (`flags` is always 0:
   redelivery after a process kill has no MCU analogue); `Button extends
@@ -525,7 +540,7 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 4. ~~T2.2 collection interfaces~~ (done — and it turned out to be a
    stub-retirement plus a hygiene test, not new SDK classes)
 5. T2.4 line-number stack traces
-6. T2.6 JSON + T2.3 Thread parity
+6. ~~T2.6 JSON~~ (done 2026-09-04) + ~~T2.3 Thread parity~~ (done)
 7. T3.1 Bundle → `onCreate(Bundle)` → save/restore
 8. T2.5 upcall → T3.4 convertView recycling
 9. T3.2 resource system (A → B → C)
