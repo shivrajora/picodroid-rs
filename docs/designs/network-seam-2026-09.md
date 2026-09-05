@@ -317,9 +317,10 @@ Both shapes use the same six items: `NetLink`, `run_link_task`,
   `libc_shims: false` field would handle it.
 - W-board device rows in `scripts/hil-tests.conf` remain the NET-7 handover's job.
 - The shrink map: new Java names stay un-shrunk until a release cut on `main`.
-- `picodroid_net_ip_event` logs `net: down` on every 3-second stack retry while
-  the link is not up (30 lines in a 90 s NONET soak). Log it once per
-  transition instead; a core-only change, not part of this seam work.
+- ~~`picodroid_net_ip_event` logs `net: down` on every 3-second stack retry while
+  the link is not up (30 lines in a 90 s NONET soak).~~ Done 2026-09-04:
+  `hal::net_edge::NetEdge` remembers the last state and the hook logs only a
+  transition (`down` once, `up` once, `up` again on a changed address).
 
 ## 8. Docs and guards
 

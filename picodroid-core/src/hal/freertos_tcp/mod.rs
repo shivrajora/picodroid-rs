@@ -18,6 +18,7 @@
 
 use core::ffi::c_void;
 
+use crate::hal::net_edge::{NetEdge, NetTransition};
 use crate::hal::types::{NetError, NetErrorKind};
 use crate::hal::{HalNet, NetLink};
 use crate::rtos::{task_wait_notification, Timeout};
@@ -76,17 +77,27 @@ pub fn run_link_task<L: NetLink>(mut link: L) {
 /// The FreeRTOS+TCP socket layer. Register with `set_hal_net!(FreeRtosTcpNet)`.
 pub struct FreeRtosTcpNet;
 
+/// The last link state the event hook saw, so repeats are not logged.
+static NET_EDGE: NetEdge = NetEdge::new();
+
 /// Network up/down events from the shared stack glue
 /// (`picodroid-core/net-freertos-tcp/net_init.c`). `ip_nbo` is the endpoint
 /// address in network byte order within a little-endian u32, so the first
 /// octet is the low byte.
+///
+/// The stack fires `down` on every 3-second initialisation retry while the
+/// link driver fails to come up (a WiFi join that keeps failing), so only a
+/// change of state reaches the log: `net: down` once, then `net: up` when
+/// the link finally joins.
 #[no_mangle]
 pub extern "C" fn picodroid_net_ip_event(up: u32, ip_nbo: u32) {
-    let o = ip_nbo.to_le_bytes();
-    if up != 0 {
-        crate::pd_info!("net: up, ip {}.{}.{}.{}", o[0], o[1], o[2], o[3]);
-    } else {
-        crate::pd_warn!("net: down");
+    match NET_EDGE.observe(up != 0, ip_nbo) {
+        Some(NetTransition::Up(ip)) => {
+            let o = ip.to_le_bytes();
+            crate::pd_info!("net: up, ip {}.{}.{}.{}", o[0], o[1], o[2], o[3]);
+        }
+        Some(NetTransition::Down) => crate::pd_warn!("net: down"),
+        None => {}
     }
 }
 

@@ -223,9 +223,9 @@ See [WiFi & networking setup](/get-started/networking/).
 
 The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Poll `NetworkInfo.isConnected()` against a deadline (the example apps wait up to 30 s) before opening sockets — see [WiFi & networking setup](/get-started/networking/).
 
-### Repeated `net: down` lines over RTT
+### `net: down` over RTT with no `net: up` after it
 
-The join is retrying. This is a known issue — see [Known issues & current limits](/reference/known-issues/). Once the join succeeds you'll see `net: up, ip a.b.c.d`.
+The join is failing and the stack is retrying it every 3 s. The line is logged once per change of state, so silence after it means the retries are still failing, not that they stopped; check the SSID and password the firmware was built with (`PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS`, or `.wifi-creds.env`). Once a join succeeds you'll see `net: up, ip a.b.c.d`.
 
 ## `HttpURLConnection` hangs or throws at `connect()`
 

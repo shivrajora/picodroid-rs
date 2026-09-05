@@ -7,6 +7,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`net: down` is logged once per change, not once per retry**
+
+- While a WiFi join keeps failing, FreeRTOS+TCP re-runs its link initialisation every 3 s and fired the down hook each time, so the RTT log filled with `net: down` lines that carried no news. The hook now remembers the last state and logs only a transition: one `net: down`, then `net: up, ip …` when the join succeeds, and `net: up` again only if the address changes.
+
 **Debug firmware boots on the Pico 2 W again; every board keeps a main-stack floor**
 
 - The core-0 main stack is whatever `.data` + `.bss` leave of RAM. The network boards' statics had squeezed it to 4.4 KB, and the debug-profile image (the one `flash.sh` builds by default, with line-number traces) faulted at boot before its first log line. The RP2350 heap arena is now 408 KB instead of 416 KB, which leaves at least 12 KB on every RP2350 board; picoenvmon still fits.

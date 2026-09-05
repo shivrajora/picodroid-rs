@@ -24,6 +24,9 @@ pub mod array_io;
 // The GPIO edge ring between an interrupt and the UI task, and the scripted
 // touch a debug bridge engages — both were copied per family before.
 pub mod event_ring;
+// Up/down edge detection for an IP stack's network-event hook: the stack
+// repeats "down" on every retry, the log wants it once per change.
+pub mod net_edge;
 pub mod touch_override;
 
 // The host implementation of the hardware surface, shared by every family
