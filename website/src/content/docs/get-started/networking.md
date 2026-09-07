@@ -52,8 +52,10 @@ Watch the RTT log for the state lines:
 
 ```text
 net: up, ip 192.168.1.42     ← joined + DHCP lease acquired
-net: down                    ← link lost (or a join attempt retrying)
+net: down                    ← link lost, or the join has not succeeded yet
 ```
+
+Each line is printed once per change of state: a join that keeps failing logs one `net: down`, not one per retry.
 
 ## Wait for the network in your app
 

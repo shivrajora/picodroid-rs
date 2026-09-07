@@ -156,9 +156,21 @@ else
   APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 fi
 
-# Step 2: Compile and run the simulator with the APK embedded.
+# Step 2: Compile the simulator, then run it with the APK.
 # Sim always targets the host — do not pass EXTRA_BUILD_ARGS (no -Zbuild-std for host).
+#
+# Build and run are deliberately separate steps (same pattern as sim-run.sh).
+# The build-time PICODROID_APK_PATH is a constant marker, not the real path:
+# the sim binary loads the .papk at startup from the *runtime* env var
+# (build_support/papk.rs::embed_apk), and the framework-class embed only keys
+# on the var being set. Both build scripts declare
+# `rerun-if-env-changed=PICODROID_APK_PATH`, so passing the real path through
+# `cargo run` recompiled picodroid-core and picodroid (~50 s) on every app
+# switch — which is what pushed test-memdiag.sh's 60 s self-test leg over
+# its budget once the crates grew (nightly 2026-09-03). With the marker, the
+# first build per feature set is the only real build.
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
+BUILD_ENV=(PICODROID_APK_PATH="sim-runtime")
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
 fi
@@ -166,7 +178,10 @@ if [[ -n "$SANITIZE_HANDLES" ]]; then
   ENV_VARS+=(PICODROID_HANDLE_SANITIZER="$SANITIZE_HANDLES")
 fi
 if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
+  # PICODROID_SHRINK is a build-time input too (build.rs rerun-if-env-changed);
+  # it must match the APK's mode or verify_compat rejects at load time.
   ENV_VARS+=(PICODROID_SHRINK=1)
+  BUILD_ENV+=(PICODROID_SHRINK=1)
 fi
 
 # line-numbers: the sim always prints (File.java:39) stack-trace frames.
@@ -180,11 +195,24 @@ if [[ -n "$MEM_DIAG" ]]; then
   ENV_VARS+=(PICODROID_MEMDIAG_SENTINEL="${PICODROID_MEMDIAG_SENTINEL:-1}")
 fi
 
+PROFILE_DIR="debug"
+for arg in "${EXTRA_ARGS[@]}"; do
+  [[ "$arg" == "--release" ]] && PROFILE_DIR="release"
+done
+
 # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
-env "${ENV_VARS[@]}" cargo $CARGO_PLUS run \
+env "${BUILD_ENV[@]}" cargo $CARGO_PLUS build \
   --manifest-path "$MANIFEST_DIR/Cargo.toml" \
   -p "$PACKAGE" \
   --target "$HOST_TARGET" \
   --no-default-features \
   --features "$FEATURES" \
   "${EXTRA_ARGS[@]}"
+
+SIM_BIN="$TARGET_DIR/$HOST_TARGET/$PROFILE_DIR/$PACKAGE"
+if [[ ! -x "$SIM_BIN" ]]; then
+  echo "Error: sim binary not found at $SIM_BIN" >&2
+  exit 1
+fi
+echo "     Running \`$SIM_BIN\`" >&2
+exec env "${ENV_VARS[@]}" "$SIM_BIN"
