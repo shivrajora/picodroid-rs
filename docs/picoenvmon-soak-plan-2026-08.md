@@ -172,16 +172,19 @@ If the panic reproduces in phase "Combined", STOP loading and go to §6.
   a separate ticket, not this session's problem.
 - Weather content nonsense ("Blizzard" in summer) — upstream wttr.in cache
   garbage; the pipeline is verbatim. Never assert on weather content.
-- Isolated page timeouts at boot / 6 h / 15 min marks — §5.
+- Isolated page timeouts at boot / 6 h / 15 min marks — §5 (a finding since
+  the 2026-09-04 serve-loop fix, not expected behavior).
 
 ## 5. Known serve-loop gaps (expected, timestamp-correlatable)
 
-NTP and weather run on the serve thread's housekeeping tick. The dashboard
-does not accept connections during: boot-time NTP retries (up to 3 s × 3),
-weather fetch (DNS + HTTP, up to ~5 s), the 6 h NTP re-sync, the 15 min
-weather refresh, and 5 min failure backoffs. Log the device's `ntp:` /
-`weather:` lines and correlate: an HTTP timeout **at** one of these
-timestamps is expected behavior; one **away** from them is a finding.
+Since 2026-09-04 (`fix/dashboard-stall`) NTP and weather run as a job on the
+shared background pool and the serve thread only schedules it, so the
+dashboard keeps accepting connections through boot-time NTP retries, the
+weather fetch, the 6 h NTP re-sync, the 15 min weather refresh and the 5 min
+failure backoffs. Still log the device's `ntp:` / `weather:` lines and
+correlate: an HTTP timeout at one of those timestamps is now a **finding**
+(the fix regressed, or a pool worker died), not expected behavior. Before the
+fix the dashboard did not accept during those windows (up to ~14 s).
 
 ## 6. On crash — evidence before recovery
 

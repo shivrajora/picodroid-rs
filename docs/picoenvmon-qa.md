@@ -209,10 +209,15 @@ app degrades gracefully there — the Network screen shows "WiFi not available")
 - **Network screen** — 4th hub entry: status, IP, URL, time, weather + a Refresh
   button (X). A/B/X/Y model unchanged.
 
-Everything networked runs on ONE background thread owned by `NetworkManager`
+The dashboard accept loop runs on ONE background thread owned by `NetworkManager`
 (app-scoped by design — Android would use a Service; the 16 KiB-per-thread cost and
 heap budget favor a single thread whose accept timeout doubles as the housekeeping
-tick). All UI updates cross to the main thread via `Executors.mainExecutor()`.
+tick). Since 2026-09-04 the tick only schedules: NTP and weather run as a job on the
+framework's shared background pool (`Executors.backgroundExecutor()`, four resident
+workers), so a slow fetch never delays a page. The W board gives those workers 6 KiB
+stacks (`[background_pool]` in its board.toml): the job's deepest point measured 4.7 KB
+with `pdb sysmon`, and the 4 KiB default hard-faulted on the first weather fetch. All UI
+updates cross to the main thread via `Executors.mainExecutor()`.
 
 QA hooks: `./scripts/sim-run.sh --app picoenvmon` runs both board smokes (the -w
 lane curls the dashboard; NTP/weather assertions accept the fail-soft tokens so

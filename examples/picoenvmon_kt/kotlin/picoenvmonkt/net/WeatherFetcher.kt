@@ -17,13 +17,15 @@ import picoenvmonkt.TAG
  * every failure — DNS, timeout, non-200, garbage — returns null and the UI renders "unavailable".
  * Nothing in CI ever asserts on weather content.
  *
- * The fetch runs on the NetworkManager thread, serially with dashboard serving, so it must be
- * time-bounded: a stalled endpoint with no timeouts starved the serve loop for a whole 25 s smoke
- * run (nightly 2026-08-18). Connect and read timeouts bound each blocking network call at
- * [TIMEOUT_MS]; the reply is a few hundred bytes, so the read count stays small.
+ * The fetch runs as a NetworkManager housekeeping job on a shared background-pool worker, so it no
+ * longer delays dashboard serving — but it must still be time-bounded: a stalled endpoint with no
+ * timeouts once starved the (then shared) serve loop for a whole 25 s smoke run (nightly
+ * 2026-08-18), and today an unbounded fetch would tie up a pool worker and trip NetworkManager's
+ * stall ceiling. Connect and read timeouts bound each blocking network call at [TIMEOUT_MS]; the
+ * reply is a few hundred bytes, so the read count stays small.
  */
 
-/** Per-phase (connect, read) bound. Worst-case housekeeping stall must stay well under 25 s. */
+/** Per-phase (connect, read) bound; counted in NetworkManager's housekeeping stall ceiling. */
 private const val TIMEOUT_MS = 4000
 
 /** Coordinates of the display city (San Mateo), build-time constants like the Java twin's. */

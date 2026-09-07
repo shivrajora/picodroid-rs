@@ -128,3 +128,18 @@ keycode = 23
 pin = 15
 lv_key = "ESC"
 keycode = 4
+
+# Background pool: NetworkManager posts its NTP + weather job to these
+# workers (the serve thread only schedules, so a fetch never delays a page).
+# The 4 KB default hard-faulted on the first weather fetch: measured with
+# `pdb sysmon` (2026-09-04), the job's deepest point (DNS + UDP + HTTP + JSON
+# parse on the worker stack) uses 4,712 B — 870 of 2,048 words left on an
+# 8 KB stack, stable over 17 jobs including the NTP-timeout path. 6 KB leaves
+# 23 % headroom: a deliberate exception to the 25 % rule in
+# platforms/rp/src/boot_budget.rs, accepted 2026-09-07 to keep the heap cost
+# at +2 KB x 4 workers = 8 KB (8 KB stacks cost 16 KB and pulled the
+# `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB min-free). Getting even
+# that back means `threads = 2` here, which needs the sim boot-budget model
+# to stop hard-coding four workers (docs/networking-followups-2026-08.md).
+[background_pool]
+stack_bytes = 6144

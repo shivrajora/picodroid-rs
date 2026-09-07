@@ -100,6 +100,18 @@ The second is probably smaller.
 
 ## 5. Serve-loop latency: NTP/weather block page loads
 
+**Fixed 2026-09-04 (`fix/dashboard-stall`)** — `NetworkManager` keeps the
+accept loop on its own thread and posts the NTP + weather job to the
+framework's shared background pool (`Executors.backgroundExecutor()`), whose
+four workers were already resident and idle in this app. Their 4 KiB stacks
+were too small for the job (hard fault on the first weather fetch; measured
+4.7 KB deep with `pdb sysmon`), so the W board.toml gives them 6 KiB (+8 KiB
+of boot heap, 23 % headroom accepted over the 25 % rule) against a second
+`Thread`'s 16 KiB plus its own class state. A busy flag stops double posts, a 180 s ceiling re-arms a lost job,
+and Refresh is a flag the next tick honours. Measured on the board: first
+byte under 0.4 s through NTP timeouts and weather fetches (was ~13 s).
+Original note below.
+
 `NetworkManager` runs accept + housekeeping on one thread; boot NTP
 retries (3 s × 3), weather fetch (DNS + HTTP ~5 s), the 6 h NTP re-sync
 and 15 min weather refresh all stall the dashboard for seconds

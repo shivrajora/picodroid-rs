@@ -315,10 +315,11 @@ run_enviro_w_smoke() {
     timeout 25 "$bin" > "$log_file" 2>&1 < /dev/null &
   local sim_pid=$!
 
-  # Probe the dashboard once the server line appears (bounded wait). The
-  # serve loop shares its thread with NTP + weather housekeeping (bounded but
-  # up to ~11 s on a slow external endpoint), so retry rather than fail on one
-  # unanswered request — the 2026-08-18 nightly failed on exactly that.
+  # Probe the dashboard once the server line appears (bounded wait). NTP +
+  # weather housekeeping runs on the background pool, off the serve thread, so
+  # an unanswered page is a finding, not expected (it was until 2026-09-04: the
+  # 2026-08-18 nightly failed on a ~11 s housekeeping stall). The short retry
+  # only covers the moment right after "http: serving" appears.
   local page_ok=0
   local i attempt
   for i in $(seq 1 20); do
