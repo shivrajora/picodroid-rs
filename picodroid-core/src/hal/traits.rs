@@ -269,6 +269,8 @@ pub trait HalFs {
     /// `.` and `..`. Returns `false` when `path` is not a directory or the
     /// read fails; `out` may then hold a partial listing.
     fn list_dir(path: &str, out: &mut alloc::vec::Vec<DirEntry>) -> bool;
+    /// The volume's `(total, free)` bytes; `(0, 0)` when unavailable.
+    fn space() -> (u64, u64);
 }
 
 /// One entry of a directory listing, as [`HalFs::list_dir`] reports it.

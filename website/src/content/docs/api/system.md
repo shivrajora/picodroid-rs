@@ -54,6 +54,22 @@ Runtime.resetPeakMemory();            // reset the peak counter to the current u
 `usedMemory` / `peakMemory` / `resetPeakMemory` are handy for profiling — bracket a workload with
 `resetPeakMemory()` then read `peakMemory()` to capture its high-water allocation.
 
+## `picodroid.os.Build`
+
+What the firmware was built for, as `android.os.Build` reports it:
+
+```java
+Build.BOARD            // the board.toml name, e.g. "testbench_rp2350"
+Build.HARDWARE         // the MCU, e.g. "rp2350"
+Build.VERSION.RELEASE  // the framework map version the firmware was cut with, e.g. "0.21.0"
+```
+
+`VERSION.RELEASE` is the same version `pdb ping` reports; a PAPK installs when its own map version is compatible with it.
+
+## `picodroid.os.StatFs`
+
+Space on the storage volume — see [storage](/api/storage/#picodroidosstatfs).
+
 ## `picodroid.content.pm.PackageManager`
 
 What the device has installed, and what it can run. `Context.getPackageManager()` returns it (every Activity, Application and Service is a Context). Mirrors `android.content.pm.PackageManager`.

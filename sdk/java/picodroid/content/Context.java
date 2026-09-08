@@ -3,6 +3,7 @@ package picodroid.content;
 
 import java.io.IOException;
 import picodroid.app.NotificationManager;
+import picodroid.app.usage.StorageStatsManager;
 import picodroid.content.pm.PackageManager;
 import picodroid.hardware.SensorManager;
 import picodroid.io.File;
@@ -22,6 +23,12 @@ public class Context {
 
   /** Name for {@link #getSystemService}: retrieves the {@link NotificationManager}. */
   public static final String NOTIFICATION_SERVICE = "notification";
+
+  /**
+   * Name for {@link #getSystemService}: retrieves the {@link StorageStatsManager} (multi-app boards
+   * only; a single-app board's framework has no such class).
+   */
+  public static final String STORAGE_STATS_SERVICE = "storagestats";
 
   /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
@@ -47,6 +54,9 @@ public class Context {
     }
     if (NOTIFICATION_SERVICE.equals(name)) {
       return NotificationManager.getInstance();
+    }
+    if (STORAGE_STATS_SERVICE.equals(name)) {
+      return StorageStatsManager.getInstance();
     }
     return null;
   }

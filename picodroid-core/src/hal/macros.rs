@@ -539,6 +539,10 @@ macro_rules! set_hal_fs {
             ) -> bool {
                 <$t as $crate::hal::HalFs>::list_dir(path, out)
             }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_space() -> (u64, u64) {
+                <$t as $crate::hal::HalFs>::space()
+            }
         };
     };
 }

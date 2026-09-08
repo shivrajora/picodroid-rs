@@ -19,6 +19,12 @@ pub mod flash {
     include!(concat!(env!("OUT_DIR"), "/flash_layout.rs"));
 }
 
+/// What this firmware was built for: the board and MCU names
+/// `picodroid.os.Build` reports (`build_support/board_cfg.rs::emit_build_info`).
+pub mod build_info {
+    include!(concat!(env!("OUT_DIR"), "/build_info.rs"));
+}
+
 /// System apps linked into the firmware: their PAPKs in `.rodata`, the
 /// launcher's package name and the `flash.sh --boot` override
 /// (`build_support/papk.rs::embed_system_apks`; multi-app M2). Empty for

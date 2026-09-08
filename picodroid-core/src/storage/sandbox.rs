@@ -101,6 +101,9 @@ pub fn ensure_package_dir() {
         if let Ok(root) = resolve(Some(package), "", &mut buf) {
             let _ = crate::hal::fs::mkdir(DATA_ROOT);
             let _ = crate::hal::fs::mkdir(root);
+            // The quota may have walked the package before its directory
+            // existed; the pair it just gained must be counted.
+            crate::storage::quota::invalidate();
         }
     }
     ENSURED_FOR.store(generation, Ordering::Release);

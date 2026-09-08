@@ -18,7 +18,7 @@ use pdb_protocol::{
 
 use super::framing::{send_response, Framed, TextBuf};
 use super::PdbTransport;
-use crate::install::{run_uninstall, CoreCoordinator, PapkFlash};
+use crate::install::{uninstall, CoreCoordinator, PapkFlash};
 use crate::packages::{self, Kind, SECTOR};
 
 /// Room for eight rows of a long package name and label, the system rows,
@@ -127,7 +127,12 @@ pub fn handle_uninstall(
         Some(e) => (e.first_sector as u32, e.sectors as u32),
     };
     let mut framed = Framed(transport);
-    run_uninstall(&mut framed, coordinator, flash, first, sectors);
+    if uninstall(&mut framed, coordinator, flash, first, sectors) {
+        // The package's data goes with it (D10); then the reset
+        // `run_uninstall` would have made.
+        crate::storage::wipe_package(package);
+        flash.trigger_reset();
+    }
 }
 
 #[cfg(test)]

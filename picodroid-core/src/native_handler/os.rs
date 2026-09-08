@@ -37,6 +37,39 @@ pub fn dispatch(
                 None => Err(JvmError::StackOverflow),
             })
         }
+        // ── Build, StatFs, StorageStatsManager (multi-app M3b) ───────────
+        (c::picodroid_os_Build, m::nativeBoard) => {
+            Some(interned(ctx, crate::board_cfg::build_info::BOARD))
+        }
+        (c::picodroid_os_Build, m::nativeHardware) => {
+            Some(interned(ctx, crate::board_cfg::build_info::MCU))
+        }
+        (c::picodroid_os_Build, m::nativeRelease) => {
+            Some(interned(ctx, crate::framework_map::FRAMEWORK_MAP_VERSION))
+        }
+        (c::picodroid_os_StatFs, m::nativeTotalBytes) => {
+            Some(Ok(Some(Value::Long(crate::hal::fs::space().0 as i64))))
+        }
+        (c::picodroid_os_StatFs, m::nativeFreeBytes) => {
+            Some(Ok(Some(Value::Long(crate::hal::fs::space().1 as i64))))
+        }
+        (c::picodroid_os_StatFs, m::nativeAvailableBytes) => Some(Ok(Some(Value::Long(
+            crate::storage::quota::available_for_app() as i64,
+        )))),
+        #[cfg(has_multi_app)]
+        (c::picodroid_app_usage_StorageStatsManager, m::nativeAppBytes) => {
+            let bytes = string_arg(ctx, 0)
+                .and_then(crate::packages::find)
+                .map_or(-1, |e| {
+                    i64::from(e.sectors) * crate::packages::SECTOR as i64
+                });
+            Some(Ok(Some(Value::Long(bytes))))
+        }
+        #[cfg(has_multi_app)]
+        (c::picodroid_app_usage_StorageStatsManager, m::nativeDataBytes) => {
+            let bytes = string_arg(ctx, 0).map_or(0, |p| crate::storage::quota::usage_of(p) as i64);
+            Some(Ok(Some(Value::Long(bytes))))
+        }
         // ── PackageManager queries (multi-app boards) ─────────────────
         // One value per call over the package directory; an index is the
         // package's position, stable while an app runs (single writer).
@@ -97,6 +130,23 @@ pub fn dispatch(
             };
             Some(Ok(Some(Value::Int(supported as i32))))
         }
+        _ => None,
+    }
+}
+
+/// A `&'static str` for Java, interned.
+fn interned(ctx: &mut NativeContext<'_>, s: &str) -> Result<Option<Value>, JvmError> {
+    match ctx.strings.intern_dyn(s.as_bytes()) {
+        Some(idx) => Ok(Some(Value::Reference(idx))),
+        None => Err(JvmError::StackOverflow),
+    }
+}
+
+/// The `String` at `args[i]`, if it is one.
+#[cfg(has_multi_app)]
+fn string_arg<'a>(ctx: &'a NativeContext<'_>, i: usize) -> Option<&'a str> {
+    match ctx.args.get(i) {
+        Some(Value::Reference(idx)) => ctx.strings.resolve(*idx),
         _ => None,
     }
 }

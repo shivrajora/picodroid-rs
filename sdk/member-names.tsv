@@ -17,6 +17,7 @@ F	ACTION_MOVE
 F	ACTION_UP
 F	BLACK
 F	BLUE
+F	BOARD
 F	BOTTOM
 F	BUTTON_NEGATIVE
 F	BUTTON_NEUTRAL
@@ -44,6 +45,7 @@ F	FLAG_SYSTEM
 F	FLING_MIN_PX
 F	GONE
 F	GREEN
+F	HARDWARE
 F	HORIZONTAL
 F	HOURS
 F	HTTP_ACCEPTED
@@ -141,6 +143,7 @@ F	PROPERTY_TRANSLATION_Y
 F	PROPERTY_X
 F	PROPERTY_Y
 F	RED
+F	RELEASE
 F	RESULT_CANCELED
 F	RESULT_FIRST_USER
 F	RESULT_OK
@@ -170,6 +173,7 @@ F	START_FLAG_RETRY
 F	START_NOT_STICKY
 F	START_REDELIVER_INTENT
 F	START_STICKY
+F	STORAGE_STATS_SERVICE
 F	ST_CYCLE
 F	ST_EXHAUSTED
 F	SWIPE_DOWN
@@ -230,6 +234,7 @@ F	alive
 F	alpha
 F	alphaTo
 F	app
+F	appBytes
 F	applicationInfo
 F	base
 F	boundView
@@ -251,6 +256,7 @@ F	connectTimeout
 F	count
 F	daemon
 F	data
+F	dataBytes
 F	dateChangedListener
 F	defaultHandler
 F	doOutput
@@ -529,12 +535,18 @@ M	getAndAdd
 M	getAndDecrement
 M	getAndIncrement
 M	getAndSet
+M	getAppBytes
 M	getApplicationIcon
 M	getApplicationLabel
+M	getAvailableBlocksLong
+M	getAvailableBytes
+M	getBlockCountLong
+M	getBlockSizeLong
 M	getBoolean
 M	getBooleanExtra
 M	getByAddress
 M	getByName
+M	getCacheBytes
 M	getCheckedRadioButtonId
 M	getChildAt
 M	getChildCount
@@ -544,6 +556,7 @@ M	getContentText
 M	getContentTitle
 M	getCount
 M	getData
+M	getDataBytes
 M	getDataDir
 M	getDay
 M	getDefaultSensor
@@ -555,6 +568,8 @@ M	getErrorStream
 M	getEventTime
 M	getFilesDir
 M	getFloat
+M	getFreeBlocksLong
+M	getFreeBytes
 M	getHeaderField
 M	getHeaderFieldKey
 M	getHeight
@@ -626,6 +641,7 @@ M	getTag
 M	getTargetClassName
 M	getText
 M	getTop
+M	getTotalBytes
 M	getTranslationX
 M	getTranslationY
 M	getType
@@ -705,9 +721,12 @@ M	min
 M	mkdir
 M	mkdirs
 M	names
+M	nativeAppBytes
 M	nativeApply
+M	nativeAvailableBytes
 M	nativeBind
 M	nativeBindAdapter
+M	nativeBoard
 M	nativeBoolValue
 M	nativeCancel
 M	nativeChild
@@ -720,10 +739,13 @@ M	nativeCreateIndeterminate
 M	nativeCreateWithList
 M	nativeCreateWithMax
 M	nativeCreateWithText
+M	nativeDataBytes
 M	nativeDisconnect
 M	nativeDismiss
 M	nativeDoubleValue
+M	nativeFreeBytes
 M	nativeGetProperty
+M	nativeHardware
 M	nativeHeaderField
 M	nativeHeaderFieldAt
 M	nativeIconHandle
@@ -772,6 +794,7 @@ M	nativeRegisterSwipeListener
 M	nativeRegisterTextChangedListener
 M	nativeRegisterTimeChangedListener
 M	nativeRegisterTouchListener
+M	nativeRelease
 M	nativeRemove
 M	nativeRemoveAt
 M	nativeRequestFocus
@@ -803,6 +826,7 @@ M	nativeShow
 M	nativeStart
 M	nativeStringValue
 M	nativeToString
+M	nativeTotalBytes
 M	nativeVersionCode
 M	nativeVersionName
 M	newFixedThreadPool
@@ -894,6 +918,7 @@ M	putOpt
 M	putRaw
 M	putRawAt
 M	putString
+M	queryStatsForPackage
 M	queue
 M	quote
 M	read
@@ -917,6 +942,7 @@ M	requestFocus
 M	requireNonNull
 M	resetGcStats
 M	resetPeakMemory
+M	restat
 M	reverse
 M	rgb
 M	rotation

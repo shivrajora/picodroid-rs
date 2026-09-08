@@ -106,6 +106,8 @@ picodroid/app/Notification
 picodroid/app/Notification$Builder
 picodroid/app/NotificationManager
 picodroid/app/Service
+picodroid/app/usage/StorageStats
+picodroid/app/usage/StorageStatsManager
 picodroid/concurrent/AtomicBoolean
 picodroid/concurrent/AtomicInteger
 picodroid/concurrent/AtomicLong
@@ -170,8 +172,11 @@ picodroid/net/NetworkInfo
 picodroid/net/ServerSocket
 picodroid/net/Socket
 picodroid/net/URL
+picodroid/os/Build
+picodroid/os/Build$VERSION
 picodroid/os/IBinder
 picodroid/os/Runtime
+picodroid/os/StatFs
 picodroid/os/SystemClock
 picodroid/pio/Adc
 picodroid/pio/Gpio

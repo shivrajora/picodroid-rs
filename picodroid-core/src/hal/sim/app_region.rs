@@ -247,6 +247,8 @@ fn do_uninstall(region: &mut MemRegion, package: &str) {
             let (first, sectors) = (e.first_sector as u32, e.sectors as u32);
             let mut t = MemTransport::for_papk(&[]);
             uninstall(&mut t, &mut NoCoordinator, region, first, sectors);
+            // The package's data goes with it (D10).
+            crate::storage::wipe_package(package);
             println!("[sim] apps: uninstalled {package}");
             print_list();
         }

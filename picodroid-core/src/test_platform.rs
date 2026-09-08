@@ -213,6 +213,17 @@ impl crate::hal::HalFs for TestHal {
         }
         found
     }
+    /// A 512 KB volume, every file rounded to 4 KB blocks.
+    fn space() -> (u64, u64) {
+        const VOLUME: u64 = 512 * 1024;
+        let used: u64 = store()
+            .lock()
+            .expect("test fs poisoned")
+            .values()
+            .map(|v| (v.len() as u64).div_ceil(4096) * 4096)
+            .sum();
+        (VOLUME, VOLUME.saturating_sub(used))
+    }
     fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
         let s = store().lock().expect("test fs poisoned");
         let Some(v) = s.get(path) else {

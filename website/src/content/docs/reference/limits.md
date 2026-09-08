@@ -52,6 +52,7 @@ A few mechanics worth knowing:
 | Installed apps | 8 (RP2350 boards, `max_installed_apps`), 1 (RP2040) | a ninth package is refused with `NoRoom`; a reinstall of an installed package replaces it; system apps (the launcher) do not count |
 | App storage path | 185 bytes (`sandbox::APP_PATH_MAX`); LittleFS allows 255 per segment | the operation fails: a predicate answers `false`, a write throws `IOException` |
 | Storage volume | `fs_kb`: 512 KB (RP2350 boards), 128 KB (RP2040) | writes fail once LittleFS is full; every directory costs an 8 KB metadata pair |
+| App storage cap (multi-app boards) | `app_data_cap_kb`: a quarter of the volume (128 KB on the RP2350 boards); `fs_system_reserve_kb`: 64 KB kept for the system | a write past the cap or into the reserve throws `IOException`; `mkdir` answers `false`; `StatFs.getAvailableBytes()` says what is left |
 | Assets per PAPK | 256 KiB (recommended) | not enforced — see below |
 | Focusable list rows (small boards) | ~12 (app guideline) | render-pool stall, not a framework cap |
 | Network buffer descriptors (WiFi boards) | 16 (`testbench_rp2350w`) / 8 (`pico_enviro_mon_w`) | in-flight packets beyond the pool wait for a descriptor to free |

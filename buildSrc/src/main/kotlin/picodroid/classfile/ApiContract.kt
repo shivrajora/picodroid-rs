@@ -180,6 +180,8 @@ object ApiContract {
         "picodroid/content/pm/ApplicationInfo",
         "picodroid/content/pm/PackageManager\$NameNotFoundException",
         "picodroid/graphics/drawable/BitmapDrawable",
+        "picodroid/app/usage/StorageStatsManager",
+        "picodroid/app/usage/StorageStats",
     )
 
     /**

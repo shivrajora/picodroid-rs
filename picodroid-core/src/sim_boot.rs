@@ -74,6 +74,18 @@ pub fn main(model: &'static BootBudgetModel) {
     // The app region, seeded from PICODROID_APK_PATH and PICODROID_SIM_APPS;
     // like the filesystem image it models flash, so it is not charged.
     crate::hal::sim::app_region::init();
+    // Data of packages that are gone leaves now that the directory is
+    // scanned and the volume is mounted (D10, P8), as on a device — but
+    // only when the simulator models a device's directory (`--system-apps`):
+    // `sim.sh --app X` alone installs X and nothing else, and sweeping every
+    // other app's data on each such run would make switching apps in the
+    // simulator lose it.
+    #[cfg(all(has_multi_app, feature = "littlefs"))]
+    {
+        if std::env::var("PICODROID_SYSTEM_APKS").is_ok_and(|v| !v.is_empty()) {
+            let _ = crate::storage::sweep_orphans();
+        }
+    }
     allocator::checkpoint("post-app-region");
 
     run(model);

@@ -120,4 +120,12 @@ impl HalFs for LittleFsHal {
         })
         .unwrap_or(false)
     }
+
+    fn space() -> (u64, u64) {
+        let total = super::volume_bytes();
+        let used = with_fs(|fs| fs.fs_size().unwrap_or(0)).map_or(0, |blocks| {
+            u64::from(blocks) * u64::from(super::block_size())
+        });
+        (total, total.saturating_sub(used))
+    }
 }

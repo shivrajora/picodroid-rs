@@ -17,6 +17,7 @@
 // `TestHal` through the same seam.
 use crate::hal::fs as backend;
 use crate::shrink_names::{c, m};
+use crate::storage::quota::{self, Refused};
 use crate::storage::sandbox::{self, BUF};
 use alloc::vec::Vec;
 use pico_jvm::{
@@ -53,8 +54,8 @@ pub fn dispatch(
         (c::picodroid_io_File, m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
         (c::picodroid_io_File, m::length) => Some(file_length(ctx)),
         (c::picodroid_io_File, m::createNewFile) => Some(file_create_new(ctx)),
-        (c::picodroid_io_File, m::delete) => Some(file_bool(ctx, backend::delete)),
-        (c::picodroid_io_File, m::mkdir) => Some(file_creating_bool(ctx, backend::mkdir)),
+        (c::picodroid_io_File, m::delete) => Some(file_delete(ctx)),
+        (c::picodroid_io_File, m::mkdir) => Some(file_mkdir(ctx)),
         (c::picodroid_io_File, m::renameTo) => Some(file_rename_to(ctx)),
         (c::picodroid_io_File, m::list) => Some(file_list(ctx)),
         (c::picodroid_io_FileInputStream, m::read) => Some(fis_read(ctx)),
@@ -72,6 +73,14 @@ pub fn dispatch(
 /// sandbox refuses it.
 fn mapped<'b>(path: &str, buf: &'b mut [u8; BUF]) -> Option<&'b str> {
     sandbox::resolve(crate::packages::running(), path, buf).ok()
+}
+
+/// What a refused growth tells the app.
+fn refusal(refused: Refused) -> &'static str {
+    match refused {
+        Refused::Cap => "storage cap reached",
+        Refused::Reserve => "no space left on device",
+    }
 }
 
 /// `IOException` carrying `msg`. Local rather than `super::throw_exception`
@@ -101,18 +110,47 @@ fn file_bool(
     Ok(Some(Value::Int(ok as i32)))
 }
 
-/// [`file_bool`] for an operation that creates something: the package
-/// directory is made first.
-fn file_creating_bool(
-    ctx: &mut NativeContext<'_>,
-    op: impl FnOnce(&str) -> bool,
-) -> Result<Option<Value>, JvmError> {
+/// `File.mkdir()`: the package directory first, then the directory's pair
+/// charged to the quota before it exists — a refused charge is Android's
+/// `false` — and credited back when the `mkdir` itself fails.
+fn file_mkdir(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let path = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::file::PATH)?;
     let mut buf = [0u8; BUF];
     let ok = match mapped(path, &mut buf) {
         Some(volume) => {
             sandbox::ensure_package_dir();
-            op(volume)
+            let pair = quota::DIR_BYTES as i64;
+            if quota::charge(pair).is_err() {
+                false
+            } else {
+                let made = backend::mkdir(volume);
+                if !made {
+                    let _ = quota::charge(-pair);
+                }
+                made
+            }
+        }
+        None => false,
+    };
+    Ok(Some(Value::Int(ok as i32)))
+}
+
+/// `File.delete()`: what the entry occupied is credited back once it is gone.
+fn file_delete(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let path = resolve_path_field(ctx.args, ctx.objects, ctx.strings, fields::file::PATH)?;
+    let mut buf = [0u8; BUF];
+    let ok = match mapped(path, &mut buf) {
+        Some(volume) => {
+            let held = if backend::is_dir(volume) {
+                quota::DIR_BYTES
+            } else {
+                quota::file_bytes(backend::length(volume).max(0) as u64)
+            };
+            let gone = backend::delete(volume);
+            if gone {
+                let _ = quota::charge(-(held as i64));
+            }
+            gone
         }
         None => false,
     };
@@ -265,7 +303,9 @@ fn fos_init_stream(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErro
         Ok(Some(Value::Long(backend::length(volume))))
     } else {
         sandbox::ensure_package_dir();
+        let held = quota::file_bytes(backend::length(volume).max(0) as u64);
         backend::truncate(volume);
+        let _ = quota::charge(-(held as i64));
         Ok(Some(Value::Long(0)))
     }
 }
@@ -292,8 +332,18 @@ fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
 
     let bytes = load_bytes_from_array(ctx.arrays, arr_idx, off, len)?;
     sandbox::ensure_package_dir();
+    // The quota sees the growth before the bytes land, so a refused write
+    // leaves the file as it was.
+    let before = backend::length(volume).max(0) as u64;
+    let after = before.max(pos as u64 + bytes.len() as u64);
+    let growth = (quota::file_bytes(after) - quota::file_bytes(before)) as i64;
+    if let Err(refused) = quota::charge(growth) {
+        let msg = alloc::format!("{}: {path}", refusal(refused));
+        return Err(throw_io(ctx, &msg));
+    }
     let n = backend::write_at(volume, pos as u64, &bytes);
     if n < 0 {
+        let _ = quota::charge(-growth);
         let msg = alloc::format!("cannot write {path}");
         return Err(throw_io(ctx, &msg));
     }

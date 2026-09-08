@@ -41,6 +41,8 @@
 
 use littlefs_rust::{Config, Error as LfsError, Filesystem, Storage as LfsStorage};
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use crate::executors::serial_worker::SerialWorker;
 use crate::rtos::TaskKind;
 
@@ -179,6 +181,20 @@ mod cell {
 
 static WORKER: SerialWorker = SerialWorker::new();
 
+// The mounted volume's geometry, for `space()`: set once by `mount`.
+static VOLUME_BLOCKS: AtomicU32 = AtomicU32::new(0);
+static VOLUME_BLOCK_SIZE: AtomicU32 = AtomicU32::new(0);
+
+/// The mounted volume's size in bytes; 0 before the mount.
+pub fn volume_bytes() -> u64 {
+    u64::from(VOLUME_BLOCKS.load(Ordering::Relaxed)) * u64::from(block_size())
+}
+
+/// The mounted volume's block size; 0 before the mount.
+pub fn block_size() -> u32 {
+    VOLUME_BLOCK_SIZE.load(Ordering::Relaxed)
+}
+
 fn config_for(geometry: FsGeometry, block_count: u32) -> Config {
     let mut cfg = Config::new(geometry.block, block_count);
     cfg.read_size = geometry.read;
@@ -204,6 +220,8 @@ pub fn init_host_image() -> Result<(), FsError> {
 fn mount(mut storage: DynStorage) -> Result<(), FsError> {
     let geometry = storage.0.geometry();
     let block_count = storage.0.block_count();
+    VOLUME_BLOCKS.store(block_count, Ordering::Relaxed);
+    VOLUME_BLOCK_SIZE.store(geometry.block, Ordering::Relaxed);
     let config = config_for(geometry, block_count);
 
     // Mount first; format only if the mount reports corruption. The order

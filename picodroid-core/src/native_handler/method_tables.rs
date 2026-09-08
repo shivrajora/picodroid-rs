@@ -231,6 +231,17 @@ pub const NET_HANDLED: &[Row] = &[
 pub const OS_HANDLED: &[Row] = &[
     // java/lang/System
     ("java/lang/System", "currentTimeMillis", "()J"),
+    // picodroid/app/usage/StorageStatsManager
+    (
+        "picodroid/app/usage/StorageStatsManager",
+        "nativeAppBytes",
+        "(Ljava/lang/String;)J",
+    ),
+    (
+        "picodroid/app/usage/StorageStatsManager",
+        "nativeDataBytes",
+        "(Ljava/lang/String;)J",
+    ),
     // picodroid/content/Context
     (
         "picodroid/content/Context",
@@ -279,6 +290,22 @@ pub const OS_HANDLED: &[Row] = &[
         "nativeVersionName",
         "(I)Ljava/lang/String;",
     ),
+    // picodroid/os/Build
+    ("picodroid/os/Build", "nativeBoard", "()Ljava/lang/String;"),
+    (
+        "picodroid/os/Build",
+        "nativeHardware",
+        "()Ljava/lang/String;",
+    ),
+    (
+        "picodroid/os/Build",
+        "nativeRelease",
+        "()Ljava/lang/String;",
+    ),
+    // picodroid/os/StatFs
+    ("picodroid/os/StatFs", "nativeAvailableBytes", "()J"),
+    ("picodroid/os/StatFs", "nativeFreeBytes", "()J"),
+    ("picodroid/os/StatFs", "nativeTotalBytes", "()J"),
     // picodroid/os/SystemClock
     ("picodroid/os/SystemClock", "elapsedRealtimeNanos", "()J"),
     ("picodroid/os/SystemClock", "setCurrentTimeMillis", "(J)Z"),

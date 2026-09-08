@@ -86,6 +86,43 @@ boolean gone  = deleteFile("state.bin");
 | `fileList()` | The names in `/files`; an empty array before the first file. |
 | `deleteFile(String name)` | `false` when there was nothing to delete. |
 
+## The reserve and the cap
+
+On a multi-app board (`max_installed_apps` above 1) the framework bounds what an app may write, so no app can fill the volume or starve the others:
+
+- **The system reserve** (`fs_system_reserve_kb`, default 64) is the tail of the volume no app may write into: a write that would leave less than that free throws `IOException("no space left on device")`. The system apps built into the firmware are exempt.
+- **The per-app cap** (`app_data_cap_kb`, default a quarter of the volume — 128 KB on the RP2350 boards; `0` lifts it) bounds one app's directory. Past it a write throws `IOException("storage cap reached")` and `mkdir` answers `false`.
+
+The accounting is LittleFS's own currency: a file costs its size rounded up to 4 KB blocks, and every directory costs an 8 KB metadata pair — the app's own `/data/<package>` included, so an empty app already holds 8 KB the moment it first writes. Reads, deletes and truncates are never refused, and a refused write leaves the file as it was. Both keys are board.toml settings ([porting guide](/reference/porting-guide/)). A single-app board keeps neither rule.
+
+Data goes with its package: `pdb uninstall` and `PackageInstaller.uninstall` remove `/data/<package>`, and at boot a multi-app device sweeps any `/data/*` directory that names no installed or system package (an uninstall cut short by a power loss, an app removed by reflashing). The simulator sweeps only when it models a device's directory (`sim.sh --system-apps`); a plain `sim.sh --app X` run installs X alone and keeps the other apps' data, so switching apps in the simulator loses nothing.
+
+### `picodroid.os.StatFs`
+
+Android's `StatFs`, over the one volume (the path is accepted and ignored):
+
+```java
+StatFs s = new StatFs("/");
+long total = s.getTotalBytes();       // the volume (fs_kb)
+long free  = s.getFreeBytes();        // unallocated, reserve included
+long mine  = s.getAvailableBytes();   // what this app may still write: above the reserve, under its cap
+```
+
+`getBlockSizeLong()` is 4096; `getBlockCountLong()`, `getFreeBlocksLong()` and `getAvailableBlocksLong()` are the byte figures over it. On a single-app board `getAvailableBytes()` is simply the free space.
+
+### `picodroid.app.usage.StorageStatsManager`
+
+Per-package figures, multi-app boards only, from `getSystemService(Context.STORAGE_STATS_SERVICE)`:
+
+```java
+StorageStatsManager ssm = (StorageStatsManager) getSystemService(Context.STORAGE_STATS_SERVICE);
+StorageStats st = ssm.queryStatsForPackage("com.example.weather");   // NameNotFoundException when absent
+long app  = st.getAppBytes();    // the installed image: its run in the app region
+long data = st.getDataBytes();   // its /data/<package>, by the cap's accounting
+```
+
+Picodroid has one volume and one user, so `queryStatsForPackage` takes the package name alone; `getCacheBytes()` is 0 (there is no cache directory).
+
 ## `picodroid.content.SharedPreferences`
 
 Typed key-value settings store inspired by Jetpack DataStore. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` on the LittleFS volume.

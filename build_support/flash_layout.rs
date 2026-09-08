@@ -52,6 +52,11 @@ pub struct FlashLayout {
     /// installed (docs/designs/multi-app-2026-09.md D7). `None` when the
     /// board names nothing.
     pub boot_package: Option<String>,
+    /// Bytes of the volume the apps may not eat into (`fs_system_reserve_kb`,
+    /// docs/designs/multi-app-2026-09.md D10).
+    pub fs_system_reserve: u64,
+    /// Bytes one app's data directory may hold (`app_data_cap_kb`); 0 = no cap.
+    pub app_data_cap: u64,
     pub ram_origin: u64,
     pub ram_len: u64,
 }
@@ -81,6 +86,19 @@ fn tunable(
         .unwrap_or_else(|| required(mcu, key, mcu_path))
 }
 
+/// A key a board may tune and the MCU may default; `default` otherwise.
+fn tunable_or(
+    mcu: &HashMap<String, String>,
+    board: Option<&HashMap<String, String>>,
+    key: &str,
+    default: u64,
+) -> u64 {
+    board
+        .and_then(|b| int(b, key))
+        .or_else(|| int(mcu, key))
+        .unwrap_or(default)
+}
+
 /// Resolve the layout for `mcu` (its toml, parsed) with `board`'s overrides.
 /// Panics with the offending key on any geometry that could not link or
 /// that the region allocator could not use.
@@ -101,6 +119,10 @@ pub fn compute(
         .and_then(|b| b.get("boot_package"))
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    // The storage policy (D10): a reserve the apps may not eat into, and a
+    // cap on one app's directory — a quarter of the volume unless set.
+    let fs_system_reserve = tunable_or(mcu, board, "fs_system_reserve_kb", 64) * 1024;
+    let app_data_cap = tunable_or(mcu, board, "app_data_cap_kb", fs_len / 4096) * 1024;
 
     assert!(
         (1..=64).contains(&max_installed_apps),
@@ -119,6 +141,19 @@ pub fn compute(
     assert!(
         region_len >= 2 * SECTOR,
         "flash layout: app_region_kb must hold a meta sector and at least one data sector"
+    );
+    assert!(
+        fs_system_reserve < fs_len,
+        "flash layout: fs_system_reserve_kb ({} KB) must be smaller than fs_kb ({} KB)",
+        fs_system_reserve / 1024,
+        fs_len / 1024
+    );
+    assert!(
+        app_data_cap == 0 || app_data_cap + fs_system_reserve <= fs_len,
+        "flash layout: app_data_cap_kb ({} KB) plus fs_system_reserve_kb ({} KB) exceed fs_kb ({} KB)",
+        app_data_cap / 1024,
+        fs_system_reserve / 1024,
+        fs_len / 1024
     );
     let region_origin = flash_origin + flash_len - region_len;
     let fs_origin = region_origin
@@ -144,6 +179,8 @@ pub fn compute(
         region_len,
         max_installed_apps,
         boot_package,
+        fs_system_reserve,
+        app_data_cap,
         ram_origin,
         ram_len,
     }
@@ -234,7 +271,14 @@ impl FlashLayout {
              pub const MAX_INSTALLED_APPS: usize = {};\n\
              /// board.toml `boot_package`, when the board names one (D7).\n\
              #[allow(dead_code)]\n\
-             pub const BOOT_PACKAGE: Option<&str> = {};\n",
+             pub const BOOT_PACKAGE: Option<&str> = {};\n\
+             /// Bytes of the volume kept for the system: an app's write that would dip\n\
+             /// below it is refused (`fs_system_reserve_kb`, D10).\n\
+             #[allow(dead_code)]\n\
+             pub const FS_SYSTEM_RESERVE_BYTES: usize = {};\n\
+             /// Bytes one app's data directory may hold; 0 = unlimited (`app_data_cap_kb`, D10).\n\
+             #[allow(dead_code)]\n\
+             pub const APP_DATA_CAP_BYTES: usize = {};\n",
             self.flash_origin,
             self.program_len,
             self.fs_origin - self.flash_origin,
@@ -245,7 +289,9 @@ impl FlashLayout {
             match &self.boot_package {
                 Some(p) => format!("Some({p:?})"),
                 None => "None".to_string(),
-            }
+            },
+            self.fs_system_reserve,
+            self.app_data_cap,
         )
     }
 }
@@ -415,6 +461,46 @@ mod tests {
             compute(&rp2350(), Some(&blank), "rp2350.toml").boot_package,
             None
         );
+    }
+
+    #[test]
+    fn storage_policy_keys_default_and_override() {
+        // Defaults: a 64 KB reserve, a cap of a quarter of the volume.
+        let l = compute(&rp2350(), None, "rp2350.toml");
+        assert_eq!(l.fs_system_reserve, 64 * 1024);
+        assert_eq!(l.app_data_cap, 256 * 1024 / 4);
+        let consts = l.rust_consts();
+        assert!(consts.contains("pub const FS_SYSTEM_RESERVE_BYTES: usize = 65536;"));
+        assert!(consts.contains("pub const APP_DATA_CAP_BYTES: usize = 65536;"));
+        // The board may size the volume and set both; 0 lifts the cap.
+        let board = props(&[
+            ("fs_kb", "512"),
+            ("fs_system_reserve_kb", "32"),
+            ("app_data_cap_kb", "0"),
+        ]);
+        let l = compute(&rp2350(), Some(&board), "rp2350.toml");
+        assert_eq!(l.fs_system_reserve, 32 * 1024);
+        assert_eq!(l.app_data_cap, 0);
+        // A bigger volume moves the default cap with it.
+        let board = props(&[("fs_kb", "512")]);
+        assert_eq!(
+            compute(&rp2350(), Some(&board), "rp2350.toml").app_data_cap,
+            128 * 1024
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "fs_system_reserve_kb")]
+    fn a_reserve_the_size_of_the_volume_is_refused() {
+        let board = props(&[("fs_system_reserve_kb", "256")]);
+        compute(&rp2350(), Some(&board), "rp2350.toml");
+    }
+
+    #[test]
+    #[should_panic(expected = "app_data_cap_kb")]
+    fn a_cap_past_the_volume_is_refused() {
+        let board = props(&[("app_data_cap_kb", "200")]);
+        compute(&rp2350(), Some(&board), "rp2350.toml");
     }
 
     #[test]

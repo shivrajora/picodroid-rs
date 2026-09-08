@@ -433,6 +433,7 @@ pub mod fs {
         fn __pd_hal_fs_read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32;
         fn __pd_hal_fs_write_at(path: &str, pos: u64, data: &[u8]) -> i32;
         fn __pd_hal_fs_list_dir(path: &str, out: &mut Vec<crate::hal::DirEntry>) -> bool;
+        fn __pd_hal_fs_space() -> (u64, u64);
     }
 
     pub fn exists(path: &str) -> bool {
@@ -467,5 +468,9 @@ pub mod fs {
     }
     pub fn list_dir(path: &str, out: &mut Vec<crate::hal::DirEntry>) -> bool {
         unsafe { __pd_hal_fs_list_dir(path, out) }
+    }
+    /// The volume's `(total, free)` bytes.
+    pub fn space() -> (u64, u64) {
+        unsafe { __pd_hal_fs_space() }
     }
 }
