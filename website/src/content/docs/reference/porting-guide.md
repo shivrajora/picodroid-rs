@@ -492,7 +492,10 @@ nrf52840-hal = { version = "...", optional = true }
    the keys in your `mcus/<family>/<chip>.toml` (`freertos_port`,
    `pico_shim`, `freertos_port_extra_includes`, `freertos_c_defines`,
    `freertos_vector_aliases`, `init_array_segment`); populate the keys, no
-   code changes.
+   code changes. An optional `c_opt_level` (`0`–`3`, `s`, `z`) pins the
+   optimisation level of every C object built for that MCU's target — the
+   kernel, LVGL and the network stack — instead of cargo's `OPT_LEVEL`; the
+   flash-tight RP2040 sets `"s"`.
 3. **C shims**: the RP family needs `pico_shim_*.c` files that fake the
    pico-sdk C API the RP FreeRTOS SMP ports expect. Standard Cortex-M ports
    (ARM_CM4F, ARM_CM33) use CMSIS directly and need none.

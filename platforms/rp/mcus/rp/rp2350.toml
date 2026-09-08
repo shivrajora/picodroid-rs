@@ -19,6 +19,8 @@ core_count = 2
 # the simulator cap that models a 408 KB device heap (376 KB) runs it clean.
 heap_kb = 408
 size_tool = "arm-none-eabi-size"
+# `c_opt_level` is unset here: 2 MB of program region, so the C follows
+# cargo's OPT_LEVEL (-O3). See rp2040.toml for the knob.
 freertos_port = "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure"
 pico_shim = "src/hal/rp/port/pico_shim_rp2350.c"
 

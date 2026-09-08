@@ -111,7 +111,10 @@ fn main() {
     // Board overrides (`lv_dpi`, `lv_mem_kb`) come from the same board.toml
     // resolution above; boardless builds get lv_conf.h's defaults.
     let lvgl_board_props = board.as_ref().map(|b| b.cfg.props.clone());
-    lvgl::build(out, &lvgl_board_props, root);
+    // The MCU toml may pin the C optimisation level for its target
+    // (`c_opt_level`; the rp2040 compiles its C at -Os).
+    let lvgl_mcu = board.as_ref().map(|b| b.mcu().1);
+    lvgl::build(out, &lvgl_board_props, lvgl_mcu.as_ref(), root);
 
     // The simulator's kernel: the real FreeRTOS + POSIX port, compiled for the
     // host. Owned here for the same reason LVGL is — this crate holds the code

@@ -11,7 +11,12 @@ use std::path::Path;
 /// `repo_root` must be the absolute path to the repository root so that
 /// `third_party/lvgl` and `lv_conf.h` can be located regardless of which
 /// `platforms/<family>/` directory the build.rs runs from.
-pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>, repo_root: &Path) {
+pub fn build(
+    _out: &Path,
+    board_cfg: &Option<HashMap<String, String>>,
+    mcu: Option<&HashMap<String, String>>,
+    repo_root: &Path,
+) {
     let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
         return;
@@ -72,6 +77,13 @@ pub fn build(_out: &Path, board_cfg: &Option<HashMap<String, String>>, repo_root
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     if target_arch != "arm" {
         build.flag("-fshort-enums");
+    }
+
+    // The MCU may pin the C optimisation level for its own target
+    // (`c_opt_level`; the rp2040 compiles its C at -Os). Otherwise cc-rs
+    // mirrors cargo's OPT_LEVEL.
+    if let Some(mcu) = mcu {
+        crate::config::apply_c_opt_level(&mut build, mcu);
     }
 
     for f in &c_files {

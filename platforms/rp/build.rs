@@ -113,6 +113,7 @@ fn main() {
                             &family_port_dir,
                             heap_kb,
                             &net_overrides,
+                            &mcu,
                         );
                         let link_sources = [PathBuf::from(format!(
                             "{family_port_dir}/net/NetworkInterface_CYW43.c"
@@ -136,6 +137,7 @@ fn main() {
                             link_sources: &link_sources,
                             extra_includes: &extra_includes,
                             extra_defines: &extra_defines,
+                            mcu: &mcu,
                         });
                         // hal/rp/cyw43/link.rs bakes these in via option_env!;
                         // without the rerun hints a credential/auth change is

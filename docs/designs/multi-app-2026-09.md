@@ -374,7 +374,7 @@ Board and MCU keys (`build_support/flash_layout.rs`): `boot2_bytes`, `fs_kb`,
 | M0 | DONE 2026-09-07 (028e5c1) |
 | M1a–M1f | DONE 2026-09-07 (see A1) |
 | M2 | DONE 2026-09-07 (see A2) |
-| M3 | NOT STARTED |
+| M3 | PLANNED 2026-09-08 (§8; owner decisions in §8.9); Stage 0 IN PROGRESS |
 
 ## 6. Deferred and open
 
@@ -407,6 +407,340 @@ current linker scripts from the MCU defaults; `porting.rs`
 compaction, install after compaction through `run_install`); the pdb
 greeting golden bytes; and in M2 the class-registry and method-table
 cross-checks for every new native.
+
+## 8. M3 execution plan (2026-09-08)
+
+> Planned after M2 shipped (map v0.21.0, `fceb7fc`). Every claim about
+> what exists was checked against source at `fceb7fc`. This section
+> refines D10 and the settings half of D11; where it is more specific than
+> the body, it wins, and A1/A2 still override the body where they say so.
+> Execute from here; append A3 when reality diverges.
+
+M3 delivers three things: the **storage sandbox** (every app sees its own
+root, on every board), the **quota** (a system reserve and a per-app cap,
+multi-app boards only), and the **settings app** (About, Apps with
+uninstall, Storage). One PR, five commits (M3a–M3e), sim coverage for each,
+then the bench.
+
+### 8.1 What M3 builds on (checked at `fceb7fc`)
+
+| Piece | Where | M3 uses it as |
+|---|---|---|
+| `picodroid/io/*` natives: File / FileInputStream / FileOutputStream over a `backend` that is `hal::fs` (the registered `HalFs`) on sim and device and an in-memory map under `cfg(test)` | `picodroid-core/src/native_handler/io.rs:30-51`, `:300-390` | the one seam every app path passes through; the sandbox goes in front of `backend::*` |
+| `HalFs`: `exists/is_file/is_dir/length/delete/mkdir/rename/truncate/read_at/write_at`, no handles, failures as `false`/`0`/`-1` | `picodroid-core/src/hal/traits.rs:253-268`, impl `fs/hal_impl.rs` | grows `list_dir` and `space`; nothing else |
+| LittleFS reached through one serial worker task; `with_fs` runs a closure on it (inline pre-scheduler) | `picodroid-core/src/fs/mod.rs:234-262`, `executors/serial_worker.rs` | the erase for a Java-side uninstall rides the same worker (P6) |
+| The wrapper crate offers `read_dir`/`list_dir`, `stat` (size, type), `remove` (fails on a non-empty dir), `fs_size` (allocated blocks) | `littlefs-rust-0.1.0/src/filesystem.rs:257-324` | `list_dir` and `space` are thin over these |
+| Sim FS image: host file, `PICODROID_SIM_FS_KB` default 256 | `picodroid-core/src/fs/storage_host.rs:25-44` | sized from the board instead (P9) |
+| `packages::running()` — the executing package, copied into a 64-byte `Name` by `run_app` | `picodroid-core/src/packages.rs:123,562-569`, `boot.rs:289` | the sandbox's key |
+| `Context.getPackageName` and the `PackageManager` natives, one value per call, `intern_dyn` for strings | `picodroid-core/src/native_handler/os.rs:30-99` | the pattern for every new native |
+| `ATYPE_REF` arrays store `encode_ref(Value)` slots | `jvm/src/array_heap.rs:36-58` | `File.list()` returns a `String[]` from one native |
+| `PlatformHooks` + `set_platform_hooks!`: six `__pd_host_*` hooks | `picodroid-core/src/host.rs:119-150` | gains `uninstall_run` (no new seam item) |
+| Flash primitives park core 1 per call; **at most one flash op in flight** — the fs worker and the install's JVM park uphold it | `platforms/rp/src/hal/rp/flash.rs:199-216`, `core1_park.rs` | why the Java-side erase is serialised on the fs worker |
+| PDB and the JVM share core 0; `uninstall` = park → `erase_run` → `rescan_region`; `run_uninstall` adds the reset | `platforms/rp/src/pdb/coordinator.rs`, `picodroid-core/src/install/orchestrator.rs:345-380`, `pdb/packages.rs:93-131` | the pdb path additionally wipes `/data/<pkg>` |
+| Sim region verbs: `do_uninstall` over `MemRegion`, deferral when the target is running | `picodroid-core/src/hal/sim/app_region.rs:203-255` | the sim's `uninstall_run` |
+| Layout tunables from MCU + board toml → `flash_layout.rs` consts and the `has_multi_app` cfg | `build_support/flash_layout.rs:97-146,253-260` | `fs_system_reserve_kb`, `app_data_cap_kb` |
+| `MULTI_APP_CLASSES` excluded on single-app boards, mirrored in Gradle | `build_support/board_cfg.rs:66-118`, `buildSrc/.../ApiContract.kt:174-213` | the new classes join the list |
+| Build plumbing knows only the launcher: pre-commit prologue, `hil_build_firmware`, the sim-run launcher lane; `build_system_apks` itself discovers `system-apps/*` | `scripts/pre-commit:253-255,410-412`, `hil-run.sh:544-564`, `sim-run.sh:274-376`, `lib.sh:613-642` | generalised to every system app |
+| Ratchet: rp2040 893,243 B release; on 2026-09-08 the rp2040 **debug** builds stood at 913,083 (plain) and 915,355 (`handle-table-32` leg) of 917,248 B | `bench/parity/ratchet.toml`, `lib.sh::PROGRAM_FLASH_MAX`, `build/pre-commit/2026-09-08T181701/arm6.log` | the constraint on what single-app boards may gain; why Stage 0 exists |
+
+### 8.2 Decisions
+
+**P1 — The sandbox is on every board, at the natives.** Every `picodroid/io`
+native maps the app's path before it reaches `backend::*`: strip the leading
+`/`, split on `/`, drop empty and `.` segments, reject `..` (the operation
+fails the way `HalFs` reports failure: `false`, `-1`, or `IOException` on
+the write path), and prefix `/data/<package>/`. The app's `/` is
+`/data/<package>`; `renameTo` maps both ends, so no path can leave the
+directory. The buffer is 256 bytes on the native's stack — `/data/` + a
+64-byte name + the path — so an app path is at most 184 bytes; longer
+fails. A run with no package name (a PAPK from before M0, single-app boards
+only) keeps today's root: the mapping is the identity when `running()` is
+`None`. The package directory (and `/data`) is created on the first
+creating operation of a run, once per run, flagged in a static that
+`set_running` clears. Single-app boards pay the mapping and nothing else
+(P3); their apps keep one API with everything else. Existing files at the
+root of a dev board become invisible to apps — release note, no migration.
+
+**P2 — The package's view mirrors Android's shape.** `Context.getDataDir()`
+is `/` (the package root), `getFilesDir()` is `/files` (created on the
+call, as Android guarantees), `openFileOutput(name, mode)` writes
+`/files/<name>` (`MODE_PRIVATE` or `MODE_APPEND`; a name containing `/`
+throws `IllegalArgumentException`), `openFileInput`, `fileList()` and
+`deleteFile()` work on the same directory. `SharedPreferences` keeps
+`/prefs/<name>` (`SharedPreferences.java:19`) and lands under the package
+untouched, as D10 says. A directory costs LittleFS a metadata pair (8 KB),
+so an app using both is 24 KB of metadata: written in limits.md, accepted.
+
+**P3 — The quota is a multi-app feature; `StatFs` and `Build` are not.**
+The reserve, the cap, the usage walk, the orphan sweep,
+`StorageStatsManager`/`StorageStats` and `PackageInstaller` are
+`cfg(has_multi_app)` / in `MULTI_APP_CLASSES`: single-app boards have no
+system packages to protect and no second app to fence off. `StatFs` and
+`Build` are ordinary Android APIs and ship on every board (owner decision,
+§8.9); on a single-app board `StatFs` reports the raw volume, there being
+no cap. Stage 0 (§8.5) makes the rp2040 room for them.
+
+**P4 — Accounting.** `usage(package) = Σ ceil(size / 4096) × 4096 over its
+files + 8192 per directory, the package directory included`. It is walked
+lazily at the first storage operation of a run (not in `run_app`: an app
+that never touches storage pays nothing) and kept as deltas after: a write
+that grows a file by `blocks(new) − blocks(old)`, `truncate`, `delete`,
+`mkdir` (+8 KB), `rename` (0 inside one package). The walk uses
+`HalFs::list_dir` from core, one worker round trip per directory, depth
+bounded at 4. The reserve check is FS-wide: `HalFs::space()` returns
+`(total, free)` from `fs_size()`, and a growing write by an installed app
+is refused when `free − growth < FS_SYSTEM_RESERVE`; system packages are
+exempt from both rules. Reads, deletes and truncates are never refused.
+
+**P5 — Refusals are `IOException`s.** Today a failed backend write is
+`Err(JvmError::InvalidReference)` (`io.rs:172`) — a VM fault, not something
+an app can catch. M3 turns every write-path failure into
+`java.io.IOException` (quota: `"no space left on device"`; the rest: the
+op and path), and `FileOutputStream.write(...)` (all three overloads),
+`Context.openFileOutput/openFileInput` and `File.createNewFile()` declare
+`throws IOException`, as `java.io` does. The ripple: `SharedPreferences.java`
+wraps its writes (commit returns `false`), `bootcount` (`BootCount.java:46`),
+`prefs_demo` (two `createNewFile` calls) and the new `filesdemo`; bugbash
+only reads, and Kotlin callers need nothing. `FileNotFoundException` is not
+served (`sdk/api-contract.tsv` has `IOException` and
+`InterruptedIOException` only), so the two `open*` methods declare the
+parent; an app catching `IOException` compiles unchanged — noted in the
+storage doc.
+
+**P6 — Uninstall from Java.** `PackageManager.getPackageInstaller()` returns
+the `PackageInstaller` singleton; `uninstall(String packageName)` is one
+native, `cfg(has_multi_app)`. Core does the checks — not installed, a
+system package, or the running package → `IllegalArgumentException` with a
+message — then calls the new `PlatformHooks::uninstall_run(first_sector,
+sectors) -> bool`, wipes `/data/<package>` (generic over `HalFs`: `list_dir`
+deepest-first, `delete` each), and returns. The RP implementation submits
+the erase to the fs worker (`fs::exclusive(f)`, a `WORKER.submit` beside
+`with_fs`) so the single-flash-op invariant holds by construction — the
+JVM task blocks on the worker exactly as a `File.delete()` does — erases
+with a fresh `RpPapkFlash`, and rescans; no reset. The simulator's
+implementation erases the `MemRegion` run and rescans, the tail of
+`app_region::do_uninstall`. The screen freezes for the erase (≈45 ms a
+sector; a 50 KB app is under a second). A `PackageManager` index is stale
+after this; the Java side re-resolves by name on every call (`nativeIndexOf`),
+so `PackageInfo` objects stay usable, and the launcher rebuilds its rows
+at every `onCreate`. A `BitmapDrawable` of the uninstalled package would
+read erased flash (0xFF, harmless) — the settings app shows no icons.
+
+**P7 — The settings app.** `system-apps/settings` (package
+`picodroid.settings`, Java package `settings`, label "Settings", a 48×48
+icon), four screens, every one a column of 40 px focusable rows under a
+40 px header row whose tap (or BACK) goes up one level:
+
+| Screen | Rows |
+|---|---|
+| Settings (root) | About, Apps, Storage; the header row is Home: `finish()` returns to the launcher |
+| About | board, MCU, firmware version, map version (from `Build`), storage total/used/free (`StatFs`), used heap (`Runtime`) |
+| Apps | one row per installed non-system app: label, version; a tap opens an `AlertDialog` (title = the label, message `Remove app and data?`, buttons `Uninstall` / `Cancel`); `Uninstall` calls `PackageInstaller.uninstall` and rebuilds the list |
+| Storage | one row per package (system apps included): `<label>  app <KB> / data <KB>` from `StorageStatsManager` |
+
+The dialog is the framework's own (`lvgl/widgets/alert_dialog.rs`): a fixed
+200 px card on a 240 px scrim, 80 px buttons, the positive one focused by
+default on keypad boards. Its title and message stay one line each so the
+geometry never varies, and the bench taps the positive button at
+coordinates pinned once from a simulator screenshot (§8.6). Rows are 40 px
+from the top, header first, so row *n*'s centre is `y = 20 + 40n`. Log
+lines the harness keys on:
+`Settings: ready`, `Settings: apps <n>`, `Settings: uninstalled <pkg>`,
+`Settings: storage <pkg> <appBytes> <dataBytes>`.
+
+**P8 — Data goes with the package.** Every uninstall path wipes
+`/data/<package>`: `pdb uninstall` (`pdb/packages.rs::handle_uninstall`,
+through `with_fs` from the comm task before the reset), the sim's
+`apps uninstall`, and P6. A boot sweep (`main.rs` after `fs::init`, the
+sim after `app_region::init`; multi-app boards) removes every `/data/*`
+directory that names no installed or system package — a power loss between
+erase and wipe, or an app removed by reflashing. `/system/` is reserved:
+nothing under `/data` can reach it, and nothing in M3 writes it.
+
+**P9 — The sim's filesystem is the board's.** `storage_host.rs` takes its
+size from `board_cfg::flash::FS_LEN` (512 KB on the rp2350 boards, 128 KB
+on the testbench_rp2040) unless `PICODROID_SIM_FS_KB` overrides it, and an
+existing image of another size is recreated with a log line rather than
+failing to mount. So `StatFs`, the cap and the sweep behave in the sim as
+on the device.
+
+### 8.3 Java surface
+
+Everywhere:
+
+```java
+// picodroid.content.Context
+public static final int MODE_APPEND = 32768;
+public File getDataDir();
+public File getFilesDir();
+public FileOutputStream openFileOutput(String name, int mode) throws IOException;
+public FileInputStream openFileInput(String name) throws IOException;
+public String[] fileList();
+public boolean deleteFile(String name);
+// picodroid.io.File
+public native String[] list();          // null when not a directory
+public File[] listFiles();
+public native boolean createNewFile() throws IOException;   // was boolean, silent
+// picodroid.io.FileOutputStream — write(byte[],int,int), write(byte[]), write(int) throw IOException
+```
+
+Multi-app boards (`MULTI_APP_CLASSES`):
+
+```java
+// picodroid.os.StatFs — StatFs(String path), restat(String); the path is accepted and ignored (one volume)
+public long getTotalBytes(); public long getFreeBytes(); public long getAvailableBytes();
+public long getBlockSizeLong(); public long getBlockCountLong(); public long getAvailableBlocksLong();
+// getAvailableBytes() is what this app may still write: min(free − reserve, cap − usage); system apps see free.
+// picodroid.app.usage.StorageStatsManager — Context.getSystemService(Context.STORAGE_STATS_SERVICE)
+public StorageStats queryStatsForPackage(String packageName) throws PackageManager.NameNotFoundException;
+// picodroid.app.usage.StorageStats — getAppBytes() (the run's sectors × 4096), getDataBytes() (P4 usage), getCacheBytes() = 0
+// picodroid.content.pm.PackageInstaller — PackageManager.getPackageInstaller()
+public void uninstall(String packageName);   // IllegalArgumentException: not installed / system / running
+// picodroid.os.Build — BOARD, HARDWARE (mcu), VERSION.RELEASE (firmware package version), VERSION.INCREMENTAL (framework map version)
+```
+
+`queryStatsForPackage` drops Android's `UUID` and `UserHandle` parameters
+(one volume, one user); `PackageInstaller.uninstall` drops the
+`IntentSender` (synchronous). Both divergences go in the API docs.
+
+### 8.4 Seams
+
+```rust
+// picodroid-core::hal::HalFs (hal/traits.rs) — two methods, no new trait: seam count stays 42
+fn list_dir(path: &str, out: &mut Vec<DirEntry>) -> bool;   // DirEntry { name: String, dir: bool, size: u32 }
+fn space() -> (u64, u64);                                   // (total, free) bytes; (0, 0) when unavailable
+
+// picodroid-core::host::PlatformHooks (+ __pd_host_uninstall_run in set_platform_hooks!)
+fn uninstall_run(first_sector: u32, sectors: u32) -> bool;
+
+// picodroid-core::fs (feature = "littlefs")
+pub fn exclusive<R>(f: impl FnOnce() -> R + Send) -> R;    // run f on the fs worker; inline pre-scheduler
+
+// picodroid-core::native_handler::io (io.rs becomes io/{mod,backend,sandbox,quota}.rs)
+sandbox::resolve(package: Option<&str>, path: &str, buf: &mut [u8; 256]) -> Result<&str, Rejected>;
+quota::charge(delta_blocks: i32) -> Result<(), Full>;  quota::usage(package) -> u64;  quota::reset();
+storage::wipe_package(package);  storage::sweep_orphans();
+
+// picodroid-core::board_cfg::flash (generated): FS_SYSTEM_RESERVE_BYTES, APP_DATA_CAP_BYTES (0 = unlimited)
+// picodroid-core::packages: no change; running()/find()/is_system()/rescan_region() are enough
+```
+
+Board and MCU keys (`build_support/flash_layout.rs`): `fs_system_reserve_kb`
+(MCU default 64) and `app_data_cap_kb` (default: a quarter of `fs_kb`; `0`
+= unlimited). The generator asserts `reserve < fs_kb` and
+`cap ≤ fs_kb − reserve` (or 0). Both keys are documented in
+advanced-config.md; a product board that wants one big app sets the cap
+to 0.
+
+### 8.5 Stages
+
+| # | Stage | Scope | Guards and tests | Checkpoint |
+|---|---|---|---|---|
+| M3-0 | rp2040 C at `-Os` (own PR, first) | `c_opt_level = "s"` in `rp2040.toml`, applied by `config::apply_c_opt_level` to LVGL, the kernel and the network C for that MCU's target only; ratchet re-baselined | rp2350 bytes unchanged proves the scope; `--full` | DONE 2026-09-08 on `feat/rp2040-c-os`: release 893,243 → 802,679 B, debug 913,083 → 822,616, `handle-table-32` 915,355 → 824,888; RAM and every RP2350 image unchanged; `-fno-jump-tables` rides along (rust-lld links no libgcc). The rp2040 HIL matrix waits for a board on the bench |
+| M3a | Sandbox + files API (all boards) | `io/` split, `sandbox.rs` + unit tests (mapping table: `..`, empty, `.`, trailing `/`, too long, no package = identity); `HalFs::list_dir` in `LittleFsHal` and the test map; `File.list/listFiles`; the P2 `Context` methods; P5 (`IOException`, `throws`, ripple); P9; `examples/filesdemo` | `method_tables.rs` rows, `class_registry`, api-contract regen (`scripts/gen-api-contract.sh`), `no_original_name_literals` (path words that collide with served member names become `build_support/names.rs` consts, as `BOOT_APP` did) | **both rp2040 debug legs measured** before M3b starts (§8.7) |
+| M3b | Quota + stats (multi-app) | keys → consts; `quota.rs` (walk, deltas, reserve, cap) + tests over the test map; `HalFs::space`; `StatFs` and `Build` (every board; `Build`'s natives read the board and MCU names from board_cfg, `CARGO_PKG_VERSION`, `FRAMEWORK_MAP_VERSION`); `StorageStatsManager`/`StorageStats`; P8 wipes + boot sweep; `MULTI_APP_CLASSES` + `ApiContract.kt` mirror; `examples/quotademo` | quota tests: fill to the cap → `IOException`, delete frees, mkdir counts 8 KB, system exempt, reserve refuses before the cap when the FS is nearly full; sweep test over the test map | sim: `quotademo` passes with the board's 512 KB image |
+| M3c | Uninstall from Java | `PlatformHooks::uninstall_run`, `fs::exclusive`, RP + sim impls; `PackageInstaller` + `getPackageInstaller()`; the three refusals; wipe | `packages`-style test over `MemRegion` (uninstall → rescan → `find` is `None`, data gone); the sim verb and the native share `do_uninstall`'s tail | sim: `apps list` after a Java uninstall |
+| M3d | Settings app | `system-apps/settings` (P7); `build_system_apks --prebuilt-dir DIR` builds every `system-apps/*` PAPK into `DIR` and is what pre-commit, `hil_build_firmware` and sim-run call; the launcher lane's `ready: 1 apps` becomes `ready: 2 apps` | the existing map-version check covers both PAPKs; `check-shrunk-image.sh` (Java package `settings`, never `picodroid.*`) | sim: launcher → Settings → About/Apps/Storage → Home, screenshots |
+| M3e | Harness, docs, release | §8.6 rows and lanes; §8.8 docs; release notes; ratchet `size:` trailers; `pre-commit --full`; bench | `--full` green except the expected `shrink_image` leak (new classes until the cut) | bench on testbench_rp2350 (all rows) and testbench_rp2040 (`filesdemo`, `bootcount`, `prefs_demo`); merge; then `release(shrink): cut map v0.22.0` on main on the owner's go-ahead |
+
+Order matters three times: Stage 0 before everything, because M3a does not
+fit the rp2040 without it (§8.7); M3a next because it is the stage that
+changes single-app boards, so the rp2040 number is known before anything
+else is built on it; M3c before M3d because the settings app's Apps screen
+is otherwise untestable.
+
+### 8.6 Harness
+
+Sim and bench rows in `scripts/hil-tests.conf`:
+
+```text
+filesdemo|term|60|FilesDemo[]:] === ALL PASSED ===
+quotademo|term|120|QuotaDemo[]:] === ALL PASSED ===|rp2350
+helloworld|pdb|300|running: picodroid.settings;Settings: uninstalled helloworld;free: largest|settings-uninstall
+```
+
+`filesdemo` (every board): `getFilesDir`, `openFileOutput` + `openFileInput`
+round trip, `MODE_APPEND`, `fileList` and `File.list` contents, `deleteFile`,
+`mkdirs` two deep, `renameTo`, and the refusals — `new File("../x")
+.createNewFile()` throws, `new File("/data/other/x").exists()` is false
+after writing it (it landed under this package), a 200-byte path fails.
+`quotademo` (rp2350 boards): `StatFs` numbers sum, writes until
+`IOException` at the cap, `delete` restores `getAvailableBytes()`,
+`StorageStats.getDataBytes()` matches P4's rule, `mkdir` costs 8 KB.
+`settings-uninstall` (multi-app firmware, touch panel; SKIPped otherwise):
+flash helloworld `--boot launcher`, clear other packages as `launch` does,
+then `tap 120 60` (Settings is row 1: installed apps sort first), wait
+`Settings: ready`, `tap 120 100` (Apps), wait `Settings: apps 1`,
+`tap 120 60` (the first app row), then the dialog's `Uninstall` button at
+the pinned coordinates, expect `Settings: uninstalled helloworld`, then
+`pdb list` without a helloworld row and
+`running: picodroid.settings`. The `list` row's pattern gains
+`picodroid.settings`; `launch` and `launch-soak` are unchanged (row 0 stays
+the app). `sim-run.sh` gains `run_settings_smoke`, the same taps over the
+control FIFO (its screenshot is where the dialog's button coordinates are
+pinned from), and `run_launcher_smoke`'s count pattern moves to 2. The
+bootcount persistence recipe (+1 per reflash, +2 per power cycle) holds:
+the file is `/data/bootcount/bootcount` now, same package every time.
+
+### 8.7 Flash and RAM
+
+rp2350 (2,048 KB region, 1,004,755 B release at M2): expect about +20 KB —
+the settings PAPK (10–12 KB stripped), five classes, the quota and
+`Build`/`StatFs`/stats natives — accepted in the ratchet with `size:`
+trailers. rp2040: M3a, `StatFs` and `Build` land there — the mapping, `list_dir`,
+`File.list`, the `Context` methods, the `IOException` path, two small
+classes — about 3.5–4 KB on the **debug** images by the stripped-corpus
+yardstick (`File.class` 1,290 B for 13 methods, `SystemClock.class` 237 B
+for 3 natives). The `--full` run of 2026-09-08
+(`build/pre-commit/2026-09-08T181701/arm6.log`) put the plain debug build
+at 913,083 and the `handle-table-32` leg at 915,355 of 917,248 B — 1,893 B
+left — so M3 does not fit without Stage 0: the C code (LVGL, the kernel)
+at `-Os` for the rp2040 only, measured at −81.5 KB on rp2350 in
+`flash-budget-2026-09.md` §6.1 with every Rust bucket byte-identical. Its
+cost is render throughput, on a dev board. Landed 2026-09-08: −90.5 KB on
+every rp2040 image (release 893,243 → 802,679 B; 92 KB of headroom on the
+tightest debug leg). M3a still ends with both debug legs measured. RAM: a few statics (usage, the
+ensured-directory flag), a 256-byte path buffer on the JVM task's stack
+inside the natives, and at most four nested `list_dir` round trips; the
+fs worker's 8 KB stack (`FS_STACK_WORDS`) is untouched. Main-stack
+headroom on rp2350 (17,800 B at M2) does not move.
+
+### 8.8 Docs
+
+`api/storage.md` (the sandbox, the `Context` file API, `File.list`, the
+quota, `StatFs`, `StorageStatsManager`, path limits, the `IOException`
+change, the `FileNotFoundException` note); `api/system.md` (`Build`,
+`PackageInstaller`); `guides/launcher.md` (a Settings section; going Home
+on a touch board); `reference/advanced-config.md` (the two keys);
+`reference/limits.md` (184-byte paths, 8 KB per directory, the defaults);
+`reference/pdb-commands.md` (`uninstall` wipes data; `list` shows both
+system rows); `reference/porting-guide.md` (`HalFs::list_dir`/`space`,
+`PlatformHooks::uninstall_run`, `fs::exclusive`); `examples.md`
+(`filesdemo`, `quotademo`); release notes (root files on dev boards are no
+longer visible to apps, the sim image is recreated at the board's size).
+
+### 8.9 Owner decisions (2026-09-08)
+
+Asked with a recommendation each, answered the same day:
+
+1. **Sandbox on single-app boards too** (P1) — yes.
+2. **`StatFs` and `Build`** (P3) — every board; `StorageStatsManager`,
+   `StorageStats` and `PackageInstaller` stay multi-app only.
+3. **`getFilesDir()` is `/files`, an 8 KB directory** (P2) — yes.
+4. **Uninstall confirmation** (P7) — an `AlertDialog`, not a two-tap row;
+   the harness taps its positive button at pinned coordinates.
+5. **`throws IOException` on the write path** (P5) — yes.
+6. **The `-Os` lever** (§8.7) — before M3, as its own PR, rp2040 only
+   (Stage 0 in §8.5).
+
+### 8.10 Deferred from M3
+
+`getCacheDir()` (another 8 KB directory nobody asked for), `FileNotFoundException`
+(a java/** class, pico-jvm side), `File.lastModified()` (LittleFS keeps no
+times), a `data` column in `pdb list`, a BACK affordance for touch boards
+(still open from A2), a runtime boot-app override in Settings (needs the
+`/system/settings` store, §6), migration of pre-M3 root files, and
+permissions (S9 of the roadmap).
 
 ## Amendments
 

@@ -409,6 +409,37 @@ pub fn find_mcu_toml_in(platform_root: &Path, mcu_name: &str) -> String {
 }
 
 /// Recursively collect all files with the given extension under `dir`.
+/// Apply the MCU's `c_opt_level` to a C compile that targets that MCU.
+///
+/// cc-rs otherwise mirrors cargo's `OPT_LEVEL`, so the C side of a firmware
+/// follows the Rust profile (`-O3` for both device profiles). The rp2040's
+/// 896 KB program region is the fleet's tightest, and LVGL plus the kernel
+/// are the largest non-Java bucket in it, so `rp2040.toml` sets
+/// `c_opt_level = "s"` and buys back tens of KB with no Rust touched
+/// (docs/designs/flash-budget-2026-09.md §6.1). The comparison against the
+/// MCU's `target` keeps a simulator build of the same board — the host
+/// target — at cargo's level; a boardless build has no MCU at all.
+pub fn apply_c_opt_level(build: &mut cc::Build, mcu: &HashMap<String, String>) {
+    let Some(level) = mcu.get("c_opt_level") else {
+        return;
+    };
+    assert!(
+        matches!(level.as_str(), "0" | "1" | "2" | "3" | "s" | "z"),
+        "MCU toml c_opt_level must be one of 0, 1, 2, 3, s, z; got {level:?}"
+    );
+    let target = env::var("TARGET").unwrap_or_default();
+    if mcu.get("target").map(String::as_str) == Some(target.as_str()) {
+        build.opt_level_str(level);
+        // rust-lld links no libgcc, and GCC's Thumb-1 code generation reaches
+        // for libgcc's `__gnu_thumb1_case_*` switch-table helpers at -Os (at
+        // -O3 the same switches came out inline, which is why the link never
+        // missed them before). Lower switches to compare-and-branch chains.
+        if target.starts_with("thumbv6m") {
+            build.flag("-fno-jump-tables");
+        }
+    }
+}
+
 pub fn collect_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut result = Vec::new();
     collect_files_recursive(dir, ext, &mut result);

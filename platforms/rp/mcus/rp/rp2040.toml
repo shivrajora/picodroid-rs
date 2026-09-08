@@ -10,6 +10,13 @@ core_count = 2
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
 heap_kb = 128
 size_tool = "arm-none-eabi-size"
+# Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim)
+# compiles at -Os instead of following cargo's OPT_LEVEL. The 896 KB program
+# region is the fleet's tightest, and the C is where -Os pays most for the
+# least risk: LVGL and the kernel shrink by about a third, Rust and the JVM
+# are untouched (docs/designs/flash-budget-2026-09.md §6.1). Render
+# throughput is the cost. Read by build_support/config.rs::apply_c_opt_level.
+c_opt_level = "s"
 freertos_port = "ThirdParty/GCC/RP2040"
 pico_shim = "src/hal/rp/port/pico_shim_rp2040.c"
 

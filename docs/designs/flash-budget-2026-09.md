@@ -236,6 +236,20 @@ Ranked by measured or projected bytes off the **program region**.
 
 ### 6.1 Optimisation level — measured, −224 KB to −270 KB
 
+**Status (2026-09-08).** The C-only `-Os` row landed for the RP2040 alone:
+`c_opt_level = "s"` in `rp2040.toml`, applied by
+`build_support/config.rs::apply_c_opt_level` to LVGL, the kernel and the
+network stack when the compile targets that MCU, together with
+`-fno-jump-tables` — GCC's Thumb-1 switch tables call libgcc's
+`__gnu_thumb1_case_*` helpers, and rust-lld links no libgcc, so the first
+link failed on four undefined symbols. `testbench_rp2040`: release
+893,243 → 802,679 B (−90,564), debug 913,083 → 822,616 B, the
+`handle-table-32` leg 915,355 → 824,888 B; RAM unchanged; every RP2350
+image byte-identical. Render throughput on the RP2040 is unmeasured (no
+harness row prices it) and accepted on a dev board. The RP2350 stays at
+`-O3`: 2 MB of program region and no pressure. The profile-wide `"s"` and
+`"z"` rows below remain open.
+
 The release profile is `opt-level = 3`. cc-rs mirrors cargo's `OPT_LEVEL`
 when it compiles LVGL and FreeRTOS, so the profile flag also selects `-O3`
 for the C side (`build_support/lvgl.rs` adds only `-fshort-enums`). Rebuilt

@@ -20,6 +20,10 @@
 //! - `init_array_segment` — destination memory region for `.init_array`.
 //!   When set, this module emits an `INSERT AFTER .rodata` linker fragment.
 //!   Leave unset on platforms that don't need it.
+//! - `c_opt_level` — optimisation level for every C object built for this
+//!   MCU's target (`0`–`3`, `s`, `z`); unset means cargo's `OPT_LEVEL`. Read
+//!   by `config::apply_c_opt_level`, which LVGL and the network stack also
+//!   go through.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -88,6 +92,7 @@ pub fn build(
         "configTOTAL_HEAP_SIZE",
         format!("({heap_kb} * 1024)").as_str(),
     );
+    crate::config::apply_c_opt_level(b.get_cc(), mcu);
 
     b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 

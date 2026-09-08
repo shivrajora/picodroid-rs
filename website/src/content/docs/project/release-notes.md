@@ -7,6 +7,11 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The RP2040 compiles its C at `-Os`**
+
+- `platforms/rp/mcus/rp/rp2040.toml` sets `c_opt_level = "s"`: every C object built for that MCU — LVGL, the FreeRTOS kernel and shim, and the network stack on a board that has one — compiles at `-Os` instead of following cargo's `-O3`, through the new `build_support/config.rs::apply_c_opt_level`. Rust and the JVM are untouched, and so is every RP2350 image (its MCU leaves the key unset). GCC's Thumb-1 switch tables call libgcc helpers that rust-lld does not link, so those objects also get `-fno-jump-tables`. The key is documented in the [porting guide](/reference/porting-guide/).
+- Flash: `testbench_rp2040` −90,564 B on the release image (893,243 → 802,679), −90,467 B on the debug image (913,083 → 822,616) and on the `handle-table-32` leg (915,355 → 824,888); RAM unchanged. That leg had 1,893 B of program region left; the room is what the multi-app M3 storage work needs. The cost is LVGL render throughput on the RP2040, a dev board.
+
 **A launcher built into the firmware, and apps that start one another (multi-app M2; map v0.21.0, package 0.21.0)**
 
 - **The launcher.** Every multi-app board (`max_installed_apps` above 1; the four RP2350 boards) now carries `system-apps/launcher` inside its firmware: one row per installed app, icon and label, started by a tap or by the up/down/select buttons. It shows in `pdb list` as a `SYSTEM` row, takes no space in the app region, and cannot be uninstalled. Single-app boards embed nothing.

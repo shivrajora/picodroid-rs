@@ -86,6 +86,8 @@ pub struct NetStackBuild<'a> {
     pub extra_includes: &'a [PathBuf],
     /// Extra defines the link sources need (`CYW43_CONFIG_FILE`, …).
     pub extra_defines: &'a [(String, Option<String>)],
+    /// The MCU toml, for its `c_opt_level` (`config::apply_c_opt_level`).
+    pub mcu: &'a HashMap<String, String>,
 }
 
 /// Compile FreeRTOS+TCP (IPv4 only, `BufferAllocation_2`), the shared stack
@@ -180,6 +182,7 @@ pub fn build_freertos_tcp(b: &NetStackBuild<'_>) {
         build.file(f);
     }
 
+    crate::config::apply_c_opt_level(&mut build, b.mcu);
     build.compile("freertos_tcp");
 
     println!("cargo:rerun-if-changed={}", tcp_src.display());
@@ -204,6 +207,7 @@ pub fn build_cyw43_driver(
     family_port_dir: &str,
     heap_kb: u32,
     overrides: &[(String, String)],
+    mcu: &HashMap<String, String>,
 ) {
     let cyw43_dir = repo_root.join(CYW43_SUBMODULE);
     let cyw43_src = cyw43_dir.join("src");
@@ -267,6 +271,7 @@ pub fn build_cyw43_driver(
     // its cyw43_spi_* symbols resolve from the Rust rlib at final link.
     build.file(format!("{family_port_dir}/net/cyw43_port.c"));
 
+    crate::config::apply_c_opt_level(&mut build, mcu);
     build.compile("cyw43");
 
     println!("cargo:rerun-if-changed={}", cyw43_src.display());
