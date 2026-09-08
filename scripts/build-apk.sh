@@ -103,6 +103,13 @@ mkdir -p "$(dirname "$OUTPUT")"
 # invoking ./gradlew again from inside a running build would deadlock on the
 # project lock.
 if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
+  # Held from here through the copy of Gradle's output below: that file
+  # (examples/<app>/build/papk/<app>.papk) is shared by every caller, so
+  # two parallel builds of one app -- the fleet's runners in different
+  # shrink modes -- must not interleave build and copy. Not taken under
+  # PICODROID_SKIP_GRADLE=1: that caller sits inside a Gradle build that
+  # already holds it.
+  gradle_lock_acquire
   # Same per-invocation-property rule for the network-test host (NET-7):
   # the env fallback exists for direct ./gradlew use, but a warm daemon's
   # environment is frozen, so this wrapper always forwards it as -P.
@@ -129,14 +136,15 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   if [[ "$KEEP_LINES" == "1" ]]; then
     GRADLE_EXTRA_ARGS+=("-Ppicodroid.keepLineNumbers=true")
   fi
-  # gradle_lock_run: pre-commit runs lanes in parallel and more than one can
-  # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew
-  # invocations against one project directory contend on Gradle's project lock,
-  # and the papk they race over is what `pdb install` version-checks.
-  (cd "$REPO_ROOT" && gradle_lock_run ./gradlew ":examples:$APP:assemblePapk" --console=plain \
+  # Under the gradle lock: pre-commit runs lanes in parallel and more than
+  # one can reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two
+  # gradlew invocations against one project directory contend on Gradle's
+  # project lock, and the papk they race over is what `pdb install`
+  # version-checks. 9>&- keeps the lock's descriptor out of the daemon.
+  (cd "$REPO_ROOT" && ./gradlew ":examples:$APP:assemblePapk" --console=plain \
     "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}" \
     "-Ppicodroid.shrinkApp=${PICODROID_SHRINK_APP:-0}" \
-    ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"})
+    ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"} 9>&-)
 fi
 
 GRADLE_PAPK="$APP_DIR/build/papk/${APP}.papk"
@@ -164,3 +172,7 @@ if [[ "${PICODROID_SHRINK_APP:-}" == "1" ]]; then
 else
   rm -f "$MAP_OUTPUT"
 fi
+# The papk and its map are ours now; let the next build in.
+gradle_lock_release
+# The papk and its map are ours now; let the next build in.
+gradle_lock_release
