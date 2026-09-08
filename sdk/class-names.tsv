@@ -123,6 +123,7 @@ picodroid/concurrent/Thread
 picodroid/concurrent/Thread$UncaughtExceptionHandler
 picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
+picodroid/content/ActivityNotFoundException
 picodroid/content/Context
 picodroid/content/DialogInterface
 picodroid/content/DialogInterface$OnClickListener
@@ -132,7 +133,10 @@ picodroid/content/Intent
 picodroid/content/ServiceConnection
 picodroid/content/SharedPreferences
 picodroid/content/SharedPreferences$Editor
+picodroid/content/pm/ApplicationInfo
+picodroid/content/pm/PackageInfo
 picodroid/content/pm/PackageManager
+picodroid/content/pm/PackageManager$NameNotFoundException
 picodroid/debug/DisplayDebug
 picodroid/di/ActivitySingletonComponent
 picodroid/di/ApplicationComponent
@@ -140,6 +144,7 @@ picodroid/di/Lazy
 picodroid/graphics/Color
 picodroid/graphics/Display
 picodroid/graphics/Theme
+picodroid/graphics/drawable/BitmapDrawable
 picodroid/graphics/drawable/Drawable
 picodroid/graphics/drawable/GradientDrawable
 picodroid/graphics/drawable/GradientDrawable$Orientation

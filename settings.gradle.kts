@@ -17,3 +17,11 @@ rootDir.resolve("examples").listFiles()
     ?.filter { it.isDirectory && it.resolve("PicodroidManifest.xml").isFile }
     ?.sortedBy { it.name }
     ?.forEach { include(":examples:${it.name}") }
+
+// System apps (docs/designs/multi-app-2026-09.md D11): the launcher. Built
+// like an example, then linked into every multi-app firmware by build.rs
+// (scripts/lib.sh::build_system_apks). Same discovery rule as examples/.
+rootDir.resolve("system-apps").listFiles()
+    ?.filter { it.isDirectory && it.resolve("PicodroidManifest.xml").isFile }
+    ?.sortedBy { it.name }
+    ?.forEach { include(":system-apps:${it.name}") }

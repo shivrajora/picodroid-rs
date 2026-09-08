@@ -204,6 +204,17 @@ view.setBackground(g);
 
 Multi-stop gradients, angle-arbitrary orientations, and radial gradients are deferred.
 
+## `picodroid.graphics.drawable.BitmapDrawable`
+
+An image from another package's bundled assets, as `PackageManager.getApplicationIcon` returns it (multi-app boards). Show it with `ImageView.setImageDrawable`, or use it as a background with `View.setBackground`. Apps do not build these themselves; for the app's own assets use `ImageView.setImageSource`.
+
+```java
+Drawable icon = getPackageManager().getApplicationIcon(info.applicationInfo);
+if (icon != null) {
+  imageView.setImageDrawable(icon);
+}
+```
+
 ## `picodroid.view.View`
 
 Base class for all UI widgets. Not instantiated directly — use subclasses like `TextView`, `Button`, etc.
@@ -236,7 +247,8 @@ view.close();                        // release the native widget
 
 On button-only devices (no touchscreen), key events route to whichever view is **focused**. Make a
 view focusable and give it focus so it receives D-pad / hardware-key input. Mirrors
-`android.view.View`.
+`android.view.View`. A focusable view also scrolls into view when it takes focus, so a column
+taller than the screen can be walked with the buttons.
 
 ```java
 button.setFocusable(true);          // opt this view into the focus group
@@ -567,6 +579,7 @@ import picodroid.widget.ImageView;
 
 ImageView img = new ImageView();
 img.setImageSource("icon.png");
+img.setImageDrawable(drawable);   // a Drawable, e.g. another app's icon from the PackageManager
 ```
 
 Scale, tint, and aspect controls (Tier C):

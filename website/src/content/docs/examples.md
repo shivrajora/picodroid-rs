@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Seventy-two examples are included under `examples/`, organized by category.
+Seventy-two examples are included under `examples/`, organized by category. The launcher that multi-app boards boot into lives in `system-apps/launcher/`: built the same way, but linked into the firmware. See the [launcher guide](/guides/launcher/).
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 

@@ -3,9 +3,11 @@
 //! (docs/designs/multi-app-2026-09.md D8). Multi-app boards only; a
 //! single-app board answers `unknown cmd`.
 //!
-//! The list is text, one tab-separated row per installed app and a `free`
-//! footer, so `tools/pdb` renders it without a second wire format and a
-//! person can read the raw frame in a serial capture.
+//! The list is text, one tab-separated row per installed app, one per
+//! system app, a `free` footer and a `running` line, so `tools/pdb` renders
+//! it without a second wire format and a person can read the raw frame in
+//! a serial capture. Rows only ever get added (multi-app M2 added the
+//! system rows and the running line), so an older host still parses it.
 
 use core::fmt::Write as _;
 
@@ -19,12 +21,15 @@ use super::PdbTransport;
 use crate::install::{run_uninstall, CoreCoordinator, PapkFlash};
 use crate::packages::{self, Kind, SECTOR};
 
-/// Room for eight rows of a long package name and label plus the footer.
-const LIST_BUF: usize = 1024;
+/// Room for eight rows of a long package name and label, the system rows,
+/// the footer and the running line.
+const LIST_BUF: usize = 1280;
 
 /// Handle `CMD_LIST`: rows `sector<TAB>package<TAB>version-code<TAB>version
-/// <TAB>size<TAB>flags<TAB>label`, in sector order, then
-/// `free<TAB>largest<TAB>total<TAB>installed<TAB>max` (bytes and counts).
+/// <TAB>size<TAB>flags<TAB>label`, in sector order, then the system apps
+/// with `system` in the sector column, then
+/// `free<TAB>largest<TAB>total<TAB>installed<TAB>max` (bytes and counts),
+/// then `running<TAB>package` when an app is running.
 pub fn handle_list(transport: &mut impl PdbTransport, len: u32) {
     let wire_crc = transport.read_u32_le();
     if wire_crc != crc32_frame(CMD_LIST, len, &[]) {
@@ -58,6 +63,17 @@ fn render_list(text: &mut TextBuf<LIST_BUF>) {
         );
         last = Some(e.first_sector as u32);
     }
+    for e in packages::entries().filter(|e| e.kind == Kind::System) {
+        let _ = writeln!(
+            text,
+            "system\t{}\t{}\t{}\t{}\t-\t{}",
+            e.package(),
+            e.version_code(),
+            e.version(),
+            e.size(),
+            e.label()
+        );
+    }
     let (largest, total) = packages::free_space();
     let _ = writeln!(
         text,
@@ -67,6 +83,9 @@ fn render_list(text: &mut TextBuf<LIST_BUF>) {
         packages::installed_count(),
         packages::MAX_INSTALLED_APPS
     );
+    if let Some(running) = packages::running() {
+        let _ = writeln!(text, "running\t{running}");
+    }
 }
 
 /// Handle `CMD_UNINSTALL`: payload is the package name. Parks the JVM,
@@ -155,26 +174,38 @@ mod tests {
     }
 
     #[test]
-    fn list_renders_rows_in_sector_order_and_a_free_footer() {
+    fn list_renders_rows_in_sector_order_then_system_rows_free_and_running() {
         let _g = crate::packages::test_support::lock();
+        crate::packages::reset_for_test();
         let mut region = MemRegion::new(16, 8);
         crate::packages::rescan_region(&region);
         seed(&mut region, &papk("com.a", Some("App A")));
         seed(&mut region, &papk("com.b", None));
+        let launcher: &'static [u8] =
+            Box::leak(papk("picodroid.launcher", Some("Launcher")).into_boxed_slice());
+        crate::packages::register_system(&[launcher]);
+        crate::packages::set_running(Some("picodroid.launcher"));
 
         let mut pipe = MockPipe::new(frame(CMD_LIST, b""));
         handle_list(&mut pipe, 0);
         let (status, text) = payload_of(&pipe.tx);
         assert_eq!(status, STATUS_OK);
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines.len(), 5, "{text}");
         assert!(lines[0].starts_with("0\tcom.a\t7\t2.1\t"), "{}", lines[0]);
         assert!(lines[0].ends_with("\t-\tApp A"), "{}", lines[0]);
         assert!(lines[1].starts_with("2\tcom.b\t7\t2.1\t"), "{}", lines[1]);
         assert!(lines[1].ends_with("\t-\tcom.b"), "{}", lines[1]);
-        // 16 sectors, two 2-sector runs: 12 free, all contiguous.
+        assert!(
+            lines[2].starts_with("system\tpicodroid.launcher\t7\t2.1\t"),
+            "{}",
+            lines[2]
+        );
+        assert!(lines[2].ends_with("\t-\tLauncher"), "{}", lines[2]);
+        // 16 sectors, two 2-sector runs: 12 free, all contiguous; the
+        // system app takes no sector and does not count as installed.
         assert_eq!(
-            lines[2],
+            lines[3],
             format!(
                 "free\t{}\t{}\t2\t{}",
                 12 * SECTOR,
@@ -182,11 +213,13 @@ mod tests {
                 crate::packages::MAX_INSTALLED_APPS
             )
         );
+        assert_eq!(lines[4], "running\tpicodroid.launcher");
     }
 
     #[test]
     fn a_bad_crc_on_list_is_refused() {
         let _g = crate::packages::test_support::lock();
+        crate::packages::reset_for_test();
         let mut pipe = MockPipe::new(vec![0, 0, 0, 0]);
         handle_list(&mut pipe, 0);
         assert_eq!(pipe.tx[4], STATUS_CRC_FAIL);
@@ -195,6 +228,7 @@ mod tests {
     #[test]
     fn uninstall_of_an_unknown_package_is_not_found() {
         let _g = crate::packages::test_support::lock();
+        crate::packages::reset_for_test();
         let region = MemRegion::new(8, 8);
         crate::packages::rescan_region(&region);
         let mut region = region;
@@ -218,6 +252,7 @@ mod tests {
     #[test]
     fn uninstall_erases_the_run_reports_ok_then_resets() {
         let _g = crate::packages::test_support::lock();
+        crate::packages::reset_for_test();
         let mut region = MemRegion::new(8, 8);
         crate::packages::rescan_region(&region);
         seed(&mut region, &papk("com.a", None));

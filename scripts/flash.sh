@@ -28,6 +28,10 @@ Options:
                        (off by default; see website/src/content/docs/reference/shrinker.md)
       --shrink-app     Also rename the app's own classes and private members
                        (requires --shrink; see build-apk.sh --shrink-app)
+      --boot <what>    Which app a multi-app board boots: app (the --app
+                       PAPK; the default), launcher, or an installed package
+                       name. Built into the firmware; a name that is not
+                       installed falls back to the usual rule.
   -h, --help           Show this help message
 
 Boards:
@@ -58,6 +62,10 @@ EOF
     --shrink-app)
       export PICODROID_SHRINK_APP=1
       shift
+      ;;
+    --boot)
+      export PICODROID_BOOT="$2"
+      shift 2
       ;;
     *)
       EXTRA_ARGS+=("$1")

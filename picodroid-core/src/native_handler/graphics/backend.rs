@@ -98,6 +98,13 @@ pub trait GraphicsBackend {
         method: &str,
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
+    #[cfg(has_multi_app)]
+    fn dispatch_bitmap_drawable(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
+
     fn dispatch_gradient_drawable(
         &mut self,
         method: &str,

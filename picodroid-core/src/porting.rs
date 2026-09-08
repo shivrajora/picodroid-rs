@@ -55,15 +55,18 @@
 //!    run `packages::boot_image()`. Wire layouts and the USB identity are
 //!    `pdb_protocol`'s; never retype them.
 //! 6. **The simulator.** One [`register_sim_platform!`] call with your GC
-//!    roots, a `static` [`BootBudgetModel`] of the tasks your device creates
-//!    at boot ([`BootTask`]), and the function that runs your app; it
-//!    generates the simulator's `Rtos`, `PlatformHooks` and `sim_main()`.
+//!    roots and a `static` [`BootBudgetModel`] of the tasks your device
+//!    creates at boot ([`BootTask`]); it generates the simulator's `Rtos`,
+//!    `PlatformHooks` and `sim_main()`. Which app runs is the package
+//!    directory's business, the same as on a device.
 //!    One [`declare_sim_global_allocator!`] call in `main.rs`. Your simulator
 //!    Cargo feature must be named `sim`.
 //! 7. **Boot, data and discipline.** Hand the app bytes to [`run_app`] and
 //!    never construct a `Jvm` yourself. Your JVM task's supervisor loop owes:
-//!    clear the stop flag, run, abort child delays, [`wake_all_parked`],
-//!    drain live children, then park for a flash write or wait for the next
+//!    clear the stop flag, run, raise the stop flag for leftover threads,
+//!    abort child delays, [`wake_all_parked`], drain live children, ask
+//!    `packages::next_image()` unless a park is pending, then park for a
+//!    flash write or wait for the next
 //!    install (`platforms/rp/src/boot_tasks.rs` is the reference; do not put
 //!    a stop check in your HAL `sleep` — shared code owns it). Your `build.rs`
 //!    emits the capability `cfg`s (`has_display`, `has_touch`, `has_buttons`,

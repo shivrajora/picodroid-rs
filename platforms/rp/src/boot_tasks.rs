@@ -146,14 +146,25 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         move |_| {
             // Store our handle so pdb_task and child tasks can notify us.
             crate::pdb::pending::set_jvm_task(Task::current().unwrap());
+            let mut image = boot_apk;
             loop {
                 crate::pdb::pending::clear_stop();
-                // No app installed: skip straight to waiting for the install
-                // that will put one there (and reset the chip).
-                if let Some(apk) = boot_apk {
+                // Nothing to run: skip straight to waiting for the install
+                // that will put an app there (and reset the chip).
+                if let Some(apk) = image {
                     crate::app::run_jvm_with(apk);
                 }
 
+                // One app runs at a time: threads the app left behind must
+                // end before the next app's heap reset. A natural exit or a
+                // cross-package launch raises no STOP_JVM by itself (an
+                // install park already did), so raise it here for them.
+                if crate::pdb::pending::ACTIVE_JVM_THREADS
+                    .load(core::sync::atomic::Ordering::Acquire)
+                    > 0
+                {
+                    crate::pdb::pending::set_stop_jvm();
+                }
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM,
                 // and end every Thread.sleep / join / Object.wait park the same way.
                 crate::pdb::pending::abort_all_child_delays();
@@ -178,11 +189,26 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
                     CurrentTask::take_notification(true, Duration::infinite());
                 }
 
-                // Natural app exit: nothing to do until pdb_task installs a
-                // new app, and an install always opens with a park request
+                // An app stopped for an install has the park request pending
+                // and falls straight through to the park below, keeping
+                // `image` so a refused install resumes the same app. Any
+                // other exit — the last Activity finished, or a launch of
+                // another package — asks the directory what runs next
+                // (docs/designs/multi-app-2026-09.md D11): the pending
+                // launch, else the launcher, else nothing.
+                if !crate::pdb::pending::FLASH_PARK_REQUESTED
+                    .load(core::sync::atomic::Ordering::Acquire)
+                {
+                    image = picodroid_core::packages::next_image();
+                    if image.is_some() {
+                        continue;
+                    }
+                }
+
+                // Nothing to run until pdb_task installs an app, and an
+                // install always opens with a park request
                 // (`CoreCoordinator::request_stop_and_park`), so that is the
-                // condition. An app that was stopped for an install already
-                // has the request pending and falls straight through.
+                // condition.
                 while !crate::pdb::pending::FLASH_PARK_REQUESTED
                     .load(core::sync::atomic::Ordering::Acquire)
                 {

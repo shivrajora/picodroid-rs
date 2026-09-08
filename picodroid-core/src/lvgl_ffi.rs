@@ -359,6 +359,9 @@ pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
+/// Scroll the object into view when it takes focus (a focused row in a
+/// list taller than the screen, as Android's ScrollView does).
+pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: u32 = 1 << 10;
 
 // Object states (from lv_obj_style.h, v9.5.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
@@ -646,6 +649,11 @@ extern "C" {
     // Opacity style
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
     pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_bg_image_src(
+        obj: *mut lv_obj_t,
+        src: *const c_void,
+        selector: lv_style_selector_t,
+    );
 
     // Style readback. The typed `lv_obj_get_style_<prop>()` getters are
     // `static inline` in LVGL 9, so this generic exported one is the only
@@ -1382,6 +1390,10 @@ mod tests {
         assert_eq!(
             lookup_assigned_value(flags, "LV_OBJ_FLAG_CLICK_FOCUSABLE"),
             Some(1 << 2)
+        );
+        assert_eq!(
+            lookup_assigned_value(flags, "LV_OBJ_FLAG_SCROLL_ON_FOCUS"),
+            Some(LV_OBJ_FLAG_SCROLL_ON_FOCUS)
         );
         assert_eq!(
             lookup_assigned_value(flags, "LV_OBJ_FLAG_ADV_HITTEST"),

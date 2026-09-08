@@ -373,7 +373,7 @@ Board and MCU keys (`build_support/flash_layout.rs`): `boot2_bytes`, `fs_kb`,
 |---|---|
 | M0 | DONE 2026-09-07 (028e5c1) |
 | M1a–M1f | DONE 2026-09-07 (see A1) |
-| M2 | NOT STARTED |
+| M2 | DONE 2026-09-07 (see A2) |
 | M3 | NOT STARTED |
 
 ## 6. Deferred and open
@@ -450,3 +450,110 @@ cross-checks for every new native.
   (one differing byte, the shifted line number of `main.rs`'s `expect`).
   The rp2350 debug image is 981,952 B of the 2,048 KB program region with
   17,800 B of main-stack headroom.
+
+### A2 (2026-09-07) — what M2 changed against the body
+
+Written in plain language. Each point says what the code does now and why
+it differs from the text above.
+
+- **Launcher only.** M2 ships `system-apps/launcher`. The settings app is
+  M3 work, as the stage table says; D11's "two system apps" stays the
+  target. `SYSTEM_MAX = 2` is unchanged.
+- **Where system apps come from.** `scripts/lib.sh::build_system_apks`
+  builds every `system-apps/*` PAPK with the same flags as the app under
+  test and exports `PICODROID_SYSTEM_APKS` (a colon-separated list) and
+  `PICODROID_BOOT`. `picodroid-core/build.rs` reads them and writes
+  `system_apks.rs`: the images as 4-byte aligned `.rodata`, the launcher's
+  package name, and the boot override. Both variables are exported even
+  when empty, because `flash.sh` runs cargo twice and an unset-then-set
+  variable would rebuild the firmware without the launcher and flash that.
+  The launcher's Java package is `launcher`, not `picodroid.launcher`: a
+  `picodroid/…` class name inside the embedded PAPK would fail the
+  shrunk-image check.
+- **A launcher must match the firmware's map.** The build checks each
+  system app's `framework-map-version` against the firmware's and fails on
+  a mismatch, so a launcher that `verify_compat` would refuse can never be
+  linked in.
+- **Boot order (D7)** is `packages::select_boot`: the `--boot` override,
+  the board's `boot_package`, the run flagged `BOOT_DEFAULT`, the launcher,
+  the lowest run. `flash.sh --boot app` means the baked run; a name that is
+  not installed is skipped with a warning. The simulator reads
+  `PICODROID_BOOT` at run time instead of baking it in, so switching needs
+  no rebuild. The two words are generated into `system_apks.rs`
+  (`BOOT_APP`, `BOOT_LAUNCHER`): `app` is also a served member name, and
+  the no-literal guard would flag it spelled out in core.
+- **After an app exits (D11).** The body said "else the same image again".
+  The code does this instead: `packages::next_image()` returns the package
+  a cross-package `startActivity` asked for; else the launcher, when the
+  app that exited was not it; else nothing, and the supervisor waits for an
+  install exactly as a single-app board does. Re-running a finished app in
+  a loop was never useful. A launcher that exits is started again once; a
+  second exit in a row is treated as a fault and the device waits for an
+  install, so a broken launcher cannot loop. An app stopped for an install
+  keeps its image, so a refused install resumes the same app.
+- **How a launch leaves the app.** `Intent.setPackage` sets a new field
+  (slot 6, declared last; a test pins the slot). The `startActivity`
+  native records the target with `packages::request_launch` and queues
+  `PendingActivityOp::Launch`, which the lifecycle loop answers with
+  `Break`: every Activity gets onPause, onStop and onDestroy, services are
+  destroyed, and `run_app` returns. A package that is not installed throws
+  `ActivityNotFoundException`. The name is kept, not the image, so a
+  reinstall in between launches the new copy.
+- **Threads of the leaving app.** A launch and a natural exit raise no
+  `STOP_JVM` by themselves, so the device supervisor raises it when Java
+  threads are still alive after `run_app` returns; the simulator has its
+  own `STOP_JVM` flag behind `stop_requested()`. One app runs at a time.
+- **The simulator.** `sim_boot` runs the same loop as the device (boot
+  image, stop what the app left, ask `next_image`), exits when the answer
+  is nothing, and boots from the package directory rather than a second
+  copy of the app (`apk_data()` and `embed_apk` are gone). `sim.sh
+  --system-apps` opts in; `sim.sh --app X` alone still runs one app and
+  exits. A package verb that names the running app stops it first
+  (`STOP_JVM`) and runs after it is gone: a reinstall launches the new
+  copy, an uninstall gives way to the launcher.
+- **Per-board classes.** `MULTI_APP_CLASSES` (`PackageInfo`,
+  `ApplicationInfo`, `PackageManager$NameNotFoundException`,
+  `BitmapDrawable`) are dropped on single-app boards, mirrored in the
+  Gradle contract check (a board is multi-app when its own board.toml sets
+  `max_installed_apps` above 1; the MCU defaults are 1). Every new
+  `PackageManager` and `BitmapDrawable` native arm is `cfg(has_multi_app)`.
+  `Context.getPackageName` and `ActivityNotFoundException` ship everywhere.
+- **Icons across packages.** `assets::register_icon` boxes a descriptor
+  that points into the other package's image in place (flash or `.rodata`)
+  and hands `BitmapDrawable` a handle; `assets::clear` now frees the
+  descriptors instead of leaking them, because app switching makes the
+  reset a steady-state path. A focusable view also scrolls into view when
+  it takes focus (`LV_OBJ_FLAG_SCROLL_ON_FOCUS`), so the launcher's column
+  can be walked with the buttons.
+- **`pdb list`** adds a `system` row per system app and a `running` line
+  naming the executing package. Text only, so an older host ignores them;
+  the protocol stays `picodroid/2.2`. `LIST_BUF` is 1280 bytes.
+- **Touch-only boards have no BACK.** An app started from the launcher on
+  such a board must finish itself; otherwise it runs until the next
+  install or reset. Open: a BACK affordance for touch boards.
+- **Harness.** `hil-tests.conf` gains `launch` (blinky with `--boot
+  launcher`, `pdb input tap 120 20` on row 0, `running: blinky`) and
+  `launch-soak` (helloworld, twenty taps, the free heap must not drift),
+  both SKIPped on single-app firmware or without a touch panel; the `list`
+  row expects the `SYSTEM` row and `running:`. Every bench firmware links
+  the launcher (`hil_build_firmware`), and every new probe-rs and pdb call
+  takes stdin from `/dev/null` (the 734be0f rule). `sim-run.sh` gains a
+  launcher lane driven over the control FIFO. The pre-commit prologue
+  builds the launcher once (`PICODROID_PREBUILT_SYSTEM_APKS`).
+- **A fresh flash wins (D3).** The body says the higher `seq` wins when
+  two runs name the same package. That made a freshly flashed app lose to
+  an older copy `pdb install` had left further up the region — with a
+  higher sequence, and on the bench built for the other shrink mode, so it
+  failed `verify_compat` and the device fell through to the launcher. The
+  baked run (sector 0, sequence 0; an install never writes sequence 0)
+  now wins a duplicate outright, and the old copy is erased at cleanup.
+  Pinned by `a_fresh_bake_beats_an_older_install_of_the_same_package`.
+- **Flash cost (release images, the ratchet).** rp2350 +27,600 B: the
+  launcher PAPK (about 9.5 KB stripped), the new SDK classes, the
+  PackageManager and BitmapDrawable natives, the icon registry and the
+  switching loop. rp2040 +7,988 B for what a single-app board keeps: the
+  larger `PackageManager`, `Intent` and `Context` class files,
+  `ActivityNotFoundException`, `getPackageName`, the system-entry and boot
+  selection code and the supervisor loop; its release image is at 893,243
+  of 917,248 bytes. RAM is unchanged on both. Recorded in
+  `bench/parity/ratchet.toml` with this change's `size:` trailers.

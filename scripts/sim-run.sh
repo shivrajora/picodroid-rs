@@ -265,6 +265,108 @@ run_enviro_smoke() {
   fi
 }
 
+# Multi-app smoke (docs/designs/multi-app-2026-09.md M2): the launcher that
+# every multi-app firmware links in, driven over the control FIFO the way
+# the bench drives it over pdb. Boot into the launcher with helloworld
+# installed, tap row 0, expect helloworld to run and the launcher to come
+# back, then reinstall and uninstall helloworld through the package verbs
+# while the launcher runs.
+run_launcher_smoke() {
+  local mode="$1"
+  local app=helloworld lane=launcher
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="Launcher[]:] ready: 1 apps;Launcher[]:] launch helloworld;HelloWorld[]:] hi;apps: installed helloworld;apps: uninstalled helloworld;apps: \(none installed\)"
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (launcher smoke, 90s) ---"
+
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/launcher.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board testbench_rp2350)
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board testbench_rp2350)
+  if [[ "$mode" == "shrink" ]]; then
+    apk_args+=(--shrink)
+    launcher_args+=(--shrink)
+  fi
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  # The same binary run_test built for this mode (a cargo no-op).
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
+  rm -f "$fifo"
+  mkfifo "$fifo"
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_CTRL_FIFO="$fifo" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 90 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  # Wait for `want` to appear `n` times in the log, up to 40 s.
+  launcher_wait() {
+    local want="$1" n="$2" i
+    for i in $(seq 1 40); do
+      [[ "$(grep -c -- "$want" "$log_file")" -ge "$n" ]] && return 0
+      kill -0 "$pid" 2>/dev/null || return 1
+      sleep 1
+    done
+    return 1
+  }
+  launcher_send() { printf '%s\n' "$1" > "$fifo"; }
+
+  if launcher_wait "\[Launcher\] ready" 1; then
+    launcher_send "input tap 120 20"
+    if launcher_wait "\[Launcher\] ready" 2; then
+      launcher_send "apps install $apk_path"
+      if launcher_wait "apps: installed" 1; then
+        launcher_send "apps uninstall $app"
+        launcher_wait "apps: uninstalled" 1 || true
+        sleep 1
+      fi
+    fi
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$fifo"
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # WiFi-variant board smoke: same app on pico_enviro_mon_w, which is the only
 # board combining sensors + network. Boots headless, then probes the
 # dashboard HTTP server over the sim's host-network passthrough. NTP and
@@ -458,6 +560,10 @@ for MODE in "${MODES[@]}"; do
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
     run_enviro_smoke "$MODE"
     run_enviro_w_smoke "$MODE"
+  fi
+  # The launcher lane (multi-app M2); `--app launcher` reaches only this.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "launcher" ]]; then
+    run_launcher_smoke "$MODE"
   fi
   # The Kotlin twin (examples/picoenvmon_kt): same boards, same proofs, its own
   # log tag and lane names (docs/designs/kotlin-roadmap-2026-08.md Session 7).

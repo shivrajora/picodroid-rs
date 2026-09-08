@@ -19,6 +19,15 @@ pub mod flash {
     include!(concat!(env!("OUT_DIR"), "/flash_layout.rs"));
 }
 
+/// System apps linked into the firmware: their PAPKs in `.rodata`, the
+/// launcher's package name and the `flash.sh --boot` override
+/// (`build_support/papk.rs::embed_system_apks`; multi-app M2). Empty for
+/// single-app boards, host tests and the simulator, which loads its system
+/// apps at run time.
+pub mod system_apks {
+    include!(concat!(env!("OUT_DIR"), "/system_apks.rs"));
+}
+
 /// Display geometry. Pin and SPI wiring stay in the family HAL's own
 /// `display_config.rs`; the platform crate asserts the two agree.
 pub mod display {

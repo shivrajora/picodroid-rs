@@ -49,6 +49,9 @@ Options:
 
 Apps:
 $(list_apps "$REPO_ROOT/examples")
+
+System apps (system-apps/, linked into multi-app firmware):
+$(list_apps "$REPO_ROOT/system-apps")
 EOF
 }
 
@@ -79,11 +82,20 @@ if [[ "${PICODROID_SHRINK_APP:-}" == "1" && "${PICODROID_SHRINK:-}" != "1" ]]; t
   exit 1
 fi
 
-APP_DIR="$REPO_ROOT/examples/$APP"
-if [[ ! -d "$APP_DIR" ]]; then
-  echo "Error: app directory not found: $APP_DIR" >&2
+# Apps live under examples/; system apps (the launcher) under system-apps/.
+# Both are Gradle projects of the same shape (settings.gradle.kts).
+APP_ROOT=""
+for root in examples system-apps; do
+  if [[ -d "$REPO_ROOT/$root/$APP" ]]; then
+    APP_ROOT="$root"
+    break
+  fi
+done
+if [[ -z "$APP_ROOT" ]]; then
+  echo "Error: app directory not found: $REPO_ROOT/examples/$APP (nor system-apps/$APP)" >&2
   exit 1
 fi
+APP_DIR="$REPO_ROOT/$APP_ROOT/$APP"
 
 OUTPUT="${OUTPUT:-$REPO_ROOT/build/apks/${APP}.papk}"
 mkdir -p "$(dirname "$OUTPUT")"
@@ -133,7 +145,7 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   # reach Gradle (the typecheck stage, test.sh, sim-run.sh). Two gradlew
   # invocations against one project directory contend on Gradle's project lock,
   # and the papk they race over is what `pdb install` version-checks.
-  (cd "$REPO_ROOT" && gradle_lock_run ./gradlew ":examples:$APP:assemblePapk" --console=plain \
+  (cd "$REPO_ROOT" && gradle_lock_run ./gradlew ":$APP_ROOT:$APP:assemblePapk" --console=plain \
     "-Ppicodroid.shrink=${PICODROID_SHRINK:-0}" \
     "-Ppicodroid.shrinkApp=${PICODROID_SHRINK_APP:-0}" \
     ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"})

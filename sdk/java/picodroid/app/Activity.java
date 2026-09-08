@@ -3,7 +3,6 @@ package picodroid.app;
 
 import picodroid.content.Context;
 import picodroid.content.Intent;
-import picodroid.content.pm.PackageManager;
 import picodroid.graphics.Display;
 import picodroid.view.View;
 
@@ -121,10 +120,6 @@ public class Activity extends Context {
    * android.app.Activity#getIntent()} — read extras via {@code getIntent().getStringExtra(...)}.
    */
   public native Intent getIntent();
-
-  public PackageManager getPackageManager() {
-    return PackageManager.getInstance();
-  }
 
   public void setContentView(View root) {
     Display.getInstance().setContentView(root);

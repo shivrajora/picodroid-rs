@@ -33,9 +33,10 @@
 //! task, pins tasks to cores, and parks its JVM task forever in a supervisor
 //! loop waiting for the next install. None of that appears here: two of them
 //! have no simulator endpoint, core affinity is meaningless on a single-core
-//! port, and the simulator runs one app and exits. The supervisor loop stays
-//! family-side for the reason `family-neutral-residue.md` D4 gives — it
-//! encodes a flash topology, not a lifecycle.
+//! port, and there is no install park. What the simulator does share is the
+//! app-switching loop: run what the package directory says, stop what the
+//! app left behind, ask what runs next (`packages::next_image`), and exit
+//! when the answer is nothing — a device waits for an install instead.
 
 use alloc::boxed::Box;
 use std::panic::AssertUnwindSafe;
@@ -45,13 +46,14 @@ use crate::hal::sim::boot_budget::{self, BootBudgetModel};
 use crate::hal::sim::rtos as sim_rtos;
 use crate::rtos::{self, TaskKind, TaskSpec};
 
-/// Boot the simulator and run one app to completion.
+/// Boot the simulator and run apps until the directory has nothing to run.
 ///
 /// Everything before the scheduler handoff is the work a device also does
 /// pre-scheduler (arming the heap model, mounting the filesystem); everything
-/// after only runs once the JVM task has ended the scheduler. One app per
-/// process, as `sim-run.sh` already assumes.
-pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
+/// after only runs once the JVM task has ended the scheduler. Without system
+/// apps that is one app per process, as `sim-run.sh` assumes; with a
+/// launcher loaded the process runs until it is killed, as a device does.
+pub fn main(model: &'static BootBudgetModel) {
     // Start device-heap accounting at the sim's "reset vector". Everything
     // before this is host-runtime noise; everything after is charged to the
     // heap_4 arena exactly as the device charges its FreeRTOS heap.
@@ -74,7 +76,7 @@ pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
     crate::hal::sim::app_region::init();
     allocator::checkpoint("post-app-region");
 
-    run(model, run_app);
+    run(model);
 
     allocator::checkpoint("final");
 
@@ -93,8 +95,8 @@ pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
 
 /// Create the boot tasks, then hand this thread to the scheduler.
 ///
-/// Returns when the JVM task has finished the app and ended the scheduler.
-fn run(model: &'static BootBudgetModel, run_app: fn()) {
+/// Returns when the JVM task has run out of apps and ended the scheduler.
+fn run(model: &'static BootBudgetModel) {
     // JVM heap compound operations and the GC are scheduler-atomic here
     // exactly as on a device: the same installer, so no `AtomicSection` is a
     // silent no-op on one target and real on the other.
@@ -132,29 +134,46 @@ fn run(model: &'static BootBudgetModel, run_app: fn()) {
         rtos::spawn(
             &spec,
             Box::new(move || {
-                // Unwinding across the port's `extern "C"` task trampoline is
-                // UB, and abort-on-panic is what a device does under
-                // panic-probe. Catch here rather than letting the default hook
-                // run, so the scheduler is not left owning a dead process's
-                // main thread.
-                if std::panic::catch_unwind(AssertUnwindSafe(run_app)).is_err() {
-                    eprintln!("[sim] jvm task panicked — aborting");
-                    std::process::abort();
+                // The app-switching loop a device's supervisor runs
+                // (platforms/rp/src/boot_tasks.rs), minus the install park.
+                let mut image = crate::packages::boot_image();
+                if image.is_none() {
+                    println!("[sim] no app to run");
                 }
+                while let Some(img) = image {
+                    crate::hal::sim::platform::set_stop_jvm(false);
+                    // Unwinding across the port's `extern "C"` task trampoline
+                    // is UB, and abort-on-panic is what a device does under
+                    // panic-probe. Catch here rather than letting the default
+                    // hook run, so the scheduler is not left owning a dead
+                    // process's main thread.
+                    if std::panic::catch_unwind(AssertUnwindSafe(|| crate::boot::run_app(img)))
+                        .is_err()
+                    {
+                        eprintln!("[sim] jvm task panicked — aborting");
+                        std::process::abort();
+                    }
 
-                // Wait for Java threads the app started, exactly as a device's
-                // supervisor loop does before letting an install reboot the
-                // app. Without it an `onCreate` that starts threads and
-                // returns would end the scheduler out from under children that
-                // never ran an instruction — the same visible outcome as a
-                // host-thread model's deliberate no-op, reached by accident.
-                //
-                // A poll rather than the device's task notifications: the
-                // device must be woken *promptly* because a flash erase is
-                // queued behind it, and it has the bookkeeping to do that.
-                // Here the only thing waiting is process exit.
-                while sim_rtos::live_jvm_children() > 0 {
-                    rtos::delay_ms(10);
+                    // One app runs at a time: Java threads the app left behind
+                    // end here, exactly as a device's supervisor loop stops
+                    // them before the next app (or an install) — STOP_JVM,
+                    // wake the parked ones, wait. Without it an `onCreate`
+                    // that starts threads and returns would end the scheduler
+                    // out from under children that never ran an instruction.
+                    //
+                    // A poll rather than the device's task notifications: the
+                    // device must be woken *promptly* because a flash erase is
+                    // queued behind it, and it has the bookkeeping to do that.
+                    crate::hal::sim::platform::set_stop_jvm(true);
+                    crate::threads::wake_all_parked();
+                    while sim_rtos::live_jvm_children() > 0 {
+                        rtos::delay_ms(10);
+                    }
+
+                    // A package verb that had to wait for the app to stop
+                    // (reinstall or uninstall of the running package).
+                    crate::hal::sim::app_region::service_deferred();
+                    image = crate::packages::next_image();
                 }
 
                 // Releases the main thread from `start_scheduler` below, and

@@ -62,6 +62,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_graphics_drawable_Drawable,
     c::picodroid_graphics_drawable_GradientDrawable,
     c::picodroid_graphics_drawable_GradientDrawable_Orientation,
+    c::picodroid_graphics_drawable_BitmapDrawable,
     c::picodroid_graphics_Display,
     c::picodroid_widget_TextView,
     c::picodroid_widget_Button,
@@ -233,6 +234,35 @@ mod tests {
     /// virtual dispatch at runtime with NoSuchMethod — historically only
     /// caught on device, in shrink mode, via the `native miss` defmt log.
     /// Runs under both shrink modes (scripts/test.sh): loaded names are
+    /// The `Intent` field slots the native `startActivity` reads by index
+    /// (`graphics/fields.rs::intent`): `targetClassName` is slot 0 and
+    /// `packageName` slot 6, last, after the five extras fields. Declaration
+    /// order is slot order, so `Intent.java` must keep both where they are.
+    #[test]
+    fn intent_field_slots_match_fields_rs() {
+        use crate::shrink_names::{c, m};
+        let intent = crate::framework_classes::FRAMEWORK_CLASSES
+            .iter()
+            .map(|b| ClassFile::parse(b).expect("parse framework class"))
+            .find(|cf| cf.class_name() == Some(c::picodroid_content_Intent.as_bytes()))
+            .expect("Intent is a framework class");
+        let names: Vec<&str> = intent
+            .fields()
+            .iter()
+            .map(|f| {
+                core::str::from_utf8(intent.cp_utf8(f.name_index).expect("field name"))
+                    .expect("field name is UTF-8")
+            })
+            .collect();
+        assert_eq!(
+            names.len(),
+            7,
+            "Intent declares seven instance fields: {names:?}"
+        );
+        assert_eq!(names[0], m::targetClassName, "{names:?}");
+        assert_eq!(names[6], m::packageName, "{names:?}");
+    }
+
     /// un-shrunk before the registry lookup, exactly like the runtime path.
     #[test]
     fn every_native_class_is_registered() {

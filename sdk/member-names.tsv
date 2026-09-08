@@ -39,6 +39,7 @@ F	FEATURE_WIFI
 F	FILL
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
+F	FLAG_SYSTEM
 F	FLING_MIN_PX
 F	GONE
 F	GREEN
@@ -227,6 +228,7 @@ F	alive
 F	alpha
 F	alphaTo
 F	app
+F	applicationInfo
 F	base
 F	boundView
 F	buttonCount
@@ -260,6 +262,7 @@ F	error
 F	eventTime
 F	fillColor
 F	fixedLength
+F	flags
 F	focusable
 F	gradientEnd
 F	gradientOrientation
@@ -275,6 +278,7 @@ F	height
 F	host
 F	i2cId
 F	id
+F	imageHandle
 F	indeterminate
 F	instance
 F	intVals
@@ -322,6 +326,7 @@ F	onSwipeListener
 F	onTouchListener
 F	onValueChangeListener
 F	orientation
+F	packageName
 F	path
 F	pin
 F	poolSeq
@@ -371,6 +376,8 @@ F	url
 F	value
 F	values
 F	vendor
+F	versionCode
+F	versionName
 F	view
 F	visibility
 F	watcherCount
@@ -517,6 +524,8 @@ M	getAndAdd
 M	getAndDecrement
 M	getAndIncrement
 M	getAndSet
+M	getApplicationIcon
+M	getApplicationLabel
 M	getBoolean
 M	getBooleanExtra
 M	getByAddress
@@ -547,6 +556,7 @@ M	getHostAddress
 M	getHour
 M	getId
 M	getInputStream
+M	getInstalledPackages
 M	getInstance
 M	getInt
 M	getIntExtra
@@ -558,10 +568,12 @@ M	getItemId
 M	getJSONArray
 M	getJSONObject
 M	getKeyCode
+M	getLaunchIntentForPackage
 M	getLayoutParams
 M	getLeft
 M	getLength
 M	getLong
+M	getLongVersionCode
 M	getMaxValue
 M	getMaximumRange
 M	getMinDelay
@@ -573,7 +585,10 @@ M	getOnFocusChangeListener
 M	getOnItemClickListener
 M	getOnItemSelectedListener
 M	getOutputStream
+M	getPackage
+M	getPackageInfo
 M	getPackageManager
+M	getPackageName
 M	getParent
 M	getParentFile
 M	getPath
@@ -625,9 +640,11 @@ M	hash
 M	hashCode
 M	hide
 M	i
+M	iconAt
 M	incrementAndGet
 M	indeterminate
 M	indexOf
+M	infoAt
 M	initStream
 M	intValue
 M	interrupt
@@ -663,6 +680,8 @@ M	lambda$track$0
 M	lazySet
 M	length
 M	load
+M	loadIcon
+M	loadLabel
 M	locate
 M	locateOrAppend
 M	log
@@ -686,6 +705,7 @@ M	nativeChild
 M	nativeChildAt
 M	nativeConnect
 M	nativeContentLength
+M	nativeCount
 M	nativeCreate
 M	nativeCreateIndeterminate
 M	nativeCreateWithList
@@ -697,16 +717,21 @@ M	nativeDoubleValue
 M	nativeGetProperty
 M	nativeHeaderField
 M	nativeHeaderFieldAt
+M	nativeIconHandle
+M	nativeIndexOf
 M	nativeIntValue
 M	nativeIsFocused
+M	nativeIsSystem
 M	nativeKeyAt
 M	nativeKind
+M	nativeLabel
 M	nativeLastError
 M	nativeLength
 M	nativeListen
 M	nativeLongValue
 M	nativeNewArray
 M	nativeNewObject
+M	nativePackageName
 M	nativeParse
 M	nativePerformItemClick
 M	nativePoolNodes
@@ -745,6 +770,7 @@ M	nativeResolve
 M	nativeResponseMessage
 M	nativeSetAction
 M	nativeSetAlpha
+M	nativeSetBackground
 M	nativeSetBool
 M	nativeSetDouble
 M	nativeSetDuration
@@ -752,6 +778,7 @@ M	nativeSetEnabled
 M	nativeSetEndAction
 M	nativeSetFlexGrow
 M	nativeSetFocusable
+M	nativeSetImageSrc
 M	nativeSetInt
 M	nativeSetLong
 M	nativeSetMode
@@ -767,6 +794,8 @@ M	nativeShow
 M	nativeStart
 M	nativeStringValue
 M	nativeToString
+M	nativeVersionCode
+M	nativeVersionName
 M	newFixedThreadPool
 M	newSingleThreadExecutor
 M	nextPoolId
@@ -920,6 +949,7 @@ M	setGravity
 M	setHardwareFlowControl
 M	setHint
 M	setId
+M	setImageDrawable
 M	setImageSource
 M	setIncludeFontPadding
 M	setInputType
@@ -954,6 +984,7 @@ M	setOnTimeChangedListener
 M	setOnTouchListener
 M	setOnValueChangedListener
 M	setOrientation
+M	setPackage
 M	setPadding
 M	setParity
 M	setPosition

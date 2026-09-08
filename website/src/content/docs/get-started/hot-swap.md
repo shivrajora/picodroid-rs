@@ -44,7 +44,7 @@ The device stops the running JVM (including any sleeping child threads), writes 
 
 ## Several apps on one device
 
-RP2350 boards keep an *app region* of flash that holds up to eight installed apps at once. `pdb install` places a new package beside the ones already there (upgrading a package that is already installed) and refuses, without erasing anything, when there is no room; `pdb list` shows what is installed and how much is free; `pdb uninstall <package>` erases one. The app `flash.sh --app` baked in stays the one the device boots into until the launcher lands.
+RP2350 boards keep an *app region* of flash that holds up to eight installed apps at once. `pdb install` places a new package beside the ones already there (upgrading a package that is already installed) and refuses, without erasing anything, when there is no room; `pdb list` shows what is installed and how much is free; `pdb uninstall <package>` erases one. The device boots the app `flash.sh --app` baked in; when that app finishes, the launcher built into the firmware shows what is installed and starts the one you pick. `flash.sh --boot launcher` boots the launcher first. See the [launcher guide](/guides/launcher/).
 
 ```bash
 pdb install build/apks/imagedemo.papk     # beside blinky

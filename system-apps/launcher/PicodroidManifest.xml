@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="picodroid.launcher" version="1.0" version-code="1">
+    <application activity="launcher/LauncherActivity" label="Launcher" icon="launcher.png" />
+</manifest>

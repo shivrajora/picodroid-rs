@@ -152,6 +152,10 @@ stopService(i);
 `bindService` takes just `(Intent, ServiceConnection)` — there is no `flags` parameter and no
 `Context.BIND_AUTO_CREATE` constant; binding always creates the service if it isn't running.
 
+### Starting another app
+
+On a multi-app board an Intent can name a package instead of a class: `new Intent().setPackage("com.example.weather")`, or `getPackageManager().getLaunchIntentForPackage(...)`. `startActivity` with such an Intent ends the current app and starts that one; a package that is not installed throws `ActivityNotFoundException`. See the [launcher guide](/guides/launcher/).
+
 ## Dependency injection: `@Inject` / `@Singleton`
 
 Picodroid ships a compile-time DI framework in the Dagger/Hilt shape. Annotate constructors, fields and methods with JSR-330's `javax.inject.Inject`, scope app-wide objects with `javax.inject.Singleton`, and the build generates the wiring. Nothing is resolved at runtime — pico-jvm has no reflection and drops annotations from class files — so the only thing that reaches the device is ordinary generated Java.

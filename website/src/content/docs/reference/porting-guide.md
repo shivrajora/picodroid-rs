@@ -81,8 +81,8 @@ each of which is one name for two ends of one seam, not a copy.
 
 ### Your crate must not drive the JVM
 
-Hand off to `picodroid_core::boot::run_app(apk_data)` and let core own every
-`Jvm`. A family crate that constructs its own `Jvm` gets the whole
+Hand off to `picodroid_core::boot::run_app(image)` — the image the package
+directory chose — and let core own every `Jvm`. A family crate that constructs its own `Jvm` gets the whole
 interpreter monomorphised a second time — measured at ~38 KB, which
 overflowed the RP2040 flash ceiling. LTO does not rescue this.
 
@@ -237,10 +237,15 @@ tested against mocks. You supply four things and hand them to
   boot-meta pages or a relocation. `InstallTransport` is satisfied by the
   bridge's own framing.
 
-At boot, before the scheduler, `packages::rescan(region_base, len)` walks
-the region's runs, `packages::cleanup(&mut region)` erases what a power
-loss left unfinished, and `packages::boot_image()` is what you hand to
-`run_app` (`None` means wait for an install). Wire layouts (frames, sysmon, input
+At boot, before the scheduler, `packages::register_system(board_cfg::system_apks::SYSTEM_APKS)`
+adds the system apps the build linked into the firmware (the launcher, on a
+multi-app board), `packages::rescan(region_base, len)` walks the region's
+runs, `packages::cleanup(&mut region)` erases what a power loss left
+unfinished, and `packages::boot_image()` is what you hand to `run_app`
+(`None` means wait for an install). When `run_app` returns and no install
+is pending, `packages::next_image()` says what runs next: the package a
+cross-package `startActivity` asked for, else the launcher, else `None`.
+Wire layouts (frames, sysmon, input
 events, keycode names) are types in the `pdb-protocol` crate, and the USB
 vendor and product ID and strings are `pdb_protocol::usb`; core's
 `pdb::usb_cdc` holds a reference CDC-ACM descriptor set built from them.
@@ -248,7 +253,8 @@ Never retype any of it.
 
 ## 6. The simulator
 
-Two macro calls and no simulator code:
+Two macro calls and no simulator code. Which app runs, and what runs after
+it, is the package directory's business, shared with the device:
 
 ```rust
 // glue.rs
@@ -256,7 +262,6 @@ Two macro calls and no simulator code:
 picodroid_core::register_sim_platform! {
     gc_roots    = crate::gc_root_registration::register_all,
     boot_budget = crate::boot_budget::MODEL,   // static BootBudgetModel
-    run_app     = crate::app::run_jvm,
 }
 
 // main.rs
@@ -305,12 +310,17 @@ flash write" half encodes your flash topology — but it owes a fixed
 checklist. `platforms/rp/src/boot_tasks.rs` is the reference:
 
 1. Store the task's handle so the bridge and child tasks can wake it.
-2. Loop: clear the stop flag; `run_app`; abort any child task delays;
+2. Loop: clear the stop flag; `run_app` on the current image; raise the
+   stop flag if Java threads are still alive (a natural exit or a launch of
+   another package raises none itself); abort any child task delays;
    `picodroid_core::threads::wake_all_parked()`; wait until the count of
    live child tasks reaches zero.
-3. Block until the bridge asks for a flash park (an install always opens
-   with one), acknowledge, and block until it releases you or resets the
-   chip; when released, go round again.
+3. If no flash park is pending, ask `packages::next_image()` what runs
+   next — the package a cross-package `startActivity` asked for, else the
+   launcher, else nothing — and go round again with it when there is one.
+   Otherwise block until the bridge asks for a flash park (an install
+   always opens with one), acknowledge, and block until it releases you or
+   resets the chip; when released, go round again with the same image.
 4. Never return from the task — its stack is the app's.
 5. Do not put a stop check in your `HalClock::sleep`; shared code owns that.
 6. Every one of those waits must re-check its condition after waking. The
@@ -546,6 +556,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. Classes owned by a feature switch (`has_json`) are added automatically; listing one by hand while the switch is on fails the build. |
 | `max_installed_apps` | int | no | Package-directory capacity, 1..=64 (MCU default 1 = a single-app board; the RP2350 boards set 8). Above 1 the build emits `has_multi_app` and the debug bridge gains `list`/`uninstall`. |
 | `app_region_kb` | int | no | Size of the app region (`PAPK_FLASH`), a multiple of 4 (MCU default 1024; the RP2350 boards set 1536). |
+| `boot_package` | string | no | The package to boot when it is installed, for a board that always runs one app. Otherwise the usual order applies: the app `flash.sh --app` baked in, then the launcher, then the lowest run. `flash.sh --boot` overrides it. |
 | `fs_kb` | int | no | Size of the LittleFS region (MCU default 128 on rp2040, 256 on rp2350; the RP2350 boards set 512). |
 | `linker_script` | string | no | Path to a linker script used verbatim, `MEMORY` block and all (by default the `MEMORY` block is generated from the flash layout above and the MCU's `mcus/<family>/<mcu>.x` supplies only its `SECTIONS`). |
 

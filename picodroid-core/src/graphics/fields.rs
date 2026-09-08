@@ -57,3 +57,13 @@ pub mod snackbar {
     // Slot 1 is the action lozenge's `Runnable`, read from Java only. A new
     // field starts at slot 2.
 }
+
+/// `picodroid.content.Intent` is **not** a View — slot numbering starts from
+/// its own first declared field. The extras table sits between the two named
+/// here; `Intent.java` declares `packageName` last for that reason.
+pub mod intent {
+    /// `targetClassName`: the class a same-app launch pushes.
+    pub const TARGET_CLASS_NAME: usize = 0;
+    /// `packageName`: the package a cross-package launch leaves for.
+    pub const PACKAGE: usize = 6;
+}

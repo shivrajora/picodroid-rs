@@ -71,3 +71,15 @@ pub fn apply_gradient_drawable(
         }
     }
 }
+
+/// Paint an image asset as a widget's background: `BitmapDrawable` applied
+/// to a View that is not an ImageView. `dsc` lives as long as the assets
+/// registry entry it came from.
+#[cfg(has_multi_app)]
+pub fn set_background_image(handle: i32, dsc: *const lv_image_dsc_t) {
+    let obj = handle_table::lookup(handle);
+    if obj.is_null() || dsc.is_null() {
+        return;
+    }
+    unsafe { lv_obj_set_style_bg_image_src(obj, dsc as *const core::ffi::c_void, 0) };
+}

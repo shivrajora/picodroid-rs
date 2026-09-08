@@ -230,11 +230,53 @@ pub const NET_HANDLED: &[Row] = &[
 pub const OS_HANDLED: &[Row] = &[
     // java/lang/System
     ("java/lang/System", "currentTimeMillis", "()J"),
+    // picodroid/content/Context
+    (
+        "picodroid/content/Context",
+        "getPackageName",
+        "()Ljava/lang/String;",
+    ),
     // picodroid/content/pm/PackageManager
     (
         "picodroid/content/pm/PackageManager",
         "hasSystemFeature",
         "(Ljava/lang/String;)Z",
+    ),
+    ("picodroid/content/pm/PackageManager", "nativeCount", "()I"),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeIconHandle",
+        "(I)I",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeIndexOf",
+        "(Ljava/lang/String;)I",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeIsSystem",
+        "(I)Z",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeLabel",
+        "(I)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativePackageName",
+        "(I)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeVersionCode",
+        "(I)I",
+    ),
+    (
+        "picodroid/content/pm/PackageManager",
+        "nativeVersionName",
+        "(I)Ljava/lang/String;",
     ),
     // picodroid/os/SystemClock
     ("picodroid/os/SystemClock", "elapsedRealtimeNanos", "()J"),
@@ -455,6 +497,17 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/graphics/Display", "getInstance", "()Lpicodroid/graphics/Display;"),
     ("picodroid/graphics/Display", "setContentView", "(Lpicodroid/view/View;)V"),
     ("picodroid/graphics/Display", "update", "()V"),
+    // picodroid/graphics/drawable/BitmapDrawable
+    (
+        "picodroid/graphics/drawable/BitmapDrawable",
+        "nativeSetBackground",
+        "(Lpicodroid/view/View;I)V",
+    ),
+    (
+        "picodroid/graphics/drawable/BitmapDrawable",
+        "nativeSetImageSrc",
+        "(Lpicodroid/view/View;I)V",
+    ),
     // picodroid/graphics/drawable/GradientDrawable
     ("picodroid/graphics/drawable/GradientDrawable", "nativeApply", "(Lpicodroid/view/View;IIIIIIII)V"),
     // picodroid/view/View

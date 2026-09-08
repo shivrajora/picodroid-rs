@@ -3,10 +3,10 @@
 //!
 //! At app load (after the JVM has finished class loading) [`init_from_papk`]
 //! walks the papk's `ASST` section and builds a `name → *const lv_image_dsc_t`
-//! lookup. Each descriptor is heap-`Box`-leaked once so its address stays
-//! stable for the lifetime of the firmware; LVGL keeps the raw pointer it
-//! receives via `lv_image_set_src`, so we can't move the descriptor out from
-//! under it.
+//! lookup. Each descriptor lives in its own `Box`, so its address is stable
+//! while the app runs; LVGL keeps the raw pointer it receives via
+//! `lv_image_set_src`, so the box is only freed by [`clear`], after the
+//! widget tree is gone.
 //!
 //! The descriptor's `data` field points directly into the XIP-mapped papk
 //! slice (which itself is `'static` because the papk lives in flash), so we
@@ -30,7 +30,13 @@ struct RegistryCell {
 
 struct Registry {
     initialized: bool,
-    entries: Vec<(String, *const lv_image_dsc_t)>,
+    entries: Vec<(String, Box<lv_image_dsc_t>)>,
+    /// Other packages' icons handed to `BitmapDrawable`, by handle
+    /// ([`register_icon`]); freed with the rest by [`clear`]. Boxed on
+    /// purpose: LVGL keeps the raw pointer, so a descriptor must not move
+    /// when the vector grows.
+    #[allow(clippy::vec_box)]
+    icons: Vec<Box<lv_image_dsc_t>>,
 }
 
 // SAFETY: single-core JVM task ownership, mirrors `monitor_store::MonitorStoreCell`.
@@ -42,6 +48,7 @@ static REGISTRY: RegistryCell = RegistryCell {
     inner: UnsafeCell::new(Registry {
         initialized: false,
         entries: Vec::new(),
+        icons: Vec::new(),
     }),
 };
 
@@ -83,8 +90,7 @@ pub fn init_from_papk(papk: &Papk<'_>) {
             reserved: core::ptr::null(),
             reserved_2: core::ptr::null(),
         });
-        let dsc_ptr: *const lv_image_dsc_t = Box::leak(dsc);
-        reg.entries.push((name.to_string(), dsc_ptr));
+        reg.entries.push((name.to_string(), dsc));
     }
     // One-line breadcrumb so HIL/sim tests can assert the section parsed.
     // Skipped when no assets exist — silent path stays silent.
@@ -106,7 +112,7 @@ pub fn lookup(name: &str) -> Option<*const lv_image_dsc_t> {
         .entries
         .iter()
         .find(|(n, _)| n == name)
-        .map(|(_, ptr)| *ptr)
+        .map(|(_, dsc)| &**dsc as *const lv_image_dsc_t)
 }
 
 /// Number of registered assets — exposed for sim smoke tests and debug
@@ -116,14 +122,57 @@ pub fn count() -> usize {
     registry().entries.len()
 }
 
-/// Drop all asset descriptors. Called on app reset before running a new APK
-/// (mirrors `monitor_store::clear`). The pointers we leaked stay leaked —
-/// the next init will allocate fresh descriptors. This is acceptable because
-/// `pdb install` is a developer flow, not a steady-state occurrence.
+/// Drop all asset descriptors. Called on app reset before the next app runs
+/// (mirrors `monitor_store::clear`), after the LVGL widget tree is deleted:
+/// no image object holds a descriptor any more, so the boxes are freed
+/// rather than leaked. App switching (multi-app M2) makes this a
+/// steady-state path, not a one-off developer flow.
 pub fn clear() {
     let reg = registry();
     reg.entries.clear();
+    reg.icons.clear();
     reg.initialized = false;
+}
+
+/// Register `entry`'s icon — the asset its manifest names — and return the
+/// handle a `BitmapDrawable` carries; `None` when the package has no icon
+/// or the asset is missing. The descriptor points into the package's image
+/// in place (flash or `.rodata`), like the running app's own assets, and
+/// lives until [`clear`]. Registering the same icon twice returns the same
+/// handle.
+#[cfg(has_multi_app)]
+pub fn register_icon(entry: &crate::packages::Entry) -> Option<i32> {
+    let name = entry.icon()?;
+    let papk = Papk::parse(entry.image).ok()?;
+    let mut assets = papk.assets().ok()??;
+    let asset = assets.find(|a| a.name == name.as_bytes())?;
+    let reg = registry();
+    if let Some(i) = reg
+        .icons
+        .iter()
+        .position(|d| core::ptr::eq(d.data, asset.data.as_ptr()))
+    {
+        return Some(i as i32);
+    }
+    let dsc = Box::new(lv_image_dsc_t {
+        header: lv_image_header_t::new(asset.cf, asset.width, asset.height, asset.stride),
+        data_size: asset.data.len() as u32,
+        data: asset.data.as_ptr(),
+        reserved: core::ptr::null(),
+        reserved_2: core::ptr::null(),
+    });
+    reg.icons.push(dsc);
+    Some((reg.icons.len() - 1) as i32)
+}
+
+/// The descriptor behind a `BitmapDrawable` handle.
+#[cfg(has_multi_app)]
+pub fn icon_dsc(handle: i32) -> Option<*const lv_image_dsc_t> {
+    let i = usize::try_from(handle).ok()?;
+    registry()
+        .icons
+        .get(i)
+        .map(|d| &**d as *const lv_image_dsc_t)
 }
 
 #[cfg(test)]

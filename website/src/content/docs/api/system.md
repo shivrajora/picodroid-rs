@@ -54,6 +54,41 @@ Runtime.resetPeakMemory();            // reset the peak counter to the current u
 `usedMemory` / `peakMemory` / `resetPeakMemory` are handy for profiling — bracket a workload with
 `resetPeakMemory()` then read `peakMemory()` to capture its high-water allocation.
 
+## `picodroid.content.pm.PackageManager`
+
+What the device has installed, and what it can run. `Context.getPackageManager()` returns it (every Activity, Application and Service is a Context). Mirrors `android.content.pm.PackageManager`.
+
+```java
+import picodroid.content.pm.ApplicationInfo;
+import picodroid.content.pm.PackageInfo;
+import picodroid.content.pm.PackageManager;
+
+PackageManager pm = getPackageManager();
+boolean wifi = pm.hasSystemFeature(PackageManager.FEATURE_WIFI);
+
+List<PackageInfo> apps = pm.getInstalledPackages(0);               // system apps included
+PackageInfo info = pm.getPackageInfo("com.example.weather", 0);    // NameNotFoundException when absent
+CharSequence label = pm.getApplicationLabel(info.applicationInfo);
+Drawable icon = pm.getApplicationIcon(info.applicationInfo);       // null when the app has no icon
+Intent launch = pm.getLaunchIntentForPackage("com.example.weather"); // null when absent
+startActivity(launch);                                             // ends this app, starts that one
+```
+
+| Method | Description |
+|--------|-------------|
+| `hasSystemFeature(String)` | `FEATURE_WIFI`, `FEATURE_ETHERNET`: the board's link, a build fact. |
+| `getInstalledPackages(int flags)` | Every package, system apps included. `flags` is ignored. |
+| `getPackageInfo(String, int flags)` | One package, or `PackageManager.NameNotFoundException`. |
+| `getLaunchIntentForPackage(String)` | An Intent that starts the package, or `null`. |
+| `getApplicationLabel(ApplicationInfo)` | The manifest `label`, or the package name. |
+| `getApplicationIcon(String)` / `(ApplicationInfo)` | The manifest `icon` as a `BitmapDrawable`, or `null`. |
+
+`PackageInfo` carries `packageName`, `versionName`, `versionCode` and `applicationInfo`. `ApplicationInfo` carries `packageName` and `flags` (`FLAG_SYSTEM` for an app built into the firmware, such as the launcher) and can `loadLabel(pm)` and `loadIcon(pm)`.
+
+The query methods exist on multi-app boards only (`max_installed_apps` above 1). A single-app board keeps `hasSystemFeature` and drops the rest, `PackageInfo`, `ApplicationInfo` and `BitmapDrawable` included. See the [launcher guide](/guides/launcher/).
+
+`Context.getPackageName()` returns the running app's own package name, from its manifest.
+
 ## `picodroid.concurrent.Thread`
 
 The `java.lang.Thread` API on a FreeRTOS task. Import it — there is no `java.lang.Thread` here.

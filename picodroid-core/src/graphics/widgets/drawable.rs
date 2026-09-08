@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Java-binding shim for `picodroid.graphics.drawable.GradientDrawable`.
+//! Java-binding shims for `picodroid.graphics.drawable.GradientDrawable`
+//! and, on multi-app boards, `BitmapDrawable`.
 
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::drawable as lvgl_drawable;
+#[cfg(has_multi_app)]
+use super::super::lvgl::widgets::image_view as lvgl_image_view;
 use super::super::view::extract_handle_at;
 
 #[inline]
@@ -48,5 +51,35 @@ pub fn gradient_drawable_apply(
         grad_end,
         grad_dir,
     );
+    Ok(None)
+}
+
+/// `BitmapDrawable.nativeSetImageSrc(View target, int imageHandle)`: show
+/// another package's icon (`assets::register_icon`) in an ImageView.
+#[cfg(has_multi_app)]
+pub fn bitmap_drawable_set_image_src(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let handle = extract_handle_at(args, 0, objects)?;
+    let image = arg_int(args, 1)?;
+    if let Some(dsc) = super::super::assets::icon_dsc(image) {
+        lvgl_image_view::set_src(handle, dsc);
+    }
+    Ok(None)
+}
+
+/// `BitmapDrawable.nativeSetBackground(View target, int imageHandle)`: the
+/// icon as the view's background image (`View.setBackground`).
+#[cfg(has_multi_app)]
+pub fn bitmap_drawable_set_background(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let handle = extract_handle_at(args, 0, objects)?;
+    let image = arg_int(args, 1)?;
+    if let Some(dsc) = super::super::assets::icon_dsc(image) {
+        lvgl_drawable::set_background_image(handle, dsc);
+    }
     Ok(None)
 }

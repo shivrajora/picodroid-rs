@@ -115,6 +115,32 @@ impl Drop for HandlerRootGuard {
     }
 }
 
+/// Throw `class` with `msg` from a native: what `net::helpers` does for the
+/// network natives, spelled here because that module is board-gated.
+fn throw_exception(ctx: &mut NativeContext<'_>, class: &'static str, msg: &str) -> JvmError {
+    match ctx.objects.alloc(class) {
+        Some(idx) => {
+            if let Some(midx) = ctx.strings.intern_dyn(msg.as_bytes()) {
+                ctx.objects.register_exception_message(idx, midx);
+            }
+            JvmError::Exception(idx)
+        }
+        None => JvmError::StackOverflow,
+    }
+}
+
+/// Record a cross-package launch for the supervisor; `false` when the
+/// package is not installed. A single-app board has nothing to launch.
+#[cfg(has_multi_app)]
+fn request_package_launch(package: &str) -> bool {
+    crate::packages::request_launch(package).is_ok()
+}
+
+#[cfg(not(has_multi_app))]
+fn request_package_launch(_package: &str) -> bool {
+    false
+}
+
 impl PicodroidNativeHandler {
     pub fn new() -> Self {
         Self {
@@ -187,32 +213,69 @@ impl PicodroidNativeHandler {
     }
 
     /// Shared body of `startActivity` / `startActivityForResult`: resolve the
-    /// Intent's target class and enqueue a Push op carrying the result-launch
-    /// metadata. `args[1]` is the Intent ObjectRef.
+    /// Intent's target and enqueue the transition. `args[1]` is the Intent
+    /// ObjectRef.
+    ///
+    /// A package target (`Intent.setPackage`) that is not the running
+    /// package leaves this app for that one (multi-app M2): the target goes
+    /// to `packages::request_launch`, and a `Launch` op makes the lifecycle
+    /// loop tear this app down; a package that is not installed throws
+    /// `ActivityNotFoundException`. Otherwise the class target is pushed
+    /// with the result-launch metadata.
     fn enqueue_activity_push(
         &mut self,
-        ctx: &NativeContext<'_>,
+        ctx: &mut NativeContext<'_>,
         request_code: Option<i32>,
         caller_ref: u16,
-    ) {
-        if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
-            if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(*intent_ref, 0) {
-                if let Some(class_name) = ctx.strings.resolve(name_idx) {
-                    // targetClassName is `Class.getName().replace('.', '/')` — a
-                    // runtime dynamic String the GC can free — so canonicalize to
-                    // the loaded class file's Flash-backed name before storing it
-                    // in the enqueued op, rather than transmuting to `&'static`.
-                    if let Some(static_name) = ctx.canonical_class_name(class_name) {
-                        self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
-                            class_name: static_name,
-                            intent_ref: Some(*intent_ref),
-                            request_code,
-                            caller_ref,
-                        }));
-                    }
+    ) -> Result<Option<Value>, JvmError> {
+        let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) else {
+            return Ok(None);
+        };
+        let intent_ref = *intent_ref;
+        let package_launch = match ctx
+            .objects
+            .get_field(intent_ref, crate::graphics::fields::intent::PACKAGE)
+        {
+            Some(Value::Reference(idx)) => match ctx.strings.resolve(idx) {
+                Some(p) if !p.is_empty() && Some(p) != crate::packages::running() => {
+                    Some(request_package_launch(p))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(requested) = package_launch {
+            return if requested {
+                self.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch));
+                Ok(None)
+            } else {
+                Err(throw_exception(
+                    ctx,
+                    c::picodroid_content_ActivityNotFoundException,
+                    "package not installed",
+                ))
+            };
+        }
+        if let Some(Value::Reference(name_idx)) = ctx.objects.get_field(
+            intent_ref,
+            crate::graphics::fields::intent::TARGET_CLASS_NAME,
+        ) {
+            if let Some(class_name) = ctx.strings.resolve(name_idx) {
+                // targetClassName is `Class.getName().replace('.', '/')` — a
+                // runtime dynamic String the GC can free — so canonicalize to
+                // the loaded class file's Flash-backed name before storing it
+                // in the enqueued op, rather than transmuting to `&'static`.
+                if let Some(static_name) = ctx.canonical_class_name(class_name) {
+                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                        class_name: static_name,
+                        intent_ref: Some(intent_ref),
+                        request_code,
+                        caller_ref,
+                    }));
                 }
             }
         }
+        Ok(None)
     }
 
     /// The top Activity's pending-result tuple `(request_code, caller_ref,
@@ -441,10 +504,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             // Match any class name: invokevirtual dispatches with the runtime
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
-            (_, m::startActivity) => {
-                self.enqueue_activity_push(ctx, None, 0);
-                Some(Ok(None))
-            }
+            (_, m::startActivity) => Some(self.enqueue_activity_push(ctx, None, 0)),
             (_, m::startActivityForResult) => {
                 // args[0] = this (Activity), args[1] = Intent, args[2] = int requestCode.
                 // The receiver is the caller that will get onActivityResult.
@@ -456,8 +516,7 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     Some(Value::Int(c)) => *c,
                     _ => 0,
                 };
-                self.enqueue_activity_push(ctx, Some(request_code), caller_ref);
-                Some(Ok(None))
+                Some(self.enqueue_activity_push(ctx, Some(request_code), caller_ref))
             }
             (_, m::setResult) => {
                 // args[0] = this (Activity), args[1] = int resultCode,

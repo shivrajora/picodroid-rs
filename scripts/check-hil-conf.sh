@@ -47,8 +47,8 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
   [[ "$app" =~ ^[[:space:]]*# ]] && continue
   [[ -z "$app" ]] && continue
 
-  if [[ ! -d "$REPO_ROOT/examples/$app" ]]; then
-    fail "line $lineno: app '$app' has no examples/$app/ directory"
+  if [[ ! -d "$REPO_ROOT/examples/$app" && ! -d "$REPO_ROOT/system-apps/$app" ]]; then
+    fail "line $lineno: app '$app' has no examples/$app/ or system-apps/$app/ directory"
   fi
 
   case "$category" in
@@ -87,8 +87,8 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
     tag="$(sed -n 's/^\([A-Za-z][A-Za-z0-9]*\)\[\]:\].*/\1/p' <<< "$pat")"
     [[ -z "$tag" ]] && continue
     allow_tag "$tag" && continue
-    if ! grep -rqF "\"$tag\"" "$REPO_ROOT/examples" "$REPO_ROOT/sdk" --include='*.java' --include='*.kt'; then
-      fail "line $lineno ($app): pattern tag '$tag' not found as a string literal in examples/ or sdk/ Java or Kotlin sources (renamed or deleted demo? update the conf row or ALLOW_TAGS)"
+    if ! grep -rqF "\"$tag\"" "$REPO_ROOT/examples" "$REPO_ROOT/system-apps" "$REPO_ROOT/sdk" --include='*.java' --include='*.kt'; then
+      fail "line $lineno ($app): pattern tag '$tag' not found as a string literal in examples/, system-apps/ or sdk/ Java or Kotlin sources (renamed or deleted demo? update the conf row or ALLOW_TAGS)"
     fi
   done
 done < "$CONF"

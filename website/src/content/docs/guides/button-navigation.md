@@ -68,7 +68,7 @@ save.requestFocus();         // make it the initially-focused widget
 
 The signatures and contract come straight from Android (`sdk/java/picodroid/view/View.java`):
 
-- `public void setFocusable(boolean focusable)` — "Set whether this view can take input focus. On a hardware-button device, only a focusable view receives key events — call this (and `requestFocus()`) on the view that owns the `OnKeyListener`. Focusability is independent of `setOnKeyListener`, exactly as in Android."
+- `public void setFocusable(boolean focusable)` — "Set whether this view can take input focus. On a hardware-button device, only a focusable view receives key events — call this (and `requestFocus()`) on the view that owns the `OnKeyListener`. Focusability is independent of `setOnKeyListener`, exactly as in Android." A focusable view also scrolls into view when it takes focus, so a column of focusable rows taller than the screen (the launcher's app list) can be walked with A and B.
 - `public boolean requestFocus()` — returns `false` (without effect) if the view is not focusable, otherwise `true` if it became the focused view.
 - `public boolean isFocusable()` / `public boolean isFocused()` — `isFocused()` is true iff this view is the active group's focused widget.
 - `public boolean hasFocus()` — Picodroid focuses leaf widgets directly, so this is equivalent to `isFocused()`.

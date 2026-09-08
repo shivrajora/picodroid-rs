@@ -30,6 +30,8 @@ use papk_format::flash_image::{
 };
 use papk_format::{keys, Papk};
 
+use crate::board_cfg::flash::BOOT_PACKAGE;
+use crate::board_cfg::system_apks::{BOOT_APP, BOOT_LAUNCHER, LAUNCHER_PACKAGE};
 use crate::install::PapkFlash;
 #[cfg(has_multi_app)]
 use crate::install::PAGES_PER_SECTOR;
@@ -103,8 +105,38 @@ impl Entry {
         self.flags & FLAG_BOOT_DEFAULT != 0
     }
 
+    /// The run `flash.sh --app` linked into the region: sector 0, sequence
+    /// 0 (`build_support/papk.rs::embed_papk_flash_init`). An install never
+    /// writes sequence 0, so nothing else looks like this.
+    fn is_baked(&self) -> bool {
+        self.first_sector == 0 && self.seq == 0
+    }
+
     fn run(&self) -> (u32, u32) {
         (self.first_sector as u32, self.sectors as u32)
+    }
+}
+
+/// A package name copied out of a manifest, bounded so the static stays
+/// small; a longer name is cut at 64 bytes.
+#[derive(Clone, Copy)]
+struct Name([u8; 64], usize);
+
+impl Name {
+    const EMPTY: Name = Name([0; 64], 0);
+
+    fn set(&mut self, name: Option<&str>) {
+        let bytes = name.unwrap_or("").as_bytes();
+        let n = bytes.len().min(self.0.len());
+        self.0[..n].copy_from_slice(&bytes[..n]);
+        self.1 = n;
+    }
+
+    fn get(&self) -> Option<&str> {
+        if self.1 == 0 {
+            return None;
+        }
+        core::str::from_utf8(&self.0[..self.1]).ok()
     }
 }
 
@@ -114,8 +146,16 @@ struct Dir {
     /// headers and the losers of duplicates — as `(first_sector, sectors)`.
     stale: [Option<(u32, u32)>; STALE_MAX],
     region: Option<(*const u8, usize)>,
-    /// The package `run_app` is executing, copied out of its manifest.
-    running: ([u8; 64], usize),
+    /// The package `run_app` is executing.
+    running: Name,
+    /// The package a cross-package `startActivity` asked for; [`next_image`]
+    /// hands it to the supervisor once the current app has exited.
+    #[cfg_attr(not(has_multi_app), allow(dead_code))]
+    pending: Name,
+    /// Times in a row the launcher exited with no app launched in between;
+    /// the second one stops the restarts (D11, A2).
+    #[cfg_attr(not(has_multi_app), allow(dead_code))]
+    launcher_exits: u8,
 }
 
 struct DirCell(UnsafeCell<Dir>);
@@ -126,7 +166,9 @@ static DIR: DirCell = DirCell(UnsafeCell::new(Dir {
     entries: [None; CAPACITY],
     stale: [None; STALE_MAX],
     region: None,
-    running: ([0; 64], 0),
+    running: Name::EMPTY,
+    pending: Name::EMPTY,
+    launcher_exits: 0,
 }));
 
 fn dir() -> &'static mut Dir {
@@ -226,18 +268,41 @@ fn note_stale(d: &mut Dir, first: u32, sectors: u32) {
     }
 }
 
-/// Add an app entry, resolving a duplicate package to the higher `seq`
-/// (tie: the lower sector) and noting the loser for cleanup.
+/// Add an app entry, resolving a duplicate package and noting the loser
+/// for cleanup. The baked run wins: a fresh `flash.sh --app` must run what
+/// was just flashed, not an older copy a `pdb install` left behind (which
+/// may not even be built for this firmware's map version). Otherwise the
+/// higher `seq` wins, tie to the lower sector.
 fn insert(d: &mut Dir, entry: Entry) {
     let package = entry.package();
+    if d.entries
+        .iter()
+        .flatten()
+        .any(|e| e.kind == Kind::System && e.package() == package)
+    {
+        // A run that names a system app cannot be installed (D5) and would
+        // shadow the firmware's copy. It still occupies its sectors, so it
+        // is stale rather than ignored: cleanup erases it.
+        crate::pd_warn!(
+            "[packages] run at sector {}: {} is a system app; erasing",
+            entry.first_sector,
+            package
+        );
+        note_stale(d, entry.first_sector as u32, entry.sectors as u32);
+        return;
+    }
     let existing = d
         .entries
         .iter()
         .position(|e| matches!(e, Some(e) if e.kind == Kind::App && e.package() == package));
     if let Some(i) = existing {
         let existing = d.entries[i].unwrap();
-        let newer = entry.seq > existing.seq
-            || (entry.seq == existing.seq && entry.first_sector < existing.first_sector);
+        let newer = if entry.is_baked() != existing.is_baked() {
+            entry.is_baked()
+        } else {
+            entry.seq > existing.seq
+                || (entry.seq == existing.seq && entry.first_sector < existing.first_sector)
+        };
         let loser = if newer { existing } else { entry };
         note_stale(d, loser.first_sector as u32, loser.sectors as u32);
         if newer {
@@ -254,6 +319,8 @@ fn insert(d: &mut Dir, entry: Entry) {
     }
 }
 
+/// Log the runs a scan found. System entries are logged once, by
+/// [`register_system`], not on every rescan.
 fn log_directory(d: &Dir) {
     for e in d.entries.iter().flatten() {
         if e.kind == Kind::App {
@@ -268,6 +335,16 @@ fn log_directory(d: &Dir) {
             );
         }
     }
+}
+
+fn log_system(e: &Entry) {
+    crate::pd_info!(
+        "[packages] system: {} {} ({}) {} bytes",
+        e.package(),
+        e.version(),
+        e.version_code(),
+        e.size()
+    );
 }
 
 /// Erase what the last scan found stale, then rescan. Runs where a
@@ -290,6 +367,77 @@ pub fn cleanup(flash: &mut impl PapkFlash) {
     if erased {
         rescan_region(flash);
     }
+}
+
+// ── System apps ─────────────────────────────────────────────────────────────
+
+/// Add the system apps linked into the firmware (`board_cfg::system_apks`).
+/// Runs once at boot, before the first scan; a rescan keeps these entries.
+/// An image that is not a valid PAPK, has no `package-name`, was built for
+/// another framework-map-version, repeats a package, or does not fit the
+/// [`SYSTEM_MAX`] slots is skipped with a warning.
+pub fn register_system(images: &[&'static [u8]]) {
+    let d = dir();
+    for &image in images {
+        let papk = match Papk::parse(image) {
+            Ok(p) if papk_format::validate_structure(image).is_ok() => p,
+            _ => {
+                crate::pd_warn!("[packages] system app skipped: not a valid PAPK");
+                continue;
+            }
+        };
+        let Some(package) = papk.package_name().filter(|p| !p.is_empty()) else {
+            crate::pd_warn!("[packages] system app skipped: no package-name");
+            continue;
+        };
+        if papk
+            .verify_compat(crate::framework_map::FRAMEWORK_MAP_VERSION)
+            .is_err()
+        {
+            crate::pd_warn!(
+                "[packages] system app {} skipped: built for another framework-map-version",
+                package
+            );
+            continue;
+        }
+        let systems = d
+            .entries
+            .iter()
+            .flatten()
+            .filter(|e| e.kind == Kind::System);
+        if systems.clone().any(|e| e.package() == package) {
+            crate::pd_warn!("[packages] system app {} listed twice; skipped", package);
+            continue;
+        }
+        if systems.count() >= SYSTEM_MAX {
+            crate::pd_warn!(
+                "[packages] system app {} skipped: only {} fit",
+                package,
+                SYSTEM_MAX
+            );
+            continue;
+        }
+        let entry = Entry {
+            image,
+            first_sector: 0,
+            sectors: 0,
+            flags: 0,
+            seq: 0,
+            kind: Kind::System,
+        };
+        match d.entries.iter().position(|e| e.is_none()) {
+            Some(i) => {
+                d.entries[i] = Some(entry);
+                log_system(&entry);
+            }
+            None => crate::pd_warn!("[packages] directory full: system app {} skipped", package),
+        }
+    }
+}
+
+/// The launcher: the system app named `LAUNCHER_PACKAGE`, when linked in.
+pub fn launcher() -> Option<&'static Entry> {
+    entries().find(|e| e.kind == Kind::System && e.package() == LAUNCHER_PACKAGE)
 }
 
 // ── Queries ─────────────────────────────────────────────────────────────────
@@ -328,22 +476,81 @@ pub fn free_space() -> (u32, u32) {
     space(None)
 }
 
-/// The image to boot: the `BOOT_DEFAULT` run (lowest sector if several),
-/// else the lowest-sector app, else nothing.
-pub fn boot_image() -> Option<&'static [u8]> {
-    let mut best: Option<&Entry> = None;
-    for e in apps() {
-        let better = match best {
-            None => true,
-            Some(b) => {
-                (e.is_boot_default(), b.first_sector) > (b.is_boot_default(), e.first_sector)
-            }
+/// The run flagged `BOOT_DEFAULT` (the lowest sector if several).
+fn boot_default_run() -> Option<&'static Entry> {
+    apps()
+        .filter(|e| e.is_boot_default())
+        .min_by_key(|e| e.first_sector)
+}
+
+fn lowest_run() -> Option<&'static Entry> {
+    apps().min_by_key(|e| e.first_sector)
+}
+
+/// Which package boots (D7), in this order: `override_` (`flash.sh --boot`:
+/// `app` is the baked run, `launcher` the launcher, anything else a package
+/// name), the board's `boot_package`, the run flagged `BOOT_DEFAULT`, the
+/// launcher, the run at the lowest sector. A name that is not installed is
+/// skipped with a warning and the next rule applies.
+pub fn select_boot(override_: Option<&str>, board: Option<&str>) -> Option<&'static Entry> {
+    if let Some(want) = override_ {
+        let found = match want {
+            w if w == BOOT_APP => boot_default_run().or_else(lowest_run),
+            w if w == BOOT_LAUNCHER => launcher(),
+            package => find(package),
         };
-        if better {
-            best = Some(e);
+        match found {
+            Some(e) => {
+                crate::pd_info!("[packages] boot: {} (--boot {})", e.package(), want);
+                return Some(e);
+            }
+            None => crate::pd_warn!("[packages] --boot {}: not installed", want),
         }
     }
-    best.map(|e| e.image)
+    if let Some(package) = board {
+        match find(package) {
+            Some(e) => {
+                crate::pd_info!("[packages] boot: {} (boot_package)", e.package());
+                return Some(e);
+            }
+            None => crate::pd_warn!("[packages] boot_package {}: not installed", package),
+        }
+    }
+    let (e, rule) = if let Some(e) = boot_default_run() {
+        (e, "boot default")
+    } else if let Some(e) = launcher() {
+        (e, "launcher")
+    } else {
+        (lowest_run()?, "lowest sector")
+    };
+    crate::pd_info!("[packages] boot: {} ({})", e.package(), rule);
+    Some(e)
+}
+
+/// The image to boot: [`select_boot`] with the build-time override and the
+/// board's `boot_package`.
+pub fn boot_image() -> Option<&'static [u8]> {
+    select_boot(boot_override(), BOOT_PACKAGE).map(|e| e.image)
+}
+
+/// `flash.sh --boot`: a build-time constant on a device. The simulator reads
+/// `PICODROID_BOOT` when it starts, so changing it needs no rebuild.
+fn boot_override() -> Option<&'static str> {
+    #[cfg(feature = "sim")]
+    {
+        static OVERRIDE: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+        *OVERRIDE.get_or_init(|| {
+            std::env::var("PICODROID_BOOT")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(|s| &*alloc::boxed::Box::leak(s.into_boxed_str()))
+        })
+    }
+    #[cfg(not(feature = "sim"))]
+    {
+        crate::board_cfg::system_apks::BOOT_OVERRIDE
+    }
 }
 
 /// One more than the highest sequence number on the device.
@@ -353,20 +560,85 @@ pub fn next_seq() -> u32 {
 
 /// Record the package `run_app` is executing (its manifest's name, copied).
 pub fn set_running(package: Option<&str>) {
-    let d = dir();
-    let name = package.unwrap_or("").as_bytes();
-    let n = name.len().min(d.running.0.len());
-    d.running.0[..n].copy_from_slice(&name[..n]);
-    d.running.1 = n;
+    dir().running.set(package);
 }
 
 /// The package `run_app` is executing, if it named one.
 pub fn running() -> Option<&'static str> {
-    let d = dir();
-    if d.running.1 == 0 {
-        return None;
+    dir().running.get()
+}
+
+// ── Switching (multi-app boards) ────────────────────────────────────────────
+
+/// A `startActivity` named a package that is not installed.
+#[cfg(has_multi_app)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotFound;
+
+/// Ask the supervisor to run `package` next: the lifecycle loop tears the
+/// current app down, then [`next_image`] hands out this package's image.
+/// The name is kept rather than the image, so an install of the same
+/// package in between (the simulator reinstalling the running app) launches
+/// the new copy.
+#[cfg(has_multi_app)]
+pub fn request_launch(package: &str) -> Result<(), NotFound> {
+    if find(package).is_none() {
+        return Err(NotFound);
     }
-    core::str::from_utf8(&d.running.0[..d.running.1]).ok()
+    dir().pending.set(Some(package));
+    Ok(())
+}
+
+/// What runs after `run_app` returns (D11, A2): the pending launch; else the
+/// launcher, when the app that exited was not it; else nothing, and the
+/// supervisor waits for an install as a single-app board does. A launcher
+/// that exits is started again once; a second exit in a row is a fault,
+/// and the device waits for an install instead of looping.
+#[cfg(has_multi_app)]
+pub fn next_image() -> Option<&'static [u8]> {
+    let d = dir();
+    let pending = d.pending;
+    d.pending = Name::EMPTY;
+    if let Some(package) = pending.get() {
+        match find(package) {
+            Some(e) => {
+                d.launcher_exits = 0;
+                return Some(e.image);
+            }
+            None => crate::pd_warn!("[packages] launch of {} dropped: not installed", package),
+        }
+    }
+    let l = launcher()?;
+    if running() == Some(l.package()) {
+        d.launcher_exits = d.launcher_exits.saturating_add(1);
+        if d.launcher_exits >= 2 {
+            crate::pd_warn!("[packages] launcher exited twice; waiting for an install");
+            return None;
+        }
+        crate::pd_warn!("[packages] launcher exited; starting it again");
+    } else {
+        d.launcher_exits = 0;
+    }
+    Some(l.image)
+}
+
+/// A single-app board never switches: the supervisor waits for an install.
+#[cfg(not(has_multi_app))]
+pub fn next_image() -> Option<&'static [u8]> {
+    None
+}
+
+/// Forget everything: the directory is a process-wide static and every test
+/// starts from an empty one.
+#[cfg(test)]
+pub(crate) fn reset_for_test() {
+    let d = dir();
+    d.entries = [None; CAPACITY];
+    d.stale = [None; STALE_MAX];
+    d.region = None;
+    d.running = Name::EMPTY;
+    d.pending = Name::EMPTY;
+    d.launcher_exits = 0;
 }
 
 // ── Placement ───────────────────────────────────────────────────────────────
@@ -713,9 +985,33 @@ mod tests {
     }
 
     fn fresh(sectors: usize, max_apps: usize) -> MemRegion {
+        reset_for_test();
         let region = MemRegion::new(sectors, max_apps);
         rescan_region(&region);
         region
+    }
+
+    /// A system app's image, leaked as `.rodata` would be.
+    fn system(package: &str) -> &'static [u8] {
+        alloc::boxed::Box::leak(papk(package, 50).into_boxed_slice())
+    }
+
+    /// What build.rs links into the region: the meta pages, then the image.
+    fn bake(r: &mut MemRegion, sector: u32, image: &[u8], flags: u32, seq: u32) {
+        unsafe {
+            r.select_run(sector);
+            for (i, chunk) in image.chunks(256).enumerate() {
+                let mut page = [0xFFu8; 256];
+                page[..chunk.len()].copy_from_slice(chunk);
+                assert!(r.write_page(i as u32, &page));
+            }
+            r.commit_metadata(image.len() as u32, flags, seq);
+        }
+        rescan_region(r);
+    }
+
+    fn boot_package() -> Option<&'static str> {
+        select_boot(None, None).map(|e| e.package())
     }
 
     fn do_install(region: &mut MemRegion, bytes: &[u8]) -> Result<(), InstallError> {
@@ -1072,5 +1368,239 @@ mod tests {
         let long = "x".repeat(100);
         set_running(Some(&long));
         assert_eq!(running().map(|s| s.len()), Some(64));
+    }
+
+    /// A reflash bakes the package again at sector 0, sequence 0, while an
+    /// older `pdb install` copy of it sits further up with a higher
+    /// sequence: the fresh bake must win (it is what the developer just
+    /// flashed, and the old copy may be built for another map version),
+    /// and the old copy is stale.
+    #[test]
+    fn a_fresh_bake_beats_an_older_install_of_the_same_package() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        let a1 = papk_of_sectors("com.a", 2);
+        bake(&mut r, 0, &a1, FLAG_BOOT_DEFAULT, 0);
+        // An upgrade goes beside the bake and evicts it.
+        let a2 = papk_of_sectors("com.a", 2);
+        do_install(&mut r, &a2).unwrap();
+        assert_eq!(placed(), vec![("com.a".into(), 2, 2, 1)]);
+        assert!(r.sector(0).iter().all(|&b| b == 0xFF));
+        // Then a reflash bakes a third copy at sector 0 again.
+        let a3 = papk_of_sectors("com.a", 2);
+        bake(&mut r, 0, &a3, FLAG_BOOT_DEFAULT, 0);
+        assert_eq!(placed(), vec![("com.a".into(), 0, 2, 0)]);
+        assert_eq!(boot_image(), Some(&a3[..]));
+        // The old copy is stale until cleanup erases it.
+        assert_eq!(free_space(), (12, 12));
+        cleanup(&mut r);
+        assert_eq!(free_space(), (14, 14));
+        assert!(r.sector(2).iter().all(|&b| b == 0xFF));
+        assert_eq!(placed(), vec![("com.a".into(), 0, 2, 0)]);
+    }
+
+    // ── System apps and boot selection (M2) ────────────────────────────────
+
+    #[test]
+    fn system_apps_are_entries_but_not_installed_apps_and_survive_a_rescan() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        register_system(&[system(LAUNCHER_PACKAGE), system("picodroid.settings")]);
+        assert_eq!(installed_count(), 0);
+        assert_eq!(entries().count(), 2);
+        assert!(is_system(LAUNCHER_PACKAGE));
+        assert_eq!(find("picodroid.settings").unwrap().kind, Kind::System);
+        assert_eq!(free_space(), (16, 16), "system apps take no region space");
+        assert_eq!(launcher().map(|e| e.package()), Some(LAUNCHER_PACKAGE));
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        cleanup(&mut r);
+        rescan_region(&r);
+        assert_eq!(entries().count(), 3);
+        assert!(is_system(LAUNCHER_PACKAGE));
+        assert_eq!(placed(), vec![("com.a".into(), 0, 2, 1)]);
+        assert_eq!(next_seq(), 2, "system entries carry no sequence number");
+    }
+
+    #[test]
+    fn register_system_skips_bad_images_duplicates_and_overflow() {
+        let _g = test_support::lock();
+        let _r = fresh(16, MAX);
+        register_system(&[system("picodroid.a"), system("picodroid.a")]);
+        assert_eq!(entries().count(), 1);
+        register_system(&[b"not a papk at all"]);
+        assert_eq!(entries().count(), 1);
+        // Built for a framework this firmware is not.
+        let mut future = PapkBuilder::new(ManifestSpec {
+            entry: EntryPoint::MainClass("t/Main"),
+            package_name: "picodroid.future",
+            version: "1.0",
+            framework_map_version: "9.9.9",
+            version_code: Some(1),
+            label: None,
+            icon: None,
+        });
+        future.class("t/Main", b"CAFE");
+        let future: &'static [u8] =
+            alloc::boxed::Box::leak(future.build().unwrap().into_boxed_slice());
+        register_system(&[future]);
+        assert!(find("picodroid.future").is_none());
+        // Only SYSTEM_MAX fit.
+        register_system(&[system("picodroid.b"), system("picodroid.c")]);
+        assert_eq!(entries().count(), SYSTEM_MAX);
+        assert!(find("picodroid.b").is_some());
+        assert!(find("picodroid.c").is_none());
+    }
+
+    #[test]
+    fn a_run_named_like_a_system_app_is_stale_and_cleanup_erases_it() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        let fake = papk_of_sectors(LAUNCHER_PACKAGE, 2);
+        bake(&mut r, 0, &fake, FLAG_BOOT_DEFAULT, 0);
+        assert_eq!(installed_count(), 0);
+        assert_eq!(find(LAUNCHER_PACKAGE).unwrap().kind, Kind::System);
+        // Its sectors are not free until cleanup.
+        assert_eq!(free_space(), (14, 14));
+        cleanup(&mut r);
+        assert_eq!(free_space(), (16, 16));
+        assert!(r.sector(0).iter().all(|&b| b == 0xFF));
+    }
+
+    #[test]
+    fn select_boot_follows_the_override_then_the_board_then_the_flags() {
+        let _g = test_support::lock();
+        let mut r = fresh(32, MAX);
+        let a = papk_of_sectors("com.a", 2);
+        bake(&mut r, 0, &a, FLAG_BOOT_DEFAULT, 0);
+        do_install(&mut r, &papk_of_sectors("com.b", 2)).unwrap();
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        let pick = |o: Option<&str>, b: Option<&str>| select_boot(o, b).map(|e| e.package());
+        assert_eq!(pick(None, None), Some("com.a"), "the boot default");
+        assert_eq!(pick(None, Some("com.b")), Some("com.b"), "board key");
+        assert_eq!(
+            pick(Some("com.b"), Some("com.a")),
+            Some("com.b"),
+            "override wins"
+        );
+        assert_eq!(pick(Some("launcher"), None), Some(LAUNCHER_PACKAGE));
+        assert_eq!(pick(Some("app"), Some("com.b")), Some("com.a"));
+        assert_eq!(pick(Some(LAUNCHER_PACKAGE), None), Some(LAUNCHER_PACKAGE));
+        // A name that is not installed falls through.
+        assert_eq!(pick(Some("com.zzz"), Some("com.b")), Some("com.b"));
+        assert_eq!(pick(None, Some("com.zzz")), Some("com.a"));
+        assert_eq!(boot_image(), Some(&a[..]));
+    }
+
+    #[test]
+    fn without_a_boot_default_the_launcher_comes_before_the_lowest_run() {
+        let _g = test_support::lock();
+        let mut r = fresh(32, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        do_install(&mut r, &papk_of_sectors("com.b", 2)).unwrap();
+        assert_eq!(
+            boot_package(),
+            Some("com.a"),
+            "lowest sector when nothing else says"
+        );
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        assert_eq!(boot_package(), Some(LAUNCHER_PACKAGE));
+        assert_eq!(
+            select_boot(Some("app"), None).map(|e| e.package()),
+            Some("com.a"),
+            "--boot app skips the launcher"
+        );
+    }
+
+    #[test]
+    fn a_launcher_alone_boots_and_an_empty_directory_boots_nothing() {
+        let _g = test_support::lock();
+        let _r = fresh(8, MAX);
+        assert_eq!(boot_package(), None);
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        assert_eq!(boot_package(), Some(LAUNCHER_PACKAGE));
+        // No baked app: `--boot app` warns and the next rule applies.
+        assert_eq!(
+            select_boot(Some("app"), None).map(|e| e.package()),
+            Some(LAUNCHER_PACKAGE)
+        );
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn next_image_takes_a_pending_launch_once_then_returns_home() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        let home = launcher().unwrap().image;
+        set_running(Some(LAUNCHER_PACKAGE));
+        assert_eq!(request_launch("com.zzz"), Err(NotFound));
+        request_launch("com.a").unwrap();
+        assert_eq!(next_image(), Some(&image_of("com.a")[..]));
+        set_running(Some("com.a"));
+        assert_eq!(next_image(), Some(home), "an app exit returns home");
+        assert_eq!(
+            next_image(),
+            Some(home),
+            "and again: the launcher was not running"
+        );
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn a_pending_launch_is_dropped_when_its_package_is_gone() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        do_install(&mut r, &papk_of_sectors("com.b", 2)).unwrap();
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        set_running(Some("com.b"));
+        request_launch("com.a").unwrap();
+        do_uninstall(&mut r, "com.a");
+        assert_eq!(next_image(), Some(launcher().unwrap().image));
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn a_reinstalled_pending_package_launches_its_new_copy() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        request_launch("com.a").unwrap();
+        let a2 = papk_of_sectors("com.a", 3);
+        do_install(&mut r, &a2).unwrap();
+        assert_eq!(next_image(), Some(&a2[..]));
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn the_launcher_is_restarted_once_then_the_device_waits() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        register_system(&[system(LAUNCHER_PACKAGE)]);
+        let home = launcher().unwrap().image;
+        set_running(Some(LAUNCHER_PACKAGE));
+        assert_eq!(next_image(), Some(home), "first exit: start it again");
+        assert_eq!(next_image(), None, "second in a row: wait for an install");
+        // A launch in between resets the count.
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        request_launch("com.a").unwrap();
+        assert_eq!(next_image(), Some(&image_of("com.a")[..]));
+        set_running(Some("com.a"));
+        assert_eq!(next_image(), Some(home));
+        set_running(Some(LAUNCHER_PACKAGE));
+        assert_eq!(next_image(), Some(home));
+        assert_eq!(next_image(), None);
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn without_a_launcher_an_exit_waits_for_an_install() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+        set_running(Some("com.a"));
+        assert_eq!(next_image(), None);
     }
 }
