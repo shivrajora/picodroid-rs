@@ -431,6 +431,11 @@ impl PlatformHooks for TestHooks {
     /// Java object references, and `gc_root_registration::register_all` is
     /// `cfg(not(test))` anyway.
     fn register_gc_roots() {}
+    /// No app region under test: the decision half of a Java uninstall is
+    /// tested in `packages`, the erase in `install`.
+    fn uninstall_run(_first_sector: u32, _sectors: u32) -> bool {
+        false
+    }
 }
 
 crate::set_platform_hooks!(TestHooks);

@@ -195,6 +195,11 @@ macro_rules! register_sim_platform {
                 fn register_gc_roots() {
                     $gc_roots()
                 }
+                /// The in-memory region: erase the run and rescan, on the
+                /// JVM task that asked (the directory's single writer).
+                fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
+                    $crate::hal::sim::app_region::uninstall_run(first_sector, sectors)
+                }
             }
 
             $crate::set_rtos!(SimPlatform);

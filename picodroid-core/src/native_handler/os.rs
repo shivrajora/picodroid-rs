@@ -70,6 +70,15 @@ pub fn dispatch(
             let bytes = string_arg(ctx, 0).map_or(0, |p| crate::storage::quota::usage_of(p) as i64);
             Some(Ok(Some(Value::Long(bytes))))
         }
+        // ── PackageInstaller.uninstall (multi-app M3c) ────────────────
+        #[cfg(has_multi_app)]
+        (c::picodroid_content_pm_PackageInstaller, m::nativeUninstall) => {
+            let outcome = match string_arg(ctx, 0) {
+                Some(package) => crate::packages::uninstall_from_app(package),
+                None => crate::packages::UninstallOutcome::NotInstalled,
+            };
+            Some(Ok(Some(Value::Int(outcome as i32))))
+        }
         // ── PackageManager queries (multi-app boards) ─────────────────
         // One value per call over the package directory; an index is the
         // package's position, stable while an app runs (single writer).

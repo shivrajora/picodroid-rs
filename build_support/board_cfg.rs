@@ -117,6 +117,7 @@ pub const MULTI_APP_CLASSES: &[&str] = &[
     "picodroid/graphics/drawable/BitmapDrawable",
     "picodroid/app/usage/StorageStatsManager",
     "picodroid/app/usage/StorageStats",
+    "picodroid/content/pm/PackageInstaller",
 ];
 
 /// The SDK classes the `has_json` board.toml key owns, in JVM internal

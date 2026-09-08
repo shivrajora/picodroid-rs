@@ -182,6 +182,7 @@ object ApiContract {
         "picodroid/graphics/drawable/BitmapDrawable",
         "picodroid/app/usage/StorageStatsManager",
         "picodroid/app/usage/StorageStats",
+        "picodroid/content/pm/PackageInstaller",
     )
 
     /**

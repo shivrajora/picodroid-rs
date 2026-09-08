@@ -67,6 +67,15 @@ pub trait PlatformHooks {
     /// is a decision, whereas a default would let the question go unasked.
     /// Implementations must be idempotent; `run_app` re-runs on app reload.
     fn register_gc_roots();
+
+    /// Erase the installed run at `first_sector` (`sectors` long) and rescan
+    /// the package directory, for a Java `PackageInstaller.uninstall`
+    /// (multi-app M3c): from the JVM task, with the app that asked still
+    /// running, so no reset follows. The platform supplies the discipline
+    /// its flash needs — the RP family runs the erase on the LittleFS
+    /// worker, whose flash operations never overlap; the simulator erases
+    /// its in-memory region. `false` when it could not.
+    fn uninstall_run(first_sector: u32, sectors: u32) -> bool;
 }
 
 extern "Rust" {
@@ -76,6 +85,7 @@ extern "Rust" {
     fn __pd_host_heap_checkpoint(label: &str);
     fn __pd_host_native_heap_stats() -> NativeHeapStats;
     fn __pd_host_register_gc_roots();
+    fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool;
 }
 
 /// Has a debug bridge asked the JVM to stop?
@@ -96,6 +106,11 @@ pub fn native_heap_stats() -> NativeHeapStats {
 /// Register the platform's own GC root providers.
 pub fn register_gc_roots() {
     unsafe { __pd_host_register_gc_roots() }
+}
+
+/// See [`PlatformHooks::uninstall_run`].
+pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
+    unsafe { __pd_host_uninstall_run(first_sector, sectors) }
 }
 
 /// RAII guard for a heap-accounting bypass region.
@@ -145,6 +160,10 @@ macro_rules! set_platform_hooks {
             #[no_mangle]
             extern "Rust" fn __pd_host_native_heap_stats() -> $crate::host::NativeHeapStats {
                 <$t as $crate::host::PlatformHooks>::native_heap_stats()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool {
+                <$t as $crate::host::PlatformHooks>::uninstall_run(first_sector, sectors)
             }
         };
     };

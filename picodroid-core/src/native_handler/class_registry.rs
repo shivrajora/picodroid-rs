@@ -51,6 +51,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_content_Intent,
     c::picodroid_content_ServiceConnection,
     c::picodroid_content_pm_PackageManager,
+    c::picodroid_content_pm_PackageInstaller,
     c::picodroid_view_View,
     c::picodroid_view_ViewGroup,
     c::picodroid_view_MotionEvent,

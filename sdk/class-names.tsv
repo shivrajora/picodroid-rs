@@ -137,6 +137,7 @@ picodroid/content/SharedPreferences
 picodroid/content/SharedPreferences$Editor
 picodroid/content/pm/ApplicationInfo
 picodroid/content/pm/PackageInfo
+picodroid/content/pm/PackageInstaller
 picodroid/content/pm/PackageManager
 picodroid/content/pm/PackageManager$NameNotFoundException
 picodroid/debug/DisplayDebug

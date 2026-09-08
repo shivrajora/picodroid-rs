@@ -609,6 +609,7 @@ M	getOnItemSelectedListener
 M	getOutputStream
 M	getPackage
 M	getPackageInfo
+M	getPackageInstaller
 M	getPackageManager
 M	getPackageName
 M	getParent
@@ -827,6 +828,7 @@ M	nativeStart
 M	nativeStringValue
 M	nativeToString
 M	nativeTotalBytes
+M	nativeUninstall
 M	nativeVersionCode
 M	nativeVersionName
 M	newFixedThreadPool
@@ -1110,6 +1112,7 @@ M	translationY
 M	typeMismatch
 M	unbindService
 M	uncaughtException
+M	uninstall
 M	unregisterListener
 M	update
 M	updateLabel

@@ -248,6 +248,12 @@ pub const OS_HANDLED: &[Row] = &[
         "getPackageName",
         "()Ljava/lang/String;",
     ),
+    // picodroid/content/pm/PackageInstaller
+    (
+        "picodroid/content/pm/PackageInstaller",
+        "nativeUninstall",
+        "(Ljava/lang/String;)I",
+    ),
     // picodroid/content/pm/PackageManager
     (
         "picodroid/content/pm/PackageManager",

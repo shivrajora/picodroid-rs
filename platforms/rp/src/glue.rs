@@ -632,6 +632,24 @@ impl PlatformHooks for PlatformHost {
         crate::gc_root_registration::register_all();
     }
 
+    /// A Java `PackageInstaller.uninstall`: the erase runs on the LittleFS
+    /// worker, so it never overlaps the worker's own flash operations — the
+    /// single-flash-op invariant `core1_park` documents — and an install
+    /// cannot be in flight, since one parks this task first. The rescan
+    /// runs back here: the JVM task is the directory's writer.
+    fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
+        use picodroid_core::install::PapkFlash as _;
+        let mut flash = crate::packagemanager::RpPapkFlash::new();
+        picodroid_core::fs::exclusive(|| {
+            // SAFETY: `erase_run` wants no other flash operation in flight,
+            // which the worker's serialisation gives it; the sectors name an
+            // installed run the directory just resolved.
+            unsafe { flash.erase_run(first_sector, sectors) }
+        });
+        picodroid_core::packages::rescan_region(&flash);
+        true
+    }
+
     /// Moved here verbatim from `mem_diag::sample_native_heap`, which used to
     /// carry the sim/device split itself. This half is FreeRTOS FFI; the
     /// simulator's reads its own allocator, and lives in picodroid-core.

@@ -278,3 +278,15 @@ where
     }
     WORKER.submit(move || cell::with(f))
 }
+
+/// Run `f` on the filesystem worker, with no filesystem in hand: for a
+/// flash operation outside LittleFS that must not overlap the worker's own
+/// — the RP family allows one flash operation in flight at a time
+/// (`core1_park`). A Java-side uninstall erases its run this way. Inline
+/// before the scheduler runs, as [`with_fs`] is.
+pub fn exclusive<R>(f: impl FnOnce() -> R) -> R {
+    if !crate::rtos::scheduler_running() {
+        return f();
+    }
+    WORKER.submit(f)
+}

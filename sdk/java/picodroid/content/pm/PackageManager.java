@@ -39,6 +39,11 @@ public class PackageManager {
     return INSTANCE;
   }
 
+  /** The installer, which removes apps (multi-app boards only). */
+  public PackageInstaller getPackageInstaller() {
+    return PackageInstaller.getInstance();
+  }
+
   /**
    * Whether the device has the named feature ({@link #FEATURE_WIFI}, {@link #FEATURE_ETHERNET}).
    */

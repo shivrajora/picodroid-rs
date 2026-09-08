@@ -98,6 +98,21 @@ pub fn init() {
     print_list();
 }
 
+/// Erase the run at `first_sector` and rescan: the simulator's half of a
+/// Java `PackageInstaller.uninstall` (`PlatformHooks::uninstall_run`), on
+/// the JVM task, the directory's single writer.
+pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
+    let Some(region) = region() else {
+        return false;
+    };
+    // SAFETY: the region is a buffer; `erase_run` asserts the sectors lie
+    // inside it, and nothing else writes the region while the JVM task
+    // runs a native.
+    unsafe { region.erase_run(first_sector, sectors) };
+    packages::rescan_region(region);
+    true
+}
+
 /// What `build.rs` links into the region on a device: the image at sector
 /// 0 with both meta pages, the boot-default flag and sequence 0.
 fn bake(region: &mut MemRegion, bytes: &[u8]) {

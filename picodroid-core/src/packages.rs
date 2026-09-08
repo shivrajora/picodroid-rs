@@ -643,6 +643,49 @@ pub fn next_image() -> Option<&'static [u8]> {
     None
 }
 
+// ── Uninstall from Java (multi-app boards, M3c) ─────────────────────────────
+
+/// What `PackageInstaller.uninstall` reports back to Java.
+#[cfg(has_multi_app)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UninstallOutcome {
+    Done = 0,
+    NotInstalled = 1,
+    System = 2,
+    Running = 3,
+    Failed = 4,
+}
+
+/// The run `package` occupies, if Java may uninstall it: an installed app
+/// that is neither a system app nor the one asking.
+#[cfg(has_multi_app)]
+pub fn uninstall_target(package: &str) -> Result<(u32, u32), UninstallOutcome> {
+    let entry = find(package).ok_or(UninstallOutcome::NotInstalled)?;
+    if entry.kind == Kind::System {
+        return Err(UninstallOutcome::System);
+    }
+    if running() == Some(package) {
+        return Err(UninstallOutcome::Running);
+    }
+    Ok((u32::from(entry.first_sector), u32::from(entry.sectors)))
+}
+
+/// Java's `PackageInstaller.uninstall`: the checks, the erase through the
+/// platform (`host::uninstall_run`, which rescans too), then the data.
+#[cfg(has_multi_app)]
+pub fn uninstall_from_app(package: &str) -> UninstallOutcome {
+    let (first, sectors) = match uninstall_target(package) {
+        Ok(run) => run,
+        Err(outcome) => return outcome,
+    };
+    if !crate::host::uninstall_run(first, sectors) {
+        return UninstallOutcome::Failed;
+    }
+    crate::storage::wipe_package(package);
+    crate::pd_info!("[packages] {} uninstalled from Java", package);
+    UninstallOutcome::Done
+}
+
 /// Forget everything: the directory is a process-wide static and every test
 /// starts from an empty one.
 #[cfg(test)]
@@ -1464,6 +1507,42 @@ mod tests {
         assert_eq!(entries().count(), SYSTEM_MAX);
         assert!(find("picodroid.b").is_some());
         assert!(find("picodroid.c").is_none());
+    }
+
+    /// Java may uninstall an installed app that is neither a system app nor
+    /// the one asking; the platform's erase is refused under test, so the
+    /// composed call reports `Failed` without touching the directory.
+    #[cfg(has_multi_app)]
+    #[test]
+    fn a_java_uninstall_refuses_system_running_and_unknown_packages() {
+        let _g = test_support::lock();
+        reset_for_test();
+        let mut region = fresh(16, MAX);
+        register_system(&[system("picodroid.launcher")]);
+        rescan_region(&region);
+        do_install(&mut region, &papk("com.a", 0)).unwrap();
+        let run = uninstall_target("com.a").unwrap();
+        assert_eq!(
+            run,
+            (
+                find("com.a").unwrap().first_sector as u32,
+                find("com.a").unwrap().sectors as u32
+            )
+        );
+        assert_eq!(
+            uninstall_target("picodroid.launcher"),
+            Err(UninstallOutcome::System)
+        );
+        assert_eq!(
+            uninstall_target("com.zzz"),
+            Err(UninstallOutcome::NotInstalled)
+        );
+        set_running(Some("com.a"));
+        assert_eq!(uninstall_target("com.a"), Err(UninstallOutcome::Running));
+        set_running(Some("picodroid.launcher"));
+        assert_eq!(uninstall_from_app("com.a"), UninstallOutcome::Failed);
+        assert!(find("com.a").is_some());
+        set_running(None);
     }
 
     #[test]
