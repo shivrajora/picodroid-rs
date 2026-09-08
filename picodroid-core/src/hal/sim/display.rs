@@ -436,6 +436,16 @@ fn handle_control_line(line: &str) {
         return;
     }
 
+    // `apps list|install <papk>|uninstall <package>` — the package
+    // directory's verbs, queued here and served on the JVM task.
+    if cmd.eq_ignore_ascii_case("apps") {
+        #[cfg(feature = "sim")]
+        super::app_region::request(&it.collect::<Vec<&str>>().join(" "));
+        #[cfg(not(feature = "sim"))]
+        println!("[sim] apps: not available in this build");
+        return;
+    }
+
     // `input …` — the same Android verbs the PDB `CMD_INPUT` handler accepts on
     // real hardware (`pdb input tap|swipe|keyevent|dpad|back`), so a script or
     // AI agent drives sim and device through one vocabulary.

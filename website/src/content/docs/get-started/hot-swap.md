@@ -16,9 +16,10 @@ The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running devi
 ./scripts/sim.sh --app foo | ./scripts/pdb.sh logcat --stdin --tag Foo
 ```
 
-The subcommands are `devices`, `ping`, `install`, `sysmon`, `input`
-(tap/swipe/keyevent injection), and `logcat` (tag/level log filtering) — see
-the [pdb command reference](/reference/pdb-commands/) for every flag.
+The subcommands are `devices`, `ping`, `install`, `list`, `uninstall`,
+`sysmon`, `input` (tap/swipe/keyevent injection), and `logcat` (tag/level log
+filtering) — see the [pdb command reference](/reference/pdb-commands/) for
+every flag.
 
 ## Install the host tool globally (optional)
 
@@ -40,6 +41,18 @@ pdb -s /dev/cu.usbmodem102 install build/apks/blinky.papk
 ```
 
 The device stops the running JVM (including any sleeping child threads), writes the new PAPK to flash, and restarts execution — typically in under a second.
+
+## Several apps on one device
+
+RP2350 boards keep an *app region* of flash that holds up to eight installed apps at once. `pdb install` places a new package beside the ones already there (upgrading a package that is already installed) and refuses, without erasing anything, when there is no room; `pdb list` shows what is installed and how much is free; `pdb uninstall <package>` erases one. The app `flash.sh --app` baked in stays the one the device boots into until the launcher lands.
+
+```bash
+pdb install build/apks/imagedemo.papk     # beside blinky
+pdb list
+pdb uninstall imagedemo
+```
+
+RP2040 boards keep a single app, which every install replaces.
 
 ## Compatibility checks
 

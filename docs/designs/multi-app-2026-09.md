@@ -371,8 +371,8 @@ Board and MCU keys (`build_support/flash_layout.rs`): `boot2_bytes`, `fs_kb`,
 
 | Stage | Status |
 |---|---|
-| M0 | DONE 2026-09-07 |
-| M1a–M1f | IN PROGRESS |
+| M0 | DONE 2026-09-07 (028e5c1) |
+| M1a–M1f | DONE 2026-09-07 (see A1) |
 | M2 | NOT STARTED |
 | M3 | NOT STARTED |
 
@@ -409,3 +409,44 @@ greeting golden bytes; and in M2 the class-registry and method-table
 cross-checks for every new native.
 
 ## Amendments
+
+### A1 (2026-09-07) — what M1 changed against the body
+
+- **Stale runs are occupied space** (D3/D5). The body said a commit-less
+  run is "not free space either until cleanup" without saying why: a new
+  run placed over a commit-less header would be hidden by it at the next
+  scan, because the header's span skips past the new run's meta sector.
+  `packages::sorted_runs` therefore counts the stale runs the last scan
+  found as occupied; `cleanup` (boot, and the sim's init) erases them and
+  rescans. Pinned by `a_commit_less_run_is_stale_and_cleanup_erases_it`.
+- **Sequence numbers during compaction.** `plan_install` reserves a `seq`,
+  compaction consumes one per moved run, and the re-plan reserves the next,
+  so an install that compacts first lands with `seq` one higher than the
+  moved runs — monotonic, not the body's implied "the install's seq is
+  fixed before compaction". Pinned by
+  `fragmented_free_space_compacts_then_installs`.
+- **`PapkFlash` carries `max_installed_apps`** and `plan_install` takes it
+  as a parameter, so the single-app rule (replace whatever is installed) is
+  a runtime policy the tests exercise with capacity 1 and 8 in one binary,
+  while the directory's static capacity stays the generated
+  `MAX_INSTALLED_APPS`.
+- **The greeting's apps tail is in bytes**, not KB, and `pdb ping` prints
+  `apps N/M, free T KB (largest L KB)`; the HIL harness keys its SKIP for
+  the package rows on that text.
+- **No `run_install` in the simulator**: `install`/`uninstall` (everything
+  but the reset) exist for it and for the tests; the device's `run_*`
+  wrappers add the reset.
+- **The boot log's `[packages]` line** is `sector N: <package> <version>
+  (<code>) <bytes> bytes [boot]`; the sim adds `[sim] apps:` lines from its
+  control verbs.
+- **Flash cost, release images (the ratchet)**: rp2350 +21,712 B for the
+  whole feature (directory, placement, compaction, `list`/`uninstall`, the
+  greeting tail); rp2040 +5,304 B for what a single-app board keeps — the
+  region scan with its structural validation, cleanup, the single-app plan
+  and the two-page boot-meta — after `has_multi_app` gated the rest (the
+  multi-app placement, first-fit, compaction and the formatted no-room line
+  were another 5.4 KB before the gate). M0's boot-meta v2 was +197 B on
+  rp2040; the layout generator itself was proven byte-identical on rp2040
+  (one differing byte, the shifted line number of `main.rs`'s `expect`).
+  The rp2350 debug image is 981,952 B of the 2,048 KB program region with
+  17,800 B of main-stack headroom.

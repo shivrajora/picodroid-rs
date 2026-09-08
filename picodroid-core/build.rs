@@ -23,6 +23,9 @@ mod config;
 #[path = "../build_support/board_cfg.rs"]
 mod board_cfg;
 
+#[path = "../build_support/flash_layout.rs"]
+mod flash_layout;
+
 #[path = "../build_support/jvm_defaults.rs"]
 mod jvm_defaults;
 

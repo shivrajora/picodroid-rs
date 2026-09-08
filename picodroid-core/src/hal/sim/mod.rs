@@ -22,6 +22,10 @@
 
 pub mod adc;
 pub mod allocator;
+// The app region and the `apps …` control verbs: needs the installer's
+// in-memory region, which only the simulator build links.
+#[cfg(feature = "sim")]
+pub mod app_region;
 // The boot-budget engine: charges the arena from a family's model of the
 // device's boot-time tasks (`register_sim_platform!`'s `boot_budget`).
 pub mod boot_budget;

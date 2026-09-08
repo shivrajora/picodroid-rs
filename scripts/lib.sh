@@ -223,22 +223,21 @@ resolve_board() {
   RAM_MAX=$(( ram_kb * 1024 ))
   FLASH_MAX=$(( flash_kb * 1024 ))
 
-  # Program-image ceiling: LENGTH(FLASH) from the MCU linker script. The
-  # image links into the FLASH region, not the whole chip — measuring
+  # Program-image ceiling: what the generated memory.x gives the FLASH
+  # region. The image links into that region, not the whole chip — measuring
   # against total flash hid a 99%-full rp2040 program region behind "43%"
-  # (docs/bugs-rp2040-flash-2026-08-01.md, adjacent hazard). Falls back to
-  # FLASH_MAX when the script or region is missing (e.g. no linker script).
-  # The LENGTH expression ("896K - 0x100") is rewritten into bash arithmetic.
-  PROGRAM_FLASH_MAX="$FLASH_MAX"
-  local mcu_ld="${mcu_toml%.toml}.x" flash_expr
-  if [[ -f "$mcu_ld" ]]; then
-    flash_expr=$(grep -E '^[[:space:]]*FLASH[[:space:]]' "$mcu_ld" | head -1 \
-      | sed -E 's/.*LENGTH[[:space:]]*=[[:space:]]*//; s|/\*.*||; s/([0-9]+)K/(\1*1024)/g; s/([0-9]+)M/(\1*1048576)/g')
-    if [[ -n "$flash_expr" ]]; then
-      PROGRAM_FLASH_MAX=$(bash -c "echo \$(( $flash_expr ))" 2>/dev/null) \
-        || PROGRAM_FLASH_MAX="$FLASH_MAX"
-    fi
-  fi
+  # (docs/bugs-rp2040-flash-2026-08-01.md, adjacent hazard). The region is
+  # laid out top-down from the end of flash by build_support/flash_layout.rs
+  # (boot2 in front, then the program image, LittleFS, the app region); the
+  # same subtraction over the same keys keeps this gate and the linker in
+  # step. board.toml overrides the MCU defaults for the tunable keys.
+  local boot2 fs_kb region_kb
+  boot2=$(toml_top_int "$mcu_toml" boot2_bytes 0)
+  fs_kb=$(toml_top_int "$board_toml" fs_kb "$(toml_top_int "$mcu_toml" fs_kb 0)")
+  region_kb=$(toml_top_int "$board_toml" app_region_kb "$(toml_top_int "$mcu_toml" app_region_kb 0)")
+  MAX_INSTALLED_APPS=$(toml_top_int "$board_toml" max_installed_apps "$(toml_top_int "$mcu_toml" max_installed_apps 1)")
+  APP_REGION_KB="$region_kb"
+  PROGRAM_FLASH_MAX=$(( FLASH_MAX - boot2 - fs_kb * 1024 - region_kb * 1024 ))
 
   # Optional extra cargo flags (e.g. -Zbuild-std=core,alloc for ESP nightly builds).
   # Guard with grep -q to avoid failing under set -e when the key is absent.
@@ -265,6 +264,20 @@ resolve_board() {
   esac
 
   apply_jvm_env "$board_toml"
+}
+
+# Reads an integer top-level key (before the first [section]) from a toml
+# file, or prints the default when absent. Strips quotes and a trailing
+# comment; hex (0x100) passes through bash arithmetic unchanged.
+toml_top_int() {
+  local file="$1" key="$2" default="$3" value
+  value=$(awk -v k="$key" '
+    /^[[:space:]]*\[/ { exit }
+    $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {
+      sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*#.*$/, ""); gsub(/"/, ""); print; exit
+    }' "$file" 2>/dev/null)
+  [[ -z "$value" ]] && value="$default"
+  echo $(( value ))
 }
 
 # Export PICODROID_JVM_* env vars from board.toml's optional `[jvm]` section

@@ -25,6 +25,8 @@
 
 pub mod framing;
 pub mod input;
+#[cfg(has_multi_app)]
+pub mod packages;
 pub mod sysmon;
 pub mod usb_cdc;
 
@@ -110,8 +112,27 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         return;
     }
     // The greeting layout is `pdb_protocol::greeting`'s; this build supplies
-    // the two facts only it knows — slot capacity and framework-map-version.
+    // the facts only it knows — region capacity, framework-map-version and,
+    // on a multi-app board, the state of the package directory.
     let mut buf = [0u8; greeting::GREETING_MAX];
+    #[cfg(has_multi_app)]
+    let total = {
+        let (largest, free) = crate::packages::free_space();
+        let sector = crate::packages::SECTOR as u32;
+        let apps = greeting::AppsInfo {
+            max: flash.max_installed_apps() as u8,
+            installed: crate::packages::installed_count() as u8,
+            largest_free: largest * sector,
+            total_free: free * sector,
+        };
+        greeting::encode_with_apps(
+            flash.max_data_size() as u32,
+            crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
+            &apps,
+            &mut buf,
+        )
+    };
+    #[cfg(not(has_multi_app))]
     let total = greeting::encode(
         flash.max_data_size() as u32,
         crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
@@ -147,6 +168,12 @@ pub fn run_pdb_task(
             }
             CMD_SYSMON => sysmon::handle(&mut transport, &mut sysmon_source, len),
             CMD_INPUT => input::handle(&mut transport, len),
+            #[cfg(has_multi_app)]
+            pdb_protocol::CMD_LIST => packages::handle_list(&mut transport, len),
+            #[cfg(has_multi_app)]
+            pdb_protocol::CMD_UNINSTALL => {
+                packages::handle_uninstall(&mut transport, &mut coordinator, &mut flash, len)
+            }
             _ => send_response(&mut transport, STATUS_ERR, b"unknown cmd"),
         }
     }
@@ -215,14 +242,24 @@ mod tests {
 
     struct MockFlash;
     unsafe impl PapkFlash for MockFlash {
-        fn max_data_size(&self) -> usize {
-            0x000F_C000
+        fn region_len(&self) -> usize {
+            0x0010_0000
         }
-        unsafe fn erase_region(&mut self, _papk_len: usize) {}
+        fn max_installed_apps(&self) -> usize {
+            1
+        }
+        fn mapped_base(&self) -> *const u8 {
+            core::ptr::null()
+        }
+        fn select_run(&mut self, _first_sector: u32) {}
+        unsafe fn erase_run(&mut self, _first_sector: u32, _sectors: u32) {}
         unsafe fn write_page(&mut self, _page_index: u32, _page: &[u8; 256]) -> bool {
             true
         }
-        unsafe fn commit_metadata(&mut self, _len: u32) {}
+        unsafe fn write_meta_header(&mut self, _len: u32, _flags: u32, _seq: u32) {}
+        unsafe fn write_meta_commit(&mut self) {}
+        unsafe fn commit_metadata(&mut self, _len: u32, _flags: u32, _seq: u32) {}
+        unsafe fn copy_page(&mut self, _src: u32, _dst: u32, _page: u32) {}
         fn trigger_reset(&mut self) -> ! {
             unreachable!("no reset in a ping test")
         }

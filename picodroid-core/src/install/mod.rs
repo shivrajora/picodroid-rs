@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PAPK install orchestration — the three-phase sequence that replaces the
-//! app on a device.
+//! PAPK install orchestration — the sequence that puts an app onto a device.
 //!
 //! It lives here rather than in a family crate because none of it is about
-//! silicon: it is a wire protocol, a compatibility gate, a CRC and an
-//! ordering discipline. What *is* family-specific — where the flash slot
-//! sits, how to erase it, how to park the core that executes from it —
-//! arrives through [`PapkFlash`] and [`install::CoreCoordinator`].
+//! silicon: it is a wire protocol, a compatibility gate, a placement policy,
+//! a CRC and an ordering discipline. What *is* family-specific — where the
+//! app region sits, how to erase and program it, how to park the core that
+//! executes from it — arrives through [`PapkFlash`] and [`CoreCoordinator`].
 //!
 //! # Why the seams are generic parameters
 //!
@@ -21,16 +20,22 @@
 //!
 //! # Ordering is the correctness property
 //!
-//! Phase A validates and *then* erases: an incompatible or oversized PAPK
-//! must be refused while the installed one is still intact. Everything after
-//! the erase runs with the JVM core parked, because on a family that executes
-//! from the flash being erased, it cannot be otherwise. The tests in
-//! [`orchestrator`] pin both.
+//! Phase A validates, places, and *then* erases: an incompatible, oversized
+//! or homeless PAPK must be refused while every installed one is still
+//! intact. Everything after the erase runs with the JVM core parked, because
+//! on a family that executes from the flash being erased, it cannot be
+//! otherwise. A run's boot-meta pages are written last, so a run is either
+//! whole or invisible. The tests in [`orchestrator`] and
+//! [`crate::packages`] pin all of it.
 
+#[cfg(any(test, feature = "sim"))]
+pub mod mem_region;
 mod orchestrator;
-pub mod slot;
+pub mod region;
 pub mod transport;
 
-pub use orchestrator::{run_install, CoreCoordinator, PapkFlash};
-pub use slot::{read_mapped, PapkSlot, PapkSlotFlash};
+pub use orchestrator::{
+    install, run_install, run_uninstall, uninstall, CoreCoordinator, PapkFlash,
+};
+pub use region::{PapkRegion, PapkRegionFlash, PAGES_PER_SECTOR};
 pub use transport::{InstallError, InstallTransport, ReadError};

@@ -8,15 +8,18 @@ use std::io::Write;
 use crate::devices::find_by_vid_pid;
 use crate::protocol::{
     recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
-    INSTALL_PEEK_BYTES, POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
+    INSTALL_PEEK_BYTES, POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_INCOMPAT, STATUS_NO_ROOM, STATUS_OK,
+    STATUS_READY,
 };
-use pdb_protocol::greeting::{Greeting, GreetingError, LEGACY_VERSION, VERSION_PREFIX};
+use pdb_protocol::greeting::{AppsInfo, Greeting, GreetingError, LEGACY_VERSION, VERSION_PREFIX};
 
 const BAUD_RATE: u32 = 115_200;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Timeout for the STATUS_READY response: device needs ~10-15 s to erase 1 MB of flash.
-const ERASE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Timeout for the STATUS_READY response: the device places the run, may
+/// compact the app region first (up to ~30 s for a full 1.5 MB region), and
+/// erases the run's sectors.
+const ERASE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Timeout for the STATUS_OK response after streaming the full PAPK.
 /// USB CDC is much faster than 115200 baud UART; 10 s is plenty of margin.
@@ -38,16 +41,35 @@ pub struct InstallOptions {
 }
 
 /// What we learned about the device from its PING greeting.
-struct DeviceInfo {
-    version: String,
-    max_papk: usize,
-    framework_map_version: String,
+pub struct DeviceInfo {
+    pub version: String,
+    pub max_papk: usize,
+    pub framework_map_version: String,
+    /// The package directory, on multi-app firmware.
+    pub apps: Option<AppsInfo>,
+}
+
+impl DeviceInfo {
+    /// `apps 3/8, free 1428 KB (largest 1024 KB)` on multi-app firmware,
+    /// `single-app` otherwise.
+    pub fn apps_summary(&self) -> String {
+        match &self.apps {
+            Some(a) => format!(
+                "apps {}/{}, free {} KB (largest {} KB)",
+                a.installed,
+                a.max,
+                a.total_free / 1024,
+                a.largest_free / 1024
+            ),
+            None => "single-app".to_string(),
+        }
+    }
 }
 
 /// Interpret a PING greeting. The layout lives in `pdb_protocol::greeting`
 /// (shared with the firmware's encoder); what stays here is policy — which
 /// versions are refused, and with what message.
-fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
+pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
     let g = Greeting::parse(payload).map_err(|e| match e {
         GreetingError::TooShort(n) => format!("PING payload too short ({n} bytes)"),
         GreetingError::MissingFmv => "PING payload missing framework_map_version field".into(),
@@ -73,7 +95,62 @@ fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
         version: g.version.to_string(),
         max_papk: g.max_papk as usize,
         framework_map_version: g.framework_map_version.to_string(),
+        apps: g.apps,
     })
+}
+
+/// PING the device at `port_name` and interpret the greeting.
+pub fn query_device(port_name: &str, timeout: Duration) -> Result<DeviceInfo, String> {
+    let mut port = serialport::new(port_name, BAUD_RATE)
+        .timeout(timeout)
+        .open()
+        .map_err(|e| format!("cannot open {port_name}: {e}"))?;
+    send_frame(port.as_mut(), CMD_PING, b"").map_err(|e| format!("PING send failed: {e}"))?;
+    let (status, payload) = recv_response(port.as_mut()).map_err(|e| {
+        format!("PING response failed: {e}\n       Is the device connected and running picodroid firmware?")
+    })?;
+    if status != STATUS_OK {
+        return Err(format!("PING returned {}", status_str(status)));
+    }
+    parse_ping_payload(&payload)
+}
+
+/// After a reset, wait for the device to re-enumerate and answer a PING.
+/// Returns `false` if it never does within the poll budget.
+pub fn wait_for_reboot(port_name: &str) -> bool {
+    std::thread::sleep(REBOOT_DELAY);
+    for attempt in 0..POLL_ATTEMPTS {
+        std::thread::sleep(POLL_TIMEOUT);
+
+        // Try to find the device by VID/PID first (fast).
+        let port_name = match find_by_vid_pid() {
+            Some(name) => name,
+            None => {
+                if attempt == 0 {
+                    // First attempt — USB may not have re-enumerated yet.
+                    continue;
+                }
+                // Fall back to the original port name.
+                port_name.to_string()
+            }
+        };
+
+        let mut port = match serialport::new(&port_name, BAUD_RATE)
+            .timeout(POLL_TIMEOUT)
+            .open()
+        {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        if send_frame(port.as_mut(), CMD_PING, b"").is_err() {
+            continue;
+        }
+        if let Ok((STATUS_OK, _)) = recv_response(port.as_mut()) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Print a uniform "refusing to install" message and exit per `opts`.
@@ -131,10 +208,11 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     };
 
     println!(
-        "Connected: {}  (max PAPK: {} KB, framework-map-version: {})",
+        "Connected: {}  (max PAPK: {} KB, framework-map-version: {}, {})",
         device.version,
         device.max_papk / 1024,
         device.framework_map_version,
+        device.apps_summary(),
     );
 
     // ── Validate size ─────────────────────────────────────────────────────────
@@ -187,9 +265,23 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         }
     }
 
+    // ── Package identity (multi-app firmware) ────────────────────────────
+    // The device places the run by `package-name`; a PAPK without one
+    // cannot be placed, and the device would refuse it after parking the
+    // JVM. Refuse here, before it does.
+    let package = papk_format::find_manifest_value(&papk, papk_format::keys::PACKAGE_NAME);
+    if device.apps.is_some() && package.is_none() {
+        refuse(
+            "PAPK has no package-name; a multi-app device cannot place it.\n  \
+             Repack it: papk-pack --repack <file.papk> --package-name <name> --output <new.papk>",
+            &opts,
+        );
+    }
+
     println!(
-        "Installing {} ({} KB)...",
+        "Installing {} ({}, {} KB)...",
         papk_path.display(),
+        package.unwrap_or("no package-name"),
         papk.len().div_ceil(1024)
     );
 
@@ -211,7 +303,12 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         process::exit(1);
     }
 
-    println!("Erasing flash (~10-15 s)...");
+    match &device.apps {
+        Some(_) => {
+            println!("Placing the app and erasing flash (compaction can take up to a minute)...")
+        }
+        None => println!("Erasing flash (~10-15 s)..."),
+    }
 
     let (status, payload) = match recv_response(port.as_mut()) {
         Ok(r) => r,
@@ -233,6 +330,18 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
               Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).",
             papk_fmv.unwrap_or("(none)"),
             device.framework_map_version,
+        );
+        refuse(&reason, &opts);
+    }
+
+    if status == STATUS_NO_ROOM {
+        // The region has no contiguous run for it even after compaction, or
+        // the directory is full. Nothing was erased; every installed app is
+        // intact.
+        let msg = String::from_utf8_lossy(&payload);
+        let reason = format!(
+            "device rejected install: STATUS_NO_ROOM — {msg}\n  \
+             Free room with `pdb uninstall <package>`; `pdb list` shows what is installed."
         );
         refuse(&reason, &opts);
     }
@@ -279,51 +388,15 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // After reboot the USB CDC device disconnects and re-enumerates.
     // Drop the old port, wait for the VID/PID to reappear, then re-open.
     drop(port);
-    std::thread::sleep(REBOOT_DELAY);
-
-    for attempt in 0..POLL_ATTEMPTS {
-        std::thread::sleep(POLL_TIMEOUT);
-
-        // Try to find the device by VID/PID first (fast).
-        let port_name = match find_by_vid_pid() {
-            Some(name) => name,
-            None => {
-                if attempt == 0 {
-                    // First attempt — USB may not have re-enumerated yet.
-                    continue;
-                }
-                // Fall back to the original port name.
-                port_name.to_string()
-            }
-        };
-
-        let mut port = match serialport::new(&port_name, BAUD_RATE)
-            .timeout(POLL_TIMEOUT)
-            .open()
-        {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-
-        if send_frame(port.as_mut(), CMD_PING, b"").is_err() {
-            continue;
+    if wait_for_reboot(port_name) {
+        if opts.expect_rejected {
+            // We told the user to expect rejection, but the install
+            // actually went through. That's a test failure.
+            eprintln!("error: --expect-rejected was set but install completed successfully");
+            process::exit(1);
         }
-
-        match recv_response(port.as_mut()) {
-            Ok((STATUS_OK, _)) => {
-                if opts.expect_rejected {
-                    // We told the user to expect rejection, but the install
-                    // actually went through. That's a test failure.
-                    eprintln!(
-                        "error: --expect-rejected was set but install completed successfully"
-                    );
-                    process::exit(1);
-                }
-                println!("Install complete.");
-                return;
-            }
-            _ => continue,
-        }
+        println!("Install complete.");
+        return;
     }
 
     eprintln!("warning: device did not respond to PING within 20 s after reboot.");
@@ -350,10 +423,11 @@ pub fn ping(port_name: &str) {
     match recv_response(port.as_mut()) {
         Ok((STATUS_OK, payload)) => match parse_ping_payload(&payload) {
             Ok(d) => println!(
-                "{}  (max PAPK: {} KB, framework-map-version: {})",
+                "{}  (max PAPK: {} KB, framework-map-version: {}, {})",
                 d.version,
                 d.max_papk / 1024,
                 d.framework_map_version,
+                d.apps_summary(),
             ),
             Err(e) => {
                 eprintln!("error: {e}");

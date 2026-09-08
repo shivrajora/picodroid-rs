@@ -65,7 +65,7 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 
 ## Step by step: from PNG to screen
 
-1. **Size the PNG for the screen.** Each bundled image costs `width × height × 2` bytes on flash (RGB565, 2 bytes per pixel — there is no compression on device). Budget against the board's flash and the PAPK install ceiling (~1020 KiB total per PAPK):
+1. **Size the PNG for the screen.** Each bundled image costs `width × height × 2` bytes on flash (RGB565, 2 bytes per pixel — there is no compression on device). Budget against the board's flash and the app region every installed app shares (1536 KiB on the RP2350 boards, 1024 KiB on RP2040 — see [limits](/reference/limits/)):
 
    | Image | Bytes | On flash |
    |-------|-------|----------|
@@ -131,7 +131,7 @@ cargo run -p papk-info -- build/apks/imagedemo.papk
 
 - The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data.
 - The firmware-side resolver lives in `platforms/rp/src/system/picodroid/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
-- There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the whole-PAPK install limit (~1020 KiB), shared with classes and the manifest, so keep `assets/` modest (a few hundred KiB at most) to leave room for code.
+- There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the app region the PAPK is installed into, shared with its classes and manifest and with every other installed app, so keep `assets/` modest (a few hundred KiB at most) to leave room for code.
 - Re-pack any PAPK that was built before v1.1 if you start using `setImageSource` — `pdb install` will reject the older format with `FrameworkVersionMismatch`.
 
 See [`examples/imagedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/imagedemo) for a worked example.

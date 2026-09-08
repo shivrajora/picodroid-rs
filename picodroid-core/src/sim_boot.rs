@@ -69,6 +69,11 @@ pub fn main(model: &'static BootBudgetModel, run_app: fn()) {
     }
     allocator::checkpoint("post-fs-init");
 
+    // The app region, seeded from PICODROID_APK_PATH and PICODROID_SIM_APPS;
+    // like the filesystem image it models flash, so it is not charged.
+    crate::hal::sim::app_region::init();
+    allocator::checkpoint("post-app-region");
+
     run(model, run_app);
 
     allocator::checkpoint("final");

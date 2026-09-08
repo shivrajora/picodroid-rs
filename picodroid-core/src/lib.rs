@@ -38,6 +38,7 @@ pub mod host;
 // out of every host build while it lived in the family crate, so the one code
 // path that can leave a device unbootable had no coverage at all.
 pub mod install;
+pub mod packages;
 // Synthetic input gestures, shared by the debug bridge and the simulator's
 // control channel so both answer a script identically.
 pub mod input_inject;

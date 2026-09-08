@@ -1,5 +1,13 @@
 # Board: TestBench — Waveshare 2.8" Pico display (ST7789 + XPT2046)
 mcu = "rp2350"
+
+# Multi-app (docs/designs/multi-app-2026-09.md D1/D2): the app region holds
+# up to eight installed apps as self-describing runs, LittleFS grows to
+# 512 KB for per-app storage, and the program image keeps 2048 KB.
+# FLASH 2048K @0x10000000 | FS_FLASH 512K @0x10200000 | PAPK_FLASH 1536K @0x10280000
+max_installed_apps = 8
+app_region_kb = 1536
+fs_kb = 512
 # picodroid.json (JSONObject/JSONArray, native node pool). Off by default;
 # on here because the 2816K program region has the room. See
 # framework_class_excludes in the porting guide for what "off" drops.

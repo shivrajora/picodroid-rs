@@ -22,3 +22,14 @@ freertos_vector_aliases = "SVCall=isr_svcall;PendSV=isr_pendsv;SysTick=isr_systi
 # Section to place .init_array in (RP-specific quirk: FLASH keeps BSS clean
 # for UF2 converters). Leave unset on platforms that don't need this.
 init_array_segment = "FLASH"
+
+# Flash layout (build_support/flash_layout.rs): 2 MB, top-down from the end —
+# a 1 MB app region, then 128 KB of LittleFS, the program image in front of
+# them behind the 256-byte boot2. A board may override fs_kb, app_region_kb
+# and max_installed_apps; this MCU has no room for more than one app.
+flash_origin = 0x10000000
+ram_origin = 0x20000000
+boot2_bytes = 0x100
+fs_kb = 128
+app_region_kb = 1024
+max_installed_apps = 1

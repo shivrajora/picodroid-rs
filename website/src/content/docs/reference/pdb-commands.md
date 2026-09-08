@@ -1,6 +1,6 @@
 ---
 title: "pdb command reference"
-description: "Every pdb subcommand — devices, ping, install, sysmon, input, logcat — with flags, semantics, and the sim control-channel equivalents."
+description: "Every pdb subcommand — devices, ping, install, list, uninstall, sysmon, input, logcat — with flags, semantics, and the sim control-channel equivalents."
 ---
 
 `pdb` is the Picodroid Debug Bridge CLI: it talks to a flashed device over USB CDC. Build and run it with `cargo run -p pdb --`, or use the `./scripts/pdb.sh` wrapper. Every device command takes the serial port via `-s`:
@@ -26,7 +26,7 @@ Lists available serial ports so you can find the device's CDC port.
 pdb -s <port> ping
 ```
 
-Round-trips a greeting to confirm the device is alive and the protocol versions match.
+Round-trips a greeting to confirm the device is alive and the protocol versions match. The greeting carries the largest PAPK the app region could hold, the firmware's `framework-map-version`, and — on multi-app firmware (`picodroid/2.2`, every RP2350 board) — the state of the package directory: `apps 3/8, free 1428 KB (largest 1024 KB)`. A single-app board (RP2040) reports `single-app`.
 
 ## install
 
@@ -38,10 +38,44 @@ Hot-swaps an app: writes the PAPK to flash and restarts the JVM, without reflash
 
 A PAPK is checked for compatibility before install: its `framework-map-version` must be less than or equal to the firmware's active version (see the [shrinker reference](/reference/shrinker/)).
 
+On multi-app firmware the device also *places* the app before it erases anything. The PAPK's `package-name` (the manifest's `package=`) is its identity: a package that is already installed is upgraded — the new copy lands beside the old one and the old one is erased only after the new one commits, or, when there is no room beside it, over it — and a new package takes the first free run of the app region. If the free space is there but not in one piece the device compacts the region first, which can take up to half a minute; `pdb` waits. When even that cannot make room, or the directory is full, the device answers `STATUS_NO_ROOM` with the numbers and nothing has been erased:
+
+```text
+Refusing to install: device rejected install: STATUS_NO_ROOM — no room: need 380 KB, largest free 220 KB, total free 300 KB, apps 5/8
+  Free room with `pdb uninstall <package>`; `pdb list` shows what is installed.
+```
+
+A PAPK without a `package-name` is refused on the host before the device is asked (`papk-pack --repack <file> --package-name <name>` adds one). On a single-app board the install replaces whatever is installed, as before.
+
 | Flag | Effect |
 |------|--------|
 | `--skip-host-check` | Skip the host-side compat pre-flight (HIL test knob — exercises the device-side rejection path) |
 | `--expect-rejected` | Invert exit codes: success when the install is rejected. Used by HIL `install-reject-*` test rows |
+
+## list
+
+```bash
+pdb -s <port> list
+```
+
+Prints the package directory of a multi-app device — every installed app's sector, package, `version-code`, version, size, whether it is the boot app, and its label — followed by the free space:
+
+```text
+SECTOR PACKAGE      CODE VERSION     SIZE  BOOT LABEL
+0      helloworld      1 1.0            1 KB  yes  helloworld
+2      imagedemo       1 1.0           11 KB  -    Image Demo
+free: largest 1480 KB, total 1480 KB, apps 2/8
+```
+
+The boot app is the one `flash.sh --app` baked in (a reinstall of the same package keeps the flag); it is what the device runs at power-up until the launcher lands. On single-app firmware the command reports that there is no directory to list.
+
+## uninstall
+
+```bash
+pdb -s <port> uninstall <package>
+```
+
+Erases an installed app's whole run — its boot-meta sector and image — and reboots the device, then waits for it to come back. `NOT_FOUND` if no such package is installed; a system app cannot be uninstalled. Uninstalling the boot app leaves the device waiting for the next `pdb install`.
 
 ## sysmon
 

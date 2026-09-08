@@ -43,7 +43,9 @@ fn _assert_hardware_only() {
     // is the clock tree, which is genuinely the HAL's.
     let _: fn() = boot::clock_init;
 
-    // flash
-    let _: usize = flash::PAPK_MAX_DATA_SIZE;
-    let _: unsafe fn() -> Option<&'static [u8]> = flash::read_flash_papk;
+    // flash — the generated layout's region, and where it is mapped.
+    let _: u32 = flash::PAPK_REGION_OFFSET;
+    let _: usize = flash::PAPK_REGION_LEN;
+    let _: usize = flash::MAX_INSTALLED_APPS;
+    let _: fn() -> *const u8 = flash::region_base;
 }

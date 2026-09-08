@@ -219,13 +219,36 @@ run_pdb_test() {
     return
   fi
 
+  # The package-directory rows need multi-app firmware: SKIP when the
+  # greeting carries no apps tail (a single-app board on the probe), and the
+  # fixture-minting rows also need papk-pack.
+  case "$pdb_cmd" in
+    list|uninstall|install-reject-noroom|install-compact)
+      local pre_ping="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.pre-ping.log"
+      if ! timeout 10 "$PDB_BIN" ping > "$pre_ping" 2>&1 \
+          || ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
+        hil_log "SKIP $test_name (single-app firmware: no package directory)"
+        echo "SKIP $test_name (single-app firmware)" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        return
+      fi
+      if [[ -z "$PAPK_PACK_BIN" && "$pdb_cmd" == install-* ]]; then
+        hil_log "SKIP $test_name (papk-pack unavailable for fixtures)"
+        echo "SKIP $test_name (no papk-pack)" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        return
+      fi
+      ;;
+  esac
+
   # Cascade guard for install-reject-* tests: pre-install a known-good
   # helloworld so a prior broken app can't brick the bench and make every
   # downstream rejection test fail for bench-state reasons rather than the
   # rejection behavior under test. Seen in the wild when gcstress's on-boot
-  # OOM left the CDC port dead for all subsequent pdb tests.
+  # OOM left the CDC port dead for all subsequent pdb tests. The package
+  # rows start from the same known state.
   case "$pdb_cmd" in
-    install-reject-*)
+    install-reject-*|list|uninstall|install-compact)
       hil_log "  Pre-installing known-good helloworld to restore bench state..."
       if ! pdb_install_known_good "$mode" "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}"; then
         hil_log "  SKIP ($test_name): bench unresponsive — cannot validate rejection"
@@ -322,6 +345,21 @@ run_pdb_test() {
       run_pdb_install_stress "$app" "$timeout" "$patterns" "$mode"
       return
       ;;
+    list)
+      pdb_args=(list)
+      ;;
+    uninstall)
+      run_pdb_uninstall_test "$app" "$patterns" "$mode"
+      return
+      ;;
+    install-reject-noroom)
+      run_pdb_noroom_test "$app" "$patterns" "$mode"
+      return
+      ;;
+    install-compact)
+      run_pdb_compact_test "$app" "$patterns" "$mode"
+      return
+      ;;
     *)
       hil_log "  ERROR: unknown PDB command '$pdb_cmd'"
       echo "ERROR $test_name (unknown pdb command)" >> "$RESULTS_FILE"
@@ -383,6 +421,122 @@ run_pdb_test() {
     echo "FAIL $test_name" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi
+}
+
+# ── Package-directory rows (multi-app firmware) ─────────────────────────────
+
+# Repack the known-good helloworld PAPK (built by pdb_install_known_good in
+# the row's mode) under another package name, padded to `bytes`.
+hil_repack() {
+  local package="$1" bytes="$2" out="$3"
+  "$PAPK_PACK_BIN" --repack "$REPO_ROOT/build/apks/helloworld.papk" \
+    --package-name "$package" --label "$package" --pad-asset "$bytes" \
+    --output "$out" > /dev/null 2>&1
+}
+
+# One pdb command, appended to the row's log. Generous per-command timeout:
+# an install may compact the region (up to ~30 s) and every install or
+# uninstall waits for the reboot.
+hil_pdb() {
+  local log="$1"
+  shift
+  timeout 300 "$PDB_BIN" "$@" >> "$log" 2>&1
+}
+
+# PASS/FAIL a row from its log and patterns.
+hil_pdb_verdict() {
+  local test_name="$1" log_file="$2" patterns="$3"
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+    hil_log "  PASS"
+    echo "PASS $test_name" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    hil_log "  FAIL"
+    hil_log "  Log tail:"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
+    echo "FAIL $test_name" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# uninstall: erase the known-good helloworld, then list — the directory must
+# be empty and the device back.
+run_pdb_uninstall_test() {
+  local app="$1" patterns="$2" mode="$3"
+  local test_name="$app:pdb-uninstall[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-uninstall.${mode}.log"
+  : > "$log_file"
+  hil_log "  Running: pdb uninstall helloworld; pdb list"
+  hil_pdb "$log_file" uninstall helloworld || true
+  hil_pdb "$log_file" list || true
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
+}
+
+# install-reject-noroom: fill the directory with repacked helloworlds, then
+# one more must be refused with STATUS_NO_ROOM and nothing erased; the
+# fillers are uninstalled afterwards so the bench is left as found.
+run_pdb_noroom_test() {
+  local app="$1" patterns="$2" mode="$3"
+  local test_name="$app:pdb-install-reject-noroom[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-install-reject-noroom.${mode}.log"
+  local fixtures="$RUN_LOG_DIR/fixtures"
+  mkdir -p "$fixtures"
+  : > "$log_file"
+
+  local pre_ping="$RUN_LOG_DIR/${app}.pdb-install-reject-noroom.${mode}.pre-ping.log"
+  timeout 10 "$PDB_BIN" ping > "$pre_ping" 2>&1 || true
+  local installed max
+  installed=$(sed -nE 's/.*apps ([0-9]+)\/([0-9]+).*/\1/p' "$pre_ping" | head -1)
+  max=$(sed -nE 's/.*apps ([0-9]+)\/([0-9]+).*/\2/p' "$pre_ping" | head -1)
+  local fillers=$(( ${max:-0} - ${installed:-0} ))
+  hil_log "  Directory ${installed:-?}/${max:-?}: installing $fillers fillers, then one too many"
+  local i
+  for i in $(seq 1 "$fillers"); do
+    hil_repack "hilfill$i" 0 "$fixtures/hilfill$i.papk" || { echo "repack hilfill$i failed" >> "$log_file"; break; }
+    echo "=== filler $i/$fillers ===" >> "$log_file"
+    hil_pdb "$log_file" install "$fixtures/hilfill$i.papk" || echo "filler $i: install failed" >> "$log_file"
+  done
+  hil_repack hilfill_extra 0 "$fixtures/hilfill_extra.papk" || echo "repack extra failed" >> "$log_file"
+  echo "=== one too many ===" >> "$log_file"
+  hil_pdb "$log_file" install --expect-rejected "$fixtures/hilfill_extra.papk" || echo "extra: not rejected cleanly" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  echo "=== cleanup ===" >> "$log_file"
+  for i in $(seq 1 "$fillers"); do
+    hil_pdb "$log_file" uninstall "hilfill$i" || true
+  done
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
+}
+
+# install-compact: four ~300 KB apps, drop the first and third, then a
+# ~500 KB one that only fits once the region is compacted. Its fixtures are
+# uninstalled afterwards.
+run_pdb_compact_test() {
+  local app="$1" patterns="$2" mode="$3"
+  local test_name="$app:pdb-install-compact[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-install-compact.${mode}.log"
+  local fixtures="$RUN_LOG_DIR/fixtures"
+  mkdir -p "$fixtures"
+  : > "$log_file"
+  local name
+  for name in a b c d; do
+    hil_repack "hilfill_$name" $((300 * 1024)) "$fixtures/hilfill_$name.papk" || { echo "repack $name failed" >> "$log_file"; }
+    echo "=== install hilfill_$name (300 KB) ===" >> "$log_file"
+    hil_pdb "$log_file" install "$fixtures/hilfill_$name.papk" || echo "hilfill_$name: install failed" >> "$log_file"
+  done
+  for name in a c; do
+    echo "=== uninstall hilfill_$name ===" >> "$log_file"
+    hil_pdb "$log_file" uninstall "hilfill_$name" || echo "hilfill_$name: uninstall failed" >> "$log_file"
+  done
+  hil_repack hilfill_e $((500 * 1024)) "$fixtures/hilfill_e.papk" || echo "repack e failed" >> "$log_file"
+  echo "=== install hilfill_e (500 KB, needs compaction) ===" >> "$log_file"
+  hil_pdb "$log_file" install "$fixtures/hilfill_e.papk" || echo "hilfill_e: install failed" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  echo "=== cleanup ===" >> "$log_file"
+  for name in b d e; do
+    hil_pdb "$log_file" uninstall "hilfill_$name" || true
+  done
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
 }
 
 run_pdb_install_stress() {
@@ -521,6 +675,20 @@ if [[ "$SKIP_PDB" != "true" ]]; then
       > "$RUN_LOG_DIR/pdb-build.log" 2>&1; then
     hil_log "WARNING: PDB tool build failed; PDB tests will be skipped"
     PDB_BIN=""
+  fi
+fi
+
+# Pre-build papk-pack: the multi-app pdb rows mint their fixtures with
+# `--repack` (same classes, another package name, padded to a size).
+PAPK_PACK_BIN=""
+if [[ -n "$PDB_BIN" ]]; then
+  PAPK_PACK_BIN="$REPO_ROOT/target/${PDB_HOST_TARGET}/release/papk-pack"
+  if ! cargo build --release --quiet \
+      --target "$PDB_HOST_TARGET" \
+      --manifest-path "$REPO_ROOT/tools/papk-pack/Cargo.toml" \
+      > "$RUN_LOG_DIR/papk-pack-build.log" 2>&1; then
+    hil_log "WARNING: papk-pack build failed; the multi-app pdb rows will be skipped"
+    PAPK_PACK_BIN=""
   fi
 fi
 

@@ -47,10 +47,12 @@
 //!    Implement [`PdbTransport`] (a byte pipe — `read_byte_timeout` must
 //!    busy-wait if your tick stops during flash writes), [`SysmonSource`],
 //!    [`CoreCoordinator`] (park the JVM core before flash is touched), and
-//!    [`PapkSlotFlash`] (three constants, erase, program, reset — [`PapkSlot`]
-//!    turns it into the [`PapkFlash`] the installer wants). Hand the four to
-//!    [`run_pdb_task`] from your bridge task. Read the installed app at boot
-//!    with [`read_mapped`]. Wire layouts and the USB identity are
+//!    [`PapkRegionFlash`] (where the app region is and how big, its mapped
+//!    address, erase, program, reset — [`PapkRegion`] turns it into the
+//!    [`PapkFlash`] the installer and the package directory want). Hand the
+//!    four to [`run_pdb_task`] from your bridge task. At boot, before the
+//!    scheduler, `packages::rescan` the region, `packages::cleanup` it, and
+//!    run `packages::boot_image()`. Wire layouts and the USB identity are
 //!    `pdb_protocol`'s; never retype them.
 //! 6. **The simulator.** One [`register_sim_platform!`] call with your GC
 //!    roots, a `static` [`BootBudgetModel`] of the tasks your device creates
@@ -123,9 +125,10 @@ pub use crate::hal::freertos_tcp::{run_link_task, FreeRtosTcpNet};
 
 // ── 5. debug bridge and installer ──────────────────────────────────────────
 pub use crate::install::{
-    read_mapped, run_install, CoreCoordinator, InstallError, InstallTransport, PapkFlash, PapkSlot,
-    PapkSlotFlash, ReadError,
+    install, run_install, run_uninstall, uninstall, CoreCoordinator, InstallError,
+    InstallTransport, PapkFlash, PapkRegion, PapkRegionFlash, ReadError,
 };
+pub use crate::packages::{boot_image, cleanup, rescan, rescan_region};
 pub use crate::pdb::{
     run_pdb_task, PdbTransport, SysmonSample, SysmonSource, TaskSample, MAX_TASKS,
 };
@@ -166,7 +169,7 @@ mod tests {
         "pdb/sysmon.rs",
         "install/orchestrator.rs",
         "install/transport.rs",
-        "install/slot.rs",
+        "install/region.rs",
         "fs/mod.rs",
     ];
 

@@ -12,6 +12,13 @@
 //! button table. Pin/SPI wiring stays with the family HAL. See
 //! `docs/designs/shared-core-extraction.md` §3.D.
 
+/// Flash layout — where the app region and the filesystem sit, and the
+/// package directory's capacity (`build_support/flash_layout.rs`; boardless
+/// builds get the RP2350 multi-app geometry).
+pub mod flash {
+    include!(concat!(env!("OUT_DIR"), "/flash_layout.rs"));
+}
+
 /// Display geometry. Pin and SPI wiring stay in the family HAL's own
 /// `display_config.rs`; the platform crate asserts the two agree.
 pub mod display {

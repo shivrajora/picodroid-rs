@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use core::cell::UnsafeCell;
 
+use papk_format::flash_image::META_SIZE;
+
 use super::transport::{InstallError, InstallTransport, ReadError};
 
 /// CRC tag byte for install frames. Included in the CRC computation so the
@@ -48,91 +50,153 @@ pub trait CoreCoordinator {
     fn cancel_park_request(&mut self);
 }
 
-/// The family's PAPK flash slot.
+/// The family's app region, as the installer and the package directory
+/// drive it.
 ///
 /// The last free-function seam in the install path: `CoreCoordinator` and
 /// [`InstallTransport`] were already traits, while flash was reached through
 /// `super::flash::*`, which is what kept this module in the family crate and
-/// out of every test binary.
+/// out of every test binary. A family implements
+/// [`super::PapkRegionFlash`] and gets this through [`super::PapkRegion`].
+///
+/// Runs are addressed by their first sector; [`select_run`](Self::select_run)
+/// picks the one the page and meta writes are relative to.
 ///
 /// # Safety
 ///
-/// Implementors must uphold what the orchestrator cannot check: `erase_region`
-/// and `write_page` may run only while the JVM core is parked, because on a
+/// Implementors must uphold what the orchestrator cannot check: every
+/// `unsafe fn` here may run only while the JVM core is parked, because on a
 /// family that executes in place from this same flash, erasing it under a
-/// running core faults. `run_install` guarantees the park; an implementor that
-/// takes these calls from anywhere else does not inherit that guarantee.
+/// running core faults. `run_install` guarantees the park; an implementor
+/// that takes these calls from anywhere else does not inherit that guarantee.
 pub unsafe trait PapkFlash {
-    /// Largest PAPK this slot can hold, in bytes.
-    fn max_data_size(&self) -> usize;
+    /// The app region, in bytes — a multiple of the 4 KB sector.
+    fn region_len(&self) -> usize;
 
-    /// Erase enough of the slot to hold `papk_len` bytes, plus the metadata
+    /// Package-directory capacity; 1 on a single-app board.
+    fn max_installed_apps(&self) -> usize;
+
+    /// Mapped address of the region's first byte, readable whenever no
+    /// erase or program is in flight.
+    fn mapped_base(&self) -> *const u8;
+
+    /// Largest PAPK an empty region could hold: the region minus one meta
     /// sector.
+    fn max_data_size(&self) -> usize {
+        self.region_len() - META_SIZE
+    }
+
+    /// Make the run starting at `first_sector` the target of the writes
+    /// below.
+    fn select_run(&mut self, first_sector: u32);
+
+    /// Erase `sectors` whole sectors from `first_sector`.
     ///
     /// # Safety
     /// The JVM core must be parked. See the trait docs.
-    unsafe fn erase_region(&mut self, papk_len: usize);
+    unsafe fn erase_run(&mut self, first_sector: u32, sectors: u32);
 
-    /// Program one 256-byte page at `page_index` into the data region.
-    /// Returns false if the page falls outside the slot.
+    /// Program one 256-byte page at `page_index` into the selected run's
+    /// image. Returns false if the page falls outside the region.
     ///
     /// # Safety
     /// The JVM core must be parked. See the trait docs.
     unsafe fn write_page(&mut self, page_index: u32, page: &[u8; 256]) -> bool;
 
-    /// Write the boot-meta header, committing the install atomically. Until
-    /// this lands, a partially written slot still reads as the previous app —
-    /// or as no app, which is why it is the last write.
+    /// Write the selected run's header page only — a relocation's first
+    /// step, which leaves the run visibly unfinished until
+    /// [`write_meta_commit`](Self::write_meta_commit).
     ///
     /// # Safety
     /// The JVM core must be parked. See the trait docs.
-    unsafe fn commit_metadata(&mut self, len: u32);
+    unsafe fn write_meta_header(&mut self, len: u32, flags: u32, seq: u32);
 
-    /// Reboot into the newly installed app. Never returns.
+    /// Write the selected run's commit page, making it an installed app.
+    ///
+    /// # Safety
+    /// The JVM core must be parked. See the trait docs.
+    unsafe fn write_meta_commit(&mut self);
+
+    /// Write both boot-meta pages of the selected run, committing an install
+    /// atomically. Until this lands, a partially written run reads as no
+    /// app, which is why it is the last write.
+    ///
+    /// # Safety
+    /// The JVM core must be parked. See the trait docs.
+    unsafe fn commit_metadata(&mut self, len: u32, flags: u32, seq: u32);
+
+    /// Copy page `page` of `src_sector` to the same page of `dst_sector`
+    /// (which must be erased), through RAM.
+    ///
+    /// # Safety
+    /// The JVM core must be parked. See the trait docs.
+    unsafe fn copy_page(&mut self, src_sector: u32, dst_sector: u32, page: u32);
+
+    /// Reboot into what the region now holds. Never returns.
     fn trigger_reset(&mut self) -> !;
 }
 
 // ── Transport-agnostic install orchestration ─────────────────────────────────
 
-/// Run the full PAPK install sequence over the given transport.
+/// Run the full PAPK install sequence over the given transport, then reboot.
 ///
-/// Phases:
-///   A. Validate size, stop JVM, park core 0, erase flash
-///   B. Stream PAPK bytes page-by-page, computing CRC incrementally
-///   C. Verify CRC, commit metadata, report success, trigger reset
-///
-/// On any error, the execution core is released and the error is reported
-/// via the transport.  The caller can then resume its command loop.
+/// [`install`] does everything but the reset; this is what a debug bridge
+/// calls, because on a device the JVM core is parked in RAM and only a reset
+/// brings it back.
 pub fn run_install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
     papk_len: u32,
 ) {
+    if install(transport, coordinator, flash, papk_len) {
+        flash.trigger_reset()
+    }
+}
+
+/// The install sequence, minus the reset. Returns `true` once the new run is
+/// committed and the directory rescanned.
+///
+/// Phases:
+///   A. Validate size, stop JVM, park core 0, peek the manifest, check
+///      compatibility, place the run (compacting if that is what it takes),
+///      erase its sectors
+///   B. Stream PAPK bytes page-by-page, computing CRC incrementally
+///   C. Verify CRC, commit the boot-meta pages, erase a superseded copy,
+///      rescan, report success
+///
+/// On any error, the execution core is released and the error is reported
+/// via the transport.  The caller can then resume its command loop.
+pub fn install(
+    transport: &mut impl InstallTransport,
+    coordinator: &mut impl CoreCoordinator,
+    flash: &mut impl PapkFlash,
+    papk_len: u32,
+) -> bool {
     if papk_len == 0 {
         transport.report_error(InstallError::EmptyPayload);
-        return;
+        return false;
     }
     if papk_len as usize > flash.max_data_size() {
         transport.report_error(InstallError::TooLarge);
-        return;
+        return false;
     }
 
-    // ── Phase A: stop JVM, park core 0, erase flash ──────────────────────
+    // ── Phase A: stop JVM, park core 0 ───────────────────────────────────
     coordinator.request_stop_and_park();
 
     if !coordinator.wait_for_park() {
         transport.report_error(InstallError::ParkTimeout);
         coordinator.release();
         coordinator.cancel_park_request();
-        return;
+        return false;
     }
 
     // ── Pre-erase compat check ────────────────────────────────────────────
     // Peek the PAPK file header + manifest section off the wire (without
     // erasing flash yet) and verify the framework-map-version matches the
-    // firmware's. A mismatched PAPK is rejected here, leaving the existing
-    // PAPK in flash intact. The buffered bytes are replayed into
+    // firmware's. A mismatched PAPK is rejected here, leaving every
+    // installed app intact. The buffered bytes are replayed into
     // stream_and_verify via PrefixedTransport so they're still hashed and
     // written to flash in Phase B.
     let mut peek_buf = [0u8; PEEK_BUF_LEN];
@@ -144,7 +208,7 @@ pub fn run_install(
                 transport.report_error(InstallError::StreamTimeout);
                 coordinator.release();
                 coordinator.cancel_park_request();
-                return;
+                return false;
             }
         }
     }
@@ -156,12 +220,31 @@ pub fn run_install(
         transport.report_error(InstallError::Incompat);
         coordinator.release();
         coordinator.cancel_park_request();
-        return;
+        return false;
     }
 
-    // Core 0 is now parked in RAM with interrupts disabled.
-    // Safe to erase flash.  Only erase sectors needed for this papk.
-    unsafe { flash.erase_region(papk_len as usize) };
+    // ── Placement (docs/designs/multi-app-2026-09.md D5) ─────────────────
+    // `package-name` is the second manifest entry, so it is inside the peek
+    // for any real PAPK; a straddling entry reads as absent, which a
+    // multi-app board treats as a refusal rather than a guess.
+    let package = papk_format::find_manifest_value_in_prefix(
+        &peek_buf[..peeked],
+        papk_format::keys::PACKAGE_NAME,
+    );
+    let plan = match place(flash, package, papk_len as usize) {
+        Ok(plan) => plan,
+        Err(e) => {
+            transport.report_error(e);
+            coordinator.release();
+            coordinator.cancel_park_request();
+            return false;
+        }
+    };
+
+    // Core 0 is now parked in RAM with interrupts disabled. Safe to erase
+    // flash: the target run, plus an old copy it replaces in place.
+    unsafe { flash.erase_run(plan.erase_before.0, plan.erase_before.1) };
+    flash.select_run(plan.first_sector);
     transport.report_ready();
 
     // ── Phase B: stream PAPK bytes, write pages ──────────────────────────
@@ -176,15 +259,121 @@ pub fn run_install(
         // next supervisor loop and the device is wedged until another
         // install arrives.
         coordinator.cancel_park_request();
-        return;
+        return false;
     }
 
-    // ── Commit metadata, respond, and reboot ─────────────────────────────
-    unsafe { flash.commit_metadata(papk_len) };
+    // ── Commit metadata, retire the old copy, respond ─────────────────────
+    unsafe { flash.commit_metadata(papk_len, plan.flags, plan.seq) };
+    if let Some((first, sectors)) = plan.evict_after {
+        // Only now: until the new run committed, the old one was the app.
+        unsafe { flash.erase_run(first, sectors) };
+    }
+    crate::packages::rescan_region(flash);
     // Core 0 is still parked in its RAM spin loop.  Report success first so
-    // the host sees completion, then reset both cores.
+    // the host sees completion; the caller then resets both cores.
     transport.report_success();
-    flash.trigger_reset()
+    true
+}
+
+/// Where the run goes: the directory's plan, compacting the region first
+/// when the free space is there but not in one piece.
+fn place(
+    flash: &mut impl PapkFlash,
+    package: Option<&str>,
+    papk_len: usize,
+) -> Result<crate::packages::Plan, InstallError> {
+    use crate::packages::plan_install;
+    let max_apps = flash.max_installed_apps();
+    let plan = plan_install(package, papk_len, max_apps)?;
+    if !plan.compact_first {
+        return Ok(plan);
+    }
+    // A single-app plan never asks for compaction, and a single-app
+    // firmware carries no compactor.
+    #[cfg(not(has_multi_app))]
+    {
+        let _ = flash;
+        Ok(plan)
+    }
+    #[cfg(has_multi_app)]
+    {
+        crate::packages::compact(flash);
+        let plan = plan_install(package, papk_len, max_apps)?;
+        if plan.compact_first {
+            // Compaction packed everything and it still does not fit in one
+            // piece — only possible with an old copy in the way, which the
+            // caller cannot be asked to remove mid-install.
+            let (largest_free, total_free) = crate::packages::free_space();
+            return Err(InstallError::NoRoom {
+                need: crate::packages::run_sectors(papk_len),
+                largest_free,
+                total_free,
+                installed: crate::packages::installed_count(),
+                max: max_apps as u32,
+            });
+        }
+        Ok(plan)
+    }
+}
+
+impl From<crate::packages::PlanError> for InstallError {
+    fn from(e: crate::packages::PlanError) -> Self {
+        use crate::packages::PlanError;
+        match e {
+            PlanError::TooLarge => InstallError::TooLarge,
+            PlanError::NoPackageName => InstallError::NoPackageName,
+            PlanError::SystemPackage => InstallError::SystemPackage,
+            PlanError::NoRoom {
+                need,
+                largest_free,
+                total_free,
+                installed,
+                max,
+            } => InstallError::NoRoom {
+                need,
+                largest_free,
+                total_free,
+                installed,
+                max,
+            },
+        }
+    }
+}
+
+/// Erase the run at `first_sector` and reboot. What the debug bridge calls
+/// for `CMD_UNINSTALL`.
+pub fn run_uninstall(
+    transport: &mut impl InstallTransport,
+    coordinator: &mut impl CoreCoordinator,
+    flash: &mut impl PapkFlash,
+    first_sector: u32,
+    sectors: u32,
+) {
+    if uninstall(transport, coordinator, flash, first_sector, sectors) {
+        flash.trigger_reset()
+    }
+}
+
+/// Uninstall minus the reset: park, erase the whole run (meta sector and
+/// image, so no stale bytes can ever read as a run), rescan, report.
+pub fn uninstall(
+    transport: &mut impl InstallTransport,
+    coordinator: &mut impl CoreCoordinator,
+    flash: &mut impl PapkFlash,
+    first_sector: u32,
+    sectors: u32,
+) -> bool {
+    coordinator.request_stop_and_park();
+    if !coordinator.wait_for_park() {
+        transport.report_error(InstallError::ParkTimeout);
+        coordinator.release();
+        coordinator.cancel_park_request();
+        return false;
+    }
+    unsafe { flash.erase_run(first_sector, sectors) };
+    crate::packages::rescan_region(flash);
+    transport.report_success();
+    true
 }
 
 /// Stream PAPK bytes from the transport, write flash pages, and verify the CRC.
@@ -280,16 +469,14 @@ mod tests {
     use super::*;
     use alloc::vec::Vec;
 
-    /// `PAGE_BUF` is a process-wide static — deliberately, so a 256-byte
-    /// staging buffer does not sit on the debug bridge's stack. On device the
-    /// single-core install path is its only writer; in a test binary the
-    /// harness runs tests on parallel threads, so they take this lock. The
-    /// alternative, making the buffer a local, would change what runs on the
-    /// device to suit the tests.
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// `PAGE_BUF` and the package directory are process-wide statics —
+    /// deliberately, so a 256-byte staging buffer does not sit on the debug
+    /// bridge's stack. On device the single-core install path is their only
+    /// writer; in a test binary the harness runs tests on parallel threads,
+    /// so they take the directory's lock. The alternative, making the buffer
+    /// a local, would change what runs on the device to suit the tests.
     fn lock() -> std::sync::MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+        crate::packages::test_support::lock()
     }
 
     /// What the orchestrator did, in order. Ordering is the property most of
@@ -300,7 +487,7 @@ mod tests {
         RequestPark,
         Release,
         CancelPark,
-        Erase(usize),
+        EraseRun(u32, u32),
         Write(u32),
         Commit(u32),
         Ready,
@@ -317,6 +504,9 @@ mod tests {
             InstallError::FlashWriteFailed => "flash_write_failed",
             InstallError::CrcMismatch => "crc_mismatch",
             InstallError::Incompat => "incompat",
+            InstallError::NoRoom { .. } => "no_room",
+            InstallError::NoPackageName => "no_package_name",
+            InstallError::SystemPackage => "system_package",
         }
     }
 
@@ -380,7 +570,9 @@ mod tests {
 
     struct MockFlash {
         log: Log,
-        max: usize,
+        /// An erased region of `max` + one meta sector, so the directory's
+        /// scan after a commit finds nothing and the plan is always "sector 0".
+        region: &'static [u8],
         /// Page index whose write fails, if any.
         fail_page: Option<u32>,
         /// Everything handed to `write_page`, concatenated.
@@ -388,11 +580,18 @@ mod tests {
     }
 
     unsafe impl PapkFlash for MockFlash {
-        fn max_data_size(&self) -> usize {
-            self.max
+        fn region_len(&self) -> usize {
+            self.region.len()
         }
-        unsafe fn erase_region(&mut self, papk_len: usize) {
-            self.log.push(Ev::Erase(papk_len))
+        fn max_installed_apps(&self) -> usize {
+            8
+        }
+        fn mapped_base(&self) -> *const u8 {
+            self.region.as_ptr()
+        }
+        fn select_run(&mut self, _first_sector: u32) {}
+        unsafe fn erase_run(&mut self, first_sector: u32, sectors: u32) {
+            self.log.push(Ev::EraseRun(first_sector, sectors))
         }
         unsafe fn write_page(&mut self, page_index: u32, page: &[u8; 256]) -> bool {
             if self.fail_page == Some(page_index) {
@@ -402,9 +601,14 @@ mod tests {
             self.written.extend_from_slice(page);
             true
         }
-        unsafe fn commit_metadata(&mut self, len: u32) {
+        unsafe fn write_meta_header(&mut self, len: u32, _flags: u32, _seq: u32) {
             self.log.push(Ev::Commit(len))
         }
+        unsafe fn write_meta_commit(&mut self) {}
+        unsafe fn commit_metadata(&mut self, len: u32, _flags: u32, _seq: u32) {
+            self.log.push(Ev::Commit(len))
+        }
+        unsafe fn copy_page(&mut self, _src: u32, _dst: u32, _page: u32) {}
         fn trigger_reset(&mut self) -> ! {
             // A real one reboots. Unwinding out of `run_install` is the
             // closest a test can get to "never returns" while still letting
@@ -454,12 +658,15 @@ mod tests {
             log: Log(ptr),
             parks,
         };
+        let region: &'static [u8] =
+            Box::leak(alloc::vec![0xFFu8; max + META_SIZE].into_boxed_slice());
         let mut f = MockFlash {
             log: Log(ptr),
-            max,
+            region,
             fail_page,
             written: Vec::new(),
         };
+        crate::packages::rescan_region(&f);
         let reset = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_install(&mut t, &mut c, &mut f, papk_len);
         }))
@@ -555,7 +762,7 @@ mod tests {
             r.events
         );
         assert!(
-            !r.events.iter().any(|e| matches!(e, Ev::Erase(_))),
+            !r.events.iter().any(|e| matches!(e, Ev::EraseRun(..))),
             "an incompatible PAPK erased the installed app: {:?}",
             r.events
         );
@@ -592,7 +799,7 @@ mod tests {
             ("park_timeout", run(16, Vec::new(), false, 1 << 20, None)),
         ] {
             assert!(
-                !r.events.iter().any(|e| matches!(e, Ev::Erase(_))),
+                !r.events.iter().any(|e| matches!(e, Ev::EraseRun(..))),
                 "{name} erased flash before rejecting"
             );
             assert!(
@@ -612,15 +819,20 @@ mod tests {
         assert_eq!(big.events, vec![Ev::Error("too_large")]);
     }
 
-    /// `max_data_size` is the family's slot ceiling, so exactly-at-the-limit
-    /// must be accepted — an off-by-one here silently caps installable apps.
+    /// `max_data_size` is the region minus one meta sector, so a PAPK that
+    /// fills the last data sector exactly must be accepted and one byte more
+    /// refused — an off-by-one here silently caps installable apps.
     #[test]
     fn a_papk_exactly_at_the_limit_is_accepted() {
-        let n = min_papk_len() + 64;
+        // A two-sector region: meta sector + one data sector of 4096 bytes.
+        let n = META_SIZE;
         let papk = papk_of_len(n);
         let r = run(n as u32, wire(&papk), true, n, None);
-        assert!(r.events.contains(&Ev::Erase(n)));
+        assert!(r.events.contains(&Ev::EraseRun(0, 2)), "{:?}", r.events);
         assert!(r.events.contains(&Ev::Commit(n as u32)));
+
+        let r = run(n as u32 + 1, Vec::new(), true, n, None);
+        assert_eq!(r.events, vec![Ev::Error("too_large")]);
     }
 
     #[test]
@@ -734,7 +946,7 @@ mod tests {
             .rposition(|e| matches!(e, Ev::Write(_)))
             .unwrap();
 
-        assert!(pos(&Ev::Erase(600)) < last_write);
+        assert!(pos(&Ev::EraseRun(0, 2)) < last_write);
         assert!(last_write < pos(&Ev::Commit(600)));
         assert!(pos(&Ev::Commit(600)) < pos(&Ev::Success));
         assert!(
@@ -749,7 +961,7 @@ mod tests {
     fn ready_is_reported_only_after_the_erase() {
         let papk = papk_of_len(min_papk_len() + 100);
         let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
-        let erase = r.events.iter().position(|e| matches!(e, Ev::Erase(_)));
+        let erase = r.events.iter().position(|e| matches!(e, Ev::EraseRun(..)));
         let ready = r.events.iter().position(|e| *e == Ev::Ready);
         assert!(erase.is_some() && ready.is_some());
         assert!(erase < ready);

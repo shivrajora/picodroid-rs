@@ -64,6 +64,15 @@ pub const CMD_SYSMON: u8 = 0x02;
 /// input …` drives Android. The device turns the verb into HAL-level input
 /// (GPIO edge or touch sample), so the whole on-device pipeline runs unchanged.
 pub const CMD_INPUT: u8 = 0x03;
+/// List the package directory: one text row per installed app plus a
+/// `free:` footer (multi-app boards; a single-app board answers
+/// [`STATUS_ERR`]).
+pub const CMD_LIST: u8 = 0x04;
+/// Erase an installed app's run and reboot. Payload: the package name.
+pub const CMD_UNINSTALL: u8 = 0x05;
+
+/// Longest package name a request may carry.
+pub const MAX_PACKAGE_NAME: usize = 128;
 
 // ── CMD_INPUT payload subtypes (first payload byte) ──────────────────────────
 /// KEY: `[keycode: i32 LE][meta: u8]`, meta per the `KEY_META_*` constants.
@@ -90,6 +99,12 @@ pub const STATUS_CRC_FAIL: u8 = 0xFD;
 /// than firmware). Returned in install Phase A *before* any flash erase, so
 /// the PAPK already on the device is unaffected.
 pub const STATUS_INCOMPAT: u8 = 0xFC;
+/// Device refused the install: no contiguous free run large enough (even
+/// after compaction) or the package directory is full. Returned in Phase A
+/// before any erase; the payload is a text line with the numbers.
+pub const STATUS_NO_ROOM: u8 = 0xFB;
+/// `CMD_UNINSTALL` named a package that is not installed.
+pub const STATUS_NOT_FOUND: u8 = 0xFA;
 
 /// Number of PAPK bytes the host inlines immediately after the install header
 /// (Phase A) so the device can run a pre-erase compatibility check against the

@@ -60,6 +60,13 @@ Options:
                             / _OFFENSIVE / _HISTO; on-demand snapshot via
                             'sim-ctrl.sh memstats'. See
                             docs/memory-diagnostics.md
+
+Environment:
+  PICODROID_SIM_APPS        Colon-separated .papk files installed into the
+                            simulated app region beside the app under test
+                            (which is baked at sector 0 as the boot app);
+                            'sim-ctrl.sh apps list|install|uninstall' drives
+                            the directory while the sim runs
   -h, --help                Show this help message
 
 Boards:

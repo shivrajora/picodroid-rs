@@ -21,6 +21,9 @@ mod board_cfg;
 #[path = "../../build_support/boards.rs"]
 mod boards;
 
+#[path = "../../build_support/flash_layout.rs"]
+mod flash_layout;
+
 #[path = "../../build_support/freertos.rs"]
 mod freertos;
 
@@ -70,7 +73,10 @@ fn main() {
 
         if mcu_family == "rp" {
             let freertos_config_dir = format!("mcus/{mcu_family}");
-            boards::place_memory_x(out, &b.cfg.props, &mcu_family, &mcu_name);
+            // The same layout `board_cfg::emit_neutral` writes as constants
+            // below, rendered here as the linker's MEMORY block.
+            let layout = flash_layout::compute(&mcu, Some(&b.cfg.props), &mcu_toml_path);
+            boards::place_memory_x(out, &b.cfg.props, &mcu_family, &mcu_name, &layout);
             freertos::build(
                 out,
                 &mcu,

@@ -381,6 +381,10 @@ pub(crate) fn run_activity(
             MainTask::LvglTick => {
                 with_gfx(|g| g.tick(16));
                 crate::graphics::lvgl::fps_overlay::update();
+                // Control-channel package verbs run here, on the JVM task,
+                // so the directory keeps one writer.
+                #[cfg(feature = "sim")]
+                crate::hal::sim::app_region::service_requests();
                 // Watch only the Java dispatch, not g.tick's render above —
                 // rendering legitimately varies and would be a false positive.
                 let span_start = now_ms();

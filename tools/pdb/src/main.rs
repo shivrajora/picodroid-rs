@@ -3,6 +3,7 @@ mod devices;
 mod input;
 mod install;
 mod logcat;
+mod packages;
 mod protocol;
 mod sysmon;
 
@@ -15,6 +16,8 @@ Commands:
   devices                    List available serial ports
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
+  list                       List the installed apps (multi-app firmware)
+  uninstall <package>        Erase an installed app and reboot (multi-app firmware)
   sysmon                     Show system monitor stats (heap, tasks, CPU%)
   input <cmd> [args]         Inject input (tap/swipe/keyevent) — see 'pdb input'
   logcat --stdin [opts]      Filter picodroid logs on stdin by tag/level
@@ -78,6 +81,20 @@ fn main() {
         "sysmon" => {
             let port_name = require_port(port.as_deref());
             sysmon::run(&port_name);
+        }
+
+        "list" => {
+            let port_name = require_port(port.as_deref());
+            packages::list(&port_name);
+        }
+
+        "uninstall" => {
+            let Some(package) = args.get(idx) else {
+                eprintln!("error: uninstall requires a <package> argument");
+                process::exit(1);
+            };
+            let port_name = require_port(port.as_deref());
+            packages::uninstall(&port_name, package);
         }
 
         "input" => {

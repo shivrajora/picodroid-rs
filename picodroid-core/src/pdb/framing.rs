@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! PDBP response framing, and the adapter that lets the install path speak it.
 
+#[cfg(has_multi_app)]
+use core::fmt::Write as _;
+
 use pdb_protocol::{
-    FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_INCOMPAT, STATUS_OK, STATUS_READY,
-    STATUS_TOO_LARGE,
+    FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_INCOMPAT, STATUS_NO_ROOM, STATUS_OK,
+    STATUS_READY, STATUS_TOO_LARGE,
 };
 
 use super::PdbTransport;
@@ -69,8 +72,74 @@ impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
             InstallError::FlashWriteFailed => (STATUS_ERR, b"flash write failed"),
             InstallError::CrcMismatch => (STATUS_CRC_FAIL, b""),
             InstallError::Incompat => (STATUS_INCOMPAT, b"framework-map-version mismatch"),
+            InstallError::NoPackageName => (STATUS_ERR, b"no package-name in the manifest"),
+            InstallError::SystemPackage => (STATUS_ERR, b"system package"),
+            // A single-app firmware never produces this (its plan always
+            // replaces), and the formatted line is the one place that would
+            // pull `core::fmt` into an image that otherwise logs via defmt.
+            #[cfg(not(has_multi_app))]
+            InstallError::NoRoom { .. } => (STATUS_NO_ROOM, b"no room"),
+            #[cfg(has_multi_app)]
+            InstallError::NoRoom {
+                need,
+                largest_free,
+                total_free,
+                installed,
+                max,
+            } => {
+                // Sectors are 4 KB; the host shows the numbers as they are.
+                let mut text = TextBuf::<96>::new();
+                let _ = write!(
+                    text,
+                    "no room: need {} KB, largest free {} KB, total free {} KB, apps {}/{}",
+                    need * 4,
+                    largest_free * 4,
+                    total_free * 4,
+                    installed,
+                    max
+                );
+                send_response(self.0, STATUS_NO_ROOM, text.as_bytes());
+                return;
+            }
         };
         send_response(self.0, status, msg);
+    }
+}
+
+/// A fixed-capacity `fmt::Write` sink for one response line; a line past
+/// the capacity is cut, never a panic.
+#[cfg_attr(not(has_multi_app), allow(dead_code))]
+pub struct TextBuf<const N: usize> {
+    buf: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> TextBuf<N> {
+    pub const fn new() -> Self {
+        Self {
+            buf: [0; N],
+            len: 0,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+}
+
+impl<const N: usize> Default for TextBuf<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> core::fmt::Write for TextBuf<N> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let room = N - self.len;
+        let n = s.len().min(room);
+        self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+        self.len += n;
+        Ok(())
     }
 }
 
@@ -124,6 +193,17 @@ mod tests {
             (InstallError::CrcMismatch, STATUS_CRC_FAIL),
             (InstallError::Incompat, STATUS_INCOMPAT),
             (InstallError::ParkTimeout, STATUS_ERR),
+            (
+                InstallError::NoRoom {
+                    need: 3,
+                    largest_free: 2,
+                    total_free: 5,
+                    installed: 4,
+                    max: 8,
+                },
+                STATUS_NO_ROOM,
+            ),
+            (InstallError::SystemPackage, STATUS_ERR),
         ] {
             let mut p = MockPipe::new(Vec::new());
             Framed(&mut p).report_error(err);

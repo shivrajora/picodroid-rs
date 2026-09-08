@@ -20,6 +20,7 @@
 //! See `docs/designs/shared-core-extraction.md` §3.D.
 
 use crate::config;
+use crate::flash_layout;
 use crate::jvm_defaults;
 use std::collections::HashMap;
 use std::fs::File;
@@ -146,6 +147,7 @@ pub fn resolve(manifest_dir: &Path) -> Option<ResolvedBoard> {
 /// `has_display`/`has_touch`), so they pass `Pins::Owned` to avoid emitting
 /// the cfg twice.
 pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
+    emit_flash_layout(out, board);
     emit_heap_config(out, board);
     emit_network_cfgs(board);
     emit_json_cfg(board);
@@ -159,6 +161,22 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
         emit_display_dims(out, board);
         emit_touch_cfg(board);
     }
+}
+
+/// Resolve the flash layout for the active board and emit
+/// `OUT_DIR/flash_layout.rs` plus the `has_multi_app` cfg
+/// (`build_support/flash_layout.rs`). Boardless builds get the RP2350
+/// multi-app geometry so host tests cover the package directory.
+pub fn emit_flash_layout(out: &Path, board: &Option<ResolvedBoard>) -> flash_layout::FlashLayout {
+    let layout = match board {
+        Some(b) => {
+            let (path, mcu) = b.mcu();
+            flash_layout::compute(&mcu, Some(&b.cfg.props), &path)
+        }
+        None => flash_layout::boardless(),
+    };
+    flash_layout::emit(out, &layout);
+    layout
 }
 
 /// Whether the calling crate owns the pin-bearing display/touch artifacts.

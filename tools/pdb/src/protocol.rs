@@ -91,6 +91,8 @@ pub fn status_str(s: u8) -> &'static str {
         STATUS_TOO_LARGE => "TOO_LARGE",
         STATUS_CRC_FAIL => "CRC_FAIL",
         STATUS_INCOMPAT => "INCOMPAT",
+        STATUS_NO_ROOM => "NO_ROOM",
+        STATUS_NOT_FOUND => "NOT_FOUND",
         _ => "UNKNOWN",
     }
 }

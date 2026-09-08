@@ -229,14 +229,18 @@ tested against mocks. You supply four things and hand them to
 - **`CoreCoordinator`** — stop the JVM and park the core that executes from
   the flash being written: `request_stop_and_park`, `wait_for_park`,
   `release`, `cancel_park_request`.
-- **`PapkSlotFlash`** — three constants (where the boot-meta sector sits,
-  the largest image, the sector size), `erase_range`, `program_range` and
-  `reset`. `PapkSlot<YourFlash>` turns that into the `PapkFlash` the
-  installer wants; you never write the erase rounding or page arithmetic.
-  `InstallTransport` is satisfied by the bridge's own framing.
+- **`PapkRegionFlash`** — four constants (where the app region sits and
+  how big it is, the sector size, the directory capacity), its mapped
+  address, `erase_range`, `program_range` and `reset`.
+  `PapkRegion<YourFlash>` turns that into the `PapkFlash` the installer and
+  the package directory want; you never write the run arithmetic, the
+  boot-meta pages or a relocation. `InstallTransport` is satisfied by the
+  bridge's own framing.
 
-Read the installed app at boot with `install::read_mapped(slot_base, max)`
-if your flash is memory-mapped. Wire layouts (frames, sysmon, input
+At boot, before the scheduler, `packages::rescan(region_base, len)` walks
+the region's runs, `packages::cleanup(&mut region)` erases what a power
+loss left unfinished, and `packages::boot_image()` is what you hand to
+`run_app` (`None` means wait for an install). Wire layouts (frames, sysmon, input
 events, keycode names) are types in the `pdb-protocol` crate, and the USB
 vendor and product ID and strings are `pdb_protocol::usb`; core's
 `pdb::usb_cdc` holds a reference CDC-ACM descriptor set built from them.
@@ -540,7 +544,12 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
 | `has_json` | bool | no | If `true`, ships `picodroid.json` (`JSONObject`/`JSONArray`/`JSONException` and the native node pool behind them). Off by default: a board that leaves it off drops those classes from its embedded SDK and compiles the parser out, and apps built for it fail the API contract if they reference them. |
 | `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. Classes owned by a feature switch (`has_json`) are added automatically; listing one by hand while the switch is on fails the build. |
-| `linker_script` | string | no | Path to a custom `memory.x` (defaults to `mcus/<family>/<mcu>.x`). |
+| `max_installed_apps` | int | no | Package-directory capacity, 1..=64 (MCU default 1 = a single-app board; the RP2350 boards set 8). Above 1 the build emits `has_multi_app` and the debug bridge gains `list`/`uninstall`. |
+| `app_region_kb` | int | no | Size of the app region (`PAPK_FLASH`), a multiple of 4 (MCU default 1024; the RP2350 boards set 1536). |
+| `fs_kb` | int | no | Size of the LittleFS region (MCU default 128 on rp2040, 256 on rp2350; the RP2350 boards set 512). |
+| `linker_script` | string | no | Path to a linker script used verbatim, `MEMORY` block and all (by default the `MEMORY` block is generated from the flash layout above and the MCU's `mcus/<family>/<mcu>.x` supplies only its `SECTIONS`). |
+
+The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys.
 
 ### `[display]` — display controller (ST7789 over SPI)
 
@@ -650,7 +659,7 @@ files for patterns and conventions:
 | `src/boot_tasks.rs` | Task topology and the JVM supervisor loop |
 | `src/task_affinity.rs` | Dual-core placement and the scan that enforces it |
 | `src/pdb/platform.rs`, `src/pdb/coordinator.rs` | `PdbTransport`, `SysmonSource`, `CoreCoordinator` |
-| `src/packagemanager/mod.rs` | `PapkSlotFlash` over two flash primitives |
+| `src/packagemanager/mod.rs` | `PapkRegionFlash` over two flash primitives and the XIP base |
 | `src/fs/storage.rs` | `FsBackingStore` over a linker-carved flash region |
 | `src/boot_budget.rs` | The boot-budget model the simulator charges |
 | `src/hal/rp/gpio.rs` | Direct register access, the interrupt, `GpioEventRing` in use |

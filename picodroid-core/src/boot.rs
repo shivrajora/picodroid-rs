@@ -284,6 +284,9 @@ pub fn run_app(apk_data: &[u8]) {
         }
     };
     let apk_class_count = apk_for_count.classes().map(|it| it.count()).unwrap_or(0);
+    // Which package this is, for the directory (and later the storage
+    // sandbox); copied out because the image may be replaced by an install.
+    crate::packages::set_running(apk_for_count.package_name());
     let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASSES.len() + apk_class_count);
     let heap = shared_heap();
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();

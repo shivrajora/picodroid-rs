@@ -31,3 +31,14 @@ freertos_vector_aliases = "SVCall=isr_svcall;PendSV=isr_pendsv;SysTick=isr_systi
 # Section to place .init_array in (RP-specific quirk: FLASH keeps BSS clean
 # for UF2 converters). Leave unset on platforms that don't need this.
 init_array_segment = "FLASH"
+
+# Flash layout (build_support/flash_layout.rs): 4 MB, top-down from the end —
+# the app region, then LittleFS, the program image in front of them. These
+# defaults are the single-app geometry; the rp2350 boards override fs_kb,
+# app_region_kb and max_installed_apps for multi-app
+# (docs/designs/multi-app-2026-09.md D2).
+flash_origin = 0x10000000
+ram_origin = 0x20000000
+fs_kb = 256
+app_region_kb = 1024
+max_installed_apps = 1

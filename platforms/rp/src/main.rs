@@ -79,6 +79,12 @@ mod hal_rp_spi_xfer_tests;
 #[cfg(test)]
 #[path = "hal/rp/cyw43/config_guard.rs"]
 mod hal_rp_cyw43_config_guard_tests;
+// The flash-layout generator (build_support): pure arithmetic over the MCU
+// and board tomls plus the rendered MEMORY block, pinned against the linker
+// scripts it replaced.
+#[cfg(test)]
+#[path = "../../../build_support/flash_layout.rs"]
+mod build_support_flash_layout_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.
 
@@ -104,8 +110,18 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 fn main() -> ! {
     hal::boot::clock_init();
 
-    let boot_apk: &'static [u8] =
-        unsafe { hal::flash::read_flash_papk() }.expect("PAPK flash region invalid");
+    // The package directory: walk the app region's runs, erase what a power
+    // loss left unfinished, then pick the image to boot
+    // (docs/designs/multi-app-2026-09.md D3, D7). Pre-scheduler, so the
+    // erases need no parking. An empty region is not fatal: the JVM task
+    // waits for a `pdb install` instead.
+    let mut region = packagemanager::RpPapkFlash::new();
+    picodroid_core::packages::rescan_region(&region);
+    picodroid_core::packages::cleanup(&mut region);
+    let boot_apk = picodroid_core::packages::boot_image();
+    if boot_apk.is_none() {
+        defmt::warn!("no app installed: waiting for pdb install");
+    }
 
     // Mount LittleFS on the FS_FLASH region.  Runs pre-scheduler (single-core),
     // formats on first boot or after corruption.  A failure here is non-fatal

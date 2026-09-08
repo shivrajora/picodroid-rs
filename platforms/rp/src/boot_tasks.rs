@@ -39,7 +39,7 @@ use crate::task_priority;
 /// invariant and its guard):
 ///   - flashpark on core 1, cyw43 on core 1 (network boards)
 ///   - pdb, fs, sensor, jvm-bg workers and the JVM task on core 0
-pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
+pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
     // Installed before the first task exists: `task_affinity::spawn` runs
     // every create+pin inside this section (a no-op until the scheduler
     // starts, load-bearing for every runtime `Thread.start` after it). The
@@ -148,7 +148,11 @@ pub fn start_tasks(boot_apk: &'static [u8]) -> ! {
             crate::pdb::pending::set_jvm_task(Task::current().unwrap());
             loop {
                 crate::pdb::pending::clear_stop();
-                crate::app::run_jvm_with(boot_apk);
+                // No app installed: skip straight to waiting for the install
+                // that will put one there (and reset the chip).
+                if let Some(apk) = boot_apk {
+                    crate::app::run_jvm_with(apk);
+                }
 
                 // Wake any child threads sleeping in vTaskDelay so they see STOP_JVM,
                 // and end every Thread.sleep / join / Object.wait park the same way.

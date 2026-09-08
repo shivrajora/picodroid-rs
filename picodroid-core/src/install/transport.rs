@@ -6,10 +6,11 @@ pub enum ReadError {
 }
 
 /// Errors reported by install orchestration to the transport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallError {
     /// PAPK size is zero.
     EmptyPayload,
-    /// PAPK size exceeds flash capacity.
+    /// PAPK size exceeds what an empty app region could hold.
     TooLarge,
     /// Core 0 did not park within the timeout window.
     ParkTimeout,
@@ -23,6 +24,21 @@ pub enum InstallError {
     /// Reported in install Phase A *before* any flash erase, so the
     /// existing PAPK on-device is unaffected.
     Incompat,
+    /// No contiguous free run of `need` sectors, even after compaction, or
+    /// the package directory is full. Reported before any erase.
+    NoRoom {
+        /// Sectors the run would take (meta sector plus the image).
+        need: u32,
+        largest_free: u32,
+        total_free: u32,
+        installed: u32,
+        max: u32,
+    },
+    /// The peeked manifest carries no `package-name`; a multi-app board
+    /// cannot place an app it cannot identify.
+    NoPackageName,
+    /// The package names a system app, which lives in firmware.
+    SystemPackage,
 }
 
 /// A data source and status reporter for PAPK install operations.
