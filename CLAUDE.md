@@ -61,17 +61,20 @@ Do not consider a code change complete until the sim smoke test and
 
 WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root. `hil-run.sh` reads that file itself for the `net` rows of `hil-tests.conf` and SKIPs them when it is missing.
 
-## Shared dev board: the device lock
+## Shared bench: one lease per board
 
-One board, one probe, several parallel sessions. `flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil` and `hil-run.sh` take a machine-wide lease through `scripts/device-lock.sh` (`lib.sh::require_device_lock`). If the board is free the script acquires it for **this session** (owner `claude:<session id>`, alive as long as the session is) and keeps it until you release, so a flash followed by pdb calls needs no ceremony. If another session holds it the script exits 75 with the holder and a hint. Waiters queue FIFO.
+Several boards on the bench, each with its own debug probe, and several parallel sessions. `flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil` and `hil-run.sh` take a lease on **one** board through `scripts/device-lock.sh` (`lib.sh::require_device_lock`) before touching it. Say which board with `--board NAME` (or `--slot NAME`); with neither, the script uses the board this session already holds, or the only one on the bench, or stops and lists the slots. If the board is free the script acquires it for **this session** (owner `claude:<session id>`, alive as long as the session is) and keeps it until you release, so a flash followed by pdb calls needs no ceremony. If another session holds that board the script exits 75 with the holder and a hint; the other boards stay free. Waiters queue FIFO.
+
+The bench is described by `~/.config/picodroid/fleet.conf` (format in `scripts/fleet.conf.example`; `./scripts/fleet.sh discover` prints what is plugged in, `fleet.sh check` validates the file). Without that file every script assumes a single board, as before.
 
 ```bash
-./scripts/device-lock.sh status
-./scripts/device-lock.sh acquire --wait   # queue; run it with run_in_background and you are notified on acquisition
-./scripts/device-lock.sh release          # when you are done with the board; also kills your lingering probe-rs
+./scripts/device-lock.sh status                     # every slot: holder, since when, queue
+./scripts/device-lock.sh acquire --board X --wait   # queue; run it with run_in_background and you are notified on acquisition
+./scripts/device-lock.sh release                    # everything you hold; also kills your lingering probe-rs
+./scripts/fleet.sh discover                         # probes and boards on USB, with their positions
 ```
 
-Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `release` does the right thing. Overnight soaks launched with `setsid nohup` need a lease that outlives the session: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin` before the flash, `release` at teardown. The 4 AM `hil-run.sh` waits up to an hour, then records a SKIP. `PICODROID_DEVICE_LOCK=0` bypasses the check (emergencies only).
+Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `release` kills only the probe-rs on your board's probe. Overnight soaks launched with `setsid nohup` need a lease that outlives the session: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin` before the flash, `release` at teardown. The 4 AM `hil-fleet.sh` runs every board at once; each runner waits up to an hour for its board, then records a SKIP. `PICODROID_DEVICE_LOCK=0` bypasses the check (emergencies only).
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >
