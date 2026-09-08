@@ -70,6 +70,9 @@ resolve_board "$BOARD"
 # Before the build, so a busy board fails in a second rather than after
 # minutes of cargo. The lease stays with this session until released.
 require_device_lock --board "$BOARD" --app "$APP"
+# probe-rs must never prompt for a probe (a second one on the hub would
+# otherwise turn the flash into "Failed to parse probe index").
+pin_debug_probe >/dev/null
 build_firmware
 
 # Step 3: Flash the firmware (build is already up-to-date, so this just flashes).

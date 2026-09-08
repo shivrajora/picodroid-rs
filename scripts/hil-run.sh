@@ -142,6 +142,7 @@ wait_for_probe() {
   while [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
     if probe-rs list 2>/dev/null | grep -q "CMSIS-DAP"; then
       hil_log "  Probe detected after ${elapsed}s"
+      pin_debug_probe >/dev/null
       return
     fi
     sleep "$PROBE_POLL_INTERVAL"
@@ -207,7 +208,7 @@ run_pdb_test() {
   # After an RTT test, probe-rs may leave the MCU halted. Reset the device
   # so it boots normally and the USB CDC port enumerates.
   hil_log "  Resetting device..."
-  probe-rs reset --chip "$PROBE_CHIP" --protocol swd 2>/dev/null || true
+  probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
   sleep 3  # wait for USB CDC enumeration
 
   # Early SKIP for install-reject-future when not in shrink mode — do this
@@ -652,6 +653,18 @@ if [[ $lock_rc -ne 0 ]]; then
 fi
 hil_log "Device lock acquired."
 
+# Pin probe-rs to the CMSIS-DAP probe before anything talks to it. With a
+# second probe attached and no pin, probe-rs prompts on stdin and every row
+# fails; with the pin it just works. Logged so the nightly email shows which
+# probe the run used (an operator override via PROBE_RS_PROBE is kept as is).
+if [[ -n "${PROBE_RS_PROBE:-}" ]]; then
+  hil_log "Probe: PROBE_RS_PROBE=$PROBE_RS_PROBE (from environment)"
+elif probe_pin="$(pin_debug_probe)" && [[ -n "$probe_pin" ]]; then
+  hil_log "Probe: pinned PROBE_RS_PROBE=$probe_pin"
+else
+  hil_log "Probe: no CMSIS-DAP probe enumerated yet (power cycle + wait will pin it)"
+fi
+
 # Pull latest code.
 hil_log "Pulling latest code..."
 git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do hil_log "  git: $line"; done || true
@@ -784,9 +797,11 @@ run_test() {
   local effective_timeout=$((timeout + flash_budget))
   local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
   hil_log "  Flashing and capturing RTT..."
+  # stdin from /dev/null: probe-rs never gets to prompt (see pin_debug_probe),
+  # and the config-file loop in main keeps its fd 3 to itself either way.
   setsid timeout "$effective_timeout" \
     probe-rs run --chip "$PROBE_CHIP" --protocol swd "$elf" \
-    > "$log_file" 2>&1 &
+    < /dev/null > "$log_file" 2>&1 &
   local run_pid=$!
 
   local result=1  # assume failure
@@ -860,7 +875,11 @@ for MODE in "${MODES[@]}"; do
   hil_log "========================================="
 
   # The 5th column is the pdb command for pdb rows and the board for net rows.
-  while IFS='|' read -r app category timeout patterns extra; do
+  # The config is read on fd 3, not stdin: a child that reads stdin (an
+  # interactive probe-rs prompt, a pdb call) must never be able to swallow
+  # the rest of the config file -- that is how the 2026-09-05..07 nightlies
+  # ran three rows, one of them an app named "r".
+  while IFS='|' read -r -u 3 app category timeout patterns extra; do
     pdb_cmd="$extra"
     # Skip comments and blank lines.
     [[ "$app" =~ ^[[:space:]]*# ]] && continue
@@ -952,7 +971,7 @@ for MODE in "${MODES[@]}"; do
     fi
 
     run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
-  done < "$HIL_CONF"
+  done 3< "$HIL_CONF"
 done
 
 # Give the board back before the summary and email (the EXIT trap is the

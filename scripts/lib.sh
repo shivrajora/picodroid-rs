@@ -154,6 +154,30 @@ detect_usb_hub() {
   sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
 }
 
+# Pins probe-rs to the bench's CMSIS-DAP debug probe. With a second probe
+# enumerated (an STLink left on the hub, 2026-09-05..07 nightlies) probe-rs
+# prompts "Selection:" on stdin and every run/reset/flash dies with "Failed
+# to parse probe index" -- and inside hil-run's config loop the prompt eats
+# the config file, so the remaining rows come back as garbage app names.
+# Exports PROBE_RS_PROBE as VID:PID:SERIAL (the form --probe accepts; every
+# probe-rs subcommand reads the variable). A value already in the
+# environment wins, so an operator can point at another probe. No-op when
+# no CMSIS-DAP probe is enumerated (the caller's own wait/skip logic decides
+# what that means). Prints the selector it pinned, nothing otherwise.
+pin_debug_probe() {
+  [[ -n "${PROBE_RS_PROBE:-}" ]] && return 0
+  command -v probe-rs >/dev/null 2>&1 || return 0
+  local selector
+  # `probe-rs list` prints "... -- 2e8a:000c-0:E663...  (CMSIS-DAP)"; the
+  # "-0" after the PID is the USB interface, which --probe does not take.
+  selector=$(probe-rs list 2>/dev/null \
+    | awk '/CMSIS-DAP/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}/) { print $i; exit } }' \
+    | sed -E 's/^([0-9a-fA-F]{4}:[0-9a-fA-F]{4})(-[0-9]+)?:/\1:/')
+  [[ -n "$selector" ]] || return 0
+  export PROBE_RS_PROBE="$selector"
+  echo "$selector"
+}
+
 # Sets BOARD_FEATURE, TARGET, MCU, FLASH_MAX, RAM_MAX, PLATFORM, PACKAGE, MANIFEST_DIR,
 # TARGET_DIR, EXTRA_BUILD_ARGS, PROBE_CHIP and SIZE_TOOL by reading board.toml and mcu.toml.
 # Boards are searched across all platforms/ subdirectories.
