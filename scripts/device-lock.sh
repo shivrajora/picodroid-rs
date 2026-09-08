@@ -279,6 +279,19 @@ resolve_slot() {
   select_state_dir "$s"
 }
 
+# A session running scripts from before the fleet (a worktree on an older
+# branch) takes the single legacy lease at $LOCK_DIR/holder and power-cycles
+# the whole hub, so while it is alive no slot is safe to touch. Prints its
+# holder line; rc 1 when there is none. Only consulted in fleet mode.
+legacy_holder_line() {
+  [[ -n "$SLOT" ]] || return 1
+  local saved="$HOLDER" rc=1
+  HOLDER="$LOCK_DIR/holder"
+  if holder_valid; then rc=0; holder_line; fi
+  HOLDER="$saved"
+  return $rc
+}
+
 # The probe serial of the current slot, for scoping probe-rs kills.
 slot_serial() {
   [[ -n "$SLOT" ]] || return 0
@@ -338,7 +351,10 @@ print_status() {
 
 busy_report() {
   {
-    if read_holder; then
+    local legacy
+    if legacy=$(legacy_holder_line); then
+      echo "$(tag): busy -- the whole bench is $legacy (a session without the fleet code)"
+    elif read_holder; then
       echo "$(tag): busy -- $(holder_line)"
     else
       echo "$(tag): free, but sessions are queued for it (they go first)"
@@ -378,8 +394,17 @@ cmd_status() {
     shift
   done
   if fleet_enabled && [[ -z "$GLOBAL_SLOT_OPT$GLOBAL_BOARD_OPT" ]]; then
-    # Every slot; --quiet is 0 only when all are free.
-    local s rc=0
+    # Every slot; --quiet is 0 only when all are free. A legacy lease (a
+    # session without the fleet code) blocks the whole bench.
+    local s rc=0 legacy
+    select_state_dir "$(fleet_slots | head -1)"
+    if legacy=$(legacy_holder_line); then
+      rc=1
+      case "$mode" in
+        short) echo "bench: $legacy (legacy single-board lease)" ;;
+        full)  echo "device lock (legacy single-board lease, blocks every slot): $legacy" ;;
+      esac
+    fi
     for s in $(fleet_slots); do
       select_state_dir "$s"
       status_one "$mode" || rc=1
@@ -435,7 +460,7 @@ cmd_acquire() {
   fi
 
   if [[ -z "$wait_s" ]]; then
-    if holder_valid || [[ -n "$(queue_list)" ]]; then
+    if holder_valid || [[ -n "$(queue_list)" ]] || legacy_holder_line >/dev/null; then
       busy_report
       meta_unlock
       exit "$EX_BUSY"
@@ -466,7 +491,8 @@ cmd_acquire() {
     meta_lock
     touch "$ticket"
     sweep
-    if ! holder_valid && [[ "$(queue_list | head -1)" == "$(basename "$ticket")" ]]; then
+    if ! holder_valid && ! legacy_holder_line >/dev/null \
+       && [[ "$(queue_list | head -1)" == "$(basename "$ticket")" ]]; then
       take_lease "$note" 0
       rm -f "$ticket"
       meta_unlock
@@ -477,7 +503,7 @@ cmd_acquire() {
     now=$(date +%s)
     if (( now - last_report >= PROGRESS_EVERY_S )) || (( first )); then
       pos=$(queue_list | grep -n -x "$(basename "$ticket")" | cut -d: -f1 || true)
-      echo "$(tag): queued (position ${pos:-?}) -- $(holder_line)"
+      echo "$(tag): queued (position ${pos:-?}) -- $(legacy_holder_line || holder_line)"
       last_report=$now; first=0
     fi
     meta_unlock

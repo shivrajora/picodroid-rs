@@ -303,6 +303,18 @@ check "break needs a slot with two configured" rc_is 1 fdl break --force
 check "break --slot a evicts A" rc_is 0 fdl break --slot a --force
 check "all free after the eviction" rc_is 0 fdl status --quiet
 check "release with nothing held is fine" rc_is 0 flock_as A release
+# A legacy single-board lease (a session on a branch without the fleet
+# code) blocks every slot until it goes away.
+lock_as C acquire --note old-branch >/dev/null
+check "legacy lease refuses a slot acquire with 75" rc_is 75 flock_as A acquire --slot a
+err="$(flock_as A acquire --slot a 2>&1 >/dev/null || true)"
+check "  ... and says the whole bench is held" grep -q 'whole bench is held by C' <<<"$err"
+check "  ... status --quiet is 1" rc_is 1 fdl status --quiet
+check "  ... status names the legacy lease" grep -q 'legacy single-board lease' <<<"$(fdl status)"
+check "  ... a waiter times out on it" rc_is 75 flock_as A acquire --slot a --wait 1
+lock_as C release >/dev/null
+check "slot acquire works once the legacy lease is gone" rc_is 0 flock_as A acquire --slot a
+flock_as A release >/dev/null
 
 # 19. scoped probe kill: release only kills the probe-rs on this slot's
 # probe. Safe beside a real probe-rs: the fakes carry serials no real
