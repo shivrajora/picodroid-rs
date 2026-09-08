@@ -202,18 +202,27 @@ kill_probe_rs() { kill_probe_rs_scoped "${PICODROID_PROBE_SERIAL:-}" >/dev/null 
 # tool never scans the host and lands on a neighbour. A board that is not
 # enumerated prints the tool's own "no picodroid devices found" line, which
 # the callers already turn into a SKIP.
+PDB_ENUM_WAIT=20
 hil_pdb_run() {
   local t="$1"; shift
   local -a port=()
   if [[ -n "${PICODROID_BOARD_USB_PATH:-}" ]]; then
-    local p
-    if ! p=$(usb_path_tty "$PICODROID_BOARD_USB_PATH"); then
-      echo "error: no picodroid devices found (slot $SLOT: usb $PICODROID_BOARD_USB_PATH is not enumerated)"
-      return 1
-    fi
+    # The board re-enumerates a few seconds after a reset or a power cycle
+    # (7 s seen on the bench); give it PDB_ENUM_WAIT s before calling it
+    # absent, and want the /dev node as well as the sysfs entry.
+    local p="" waited=0
+    until p=$(usb_path_tty "$PICODROID_BOARD_USB_PATH") && [[ -e "$p" ]]; do
+      if (( waited >= PDB_ENUM_WAIT )); then
+        echo "error: no picodroid devices found (slot $SLOT: usb $PICODROID_BOARD_USB_PATH not enumerated after ${PDB_ENUM_WAIT}s)"
+        return 1
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
     port=(-s "$p")
   fi
-  hil_pdb_run "$t" ${port[@]+"${port[@]}"} "$@"
+  # -k: a pdb blocked in a kernel call on a vanishing tty ignores TERM.
+  timeout -k 5 "$t" "$PDB_BIN" ${port[@]+"${port[@]}"} "$@"
 }
 
 # row_matches_board LIST: a term/loop/hw row's board filter (comma list of
