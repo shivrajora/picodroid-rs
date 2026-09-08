@@ -316,14 +316,14 @@ Alternatives considered:
 
 | Session | Title | Status |
 |---------|-------|--------|
-| S0 | Package identity in the manifest | NOT STARTED |
-| S1 | Multi-slot flash layout and package index (RP2350) | NOT STARTED |
-| S2 | PackageManager and PackageInstaller | NOT STARTED |
+| S0 | Package identity in the manifest | DONE 2026-09-07 as multi-app M0 (A2) |
+| S1 | Multi-slot flash layout and package index (RP2350) | IN PROGRESS as multi-app M1 — dynamic region, no index (A2) |
+| S2 | PackageManager and PackageInstaller | PLANNED: queries in multi-app M2, uninstall in M3; the streaming `Session` waits for S4 (A2) |
 | S3 | CRC + Ed25519 signatures, streaming verify | NOT STARTED |
 | S4 | Network `InstallTransport` over HTTP `Range` | NOT STARTED |
 | S5 | TLS 1.3 client (position 2) | NOT STARTED |
-| S6 | Launcher and store as firmware system apps | NOT STARTED |
-| S7 | Cross-package launch and task stack | NOT STARTED |
+| S6 | Launcher and store as firmware system apps | PLANNED as multi-app M2 — launcher + settings, no store yet (A2) |
+| S7 | Cross-package launch and task stack | PLANNED as multi-app M2 — exit returns home, no task stack (A2) |
 | S8 | Store protocol (protobuf) and reference server | NOT STARTED |
 | S9 | Permissions | NOT STARTED |
 
@@ -389,3 +389,38 @@ Corrections to the body:
   measured image plus TLS plus the system apps, with 3 × 384 KB as the
   starting assumption**, and the firmware region shrinks accordingly in
   `rp2350.x`.
+
+### A2 (2026-09-07) — the multi-app half executes under `multi-app-2026-09.md`
+
+S0, S1, the query half of S2, S6, S7 and the deferred per-package storage
+are being built under `docs/designs/multi-app-2026-09.md`, whose design
+diverges from the body here in these ways:
+
+- **No fixed slots and no `/pm/index`.** The app region is an allocator of
+  4 KB sectors: each installed app is a contiguous self-describing run
+  (meta sector with `len`, `flags`, `seq` and a commit page, then the PAPK)
+  placed first-fit; the directory is rebuilt by scanning the region at boot
+  and after every install; compaction slides runs together when an install
+  needs a contiguous run that only exists in pieces. A1's "3 × 384 KB" is
+  void: the region is 1536 KB on the four RP2350 boards (`FLASH` 2048K,
+  `FS_FLASH` 512K, `PAPK_FLASH` 1536K), and no app has a size cap below it.
+- **S0 keys are `package-name` (now the manifest's `package=`), `label`,
+  `icon`, `version-code`.** `uses-feature`, `uses-permission` and
+  `min-framework-map-version` are not added; S9 adds the permission key when
+  it needs it, and the compat rule already covers the map version.
+- **System apps are the launcher and a settings app, not a store**, and
+  they live in `system-apps/` as `.rodata` images inside `FLASH` — no
+  `SYS_PAPK` region. The store client (S8) becomes a third system app later.
+- **No package task stack.** The last `finish()` of an app returns to the
+  launcher; a launch tears the caller down (`run_app` re-entry). S7's
+  `ActivityNotFoundException` stays.
+- **`pdb install` takes no `--slot`/`--package`**; the device chooses the
+  placement and refuses with `STATUS_NO_ROOM` (0xFB). `pdb list` and
+  `pdb uninstall` are new; the greeting grows an additive apps/free tail
+  and the protocol version is `picodroid/2.2`.
+- **Per-package storage** lands in multi-app M3 as a chroot under
+  `/data/<package>` in the one LittleFS, with a system reserve and a per-app
+  cap, wiped on uninstall.
+
+S3, S4, S5, S8 and S9 are unchanged and still start from this document,
+on top of the multi-app runtime.
