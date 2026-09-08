@@ -34,6 +34,8 @@ Every board on the bench is a shared resource, and every script that touches one
 ./scripts/device-lock.sh break --slot X --force     # evict a holder who is really gone
 ```
 
+`busy -- the whole bench is held by ... (a session without the fleet code)` means a checkout on a branch from before the fleet holds the old single machine-wide lease; it power-cycles the whole hub, so every slot waits for it. Merge `main` into that branch, or wait for it to finish.
+
 A lease dies with the process that took it (your shell, or your Claude Code session), so a closed session never wedges a board. Long unattended runs that must survive their launcher take a pinned lease instead: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin`, and release it at teardown.
 
 If probe-rs itself reports `Failed to open probe` while the lock says the board is free, a stale `probe-rs` is still holding the USB interface: `./scripts/device-lock.sh release` kills it (never `pkill -f probe-rs`, which also kills any shell whose command line mentions it).
