@@ -23,12 +23,16 @@ source "$SCRIPT_DIR/lib.sh"
 
 HIL_CONF="$SCRIPT_DIR/hil-tests.conf"
 HIL_DIR="$REPO_ROOT/build/hil"
-HIL_LOG_DIR="$HIL_DIR/logs"
-HIL_RESULTS_DIR="$HIL_DIR/results"
 # How long the nightly queues for the board before recording a SKIP.
 HIL_LOCK_WAIT="${HIL_LOCK_WAIT:-3600}"
+# Where PAPKs are built. hil-fleet.sh gives every slot its own directory so
+# parallel runners never share a package file (and its own CARGO_TARGET_DIR,
+# which resolve_board turns into TARGET_DIR, for the firmware).
+HIL_APK_DIR="${HIL_APK_DIR:-$REPO_ROOT/build/apks}"
 
-BOARD="testbench_rp2350"
+BOARD=""
+SLOT=""
+PULL=true
 
 INCLUDE_HW=false
 SKIP_PDB=false
@@ -47,6 +51,8 @@ while [[ $# -gt 0 ]]; do
     --no-email)   SEND_EMAIL=false; shift ;;
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
     --board)      BOARD="$2"; shift 2 ;;
+    --slot)       SLOT="$2"; shift 2 ;;
+    --no-pull)    PULL=false; shift ;;
     --mode)
       case "$2" in
         no-shrink) MODES=("no-shrink") ;;
@@ -63,7 +69,11 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --app <name>    Run only the specified test
   --board <name>  Board to flash (default: testbench_rp2350; e.g. testbench_rp2040
-                  when that board is on the probe)
+                  when that board is on the probe). With a fleet config the
+                  board picks the bench slot that runs it.
+  --slot <name>   Bench slot to use (fleet config, scripts/fleet-lib.sh); the
+                  board defaults to the slot's first listed board
+  --no-pull       Skip the git pull (hil-fleet.sh pulls once for every slot)
   --include-hw    Also run hardware-peripheral tests (adcdemo, i2cdemo, etc.)
   --skip-pdb      Skip all PDB (Picodroid Debug Bridge) tests
   --mode <no-shrink|shrink|both>
@@ -84,6 +94,39 @@ EOF
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Board and slot. With a fleet config (scripts/fleet-lib.sh) --slot names the
+# bench slot and defaults the board to its first listed one, --board picks
+# the slot that runs that board, and neither means the historical default.
+# Without a fleet the board is simply the one on the probe. Results and logs
+# are kept per slot, so hil-email's new-vs-known triage compares like with
+# like and two runners never share a file.
+if fleet_enabled; then
+  if [[ -n "$SLOT" ]]; then
+    if ! fleet_slot_row "$SLOT" >/dev/null; then
+      echo "ERROR: unknown slot '$SLOT'" >&2; fleet_list_slots >&2; exit 1
+    fi
+    if [[ -z "$BOARD" ]]; then
+      BOARD="$(fleet_slot_primary "$SLOT")"
+    elif ! fleet_slot_has_board "$SLOT" "$BOARD"; then
+      echo "ERROR: slot $SLOT does not run board $BOARD" >&2; fleet_list_slots >&2; exit 1
+    fi
+  else
+    [[ -n "$BOARD" ]] || BOARD="testbench_rp2350"
+    if ! SLOT="$(fleet_slot_for_board "$BOARD")"; then
+      echo "ERROR: no slot in the fleet runs board $BOARD" >&2; fleet_list_slots >&2; exit 1
+    fi
+  fi
+else
+  if [[ -n "$SLOT" ]]; then
+    echo "ERROR: --slot needs a fleet config (${PICODROID_FLEET_CONF-$FLEET_CONF_DEFAULT})" >&2; exit 1
+  fi
+  [[ -n "$BOARD" ]] || BOARD="testbench_rp2350"
+fi
+HIL_LOG_DIR="$HIL_DIR/logs${SLOT:+/$SLOT}"
+HIL_RESULTS_DIR="$HIL_DIR/results${SLOT:+/$SLOT}"
+LOCK_SLOT_ARGS=()
+[[ -n "$SLOT" ]] && LOCK_SLOT_ARGS=(--slot "$SLOT")
 
 resolve_board "$BOARD"
 
@@ -120,17 +163,13 @@ hil_log() { timestamp_log "$@"; }
 PROBE_POLL_INTERVAL=1
 PROBE_POLL_TIMEOUT=15
 
+# Fleet: only this slot's probe and board ports (lib.sh::power_cycle_bench),
+# so the other boards keep running. Legacy: every port of the probe's hub.
 power_cycle_all() {
-  local hub
-  hub=$(detect_usb_hub)
-  if [[ -z "$hub" ]]; then
-    hil_log "WARNING: No USB hub with CMSIS-DAP probe detected, skipping power cycle"
-    return
-  fi
-  hil_log "Power-cycling all ports on hub $hub..."
-  if ! sudo uhubctl -l "$hub" -a cycle 2>&1 | \
+  hil_log "Power-cycling${SLOT:+ slot $SLOT}..."
+  if ! power_cycle_bench 2>&1 | \
        while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
-    hil_log "  WARNING: uhubctl returned non-zero exit status"
+    hil_log "  WARNING: power cycle failed, continuing"
   fi
   sleep 5
   wait_for_probe
@@ -140,7 +179,7 @@ power_cycle_all() {
 wait_for_probe() {
   local elapsed=0
   while [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
-    if probe-rs list 2>/dev/null | grep -q "CMSIS-DAP"; then
+    if probe-rs list 2>/dev/null | grep -q "${PICODROID_PROBE_SERIAL:-CMSIS-DAP}"; then
       hil_log "  Probe detected after ${elapsed}s"
       pin_debug_probe >/dev/null
       return
@@ -151,9 +190,50 @@ wait_for_probe() {
   hil_log "  WARNING: Probe not detected within ${PROBE_POLL_TIMEOUT}s"
 }
 
-# -x matches the process name only. `pkill -f probe-rs` matched any command
-# line containing the string -- including an operator's shell or wrapper.
-kill_probe_rs() { pkill -x -U "$(id -u)" probe-rs 2>/dev/null || true; }
+# Fleet: only the probe-rs on this slot's probe (fleet-lib.sh::probe_rs_pids
+# matches the process name and its PROBE_RS_PROBE), so a sibling runner's
+# attach survives. Legacy: every probe-rs of this uid, by name -- never
+# `pkill -f probe-rs`, which matched any shell mentioning the word.
+kill_probe_rs() { kill_probe_rs_scoped "${PICODROID_PROBE_SERIAL:-}" >/dev/null || true; }
+
+# hil_pdb_run TIMEOUT args...: one pdb command against this slot's board.
+# Fleet: the board's tty is looked up from its USB position at every call
+# (the ttyACM number moves after a power cycle) and passed as -s, so the
+# tool never scans the host and lands on a neighbour. A board that is not
+# enumerated prints the tool's own "no picodroid devices found" line, which
+# the callers already turn into a SKIP.
+PDB_ENUM_WAIT=20
+hil_pdb_run() {
+  local t="$1"; shift
+  local -a port=()
+  if [[ -n "${PICODROID_BOARD_USB_PATH:-}" ]]; then
+    # The board re-enumerates a few seconds after a reset or a power cycle
+    # (7 s seen on the bench); give it PDB_ENUM_WAIT s before calling it
+    # absent, and want the /dev node as well as the sysfs entry.
+    local p="" waited=0
+    until p=$(usb_path_tty "$PICODROID_BOARD_USB_PATH") && [[ -e "$p" ]]; do
+      if (( waited >= PDB_ENUM_WAIT )); then
+        echo "error: no picodroid devices found (slot $SLOT: usb $PICODROID_BOARD_USB_PATH not enumerated after ${PDB_ENUM_WAIT}s)"
+        return 1
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+    port=(-s "$p")
+  fi
+  # -k: a pdb blocked in a kernel call on a vanishing tty ignores TERM.
+  timeout -k 5 "$t" "$PDB_BIN" ${port[@]+"${port[@]}"} "$@"
+}
+
+# row_matches_board LIST: a term/loop/hw row's board filter (comma list of
+# board or MCU names) names the board on this probe or its MCU.
+row_matches_board() {
+  local need
+  for need in ${1//,/ }; do
+    if [[ "$need" == "$DEFAULT_BOARD" || "$need" == "$DEFAULT_MCU" ]]; then return 0; fi
+  done
+  return 1
+}
 
 recover_probe() {
   hil_log "Recovering probe..."
@@ -178,18 +258,18 @@ kill_process_group() {
 # Args: mode ("no-shrink"|"shrink"), log_prefix (used for build + install logs)
 pdb_install_known_good() {
   local mode="$1" log_prefix="$2"
-  local apk_path="$REPO_ROOT/build/apks/helloworld.papk"
+  local apk_path="$HIL_APK_DIR/helloworld.papk"
   # --strip-debug on every PAPK built here: they all go to a release-profile
   # firmware, built without the line-numbers feature, which never reads
   # LineNumberTable/SourceFile (build-apk.sh --help). Its (pc=N) frames
   # resolve on the host through scripts/retrace.sh.
-  local -a apk_args=(--app helloworld --board "$BOARD" --strip-debug)
+  local -a apk_args=(--app helloworld --board "$BOARD" --strip-debug -o "$apk_path")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "${log_prefix}.known-good-build.log" 2>&1; then
     hil_log "  Known-good helloworld PAPK build failed"
     return 1
   fi
-  if ! timeout 60 "$PDB_BIN" install "$apk_path" > "${log_prefix}.known-good-install.log" 2>&1; then
+  if ! hil_pdb_run 60 install "$apk_path" > "${log_prefix}.known-good-install.log" 2>&1; then
     hil_log "  Known-good pdb install failed (see ${log_prefix}.known-good-install.log)"
     return 1
   fi
@@ -226,7 +306,7 @@ run_pdb_test() {
   case "$pdb_cmd" in
     list|uninstall|install-reject-noroom|install-compact|launch|launch-soak)
       local pre_ping="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.pre-ping.log"
-      if ! timeout 10 "$PDB_BIN" ping > "$pre_ping" 2>&1 \
+      if ! hil_pdb_run 10 ping > "$pre_ping" 2>&1 \
           || ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
         hil_log "SKIP $test_name (single-app firmware: no package directory)"
         echo "SKIP $test_name (single-app firmware)" >> "$RESULTS_FILE"
@@ -271,8 +351,8 @@ run_pdb_test() {
     install)
       # The installed PAPK must match whatever mode the currently-flashed
       # firmware was built in, or verify_compat rejects the install.
-      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
+      local apk_path="$HIL_APK_DIR/${app}.papk"
+      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
       [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building PAPK ($mode)..."
       if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${mode}.build.log" 2>&1; then
@@ -290,8 +370,8 @@ run_pdb_test() {
       # device to remain alive afterwards.
       local opp_mode="no-shrink"
       [[ "$mode" == "no-shrink" ]] && opp_mode="shrink"
-      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
-      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
+      local apk_path="$HIL_APK_DIR/${app}.papk"
+      local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
       [[ "$opp_mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building opposite-mode PAPK ($opp_mode) for $pdb_cmd..."
       if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
@@ -310,9 +390,13 @@ run_pdb_test() {
       # Only meaningful in shrink mode (no-shrink can't trigger it; both
       # sides would be 0.0.0, the symmetric-accept case) — that early SKIP
       # happens before the bench-reset pre-install above.
-      local apk_path="$REPO_ROOT/build/apks/${app}.papk"
+      local apk_path="$HIL_APK_DIR/${app}.papk"
       hil_log "  Building future-version PAPK..."
-      if ! bash "$SCRIPT_DIR/test-future-version-rejection.sh" "$app" "$apk_path" \
+      # Its own lock, not the gradle one (the script builds a PAPK under
+      # that): it mints a synthetic map in the shared sdk/shrink-maps/ and
+      # removes it on exit, so two runners must take turns.
+      if ! flock -w 900 "$REPO_ROOT/build/.hil-future-map.lock" \
+           bash "$SCRIPT_DIR/test-future-version-rejection.sh" "$app" "$apk_path" \
             > "$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}-${mode}.build.log" 2>&1; then
         hil_log "  BUILD FAILED (future PAPK)"
         echo "ERROR $test_name (future papk build failed)" >> "$RESULTS_FILE"
@@ -328,7 +412,7 @@ run_pdb_test() {
       # version-mismatch rows don't exercise. Expect refusal + device alive.
       # Its own path: this fixture is truncated in place, and the shared
       # build/apks/<app>.papk is what test.sh and sim.sh reuse afterwards.
-      local apk_path="$REPO_ROOT/build/apks/hil/${app}-truncated.papk"
+      local apk_path="$HIL_APK_DIR/hil/${app}-truncated.papk"
       local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
       [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
       hil_log "  Building PAPK for $pdb_cmd ($mode)..."
@@ -380,7 +464,7 @@ run_pdb_test() {
   # Run PDB tool with timeout; capture stdout and stderr.
   hil_log "  Running: pdb ${pdb_args[*]}"
   local exit_code=0
-  timeout "$timeout" "$PDB_BIN" "${pdb_args[@]}" > "$log_file" 2>&1 || exit_code=$?
+  hil_pdb_run "$timeout" "${pdb_args[@]}" > "$log_file" 2>&1 || exit_code=$?
 
   if [[ $exit_code -ne 0 ]]; then
     # "no picodroid devices found" → graceful SKIP.
@@ -406,7 +490,7 @@ run_pdb_test() {
   if $reject_test; then
     sleep 1
     local ping_log="${log_file%.log}.post-ping.log"
-    if ! timeout 5 "$PDB_BIN" ping > "$ping_log" 2>&1 \
+    if ! hil_pdb_run 5 ping > "$ping_log" 2>&1 \
         || ! grep -q "max PAPK" "$ping_log"; then
       hil_log "  FAIL (device unresponsive after rejection — flash may have been erased)"
       tail -5 "$ping_log" 2>/dev/null \
@@ -438,7 +522,7 @@ run_pdb_test() {
 # the row's mode) under another package name, padded to `bytes`.
 hil_repack() {
   local package="$1" bytes="$2" out="$3"
-  "$PAPK_PACK_BIN" --repack "$REPO_ROOT/build/apks/helloworld.papk" \
+  "$PAPK_PACK_BIN" --repack "$HIL_APK_DIR/helloworld.papk" \
     --package-name "$package" --label "$package" --pad-asset "$bytes" \
     --output "$out" > /dev/null 2>&1
 }
@@ -449,7 +533,7 @@ hil_repack() {
 hil_pdb() {
   local log="$1"
   shift
-  timeout 300 "$PDB_BIN" "$@" >> "$log" 2>&1 < /dev/null
+  hil_pdb_run 300 "$@" >> "$log" 2>&1
 }
 
 # Build the release firmware for the bench board: `apk_path` baked in as the
@@ -467,17 +551,21 @@ hil_build_firmware() {
   # afterwards so a later no-shrink row's PAPKs are not shrunk by accident.
   # Both variables build_system_apks exports are set even when empty:
   # build.rs reruns when either changes.
-  local shrink_prev="${PICODROID_SHRINK-unset}"
-  [[ "$mode" == "shrink" ]] && export PICODROID_SHRINK=1
+  # The launcher goes to this slot's APK directory (two runners in
+  # different shrink modes must not share one file) and reaches
+  # build_system_apks as a prebuilt, which then only exports the variables.
+  local -a launcher_args=(--app launcher --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/launcher.papk")
+  [[ "$mode" == "shrink" ]] && launcher_args+=(--shrink)
+  if [[ "${MAX_INSTALLED_APPS:-1}" -gt 1 ]]; then
+    bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$log" 2>&1 || return 1
+    export PICODROID_PREBUILT_SYSTEM_APKS="$HIL_APK_DIR/launcher.papk"
+  fi
   export PICODROID_BOOT="$boot"
-  local ok=0
-  build_system_apks >> "$log" 2>&1 || ok=1
-  if [[ "$shrink_prev" == "unset" ]]; then unset PICODROID_SHRINK; else export PICODROID_SHRINK="$shrink_prev"; fi
-  [[ $ok -eq 0 ]] || return 1
+  build_system_apks >> "$log" 2>&1 || return 1
   env "${cargo_env[@]}" cargo build \
     -p picodroid \
     --release \
-    --jobs "$(cpu_count)" \
+    --jobs "${HIL_JOBS:-$(cpu_count)}" \
     --target "$TARGET" \
     --no-default-features \
     --features "$BOARD_FEATURE" >> "$log" 2>&1
@@ -520,7 +608,7 @@ hil_rtt_attach() {
 # The free heap `pdb sysmon` reports, in bytes; the whole report goes to `log`.
 hil_free_heap() {
   local log="$1" out
-  out=$(timeout 30 "$PDB_BIN" sysmon 2>&1 < /dev/null) || true
+  out=$(hil_pdb_run 30 sysmon 2>&1 < /dev/null) || true
   printf '%s\n' "$out" >> "$log"
   sed -nE 's/^Free heap: +([0-9]+) bytes.*/\1/p' <<< "$out" | head -1
 }
@@ -546,16 +634,17 @@ run_pdb_launch_test() {
   : > "$log_file"
 
   hil_log "  Building $app firmware with --boot launcher ($mode)..."
-  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug)
+  local apk_path="$HIL_APK_DIR/${app}.papk"
+  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
-     || ! hil_build_firmware "$REPO_ROOT/build/apks/${app}.papk" "$mode" launcher "$build_log"; then
+     || ! hil_build_firmware "$apk_path" "$mode" launcher "$build_log"; then
     hil_log "  BUILD FAILED (see $build_log)"
     echo "ERROR $test_name (build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
-  local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
+  local elf="$TARGET_DIR/${TARGET}/release/picodroid"
   hil_log "  Flashing..."
   if ! hil_flash_elf "$elf" "$log_file"; then
     hil_log "  FLASH FAILED (see log tail)"
@@ -577,7 +666,7 @@ run_pdb_launch_test() {
   # device, and the launcher rebuilds its list at every boot.
   echo "=== clearing other packages ===" >> "$log_file"
   local other
-  for other in $(timeout 30 "$PDB_BIN" list 2>/dev/null < /dev/null \
+  for other in $(hil_pdb_run 30 list 2>/dev/null < /dev/null \
       | awk '$1 ~ /^[0-9]+$/ { print $2 }'); do
     [[ "$other" == "$app" ]] && continue
     hil_pdb "$log_file" uninstall "$other" || true
@@ -586,7 +675,7 @@ run_pdb_launch_test() {
   echo "=== boot ===" >> "$log_file"
   hil_pdb "$log_file" list || true
   local tap_log="${log_file%.log}.tap.log"
-  if ! timeout 30 "$PDB_BIN" input tap 120 20 > "$tap_log" 2>&1 < /dev/null; then
+  if ! hil_pdb_run 30 input tap 120 20 > "$tap_log" 2>&1 < /dev/null; then
     cat "$tap_log" >> "$log_file"
     if grep -qi "no touch panel" "$tap_log"; then
       kill_process_group "$rtt_pid"
@@ -605,9 +694,9 @@ run_pdb_launch_test() {
     local before after i home=0
     before=$(hil_free_heap "$log_file")
     for i in $(seq 1 "$cycles"); do
-      timeout 30 "$PDB_BIN" input tap 120 20 >> "$log_file" 2>&1 < /dev/null || true
+      hil_pdb_run 30 input tap 120 20 >> "$log_file" 2>&1 < /dev/null || true
       sleep 3
-      if timeout 30 "$PDB_BIN" list 2>/dev/null < /dev/null | grep -q "running: picodroid.launcher"; then
+      if hil_pdb_run 30 list 2>/dev/null < /dev/null | grep -q "running: picodroid.launcher"; then
         home=$((home + 1))
       fi
     done
@@ -670,7 +759,7 @@ run_pdb_noroom_test() {
   : > "$log_file"
 
   local pre_ping="$RUN_LOG_DIR/${app}.pdb-install-reject-noroom.${mode}.pre-ping.log"
-  timeout 10 "$PDB_BIN" ping > "$pre_ping" 2>&1 || true
+  hil_pdb_run 10 ping > "$pre_ping" 2>&1 || true
   local installed max
   installed=$(sed -nE 's/.*apps ([0-9]+)\/([0-9]+).*/\1/p' "$pre_ping" | head -1)
   max=$(sed -nE 's/.*apps ([0-9]+)\/([0-9]+).*/\2/p' "$pre_ping" | head -1)
@@ -735,9 +824,9 @@ run_pdb_install_stress() {
   # Build PAPKs for both apps in the same mode as the flashed firmware.
   local -a sa_args
   for sa in "${stress_apps[@]}"; do
-    local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
+    local apk_path="$HIL_APK_DIR/${sa}.papk"
     hil_log "  Building PAPK for $sa ($mode)..."
-    sa_args=(--app "$sa" --board "$BOARD" --strip-debug)
+    sa_args=(--app "$sa" --board "$BOARD" --strip-debug -o "$apk_path")
     [[ "$mode" == "shrink" ]] && sa_args+=(--shrink)
     if ! bash "$SCRIPT_DIR/build-apk.sh" "${sa_args[@]}" > "$RUN_LOG_DIR/${sa}.pdb-${mode}.build.log" 2>&1; then
       hil_log "  BUILD FAILED (PAPK for $sa)"
@@ -764,13 +853,13 @@ run_pdb_install_stress() {
     # Alternate apps: odd=first, even=second.
     local idx=$(( (i - 1) % ${#stress_apps[@]} ))
     local sa="${stress_apps[$idx]}"
-    local apk_path="$REPO_ROOT/build/apks/${sa}.papk"
+    local apk_path="$HIL_APK_DIR/${sa}.papk"
     local remaining=$((deadline - SECONDS))
 
     echo "=== cycle $i/$total_cycles: installing $sa ===" >> "$log_file"
     hil_log "  cycle $i/$total_cycles: installing $sa"
 
-    if timeout "$remaining" "$PDB_BIN" install "$apk_path" >> "$log_file" 2>&1; then
+    if hil_pdb_run "$remaining" install "$apk_path" >> "$log_file" 2>&1; then
       succeeded=$((succeeded + 1))
       echo "cycle $i/$total_cycles: OK" >> "$log_file"
     else
@@ -808,7 +897,8 @@ send_report() {
     --results "$RESULTS_FILE" \
     --log-dir "$HIL_LOG_DIR" \
     --run-id "$RUN_ID" \
-    --sha "$COMMIT_SHA" 2>&1 | while IFS= read -r line; do hil_log "  email: $line"; done || \
+    --sha "$COMMIT_SHA" \
+    --suite "HIL${SLOT:+ $SLOT}" 2>&1 | while IFS= read -r line; do hil_log "  email: $line"; done || \
     hil_log "  Email sending failed (non-fatal)."
 }
 
@@ -817,18 +907,18 @@ send_report() {
 # them FIFO for up to HIL_LOCK_WAIT seconds and otherwise records a SKIP so
 # the email says why nothing ran. The lease belongs to this process and is
 # released on every exit path.
-export PICODROID_DEVICE_OWNER="${PICODROID_DEVICE_OWNER:-hil-run}"
+export PICODROID_DEVICE_OWNER="${PICODROID_DEVICE_OWNER:-hil-run${SLOT:+:$SLOT}}"
 export PICODROID_DEVICE_OWNER_PID=$$
-trap 'stop_net_listeners; bash "$SCRIPT_DIR/device-lock.sh" release >/dev/null 2>&1 || true' EXIT
-hil_log "Waiting for the device lock (up to ${HIL_LOCK_WAIT}s)..."
+trap 'stop_net_listeners; bash "$SCRIPT_DIR/device-lock.sh" release ${LOCK_SLOT_ARGS[@]+"${LOCK_SLOT_ARGS[@]}"} >/dev/null 2>&1 || true' EXIT
+hil_log "Waiting for the device lock${SLOT:+ on slot $SLOT} (up to ${HIL_LOCK_WAIT}s)..."
 lock_rc=0
-bash "$SCRIPT_DIR/device-lock.sh" acquire --wait "$HIL_LOCK_WAIT" \
-  --note "nightly hil-run $(date '+%Y-%m-%d %H:%M')" 2>&1 \
+bash "$SCRIPT_DIR/device-lock.sh" acquire ${LOCK_SLOT_ARGS[@]+"${LOCK_SLOT_ARGS[@]}"} --wait "$HIL_LOCK_WAIT" \
+  --note "nightly hil-run $BOARD $(date '+%Y-%m-%d %H:%M')" 2>&1 \
   | while IFS= read -r line; do hil_log "  lock: $line"; done || lock_rc=$?
 if [[ $lock_rc -ne 0 ]]; then
-  holder="$(bash "$SCRIPT_DIR/device-lock.sh" status --short)"
+  holder="$(bash "$SCRIPT_DIR/device-lock.sh" status ${LOCK_SLOT_ARGS[@]+"${LOCK_SLOT_ARGS[@]}"} --short)"
   COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-  RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
+  RUN_ID="${HIL_RUN_ID:-$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}}"
   RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
   hil_log "SKIPPED: device lock not acquired within ${HIL_LOCK_WAIT}s ($holder)"
   echo "SKIP hil-run (device busy: $holder)" > "$RESULTS_FILE"
@@ -840,8 +930,14 @@ hil_log "Device lock acquired."
 # Pin probe-rs to the CMSIS-DAP probe before anything talks to it. With a
 # second probe attached and no pin, probe-rs prompts on stdin and every row
 # fails; with the pin it just works. Logged so the nightly email shows which
-# probe the run used (an operator override via PROBE_RS_PROBE is kept as is).
-if [[ -n "${PROBE_RS_PROBE:-}" ]]; then
+# probe the run used. Fleet: the slot decides (its probe serial, and the USB
+# position of the board for pdb); otherwise an operator override via
+# PROBE_RS_PROBE is kept as is.
+if [[ -n "$SLOT" ]]; then
+  fleet_export_slot "$SLOT"
+  hil_log "Probe: slot $SLOT, serial $PICODROID_PROBE_SERIAL (usb $(usb_path_for_serial "$PICODROID_PROBE_SERIAL" || echo 'not enumerated')), PROBE_RS_PROBE=$PROBE_RS_PROBE"
+  hil_log "Board USB: $PICODROID_BOARD_USB_PATH (tty $(usb_path_tty "$PICODROID_BOARD_USB_PATH" || echo 'not enumerated'))"
+elif [[ -n "${PROBE_RS_PROBE:-}" ]]; then
   hil_log "Probe: PROBE_RS_PROBE=$PROBE_RS_PROBE (from environment)"
 elif probe_pin="$(pin_debug_probe)" && [[ -n "$probe_pin" ]]; then
   hil_log "Probe: pinned PROBE_RS_PROBE=$probe_pin"
@@ -849,23 +945,46 @@ else
   hil_log "Probe: no CMSIS-DAP probe enumerated yet (power cycle + wait will pin it)"
 fi
 
-# Pull latest code.
-hil_log "Pulling latest code..."
-git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do hil_log "  git: $line"; done || true
+# The probe must actually attach, not just enumerate: a Debug Probe on
+# firmware older than 2.2.0 is listed by probe-rs but refused by every
+# command ("The firmware on the probe is outdated"), and without this check
+# such a bench grinds through every row as an ERROR. Same SKIP shape as
+# the busy-lock path so the email says why nothing ran.
+# (`probe-rs info` exits 0 even then, so the verdict is the Error line.)
+probe_info="$(probe-rs info --protocol swd </dev/null 2>&1 || true)"
+if grep -qE '^Error' <<<"$probe_info"; then
+  probe_err="$(grep -E '^Error|^ +[0-9]+: ' <<<"$probe_info" | tail -1 | sed 's/^ *//')"
+  COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  RUN_ID="${HIL_RUN_ID:-$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}}"
+  RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
+  hil_log "SKIPPED: the probe does not attach${SLOT:+ (slot $SLOT)}: $probe_err"
+  echo "SKIP hil-run (probe unusable: $probe_err)" > "$RESULTS_FILE"
+  send_report
+  exit 1
+fi
+
+# Pull latest code (hil-fleet.sh does this once, before its runners start).
+if [[ "$PULL" == "true" ]]; then
+  hil_log "Pulling latest code..."
+  git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do hil_log "  git: $line"; done || true
+fi
 
 COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
+RUN_ID="${HIL_RUN_ID:-$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}}"
 RUN_LOG_DIR="$HIL_LOG_DIR/$RUN_ID"
 RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
 
 mkdir -p "$RUN_LOG_DIR"
 
 # Pre-build PDB host tool (needed for pdb category tests).
-PDB_BIN=""
-if [[ "$SKIP_PDB" != "true" ]]; then
+# hil-fleet.sh builds both host tools once and hands them over in
+# HIL_PDB_BIN / HIL_PAPK_PACK_BIN; a runner on its own builds them into its
+# own target directory (CARGO_TARGET_DIR when set).
+PDB_HOST_TARGET="$(host_target)"
+PDB_BIN="${HIL_PDB_BIN:-}"
+if [[ "$SKIP_PDB" != "true" && -z "$PDB_BIN" ]]; then
   hil_log "Building PDB tool..."
-  PDB_HOST_TARGET="$(host_target)"
-  PDB_BIN="$REPO_ROOT/target/${PDB_HOST_TARGET}/release/pdb"
+  PDB_BIN="${CARGO_TARGET_DIR:-$REPO_ROOT/target}/${PDB_HOST_TARGET}/release/pdb"
   if ! cargo build --release --quiet \
       --target "$PDB_HOST_TARGET" \
       --manifest-path "$REPO_ROOT/tools/pdb/Cargo.toml" \
@@ -875,15 +994,19 @@ if [[ "$SKIP_PDB" != "true" ]]; then
   fi
 fi
 
-# Pin pdb to the bench board's CDC port. With a second picodroid board on
-# the hub (an rp2040 beside the STLink, 2026-09-07) `pdb` refuses to pick
-# one ("multiple picodroid devices found") and every pdb row fails. The
-# bench board is the device whose greeting advertises this board's app
-# region (max PAPK = app_region_kb - 4 KB): PDB_BIN becomes a wrapper that
-# passes `-s <port>`. A PICODROID_PDB_PORT in the environment wins; with no
-# match the auto-detect is left alone.
+# Pin pdb to the bench board's CDC port on a bench without a fleet config.
+# With a second picodroid board on the hub `pdb` refuses to pick one
+# ("multiple picodroid devices found") and every pdb row fails. The bench
+# board is the device whose greeting advertises this board's app region
+# (max PAPK = app_region_kb - 4 KB): PDB_BIN becomes a wrapper that passes
+# `-s <port>`. A PICODROID_PDB_PORT in the environment wins; with no match
+# the auto-detect is left alone. A fleet slot pins per call instead
+# (hil_pdb_run), so this does nothing when one is in use.
 pin_pdb_port() {
   [[ -n "$PDB_BIN" ]] || return 0
+  # A fleet slot names the board's USB position and hil_pdb_run passes its
+  # tty on every call; this pin is for a bench without a fleet config.
+  [[ -z "${PICODROID_BOARD_USB_PATH:-}" ]] || return 0
   local want=$(( ${APP_REGION_KB:-0} - 4 ))
   local port="${PICODROID_PDB_PORT:-}"
   if [[ -z "$port" ]]; then
@@ -904,9 +1027,9 @@ pin_pdb_port
 
 # Pre-build papk-pack: the multi-app pdb rows mint their fixtures with
 # `--repack` (same classes, another package name, padded to a size).
-PAPK_PACK_BIN=""
-if [[ -n "$PDB_BIN" ]]; then
-  PAPK_PACK_BIN="$REPO_ROOT/target/${PDB_HOST_TARGET}/release/papk-pack"
+PAPK_PACK_BIN="${HIL_PAPK_PACK_BIN:-}"
+if [[ -n "$PDB_BIN" && -z "$PAPK_PACK_BIN" ]]; then
+  PAPK_PACK_BIN="${CARGO_TARGET_DIR:-$REPO_ROOT/target}/${PDB_HOST_TARGET}/release/papk-pack"
   if ! cargo build --release --quiet \
       --target "$PDB_HOST_TARGET" \
       --manifest-path "$REPO_ROOT/tools/papk-pack/Cargo.toml" \
@@ -919,7 +1042,7 @@ fi
 hil_log "========================================="
 hil_log "HIL Run: $RUN_ID"
 hil_log "========================================="
-hil_log "Board on probe: $DEFAULT_BOARD ($DEFAULT_MCU)"
+hil_log "Board on probe: $DEFAULT_BOARD ($DEFAULT_MCU)${SLOT:+, slot $SLOT}"
 hil_log "net rows: creds $([[ "$HAVE_NET_CREDS" == "true" ]] && echo present || echo MISSING) (.wifi-creds.env), test host ${NET_TEST_HOST:-NONE}"
 
 PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
@@ -946,7 +1069,8 @@ run_test() {
 
   # Build APK (mode-tagged; --shrink iff this iteration is the shrunk one).
   hil_log "  Building APK..."
-  local -a apk_args=(--app "$app" --board "$board" --strip-debug)
+  local apk_path="$HIL_APK_DIR/${app}.papk"
+  local -a apk_args=(--app "$app" --board "$board" --strip-debug -o "$apk_path")
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   # net rows: bake this machine's LAN IP into the app's NetTestConfig.HOST
   # (build-apk.sh forwards the env var as a per-invocation Gradle property).
@@ -959,7 +1083,6 @@ run_test() {
     return
   fi
 
-  local apk_path="$REPO_ROOT/build/apks/${app}.papk"
 
   # Build firmware (release), the launcher linked in on a multi-app board.
   # PICODROID_SHRINK must match the APK's mode or verify_compat will reject
@@ -998,7 +1121,7 @@ run_test() {
   # without running so long that real hangs go unnoticed.
   local flash_budget=35
   local effective_timeout=$((timeout + flash_budget))
-  local elf="$REPO_ROOT/target/${TARGET}/release/picodroid"
+  local elf="$TARGET_DIR/${TARGET}/release/picodroid"
   hil_log "  Flashing and capturing RTT..."
   # stdin from /dev/null: probe-rs never gets to prompt (see pin_debug_probe),
   # and the config-file loop in main keeps its fd 3 to itself either way.
@@ -1102,6 +1225,11 @@ for MODE in "${MODES[@]}"; do
         net_skip="no .wifi-creds.env"
       elif [[ -z "$NET_TEST_HOST" ]]; then
         net_skip="no LAN IP"
+      elif [[ -n "$SLOT" ]]; then
+        # Fleet: the row runs on the slot that lists its board, nowhere else.
+        if ! fleet_slot_has_board "$SLOT" "$extra"; then
+          net_skip="board $extra is not on slot $SLOT"
+        fi
       else
         resolve_board "$extra"
         row_mcu="$MCU"
@@ -1173,6 +1301,14 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
+    # term/loop/hw rows may name the boards or MCUs they need (5th column).
+    if [[ -n "$extra" ]] && ! row_matches_board "$extra"; then
+      hil_log "SKIP $app[$MODE] (needs $extra; this is $DEFAULT_BOARD/$DEFAULT_MCU)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     run_test "$app" "$category" "$timeout" "$patterns" "$MODE"
   done 3< "$HIL_CONF"
 done
@@ -1180,7 +1316,7 @@ done
 # Give the board back before the summary and email (the EXIT trap is the
 # safety net for every other exit path). This also kills a lingering probe-rs.
 stop_net_listeners
-bash "$SCRIPT_DIR/device-lock.sh" release 2>&1 | while IFS= read -r line; do hil_log "  lock: $line"; done || true
+bash "$SCRIPT_DIR/device-lock.sh" release ${LOCK_SLOT_ARGS[@]+"${LOCK_SLOT_ARGS[@]}"} 2>&1 | while IFS= read -r line; do hil_log "  lock: $line"; done || true
 
 # Summary.
 hil_log "========================================="

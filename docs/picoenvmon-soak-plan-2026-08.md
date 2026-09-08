@@ -56,8 +56,10 @@ Operational rules (violating these wastes hours — all learned the hard way):
 - **Verify the RTT ELF matches the profile**: flashing `--release` and
   attaching with a debug ELF silently decodes zero RTT. Using flash.sh's own
   attach (as above) avoids this.
-- Boot-loss recovery: `./scripts/power-cycle.sh` (auto-detects the hub via
-  the CMSIS-DAP probe). Expect the LittleFS `bootcount` to advance +1 per
+- Boot-loss recovery: `./scripts/power-cycle.sh --board pico_enviro_mon_w`
+  (on a fleet bench it cycles that slot's two ports; without a fleet config
+  it cycles the hub that carries the CMSIS-DAP probe). Expect the LittleFS
+  `bootcount` to advance +1 per
   reflash, +2 when power-cycling between reflashes.
 
 ## 2. The nightly cron WILL interfere — plan around it

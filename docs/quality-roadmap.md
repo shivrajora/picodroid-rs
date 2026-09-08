@@ -119,6 +119,16 @@ branch must be a no-op there — boot, buttons-less roster, flash gate). The sam
 two more single-board checks undone for want of a board swap: `testbench_rp2350w` `http_get`
 (host-wake is that board's only bank0 source) and a `pico_enviro_mon` (non-W) key press.
 
+*2026-09-07 (bench fleet):* **several boards on the bench at once, no more board swaps.**
+`scripts/fleet-lib.sh` reads `~/.config/picodroid/fleet.conf` (one row per slot: probe serial,
+the board's USB position, the firmware boards it accepts); `device-lock.sh` keeps one lease per
+slot; `hil-run.sh --slot` runs one board; `hil-fleet.sh` runs every slot in parallel with
+isolated build directories and per-slot results, and takes over the 4 AM cron. The bench holds
+`testbench_rp2350` and `pico_enviro_mon_w` (the net rows route to the W slot), so both are
+covered nightly. term/loop/hw rows may name the boards or MCUs they need in the 5th column
+(`jucdemo` and `jsondemo` are tagged `rp2350`), so an rp2040 slot is one config line and one
+more probe away; the rows that cannot fit it get tagged from that first run's evidence.
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**

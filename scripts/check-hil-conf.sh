@@ -6,7 +6,9 @@
 #   1. examples/<app>/ exists
 #   2. category is one of term|loop|hw|pdb|sim|net|skip, timeout is numeric
 #      (net rows must name a board in the 5th column, and it must be a
-#      network board — has_network = true in its board.toml)
+#      network board — has_network = true in its board.toml; term/loop/hw
+#      rows may name the boards or MCUs they need there, each of which must
+#      exist under platforms/*/boards/ or platforms/*/mcus/)
 #   3. every expected pattern of the form `Tag[]:] ...` has its tag string
 #      present as a Java string literal ("Tag") somewhere under examples/ or
 #      sdk/ — so deleting/renaming the demo that emits the tag fails here at
@@ -77,6 +79,20 @@ while IFS='|' read -r app category timeout patterns pdb_command; do
            "$REPO_ROOT"/platforms/*/boards/"$pdb_command"/board.toml 2>/dev/null; then
       fail "line $lineno ($app): net row board '$pdb_command' has no network (has_network = true missing in board.toml)"
     fi
+  fi
+
+  # term/loop/hw rows: the optional board filter (comma list of board or MCU
+  # names) must name things that exist, or hil-run silently skips the row
+  # everywhere.
+  if [[ ( "$category" == "term" || "$category" == "loop" || "$category" == "hw" ) && -n "${pdb_command:-}" ]]; then
+    IFS=',' read -ra needs <<< "$pdb_command"
+    for need in ${needs[@]+"${needs[@]}"}; do
+      [[ -z "$need" ]] && continue
+      if ! compgen -G "$REPO_ROOT/platforms/*/boards/$need" > /dev/null \
+         && ! compgen -G "$REPO_ROOT/platforms/*/mcus/*/$need.toml" > /dev/null; then
+        fail "line $lineno ($app): board filter '$need' is neither a platforms/*/boards/ directory nor an MCU (platforms/*/mcus/*/$need.toml)"
+      fi
+    done
   fi
 
   # Tag-literal check. Only patterns shaped `Tag[]:] ...` carry a tag; free

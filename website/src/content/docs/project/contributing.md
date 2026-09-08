@@ -71,32 +71,46 @@ serializes concurrent invocations that share one build directory. The first
 `--full` run after checkout therefore pays a cold build for the two ARM
 directories; `--clean` removes them. Per-run logs land in `build/pre-commit/`.
 
-## Sharing One Dev Board
+## Sharing the Bench
 
-One probe, one board, and often more than one session wanting it — a second
-terminal, an agent working in a worktree, the nightly HIL run. Every script
-that touches the board (`flash.sh`, `power-cycle.sh`, `pdb.sh`,
-`parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through
-`scripts/device-lock.sh` first. If the board is free the script acquires it
-for your session and keeps it until you release, so a flash followed by a few
-`pdb` calls needs no ceremony; if someone else holds it the script exits with
-code 75, names the holder, and tells you how to wait.
+One or more boards, each with its own debug probe, and often more than one
+session wanting them — a second terminal, an agent working in a worktree,
+the nightly HIL run. Every script that touches a board (`flash.sh`,
+`power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil`, `hil-run.sh`) takes a
+lease on that one board through `scripts/device-lock.sh` first. Name the
+board with `--board NAME` (or `--slot NAME`); with neither, the script uses
+the board your session already holds, or the only one on the bench, or
+stops and lists the slots. If the board is free the script acquires it for
+your session and keeps it until you release, so a flash followed by a few
+`pdb` calls needs no ceremony; if someone else holds it the script exits
+with code 75, names the holder, and tells you how to wait. The other boards
+stay free.
 
 ```bash
-./scripts/device-lock.sh status           # who holds it, since when, who is queued
-./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
-./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
-./scripts/device-lock.sh break --force    # evict a holder who is really gone
+./scripts/device-lock.sh status                     # every slot: holder, since when, queue
+./scripts/device-lock.sh acquire --board X --wait   # queue (FIFO) until that board is yours
+./scripts/device-lock.sh release                    # everything you hold; also kills a lingering probe-rs
+./scripts/device-lock.sh break --slot X --force     # evict a holder who is really gone
 ```
 
+The bench is described by `~/.config/picodroid/fleet.conf`, one line per
+board slot: the probe's USB serial, the USB position of the board's own
+port (the pdb device has no serial, so its physical port is its identity),
+and the firmware boards that hardware accepts. `scripts/fleet.conf.example`
+documents the format, `./scripts/fleet.sh discover` prints the probes and
+boards it can see with their positions, and `./scripts/fleet.sh check`
+validates the file. Without the file every script assumes a single board,
+as before. `./scripts/hil-fleet.sh` runs the nightly on every slot at once,
+each runner with its own build directory, results and email.
+
 A lease dies with the process that took it (your shell, or the agent
-session), so a closed window never wedges the board. An unattended run that
+session), so a closed window never wedges a board. An unattended run that
 must outlive its launcher pins the lease instead:
-`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin` before
-the flash, `release` at teardown. Never `pkill -f probe-rs` to free the probe
-— the pattern matches any shell whose command line mentions it, your own
-included; `release` kills the right process by name. `PICODROID_DEVICE_LOCK=0`
-bypasses the check, for emergencies only.
+`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin`
+before the flash, `release` at teardown. Never `pkill -f probe-rs` to free a
+probe — the pattern matches any shell whose command line mentions it, your
+own included; `release` kills only the probe-rs on your board's probe.
+`PICODROID_DEVICE_LOCK=0` bypasses the check, for emergencies only.
 
 ## Code Style
 

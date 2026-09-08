@@ -93,8 +93,9 @@ fn main() {
                 eprintln!("error: uninstall requires a <package> argument");
                 process::exit(1);
             };
+            let explicit_port = port.is_some();
             let port_name = require_port(port.as_deref());
-            packages::uninstall(&port_name, package);
+            packages::uninstall(&port_name, package, explicit_port);
         }
 
         "input" => {
@@ -138,6 +139,7 @@ fn main() {
                     process::exit(1);
                 }
             };
+            opts.explicit_port = port.is_some();
             let port_name = require_port(port.as_deref());
             install::run(&port_name, &papk_path, opts);
         }

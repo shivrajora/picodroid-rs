@@ -18,6 +18,9 @@ export PICODROID_DEVICE_LOCK_POLL=0.2
 export PICODROID_DEVICE_LOCK_KEEP_PROBE=1
 unset CLAUDE_PID CLAUDE_CODE_SESSION_ID PICODROID_DEVICE_OWNER \
       PICODROID_DEVICE_OWNER_PID PICODROID_DEVICE_LOCK
+# Set-but-empty = no fleet: the legacy sections below must see one board
+# even on a bench that has ~/.config/picodroid/fleet.conf (fleet-lib.sh).
+export PICODROID_FLEET_CONF=""
 DIR="$PICODROID_DEVICE_LOCK_DIR"
 HOLDER="$DIR/holder"
 
@@ -199,6 +202,165 @@ if [[ "${PICODROID_DEVICE_LOCK_TEST_PROBE:-0}" == "1" ]] && ! pgrep -x probe-rs 
 else
   echo "  skip probe-kill case (set PICODROID_DEVICE_LOCK_TEST_PROBE=1 with no real probe-rs running)"
 fi
+
+# 17. fleet-lib.sh: config parsing and slot resolution (no hardware; the
+# fake config points at USB positions that do not exist).
+FLEET="$DIR/fleet.conf"
+cat > "$FLEET" <<'FEOF'
+# two slots
+a|SER_A|1-99.1|testbench_rp2350|probe_path=1-99.2
+b|SER_B|1-99.3|testbench_rp2040,testbench_rp2350w
+FEOF
+# fl cmd... -> a fleet-lib.sh function with the fake config active
+fl() { PICODROID_FLEET_CONF="$FLEET" bash -c 'source "$1/fleet-lib.sh"; shift; "$@"' _ "$SCRIPT_DIR" "$@"; }
+check "no fleet when PICODROID_FLEET_CONF is empty" bash -c 'source "$1/fleet-lib.sh"; ! fleet_enabled' _ "$SCRIPT_DIR"
+check "fleet enabled with the fake config" fl fleet_enabled
+check "slots in config order" [ "$(fl fleet_slots | tr '\n' ' ')" == "a b " ]
+check "probe serial field" [ "$(fl fleet_slot_field b probe_serial)" == SER_B ]
+check "usb path field" [ "$(fl fleet_slot_field a board_usb_path)" == 1-99.1 ]
+check "unknown slot -> rc 1" rc_is 1 fl fleet_slot_field zzz boards
+check "extra value" [ "$(fl fleet_slot_extra a probe_path)" == 1-99.2 ]
+check "missing extra -> empty" [ -z "$(fl fleet_slot_extra b probe_path)" ]
+check "primary board is the first listed" [ "$(fl fleet_slot_primary b)" == testbench_rp2040 ]
+check "slot has its second board" fl fleet_slot_has_board b testbench_rp2350w
+check "slot lacks a foreign board" rc_is 1 fl fleet_slot_has_board a testbench_rp2040
+check "board -> slot" [ "$(fl fleet_slot_for_board testbench_rp2350w)" == b ]
+check "unknown board -> rc 1" rc_is 1 fl fleet_slot_for_board pico_enviro_mon
+check "serial -> slot" [ "$(fl fleet_slot_for_serial SER_A)" == a ]
+check "usb path -> slot" [ "$(fl fleet_slot_for_usb_path 1-99.3)" == b ]
+check "fleet_check_conf accepts the fake config" fl fleet_check_conf
+check "resolve --slot" [ "$(fl fleet_resolve_slot '' --slot b)" == b ]
+check "resolve --board" [ "$(fl fleet_resolve_slot '' --app x --board testbench_rp2350w)" == b ]
+check "resolve -b" [ "$(fl fleet_resolve_slot '' -b testbench_rp2350 --app x)" == a ]
+check "resolve --board=" [ "$(fl fleet_resolve_slot '' --board=testbench_rp2040)" == b ]
+check "resolve --boards picks the first that maps" [ "$(fl fleet_resolve_slot '' --hil --boards pico_enviro_mon,testbench_rp2350)" == a ]
+check "resolve from PICODROID_SLOT" [ "$(PICODROID_SLOT=b fl fleet_resolve_slot '')" == b ]
+check "resolve from PICODROID_BOARD" [ "$(PICODROID_BOARD=testbench_rp2350 fl fleet_resolve_slot '')" == a ]
+check "resolve from the single held slot" [ "$(fl fleet_resolve_slot b ping)" == b ]
+check "two held slots is ambiguous" rc_is 1 fl fleet_resolve_slot "$(printf 'a\nb')" ping
+check "two slots and no hint is ambiguous" rc_is 1 fl fleet_resolve_slot ''
+amb_out="$(fl fleet_resolve_slot '' 2>&1 || true)"
+check "ambiguity lists the slots" grep -q 'testbench_rp2040' <<<"$amb_out"
+check "unknown --slot -> rc 1" rc_is 1 fl fleet_resolve_slot '' --slot zzz
+check "unknown --board -> rc 1" rc_is 1 fl fleet_resolve_slot '' --board pico_enviro_mon
+check "explicit --slot beats a held slot" [ "$(fl fleet_resolve_slot b --slot a)" == a ]
+check "usb_hub_port on a hub port" [ "$(fl usb_hub_port 1-8.3.2)" == "1-8.3 2" ]
+check "usb_hub_port on a root port" [ "$(fl usb_hub_port 1-8)" == "1 8" ]
+check "usb_hub_port rejects garbage" rc_is 1 fl usb_hub_port ttyACM0
+check "unknown serial -> rc 1" rc_is 1 fl usb_path_for_serial NO_SUCH_SERIAL
+check "unknown usb path has no tty" rc_is 1 fl usb_path_tty 1-99.1
+check "probe selector falls back to the Debug Probe ids" [ "$(fl probe_selector SER_A)" == 2e8a:000c:SER_A ]
+fl_export() {
+  PICODROID_FLEET_CONF="$FLEET" bash -c 'source "$1/fleet-lib.sh"; fleet_export_slot b
+    [[ $PICODROID_SLOT == b && $PICODROID_PROBE_SERIAL == SER_B \
+       && $PICODROID_BOARD_USB_PATH == 1-99.3 && $PROBE_RS_PROBE == 2e8a:000c:SER_B ]]' _ "$SCRIPT_DIR"
+}
+check "export sets the slot variables" fl_export
+printf 'a|SER_A|1-99.1|testbench_rp2350\na|SER_C|1-99.4|nosuchboard|bogus=1\n' > "$DIR/bad.conf"
+bad_out="$(PICODROID_FLEET_CONF="$DIR/bad.conf" bash -c 'source "$1/fleet-lib.sh"; fleet_check_conf' _ "$SCRIPT_DIR" 2>&1)"; bad_rc=$?
+check "fleet_check_conf rejects a bad config" [ $bad_rc -eq 1 ]
+check "  ... names the duplicate slot" grep -q "listed twice" <<<"$bad_out"
+check "  ... names the unknown board" grep -q "nosuchboard" <<<"$bad_out"
+check "  ... names the unknown extra" grep -q "bogus=1" <<<"$bad_out"
+check "single-slot config resolves with no hint" [ "$(printf 'only|S|1-99.9|testbench_rp2350\n' > "$DIR/one.conf"; PICODROID_FLEET_CONF="$DIR/one.conf" bash -c 'source "$1/fleet-lib.sh"; fleet_resolve_slot ""' _ "$SCRIPT_DIR")" == only ]
+
+# 18. one lease per slot (fleet mode: the fake config from section 17)
+# flock_as NAME cmd... -> device-lock.sh as session NAME with the fleet on
+flock_as() { PICODROID_FLEET_CONF="$FLEET" lock_as "$@"; }
+fdl() { PICODROID_FLEET_CONF="$FLEET" "$DL" "$@"; }
+HA="$DIR/slots/a/holder"; HB="$DIR/slots/b/holder"
+sfield() { sed -n "s/^$2=//p" "$1" 2>/dev/null; }
+check "--slot without a fleet is refused" rc_is 1 lock_as A acquire --slot a
+check "A acquires slot a" rc_is 0 flock_as A acquire --slot a --note one
+check "B acquires slot b by board" rc_is 0 flock_as B acquire --board testbench_rp2350w
+check "slot a holder is A" [ "$(sfield "$HA" owner)" == A ]
+check "slot b holder is B" [ "$(sfield "$HB" owner)" == B ]
+check "legacy holder untouched" [ ! -f "$HOLDER" ]
+err="$(flock_as C acquire --board testbench_rp2040 2>&1 >/dev/null)"; rc=$?
+check "C is refused slot b with 75" [ $rc -eq 75 ]
+check "refusal names the slot and B" grep -q 'device lock \[b\]: busy -- held by B' <<<"$err"
+check "A cannot take slot b" rc_is 75 flock_as A acquire --slot b
+check "A re-acquires a with no hint (single held slot)" rc_is 0 flock_as A acquire --note two
+check "note refreshed on slot a" [ "$(sfield "$HA" note)" == two ]
+check "C with no hint is refused (two slots, none held)" rc_is 1 flock_as C acquire
+check "unknown slot -> rc 1" rc_is 1 flock_as C acquire --slot zzz
+check "unknown board -> rc 1" rc_is 1 flock_as C acquire --board pico_enviro_mon
+check "mine lists A's slot" [ "$(flock_as A mine)" == a ]
+check "mine is empty for C" [ -z "$(flock_as C mine)" ]
+st="$(fdl status | tr -d '\n')"
+check "status lists both slots" grep -q 'device lock \[a\].*HELD by A.*device lock \[b\].*HELD by B' <<<"$st"
+check "status --quiet is 1 while any slot is held" rc_is 1 fdl status --quiet
+check "status --slot a --quiet is 1" rc_is 1 fdl status --slot a --quiet
+check "status --short names the slot" grep -q '^b: held by B' <<<"$(fdl status --slot b --short)"
+check "B releases with no slot (everything B holds)" rc_is 0 flock_as B release
+check "slot b free, slot a still held" bash -c "[ ! -f '$HB' ] && [ -f '$HA' ]"
+check "status --slot b --quiet is 0" rc_is 0 fdl status --slot b --quiet
+check "B cannot release slot a" rc_is 1 flock_as B release --slot a
+check "run --slot b holds b for the command" rc_is 0 flock_as B run --slot b -- bash -c "[ -f '$HB' ]"
+check "run exports the slot to the command" rc_is 0 flock_as B run --board testbench_rp2040 -- bash -c '[[ $PICODROID_SLOT == b && $PROBE_RS_PROBE == 2e8a:000c:SER_B ]]'
+check "run released b afterwards" [ ! -f "$HB" ]
+check "break needs a slot with two configured" rc_is 1 fdl break --force
+check "break --slot a evicts A" rc_is 0 fdl break --slot a --force
+check "all free after the eviction" rc_is 0 fdl status --quiet
+check "release with nothing held is fine" rc_is 0 flock_as A release
+# A legacy single-board lease (a session on a branch without the fleet
+# code) blocks every slot until it goes away.
+lock_as C acquire --note old-branch >/dev/null
+check "legacy lease refuses a slot acquire with 75" rc_is 75 flock_as A acquire --slot a
+err="$(flock_as A acquire --slot a 2>&1 >/dev/null || true)"
+check "  ... and says the whole bench is held" grep -q 'whole bench is held by C' <<<"$err"
+check "  ... status --quiet is 1" rc_is 1 fdl status --quiet
+check "  ... status names the legacy lease" grep -q 'legacy single-board lease' <<<"$(fdl status)"
+check "  ... a waiter times out on it" rc_is 75 flock_as A acquire --slot a --wait 1
+lock_as C release >/dev/null
+check "slot acquire works once the legacy lease is gone" rc_is 0 flock_as A acquire --slot a
+flock_as A release >/dev/null
+
+# 19. scoped probe kill: release only kills the probe-rs on this slot's
+# probe. Safe beside a real probe-rs: the fakes carry serials no real
+# probe has, and only matching processes are touched.
+cp "$(command -v sleep)" "$DIR/probe-rs"
+PROBE_RS_PROBE=2e8a:000c:SER_A "$DIR/probe-rs" 300 & fa=$!; EXTRA_PIDS+=("$fa")
+PROBE_RS_PROBE=2e8a:000c:SER_B "$DIR/probe-rs" 300 & fb=$!; EXTRA_PIDS+=("$fb")
+sleep 0.2
+flock_as A acquire --slot a >/dev/null
+flock_as A acquire --slot b >/dev/null
+out="$(env -u PICODROID_DEVICE_LOCK_KEEP_PROBE PICODROID_FLEET_CONF="$FLEET" \
+  PICODROID_DEVICE_OWNER=A PICODROID_DEVICE_OWNER_PID="${PID[A]}" "$DL" release --slot a 2>&1)"
+sleep 0.2
+check "release --slot a kills the SER_A probe-rs" bash -c "! kill -0 $fa 2>/dev/null"
+check "  ... and says so" grep -q "killed lingering probe-rs" <<<"$out"
+check "  ... but leaves the SER_B probe-rs alive" kill -0 "$fb"
+env -u PICODROID_DEVICE_LOCK_KEEP_PROBE PICODROID_FLEET_CONF="$FLEET" \
+  PICODROID_DEVICE_OWNER=A PICODROID_DEVICE_OWNER_PID="${PID[A]}" "$DL" release --slot b >/dev/null 2>&1
+sleep 0.2
+check "release --slot b kills the SER_B probe-rs" bash -c "! kill -0 $fb 2>/dev/null"
+
+# 20. lib.sh::require_device_lock picks the slot (fleet mode)
+# flib_req NAME script args... -> require_device_lock through lib.sh, fleet on
+flib_req() { PICODROID_FLEET_CONF="$FLEET" lib_req "$@"; }
+# flib_env NAME args... -> the variables require_device_lock exports, as "SLOT PROBE"
+flib_env() {
+  local name="$1"; shift
+  PICODROID_FLEET_CONF="$FLEET" PICODROID_DEVICE_OWNER="$name" PICODROID_DEVICE_OWNER_PID="${PID[$name]}" \
+    SCRIPT_DIR="$SCRIPT_DIR" bash -c 'source "$SCRIPT_DIR/lib.sh"; require_device_lock "$@" >/dev/null
+      echo "$PICODROID_SLOT $PROBE_RS_PROBE $PICODROID_BOARD_USB_PATH"' flash.sh "$@"
+}
+check "--board takes the matching slot" rc_is 0 flib_req A flash.sh --board testbench_rp2040 --app x
+check "  ... slot b is A's" [ "$(sfield "$HB" owner)" == A ]
+check "  ... slot a untouched" [ ! -f "$HA" ]
+check "  ... note is the script name + args" [ "$(sfield "$HB" note)" == "flash.sh --board testbench_rp2040 --app x" ]
+check "exports slot, probe selector and usb path" [ "$(flib_env A -b testbench_rp2040)" == "b 2e8a:000c:SER_B 1-99.3" ]
+check "no hint reuses A's held slot" [ "$(flib_env A ping)" == "b 2e8a:000c:SER_B 1-99.3" ]
+check "C with no hint and two slots is refused" rc_is 1 flib_req C pdb.sh ping
+check "C is refused slot b with 75" rc_is 75 flib_req C pdb.sh --board testbench_rp2350w ping
+check "C takes slot a via --boards" rc_is 0 flib_req C parity-bench.sh --hil --boards pico_enviro_mon,testbench_rp2350
+check "  ... slot a is C's" [ "$(sfield "$HA" owner)" == C ]
+check "unknown board is refused with 1" rc_is 1 flib_req A flash.sh --board pico_enviro_mon
+check "PICODROID_DEVICE_LOCK=0 still exports the slot" [ "$(PICODROID_DEVICE_LOCK=0 flib_env A --slot a 2>/dev/null)" == "a 2e8a:000c:SER_A 1-99.1" ]
+check "  ... without taking it" [ "$(sfield "$HA" owner)" == C ]
+flock_as A release >/dev/null; flock_as C release >/dev/null
+check "everything free again" rc_is 0 fdl status --quiet
 
 echo "device-lock tests: $((N - FAILS))/$N passed"
 [[ $FAILS -eq 0 ]]

@@ -1,0 +1,30 @@
+# Picodroid bench fleet: one row per board slot. Copy to
+# ~/.config/picodroid/fleet.conf (or point PICODROID_FLEET_CONF at it).
+# Without this file every script assumes one board on the bench, as before.
+#
+#   slot|probe_serial|board_usb_path|boards[|extras]
+#
+#   slot            the lease name; device-lock.sh --slot NAME
+#   probe_serial    USB serial of this slot's Debug Probe (`probe-rs list`,
+#                   or ./scripts/fleet.sh discover)
+#   board_usb_path  sysfs position of the board's own USB port (its pdb CDC
+#                   device), e.g. 1-8.3.3 -- the device has no serial string,
+#                   so the physical port is its identity
+#   boards          comma list of firmware boards this hardware accepts.
+#                   The FIRST is what hil-fleet.sh flashes for ordinary rows;
+#                   the rest let `flash.sh -b X` and net rows route here
+#                   (a Pico 2 W with the Enviro+ pack runs pico_enviro_mon_w,
+#                   testbench_rp2350w and plain testbench_rp2350 firmware).
+#   extras          optional key=value list:
+#                     probe_path=1-8.3.2  the probe's sysfs position, so it can
+#                                         be power-cycled back on even when it
+#                                         is off (recommended)
+#                     cycle=hub           power-cycle the whole hub instead of
+#                                         the two ports (use when each board
+#                                         has its own hub, or the hub switches
+#                                         all ports together)
+#
+# `./scripts/fleet.sh discover` prints the probes and boards it can see with
+# these positions; `./scripts/fleet.sh check` validates this file.
+testbench_rp2350|E6633861A35F8938|1-8.3.3|testbench_rp2350|probe_path=1-8.3.2
+pico_enviro_mon_w|E66XXXXXXXXXXXXX|1-8.3.4|pico_enviro_mon_w,testbench_rp2350w,testbench_rp2350|probe_path=1-8.3.1

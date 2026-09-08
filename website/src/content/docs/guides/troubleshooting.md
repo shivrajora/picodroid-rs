@@ -25,18 +25,24 @@ This is expected. `flash.sh` flashes the firmware and then streams RTT log outpu
 
 ## `device lock: busy -- held by ...` (exit code 75)
 
-The board is a single shared resource, and every script that touches it (`flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil`, `hil-run.sh`) takes a machine-wide lease through `scripts/device-lock.sh` first. A free board is acquired automatically for your session and kept until you give it back; a busy one makes the script exit 75 and name the holder.
+Every board on the bench is a shared resource, and every script that touches one (`flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil`, `hil-run.sh`) takes a lease on that board through `scripts/device-lock.sh` first. A free board is acquired automatically for your session and kept until you give it back; a busy one makes the script exit 75 and name the holder (the message names the slot, e.g. `device lock [pico_enviro_mon_w]: busy`). With several boards configured, say which one with `--board NAME`; a script that cannot tell stops and lists the slots.
 
 ```bash
-./scripts/device-lock.sh status           # who holds it, since when, who is queued
-./scripts/device-lock.sh acquire --wait   # queue (FIFO) until the board is yours
-./scripts/device-lock.sh release          # when you are done; also kills a lingering probe-rs
-./scripts/device-lock.sh break --force    # evict a holder who is really gone
+./scripts/device-lock.sh status                     # every slot: holder, since when, queue
+./scripts/device-lock.sh acquire --board X --wait   # queue (FIFO) until that board is yours
+./scripts/device-lock.sh release                    # everything you hold; also kills a lingering probe-rs
+./scripts/device-lock.sh break --slot X --force     # evict a holder who is really gone
 ```
 
-A lease dies with the process that took it (your shell, or your Claude Code session), so a closed session never wedges the board. Long unattended runs that must survive their launcher take a pinned lease instead: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --pin`, and release it at teardown.
+`busy -- the whole bench is held by ... (a session without the fleet code)` means a checkout on a branch from before the fleet holds the old single machine-wide lease; it power-cycles the whole hub, so every slot waits for it. Merge `main` into that branch, or wait for it to finish.
+
+A lease dies with the process that took it (your shell, or your Claude Code session), so a closed session never wedges a board. Long unattended runs that must survive their launcher take a pinned lease instead: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin`, and release it at teardown.
 
 If probe-rs itself reports `Failed to open probe` while the lock says the board is free, a stale `probe-rs` is still holding the USB interface: `./scripts/device-lock.sh release` kills it (never `pkill -f probe-rs`, which also kills any shell whose command line mentions it).
+
+## `pdb: board of slot ... is not enumerated` / `no picodroid devices found (slot ...)`
+
+On a bench with several boards `pdb.sh` and the HIL runner find the board's serial port by its USB position from `~/.config/picodroid/fleet.conf`, never by scanning (the pdb device has no serial number, and a scan could land on a neighbour). This message means nothing is plugged into that position right now: the board is still rebooting, its cable moved, or the config line is stale. `./scripts/fleet.sh discover` shows what is actually on USB and where.
 
 ## `blinky` loops forever in the simulator
 

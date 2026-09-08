@@ -3,6 +3,10 @@
 
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Bench fleet helpers (several boards, one lease each); pure functions.
+# shellcheck source=fleet-lib.sh
+source "$SCRIPT_DIR/fleet-lib.sh"
+
 # Returns the host target triple (e.g. x86_64-unknown-linux-gnu).
 host_target() {
   rustc -vV | awk '/^host:/ { print $2 }'
@@ -99,6 +103,34 @@ start_net_listeners() {
   NET_LISTENER_ERR=""
   [[ ${#NET_LISTENER_PIDS[@]} -gt 0 ]] && return 0
 
+  # hil-fleet.sh runs the two servers once for all its runners (the ports
+  # are host-global); a runner then only checks they are up and stops
+  # nothing (NET_LISTENER_PIDS stays empty).
+  if [[ "${PICODROID_NET_LISTENERS_EXTERNAL:-0}" == "1" ]]; then
+    local port
+    for port in "$NET_ECHO_PORT" "$NET_HTTP_PORT"; do
+      if ! net_wait_port "$port" 5; then
+        NET_LISTENER_ERR="net listeners: PICODROID_NET_LISTENERS_EXTERNAL=1 but nothing listens on port $port"
+        return 1
+      fi
+    done
+    return 0
+  fi
+
+  # hil-fleet.sh runs the two servers once for all its runners (the ports
+  # are host-global); a runner then only checks they are up and stops
+  # nothing (NET_LISTENER_PIDS stays empty).
+  if [[ "${PICODROID_NET_LISTENERS_EXTERNAL:-0}" == "1" ]]; then
+    local port
+    for port in "$NET_ECHO_PORT" "$NET_HTTP_PORT"; do
+      if ! net_wait_port "$port" 5; then
+        NET_LISTENER_ERR="net listeners: PICODROID_NET_LISTENERS_EXTERNAL=1 but nothing listens on port $port"
+        return 1
+      fi
+    done
+    return 0
+  fi
+
   local tool
   for tool in socat python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -151,7 +183,27 @@ stop_net_listeners() {
 
 # Auto-detect the USB hub location by finding the hub with a CMSIS-DAP probe.
 detect_usb_hub() {
-  sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}'
+  sudo uhubctl 2>/dev/null | awk '/^Current status for hub/{hub=$5} /CMSIS-DAP/{print hub}' | sort -u
+}
+
+# Power-cycles the bench for the current slot. With a fleet
+# (PICODROID_SLOT, exported by require_device_lock) that is the slot's probe
+# port and board port only -- fleet-lib.sh::power_cycle_slot -- so the other
+# boards keep running. Without a fleet it is every port of the hub that
+# carries the CMSIS-DAP probe, as it always was. Prints the uhubctl commands.
+power_cycle_bench() {
+  if [[ -n "${PICODROID_SLOT:-}" ]]; then
+    power_cycle_slot "$PICODROID_SLOT"
+    return
+  fi
+  local hub
+  hub=$(detect_usb_hub | head -1)
+  if [[ -z "$hub" ]]; then
+    echo "power cycle: no USB hub with a CMSIS-DAP probe detected" >&2
+    return 1
+  fi
+  echo "uhubctl -l $hub -a cycle"
+  sudo uhubctl -l "$hub" -a cycle
 }
 
 # Pins probe-rs to the bench's CMSIS-DAP debug probe. With a second probe
@@ -385,23 +437,82 @@ gradle_lock_run() {
   fi
 }
 
-# Takes the machine-wide lease on the attached dev board for the caller's
-# session, or exits 75 (EX_TEMPFAIL) with the holder and a hint.
+# The same lock, held by the calling shell across several commands (fd 9):
+# build-apk.sh keeps it from gradlew through the copy of Gradle's output,
+# because that output file is shared by every caller and two parallel
+# builds of one app in different shrink modes would otherwise swap papks.
+# Commands run while it is held must close fd 9 (`9>&-`) so a Gradle daemon
+# cannot inherit and keep it. Same 600 s deadlock detector as above.
+GRADLE_LOCK_HELD=0
+gradle_lock_acquire() {
+  mkdir -p "$REPO_ROOT/build"
+  command -v flock >/dev/null 2>&1 || return 0
+  exec 9>"$REPO_ROOT/build/.gradle.lock"
+  flock -w 600 9 || { echo "gradle lock: could not take build/.gradle.lock within 600 s" >&2; return 1; }
+  GRADLE_LOCK_HELD=1
+}
+gradle_lock_release() {
+  [[ "$GRADLE_LOCK_HELD" == 1 ]] || return 0
+  flock -u 9
+  exec 9>&-
+  GRADLE_LOCK_HELD=0
+}
+
+# The same lock, held by the calling shell across several commands (fd 9):
+# build-apk.sh keeps it from gradlew through the copy of Gradle's output,
+# because that output file is shared by every caller and two parallel
+# builds of one app in different shrink modes would otherwise swap papks.
+# Commands run while it is held must close fd 9 (`9>&-`) so a Gradle daemon
+# cannot inherit and keep it. Same 600 s deadlock detector as above.
+GRADLE_LOCK_HELD=0
+gradle_lock_acquire() {
+  mkdir -p "$REPO_ROOT/build"
+  command -v flock >/dev/null 2>&1 || return 0
+  exec 9>"$REPO_ROOT/build/.gradle.lock"
+  flock -w 600 9 || { echo "gradle lock: could not take build/.gradle.lock within 600 s" >&2; return 1; }
+  GRADLE_LOCK_HELD=1
+}
+gradle_lock_release() {
+  [[ "$GRADLE_LOCK_HELD" == 1 ]] || return 0
+  flock -u 9
+  exec 9>&-
+  GRADLE_LOCK_HELD=0
+}
+
+# Takes the lease on a dev board for the caller's session, or exits 75
+# (EX_TEMPFAIL) with the holder and a hint.
 #
-# One probe, one board, several parallel sessions: every script that flashes,
-# power-cycles or talks pdb to the board calls this first. If the board is
+# Several parallel sessions, one lease per board: every script that flashes,
+# power-cycles or talks pdb to a board calls this first. If the board is
 # free the lease is taken and kept -- it belongs to the *session* (inside
 # Claude the claude process, in a terminal the shell that ran the script),
 # not to this command, so a flash followed by pdb calls needs no ceremony and
 # nothing can interleave. Release with `./scripts/device-lock.sh release`.
 # The lease evaporates on its own when the owning process exits.
 #
-# Optional leading `--wait SECS` queues instead of failing. Remaining args are
-# only used to label the lease in `status`.
+# Optional leading `--wait SECS` queues instead of failing. The remaining
+# args label the lease in `status`; with a fleet config they are also
+# scanned for the board (--slot NAME, --board/-b NAME, --boards A,B, or
+# -s /dev/ttyACMn), falling back to the slot this session already holds or
+# the only slot configured (fleet-lib.sh::fleet_resolve_slot). In fleet mode
+# the slot's identity is exported for the caller: PICODROID_SLOT,
+# PICODROID_PROBE_SERIAL, PICODROID_BOARD_USB_PATH and PROBE_RS_PROBE, so
+# probe-rs talks to this slot's probe and nothing else.
 #
-# PICODROID_DEVICE_LOCK=0 skips the check (emergencies). Without flock the
-# check is skipped too, matching gradle_lock_run.
+# PICODROID_DEVICE_LOCK=0 skips the check (emergencies) but still resolves
+# the slot. Without flock the check is skipped too, matching gradle_lock_run.
 require_device_lock() {
+  # $PPID in a sourced function is the parent of the script, i.e. the shell
+  # (or Claude session) that launched it -- the lease must outlive the script.
+  local owner_pid="${PICODROID_DEVICE_OWNER_PID:-${CLAUDE_PID:-$PPID}}"
+  local -a slot_args=()
+  if fleet_enabled; then
+    local held slot
+    held="$(PICODROID_DEVICE_OWNER_PID="$owner_pid" bash "$SCRIPT_DIR/device-lock.sh" mine 2>/dev/null || true)"
+    slot=$(fleet_resolve_slot "$held" "$@") || exit 1
+    fleet_export_slot "$slot"
+    slot_args=(--slot "$slot")
+  fi
   if [[ "${PICODROID_DEVICE_LOCK:-1}" == "0" ]]; then
     echo "WARNING: PICODROID_DEVICE_LOCK=0 -- touching the board without the device lock" >&2
     return 0
@@ -415,10 +526,9 @@ require_device_lock() {
     wait_args=(--wait "${2:-}")
     shift 2
   fi
-  # $PPID in a sourced function is the parent of the script, i.e. the shell
-  # (or Claude session) that launched it -- the lease must outlive the script.
-  PICODROID_DEVICE_OWNER_PID="${PICODROID_DEVICE_OWNER_PID:-${CLAUDE_PID:-$PPID}}" \
-    bash "$SCRIPT_DIR/device-lock.sh" acquire ${wait_args[@]+"${wait_args[@]}"} \
+  PICODROID_DEVICE_OWNER_PID="$owner_pid" \
+    bash "$SCRIPT_DIR/device-lock.sh" acquire ${slot_args[@]+"${slot_args[@]}"} \
+      ${wait_args[@]+"${wait_args[@]}"} \
       --note "$(basename "$0") $*" \
     || exit $?
 }
