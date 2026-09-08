@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="imagedemo" version="1.0">
-    <application application="imagedemo/ImageDemoApp" />
+    <application application="imagedemo/ImageDemoApp" label="Image Demo" icon="logo.png" />
 </manifest>

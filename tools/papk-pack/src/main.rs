@@ -8,6 +8,11 @@
 //!     --version 1.0 \
 //!     --classes-dir build/classes/helloworld \
 //!     --output build/apks/helloworld.papk
+//!
+//! `--repack <in.papk>` copies every section of an existing PAPK and lets the
+//! identity flags override its manifest — how the HIL harness mints fixtures
+//! that differ only in package name — and `--pad-asset <bytes>` appends a
+//! synthetic asset so a fixture reaches a size (filling the app region).
 
 mod classcheck;
 
@@ -15,7 +20,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use papk_format::{AssetSpec, EntryPoint, ManifestSpec, PapkBuilder};
+use papk_format::{keys, AssetSpec, EntryPoint, ManifestSpec, Papk, PapkBuilder};
 
 /// LVGL `lv_color_format_t` value for native RGB565 little-endian. Verified
 /// against `third_party/lvgl/src/misc/lv_color.h` (`LV_COLOR_FORMAT_RGB565`) —
@@ -31,7 +36,8 @@ struct Args {
     package_name: String,
     version: String,
     framework_map_version: String,
-    classes_dir: PathBuf,
+    /// Absent only under `--repack`, whose classes come from the input.
+    classes_dir: Option<PathBuf>,
     output: PathBuf,
     /// Optional directory of image assets to bundle. PNGs are decoded on the
     /// host into LVGL-native RGB565 (little-endian per pixel) and emitted in
@@ -46,10 +52,127 @@ struct Args {
     /// The entry class as the manifest named it, when the map renamed it —
     /// for error messages only.
     entry_original: Option<String>,
+    /// `--version-code`: monotonic integer version, written as `version-code`.
+    version_code: Option<u32>,
+    /// `--label`: display name, written as `label`.
+    label: Option<String>,
+    /// `--icon`: name of a packed asset, written as `icon`.
+    icon: Option<String>,
+    /// `--pad-asset <bytes>`: append a synthetic asset so the output reaches
+    /// at least this size.
+    pad_asset: Option<usize>,
 }
 
-fn parse_args() -> Result<Args, String> {
+/// Sections copied from a `--repack` input: the classes and assets verbatim,
+/// plus every manifest entry that is not a well-known key.
+struct RepackSource {
+    classes: Vec<(String, Vec<u8>)>,
+    assets: Vec<Asset>,
+    extras: Vec<(String, String)>,
+}
+
+/// The well-known manifest values of a `--repack` input, each the default
+/// for the matching flag.
+#[derive(Default)]
+struct RepackManifest {
+    main_class: Option<String>,
+    activity: Option<String>,
+    application: Option<String>,
+    package_name: Option<String>,
+    version: Option<String>,
+    framework_map_version: Option<String>,
+    version_code: Option<u32>,
+    label: Option<String>,
+    icon: Option<String>,
+}
+
+const WELL_KNOWN_KEYS: &[&[u8]] = &[
+    keys::MAIN_CLASS,
+    keys::ACTIVITY,
+    keys::APPLICATION,
+    keys::PACKAGE_NAME,
+    keys::VERSION,
+    keys::FRAMEWORK_MAP_VERSION,
+    keys::VERSION_CODE,
+    keys::LABEL,
+    keys::ICON,
+];
+
+/// Read a PAPK back into the pieces `build_papk` takes. Sections are copied
+/// byte for byte — no validation, the input was validated when it was packed
+/// (and may be shrunk, which the entry-point check could not follow anyway).
+fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), String> {
+    let papk = Papk::parse(bytes).map_err(|e| format!("not a PAPK: {e}"))?;
+    let classes = papk
+        .classes()
+        .map_err(|e| format!("CLASSES section: {e}"))?
+        .map(|c| {
+            let name = String::from_utf8(c.name.to_vec())
+                .map_err(|_| "class name is not UTF-8".to_string())?;
+            Ok((name, c.data.to_vec()))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut assets = Vec::new();
+    if let Some(iter) = papk.assets().map_err(|e| format!("ASSETS section: {e}"))? {
+        for a in iter {
+            assets.push(Asset {
+                name: String::from_utf8(a.name.to_vec())
+                    .map_err(|_| "asset name is not UTF-8".to_string())?,
+                width: a.width,
+                height: a.height,
+                cf: a.cf,
+                stride: a.stride,
+                data: a.data.to_vec(),
+            });
+        }
+    }
+    let mut manifest = RepackManifest::default();
+    let mut extras = Vec::new();
+    for e in papk
+        .manifest()
+        .map_err(|e| format!("MANIFEST section: {e}"))?
+    {
+        let value = String::from_utf8(e.value.to_vec())
+            .map_err(|_| "manifest value is not UTF-8".to_string())?;
+        let slot = match e.key {
+            k if k == keys::MAIN_CLASS => &mut manifest.main_class,
+            k if k == keys::ACTIVITY => &mut manifest.activity,
+            k if k == keys::APPLICATION => &mut manifest.application,
+            k if k == keys::PACKAGE_NAME => &mut manifest.package_name,
+            k if k == keys::VERSION => &mut manifest.version,
+            k if k == keys::FRAMEWORK_MAP_VERSION => &mut manifest.framework_map_version,
+            k if k == keys::LABEL => &mut manifest.label,
+            k if k == keys::ICON => &mut manifest.icon,
+            k if k == keys::VERSION_CODE => {
+                manifest.version_code = value.parse().ok();
+                continue;
+            }
+            k => {
+                debug_assert!(!WELL_KNOWN_KEYS.contains(&k));
+                let key = String::from_utf8(k.to_vec())
+                    .map_err(|_| "manifest key is not UTF-8".to_string())?;
+                extras.push((key, value));
+                continue;
+            }
+        };
+        *slot = Some(value);
+    }
+    Ok((
+        RepackSource {
+            classes,
+            assets,
+            extras,
+        },
+        manifest,
+    ))
+}
+
+fn parse_args() -> Result<(Args, Option<RepackSource>), String> {
     let args: Vec<String> = std::env::args().collect();
+    parse_argv(&args)
+}
+
+fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut main_class = None;
     let mut activity = None;
     let mut application = None;
@@ -60,6 +183,11 @@ fn parse_args() -> Result<Args, String> {
     let mut output = None;
     let mut assets_dir: Option<PathBuf> = None;
     let mut shrink_map: Option<PathBuf> = None;
+    let mut version_code: Option<u32> = None;
+    let mut label = None;
+    let mut icon = None;
+    let mut repack: Option<PathBuf> = None;
+    let mut pad_asset: Option<usize> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -96,11 +224,41 @@ fn parse_args() -> Result<Args, String> {
                         .clone(),
                 );
             }
+            "--version-code" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--version-code requires a value")?;
+                version_code =
+                    Some(raw.parse::<u32>().ok().filter(|n| *n >= 1).ok_or_else(|| {
+                        format!("--version-code must be a positive integer, got '{raw}'")
+                    })?);
+            }
+            "--label" => {
+                i += 1;
+                label = Some(args.get(i).ok_or("--label requires a value")?.clone());
+            }
+            "--icon" => {
+                i += 1;
+                icon = Some(args.get(i).ok_or("--icon requires a value")?.clone());
+            }
             "--classes-dir" => {
                 i += 1;
                 classes_dir = Some(PathBuf::from(
                     args.get(i).ok_or("--classes-dir requires a value")?,
                 ));
+            }
+            "--repack" => {
+                i += 1;
+                repack = Some(PathBuf::from(
+                    args.get(i).ok_or("--repack requires a value")?,
+                ));
+            }
+            "--pad-asset" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--pad-asset requires a value")?;
+                pad_asset = Some(
+                    raw.parse::<usize>()
+                        .map_err(|_| format!("--pad-asset must be a byte count, got '{raw}'"))?,
+                );
             }
             "--output" => {
                 i += 1;
@@ -131,6 +289,33 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
+    // Under --repack the input supplies every value no flag overrides.
+    let mut source = None;
+    if let Some(path) = &repack {
+        if classes_dir.is_some() || assets_dir.is_some() || shrink_map.is_some() {
+            return Err(
+                "--repack takes its classes and assets from the input; drop --classes-dir, \
+                 --assets-dir and --shrink-map"
+                    .into(),
+            );
+        }
+        let bytes = fs::read(path).map_err(|e| format!("read --repack {}: {e}", path.display()))?;
+        let (src, m) =
+            load_repack_source(&bytes).map_err(|e| format!("--repack {}: {e}", path.display()))?;
+        if main_class.is_none() && activity.is_none() && application.is_none() {
+            main_class = m.main_class;
+            activity = m.activity;
+            application = m.application;
+        }
+        package_name = package_name.or(m.package_name);
+        version = version.or(m.version);
+        framework_map_version = framework_map_version.or(m.framework_map_version);
+        version_code = version_code.or(m.version_code);
+        label = label.or(m.label);
+        icon = icon.or(m.icon);
+        source = Some(src);
+    }
+
     let entry_flags =
         main_class.is_some() as u8 + activity.is_some() as u8 + application.is_some() as u8;
     if entry_flags == 0 {
@@ -139,21 +324,31 @@ fn parse_args() -> Result<Args, String> {
     if entry_flags > 1 {
         return Err("exactly one of --main-class, --activity, or --application may be set".into());
     }
+    if repack.is_none() && classes_dir.is_none() {
+        return Err("--classes-dir is required (or --repack <in.papk>)".into());
+    }
 
-    Ok(Args {
-        main_class,
-        activity,
-        application,
-        package_name: package_name.ok_or("--package-name is required")?,
-        version: version.ok_or("--version is required")?,
-        framework_map_version: framework_map_version
-            .ok_or("--framework-map-version is required")?,
-        classes_dir: classes_dir.ok_or("--classes-dir is required")?,
-        output: output.ok_or("--output is required")?,
-        assets_dir,
-        shrink_map,
-        entry_original: None,
-    })
+    Ok((
+        Args {
+            main_class,
+            activity,
+            application,
+            package_name: package_name.ok_or("--package-name is required")?,
+            version: version.ok_or("--version is required")?,
+            framework_map_version: framework_map_version
+                .ok_or("--framework-map-version is required")?,
+            classes_dir,
+            output: output.ok_or("--output is required")?,
+            assets_dir,
+            shrink_map,
+            entry_original: None,
+            version_code,
+            label,
+            icon,
+            pad_asset,
+        },
+        source,
+    ))
 }
 
 /// Spell the manifest entry class the way the packed class files do: an
@@ -190,9 +385,11 @@ fn print_usage() {
          \x20 --package-name <name> \\\n\
          \x20 --version <x.y> \\\n\
          \x20 --framework-map-version <semver> \\\n\
-         \x20 --classes-dir <dir> \\\n\
+         \x20 [--version-code <n>] [--label <text>] [--icon <asset.png>] \\\n\
+         \x20 --classes-dir <dir> | --repack <in.papk> \\\n\
          \x20 [--assets-dir <dir>] \\\n\
          \x20 [--shrink-map <map.toml>] \\\n\
+         \x20 [--pad-asset <bytes>] \\\n\
          \x20 --output <file.papk>\n\
          \n\
          At least one of --main-class, --activity, or --application must be provided.\n\
@@ -200,7 +397,12 @@ fn print_usage() {
          LVGL-native RGB565 and bundled in the ASSETS (ASST) section.\n\
          --shrink-map names the class-shrink map --classes-dir was rewritten with,\n\
          so the entry-point check matches descriptors in their shrunk spelling and\n\
-         an app-shrunk (cut-app) map renames the manifest entry class itself."
+         an app-shrunk (cut-app) map renames the manifest entry class itself.\n\
+         --version-code, --label and --icon are the app identity a launcher shows;\n\
+         --icon must name a file that --assets-dir packs (48x48 recommended).\n\
+         --repack copies the classes, assets and manifest of an existing PAPK and\n\
+         applies the flags above over its manifest; --pad-asset appends a synthetic\n\
+         asset so the output is at least that many bytes (test fixtures)."
     );
 }
 
@@ -365,8 +567,73 @@ struct Asset {
     width: u16,
     height: u16,
     cf: u8,
+    /// Bytes per row; `0` = derive from width + cf (what the packer writes).
+    stride: u16,
     /// Raw pixel bytes in the format described by `cf`.
     data: Vec<u8>,
+}
+
+/// `--icon` must name an asset that is actually packed — a launcher that
+/// finds no such ASSETS entry would show nothing — and should be a small
+/// square, which is only a warning: nothing breaks, it just costs flash.
+fn check_icon(icon: &str, assets: &[Asset]) -> Result<(), String> {
+    let Some(asset) = assets.iter().find(|a| a.name == icon) else {
+        let mut names: Vec<&str> = assets.iter().map(|a| a.name.as_str()).collect();
+        names.sort_unstable();
+        return Err(format!(
+            "manifest icon '{icon}' is not a packed asset (packed: {}). Put the PNG under \
+             assets/ and name it exactly.",
+            if names.is_empty() {
+                "none".to_string()
+            } else {
+                names.join(", ")
+            }
+        ));
+    };
+    if asset.width != asset.height {
+        eprintln!(
+            "Warning: icon '{icon}' is {}x{}, not square — launchers expect a square icon \
+             (48x48 recommended)",
+            asset.width, asset.height
+        );
+    } else if asset.width > 64 {
+        eprintln!(
+            "Warning: icon '{icon}' is {}x{}; launchers scale anything past 64x64 and each \
+             icon costs width*height*2 bytes of flash (48x48 recommended)",
+            asset.width, asset.height
+        );
+    }
+    Ok(())
+}
+
+/// Append a synthetic RGB565 asset so the packed file reaches `target` bytes
+/// (a HIL fixture that must occupy a known amount of the app region).
+fn pad_assets_to(
+    args: &Args,
+    classes: &[(String, Vec<u8>)],
+    assets: &mut Vec<Asset>,
+    extras: &[(String, String)],
+    target: usize,
+) -> Result<(), String> {
+    let current = build_papk(args, classes, assets, extras)
+        .map_err(|e| format!("{e}"))?
+        .len();
+    if current >= target {
+        return Ok(());
+    }
+    const WIDTH: usize = 256;
+    let rows = (target - current).div_ceil(WIDTH * 2).max(1);
+    let height = u16::try_from(rows)
+        .map_err(|_| format!("--pad-asset {target}: padding would exceed 65535 rows"))?;
+    assets.push(Asset {
+        name: "__pad.png".into(),
+        width: WIDTH as u16,
+        height,
+        cf: LV_COLOR_FORMAT_RGB565,
+        stride: 0,
+        data: vec![0u8; WIDTH * rows * 2],
+    });
+    Ok(())
 }
 
 /// Decode all `*.png` files in `dir` (flat, non-recursive) into LVGL-native
@@ -433,6 +700,7 @@ fn decode_png_to_rgb565(path: &Path, name: String) -> Result<Asset, String> {
         width: w as u16,
         height: h as u16,
         cf: LV_COLOR_FORMAT_RGB565,
+        stride: 0,
         data: buf,
     })
 }
@@ -448,6 +716,7 @@ fn build_papk(
     args: &Args,
     classes: &[(String, Vec<u8>)],
     assets: &[Asset],
+    extras: &[(String, String)],
 ) -> Result<Vec<u8>, papk_format::BuildError> {
     let entry = if let Some(mc) = args.main_class.as_deref() {
         EntryPoint::MainClass(mc)
@@ -464,7 +733,13 @@ fn build_papk(
         package_name: &args.package_name,
         version: &args.version,
         framework_map_version: &args.framework_map_version,
+        version_code: args.version_code,
+        label: args.label.as_deref(),
+        icon: args.icon.as_deref(),
     });
+    for (k, v) in extras {
+        builder.manifest_entry(k, v);
+    }
     for (name, bytes) in classes {
         builder.class(name, bytes);
     }
@@ -474,7 +749,7 @@ fn build_papk(
             width: a.width,
             height: a.height,
             cf: a.cf,
-            stride: 0, // 0 = derive from width + cf
+            stride: a.stride,
             data: &a.data,
         });
     }
@@ -484,7 +759,7 @@ fn build_papk(
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
-    let args = match parse_args() {
+    let (mut args, source) = match parse_args() {
         Ok(a) => a,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -493,65 +768,91 @@ fn main() {
         }
     };
 
-    if !args.classes_dir.is_dir() {
-        eprintln!(
-            "Error: --classes-dir '{}' is not a directory",
-            args.classes_dir.display()
-        );
-        std::process::exit(1);
-    }
-
-    let classes = match collect_classes(&args.classes_dir) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error reading classes: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    if classes.is_empty() {
-        eprintln!(
-            "Warning: no .class files found in '{}'",
-            args.classes_dir.display()
-        );
-    }
-
-    // Spell the entry class the way the packed classes do: a plain --shrink
-    // build leaves app classes under their own names, an --shrink-app build
-    // renames them under c/, and the manifest must name what is packed.
-    let mut args = args;
-    if let Err(msg) = shrink_entry_point(&mut args) {
-        eprintln!("Error: {msg}");
-        std::process::exit(1);
-    }
-
-    // Validate the manifest entry point against the packed classes — catches
-    // a typo'd `activity=`/`main-class=`/`application=` at build time instead
-    // of a runtime NoSuchMethod on device.
-    if let Err(msg) = validate_entry_point(&args, &classes) {
-        eprintln!("Error: {msg}");
-        std::process::exit(1);
-    }
-
-    let assets: Vec<Asset> = match &args.assets_dir {
-        Some(dir) if dir.is_dir() => match collect_assets(dir) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("Error reading assets: {e}");
+    let (classes, mut assets, extras) = match source {
+        // --repack: sections come from the input; they were validated (and
+        // possibly shrunk) when it was packed, so no entry-point check here.
+        Some(src) => (src.classes, src.assets, src.extras),
+        None => {
+            let classes_dir = args
+                .classes_dir
+                .clone()
+                .expect("parse_args requires --classes-dir without --repack");
+            if !classes_dir.is_dir() {
+                eprintln!(
+                    "Error: --classes-dir '{}' is not a directory",
+                    classes_dir.display()
+                );
                 std::process::exit(1);
             }
-        },
-        Some(dir) => {
-            eprintln!(
-                "Warning: --assets-dir '{}' is not a directory; skipping",
-                dir.display()
-            );
-            Vec::new()
+
+            let classes = match collect_classes(&classes_dir) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error reading classes: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            if classes.is_empty() {
+                eprintln!(
+                    "Warning: no .class files found in '{}'",
+                    classes_dir.display()
+                );
+            }
+
+            // Spell the entry class the way the packed classes do: a plain
+            // --shrink build leaves app classes under their own names, an
+            // --shrink-app build renames them under c/, and the manifest must
+            // name what is packed.
+            if let Err(msg) = shrink_entry_point(&mut args) {
+                eprintln!("Error: {msg}");
+                std::process::exit(1);
+            }
+
+            // Validate the manifest entry point against the packed classes —
+            // catches a typo'd `activity=`/`main-class=`/`application=` at
+            // build time instead of a runtime NoSuchMethod on device.
+            if let Err(msg) = validate_entry_point(&args, &classes) {
+                eprintln!("Error: {msg}");
+                std::process::exit(1);
+            }
+
+            let assets: Vec<Asset> = match &args.assets_dir {
+                Some(dir) if dir.is_dir() => match collect_assets(dir) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        eprintln!("Error reading assets: {e}");
+                        std::process::exit(1);
+                    }
+                },
+                Some(dir) => {
+                    eprintln!(
+                        "Warning: --assets-dir '{}' is not a directory; skipping",
+                        dir.display()
+                    );
+                    Vec::new()
+                }
+                None => Vec::new(),
+            };
+            (classes, assets, Vec::new())
         }
-        None => Vec::new(),
     };
 
-    let papk = match build_papk(&args, &classes, &assets) {
+    if let Some(icon) = &args.icon {
+        if let Err(msg) = check_icon(icon, &assets) {
+            eprintln!("Error: {msg}");
+            std::process::exit(1);
+        }
+    }
+
+    if let Some(target) = args.pad_asset {
+        if let Err(msg) = pad_assets_to(&args, &classes, &mut assets, &extras, target) {
+            eprintln!("Error: {msg}");
+            std::process::exit(1);
+        }
+    }
+
+    let papk = match build_papk(&args, &classes, &assets, &extras) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Error building PAPK: {e}");
@@ -613,19 +914,23 @@ mod pack_integration {
             package_name: "fixture".into(),
             version: "1.0".into(),
             framework_map_version: "0.0.0".into(),
-            classes_dir: classes_dir.clone(),
+            classes_dir: Some(classes_dir.clone()),
             output: work.join("out.papk"),
             assets_dir: None,
             shrink_map: None,
             entry_original: None,
+            version_code: None,
+            label: None,
+            icon: None,
+            pad_asset: None,
         };
 
-        let classes = collect_classes(&args.classes_dir).unwrap();
+        let classes = collect_classes(args.classes_dir.as_deref().unwrap()).unwrap();
         assert_eq!(classes.len(), 1);
         assert_eq!(classes[0].0, "fixture/Main");
         validate_entry_point(&args, &classes).unwrap();
 
-        let papk = build_papk(&args, &classes, &[]).unwrap();
+        let papk = build_papk(&args, &classes, &[], &[]).unwrap();
         let parsed = papk_format::Papk::parse(&papk).expect("papk-pack output must parse");
         assert_eq!(parsed.main_class(), Some("fixture/Main"));
         assert_eq!(parsed.class_count(), Ok(1));
@@ -642,6 +947,140 @@ mod pack_integration {
         assert_eq!(papk, golden);
 
         fs::remove_dir_all(&work).ok();
+    }
+
+    fn fixture_args(work: &Path) -> Args {
+        Args {
+            main_class: Some("fixture/Main".into()),
+            activity: None,
+            application: None,
+            package_name: "fixture".into(),
+            version: "1.0".into(),
+            framework_map_version: "0.0.0".into(),
+            classes_dir: None,
+            output: work.join("out.papk"),
+            assets_dir: None,
+            shrink_map: None,
+            entry_original: None,
+            version_code: None,
+            label: None,
+            icon: None,
+            pad_asset: None,
+        }
+    }
+
+    fn square(name: &str, side: u16) -> Asset {
+        Asset {
+            name: name.into(),
+            width: side,
+            height: side,
+            cf: LV_COLOR_FORMAT_RGB565,
+            stride: 0,
+            data: vec![0u8; side as usize * side as usize * 2],
+        }
+    }
+
+    #[test]
+    fn an_icon_must_name_a_packed_asset() {
+        let assets = [square("logo.png", 48)];
+        assert!(check_icon("logo.png", &assets).is_ok());
+        let err = check_icon("icon.png", &assets).unwrap_err();
+        assert!(
+            err.contains("'icon.png'") && err.contains("logo.png"),
+            "{err}"
+        );
+        assert!(check_icon("x", &[]).unwrap_err().contains("none"));
+    }
+
+    /// Identity flags land in the manifest, in the writer's order, and the
+    /// fixture's classes come through a repack byte for byte with only the
+    /// overridden keys changed.
+    #[test]
+    fn repack_rewrites_identity_and_copies_sections() {
+        let fixtures = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../papk-format/tests/fixtures"
+        ));
+        let class_bytes = fs::read(fixtures.join("Main.class")).expect("fixture Main.class");
+        let work = std::env::temp_dir().join(format!("papk-pack-rp-{}", std::process::id()));
+        let classes = vec![("fixture/Main".to_string(), class_bytes.clone())];
+
+        let mut original = fixture_args(&work);
+        original.version_code = Some(3);
+        original.label = Some("Fixture".into());
+        original.icon = Some("logo.png".into());
+        let extras = vec![("x-note".to_string(), "kept".to_string())];
+        let assets = [square("logo.png", 8)];
+        let bytes = build_papk(&original, &classes, &assets, &extras).unwrap();
+
+        let (src, manifest) = load_repack_source(&bytes).unwrap();
+        assert_eq!(src.classes, classes);
+        assert_eq!(src.assets.len(), 1);
+        assert_eq!(src.assets[0].name, "logo.png");
+        assert_eq!(src.extras, extras);
+        assert_eq!(manifest.main_class.as_deref(), Some("fixture/Main"));
+        assert_eq!(manifest.package_name.as_deref(), Some("fixture"));
+        assert_eq!(manifest.version_code, Some(3));
+        assert_eq!(manifest.label.as_deref(), Some("Fixture"));
+        assert_eq!(manifest.icon.as_deref(), Some("logo.png"));
+
+        // A repack that only renames the package changes nothing else.
+        let mut renamed = original;
+        renamed.package_name = "fixture2".into();
+        let again = build_papk(&renamed, &src.classes, &src.assets, &src.extras).unwrap();
+        let parsed = papk_format::Papk::parse(&again).unwrap();
+        assert_eq!(parsed.package_name(), Some("fixture2"));
+        assert_eq!(parsed.version_code(), Some(3));
+        assert_eq!(parsed.label(), Some("Fixture"));
+        assert_eq!(parsed.icon(), Some("logo.png"));
+        assert_eq!(parsed.manifest_value(b"x-note"), Some("kept"));
+        let entry = parsed.classes().unwrap().next().unwrap();
+        assert_eq!(entry.data, class_bytes.as_slice());
+        assert_eq!(again.len(), bytes.len() + 1);
+    }
+
+    #[test]
+    fn pad_asset_reaches_the_requested_size_or_is_a_no_op() {
+        let work = std::env::temp_dir().join("papk-pack-pad");
+        let args = fixture_args(&work);
+        let classes = vec![("fixture/Main".to_string(), vec![0u8; 16])];
+        let mut assets = Vec::new();
+        let small = build_papk(&args, &classes, &assets, &[]).unwrap().len();
+
+        pad_assets_to(&args, &classes, &mut assets, &[], small).unwrap();
+        assert!(assets.is_empty(), "already large enough: no pad");
+
+        pad_assets_to(&args, &classes, &mut assets, &[], 20_000).unwrap();
+        let padded = build_papk(&args, &classes, &assets, &[]).unwrap();
+        assert!(padded.len() >= 20_000, "{}", padded.len());
+        assert!(padded.len() < 20_000 + 600, "{}", padded.len());
+        assert_eq!(assets[0].name, "__pad.png");
+    }
+
+    #[test]
+    fn version_code_flag_must_be_positive() {
+        let argv: Vec<String> = [
+            "papk-pack",
+            "--main-class",
+            "a/B",
+            "--package-name",
+            "a",
+            "--version",
+            "1",
+            "--framework-map-version",
+            "0.0.0",
+            "--classes-dir",
+            "x",
+            "--output",
+            "y",
+            "--version-code",
+            "0",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let err = parse_argv(&argv).err().expect("rejected");
+        assert!(err.contains("positive integer"), "{err}");
     }
 }
 

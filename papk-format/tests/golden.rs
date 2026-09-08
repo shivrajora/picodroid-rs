@@ -50,6 +50,13 @@ fn assert_common_content(p: &Papk<'_>) {
     assert_eq!(p.manifest_value(keys::PACKAGE_NAME), Some("fixture"));
     assert_eq!(p.manifest_value(keys::VERSION), Some("1.0"));
     assert_eq!(p.framework_map_version(), Some("0.0.0"));
+    // Typed accessors over the same four keys; the identity keys that came
+    // later are absent on these pre-refactor files.
+    assert_eq!(p.package_name(), Some("fixture"));
+    assert_eq!(p.version(), Some("1.0"));
+    assert_eq!(p.version_code(), None);
+    assert_eq!(p.label(), None);
+    assert_eq!(p.icon(), None);
 
     // Classes: exactly the checked-in Main.class.
     assert_eq!(p.class_count(), Ok(1));
@@ -123,6 +130,9 @@ mod rebuild {
             package_name: "fixture",
             version: "1.0",
             framework_map_version: "0.0.0",
+            version_code: None,
+            label: None,
+            icon: None,
         });
         b.class("fixture/Main", MAIN_CLASS);
         b

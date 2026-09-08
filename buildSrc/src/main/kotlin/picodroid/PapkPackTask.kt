@@ -25,6 +25,20 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val frameworkMapVersion: Property<String>
 
+    /** `version-code` manifest key; the plugin always sets it (1 by default). */
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    /** `label` manifest key; unset means the launcher shows the package name. */
+    @get:Input
+    @get:Optional
+    abstract val label: Property<String>
+
+    /** `icon` manifest key; must name a file in [assetsDir] (papk-pack checks). */
+    @get:Input
+    @get:Optional
+    abstract val icon: Property<String>
+
     @get:Input
     @get:Optional
     abstract val mainClass: Property<String>
@@ -82,9 +96,12 @@ abstract class PapkPackTask : DefaultTask() {
             "--package-name", packageName.get(),
             "--version", version.get(),
             "--framework-map-version", frameworkMapVersion.get(),
+            "--version-code", versionCode.get().toString(),
             "--classes-dir", classesDir.get().asFile.absolutePath,
             "--output", out.absolutePath,
         )
+        label.orNull?.let { args += listOf("--label", it) }
+        icon.orNull?.let { args += listOf("--icon", it) }
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
         shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }
 

@@ -566,9 +566,11 @@ pub fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
     // Same boot-meta layout the device parses, from the same source — this
     // used to be a hand-assembled copy under a comment claiming they matched.
     use papk_format::flash_image;
-    let meta = flash_image::build_meta_page(apk_len as u32);
+    // The baked app is the one a device boots into when nothing else says
+    // otherwise (FLAG_BOOT_DEFAULT); it predates every install, so seq 0.
+    let meta = flash_image::build_meta_pages(apk_len as u32, flash_image::FLAG_BOOT_DEFAULT, 0);
     let mut image = Vec::with_capacity(flash_image::META_SIZE + apk_len);
-    image.extend_from_slice(&meta[..flash_image::HEADER_LEN]);
+    image.extend_from_slice(&meta);
     image.resize(flash_image::META_SIZE, 0xFF);
     image.extend_from_slice(&apk_bytes);
 

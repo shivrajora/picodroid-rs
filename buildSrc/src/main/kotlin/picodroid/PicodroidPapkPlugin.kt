@@ -302,6 +302,17 @@ class PicodroidPapkPlugin : Plugin<Project> {
         // legacy v1.0 papks are emitted unchanged for apps without assets.
         val appAssetsDir = target.projectDir.resolve("assets")
 
+        // An icon names a file under assets/; papk-pack re-checks against what
+        // it actually packed, but a typo should fail here, at configuration
+        // time, with the manifest named rather than after a compile.
+        manifest.icon?.let { icon ->
+            if (!appAssetsDir.resolve(icon).isFile) {
+                throw GradleException(
+                    "${target.name}: PicodroidManifest.xml icon=\"$icon\" is not a file under assets/"
+                )
+            }
+        }
+
         // When the app has assets, generate an AssetConstants.java so app code
         // can reference bundled files by a compile-checked constant instead of
         // a bare string literal. The generated source lives under build/ —
@@ -345,8 +356,13 @@ class PicodroidPapkPlugin : Plugin<Project> {
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
             dependsOn(verifyApiContract)
             classesDir.set(packClassesInput)
-            packageName.set(target.name)
+            // The PAPK identity is the manifest's package= attribute — the
+            // package directory keys on it — not the Gradle project name.
+            packageName.set(manifest.packageName)
             version.set(manifest.version)
+            versionCode.set(manifest.versionCode)
+            manifest.label?.let { label.set(it) }
+            manifest.icon?.let { icon.set(it) }
             this.frameworkMapVersion.set(frameworkMapVersion)
             manifest.mainClass?.let { mainClass.set(it) }
             manifest.activity?.let { activity.set(it) }

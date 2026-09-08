@@ -29,13 +29,28 @@ packer.
 
 The `<manifest>` root:
 
-- **`package` (required, non-blank).** Names the app's package. Missing or
-  blank both fail. (Note: this value is validated but does not become the PAPK
-  package name — see [How it is wired](#how-it-is-wired).)
-- **`version` (optional, default `"1.0"`).** Missing or blank falls back to
-  `"1.0"`. Any non-blank string is accepted verbatim; there is no format check.
+- **`package` (required, non-blank).** The app's identity: it becomes the
+  `package-name` key of the PAPK, which the device's package directory keys
+  on (one install per package; reinstalling a package replaces its previous
+  copy). Missing or blank both fail. Reverse-DNS (`com.acme.weather`) and
+  plain (`helloworld`) names are both accepted; the example apps use the plain
+  form.
+- **`version` (optional, default `"1.0"`).** The human-readable version name.
+  Missing or blank falls back to `"1.0"`. Any non-blank string is accepted
+  verbatim; there is no format check.
+- **`version-code` (optional, default `1`).** A positive integer that must
+  grow with every release of the package — the package directory orders
+  installs by it. Anything else fails the build.
 - **`<application>` (required).** At least one must exist. Only the first
-  `<application>` element is read; any extras are silently ignored.
+  `<application>` element is read; any extras are silently ignored. Besides
+  the entry point (below) it takes two optional identity attributes:
+  - **`label`** — the display name a launcher shows; defaults to the package
+    name.
+  - **`icon`** — the file name of a PNG under the app's `assets/` directory
+    (see [Bundled image assets](/guides/assets/#app-icon)). It must exist
+    there, or the build fails at configuration time, and it should be a small
+    square: 48×48 is the convention; `papk-pack` warns past 64×64 or when the
+    sides differ.
 
 The exact error strings, so you can grep this page if you hit one:
 
@@ -45,6 +60,8 @@ The exact error strings, so you can grep this page if you hit one:
 - `<file>: missing <application> element`
 - `<file>: <application> must set exactly one of 'main-class', 'activity', or 'application'`
 - `<file>: <application> sets multiple of 'main-class'/'activity'/'application' — pick one`
+- `<file>: <manifest> version-code must be a positive integer, got '<value>'`
+- `<app>: PicodroidManifest.xml icon="<name>" is not a file under assets/`
 
 ### DOCTYPE is rejected
 
@@ -57,9 +74,9 @@ DOCTYPE in your manifest.
 ### Editor validation (XSD)
 
 `schema/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above —
-required `package`, optional `version`, and the exactly-one-of
-`main-class` / `activity` / `application` entry point — for editor validation and
-autocomplete. It is **not** wired into the build; the Gradle parser remains the
+required `package`, optional `version` and `version-code`, the exactly-one-of
+`main-class` / `activity` / `application` entry point, and the optional `label`
+and `icon` — for editor validation and autocomplete. It is **not** wired into the build; the Gradle parser remains the
 authoritative check (the one-of rule is already enforced there), so the schema
 can't drift the build.
 
@@ -171,6 +188,23 @@ public class Main {
 }
 ```
 
+## App identity
+
+A launcher lists installed apps by three values, all optional:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="com.acme.weather" version="1.4" version-code="5">
+    <application application="weather/WeatherApp"
+                 label="Weather"
+                 icon="icon.png" />
+</manifest>
+```
+
+They reach the PAPK as the `version-code`, `label` and `icon` manifest keys
+(`papk-info` prints them). A PAPK packed without them still installs: a missing
+code reads as 1, a missing label as the package name, a missing icon as none.
+
 ## How it is wired
 
 Each app's `build.gradle.kts` applies a single plugin:
@@ -190,18 +224,20 @@ references, and packs a `build/papk/<name>.papk` bundle. It also:
   That means **both layouts work**: sources nested under `java/<pkg>/` (what
   `newApp` scaffolds) and `.java` files dropped flat in the project directory.
 
-### The PAPK package name comes from the directory, not `package=`
+### The PAPK package name is `package=`
 
-This is the one part of the manifest that does not behave the way intuition
-suggests. The PAPK's package name is taken from the **Gradle project name**,
-which for an auto-discovered app is the `examples/<name>/` **directory name** —
-**not** the manifest's `package=` attribute. The `package=` attribute is
-required and validated, but it is then discarded and never propagated into the
-PAPK.
+The `package-name` key the PAPK carries is the manifest's `package=` attribute,
+and it is the identity everything on the device keys on: the package directory
+holds one install per package, a reinstall replaces the previous copy, and
+per-app storage lives under it. (Until September 2026 the key was the Gradle
+project name instead; nothing consumed it then.)
 
-Apps are auto-discovered by `settings.gradle.kts`: any `examples/<name>/`
-directory containing a file literally named `PicodroidManifest.xml` becomes a
-subproject. No edit to `settings.gradle.kts` is needed to add an app.
+The Gradle project name is a separate thing: the `examples/<name>/`
+**directory name**, which picks the Gradle task names and the output file
+`build/papk/<name>.papk`. Apps are auto-discovered by `settings.gradle.kts`:
+any `examples/<name>/` directory containing a file literally named
+`PicodroidManifest.xml` becomes a subproject. No edit to `settings.gradle.kts`
+is needed to add an app.
 
 ```kotlin
 // Auto-discover every examples/<name>/ that ships a PicodroidManifest.xml.
@@ -213,7 +249,8 @@ rootDir.resolve("examples").listFiles()
 
 By convention the slash-form entry point's leading segment, the `package=`
 value, and the directory name all match (e.g. `helloworld`). Nothing enforces
-that match — but keeping them identical avoids confusion.
+that match — a reverse-DNS `package=` over a short directory name is fine —
+but keeping them identical avoids confusion.
 
 Source for the plugin and discovery:
 [buildSrc/](https://github.com/shivrajora/picodroid-rs/tree/main/buildSrc) and

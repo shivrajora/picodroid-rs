@@ -37,6 +37,20 @@ The string is the asset's file name — `setImageSource("logo.png")` matches `as
 
 If the asset name doesn't match anything, the call does nothing — **no warning, no exception, no change** to the widget. The lookup is silently best-effort, so double-check the spelling against `papk-info` (below) if an image doesn't appear.
 
+## App icon
+
+The manifest's `<application icon="…">` names one of the files under `assets/`
+as the app's icon — what a launcher shows beside the app's `label`. The file
+must exist (the Gradle build fails at configuration time when it does not) and
+should be a small square: 48×48 is the convention, 64×64 the point past which
+`papk-pack` warns, because every icon costs `width × height × 2` bytes of flash
+and a launcher scales anything larger. See the
+[manifest reference](/reference/manifest/#app-identity).
+
+```xml
+<application application="myapp/MyApp" label="My App" icon="icon.png" />
+```
+
 ### Scale, tint, and aspect
 
 The full Tier C ImageView surface lives in [Graphics & UI → ImageView](/api/ui/#picodroidwidgetimageview):

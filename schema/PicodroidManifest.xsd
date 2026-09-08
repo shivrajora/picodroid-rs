@@ -26,6 +26,9 @@
       <xs:attribute name="package" type="xs:string" use="required"/>
       <!-- Optional; a blank/absent version defaults to "1.0" at build time. -->
       <xs:attribute name="version" type="xs:string" use="optional"/>
+      <!-- Optional monotonic integer version (defaults to 1); a newer build of
+           the same package must carry a greater code. -->
+      <xs:attribute name="version-code" type="xs:positiveInteger" use="optional"/>
     </xs:complexType>
   </xs:element>
 
@@ -37,6 +40,10 @@
     <xs:attribute name="main-class" type="xs:string" use="optional"/>
     <xs:attribute name="activity" type="xs:string" use="optional"/>
     <xs:attribute name="application" type="xs:string" use="optional"/>
+    <!-- Display name a launcher shows; defaults to the package name. -->
+    <xs:attribute name="label" type="xs:string" use="optional"/>
+    <!-- App icon: the name of a PNG under assets/ (48x48 recommended). -->
+    <xs:attribute name="icon" type="xs:string" use="optional"/>
     <xs:assert test="count(@main-class | @activity | @application) = 1"/>
   </xs:complexType>
 

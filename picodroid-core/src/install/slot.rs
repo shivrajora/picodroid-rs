@@ -17,7 +17,7 @@
 
 use core::marker::PhantomData;
 
-use papk_format::flash_image::{build_meta_page, parse_meta, HEADER_LEN, META_SIZE};
+use papk_format::flash_image::{build_meta_pages, parse_meta, META_READ_LEN, META_SIZE};
 
 use super::PapkFlash;
 
@@ -106,8 +106,8 @@ unsafe impl<F: PapkSlotFlash> PapkFlash for PapkSlot<F> {
     /// Built before the primitive is called, so a family whose
     /// `program_range` drops XIP runs nothing but the ROM call with it off.
     unsafe fn commit_metadata(&mut self, len: u32) {
-        let page = build_meta_page(len);
-        F::program_range(F::META_OFFSET, &page);
+        let pages = build_meta_pages(len, 0, 0);
+        F::program_range(F::META_OFFSET, &pages);
     }
 
     fn trigger_reset(&mut self) -> ! {
@@ -129,7 +129,7 @@ unsafe impl<F: PapkSlotFlash> PapkFlash for PapkSlot<F> {
 /// in flight — which is why a device calls this once, before the scheduler
 /// starts.
 pub unsafe fn read_mapped(slot_base: *const u8, max_data_size: usize) -> Option<&'static [u8]> {
-    let header = core::slice::from_raw_parts(slot_base, HEADER_LEN);
+    let header = core::slice::from_raw_parts(slot_base, META_READ_LEN);
     let meta = parse_meta(header, max_data_size)?;
     let data = slot_base.add(META_SIZE);
     Some(core::slice::from_raw_parts(data, meta.len as usize))
@@ -220,9 +220,12 @@ mod tests {
     }
 
     #[test]
-    fn commit_programs_exactly_the_boot_meta_page_at_the_meta_sector() {
+    fn commit_programs_exactly_the_boot_meta_pages_at_the_meta_sector() {
         let ops = run(|s| unsafe { s.commit_metadata(4321) });
-        assert_eq!(ops, [Op::Program(META, build_meta_page(4321).to_vec())]);
+        assert_eq!(
+            ops,
+            [Op::Program(META, build_meta_pages(4321, 0, 0).to_vec())]
+        );
     }
 
     #[test]
@@ -235,7 +238,7 @@ mod tests {
     fn a_mapped_slot_reads_back_its_image() {
         let payload: Vec<u8> = (0..1000u32).map(|i| (i * 7) as u8).collect();
         let mut image = vec![0xFFu8; META_SIZE + MAX];
-        image[..256].copy_from_slice(&build_meta_page(payload.len() as u32));
+        image[..512].copy_from_slice(&build_meta_pages(payload.len() as u32, 0, 0));
         image[META_SIZE..META_SIZE + payload.len()].copy_from_slice(&payload);
         let got = unsafe { read_mapped(image.as_ptr(), MAX) }.expect("installed");
         assert_eq!(got, &payload[..]);
@@ -250,7 +253,7 @@ mod tests {
     #[test]
     fn a_length_past_the_slot_reads_as_no_install() {
         let mut image = vec![0xFFu8; META_SIZE + MAX];
-        image[..256].copy_from_slice(&build_meta_page(MAX as u32 + 1));
+        image[..512].copy_from_slice(&build_meta_pages(MAX as u32 + 1, 0, 0));
         assert!(unsafe { read_mapped(image.as_ptr(), MAX) }.is_none());
     }
 }

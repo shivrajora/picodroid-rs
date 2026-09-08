@@ -30,7 +30,11 @@
 //!
 //! MANIFEST section data:
 //!   Sequence of [u16 key_len][key][u16 val_len][val] entries (UTF-8, no NUL).
-//!   Walk until `length` bytes consumed.
+//!   Walk until `length` bytes consumed. The well-known keys are in [`keys`];
+//!   the writer emits the entry-point key, `package-name`, `version`,
+//!   `framework-map-version`, then — only when set — `version-code`, `label`
+//!   and `icon`, then any extra entries. Readers must tolerate absent keys:
+//!   a PAPK packed before a key existed simply lacks it.
 //!
 //! CLASSES section data:
 //!   [u32 class_count]
@@ -126,6 +130,14 @@ pub mod keys {
     pub const VERSION: &[u8] = b"version";
     /// Shrink-map version the PAPK was built against (see the `compat` crate).
     pub const FRAMEWORK_MAP_VERSION: &[u8] = b"framework-map-version";
+    /// Monotonic integer version, decimal text (`"3"`); a newer build of the
+    /// same package carries a greater code. Absent on old PAPKs (read as 1).
+    pub const VERSION_CODE: &[u8] = b"version-code";
+    /// Human-readable app name a launcher shows. Absent means "use the
+    /// package name".
+    pub const LABEL: &[u8] = b"label";
+    /// Name of the ASSETS entry holding the app icon (e.g. `"icon.png"`).
+    pub const ICON: &[u8] = b"icon";
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -507,6 +519,37 @@ impl<'a> Papk<'a> {
     /// map (default behavior until a release cut introduces one).
     pub fn framework_map_version(&self) -> Option<&'a str> {
         self.manifest_value(keys::FRAMEWORK_MAP_VERSION)
+    }
+
+    /// Returns the `package-name` value — the app's identity, taken from the
+    /// manifest's `package=` attribute at pack time.
+    pub fn package_name(&self) -> Option<&'a str> {
+        self.manifest_value(keys::PACKAGE_NAME)
+    }
+
+    /// Returns the `version` value, the human-readable version name.
+    pub fn version(&self) -> Option<&'a str> {
+        self.manifest_value(keys::VERSION)
+    }
+
+    /// Returns the `label` value — the display name a launcher shows — or
+    /// `None` on a PAPK packed without one (show the package name instead).
+    pub fn label(&self) -> Option<&'a str> {
+        self.manifest_value(keys::LABEL)
+    }
+
+    /// Returns the `icon` value, the name of the ASSETS entry holding the
+    /// app icon, or `None` when the app declares none.
+    pub fn icon(&self) -> Option<&'a str> {
+        self.manifest_value(keys::ICON)
+    }
+
+    /// Returns the `version-code` value parsed as a decimal integer, or
+    /// `None` when the key is absent or unparseable. Consumers treat a
+    /// missing code as 1, the default the packer writes for a manifest that
+    /// does not set one.
+    pub fn version_code(&self) -> Option<u32> {
+        self.manifest_value(keys::VERSION_CODE)?.parse().ok()
     }
 
     /// Verify this PAPK's shrink-map version is compatible with the firmware.

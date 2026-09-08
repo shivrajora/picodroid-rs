@@ -71,6 +71,9 @@ struct GenSpec {
     package: String,
     version: String,
     fmv: String,
+    version_code: Option<u32>,
+    label: Option<String>,
+    icon: Option<String>,
     extras: Vec<(String, String)>,
     classes: Vec<(String, Vec<u8>)>,
     assets: Vec<GenAsset>,
@@ -119,12 +122,27 @@ fn gen_spec(rng: &mut XorShift, max_class_blob: usize, max_asset_data: usize) ->
     let version = rng.ascii_string(version_len);
     let fmv_len = 1 + rng.below(12);
     let fmv = rng.ascii_string(fmv_len);
+    // Each identity key independently present or absent, so both the
+    // "byte-identical to the old writer" and the "emitted in order" paths
+    // get coverage.
+    let version_code = (rng.below(2) == 1).then(|| rng.next_u64() as u32);
+    let label = (rng.below(2) == 1).then(|| {
+        let len = rng.below(24);
+        rng.ascii_string(len)
+    });
+    let icon = (rng.below(2) == 1).then(|| {
+        let len = 1 + rng.below(16);
+        rng.ascii_string(len)
+    });
     GenSpec {
         entry_kind,
         entry,
         package,
         version,
         fmv,
+        version_code,
+        label,
+        icon,
         extras,
         classes,
         assets,
@@ -142,6 +160,9 @@ fn build(spec: &GenSpec) -> Vec<u8> {
         package_name: &spec.package,
         version: &spec.version,
         framework_map_version: &spec.fmv,
+        version_code: spec.version_code,
+        label: spec.label.as_deref(),
+        icon: spec.icon.as_deref(),
     });
     for (k, v) in &spec.extras {
         b.manifest_entry(k, v);
@@ -188,6 +209,15 @@ fn round_trip_200_random_papks() {
                 spec.fmv.as_bytes().to_vec(),
             ),
         ];
+        if let Some(code) = spec.version_code {
+            expected.push((keys::VERSION_CODE.to_vec(), code.to_string().into_bytes()));
+        }
+        if let Some(label) = &spec.label {
+            expected.push((keys::LABEL.to_vec(), label.as_bytes().to_vec()));
+        }
+        if let Some(icon) = &spec.icon {
+            expected.push((keys::ICON.to_vec(), icon.as_bytes().to_vec()));
+        }
         for (k, v) in &spec.extras {
             expected.push((k.as_bytes().to_vec(), v.as_bytes().to_vec()));
         }
@@ -201,6 +231,11 @@ fn round_trip_200_random_papks() {
         // Lookups agree with iteration.
         assert_eq!(p.manifest_value(entry_key), Some(spec.entry.as_str()));
         assert_eq!(p.framework_map_version(), Some(spec.fmv.as_str()));
+        assert_eq!(p.package_name(), Some(spec.package.as_str()));
+        assert_eq!(p.version(), Some(spec.version.as_str()));
+        assert_eq!(p.version_code(), spec.version_code, "case {case}");
+        assert_eq!(p.label(), spec.label.as_deref(), "case {case}");
+        assert_eq!(p.icon(), spec.icon.as_deref(), "case {case}");
         for (k, v) in &spec.extras {
             assert_eq!(p.manifest_value(k.as_bytes()), Some(v.as_str()));
         }
@@ -284,6 +319,11 @@ fn exercise(bytes: &[u8]) {
         let _ = p.activity();
         let _ = p.application();
         let _ = p.framework_map_version();
+        let _ = p.package_name();
+        let _ = p.version();
+        let _ = p.version_code();
+        let _ = p.label();
+        let _ = p.icon();
         let _ = p.verify_compat("0.1.0");
         let _ = p.class_count();
         let _ = p.asset_count();

@@ -14,6 +14,12 @@ import javax.xml.parsers.DocumentBuilderFactory
 data class PicodroidManifest(
     val packageName: String,
     val version: String,
+    /** `<manifest version-code>`: a positive integer, 1 when absent. */
+    val versionCode: Int,
+    /** `<application label>`: the display name; null means "the package". */
+    val label: String?,
+    /** `<application icon>`: a file name under `assets/`; null means none. */
+    val icon: String?,
     val mainClass: String?,
     val activity: String?,
     val application: String?,
@@ -36,6 +42,11 @@ data class PicodroidManifest(
                 throw GradleException("${file.name}: <manifest> missing 'package' attribute")
             }
             val version = root.getAttribute("version").ifBlank { "1.0" }
+            val versionCodeText = root.getAttribute("version-code").ifBlank { "1" }
+            val versionCode = versionCodeText.toIntOrNull()?.takeIf { it >= 1 }
+                ?: throw GradleException(
+                    "${file.name}: <manifest> version-code must be a positive integer, got '$versionCodeText'"
+                )
 
             val appNodes = root.getElementsByTagName("application")
             if (appNodes.length == 0) {
@@ -45,6 +56,8 @@ data class PicodroidManifest(
             val mainClass = app.getAttribute("main-class").ifBlank { null }
             val activity = app.getAttribute("activity").ifBlank { null }
             val application = app.getAttribute("application").ifBlank { null }
+            val label = app.getAttribute("label").ifBlank { null }
+            val icon = app.getAttribute("icon").ifBlank { null }
 
             val set = listOfNotNull(mainClass, activity, application)
             if (set.isEmpty()) {
@@ -61,6 +74,9 @@ data class PicodroidManifest(
             return PicodroidManifest(
                 packageName = pkg,
                 version = version,
+                versionCode = versionCode,
+                label = label,
+                icon = icon,
                 mainClass = mainClass,
                 activity = activity,
                 application = application,

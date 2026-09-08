@@ -501,6 +501,9 @@ mod tests {
             package_name: "demo",
             version: "1.0",
             framework_map_version: fmv,
+            version_code: None,
+            label: None,
+            icon: None,
         })
         .build()
         .expect("test PAPK")

@@ -10,6 +10,8 @@
 //!   present (otherwise `assets_offset = 0` and `section_count = 2`);
 //! - manifest key order: the entry-point key (`main-class` / `activity` /
 //!   `application`), `package-name`, `version`, `framework-map-version`,
+//!   then `version-code`, `label` and `icon` — each only when the spec sets
+//!   it, so a spec that sets none is byte-identical to the historical output —
 //!   then any extra entries in insertion order;
 //! - asset records padded with zero bytes to 4-byte boundaries before the
 //!   pixel data and before the next record;
@@ -48,13 +50,19 @@ impl<'a> EntryPoint<'a> {
     }
 }
 
-/// The fixed part of every PAPK manifest.
+/// The fixed part of every PAPK manifest, plus the optional identity keys.
 #[derive(Debug, Clone, Copy)]
 pub struct ManifestSpec<'a> {
     pub entry: EntryPoint<'a>,
     pub package_name: &'a str,
     pub version: &'a str,
     pub framework_map_version: &'a str,
+    /// `version-code`, written as decimal text when set.
+    pub version_code: Option<u32>,
+    /// `label`, the display name; absent means "use the package name".
+    pub label: Option<&'a str>,
+    /// `icon`, the name of an ASSETS entry; absent means no icon.
+    pub icon: Option<&'a str>,
 }
 
 /// One asset for the ASSETS section.
@@ -232,6 +240,19 @@ impl<'a> PapkBuilder<'a> {
             self.manifest.framework_map_version.as_bytes(),
             BuildError::ValueTooLong,
         )?;
+        if let Some(code) = self.manifest.version_code {
+            let text = alloc::string::ToString::to_string(&code);
+            push_bytes_u16(&mut data, keys::VERSION_CODE, BuildError::NameTooLong)?;
+            push_bytes_u16(&mut data, text.as_bytes(), BuildError::ValueTooLong)?;
+        }
+        if let Some(label) = self.manifest.label {
+            push_bytes_u16(&mut data, keys::LABEL, BuildError::NameTooLong)?;
+            push_bytes_u16(&mut data, label.as_bytes(), BuildError::ValueTooLong)?;
+        }
+        if let Some(icon) = self.manifest.icon {
+            push_bytes_u16(&mut data, keys::ICON, BuildError::NameTooLong)?;
+            push_bytes_u16(&mut data, icon.as_bytes(), BuildError::ValueTooLong)?;
+        }
         for (k, v) in &self.extras {
             push_bytes_u16(&mut data, k.as_bytes(), BuildError::NameTooLong)?;
             push_bytes_u16(&mut data, v.as_bytes(), BuildError::ValueTooLong)?;
@@ -311,7 +332,63 @@ mod tests {
             package_name: "t",
             version: "1.0",
             framework_map_version: "0.0.0",
+            version_code: None,
+            label: None,
+            icon: None,
         }
+    }
+
+    #[test]
+    fn identity_keys_are_emitted_in_order_after_the_fixed_four() {
+        let mut spec = spec();
+        spec.version_code = Some(7);
+        spec.label = Some("Test App");
+        spec.icon = Some("icon.png");
+        let mut b = PapkBuilder::new(spec);
+        b.manifest_entry("x-extra", "1");
+        b.class("t/Main", b"CAFE");
+        let bytes = b.build().unwrap();
+        let p = Papk::parse(&bytes).unwrap();
+        let keys: alloc::vec::Vec<&[u8]> = p.manifest().unwrap().map(|e| e.key).collect();
+        assert_eq!(
+            keys,
+            [
+                &b"main-class"[..],
+                b"package-name",
+                b"version",
+                b"framework-map-version",
+                b"version-code",
+                b"label",
+                b"icon",
+                b"x-extra",
+            ]
+        );
+        assert_eq!(p.version_code(), Some(7));
+        assert_eq!(p.label(), Some("Test App"));
+        assert_eq!(p.icon(), Some("icon.png"));
+        assert_eq!(p.package_name(), Some("t"));
+        assert_eq!(p.version(), Some("1.0"));
+    }
+
+    #[test]
+    fn unset_identity_keys_are_absent_not_empty() {
+        let mut b = PapkBuilder::new(spec());
+        b.class("t/Main", b"CAFE");
+        let bytes = b.build().unwrap();
+        let p = Papk::parse(&bytes).unwrap();
+        assert_eq!(p.manifest().unwrap().count(), 4);
+        assert_eq!(p.version_code(), None);
+        assert_eq!(p.label(), None);
+        assert_eq!(p.icon(), None);
+    }
+
+    #[test]
+    fn a_garbled_version_code_reads_as_none() {
+        let mut b = PapkBuilder::new(spec());
+        b.manifest_entry("version-code", "seven");
+        b.class("t/Main", b"CAFE");
+        let bytes = b.build().unwrap();
+        assert_eq!(Papk::parse(&bytes).unwrap().version_code(), None);
     }
 
     #[test]
