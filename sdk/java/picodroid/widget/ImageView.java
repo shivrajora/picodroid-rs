@@ -2,6 +2,7 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
+import picodroid.graphics.drawable.Drawable;
 import picodroid.view.View;
 
 public class ImageView extends View {
@@ -44,6 +45,14 @@ public class ImageView extends View {
    * {@code project_future_milestones.md} (ImageView asset pipeline).
    */
   public native void setImageSource(String path);
+
+  /**
+   * Show a Drawable: the {@link picodroid.graphics.drawable.BitmapDrawable} the package manager
+   * returns for another app's icon, or any Drawable that can paint a view.
+   */
+  public void setImageDrawable(Drawable drawable) {
+    drawable.applyTo(this);
+  }
 
   /** One of {@link #SCALE_FIT_CENTER}, {@link #SCALE_CENTER_CROP}, etc. */
   public native void setScaleType(int scaleType);

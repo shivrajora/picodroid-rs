@@ -521,6 +521,25 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    #[cfg(has_multi_app)]
+    fn dispatch_bitmap_drawable(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            m::nativeSetImageSrc => Some(widgets::bitmap_drawable_set_image_src(
+                ctx.args,
+                ctx.objects,
+            )),
+            m::nativeSetBackground => Some(widgets::bitmap_drawable_set_background(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
     fn dispatch_swipe_refresh_layout(
         &mut self,
         method: &str,

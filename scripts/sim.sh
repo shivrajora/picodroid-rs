@@ -24,6 +24,7 @@ HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 # Opt out with --no-sanitize-handles or PICODROID_HANDLE_SANITIZER=0.
 SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-1}"
 MEM_DIAG=""
+SYSTEM_APPS=""
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
 
@@ -60,6 +61,11 @@ Options:
                             / _OFFENSIVE / _HISTO; on-demand snapshot via
                             'sim-ctrl.sh memstats'. See
                             docs/memory-diagnostics.md
+      --system-apps         Also build the system apps (the launcher) and
+                            load them into the simulated directory, as a
+                            multi-app firmware carries them. Off by default:
+                            the app under test then runs alone and the sim
+                            exits when it finishes
 
 Environment:
   PICODROID_SIM_APPS        Colon-separated .papk files installed into the
@@ -67,6 +73,9 @@ Environment:
                             (which is baked at sector 0 as the boot app);
                             'sim-ctrl.sh apps list|install|uninstall' drives
                             the directory while the sim runs
+  PICODROID_BOOT            What boots: app (the default), launcher, or a
+                            package name — flash.sh --boot, read at run time
+                            here so it needs no rebuild
   -h, --help                Show this help message
 
 Boards:
@@ -130,6 +139,10 @@ while [[ $# -gt 0 ]]; do
       MEM_DIAG=1
       shift
       ;;
+    --system-apps)
+      SYSTEM_APPS=1
+      shift
+      ;;
     *)
       echo "Unknown option: $1" >&2
       usage
@@ -163,6 +176,19 @@ else
   APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
 fi
 
+# Step 1b: the system apps (the launcher), loaded into the simulated
+# directory at run time. The same PICODROID_SYSTEM_APKS build.rs reads for
+# a device, but a run-time variable here, so switching needs no rebuild.
+SYSTEM_APKS=""
+if [[ -n "$SYSTEM_APPS" ]]; then
+  for dir in "$SCRIPT_DIR"/../system-apps/*/; do
+    [[ -f "$dir/PicodroidManifest.xml" ]] || continue
+    name="$(basename "$dir")"
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$name" ${BOARD:+--board "$BOARD"}
+    SYSTEM_APKS="${SYSTEM_APKS:+$SYSTEM_APKS:}$SCRIPT_DIR/../build/apks/${name}.papk"
+  done
+fi
+
 # Step 2: Compile the simulator, then run it with the APK.
 # Sim always targets the host — do not pass EXTRA_BUILD_ARGS (no -Zbuild-std for host).
 #
@@ -178,6 +204,9 @@ fi
 # first build per feature set is the only real build.
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 BUILD_ENV=(PICODROID_APK_PATH="sim-runtime")
+if [[ -n "$SYSTEM_APKS" ]]; then
+  ENV_VARS+=(PICODROID_SYSTEM_APKS="$SYSTEM_APKS")
+fi
 if [[ -n "$HEAP_LIMIT_KB" ]]; then
   ENV_VARS+=(PICODROID_HEAP_LIMIT_KB="$HEAP_LIMIT_KB")
 fi

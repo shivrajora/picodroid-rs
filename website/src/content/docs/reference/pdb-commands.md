@@ -58,16 +58,18 @@ A PAPK without a `package-name` is refused on the host before the device is aske
 pdb -s <port> list
 ```
 
-Prints the package directory of a multi-app device — every installed app's sector, package, `version-code`, version, size, whether it is the boot app, and its label — followed by the free space:
+Prints the package directory of a multi-app device — every installed app's sector, package, `version-code`, version, size, whether it is the boot app, and its label — then the system apps built into the firmware, the free space, and the package that is running:
 
 ```text
-SECTOR PACKAGE      CODE VERSION     SIZE  BOOT LABEL
-0      helloworld      1 1.0            1 KB  yes  helloworld
-2      imagedemo       1 1.0           11 KB  -    Image Demo
+SECTOR PACKAGE            CODE VERSION     SIZE  BOOT LABEL
+0      helloworld            1 1.0            1 KB  yes  helloworld
+2      imagedemo             1 1.0           11 KB  -    Image Demo
+SYSTEM picodroid.launcher   1 1.0           10 KB  -    Launcher
 free: largest 1480 KB, total 1480 KB, apps 2/8
+running: picodroid.launcher
 ```
 
-The boot app is the one `flash.sh --app` baked in (a reinstall of the same package keeps the flag); it is what the device runs at power-up until the launcher lands. On single-app firmware the command reports that there is no directory to list.
+A `SYSTEM` row is an app linked into the firmware (the launcher): it takes no sector, does not count toward `apps`, and cannot be uninstalled. The boot app is the one `flash.sh --app` baked in (a reinstall of the same package keeps the flag); `flash.sh --boot` and a board's `boot_package` can pick another — see the [launcher guide](/guides/launcher/). On single-app firmware the command reports that there is no directory to list.
 
 ## uninstall
 

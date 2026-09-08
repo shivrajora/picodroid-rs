@@ -116,6 +116,9 @@ fn main() -> ! {
     // erases need no parking. An empty region is not fatal: the JVM task
     // waits for a `pdb install` instead.
     let mut region = packagemanager::RpPapkFlash::new();
+    // The system apps linked into this firmware (the launcher) go in first,
+    // so a run in the region that names one of them is caught by the scan.
+    picodroid_core::packages::register_system(picodroid_core::board_cfg::system_apks::SYSTEM_APKS);
     picodroid_core::packages::rescan_region(&region);
     picodroid_core::packages::cleanup(&mut region);
     let boot_apk = picodroid_core::packages::boot_image();

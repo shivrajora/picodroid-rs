@@ -84,8 +84,37 @@ pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
             }
         }
     }
+    let multi_listed = list.iter().any(|e| MULTI_APP_CLASSES.contains(&e.as_str()));
+    if multi_app(board) {
+        if let Some(b) = board {
+            assert!(
+                !multi_listed,
+                "board '{}' holds several apps (max_installed_apps > 1) but \
+                 framework_class_excludes names a multi-app class — lower \
+                 max_installed_apps instead of listing the classes",
+                b.name
+            );
+        }
+    } else {
+        for c in MULTI_APP_CLASSES {
+            if !list.iter().any(|e| e == c) {
+                list.push((*c).to_string());
+            }
+        }
+    }
     list
 }
+
+/// The SDK classes only a multi-app board ships (multi-app M2): what
+/// `PackageManager`'s queries and the launcher need. A single-app board
+/// drops them the way `has_json = false` drops [`JSON_CLASSES`]; the Gradle
+/// contract check mirrors the list (`buildSrc/.../classfile/ApiContract.kt`).
+pub const MULTI_APP_CLASSES: &[&str] = &[
+    "picodroid/content/pm/PackageInfo",
+    "picodroid/content/pm/ApplicationInfo",
+    "picodroid/content/pm/PackageManager$NameNotFoundException",
+    "picodroid/graphics/drawable/BitmapDrawable",
+];
 
 /// The SDK classes the `has_json` board.toml key owns, in JVM internal
 /// form. Inner classes follow their outer class through the embed step.
@@ -103,6 +132,21 @@ pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => true,
         Some(p) => p.get("has_json").map(String::as_str) == Some("true"),
+    }
+}
+
+/// Whether the board holds more than one installed app
+/// (`max_installed_apps > 1`, the `has_multi_app` cfg). Boardless builds say
+/// yes, so host tests cover the package directory and the launcher-facing
+/// classes. Pure: the same `flash_layout::compute` that `emit_flash_layout`
+/// runs, without the emission.
+pub fn multi_app(board: &Option<ResolvedBoard>) -> bool {
+    match board {
+        None => true,
+        Some(b) => {
+            let (path, mcu) = b.mcu();
+            flash_layout::compute(&mcu, Some(&b.cfg.props), &path).max_installed_apps > 1
+        }
     }
 }
 

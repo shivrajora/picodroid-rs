@@ -18,7 +18,7 @@ use std::process::Command;
 /// The emitted file exposes `FRAMEWORK_MAP_VERSION: &str`, included by
 /// the firmware crate so that `verify_compat` at PAPK load time can
 /// reject mismatched apps.
-pub fn emit_framework_map_version(out: &Path, root: &Path) {
+pub fn emit_framework_map_version(out: &Path, root: &Path) -> String {
     // Shrinking is opt-in. Without PICODROID_SHRINK=1 we emit the `0.0.0`
     // sentinel so nothing else in the pipeline touches framework .class
     // bytes — matching Android's "R8 off by default" behavior.
@@ -53,6 +53,7 @@ pub fn emit_framework_map_version(out: &Path, root: &Path) {
     );
     fs::write(out.join("framework_mapping_version.rs"), content)
         .unwrap_or_else(|e| panic!("cannot write framework_mapping_version.rs: {e}"));
+    active
 }
 
 /// The active shrink map, or `None` when shrinking is off or no map covers
@@ -448,99 +449,6 @@ fn apply_active_shrink(
     Some((shrunk_dir, map))
 }
 
-/// Generate the `apk_data()` accessor for the app `.papk`.
-///
-/// Three shapes:
-/// - ARM embedded / no `PICODROID_APK_PATH`: empty slice (the APK lives in
-///   the PAPK_FLASH region, see [`embed_papk_flash_init`], or there is none).
-/// - Host simulator (`sim` feature): the APK is read from disk at startup —
-///   runtime `PICODROID_APK_PATH` wins, falling back to the build-time path.
-///   No cargo rerun directives are emitted in this branch, so Java-only
-///   rebuilds of the same `.papk` never dirty the Rust build.
-/// - Other host builds (e.g. `cargo test`, ESP inline embed): `include_bytes!`
-///   of the build-time path, as before.
-pub fn embed_apk(out: &Path, is_arm_embedded: bool) {
-    let is_sim = env::var("CARGO_FEATURE_SIM").is_ok();
-
-    if is_sim && !is_arm_embedded {
-        // Deliberately no rerun-if-changed / rerun-if-env-changed here:
-        // neither the .papk bytes nor the env var's build-time value affect
-        // the generated code beyond the fallback string.
-        let fallback = env::var("PICODROID_APK_PATH").unwrap_or_default();
-        // On device the APK lives in flash (XIP) and costs zero heap; the
-        // sim must not charge it to the simulated heap either
-        // (docs/parity-audit.md APK-01/M3): the shared simulator exposes a
-        // heap-cap bypass for exactly this class of host-only allocation.
-        // Every family reaches the one shared capped allocator through
-        // picodroid-core, so the bypass is spelled by its crate path rather
-        // than through an alias the family's `main.rs` would have to declare.
-        let bypass_stmt = "let _flash_xip = ::picodroid_core::hal::sim::allocator::bypass();";
-        let generated = format!(
-            "/// Sim builds load the APK from disk at startup; the runtime\n\
-             /// `PICODROID_APK_PATH` env var wins over the build-time fallback.\n\
-             pub fn apk_data() -> &'static [u8] {{\n\
-             \x20   static APK: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();\n\
-             \x20   APK.get_or_init(|| {{\n\
-             \x20       {bypass_stmt}\n\
-             \x20       let path = std::env::var(\"PICODROID_APK_PATH\")\n\
-             \x20           .unwrap_or_else(|_| {fallback:?}.to_string());\n\
-             \x20       if path.is_empty() {{\n\
-             \x20           panic!(\"no APK: set PICODROID_APK_PATH to a .papk built by ./scripts/build-apk.sh\");\n\
-             \x20       }}\n\
-             \x20       let bytes = std::fs::read(&path)\n\
-             \x20           .unwrap_or_else(|e| panic!(\"cannot read APK at '{{path}}': {{e}}\"));\n\
-             \x20       eprintln!(\"[sim] APK loaded from {{path}} ({{}} bytes, flash-modeled: uncounted)\", bytes.len());\n\
-             \x20       &*::std::boxed::Box::leak(bytes.into_boxed_slice())\n\
-             \x20   }})\n\
-             }}\n"
-        );
-        fs::write(out.join("apk_data.rs"), generated).unwrap();
-        return;
-    }
-
-    println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
-
-    const EMPTY: &[u8] = b"pub fn apk_data() -> &'static [u8] {\n    &[]\n}\n";
-
-    let apk_path = match env::var("PICODROID_APK_PATH") {
-        Ok(p) => p,
-        Err(_) => {
-            fs::write(out.join("apk_data.rs"), EMPTY).unwrap();
-            return;
-        }
-    };
-
-    if is_arm_embedded {
-        fs::write(out.join("apk_data.rs"), EMPTY).unwrap();
-        return;
-    }
-
-    assert!(
-        Path::new(&apk_path).exists(),
-        "APK file not found: {apk_path}\n\
-         Build it first with: ./scripts/build-apk.sh --app <name>"
-    );
-
-    let abs_apk_path = std::fs::canonicalize(&apk_path)
-        .unwrap_or_else(|e| panic!("Cannot resolve APK path '{apk_path}': {e}"));
-
-    // A corrupt/truncated .papk baked in via include_bytes! would only
-    // surface as a parse failure at runtime; fail the build instead.
-    let apk_bytes =
-        fs::read(&abs_apk_path).unwrap_or_else(|e| panic!("Cannot read APK at '{apk_path}': {e}"));
-    if let Err(e) = papk_format::validate_structure(&apk_bytes) {
-        panic!("PICODROID_APK_PATH '{apk_path}' is not a structurally valid PAPK: {e}");
-    }
-
-    let generated = format!(
-        "pub fn apk_data() -> &'static [u8] {{\n    include_bytes!({path:?})\n}}\n",
-        path = abs_apk_path.display().to_string(),
-    );
-    fs::write(out.join("apk_data.rs"), generated).unwrap();
-
-    println!("cargo:rerun-if-changed={}", abs_apk_path.display());
-}
-
 /// Build a PAPK flash image (4 KB metadata sector + raw APK bytes) and emit
 /// a linker section that places it at `PAPK_FLASH`. Only active for ARM
 /// embedded targets with `PICODROID_APK_PATH` set.
@@ -597,4 +505,151 @@ pub fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
     println!("cargo:rustc-link-arg=-T{}", ld_path.display());
 
     println!("cargo:rerun-if-changed={apk_path}");
+}
+
+/// The launcher's package name: the system app the supervisor returns to
+/// when another app exits, and what `flash.sh --boot launcher` names
+/// (docs/designs/multi-app-2026-09.md D7, D11).
+pub const LAUNCHER_PACKAGE: &str = "picodroid.launcher";
+
+/// The two words `flash.sh --boot` (and the simulator's `PICODROID_BOOT`)
+/// accept besides a package name. Generated into `system_apks.rs` so the
+/// runtime spells neither as a literal (`app` is also a served member name,
+/// which the no-literal guard would flag).
+pub const BOOT_APP: &str = "app";
+pub const BOOT_LAUNCHER: &str = "launcher";
+
+/// Emit `OUT_DIR/system_apks.rs`: the system apps linked into the firmware
+/// as `.rodata` (`SYSTEM_APKS`), the launcher's package name
+/// (`LAUNCHER_PACKAGE`) and the `flash.sh --boot` override (`BOOT_OVERRIDE`).
+///
+/// Only an ARM firmware for a multi-app board embeds anything. It reads
+/// `PICODROID_SYSTEM_APKS`, a colon-separated list of `.papk` paths that
+/// `scripts/lib.sh::build_system_apks` exports (empty on a single-app
+/// board), and `PICODROID_BOOT` (`app`, `launcher` or a package name). Each
+/// image must be a valid PAPK with a `package-name`, built for this
+/// firmware's framework-map-version — a launcher that would fail
+/// `verify_compat` at boot fails the build here instead.
+///
+/// The simulator loads its system apps at run time from the same variable
+/// and reads `PICODROID_BOOT` then too, so its build gets the empty form and
+/// no rerun directives (as `embed_apk` does for the app itself).
+pub fn embed_system_apks(
+    out: &Path,
+    is_arm_embedded: bool,
+    multi_app: bool,
+    firmware_map_version: &str,
+) {
+    let is_sim = env::var("CARGO_FEATURE_SIM").is_ok();
+    let mut statics = String::new();
+    let mut items: Vec<String> = Vec::new();
+    let mut boot_override = "None".to_string();
+
+    if is_arm_embedded && !is_sim {
+        println!("cargo:rerun-if-env-changed=PICODROID_SYSTEM_APKS");
+        println!("cargo:rerun-if-env-changed=PICODROID_BOOT");
+        let list = env::var("PICODROID_SYSTEM_APKS").unwrap_or_default();
+        let paths: Vec<&str> = list
+            .split(':')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .collect();
+        if !multi_app && !paths.is_empty() {
+            println!(
+                "cargo:warning=PICODROID_SYSTEM_APKS ignored: this board holds one app \
+                 (max_installed_apps = 1)"
+            );
+        }
+        if multi_app {
+            let mut seen: Vec<String> = Vec::new();
+            for (i, p) in paths.iter().enumerate() {
+                println!("cargo:rerun-if-changed={p}");
+                let abs = fs::canonicalize(p)
+                    .unwrap_or_else(|e| panic!("PICODROID_SYSTEM_APKS: cannot resolve '{p}': {e}"));
+                let bytes = fs::read(&abs)
+                    .unwrap_or_else(|e| panic!("PICODROID_SYSTEM_APKS: cannot read '{p}': {e}"));
+                if let Err(e) = papk_format::validate_structure(&bytes) {
+                    panic!("system app '{p}' is not a structurally valid PAPK: {e}");
+                }
+                let papk = papk_format::Papk::parse(&bytes)
+                    .unwrap_or_else(|e| panic!("system app '{p}' does not parse: {e:?}"));
+                let package = papk
+                    .package_name()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| panic!("system app '{p}' has no package-name"));
+                if let Err(e) = papk.verify_compat(firmware_map_version) {
+                    panic!(
+                        "system app '{p}' ({package}) was built for framework-map-version {:?} \
+                         but this firmware is {firmware_map_version:?} ({e:?}): rebuild it with \
+                         the firmware's --shrink setting",
+                        papk.framework_map_version()
+                    );
+                }
+                if seen.iter().any(|s| s == package) {
+                    panic!("system app '{p}': package {package} is listed twice");
+                }
+                seen.push(package.to_string());
+                // A copy in OUT_DIR is what `include_bytes!` reads: the
+                // source file can be rewritten between this script and rustc
+                // (a sim build of the same launcher beside a firmware build),
+                // and the array length above must match what rustc sees.
+                let copy = out.join(format!("system_{i}.papk"));
+                fs::write(&copy, &bytes)
+                    .unwrap_or_else(|e| panic!("cannot write {}: {e}", copy.display()));
+                let copy = copy.canonicalize().unwrap();
+                statics += &format!(
+                    "static SYS_{i}: Aligned<{len}> = Aligned(*include_bytes!({path:?}));\n",
+                    len = bytes.len(),
+                    path = copy.display().to_string()
+                );
+                items.push(format!("&SYS_{i}.0"));
+            }
+            if !seen.is_empty() && !seen.iter().any(|s| s == LAUNCHER_PACKAGE) {
+                println!(
+                    "cargo:warning=no system app is the launcher ({LAUNCHER_PACKAGE}): an app \
+                     that exits leaves the device waiting for an install"
+                );
+            }
+            let boot = env::var("PICODROID_BOOT").unwrap_or_default();
+            let boot = boot.trim();
+            if !boot.is_empty() {
+                assert!(
+                    !boot.chars().any(char::is_whitespace),
+                    "PICODROID_BOOT must be `{BOOT_APP}`, `{BOOT_LAUNCHER}` or a package name, \
+                     got {boot:?}"
+                );
+                boot_override = format!("Some({boot:?})");
+            }
+        }
+    }
+
+    let mut rs = String::from(
+        "// Generated by build.rs (build_support/papk.rs::embed_system_apks) — do not edit\n",
+    );
+    if !items.is_empty() {
+        // `include_bytes!` data is only byte-aligned; asset pixels inside a
+        // PAPK are 4-byte aligned within the file and LVGL reads them in
+        // place, so the image itself must start on a 4-byte boundary.
+        rs += "#[repr(C, align(4))]\nstruct Aligned<const N: usize>([u8; N]);\n";
+        rs += &statics;
+    }
+    rs += &format!(
+        "/// The system apps linked into this firmware, as PAPKs in `.rodata`.\n\
+         #[allow(dead_code)]\n\
+         pub static SYSTEM_APKS: &[&[u8]] = &[{}];\n\
+         /// The launcher's package name.\n\
+         #[allow(dead_code)]\n\
+         pub const LAUNCHER_PACKAGE: &str = {LAUNCHER_PACKAGE:?};\n\
+         /// `flash.sh --boot`: `app`, `launcher` or a package name; `None` when unset.\n\
+         #[allow(dead_code)]\n\
+         pub const BOOT_OVERRIDE: Option<&str> = {boot_override};\n\
+         /// The `--boot` words that are not package names.\n\
+         #[allow(dead_code)]\n\
+         pub const BOOT_APP: &str = {BOOT_APP:?};\n\
+         #[allow(dead_code)]\n\
+         pub const BOOT_LAUNCHER: &str = {BOOT_LAUNCHER:?};\n",
+        items.join(", ")
+    );
+    fs::write(out.join("system_apks.rs"), rs)
+        .unwrap_or_else(|e| panic!("cannot write system_apks.rs: {e}"));
 }

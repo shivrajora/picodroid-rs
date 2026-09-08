@@ -14,7 +14,8 @@
 //! The MCU toml carries the defaults (`flash_origin`, `flash_kb`,
 //! `ram_origin`, `ram_kb`, `boot2_bytes`, `fs_kb`, `app_region_kb`,
 //! `max_installed_apps`); board.toml may override `fs_kb`, `app_region_kb`
-//! and `max_installed_apps`. With the MCU defaults alone the result is
+//! and `max_installed_apps`, and may name a `boot_package` (D7). With the
+//! MCU defaults alone the result is
 //! byte-identical to the linker scripts that used to hard-code it — pinned
 //! by the tests at the bottom, which `platforms/rp/src/main.rs` includes.
 //!
@@ -47,6 +48,10 @@ pub struct FlashLayout {
     pub region_len: u64,
     /// Directory capacity; 1 means a single-app board.
     pub max_installed_apps: u64,
+    /// board.toml `boot_package`: the package that boots when it is
+    /// installed (docs/designs/multi-app-2026-09.md D7). `None` when the
+    /// board names nothing.
+    pub boot_package: Option<String>,
     pub ram_origin: u64,
     pub ram_len: u64,
 }
@@ -92,6 +97,10 @@ pub fn compute(
     let fs_len = tunable(mcu, board, "fs_kb", mcu_path) * 1024;
     let region_len = tunable(mcu, board, "app_region_kb", mcu_path) * 1024;
     let max_installed_apps = tunable(mcu, board, "max_installed_apps", mcu_path);
+    let boot_package = board
+        .and_then(|b| b.get("boot_package"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     assert!(
         (1..=64).contains(&max_installed_apps),
@@ -134,6 +143,7 @@ pub fn compute(
         region_origin,
         region_len,
         max_installed_apps,
+        boot_package,
         ram_origin,
         ram_len,
     }
@@ -221,14 +231,21 @@ impl FlashLayout {
              pub const PAPK_REGION_LEN: usize = {:#x};\n\
              /// Package directory capacity; 1 on a single-app board.\n\
              #[allow(dead_code)]\n\
-             pub const MAX_INSTALLED_APPS: usize = {};\n",
+             pub const MAX_INSTALLED_APPS: usize = {};\n\
+             /// board.toml `boot_package`, when the board names one (D7).\n\
+             #[allow(dead_code)]\n\
+             pub const BOOT_PACKAGE: Option<&str> = {};\n",
             self.flash_origin,
             self.program_len,
             self.fs_origin - self.flash_origin,
             self.fs_len,
             self.region_origin - self.flash_origin,
             self.region_len,
-            self.max_installed_apps
+            self.max_installed_apps,
+            match &self.boot_package {
+                Some(p) => format!("Some({p:?})"),
+                None => "None".to_string(),
+            }
         )
     }
 }
@@ -373,6 +390,30 @@ mod tests {
         assert!(
             s.contains("pub const MAX_INSTALLED_APPS: usize = 1;"),
             "{s}"
+        );
+    }
+
+    #[test]
+    fn boot_package_is_optional_and_passes_through() {
+        let l = compute(&rp2350(), None, "rp2350.toml");
+        assert_eq!(l.boot_package, None);
+        assert!(
+            l.rust_consts()
+                .contains("pub const BOOT_PACKAGE: Option<&str> = None;"),
+            "{}",
+            l.rust_consts()
+        );
+        let board = props(&[("boot_package", "com.example.kiosk")]);
+        let l = compute(&rp2350(), Some(&board), "rp2350.toml");
+        assert_eq!(l.boot_package.as_deref(), Some("com.example.kiosk"));
+        assert!(l
+            .rust_consts()
+            .contains("pub const BOOT_PACKAGE: Option<&str> = Some(\"com.example.kiosk\");"));
+        // A blank value is the same as no value.
+        let blank = props(&[("boot_package", "  ")]);
+        assert_eq!(
+            compute(&rp2350(), Some(&blank), "rp2350.toml").boot_package,
+            None
         );
     }
 

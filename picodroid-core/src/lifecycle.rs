@@ -147,6 +147,11 @@ pub(crate) fn run_application(
             PendingOp::Activity(PendingActivityOp::Pop { .. }) => {
                 // No stack yet — nothing to pop.
             }
+            PendingOp::Activity(PendingActivityOp::Launch) => {
+                // Leaving before any Activity ran: nothing to drive, so the
+                // service-only teardown below runs and the app returns.
+                break;
+            }
             PendingOp::Service(s) => {
                 let _ = crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
             }
@@ -1000,6 +1005,13 @@ fn process_pending_op(
             handler,
         ),
         PendingOp::Activity(PendingActivityOp::Pop { .. }) => handle_pop_op(jvm, heap, handler),
+        // Leave for another package: the loop exits through
+        // `teardown_activity` (every Activity gets onPause, onStop and
+        // onDestroy) and the supervisor runs `packages::next_image()`.
+        PendingOp::Activity(PendingActivityOp::Launch) => {
+            crate::pd_info!("leaving for a cross-package launch");
+            LifecycleControl::Break
+        }
     }
 }
 

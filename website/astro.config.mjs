@@ -96,6 +96,7 @@ export default defineConfig({
             { label: 'Embedded gotchas', slug: 'guides/embedded-gotchas' },
             { label: 'Kotlin apps', slug: 'guides/kotlin' },
             { label: 'Button-only navigation', slug: 'guides/button-navigation' },
+            { label: 'Launcher and app switching', slug: 'guides/launcher' },
             { label: 'Debugging', slug: 'guides/debugging' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
             { label: 'Bundled image assets', slug: 'guides/assets' },

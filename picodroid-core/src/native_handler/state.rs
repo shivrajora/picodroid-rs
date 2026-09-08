@@ -53,6 +53,12 @@ pub enum PendingActivityOp {
     /// `finish(); finish();` (Android's `mFinished` idempotence) pops one
     /// Activity, not the caller *and* its parent.
     Pop { finishing: u16 },
+    /// A `startActivity` whose Intent names another package (multi-app
+    /// boards): leave this app. The target is recorded in
+    /// `crate::packages` (`request_launch`); the lifecycle loop answers
+    /// this op by tearing every Activity down and returning, and the
+    /// supervisor then runs `packages::next_image()`.
+    Launch,
 }
 
 /// Pending Service transition signaled from Java to the framework loop. The
@@ -358,7 +364,8 @@ impl PendingOpQueue {
                         visit(*r);
                     }
                 }
-                PendingOp::Activity(PendingActivityOp::Pop { .. }) => {}
+                PendingOp::Activity(PendingActivityOp::Pop { .. })
+                | PendingOp::Activity(PendingActivityOp::Launch) => {}
                 PendingOp::Service(svc) => match *svc {
                     PendingServiceOp::Start { intent_ref, .. } => {
                         visit(intent_ref);

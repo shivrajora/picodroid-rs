@@ -591,6 +591,56 @@ print_memory_usage() {
   fi
 }
 
+# Builds the system apps a multi-app board links into its firmware (the
+# launcher; docs/designs/multi-app-2026-09.md D11) and exports the two
+# variables picodroid-core/build.rs reads: PICODROID_SYSTEM_APKS, a
+# colon-separated list of their .papk paths, and PICODROID_BOOT (what
+# `flash.sh --boot` set, if anything).
+#
+# Requires resolve_board (MAX_INSTALLED_APPS, BOARD). The PAPKs take the
+# same shape as the app under test: --strip-debug, --keep-lines when the
+# caller passes it (a firmware that keeps line numbers), --board for the
+# contract check; the shrink flags ride the exported PICODROID_SHRINK*. A
+# single-app board gets an empty list and embeds nothing.
+#
+# Both variables are exported even when empty. build.rs declares them
+# rerun-if-env-changed, and flash.sh runs cargo twice (build, then run): a
+# variable set for one call and unset for the other would rebuild the
+# firmware without the launcher and flash that. PICODROID_PREBUILT_SYSTEM_APKS
+# short-circuits the Gradle build the way PICODROID_PREBUILT_APK does for
+# the app: pre-commit builds the launcher once in its serial prologue so
+# parallel lanes never race on system-apps/launcher/build/.
+build_system_apks() {
+  local keep_lines=()
+  [[ "${1:-}" == "--keep-lines" ]] && keep_lines=(--keep-lines)
+  export PICODROID_BOOT="${PICODROID_BOOT:-}"
+  if [[ "${MAX_INSTALLED_APPS:-1}" -le 1 ]]; then
+    export PICODROID_SYSTEM_APKS=""
+    return 0
+  fi
+  if [[ -n "${PICODROID_PREBUILT_SYSTEM_APKS:-}" ]]; then
+    local prebuilt p
+    IFS=':' read -ra prebuilt <<< "$PICODROID_PREBUILT_SYSTEM_APKS"
+    for p in "${prebuilt[@]}"; do
+      if [[ ! -f "$p" ]]; then
+        echo "PICODROID_PREBUILT_SYSTEM_APKS does not exist: $p" >&2
+        return 1
+      fi
+    done
+    export PICODROID_SYSTEM_APKS="$PICODROID_PREBUILT_SYSTEM_APKS"
+    return 0
+  fi
+  local list="" dir name
+  for dir in "$REPO_ROOT"/system-apps/*/; do
+    [[ -f "$dir/PicodroidManifest.xml" ]] || continue
+    name="$(basename "$dir")"
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$name" --strip-debug \
+      ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"} || return 1
+    list="${list:+$list:}$REPO_ROOT/build/apks/${name}.papk"
+  done
+  export PICODROID_SYSTEM_APKS="$list"
+}
+
 # Builds the APK and firmware ELF. Sets APK_PATH and ELF as outputs.
 # Requires APP, PROFILE, EXTRA_ARGS, BOARD_FEATURE, TARGET, MANIFEST_DIR,
 # PACKAGE, TARGET_DIR, and EXTRA_BUILD_ARGS to be set (via resolve_board).
@@ -642,6 +692,9 @@ build_firmware() {
       ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"}
     APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
   fi
+
+  # Step 1b: the system apps this board's firmware carries (multi-app M2).
+  build_system_apks ${keep_lines[@]+"${keep_lines[@]}"} || return 1
 
   # Step 2: Build the firmware, embedding the APK.
   local jobs

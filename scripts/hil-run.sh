@@ -304,7 +304,7 @@ run_pdb_test() {
   # greeting carries no apps tail (a single-app board on the probe), and the
   # fixture-minting rows also need papk-pack.
   case "$pdb_cmd" in
-    list|uninstall|install-reject-noroom|install-compact)
+    list|uninstall|install-reject-noroom|install-compact|launch|launch-soak)
       local pre_ping="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.pre-ping.log"
       if ! hil_pdb_run 10 ping > "$pre_ping" 2>&1 \
           || ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
@@ -445,6 +445,14 @@ run_pdb_test() {
       run_pdb_compact_test "$app" "$patterns" "$mode"
       return
       ;;
+    launch)
+      run_pdb_launch_test "$app" "$patterns" "$mode" 0
+      return
+      ;;
+    launch-soak)
+      run_pdb_launch_test "$app" "$patterns" "$mode" 20
+      return
+      ;;
     *)
       hil_log "  ERROR: unknown PDB command '$pdb_cmd'"
       echo "ERROR $test_name (unknown pdb command)" >> "$RESULTS_FILE"
@@ -526,6 +534,187 @@ hil_pdb() {
   local log="$1"
   shift
   hil_pdb_run 300 "$@" >> "$log" 2>&1
+}
+
+# Build the release firmware for the bench board: `apk_path` baked in as the
+# boot-default app, the system apps (the launcher) linked in
+# (lib.sh::build_system_apks), and `boot` as the boot override — empty for
+# the ordinary rows, `launcher` for the launch rows. Any further arguments
+# are env entries for cargo (the net rows' credentials). Appends to `log`.
+hil_build_firmware() {
+  local apk_path="$1" mode="$2" boot="$3" log="$4"
+  shift 4
+  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  cargo_env+=("$@")
+  # The launcher is built in the row's mode; PICODROID_SHRINK is put back
+  # afterwards so a later no-shrink row's PAPKs are not shrunk by accident.
+  # Both variables build_system_apks exports are set even when empty:
+  # build.rs reruns when either changes.
+  # The launcher goes to this slot's APK directory (two runners in
+  # different shrink modes must not share one file) and reaches
+  # build_system_apks as a prebuilt, which then only exports the variables.
+  local -a launcher_args=(--app launcher --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/launcher.papk")
+  [[ "$mode" == "shrink" ]] && launcher_args+=(--shrink)
+  if [[ "${MAX_INSTALLED_APPS:-1}" -gt 1 ]]; then
+    bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$log" 2>&1 || return 1
+    export PICODROID_PREBUILT_SYSTEM_APKS="$HIL_APK_DIR/launcher.papk"
+  fi
+  export PICODROID_BOOT="$boot"
+  build_system_apks >> "$log" 2>&1 || return 1
+  env "${cargo_env[@]}" cargo build \
+    -p picodroid \
+    --release \
+    --jobs "${HIL_JOBS:-$(cpu_count)}" \
+    --target "$TARGET" \
+    --no-default-features \
+    --features "$BOARD_FEATURE" >> "$log" 2>&1
+}
+
+# Flash `elf` with probe-rs run (which also streams RTT), wait for the
+# package directory's boot line, then release the probe. The RTT capture
+# is appended to `log`. Returns 1 when probe-rs reported an error or the
+# device never booted.
+hil_flash_elf() {
+  local elf="$1" log="$2"
+  local flash_log="${log%.log}.flash.log"
+  kill_probe_rs
+  sleep 1
+  setsid timeout 120 \
+    probe-rs run --chip "$PROBE_CHIP" --protocol swd "$elf" \
+    < /dev/null > "$flash_log" 2>&1 &
+  local pid=$! elapsed=0
+  while kill -0 "$pid" 2>/dev/null && [[ $elapsed -lt 100 ]]; do
+    sleep 1
+    elapsed=$((elapsed + 1))
+    if grep -q "packages\] boot:" "$flash_log" 2>/dev/null; then break; fi
+  done
+  kill_process_group "$pid"
+  cat "$flash_log" >> "$log"
+  if grep -qE "^Error: " "$flash_log"; then return 1; fi
+  grep -q "packages\] boot:" "$flash_log"
+}
+
+# Attach RTT to the running device (no flash, no reset) so a pdb-driven row
+# can also record what the launcher and the app log. Prints the pid; the
+# caller ends it with kill_process_group and appends its log.
+hil_rtt_attach() {
+  local elf="$1" log="$2"
+  setsid probe-rs attach --chip "$PROBE_CHIP" --protocol swd "$elf" \
+    < /dev/null > "$log" 2>&1 &
+  echo $!
+}
+
+# The free heap `pdb sysmon` reports, in bytes; the whole report goes to `log`.
+hil_free_heap() {
+  local log="$1" out
+  out=$(hil_pdb_run 30 sysmon 2>&1 < /dev/null) || true
+  printf '%s\n' "$out" >> "$log"
+  sed -nE 's/^Free heap: +([0-9]+) bytes.*/\1/p' <<< "$out" | head -1
+}
+
+# launch: flash `app` with the launcher as the boot app (--boot launcher).
+# The launcher runs and `pdb list` names it; tap row 0 — `app` is the only
+# installed app, so that is its row — and `pdb list` names `app`. Touch
+# boards only: `pdb input tap` needs a touch panel, so the row SKIPs where
+# the device refuses it.
+#
+# launch-soak (`cycles` > 0): the same with an app that exits at once
+# (helloworld), tapped `cycles` more times. Every tap runs the app and
+# returns to the launcher — two `run_app` re-entries per cycle, the path an
+# install park used to be the only user of — and the free heap `pdb sysmon`
+# reports before and after must agree within 4 KB.
+run_pdb_launch_test() {
+  local app="$1" patterns="$2" mode="$3" cycles="${4:-0}"
+  local kind=launch
+  [[ "$cycles" -gt 0 ]] && kind=launch-soak
+  local test_name="$app:pdb-$kind[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-$kind.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${app}.pdb-$kind.${mode}.build.log"
+  : > "$log_file"
+
+  hil_log "  Building $app firmware with --boot launcher ($mode)..."
+  local apk_path="$HIL_APK_DIR/${app}.papk"
+  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! hil_build_firmware "$apk_path" "$mode" launcher "$build_log"; then
+    hil_log "  BUILD FAILED (see $build_log)"
+    echo "ERROR $test_name (build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+  local elf="$TARGET_DIR/${TARGET}/release/picodroid"
+  hil_log "  Flashing..."
+  if ! hil_flash_elf "$elf" "$log_file"; then
+    hil_log "  FLASH FAILED (see log tail)"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
+    echo "ERROR $test_name (flash failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    recover_probe
+    return
+  fi
+  probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
+  sleep 4
+
+  local rtt_log="${log_file%.log}.rtt.log" rtt_pid
+  rtt_pid=$(hil_rtt_attach "$elf" "$rtt_log")
+  sleep 2
+
+  # Row 0 is `app` only when nothing else is installed (rows sort by
+  # label): erase what earlier rows left behind. Each uninstall reboots the
+  # device, and the launcher rebuilds its list at every boot.
+  echo "=== clearing other packages ===" >> "$log_file"
+  local other
+  for other in $(hil_pdb_run 30 list 2>/dev/null < /dev/null \
+      | awk '$1 ~ /^[0-9]+$/ { print $2 }'); do
+    [[ "$other" == "$app" ]] && continue
+    hil_pdb "$log_file" uninstall "$other" || true
+  done
+  sleep 2
+  echo "=== boot ===" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  local tap_log="${log_file%.log}.tap.log"
+  if ! hil_pdb_run 30 input tap 120 20 > "$tap_log" 2>&1 < /dev/null; then
+    cat "$tap_log" >> "$log_file"
+    if grep -qi "no touch panel" "$tap_log"; then
+      kill_process_group "$rtt_pid"
+      hil_log "SKIP $test_name (no touch panel: the tap cannot reach the launcher)"
+      echo "SKIP $test_name (no touch panel)" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      return
+    fi
+  fi
+  if [[ "$cycles" -eq 0 ]]; then
+    sleep 3
+    echo "=== after the tap ===" >> "$log_file"
+    hil_pdb "$log_file" list || true
+  else
+    sleep 3
+    local before after i home=0
+    before=$(hil_free_heap "$log_file")
+    for i in $(seq 1 "$cycles"); do
+      hil_pdb_run 30 input tap 120 20 >> "$log_file" 2>&1 < /dev/null || true
+      sleep 3
+      if hil_pdb_run 30 list 2>/dev/null < /dev/null | grep -q "running: picodroid.launcher"; then
+        home=$((home + 1))
+      fi
+    done
+    after=$(hil_free_heap "$log_file")
+    echo "soak: $home/$cycles cycles returned to the launcher" >> "$log_file"
+    echo "free heap: before ${before:-?} after ${after:-?}" >> "$log_file"
+    if [[ -n "$before" && -n "$after" && $((before - after)) -le 4096 && $((after - before)) -le 4096 ]]; then
+      echo "heap drift ok" >> "$log_file"
+    fi
+    hil_pdb "$log_file" list || true
+  fi
+  kill_process_group "$rtt_pid"
+  echo "=== rtt ===" >> "$log_file"
+  cat "$rtt_log" >> "$log_file" 2>/dev/null || true
+  local launched
+  launched=$(grep -c "Launcher: launch" "$rtt_log" 2>/dev/null || true)
+  echo "rtt saw ${launched:-0} launch line(s)" >> "$log_file"
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
 }
 
 # PASS/FAIL a row from its log and patterns.
@@ -808,6 +997,37 @@ if [[ "$SKIP_PDB" != "true" && -z "$PDB_BIN" ]]; then
   fi
 fi
 
+# Pin pdb to the bench board's CDC port on a bench without a fleet config.
+# With a second picodroid board on the hub `pdb` refuses to pick one
+# ("multiple picodroid devices found") and every pdb row fails. The bench
+# board is the device whose greeting advertises this board's app region
+# (max PAPK = app_region_kb - 4 KB): PDB_BIN becomes a wrapper that passes
+# `-s <port>`. A PICODROID_PDB_PORT in the environment wins; with no match
+# the auto-detect is left alone. A fleet slot pins per call instead
+# (hil_pdb_run), so this does nothing when one is in use.
+pin_pdb_port() {
+  [[ -n "$PDB_BIN" ]] || return 0
+  # A fleet slot names the board's USB position and hil_pdb_run passes its
+  # tty on every call; this pin is for a bench without a fleet config.
+  [[ -z "${PICODROID_BOARD_USB_PATH:-}" ]] || return 0
+  local want=$(( ${APP_REGION_KB:-0} - 4 ))
+  local port="${PICODROID_PDB_PORT:-}"
+  if [[ -z "$port" ]]; then
+    port=$(timeout 15 "$PDB_BIN" devices 2>/dev/null < /dev/null \
+      | awk -v want="max PAPK: $want KB" 'index($0, want) { print $1; exit }')
+  fi
+  if [[ -z "$port" ]]; then
+    hil_log "pdb: no device advertises a ${want} KB app region; port auto-detect stays"
+    return 0
+  fi
+  local wrapper="$RUN_LOG_DIR/pdb-pinned"
+  printf '#!/usr/bin/env bash\nexec %q -s %q "$@"\n' "$PDB_BIN" "$port" > "$wrapper"
+  chmod +x "$wrapper"
+  PDB_BIN="$wrapper"
+  hil_log "pdb: pinned to $port (max PAPK ${want} KB)"
+}
+pin_pdb_port
+
 # Pre-build papk-pack: the multi-app pdb rows mint their fixtures with
 # `--repack` (same classes, another package name, padded to a size).
 PAPK_PACK_BIN="${HIL_PAPK_PACK_BIN:-}"
@@ -866,29 +1086,21 @@ run_test() {
     return
   fi
 
-  local jobs
-  jobs="${HIL_JOBS:-$(cpu_count)}"
 
-  # Build firmware (release). PICODROID_SHRINK must match the APK's mode
-  # or verify_compat will reject at load.
+  # Build firmware (release), the launcher linked in on a multi-app board.
+  # PICODROID_SHRINK must match the APK's mode or verify_compat will reject
+  # at load.
   hil_log "  Building firmware (release)..."
-  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
-  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   # net rows: WiFi credentials are option_env! in the W firmware. Read straight
   # from the creds file into the env array; they never touch a log line.
+  local -a extra_env=()
   if [[ "$category" == "net" ]]; then
     local cred
     while IFS= read -r cred; do
-      cargo_env+=("$cred")
+      extra_env+=("$cred")
     done < <(grep -E '^PICODROID_WIFI_(SSID|PASS|AUTH)=' "$NET_CREDS_FILE")
   fi
-  if ! env "${cargo_env[@]}" cargo build \
-    -p picodroid \
-    --release \
-    --jobs "$jobs" \
-    --target "$TARGET" \
-    --no-default-features \
-    --features "$BOARD_FEATURE" >> "$build_log" 2>&1; then
+  if ! hil_build_firmware "$apk_path" "$mode" "" "$build_log" ${extra_env[@]+"${extra_env[@]}"}; then
     hil_log "  BUILD FAILED (firmware)"
     echo "ERROR $tag (firmware build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))

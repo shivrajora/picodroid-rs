@@ -52,7 +52,7 @@ fn main() {
     // builds such as `cargo build -p picodroid-core`).
     let board = board_cfg::resolve(&manifest_dir);
 
-    papk::emit_framework_map_version(out, root);
+    let framework_map_version = papk::emit_framework_map_version(out, root);
     emit_names(out, root);
     papk::embed_framework_classes(out, root, &board_cfg::framework_class_excludes(&board));
 
@@ -64,6 +64,16 @@ fn main() {
     // generated config. `Pins::Elsewhere`: the family HAL owns the
     // pin-bearing display/touch artifacts; we only need dimensions + cfgs.
     board_cfg::emit_neutral(out, &board, board_cfg::Pins::Elsewhere);
+
+    // The system apps a multi-app firmware carries in `.rodata` (the
+    // launcher), plus the `flash.sh --boot` override. Empty for everything
+    // that is not an ARM firmware for a multi-app board.
+    papk::embed_system_apks(
+        out,
+        config::is_embedded(),
+        board_cfg::multi_app(&board),
+        &framework_map_version,
+    );
 
     // The simulator HAL lives in this crate (stage 8), and it emulates the
     // real panel and touch controller rather than faking their outputs — so

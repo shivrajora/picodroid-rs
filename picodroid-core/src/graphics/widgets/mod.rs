@@ -61,6 +61,8 @@ pub use date_picker::{
 };
 pub use date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
 pub use drawable::gradient_drawable_apply;
+#[cfg(has_multi_app)]
+pub use drawable::{bitmap_drawable_set_background, bitmap_drawable_set_image_src};
 pub use edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 pub use edit_text::{
     edit_text_get_text, edit_text_native_create, edit_text_register_editor_action_listener,

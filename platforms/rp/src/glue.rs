@@ -677,9 +677,10 @@ picodroid_core::set_platform_hooks!(PlatformHost);
 
 // ── Simulator ────────────────────────────────────────────────────────────────
 //
-// Everything the simulator needs from this family is three leaves: which GC
-// roots to register, the boot memory model to charge, and the function that
-// runs the app. `picodroid_core` generates the `Rtos` and `PlatformHooks`
+// Everything the simulator needs from this family is two leaves: which GC
+// roots to register and the boot memory model to charge. Which app runs is
+// the package directory's business, shared with the device.
+// `picodroid_core` generates the `Rtos` and `PlatformHooks`
 // registrations and the simulator's `main` from them
 // (docs/designs/porting-seam-2026-09.md E6); `main.rs` calls the generated
 // `sim_main`.
@@ -687,5 +688,4 @@ picodroid_core::set_platform_hooks!(PlatformHost);
 picodroid_core::register_sim_platform! {
     gc_roots    = crate::gc_root_registration::register_all,
     boot_budget = crate::boot_budget::MODEL,
-    run_app     = crate::app::run_jvm,
 }

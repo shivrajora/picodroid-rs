@@ -119,6 +119,10 @@ fn dispatch_with<B: GraphicsBackend>(
         c::picodroid_graphics_drawable_GradientDrawable => {
             be.dispatch_gradient_drawable(method_name, ctx)
         }
+        #[cfg(has_multi_app)]
+        c::picodroid_graphics_drawable_BitmapDrawable => {
+            be.dispatch_bitmap_drawable(method_name, ctx)
+        }
         _ => None,
     };
     if class_hit.is_some() {

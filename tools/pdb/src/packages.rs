@@ -20,13 +20,26 @@ const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// One row of the device's `CMD_LIST` answer.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Row {
+    /// 0 for a system app (see `system`): it has no run in the region.
     pub sector: u32,
     pub package: String,
     pub version_code: u32,
     pub version: String,
     pub size: u32,
     pub boot: bool,
+    /// Linked into the firmware (the launcher); cannot be uninstalled.
+    pub system: bool,
     pub label: String,
+}
+
+/// The device's whole answer.
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct Listing {
+    pub rows: Vec<Row>,
+    pub free: Option<Free>,
+    /// The package that is running, when the device reports one
+    /// (multi-app M2 firmware).
+    pub running: Option<String>,
 }
 
 /// The `free` footer: bytes and counts.
@@ -39,14 +52,13 @@ pub struct Free {
 }
 
 /// Parse the device's tab-separated text. Unknown or short rows are skipped
-/// rather than fatal, so a newer firmware can add columns.
-pub fn parse_list(text: &str) -> (Vec<Row>, Option<Free>) {
-    let mut rows = Vec::new();
-    let mut free = None;
+/// rather than fatal, so a newer firmware can add columns or lines.
+pub fn parse_list(text: &str) -> Listing {
+    let mut listing = Listing::default();
     for line in text.lines() {
         let f: Vec<&str> = line.split('\t').collect();
         if f.first() == Some(&"free") && f.len() >= 5 {
-            free = Some(Free {
+            listing.free = Some(Free {
                 largest: f[1].parse().unwrap_or(0),
                 total: f[2].parse().unwrap_or(0),
                 installed: f[3].parse().unwrap_or(0),
@@ -54,23 +66,30 @@ pub fn parse_list(text: &str) -> (Vec<Row>, Option<Free>) {
             });
             continue;
         }
+        if f.first() == Some(&"running") && f.len() >= 2 {
+            listing.running = Some(f[1].to_string());
+            continue;
+        }
         if f.len() < 7 {
             continue;
         }
-        rows.push(Row {
-            sector: f[0].parse().unwrap_or(0),
+        let system = f[0] == "system";
+        listing.rows.push(Row {
+            sector: if system { 0 } else { f[0].parse().unwrap_or(0) },
             package: f[1].to_string(),
             version_code: f[2].parse().unwrap_or(0),
             version: f[3].to_string(),
             size: f[4].parse().unwrap_or(0),
             boot: f[5] == "boot",
+            system,
             label: f[6..].join("\t"),
         });
     }
-    (rows, free)
+    listing
 }
 
-pub fn render(rows: &[Row], free: Option<&Free>) -> String {
+pub fn render(listing: &Listing) -> String {
+    let rows = &listing.rows;
     let mut out = String::new();
     if rows.is_empty() {
         out.push_str("(no apps installed)\n");
@@ -92,9 +111,14 @@ pub fn render(rows: &[Row], free: Option<&Free>) -> String {
             "SECTOR", "PACKAGE", "CODE", "VERSION", "SIZE", "BOOT", "LABEL"
         ));
         for r in rows {
+            let sector = if r.system {
+                "SYSTEM".to_string()
+            } else {
+                r.sector.to_string()
+            };
             out.push_str(&format!(
                 "{:<6} {:<w_pkg$} {:>5} {:<w_ver$} {:>5} KB  {:<4} {}\n",
-                r.sector,
+                sector,
                 r.package,
                 r.version_code,
                 r.version,
@@ -104,7 +128,7 @@ pub fn render(rows: &[Row], free: Option<&Free>) -> String {
             ));
         }
     }
-    if let Some(f) = free {
+    if let Some(f) = &listing.free {
         out.push_str(&format!(
             "free: largest {} KB, total {} KB, apps {}/{}\n",
             f.largest / 1024,
@@ -112,6 +136,9 @@ pub fn render(rows: &[Row], free: Option<&Free>) -> String {
             f.installed,
             f.max
         ));
+    }
+    if let Some(running) = &listing.running {
+        out.push_str(&format!("running: {running}\n"));
     }
     out
 }
@@ -150,8 +177,7 @@ pub fn list(port_name: &str) {
     match recv_response(port.as_mut()) {
         Ok((STATUS_OK, payload)) => {
             let text = String::from_utf8_lossy(&payload);
-            let (rows, free) = parse_list(&text);
-            print!("{}", render(&rows, free.as_ref()));
+            print!("{}", render(&parse_list(&text)));
         }
         Ok((status, payload)) => {
             eprintln!(
@@ -235,19 +261,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_device_text_parses_into_rows_and_the_footer() {
+    fn the_device_text_parses_into_rows_the_footer_and_the_running_line() {
         let text = "0\tcom.a\t7\t2.1\t16288\tboot\tApp A\n\
                     6\tcom.b\t1\t1.0\t900\t-\tcom.b\n\
-                    free\t1048576\t1441792\t2\t8\n";
-        let (rows, free) = parse_list(text);
-        assert_eq!(rows.len(), 2);
+                    system\tpicodroid.launcher\t1\t1.0\t10013\t-\tLauncher\n\
+                    free\t1048576\t1441792\t2\t8\n\
+                    running\tpicodroid.launcher\n";
+        let listing = parse_list(text);
+        let rows = &listing.rows;
+        assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].package, "com.a");
         assert!(rows[0].boot);
+        assert!(!rows[0].system);
         assert_eq!(rows[0].label, "App A");
         assert_eq!(rows[1].sector, 6);
         assert!(!rows[1].boot);
+        assert!(rows[2].system);
+        assert_eq!(rows[2].package, "picodroid.launcher");
+        assert_eq!(rows[2].label, "Launcher");
         assert_eq!(
-            free,
+            listing.free,
             Some(Free {
                 largest: 1048576,
                 total: 1441792,
@@ -255,18 +288,30 @@ mod tests {
                 max: 8
             })
         );
-        let out = render(&rows, free.as_ref());
+        assert_eq!(listing.running.as_deref(), Some("picodroid.launcher"));
+        let out = render(&listing);
         assert!(out.contains("com.a"), "{out}");
+        assert!(out.contains("SYSTEM picodroid.launcher"), "{out}");
         assert!(
             out.contains("free: largest 1024 KB, total 1408 KB, apps 2/8"),
             "{out}"
         );
+        assert!(out.ends_with("running: picodroid.launcher\n"), "{out}");
+    }
+
+    /// M1 firmware sends neither system rows nor a running line.
+    #[test]
+    fn an_older_firmware_without_the_running_line_still_parses() {
+        let listing = parse_list("0\tcom.a\t7\t2.1\t16288\tboot\tApp A\nfree\t8\t8\t1\t8\n");
+        assert_eq!(listing.rows.len(), 1);
+        assert_eq!(listing.running, None);
+        assert!(!render(&listing).contains("running:"));
     }
 
     #[test]
     fn an_empty_directory_renders_as_such() {
-        let (rows, free) = parse_list("free\t0\t0\t0\t8\n");
-        assert!(rows.is_empty());
-        assert!(render(&rows, free.as_ref()).starts_with("(no apps installed)"));
+        let listing = parse_list("free\t0\t0\t0\t8\n");
+        assert!(listing.rows.is_empty());
+        assert!(render(&listing).starts_with("(no apps installed)"));
     }
 }

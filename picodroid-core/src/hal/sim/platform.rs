@@ -59,9 +59,9 @@ pub fn native_heap_stats() -> NativeHeapStats {
 ///   have to stub. The shared engine charges the arena from it, sizes every
 ///   kernel task from it (so the charge and the allocation are one number),
 ///   and asserts at the end of boot that the two routes reconcile.
-/// - `run_app` — a `fn()` that runs the family's app to completion. The
-///   family's, because where the app bytes come from is a property of its
-///   flash layout and build.
+///
+/// Which app runs, and what runs after it, is the package directory's
+/// business (`crate::packages`), the same on a device and here.
 ///
 /// The generated `sim_main()` is emitted under `#[cfg(feature = "sim")]` of
 /// the *invoking* crate, so a family's simulator feature must be named `sim`
@@ -72,7 +72,6 @@ pub fn native_heap_stats() -> NativeHeapStats {
 /// picodroid_core::register_sim_platform! {
 ///     gc_roots    = crate::gc_root_registration::register_all,
 ///     boot_budget = crate::boot_budget::MODEL,
-///     run_app     = crate::app::run_jvm,
 /// }
 ///
 /// #[cfg(feature = "sim")]
@@ -84,8 +83,7 @@ pub fn native_heap_stats() -> NativeHeapStats {
 macro_rules! register_sim_platform {
     (
         gc_roots = $gc_roots:path,
-        boot_budget = $boot_budget:path,
-        run_app = $run_app:path $(,)?
+        boot_budget = $boot_budget:path $(,)?
     ) => {
         const _: () = {
             use $crate::hal::sim::{boot_budget, rtos};
@@ -177,10 +175,10 @@ macro_rules! register_sim_platform {
             }
 
             impl $crate::host::PlatformHooks for SimPlatform {
-                /// No debug bridge in the simulator, so nothing can ask the
-                /// JVM to stop.
+                /// The simulator's `STOP_JVM`: raised between apps and by the
+                /// package verbs that replace or remove the running app.
                 fn stop_requested() -> bool {
-                    false
+                    $crate::hal::sim::platform::stop_jvm()
                 }
                 fn heap_bypass_enter() {
                     $crate::hal::sim::allocator::bypass_enter()
@@ -203,12 +201,27 @@ macro_rules! register_sim_platform {
             $crate::set_platform_hooks!(SimPlatform);
         };
 
-        /// The simulator's `main`: hand this family's boot-budget model and
-        /// its app to `picodroid_core::sim_boot::main`, which owns the
-        /// sequence.
+        /// The simulator's `main`: hand this family's boot-budget model to
+        /// `picodroid_core::sim_boot::main`, which owns the sequence.
         #[cfg(feature = "sim")]
         pub fn sim_main() {
-            $crate::sim_boot::main(&$boot_budget, $run_app)
+            $crate::sim_boot::main(&$boot_budget)
         }
     };
+}
+
+/// The simulator's `STOP_JVM`, raised to end the running app the way a
+/// device's install park does: the interpreter returns `Interrupted` at its
+/// next poll, and sleeping Java threads see it when they wake. The
+/// app-switching loop (`sim_boot`) raises it after each app and clears it
+/// before the next one; the package verbs that replace or remove the running
+/// app raise it too.
+static STOP_JVM: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+pub fn set_stop_jvm(on: bool) {
+    STOP_JVM.store(on, core::sync::atomic::Ordering::Release);
+}
+
+pub fn stop_jvm() -> bool {
+    STOP_JVM.load(core::sync::atomic::Ordering::Acquire)
 }

@@ -31,7 +31,7 @@
 #          (Android-faithful synthetic input; mirrors `pdb input ...`)
 # Apps:    apps list | apps install <file.papk> | apps uninstall <package>
 #          (the package directory; served on the JVM task at the next tick.
-#          Replacing the running app is refused until app switching lands.)
+#          A verb naming the running app stops it first, then runs.)
 # Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
 #          heapcensus — live-set census: bytes by class / array type / dyn
@@ -69,8 +69,8 @@ Commands (forwarded verbatim to the sim):
   memstats     ([memmon] snapshot; sim must be built with --mem-diag)
   heapcensus   (live-set census by class/atype/strings; same build requirement)
   apps list                      (the package directory: sector, package, version, size)
-  apps install <file.papk>       (install into the region; refused for the running app)
-  apps uninstall <package>       (erase the run; refused for the running app)
+  apps install <file.papk>       (install into the region; the running app is stopped first)
+  apps uninstall <package>       (erase the run; the running app is stopped first)
 
 Examples:
   $(basename "$0") tap A

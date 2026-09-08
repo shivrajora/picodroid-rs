@@ -297,8 +297,10 @@ pub fn pop_activity_group() {}
 pub fn reset_activity_groups() {}
 
 /// `View.setFocusable(boolean)` backing: add this view to — or remove it from —
-/// the active Activity's keypad focus group. No-op when the handle is null or no
-/// group is active (non-button boards, or before the first Activity launches).
+/// the active Activity's keypad focus group. A focusable view also scrolls
+/// into view when it takes focus, as a child of Android's ScrollView does.
+/// No-op when the handle is null or no group is active (non-button boards,
+/// or before the first Activity launches).
 pub fn set_view_focusable(id: i32, on: bool) {
     let raw = super::handle_table::lookup(id);
     if raw.is_null() {
@@ -311,6 +313,7 @@ pub fn set_view_focusable(id: i32, on: bool) {
         }
         if on {
             lv_group_add_obj(group, raw); // idempotent if already a member
+            lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
         } else {
             lv_group_remove_obj(raw);
         }
@@ -332,6 +335,7 @@ pub fn request_view_focus(id: i32) -> bool {
             return false;
         }
         lv_group_add_obj(group, raw); // idempotent if already a member
+        lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
         lv_group_focus_obj(raw);
         lv_group_get_focused(group) == raw
     }

@@ -170,14 +170,29 @@ object ApiContract {
     )
 
     /**
+     * The launcher-facing classes only a multi-app board ships
+     * (`build_support/board_cfg.rs::MULTI_APP_CLASSES`, multi-app M2). A board
+     * is multi-app when its board.toml sets `max_installed_apps` above 1; the
+     * MCU defaults are 1, so an absent key means a single-app board.
+     */
+    private val MULTI_APP_CLASSES = setOf(
+        "picodroid/content/pm/PackageInfo",
+        "picodroid/content/pm/ApplicationInfo",
+        "picodroid/content/pm/PackageManager\$NameNotFoundException",
+        "picodroid/graphics/drawable/BitmapDrawable",
+    )
+
+    /**
      * What a board.toml drops: its top-level `framework_class_excludes = "a;b,c"`
-     * key plus the classes its feature switches leave out (`has_json`) — the
-     * same hand-rolled, line-based read as `build_support/board_cfg.rs`
-     * (`;` or `,` separated, one line each, top level only).
+     * key plus the classes its feature switches leave out (`has_json`,
+     * `max_installed_apps`) — the same hand-rolled, line-based read as
+     * `build_support/board_cfg.rs` (`;` or `,` separated, one line each, top
+     * level only).
      */
     fun parseBoardExcludes(toml: String): Set<String> {
         var listed = emptySet<String>()
         var hasJson = false
+        var maxApps = 1
         for (raw in toml.lineSequence()) {
             val line = raw.trim()
             if (line.startsWith("[")) break
@@ -185,11 +200,18 @@ object ApiContract {
                 hasJson = topLevelValue(line, "has_json") == "true"
                 continue
             }
+            if (line.startsWith("max_installed_apps")) {
+                maxApps = topLevelValue(line, "max_installed_apps").toIntOrNull() ?: 1
+                continue
+            }
             if (!line.startsWith("framework_class_excludes")) continue
             val value = topLevelValue(line, "framework_class_excludes")
             listed = value.split(';', ',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         }
-        return if (hasJson) listed else listed + JSON_CLASSES
+        var dropped = listed
+        if (!hasJson) dropped = dropped + JSON_CLASSES
+        if (maxApps <= 1) dropped = dropped + MULTI_APP_CLASSES
+        return dropped
     }
 
     /** The unquoted value of a `key = value` line. */

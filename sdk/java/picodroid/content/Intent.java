@@ -6,12 +6,14 @@ package picodroid.content;
  * Intent identifies the target component by class and optionally carries primitive extras that the
  * recipient reads back.
  *
- * <p>Picodroid supports only explicit Intents (a {@code Class<?>} target) — implicit Intents
- * (action / category / data resolution against a manifest) are out of scope.
+ * <p>Picodroid supports only explicit Intents: a {@code Class<?>} target in this app, or on a
+ * multi-app board a package name ({@link #setPackage}) that launches another installed app.
+ * Implicit Intents (action / category / data resolution against a manifest) are out of scope.
  *
  * <pre>{@code
  * startActivity(new Intent(DetailActivity.class));
  * startService(new Intent(SyncService.class).putExtra("interval", 60));
+ * startActivity(getPackageManager().getLaunchIntentForPackage("com.example.weather"));
  * }</pre>
  */
 public final class Intent {
@@ -27,6 +29,17 @@ public final class Intent {
   private byte[] tags;
   private int n;
 
+  /**
+   * Package to launch instead of a class in this app (multi-app boards). Declared last: the
+   * framework reads it by field slot, after the fields above.
+   */
+  private String packageName;
+
+  /** An Intent with no target yet; see {@link #setPackage}. */
+  public Intent() {
+    this.targetClassName = null;
+  }
+
   public Intent(Class<?> targetClass) {
     // getName() returns the Java-spec dot-form; the native lifecycle ops
     // resolve classes by internal slash-form, so normalize here.
@@ -36,6 +49,22 @@ public final class Intent {
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */
   public String getTargetClassName() {
     return targetClassName;
+  }
+
+  /**
+   * Launch the app installed as {@code packageName} (its main component) instead of a class in this
+   * app. The current app is torn down first: one app runs at a time, and extras do not cross over.
+   * {@code startActivity} throws {@link ActivityNotFoundException} when no such package is
+   * installed. Mirrors {@code android.content.Intent#setPackage}.
+   */
+  public Intent setPackage(String packageName) {
+    this.packageName = packageName;
+    return this;
+  }
+
+  /** The package this Intent launches, or {@code null} for a class in this app. */
+  public String getPackage() {
+    return packageName;
   }
 
   public Intent putExtra(String key, int value) {

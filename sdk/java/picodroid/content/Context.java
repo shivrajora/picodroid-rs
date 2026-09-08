@@ -2,6 +2,7 @@
 package picodroid.content;
 
 import picodroid.app.NotificationManager;
+import picodroid.content.pm.PackageManager;
 import picodroid.hardware.SensorManager;
 
 /**
@@ -36,6 +37,14 @@ public class Context {
     }
     return null;
   }
+
+  /** The package manager: what this device has installed and can launch. */
+  public PackageManager getPackageManager() {
+    return PackageManager.getInstance();
+  }
+
+  /** This app's package name, as its manifest declares it. */
+  public native String getPackageName();
 
   /**
    * Retrieve a {@link SharedPreferences} for the given name, the standard Android idiom: {@code

@@ -318,12 +318,12 @@ Alternatives considered:
 |---------|-------|--------|
 | S0 | Package identity in the manifest | DONE 2026-09-07 as multi-app M0 (A2) |
 | S1 | Multi-slot flash layout and package index (RP2350) | IN PROGRESS as multi-app M1 — dynamic region, no index (A2) |
-| S2 | PackageManager and PackageInstaller | PLANNED: queries in multi-app M2, uninstall in M3; the streaming `Session` waits for S4 (A2) |
+| S2 | PackageManager and PackageInstaller | queries DONE 2026-09-07 as multi-app M2 (A2); uninstall in M3; the streaming `Session` waits for S4 |
 | S3 | CRC + Ed25519 signatures, streaming verify | NOT STARTED |
 | S4 | Network `InstallTransport` over HTTP `Range` | NOT STARTED |
 | S5 | TLS 1.3 client (position 2) | NOT STARTED |
-| S6 | Launcher and store as firmware system apps | PLANNED as multi-app M2 — launcher + settings, no store yet (A2) |
-| S7 | Cross-package launch and task stack | PLANNED as multi-app M2 — exit returns home, no task stack (A2) |
+| S6 | Launcher and store as firmware system apps | launcher DONE 2026-09-07 as multi-app M2 (A2); settings in M3, no store yet |
+| S7 | Cross-package launch and task stack | DONE 2026-09-07 as multi-app M2 — exit returns home, no task stack (A2) |
 | S8 | Store protocol (protobuf) and reference server | NOT STARTED |
 | S9 | Permissions | NOT STARTED |
 

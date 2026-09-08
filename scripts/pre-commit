@@ -250,6 +250,9 @@ HOST_TARGET="$(host_target)"
 # concurrent `sim.sh --app helloworld` would swap it mid-run and the ratchet
 # would gate on someone else's build. This copy belongs to the run.
 APK_PATH="$REPO_ROOT/build/apks/pre-commit/helloworld.papk"
+# The launcher every multi-app firmware lane links in (multi-app M2), built
+# once beside the app PAPK for the same reason.
+SYSTEM_APK_PATH="$REPO_ROOT/build/apks/pre-commit/launcher.papk"
 
 RUN_DIR="$REPO_ROOT/build/pre-commit/$(date -u '+%Y-%m-%dT%H%M%S')"
 mkdir -p "$RUN_DIR/size"
@@ -404,6 +407,9 @@ stage_apk() {
   # with no app line table (the SDK's rides in the firmware regardless);
   # helloworld's would be a few dozen bytes.
   bash "$SCRIPT_DIR/build-apk.sh" --app helloworld --strip-debug -o "$APK_PATH"
+  # The launcher, for the same reason: every multi-app firmware lane embeds
+  # it, and system-apps/launcher/build/ must not be raced either.
+  bash "$SCRIPT_DIR/build-apk.sh" --app launcher --strip-debug -o "$SYSTEM_APK_PATH"
 }
 
 stage_fmt_java() {
@@ -520,7 +526,8 @@ stage_clippy_host_tools() {
 
 # build_board <board> [--release] with PICODROID_EXTRA_FEATURES already set.
 build_board() {
-  PICODROID_PREBUILT_APK="$APK_PATH" bash "$SCRIPT_DIR/build.sh" "$@"
+  PICODROID_PREBUILT_APK="$APK_PATH" PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATH" \
+    bash "$SCRIPT_DIR/build.sh" "$@"
 }
 
 stage_build_rp2040() {
@@ -613,6 +620,7 @@ stage_langsuite_kt_stdlib() { sim_suite langsuite_kt_stdlib; }
 size_board() {
   local board="$1"
   if ! PICODROID_BENCH_RECORD=0 PICODROID_PREBUILT_APK="$APK_PATH" \
+       PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATH" \
        PICODROID_SIZE_RUN_DIR="$RUN_DIR/size/$board" \
        bash "$SCRIPT_DIR/parity-bench.sh" --size-only --boards "$board"; then
     echo ""
