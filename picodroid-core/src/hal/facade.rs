@@ -432,6 +432,7 @@ pub mod fs {
         fn __pd_hal_fs_truncate(path: &str);
         fn __pd_hal_fs_read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32;
         fn __pd_hal_fs_write_at(path: &str, pos: u64, data: &[u8]) -> i32;
+        fn __pd_hal_fs_list_dir(path: &str, out: &mut Vec<crate::hal::DirEntry>) -> bool;
     }
 
     pub fn exists(path: &str) -> bool {
@@ -463,5 +464,8 @@ pub mod fs {
     }
     pub fn write_at(path: &str, pos: u64, data: &[u8]) -> i32 {
         unsafe { __pd_hal_fs_write_at(path, pos, data) }
+    }
+    pub fn list_dir(path: &str, out: &mut Vec<crate::hal::DirEntry>) -> bool {
+        unsafe { __pd_hal_fs_list_dir(path, out) }
     }
 }

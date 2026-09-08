@@ -372,9 +372,25 @@ mod tests {
                         || b.ends_with('=')
                         || ((b.ends_with('(') || b.ends_with(','))
                             && (f.starts_with(',') || f.starts_with(')')));
+                    // The simulator's control-channel verbs (`apps
+                    // list|install|uninstall`, `hal/sim/app_region.rs`)
+                    // are words typed into the FIFO, compared against
+                    // that text and never against a Java name; they share
+                    // spellings with `File.list` and
+                    // `PackageInstaller.uninstall`.
                     let prose = [
-                        "read", "wait", "connect", "send", "recv", "accept", "sensor", "target",
+                        "read",
+                        "wait",
+                        "connect",
+                        "send",
+                        "recv",
+                        "accept",
+                        "sensor",
+                        "target",
                         "name",
+                        "list",
+                        "install",
+                        "uninstall",
                     ];
                     // `<init>` / `<clinit>` have no const (JVMS-reserved);
                     // `main` / `injectMembers` are kept app entry points.

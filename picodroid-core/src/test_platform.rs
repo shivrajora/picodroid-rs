@@ -129,7 +129,7 @@ impl crate::hal::HalUart for TestHal {
 }
 
 /// In-memory filesystem, so `File` natives are testable without LittleFS or
-/// a host image. This is the backend `native_handler/io.rs` carries in its
+/// a host image. This is the backend `native_handler/io/` carries in its
 /// own `cfg(test)` module today; it lands here so that when io.rs moves into
 /// this crate its tests keep a real backend to run against.
 impl crate::hal::HalFs for TestHal {
@@ -174,6 +174,44 @@ impl crate::hal::HalFs for TestHal {
             .lock()
             .expect("test fs poisoned")
             .insert(path.to_string(), Vec::new());
+    }
+    /// The keys under `path/`: files directly beneath, one entry per deeper
+    /// prefix; a file, or nothing beneath, is "not a directory".
+    fn list_dir(path: &str, out: &mut Vec<crate::hal::DirEntry>) -> bool {
+        let s = store().lock().expect("test fs poisoned");
+        if s.contains_key(path) {
+            return false;
+        }
+        let prefix = if path.ends_with('/') {
+            path.to_string()
+        } else {
+            format!("{path}/")
+        };
+        let mut dirs = std::collections::BTreeSet::new();
+        let mut found = false;
+        for (key, bytes) in s.iter() {
+            let Some(rest) = key.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            found = true;
+            match rest.split_once('/') {
+                None => out.push(crate::hal::DirEntry {
+                    name: rest.to_string(),
+                    dir: false,
+                    size: bytes.len() as u32,
+                }),
+                Some((dir, _)) => {
+                    if dirs.insert(dir.to_string()) {
+                        out.push(crate::hal::DirEntry {
+                            name: dir.to_string(),
+                            dir: true,
+                            size: 0,
+                        });
+                    }
+                }
+            }
+        }
+        found
     }
     fn read_at(path: &str, pos: u64, out: &mut Vec<u8>, len: usize) -> i32 {
         let s = store().lock().expect("test fs poisoned");

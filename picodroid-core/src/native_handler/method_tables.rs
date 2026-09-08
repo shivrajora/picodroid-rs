@@ -111,7 +111,7 @@ pub const PIO_HANDLED: &[Row] = &[
     ("picodroid/pio/UartDevice", "writeByte", "(I)I"),
 ];
 
-/// `native_handler/io.rs`
+/// `native_handler/io/mod.rs`
 pub const IO_HANDLED: &[Row] = &[
     // picodroid/io/File
     ("picodroid/io/File", "createNewFile", "()Z"),
@@ -120,6 +120,7 @@ pub const IO_HANDLED: &[Row] = &[
     ("picodroid/io/File", "isDirectory", "()Z"),
     ("picodroid/io/File", "isFile", "()Z"),
     ("picodroid/io/File", "length", "()J"),
+    ("picodroid/io/File", "list", "()[Ljava/lang/String;"),
     ("picodroid/io/File", "mkdir", "()Z"),
     ("picodroid/io/File", "renameTo", "(Lpicodroid/io/File;)Z"),
     // picodroid/io/FileInputStream

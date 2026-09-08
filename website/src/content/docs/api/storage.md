@@ -5,7 +5,13 @@ description: "Files, Preferences, and the LittleFS-backed key-value store."
 
 On-device persistent storage. Packages: `picodroid.io` (raw files) and `picodroid.content` (typed key-value settings). See [Java API overview](/api/) for the full API index.
 
-Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region; under the simulator it is backed by a host file (`platforms/rp/target/sim-fs.img`, overridable via the `PICODROID_SIM_FS` env var) so writes survive across `sim.sh` runs.
+Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region (`fs_kb` in the MCU or board toml: 512 KB on the RP2350 boards, 128 KB on the RP2040 testbench); under the simulator it is backed by a host file of the same size (`picodroid-core/target/sim-fs.img`, overridable via the `PICODROID_SIM_FS` env var; `PICODROID_SIM_FS_KB` overrides the size, and an image of another size is started afresh) so writes survive across `sim.sh` runs.
+
+## Every app has its own root
+
+An app never sees the volume itself. Every path it names — `new File("/notes.txt")`, a `SharedPreferences` file, `getFilesDir()` — is resolved under the app's own directory, `/data/<package>` on the volume, where `<package>` is the manifest's `package`. The app's `/` *is* that directory: it cannot name another app's files, `..` is refused (a predicate such as `exists()` answers `false`; a write throws `IOException`), empty and `.` segments are dropped, and both ends of a `renameTo` are mapped. Uninstalling an app removes its directory. This is the same model Android enforces below the app, here at the only seam Java can reach storage through, and it holds on every board, single-app ones included.
+
+Two costs are worth knowing: an app path is at most 185 bytes (LittleFS itself allows 255 per segment), and every directory costs LittleFS an 8 KB metadata pair — an app that uses `/prefs` and `/files` holds 24 KB of metadata before its first byte of data. See [limits](/reference/limits/).
 
 ## `picodroid.io` — Files
 
@@ -18,35 +24,67 @@ import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
 
-File f = new File("/data/notes.txt");
+File f = new File("/notes.txt");
 boolean exists = f.exists();
 boolean isFile = f.isFile();
 long    size   = f.length();
 boolean ok     = f.delete();
 
-File dir = new File("/data");
+File dir = new File("/logs");
 dir.mkdir();
-new File("/data/old.txt").renameTo(new File("/data/new.txt"));
+new File("/logs/old.txt").renameTo(new File("/logs/new.txt"));
+String[] names = dir.list();          // null when /logs is not a directory
 
-// Append a line
-try (FileOutputStream out = new FileOutputStream("/data/log.txt", /*append=*/true)) {
+// Append a line — write() throws IOException when the bytes cannot be stored
+try (FileOutputStream out = new FileOutputStream("/logs/log.txt", /*append=*/true)) {
     out.write("hello\n".getBytes());
     out.flush();
+} catch (IOException e) {
+    Log.i("FS", "write failed: " + e.getMessage());
 }
 
 // Read it back
-try (FileInputStream in = new FileInputStream(new File("/data/log.txt"))) {
+try (FileInputStream in = new FileInputStream(new File("/logs/log.txt"))) {
     byte[] buf = new byte[64];
     int n = in.read(buf);
     Log.i("FS", "read " + n + " bytes");
 }
 ```
 
+The read side reports failure the way `java.io.File`'s predicates do — `false`, `0`, or `-1` from `read()` — and the write side throws `java.io.IOException`: `FileOutputStream.write` and `File.createNewFile` declare it, and a refused path, a full volume or a rejected write arrives as one an app can catch. The stream constructors do not throw; a stream over a refused path fails at its first `write`.
+
 | Class | Selected methods |
 |-------|------------------|
-| `File` | constructor `File(String path)`; `getPath()`, `getAbsolutePath()`, `getName()`, `getParent()`, `getParentFile()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `mkdirs()`, `createNewFile()`, `renameTo(File)` |
+| `File` | constructor `File(String path)`; `getPath()`, `getAbsolutePath()`, `getName()`, `getParent()`, `getParentFile()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `mkdirs()`, `createNewFile()` (throws `IOException`), `renameTo(File)`, `list()`, `listFiles()` |
 | `FileInputStream` | constructors `(File)`, `(String path)`; `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
-| `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)`, `flush()`, `close()` |
+| `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)` (all throw `IOException`), `flush()`, `close()` |
+
+## `Context` — private files
+
+`Context` (so every `Activity`, `Service` and `Application`) carries Android's private-file helpers, all relative to the app's own root:
+
+```java
+File data  = getDataDir();     // "/", the app's root
+File files = getFilesDir();    // "/files", created on first use
+
+try (FileOutputStream out = openFileOutput("state.bin", MODE_PRIVATE)) {   // MODE_APPEND to append
+    out.write(bytes);
+}
+try (FileInputStream in = openFileInput("state.bin")) {                    // IOException when absent
+    in.read(buf);
+}
+String[] mine = fileList();          // the names in /files
+boolean gone  = deleteFile("state.bin");
+```
+
+| Method | Notes |
+|---|---|
+| `getDataDir()` | The app's root, `/`. |
+| `getFilesDir()` | `/files`; created the first time it is asked for. |
+| `openFileOutput(String name, int mode)` | `MODE_PRIVATE` truncates, `MODE_APPEND` appends; `name` is a bare name, never a path (`IllegalArgumentException`). Throws `IOException` when the file cannot be created — Android declares the subclass `FileNotFoundException`, which Picodroid does not serve. |
+| `openFileInput(String name)` | Throws `IOException` when there is no such file (Android: `FileNotFoundException`). |
+| `fileList()` | The names in `/files`; an empty array before the first file. |
+| `deleteFile(String name)` | `false` when there was nothing to delete. |
 
 ## `picodroid.content.SharedPreferences`
 

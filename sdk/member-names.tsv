@@ -36,6 +36,7 @@ F	E
 F	END
 F	FEATURE_ETHERNET
 F	FEATURE_WIFI
+F	FILES_DIR
 F	FILL
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
@@ -114,6 +115,7 @@ F	MODE_0
 F	MODE_1
 F	MODE_2
 F	MODE_3
+F	MODE_APPEND
 F	MODE_NUMBER
 F	MODE_PRIVATE
 F	MODE_SPECIAL
@@ -472,6 +474,7 @@ M	debugPoolNodes
 M	decode
 M	decrementAndGet
 M	delete
+M	deleteFile
 M	disconnect
 M	dismiss
 M	dispatchRunnable
@@ -485,6 +488,8 @@ M	execute
 M	exists
 M	exit0
 M	exp
+M	fileList
+M	filePath
 M	fill
 M	findButton
 M	finish
@@ -539,6 +544,7 @@ M	getContentText
 M	getContentTitle
 M	getCount
 M	getData
+M	getDataDir
 M	getDay
 M	getDefaultSensor
 M	getDefaultUncaughtExceptionHandler
@@ -547,6 +553,7 @@ M	getDouble
 M	getDuration
 M	getErrorStream
 M	getEventTime
+M	getFilesDir
 M	getFloat
 M	getHeaderField
 M	getHeaderFieldKey
@@ -679,6 +686,8 @@ M	lambda$new$0
 M	lambda$track$0
 M	lazySet
 M	length
+M	list
+M	listFiles
 M	load
 M	loadIcon
 M	loadLabel
@@ -847,6 +856,8 @@ M	onValueChange
 M	open
 M	openAdcPin
 M	openConnection
+M	openFileInput
+M	openFileOutput
 M	openGpio
 M	openI2cDevice
 M	openPwm

@@ -265,4 +265,19 @@ pub trait HalFs {
     fn read_at(path: &str, pos: u64, out: &mut alloc::vec::Vec<u8>, len: usize) -> i32;
     /// Returns bytes written, or -1 on error. Creates the file if absent.
     fn write_at(path: &str, pos: u64, data: &[u8]) -> i32;
+    /// Append the entries of the directory at `path` onto `out`, without
+    /// `.` and `..`. Returns `false` when `path` is not a directory or the
+    /// read fails; `out` may then hold a partial listing.
+    fn list_dir(path: &str, out: &mut alloc::vec::Vec<DirEntry>) -> bool;
+}
+
+/// One entry of a directory listing, as [`HalFs::list_dir`] reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirEntry {
+    /// The entry's own name, no directory part.
+    pub name: alloc::string::String,
+    /// Whether the entry is a directory.
+    pub dir: bool,
+    /// Size in bytes; 0 for a directory.
+    pub size: u32,
 }

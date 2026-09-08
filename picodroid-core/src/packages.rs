@@ -561,6 +561,21 @@ pub fn next_seq() -> u32 {
 /// Record the package `run_app` is executing (its manifest's name, copied).
 pub fn set_running(package: Option<&str>) {
     dir().running.set(package);
+    // A load and a store rather than `fetch_add`: the Cortex-M0+ has no
+    // read-modify-write atomics, and this has one writer (the JVM task).
+    let next = RUN_GENERATION
+        .load(core::sync::atomic::Ordering::Relaxed)
+        .wrapping_add(1);
+    RUN_GENERATION.store(next, core::sync::atomic::Ordering::Release);
+}
+
+/// Moves with every [`set_running`]: what a per-run cache keys on, such as
+/// the storage sandbox's "package directory made" flag.
+static RUN_GENERATION: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// The current run's number; another value means another `run_app`.
+pub fn run_generation() -> u32 {
+    RUN_GENERATION.load(core::sync::atomic::Ordering::Acquire)
 }
 
 /// The package `run_app` is executing, if it named one.

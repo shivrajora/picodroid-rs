@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package prefsdemo;
 
+import java.io.IOException;
 import java.util.Map;
 import picodroid.app.Application;
 import picodroid.content.SharedPreferences;
@@ -16,6 +17,16 @@ public class PrefsDemo extends Application {
   // InvalidBytecode on the first check() call (iadd on Null).
   static int passed;
   static int failed;
+
+  /** {@code createNewFile} as a boolean: a refused or failed create counts as false here. */
+  static boolean create(File f) {
+    try {
+      return f.createNewFile();
+    } catch (IOException e) {
+      Log.i(TAG, "createNewFile threw: " + e.getMessage());
+      return false;
+    }
+  }
 
   static void check(String name, boolean cond) {
     if (cond) {
@@ -172,10 +183,10 @@ public class PrefsDemo extends Application {
     check("mkdirs creates chain", dir.mkdirs());
     check("mkdirs result isDirectory", dir.isDirectory());
     check("mkdirs on existing is false", !dir.mkdirs());
-    check("createNewFile creates", f.createNewFile());
+    check("createNewFile creates", create(f));
     check("created file exists", f.exists() && f.isFile());
     check("created file is empty", f.length() == 0L);
-    check("createNewFile on existing is false", !f.createNewFile());
+    check("createNewFile on existing is false", !create(f));
     check("delete file", f.delete());
     check("delete dirs", new File("/pd_demo/sub").delete() && new File("/pd_demo").delete());
   }

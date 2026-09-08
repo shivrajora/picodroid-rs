@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.io;
 
+import java.io.IOException;
+
 public class File {
   private String path;
 
@@ -65,8 +67,31 @@ public class File {
     return mkdir();
   }
 
-  /** Creates an empty file; {@code false} when the path already exists. */
-  public native boolean createNewFile();
+  /**
+   * The names of the entries in this directory, in the filesystem's order, or {@code null} when
+   * this path is not a directory.
+   */
+  public native String[] list();
+
+  /** {@link #list()} as {@code File}s under this path, or {@code null} for a non-directory. */
+  public File[] listFiles() {
+    String[] names = list();
+    if (names == null) {
+      return null;
+    }
+    File[] out = new File[names.length];
+    String base = path.endsWith("/") ? path : path + "/";
+    for (int i = 0; i < names.length; i++) {
+      out[i] = new File(base + names[i]);
+    }
+    return out;
+  }
+
+  /**
+   * Creates an empty file; {@code false} when the path already exists. Throws when the file cannot
+   * be created: a path that leaves this app's directory, a full volume, an I/O error.
+   */
+  public native boolean createNewFile() throws IOException;
 
   public native boolean exists();
 

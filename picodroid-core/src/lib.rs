@@ -39,6 +39,7 @@ pub mod host;
 // path that can leave a device unbootable had no coverage at all.
 pub mod install;
 pub mod packages;
+pub mod storage;
 // Synthetic input gestures, shared by the debug bridge and the simulator's
 // control channel so both answer a script identically.
 pub mod input_inject;
@@ -106,10 +107,10 @@ mod test_platform;
 #[cfg(test)]
 #[path = "native_handler/state.rs"]
 mod native_handler_state_tests;
-// java/io natives over the in-memory test backend (bounds checks — the
-// negative-length read panic, bugbash F6).
+// picodroid/io natives over `TestHal`'s in-memory map (bounds checks — the
+// negative-length read panic, bugbash F6 — and the storage sandbox).
 #[cfg(test)]
-#[path = "native_handler/io.rs"]
+#[path = "native_handler/io/mod.rs"]
 mod native_handler_io_tests;
 // SystemClock.sleep argument handling (bugbash F5); `os` is cfg(not(test))
 // for the same HAL reasons as native_handler.

@@ -10,6 +10,12 @@
 //! `platforms/rp/target/sim-fs.img` to `picodroid-core/target/sim-fs.img`
 //! when the filesystem did. `PICODROID_SIM_FS` overrides it, which is what
 //! tests should use rather than sharing the developer's working image.
+//!
+//! The image is the size of the board's volume (`fs_kb`, through the
+//! generated `FS_LEN`), so `StatFs`, the per-app cap and a full volume look
+//! the same here as on the device; `PICODROID_SIM_FS_KB` overrides it. An
+//! image of another size is started afresh — LittleFS fixes the block
+//! count at format, and a mount over a resized image would only fail.
 
 use std::env;
 use std::fs::{File, OpenOptions};
@@ -22,8 +28,6 @@ pub const BLOCK_SIZE: usize = 4096;
 pub const PROG_SIZE: usize = 256;
 pub const READ_SIZE: usize = 16;
 
-const DEFAULT_SIZE_KB: u32 = 256;
-
 pub struct HostFileStorage {
     file: File,
     block_count: u32,
@@ -35,7 +39,7 @@ impl HostFileStorage {
         let size_kb: u32 = env::var("PICODROID_SIM_FS_KB")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(DEFAULT_SIZE_KB);
+            .unwrap_or((crate::board_cfg::flash::FS_LEN / 1024) as u32);
         let total_len: u64 = u64::from(size_kb) * 1024;
         assert!(
             total_len.is_multiple_of(BLOCK_SIZE as u64) && total_len > 0,
@@ -55,12 +59,21 @@ impl HostFileStorage {
             .open(&path)?;
 
         let current_len = file.metadata()?.len();
-        if current_len < total_len {
-            // Extend with 0xFF so a fresh image looks erased (LittleFS
+        if current_len != total_len {
+            if current_len != 0 {
+                eprintln!(
+                    "[sim][fs] {} holds a {} KB image but this board's volume is {} KB: starting a fresh one",
+                    path.display(),
+                    current_len / 1024,
+                    size_kb
+                );
+                file.set_len(0)?;
+            }
+            // Fill with 0xFF so a fresh image looks erased (LittleFS
             // format expects erased flash to read as 0xFF).
-            file.seek(SeekFrom::Start(current_len))?;
+            file.seek(SeekFrom::Start(0))?;
             let fill = [0xFFu8; 4096];
-            let mut remaining = total_len - current_len;
+            let mut remaining = total_len;
             while remaining > 0 {
                 let n = remaining.min(fill.len() as u64) as usize;
                 file.write_all(&fill[..n])?;

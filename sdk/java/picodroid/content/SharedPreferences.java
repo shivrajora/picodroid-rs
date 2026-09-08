@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import picodroid.io.File;
@@ -623,9 +624,22 @@ public final class SharedPreferences {
         tmpFile.delete();
       }
 
-      FileOutputStream out = new FileOutputStream(tmp);
-      out.write(blob, 0, written);
-      out.close();
+      try {
+        FileOutputStream out = new FileOutputStream(tmp);
+        out.write(blob, 0, written);
+        out.close();
+      } catch (IOException e) {
+        tmpFile.delete();
+        base.keys = sk;
+        base.types = st;
+        base.strVals = ss;
+        base.intVals = si;
+        base.longValsLo = sll;
+        base.longValsHi = slh;
+        base.count = sc;
+        Log.i(TAG, "tmp write failed: " + e.getMessage());
+        return false;
+      }
 
       // Verify the write actually landed by comparing size.
       File tmpAfter = new File(tmp);

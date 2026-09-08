@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package bootcount;
 
+import java.io.IOException;
 import picodroid.app.Application;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
@@ -43,8 +44,12 @@ public class BootCount extends Application {
     buf[1] = (byte) ((count >> 8) & 0xff);
     buf[2] = (byte) ((count >> 16) & 0xff);
     buf[3] = (byte) ((count >> 24) & 0xff);
-    FileOutputStream out = new FileOutputStream(PATH);
-    out.write(buf);
-    out.close();
+    try {
+      FileOutputStream out = new FileOutputStream(PATH);
+      out.write(buf);
+      out.close();
+    } catch (IOException e) {
+      Log.i(TAG, "write failed: " + e.getMessage());
+    }
   }
 }

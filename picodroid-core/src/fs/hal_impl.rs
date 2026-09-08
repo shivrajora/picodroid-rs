@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use littlefs_rust::{FileType, OpenFlags, SeekFrom};
 
 use super::with_fs;
-use crate::hal::HalFs;
+use crate::hal::{DirEntry, HalFs};
 
 /// LittleFS, as the framework's file API sees it.
 pub struct LittleFsHal;
@@ -95,5 +95,29 @@ impl HalFs for LittleFsHal {
             }
         })
         .unwrap_or(-1)
+    }
+
+    fn list_dir(path: &str, out: &mut Vec<DirEntry>) -> bool {
+        with_fs(|fs| {
+            let Ok(dir) = fs.read_dir(path) else {
+                return false;
+            };
+            for entry in dir {
+                let Ok(entry) = entry else {
+                    return false;
+                };
+                // LittleFS lists `.` and `..` first; Java's `list()` does not.
+                if entry.name == "." || entry.name == ".." {
+                    continue;
+                }
+                out.push(DirEntry {
+                    dir: entry.file_type == FileType::Dir,
+                    size: entry.size,
+                    name: entry.name,
+                });
+            }
+            true
+        })
+        .unwrap_or(false)
     }
 }
