@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
-# Machine-wide lease on the attached dev board.
+# Machine-wide lease on a dev board.
 #
-# One probe, one board, several parallel sessions (Claude Code sessions in
-# worktrees, a terminal, the 4 AM hil-run cron). Whoever holds the lease may
-# flash, power-cycle or talk pdb to the board; everyone else fails fast with
+# One probe per board, several parallel sessions (Claude Code sessions in
+# worktrees, a terminal, the 4 AM hil-fleet cron). Whoever holds the lease may
+# flash, power-cycle or talk pdb to that board; everyone else fails fast with
 # exit 75 or queues with `acquire --wait` and is handed the board in FIFO
 # order. Every device script calls lib.sh::require_device_lock, which
 # auto-acquires when the board is free -- so in the common case nothing has
 # to be done by hand except `release` when you are finished.
 #
-#   ./scripts/device-lock.sh status
-#   ./scripts/device-lock.sh acquire [--wait [SECS]] [--note TEXT]
-#   ./scripts/device-lock.sh release [--keep-probe]
-#   ./scripts/device-lock.sh run [--wait SECS] -- ./scripts/flash.sh --app x
-#   ./scripts/device-lock.sh break --force
+#   ./scripts/device-lock.sh status [--slot NAME]
+#   ./scripts/device-lock.sh acquire [--slot NAME|--board NAME] [--wait [SECS]] [--note TEXT]
+#   ./scripts/device-lock.sh release [--slot NAME] [--keep-probe]
+#   ./scripts/device-lock.sh run [--slot NAME] [--wait SECS] -- ./scripts/flash.sh --app x
+#   ./scripts/device-lock.sh break --slot NAME --force
+#   ./scripts/device-lock.sh mine
+#
+# Fleet. With a fleet config (scripts/fleet-lib.sh, one row per board slot)
+# there is one lease per slot, kept in slots/<slot>/ under the state
+# directory. --slot names it directly, --board picks the slot whose boards
+# list contains that firmware board; with neither, `acquire`/`run` take the
+# one slot this session already holds, or the only slot in the config, or
+# refuse and list the slots. `status` with no slot shows every slot;
+# `release` with no slot gives back every slot you hold. Without a fleet
+# config there is exactly one lease, as there always was, and --slot/--board
+# are refused.
 #
 # Identity. The lease belongs to a *session*, not to a command. Inside Claude
 # Code every Bash call carries CLAUDE_CODE_SESSION_ID and CLAUDE_PID (the
@@ -24,7 +35,8 @@
 #   PICODROID_DEVICE_OWNER      owner name (hil-run, soak, ...)
 #   PICODROID_DEVICE_OWNER_PID  process whose death releases the lease
 #
-# State lives in ${PICODROID_DEVICE_LOCK_DIR:-/tmp/picodroid-device-lock}:
+# State lives in ${PICODROID_DEVICE_LOCK_DIR:-/tmp/picodroid-device-lock}
+# (per slot: slots/<slot>/ below it):
 #   meta.lock   the only flock, held for milliseconds around each read/write
 #   holder      key=value lines describing the lease (written tmp + mv)
 #   queue/      one ticket per waiter, <counter>-<pid>, FIFO by counter
@@ -38,6 +50,8 @@
 set -euo pipefail
 
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+# shellcheck source=fleet-lib.sh
+source "$(dirname "$SELF")/fleet-lib.sh"
 LOCK_DIR="${PICODROID_DEVICE_LOCK_DIR:-/tmp/picodroid-device-lock}"
 POLL="${PICODROID_DEVICE_LOCK_POLL:-1}"
 TICKET_STALE_S=30        # a waiter touches its ticket every poll
@@ -45,10 +59,22 @@ DEFAULT_WAIT_S=1800
 PROGRESS_EVERY_S=30
 EX_BUSY=75               # EX_TEMPFAIL: try again later
 
-QUEUE_DIR="$LOCK_DIR/queue"
-HOLDER="$LOCK_DIR/holder"
-META="$LOCK_DIR/meta.lock"
-SEQ="$LOCK_DIR/seq"
+# The slot this invocation acts on ("" = the single legacy lease) and the
+# state files that go with it.
+SLOT=""
+select_state_dir() {
+  SLOT="${1:-}"
+  local state="$LOCK_DIR"
+  [[ -n "$SLOT" ]] && state="$LOCK_DIR/slots/$SLOT"
+  QUEUE_DIR="$state/queue"
+  HOLDER="$state/holder"
+  META="$state/meta.lock"
+  SEQ="$state/seq"
+}
+select_state_dir ""
+
+# Message prefix: "device lock" or "device lock [slot]".
+tag() { echo "device lock${SLOT:+ [$SLOT]}"; }
 
 usage() {
   cat <<EOF
@@ -56,7 +82,8 @@ Usage: $(basename "$0") <command> [options]
 
 Commands:
   status  [--quiet|--short]   Show the holder and the queue. --quiet prints
-                              nothing and exits 0 (free) / 1 (held).
+                              nothing and exits 0 (free) / 1 (held). With a
+                              fleet and no --slot: every slot.
   acquire [--wait [SECS]] [--note TEXT] [--pin] [--owner NAME]
                               Take the lease for this session. Without --wait
                               it fails with exit $EX_BUSY when the board is busy
@@ -64,14 +91,20 @@ Commands:
                               to SECS (default $DEFAULT_WAIT_S). --pin makes a lease
                               that outlives every process (soaks); it needs an
                               explicit --owner and only release/break free it.
-  release [--keep-probe]      Give the board back. Also kills any probe-rs
-                              still attached (yours by definition) unless
-                              --keep-probe.
+  release [--keep-probe]      Give the board back. Also kills the probe-rs
+                              still attached to its probe (yours by
+                              definition) unless --keep-probe. With a fleet
+                              and no --slot: every slot you hold.
   run     [--wait SECS] [--note TEXT] -- CMD...
                               Acquire, run CMD, release; the lease is tied to
                               this process. If this session already holds the
                               lease CMD just runs inside it.
   break   --force             Evict whoever holds the lease.
+  mine                        Print the slots this session holds (fleet only).
+
+Options accepted by every command (fleet config only):
+  --slot NAME                 The bench slot to act on.
+  --board NAME                The slot whose boards list contains NAME.
 
 Exit codes: 0 ok, 1 error, $EX_BUSY busy (holder / queue printed on stderr).
 
@@ -80,10 +113,11 @@ Environment:
   PICODROID_DEVICE_OWNER_PID   liveness pid (default \$CLAUDE_PID or the calling shell)
   PICODROID_DEVICE_LOCK_DIR    state directory (default /tmp/picodroid-device-lock)
   PICODROID_DEVICE_LOCK_POLL   wait poll interval in seconds (default 1)
+  PICODROID_FLEET_CONF         fleet config (default ~/.config/picodroid/fleet.conf)
 EOF
 }
 
-die() { echo "device lock: $*" >&2; exit 1; }
+die() { echo "$(tag): $*" >&2; exit 1; }
 
 # ── process liveness ────────────────────────────────────────────────────────
 
@@ -209,6 +243,48 @@ take_lease() {
     "$note" "$(date +%s)" "$PWD" "$branch"
 }
 
+# ── fleet slots ─────────────────────────────────────────────────────────────
+
+GLOBAL_SLOT_OPT=""
+GLOBAL_BOARD_OPT=""
+
+# Slots (fleet config order) whose lease belongs to $OWNER. Reads without the
+# metadata lock: a stale holder simply fails holder_valid.
+held_slots() {
+  fleet_enabled || return 0
+  local s saved="$HOLDER"
+  for s in $(fleet_slots); do
+    HOLDER="$LOCK_DIR/slots/$s/holder"
+    if holder_valid && [[ "$H_OWNER" == "$OWNER" ]]; then echo "$s"; fi
+  done
+  HOLDER="$saved"
+}
+
+# Pick the slot for this invocation and point the state files at it. In
+# legacy mode (no fleet config) --slot/--board are refused. `with_held`
+# lets a session that already holds one slot omit the name.
+resolve_slot() {
+  local with_held="${1:-1}"
+  if ! fleet_enabled; then
+    [[ -z "$GLOBAL_SLOT_OPT$GLOBAL_BOARD_OPT" ]] \
+      || die "--slot/--board need a fleet config (${PICODROID_FLEET_CONF-$FLEET_CONF_DEFAULT})"
+    return 0
+  fi
+  local -a hint=()
+  [[ -n "$GLOBAL_SLOT_OPT" ]] && hint+=(--slot "$GLOBAL_SLOT_OPT")
+  [[ -n "$GLOBAL_BOARD_OPT" ]] && hint+=(--board "$GLOBAL_BOARD_OPT")
+  local held="" s
+  (( with_held )) && held="$(held_slots)"
+  s=$(fleet_resolve_slot "$held" ${hint[@]+"${hint[@]}"}) || exit 1
+  select_state_dir "$s"
+}
+
+# The probe serial of the current slot, for scoping probe-rs kills.
+slot_serial() {
+  [[ -n "$SLOT" ]] || return 0
+  fleet_slot_field "$SLOT" probe_serial 2>/dev/null || true
+}
+
 # ── display ─────────────────────────────────────────────────────────────────
 
 age_str() {
@@ -241,16 +317,18 @@ print_queue() {
 }
 
 print_status() {
+  local boards=""
+  [[ -n "$SLOT" ]] && boards=" ($(fleet_slot_field "$SLOT" boards 2>/dev/null | tr ',' ' '))"
   if read_holder; then
     local live
     if [[ "$H_PINNED" == "1" ]]; then live="pinned, survives every process"
     else live="alive, pid $H_LIVE_PID"; fi
-    echo "device lock: HELD by $H_OWNER  ($live)"
+    echo "$(tag)$boards: HELD by $H_OWNER  ($live)"
     [[ -n "$H_NOTE" ]] && echo "  note:   $H_NOTE"
     echo "  since:  $(date -d "@$H_SINCE" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$H_SINCE") ($(age_str "$H_SINCE") ago)"
     [[ -n "$H_CWD" ]] && echo "  cwd:    $H_CWD${H_BRANCH:+  [$H_BRANCH]}"
   else
-    echo "device lock: FREE"
+    echo "$(tag)$boards: FREE"
   fi
   if [[ -n "$(queue_list)" ]]; then
     echo "  queue:"
@@ -261,21 +339,33 @@ print_status() {
 busy_report() {
   {
     if read_holder; then
-      echo "device lock: busy -- $(holder_line)"
+      echo "$(tag): busy -- $(holder_line)"
     else
-      echo "device lock: free, but sessions are queued for it (they go first)"
+      echo "$(tag): free, but sessions are queued for it (they go first)"
     fi
     if [[ -n "$(queue_list)" ]]; then
       echo "  waiting:"
       print_queue
     fi
     echo "  you are: $OWNER"
-    echo "  hint:    ./scripts/device-lock.sh acquire --wait    # queues FIFO; in Claude run it with run_in_background"
+    echo "  hint:    ./scripts/device-lock.sh acquire${SLOT:+ --slot $SLOT} --wait    # queues FIFO; in Claude run it with run_in_background"
     echo "           ./scripts/device-lock.sh status"
   } >&2
 }
 
 # ── commands ────────────────────────────────────────────────────────────────
+
+# status_one MODE: the current slot under its own metadata lock.
+status_one() {
+  meta_lock
+  sweep
+  case "$1" in
+    quiet) if read_holder; then meta_unlock; return 1; fi ;;
+    short) echo "${SLOT:+$SLOT: }$(holder_line)" ;;
+    full)  print_status ;;
+  esac
+  meta_unlock
+}
 
 cmd_status() {
   local mode="full"
@@ -287,14 +377,17 @@ cmd_status() {
     esac
     shift
   done
-  meta_lock
-  sweep
-  case "$mode" in
-    quiet) if read_holder; then meta_unlock; exit 1; fi ;;
-    short) holder_line ;;
-    full)  print_status ;;
-  esac
-  meta_unlock
+  if fleet_enabled && [[ -z "$GLOBAL_SLOT_OPT$GLOBAL_BOARD_OPT" ]]; then
+    # Every slot; --quiet is 0 only when all are free.
+    local s rc=0
+    for s in $(fleet_slots); do
+      select_state_dir "$s"
+      status_one "$mode" || rc=1
+    done
+    exit "$rc"
+  fi
+  resolve_slot 0
+  status_one "$mode" || exit 1
 }
 
 cmd_acquire() {
@@ -328,6 +421,7 @@ cmd_acquire() {
     resolve_identity
     [[ -n "$LIVE_START" ]] || die "owner pid $LIVE_PID is not alive (PICODROID_DEVICE_OWNER_PID / CLAUDE_PID)"
   fi
+  resolve_slot
 
   meta_lock
   sweep
@@ -336,7 +430,7 @@ cmd_acquire() {
     [[ -n "$note" ]] && write_holder "$H_OWNER" "$H_LIVE_PID" "$H_LIVE_START" "$H_PINNED" \
       "$note" "$H_SINCE" "$H_CWD" "$H_BRANCH"
     meta_unlock
-    echo "device lock: already held by $OWNER"
+    echo "$(tag): already held by $OWNER"
     return 0
   fi
 
@@ -348,7 +442,7 @@ cmd_acquire() {
     fi
     take_lease "$note" "$pin"
     meta_unlock
-    echo "device lock: acquired by $OWNER${note:+ ($note)}"
+    echo "$(tag): acquired by $OWNER${note:+ ($note)}"
     return 0
   fi
 
@@ -363,7 +457,7 @@ cmd_acquire() {
   trap "rm -f '$ticket'" EXIT
   local first=1 pos
   if holder_valid; then
-    echo "device lock: waiting for $(holder_line)"
+    echo "$(tag): waiting for $(holder_line)"
   fi
   meta_unlock
 
@@ -377,18 +471,18 @@ cmd_acquire() {
       rm -f "$ticket"
       meta_unlock
       trap - EXIT
-      echo "device lock: acquired by $OWNER${note:+ ($note)}"
+      echo "$(tag): acquired by $OWNER${note:+ ($note)}"
       return 0
     fi
     now=$(date +%s)
     if (( now - last_report >= PROGRESS_EVERY_S )) || (( first )); then
       pos=$(queue_list | grep -n -x "$(basename "$ticket")" | cut -d: -f1 || true)
-      echo "device lock: queued (position ${pos:-?}) -- $(holder_line)"
+      echo "$(tag): queued (position ${pos:-?}) -- $(holder_line)"
       last_report=$now; first=0
     fi
     meta_unlock
     if (( now >= deadline )); then
-      echo "device lock: gave up after ${wait_s}s -- $(holder_line)" >&2
+      echo "$(tag): gave up after ${wait_s}s -- $(holder_line)" >&2
       exit "$EX_BUSY"
     fi
     sleep "$POLL"
@@ -396,21 +490,39 @@ cmd_acquire() {
 }
 
 kill_probe() {
-  # Any probe-rs still attached belongs to the lease that is being given up
-  # (or is a leftover), and a lingering one makes the next attempt fail with
-  # "Failed to open probe". -x matches the process name only, so unlike
-  # `pkill -f probe-rs` this can never hit a shell whose command line mentions
-  # it. -U scopes to this uid; cron may not export USER, hence id -u.
+  # Any probe-rs still attached to this slot's probe belongs to the lease
+  # that is being given up (or is a leftover), and a lingering one makes the
+  # next attempt fail with "Failed to open probe". With a fleet the kill is
+  # scoped by the probe serial (fleet-lib.sh::probe_rs_pids), so a sibling
+  # board's attach survives; without one it is every probe-rs of this uid.
   # PICODROID_DEVICE_LOCK_KEEP_PROBE=1 is the test suite's guard against
   # killing a real attach while it exercises release/break.
   [[ "${PICODROID_DEVICE_LOCK_KEEP_PROBE:-0}" == "1" ]] && return 0
-  local pids
-  pids=$(pgrep -x -U "$(id -u)" probe-rs || true)
-  if [[ -n "$pids" ]]; then
-    # shellcheck disable=SC2086
-    kill $pids 2>/dev/null || true
-    echo "device lock: killed lingering probe-rs (pid${pids:+ }$(echo $pids | tr '\n' ' '))"
+  local out
+  out=$(kill_probe_rs_scoped "$(slot_serial)")
+  [[ -n "$out" ]] && echo "$(tag): $out"
+  return 0
+}
+
+# Release the current slot's lease if it is ours. Prints; rc 1 if not ours.
+release_one() {
+  local keep_probe="$1"
+  meta_lock
+  sweep
+  if ! read_holder; then
+    meta_unlock
+    echo "$(tag): already free"
+    return 0
   fi
+  if [[ "$H_OWNER" != "$OWNER" ]]; then
+    meta_unlock
+    echo "$(tag): not yours -- $(holder_line); you are $OWNER (use 'break --force' to evict)" >&2
+    return 1
+  fi
+  rm -f "$HOLDER"
+  meta_unlock
+  echo "$(tag): released by $OWNER"
+  (( keep_probe )) || kill_probe
 }
 
 cmd_release() {
@@ -425,21 +537,22 @@ cmd_release() {
     shift
   done
   resolve_identity
-  meta_lock
-  sweep
-  if ! read_holder; then
-    meta_unlock
-    echo "device lock: already free"
+  if fleet_enabled && [[ -z "$GLOBAL_SLOT_OPT$GLOBAL_BOARD_OPT" ]]; then
+    # Everything this session holds.
+    local held s
+    held="$(held_slots)"
+    if [[ -z "$held" ]]; then
+      echo "device lock: nothing held by $OWNER"
+      return 0
+    fi
+    for s in $held; do
+      select_state_dir "$s"
+      release_one "$keep_probe"
+    done
     return 0
   fi
-  if [[ "$H_OWNER" != "$OWNER" ]]; then
-    meta_unlock
-    die "not yours -- $(holder_line); you are $OWNER (use 'break --force' to evict)"
-  fi
-  rm -f "$HOLDER"
-  meta_unlock
-  echo "device lock: released by $OWNER"
-  (( keep_probe )) || kill_probe
+  resolve_slot
+  release_one "$keep_probe" || exit 1
 }
 
 cmd_break() {
@@ -451,21 +564,29 @@ cmd_break() {
     esac
     shift
   done
+  # Evicting is about someone else's slot, so "the slot I hold" is no hint.
+  resolve_slot 0
   meta_lock
   sweep
   if ! read_holder; then
     meta_unlock
-    echo "device lock: already free"
+    echo "$(tag): already free"
     return 0
   fi
   if ! (( force )); then
     meta_unlock
     die "refusing to evict without --force -- $(holder_line)"
   fi
-  echo "device lock: evicting $(holder_line)"
+  echo "$(tag): evicting $(holder_line)"
   rm -f "$HOLDER"
   meta_unlock
   kill_probe
+}
+
+cmd_mine() {
+  [[ $# -eq 0 ]] || die "mine: takes no options"
+  resolve_identity
+  held_slots
 }
 
 cmd_run() {
@@ -487,6 +608,9 @@ cmd_run() {
 
   # Already inside a lease of this session? Then just run nested.
   resolve_identity
+  resolve_slot
+  # Children resolve the same slot and talk to the same probe.
+  if [[ -n "$SLOT" ]]; then fleet_export_slot "$SLOT"; fi
   meta_lock; sweep
   local rc=0
   if holder_valid && [[ "$H_OWNER" == "$OWNER" ]]; then
@@ -503,11 +627,13 @@ cmd_run() {
   OWNER_OPT=""
   [[ -n "$note" ]] || note="${cmd[*]}"
   local acq=(acquire --note "$note")
+  [[ -n "$SLOT" ]] && acq+=(--slot "$SLOT")
   [[ -n "$wait_s" ]] && acq+=(--wait "$wait_s")
   "$SELF" "${acq[@]}"
 
   local child=""
-  trap '"$SELF" release >/dev/null 2>&1 || true' EXIT
+  # shellcheck disable=SC2064  # expand the slot now
+  trap "'$SELF' release ${SLOT:+--slot '$SLOT'} >/dev/null 2>&1 || true" EXIT
   trap '[[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null' INT TERM
   "${cmd[@]}" 8>&- &
   child=$!
@@ -518,6 +644,22 @@ cmd_run() {
 # ── main ────────────────────────────────────────────────────────────────────
 
 command -v flock >/dev/null 2>&1 || die "flock (util-linux) is required"
+
+# --slot / --board are accepted anywhere on the line; everything else goes
+# to the subcommand.
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --slot) GLOBAL_SLOT_OPT="${2:-}"; [[ $# -gt 1 ]] && shift ;;
+    --slot=*) GLOBAL_SLOT_OPT="${1#--slot=}" ;;
+    --board) GLOBAL_BOARD_OPT="${2:-}"; [[ $# -gt 1 ]] && shift ;;
+    --board=*) GLOBAL_BOARD_OPT="${1#--board=}" ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+set -- ${args[@]+"${args[@]}"}
+
 [[ $# -ge 1 ]] || { usage; exit 1; }
 cmd="$1"; shift
 case "$cmd" in
@@ -526,6 +668,7 @@ case "$cmd" in
   release) cmd_release "$@" ;;
   break)   cmd_break "$@" ;;
   run)     cmd_run "$@" ;;
+  mine)    cmd_mine "$@" ;;
   -h|--help|help) usage ;;
   *) usage; die "unknown command: $cmd" ;;
 esac
