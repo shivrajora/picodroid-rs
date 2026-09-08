@@ -169,7 +169,8 @@ pub fn list(port_name: &str) {
 }
 
 /// `pdb uninstall <package>`.
-pub fn uninstall(port_name: &str, package: &str) {
+/// `explicit_port`: see `install::wait_for_reboot`.
+pub fn uninstall(port_name: &str, package: &str, explicit_port: bool) {
     let device = query_device(port_name, TIMEOUT).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         process::exit(1);
@@ -222,7 +223,7 @@ pub fn uninstall(port_name: &str, package: &str) {
     }
     println!("Uninstalled {package}. Waiting for device to reboot...");
     drop(port);
-    if wait_for_reboot(port_name) {
+    if wait_for_reboot(port_name, explicit_port) {
         println!("Device is back.");
     } else {
         eprintln!("warning: device did not respond to PING within 20 s after reboot.");

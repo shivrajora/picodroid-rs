@@ -38,6 +38,10 @@ pub struct InstallOptions {
     /// Invert exit codes: success when the install is rejected, failure
     /// when it actually goes through. Used by HIL `install-reject-*` rows.
     pub expect_rejected: bool,
+    /// The port came from `-s`: after a reboot wait for that exact port and
+    /// never re-scan the host, which on a bench with several boards would
+    /// find a neighbour and report it as "back".
+    pub explicit_port: bool,
 }
 
 /// What we learned about the device from its PING greeting.
@@ -117,21 +121,30 @@ pub fn query_device(port_name: &str, timeout: Duration) -> Result<DeviceInfo, St
 
 /// After a reset, wait for the device to re-enumerate and answer a PING.
 /// Returns `false` if it never does within the poll budget.
-pub fn wait_for_reboot(port_name: &str) -> bool {
+///
+/// With `explicit_port` the poll sticks to `port_name`: the caller chose
+/// the board (pdb `-s`, the fleet scripts), so a re-scan of the host must
+/// not wander off to another board's CDC port. Otherwise the first
+/// picodroid VID/PID on the host is tried first, then the original name.
+pub fn wait_for_reboot(port_name: &str, explicit_port: bool) -> bool {
     std::thread::sleep(REBOOT_DELAY);
     for attempt in 0..POLL_ATTEMPTS {
         std::thread::sleep(POLL_TIMEOUT);
 
-        // Try to find the device by VID/PID first (fast).
-        let port_name = match find_by_vid_pid() {
-            Some(name) => name,
-            None => {
-                if attempt == 0 {
-                    // First attempt — USB may not have re-enumerated yet.
-                    continue;
+        let port_name = if explicit_port {
+            port_name.to_string()
+        } else {
+            // Try to find the device by VID/PID first (fast).
+            match find_by_vid_pid() {
+                Some(name) => name,
+                None => {
+                    if attempt == 0 {
+                        // First attempt — USB may not have re-enumerated yet.
+                        continue;
+                    }
+                    // Fall back to the original port name.
+                    port_name.to_string()
                 }
-                // Fall back to the original port name.
-                port_name.to_string()
             }
         };
 
@@ -388,7 +401,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // After reboot the USB CDC device disconnects and re-enumerates.
     // Drop the old port, wait for the VID/PID to reappear, then re-open.
     drop(port);
-    if wait_for_reboot(port_name) {
+    if wait_for_reboot(port_name, opts.explicit_port) {
         if opts.expect_rejected {
             // We told the user to expect rejection, but the install
             // actually went through. That's a test failure.
