@@ -950,10 +950,13 @@ fi
 # command ("The firmware on the probe is outdated"), and without this check
 # such a bench grinds through every row as an ERROR. Same SKIP shape as
 # the busy-lock path so the email says why nothing ran.
-# (`probe-rs info` exits 0 even then, so the verdict is the Error line.)
+# (`probe-rs info` exits 0 even then, so the verdict is its text -- and only
+# the probe-level failures count: the RP2350's multidrop DP can report a
+# per-port error on a sleeping target that the power cycle before the first
+# row clears.)
 probe_info="$(probe-rs info --protocol swd </dev/null 2>&1 || true)"
-if grep -qE '^Error' <<<"$probe_info"; then
-  probe_err="$(grep -E '^Error|^ +[0-9]+: ' <<<"$probe_info" | tail -1 | sed 's/^ *//')"
+if grep -qiE 'Failed to open (the )?(debug )?probe|firmware on the probe|no probe was found|probe.*not found' <<<"$probe_info"; then
+  probe_err="$(grep -iE 'Failed to open|firmware on the probe|no probe|not found' <<<"$probe_info" | tail -1 | sed 's/^ *//')"
   COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
   RUN_ID="${HIL_RUN_ID:-$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}}"
   RESULTS_FILE="$HIL_RESULTS_DIR/${RUN_ID}.txt"
