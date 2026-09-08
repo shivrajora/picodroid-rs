@@ -210,6 +210,34 @@ WPA2 verified unaffected on HW.
   SDK throws clauses, the `netexception` sim-roster example, and the
   exception-taxonomy section in `website/.../api/networking.md`.
 
+## NET-10: dashboard page loads hang after the first byte (RST-on-close) — OPEN 2026-09-07
+
+Found while verifying the serve-loop fix (`fix/dashboard-stall`, 2026-09-04).
+On the W board about 1 page load in 40 delivers its headers within 0.4 s and
+then hangs until the client gives up (curl `-m 25`, exit 28): the rest of the
+body and the close never arrive. It happens with no other socket active
+(2 of 113 idle loads) and at a similar rate while the NTP/weather job runs
+(3 of ~160), so the concurrent fetch is not the cause. Never seen in the sim
+(host TCP stack).
+
+Mechanism (consistent with every observation, not yet proven on the wire):
+`tcp_close` calls `FreeRTOS_closesocket` on a connected socket with no
+`FreeRTOS_shutdown`, so the stack aborts the connection with a RST — every
+successful load already ends with curl exit 56 ("RST after the body",
+docs/mem-session-2026-08.md). A RST is sent once and never retransmitted; if
+it or the last data segment is lost, the client waits forever. Raising
+`net_buffer_descriptors` 8 → 16 on the W board changed nothing, so it is not
+descriptor exhaustion.
+
+Fix candidates: (1) graceful close in the HAL — `FreeRTOS_shutdown(SHUT_RDWR)`,
+drain `recv` to EOF/EINVAL under a short bound, then `closesocket`, so the FIN
+is retransmitted like any segment; (2) if the RST close stays, wait for the TX
+buffer to drain before closing. Repro: `curl -s -m 25 -o /dev/null -w
+"%{http_code} %{exitcode} %{time_starttransfer} %{time_total}\n"
+http://<board>:8080/` in a 0.3 s loop for 2 min; a hang reads `200 28 0.3 25.0`.
+`pdb sysmon` cannot help on this board until its task cap is fixed
+(docs/quality-roadmap.md, "`pdb sysmon` shows no task table on the W board").
+
 ## Validation environment (for whoever picks these up)
 
 Flash + RTT recipe, chip-state readback tricks (GET_SSID/GET_BSSID/clmver/

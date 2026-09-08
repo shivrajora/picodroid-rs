@@ -9,9 +9,10 @@ registry cross-check (`every_native_class_is_registered`).
 
 **2026-08-17 — post GC-race follow-up backlog:** the picoenvmon corruption family is fixed
 (`0c1326d`, see `picoenvmon-qa.md`); the open items it left behind — sim thread-parallelism
-audit, `sb_buf` cross-thread aliasing, memmon's child-GC blind spot, serve-loop latency,
-per-child class-metadata sharing, GC-pacing measurements, and two sensor-hardware tickets —
-are recorded in detail in **`followups-2026-08.md`**. The re-run of the long soak plus the
+audit, `sb_buf` cross-thread aliasing, memmon's child-GC blind spot, serve-loop latency
+(fixed 2026-09-04: NTP/weather moved to the background pool), per-child class-metadata
+sharing, GC-pacing measurements, and two sensor-hardware tickets — are recorded in detail
+in **`followups-2026-08.md`**. The re-run of the long soak plus the
 PEM-3 prereserve retune has its own runbook: `picoenvmon-soak-handover-2026-08.md`.
 
 ## Regression automation
@@ -262,6 +263,18 @@ from the inlined tag check, and five hand-numbered native field-slot tables shif
 after every `long`/`double` field — they need a class-file-driven test before anything else.
 Measure with `--mem-diag` first: S5 showed a complete, correct change can still return 0 B.
 
+### Background pool: two 6 KiB workers instead of four on `pico_enviro_mon_w`
+
+The W board raises `[background_pool] stack_bytes` to 6144 for one job (NetworkManager's
+NTP + weather, 4.7 KB deep) that runs a few times an hour; the other three workers idle at
+0.9 KB used, so three 6 KiB stacks are dead heap (+8 KiB over the 4 KiB default; 8 KiB stacks
+were +16 KiB and pulled the `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB min-free).
+`threads = 2` would give the job its room for less than today's default, but
+`platforms/rp/src/boot_budget.rs` hard-codes four `jvm-bg` entries in the sim boot-budget
+`MODEL`; make the entry count follow `POOL_THREADS` (or model the pool as count × stack) and
+the HIL boot-budget assertion follows. **Tradeoff:** fewer workers means less parallelism for a
+future app that posts more than two long jobs at once.
+
 ## Memory-diagnostics follow-ups
 
 (The `mem-diag` feature — monitor, growth sentinel, offensive checks, histogram — landed
@@ -284,6 +297,19 @@ mechanical rename) or accept the conflation and document it.
 slowly-deepening stack is caught alongside heap growth (FreeRTOS overflow method 2 only
 fires after the fact). **Tradeoff:** `uxTaskGetSystemState` suspends the scheduler
 briefly every window — keep it to every Nth window or device-idle windows.
+
+### `pdb sysmon` shows no task table on the W board (task cap 12)
+
+`pdb-protocol::sysmon::MAX_TASKS` is 12 and the device hands an array of that size to
+`uxTaskGetSystemState` (`platforms/rp/src/pdb/platform.rs`). FreeRTOS returns **zero** entries
+when the array is smaller than the task count, so on `pico_enviro_mon_w` (14 tasks: cyw43,
+IP-task and the app's network thread on top of the testbench's 10) the table is silently
+empty — the "beyond this the table is truncated" comment is wrong. Found 2026-09-07 while
+measuring the background-pool stack for `fix/dashboard-stall` (measured with a temporary cap of
+20). Fix: size the device-side array generously (32 × 40 B on the pdb task's stack) and
+truncate to `MAX_TASKS` when copying, or raise `MAX_TASKS` to 20 (wire size grows by
+`8 × ENTRY_LEN` = 224 B; bump the protocol version). **Tradeoff:** a bigger cap costs RAM on both
+ends per sample; array-then-truncate costs nothing on the wire but still hides tasks past 12.
 
 ### Device per-class allocation histogram
 

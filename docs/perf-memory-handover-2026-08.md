@@ -103,6 +103,10 @@ columns under background threads will be misled. Fix candidates: route
 
 ## 4. Serve-loop latency — NTP/weather block page loads
 
+**Fixed 2026-09-04 (`fix/dashboard-stall`)** — option 3, but on the existing
+background pool rather than a new `Thread`: no extra stack, and §6 (shared
+class set) had already removed the per-child cost. Original note below.
+
 `NetworkManager` runs everything on one thread; `housekeeping()` (NTP, weather)
 executes between accepts. Boot-time NTP against an unreachable/slow pool is
 3 s × 3 attempts, weather adds DNS + HTTP — worst case ~10–14 s during which
