@@ -175,9 +175,18 @@ power_cycle_all() {
   wait_for_probe
 }
 
+# Every probe-rs launch waits for the host's USB sysfs to answer first
+# (fleet-lib.sh::wait_usb_quiet): a probe-rs started into an enumeration
+# storm blocks in its device listing until the kernel gives up, and a row
+# launched that way times out on an empty log.
+usb_quiet() {
+  wait_usb_quiet 2>&1 | while IFS= read -r line; do hil_log "  $line"; done || true
+}
+
 # Poll until the debug probe is detected by probe-rs.
 wait_for_probe() {
   local elapsed=0
+  usb_quiet
   while [[ $elapsed -lt $PROBE_POLL_TIMEOUT ]]; do
     if probe-rs list 2>/dev/null | grep -q "${PICODROID_PROBE_SERIAL:-CMSIS-DAP}"; then
       hil_log "  Probe detected after ${elapsed}s"
@@ -288,6 +297,7 @@ run_pdb_test() {
   # After an RTT test, probe-rs may leave the MCU halted. Reset the device
   # so it boots normally and the USB CDC port enumerates.
   hil_log "  Resetting device..."
+  usb_quiet
   probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
   sleep 3  # wait for USB CDC enumeration
 
@@ -590,6 +600,7 @@ hil_flash_elf() {
   local flash_log="${log%.log}.flash.log"
   kill_probe_rs
   sleep 1
+  usb_quiet
   setsid timeout 120 \
     probe-rs run --chip "$PROBE_CHIP" --protocol swd "$elf" \
     < /dev/null > "$flash_log" 2>&1 &
@@ -664,6 +675,7 @@ run_pdb_launch_test() {
     recover_probe
     return
   fi
+  usb_quiet
   probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
   sleep 4
 
@@ -760,6 +772,7 @@ run_pdb_settings_test() {
     recover_probe
     return
   fi
+  usb_quiet
   probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
   sleep 4
 
@@ -1213,8 +1226,16 @@ run_test() {
   # 35 s covers both the typical 22–27 s flash + a couple seconds of slop
   # without running so long that real hangs go unnoticed.
   local flash_budget=35
+  # The conf's budgets are set against the RP2350 (150 MHz, 520 KB); the
+  # RP2040 runs the same rows at roughly half the speed (benchmark: 33 s vs
+  # 15 s for int_arithmetic on the 2026-09-09 bench), so its rows get twice
+  # the post-boot window. Only the timeout scales -- never the patterns.
+  if [[ "$DEFAULT_MCU" == "rp2040" ]]; then
+    timeout=$((timeout * 2))
+  fi
   local effective_timeout=$((timeout + flash_budget))
   local elf="$TARGET_DIR/${TARGET}/release/picodroid"
+  usb_quiet
   hil_log "  Flashing and capturing RTT..."
   # stdin from /dev/null: probe-rs never gets to prompt (see pin_debug_probe),
   # and the config-file loop in main keeps its fd 3 to itself either way.

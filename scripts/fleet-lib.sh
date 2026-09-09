@@ -308,6 +308,69 @@ kill_probe_rs_scoped() {
   echo "killed lingering probe-rs (pid $(echo $pids | tr '\n' ' '))"
 }
 
+# ── usb sysfs ───────────────────────────────────────────────────────────────
+
+# A USB device that answers a connect with silence — a core the debugger
+# halted mid-flash, a firmware that panicked before its USB stack came up —
+# puts the kernel through ~85 s of enumeration retries ("Device not
+# responding to setup address", "attempt power cycle"), and for all of that
+# time the hub driver holds the *parent hub's* device lock. probe-rs (nusb)
+# starts by reading every device's sysfs strings, and the string attributes
+# take that same lock, so a probe-rs launched into a storm on any hub blocks
+# in read(2) until the storm ends — with nothing written, not even its
+# warnings — and the row times out on an empty log (the 2026-09-09 nightly:
+# 40 empty-log FAILs on two RP2350 slots while the rp2040 board looped in a
+# heap panic on the parent hub). The reads are made in the background so a
+# blocked one is only ever observed, never waited on; it is disowned and
+# finishes when the kernel gives up.
+#
+# usb_sysfs_blocked: prints the sysfs paths whose `manufacturer` read did
+# not return within 2 s; status 0 when there were none. The directory is
+# overridable so the test suite can stand in a FIFO for a storming device.
+FLEET_USB_SYSFS="${PICODROID_USB_SYSFS:-/sys/bus/usb/devices}"
+usb_sysfs_blocked() {
+  local -a pids=() files=()
+  local f i blocked=""
+  for f in "$FLEET_USB_SYSFS"/*/manufacturer; do
+    [[ -e "$f" ]] || continue
+    cat "$f" >/dev/null 2>&1 &
+    pids+=($!)
+    files+=("$f")
+  done
+  sleep 2
+  for i in "${!pids[@]}"; do
+    if kill -0 "${pids[$i]}" 2>/dev/null; then
+      blocked+="${files[$i]%/manufacturer} "
+    fi
+    disown "${pids[$i]}" 2>/dev/null || true
+  done
+  echo "$blocked"
+  [[ -z "$blocked" ]]
+}
+
+# wait_usb_quiet [MAX_S]: returns once every USB device's sysfs strings read
+# promptly, or after MAX_S (default 150). Prints one line per wait so the
+# caller's log shows the bench was storming, not the firmware misbehaving.
+USB_QUIET_MAX_S="${PICODROID_USB_QUIET_MAX_S:-150}"
+wait_usb_quiet() {
+  local max="${1:-$USB_QUIET_MAX_S}" start=$SECONDS blocked waited=0
+  while ! blocked=$(usb_sysfs_blocked); do
+    if (( waited == 0 )); then
+      echo "usb: enumeration storm on ${blocked% } -- waiting for the kernel to give up (max ${max}s)"
+    fi
+    waited=1
+    if (( SECONDS - start >= max )); then
+      echo "usb: still blocked on ${blocked% } after ${max}s, going ahead"
+      return 1
+    fi
+    sleep 3
+  done
+  if (( waited )); then
+    echo "usb: quiet after $((SECONDS - start))s"
+  fi
+  return 0
+}
+
 # ── power ───────────────────────────────────────────────────────────────────
 
 # power_cycle_slot SLOT: cycles the slot's probe port and board port (or the
@@ -346,8 +409,36 @@ power_cycle_slot() {
       # shellcheck disable=SC2086
       sudo uhubctl $c || exit $?
     done
+    # A cycle can end with a port still off: while the kernel is
+    # power-cycling a neighbouring port of the same hub itself (its answer
+    # to a device that never responds to setup), the hub dropped our
+    # power-on request and reported the port `0000 off` -- the rp2040
+    # slot's probe port on the 2026-09-09 nightly, 35 rows of "No connected
+    # probes". Re-issue the power-on until the port reads powered.
+    if [[ "$mode" != "hub" ]]; then
+      ensure_port_powered "$bhub" "$bport" || exit $?
+      [[ -n "$phub" ]] && { ensure_port_powered "$phub" "$pport" || exit $?; }
+    fi
   ) 9>"$FLEET_UHUBCTL_LOCK" || rc=$?
   return $rc
+}
+
+# ensure_port_powered HUB PORT: uhubctl prints `Port N: xxxx off` for an
+# unpowered port (and the USB 3 companion hub's ports first, so every line
+# for the port is read, not the first); re-send `-a on` (up to 5 times, 2 s
+# apart) while any of them reads off. Caller holds the uhubctl lock.
+ensure_port_powered() {
+  local hub="$1" port="$2" try lines
+  for try in 1 2 3 4 5; do
+    lines=$(sudo uhubctl -l "$hub" -p "$port" 2>/dev/null | grep -E "^ *Port $port: " || true)
+    [[ -n "$lines" ]] || return 0   # not a switchable hub, nothing to fix
+    if ! grep -qE "^ *Port $port: [0-9a-f]{4} off" <<<"$lines"; then return 0; fi
+    echo "uhubctl -l $hub -p $port -a on  (port read off after the cycle, try $try)"
+    sudo uhubctl -l "$hub" -p "$port" -a on >/dev/null 2>&1 || true
+    sleep 2
+  done
+  echo "fleet: hub $hub port $port stayed off after 5 power-on requests" >&2
+  return 1
 }
 
 # ── discovery ───────────────────────────────────────────────────────────────

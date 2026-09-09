@@ -248,6 +248,26 @@ check "usb_hub_port on a hub port" [ "$(fl usb_hub_port 1-8.3.2)" == "1-8.3 2" ]
 check "usb_hub_port on a root port" [ "$(fl usb_hub_port 1-8)" == "1 8" ]
 check "usb_hub_port rejects garbage" rc_is 1 fl usb_hub_port ttyACM0
 check "unknown serial -> rc 1" rc_is 1 fl usb_path_for_serial NO_SUCH_SERIAL
+
+# 18. fleet-lib.sh: the USB enumeration-storm guard, against a fake sysfs.
+# A FIFO with no writer blocks its reader the way a hub's string attribute
+# does while the kernel holds that hub's lock; a plain file answers at once.
+USBFS="$DIR/usbfs"
+mkdir -p "$USBFS/1-1" "$USBFS/1-2"
+echo "Quiet Corp" > "$USBFS/1-1/manufacturer"
+fu() { PICODROID_USB_SYSFS="$USBFS" fl "$@"; }
+check "quiet sysfs -> nothing blocked, rc 0" [ -z "$(fu usb_sysfs_blocked)" ]
+check "quiet sysfs -> wait_usb_quiet says nothing" [ -z "$(fu wait_usb_quiet 5)" ]
+mkfifo "$USBFS/1-2/manufacturer"
+check "a blocked device is named" [ "$(fu usb_sysfs_blocked | tr -d ' ')" == "$USBFS/1-2" ]
+check "a blocked device -> rc 1" rc_is 1 fu usb_sysfs_blocked
+storm_out="$(fu wait_usb_quiet 4 2>&1 || true)"
+check "wait_usb_quiet reports the storm" grep -q 'enumeration storm on' <<<"$storm_out"
+check "wait_usb_quiet gives up after its budget" grep -q 'still blocked' <<<"$storm_out"
+check "wait_usb_quiet -> rc 1 when it gave up" rc_is 1 fu wait_usb_quiet 4
+# release the readers parked on the FIFO
+timeout 2 sh -c "echo x > '$USBFS/1-2/manufacturer'" 2>/dev/null || true
+rm -f "$USBFS/1-2/manufacturer"
 check "unknown usb path has no tty" rc_is 1 fl usb_path_tty 1-99.1
 check "probe selector falls back to the Debug Probe ids" [ "$(fl probe_selector SER_A)" == 2e8a:000c:SER_A ]
 fl_export() {
