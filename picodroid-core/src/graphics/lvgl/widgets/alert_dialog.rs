@@ -321,11 +321,17 @@ unsafe fn build_dialog_shell(
         core::ptr::null_mut(),
     );
 
-    // Modal scrim: fullscreen, dim, click-absorbing.
+    // Modal scrim: fullscreen, dim, click-absorbing. The whole display, not
+    // a 240 px square: on the 320-wide testbench a tap beside the scrim used
+    // to reach the rows behind the dialog and open a second one.
+    let (screen_w, screen_h) = (
+        i32::from(crate::hal::display::WIDTH),
+        i32::from(crate::hal::display::HEIGHT),
+    );
     lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(scrim, 0, 0);
-    lv_obj_set_size(scrim, 240, 240);
+    lv_obj_set_size(scrim, screen_w, screen_h);
     lv_obj_set_style_bg_color(scrim, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(scrim, 160, 0);
     lv_obj_set_style_pad_left(scrim, 0, 0);
@@ -336,10 +342,10 @@ unsafe fn build_dialog_shell(
     // Card: vertical flex with title, message, and a button row.
     let card = lv_obj_create(scrim);
     lv_obj_set_size(card, 200, card_h);
-    // Center the card inside the scrim's 240×240. Vertical offset keeps the
-    // card centered as it grows for list content.
-    let card_y = ((240 - card_h) / 2).max(8);
-    lv_obj_set_pos(card, 20, card_y);
+    // Center the card on the display. Vertical offset keeps the card
+    // centered as it grows for list content.
+    let card_y = ((screen_h - card_h) / 2).max(8);
+    lv_obj_set_pos(card, ((screen_w - 200) / 2).max(0), card_y);
     lv_obj_set_style_bg_color(card, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_left(card, 12, 0);

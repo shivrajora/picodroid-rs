@@ -371,10 +371,10 @@ run_launcher_smoke() {
 # settings app installed, driven over the control FIFO through About,
 # Storage and Apps, where helloworld is uninstalled through the dialog and
 # the directory ends up empty; Home returns to the launcher. The dialog's
-# Uninstall button sits at DIALOG_OK (pinned from the simulator's rendering
-# of the fixed one-line title and message; the device draws the same card).
+# Uninstall button sits at DIALOG_OK (lib.sh::settings_dialog_ok: the card
+# is centred on the board's display; the device draws the same card).
 run_settings_smoke() {
-  local DIALOG_OK="${PICODROID_SETTINGS_DIALOG_OK:-160 118}"
+  local DIALOG_OK="${PICODROID_SETTINGS_DIALOG_OK:-$(settings_dialog_ok testbench_rp2350)}"
   local mode="$1"
   local app=helloworld lane=settings
   local tag="${lane}[${mode}]"

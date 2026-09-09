@@ -356,6 +356,19 @@ toml_top_int() {
   echo $(( value ))
 }
 
+# Where the settings app's uninstall dialog puts its positive button, as
+# `x y` in display pixels for `input tap`: the dialog is a 200 px card
+# centred on the display (`lvgl/widgets/alert_dialog.rs`), its two 80 px
+# buttons side by side, so the positive one sits 40 px right of the centre
+# line — 160 on a 240 px board, 200 on the 320 px testbench. `y` is the
+# button row of the fixed one-line title and message.
+settings_dialog_ok() {
+  local board="$1" board_toml width
+  board_toml=$(find "$REPO_ROOT/platforms" -path "*/boards/$board/board.toml" | head -1)
+  width=$(awk -F= '/^\[display\]/{d=1;next} /^\[/{d=0} d && $1 ~ /^width[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$board_toml" 2>/dev/null)
+  echo "$(( ${width:-240} / 2 + 40 )) 118"
+}
+
 # Export PICODROID_JVM_* env vars from board.toml's optional `[jvm]` section
 # so the `pico-jvm` crate's build.rs (which runs before the platform crate
 # and so can't see board.toml directly) can pick them up as `pub const`

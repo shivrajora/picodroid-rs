@@ -733,7 +733,7 @@ run_pdb_launch_test() {
 # the settings app still running.
 run_pdb_settings_test() {
   local app="$1" patterns="$2" mode="$3"
-  local dialog_ok="${PICODROID_SETTINGS_DIALOG_OK:-160 118}"
+  local dialog_ok="${PICODROID_SETTINGS_DIALOG_OK:-$(settings_dialog_ok "$BOARD")}"
   local test_name="$app:pdb-settings-uninstall[$mode]"
   local log_file="$RUN_LOG_DIR/${app}.pdb-settings-uninstall.${mode}.log"
   local build_log="$RUN_LOG_DIR/${app}.pdb-settings-uninstall.${mode}.build.log"
