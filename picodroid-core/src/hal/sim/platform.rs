@@ -232,7 +232,10 @@ pub fn stop_jvm() -> bool {
     // them from its 16 ms tick; an app with no Activity — a `main()` loop,
     // an `Application` whose `onCreate` never returns — has no tick and
     // polls this from every `SystemClock.sleep` and interpreter yield
-    // instead, so this is what lets `apps install` stop blinky.
+    // instead, so this is what lets `apps install` stop blinky. The region
+    // only exists in the simulator build; this crate's own test build
+    // compiles the platform without it.
+    #[cfg(feature = "sim")]
     if super::rtos::current_thread_is_jvm_task() {
         super::app_region::service_requests();
     }
