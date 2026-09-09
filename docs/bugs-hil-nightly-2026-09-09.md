@@ -114,7 +114,15 @@ gcstress and langsuite_kt_stdlib still do not (they were written against the
 RP2350's 408 KB arena — see the peak figures in `hil-tests.conf` next to their
 `rp2350` filter), so those rows are RP2350-only, like `jucdemo` and
 `jsondemo` already were. `hil-run.sh` doubles term/loop/hw timeouts on an
-rp2040 slot.
+rp2040 slot. On the board afterwards: threadstress, threadparity, benchmark
+and gcstress_kt PASS.
+
+**Still open: `imagedemo` on the rp2040.** With either RAM budget the board
+HardFaults (pc 0, no panic message) right after `ImageDemo ready`, the
+moment the image is first rendered to the ST7789 — the rp2040 sim, which has
+no display driver, runs it clean. A device-only bug in the image render path
+on this board; the row stays in the matrix and reports as a probe-rs ERROR
+(`Firmware exited unexpectedly: Exception`) until it is fixed.
 
 ## 4. Sim run: `picoenvmon-enviro-w[no-shrink]` build error
 
