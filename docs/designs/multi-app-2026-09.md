@@ -374,7 +374,7 @@ Board and MCU keys (`build_support/flash_layout.rs`): `boot2_bytes`, `fs_kb`,
 | M0 | DONE 2026-09-07 (028e5c1) |
 | M1a–M1f | DONE 2026-09-07 (see A1) |
 | M2 | DONE 2026-09-07 (see A2) |
-| M3 | DONE 2026-09-08 (Stage 0 merged as 73665a4; M3a–M3e on `feat/multi-app-m3`; see A3) |
+| M3 | DONE 2026-09-09 (Stage 0 merged as 73665a4; M3a–M3e merged to main as 1c68435; map v0.22.0 cut on main; see A3) |
 
 ## 6. Deferred and open
 
@@ -988,3 +988,8 @@ now and why it differs from §8.
   quota and the natives); rp2040 783,547 → 793,663 B (+10,116).
   RAM: rp2040 +8 B, rp2350 +0 B. Before that pass the branch measured
   1,004,755 → 1,040,819 B and 802,679 → 812,811 B.
+- **The release** (2026-09-09, on main after the merge): package 0.22.0
+  and map v0.22.0, cut with `class-shrink cut-release --members` from
+  v0.21.0 — + 6 classes (249 → 255) and + 40 members (1125 → 1165),
+  member floor still 0.17.0 — which clears the shrunk-image leak §8.5
+  expected. `Build.VERSION.RELEASE` on a `--shrink` image reads `0.22.0`.
