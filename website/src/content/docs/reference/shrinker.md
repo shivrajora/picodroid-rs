@@ -48,7 +48,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Eighteen release maps are committed today, `v0.1.0` through `v0.18.0`:
+Twenty-three release maps are committed today, `v0.1.0` through `v0.23.0`:
 
 | Map | Covers |
 |-----|--------|
@@ -70,6 +70,11 @@ Eighteen release maps are committed today, `v0.1.0` through `v0.18.0`:
 | `sdk/shrink-maps/v0.16.0.toml` | Schema 2: adds the **`[[member]]` section** — 868 method and field names of the framework mapped to 1–2-character targets (every v0.15.0 class mapping copied verbatim, class allocation untouched) and `member-floor = "0.16.0"`. Everything in `sdk/api-contract.tsv`'s member column, `<init>`, javac synthetics and names ≤ 2 chars stay verbatim. |
 | `sdk/shrink-maps/v0.17.0.toml` | Maps the **last kept names** (+125 members, 868 → 993): the `java/**` contract members the runtime serves (`toString`, `hashCode`, `equals`, `hasNext`, …) and javac's `$` synthetics, previously kept because the Rust arms matched them by literal — the arms now match through the generated `m::` constants. `member-floor` re-based to `0.17.0`; only `main` and `injectMembers` stay verbatim. Classes unchanged (238). |
 | `sdk/shrink-maps/v0.18.0.toml` | Adds the **Tier 1 small-methods** surface — one class (`java.util.Objects`, 238 → 239) and 14 members (993 → 1007): `getFloat` / `putFloat`, `DIRECTION_IN`, `createNewFile` / `mkdirs` / `getParent` / `getParentFile` / `getAbsolutePath`, `hash` / `isNull` / `nonNull` / `requireNonNull`, `intBitsToFloat`, `T_FLOAT`. `member-floor` stays `0.17.0`; every v0.17.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.19.0.toml` | Adds `picodroid.net.ConnectivityManager` (239 → 240) and its four type constants (1007 → 1011 members). Every v0.18.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.20.0.toml` | Adds the **`picodroid.json`** surface (+4 classes, 240 → 244: `JSONObject`, `JSONArray`, `JSONException`, `JSONObject$1`) and 83 members (1011 → 1094). Every v0.19.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.21.0.toml` | Adds the **multi-app package** surface (+5 classes, 244 → 249: `ActivityNotFoundException`, `PackageInfo`, `ApplicationInfo`, `PackageManager$NameNotFoundException`, `BitmapDrawable`) and 31 members (1094 → 1125). Every v0.20.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.22.0.toml` | Adds the **storage** surface (+6 classes, 249 → 255: `Build`, `Build$VERSION`, `StatFs`, `StorageStatsManager`, `StorageStats`, `PackageInstaller`) and 40 members (1125 → 1165). Every v0.21.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.23.0.toml` | Adds the **TextView line-mode** surface (+2 classes, 255 → 257: `picodroid.text.TextUtils`, `TextUtils$TruncateAt`) and 15 members (1165 → 1180: `setSingleLine`, `setEllipsize` / `getEllipsize`, `setMaxLines` / `getMaxLines`, the packed `mLineMode` state and the `native*` bindings). `member-floor` stays `0.17.0`; every v0.22.0 mapping copied verbatim. |
 
 ## Scope
 

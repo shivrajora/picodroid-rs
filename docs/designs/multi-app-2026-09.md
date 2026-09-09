@@ -1095,5 +1095,6 @@ always show; `Screens.fit` and the 7-px-per-character heuristic are gone. The
 rows' geometry — 40 px, tapped at `y = 20 + 40n` — is unchanged, so the sim
 and bench lanes are too. `examples/ellipsizedemo` pins the behaviour as a sim
 lane (heights against a one-line reference, `getText()` under the dots, the
-getters, lifting the limit, a padding change). The two `TextUtils` classes are
-un-shrunk until the next map cut clears the one expected `shrink_image` leak.
+getters, lifting the limit, a padding change). Map v0.23.0 (package 0.23.0),
+cut on main after the merge, folds the two `TextUtils` classes and the 15
+member names in and clears the one expected `shrink_image` leak.

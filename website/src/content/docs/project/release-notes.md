@@ -7,12 +7,13 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**A TextView holds one line, cut with an ellipsis**
+**A TextView holds one line, cut with an ellipsis (map v0.23.0, package 0.23.0)**
 
 - `TextView.setSingleLine()` / `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)` / `getEllipsize()` and `setMaxLines(int)` / `getMaxLines()` mirror Android over LVGL's label long modes: a single-line or max-lines view is at most that many lines tall and, with an ellipsize, the last line that fits is cut with three ASCII dots; `MARQUEE` scrolls the text circularly. `getText()` returns the full text throughout. New `picodroid.text.TextUtils` with `TruncateAt` and `isEmpty`. See [UI](/api/ui/) and the [compatibility matrix](/reference/compatibility-matrix/) for the divergences.
 - The launcher and settings rows use it: a long app label is cut by the pixel, not by a character count, and the version and the storage numbers always show.
 - `examples/ellipsizedemo` pins the behaviour as a sim lane. The simulator's own `cargo test -p picodroid-core` compiles again (the package-verb poll in `stop_jvm` is gated on the `sim` feature).
 - Flash, release images: `testbench_rp2040` +2,880 B, `testbench_rp2350` +3,512 B — the two `TextUtils` classes, the `TextView` methods and their native, the FFI, and the launcher and settings PAPKs.
+- Map v0.23.0, cut on `main` after the merge, folds the two `TextUtils` classes and their 15 member names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through v0.22.0 still install. `Build.VERSION.RELEASE` reads `0.23.0`. The multi-app QA fixes below ship in the same package.
 
 **Multi-app QA fixes (after v0.22.0)**
 
