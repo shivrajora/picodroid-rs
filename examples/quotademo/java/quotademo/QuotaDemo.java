@@ -76,7 +76,10 @@ public class QuotaDemo extends Application {
     check("total is the volume", total > 0 && total % BLOCK == 0);
     check("free within total", free > 0 && free <= total);
     check("available within free", avail > 0 && avail <= free);
-    check("available is the cap for an empty app", avail == CAP);
+    // A fresh app has the whole cap; one that ran before holds its package
+    // directory (an app cannot delete its own root), 8 KB of it.
+    check(
+        "available is the cap, or the cap less the directory", avail == CAP || avail == CAP - DIR);
     check("block size", s.getBlockSizeLong() == BLOCK);
     check("block count", s.getBlockCountLong() == total / BLOCK);
   }
