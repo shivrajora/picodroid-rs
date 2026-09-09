@@ -7,7 +7,8 @@ import picodroid.content.Context;
  * Push button. Mirrors {@code android.widget.Button}, a {@link TextView}. The native object is a
  * button with a child label, so {@link #setText} is re-declared here and routed to that label;
  * {@link #setTextColor} is inherited unchanged (the colour style cascades to the label) and {@link
- * #setIncludeFontPadding} pads the button box rather than the label.
+ * #setIncludeFontPadding} pads the button box rather than the label; the line-mode setters ({@link
+ * #setSingleLine}, {@link #setEllipsize}, {@link #setMaxLines}) reach the label.
  */
 public class Button extends TextView {
   public Button(String text) {

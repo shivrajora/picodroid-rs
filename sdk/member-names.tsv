@@ -34,6 +34,7 @@ F	DIRECTION_OUT_INITIALLY_HIGH
 F	DIRECTION_OUT_INITIALLY_LOW
 F	DONE
 F	E
+F	ELLIPSIZE_MASK
 F	END
 F	FEATURE_ETHERNET
 F	FEATURE_WIFI
@@ -101,15 +102,19 @@ F	LIST_MODE_MULTI
 F	LIST_MODE_SINGLE
 F	MAGENTA
 F	MAGIC
+F	MARQUEE
 F	MATCH_PARENT
 F	MAX_BLOB
 F	MAX_ENTRIES
 F	MAX_KEY_LEN
+F	MAX_LINES_LIMIT
+F	MAX_LINES_SHIFT
 F	MAX_LIST_ITEMS
 F	MAX_PRIORITY
 F	MAX_REQUEST_HEADERS
 F	MAX_STRING_VAL
 F	MICROSECONDS
+F	MIDDLE
 F	MILLISECONDS
 F	MINUTES
 F	MIN_PRIORITY
@@ -165,6 +170,7 @@ F	SENSOR_STATUS_ACCURACY_HIGH
 F	SENSOR_STATUS_ACCURACY_LOW
 F	SENSOR_STATUS_ACCURACY_MEDIUM
 F	SENSOR_STATUS_UNRELIABLE
+F	SINGLE_LINE
 F	SPEED_FAST
 F	SPEED_STANDARD
 F	START
@@ -304,6 +310,7 @@ F	listener
 F	longPressFired
 F	longValsHi
 F	longValsLo
+F	mLineMode
 F	maxRange
 F	maxValue
 F	message
@@ -426,6 +433,7 @@ M	app
 M	append
 M	appendHeader
 M	apply
+M	applyLineMode
 M	applyTo
 M	argb
 M	arraycopy
@@ -564,6 +572,7 @@ M	getDefaultUncaughtExceptionHandler
 M	getDisplay
 M	getDouble
 M	getDuration
+M	getEllipsize
 M	getErrorStream
 M	getEventTime
 M	getFilesDir
@@ -596,6 +605,7 @@ M	getLeft
 M	getLength
 M	getLong
 M	getLongVersionCode
+M	getMaxLines
 M	getMaxValue
 M	getMaximumRange
 M	getMinDelay
@@ -682,6 +692,7 @@ M	isConnected
 M	isDaemon
 M	isDirectory
 M	isDone
+M	isEmpty
 M	isEnabled
 M	isFile
 M	isFocusable
@@ -812,7 +823,9 @@ M	nativeSetEndAction
 M	nativeSetFlexGrow
 M	nativeSetFocusable
 M	nativeSetImageSrc
+M	nativeSetIncludeFontPadding
 M	nativeSetInt
+M	nativeSetLineMode
 M	nativeSetLong
 M	nativeSetMode
 M	nativeSetNode
@@ -979,6 +992,7 @@ M	setDirection
 M	setDoOutput
 M	setDuration
 M	setEditText
+M	setEllipsize
 M	setEnabled
 M	setFixedLengthStreamingMode
 M	setFocusable
@@ -998,6 +1012,7 @@ M	setItems
 M	setLayoutParams
 M	setLength
 M	setMax
+M	setMaxLines
 M	setMaxValue
 M	setMessage
 M	setMinValue
@@ -1044,6 +1059,7 @@ M	setScaleX
 M	setScaleY
 M	setShowKeyboardOnTouch
 M	setSingleChoiceItems
+M	setSingleLine
 M	setSize
 M	setSoTimeout
 M	setSpacing

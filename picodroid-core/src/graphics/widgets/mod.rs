@@ -134,8 +134,8 @@ pub use switch::{
     switch_register_checked_change_listener, switch_set_checked, switch_toggle,
 };
 pub use text_view::{
-    text_view_get_text, text_view_native_create, text_view_set_include_font_padding,
-    text_view_set_text, text_view_set_text_color,
+    text_view_get_text, text_view_native_create, text_view_native_set_include_font_padding,
+    text_view_native_set_line_mode, text_view_set_text, text_view_set_text_color,
 };
 pub use time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 pub use time_picker::{

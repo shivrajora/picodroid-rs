@@ -182,7 +182,7 @@ status.setText("Connecting...");
 reading.setText("temp -- 21°C");
 ```
 
-Why: the missing-glyph placeholder renders `□` for any codepoint outside the subset. Use `...` for an ellipsis and `--` for a dash. Encoding is UTF-8, and `°` is in the set — but adding new glyphs needs the font toolchain and costs flash.
+Why: the missing-glyph placeholder renders `□` for any codepoint outside the subset. Use `...` for an ellipsis and `--` for a dash. Encoding is UTF-8, and `°` is in the set — but adding new glyphs needs the font toolchain and costs flash. `TextView.setEllipsize` is safe: LVGL draws its ellipsis as three ASCII dots.
 
 ## HTTPS is unsupported
 

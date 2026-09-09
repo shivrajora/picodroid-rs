@@ -40,6 +40,8 @@ pub type lv_obj_t = c_void;
 pub type lv_event_t = c_void;
 pub type lv_event_dsc_t = c_void;
 pub type lv_group_t = c_void;
+/// Opaque `lv_font_t`; only ever handed back to LVGL (`lv_font_get_line_height`).
+pub type lv_font_t = c_void;
 
 // ---------------------------------------------------------------------------
 // Concrete types
@@ -206,6 +208,22 @@ pub const LV_DIR_VER: lv_dir_t = LV_DIR_TOP | LV_DIR_BOTTOM;
 pub type lv_scrollbar_mode_t = u8;
 pub const LV_SCROLLBAR_MODE_OFF: lv_scrollbar_mode_t = 0;
 
+/// Label long-text mode (third_party/lvgl/src/widgets/label/lv_label.h
+/// `lv_label_long_mode_t`), implicit ordinals; plain C enum → 1 byte under
+/// `-fshort-enums`. Guarded by `lv_label_long_mode_constants_match_vendored_header`.
+/// `TextView.setSingleLine`/`setEllipsize`/`setMaxLines` map onto these.
+pub type lv_label_long_mode_t = u8;
+pub const LV_LABEL_LONG_MODE_WRAP: lv_label_long_mode_t = 0;
+pub const LV_LABEL_LONG_MODE_DOTS: lv_label_long_mode_t = 1;
+pub const LV_LABEL_LONG_MODE_SCROLL: lv_label_long_mode_t = 2;
+pub const LV_LABEL_LONG_MODE_SCROLL_CIRCULAR: lv_label_long_mode_t = 3;
+pub const LV_LABEL_LONG_MODE_CLIP: lv_label_long_mode_t = 4;
+
+/// `LV_COORD_MAX = (1 << LV_COORD_TYPE_SHIFT) - 1` (lv_area.h): the default of the
+/// `max_height` style, so setting it lifts a cap. Guarded by
+/// `lv_coord_max_matches_vendored_header`.
+pub const LV_COORD_MAX: i32 = (1 << 29) - 1;
+
 /// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
 /// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
 /// hour/minute lists feel continuous.
@@ -261,6 +279,13 @@ pub const LV_STYLE_OPA: lv_style_prop_t = 112;
 pub const LV_STYLE_TRANSFORM_SCALE_X: lv_style_prop_t = 152;
 pub const LV_STYLE_TRANSFORM_SCALE_Y: lv_style_prop_t = 153;
 pub const LV_STYLE_TRANSFORM_ROTATION: lv_style_prop_t = 156;
+// Read back by `TextView`'s line cap (graphics/lvgl/widgets/text_view.rs).
+pub const LV_STYLE_MAX_HEIGHT: lv_style_prop_t = 11;
+pub const LV_STYLE_PAD_TOP: lv_style_prop_t = 24;
+pub const LV_STYLE_PAD_BOTTOM: lv_style_prop_t = 25;
+pub const LV_STYLE_BORDER_WIDTH: lv_style_prop_t = 56;
+pub const LV_STYLE_TEXT_FONT: lv_style_prop_t = 77;
+pub const LV_STYLE_TEXT_LINE_SPACE: lv_style_prop_t = 103;
 /// `transform_scale_*` value meaning "unscaled" (`lv_style.h` `LV_SCALE_NONE`).
 pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
@@ -515,6 +540,10 @@ extern "C" {
     // Label widget
     pub fn lv_label_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_label_set_text(obj: *mut lv_obj_t, text: *const c_char);
+    pub fn lv_label_set_long_mode(obj: *mut lv_obj_t, long_mode: lv_label_long_mode_t);
+    pub fn lv_label_get_long_mode(obj: *const lv_obj_t) -> lv_label_long_mode_t;
+    /// Line height of a font from `lv_obj_get_style_prop(.., LV_STYLE_TEXT_FONT).ptr`.
+    pub fn lv_font_get_line_height(font: *const lv_font_t) -> i32;
 
     // Button widget
     pub fn lv_button_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
@@ -606,6 +635,11 @@ extern "C" {
         selector: lv_style_selector_t,
     );
     pub fn lv_obj_set_style_pad_top(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_max_height(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
     pub fn lv_obj_set_style_pad_bottom(
         obj: *mut lv_obj_t,
         value: i32,
@@ -969,6 +1003,8 @@ mod tests {
     const LV_DRAW_RECT_HEADER: &str =
         include_str!("../../third_party/lvgl/src/draw/lv_draw_rect.h");
     const LV_STYLE_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_style.h");
+    const LV_LABEL_HEADER: &str =
+        include_str!("../../third_party/lvgl/src/widgets/label/lv_label.h");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the
@@ -1113,6 +1149,12 @@ mod tests {
             (LV_STYLE_TRANSFORM_SCALE_X, "LV_STYLE_TRANSFORM_SCALE_X"),
             (LV_STYLE_TRANSFORM_SCALE_Y, "LV_STYLE_TRANSFORM_SCALE_Y"),
             (LV_STYLE_TRANSFORM_ROTATION, "LV_STYLE_TRANSFORM_ROTATION"),
+            (LV_STYLE_MAX_HEIGHT, "LV_STYLE_MAX_HEIGHT"),
+            (LV_STYLE_PAD_TOP, "LV_STYLE_PAD_TOP"),
+            (LV_STYLE_PAD_BOTTOM, "LV_STYLE_PAD_BOTTOM"),
+            (LV_STYLE_BORDER_WIDTH, "LV_STYLE_BORDER_WIDTH"),
+            (LV_STYLE_TEXT_FONT, "LV_STYLE_TEXT_FONT"),
+            (LV_STYLE_TEXT_LINE_SPACE, "LV_STYLE_TEXT_LINE_SPACE"),
         ] {
             let header_val = lookup_ordinal(body, "LV_STYLE_", name)
                 .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));
@@ -1161,6 +1203,53 @@ mod tests {
                  route through these codes."
             );
         }
+    }
+
+    #[test]
+    fn lv_label_long_mode_constants_match_vendored_header() {
+        let body = enum_body(LV_LABEL_HEADER, "} lv_label_long_mode_t")
+            .expect("lv_label_long_mode_t enum not found");
+        for (rust_const, name) in [
+            (LV_LABEL_LONG_MODE_WRAP, "LV_LABEL_LONG_MODE_WRAP"),
+            (LV_LABEL_LONG_MODE_DOTS, "LV_LABEL_LONG_MODE_DOTS"),
+            (LV_LABEL_LONG_MODE_SCROLL, "LV_LABEL_LONG_MODE_SCROLL"),
+            (
+                LV_LABEL_LONG_MODE_SCROLL_CIRCULAR,
+                "LV_LABEL_LONG_MODE_SCROLL_CIRCULAR",
+            ),
+            (LV_LABEL_LONG_MODE_CLIP, "LV_LABEL_LONG_MODE_CLIP"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_LABEL_LONG_MODE_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_label.h"));
+            assert_eq!(
+                u32::from(rust_const),
+                header_val,
+                "{name}: Rust FFI drifted from vendored lv_label.h — TextView.setSingleLine / \
+                 setEllipsize / setMaxLines pick the label's long mode by these values."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_coord_max_matches_vendored_header() {
+        let line = LV_AREA_HEADER
+            .lines()
+            .find(|l| l.trim_start().starts_with("#define LV_COORD_TYPE_SHIFT"))
+            .expect("LV_COORD_TYPE_SHIFT not found in vendored lv_area.h");
+        let digits: String = line
+            .split("LV_COORD_TYPE_SHIFT")
+            .nth(1)
+            .unwrap()
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect();
+        let shift: u32 = digits.parse().expect("LV_COORD_TYPE_SHIFT value");
+        assert_eq!(
+            LV_COORD_MAX,
+            (1i32 << shift) - 1,
+            "LV_COORD_MAX drifted from vendored lv_area.h — TextView's line cap clears \
+             max_height by setting it to this default."
+        );
     }
 
     #[test]

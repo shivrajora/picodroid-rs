@@ -60,13 +60,31 @@ pub fn text_view_set_text_color(
     Ok(None)
 }
 
-/// `TextView.setIncludeFontPadding(boolean include)`
-pub fn text_view_set_include_font_padding(
+/// `TextView.nativeSetIncludeFontPadding(boolean include)`
+pub fn text_view_native_set_include_font_padding(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     let include = matches!(args.get(1), Some(Value::Int(v)) if *v != 0);
     lvgl_text_view::set_include_font_padding(id, include);
+    Ok(None)
+}
+
+/// `TextView.nativeSetLineMode(int ellipsize, int maxLines, boolean singleLine)` — the Java
+/// side's packed line mode; a `Button` receiver lands here too (see `label_of`).
+pub fn text_view_native_set_line_mode(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let int_at = |i: usize| match args.get(i) {
+        Some(Value::Int(v)) => Ok(*v),
+        _ => Err(JvmError::InvalidReference),
+    };
+    let kind = int_at(1)?;
+    let max_lines = int_at(2)?;
+    let single = int_at(3)? != 0;
+    lvgl_text_view::set_line_mode(id, kind, max_lines, single);
     Ok(None)
 }

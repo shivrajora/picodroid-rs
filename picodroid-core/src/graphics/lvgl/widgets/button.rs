@@ -116,11 +116,7 @@ pub(in crate::graphics) fn set_text(id: i32, text: &str) {
 /// button has no label child.
 pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
     let label = unsafe { lv_obj_get_child(handle_table::lookup(id), 0) };
-    if label.is_null() {
-        return None;
-    }
-    let cstr = unsafe { lv_label_get_text(label) };
-    super::text_view::copy_cstr(cstr, dst)
+    super::text_view::label_text(label, dst)
 }
 
 /// Synthetically fire `LV_EVENT_CLICKED` on the underlying widget.

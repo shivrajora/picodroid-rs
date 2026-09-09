@@ -447,17 +447,31 @@ All widget classes live in `picodroid.widget.*` and extend `View` (`Button` thro
 Displays a text label.
 
 ```java
+import picodroid.text.TextUtils;
 import picodroid.widget.TextView;
 
 TextView label = new TextView();
 label.setText("Hello, World!");
 label.setTextColor(Color.WHITE);
 String current = label.getText().toString();   // CharSequence, as on Android
+
+// One line, cut with an ellipsis when it does not fit the width the layout gives it.
+label.setSingleLine();
+label.setEllipsize(TextUtils.TruncateAt.END);
+// Or at most two lines, the second cut.
+label.setMaxLines(2);
 ```
+
+`setSingleLine()`, `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)`, `getEllipsize()`, `setMaxLines(int)` and `getMaxLines()` mirror Android over LVGL's label long modes:
+
+- A single-line or max-lines view is **at most that many lines tall**. Give it a bounded width — a fixed `setSize` width, or a weight in a horizontal `LinearLayout` (`new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)`) — for the cut to happen; a view that sizes to its content never runs out of room. A taller explicit height shrinks to the limit (Android keeps the box and draws at the top).
+- The ellipsis is three ASCII dots, `...` (the bundled font has no `…`). `START` and `MIDDLE` render like `END`; `MARQUEE` scrolls the text circularly whenever it is wider than the view, selected or not.
+- Without an ellipsize, a single-line view clips the text at its edge (a content-sized one grows to the text's width), and a max-lines view clips the lines past the limit.
+- `getText()` returns the full text while the ellipsis shows. A newline in the text still breaks the line.
 
 ### `picodroid.widget.Button`
 
-A clickable button with a text label. Extends `TextView`, so `setText`, `getText` and `setTextColor` are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
+A clickable button with a text label. Extends `TextView`, so `setText`, `getText`, `setTextColor` and the line-mode setters (`setSingleLine`, `setEllipsize`, `setMaxLines`, which act on the button's label) are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
 
 ```java
 import picodroid.view.View;

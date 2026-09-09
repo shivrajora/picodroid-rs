@@ -51,6 +51,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `TextView`, `Button`, `LinearLayout`, `ImageView`, `Switch`, `CheckBox`, `ToggleButton`, `RadioButton`/`RadioGroup`, `ProgressBar`, `SeekBar`, `Toast`, `Spinner`, `NumberPicker`, `EditText`, `ListView` | Partial–Full | Core widgets present. See specific divergences below. |
+| `TextView.setSingleLine` / `setEllipsize` / `setMaxLines` | Partial | Over LVGL's label long modes: the ellipsis is ASCII `...`, `START`/`MIDDLE` render like `END`, `MARQUEE` scrolls circularly whether or not the view is selected, and a single-line / max-lines view is **at most that many lines tall** — a taller explicit height shrinks to the limit. |
 | `ProgressBar` | Partial | `indeterminate()` is **creation-time only** — `setIndeterminate(boolean)` after construction is unsupported (LVGL can't morph bar↔spinner). |
 | `Spinner.OnItemSelectedListener` | Partial | Full 4-arg `onItemSelected(parent, view, position, id)`; **`view` is always null** (LVGL rows have no Java wrapper) and `parent` is the `Spinner` (no `AdapterView`). |
 | `ImageView` | Partial | `SCALE_FIT_CENTER`, `SCALE_CENTER`. Source is a bundled asset name (see [assets](/guides/assets/)). |

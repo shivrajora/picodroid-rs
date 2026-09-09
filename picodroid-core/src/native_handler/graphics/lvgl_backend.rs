@@ -114,7 +114,10 @@ impl GraphicsBackend for LvglBackend {
                 ctx.objects,
             )),
             m::setTextColor => Some(widgets::text_view_set_text_color(ctx.args, ctx.objects)),
-            m::setIncludeFontPadding => Some(widgets::text_view_set_include_font_padding(
+            m::nativeSetIncludeFontPadding => Some(
+                widgets::text_view_native_set_include_font_padding(ctx.args, ctx.objects),
+            ),
+            m::nativeSetLineMode => Some(widgets::text_view_native_set_line_mode(
                 ctx.args,
                 ctx.objects,
             )),

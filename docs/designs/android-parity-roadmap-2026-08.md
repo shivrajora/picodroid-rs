@@ -265,7 +265,7 @@ too.
 | T1.1 | StringBuilder per-instance buffers | N | **DONE** |
 | T1.2 | `HttpURLConnection` request/response headers | N | **DONE** |
 | T1.3 | Widget fidelity fills | N | open |
-| T1.4 | `TextView`/`EditText` text surface | N | **partial** (`getText` shipped 2026-09-02) |
+| T1.4 | `TextView`/`EditText` text surface | N | **partial** (`getText` shipped 2026-09-02; `setSingleLine`/`setEllipsize`/`setMaxLines` shipped 2026-09-09) |
 | T1.5 | Input & sensor fills | N | open |
 | T1.6 | `Gpio` input | N | **partial** (`getValue`/`DIRECTION_IN` shipped 2026-09-02; edge callback open) |
 | T1.7 | `java.util.Objects`, `String.join` | B/S-small | **DONE** 2026-09-02 |
@@ -330,7 +330,11 @@ moved to `net/http_head.rs` with a `#[path]` test shim in `lib.rs`, because
 `setSelection`. `getText()` is the single most-typed widget call in Android
 code. Decide `CharSequence` vs `String` here: declaring `CharSequence`
 matches Android exactly and keeps the universal `getText().toString()` idiom
-working either way.
+working either way. Shipped 2026-09-09: `setSingleLine`,
+`setEllipsize(TextUtils.TruncateAt)` and `setMaxLines` with their getters,
+over LVGL's label long modes and a `max_height` cap of N lines
+(`docs/designs/multi-app-2026-09.md`, A5); `setTextSize`, `setGravity` and
+`append` remain.
 
 **T1.5 — input & sensors.** `MotionEvent.ACTION_CANCEL`;
 `GestureDetector.onDown`/`onScroll`/`onDoubleTap`;
@@ -476,7 +480,11 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
     child label, so TextView's label arm must not run on it. `setTextColor`
     is inherited and reaches TextView's arm through the native superclass
     walk (`ops_invoke.rs`), which works because LVGL's `text_color` cascades
-    to the child. Field layout was unaffected (neither class declares fields).
+    to the child. A *private* native declared on `TextView`
+    (`nativeSetLineMode`) is an `invokespecial` and always dispatches on
+    `TextView`, so its impl resolves a `Button` receiver to the child label
+    itself (`label_of` in `graphics/lvgl/widgets/text_view.rs`). `TextView`
+    now declares one field (`mLineMode`), which `Button` inherits.
   - LVGL has no linkable `lv_obj_get_style_<prop>` getters (they are `static
     inline`); readback goes through `lv_obj_get_style_prop`, with the
     `LV_STYLE_*` ids pinned by a drift guard. LVGL also folds `translate_*`

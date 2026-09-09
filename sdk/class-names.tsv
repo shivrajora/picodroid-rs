@@ -187,6 +187,8 @@ picodroid/pio/Pwm
 picodroid/pio/SpiDevice
 picodroid/pio/UartDevice
 picodroid/text/InputType
+picodroid/text/TextUtils
+picodroid/text/TextUtils$TruncateAt
 picodroid/text/TextWatcher
 picodroid/util/Log
 picodroid/view/GestureDetector

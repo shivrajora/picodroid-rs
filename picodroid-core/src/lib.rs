@@ -143,6 +143,11 @@ mod native_api_contract_tests;
 #[cfg(test)]
 #[path = "native_handler/member_names.rs"]
 mod native_member_names_tests;
+// TextView's line mode (setSingleLine / setEllipsize / setMaxLines → an LVGL
+// long mode and a line cap): pure, but under the cfg(not(test)) graphics tree.
+#[cfg(test)]
+#[path = "graphics/lvgl/widgets/line_mode.rs"]
+mod graphics_line_mode_tests;
 // HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
 // status-line/header rules would otherwise be the untested kind this shim
 // list exists to prevent.
