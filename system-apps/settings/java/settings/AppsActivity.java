@@ -32,28 +32,49 @@ public class AppsActivity extends Activity {
     LinearLayout root = Screens.column(this);
     root.addView(Screens.header(this, "< Apps", v -> finish()));
     PackageManager pm = getPackageManager();
-    List<PackageInfo> all = pm.getInstalledPackages(0);
-    rows = new View[all.size()];
+    PackageInfo[] all = sortedByLabel(pm, pm.getInstalledPackages(0));
+    rows = new View[all.length];
     int n = 0;
-    for (int i = 0; i < all.size(); i++) {
-      PackageInfo info = all.get(i);
+    for (int i = 0; i < all.length; i++) {
+      PackageInfo info = all[i];
       if ((info.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
         continue;
       }
       final String pkg = info.packageName;
       final String label = pm.getApplicationLabel(info.applicationInfo).toString();
-      View row = Screens.row(this, label + "  v" + info.versionName, v -> confirm(pkg, label));
+      View row =
+          Screens.row(
+              this, Screens.fit(this, label, "  v" + info.versionName), v -> confirm(pkg, label));
       root.addView(row);
       rows[n] = row;
       n++;
     }
     if (n == 0) {
-      root.addView(Screens.text(this, "No apps installed"));
+      root.addView(Screens.info(this, "No apps installed"));
     } else {
       rows[0].requestFocus();
     }
-    setContentView(root);
+    setContentView(Screens.scrollable(this, root, 1 + (n == 0 ? 1 : n)));
     Log.i(SettingsActivity.TAG, "apps " + n);
+  }
+
+  /** The packages in label order, case-insensitively, as the launcher lists them. */
+  private static PackageInfo[] sortedByLabel(PackageManager pm, List<PackageInfo> installed) {
+    PackageInfo[] out = new PackageInfo[installed.size()];
+    String[] labels = new String[installed.size()];
+    for (int i = 0; i < installed.size(); i++) {
+      PackageInfo info = installed.get(i);
+      String label = pm.getApplicationLabel(info.applicationInfo).toString().toLowerCase();
+      int j = i;
+      while (j > 0 && labels[j - 1].compareTo(label) > 0) {
+        out[j] = out[j - 1];
+        labels[j] = labels[j - 1];
+        j--;
+      }
+      out[j] = info;
+      labels[j] = label;
+    }
+    return out;
   }
 
   private void confirm(final String pkg, String label) {

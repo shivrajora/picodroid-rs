@@ -17,14 +17,14 @@ public class AboutActivity extends Activity {
     StatFs fs = new StatFs("/");
     long total = fs.getTotalBytes();
     long free = fs.getFreeBytes();
-    root.addView(Screens.text(this, "Board  " + Build.BOARD));
-    root.addView(Screens.text(this, "MCU  " + Build.HARDWARE));
-    root.addView(Screens.text(this, "Release  " + Build.VERSION.RELEASE));
+    root.addView(Screens.info(this, "Board  " + Build.BOARD));
+    root.addView(Screens.info(this, "MCU  " + Build.HARDWARE));
+    root.addView(Screens.info(this, "Release  " + Build.VERSION.RELEASE));
     root.addView(
-        Screens.text(
+        Screens.info(
             this, "Storage  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used"));
-    root.addView(Screens.text(this, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used"));
-    setContentView(root);
+    root.addView(Screens.info(this, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used"));
+    setContentView(Screens.scrollable(this, root, 6));
     Log.i(SettingsActivity.TAG, "about " + Build.BOARD + " " + Build.VERSION.RELEASE);
   }
 }

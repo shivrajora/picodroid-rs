@@ -14,6 +14,7 @@ import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
 
 /**
@@ -23,7 +24,8 @@ import picodroid.widget.TextView;
  *
  * <p>Installed apps come first, sorted by label, then the other system apps; the launcher never
  * lists itself. Rows are {@link #ROW_HEIGHT} pixels tall from the top of the screen, so a test can
- * tap row 0 at a known point.
+ * tap row 0 at a known point; more rows than the screen holds scroll — by drag on a touch panel,
+ * and with the focus on a keypad.
  */
 public class LauncherActivity extends Activity {
   private static final String TAG = "Launcher";
@@ -36,6 +38,9 @@ public class LauncherActivity extends Activity {
   /** Tile color behind the first letter of an app that has no icon. */
   private static final int TILE_COLOR = 0xFF1F8A8A;
 
+  /** About what one character of the default font takes, for fitting a label to its row. */
+  private static final int PX_PER_CHAR = 7;
+
   /** Held here so the rows stay reachable while their click listeners are live. */
   private View[] rows;
 
@@ -45,9 +50,10 @@ public class LauncherActivity extends Activity {
     int width = getDisplay().getWidth();
     int height = getDisplay().getHeight();
 
+    // A LinearLayout does not scroll (as on Android): the column sits in a ScrollView and is
+    // sized to its rows, so a long list is reachable on every board.
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(width, height);
     root.setPadding(0, 0, 0, 0);
     root.setSpacing(0);
 
@@ -79,17 +85,26 @@ public class LauncherActivity extends Activity {
     } else {
       rows[0].requestFocus();
     }
+    int contentHeight = (n == 0 ? 1 : n) * ROW_HEIGHT;
+    root.setSize(width, contentHeight > height ? contentHeight : height);
+    ScrollView scroller = new ScrollView();
+    scroller.setSize(width, height);
+    scroller.setPadding(0, 0, 0, 0);
+    scroller.addView(root);
     Log.i(TAG, "ready: " + n + " apps");
-    setContentView(root);
+    setContentView(scroller);
   }
 
-  /** The packages in label order (a dozen at most, so an insertion sort). */
+  /**
+   * The packages in label order, case-insensitively as Android sorts app names (a dozen at most, so
+   * an insertion sort).
+   */
   private static PackageInfo[] sortedByLabel(PackageManager pm, List<PackageInfo> installed) {
     PackageInfo[] out = new PackageInfo[installed.size()];
     String[] labels = new String[installed.size()];
     for (int i = 0; i < installed.size(); i++) {
       PackageInfo info = installed.get(i);
-      String label = pm.getApplicationLabel(info.applicationInfo).toString();
+      String label = pm.getApplicationLabel(info.applicationInfo).toString().toLowerCase();
       int j = i;
       while (j > 0 && labels[j - 1].compareTo(label) > 0) {
         out[j] = out[j - 1];
@@ -130,7 +145,9 @@ public class LauncherActivity extends Activity {
     }
 
     TextView text = new TextView();
-    text.setText(label);
+    // One line per row: a label longer than the row is cut, not wrapped over the next row.
+    int maxChars = (width - 8 - ICON_SIZE - 8 - 8) / PX_PER_CHAR;
+    text.setText(label.length() > maxChars ? label.substring(0, maxChars - 3) + "..." : label);
     text.setTextColor(Color.WHITE);
     row.addView(text);
 

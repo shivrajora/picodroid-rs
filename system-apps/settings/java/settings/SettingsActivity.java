@@ -33,7 +33,7 @@ public class SettingsActivity extends Activity {
       root.addView(rows[i]);
     }
     rows[0].requestFocus();
-    setContentView(root);
+    setContentView(Screens.scrollable(this, root, 1 + rows.length));
   }
 
   /** Once per showing of the root — the first one and every return from a screen. */

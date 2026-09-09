@@ -21,8 +21,9 @@ public class StorageActivity extends Activity {
     long total = fs.getTotalBytes();
     long free = fs.getFreeBytes();
     root.addView(
-        Screens.text(
+        Screens.info(
             this, "Volume  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used"));
+    int rows = 2;
     StorageStatsManager ssm = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
     PackageManager pm = getPackageManager();
     List<PackageInfo> all = pm.getInstalledPackages(0);
@@ -31,15 +32,12 @@ public class StorageActivity extends Activity {
       String label = pm.getApplicationLabel(info.applicationInfo).toString();
       try {
         StorageStats st = ssm.queryStatsForPackage(info.packageName);
-        root.addView(
-            Screens.text(
-                this,
-                label
-                    + "  app "
-                    + Screens.kb(st.getAppBytes())
-                    + " / data "
-                    + Screens.kb(st.getDataBytes())
-                    + " KB"));
+        // The numbers always show; a long label is cut instead.
+        String numbers =
+            "  app " + Screens.kb(st.getAppBytes()) + " / data " + Screens.kb(st.getDataBytes())
+                + " KB";
+        root.addView(Screens.info(this, Screens.fit(this, label, numbers)));
+        rows++;
         Log.i(
             SettingsActivity.TAG,
             "storage " + info.packageName + " " + st.getAppBytes() + " " + st.getDataBytes());
@@ -47,6 +45,6 @@ public class StorageActivity extends Activity {
         // Uninstalled between the query and the stats: skip the row.
       }
     }
-    setContentView(root);
+    setContentView(Screens.scrollable(this, root, rows));
   }
 }
