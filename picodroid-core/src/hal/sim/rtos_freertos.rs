@@ -121,6 +121,16 @@ std::thread_local! {
     /// service threads with no device analog (the control-channel reader)
     /// stay false.
     static IS_KERNEL_TASK: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    /// True on the one task spawned as [`crate::rtos::TaskKind::Jvm`]: the
+    /// app-switching loop and every native the app's main thread runs.
+    static IS_JVM_TASK: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Whether the calling thread is the JVM task — the package directory's
+/// single writer, and the only place the control channel's package verbs
+/// may be serviced.
+pub fn current_thread_is_jvm_task() -> bool {
+    IS_JVM_TASK.with(|f| f.get())
 }
 
 /// Whether the calling thread is a FreeRTOS task, and may therefore use
@@ -163,6 +173,7 @@ pub fn spawn(
     let words = (stack_bytes / 4).clamp(128, u16::MAX as u32) as u16;
     let spec = *spec;
     let is_child = spec.kind == crate::rtos::TaskKind::JvmChild;
+    let is_jvm = spec.kind == crate::rtos::TaskKind::Jvm;
 
     if is_child {
         // Before the spawn, not inside the body: the starting task must be
@@ -178,6 +189,9 @@ pub fn spawn(
         .priority(TaskPriority(spec.priority))
         .start(move |_| {
             IS_KERNEL_TASK.with(|f| f.set(true));
+            if is_jvm {
+                IS_JVM_TASK.with(|f| f.set(true));
+            }
             // Unwinding out of the port's `extern "C"` task trampoline is UB,
             // and abort-on-panic is what the device does under panic-probe.
             if std::panic::catch_unwind(AssertUnwindSafe(body)).is_err() {

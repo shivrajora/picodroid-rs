@@ -22,6 +22,7 @@
 //! app is gone (`service_deferred`), after which a reinstalled package is
 //! launched again and an uninstalled one gives way to the launcher.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use papk_format::flash_image::FLAG_BOOT_DEFAULT;
@@ -38,11 +39,19 @@ enum Request {
 }
 
 static REQUESTS: Mutex<Vec<Request>> = Mutex::new(Vec::new());
+/// Set with every queued verb, so the JVM task's polls cost one load while
+/// nothing waits.
+static PENDING: AtomicBool = AtomicBool::new(false);
 
-/// A verb that targets the running package, held until the app has stopped.
+/// A verb held until the running app has stopped.
 enum Deferred {
-    /// `(package, bytes)`: reinstall, then launch the new copy.
-    Install(String, Vec<u8>),
+    /// Install `bytes`, then launch `resume` — the package that was running,
+    /// or the reinstalled one when it was that package.
+    Install {
+        package: String,
+        bytes: Vec<u8>,
+        resume: String,
+    },
     Uninstall(String),
 }
 
@@ -158,13 +167,19 @@ pub fn request(rest: &str) -> bool {
         }
     };
     REQUESTS.lock().unwrap_or_else(|p| p.into_inner()).push(req);
+    PENDING.store(true, Ordering::Release);
     true
 }
 
-/// Serve queued verbs. Called on the JVM task once per tick while an app
-/// runs; a verb that targets the running package is held (see
-/// [`service_deferred`]) and the app is stopped.
+/// Serve queued verbs. Called on the JVM task — once per tick while an
+/// Activity runs, and from the stop poll every app reaches (`SystemClock.sleep`,
+/// interpreter yields) for the apps that have no tick. An install, and an
+/// uninstall of the running package, are held (see [`service_deferred`])
+/// and the app is stopped first.
 pub fn service_requests() {
+    if !PENDING.load(Ordering::Acquire) {
+        return;
+    }
     let pending = take_requests();
     if pending.is_empty() {
         return;
@@ -184,14 +199,20 @@ pub fn service_deferred() {
     let deferred = DEFERRED.lock().unwrap_or_else(|p| p.into_inner()).take();
     match deferred {
         None => {}
-        Some(Deferred::Install(package, bytes)) => {
+        Some(Deferred::Install {
+            package,
+            bytes,
+            resume,
+        }) => {
             match install_bytes(region, &bytes) {
-                Ok(()) => {
-                    println!("[sim] apps: installed {package} ({} bytes)", bytes.len());
-                    launch_again(&package);
-                }
+                Ok(()) => println!("[sim] apps: installed {package} ({} bytes)", bytes.len()),
                 Err(e) => println!("[sim] apps: install refused: {e}"),
             }
+            // A device reboots after an install and boots by its policy;
+            // here what was running comes back — the new copy, when it was
+            // the reinstalled package — and a launcher that comes back
+            // lists the new app.
+            launch_again(&resume);
             print_list();
         }
         Some(Deferred::Uninstall(package)) => {
@@ -209,10 +230,13 @@ fn read_papk(path: &str) -> std::io::Result<Vec<u8>> {
 }
 
 fn take_requests() -> Vec<Request> {
-    std::mem::take(&mut *REQUESTS.lock().unwrap_or_else(|p| p.into_inner()))
+    let mut queue = REQUESTS.lock().unwrap_or_else(|p| p.into_inner());
+    PENDING.store(false, Ordering::Release);
+    std::mem::take(&mut *queue)
 }
 
-/// The reinstalled package runs again in place of the launcher.
+/// Run `package` next, in place of the launcher the switching loop would
+/// otherwise start.
 #[cfg(has_multi_app)]
 fn launch_again(package: &str) {
     let _ = packages::request_launch(package);
@@ -237,9 +261,28 @@ fn serve(region: &mut MemRegion, pending: Vec<Request>, running: Option<&str>) {
                         papk_format::find_manifest_value(&bytes, papk_format::keys::PACKAGE_NAME)
                             .unwrap_or("?")
                             .to_string();
-                    if Some(package.as_str()) == running {
-                        println!("[sim] apps: {package} is running; stopping it to reinstall");
-                        defer(Deferred::Install(package, bytes));
+                    // Never install under a running app: placement may
+                    // compact the region, which moves runs — the running
+                    // app's image among them — while the interpreter holds
+                    // slices into it. A device parks the JVM and reboots
+                    // for every install; the simulator stops the app and
+                    // brings it (or the reinstalled copy) back afterwards.
+                    if let Some(running) = running {
+                        if package == running {
+                            println!("[sim] apps: {package} is running; stopping it to reinstall");
+                        } else {
+                            println!("[sim] apps: stopping {running} to install {package}");
+                        }
+                        let resume = if package == running {
+                            package.clone()
+                        } else {
+                            running.to_string()
+                        };
+                        defer(Deferred::Install {
+                            package,
+                            bytes,
+                            resume,
+                        });
                         continue;
                     }
                     match install_bytes(region, &bytes) {

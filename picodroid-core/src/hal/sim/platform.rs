@@ -228,5 +228,13 @@ pub fn set_stop_jvm(on: bool) {
 }
 
 pub fn stop_jvm() -> bool {
+    // The package verbs are serviced on the JVM task. An Activity reaches
+    // them from its 16 ms tick; an app with no Activity — a `main()` loop,
+    // an `Application` whose `onCreate` never returns — has no tick and
+    // polls this from every `SystemClock.sleep` and interpreter yield
+    // instead, so this is what lets `apps install` stop blinky.
+    if super::rtos::current_thread_is_jvm_task() {
+        super::app_region::service_requests();
+    }
     STOP_JVM.load(core::sync::atomic::Ordering::Acquire)
 }

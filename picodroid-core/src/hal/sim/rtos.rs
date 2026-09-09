@@ -71,6 +71,9 @@ struct Notif {
 }
 
 thread_local! {
+    /// True on the thread spawned as [`TaskKind::Jvm`]; mirrors
+    /// `rtos_freertos::current_thread_is_jvm_task`.
+    static IS_JVM_TASK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Leaked so a `RawTask` stays valid for the process, which is the seam's
     /// contract: a handle may be notified by another thread after the owner
     /// has stopped waiting on it. Threads in a test binary are few and the
@@ -151,10 +154,23 @@ pub fn spawn(
     // Thread internals are host-only, with no device counterpart, so they
     // must not be charged to the simulated device heap.
     let _bypass = allocator::bypass();
+    let body: Box<dyn FnOnce() + Send> = if spec.kind == TaskKind::Jvm {
+        Box::new(move || {
+            IS_JVM_TASK.with(|f| f.set(true));
+            body()
+        })
+    } else {
+        body
+    };
     std::thread::Builder::new()
         .name(spec.name.into())
         .spawn(body)
         .is_ok()
+}
+
+/// Whether the calling thread is the JVM task; see the kernel backing.
+pub fn current_thread_is_jvm_task() -> bool {
+    IS_JVM_TASK.with(|f| f.get())
 }
 
 fn q_create<T>(depth: usize) -> RawQueue {
