@@ -304,7 +304,7 @@ run_pdb_test() {
   # greeting carries no apps tail (a single-app board on the probe), and the
   # fixture-minting rows also need papk-pack.
   case "$pdb_cmd" in
-    list|uninstall|install-reject-noroom|install-compact|launch|launch-soak)
+    list|uninstall|install-reject-noroom|install-compact|launch|launch-soak|settings-uninstall)
       local pre_ping="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.pre-ping.log"
       if ! hil_pdb_run 10 ping > "$pre_ping" 2>&1 \
           || ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
@@ -453,6 +453,10 @@ run_pdb_test() {
       run_pdb_launch_test "$app" "$patterns" "$mode" 20
       return
       ;;
+    settings-uninstall)
+      run_pdb_settings_test "$app" "$patterns" "$mode"
+      return
+      ;;
     *)
       hil_log "  ERROR: unknown PDB command '$pdb_cmd'"
       echo "ERROR $test_name (unknown pdb command)" >> "$RESULTS_FILE"
@@ -547,18 +551,24 @@ hil_build_firmware() {
   local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   cargo_env+=("$@")
-  # The launcher is built in the row's mode; PICODROID_SHRINK is put back
-  # afterwards so a later no-shrink row's PAPKs are not shrunk by accident.
-  # Both variables build_system_apks exports are set even when empty:
-  # build.rs reruns when either changes.
-  # The launcher goes to this slot's APK directory (two runners in
-  # different shrink modes must not share one file) and reaches
-  # build_system_apks as a prebuilt, which then only exports the variables.
-  local -a launcher_args=(--app launcher --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/launcher.papk")
-  [[ "$mode" == "shrink" ]] && launcher_args+=(--shrink)
+  # The system apps (the launcher, settings) are built in the row's mode;
+  # PICODROID_SHRINK is put back afterwards so a later no-shrink row's PAPKs
+  # are not shrunk by accident. Both variables build_system_apks exports are
+  # set even when empty: build.rs reruns when either changes.
+  # They go to this slot's APK directory (two runners in different shrink
+  # modes must not share one file) and reach build_system_apks as prebuilts,
+  # which then only exports the variables.
   if [[ "${MAX_INSTALLED_APPS:-1}" -gt 1 ]]; then
-    bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$log" 2>&1 || return 1
-    export PICODROID_PREBUILT_SYSTEM_APKS="$HIL_APK_DIR/launcher.papk"
+    local system_app_dir system_app prebuilt=""
+    for system_app_dir in "$REPO_ROOT"/system-apps/*/; do
+      [[ -f "$system_app_dir/PicodroidManifest.xml" ]] || continue
+      system_app="$(basename "$system_app_dir")"
+      local -a system_args=(--app "$system_app" --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/$system_app.papk")
+      [[ "$mode" == "shrink" ]] && system_args+=(--shrink)
+      bash "$SCRIPT_DIR/build-apk.sh" "${system_args[@]}" >> "$log" 2>&1 || return 1
+      prebuilt="${prebuilt:+$prebuilt:}$HIL_APK_DIR/$system_app.papk"
+    done
+    export PICODROID_PREBUILT_SYSTEM_APKS="$prebuilt"
   fi
   export PICODROID_BOOT="$boot"
   build_system_apks >> "$log" 2>&1 || return 1
@@ -714,6 +724,86 @@ run_pdb_launch_test() {
   local launched
   launched=$(grep -c "Launcher: launch" "$rtt_log" 2>/dev/null || true)
   echo "rtt saw ${launched:-0} launch line(s)" >> "$log_file"
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
+}
+
+# settings-uninstall: flash the app with `--boot launcher`, open Settings
+# (the launcher's row 1: installed apps sort first), Apps, tap the app's
+# row and the dialog's Uninstall; the app must be gone from the list and
+# the settings app still running.
+run_pdb_settings_test() {
+  local app="$1" patterns="$2" mode="$3"
+  local dialog_ok="${PICODROID_SETTINGS_DIALOG_OK:-160 118}"
+  local test_name="$app:pdb-settings-uninstall[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-settings-uninstall.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${app}.pdb-settings-uninstall.${mode}.build.log"
+  : > "$log_file"
+
+  hil_log "  Building $app firmware with --boot launcher ($mode)..."
+  local apk_path="$HIL_APK_DIR/${app}.papk"
+  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! hil_build_firmware "$apk_path" "$mode" launcher "$build_log"; then
+    hil_log "  BUILD FAILED (see $build_log)"
+    echo "ERROR $test_name (build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+  local elf="$TARGET_DIR/${TARGET}/release/picodroid"
+  hil_log "  Flashing..."
+  if ! hil_flash_elf "$elf" "$log_file"; then
+    hil_log "  FLASH FAILED (see log tail)"
+    tail -5 "$log_file" 2>/dev/null | while IFS= read -r line; do hil_log "    $line"; done || true
+    echo "ERROR $test_name (flash failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    recover_probe
+    return
+  fi
+  probe-rs reset --chip "$PROBE_CHIP" --protocol swd </dev/null 2>/dev/null || true
+  sleep 4
+
+  local rtt_log="${log_file%.log}.rtt.log" rtt_pid
+  rtt_pid=$(hil_rtt_attach "$elf" "$rtt_log")
+  sleep 2
+
+  # Only the app under test may be installed: it is row 0, Settings row 1.
+  echo "=== clearing other packages ===" >> "$log_file"
+  local other
+  for other in $(hil_pdb_run 30 list 2>/dev/null < /dev/null \
+      | awk '$1 ~ /^[0-9]+$/ { print $2 }'); do
+    [[ "$other" == "$app" ]] && continue
+    hil_pdb "$log_file" uninstall "$other" || true
+  done
+  sleep 2
+  echo "=== boot ===" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  local tap_log="${log_file%.log}.tap.log"
+  if ! hil_pdb_run 30 input tap 120 60 > "$tap_log" 2>&1 < /dev/null; then
+    cat "$tap_log" >> "$log_file"
+    if grep -qi "no touch panel" "$tap_log"; then
+      kill_process_group "$rtt_pid"
+      hil_log "SKIP $test_name (no touch panel: the tap cannot reach the launcher)"
+      echo "SKIP $test_name (no touch panel)" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      return
+    fi
+  fi
+  sleep 3
+  echo "=== in settings ===" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  hil_pdb_run 30 input tap 120 100 >> "$log_file" 2>&1 < /dev/null || true   # Apps
+  sleep 2
+  hil_pdb_run 30 input tap 120 60 >> "$log_file" 2>&1 < /dev/null || true    # the app's row
+  sleep 2
+  # shellcheck disable=SC2086  # two coordinates
+  hil_pdb_run 30 input tap $dialog_ok >> "$log_file" 2>&1 < /dev/null || true  # Uninstall
+  sleep 4
+  echo "=== after the uninstall ===" >> "$log_file"
+  hil_pdb "$log_file" list || true
+  kill_process_group "$rtt_pid"
+  echo "=== rtt ===" >> "$log_file"
+  cat "$rtt_log" >> "$log_file" 2>/dev/null || true
   hil_pdb_verdict "$test_name" "$log_file" "$patterns"
 }
 

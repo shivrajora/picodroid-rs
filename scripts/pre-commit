@@ -250,9 +250,14 @@ HOST_TARGET="$(host_target)"
 # concurrent `sim.sh --app helloworld` would swap it mid-run and the ratchet
 # would gate on someone else's build. This copy belongs to the run.
 APK_PATH="$REPO_ROOT/build/apks/pre-commit/helloworld.papk"
-# The launcher every multi-app firmware lane links in (multi-app M2), built
-# once beside the app PAPK for the same reason.
-SYSTEM_APK_PATH="$REPO_ROOT/build/apks/pre-commit/launcher.papk"
+# Every system app (system-apps/*: the launcher, settings) the multi-app
+# firmware lanes link in, built once beside the app PAPK for the same
+# reason — the colon-separated list build_system_apks takes as prebuilt.
+SYSTEM_APK_PATHS=""
+for system_app_dir in "$REPO_ROOT"/system-apps/*/; do
+  [[ -f "$system_app_dir/PicodroidManifest.xml" ]] || continue
+  SYSTEM_APK_PATHS="${SYSTEM_APK_PATHS:+$SYSTEM_APK_PATHS:}$REPO_ROOT/build/apks/pre-commit/$(basename "$system_app_dir").papk"
+done
 
 RUN_DIR="$REPO_ROOT/build/pre-commit/$(date -u '+%Y-%m-%dT%H%M%S')"
 mkdir -p "$RUN_DIR/size"
@@ -407,9 +412,15 @@ stage_apk() {
   # with no app line table (the SDK's rides in the firmware regardless);
   # helloworld's would be a few dozen bytes.
   bash "$SCRIPT_DIR/build-apk.sh" --app helloworld --strip-debug -o "$APK_PATH"
-  # The launcher, for the same reason: every multi-app firmware lane embeds
-  # it, and system-apps/launcher/build/ must not be raced either.
-  bash "$SCRIPT_DIR/build-apk.sh" --app launcher --strip-debug -o "$SYSTEM_APK_PATH"
+  # The system apps, for the same reason: every multi-app firmware lane
+  # embeds them, and system-apps/*/build/ must not be raced either.
+  local system_app_dir system_app
+  for system_app_dir in "$REPO_ROOT"/system-apps/*/; do
+    [[ -f "$system_app_dir/PicodroidManifest.xml" ]] || continue
+    system_app="$(basename "$system_app_dir")"
+    bash "$SCRIPT_DIR/build-apk.sh" --app "$system_app" --strip-debug \
+      -o "$REPO_ROOT/build/apks/pre-commit/$system_app.papk"
+  done
 }
 
 stage_fmt_java() {
@@ -526,7 +537,7 @@ stage_clippy_host_tools() {
 
 # build_board <board> [--release] with PICODROID_EXTRA_FEATURES already set.
 build_board() {
-  PICODROID_PREBUILT_APK="$APK_PATH" PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATH" \
+  PICODROID_PREBUILT_APK="$APK_PATH" PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATHS" \
     bash "$SCRIPT_DIR/build.sh" "$@"
 }
 

@@ -367,6 +367,127 @@ run_launcher_smoke() {
   fi
 }
 
+# The settings lane (multi-app M3): the launcher with helloworld and the
+# settings app installed, driven over the control FIFO through About,
+# Storage and Apps, where helloworld is uninstalled through the dialog and
+# the directory ends up empty; Home returns to the launcher. The dialog's
+# Uninstall button sits at DIALOG_OK (pinned from the simulator's rendering
+# of the fixed one-line title and message; the device draws the same card).
+run_settings_smoke() {
+  local DIALOG_OK="${PICODROID_SETTINGS_DIALOG_OK:-160 118}"
+  local mode="$1"
+  local app=helloworld lane=settings
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] about;Settings[]:] storage helloworld;Settings[]:] apps 1;Settings[]:] uninstalled helloworld;Settings[]:] apps 0;apps: \(none installed\);Launcher[]:] ready: 1 apps"
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (settings smoke, 120s) ---"
+
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/launcher.papk"
+  local settings_path="$REPO_ROOT/build/apks/sim-run/${mode}/settings.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board testbench_rp2350)
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board testbench_rp2350)
+  local -a settings_args=(--app settings -o "$settings_path" --board testbench_rp2350)
+  if [[ "$mode" == "shrink" ]]; then
+    apk_args+=(--shrink)
+    launcher_args+=(--shrink)
+    settings_args+=(--shrink)
+  fi
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${settings_args[@]}" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
+  rm -f "$fifo"
+  mkfifo "$fifo"
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path:$settings_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_CTRL_FIFO="$fifo" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 120 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  settings_wait() {
+    local want="$1" n="$2" i
+    for i in $(seq 1 40); do
+      [[ "$(grep -c -- "$want" "$log_file")" -ge "$n" ]] && return 0
+      kill -0 "$pid" 2>/dev/null || return 1
+      sleep 1
+    done
+    return 1
+  }
+  settings_send() { printf '%s\n' "$1" > "$fifo"; sleep 1; }
+
+  # Rows are 40 px: the launcher lists helloworld (row 0) then Settings
+  # (row 1); the settings screens put their header at row 0.
+  if settings_wait "\[Launcher\] ready: 2 apps" 1; then
+    settings_send "input tap 120 60"                       # Settings
+    if settings_wait "\[Settings\] ready" 1; then
+      settings_send "input tap 120 60"                     # About
+      settings_wait "\[Settings\] about" 1 || true
+      settings_send "input tap 120 20"                     # back
+      settings_wait "\[Settings\] ready" 2 || true
+      settings_send "input tap 120 140"                    # Storage
+      settings_wait "\[Settings\] storage helloworld" 1 || true
+      settings_send "input tap 120 20"                     # back
+      settings_wait "\[Settings\] ready" 3 || true
+      settings_send "input tap 120 100"                    # Apps
+      if settings_wait "\[Settings\] apps 1" 1; then
+        settings_send "input tap 120 60"                   # helloworld → the dialog
+        settings_send "input tap $DIALOG_OK"               # Uninstall
+        settings_wait "\[Settings\] apps 0" 1 || true
+        settings_send "apps list"
+        settings_wait "apps: (none installed)" 1 || true
+      fi
+      settings_send "input tap 120 20"                     # back to the root
+      settings_wait "\[Settings\] ready" 4 || true
+      settings_send "input tap 120 20"                     # Home
+      settings_wait "\[Launcher\] ready: 1 apps" 1 || true
+    fi
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$fifo"
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # WiFi-variant board smoke: same app on pico_enviro_mon_w, which is the only
 # board combining sensors + network. Boots headless, then probes the
 # dashboard HTTP server over the sim's host-network passthrough. NTP and
@@ -564,6 +685,10 @@ for MODE in "${MODES[@]}"; do
   # The launcher lane (multi-app M2); `--app launcher` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "launcher" ]]; then
     run_launcher_smoke "$MODE"
+  fi
+  # The settings lane (multi-app M3); `--app settings` reaches only this.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then
+    run_settings_smoke "$MODE"
   fi
   # The Kotlin twin (examples/picoenvmon_kt): same boards, same proofs, its own
   # log tag and lane names (docs/designs/kotlin-roadmap-2026-08.md Session 7).

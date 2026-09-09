@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="picodroid.settings" version="1.0" version-code="1">
+    <application activity="settings/SettingsActivity" label="Settings" icon="settings.png" />
+</manifest>

@@ -58,10 +58,16 @@ pub fn dispatch(
         )))),
         #[cfg(has_multi_app)]
         (c::picodroid_app_usage_StorageStatsManager, m::nativeAppBytes) => {
+            // An installed app's run, its meta sector included; a system
+            // app's image, which lives in `.rodata` and takes no sectors.
             let bytes = string_arg(ctx, 0)
                 .and_then(crate::packages::find)
                 .map_or(-1, |e| {
-                    i64::from(e.sectors) * crate::packages::SECTOR as i64
+                    if e.kind == crate::packages::Kind::System {
+                        e.size() as i64
+                    } else {
+                        i64::from(e.sectors) * crate::packages::SECTOR as i64
+                    }
                 });
             Some(Ok(Some(Value::Long(bytes))))
         }
