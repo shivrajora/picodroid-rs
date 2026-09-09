@@ -132,6 +132,10 @@ fn bake(region: &mut MemRegion, bytes: &[u8]) {
 }
 
 fn install_bytes(region: &mut MemRegion, bytes: &[u8]) -> Result<(), String> {
+    // The transport's copy of the image models the host's USB stream, not
+    // the device's heap: a device never holds a whole PAPK in RAM, so
+    // neither may the simulated arena be charged for one.
+    let _host = crate::host::heap_bypass();
     let mut t = MemTransport::for_papk(bytes);
     if install(&mut t, &mut NoCoordinator, region, bytes.len() as u32) {
         Ok(())
@@ -197,6 +201,13 @@ pub fn service_deferred() {
     serve(region, take_requests(), None);
 }
 
+/// Read a PAPK from the host without charging the simulated heap: the file
+/// is the host's, and on a device the image streams in 256-byte pages.
+fn read_papk(path: &str) -> std::io::Result<Vec<u8>> {
+    let _host = crate::host::heap_bypass();
+    std::fs::read(path)
+}
+
 fn take_requests() -> Vec<Request> {
     std::mem::take(&mut *REQUESTS.lock().unwrap_or_else(|p| p.into_inner()))
 }
@@ -219,7 +230,7 @@ fn serve(region: &mut MemRegion, pending: Vec<Request>, running: Option<&str>) {
     for req in pending {
         match req {
             Request::List => print_list(),
-            Request::Install(path) => match std::fs::read(&path) {
+            Request::Install(path) => match read_papk(&path) {
                 Err(e) => println!("[sim] apps: cannot read {path}: {e}"),
                 Ok(bytes) => {
                     let package =
