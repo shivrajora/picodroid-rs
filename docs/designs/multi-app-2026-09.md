@@ -942,6 +942,11 @@ now and why it differs from §8.
 - **`Build.VERSION.RELEASE` is the framework map version** and there is
   no `INCREMENTAL`: core carries one version. `BOARD` and `HARDWARE` come
   from a new generated `build_info.rs` (`host` for a boardless build).
+  *Revised 2026-09-09 (QA): `RELEASE` is the firmware's package version,
+  generated into `build_info.rs` beside the board. The map version is the
+  `0.0.0` sentinel on every unshrunk build — the default `flash.sh` image
+  — and Settings > About read "Release 0.0.0"; the two coincide on a
+  `--shrink` image, where the map is cut for the release.*
 - **`StorageStatsManager` is reached through `getSystemService`** with
   `Context.STORAGE_STATS_SERVICE = "storagestats"`; `Context` names the
   multi-app-only class in bytecode, which a single-app board tolerates

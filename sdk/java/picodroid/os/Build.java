@@ -4,8 +4,8 @@ package picodroid.os;
 /**
  * What this firmware was built for, mirroring {@code android.os.Build}: the board ({@link #BOARD},
  * the {@code board.toml} name), the MCU ({@link #HARDWARE}) and the release ({@link
- * VERSION#RELEASE}, the framework map version the firmware was cut with — an app's PAPK must have
- * been built against a compatible one to install).
+ * VERSION#RELEASE}, the firmware's version — the one a shrink map is cut for, so on a shrunk image
+ * it is also the framework map version an app's PAPK must be compatible with to install).
  */
 public class Build {
   /** The board, e.g. {@code testbench_rp2350}. */
@@ -16,7 +16,7 @@ public class Build {
 
   /** Version strings. */
   public static class VERSION {
-    /** The framework map version, e.g. {@code 0.21.0}. */
+    /** The firmware release, e.g. {@code 0.22.0}. */
     public static final String RELEASE = Build.nativeRelease();
   }
 

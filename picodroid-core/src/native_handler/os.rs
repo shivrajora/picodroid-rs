@@ -45,7 +45,7 @@ pub fn dispatch(
             Some(interned(ctx, crate::board_cfg::build_info::MCU))
         }
         (c::picodroid_os_Build, m::nativeRelease) => {
-            Some(interned(ctx, crate::framework_map::FRAMEWORK_MAP_VERSION))
+            Some(interned(ctx, crate::board_cfg::build_info::RELEASE))
         }
         (c::picodroid_os_StatFs, m::nativeTotalBytes) => {
             Some(Ok(Some(Value::Long(crate::hal::fs::space().0 as i64))))

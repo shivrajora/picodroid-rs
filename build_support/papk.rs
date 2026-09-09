@@ -111,7 +111,7 @@ fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
 
 /// Naive `[package] version = "x.y.z"` extractor to avoid a toml crate
 /// dependency in the build script.
-fn read_package_version(cargo_toml: &Path) -> Result<String, String> {
+pub fn read_package_version(cargo_toml: &Path) -> Result<String, String> {
     let text = fs::read_to_string(cargo_toml)
         .map_err(|e| format!("failed to read {}: {e}", cargo_toml.display()))?;
     let mut in_package = false;
