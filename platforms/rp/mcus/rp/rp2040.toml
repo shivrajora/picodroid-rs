@@ -8,7 +8,7 @@ core_count = 2
 # FreeRTOS heap arena (configTOTAL_HEAP_SIZE) — single source of truth.
 # Injected into the FreeRTOS C build AND the sim's default heap cap
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
-heap_kb = 128
+heap_kb = 160
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim)
 # compiles at -Os instead of following cargo's OPT_LEVEL. The 896 KB program

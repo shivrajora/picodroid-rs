@@ -41,7 +41,7 @@ Options:
   -r, --release             Build in release mode
   -l, --heap-limit <KB>     Override the sim heap cap in KB. Defaults to the
                             simulated chip's FreeRTOS arena size (416 KB
-                            RP2350 / 128 KB RP2040); pass 0 to disable the
+                            RP2350 / 160 KB RP2040); pass 0 to disable the
                             cap entirely
   -S, --sanitize-handles    Abort with a backtrace on a use-after-delete LVGL
                             handle access — surfaces dangling-handle bugs the

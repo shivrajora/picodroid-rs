@@ -1,7 +1,7 @@
 # Memory Diagnostics (`mem-diag`)
 
 Opt-in instrumentation for hunting heap growth, churn, and corruption on the
-low-RAM targets (RP2040: 128 KB heap / 896 KB flash program region; RP2350:
+low-RAM targets (RP2040: 160 KB heap / 896 KB flash program region; RP2350:
 408 KB heap). Everything here is gated behind the `mem-diag` cargo feature —
 **when the feature is off, none of this code exists in the binary** (verified
 byte-identical flash + RAM against a non-diag build; see "Zero-cost

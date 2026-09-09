@@ -47,8 +47,16 @@ pub const FLASHPARK_STACK_WORDS: u16 = 256;
 /// headroom drops below ~25%).
 pub const SENSOR_STACK_WORDS: u16 = 1024;
 /// Per-`Thread.start` FreeRTOS task stack ("jvm-t"). Consumed through
-/// [`default_stack_bytes`]; charged per spawn, not at boot.
+/// [`default_stack_bytes`]; charged per spawn, not at boot. Half the chip's
+/// interpreter stack, like the RP2350's: a 16 KB child on the RP2040's
+/// 160 KB arena could not be carved out at all once three of them were
+/// asked for (threadstress, threadparity on the 2026-09-09 bench --
+/// "task spawn failed", then the heap_4 free list fragmented into 13 KB
+/// holes), and the interpreter runs Java on the 4 KB pool workers daily.
+#[cfg(feature = "chip-rp2350")]
 pub const JVM_THREAD_STACK_WORDS: u16 = 4096;
+#[cfg(not(feature = "chip-rp2350"))]
+pub const JVM_THREAD_STACK_WORDS: u16 = 2048;
 /// FreeRTOS idle/timer service stacks (`configMINIMAL_STACK_SIZE` /
 /// `configTIMER_TASK_STACK_DEPTH` in FreeRTOSConfig.h).
 #[cfg_attr(not(any(test, feature = "sim")), allow(dead_code))]
