@@ -711,9 +711,18 @@ build_firmware() {
   # flash-constrained thumbv6m (RP2040) target so release firmware links; the
   # RP2350 (thumbv8m, 2816K FLASH) keeps fat LTO. This override is a no-op for
   # debug builds, which use profile.dev.
-  local flash_gate=()
+  #
+  # FIRMWARE_PROFILE_ARGS is an output, like FIRMWARE_FEATURES: profile keys
+  # are part of cargo's fingerprint, so a second cargo invocation on the same
+  # package without them (flash.sh's `cargo run`) rebuilds the whole tree
+  # under the stock profile and flashes that larger image instead of the one
+  # measured here. Every cargo call on the firmware passes both arrays.
+  FIRMWARE_PROFILE_ARGS=(
+    --config 'profile.dev.debug-assertions=false'
+    --config 'profile.dev.overflow-checks=false'
+  )
   if [[ "$TARGET" == thumbv6m* ]]; then
-    flash_gate+=(--config 'profile.release.lto=false')
+    FIRMWARE_PROFILE_ARGS+=(--config 'profile.release.lto=false')
   fi
   # `return`, not a bare command: a caller that invokes build_firmware on the
   # left of `||` runs it with errexit disabled, so a failed cargo used to fall
@@ -722,9 +731,7 @@ build_firmware() {
   # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or a "+toolchain" override)
   if ! PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS build \
     --manifest-path "$MANIFEST_DIR/Cargo.toml" \
-    --config 'profile.dev.debug-assertions=false' \
-    --config 'profile.dev.overflow-checks=false' \
-    "${flash_gate[@]}" \
+    "${FIRMWARE_PROFILE_ARGS[@]}" \
     -p "$PACKAGE" \
     --jobs "$jobs" \
     --target "$TARGET" \

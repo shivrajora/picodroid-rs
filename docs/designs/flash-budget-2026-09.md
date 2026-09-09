@@ -250,6 +250,58 @@ harness row prices it) and accepted on a dev board. The RP2350 stays at
 `-O3`: 2 MB of program region and no pressure. The profile-wide `"s"` and
 `"z"` rows below remain open.
 
+**Status (2026-09-08, later).** The RP2350 followed, and every pinned MCU
+also drops frame pointers: cc-rs mirrors cargo's `debug = 2` into
+`-fno-omit-frame-pointer`, which nothing on the device reads (probe-rs and
+defmt unwind by DWARF), so `apply_c_opt_level` now adds
+`force_frame_pointer(false)` next to the level. Measured on `helloworld`,
+`--release` unless noted, same lockfile and toolchain as `773dc9a`:
+
+| Image | before | C at `-Os` | + no frame pointers | Δ total |
+|---|---:|---:|---:|---:|
+| `testbench_rp2350` release | 1,004,755 | 923,315 (−81,440) | 911,827 (−11,488) | **−92,928 (−9.2 %)** |
+| `testbench_rp2350` debug | 1,006,348 | | 913,436 | −92,912 |
+| `testbench_rp2040` release (already `-Os`) | 802,679 | | 783,547 | −19,132 |
+| `testbench_rp2040` debug (already `-Os`) | 822,616 | | 803,484 | −19,132 |
+| `pico_enviro_mon_w` debug, `picoenvmon` | 1,389,212 | 1,292,396 (−96,816) | 1,279,012 (−13,384) | −110,200 (−7.9 %) |
+
+RAM unchanged on every image (the W board's `.papk_flash_init` is counted in
+`Flash:`, see §3). The RP2350 needed no `-fno-jump-tables`
+(Thumb-2 switch tables are inline `tbb`/`tbh`). Frame pointers are worth
+more on the Thumb-1 RP2040 (−19,132) than on the RP2350
+(−11,488), as expected from its register pressure. Row 1a is done on
+both MCUs.
+
+**Row 1b measured and rejected (2026-09-08).** With the C already at `-Os`,
+the Rust side was priced on `testbench_rp2350` with
+`parity-bench.sh --hil --app benchmark` (release, `parity-metrics`, one
+flashed image per arm, three runs each; `CARGO_PROFILE_RELEASE_OPT_LEVEL=s`
+for the variant, which is what a `-C opt-level=s` target rustflag would
+produce). The image shrank 915,547 → 748,691 B of `.text` (−166,856), but
+every run of the `"s"` image overran the lane's 300 s capture window, so
+there is no `TOTAL`; the sections it did finish, against a baseline whose
+three `TOTAL`s were 202,852–202,859 ms:
+
+| Section | opt-level 3 | `"s"` | Δ |
+|---|---:|---:|---:|
+| `int_arithmetic` | 16,177 | 28,486 | +76 % |
+| `long_arithmetic` | 5,934 | 10,524 | +77 % |
+| `float_arithmetic` | 9,391 | 15,775 | +68 % |
+| `double_arithmetic` | 10,676 | 17,053 | +60 % |
+| `method_dispatch` | 46,438 | 50,751 | +9 % |
+| `interface_dispatch` | 37,145 | 42,048 | +13 % |
+| `object_allocation` | 25,653 | 30,535 | +19 % |
+| **seven sections** | **151,414** | **195,172** | **+29 %** |
+
+The arithmetic loops carry the XIP-placement band (±40 % per section between
+builds), but every section moved the same way and the dispatch and
+allocation sections — the interpreter's own code — are +9 to +19 %. The
+owner's budget was a 10 % `TOTAL` slowdown; this is roughly three times
+that, so the device Rust stays at opt-level 3 on both targets and `"z"` was
+not tried. What would change the answer: `#[optimize(speed)]` on the two or
+three `Executor<H>` hot functions once it stabilises (§6.1.1), or an
+`opt-level = 2` measurement, which nothing here predicts.
+
 The release profile is `opt-level = 3`. cc-rs mirrors cargo's `OPT_LEVEL`
 when it compiles LVGL and FreeRTOS, so the profile flag also selects `-O3`
 for the C side (`build_support/lvgl.rs` adds only `-fshort-enums`). Rebuilt
@@ -483,8 +535,8 @@ and the heap-census work, not here.
 
 | # | Change | Saving | Risk | Effort |
 |---|---|---:|---|---|
-| 1a | C at `-Os` (`CFLAGS` in `build_support/lvgl.rs`, `freertos.rs`) | 81.5 KB | UI render speed, check with the UI benches | one line + ratchet |
-| 1b | Benchmark profile-wide `opt-level = "s"` on HIL; adopt if the JVM `benchmark` delta is acceptable | 224.5 KB (incl. 1a) | JVM speed, needs measurement | profile line + ratchet + `lib.sh` rp2040 LTO rule |
+| 1a | C at `-Os` (`c_opt_level` in the MCU toml, `config::apply_c_opt_level`) — **landed 2026-09-08**, rp2040 in `773dc9a`, rp2350 plus frame pointers the same day | −92,928 B rp2350, −19,132 B rp2040 (§6.1 status) | UI render speed, unmeasured | done |
+| 1b | Benchmark profile-wide `opt-level = "s"` on HIL; adopt if the JVM `benchmark` delta is acceptable — **measured 2026-09-08, rejected**: −166.9 KB `.text` for +29 % on the interpreter sections (§6.1 status) | — | JVM speed: three times the 10 % budget | not taken |
 | 2 | `c::` class consts; retire `shrink_class`/`unshrink_class`; emit `PICODROID_NATIVE_CLASSES` via them — **landed 2026-09-02** (47bc221, map v0.17.0) | −27,154 B measured | — | done: `build_support/names.rs` + every arm on `c::`/`m::`/`d::` |
 | 3 | Teach `lib.sh`/ratchet to exclude `PAPK_FLASH` from `Flash:` | 0 B, correct gate | none | small |
 | 4 | LVGL: ARGB8888 blend, blur, shadow off; font without kerning | ~18 KB | low–medium, visual check | `lv_conf.h` + font convert |

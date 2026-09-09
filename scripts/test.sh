@@ -26,7 +26,8 @@ HOST_TARGET="$(host_target)"
 # feed flashed images -- release is what bench/parity/ratchet.toml is baselined
 # against, dev is what the 896K debug flash gate measures -- so a profile edit
 # there would move the image. --config on a host-target `cargo test` cannot
-# reach either.
+# reach either. (The device C is sized separately: `c_opt_level` in the MCU
+# toml -- see the note above [profile.dev] in Cargo.toml.)
 #
 # PICODROID_TEST_FAST=0 reproduces the stock profile exactly.
 TEST_PROFILE_ARGS=()

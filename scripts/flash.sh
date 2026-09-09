@@ -83,10 +83,15 @@ require_device_lock --board "$BOARD" --app "$APP"
 pin_debug_probe >/dev/null
 build_firmware
 
-# Step 3: Flash the firmware (build is already up-to-date, so this just flashes).
+# Step 3: Flash the firmware. The same profile overrides as build_firmware
+# (FIRMWARE_PROFILE_ARGS), or cargo would rebuild the tree under the stock
+# profile -- debug-assertions on, fat LTO on the rp2040 -- and flash an image
+# some 40 KB larger than the one print_memory_usage just gated. With them the
+# build is up-to-date and this just flashes.
 # shellcheck disable=SC2086  # CARGO_PLUS is intentionally unquoted (empty or "+esp")
 PICODROID_APK_PATH="$APK_PATH" cargo $CARGO_PLUS run \
   --manifest-path "$MANIFEST_DIR/Cargo.toml" \
+  "${FIRMWARE_PROFILE_ARGS[@]}" \
   -p "$PACKAGE" \
   --jobs "$(cpu_count)" \
   --target "$TARGET" \
