@@ -572,14 +572,17 @@ pub(in crate::graphics) fn show(id: i32) {
     }
 }
 
-/// Add the shown dialog's buttons to the active keypad focus group and focus
-/// the positive one, so ENTER activates OK on a keypad-only board (the Enviro+
-/// has no touch). No-op when there's no default group (touch boards return
-/// null); the buttons leave the group automatically when the scrim is deleted
-/// on dismiss. See project_picoenvmon_alertdialog_leak.
+/// Put the shown dialog's buttons in the modal keypad group and focus the
+/// positive one, so ENTER activates OK on a keypad-only board (the Enviro+
+/// has no touch). No-op when there's no keypad group (touch boards); the
+/// buttons leave the group automatically when the scrim is deleted on
+/// dismiss, and the last dismiss hands the keypad back to the Activity. See
+/// project_picoenvmon_alertdialog_leak.
 fn focus_dialog_buttons(scrim_ptr: usize) {
     unsafe {
-        let group = lv_group_get_default();
+        // The dialog's own group, so NEXT/PREV stay on its buttons instead
+        // of walking the rows behind the scrim; handed back on dismiss.
+        let group = crate::graphics::lvgl::events::enter_modal_group();
         if group.is_null() {
             return;
         }
@@ -601,6 +604,9 @@ fn focus_dialog_buttons(scrim_ptr: usize) {
 
 pub(in crate::graphics) fn dismiss(id: i32) {
     shown_remove(id); // always drop the tracking entry, even if already torn down
+    if !has_shown_dialog() {
+        crate::graphics::lvgl::events::leave_modal_group();
+    }
     let scrim = handle_table::lookup(id);
     if scrim.is_null() {
         return;

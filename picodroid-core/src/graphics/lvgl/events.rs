@@ -207,6 +207,11 @@ static mut ACTIVITY_GROUPS: [*mut lv_group_t; MAX_ACTIVITY_GROUPS] =
 #[cfg(has_buttons)]
 static mut ACTIVITY_GROUP_DEPTH: usize = 0;
 
+/// The group a modal dialog's buttons live in while any dialog is shown
+/// ([`enter_modal_group`]); null between dialogs.
+#[cfg(has_buttons)]
+static mut MODAL_GROUP: *mut lv_group_t = core::ptr::null_mut();
+
 /// Create a fresh focus group for a newly-launched Activity and make it the
 /// active group (LVGL default + keypad indev). Called from the lifecycle
 /// bootstrap/push paths *before* the Activity's `onCreate`, so its group-def
@@ -247,13 +252,65 @@ pub fn pop_activity_group() {
         } else {
             core::ptr::null_mut()
         };
-        lv_group_set_default(parent);
+        // A dialog still up on the parent keeps the keypad: its buttons are
+        // in the modal group, not the parent's.
+        let active = if MODAL_GROUP.is_null() {
+            parent
+        } else {
+            MODAL_GROUP
+        };
+        lv_group_set_default(active);
         if !KEYPAD_INDEV.is_null() {
-            lv_indev_set_group(KEYPAD_INDEV, parent);
+            lv_indev_set_group(KEYPAD_INDEV, active);
         }
         if !group.is_null() {
             lv_group_delete(group);
         }
+    }
+}
+
+/// The keypad group a modal dialog's buttons go in while any dialog is
+/// shown. Created by the first `show`, it replaces the Activity's group as
+/// LVGL's default and the keypad's, so NEXT and PREV cycle the dialog's own
+/// buttons and cannot walk onto the rows behind the scrim — "down, down,
+/// select" from an uninstall dialog used to confirm a *different* app. Null
+/// when no Activity group is active, as `lv_group_get_default` was.
+#[cfg(has_buttons)]
+pub fn enter_modal_group() -> *mut lv_group_t {
+    unsafe {
+        if ACTIVITY_GROUP_DEPTH == 0 {
+            return core::ptr::null_mut();
+        }
+        if MODAL_GROUP.is_null() {
+            MODAL_GROUP = lv_group_create();
+        }
+        lv_group_set_default(MODAL_GROUP);
+        if !KEYPAD_INDEV.is_null() {
+            lv_indev_set_group(KEYPAD_INDEV, MODAL_GROUP);
+        }
+        MODAL_GROUP
+    }
+}
+
+/// The last dialog is gone: the top Activity's group takes the keypad back
+/// and the modal group is freed. A no-op when no dialog had one.
+#[cfg(has_buttons)]
+pub fn leave_modal_group() {
+    unsafe {
+        if MODAL_GROUP.is_null() {
+            return;
+        }
+        let top = if ACTIVITY_GROUP_DEPTH > 0 {
+            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH - 1]
+        } else {
+            core::ptr::null_mut()
+        };
+        lv_group_set_default(top);
+        if !KEYPAD_INDEV.is_null() {
+            lv_indev_set_group(KEYPAD_INDEV, top);
+        }
+        lv_group_delete(MODAL_GROUP);
+        MODAL_GROUP = core::ptr::null_mut();
     }
 }
 
@@ -274,6 +331,10 @@ pub fn reset_activity_groups() {
             }
         }
         ACTIVITY_GROUP_DEPTH = 0;
+        if !MODAL_GROUP.is_null() {
+            lv_group_delete(MODAL_GROUP);
+            MODAL_GROUP = core::ptr::null_mut();
+        }
         // Only touch LVGL when groups actually existed. This runs at app start
         // before `init_keypad`, so on the very first run LVGL isn't initialized
         // yet and KEYPAD_INDEV is null; a non-zero depth implies a prior run on
@@ -295,6 +356,12 @@ pub fn push_activity_group() {}
 pub fn pop_activity_group() {}
 #[cfg(not(has_buttons))]
 pub fn reset_activity_groups() {}
+#[cfg(not(has_buttons))]
+pub fn enter_modal_group() -> *mut lv_group_t {
+    core::ptr::null_mut()
+}
+#[cfg(not(has_buttons))]
+pub fn leave_modal_group() {}
 
 /// Put `raw` in `group` unless it is there already. LVGL's `lv_group_add_obj`
 /// is not idempotent: it removes the object from its group (moving the focus
