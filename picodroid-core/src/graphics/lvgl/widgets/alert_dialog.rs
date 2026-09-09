@@ -348,6 +348,10 @@ unsafe fn build_dialog_shell(
     lv_obj_set_pos(card, ((screen_w - 200) / 2).max(0), card_y);
     lv_obj_set_style_bg_color(card, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    // The card's content is laid out to fit it; without this LVGL still
+    // draws a scrollbar along its bottom edge when the button row spans
+    // the content width exactly.
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_left(card, 12, 0);
     lv_obj_set_style_pad_right(card, 12, 0);
     lv_obj_set_style_pad_top(card, 12, 0);
@@ -388,6 +392,9 @@ unsafe fn add_button_row(
     let btn_row = lv_obj_create(card);
     lv_obj_set_size(btn_row, 176, 50);
     lv_obj_set_style_bg_opa(btn_row, 0, 0);
+    // A transparent row, not a boxed one: the theme gives every plain
+    // object a border, which drew a frame around the two buttons.
+    lv_obj_set_style_border_width(btn_row, 0, 0);
     lv_obj_set_style_pad_left(btn_row, 0, 0);
     lv_obj_set_style_pad_right(btn_row, 0, 0);
     lv_obj_set_style_pad_top(btn_row, 6, 0);
