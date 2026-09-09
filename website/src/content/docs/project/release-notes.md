@@ -7,10 +7,14 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**The RP2040 compiles its C at `-Os`**
+**The device C compiles at `-Os`, without frame pointers**
 
-- `platforms/rp/mcus/rp/rp2040.toml` sets `c_opt_level = "s"`: every C object built for that MCU — LVGL, the FreeRTOS kernel and shim, and the network stack on a board that has one — compiles at `-Os` instead of following cargo's `-O3`, through the new `build_support/config.rs::apply_c_opt_level`. Rust and the JVM are untouched, and so is every RP2350 image (its MCU leaves the key unset). GCC's Thumb-1 switch tables call libgcc helpers that rust-lld does not link, so those objects also get `-fno-jump-tables`. The key is documented in the [porting guide](/reference/porting-guide/).
-- Flash: `testbench_rp2040` −90,564 B on the release image (893,243 → 802,679), −90,467 B on the debug image (913,083 → 822,616) and on the `handle-table-32` leg (915,355 → 824,888); RAM unchanged. That leg had 1,893 B of program region left; the room is what the multi-app M3 storage work needs. The cost is LVGL render throughput on the RP2040, a dev board.
+- Both RP MCU tomls (`platforms/rp/mcus/rp/rp2040.toml`, `rp2350.toml`) set `c_opt_level = "s"`: every C object built for that MCU — LVGL, the FreeRTOS kernel and shim, and the network stack and WiFi driver on a board that has them — compiles at `-Os` instead of following cargo's `-O3`, through the new `build_support/config.rs::apply_c_opt_level`. The same helper drops the frame pointers cc-rs adds because the profiles keep `debug = 2`; device backtraces come from DWARF and are unaffected. Rust and the JVM are untouched, and so is the simulator, whose C still follows cargo. GCC's Thumb-1 switch tables call libgcc helpers that rust-lld does not link, so the RP2040 objects also get `-fno-jump-tables`. The key is documented in the [porting guide](/reference/porting-guide/).
+- Flash, release images: `testbench_rp2040` 893,243 → 783,547 B (−109,696; −90,564 from `-Os`, −19,132 from the frame pointers), `testbench_rp2350` 1,004,755 → 911,827 B (−92,928; −81,440 from `-Os`, −11,488 from the frame pointers). Debug images: `testbench_rp2040` 913,083 → 803,484 B, `testbench_rp2350` 1,006,348 → 913,436 B. RAM unchanged. The RP2040's `handle-table-32` debug leg had 1,893 B of program region left before this; the room is what the multi-app M3 storage work needs. The cost is LVGL render throughput, unmeasured.
+
+**`flash.sh` flashes the image it measured**
+
+- `flash.sh` built the firmware with the profile overrides every firmware build uses (debug-assertions and overflow-checks off; no fat LTO on the RP2040), printed and gated its size, and then flashed through a `cargo run` that lacked those overrides. Profile keys are part of cargo's fingerprint, so that second call rebuilt the whole tree under the stock profile and put an image some 40 KB larger than the gated one on the board — a debug RP2040 image that fitted the gate could fail to link there. `build_firmware` now exports the overrides as `FIRMWARE_PROFILE_ARGS`, and the flash step passes them, so the second call is a no-op build and the board gets the measured image.
 
 **A launcher built into the firmware, and apps that start one another (multi-app M2; map v0.21.0, package 0.21.0)**
 

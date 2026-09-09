@@ -416,7 +416,8 @@ pub fn find_mcu_toml_in(platform_root: &Path, mcu_name: &str) -> String {
 /// 896 KB program region is the fleet's tightest, and LVGL plus the kernel
 /// are the largest non-Java bucket in it, so `rp2040.toml` sets
 /// `c_opt_level = "s"` and buys back tens of KB with no Rust touched
-/// (docs/designs/flash-budget-2026-09.md §6.1). The comparison against the
+/// (docs/designs/flash-budget-2026-09.md §6.1); `rp2350.toml` followed
+/// once its image had grown 93 KB in a week. The comparison against the
 /// MCU's `target` keeps a simulator build of the same board — the host
 /// target — at cargo's level; a boardless build has no MCU at all.
 pub fn apply_c_opt_level(build: &mut cc::Build, mcu: &HashMap<String, String>) {
@@ -430,6 +431,11 @@ pub fn apply_c_opt_level(build: &mut cc::Build, mcu: &HashMap<String, String>) {
     let target = env::var("TARGET").unwrap_or_default();
     if mcu.get("target").map(String::as_str) == Some(target.as_str()) {
         build.opt_level_str(level);
+        // cc-rs also mirrors cargo's `debug` (2 in both profiles) into
+        // `-fno-omit-frame-pointer`. Nothing on the device reads frame
+        // pointers — probe-rs and defmt unwind by DWARF, which stays — so a
+        // pinned MCU drops them too: one register and a push/pop per frame.
+        build.force_frame_pointer(false);
         // rust-lld links no libgcc, and GCC's Thumb-1 code generation reaches
         // for libgcc's `__gnu_thumb1_case_*` switch-table helpers at -Os (at
         // -O3 the same switches came out inline, which is why the link never

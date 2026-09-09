@@ -31,7 +31,7 @@ What doesn't work (yet), as of v0.14.0. Items here are confirmed and tracked —
 
 ## Platform
 
-- **RP2040 flash is nearly full.** A `--release` RP2040 image sits at ~98% of the 896 K program region (897,287 of 917,248 bytes), and a committed size ratchet gates any growth. `scripts/build.sh` handles this (it disables LTO on RP2040, which paradoxically shrinks the image); a raw `cargo build --release` for RP2040 can overflow FLASH at link time.
+- **RP2040 flash is tight.** A `--release` RP2040 image sits at 85% of the 896 K program region (783,547 of 917,248 bytes; it was 98% before the C moved to `-Os`), and a committed size ratchet gates any growth. `scripts/build.sh` handles this (it disables LTO on RP2040, which paradoxically shrinks the image); a raw `cargo build --release` for RP2040 can overflow FLASH at link time.
 - **Stale-widget detection is sim-first.** The generation-tagged widget handle table that catches use-after-delete runs in the 64-bit simulator; on 32-bit devices it is staged behind the default-off `handle-table-32` feature pending a hardware soak. A stale-handle bug can therefore surface on hardware without reproducing in the sim.
 - **BME688 gas resistance is constant on hardware.** The gas sensor's heater profile is never programmed, so gas/IAQ readings sit at a fixed value on the device (temperature, humidity, and pressure are fine). Affects the picoenvmon IAQ tile cosmetically.
 

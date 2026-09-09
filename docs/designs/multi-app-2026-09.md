@@ -731,7 +731,10 @@ Asked with a recommendation each, answered the same day:
    the harness taps its positive button at pinned coordinates.
 5. **`throws IOException` on the write path** (P5) — yes.
 6. **The `-Os` lever** (§8.7) — before M3, as its own PR, rp2040 only
-   (Stage 0 in §8.5).
+   (Stage 0 in §8.5). *Later the same day the owner extended it to the
+   rp2350 and dropped the C frame pointers on both MCUs, as a flash-size
+   pass in its own right (`flash-budget-2026-09.md` §6.1 status): rp2350
+   release 1,004,755 → 911,827 B, rp2040 802,679 → 783,547 B.*
 
 ### 8.10 Deferred from M3
 
