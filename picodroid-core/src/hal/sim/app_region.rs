@@ -29,7 +29,7 @@ use papk_format::flash_image::FLAG_BOOT_DEFAULT;
 
 use crate::board_cfg::flash::{MAX_INSTALLED_APPS, PAPK_REGION_LEN};
 use crate::install::mem_region::{MemRegion, MemTransport, NoCoordinator};
-use crate::install::{install, uninstall, PapkFlash};
+use crate::install::{install, uninstall, InstallError, PapkFlash};
 use crate::packages::{self, Kind, SECTOR};
 
 enum Request {
@@ -149,7 +149,31 @@ fn install_bytes(region: &mut MemRegion, bytes: &[u8]) -> Result<(), String> {
     if install(&mut t, &mut NoCoordinator, region, bytes.len() as u32) {
         Ok(())
     } else {
-        Err(format!("{:?}", t.error))
+        Err(describe(t.error))
+    }
+}
+
+/// The refusal in the words `pdb install` uses, not the error's `Debug` form.
+fn describe(error: Option<InstallError>) -> String {
+    match error {
+        Some(InstallError::TooLarge) => "too large for the app region".to_string(),
+        Some(InstallError::NoRoom {
+            need,
+            largest_free,
+            total_free,
+            installed,
+            max,
+        }) => format!(
+            "no room: needs {} KB, largest free {} KB, total free {} KB, apps {installed}/{max}",
+            need as usize * SECTOR / 1024,
+            largest_free as usize * SECTOR / 1024,
+            total_free as usize * SECTOR / 1024
+        ),
+        Some(InstallError::NoPackageName) => "the manifest has no package-name".to_string(),
+        Some(InstallError::SystemPackage) => "names a system app".to_string(),
+        Some(InstallError::Incompat) => "built for another framework-map-version".to_string(),
+        Some(other) => format!("{other:?}"),
+        None => "unknown".to_string(),
     }
 }
 
