@@ -982,5 +982,9 @@ now and why it differs from §8.
   `sim-run.sh` gained the `settings` lane; the `list` row expects
   `picodroid.settings`; new rows `filesdemo` (every board), `quotademo`
   (rp2350 boards) and `settings-uninstall`.
-- **Sizes (release, the ratchet):** rp2350 1,040,819 B (the settings PAPK is 18,340 B stripped);
-  rp2040 812,811 B. RAM: rp2040 +8 B, rp2350 +0 B.
+- **Sizes (release, the ratchet), against main's baselines after its
+  `-Os`-everywhere pass (`f105789`):** rp2350 911,827 → 947,891 B
+  (+36,064: the settings PAPK, 18,340 B stripped, the six classes, the
+  quota and the natives); rp2040 783,547 → 793,663 B (+10,116).
+  RAM: rp2040 +8 B, rp2350 +0 B. Before that pass the branch measured
+  1,004,755 → 1,040,819 B and 802,679 → 812,811 B.
