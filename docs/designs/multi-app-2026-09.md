@@ -998,3 +998,78 @@ now and why it differs from §8.
   v0.21.0 — + 6 classes (249 → 255) and + 40 members (1125 → 1165),
   member floor still 0.17.0 — which clears the shrunk-image leak §8.5
   expected. `Build.VERSION.RELEASE` on a `--shrink` image reads `0.22.0`.
+
+### A4 (2026-09-09) — the QA pass over v0.22.0
+
+A full pass over the multi-app feature on the simulator (both boards,
+headless and windowed with screenshots) and on the bench's Pico 2 W
+(`pico_enviro_mon_w`), one commit per defect. What it found, in the order
+it matters:
+
+- **The keypad focus ring was reordered by `requestFocus`.** LVGL's
+  `lv_group_add_obj` is not idempotent — it removes a member and re-appends
+  it at the tail — so the settings root, which focuses its second row, had
+  the ring `header, Apps, Storage, About` and "down, select" from About went
+  Home. `set_view_focusable` / `request_view_focus` now add a view only
+  when it is not a member (`lv_obj_get_group`).
+- **A shown `AlertDialog` was not modal for the keypad.** Its buttons joined
+  the Activity's group, so "down" walked out of the uninstall dialog onto
+  the rows behind the scrim and "select" opened a second dialog for another
+  app (and could uninstall it). A dialog now gets a modal group of its own
+  (`events::enter_modal_group` / `leave_modal_group`) for as long as any
+  dialog is shown.
+- **Focus was invisible.** The theme's focus outline draws outside the
+  object and a full-width row in a zero-padding column clips it away —
+  the launcher and every settings screen showed no selection at all. A
+  focusable view now also gets a 2 px light border, inside its bounds, in
+  the focused states.
+- **The dialog was a 240 px square on the 320 px testbench**: a tap beside
+  the scrim reached the rows behind the dialog. The scrim is the display
+  and the card is centred on it; the harness computes the Uninstall
+  button's position from the board's width (`lib.sh::settings_dialog_ok`).
+- **`Build.VERSION.RELEASE` read `0.0.0`** on every unshrunk image — the
+  default `flash.sh` build — because it was the framework map version,
+  whose sentinel that is. It is the firmware's package version now
+  (`build_info::RELEASE`); the two coincide on a `--shrink` image.
+- **Columns did not scroll.** A `LinearLayout` does not scroll (as on
+  Android), so the launcher's seventh app and the Storage screen's rows
+  past the fold were unreachable — by drag on the testbench, where a
+  swipe over a row launched the app instead, and by the keypad on the
+  Enviro. The launcher and every settings screen wrap their column in a
+  `ScrollView`; the About and Storage rows are focusable so the keypad can
+  walk and scroll them. Rows are one line (a long label is cut with an
+  ellipsis, the numbers always shown), the Apps list is sorted like the
+  launcher's, and both sort case-insensitively.
+- **Simulator**: `apps install` read the PAPK under the simulated heap cap
+  (an 800 KB app was "out of memory"), so compaction could never be
+  exercised there; the package verbs were serviced only from an Activity's
+  tick, so an `Application` with no Activity (blinky) could not be
+  uninstalled or reinstalled; and an install under a running app could
+  compact the region — move runs — while the interpreter held slices into
+  it. Now the file is read outside the cap, the verbs are polled from the
+  JVM task's stop hook too, and any install stops the running app first
+  and brings it (or the reinstalled copy) back, the way a device resets —
+  a launcher that comes back lists the new app. Refusals print in words.
+- **The device kept naming the exited app as `running`** in `pdb list`
+  while it waited for an install; the supervisor clears it.
+- Cosmetic: the dialog's button row no longer has a frame, and the card no
+  scrollbar.
+
+Verified: every scenario above on both simulated boards, the `launcher`
+and `settings` `sim-run.sh` lanes in both shrink modes, an 8-cycle
+launcher/settings switching soak with no heap drift, `filesdemo`,
+`quotademo`, the bootcount persistence rules (an upgrade keeps data, an
+uninstall wipes it, the boot sweep removes an orphan) and
+`pre-commit --full`; on the bench (`pico_enviro_mon_w`, `flash.sh --boot launcher`, six apps
+installed over `pdb`), the keypad walk through every settings screen with
+RTT attached — About reads `0.22.0`, the dialog holds the keypad, an
+uninstall from Settings, BACK and Home — then the directory at 8/8: the
+no-room refusal with its hint, an upgrade at capacity, the host's
+too-large refusal, `pdb uninstall`, a 782 KB and a 1.2 MB install, and a
+compaction (`compacting qa.fill.a: sector 199 -> 2`, the 1.2 MB run placed
+behind it). Two observations for later: the Storage and Apps screens stall
+the UI tick for 190–290 ms on the device — every `PackageManager` native
+re-parses manifests from XIP and `StorageStats` walks each package's
+directory, which D4's "no strings in the directory" makes the price of a
+screen — and the SDK has no `TextView.setSingleLine`/`setEllipsize`
+(a map cut), so the system apps cut labels by character count.
