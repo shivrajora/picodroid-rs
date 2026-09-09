@@ -203,6 +203,12 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
                     if image.is_some() {
                         continue;
                     }
+                    // Nothing runs from here until an install: `pdb list`
+                    // must not keep naming the app that exited as
+                    // `running`, and nothing may map a file under it. The
+                    // children are drained above, so no late writer is
+                    // left to land at the volume root.
+                    picodroid_core::packages::set_running(None);
                 }
 
                 // Nothing to run until pdb_task installs an app, and an
