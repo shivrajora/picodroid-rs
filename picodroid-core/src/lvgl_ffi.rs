@@ -440,6 +440,8 @@ extern "C" {
     pub fn lv_group_focus_obj(obj: *mut lv_obj_t);
     /// Remove `obj` from whatever group it belongs to. No-op if ungrouped.
     pub fn lv_group_remove_obj(obj: *mut lv_obj_t);
+    /// The group `obj` belongs to, or null.
+    pub fn lv_obj_get_group(obj: *const lv_obj_t) -> *mut lv_group_t;
     /// Delete a focus group. Used to tear down a per-Activity group on pop.
     pub fn lv_group_delete(group: *mut lv_group_t);
 

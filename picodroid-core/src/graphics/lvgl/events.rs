@@ -296,6 +296,21 @@ pub fn pop_activity_group() {}
 #[cfg(not(has_buttons))]
 pub fn reset_activity_groups() {}
 
+/// Put `raw` in `group` unless it is there already. LVGL's `lv_group_add_obj`
+/// is not idempotent: it removes the object from its group (moving the focus
+/// on if it held it) and appends it at the tail, so calling it on a member
+/// reorders the focus ring — a `requestFocus()` on the second of four rows
+/// used to make "down" from that row wrap to the first.
+///
+/// # Safety
+/// `raw` and `group` must be live LVGL objects.
+unsafe fn ensure_in_group(group: *mut lv_group_t, raw: *mut lv_obj_t) {
+    if lv_obj_get_group(raw) != group {
+        lv_group_add_obj(group, raw);
+    }
+    lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+}
+
 /// `View.setFocusable(boolean)` backing: add this view to — or remove it from —
 /// the active Activity's keypad focus group. A focusable view also scrolls
 /// into view when it takes focus, as a child of Android's ScrollView does.
@@ -312,8 +327,7 @@ pub fn set_view_focusable(id: i32, on: bool) {
             return;
         }
         if on {
-            lv_group_add_obj(group, raw); // idempotent if already a member
-            lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+            ensure_in_group(group, raw);
         } else {
             lv_group_remove_obj(raw);
         }
@@ -334,8 +348,7 @@ pub fn request_view_focus(id: i32) -> bool {
         if group.is_null() {
             return false;
         }
-        lv_group_add_obj(group, raw); // idempotent if already a member
-        lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+        ensure_in_group(group, raw);
         lv_group_focus_obj(raw);
         lv_group_get_focused(group) == raw
     }

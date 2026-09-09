@@ -19,13 +19,13 @@
 #   ./scripts/bench-report.py --ratchet --sizes-from "$D" --accept
 
 [testbench_rp2040]
-flash_bytes = 793663
+flash_bytes = 793691
 ram_bytes = 228000
-text = 793659
+text = 793687
 bss = 227996
 
 [testbench_rp2350]
-flash_bytes = 947891
+flash_bytes = 949359
 ram_bytes = 514660
-text = 947887
+text = 949355
 bss = 514656
