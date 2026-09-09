@@ -374,7 +374,7 @@ Board and MCU keys (`build_support/flash_layout.rs`): `boot2_bytes`, `fs_kb`,
 | M0 | DONE 2026-09-07 (028e5c1) |
 | M1a–M1f | DONE 2026-09-07 (see A1) |
 | M2 | DONE 2026-09-07 (see A2) |
-| M3 | PLANNED 2026-09-08 (§8; owner decisions in §8.9); Stage 0 IN PROGRESS |
+| M3 | DONE 2026-09-08 (Stage 0 merged as 73665a4; M3a–M3e on `feat/multi-app-m3`; see A3) |
 
 ## 6. Deferred and open
 
@@ -891,3 +891,93 @@ it differs from the text above.
   selection code and the supervisor loop; its release image is at 893,243
   of 917,248 bytes. RAM is unchanged on both. Recorded in
   `bench/parity/ratchet.toml` with this change's `size:` trailers.
+
+### A3 (2026-09-08) — what M3 changed against §8
+
+Written in plain language, as A2 was. Each point says what the code does
+now and why it differs from §8.
+
+- **Stage 0 first, and the numbers it bought.** The rp2040's `-Os` C
+  (`c_opt_level = "s"`, `-fno-jump-tables` for the Thumb-1 libgcc helpers
+  rust-lld cannot supply) landed on main as `73665a4` before M3 started:
+  release 893,243 → 802,679 B. M3 then cost the rp2040 debug image
+  +10,700 B in all (M3a +7,180: the `Context` methods, `File.list`, the
+  sandbox, the `IOException` path, `list_dir`; M3b +3,312: `StatFs`,
+  `Build`, the quota's single-app stubs; M3c +208) and the
+  `handle-table-32` leg the same; RAM +8 B. About three times §8.7's
+  estimate for M3a, well inside the room Stage 0 made.
+- **Where the sandbox lives.** Not under `native_handler` (which is
+  `cfg(not(test))`) but in a crate-level `storage/` module —
+  `storage::sandbox` (the mapping, `ensure_package_dir`),
+  `storage::quota`, `wipe_package`, `sweep_orphans` — reached from the
+  `picodroid/io` natives, which became `native_handler/io/mod.rs`. The
+  natives' own in-memory test backend is gone: every build reaches
+  `crate::hal::fs`, the test build through `TestHal` (which gained
+  `list_dir` and a 512 KB `space()`). The io natives' tests still run
+  through the `#[path]` shim in `lib.rs`, so `throw_io` is local to the
+  module (in the shim, `super` is the crate root).
+- **The app-path cap is 185 bytes**, not 184: `/data/` + a 64-byte
+  package name + the `/` the mapping adds + the path must fit 256.
+- **The package directory and the run counter.** `packages::run_generation()`
+  (bumped by `set_running`; a load and a store, the Cortex-M0+ having no
+  read-modify-write atomics) keys both the sandbox's "directory made"
+  flag and the quota's "walked for this run" flag, instead of a hook from
+  `packages` into the sandbox. When the sandbox makes the directory it
+  invalidates the quota's walk: quotademo caught a walk that had run
+  before the directory existed (a `StatFs` call first) and never counted
+  its 8 KB, so eight blobs fit instead of seven.
+- **`HalFs` gained two methods**, `list_dir` and `space`, no new trait
+  (the seam count stays 42); the LittleFS impl records the volume's block
+  count at mount for `space()`.
+- **Where the quota is enforced.** `FileOutputStream.write` charges the
+  growth before the bytes land, so a refused write leaves the file as it
+  was (`IOException("storage cap reached")` / `("no space left on
+  device")`); truncate and delete credit; `mkdir` charges its 8 KB pair
+  first and answers `false` when refused; `createNewFile` costs nothing.
+  The counter's read-modify-writes sit in the JVM's `AtomicSection`. A
+  system package is exempt but counted.
+- **`Build.VERSION.RELEASE` is the framework map version** and there is
+  no `INCREMENTAL`: core carries one version. `BOARD` and `HARDWARE` come
+  from a new generated `build_info.rs` (`host` for a boardless build).
+- **`StorageStatsManager` is reached through `getSystemService`** with
+  `Context.STORAGE_STATS_SERVICE = "storagestats"`; `Context` names the
+  multi-app-only class in bytecode, which a single-app board tolerates
+  the way it tolerates `PackageManager`'s query methods.
+- **Uninstall from Java.** `PlatformHooks::uninstall_run(first, sectors)`
+  (no new seam item). The RP family runs the erase on the LittleFS worker
+  through `fs::exclusive` and rescans back on the JVM task; the simulator
+  erases its region on the JVM task; the test platform answers `false`.
+  `packages::uninstall_target` holds the decision (not installed / system
+  / running) and is unit-tested; Java gets `IllegalArgumentException` for
+  those and `IllegalStateException` when the platform could not.
+- **`pdb uninstall` wipes before the reset**: the handler calls
+  `uninstall` then `storage::wipe_package` then `trigger_reset`, instead
+  of `run_uninstall`.
+- **The simulator's boot sweep runs only with `--system-apps`**: a plain
+  `sim.sh --app X` installs X alone, and sweeping every other app's data
+  on each such run made `bootcount` restart at 1 in the verification
+  chain. The device sweeps at every boot.
+- **The literal guard's prose list gained `list`, `install`,
+  `uninstall`**: the simulator's control-channel verbs share spellings with
+  `File.list` and `PackageInstaller.uninstall` but are FIFO text, never a
+  Java name. A related trap: the guards stop reading a source at its
+  first `#[cfg(test)]` before a `mod` line, so a `#[cfg(test)] mod x;`
+  near the top of a dispatcher blanks it for them.
+- **`defmt` cannot format a `String`**: the sweep logs `name.as_str()`.
+- **The settings app** is four Activities over one `Screens` helper
+  (40 px header + 40 px rows, `GradientDrawable` header band), no icons,
+  and its Apps screen rebuilds itself from the main executor after the
+  dialog closes. The dialog's Uninstall button on the 240-px boards is
+  tapped at (160, 118) in LVGL pixels — not pinned from a screenshot as
+  §8.6 planned (a tap over the control channel never registered in the
+  windowed simulator) but taken from the dialog's fixed geometry
+  (`lvgl/widgets/alert_dialog.rs`: a 200 px card at y 40, 80 px buttons)
+  so that it lands inside the button with or without the theme's row gap,
+  and proven by the headless drive uninstalling helloworld through it.
+- **Build plumbing** that named only the launcher — the pre-commit
+  prologue, `hil_build_firmware` — now loops over `system-apps/*`;
+  `sim-run.sh` gained the `settings` lane; the `list` row expects
+  `picodroid.settings`; new rows `filesdemo` (every board), `quotademo`
+  (rp2350 boards) and `settings-uninstall`.
+- **Sizes (release, the ratchet):** rp2350 1,040,819 B (the settings PAPK is 18,340 B stripped);
+  rp2040 812,811 B. RAM: rp2040 +8 B, rp2350 +0 B.

@@ -631,7 +631,7 @@ stage_langsuite_kt_stdlib() { sim_suite langsuite_kt_stdlib; }
 size_board() {
   local board="$1"
   if ! PICODROID_BENCH_RECORD=0 PICODROID_PREBUILT_APK="$APK_PATH" \
-       PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATH" \
+       PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATHS" \
        PICODROID_SIZE_RUN_DIR="$RUN_DIR/size/$board" \
        bash "$SCRIPT_DIR/parity-bench.sh" --size-only --boards "$board"; then
     echo ""

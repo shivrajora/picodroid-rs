@@ -69,7 +69,7 @@ free: largest 1480 KB, total 1480 KB, apps 2/8
 running: picodroid.launcher
 ```
 
-A `SYSTEM` row is an app linked into the firmware (the launcher): it takes no sector, does not count toward `apps`, and cannot be uninstalled. The boot app is the one `flash.sh --app` baked in (a reinstall of the same package keeps the flag); `flash.sh --boot` and a board's `boot_package` can pick another — see the [launcher guide](/guides/launcher/). On single-app firmware the command reports that there is no directory to list.
+A `SYSTEM` row is an app linked into the firmware (the launcher, the settings app): it takes no sector, does not count toward `apps`, and cannot be uninstalled. The boot app is the one `flash.sh --app` baked in (a reinstall of the same package keeps the flag); `flash.sh --boot` and a board's `boot_package` can pick another — see the [launcher guide](/guides/launcher/). On single-app firmware the command reports that there is no directory to list.
 
 ## uninstall
 
@@ -77,7 +77,7 @@ A `SYSTEM` row is an app linked into the firmware (the launcher): it takes no se
 pdb -s <port> uninstall <package>
 ```
 
-Erases an installed app's whole run — its boot-meta sector and image — and reboots the device, then waits for it to come back. `NOT_FOUND` if no such package is installed; a system app cannot be uninstalled. Uninstalling the boot app leaves the device waiting for the next `pdb install`.
+Erases an installed app's whole run — its boot-meta sector and image — removes its data (`/data/<package>` on the LittleFS volume), and reboots the device, then waits for it to come back. `NOT_FOUND` if no such package is installed; a system app cannot be uninstalled. Uninstalling the boot app leaves the device waiting for the next `pdb install`.
 
 ## sysmon
 
