@@ -374,9 +374,26 @@ pub fn leave_modal_group() {}
 unsafe fn ensure_in_group(group: *mut lv_group_t, raw: *mut lv_obj_t) {
     if lv_obj_get_group(raw) != group {
         lv_group_add_obj(group, raw);
+        // Keypad focus has to be visible on a board whose only input is four
+        // buttons. The theme's focus outline is drawn *outside* the object
+        // and is clipped away for the common list shape — a full-width row
+        // in a zero-padding column — so a focusable view also gets a border,
+        // drawn inside its bounds. Both states: keypad navigation sets
+        // FOCUS_KEY on top of FOCUSED.
+        for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
+            let sel = LV_PART_MAIN | state;
+            lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
+            lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
+            lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
+        }
     }
     lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
 }
+
+/// The focus border a focusable view gets: light, so it reads on the dark
+/// theme and on a tinted header band alike.
+const FOCUS_BORDER_RGB: u32 = 0x00E8_F0F0;
+const FOCUS_BORDER_PX: i32 = 2;
 
 /// `View.setFocusable(boolean)` backing: add this view to — or remove it from —
 /// the active Activity's keypad focus group. A focusable view also scrolls
