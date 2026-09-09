@@ -36,7 +36,7 @@ public class StorageActivity extends Activity {
         String numbers =
             "  app " + Screens.kb(st.getAppBytes()) + " / data " + Screens.kb(st.getDataBytes())
                 + " KB";
-        root.addView(Screens.info(this, Screens.fit(this, label, numbers)));
+        root.addView(Screens.info(this, label, numbers));
         rows++;
         Log.i(
             SettingsActivity.TAG,

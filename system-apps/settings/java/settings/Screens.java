@@ -4,6 +4,7 @@ package settings;
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.text.TextUtils;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
@@ -11,10 +12,11 @@ import picodroid.widget.TextView;
 
 /**
  * The settings screens' one shape: a column of {@link #ROW_HEIGHT}-pixel rows under a header row of
- * the same height, in a ScrollView. Every row spans the display and holds one line, so a test can
- * tap row {@code n} at {@code y = 20 + 40 * n} with the header as row 0; a focusable row also takes
- * the keypad's select, and every row is focusable so a column longer than the screen can be walked
- * — and scrolled — with the buttons.
+ * the same height, in a ScrollView. Every row spans the display and holds one line — a long label
+ * is cut with an ellipsis, and a suffix (a version, the storage numbers) always shows — so a test
+ * can tap row {@code n} at {@code y = 20 + 40 * n} with the header as row 0; a focusable row also
+ * takes the keypad's select, and every row is focusable so a column longer than the screen can be
+ * walked — and scrolled — with the buttons.
  */
 final class Screens {
   /** Row height in pixels, header included. */
@@ -24,9 +26,6 @@ final class Screens {
 
   /** Side padding of a row, each side. */
   private static final int PAD_X = 8;
-
-  /** About what one character of the default font takes, for fitting text to a row. */
-  private static final int PX_PER_CHAR = 7;
 
   private Screens() {}
 
@@ -58,51 +57,55 @@ final class Screens {
 
   /** The header row: the screen's title on a tinted band; a tap or select runs {@code onClick}. */
   static View header(Activity a, String title, View.OnClickListener onClick) {
-    TextView t = text(a, title);
-    t.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
-    t.setFocusable(true);
-    t.setOnClickListener(onClick);
-    return t;
+    View row = row(a, title, null, onClick);
+    row.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
+    return row;
   }
 
   /** A focusable row that runs {@code onClick} on a tap or the keypad's select. */
   static View row(Activity a, String label, View.OnClickListener onClick) {
-    TextView t = text(a, label);
-    t.setFocusable(true);
-    t.setOnClickListener(onClick);
-    return t;
+    return row(a, label, null, onClick);
   }
 
   /** A row of information: focusable, so the keypad can walk (and scroll) past it, but inert. */
   static View info(Activity a, String s) {
-    TextView t = text(a, s);
-    t.setFocusable(true);
-    return t;
+    return row(a, s, null, null);
   }
 
-  /** A plain row of text, cut to one line. */
-  static TextView text(Activity a, String s) {
-    TextView t = new TextView();
-    t.setSize(a.getDisplay().getWidth(), ROW_HEIGHT);
-    t.setPadding(PAD_X, 10, PAD_X, 0);
-    t.setText(fit(a, s, ""));
-    t.setTextColor(Color.WHITE);
-    return t;
+  /** {@link #info} with a {@code suffix} that always shows; the label is cut instead. */
+  static View info(Activity a, String label, String suffix) {
+    return row(a, label, suffix, null);
   }
 
   /**
-   * {@code label} followed by {@code suffix}, the label cut with an ellipsis so the whole fits one
-   * row: the suffix (a version, the storage numbers) is always shown.
+   * A row: {@code label} on one line, cut with an ellipsis when it does not fit, then {@code
+   * suffix} (a version, the storage numbers), which always shows. Focusable; {@code onClick} may be
+   * null. The row is a horizontal layout, so the label takes what the suffix leaves and both sit
+   * centred on the row's height.
    */
-  static String fit(Activity a, String label, String suffix) {
-    int maxChars = (a.getDisplay().getWidth() - 2 * PAD_X) / PX_PER_CHAR - suffix.length();
-    if (label.length() <= maxChars) {
-      return label + suffix;
+  static View row(Activity a, String label, String suffix, View.OnClickListener onClick) {
+    LinearLayout row = new LinearLayout();
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setSize(a.getDisplay().getWidth(), ROW_HEIGHT);
+    row.setPadding(PAD_X, 0, PAD_X, 0);
+    row.setSpacing(0);
+    TextView text = new TextView();
+    text.setText(label);
+    text.setTextColor(Color.WHITE);
+    text.setSingleLine();
+    text.setEllipsize(TextUtils.TruncateAt.END);
+    row.addView(text, new LinearLayout.LayoutParams(0, View.WRAP_CONTENT, 1f));
+    if (suffix != null) {
+      TextView tail = new TextView();
+      tail.setText(suffix);
+      tail.setTextColor(Color.WHITE);
+      row.addView(tail);
     }
-    if (maxChars < 4) {
-      return suffix;
+    row.setFocusable(true);
+    if (onClick != null) {
+      row.setOnClickListener(onClick);
     }
-    return label.substring(0, maxChars - 3) + "..." + suffix;
+    return row;
   }
 
   /** Bytes as whole kilobytes, for a row. */

@@ -10,6 +10,7 @@ import picodroid.content.pm.PackageManager;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.Drawable;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.text.TextUtils;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.ImageView;
@@ -37,9 +38,6 @@ public class LauncherActivity extends Activity {
 
   /** Tile color behind the first letter of an app that has no icon. */
   private static final int TILE_COLOR = 0xFF1F8A8A;
-
-  /** About what one character of the default font takes, for fitting a label to its row. */
-  private static final int PX_PER_CHAR = 7;
 
   /** Held here so the rows stay reachable while their click listeners are live. */
   private View[] rows;
@@ -145,11 +143,13 @@ public class LauncherActivity extends Activity {
     }
 
     TextView text = new TextView();
-    // One line per row: a label longer than the row is cut, not wrapped over the next row.
-    int maxChars = (width - 8 - ICON_SIZE - 8 - 8) / PX_PER_CHAR;
-    text.setText(label.length() > maxChars ? label.substring(0, maxChars - 3) + "..." : label);
+    text.setText(label);
     text.setTextColor(Color.WHITE);
-    row.addView(text);
+    // One line per row: a label longer than what the icon leaves is cut with an ellipsis, not
+    // wrapped over the next row.
+    text.setSingleLine();
+    text.setEllipsize(TextUtils.TruncateAt.END);
+    row.addView(text, new LinearLayout.LayoutParams(0, View.WRAP_CONTENT, 1f));
 
     row.setFocusable(true);
     row.setOnClickListener(

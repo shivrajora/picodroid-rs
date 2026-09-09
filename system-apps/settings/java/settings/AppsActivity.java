@@ -42,9 +42,7 @@ public class AppsActivity extends Activity {
       }
       final String pkg = info.packageName;
       final String label = pm.getApplicationLabel(info.applicationInfo).toString();
-      View row =
-          Screens.row(
-              this, Screens.fit(this, label, "  v" + info.versionName), v -> confirm(pkg, label));
+      View row = Screens.row(this, label, "  v" + info.versionName, v -> confirm(pkg, label));
       root.addView(row);
       rows[n] = row;
       n++;

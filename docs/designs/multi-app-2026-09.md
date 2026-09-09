@@ -1073,3 +1073,27 @@ re-parses manifests from XIP and `StorageStats` walks each package's
 directory, which D4's "no strings in the directory" makes the price of a
 screen — and the SDK has no `TextView.setSingleLine`/`setEllipsize`
 (a map cut), so the system apps cut labels by character count.
+
+### A5 (2026-09-09) — one line, cut with an ellipsis
+
+The second A4 observation is closed. The SDK has `TextView.setSingleLine`,
+`setEllipsize(TextUtils.TruncateAt)` and `setMaxLines`, with their getters and
+a new `picodroid.text.TextUtils`, over LVGL's label long modes — `DOTS` for an
+ellipsis, `CLIP` for a bare single line, `SCROLL_CIRCULAR` for `MARQUEE` — and
+a `max_height` cap of N lines, because LVGL puts its dots on the last line that
+fits the box, and the cap holds for explicit heights too (a taller `setSize`
+shrinks to the limit; the documented divergence). `getText()` still returns
+the whole text: LVGL overwrites its own buffer with the dots, and the native
+reverts them for the read. The Java state is one packed `int` per label; a
+padding change re-applies the cap, which includes the padding. A private
+native on `TextView` is an `invokespecial`, so a `Button` receiver reaches the
+same arm and the impl resolves it to the child label.
+
+The launcher row's label and every settings row are a weighted single-line
+label beside the icon or the suffix, so the version and the storage numbers
+always show; `Screens.fit` and the 7-px-per-character heuristic are gone. The
+rows' geometry — 40 px, tapped at `y = 20 + 40n` — is unchanged, so the sim
+and bench lanes are too. `examples/ellipsizedemo` pins the behaviour as a sim
+lane (heights against a one-line reference, `getText()` under the dots, the
+getters, lifting the limit, a padding change). The two `TextUtils` classes are
+un-shrunk until the next map cut clears the one expected `shrink_image` leak.

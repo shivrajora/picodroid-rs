@@ -7,6 +7,13 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**A TextView holds one line, cut with an ellipsis**
+
+- `TextView.setSingleLine()` / `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)` / `getEllipsize()` and `setMaxLines(int)` / `getMaxLines()` mirror Android over LVGL's label long modes: a single-line or max-lines view is at most that many lines tall and, with an ellipsize, the last line that fits is cut with three ASCII dots; `MARQUEE` scrolls the text circularly. `getText()` returns the full text throughout. New `picodroid.text.TextUtils` with `TruncateAt` and `isEmpty`. See [UI](/api/ui/) and the [compatibility matrix](/reference/compatibility-matrix/) for the divergences.
+- The launcher and settings rows use it: a long app label is cut by the pixel, not by a character count, and the version and the storage numbers always show.
+- `examples/ellipsizedemo` pins the behaviour as a sim lane. The simulator's own `cargo test -p picodroid-core` compiles again (the package-verb poll in `stop_jvm` is gated on the `sim` feature).
+- Flash, release images: `testbench_rp2040` +2,880 B, `testbench_rp2350` +3,512 B — the two `TextUtils` classes, the `TextView` methods and their native, the FFI, and the launcher and settings PAPKs.
+
 **Multi-app QA fixes (after v0.22.0)**
 
 - **Keypad boards.** A view's `requestFocus()` no longer reorders the focus ring (LVGL's `lv_group_add_obj` re-appends a member at the tail; "down" from the settings root's About row went Home). A shown `AlertDialog` holds the keypad: NEXT/PREV cycle its own buttons instead of walking onto the rows behind the scrim, where "select" opened a second dialog. A focusable view shows a 2 px border while it has the focus — the theme's outline is clipped away for full-width rows, so the launcher and settings screens gave no sign of the selection.
