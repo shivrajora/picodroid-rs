@@ -7,6 +7,13 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The settings screens and the launcher stop holding the UI tick**
+
+- Opening Settings > Storage or Apps froze a device for 190–330 ms, and the launcher's list for 240 ms: every row is ~20 ms of LVGL work and the screens built them all inside `onCreate`. Every screen now shows its header at once and adds rows one per UI tick, each under the watchdog's 50 ms; the Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive. No `slow handler` line on any screen.
+- Pool workers on the multi-app boards get 6 KB stacks (`[background_pool] stack_bytes = 6144`, as the Enviro W already had): the Storage job measured 4,088 B deep and overflowed the 4 KB default. +8 KB of the FreeRTOS arena per board, none of the image.
+- The package directory keeps each entry's name, label, version and icon as slices into its image, read once at scan time, so a `PackageManager` query no longer parses a manifest from XIP flash (the Apps screen at seven packages did so about 150 times). `StorageStats.getDataBytes()` keeps a package's figure until its directory changes, and `StatFs` walks the volume only after something on it changed. See [storage](/api/storage/) and the [launcher guide](/guides/launcher/#costs).
+- RAM: release images, `testbench_rp2350` flash +340 B and RAM unchanged; `testbench_rp2040` flash −968 B, RAM +8 B — the package entries grow by 36 bytes each and the quota keeps a row per slot, inside padding the images already carried.
+
 **A TextView holds one line, cut with an ellipsis (map v0.23.0, package 0.23.0)**
 
 - `TextView.setSingleLine()` / `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)` / `getEllipsize()` and `setMaxLines(int)` / `getMaxLines()` mirror Android over LVGL's label long modes: a single-line or max-lines view is at most that many lines tall and, with an ellipsize, the last line that fits is cut with three ASCII dots; `MARQUEE` scrolls the text circularly. `getText()` returns the full text throughout. New `picodroid.text.TextUtils` with `TruncateAt` and `isEmpty`. See [UI](/api/ui/) and the [compatibility matrix](/reference/compatibility-matrix/) for the divergences.

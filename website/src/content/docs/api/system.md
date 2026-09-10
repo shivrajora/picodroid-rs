@@ -105,6 +105,8 @@ The query methods exist on multi-app boards only (`max_installed_apps` above 1).
 
 `Context.getPackageName()` returns the running app's own package name, from its manifest.
 
+The package directory keeps each entry's name, label, version and icon name as it scanned them, so every query above is a few native calls and no manifest is parsed on the way; `getApplicationIcon` still looks the icon up in the package's asset table. Building the rows that show the result is the expensive part on a device — see the [launcher guide](/guides/launcher/#costs).
+
 ## `picodroid.concurrent.Thread`
 
 The `java.lang.Thread` API on a FreeRTOS task. Import it — there is no `java.lang.Thread` here.

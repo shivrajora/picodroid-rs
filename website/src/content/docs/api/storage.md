@@ -123,6 +123,8 @@ long data = st.getDataBytes();   // its /data/<package>, by the cap's accounting
 
 Picodroid has one volume and one user, so `queryStatsForPackage` takes the package name alone; `getCacheBytes()` is 0 (there is no cache directory).
 
+What the two cost on a device: `queryStatsForPackage` counts a package's directory the first time it is asked (one filesystem listing per directory, a few milliseconds) and keeps the answer until that package runs, when its own writes are counted as they happen, or its directory is wiped. `StatFs` walks the volume for its used-block count (about 20 ms on an RP2350) only after something on it changed, so the total, the free and the available space on one screen cost one walk. A screen that lists every package should still ask from `Executors.backgroundExecutor()` and post the numbers back, as the settings app's Storage screen does.
+
 ## `picodroid.content.SharedPreferences`
 
 Typed key-value settings store inspired by Jetpack DataStore. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` on the LittleFS volume.

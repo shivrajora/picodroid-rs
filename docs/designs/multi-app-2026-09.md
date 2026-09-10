@@ -162,15 +162,20 @@ Commit-less runs and the losers of a duplicate are erased at boot.
 pub struct Entry {
     image: &'static [u8],      // the PAPK, in place in flash (or the sim's buffer)
     first_sector: u16, sectors: u16,
-    flags: u8, kind: Kind,     // Kind::App | Kind::System (M2)
+    flags: u32, kind: Kind,    // Kind::App | Kind::System (M2)
     seq: u32,
+    // the manifest, read once at scan time: slices into `image`, never copies (A5)
+    name: &'static str, version: &'static str, version_code: u32,
+    label: Option<&'static str>, icon: Option<&'static str>,
 }
 ```
 
-About 20 bytes an entry; the rp2350 image leaves ~18 KB of RAM headroom
+About 60 bytes an entry; the rp2350 image leaves ~18 KB of RAM headroom
 (`bench/parity/ratchet.toml`, `scripts/lib.sh` main-stack floor), so no
-strings live here — name, label, icon and versions are re-read from the
-image on demand (`Papk::package_name()` and friends). The module has no
+strings are copied here — name, label, icon and versions are slices into
+the image, read when the entry is made (`Entry::new`) and right for as long
+as it exists, since a rescan makes new entries. (The body's first cut re-read
+them from the image on every call; A5 records why that changed.) The module has no
 `pub trait`, so `porting.rs`'s seam count stays at 42; the family supplies
 the region's mapped base and length, and the sim supplies its buffer.
 
@@ -1098,3 +1103,92 @@ lane (heights against a one-line reference, `getText()` under the dots, the
 getters, lifting the limit, a padding change). Map v0.23.0 (package 0.23.0),
 cut on main after the merge, folds the two `TextUtils` classes and the 15
 member names in and clears the one expected `shrink_image` leak.
+
+### A5 (2026-09-09) — the settings screens off the UI tick
+
+A4 left two observations; this closes the first: the Storage and Apps
+screens held the UI tick for 190–290 ms on the device. The body's guess —
+every `PackageManager` native re-parsing manifests from XIP, `StorageStats`
+walking each package's directory — was measured before anything was
+changed, and it was the smaller half.
+
+Measured first (`testbench_rp2350`, release image, five apps installed
+beside the two system apps, `System.currentTimeMillis()` probes around each
+phase, the `slow handler` watchdog for the total):
+
+- Storage `onCreate` 322 ms (`pending-op drain took 326 ms`): the seven
+  package rows 174 ms, the header and volume rows ~50 ms, `StatFs` total +
+  free 36 ms (two volume walks), `getInstalledPackages` 18 ms, seven
+  `getApplicationLabel` 7 ms, seven `queryStatsForPackage` 27 ms, `setContentView` 7 ms.
+- Apps `onCreate` 182 ms (`188 ms`): five rows 100 ms, the sort with its
+  label fetches 32 ms, five more label fetches 5 ms.
+- The launcher's `onCreate` 242 ms: six rows 136 ms, `getInstalledPackages`
+  17 ms, the sort 15 ms, labels 6 ms, icons 8 ms.
+- One row of the settings shape — a horizontal `LinearLayout`, a label, a
+  suffix, focusable — is ~21 ms of LVGL work: `new LinearLayout` 3.1 ms, `new
+  TextView` 2.2 ms, `addView` 4 ms, `setSingleLine` + `setEllipsize` 1.5 ms
+  each, the suffix 3.1 ms, `setFocusable` 0.5 ms; a trivial native
+  (`setTextColor`) is ~0.3 ms, the floor of a call through a native
+  dispatcher whose code (17.8 KB) is larger than the XIP cache.
+
+So the rows were ~60 % of every screen and the natives ~30 %. What changed,
+one commit each:
+
+- **Rows land one per UI tick.** A screen shows its header at once and adds
+  rows one per posted `Runnable` (`settings/Column.java`; the launcher
+  inline), so no drain item holds the tick for more than one row (24–44 ms,
+  under the watchdog's 50), and the tick renders and reads the panel between
+  rows. The package listing and the first row are separate Runnables (together
+  they were 65 ms; the launcher's 87). "ready" and "apps N" are logged once
+  the last row is in; the harness keys on nothing that moved. A screen of
+  seven packages is complete ~490 ms after `onCreate` (Storage), 375 (Apps),
+  483 (the launcher, icons included), 150 (the root) — rows streaming in,
+  the tick running.
+- **The Storage numbers come from a pool worker.** `queryStatsForPackage`
+  runs on `Executors.backgroundExecutor()` and each row's text is posted back
+  through `mainExecutor()`; views are touched on the UI thread only, and a
+  finished screen drops the posts. The job measured 4,088 B deep on the
+  worker (interpreter frames, the native dispatcher, the walk's buffers) — a
+  4 KB worker overflowed (`vApplicationStackOverflowHook`) — so every
+  multi-app board sets `[background_pool] stack_bytes = 6144`, the size the
+  Enviro W already ran for its NTP/weather job: 33 % headroom, +8 KB of the
+  FreeRTOS arena, none of the image.
+- **An entry keeps its manifest.** `packages::Entry` reads the name, version,
+  version code, label and icon once, in `Entry::new`, as slices into the
+  image (never copies; a rescan makes new entries): a lookup by name or a
+  `PackageManager` query is a field read. D4 above is corrected: ~60 B an
+  entry. `directory_generation()` moves when the slots do; `slot_of()` names
+  an entry's slot.
+- **A usage row per directory slot** (`quota.rs`): another package's data
+  is walked once and kept until a wipe (`quota::forget`, from
+  `wipe_package`), until the package runs (its counter takes over on its
+  first accounted operation), or until the directory is rebuilt. The running
+  package's counter is unchanged.
+- **The volume walk repeats only after a mutation** (`fs/hal_impl.rs`):
+  every mutating method counts itself and `space()` re-runs `lfs_fs_size`
+  only when the count moved, so `StatFs` total, free and available on one
+  screen cost one walk (~20 ms), a second visit none.
+- **One label fetch per package** in the Apps screen and the launcher
+  (they fetched each label twice and three times).
+
+Verified: `test.sh` (eight new tests: the memo across install, reinstall,
+compaction and a system entry; the generation; the rows across a wipe, a
+run and a rebuild), the `settings` and `launcher` `sim-run.sh` lanes in both
+shrink modes, the CLAUDE.md smoke, `pre-commit --full`; on the bench
+(`testbench_rp2350`, release, the same seven packages) the walk through the
+launcher, Settings, Storage, Apps and back twice: no `slow handler` line on
+any screen, the Storage rows filled from the worker, the worker's high-water
+4,088 B of 6,144 (`pdb sysmon`), free FreeRTOS heap 281,800 B after the walk
+(292,920 before the change); the `hil-run.sh` lanes for `helloworld` (27
+PASS, the `settings-uninstall` lane in both modes) and `blinky` (6 PASS) on
+the same board. The one `slow handler` line the uninstall lane still logs —
+`widget events took 88 ms`, right after `helloworld uninstalled from Java` —
+is the flash erase inside `PackageInstaller.uninstall`, P6's documented
+freeze, the same figure the nightly logged before this change. Sizes: release images against the v0.23.0 baselines, `testbench_rp2350` flash 952,871 → 953,211 B (+340), RAM 514,660 → 514,660; `testbench_rp2040` flash 795,895 → 794,927 B (−968: fewer manifest walks inlined), RAM 244,384 → 244,392 (+8). The ~400 B of new statics (five fields an entry, the quota rows, the fs counters) sit inside alignment padding the images already carried.
+
+Still open, for later: the ~20 ms an LVGL row costs and the ~0.3 ms native
+floor are the framework's (a lighter theme, a dispatch that does not walk a
+17.8 KB function per call); `register_icon` still parses the PAPK and scans
+the asset table per launcher row (memoising the asset bytes in the entry
+would take ~24 B more each); `rename` is not charged to the quota;
+`intern_dyn` copies a string per string native.

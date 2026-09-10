@@ -623,7 +623,7 @@ All keys optional; defaults in parentheses.
 |-----|------|-------------|
 | `threads` | int | Worker count (4), range 1..=32. |
 | `priority` | int | Worker priority (15). Must be 15 — the JVM's own tier — and the build fails otherwise: the pool runs Java, and Java runs on one tier by design. |
-| `stack_bytes` | int | Per-worker stack in bytes (4096). |
+| `stack_bytes` | int | Per-worker stack in bytes (4096). A job that calls a native from a couple of Java calls deep needs more: the settings app's Storage screen, which counts each package's data on a worker, measured 4,088 B, so every multi-app board sets 6144 (33 % headroom; the Enviro W's NTP/weather job measured 4,712 B). The stacks come out of the FreeRTOS arena, +2 KB × 4 workers. |
 | `queue_depth` | int | Shared job queue depth (32). |
 
 Surfaced via [`Executors.backgroundExecutor()`](/api/system/#picodroidconcurrentexecutors).

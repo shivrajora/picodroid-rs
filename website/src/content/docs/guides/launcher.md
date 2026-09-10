@@ -83,4 +83,6 @@ The same uninstall is available to any app: `getPackageManager().getPackageInsta
 
 ## Costs
 
+A row of either app — a horizontal layout, an ellipsized label, a suffix, focusable — is about 20 ms of LVGL work on an RP2350, so neither app builds its rows inside `onCreate`: the header shows at once and the rows follow one per UI tick, each under the 50 ms the slow-handler watchdog allows, and a screen of seven packages is complete within about half a second with the display and the touch panel served throughout. The Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive; that job runs 4 KB deep, which is why every multi-app board gives its pool workers 6 KB stacks. The package directory keeps each entry's manifest values (name, label, version, icon) as slices into the image, and the quota keeps a usage figure per package until its directory changes, so the queries behind the screens are a few native calls each.
+
 The launcher is about 10 KB and the settings app about 18 KB of flash on every multi-app board; `bench/parity/ratchet.toml` records the exact figures. A single-app board embeds neither and drops the multi-app classes (`PackageInfo`, `ApplicationInfo`, `BitmapDrawable`, `PackageManager.NameNotFoundException`, `PackageInstaller`, `StorageStatsManager`, `StorageStats`) from its framework.
