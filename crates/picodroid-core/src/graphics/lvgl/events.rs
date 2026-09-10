@@ -599,7 +599,12 @@ unsafe extern "C" fn keypad_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)
-            .map(|&(_, k, _)| k);
+            .map(|&(_, k, _)| k)
+            // `lv_key = "NONE"` in board.toml emits 0, which is not an LVGL
+            // key. Dropping it here is what makes a system key like HOME
+            // Java-only: it reaches the app as a keycode without also stepping
+            // the focus ring or activating the focused widget on the way.
+            .filter(|&k| k != 0);
 
         // Run mapped keys through the edit-mode filter; unmapped pins keep
         // the historical behavior (Java queue only, nothing for the indev).

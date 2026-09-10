@@ -1680,6 +1680,7 @@ fn dispatch_key_events(
     /// Java side. Hard-coded because there's no enum bridge from Java to
     /// Rust for these constants.
     const ACTION_UP: i32 = 1;
+    const KEYCODE_HOME: i32 = 3;
     const KEYCODE_BACK: i32 = 4;
 
     while let Some(raw) = events::drain_key_event() {
@@ -1688,6 +1689,24 @@ fn dispatch_key_events(
             None => continue,
         };
         let action = if raw.rising { 1 } else { 0 }; // ACTION_UP : ACTION_DOWN
+
+        // 0) HOME goes to the launcher from anywhere, and nothing on the way
+        //    gets a say — not a focused View's OnKeyListener, not a showing
+        //    dialog, not `onBackPressed`. Android reserves HOME the same way:
+        //    an app cannot trap the user by consuming it. The op tears every
+        //    Activity down and returns, and the supervisor then runs
+        //    `packages::next_image()`, which hands back the launcher this
+        //    request just made pending.
+        if keycode == KEYCODE_HOME && action == ACTION_UP {
+            if crate::packages::request_home() {
+                use crate::native_handler::{PendingActivityOp, PendingOp};
+                handler.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch));
+                crate::pd_info!("key: HOME -> launcher");
+            }
+            // Consumed either way: a board with no launcher swallows HOME
+            // rather than delivering a keycode no app is expected to handle.
+            continue;
+        }
 
         // 1) BACK release first tries to dismiss the system soft keyboard
         //    if it's visible. Consumed if so — Activity stays on screen.

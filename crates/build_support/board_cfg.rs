@@ -450,10 +450,17 @@ pub fn emit_button_config(out: &Path, board: &Option<ResolvedBoard>) {
     // Referenced where `use crate::lvgl_ffi::*;` is in scope (LV_KEY_*).
     code.push_str("pub const BUTTONS: &[(u8, u32, i32)] = &[\n");
     for b in buttons {
-        code.push_str(&format!(
-            "    ({}, LV_KEY_{}, {}),\n",
-            b.pin, b.lv_key, b.keycode
-        ));
+        // `NONE` is not an LVGL key. It emits the 0 sentinel, which
+        // `keypad_read_cb` reads as "forward the Android keycode to Java and
+        // inject nothing" — the same path a pin with no table entry takes.
+        // A system key like HOME needs that: it must not also activate the
+        // focused widget on its way past.
+        let lv_key = if b.lv_key == "NONE" {
+            "0".to_string()
+        } else {
+            format!("LV_KEY_{}", b.lv_key)
+        };
+        code.push_str(&format!("    ({}, {}, {}),\n", b.pin, lv_key, b.keycode));
     }
     code.push_str("];\n");
 

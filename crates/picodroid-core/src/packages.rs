@@ -660,6 +660,28 @@ pub fn request_launch(package: &str) -> Result<(), NotFound> {
     Ok(())
 }
 
+/// Ask the supervisor to go back to the launcher, as the HOME key does.
+///
+/// `false` when there is nothing to go home to — no launcher is linked in, or
+/// the launcher is already what is running — and the caller should then leave
+/// the current app alone rather than tearing it down for nothing.
+#[cfg(has_multi_app)]
+pub fn request_home() -> bool {
+    let Some(package) = launcher().map(|l| l.package()) else {
+        return false;
+    };
+    if running() == Some(package) {
+        return false;
+    }
+    request_launch(package).is_ok()
+}
+
+/// A single-app board has no launcher, so HOME has nowhere to go.
+#[cfg(not(has_multi_app))]
+pub fn request_home() -> bool {
+    false
+}
+
 /// What runs after `run_app` returns (D11, A2): the pending launch; else the
 /// launcher, when the app that exited was not it; else nothing, and the
 /// supervisor waits for an install as a single-app board does. A launcher
