@@ -648,7 +648,7 @@ then goes to the focused View's `OnKeyListener`, and finally to
 straight to the launcher on a multi-app board and cannot be intercepted at all,
 as on Android.
 
-Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
+Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). If the board has a touchscreen *and* buttons, set it to `0`: the sleep path counts only button edges as input, so touch can neither keep the panel awake nor wake it again. See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
 
 ### `[background_pool]` — optional thread-pool tuning
 

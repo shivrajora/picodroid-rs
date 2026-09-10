@@ -104,11 +104,11 @@ registered, ~0.8 KB parsed, 32 B per method) are what to budget for.
 
 ## Display idle sleep
 
-On `has_buttons` boards (not the simulator, not touch-only boards), the panel sleeps after **60 seconds** with no button input (the default `idle_timeout_ms`). Setting `idle_timeout_ms = 0` disables sleep — `pico_enviro_mon` does this.
+On `has_buttons` boards (not the simulator, not touch-only boards), the panel sleeps after **60 seconds** with no button input (the default `idle_timeout_ms`). Setting `idle_timeout_ms = 0` disables sleep — `pico_enviro_mon`, `pico_enviro_mon_w` and `pico_touch_kit` do this.
 
 The wake behavior has one quirk that affects input handling: the keypress that wakes the panel **and its release edge are both swallowed**. They wake the display but do not reach LVGL focus navigation or your `OnKeyListener` — so a user pressing a button on a sleeping screen wakes it without also navigating or clicking. The first *new* press after wake behaves normally.
 
-Sleep only exists on button-driven boards because the wake path blocks on a button IRQ; a touch-only board would never wake. See "Input and idle power" in [your first app](/get-started/first-app/).
+Sleep only exists on button-driven boards because the wake path blocks on a button IRQ; a touch-only board would never wake. On a board with **both** a touchscreen and buttons the feature is still compiled in, but it only understands buttons: a finger on the glass neither refreshes the idle timer nor wakes a sleeping panel, so the screen can blank mid-use and only a button press brings it back. Set `idle_timeout_ms = 0` on such a board, as `pico_touch_kit` does. See "Input and idle power" in [your first app](/get-started/first-app/).
 
 ## Tuning these limits
 

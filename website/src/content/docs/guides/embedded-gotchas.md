@@ -231,7 +231,7 @@ Why: `setInputType` mirrors `android.widget.TextView.setInputType`, but only the
 
 Symptom: after the board idles to sleep, the first button press only wakes the screen — it does not navigate or click.
 
-On a button board, after `idle_timeout_ms` of no input the display sleeps. The press that wakes it (and its release edge) is discarded so it never reaches LVGL focus nav or your `OnKeyListener`. A second press is needed to actually act. This is by design, and does not apply to the simulator or to touch-only boards.
+On a button board, after `idle_timeout_ms` of no input the display sleeps. The press that wakes it (and its release edge) is discarded so it never reaches LVGL focus nav or your `OnKeyListener`. A second press is needed to actually act. This is by design, and does not apply to the simulator or to touch-only boards. On a board with both touch and buttons, touch is invisible to this path entirely — it neither delays sleep nor wakes the panel — which is why `pico_touch_kit` disables the timeout.
 
 ```java
 // WRONG: assuming the first post-sleep press triggers your handler.
