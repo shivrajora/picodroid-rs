@@ -65,10 +65,6 @@ public class HomeActivity extends Activity {
     Log.i(TAG, "onDestroy");
   }
 
-  // This is the root Activity: the default onBackPressed would finish() it, popping the last stack
-  // entry and exiting the whole app. Swallow BACK instead (deliberately no super call).
-  @Override
-  public void onBackPressed() {
-    Log.i(TAG, "onBackPressed (ignored at root)");
-  }
+  // This is the root Activity, so no onBackPressed override: BACK runs the inherited finish(),
+  // popping the last stack entry, which ends the app and returns to the launcher, as on Android.
 }

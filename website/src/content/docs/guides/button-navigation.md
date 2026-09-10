@@ -134,7 +134,7 @@ When Y is released, the framework tries each of these in order and stops at the 
 3. **The focused view's `OnKeyListener`** (if it returns `true`).
 4. **`Activity.onBackPressed()`** on the top Activity, whose default body is `finish()`.
 
-Override `onBackPressed()` without calling `super` to intercept Back (see the hub pattern below).
+Override `onBackPressed()` without calling `super` to intercept Back (a confirm dialog, for example); on the root Activity leave it alone so Y returns to the launcher (see the hub pattern below).
 
 :::caution[Buttons don't fire in the host simulator]
 On the host simulator, the hardware GPIO drain always returns `None`, so the Java key dispatcher never fires for real button events — end-to-end button testing needs hardware. The sim instead drives the LVGL keypad indev directly: keyboard keys (and a headless control FIFO) map to button edges, so focus navigation, ENTER, and the ESC back-chain still work for manual testing. See the headless-sim section of the [debugging guide](/guides/debugging/).
@@ -156,14 +156,7 @@ root.addView(menu);
 This is the Pico Enviro Mon `HomeActivity` hub pattern: a selectable menu of destinations. A/B move the highlight (with wrap-around — the focus group cycles, so down past the last row returns to the first), X opens the highlighted screen. Two details worth copying:
 
 - **Hold the `ListView` in a field.** The GC then roots the menu through the Activity, in addition to the native item-click listener map — defense-in-depth so an unfielded callback view isn't swept while it's still on screen.
-- **Suppress Back on the root hub.** The home screen has nowhere to return to, so override `onBackPressed()` as a no-op (deliberately *not* calling `super`) — otherwise Y would `finish()` the last Activity and exit the app:
-
-```java
-@Override
-public void onBackPressed() {
-    // no-op: the root hub can't be backed out of
-}
-```
+- **Let Back exit from the root hub.** The home screen does not override `onBackPressed()`: Y runs the inherited `finish()` on the last Activity, which ends the app and returns to the launcher — the Android home-screen behaviour, and on a button board the only way back to the launcher. The hub's legend says so (`A:Up  B:Down  X:Open  Y:Exit`). Override `onBackPressed()` only on a screen that must confirm before leaving, and call `finish()` yourself from the confirmation.
 
 :::caution[Cap data lists at ~12 rows]
 Each `lv_list` button row consumes the board's small 48 KB LVGL render pool. Past roughly a dozen focusable rows the renderer runs out of memory. The Pico Enviro Mon caps history at `MAX_ROWS = 12` and shows only the most recent window. Keep data-driven lists capped (~12) on 48 KB-render-pool boards. There's also a per-app limit of 16 ListViews with item-click listeners.

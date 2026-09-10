@@ -5,26 +5,30 @@ description: "The Android idioms that behave differently on Picodroid hardware, 
 
 Picodroid keeps the `android.*` API surface, but the runtime is a Rust JVM on an MCU with a few hundred KB of RAM, no reflection, and a hardware-button input model. The patterns below are the ones an Android developer reaches for by reflex that misbehave here — each one lists the symptom, the wrong and right code, and why.
 
-## BACK on the root Activity exits the app
+## BACK on the root Activity exits to the launcher
 
-Symptom: pressing BACK (the Y button) on your home screen quits the whole app instead of doing nothing.
+Symptom: pressing BACK (the Y button) on your home screen quits the whole app and the launcher appears.
 
-The default `Activity.onBackPressed()` calls `finish()`, which pops the Activity off the stack. On the root Activity that is the last entry, so the app exits — the standard Android launcher behavior. Your top-level Activity must override it.
+That is the intended behavior, and the same as Android's. The default `Activity.onBackPressed()` calls `finish()`, which pops the Activity off the stack. On the root Activity that is the last entry, so the app ends (`onPause -> onStop -> onDestroy`, then its threads and services stop) and the framework starts the launcher again. Leave the root Activity without an override so users have a way out; pushed Activities keep the default too, so BACK there returns to the parent.
 
 ```java
-// WRONG: no override — BACK on the root pops the last entry and exits the app.
+// RIGHT: no override — BACK on the root pops the last entry and returns to the launcher.
 public class HomeActivity extends Activity { /* ... */ }
 ```
 
 ```java
-// RIGHT: swallow BACK on the root; deliberately do NOT call super.
+// Only for a screen that must confirm before leaving: override, and finish() yourself.
 @Override
 public void onBackPressed() {
-  // no-op
+  new AlertDialog.Builder(this)
+      .setMessage("Discard changes?")
+      .setPositiveButton("Yes", (d, w) -> finish())
+      .setNegativeButton("No", null)
+      .show();
 }
 ```
 
-Why: `finish()` triggers `onPause -> onStop -> onDestroy`, and when it empties the stack the app shuts down. Only the root needs this; pushed Activities should keep the default so BACK returns to the parent. See [button navigation](/guides/button-navigation/).
+Overriding `onBackPressed()` as a no-op traps the user in the app: on a button board there is no other way back to the launcher, and on single-app firmware (`max_installed_apps = 1`) an app that exits is not restarted until the next install, so there a trapped root is at least harmless. See [button navigation](/guides/button-navigation/).
 
 ## setContentView() is mandatory or the screen is blank
 

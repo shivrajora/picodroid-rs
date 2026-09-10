@@ -17,11 +17,12 @@ import picoenvmonkt.ui.settings.SettingsActivity
 
 /**
  * Root hub: a selectable menu of destinations under the standardized 4-button navigation model. A/B
- * move the highlight, X opens the highlighted screen; Y is intentionally disabled here so the root
- * hub can't be backed out of (which would exit the app). The live 5-tile sensor dashboard lives in
- * [LiveActivity]; History and Settings are siblings. Adding a screen later is one more
- * `labels`/`destinations` entry plus the new Activity. The two tables are instance fields (Home is
- * created once) rather than statics: a `companion object` would be one more parsed class.
+ * move the highlight, X opens the highlighted screen, Y exits: the inherited `onBackPressed`
+ * finishes this last Activity, which ends the app and returns to the launcher, exactly as on an
+ * Android home screen. The live 5-tile sensor dashboard lives in [LiveActivity]; History and
+ * Settings are siblings. Adding a screen later is one more `labels`/`destinations` entry plus the
+ * new Activity. The two tables are instance fields (Home is created once) rather than statics: a
+ * `companion object` would be one more parsed class.
  */
 class HomeActivity : NavActivity() {
     private val labels = arrayOf("Live", "History", "Network", "Settings")
@@ -68,14 +69,8 @@ class HomeActivity : NavActivity() {
         root.addView(list)
         menu = list
 
-        installHintBar(root, "A:Up  B:Down  X:Open")
+        installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit")
 
         setContentView(root)
-    }
-
-    // Root hub: Back has nowhere to return to, so swallow it instead of finishing (which would exit
-    // the app). Deliberately does not call super.onBackPressed().
-    override fun onBackPressed() {
-        // no-op
     }
 }

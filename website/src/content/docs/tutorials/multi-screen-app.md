@@ -110,23 +110,21 @@ Three things here matter on embedded:
 - **`setContentView(root)` is mandatory.** Until you call it the Activity has no visible tree. It
   delegates to the `Display`, replacing whatever the previous screen showed.
 
-The second thing Home needs is a root-Back override. BACK's default behaviour is to `finish()` the
-top Activity — and Home *is* the only Activity in the stack when it's showing, so finishing it pops
-the last entry and exits the whole app. Swallow BACK at the root instead:
+The second thing to notice is what Home does *not* have: a BACK override. BACK's default behaviour
+is to `finish()` the top Activity — and Home *is* the only Activity in the stack when it's showing,
+so finishing it pops the last entry, which ends the app and returns to the launcher. That is the
+Android home-screen behaviour and the only way off a button board back to the launcher, so leave
+it alone:
 
 ```java
-  // This is the root Activity: the default onBackPressed would finish() it, popping the last stack
-  // entry and exiting the whole app. Swallow BACK instead (deliberately no super call).
-  @Override
-  public void onBackPressed() {
-    Log.i(TAG, "onBackPressed (ignored at root)");
-  }
+  // This is the root Activity, so no onBackPressed override: BACK runs the inherited finish(),
+  // popping the last stack entry, which ends the app and returns to the launcher, as on Android.
 }
 ```
 
-The key detail is the absence of a `super.onBackPressed()` call. The inherited `onBackPressed`
-finishes the Activity; by overriding it without calling super, Home consumes BACK and stays put. See
-[button navigation](/guides/button-navigation/) for how BACK is routed on hardware.
+You will see `onPause`, `onStop` and `onDestroy` in the log when you press BACK here, and then the
+launcher's own screen. See [button navigation](/guides/button-navigation/) for how BACK is routed on
+hardware.
 
 ## A stateful screen
 
