@@ -1,0 +1,115 @@
+# Board: PicoTouchKit — 52Pi EP-0172 "Pico Breadboard Kit Plus" carrier with a
+# Pimoroni Pico Plus 2 W (PIM726) in its socket.
+#
+# The carrier: a 3.5" 320x480 ST7796 panel on SPI0, a GT911 capacitive touch
+# controller on I2C0, and two push buttons. It also carries a WS2812 RGB LED
+# (GP12), a buzzer (GP13) and two plain LEDs (GP16, GP17) that no framework
+# code claims — apps drive the last three through Gpio and Pwm.
+#
+# The module: an RP2350B with 16 MB of flash and a Raspberry Pi RM2 radio. The
+# RM2 is a CYW43439 on the same four pins a Pico 2 W uses (WL_ON=GP23,
+# WL_D=GP24, WL_CS=GP25, WL_CLK=GP29, fixed in src/hal/rp/port/cyw43_configport.h),
+# so WiFi needs no board-specific pin work. None of those collide with the
+# carrier, which uses GP2-GP17 and nothing else.
+#
+# Two things this pairing cannot do, both properties of the hardware:
+#
+#  * The joystick is dead as an analog input. It is wired to the header's ADC0
+#    and ADC1 positions, which are GP26 and GP27 — pins that carry the ADC on a
+#    Pico but are digital-only on the RP2350B, whose converter sits on GP40-GP47
+#    and is not routed to the 40-pin header. Reading it needs jumpers.
+#  * The 8 MB of PSRAM on GP47 is unused. Enabling XIP PSRAM is designed but not
+#    built: docs/designs/psram-rp2350b-2026-09.md.
+mcu = "rp2350b"
+
+# Multi-app (docs/designs/multi-app-2026-09.md D1/D2). 16 MB of flash makes this
+# the roomiest board on the bench by a wide margin: the app region takes 10 MB
+# and LittleFS 4 MB, and the program image still keeps the same 2048 KB ceiling
+# the 4 MB RP2350 boards get. That last number is deliberate — handing the image
+# the leftover 10 MB would turn the flash gate in scripts/lib.sh into a formality
+# on this board while it stays a real constraint everywhere else.
+# FLASH 2048K @0x10000000 | FS_FLASH 4096K @0x10200000 | PAPK_FLASH 10240K @0x10600000
+max_installed_apps = 16
+app_region_kb = 10240
+fs_kb = 4096
+# picodroid.json (JSONObject/JSONArray, native node pool). On here for the same
+# reason as the other RP2350 boards: the program region has the room.
+has_json = true
+has_network = true
+network_type = "cyw43"
+# 320x480 across a 3.5" diagonal is 165 dpi. LVGL's default is 130, which would
+# under-scale every padding and font on a panel this dense.
+lv_dpi = 165
+
+# Deliberately no lv_mem_kb: the 64 KB default, the same as testbench_rp2350w.
+# LV_USE_STDLIB_MALLOC is LV_STDLIB_BUILTIN, so the pool is a static array in
+# .bss and every kilobyte comes straight off the core-0 main stack — the budget
+# that MAIN_STACK_FLOOR_BYTES guards and that the W boards' debug images
+# already faulted on once. Raise it only against a measured need, and re-check
+# the headroom the build prints.
+
+# Deliberately no [jvm] block. pico_enviro_mon_w is the only board that sets
+# one, and scripts/pre-commit keeps its clippy leg last because those keys are
+# rerun-if-env-changed inputs to jvm/build.rs — a second such board would double
+# the pico-jvm rebuilds in a full run for no measured gain.
+
+[display]
+driver = "st7796"
+spi_id = 0
+spi_freq = 62500000
+# No spi_sck/spi_mosi overrides: the carrier wires the panel to SPI0's own pads
+# (SCK=GP2, MOSI=GP3), which is what the HAL already defaults to.
+pin_dc = 6
+pin_cs = 5
+pin_rst = 7
+# pin_bl omitted — the carrier has no backlight control pin. The panel is lit
+# whenever the board is powered, and the GeeekPi reference firmware for this
+# kit drives no such pin either. build.rs emits PIN_BL = None and the display
+# facade's backlight calls become no-ops, so idle display sleep still blanks
+# the panel through DISPOFF; it just cannot also cut the light.
+width = 320
+height = 480
+# Portrait, BGR panel order. 0x48 is MX | BGR, which is what the vendor
+# firmware selects; landscape 480x320 is 0x28 with width and height swapped.
+madctl = 0x48
+band_height = 20
+scroll_limit = 30
+
+[touch]
+driver = "gt911"
+i2c_id = 0
+# The GT911 is not on I2C0's default pads (GP4/GP5, which this module routes to
+# its Qw/ST connector), so the bus is brought up with hal::rp::i2c::init_with_pins.
+i2c_sda = 8
+i2c_scl = 9
+# 0x5D is what the reset dance in the driver's init selects; the part answers on
+# 0x14 instead if INT is held high across the RST release.
+addr = 0x5D
+pin_int = 11
+pin_rst = 10
+
+# The carrier's two buttons. This is the first picodroid board with a
+# touchscreen and hardware buttons at once, so neither button drives focus
+# navigation — the finger does that. Both are system keys.
+#
+# BTN1 is BACK: pops an Activity, dismisses a dialog or the soft keyboard, and
+# exits the root Activity to the launcher.
+[[button]]
+pin = 15
+lv_key = "ESC"
+keycode = 4
+
+# BTN2 is HOME: always returns to the launcher, from any app, at any depth.
+# lv_key = "NONE" is what keeps it out of LVGL's focus ring — the keycode still
+# reaches Java, but the press injects nothing into the keypad indev, so HOME
+# cannot double as "activate the focused widget" the way ENTER would.
+[[button]]
+pin = 14
+lv_key = "NONE"
+keycode = 3
+
+# Background pool: 6144 rather than the 4096 default, which every multi-app
+# board needs. The settings app's Storage screen counts each package's data on
+# a worker and measured 4,088 B deep; 4 KB overflowed.
+[background_pool]
+stack_bytes = 6144

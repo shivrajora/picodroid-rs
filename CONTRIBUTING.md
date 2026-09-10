@@ -41,7 +41,7 @@ one-file Rust change adds `cargo fmt`, sim + RP2040 clippy, the RP2040 debug
 flash gate and the size ratchet. Editing anything under `scripts/` promotes the
 run to `--full`, since a script change can invalidate any lane's assumptions.
 
-**`--full`** runs every check unscoped: all five board clippy legs, the staged
+**`--full`** runs every check unscoped: all six board clippy legs, the staged
 `handle-table-32` and opt-in `mem-diag` legs, every firmware build, the test
 suite in both shrink modes, the Java and Kotlin conformance suites in the
 simulator, and the size ratchet on both boards.

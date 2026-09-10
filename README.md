@@ -139,7 +139,7 @@ picodroid-rs/
 │
 ├── platforms/
 │   └── rp/             # RP-family firmware crate (RP2040 + RP2350) — the binary
-│       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon / _w)
+│       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon / _w, pico_touch_kit)
 │       ├── mcus/       # Per-MCU linker scripts, FreeRTOS config, heap sizes
 │       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb transport, flash slot
 │

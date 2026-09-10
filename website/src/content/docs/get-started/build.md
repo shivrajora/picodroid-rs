@@ -118,6 +118,7 @@ Both scripts accept a `--board` flag. The default is `testbench_rp2350`.
 | `--board testbench_rp2350w` | RP2350 | Raspberry Pi Pico 2 W (adds WiFi via cyw43 + FreeRTOS+TCP; WiFi credentials are baked in at build time — see [WiFi & networking setup](/get-started/networking/)) |
 | `--board pico_enviro_mon` | RP2350 | Pico Enviro Mon (1.14" 240x135 ST7789, no touch) |
 | `--board pico_enviro_mon_w` | RP2350 | Pico Enviro Mon on a Pico 2 W — same wiring plus WiFi (credentials baked in at build time; see [WiFi & networking setup](/get-started/networking/)) |
+| `--board pico_touch_kit` | RP2350B | 52Pi EP-0172 carrier on a Pimoroni Pico Plus 2 W (3.5" 320x480 ST7796, GT911 capacitive touch, two buttons, WiFi, 16 MB flash) |
 
 ```bash
 # Build / flash for Pico (RP2040)

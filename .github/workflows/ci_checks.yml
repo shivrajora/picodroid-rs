@@ -111,6 +111,9 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w -- --deny=warnings
       # Pico Enviro Mon — only automated ARM compile of the sensor/has_buttons path
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon -- --deny=warnings
+      # Pico Touch Kit — the only automated compile of the ST7796, the GT911 and
+      # the I2C-touch path, and the only board on the rp2350b MCU descriptor
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit -- --deny=warnings
       # Simulator (host target)
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350,line-numbers -- --deny=warnings
       # Host tools (previously unlinted anywhere; a real bug hid in papk-info)

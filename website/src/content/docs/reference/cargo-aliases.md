@@ -20,6 +20,7 @@ scripts in `scripts/`.
 | `cargo b-testbench-rp2350` | `cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350` |
 | `cargo b-testbench-rp2350w` | `cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w` |
 | `cargo b-pico-enviro-mon` | `cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon` |
+| `cargo b-pico-touch-kit` | `cargo build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit` |
 | `cargo b-sim` | `cargo build -p picodroid --no-default-features --features sim,board-testbench-rp2350` (host target) |
 
 ## `r-*` variants

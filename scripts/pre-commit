@@ -11,7 +11,7 @@
 #                                 pushing or cutting a release.
 #
 # What the fast tier is allowed to skip is not a guess: .github/workflows/
-# ci_checks.yml already runs the five board clippy legs, rp2040+rp2350 in debug
+# ci_checks.yml already runs the six board clippy legs, rp2040+rp2350 in debug
 # and release, test.sh in both shrink modes, every example APK, both
 # formatters, and a 14-app sim smoke that includes all three langsuites. The
 # checks that exist ONLY here -- the shadow-twin and cfg-hygiene guards,
@@ -191,6 +191,7 @@ STAGES=(
   # last makes that one transition instead of two.
   "clippy_rp2350|arm8|full|rust|clippy (testbench_rp2350)"
   "clippy_rp2350w|arm8|full|rust|clippy (testbench_rp2350w)"
+  "clippy_touch_kit|arm8|full|rust|clippy (pico_touch_kit)"
   "clippy_enviro|arm8|full|rust|clippy (pico_enviro_mon)"
   "clippy_rp2350_ht32|arm8|full|rust|clippy (testbench_rp2350 + handle-table-32)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
@@ -494,6 +495,7 @@ clippy_board() {
 stage_clippy_rp2040()      { clippy_board testbench_rp2040; }
 stage_clippy_rp2350()      { clippy_board testbench_rp2350; }
 stage_clippy_rp2350w()     { clippy_board testbench_rp2350w; }
+stage_clippy_touch_kit()   { clippy_board pico_touch_kit; }
 stage_clippy_enviro()      { clippy_board pico_enviro_mon; }
 stage_clippy_enviro_w()    { clippy_board pico_enviro_mon_w; }
 

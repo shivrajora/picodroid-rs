@@ -568,32 +568,53 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 
 The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `crates/build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys.
 
-### `[display]` — display controller (ST7789 over SPI)
+### `[display]` — display controller over SPI
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `driver` | string | Documentation-only; the HAL hardcodes ST7789. |
+| `driver` | string | **Required.** The controller: `"st7789"` or `"st7796"`. Emits a `display_<driver>` cfg that selects the driver module and the concrete type in the family's display facade, so an unknown name fails the build rather than compiling the display out. |
 | `spi_id` | int | SPI peripheral ID (0 or 1). |
 | `spi_freq` | int | SPI clock in Hz (e.g. `62500000`). |
 | `spi_sck`, `spi_mosi`, `spi_miso` | int | Optional SPI pad overrides; default to the chip's SPI pins (e.g. SPI0 SCK=GP2/MOSI=GP3 on RP2350). The Enviro+ Pack uses these to route SPI0 to GP18/GP19. |
-| `pin_dc`, `pin_cs`, `pin_bl` | int | Data/command, chip-select, backlight GPIOs. |
+| `pin_dc`, `pin_cs` | int | Data/command and chip-select GPIOs. |
+| `pin_bl` | int | Backlight pin (optional; a module may light the panel from power, as the 52Pi EP-0172 does). Omitted, the driver's backlight calls become no-ops and idle sleep blanks the panel through DISPOFF alone. |
 | `pin_rst` | int | Reset pin (optional; some displays don't expose one). |
 | `width`, `height` | int | Panel dimensions in pixels (**required** when `[display]` is present). |
-| `madctl` | int (hex) | ST7789 memory-access-control register (controls rotation / mirroring). |
+| `madctl` | int (hex) | Memory-access-control register (controls rotation / mirroring). |
 | `band_height` | int | LVGL partial-render band in pixels (**required**). |
 | `scroll_limit` | int | LVGL scroll hysteresis threshold (**required**). |
 
 Omit the whole `[display]` section for a headless board; the build then falls back to safe 320×240 defaults and leaves `has_display` unset.
 
-### `[touch]` — touch controller (XPT2046 over SPI)
+### `[touch]` — touch controller
+
+`driver` decides which of the remaining keys the section owes, because the two
+supported controllers have almost nothing in common: the XPT2046 is a resistive
+ADC on the display's SPI bus that needs calibration bounds, the GT911 a
+capacitive controller on its own I2C bus that reports finished pixels. Naming
+one and supplying the other's keys fails the build.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `driver` | string | Currently only `"xpt2046"`. |
-| `spi_freq` | int | SPI clock in Hz. |
+| `driver` | string | **Required.** `"xpt2046"` or `"gt911"`. Emits a `touch_<driver>` cfg. |
+| `swap_xy` | bool | Transpose X/Y axes (for a panel mounted rotated relative to the display). Applies to both drivers. |
+
+XPT2046 only:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `spi_freq` | int | SPI clock in Hz. Shares `[display]`'s bus, switching frequency per transfer. |
 | `pin_cs`, `pin_irq`, `pin_miso` | int | Chip-select, pen-down IRQ, MISO GPIOs. |
 | `cal_x_min`, `cal_x_max`, `cal_y_min`, `cal_y_max` | int | Raw ADC bounds from touch calibration. |
-| `swap_xy` | bool | Transpose X/Y axes (for rotated panels). |
+
+GT911 only:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `i2c_id` | int | I2C peripheral ID (0 or 1). |
+| `i2c_sda`, `i2c_scl` | int | Optional I2C pad overrides, like the display's SPI pads; default to the chip's pins for that bus (I2C0 SDA=GP4/SCL=GP5 on RP2350). |
+| `addr` | int (hex) | 7-bit address, `0x5D` or `0x14`. The driver's reset drives INT to the level that makes the part take this one. |
+| `pin_int`, `pin_rst` | int | Interrupt and reset GPIOs. Both are driven as outputs for the reset that latches the address; INT is flipped to an input immediately afterwards, because the controller drives it from then on. |
 
 ### `[[sensor]]` — array of environmental sensors
 
@@ -610,8 +631,22 @@ Each entry here becomes a `Sensor` visible to [`SensorManager`](/api/sensors/).
 | Key | Type | Description |
 |-----|------|-------------|
 | `pin` | int | GPIO number. |
-| `lv_key` | string | One of `"PREV"`, `"NEXT"`, `"ENTER"`, `"ESC"` — drives LVGL focus navigation. |
+| `lv_key` | string | One of `"PREV"`, `"NEXT"`, `"ENTER"`, `"ESC"` — drives LVGL focus navigation — or `"NONE"`. |
 | `keycode` | int | Android `KeyEvent.KEYCODE_*` value delivered to Java listeners. |
+
+`lv_key = "NONE"` is the choice for a button that should reach Java but must
+not touch the focus ring: the keycode is queued as usual and nothing is
+injected into the LVGL keypad. That is what a system key needs, and what a
+board with a touchscreen wants for every button — the finger drives focus, so
+a button mapped to `ENTER` would fire the focused widget on its way past. The
+52Pi EP-0172 board uses it for its HOME button.
+
+`KEYCODE_HOME` (3) and `KEYCODE_BACK` (4) are handled by the framework before
+any app sees them. BACK dismisses the soft keyboard, then a showing dialog,
+then goes to the focused View's `OnKeyListener`, and finally to
+`Activity.onBackPressed` — an app can override that last step. HOME goes
+straight to the launcher on a multi-app board and cannot be intercepted at all,
+as on Android.
 
 Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
 

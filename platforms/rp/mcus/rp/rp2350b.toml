@@ -1,0 +1,65 @@
+# MCU: RP2350B (Cortex-M33, dual-core) — the 80-pin variant of the RP2350.
+#
+# Same die and same core as rp2350.toml: same clock, same 520 KB of SRAM, same
+# FreeRTOS port, same bootrom contract. Two things differ, and only one of them
+# is expressed here.
+#
+#  * Flash. The RP2350B carriers picodroid targets ship 16 MB rather than 4, and
+#    `flash_kb` is read only from this file — `build_support/flash_layout.rs`
+#    takes it from the MCU and never from board.toml — so a 16 MB board cannot
+#    be described without a descriptor of its own.
+#  * Pins. 48 GPIO instead of 30, with the ADC inputs on GP40-GP47 rather than
+#    GP26-GP29. Nothing here encodes that: the HAL addresses pads by number and
+#    every pin picodroid drives on this variant today is below GP30. A board
+#    that reaches GP32 or above needs the bank-1 registers in hal/rp/gpio.rs,
+#    input_pin.rs and spi/mod.rs, which are not written yet.
+#
+# The Cargo feature stays `chip-rp2350`: rp235x-hal covers both variants, and
+# the MCU descriptor name and the chip feature are resolved independently
+# (config.rs::resolve_active_mcu vs the board feature's forwarding list).
+family = "rp"
+target = "thumbv8m.main-none-eabihf"
+clock_hz = 150000000
+ram_kb = 520
+flash_kb = 16384
+core_count = 2
+# FreeRTOS heap arena (configTOTAL_HEAP_SIZE) — single source of truth.
+# Injected into the FreeRTOS C build AND the sim's default heap cap
+# (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
+#
+# 408 KB, the same as the A variant and for the same reason: the core-0 main
+# stack is whatever .data + .bss leave of the 520 KB, and the arena is most of
+# .bss. The extra flash buys nothing here — SRAM is unchanged — so the
+# MAIN_STACK_FLOOR_BYTES headroom check in scripts/lib.sh applies unaltered.
+heap_kb = 408
+size_tool = "arm-none-eabi-size"
+# Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the
+# network stack and the WiFi driver) compiles at -Os instead of following
+# cargo's OPT_LEVEL — see rp2350.toml for the measurement this came from.
+# Kept here even though this variant's program region is not flash-starved:
+# the two RP2350 descriptors should build their C identically, or a size
+# comparison between them measures the compiler rather than the code.
+c_opt_level = "s"
+freertos_port = "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure"
+pico_shim = "src/hal/rp/port/pico_shim_rp2350.c"
+
+# FreeRTOS C build knobs consumed by build_support/freertos.rs. Keys are
+# semicolon-separated lists; see freertos.rs for the schema.
+freertos_port_extra_includes = "src/hal/rp/port"
+freertos_c_defines = "LIB_PICO_MULTICORE=1;LIB_PICO_SYNC=0;LIB_PICO_TIME=0;configUSE_DYNAMIC_EXCEPTION_HANDLERS=0"
+# CMSIS vector slot -> portasm symbol aliases injected into the linker.
+freertos_vector_aliases = "SVCall=isr_svcall;PendSV=isr_pendsv;SysTick=isr_systick"
+# Section to place .init_array in (RP-specific quirk: FLASH keeps BSS clean
+# for UF2 converters). Leave unset on platforms that don't need this.
+init_array_segment = "FLASH"
+
+# Flash layout (build_support/flash_layout.rs): 16 MB, top-down from the end —
+# the app region, then LittleFS, the program image in front of them. These
+# defaults are the single-app geometry, matching rp2350.toml's role; a board
+# overrides fs_kb, app_region_kb and max_installed_apps for multi-app
+# (docs/designs/multi-app-2026-09.md D2), as pico_touch_kit does.
+flash_origin = 0x10000000
+ram_origin = 0x20000000
+fs_kb = 256
+app_region_kb = 1024
+max_installed_apps = 1

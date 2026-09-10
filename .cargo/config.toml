@@ -27,6 +27,7 @@ b-testbench-rp2040 = "build -p picodroid --target thumbv6m-none-eabi --no-defaul
 b-testbench-rp2350 = "build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 b-testbench-rp2350w = "build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 b-pico-enviro-mon = "build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
+b-pico-touch-kit = "build -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit"
 # Simulator (host target — no --target so cargo picks the host triple)
 b-sim = "build -p picodroid --no-default-features --features sim,board-testbench-rp2350"
 # Hardware run (probe-rs runner from the [target.*] blocks above)
@@ -34,6 +35,7 @@ r-testbench-rp2040 = "run -p picodroid --target thumbv6m-none-eabi --no-default-
 r-testbench-rp2350 = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350"
 r-testbench-rp2350w = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350w"
 r-pico-enviro-mon = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
+r-pico-touch-kit = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit"
 
 [env]
 DEFMT_LOG = "debug"

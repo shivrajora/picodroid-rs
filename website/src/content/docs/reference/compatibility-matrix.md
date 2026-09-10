@@ -43,7 +43,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | `ViewGroup` / `ViewPropertyAnimator` | Partial | `animate()` with `alpha`, `x/y`, `translationX/Y`, `rotation`, `scaleX/Y`, `setDuration`, `setStartDelay`, `setInterpolator` (the four built-in curves), `withEndAction` — to-only, as on Android. Rotation/scale render through an off-screen layer of the view's size; keep transformed views small. |
 | `MotionEvent` | Partial | `getX`/`getY` are **view-relative**, `getRawX`/`getRawY` are screen-absolute, matching Android. **Coordinates are `int`, not `float`** (no FPU). |
 | `GestureDetector` | Partial | `OnGestureListener` + `SimpleOnGestureListener`; slop/fling use raw coordinates. |
-| `KeyEvent` | Partial | D-pad / button codes for button-only boards. |
+| `KeyEvent` | Partial | D-pad / button codes, plus `KEYCODE_BACK` and `KEYCODE_HOME`. Both are handled by the framework before an app sees them: BACK falls through the soft keyboard, a showing dialog, the focused View and finally `onBackPressed`, which an app may override; HOME goes straight to the launcher and cannot be intercepted, as on Android. Which physical buttons exist is `board.toml`'s business. |
 | `LayoutInflater`, XML layouts, `Menu` | Unsupported | No resource/XML layout system — build View trees programmatically. |
 
 ### android.widget

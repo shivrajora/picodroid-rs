@@ -15,6 +15,7 @@ The MCU sets the ceiling. RAM and flash are the two scarce resources; everything
 | `testbench_rp2350` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
 | `testbench_rp2350w` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
 | `pico_enviro_mon` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 48 KiB |
+| `pico_touch_kit` | RP2350B (Cortex-M33) | 520 KB | 16 MB | 150 MHz | 2 | 408 KB | 64 KiB |
 
 Notes on the numbers:
 
