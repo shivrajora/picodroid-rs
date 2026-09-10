@@ -335,7 +335,8 @@ resolve_board() {
   # has no probe-rs support wired up here; callers must check before use.
   case "$mcu" in
     rp2040) PROBE_CHIP="RP2040" ;;
-    rp2350) PROBE_CHIP="RP235x" ;;
+    # probe-rs has one target for both RP2350 variants.
+    rp2350|rp2350b) PROBE_CHIP="RP235x" ;;
     *)      PROBE_CHIP="" ;;
   esac
 
@@ -357,16 +358,36 @@ toml_top_int() {
 }
 
 # Where the settings app's uninstall dialog puts its positive button, as
-# `x y` in display pixels for `input tap`: the dialog is a 200 px card
-# centred on the display (`lvgl/widgets/alert_dialog.rs`), its two 80 px
-# buttons side by side, so the positive one sits 40 px right of the centre
-# line — 160 on a 240 px board, 200 on the 320 px testbench. `y` is the
-# button row of the fixed one-line title and message.
+# `x y` in display pixels for `input tap`.
+#
+# The dialog is a 200x160 card centred on the display, with two 80 px buttons
+# side by side in a row 78 px down from the card's top edge
+# (`lvgl/widgets/alert_dialog.rs`: card_y = max((screen_h - 160) / 2, 8), the
+# flex column ends in a 50 px button row). So the positive button sits 40 px
+# right of the centre line and 78 px into the card — 160,118 on a 240x240
+# board, 200,118 on the 320x240 testbench, 200,238 on a 320x480 panel.
+#
+# Both coordinates are derived. `y` was a literal 118 until pico_touch_kit
+# arrived: every board with this lane was 240 px tall, so a constant and a
+# centred card were indistinguishable, and the constant taps the message text
+# on a 480 px panel.
 settings_dialog_ok() {
-  local board="$1" board_toml width
+  local board="$1" board_toml width height card_y
   board_toml=$(find "$REPO_ROOT/platforms" -path "*/boards/$board/board.toml" | head -1)
-  width=$(awk -F= '/^\[display\]/{d=1;next} /^\[/{d=0} d && $1 ~ /^width[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$board_toml" 2>/dev/null)
-  echo "$(( ${width:-240} / 2 + 40 )) 118"
+  width=$(display_dim "$board_toml" width)
+  height=$(display_dim "$board_toml" height)
+  card_y=$(( (${height:-240} - 160) / 2 ))
+  (( card_y < 8 )) && card_y=8
+  echo "$(( ${width:-240} / 2 + 40 )) $(( card_y + 78 ))"
+}
+
+# One `[display]` integer key from a board.toml, empty when absent.
+display_dim() {
+  awk -F= -v key="$2" '
+    /^\[display\]/ { d = 1; next }
+    /^\[/          { d = 0 }
+    d && $1 ~ "^" key "[[:space:]]*$" { gsub(/[[:space:]]/, "", $2); print $2; exit }
+  ' "$1" 2>/dev/null
 }
 
 # Export PICODROID_JVM_* env vars from board.toml's optional `[jvm]` section

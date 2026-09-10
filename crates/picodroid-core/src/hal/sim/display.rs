@@ -96,8 +96,16 @@ pub fn init() {
         return;
     }
 
+    // Double small panels so they are comfortable to look at, but only while
+    // the result still fits on an ordinary screen. The 240- and 320-pixel
+    // boards all double to at most 640x480; a 320x480 panel would become
+    // 640x960, taller than the usable height of most 1080p displays, and
+    // `ScaleMode` cannot rescue that — minifb's `Scale` is what sets the
+    // multiplier, and the window is simply that many pixels tall.
+    const MAX_SCALED_EDGE: u32 = 720;
+    let doubles = (WIDTH as u32) * 2 <= MAX_SCALED_EDGE && (HEIGHT as u32) * 2 <= MAX_SCALED_EDGE;
     let opts = WindowOptions {
-        scale: Scale::X2,
+        scale: if doubles { Scale::X2 } else { Scale::X1 },
         scale_mode: ScaleMode::AspectRatioStretch,
         ..WindowOptions::default()
     };
