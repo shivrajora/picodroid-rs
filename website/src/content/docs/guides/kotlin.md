@@ -5,7 +5,7 @@ description: "Writing Picodroid apps in Kotlin: toolchain, the supported subset,
 
 Picodroid apps can be written in Kotlin. Kotlin compiles to the same bytecode
 the JVM interpreter already runs; a small hand-written stdlib shim
-(`kotlin-shim/` in the repo) rides inside each Kotlin app's PAPK and supplies
+(`sdk/kotlin-shim/` in the repo) rides inside each Kotlin app's PAPK and supplies
 the `kotlin/**` entry points the compiler emits. Only the shim classes your app
 actually reaches ship — the strip step prunes the rest — so a minimal Kotlin
 app costs a few hundred bytes over its Java twin.
@@ -133,5 +133,5 @@ either way). When a new idiom misses:
   `scripts/gen-api-contract.sh`.
 - A runtime `NoSuchMethod` on a `kotlin/**` or `java/**` name that compiled
   fine means the class fell outside the fixture set — register the app in
-  `kotlin-shim/build.gradle.kts`'s `shimFixtures` so the contract check sees
+  `sdk/kotlin-shim/build.gradle.kts`'s `shimFixtures` so the contract check sees
   it.

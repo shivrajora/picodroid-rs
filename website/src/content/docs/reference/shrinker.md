@@ -419,7 +419,7 @@ the device is running.
   [debug-attribute strip](#debug-attribute-strip) removes annotations from
   what ships.
 - `kotlin/**` (glob): the hand-written stdlib shim that rides inside
-  Kotlin apps' PAPKs (`kotlin-shim/`). kotlinc-compiled app classes name
+  Kotlin apps' PAPKs (`sdk/kotlin-shim/`). kotlinc-compiled app classes name
   these classes literally, and maps are generated from the SDK set anyway,
   so this documents the invariant more than it enforces it.
 
@@ -458,7 +458,7 @@ cargo run -p class-shrink -- cut-release --members \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
   --contract sdk/api-contract.tsv \
-  --reserve kotlin-shim/build/classes/java/main \
+  --reserve sdk/kotlin-shim/build/classes/java/main \
   --base sdk/shrink-maps/v<previous>.toml \
   --version <new> \
   --out  sdk/shrink-maps/v<new>.toml

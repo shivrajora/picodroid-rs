@@ -200,7 +200,7 @@ find sdk/java -name '*.java' -print0 \
 
 ./gradlew :kotlin-shim:compileJava -q
 cargo run -p class-shrink -- cut-release --members \
-  --contract sdk/api-contract.tsv --reserve kotlin-shim/build/classes/java/main \
+  --contract sdk/api-contract.tsv --reserve sdk/kotlin-shim/build/classes/java/main \
   --version <new> \
   --classes-dir "$TMP" \
   --keep sdk/keep.toml \

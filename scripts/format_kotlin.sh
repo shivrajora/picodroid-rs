@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kotlin formatting gate (ktfmt, kotlinlang style) — the Kotlin twin of
-# format_java.sh. Covers examples/, kotlin-shim/ and tools/kotlin-survey/;
+# format_java.sh. Covers examples/, sdk/kotlin-shim/ and tools/kotlin-survey/;
 # buildSrc is deliberately out of scope, as it is for Java.
 set -e
 
@@ -36,7 +36,7 @@ MODE="${1:-check}"
 # into an array so an empty set is a no-op on both GNU and BSD userlands.
 FILES=()
 while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
-  find "$REPO_ROOT/examples" "$REPO_ROOT/kotlin-shim" "$REPO_ROOT/tools/kotlin-survey" \
+  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk/kotlin-shim" "$REPO_ROOT/tools/kotlin-survey" \
     -type d -name build -prune -o -name '*.kt' -print0
 )
 

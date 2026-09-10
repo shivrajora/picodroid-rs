@@ -116,7 +116,7 @@ classify_changes() {
     esac
     case "$f" in
       *.java|*.kt|*.kts|*.gradle|gradle.properties|gradle/*|gradlew*|\
-      sdk/*|examples/*|kotlin-shim/*|inject/*|buildSrc/*|bench/parity/ratchet.toml)
+      sdk/*|examples/*|buildSrc/*|bench/parity/ratchet.toml)
         BUCKET_JVM=1 ;;
     esac
     case "$f" in
