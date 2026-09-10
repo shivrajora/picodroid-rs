@@ -17,6 +17,9 @@ import picodroid.widget.TextView;
  * can tap row {@code n} at {@code y = 20 + 40 * n} with the header as row 0; a focusable row also
  * takes the keypad's select, and every row is focusable so a column longer than the screen can be
  * walked — and scrolled — with the buttons.
+ *
+ * <p>A screen builds its rows through {@link Column}, one per UI tick, never all of them inside
+ * {@code onCreate}: on the device a row is about 20 ms of LVGL work.
  */
 final class Screens {
   /** Row height in pixels, header included. */
@@ -29,7 +32,7 @@ final class Screens {
 
   private Screens() {}
 
-  /** A vertical column with no padding, so rows start at y = 0; sized by {@link #scrollable}. */
+  /** A vertical column with no padding, so rows start at y = 0; sized by {@link #size}. */
   static LinearLayout column(Activity a) {
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
@@ -41,49 +44,72 @@ final class Screens {
   /**
    * The column of {@code rows} rows (header included) in a full-screen ScrollView: a LinearLayout
    * does not scroll, as on Android, so this is what makes a long column reachable — by drag on a
-   * touch panel, and by the focus moving on a keypad.
+   * touch panel, and by the focus moving on a keypad. {@link #size} grows the column as rows land.
    */
   static View scrollable(Activity a, LinearLayout column, int rows) {
-    int width = a.getDisplay().getWidth();
-    int height = a.getDisplay().getHeight();
-    int content = rows * ROW_HEIGHT;
-    column.setSize(width, content > height ? content : height);
+    size(a, column, rows);
     ScrollView scroller = new ScrollView();
-    scroller.setSize(width, height);
+    scroller.setSize(a.getDisplay().getWidth(), a.getDisplay().getHeight());
     scroller.setPadding(0, 0, 0, 0);
     scroller.addView(column);
     return scroller;
   }
 
+  /** Size {@code column} to {@code rows} rows (header included), never less than the screen. */
+  static void size(Activity a, LinearLayout column, int rows) {
+    int width = a.getDisplay().getWidth();
+    int height = a.getDisplay().getHeight();
+    int content = rows * ROW_HEIGHT;
+    column.setSize(width, content > height ? content : height);
+  }
+
   /** The header row: the screen's title on a tinted band; a tap or select runs {@code onClick}. */
   static View header(Activity a, String title, View.OnClickListener onClick) {
-    View row = row(a, title, null, onClick);
+    View row = build(a, title, null, onClick);
     row.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
     return row;
   }
 
   /** A focusable row that runs {@code onClick} on a tap or the keypad's select. */
   static View row(Activity a, String label, View.OnClickListener onClick) {
-    return row(a, label, null, onClick);
+    return build(a, label, null, onClick);
+  }
+
+  /** {@link #row} with a {@code suffix} that always shows; the label is cut instead. */
+  static View row(Activity a, String label, String suffix, View.OnClickListener onClick) {
+    return build(a, label, tail(a, suffix), onClick);
   }
 
   /** A row of information: focusable, so the keypad can walk (and scroll) past it, but inert. */
   static View info(Activity a, String s) {
-    return row(a, s, null, null);
+    return build(a, s, null, null);
   }
 
   /** {@link #info} with a {@code suffix} that always shows; the label is cut instead. */
   static View info(Activity a, String label, String suffix) {
-    return row(a, label, suffix, null);
+    return build(a, label, tail(a, suffix), null);
+  }
+
+  /** {@link #info} whose suffix is {@code tail}, kept by the screen to fill in later. */
+  static View info(Activity a, String label, TextView tail) {
+    return build(a, label, tail, null);
+  }
+
+  /** A row's suffix: one line of text that always shows, the label being cut instead. */
+  static TextView tail(Activity a, String s) {
+    TextView t = new TextView();
+    t.setText(s);
+    t.setTextColor(Color.WHITE);
+    return t;
   }
 
   /**
-   * A row: {@code label} on one line, cut with an ellipsis when it does not fit, then {@code
-   * suffix} (a version, the storage numbers), which always shows. Focusable; {@code onClick} may be
-   * null. The row is a horizontal layout, so the label takes what the suffix leaves and both sit
-   * centred on the row's height.
+   * A row: {@code label} on one line, cut with an ellipsis when it does not fit, then {@code tail}
+   * (a version, the storage numbers), which always shows. Focusable; {@code tail} and {@code
+   * onClick} may be null. The row is a horizontal layout, so the label takes what the tail leaves
+   * and both sit centred on the row's height.
    */
-  static View row(Activity a, String label, String suffix, View.OnClickListener onClick) {
+  private static View build(Activity a, String label, TextView tail, View.OnClickListener onClick) {
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setSize(a.getDisplay().getWidth(), ROW_HEIGHT);
@@ -95,10 +121,7 @@ final class Screens {
     text.setSingleLine();
     text.setEllipsize(TextUtils.TruncateAt.END);
     row.addView(text, new LinearLayout.LayoutParams(0, View.WRAP_CONTENT, 1f));
-    if (suffix != null) {
-      TextView tail = new TextView();
-      tail.setText(suffix);
-      tail.setTextColor(Color.WHITE);
+    if (tail != null) {
       row.addView(tail);
     }
     row.setFocusable(true);

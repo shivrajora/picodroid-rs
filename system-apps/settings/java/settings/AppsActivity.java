@@ -10,7 +10,6 @@ import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
 import picodroid.view.View;
-import picodroid.widget.LinearLayout;
 
 /**
  * Apps: one row per installed app (system apps stay out; they cannot be uninstalled). A tap on a
@@ -20,59 +19,86 @@ import picodroid.widget.LinearLayout;
  * pinned.
  */
 public class AppsActivity extends Activity {
+  private Column column;
   /** Held so the rows stay reachable while their click listeners are live. */
   private View[] rows;
+  /** The installed apps in label order, and their labels, fetched once. */
+  private PackageInfo[] apps;
+  private String[] labels;
 
   @Override
   public void onCreate() {
     render();
   }
 
+  /** The screen from scratch: a new column, then the rows one per tick. */
   private void render() {
-    LinearLayout root = Screens.column(this);
-    root.addView(Screens.header(this, "< Apps", v -> finish()));
+    if (column != null) {
+      column.stop();
+    }
+    column = new Column(this, "< Apps", v -> finish());
+    column.fill(() -> list(), i -> row(i), () -> done());
+  }
+
+  /**
+   * The installed, non-system packages in label order — case-insensitively, as the launcher lists
+   * them (a dozen at most, so an insertion sort) — with one label fetch per package.
+   */
+  private void list() {
     PackageManager pm = getPackageManager();
-    PackageInfo[] all = sortedByLabel(pm, pm.getInstalledPackages(0));
-    rows = new View[all.length];
+    List<PackageInfo> installed = pm.getInstalledPackages(0);
+    PackageInfo[] sorted = new PackageInfo[installed.size()];
+    String[] sortedLabels = new String[installed.size()];
+    String[] keys = new String[installed.size()];
     int n = 0;
-    for (int i = 0; i < all.length; i++) {
-      PackageInfo info = all[i];
+    for (int i = 0; i < installed.size(); i++) {
+      PackageInfo info = installed.get(i);
       if ((info.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
         continue;
       }
-      final String pkg = info.packageName;
-      final String label = pm.getApplicationLabel(info.applicationInfo).toString();
-      View row = Screens.row(this, label, "  v" + info.versionName, v -> confirm(pkg, label));
-      root.addView(row);
-      rows[n] = row;
-      n++;
-    }
-    if (n == 0) {
-      root.addView(Screens.info(this, "No apps installed"));
-    } else {
-      rows[0].requestFocus();
-    }
-    setContentView(Screens.scrollable(this, root, 1 + (n == 0 ? 1 : n)));
-    Log.i(SettingsActivity.TAG, "apps " + n);
-  }
-
-  /** The packages in label order, case-insensitively, as the launcher lists them. */
-  private static PackageInfo[] sortedByLabel(PackageManager pm, List<PackageInfo> installed) {
-    PackageInfo[] out = new PackageInfo[installed.size()];
-    String[] labels = new String[installed.size()];
-    for (int i = 0; i < installed.size(); i++) {
-      PackageInfo info = installed.get(i);
-      String label = pm.getApplicationLabel(info.applicationInfo).toString().toLowerCase();
-      int j = i;
-      while (j > 0 && labels[j - 1].compareTo(label) > 0) {
-        out[j] = out[j - 1];
-        labels[j] = labels[j - 1];
+      String label = pm.getApplicationLabel(info.applicationInfo).toString();
+      String key = label.toLowerCase();
+      int j = n;
+      while (j > 0 && keys[j - 1].compareTo(key) > 0) {
+        sorted[j] = sorted[j - 1];
+        sortedLabels[j] = sortedLabels[j - 1];
+        keys[j] = keys[j - 1];
         j--;
       }
-      out[j] = info;
-      labels[j] = label;
+      sorted[j] = info;
+      sortedLabels[j] = label;
+      keys[j] = key;
+      n++;
     }
-    return out;
+    apps = new PackageInfo[n];
+    labels = new String[n];
+    rows = new View[n];
+    for (int i = 0; i < n; i++) {
+      apps[i] = sorted[i];
+      labels[i] = sortedLabels[i];
+    }
+  }
+
+  /** One row per app; "No apps installed" when there is none. */
+  private View row(int i) {
+    if (apps.length == 0) {
+      return i == 0 ? Screens.info(this, "No apps installed") : null;
+    }
+    if (i >= apps.length) {
+      return null;
+    }
+    final String pkg = apps[i].packageName;
+    final String label = labels[i];
+    rows[i] = Screens.row(this, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
+    return rows[i];
+  }
+
+  /** The rows are in: focus the first, and say how many — the harness keys on this line. */
+  private void done() {
+    if (apps.length > 0) {
+      rows[0].requestFocus();
+    }
+    Log.i(SettingsActivity.TAG, "apps " + apps.length);
   }
 
   private void confirm(final String pkg, String label) {
@@ -95,5 +121,11 @@ public class AppsActivity extends Activity {
     }
     // Rebuild once the dialog has closed, not from inside its click.
     Executors.mainExecutor().execute(() -> render());
+  }
+
+  @Override
+  public void onDestroy() {
+    column.stop();
+    super.onDestroy();
   }
 }

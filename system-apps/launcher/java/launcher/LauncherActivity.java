@@ -3,6 +3,7 @@ package launcher;
 
 import java.util.List;
 import picodroid.app.Activity;
+import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.pm.ApplicationInfo;
 import picodroid.content.pm.PackageInfo;
@@ -27,6 +28,10 @@ import picodroid.widget.TextView;
  * lists itself. Rows are {@link #ROW_HEIGHT} pixels tall from the top of the screen, so a test can
  * tap row 0 at a known point; more rows than the screen holds scroll — by drag on a touch panel,
  * and with the focus on a keypad.
+ *
+ * <p>The rows are built one per UI tick, not all inside {@code onCreate}: a row is about 20 ms of
+ * LVGL work on the device, and a whole list at once would hold the tick for that long times the
+ * number of apps. "ready" is logged once the last row is in.
  */
 public class LauncherActivity extends Activity {
   private static final String TAG = "Launcher";
@@ -39,8 +44,17 @@ public class LauncherActivity extends Activity {
   /** Tile color behind the first letter of an app that has no icon. */
   private static final int TILE_COLOR = 0xFF1F8A8A;
 
+  private LinearLayout root;
+
   /** Held here so the rows stay reachable while their click listeners are live. */
   private View[] rows;
+
+  /** The packages in display order, and their labels, fetched once. */
+  private PackageInfo[] order;
+
+  private String[] labels;
+  private int next;
+  private boolean stopped;
 
   @Override
   public void onCreate() {
@@ -49,17 +63,32 @@ public class LauncherActivity extends Activity {
     int height = getDisplay().getHeight();
 
     // A LinearLayout does not scroll (as on Android): the column sits in a ScrollView and is
-    // sized to its rows, so a long list is reachable on every board.
-    LinearLayout root = new LinearLayout();
+    // sized to its rows once they are all in, so a long list is reachable on every board.
+    root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
     root.setPadding(0, 0, 0, 0);
     root.setSpacing(0);
+    root.setSize(width, height);
+    ScrollView scroller = new ScrollView();
+    scroller.setSize(width, height);
+    scroller.setPadding(0, 0, 0, 0);
+    scroller.addView(root);
+    setContentView(scroller);
+    Executors.mainExecutor().execute(() -> list());
+  }
 
+  /** The packages in display order: installed apps by label, then the other system apps. */
+  private void list() {
+    if (stopped) {
+      return;
+    }
     PackageManager pm = getPackageManager();
     String self = getPackageName();
     List<PackageInfo> installed = pm.getInstalledPackages(0);
-    PackageInfo[] sorted = sortedByLabel(pm, installed);
-    rows = new View[sorted.length];
+    String[] sortedLabels = new String[installed.size()];
+    PackageInfo[] sorted = sortedByLabel(pm, installed, sortedLabels);
+    order = new PackageInfo[sorted.length];
+    labels = new String[sorted.length];
     int n = 0;
     // Pass 0 lists the installed apps, pass 1 the other system apps.
     for (int pass = 0; pass < 2; pass++) {
@@ -69,12 +98,30 @@ public class LauncherActivity extends Activity {
         if (system != (pass == 1) || info.packageName.equals(self)) {
           continue;
         }
-        View row = makeRow(pm, info, width);
-        root.addView(row);
-        rows[n] = row;
+        order[n] = info;
+        labels[n] = sortedLabels[i];
         n++;
       }
     }
+    rows = new View[n];
+    next = 0;
+    Executors.mainExecutor().execute(() -> addRow());
+  }
+
+  /** One row per tick; once the last is in, the list is ready. */
+  private void addRow() {
+    if (stopped) {
+      return;
+    }
+    int width = getDisplay().getWidth();
+    if (next < rows.length) {
+      rows[next] = makeRow(getPackageManager(), order[next], labels[next], width);
+      root.addView(rows[next]);
+      next++;
+      Executors.mainExecutor().execute(() -> addRow());
+      return;
+    }
+    int n = rows.length;
     if (n == 0) {
       TextView empty = new TextView();
       empty.setText("No apps installed. Use pdb install.");
@@ -83,41 +130,40 @@ public class LauncherActivity extends Activity {
     } else {
       rows[0].requestFocus();
     }
+    int height = getDisplay().getHeight();
     int contentHeight = (n == 0 ? 1 : n) * ROW_HEIGHT;
     root.setSize(width, contentHeight > height ? contentHeight : height);
-    ScrollView scroller = new ScrollView();
-    scroller.setSize(width, height);
-    scroller.setPadding(0, 0, 0, 0);
-    scroller.addView(root);
     Log.i(TAG, "ready: " + n + " apps");
-    setContentView(scroller);
   }
 
   /**
    * The packages in label order, case-insensitively as Android sorts app names (a dozen at most, so
-   * an insertion sort).
+   * an insertion sort); {@code labelsOut} gets the labels in the same order, fetched once each.
    */
-  private static PackageInfo[] sortedByLabel(PackageManager pm, List<PackageInfo> installed) {
+  private static PackageInfo[] sortedByLabel(
+      PackageManager pm, List<PackageInfo> installed, String[] labelsOut) {
     PackageInfo[] out = new PackageInfo[installed.size()];
-    String[] labels = new String[installed.size()];
+    String[] keys = new String[installed.size()];
     for (int i = 0; i < installed.size(); i++) {
       PackageInfo info = installed.get(i);
-      String label = pm.getApplicationLabel(info.applicationInfo).toString().toLowerCase();
+      String label = pm.getApplicationLabel(info.applicationInfo).toString();
+      String key = label.toLowerCase();
       int j = i;
-      while (j > 0 && labels[j - 1].compareTo(label) > 0) {
+      while (j > 0 && keys[j - 1].compareTo(key) > 0) {
         out[j] = out[j - 1];
-        labels[j] = labels[j - 1];
+        labelsOut[j] = labelsOut[j - 1];
+        keys[j] = keys[j - 1];
         j--;
       }
       out[j] = info;
-      labels[j] = label;
+      labelsOut[j] = label;
+      keys[j] = key;
     }
     return out;
   }
 
-  private View makeRow(PackageManager pm, PackageInfo info, int width) {
+  private View makeRow(PackageManager pm, PackageInfo info, String label, int width) {
     final String pkg = info.packageName;
-    String label = pm.getApplicationLabel(info.applicationInfo).toString();
 
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
@@ -163,5 +209,11 @@ public class LauncherActivity extends Activity {
   @Override
   public void onBackPressed() {
     // Home: there is nothing to go back to.
+  }
+
+  @Override
+  public void onDestroy() {
+    stopped = true;
+    super.onDestroy();
   }
 }

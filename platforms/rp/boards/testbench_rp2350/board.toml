@@ -38,3 +38,12 @@ cal_x_max = 185
 cal_y_min = 110
 cal_y_max = 1950
 swap_xy = true
+
+# A pool worker that runs a native from a couple of Java calls deep needs more
+# than the 4 KB default: the settings app's Storage screen, which counts every
+# package's data on a worker (a few directory listings through the fs task),
+# measured 4,088 B deep — a 4 KB stack overflowed. 6 KB leaves 33 % headroom,
+# the same size the Enviro W runs its NTP/weather job on; the heap cost is
+# +2 KB x 4 workers = 8 KB, out of the FreeRTOS arena, not the image.
+[background_pool]
+stack_bytes = 6144
