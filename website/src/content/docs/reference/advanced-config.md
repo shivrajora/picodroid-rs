@@ -7,7 +7,7 @@ Most builds work without touching anything below — these files are here when y
 
 ## `lv_conf.h`
 
-LVGL is vendored in `third_party/lvgl/` and configured via [`picodroid-core/lvgl/lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/lvgl/lv_conf.h), which sits next to the other C configs that crate owns (`freertos-host/FreeRTOSConfig.h`, `net-freertos-tcp/FreeRTOSIPConfig.h`). It overrides selected upstream defaults:
+LVGL is vendored in `third_party/lvgl/` and configured via [`crates/picodroid-core/lvgl/lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/lvgl/lv_conf.h), which sits next to the other C configs that crate owns (`freertos-host/FreeRTOSConfig.h`, `net-freertos-tcp/FreeRTOSIPConfig.h`). It overrides selected upstream defaults:
 
 | Symbol | Picodroid value | Why |
 |---|---|---|

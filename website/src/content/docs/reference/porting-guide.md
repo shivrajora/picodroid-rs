@@ -14,11 +14,11 @@ Chip-specific code lives under `platforms/<family>/`, one cargo crate per
 family. Everything that does not know what chip it is running on — the JVM
 natives, the widget set, the LVGL engine, the lifecycle, the simulator, the
 debug bridge protocol, the installer, the filesystem — lives in
-`picodroid-core/`. The boundary between them is a set of Rust traits and
+`crates/picodroid-core/`. The boundary between them is a set of Rust traits and
 macros a family implements, bound at link time.
 
 ```text
-picodroid-core/           # everything shared, including the simulator
+crates/picodroid-core/    # everything shared, including the simulator
   src/porting.rs          # the checklist: re-exports every seam item
   src/hal/                # HAL CONTRACT v2 traits, facade, set_hal_*! macros
   src/hal/sim/            # the simulator (shared, never copied per family)
@@ -69,13 +69,13 @@ every registry guard for free.
 
 ### Do not copy `hal/sim/`
 
-The simulator lives in `picodroid-core/src/hal/sim/` and is shared by every
+The simulator lives in `crates/picodroid-core/src/hal/sim/` and is shared by every
 family. Your `src/hal/mod.rs` routes to it in simulator and test builds (see
 [HAL dispatch](#hal-dispatch)); you write no simulator code. An earlier
 revision of this guide said to copy it; the ESP32-S3 scaffold did, grew
 seventeen stub modules that drifted from the originals, and was removed.
 `scripts/pre-commit` now fails if any path exists under both
-`platforms/*/src` and `picodroid-core/src`, apart from four allowlisted seam
+`platforms/*/src` and `crates/picodroid-core/src`, apart from four allowlisted seam
 pairs (`gc_root_registration.rs`, `hal/mod.rs`, `pdb/mod.rs`, `fs/mod.rs`),
 each of which is one name for two ends of one seam, not a copy.
 
@@ -193,7 +193,7 @@ them), `native_heap_stats` (what the memory monitor prints), and
 native module holding Java references writes an empty body, which is a
 decision, where a default would let the question go unasked. Keep your own
 `gc_root_registration.rs` with an `EXPECTED_PROVIDERS` constant (probably
-`0`), include the shared `test_support/gc_root_scan.rs` guard as the RP file
+`0`), include the shared `crates/test_support/gc_root_scan.rs` guard as the RP file
 does, and assert at boot that `gc_roots::provider_count()` equals core's
 `EXPECTED_PROVIDERS` plus yours — a real `assert!`, because device builds
 compile `debug_assert!` out.
@@ -331,7 +331,7 @@ checklist. `platforms/rp/src/boot_tasks.rs` is the reference:
 ### `build.rs`
 
 Copy `platforms/rp/build.rs` and change the family-specific middle. It
-`#[path]`-includes the shared `build_support/{config,board_cfg,boards,
+`#[path]`-includes the shared `crates/build_support/{config,board_cfg,boards,
 freertos,network,papk,jvm_defaults}.rs` and must call, in order:
 `board_cfg::resolve`, `boards::emit_board_imports`, your memory-layout and
 kernel build, `board_cfg::emit_neutral(out, &board, Pins::Owned)`,
@@ -377,7 +377,7 @@ and you write only the link driver for your chip. Design:
   Register it: `picodroid_core::set_hal_net!(picodroid_core::hal::freertos_tcp::FreeRtosTcpNet);`
 - `run_link_task` — the bring-up every link needs, in order: driver init,
   MAC, IP stack start, bring-up, then the service loop.
-- `picodroid-core/net-freertos-tcp/` — the shared C: `net_init.c` (stack
+- `crates/picodroid-core/net-freertos-tcp/` — the shared C: `net_init.c` (stack
   start and the five FreeRTOS+TCP application hooks), `libc_str.c`, and the
   shared `FreeRTOSIPConfig.h` policy. Your `build.rs` compiles it, because
   it must see your `FreeRTOSConfig.h`.
@@ -488,7 +488,7 @@ nrf52840-hal = { version = "...", optional = true }
 1. **Memory layout**: emit a `memory.x` from `build.rs` and select it based
    on the active MCU. The RP family generates its layout at build time via
    `boards::place_memory_x` rather than committing a file.
-2. **FreeRTOS port**: `build_support/freertos.rs` compiles the kernel from
+2. **FreeRTOS port**: `crates/build_support/freertos.rs` compiles the kernel from
    the keys in your `mcus/<family>/<chip>.toml` (`freertos_port`,
    `pico_shim`, `freertos_port_extra_includes`, `freertos_c_defines`,
    `freertos_vector_aliases`, `init_array_segment`); populate the keys, no
@@ -566,7 +566,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `app_data_cap_kb` | int | no | Most one app's `/data/<package>` may hold, in the framework's 4 KB-block accounting (default a quarter of `fs_kb`; `0` lifts the cap). Enforced on multi-app boards. |
 | `linker_script` | string | no | Path to a linker script used verbatim, `MEMORY` block and all (by default the `MEMORY` block is generated from the flash layout above and the MCU's `mcus/<family>/<mcu>.x` supplies only its `SECTIONS`). |
 
-The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys.
+The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `crates/build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys.
 
 ### `[display]` — display controller (ST7789 over SPI)
 

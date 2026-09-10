@@ -45,11 +45,11 @@ mod tests {
     const CLASSES_PATH: &str = "sdk/class-names.tsv";
     const UPDATE_MEMBERS: &str = "PICODROID_UPDATE_MEMBER_NAMES";
     const UPDATE_CLASSES: &str = "PICODROID_UPDATE_CLASS_NAMES";
-    const COMMITTED_MEMBERS: &str = include_str!("../../../sdk/member-names.tsv");
-    const COMMITTED_CLASSES: &str = include_str!("../../../sdk/class-names.tsv");
+    const COMMITTED_MEMBERS: &str = include_str!("../../../../sdk/member-names.tsv");
+    const COMMITTED_CLASSES: &str = include_str!("../../../../sdk/class-names.tsv");
 
     fn repo_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
 
     fn utf8(cf: &ClassFile, idx: u16) -> String {
@@ -235,8 +235,8 @@ mod tests {
     fn runtime_sources() -> Vec<(PathBuf, String)> {
         let root = repo_root();
         let mut files = Vec::new();
-        rs_files(&root.join("jvm/src"), &mut files);
-        rs_files(&root.join("picodroid-core/src"), &mut files);
+        rs_files(&root.join("crates/jvm/src"), &mut files);
+        rs_files(&root.join("crates/picodroid-core/src"), &mut files);
         // Original-name tables and generators, test-only by construction.
         let exempt = ["method_tables.rs", "api_contract.rs", "member_names.rs"];
         files

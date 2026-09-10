@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn porting_guide_names_every_seam() {
         let guide = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../website/src/content/docs/reference/porting-guide.md");
+            .join("../../website/src/content/docs/reference/porting-guide.md");
         let text = std::fs::read_to_string(&guide)
             .unwrap_or_else(|e| panic!("read {}: {e}", guide.display()));
         let missing = names_missing_from(&text, &seam_items());

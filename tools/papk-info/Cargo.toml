@@ -10,4 +10,4 @@ name = "papk-info"
 path = "src/main.rs"
 
 [dependencies]
-papk-format = { path = "../../papk-format" }
+papk-format = { path = "../../crates/papk-format" }

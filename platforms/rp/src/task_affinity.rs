@@ -109,7 +109,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../test_support/source_scan.rs"]
+#[path = "../../../crates/test_support/source_scan.rs"]
 mod source_scan;
 
 /// Source scan — see the module docs for what it enforces and why it reads

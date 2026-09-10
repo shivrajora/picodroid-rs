@@ -24,7 +24,7 @@ Apps are written in Java, compiled to bytecode, and interpreted by a lightweight
 |-------|-----------|
 | Hardware | Raspberry Pi Pico (RP2040, dual Cortex-M0+ @ 125 MHz), Pico 2 (RP2350, dual Cortex-M33 @ 150 MHz), or Pico 2 W (RP2350 + CYW43439 WiFi) |
 | RTOS | FreeRTOS SMP — both cores active (via [freertos-rust](https://github.com/shivrajora/FreeRTOS-rust)) |
-| Runtime | Custom JVM interpreter in Rust (`jvm/` library crate) |
+| Runtime | Custom JVM interpreter in Rust (`crates/jvm/` library crate) |
 | Java API | Android-compatible: `picodroid.util.Log`, `picodroid.widget.*` (LVGL-backed UI — incl. `Toast` / `AlertDialog` / `Keyboard`), `picodroid.view.{KeyEvent, GestureDetector, ViewPropertyAnimator}`, `picodroid.graphics.{Theme, drawable.GradientDrawable}`, `picodroid.app.Activity` (full lifecycle + back stack), `picodroid.io` (LittleFS files), `picodroid.content.SharedPreferences`, `picodroid.net` (TCP/UDP + `HttpURLConnection` over WiFi on Pico 2 W), `picodroid.hardware.SensorManager` (BME688), `picodroid.concurrent.Thread` / `Executors`, etc. |
 | Logging | [defmt](https://defmt.ferrous-systems.com/) over RTT |
 
@@ -42,7 +42,7 @@ graph TD
         CORE1["flash parker · cyw43 WiFi (Pico 2 W)<br/><i>core 1</i>"]
     end
 
-    subgraph JVM["JVM Interpreter (jvm/ crate)"]
+    subgraph JVM["JVM Interpreter (crates/jvm/ crate)"]
         BC["Java bytecode<br/>.papk app"]
         NATIVE["Native dispatch<br/>GPIO / UART / I2C / SPI / Log / Display / Net / FS (LittleFS)"]
         THREADS["Thread.start()<br/>child tasks (core 0)"]
@@ -118,44 +118,60 @@ The full docs are published at **<https://shivrajora.github.io/picodroid-rs/>** 
 
 ## Project Structure
 
+Three rules place every directory: `crates/` holds the Rust libraries,
+`platforms/` the firmware binaries, `tools/` the host binaries, and `sdk/`
+everything an app's build compiles against.
+
 ```text
 picodroid-rs/
-├── jvm/                # JVM interpreter — reusable library crate (pico-jvm)
-│   └── src/            # no_std + alloc only; no hardware dependencies
-│
-├── picodroid-core/     # Family-neutral framework crate: JVM natives, lifecycle,
-│   └── src/            # graphics, networking, drivers, install, host-simulator HAL,
-│                       # and porting.rs: the checklist a new MCU family implements
+├── crates/             # Rust libraries — no binaries, no board knowledge below picodroid-core
+│   ├── crates/jvm/            # JVM interpreter (pico-jvm); no_std + alloc only, no hardware deps
+│   ├── crates/picodroid-core/ # Family-neutral framework: JVM natives, lifecycle, graphics,
+│   │                   # networking, drivers, install, host-simulator HAL, and porting.rs
+│   │                   # (the checklist a new MCU family implements). Owns the C configs it
+│   │                   # compiles: lvgl/lv_conf.h, freertos-host/, net-freertos-tcp/
+│   ├── crates/papk-format/    # PAPK container format — single source of truth (firmware + tools)
+│   ├── crates/pdb-protocol/   # PDB wire format shared by firmware, simulator, and the pdb CLI
+│   ├── crates/compat/         # PAPK ↔ firmware framework-map-version compatibility check
+│   ├── crates/build_support/  # Shared build-script logic (boards, FreeRTOS, LVGL, network, PAPK
+│   │                   # embed), #[path]-included by the three build.rs files
+│   └── crates/test_support/   # Source-scan guards shared by the core and platform test suites
 │
 ├── platforms/
-│   └── rp/             # RP-family firmware crate (RP2040 + RP2350)
+│   └── rp/             # RP-family firmware crate (RP2040 + RP2350) — the binary
 │       ├── boards/     # Board configs (testbench_rp2040 / _rp2350 / _rp2350w, pico_enviro_mon / _w)
 │       ├── mcus/       # Per-MCU linker scripts, FreeRTOS config, heap sizes
 │       └── src/        # Boot tasks, RP HAL (hal/rp/ + port/ C shims), pdb transport, flash slot
 │
-├── sdk/                # Android-compatible Java API (picodroid.*)
-│   ├── java/           # Framework Java sources (compiled into firmware Flash)
+├── tools/              # Host binaries
+│   ├── papk-pack/      # Packages compiled .class files into a .papk file
+│   ├── papk-info/      # Inspects .papk contents (manifest, classes, sizes)
+│   ├── class-shrink/   # Class/member-name shrinker — release maps, per-app maps, retrace
+│   ├── pdb/            # Pushes apps, injects input, monitors device health
+│   └── kotlin-survey/  # Standalone Gradle build: what kotlinc emits for a picodroid app
+│
+├── sdk/                # Everything an app build consumes
+│   ├── java/           # Android-compatible Java API (picodroid.*), compiled into firmware Flash
+│   ├── kotlin-shim/    # kotlin/** stdlib shim packed into Kotlin apps' PAPKs (:kotlin-shim)
+│   ├── inject/         # javax.inject annotations + the annotation processor (:inject:*)
+│   ├── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
 │   ├── keep.toml       # Shrinker keep list
 │   ├── *.tsv           # Generated name lists behind the runtime's c::/m::/d:: constants
-│   └── shrink-maps/    # Immutable per-release shrink maps (v<semver>.toml)
+│   └── PicodroidManifest.xsd   # Manifest schema, for editors (the build validates in Kotlin)
 │
 ├── examples/           # Example apps (Java or Kotlin sources + a PicodroidManifest.xml)
+├── system-apps/        # Apps linked into every multi-app firmware: the launcher, settings
 │
-├── papk-format/        # PAPK container format — single source of truth (firmware + tools)
-├── pdb-protocol/       # PDB wire format shared by firmware, simulator, and the pdb CLI
-├── compat/             # PAPK ↔ firmware framework-map-version compatibility check
+├── buildSrc/           # Gradle convention plugins: PAPK packing, shrinking, contract checks
+├── gradle/  gradlew    # Gradle wrapper
 │
-├── tools/
-│   ├── papk-pack/      # Host tool: packages compiled .class files into a .papk file
-│   ├── papk-info/      # Host tool: inspect .papk file contents (manifest, classes, sizes)
-│   ├── class-shrink/   # Host tool: class/member-name shrinker — release maps, per-app maps, retrace
-│   └── pdb/            # Host tool: push apps, inject input, and monitor device health
-│
-├── build_support/      # Shared build-script logic (boards, FreeRTOS, network, PAPK embed)
-├── scripts/            # Build, flash, sim, pdb, test, HIL, and pre-commit scripts
-├── website/            # Astro Starlight documentation site
+├── scripts/            # Build, flash, sim, pdb, test, HIL and pre-commit scripts
+│                       # (lint-md/ is the markdownlint npm project)
+├── bench/parity/       # Benchmark history and the committed flash/RAM size ratchet
 ├── docs/               # Engineering docs: designs, audits, dated bug records
-└── third_party/        # All third-party code: submodules (FreeRTOS-Kernel, LVGL, FreeRTOS+TCP, cyw43-driver fork), littlefs fork, formatter JARs
+├── website/            # Astro Starlight documentation site — the user-facing manual
+└── third_party/        # All third-party code: submodules (FreeRTOS-Kernel, LVGL, FreeRTOS+TCP,
+                        # cyw43-driver fork), littlefs fork, formatter JARs
 ```
 
 ## Attribution

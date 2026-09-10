@@ -902,7 +902,7 @@ mod tests {
     //! the Rust constants we depend on still match.
     use super::*;
 
-    const LV_EVENT_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_event.h");
+    const LV_EVENT_HEADER: &str = include_str!("../../../third_party/lvgl/src/misc/lv_event.h");
 
     /// Extract the ordinal of `name` from the `lv_event_code_t` enum body.
     /// Returns `None` if the enum or the name is missing.
@@ -987,24 +987,25 @@ mod tests {
     //    LV_GRAD_DIR_*, LV_SCROLLBAR_MODE_*): tiny enums whose upstream
     //    reshuffling is near-inconceivable relative to parse maintenance.
 
-    const LV_GROUP_HEADER: &str = include_str!("../../third_party/lvgl/src/core/lv_group.h");
+    const LV_GROUP_HEADER: &str = include_str!("../../../third_party/lvgl/src/core/lv_group.h");
     const LV_OBJ_STYLE_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/core/lv_obj_style.h");
-    const LV_OBJ_HEADER: &str = include_str!("../../third_party/lvgl/src/core/lv_obj.h");
-    const LV_COLOR_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_color.h");
-    const LV_AREA_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_area.h");
-    const LV_FLEX_HEADER: &str = include_str!("../../third_party/lvgl/src/layouts/flex/lv_flex.h");
+        include_str!("../../../third_party/lvgl/src/core/lv_obj_style.h");
+    const LV_OBJ_HEADER: &str = include_str!("../../../third_party/lvgl/src/core/lv_obj.h");
+    const LV_COLOR_HEADER: &str = include_str!("../../../third_party/lvgl/src/misc/lv_color.h");
+    const LV_AREA_HEADER: &str = include_str!("../../../third_party/lvgl/src/misc/lv_area.h");
+    const LV_FLEX_HEADER: &str =
+        include_str!("../../../third_party/lvgl/src/layouts/flex/lv_flex.h");
     const LV_BTNMATRIX_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.h");
+        include_str!("../../../third_party/lvgl/src/widgets/buttonmatrix/lv_buttonmatrix.h");
     const LV_IMAGE_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/widgets/image/lv_image.h");
+        include_str!("../../../third_party/lvgl/src/widgets/image/lv_image.h");
     const LV_IMAGE_DSC_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/draw/lv_image_dsc.h");
+        include_str!("../../../third_party/lvgl/src/draw/lv_image_dsc.h");
     const LV_DRAW_RECT_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/draw/lv_draw_rect.h");
-    const LV_STYLE_HEADER: &str = include_str!("../../third_party/lvgl/src/misc/lv_style.h");
+        include_str!("../../../third_party/lvgl/src/draw/lv_draw_rect.h");
+    const LV_STYLE_HEADER: &str = include_str!("../../../third_party/lvgl/src/misc/lv_style.h");
     const LV_LABEL_HEADER: &str =
-        include_str!("../../third_party/lvgl/src/widgets/label/lv_label.h");
+        include_str!("../../../third_party/lvgl/src/widgets/label/lv_label.h");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the

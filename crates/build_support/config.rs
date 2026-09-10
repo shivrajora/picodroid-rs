@@ -35,20 +35,24 @@ pub struct BoardConfig {
     pub jvm: Option<HashMap<String, String>>,
 }
 
-/// The repository root, found from a crate's manifest directory by walking
-/// up to the directory that holds `build_support/`. A crate one level down
-/// (`picodroid-core`) and one two levels down (`platforms/<family>`) resolve
-/// it the same way, and a family placed anywhere under `platforms/` needs no
-/// hand-counted `.parent()` chain.
+/// The repository root, found from a crate's manifest directory by walking up
+/// to the one directory that is both the cargo workspace root and the Gradle
+/// root. Crates at any depth (`crates/<lib>`, `platforms/<family>`, `tools/<t>`)
+/// resolve it the same way, with no hand-counted `.parent()` chain.
+///
+/// The marker is the pair, not either file alone: `platforms/rp` has a
+/// `Cargo.toml` of its own and `tools/kotlin-survey` has its own
+/// `settings.gradle.kts`, but only the root has both.
 pub fn repo_root(manifest_dir: &Path) -> PathBuf {
     let mut dir = manifest_dir;
     loop {
-        if dir.join("build_support").is_dir() {
+        if dir.join("Cargo.toml").is_file() && dir.join("settings.gradle.kts").is_file() {
             return dir.to_path_buf();
         }
         dir = dir.parent().unwrap_or_else(|| {
             panic!(
-                "no build_support/ directory above {} — is this crate inside the repo?",
+                "no directory above {} holds both Cargo.toml and \
+                 settings.gradle.kts — is this crate inside the repo?",
                 manifest_dir.display()
             )
         });
@@ -339,18 +343,20 @@ fn resolve_active_board_with(has_board: impl Fn(&str) -> bool) -> Option<String>
 /// then every `platforms/<family>/boards/` in the repo.
 ///
 /// `manifest_dir` is the calling crate's `CARGO_MANIFEST_DIR`. Platform
-/// crates (`platforms/rp`) match on the first arm; crates that sit one level
-/// below the repo root (`picodroid-core`) match on the second. This is what
-/// lets a shared crate's build script read the same `board.toml` the active
-/// platform crate is building against, without env vars or duplicated data.
+/// crates (`platforms/rp`) match on the first arm; every other crate
+/// (`crates/picodroid-core`) matches on the second, which searches from the
+/// repo root rather than from the caller's parent. This is what lets a shared
+/// crate's build script read the same `board.toml` the active platform crate
+/// is building against, without env vars or duplicated data.
 pub fn find_board_dir(manifest_dir: &Path, name: &str) -> Option<PathBuf> {
     let local = manifest_dir.join("boards").join(name);
     if local.is_dir() {
         return Some(local);
     }
-    // <manifest>/../platforms/*/boards/<name> — e.g. picodroid-core reaching
-    // platforms/rp/boards/testbench_rp2350.
-    let platforms = manifest_dir.parent()?.join("platforms");
+    // <repo root>/platforms/*/boards/<name> — e.g. crates/picodroid-core
+    // reaching platforms/rp/boards/testbench_rp2350. Anchored at the root, not
+    // at the caller's parent, so the caller's depth does not matter.
+    let platforms = repo_root(manifest_dir).join("platforms");
     let mut entries: Vec<PathBuf> = fs::read_dir(platforms)
         .ok()?
         .flatten()

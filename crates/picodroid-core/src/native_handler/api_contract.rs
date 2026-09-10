@@ -226,7 +226,7 @@ mod tests {
     /// Repo-relative path of the generated file.
     const CONTRACT_PATH: &str = "sdk/api-contract.tsv";
     /// The committed copy, baked in so a stale file fails `cargo test`.
-    const COMMITTED: &str = include_str!("../../../sdk/api-contract.tsv");
+    const COMMITTED: &str = include_str!("../../../../sdk/api-contract.tsv");
     /// Env var that makes `api_contract_is_current` rewrite the file.
     const UPDATE_VAR: &str = "PICODROID_UPDATE_API_CONTRACT";
     /// JVMS §4.6 `ACC_PRIVATE`.
@@ -555,7 +555,7 @@ mod tests {
         }
         if std::env::var(UPDATE_VAR).as_deref() == Ok("1") {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
+                .join("../..")
                 .join(CONTRACT_PATH);
             std::fs::write(&path, &contract.text)
                 .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));

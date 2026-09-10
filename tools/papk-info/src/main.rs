@@ -406,9 +406,9 @@ mod tests {
     //    papk-format golden fixtures) ─────────────────────────────────────────
 
     static MINIMAL_FIXTURE: &[u8] =
-        include_bytes!("../../../papk-format/tests/fixtures/minimal.papk");
+        include_bytes!("../../../crates/papk-format/tests/fixtures/minimal.papk");
     static WITH_ASSETS_FIXTURE: &[u8] =
-        include_bytes!("../../../papk-format/tests/fixtures/with-assets.papk");
+        include_bytes!("../../../crates/papk-format/tests/fixtures/with-assets.papk");
 
     #[test]
     fn class_shortfall_is_an_error_not_a_short_table() {

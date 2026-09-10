@@ -2,7 +2,7 @@
 
 ## Two-crate layout
 
-Family-neutral framework code lives in `picodroid-core/` (JVM natives, lifecycle, graphics, networking, sim HAL); family-specific code lives in `platforms/rp/`. Never create a file at the same relative path in both `src` trees — the pre-commit shadow-twin guard rejects it. When moving code between them, move it; don't copy.
+Family-neutral framework code lives in `crates/picodroid-core/` (JVM natives, lifecycle, graphics, networking, sim HAL); family-specific code lives in `platforms/rp/`. Never create a file at the same relative path in both `src` trees — the pre-commit shadow-twin guard rejects it. When moving code between them, move it; don't copy.
 
 ## Project Goal
 

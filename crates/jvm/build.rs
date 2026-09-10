@@ -21,13 +21,13 @@ mod jvm_defaults;
 // The shrink-map readers, shared with `tools/class-shrink` by inclusion so
 // this crate takes no build-dependency on a path crate (see `emit_java_names`).
 #[allow(dead_code)]
-#[path = "../tools/class-shrink/src/mapping.rs"]
+#[path = "../../tools/class-shrink/src/mapping.rs"]
 mod cs_mapping;
 #[allow(dead_code)]
-#[path = "../tools/class-shrink/src/rename.rs"]
+#[path = "../../tools/class-shrink/src/rename.rs"]
 mod cs_rename;
 #[allow(dead_code)]
-#[path = "../tools/class-shrink/src/version.rs"]
+#[path = "../../tools/class-shrink/src/version.rs"]
 mod cs_version;
 #[allow(dead_code)]
 #[path = "../build_support/names.rs"]
@@ -137,7 +137,7 @@ fn read_env_u32(name: &str, spec: &jvm_defaults::JvmTunable) -> u32 {
 /// build of this crate still compiles.
 fn emit_names(out_dir: &Path) {
     println!("cargo:rerun-if-env-changed=PICODROID_SHRINK");
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let maps_dir = root.join("sdk").join("shrink-maps");
     let cargo_toml = {
         let rp = root.join("platforms/rp/Cargo.toml");
@@ -152,6 +152,15 @@ fn emit_names(out_dir: &Path) {
 
     let mut map: Option<cs_mapping::ShrinkMap> = None;
     let shrink_on = env::var("PICODROID_SHRINK").as_deref() == Ok("1");
+    // The fallback below is silent by design (a standalone build of this crate
+    // still compiles), which would also hide a wrong number of `..` above. When
+    // the caller asked for a shrink, insist the directory is really there.
+    assert!(
+        !shrink_on || maps_dir.is_dir(),
+        "PICODROID_SHRINK=1 but {} does not exist — the climb from this crate \
+         to the repo root is wrong",
+        maps_dir.display()
+    );
     if shrink_on && maps_dir.is_dir() {
         if let Ok(pkg) = cs_version::read_picodroid_version(&cargo_toml) {
             let active = cs_version::resolve_active_version(&pkg, &maps_dir);

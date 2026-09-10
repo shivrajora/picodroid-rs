@@ -43,7 +43,7 @@ mod names;
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    // The repo root is where gradlew, sdk/, build_support/ and Cargo.toml
+    // The repo root is where gradlew, sdk/, crates/ and Cargo.toml
     // are; `config::repo_root` finds it the same way for every crate.
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = &config::repo_root(&manifest_dir);

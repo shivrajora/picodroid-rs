@@ -109,7 +109,7 @@ classify_changes() {
     any=1
     # `case` globs match `/` too, so a bare *.rs covers every depth.
     case "$f" in
-      *.rs|*Cargo.toml|*Cargo.lock|.cargo/config.toml|build_support/*|\
+      *.rs|*Cargo.toml|*Cargo.lock|.cargo/config.toml|crates/build_support/*|\
       platforms/*.toml|platforms/*.h|platforms/*.x|third_party/*|\
       rust-toolchain*|.gitmodules)
         BUCKET_RUST=1 ;;
@@ -321,12 +321,12 @@ stage_twins() {
   local twins
   twins=$({ comm -12 \
       <(cd "$REPO_ROOT/platforms/rp/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
-      <(cd "$REPO_ROOT/picodroid-core/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
+      <(cd "$REPO_ROOT/crates/picodroid-core/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
     | grep -Ev "$twin_allow" || true; })
   [[ -z "$twins" ]] && return 0
   echo ""
   echo "ERROR: these paths exist under BOTH platforms/rp/src and"
-  echo "       picodroid-core/src:"
+  echo "       crates/picodroid-core/src:"
   echo "$twins" | sed 's/^/         /'
   echo ""
   echo "       A file left behind by a move is a shadow twin: both copies"
@@ -359,10 +359,10 @@ stage_cfg_gates() {
   # this check is supposed to accept.
   local gates
   gates=$({ grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true; } | wc -l | tr -d ' ')
+    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true; } | wc -l | tr -d ' ')
   [[ "$gates" == "0" ]] && return 0
   grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/picodroid-core/src" || true
+    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true
   echo ""
   echo "ERROR: expected 0 'not(feature = \"family-rp\")' cfg gates,"
   echo "       found $gates. Sim builds activate family-rp, so this"

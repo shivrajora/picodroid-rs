@@ -37,7 +37,7 @@ Each one is a pure board-vs-board policy choice. The defaults match what the ori
 
 ## How values reach the binary
 
-The JVM crate is `no_std` and cannot read `board.toml` directly, so values flow through environment variables that `jvm/build.rs` snapshots at compile time. The two platform-side knobs take a shorter path because `platforms/rp/build.rs` already parses `board.toml`.
+The JVM crate is `no_std` and cannot read `board.toml` directly, so values flow through environment variables that `crates/jvm/build.rs` snapshots at compile time. The two platform-side knobs take a shorter path because `platforms/rp/build.rs` already parses `board.toml`.
 
 ```
 board.toml [jvm]
@@ -50,9 +50,9 @@ board.toml [jvm]
         │  PICODROID_JVM_SLOT_CHUNK_SHIFT
         │  PICODROID_JVM_INLINE_ARRAY_DATA
         │       │
-        │       │  jvm/build.rs (validates ranges)
+        │       │  crates/jvm/build.rs (validates ranges)
         │       ▼
-        │  $OUT_DIR/tunables.rs   ───►  jvm/src/tunables.rs   ───►  pub const at use site
+        │  $OUT_DIR/tunables.rs   ───►  crates/jvm/src/tunables.rs   ───►  pub const at use site
         │
         └─ Platform-side (2 knobs)
                 │
@@ -61,7 +61,7 @@ board.toml [jvm]
            $OUT_DIR/jvm_state_config.rs   ───►   state.rs   ───►   pub const at use site
 ```
 
-Both paths end at a `pub const`. Constants are inlined; no value is ever stored in RAM, and no runtime indirection happens at the use site. A `cargo:rerun-if-env-changed=PICODROID_JVM_*` directive in `jvm/build.rs` re-compiles when you switch boards mid-session.
+Both paths end at a `pub const`. Constants are inlined; no value is ever stored in RAM, and no runtime indirection happens at the use site. A `cargo:rerun-if-env-changed=PICODROID_JVM_*` directive in `crates/jvm/build.rs` re-compiles when you switch boards mid-session.
 
 When you invoke `cargo build` directly (without `./scripts/sim.sh` / `flash.sh`), the wrapper scripts don't run and the env vars are unset. In that case the JVM picks the documented defaults — the same values you would get from a board with no `[jvm]` block.
 
@@ -121,10 +121,10 @@ Doubles two fixed-size buffers in the platform native handler. Each entry is sma
 
 ## Limits and pitfalls
 
-- **Out-of-range values fail the build.** Both `jvm/build.rs` and `platforms/rp/build.rs::emit_jvm_config` validate against the declared range and `panic!` with a clear citation. The accepted bounds are designed so that even the extremes are safe — the upper bound on `gc_alloc_threshold` (8192) does not OOM any board the project has tested, and the lower bound on `slot_chunk_shift` (3 = 8-slot chunks) does not measurably slow index math.
-- **`const_assert`s in `jvm/src/tunables.rs` are a second line of defence** against a corrupted generated file. They fire at type-check time with a clear message.
+- **Out-of-range values fail the build.** Both `crates/jvm/build.rs` and `platforms/rp/build.rs::emit_jvm_config` validate against the declared range and `panic!` with a clear citation. The accepted bounds are designed so that even the extremes are safe — the upper bound on `gc_alloc_threshold` (8192) does not OOM any board the project has tested, and the lower bound on `slot_chunk_shift` (3 = 8-slot chunks) does not measurably slow index math.
+- **`const_assert`s in `crates/jvm/src/tunables.rs` are a second line of defence** against a corrupted generated file. They fire at type-check time with a clear message.
 - **Direct `cargo build` skips the script bridge.** If you're not using `./scripts/sim.sh` or `./scripts/flash.sh`, the `PICODROID_JVM_*` env vars are unset and the JVM picks defaults. Either export them yourself or stick with the wrapper scripts.
-- **Cache invalidation is automatic.** `cargo:rerun-if-env-changed` directives in `jvm/build.rs` mean a board switch (different env values exported by the wrapper script) re-compiles just the affected crates.
+- **Cache invalidation is automatic.** `cargo:rerun-if-env-changed` directives in `crates/jvm/build.rs` mean a board switch (different env values exported by the wrapper script) re-compiles just the affected crates.
 - **One knob at a time.** Interaction effects exist — e.g. lowering `gc_alloc_threshold` while also lowering `slot_chunk_shift` overweights memory at the cost of CPU. Tune one, measure, then move on.
 - **Activity-stack and pending-op caps are not Java-visible errors.** Enqueue overflows return `false` and are logged but do not throw a `RuntimeException`. The defaults are conservative on purpose; if your UI legitimately needs more depth, raise these explicitly.
 
@@ -132,7 +132,7 @@ Doubles two fixed-size buffers in the platform native handler. Each entry is sma
 
 - [`[background_pool]`](/reference/porting-guide/#background_pool--optional-thread-pool-tuning) — adjacent thread-pool tuning in the same `board.toml` schema.
 - [`perfbench`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/perfbench) — the speed + memory composite-score benchmark used in the tuning workflow.
-- [`jvm/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/jvm/build.rs) — env-var reader for the three JVM-side knobs.
+- [`crates/jvm/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/jvm/build.rs) — env-var reader for the three JVM-side knobs.
 - [`platforms/rp/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/build.rs) — `emit_jvm_config` for the two platform-side knobs.
 - [`scripts/lib.sh`](https://github.com/shivrajora/picodroid-rs/blob/main/scripts/lib.sh) — `apply_jvm_env` shell-side bridge from `board.toml` to environment.
 - [Porting guide](/reference/porting-guide/) — full `board.toml` schema, MCU contract.

@@ -56,9 +56,9 @@ sim = ["picodroid-core/sim", "dep:freertos-rust"]
 [dependencies]
 # No `compat` / `pdb-protocol` here: this crate names neither. Both still
 # reach the binary through picodroid-core, which does use them.
-picodroid-core = { path = "../../picodroid-core", features = ["littlefs", "freertos-tcp"] }
-pico-jvm = { path = "../../jvm" }
-papk-format = { path = "../../papk-format" }
+picodroid-core = { path = "../../crates/picodroid-core", features = ["littlefs", "freertos-tcp"] }
+pico-jvm = { path = "../../crates/jvm" }
+papk-format = { path = "../../crates/papk-format" }
 embedded-hal = { version = "1.0.0" }
 defmt = "1"
 # Still direct: `fs/storage.rs` implements `littlefs_rust::Storage` for the
@@ -83,7 +83,7 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 # so the feature has to be asked for explicitly here — otherwise
 # `picodroid_core::hal::sim` simply does not exist in the test build.
 [dev-dependencies]
-picodroid-core = { path = "../../picodroid-core", features = ["sim"] }
+picodroid-core = { path = "../../crates/picodroid-core", features = ["sim"] }
 
 # Host-side FreeRTOS, for the simulator. Same fork, same version and same
 # package as the ARM declaration above, so host and device drive one set of
@@ -101,7 +101,7 @@ freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = tr
 # Used to compile FreeRTOS-Kernel C source directly
 cc = "1.0"
 freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd" }
-papk-format = { path = "../../papk-format" }
+papk-format = { path = "../../crates/papk-format" }
 # Shrinker library (host-only). Applied to framework .class files whenever a
 # committed shrink map covers the current picodroid package version.
 class-shrink = { path = "../../tools/class-shrink" }

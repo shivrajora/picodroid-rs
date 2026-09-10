@@ -83,7 +83,7 @@ mod hal_rp_cyw43_config_guard_tests;
 // and board tomls plus the rendered MEMORY block, pinned against the linker
 // scripts it replaced.
 #[cfg(test)]
-#[path = "../../../build_support/flash_layout.rs"]
+#[path = "../../../crates/build_support/flash_layout.rs"]
 mod build_support_flash_layout_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.

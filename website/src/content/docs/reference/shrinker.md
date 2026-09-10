@@ -42,7 +42,7 @@ firmware: every name a PAPK-at-version-P refers to is still present in
 firmware-at-version-F ≥ P.
 
 PAPK compatibility is enforced at load time
-([papk-format/src/lib.rs](https://github.com/shivrajora/picodroid-rs/blob/main/papk-format/src/lib.rs) `verify_compat`): a PAPK with a map
+([crates/papk-format/src/lib.rs](https://github.com/shivrajora/picodroid-rs/blob/main/crates/papk-format/src/lib.rs) `verify_compat`): a PAPK with a map
 version greater than the firmware's is rejected with
 `PapkError::FrameworkVersionMismatch`.
 
@@ -338,8 +338,8 @@ Two things to keep in mind:
 ## Native dispatch — every name generated
 
 Rust never spells a Java class, member or descriptor as a string literal.
-`build_support/names.rs` — run by both `jvm/build.rs` and
-`picodroid-core/build.rs` — turns three committed lists into three
+`crates/build_support/names.rs` — run by both `crates/jvm/build.rs` and
+`crates/picodroid-core/build.rs` — turns three committed lists into three
 `const` modules whose *values* are whatever the loaded framework spells:
 
 | Module | Source | Example | no-shrink | `--shrink` |
@@ -348,8 +348,8 @@ Rust never spells a Java class, member or descriptor as a string literal.
 | `m::` | `sdk/member-names.tsv` + the contract's members | `m::setValue` | `"setValue"` | `"uQ"` |
 | `d::` | `sdk/descriptors.tsv` | `d::String__V` | `"(Ljava/lang/String;)V"` | `"(Lb/AQ;)V"` |
 
-Every `(class, method)` match arm in `picodroid-core/src/native_handler/**`
-and `jvm/src/native/**`, every `DISPATCH_SITES` row, every
+Every `(class, method)` match arm in `crates/picodroid-core/src/native_handler/**`
+and `crates/jvm/src/native/**`, every `DISPATCH_SITES` row, every
 `PICODROID_NATIVE_CLASSES` / `BUILTIN_CLASS_NAMES` entry, every `catch`
 and `instanceof` table, and every Rust-side allocation goes through them:
 
@@ -476,7 +476,7 @@ up the new map automatically.
 - `sdk/shrink-maps/v*.toml` — one file per release, immutable.
 - `sdk/class-names.tsv`, `sdk/member-names.tsv`, `sdk/descriptors.tsv` —
   the inputs of the generated `c::` / `m::` / `d::` constants.
-- `picodroid-core/src/shrink_names.rs` and `jvm/src/names.rs` — one-line
+- `crates/picodroid-core/src/shrink_names.rs` and `crates/jvm/src/names.rs` — one-line
   modules that `include!` the generated `names.rs` from each crate's
   `OUT_DIR`.
 
@@ -487,7 +487,7 @@ Always emitted:
 - `framework_mapping_version.rs` — `pub const FRAMEWORK_MAP_VERSION: &str = "…";`
   (`"0.0.0"` when shrinking is off).
 - `names.rs` — the `c::` / `m::` / `d::` constant modules
-  (`build_support/names.rs`), spelled through the active map; original
+  (`crates/build_support/names.rs`), spelled through the active map; original
   spellings when shrinking is off. Plus test-only reverse translators.
 - `framework_classes.rs` — `pub static FRAMEWORK_CLASSES: &[&[u8]] = &[…];`
   pointing at (shrunk or raw) class files, plus
@@ -531,7 +531,7 @@ the device:
    for `framework-map-version`, compare to the firmware's version learned
    from the new PING greeting, and exit with a clear error if `compat::check`
    rejects.
-2. **Device-side check** in [picodroid-core/src/install/orchestrator.rs](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/src/install/orchestrator.rs):
+2. **Device-side check** in [crates/picodroid-core/src/install/orchestrator.rs](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/install/orchestrator.rs):
    after stopping the JVM but before erasing flash, peek the first
    `INSTALL_PEEK_BYTES` (512) of the PAPK off the wire, run `compat::check`,
    and reply `STATUS_INCOMPAT` on mismatch. The host inlines those bytes

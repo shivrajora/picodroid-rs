@@ -12,32 +12,32 @@
 //! one generator, two OUT_DIRs. Only pin-bearing artifacts and the C builds
 //! are emitted here. See `docs/designs/shared-core-extraction.md` §3.D.
 
-#[path = "../../build_support/config.rs"]
+#[path = "../../crates/build_support/config.rs"]
 mod config;
 
-#[path = "../../build_support/board_cfg.rs"]
+#[path = "../../crates/build_support/board_cfg.rs"]
 mod board_cfg;
 
-#[path = "../../build_support/boards.rs"]
+#[path = "../../crates/build_support/boards.rs"]
 mod boards;
 
-#[path = "../../build_support/flash_layout.rs"]
+#[path = "../../crates/build_support/flash_layout.rs"]
 mod flash_layout;
 
-#[path = "../../build_support/freertos.rs"]
+#[path = "../../crates/build_support/freertos.rs"]
 mod freertos;
 
 // No `mod lvgl`: LVGL's C sources are compiled by picodroid-core/build.rs,
 // and the resulting static lib reaches this binary through the dependency.
 // See the note at the bottom of `main`.
 
-#[path = "../../build_support/network.rs"]
+#[path = "../../crates/build_support/network.rs"]
 mod network;
 
-#[path = "../../build_support/papk.rs"]
+#[path = "../../crates/build_support/papk.rs"]
 mod papk;
 
-#[path = "../../build_support/jvm_defaults.rs"]
+#[path = "../../crates/build_support/jvm_defaults.rs"]
 mod jvm_defaults;
 
 use std::env;

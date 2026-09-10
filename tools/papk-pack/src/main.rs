@@ -896,7 +896,7 @@ mod pack_integration {
     fn packing_the_fixture_class_yields_a_parseable_papk() {
         let fixtures = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../papk-format/tests/fixtures"
+            "/../../crates/papk-format/tests/fixtures"
         ));
         let class_bytes = fs::read(fixtures.join("Main.class")).expect("fixture Main.class");
 
@@ -999,7 +999,7 @@ mod pack_integration {
     fn repack_rewrites_identity_and_copies_sections() {
         let fixtures = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../papk-format/tests/fixtures"
+            "/../../crates/papk-format/tests/fixtures"
         ));
         let class_bytes = fs::read(fixtures.join("Main.class")).expect("fixture Main.class");
         let work = std::env::temp_dir().join(format!("papk-pack-rp-{}", std::process::id()));

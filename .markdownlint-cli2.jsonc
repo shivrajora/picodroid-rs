@@ -6,8 +6,8 @@
     "CONTRIBUTING.md",
     "LICENSING.md",
     "CLA.md",
-    "jvm/README.md",
-    "compat/README.md",
+    "crates/jvm/README.md",
+    "crates/compat/README.md",
     "tools/*/README.md",
     "sdk/shrink-maps/README.md"
   ],

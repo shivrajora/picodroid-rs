@@ -4,7 +4,7 @@
 //! Two builders, both family-neutral (docs/designs/network-seam-2026-09.md):
 //!
 //! - [`build_freertos_tcp`] compiles the vendored FreeRTOS+TCP plus the shared
-//!   stack glue in `picodroid-core/net-freertos-tcp/` plus whatever link-driver
+//!   stack glue in `crates/picodroid-core/net-freertos-tcp/` plus whatever link-driver
 //!   sources the family lists in [`NetStackBuild`]. It never names a chip.
 //! - [`build_cyw43_driver`] compiles the vendored cyw43 driver with the
 //!   family's port file; a family whose `network_type` is `cyw43` calls it
@@ -28,7 +28,7 @@ const KERNEL_SUBMODULE: &str = "third_party/FreeRTOS-Kernel";
 /// Where the shared stack glue lives (`net_init.c`, `libc_str.c`,
 /// `FreeRTOSIPConfig.h`).
 pub fn shared_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("picodroid-core/net-freertos-tcp")
+    repo_root.join("crates/picodroid-core/net-freertos-tcp")
 }
 
 /// Map optional `net_*` board.toml keys to FreeRTOSIPConfig.h override
@@ -121,7 +121,7 @@ pub fn build_freertos_tcp(b: &NetStackBuild<'_>) {
     let stale = Path::new(b.family_port_dir).join("FreeRTOSIPConfig.h");
     assert!(
         !stale.exists(),
-        "{} exists: FreeRTOSIPConfig.h is shared (picodroid-core/net-freertos-tcp); \
+        "{} exists: FreeRTOSIPConfig.h is shared (crates/picodroid-core/net-freertos-tcp); \
          the family ships FreeRTOSIPConfig_family.h only",
         stale.display()
     );
