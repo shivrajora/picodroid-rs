@@ -11,9 +11,11 @@
 //! sector. That is at most `region / 4 KB` header reads (384 on rp2350),
 //! sub-millisecond from XIP, plus one manifest parse per run.
 //!
-//! Entries hold no strings: name, label and versions are re-read from the
-//! image on demand, which keeps the static at ~24 bytes an entry on a chip
-//! whose image leaves ~18 KB of RAM.
+//! An entry keeps the manifest's package name, version, label and icon as
+//! slices into the image — read once when the entry is made, never copied —
+//! so a lookup by name or a `PackageManager` query is a field read, not a
+//! manifest parse from XIP flash. That is ~60 bytes an entry on a chip whose
+//! image leaves ~18 KB of RAM.
 //!
 //! # Who writes
 //!
@@ -28,7 +30,7 @@ use core::cell::UnsafeCell;
 use papk_format::flash_image::{
     is_committed, parse_header, FLAG_BOOT_DEFAULT, META_READ_LEN, META_SIZE,
 };
-use papk_format::{keys, Papk};
+use papk_format::Papk;
 
 use crate::board_cfg::flash::BOOT_PACKAGE;
 use crate::board_cfg::system_apks::{BOOT_APP, BOOT_LAUNCHER, LAUNCHER_PACKAGE};
@@ -42,7 +44,8 @@ pub use crate::board_cfg::flash::MAX_INSTALLED_APPS;
 pub const SECTOR: usize = META_SIZE;
 /// System apps (M2) the directory holds beside the installed ones.
 pub const SYSTEM_MAX: usize = 2;
-const CAPACITY: usize = MAX_INSTALLED_APPS + SYSTEM_MAX;
+/// Slots in the directory: the installed apps and the system apps.
+pub const CAPACITY: usize = MAX_INSTALLED_APPS + SYSTEM_MAX;
 /// Stale runs a scan can remember for [`cleanup`]; more than this on one
 /// boot would take several interrupted installs in a row.
 const STALE_MAX: usize = 4;
@@ -66,35 +69,63 @@ pub struct Entry {
     pub flags: u32,
     pub seq: u32,
     pub kind: Kind,
+    // The manifest, read once: slices into `image`, so they are right for
+    // exactly as long as the entry is — a rescan makes new entries.
+    name: &'static str,
+    version: &'static str,
+    version_code: u32,
+    label: Option<&'static str>,
+    icon: Option<&'static str>,
 }
 
 impl Entry {
-    fn papk(&self) -> Option<Papk<'static>> {
-        Papk::parse(self.image).ok()
+    /// An entry for `image`, with its manifest read; `None` when the image
+    /// is not a PAPK or names no package.
+    fn new(
+        image: &'static [u8],
+        first_sector: u16,
+        sectors: u16,
+        flags: u32,
+        seq: u32,
+        kind: Kind,
+    ) -> Option<Entry> {
+        let papk = Papk::parse(image).ok()?;
+        let name = papk.package_name()?;
+        Some(Entry {
+            image,
+            first_sector,
+            sectors,
+            flags,
+            seq,
+            kind,
+            name,
+            version: papk.version().unwrap_or("?"),
+            version_code: papk.version_code().unwrap_or(1),
+            label: papk.label(),
+            icon: papk.icon(),
+        })
     }
 
     pub fn package(&self) -> &'static str {
-        self.papk().and_then(|p| p.package_name()).unwrap_or("?")
+        self.name
     }
 
     /// The display name; the package name when the manifest sets none.
     pub fn label(&self) -> &'static str {
-        self.papk()
-            .and_then(|p| p.label())
-            .unwrap_or_else(|| self.package())
+        self.label.unwrap_or(self.name)
     }
 
     pub fn version(&self) -> &'static str {
-        self.papk().and_then(|p| p.version()).unwrap_or("?")
+        self.version
     }
 
     /// `version-code`, 1 when the manifest predates the key.
     pub fn version_code(&self) -> u32 {
-        self.papk().and_then(|p| p.version_code()).unwrap_or(1)
+        self.version_code
     }
 
     pub fn icon(&self) -> Option<&'static str> {
-        self.papk().and_then(|p| p.icon())
+        self.icon
     }
 
     pub fn size(&self) -> usize {
@@ -238,28 +269,29 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         }
         let image =
             unsafe { core::slice::from_raw_parts(sector_ptr.add(META_SIZE), meta.len as usize) };
-        if papk_format::validate_structure(image).is_err()
-            || papk_format::find_manifest_value(image, keys::PACKAGE_NAME).is_none()
-        {
+        let entry = if papk_format::validate_structure(image).is_ok() {
+            Entry::new(
+                image,
+                s as u16,
+                span as u16,
+                meta.flags,
+                meta.seq,
+                Kind::App,
+            )
+        } else {
+            None
+        };
+        let Some(entry) = entry else {
             // A header over garbage: step past the header only, so a real
             // run that happens to start inside the claimed span is still found.
             s += 1;
             continue;
-        }
-        insert(
-            d,
-            Entry {
-                image,
-                first_sector: s as u16,
-                sectors: span as u16,
-                flags: meta.flags,
-                seq: meta.seq,
-                kind: Kind::App,
-            },
-        );
+        };
+        insert(d, entry);
         s += span;
     }
     log_directory(d);
+    bump_directory_generation();
 }
 
 fn note_stale(d: &mut Dir, first: u32, sectors: u32) {
@@ -417,13 +449,8 @@ pub fn register_system(images: &[&'static [u8]]) {
             );
             continue;
         }
-        let entry = Entry {
-            image,
-            first_sector: 0,
-            sectors: 0,
-            flags: 0,
-            seq: 0,
-            kind: Kind::System,
+        let Some(entry) = Entry::new(image, 0, 0, 0, 0, Kind::System) else {
+            continue; // parsed above: unreachable
         };
         match d.entries.iter().position(|e| e.is_none()) {
             Some(i) => {
@@ -433,6 +460,7 @@ pub fn register_system(images: &[&'static [u8]]) {
             None => crate::pd_warn!("[packages] directory full: system app {} skipped", package),
         }
     }
+    bump_directory_generation();
 }
 
 /// The launcher: the system app named `LAUNCHER_PACKAGE`, when linked in.
@@ -457,6 +485,17 @@ pub fn find(package: &str) -> Option<&'static Entry> {
 
 pub fn is_system(package: &str) -> bool {
     matches!(find(package), Some(e) if e.kind == Kind::System)
+}
+
+/// The slot `package` occupies in the directory's array — what a per-slot
+/// cache indexes. A rescan repacks the array, so a slot is only good for
+/// one [`directory_generation`].
+#[cfg(has_multi_app)]
+pub fn slot_of(package: &str) -> Option<usize> {
+    dir()
+        .entries
+        .iter()
+        .position(|e| matches!(e, Some(e) if e.package() == package))
 }
 
 pub fn installed_count() -> u32 {
@@ -578,6 +617,23 @@ pub fn run_generation() -> u32 {
     RUN_GENERATION.load(core::sync::atomic::Ordering::Acquire)
 }
 
+/// Moves with every change to the slots — a rescan, a system registration —
+/// so a cache indexed by slot knows when its rows may point elsewhere.
+static DIRECTORY_GENERATION: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// The directory's number; another value means the slots were rebuilt.
+pub fn directory_generation() -> u32 {
+    DIRECTORY_GENERATION.load(core::sync::atomic::Ordering::Acquire)
+}
+
+fn bump_directory_generation() {
+    // A load and a store, as `set_running`: one writer, no RMW atomics.
+    let next = DIRECTORY_GENERATION
+        .load(core::sync::atomic::Ordering::Relaxed)
+        .wrapping_add(1);
+    DIRECTORY_GENERATION.store(next, core::sync::atomic::Ordering::Release);
+}
+
 /// The package `run_app` is executing, if it named one.
 pub fn running() -> Option<&'static str> {
     dir().running.get()
@@ -697,6 +753,7 @@ pub(crate) fn reset_for_test() {
     d.running = Name::EMPTY;
     d.pending = Name::EMPTY;
     d.launcher_exits = 0;
+    bump_directory_generation();
 }
 
 // ── Placement ───────────────────────────────────────────────────────────────
@@ -998,28 +1055,20 @@ fn move_run(
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
+
     /// The directory is a process-wide static; tests that touch it take this.
     pub static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     pub fn lock() -> std::sync::MutexGuard<'static, ()> {
         LOCK.lock().unwrap_or_else(|p| p.into_inner())
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::install::mem_region::{MemRegion, MemTransport, NoCoordinator};
-    use crate::install::{install, uninstall, InstallError};
-    use papk_format::flash_image::build_meta_pages;
-    use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
-
-    const FW: &str = crate::framework_map::FRAMEWORK_MAP_VERSION;
-    const MAX: usize = 8;
+    pub const FW: &str = crate::framework_map::FRAMEWORK_MAP_VERSION;
 
     /// A real PAPK for `package`, padded with `extra` bytes of filler.
-    fn papk(package: &str, extra: usize) -> Vec<u8> {
-        let filler: Vec<u8> = (0..extra).map(|i| (i * 7 % 251) as u8).collect();
+    pub fn papk(package: &str, extra: usize) -> alloc::vec::Vec<u8> {
+        let filler: alloc::vec::Vec<u8> = (0..extra).map(|i| (i * 7 % 251) as u8).collect();
         let mut b = PapkBuilder::new(ManifestSpec {
             entry: EntryPoint::MainClass("t/Main"),
             package_name: package,
@@ -1032,6 +1081,23 @@ mod tests {
         b.class("t/Main", &filler);
         b.build().unwrap()
     }
+
+    /// A system app's image, leaked as `.rodata` would be.
+    pub fn system(package: &str) -> &'static [u8] {
+        alloc::boxed::Box::leak(papk(package, 50).into_boxed_slice())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::{papk, system, FW};
+    use super::*;
+    use crate::install::mem_region::{MemRegion, MemTransport, NoCoordinator};
+    use crate::install::{install, uninstall, InstallError};
+    use papk_format::flash_image::build_meta_pages;
+    use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
+
+    const MAX: usize = 8;
 
     /// Enough filler to make the run occupy exactly `sectors` sectors.
     fn papk_of_sectors(package: &str, sectors: u32) -> Vec<u8> {
@@ -1047,11 +1113,6 @@ mod tests {
         let region = MemRegion::new(sectors, max_apps);
         rescan_region(&region);
         region
-    }
-
-    /// A system app's image, leaked as `.rodata` would be.
-    fn system(package: &str) -> &'static [u8] {
-        alloc::boxed::Box::leak(papk(package, 50).into_boxed_slice())
     }
 
     /// What build.rs links into the region: the meta pages, then the image.
@@ -1477,6 +1538,115 @@ mod tests {
         assert!(is_system(LAUNCHER_PACKAGE));
         assert_eq!(placed(), vec![("com.a".into(), 0, 2, 1)]);
         assert_eq!(next_seq(), 2, "system entries carry no sequence number");
+    }
+
+    /// A PAPK whose manifest sets every optional key.
+    fn papk_labelled(package: &str, version: &str, code: u32, label: &str) -> Vec<u8> {
+        let mut b = PapkBuilder::new(ManifestSpec {
+            entry: EntryPoint::MainClass("t/Main"),
+            package_name: package,
+            version,
+            framework_map_version: FW,
+            version_code: Some(code),
+            label: Some(label),
+            icon: Some("icon.png"),
+        });
+        b.class("t/Main", b"CAFE");
+        b.build().unwrap()
+    }
+
+    #[test]
+    fn an_entry_keeps_its_manifest_and_follows_a_reinstall() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk_labelled("com.a", "1.0", 1, "Alpha")).unwrap();
+        let e = find("com.a").unwrap();
+        assert_eq!(
+            (e.label(), e.version(), e.version_code(), e.icon()),
+            ("Alpha", "1.0", 1, Some("icon.png"))
+        );
+        // The values are slices into the image in place, not copies.
+        assert!(e.image.as_ptr_range().contains(&e.label().as_ptr()));
+        // No label: the package name stands in; no version code: 1.
+        do_install(&mut r, &papk("com.b", 10)).unwrap();
+        let b = find("com.b").unwrap();
+        assert_eq!((b.label(), b.version_code(), b.icon()), ("com.b", 1, None));
+        // An upgrade is a new entry with the new manifest.
+        do_install(&mut r, &papk_labelled("com.a", "2.0", 2, "Alpha II")).unwrap();
+        let e = find("com.a").unwrap();
+        assert_eq!(
+            (e.label(), e.version(), e.version_code()),
+            ("Alpha II", "2.0", 2)
+        );
+        assert_eq!(installed_count(), 2);
+    }
+
+    #[test]
+    fn a_compacted_run_keeps_its_manifest_values() {
+        let _g = test_support::lock();
+        let mut r = fresh(20, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 5)).unwrap();
+        do_install(&mut r, &papk_labelled("com.b", "3.1", 31, "Bravo")).unwrap();
+        do_install(&mut r, &papk_of_sectors("com.c", 5)).unwrap();
+        do_uninstall(&mut r, "com.a");
+        do_uninstall(&mut r, "com.c");
+        // Too big for either gap, small enough for both: compaction slides b.
+        do_install(&mut r, &papk_of_sectors("com.d", 14)).unwrap();
+        let b = find("com.b").unwrap();
+        assert_eq!(b.first_sector, 0, "b slid to the front");
+        assert_eq!(
+            (b.label(), b.version(), b.version_code()),
+            ("Bravo", "3.1", 31)
+        );
+        assert!(b.image.as_ptr_range().contains(&b.label().as_ptr()));
+    }
+
+    #[test]
+    fn a_system_entry_keeps_its_manifest_too() {
+        let _g = test_support::lock();
+        let _r = fresh(16, MAX);
+        let image: &'static [u8] = alloc::boxed::Box::leak(
+            papk_labelled(LAUNCHER_PACKAGE, "0.1", 7, "Launcher").into_boxed_slice(),
+        );
+        register_system(&[image]);
+        let l = launcher().unwrap();
+        assert_eq!(
+            (l.label(), l.version_code(), l.icon()),
+            ("Launcher", 7, Some("icon.png"))
+        );
+    }
+
+    #[test]
+    fn the_directory_generation_moves_when_the_slots_do() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        let g0 = directory_generation();
+        rescan_region(&r);
+        let g1 = directory_generation();
+        assert_ne!(g0, g1);
+        register_system(&[system("picodroid.settings")]);
+        let g2 = directory_generation();
+        assert_ne!(g1, g2);
+        do_install(&mut r, &papk("com.a", 10)).unwrap();
+        let g3 = directory_generation();
+        assert_ne!(g2, g3, "an install rescans");
+        reset_for_test();
+        assert_ne!(g3, directory_generation());
+    }
+
+    #[cfg(has_multi_app)]
+    #[test]
+    fn a_rescan_repacks_the_slots() {
+        let _g = test_support::lock();
+        let mut r = fresh(16, MAX);
+        do_install(&mut r, &papk("com.a", 10)).unwrap();
+        do_install(&mut r, &papk("com.b", 10)).unwrap();
+        assert_eq!((slot_of("com.a"), slot_of("com.b")), (Some(0), Some(1)));
+        let g = directory_generation();
+        do_uninstall(&mut r, "com.a");
+        assert_eq!(slot_of("com.b"), Some(0), "the rescan repacked the array");
+        assert_eq!(slot_of("com.a"), None);
+        assert_ne!(directory_generation(), g);
     }
 
     #[test]
