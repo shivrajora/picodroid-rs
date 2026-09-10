@@ -163,14 +163,31 @@ mod inner {
             display_generated::SCREEN_HEIGHT,
             generated::TOUCH_SWAP_XY,
         );
-        // A failure here means the panel never answered. Log it and carry on
-        // with a live driver: every read then returns `None`, which degrades
-        // to "nobody is touching the screen" rather than taking the boot down.
-        if let Err(e) = touch.init() {
-            picodroid_core::pd_warn!(
-                "[touch] GT911 did not answer: {:?}",
+        // Log what the controller says it is, either way. This is the cheapest
+        // positive identification of the carrier there is — no other board
+        // picodroid targets has a GT911 — so a bring-up can tell "the right
+        // board, wired correctly" from "nothing on this bus" with no
+        // instrumentation beyond the boot log. The panel size is the
+        // controller's own configuration, so it also catches a panel that
+        // disagrees with board.toml.
+        //
+        // A failure is not fatal: the driver stays live and every read returns
+        // `None`, which degrades to "nobody is touching the screen" rather
+        // than taking the boot down on a board whose panel is unplugged.
+        match touch.init() {
+            Ok(id) => picodroid_core::pd_info!(
+                "[touch] GT911 at {=u8:#04x}: fw={=u16:#06x} vendor={=u8:#04x} panel={=u16}x{=u16}",
+                generated::TOUCH_ADDR,
+                id.firmware,
+                id.vendor,
+                id.x_resolution,
+                id.y_resolution,
+            ),
+            Err(e) => picodroid_core::pd_warn!(
+                "[touch] GT911 did not answer at {=u8:#04x}: {:?}",
+                generated::TOUCH_ADDR,
                 defmt::Debug2Format(&e)
-            );
+            ),
         }
         touch
     }

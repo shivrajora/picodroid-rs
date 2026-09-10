@@ -22,6 +22,19 @@ pub trait I2cBus {
     fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32;
 }
 
+/// What the controller reports about itself at [`Gt911::init`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Identity {
+    /// Firmware version, as the part reports it.
+    pub firmware: u16,
+    /// The controller's own configured panel size. Should match board.toml's
+    /// `[display] width` / `height`; when it does not, the touch scale is
+    /// wrong even though every driver is behaving.
+    pub x_resolution: u16,
+    pub y_resolution: u16,
+    pub vendor: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gt911Error {
     /// The four product-id bytes were not "911\0" — wrong part, wrong address,
@@ -110,15 +123,30 @@ impl<I: I2cBus> Gt911<I> {
         }
     }
 
-    /// Confirm the part is present and talking. Cheap, and the only way to tell
-    /// a dead bus from a screen nobody is touching.
-    pub fn init(&mut self) -> Result<(), Gt911Error> {
-        let mut id = [0u8; 4];
-        self.read_regs(REG_PRODUCT_ID, &mut id)?;
+    /// Confirm the part is present and talking, and report what it says it is.
+    ///
+    /// This is the one positive identification of the carrier that costs
+    /// nothing: no other board picodroid targets has a GT911, so a controller
+    /// answering here *is* the 52Pi EP-0172. Worth logging on a bring-up — the
+    /// resolution comes from the controller's own configuration, so comparing
+    /// it against board.toml's `width`/`height` catches a panel and a config
+    /// that disagree, which otherwise shows up as touches landing at the wrong
+    /// scale.
+    pub fn init(&mut self) -> Result<Identity, Gt911Error> {
+        // Product id, firmware version, resolution and vendor are contiguous
+        // from 0x8140, so one read covers the lot.
+        let mut info = [0u8; 11];
+        self.read_regs(REG_PRODUCT_ID, &mut info)?;
+        let id = [info[0], info[1], info[2], info[3]];
         if &id != b"911\0" {
             return Err(Gt911Error::ProductIdMismatch(id));
         }
-        Ok(())
+        Ok(Identity {
+            firmware: u16::from_le_bytes([info[4], info[5]]),
+            x_resolution: u16::from_le_bytes([info[6], info[7]]),
+            y_resolution: u16::from_le_bytes([info[8], info[9]]),
+            vendor: info[10],
+        })
     }
 
     /// The first touch point, in screen pixels, or `None` when no finger is
@@ -253,11 +281,33 @@ mod tests {
     }
 
     #[test]
-    fn init_accepts_the_product_id_and_rejects_anything_else() {
-        let mut ok = Gt911::new(FakeBus::new(&[b"911\0"]), ADDR_PRIMARY, 320, 480, false);
-        assert_eq!(ok.init(), Ok(()));
+    fn init_accepts_the_product_id_and_reports_what_the_part_says_it_is() {
+        // "911\0", fw 0x1060, 320x480, vendor 0x01 — the contiguous block from
+        // 0x8140 that a real GT911 on the EP-0172 answers with.
+        let info: &[u8] = &[
+            b'9', b'1', b'1', 0x00, 0x60, 0x10, 0x40, 0x01, 0xE0, 0x01, 0x01,
+        ];
+        let mut ok = Gt911::new(FakeBus::new(&[info]), ADDR_PRIMARY, 320, 480, false);
+        assert_eq!(
+            ok.init(),
+            Ok(Identity {
+                firmware: 0x1060,
+                x_resolution: 320,
+                y_resolution: 480,
+                vendor: 0x01,
+            })
+        );
+    }
 
-        let mut bad = Gt911::new(FakeBus::new(&[b"928\0"]), ADDR_PRIMARY, 320, 480, false);
+    #[test]
+    fn init_rejects_a_part_that_is_not_a_gt911() {
+        let mut bad = Gt911::new(
+            FakeBus::new(&[&[b'9', b'2', b'8', 0x00, 0, 0, 0, 0, 0, 0, 0]]),
+            ADDR_PRIMARY,
+            320,
+            480,
+            false,
+        );
         assert_eq!(bad.init(), Err(Gt911Error::ProductIdMismatch(*b"928\0")));
     }
 

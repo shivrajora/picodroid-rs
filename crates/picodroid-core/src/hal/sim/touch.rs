@@ -409,7 +409,20 @@ mod inner {
                 buf[..n].copy_from_slice(&src[..n]);
             };
             match self.selected {
-                REG_PRODUCT_ID => fill(buf, b"911\0"),
+                REG_PRODUCT_ID => {
+                    // Product id, firmware, X/Y resolution, vendor — the
+                    // contiguous block the driver reads at init. The
+                    // resolution is the board's, so the identity the sim
+                    // reports is the one hardware should report too.
+                    let x = display_generated::SCREEN_WIDTH.to_le_bytes();
+                    let y = display_generated::SCREEN_HEIGHT.to_le_bytes();
+                    fill(
+                        buf,
+                        &[
+                            b'9', b'1', b'1', 0x00, 0x60, 0x10, x[0], x[1], y[0], y[1], 0x01,
+                        ],
+                    )
+                }
                 REG_STATUS => {
                     let (pressed, _, _) = super::super::display::mouse_state();
                     // Always "buffer ready": the point count is what says
@@ -440,10 +453,14 @@ mod inner {
             display_generated::SCREEN_HEIGHT,
             generated::TOUCH_SWAP_XY,
         );
-        // The fake always answers the product id, so this only fails if the
-        // driver's own framing broke — worth surfacing loudly in the sim.
-        if let Err(e) = touch.init() {
-            println!("[sim] Touch: GT911 model rejected its own product id: {e:?}");
+        // The fake always answers, so a failure here means the driver's own
+        // framing broke — worth surfacing loudly in the sim.
+        match touch.init() {
+            Ok(id) => println!(
+                "[sim] Touch: GT911 fw={:#06x} vendor={:#04x} panel={}x{}",
+                id.firmware, id.vendor, id.x_resolution, id.y_resolution
+            ),
+            Err(e) => println!("[sim] Touch: GT911 model rejected its own product id: {e:?}"),
         }
         unsafe {
             addr_of_mut!(TOUCH).write(Some(touch));
