@@ -175,9 +175,24 @@ fn is_initialised(i2c_id: u8) -> bool {
     }
 }
 
-/// Configure GPIO pins for I2C function and start the controller at 100 kHz.
-/// Idempotent: subsequent calls for the same `i2c_id` return immediately.
+/// Configure the chip-default GPIO pins for I2C function and start the
+/// controller at 100 kHz. Idempotent: subsequent calls for the same `i2c_id`
+/// return immediately.
 pub fn init(i2c_id: u8) {
+    init_with_pins(i2c_id, None, None)
+}
+
+/// [`init`], with the bus routed to non-default pads.
+///
+/// `sda` and `scl` override the chip defaults below; `None` keeps them. A
+/// board reaches for this when its own wiring claims the default pair — the
+/// 52Pi EP-0172 puts a GT911 on I2C0 at GP8/GP9 because the Pico Plus 2 W
+/// module already routes GP4/GP5 to its Qw/ST connector.
+///
+/// Mirrors `spi::init_with_pins`, and shares its idempotence rule: the FIRST
+/// call for a bus decides its pads, and a later call with different ones is
+/// ignored rather than re-routing a bus that already has traffic on it.
+pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     if is_initialised(i2c_id) {
         return;
     }
@@ -207,14 +222,15 @@ pub fn init(i2c_id: u8) {
         }
     }
 
-    // Default funcsel-3 pin assignments (boards using non-default pads aren't
-    // supported here yet; add an `init_with_pins` if/when a board needs it).
+    // Default funcsel-3 pin assignments, overridable per board:
     //   I2C0 → SDA=GP4, SCL=GP5
     //   I2C1 → SDA=GP2, SCL=GP3
-    let (sda_pin, scl_pin): (usize, usize) = match i2c_id {
+    let (default_sda, default_scl): (usize, usize) = match i2c_id {
         0 => (4, 5),
         _ => (2, 3),
     };
+    let sda_pin = sda.map(usize::from).unwrap_or(default_sda);
+    let scl_pin = scl.map(usize::from).unwrap_or(default_scl);
     for pin in [sda_pin, scl_pin] {
         p.IO_BANK0
             .gpio(pin)

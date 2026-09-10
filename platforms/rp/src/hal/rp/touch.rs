@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Touch facade — delegates to the generic XPT2046 driver via board config.
+//! Touch facade — delegates to the controller `[touch] driver` names.
+//!
+//! Two are wired up, and they have almost nothing in common below this file:
+//! the XPT2046 is a resistive ADC sharing the display's SPI bus and needing
+//! calibration bounds, the GT911 a capacitive controller on its own I2C bus
+//! that reports finished pixels. What they share is everything above — the
+//! scripted-touch override, the read path and the `HalTouch` surface — so only
+//! the type alias and the constructor are per-driver.
 //!
 //! On boards without a `[touch]` section in board.toml (`has_touch` cfg absent),
 //! all functions are no-ops / return `None`.
 
 #[cfg(has_touch)]
 mod inner {
-    use crate::drivers::xpt2046::Xpt2046;
     use crate::hal::input_pin::RpInputPin;
     use crate::hal::output_pin::RpOutputPin;
+    #[cfg(touch_xpt2046)]
     use crate::hal::spi_bus::RpSpiBus;
     use core::ptr::addr_of_mut;
     use picodroid_core::hal::touch_override::{OverrideSample, TouchOverride};
@@ -47,10 +54,15 @@ mod inner {
         include!(concat!(env!("OUT_DIR"), "/display_config.rs"));
     }
 
-    type Touch = Xpt2046<RpSpiBus, RpOutputPin>;
+    // ── XPT2046: resistive, on the display's SPI bus ────────────────────────
 
-    static mut TOUCH: Option<Touch> = None;
+    #[cfg(touch_xpt2046)]
+    type Touch = crate::drivers::xpt2046::Xpt2046<RpSpiBus, RpOutputPin>;
 
+    /// The XPT2046's MISO is a second input on the display's SPI bus, so the
+    /// pad has to be handed to the SPI peripheral by hand — `RpSpiBus::handle`
+    /// attaches to an already-running bus and configures no pins.
+    #[cfg(touch_xpt2046)]
     fn configure_touch_miso() {
         #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::pac;
@@ -71,14 +83,15 @@ mod inner {
             });
     }
 
-    pub fn init() {
+    #[cfg(touch_xpt2046)]
+    fn build_touch() -> Touch {
         configure_touch_miso();
         let _irq = RpInputPin::new(generated::TOUCH_PIN_IRQ, true);
 
         let spi = RpSpiBus::handle(display_generated::SPI_ID);
         let cs = RpOutputPin::new(generated::TOUCH_PIN_CS, true);
 
-        let mut touch = Xpt2046::new(
+        let mut touch = Touch::new(
             spi,
             cs,
             generated::TOUCH_SPI_FREQ,
@@ -92,7 +105,82 @@ mod inner {
         );
         touch.set_swap_xy(generated::TOUCH_SWAP_XY);
         touch.init();
+        touch
+    }
 
+    // ── GT911: capacitive, on its own I2C bus ───────────────────────────────
+
+    /// Adapter from the driver's tiny bus trait to this family's I2C, the same
+    /// shape the sensor sampler uses for the BME688 and LTR559.
+    #[cfg(touch_gt911)]
+    struct RpI2cBus {
+        bus_id: u8,
+    }
+
+    #[cfg(touch_gt911)]
+    impl crate::drivers::gt911::I2cBus for RpI2cBus {
+        fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
+            crate::hal::i2c::write_slice(self.bus_id, addr, data)
+        }
+        fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32 {
+            crate::hal::i2c::read_slice(self.bus_id, addr, buf)
+        }
+    }
+
+    #[cfg(touch_gt911)]
+    type Touch = crate::drivers::gt911::Gt911<RpI2cBus>;
+
+    #[cfg(touch_gt911)]
+    fn build_touch() -> Touch {
+        use crate::drivers::gt911::Gt911;
+        use crate::hal::delay::RpDelay;
+
+        // The reset picks the bus address, so it has to happen before the bus
+        // carries any traffic. INT is an output only for the duration of that
+        // pulse; the controller drives it as an interrupt line afterwards, so
+        // it is flipped to an input the moment the reset returns.
+        let mut int = RpOutputPin::new(generated::TOUCH_PIN_INT, false);
+        let mut rst = RpOutputPin::new(generated::TOUCH_PIN_RST, false);
+        let mut delay = RpDelay::new();
+        // `Touch`, not `Gt911`: `reset` names no `I2cBus` in its signature, so
+        // the bus type has to come from the alias.
+        Touch::reset(&mut int, &mut rst, &mut delay, generated::TOUCH_ADDR);
+        let _int_in = RpInputPin::new(generated::TOUCH_PIN_INT, true);
+
+        crate::hal::i2c::init_with_pins(
+            generated::TOUCH_I2C_ID,
+            generated::TOUCH_I2C_SDA,
+            generated::TOUCH_I2C_SCL,
+        );
+
+        let bus = RpI2cBus {
+            bus_id: generated::TOUCH_I2C_ID,
+        };
+        let mut touch = Gt911::new(
+            bus,
+            generated::TOUCH_ADDR,
+            display_generated::SCREEN_WIDTH,
+            display_generated::SCREEN_HEIGHT,
+            generated::TOUCH_SWAP_XY,
+        );
+        // A failure here means the panel never answered. Log it and carry on
+        // with a live driver: every read then returns `None`, which degrades
+        // to "nobody is touching the screen" rather than taking the boot down.
+        if let Err(e) = touch.init() {
+            picodroid_core::pd_warn!(
+                "[touch] GT911 did not answer: {:?}",
+                defmt::Debug2Format(&e)
+            );
+        }
+        touch
+    }
+
+    // ── Shared facade ───────────────────────────────────────────────────────
+
+    static mut TOUCH: Option<Touch> = None;
+
+    pub fn init() {
+        let touch = build_touch();
         unsafe {
             addr_of_mut!(TOUCH).write(Some(touch));
         }
@@ -114,9 +202,17 @@ mod inner {
         touch().read_raw_unfiltered()
     }
 
+    #[cfg(touch_xpt2046)]
     pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16) {
         touch().set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max);
     }
+
+    /// No-op on a capacitive panel: the GT911 reports finished pixel
+    /// coordinates from its own configuration, so there is nothing on this side
+    /// to calibrate. The seam keeps the method because `HalTouch` is one trait
+    /// for every controller.
+    #[cfg(touch_gt911)]
+    pub fn set_calibration(_: u16, _: u16, _: u16, _: u16) {}
 }
 
 #[cfg(not(has_touch))]

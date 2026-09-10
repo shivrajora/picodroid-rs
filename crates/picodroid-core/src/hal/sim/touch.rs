@@ -16,7 +16,7 @@
 //! the point: a calibration or swap_xy bug shows up in the simulator instead
 //! of waiting for hardware.
 
-#[cfg(has_touch)]
+#[cfg(all(has_touch, touch_xpt2046))]
 mod inner {
     use super::super::output_pin::SimOutputPin;
     use crate::drivers::xpt2046::Xpt2046;
@@ -314,6 +314,174 @@ mod inner {
             assert_eq!(round_trip(0, 110, 1950, 240), 0);
             assert_eq!(round_trip(239, 110, 1950, 240), 239);
         }
+    }
+}
+
+// ── GT911 (capacitive, I2C) ─────────────────────────────────────────────────
+
+/// Simulator backend for a `[touch] driver = "gt911"` board.
+///
+/// Same principle as the XPT2046 arm above: the mouse is fed through the *real*
+/// [`Gt911`] driver over a fake bus, so the register framing, the status
+/// handshake and the axis transform all run in the simulator exactly as they do
+/// on hardware. A swapped axis or a missing status clear shows up here rather
+/// than waiting for the bench.
+///
+/// What it does not model is the reset that latches the bus address. That is
+/// pure pin-wiggling with no bus traffic and no observable result on a part
+/// that does not exist, and calling it would only spend the datasheet's ~180 ms
+/// of delays at every simulator boot.
+#[cfg(all(has_touch, touch_gt911))]
+mod inner {
+    use crate::drivers::gt911::{Gt911, I2cBus};
+    use core::ptr::addr_of_mut;
+
+    // board.toml lists every pin/geometry field the panel has; a given build
+    // consumes only the subset its code path touches. Scoped here rather than
+    // over the whole HAL module so real rot outside the generated table stays
+    // visible.
+    #[allow(dead_code)]
+    mod generated {
+        include!(concat!(env!("OUT_DIR"), "/touch_config.rs"));
+    }
+    #[allow(dead_code)]
+    mod display_generated {
+        include!(concat!(env!("OUT_DIR"), "/display_config.rs"));
+    }
+
+    // Register addresses the fake serves. Kept here rather than imported so
+    // the fake is a black-box model of the part: if the driver's map drifts
+    // from the datasheet, these stop agreeing and the tests fail.
+    const REG_PRODUCT_ID: u16 = 0x8140;
+    const REG_STATUS: u16 = 0x814E;
+    const REG_POINT1: u16 = 0x8150;
+
+    const STATUS_BUFFER_READY: u8 = 0x80;
+
+    /// Fake I2C device that answers as a GT911 would, from the mouse position.
+    ///
+    /// The driver's read is two transfers — write the 16-bit register address,
+    /// then read N bytes — so the bus has to remember which register was
+    /// selected, exactly as the real part does.
+    pub struct FakeGt911I2c {
+        selected: u16,
+    }
+
+    impl Default for FakeGt911I2c {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl FakeGt911I2c {
+        pub const fn new() -> Self {
+            Self { selected: 0 }
+        }
+
+        /// The coordinates the controller would report for the current mouse
+        /// position — that is, *before* the driver's own swap and clamp. When
+        /// the board declares `swap_xy`, the driver will transpose what it
+        /// reads, so the fake pre-transposes to keep the round trip honest.
+        fn controller_coords() -> (u16, u16) {
+            let (_, mx, my) = super::super::display::mouse_state();
+            if generated::TOUCH_SWAP_XY {
+                (my, mx)
+            } else {
+                (mx, my)
+            }
+        }
+    }
+
+    impl I2cBus for FakeGt911I2c {
+        fn write(&mut self, _addr: u8, data: &[u8]) -> i32 {
+            if data.len() >= 2 {
+                self.selected = u16::from_be_bytes([data[0], data[1]]);
+            }
+            // Anything past the address is a register write. The only one the
+            // driver makes is the status clear, which needs no state here: the
+            // next status read is recomputed from the mouse regardless.
+            0
+        }
+
+        fn read(&mut self, _addr: u8, buf: &mut [u8]) -> i32 {
+            let fill = |buf: &mut [u8], src: &[u8]| {
+                let n = buf.len().min(src.len());
+                buf[..n].copy_from_slice(&src[..n]);
+            };
+            match self.selected {
+                REG_PRODUCT_ID => fill(buf, b"911\0"),
+                REG_STATUS => {
+                    let (pressed, _, _) = super::super::display::mouse_state();
+                    // Always "buffer ready": the point count is what says
+                    // whether a finger is down.
+                    let points = if pressed { 1 } else { 0 };
+                    fill(buf, &[STATUS_BUFFER_READY | points]);
+                }
+                REG_POINT1 => {
+                    let (x, y) = Self::controller_coords();
+                    let x = x.to_le_bytes();
+                    let y = y.to_le_bytes();
+                    fill(buf, &[x[0], x[1], y[0], y[1]]);
+                }
+                _ => buf.fill(0),
+            }
+            0
+        }
+    }
+
+    type Touch = Gt911<FakeGt911I2c>;
+    static mut TOUCH: Option<Touch> = None;
+
+    pub fn init() {
+        let mut touch = Gt911::new(
+            FakeGt911I2c::new(),
+            generated::TOUCH_ADDR,
+            display_generated::SCREEN_WIDTH,
+            display_generated::SCREEN_HEIGHT,
+            generated::TOUCH_SWAP_XY,
+        );
+        // The fake always answers the product id, so this only fails if the
+        // driver's own framing broke — worth surfacing loudly in the sim.
+        if let Err(e) = touch.init() {
+            println!("[sim] Touch: GT911 model rejected its own product id: {e:?}");
+        }
+        unsafe {
+            addr_of_mut!(TOUCH).write(Some(touch));
+        }
+        println!(
+            "[sim] Touch: GT911 driver active (addr={:#04x}, swap_xy={})",
+            generated::TOUCH_ADDR,
+            generated::TOUCH_SWAP_XY,
+        );
+    }
+
+    fn touch() -> &'static mut Touch {
+        unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
+    }
+
+    pub fn read_point() -> Option<(u16, u16)> {
+        touch().read_point()
+    }
+
+    pub fn read_raw_unfiltered() -> (u16, u16) {
+        touch().read_raw_unfiltered()
+    }
+
+    /// Nothing to calibrate on a capacitive panel — see the note on the
+    /// hardware facade's copy of this.
+    pub fn set_calibration(_: u16, _: u16, _: u16, _: u16) {}
+
+    // Scripted-touch override, as on the XPT2046 arm: the display's override
+    // machinery feeds `mouse_state()`, so an injected tap runs the whole
+    // FakeGt911I2c → Gt911 pipeline rather than short-circuiting it.
+    pub fn inject_override(x: u16, y: u16) {
+        super::super::display::set_touch_override(x, y);
+    }
+    pub fn release_override() {
+        super::super::display::touch_override_release();
+    }
+    pub fn clear_override() {
+        super::super::display::clear_touch_override();
     }
 }
 

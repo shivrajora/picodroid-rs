@@ -21,13 +21,22 @@ pub const SCROLL_LIMIT: u8 = generated::SCROLL_LIMIT;
 #[cfg(has_display)]
 mod inner {
     use super::generated;
-    use crate::drivers::st7789::St7789;
     use crate::hal::delay::RpDelay;
     use crate::hal::output_pin::RpOutputPin;
     use crate::hal::spi_bus::RpSpiBus;
     use core::ptr::addr_of_mut;
 
-    type Display = St7789<RpSpiBus, RpOutputPin, RpOutputPin, RpOutputPin, RpOutputPin, RpDelay>;
+    // The panel controller board.toml names. Both drivers expose the same
+    // constructor and the same method set, so the facade below is written once
+    // against `Panel` and only the `use` changes per board. Exactly one
+    // `display_*` cfg is ever set — build.rs checks the name against
+    // `KNOWN_DISPLAY_DRIVERS` — so these arms are mutually exclusive.
+    #[cfg(display_st7789)]
+    use crate::drivers::st7789::St7789 as Panel;
+    #[cfg(display_st7796)]
+    use crate::drivers::st7796::St7796 as Panel;
+
+    type Display = Panel<RpSpiBus, RpOutputPin, RpOutputPin, RpOutputPin, RpOutputPin, RpDelay>;
 
     static mut DISPLAY: Option<Display> = None;
 
@@ -41,11 +50,14 @@ mod inner {
         );
         let dc = RpOutputPin::new(generated::PIN_DC, false);
         let cs = RpOutputPin::new(generated::PIN_CS, true);
+        // Reset and backlight are both optional: a module may tie either line
+        // high in hardware (the Enviro+ Pack has no reset, the 52Pi EP-0172 no
+        // backlight). `new_optional` makes the pin's writes no-ops on `None`.
         let rst = RpOutputPin::new_optional(generated::PIN_RST, false);
-        let bl = RpOutputPin::new(generated::PIN_BL, false);
+        let bl = RpOutputPin::new_optional(generated::PIN_BL, false);
         let delay = RpDelay::new();
 
-        let mut display = St7789::new(
+        let mut display = Panel::new(
             spi,
             dc,
             cs,

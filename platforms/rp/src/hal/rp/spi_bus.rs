@@ -32,7 +32,10 @@ impl RpSpiBus {
     }
 
     /// Create a handle to an already-initialized SPI bus (no hardware init).
-    #[cfg_attr(not(has_touch), allow(dead_code))]
+    ///
+    /// The XPT2046 is the only caller: it is a second device on the display's
+    /// bus. A board with no touch panel, or with one on I2C, never needs it.
+    #[cfg_attr(not(touch_xpt2046), allow(dead_code))]
     pub fn handle(spi_id: u8) -> Self {
         Self { spi_id }
     }
