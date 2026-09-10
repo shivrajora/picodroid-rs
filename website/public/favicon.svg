@@ -3,7 +3,7 @@
 
   <!--
     Favicon: the Picodroid mark on its own, cropped tight. The full lockup
-    (mark + wordmark) lives in assets/picodroid.svg; at 16px the wordmark is
+    (mark + wordmark) lives in src/assets/picodroid.svg; at 16px the wordmark is
     illegible and only shrinks the face, so the tab icon drops it.
   -->
 

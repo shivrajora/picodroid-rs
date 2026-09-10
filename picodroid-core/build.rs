@@ -114,7 +114,13 @@ fn main() {
     // The MCU toml may pin the C optimisation level for its target
     // (`c_opt_level`; the rp2040 compiles its C at -Os).
     let lvgl_mcu = board.as_ref().map(|b| b.mcu().1);
-    lvgl::build(out, &lvgl_board_props, lvgl_mcu.as_ref(), root);
+    lvgl::build(
+        out,
+        &lvgl_board_props,
+        lvgl_mcu.as_ref(),
+        root,
+        &manifest_dir.join("lvgl"),
+    );
 
     // The simulator's kernel: the real FreeRTOS + POSIX port, compiled for the
     // host. Owned here for the same reason LVGL is — this crate holds the code

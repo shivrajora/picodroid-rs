@@ -72,7 +72,7 @@ tasks.register("newApp") {
             <?xml version="1.0" encoding="utf-8"?>
             <manifest package="$name" version="1.0"
                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                      xsi:noNamespaceSchemaLocation="../../schema/PicodroidManifest.xsd">
+                      xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
                 <application application="$name/$className" />
             </manifest>
             """.trimIndent() + "\n"

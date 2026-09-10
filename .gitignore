@@ -2,12 +2,10 @@
 .#*
 .gdb_history
 Cargo.lock
+# Also holds `scripts/pre-commit`'s per-triple lane directories
+# (target/lane-thumbv6m, target/lane-thumbv8m): cargo serializes concurrent
+# invocations that share one target dir, so each lane gets its own.
 target/
-# Per-triple build directories used by `scripts/pre-commit`'s parallel lanes.
-# Cargo serializes concurrent invocations that share one target dir, so each
-# lane gets its own. Safe to `rm -rf` at any time.
-target-thumbv6m/
-target-thumbv8m/
 
 # Downloaded tooling (google-java-format and ktfmt JARs, fetched on demand by
 # scripts/format_java.sh / format_kotlin.sh). Everything else under
@@ -20,7 +18,10 @@ build/
 # Gradle wrapper cache, daemon state, config-cache entries
 .gradle/
 
-# Node/npm (markdownlint-cli2 dev dependency)
+# Kotlin Gradle plugin session state
+.kotlin/
+
+# Node/npm: scripts/lint-md/ (markdownlint-cli2) and website/ (Astro)
 node_modules/
 
 # Claude Code local settings

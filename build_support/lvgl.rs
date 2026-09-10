@@ -9,13 +9,16 @@ use std::path::Path;
 /// Compile LVGL C sources into a static library.
 ///
 /// `repo_root` must be the absolute path to the repository root so that
-/// `third_party/lvgl` and `lv_conf.h` can be located regardless of which
-/// `platforms/<family>/` directory the build.rs runs from.
+/// `third_party/lvgl` can be located regardless of which
+/// `platforms/<family>/` directory the build.rs runs from. `conf_dir` is the
+/// directory holding `lv_conf.h` — the calling crate's own `lvgl/`, beside
+/// the other C configs it owns (`freertos-host/`, `net-freertos-tcp/`).
 pub fn build(
     _out: &Path,
     board_cfg: &Option<HashMap<String, String>>,
     mcu: Option<&HashMap<String, String>>,
     repo_root: &Path,
+    conf_dir: &Path,
 ) {
     let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
@@ -50,7 +53,9 @@ pub fn build(
     let lvgl_dir = repo_root.join("third_party/lvgl");
     let mut build = cc::Build::new();
     build
-        .include(repo_root)
+        // `lv_conf.h` is found through the include path: LV_CONF_INCLUDE_SIMPLE
+        // below makes LVGL `#include "lv_conf.h"` unqualified.
+        .include(conf_dir)
         .include(&lvgl_dir)
         .include(&lvgl_src)
         .define("LV_CONF_INCLUDE_SIMPLE", None)
@@ -94,7 +99,7 @@ pub fn build(
 
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("lv_conf.h").display()
+        conf_dir.join("lv_conf.h").display()
     );
     println!("cargo:rerun-if-changed={}", lvgl_src.display());
 }

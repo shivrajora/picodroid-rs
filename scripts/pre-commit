@@ -67,8 +67,8 @@ while [[ $# -gt 0 ]]; do
     --since)   SINCE_REF="$2"; shift 2 ;;
     --serial)  SERIAL=1; shift ;;
     --list)    LIST_ONLY=1; shift ;;
-    --clean)   rm -rf "$REPO_ROOT/target-thumbv6m" "$REPO_ROOT/target-thumbv8m"
-               echo "Removed target-thumbv6m/ and target-thumbv8m/."; exit 0 ;;
+    --clean)   rm -rf "$REPO_ROOT/target/lane-thumbv6m" "$REPO_ROOT/target/lane-thumbv8m"
+               echo "Removed target/lane-thumbv6m/ and target/lane-thumbv8m/."; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -268,11 +268,14 @@ ls -1dt "$REPO_ROOT"/build/pre-commit/* 2>/dev/null | tail -n +6 | xargs -r rm -
 # so lanes that shared one would simply queue behind each other. Split by
 # target triple, which is also the boundary at which they stop sharing
 # artifacts. The host lane keeps target/ so day-to-day sim.sh / test.sh work
-# still hits the warm cache.
+# still hits the warm cache; the ARM lanes nest under it (a target dir inside
+# another is fine — cargo locks each one separately — and it keeps the repo
+# root free of build directories, at the cost of `cargo clean` dropping them
+# along with the host lane).
 declare -A LANE_TARGET_DIR=(
   [host]="$REPO_ROOT/target"
-  [arm6]="$REPO_ROOT/target-thumbv6m"
-  [arm8]="$REPO_ROOT/target-thumbv8m"
+  [arm6]="$REPO_ROOT/target/lane-thumbv6m"
+  [arm8]="$REPO_ROOT/target/lane-thumbv8m"
 )
 
 # Split the job budget across the cargo lanes actually running, so four lanes
@@ -444,7 +447,7 @@ stage_lint_md() {
     echo ""
     echo "ERROR: Markdown lint failed. Run './scripts/lint-md.sh --fix' to"
     echo "       auto-fix, or './scripts/lint-md.sh' to see issues."
-    echo "       If deps aren't installed yet: run 'npm install' in the repo root."
+    echo "       If deps aren't installed yet: run '(cd scripts/lint-md && npm ci)'."
     return 1
   fi
 }

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/picodroid.svg" alt="Picodroid" width="200"/>
+  <img src="website/src/assets/picodroid.svg" alt="Picodroid" width="200"/>
 </p>
 
 <p align="center">

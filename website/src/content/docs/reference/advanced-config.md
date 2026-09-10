@@ -1,13 +1,13 @@
 ---
 title: "Advanced configuration"
-description: "Files outside board.toml that change behavior — lv_conf.h, Embed.toml, .actrc, and the scripts/test.sh wrapper."
+description: "Files outside board.toml that change behavior — lv_conf.h, .actrc, and the scripts/test.sh wrapper."
 ---
 
 Most builds work without touching anything below — these files are here when you need them. Day-to-day app development needs none of this.
 
 ## `lv_conf.h`
 
-LVGL is vendored in `third_party/lvgl/` and configured via the repo-root [`lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/lv_conf.h). It overrides selected upstream defaults:
+LVGL is vendored in `third_party/lvgl/` and configured via [`picodroid-core/lvgl/lv_conf.h`](https://github.com/shivrajora/picodroid-rs/blob/main/picodroid-core/lvgl/lv_conf.h), which sits next to the other C configs that crate owns (`freertos-host/FreeRTOSConfig.h`, `net-freertos-tcp/FreeRTOSIPConfig.h`). It overrides selected upstream defaults:
 
 | Symbol | Picodroid value | Why |
 |---|---|---|
@@ -17,21 +17,6 @@ LVGL is vendored in `third_party/lvgl/` and configured via the repo-root [`lv_co
 | `LV_FONT_MONTSERRAT_*` | tuned per-board | Only the sizes the framework actually renders are pulled in. |
 
 Bumping LVGL: vendor at `third_party/lvgl`, then re-vet `lv_conf.h` against `third_party/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
-
-## `Embed.toml`
-
-Config for the `cargo embed` probe-rs subcommand, handy for interactive ARM debug sessions. Selects the chip, RTT polling rate, and breakpoint set. Defaults work for testbench RP2040 / RP2350; override only if you're debugging a custom board with a non-standard probe wiring.
-
-```toml
-[default.general]
-chip = "RP2040"
-
-[default.rtt]
-enabled = true
-up_mode = "NoBlockSkip"
-```
-
-Note that `./scripts/flash.sh` flashes via `cargo run` (the `probe-rs` runner configured in `.cargo/config.toml`), **not** `cargo embed` — so most users never touch this file.
 
 ## `.actrc`
 

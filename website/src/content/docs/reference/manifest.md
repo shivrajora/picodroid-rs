@@ -73,7 +73,7 @@ DOCTYPE in your manifest.
 
 ### Editor validation (XSD)
 
-`schema/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above —
+`sdk/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above —
 required `package`, optional `version` and `version-code`, the exactly-one-of
 `main-class` / `activity` / `application` entry point, and the optional `label`
 and `icon` — for editor validation and autocomplete. It is **not** wired into the build; the Gradle parser remains the
@@ -87,7 +87,7 @@ Referencing it is opt-in per file via `xsi:noNamespaceSchemaLocation`. The
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="myapp" version="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:noNamespaceSchemaLocation="../../schema/PicodroidManifest.xsd">
+          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
     <application application="myapp/MyApp" />
 </manifest>
 ```

@@ -63,10 +63,11 @@ Useful flags:
 | `--clean` | Delete the per-lane build directories. |
 
 Each cargo lane gets its own `CARGO_TARGET_DIR` (`target/` for host,
-`target-thumbv6m/` and `target-thumbv8m/` for the two ARM triples) because cargo
-serializes concurrent invocations that share one build directory. The first
-`--full` run after checkout therefore pays a cold build for the two ARM
-directories; `--clean` removes them. Per-run logs land in `build/pre-commit/`.
+`target/lane-thumbv6m/` and `target/lane-thumbv8m/` for the two ARM triples)
+because cargo serializes concurrent invocations that share one build directory.
+The first `--full` run after checkout therefore pays a cold build for the two
+ARM directories; `--clean` removes them, and so does `cargo clean`, which now
+covers the lanes as well. Per-run logs land in `build/pre-commit/`.
 
 ## Sharing the Bench
 
