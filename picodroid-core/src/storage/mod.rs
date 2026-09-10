@@ -23,7 +23,9 @@ pub fn wipe_package(package: &str) -> bool {
     let Ok(root) = sandbox::resolve(Some(package), "", &mut buf) else {
         return false;
     };
-    remove_tree(root, WIPE_DEPTH)
+    let gone = remove_tree(root, WIPE_DEPTH);
+    quota::forget(package);
+    gone
 }
 
 /// Delete `dir`'s files, its subdirectories (deepest first), then `dir`.

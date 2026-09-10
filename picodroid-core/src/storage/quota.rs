@@ -14,6 +14,12 @@
 //! truncate frees. A system package is exempt from both rules but counted
 //! all the same, so `StorageStats` can report it.
 //!
+//! Every other package's usage is walked once and kept in a row per
+//! directory slot: its directory changes only through a wipe, which forgets
+//! the row, or once the package runs, when the counter takes over. A
+//! rebuilt directory (another `packages::directory_generation`) forgets
+//! every row, since the slots may have moved.
+//!
 //! The counter is shared by every Java thread that reaches the file
 //! natives; its read-modify-writes sit in the JVM's scheduler-atomic
 //! section, the guard the heap compounds use.
@@ -38,11 +44,15 @@ pub fn file_bytes(len: u64) -> u64 {
 }
 
 #[cfg(has_multi_app)]
-pub use enforced::{available_for_app, charge, invalidate, usage_of, walk_package};
+pub use enforced::{available_for_app, charge, forget, invalidate, usage_of, walk_package};
 
 /// A single-app board keeps no quota: nothing to forget.
 #[cfg(not(has_multi_app))]
 pub fn invalidate() {}
+
+/// A single-app board keeps no rows: nothing to forget.
+#[cfg(not(has_multi_app))]
+pub fn forget(_package: &str) {}
 
 /// A single-app board keeps no quota: nothing is refused.
 #[cfg(not(has_multi_app))]
@@ -75,11 +85,50 @@ mod enforced {
     static USAGE_GENERATION: AtomicU32 = AtomicU32::new(u32::MAX);
     static USAGE_BYTES: AtomicU32 = AtomicU32::new(0);
 
+    /// A row not walked yet.
+    const UNKNOWN: u32 = u32::MAX;
+    /// What `/data/<package>` held when it was last walked, by directory
+    /// slot, for the packages that are not running. The running package's
+    /// row is forgotten as soon as it may write; a wipe forgets the row of
+    /// the package it wiped.
+    static ROWS: [AtomicU32; packages::CAPACITY] =
+        [const { AtomicU32::new(UNKNOWN) }; packages::CAPACITY];
+    /// The directory generation the rows were filled under; another one
+    /// means the slots were repacked and every row is stale.
+    static ROWS_FOR: AtomicU32 = AtomicU32::new(u32::MAX);
+
+    /// The directory generation, with every row forgotten if it moved.
+    fn rows_for_now() -> u32 {
+        let generation = packages::directory_generation();
+        if ROWS_FOR.load(Ordering::Acquire) != generation {
+            let _atomic = AtomicSection::enter();
+            for row in &ROWS {
+                row.store(UNKNOWN, Ordering::Relaxed);
+            }
+            ROWS_FOR.store(generation, Ordering::Release);
+        }
+        generation
+    }
+
+    fn forget_row(package: &str) {
+        if let Some(slot) = packages::slot_of(package) {
+            ROWS[slot].store(UNKNOWN, Ordering::Release);
+        }
+    }
+
     /// Forget the running package's walk, so the next accounted operation
     /// walks again: what the sandbox calls once it has made the package
     /// directory, whose pair a walk that ran before it existed never saw.
     pub fn invalidate() {
         USAGE_GENERATION.store(u32::MAX, Ordering::Release);
+        if let Some(package) = packages::running() {
+            forget_row(package);
+        }
+    }
+
+    /// Forget `package`'s row: its directory was wiped.
+    pub fn forget(package: &str) {
+        forget_row(package);
     }
 
     /// The running package's usage, walked first when this run has not yet.
@@ -88,10 +137,16 @@ mod enforced {
         if USAGE_GENERATION.load(Ordering::Acquire) == generation {
             return u64::from(USAGE_BYTES.load(Ordering::Relaxed));
         }
-        let bytes = packages::running().map_or(0, walk_package);
+        let running = packages::running();
+        let bytes = running.map_or(0, walk_package);
         let _atomic = AtomicSection::enter();
         USAGE_BYTES.store(bytes as u32, Ordering::Relaxed);
         USAGE_GENERATION.store(generation, Ordering::Release);
+        // From here the counter is the truth for this package: a row filled
+        // while it was not running would go stale on its first write.
+        if let Some(package) = running {
+            forget_row(package);
+        }
         bytes
     }
 
@@ -128,13 +183,29 @@ mod enforced {
         total
     }
 
-    /// What `package` holds: the running package's counter, another's walk.
+    /// What `package` holds: the running package's counter, another's row
+    /// — walked the first time it is asked for, and kept until a wipe or a
+    /// run of that package. A package with no slot is walked every time.
     pub fn usage_of(package: &str) -> u64 {
         if packages::running() == Some(package) {
-            usage_of_running()
-        } else {
-            walk_package(package)
+            return usage_of_running();
         }
+        let Some(slot) = packages::slot_of(package) else {
+            return walk_package(package);
+        };
+        let generation = rows_for_now();
+        let row = ROWS[slot].load(Ordering::Acquire);
+        if row != UNKNOWN {
+            return u64::from(row);
+        }
+        // The walk blocks on the fs worker; if the directory was rebuilt
+        // meanwhile the slot may be another package's, so the result is
+        // returned but not kept.
+        let bytes = walk_package(package);
+        if packages::directory_generation() == generation {
+            ROWS[slot].store(bytes as u32, Ordering::Release);
+        }
+        bytes
     }
 
     /// Account `delta` bytes (already block-rounded) to the running package.
@@ -210,6 +281,67 @@ mod tests {
         assert_eq!(usage_of("com.walk"), walk_package("com.walk"));
         assert_eq!(walk_package("com.nothing"), 0);
         packages::set_running(None);
+    }
+
+    /// Give `package` a directory slot (as a system entry, which needs no
+    /// region) so its usage has a row.
+    fn with_slot(package: &str) {
+        packages::reset_for_test();
+        packages::register_system(&[packages::test_support::system(package)]);
+    }
+
+    #[test]
+    fn another_packages_usage_is_walked_once_and_a_wipe_forgets_it() {
+        let _g = packages::test_support::lock();
+        with_slot("com.row");
+        packages::set_running(Some("com.other"));
+        blob("/data/com.row/a", 1);
+        assert_eq!(usage_of("com.row"), DIR_BYTES + BLOCK);
+        // A file written behind the accounting's back: the row stands.
+        blob("/data/com.row/b", 1);
+        assert_eq!(usage_of("com.row"), DIR_BYTES + BLOCK);
+        assert!(crate::storage::wipe_package("com.row"));
+        blob("/data/com.row/c", 1);
+        assert_eq!(usage_of("com.row"), DIR_BYTES + BLOCK, "walked again");
+        blob("/data/com.row/d", 1);
+        assert_eq!(usage_of("com.row"), DIR_BYTES + BLOCK, "from the row");
+        crate::storage::wipe_package("com.row");
+        packages::set_running(None);
+        packages::reset_for_test();
+    }
+
+    #[test]
+    fn a_rebuilt_directory_forgets_every_row() {
+        let _g = packages::test_support::lock();
+        with_slot("com.gen");
+        packages::set_running(Some("com.other"));
+        blob("/data/com.gen/a", 1);
+        assert_eq!(usage_of("com.gen"), DIR_BYTES + BLOCK);
+        blob("/data/com.gen/b", 1);
+        assert_eq!(usage_of("com.gen"), DIR_BYTES + BLOCK, "from the row");
+        with_slot("com.gen");
+        assert_eq!(usage_of("com.gen"), DIR_BYTES + 2 * BLOCK, "walked again");
+        crate::storage::wipe_package("com.gen");
+        packages::set_running(None);
+        packages::reset_for_test();
+    }
+
+    #[test]
+    fn the_running_packages_row_is_forgotten_once_it_may_write() {
+        let _g = packages::test_support::lock();
+        with_slot("com.run");
+        packages::set_running(Some("com.other"));
+        blob("/data/com.run/a", 1);
+        assert_eq!(usage_of("com.run"), DIR_BYTES + BLOCK);
+        // It runs: the first accounted operation walks, and the row goes.
+        packages::set_running(Some("com.run"));
+        assert_eq!(charge(BLOCK as i64), Ok(()));
+        blob("/data/com.run/b", 1);
+        packages::set_running(Some("com.other"));
+        assert_eq!(usage_of("com.run"), DIR_BYTES + 2 * BLOCK, "walked fresh");
+        crate::storage::wipe_package("com.run");
+        packages::set_running(None);
+        packages::reset_for_test();
     }
 
     #[test]
