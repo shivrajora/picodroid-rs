@@ -40,7 +40,7 @@ this panel's 165 dpi) and the header carries its own back chevron.
 | `Alarm` | A mutable struct: hour, minute, armed, a Sunday-first day mask, a label. |
 | `AlarmSchedule` | When an alarm next rings. Pure arithmetic over `Clock`, no state and no clock read of its own. |
 | `AlarmStore` | The alarms and the offset, in `SharedPreferences`. Read once, written through on every edit. |
-| `AlarmService` | The heartbeat. Watches the wall clock, rings, drives the buzzer, and hands the screens their tick. |
+| `AlarmService` | The heartbeat. Hands every armed alarm to the framework's `AlarmManager`, rings when it delivers one, drives the buzzer, and hands the screens their tick. |
 | `Buzzer` | GP13 through `Pwm` and GP16 through `Gpio`, best effort. |
 | `SelfTest` | 61 checks over `Clock` and `AlarmSchedule`, run at startup. |
 | `ui/*` | Five screens, a shared palette and widget factory, and the seven-segment face. |
@@ -85,6 +85,12 @@ lands an hour past it means the wall clock jumped — a sync, or the user settin
 the time — and ringing then would be an alarm for a moment that never happened.
 The service re-arms such an alarm instead.
 
+The check moved to `AlarmService.ring`, because the decision is now made where
+the framework hands an alarm back rather than on a tick of this app's own. The
+due instant travels with the alarm as whole epoch minutes (the framework's
+extras are ints), so `shouldRingMinute` widens the window by the minute those
+lost seconds cost.
+
 ### Three framework shapes the app had to work with
 
 **A native upcall resolves methods on the exact class only.** `find_method_by_name`
@@ -104,9 +110,11 @@ otherwise set the clock to the day before the month began. The Set-time screen
 brings its own year and month steppers and tracks the chosen day itself.
 
 **A Service cannot start an Activity.** `startActivity` is on `Activity`, not
-`Context`, deliberately. A ring is therefore routed by whichever screen is
-resumed: the listener is claimed in `onResume` and released in `onPause`, so
-exactly one screen reacts however deep the stack is.
+`Context`, deliberately. That used to mean a ring was routed by whichever screen
+was resumed. It is now the framework that starts `RingActivity` — through
+`AlarmManager`, which can do it with this app not running at all — and the
+listener the screens claim in `onResume` carries only the tick and the
+end-of-ring.
 
 ## Testing
 
@@ -125,6 +133,7 @@ alarms surviving a restart.
 ## Not done
 
 The backlog moved to [picoclock-roadmap.md](picoclock-roadmap.md), which lists
-everything this app is not yet and what each item would cost. The largest by far
-is R1: the alarms are only watched while picoclock is the foreground app,
-because an app switch tears the JVM down and the Service with it.
+everything this app is not yet and what each item would cost. R1, the largest of
+them, is done: the alarms are held by the framework and ring whatever the user
+is doing. What it leaves behind is in the roadmap under R5 and R7 — pressing
+HOME mid-ring still silences it, and a snooze does not survive a relaunch.

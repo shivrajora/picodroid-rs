@@ -231,6 +231,17 @@ pub const NET_HANDLED: &[Row] = &[
 pub const OS_HANDLED: &[Row] = &[
     // java/lang/System
     ("java/lang/System", "currentTimeMillis", "()J"),
+    // picodroid/app/AlarmManager
+    (
+        "picodroid/app/AlarmManager",
+        "nativeSet",
+        "(IJILjava/lang/String;Ljava/lang/String;ILjava/lang/String;I)I",
+    ),
+    (
+        "picodroid/app/AlarmManager",
+        "nativeCancel",
+        "(ILjava/lang/String;)Z",
+    ),
     // picodroid/app/usage/StorageStatsManager
     (
         "picodroid/app/usage/StorageStatsManager",
@@ -471,6 +482,14 @@ pub const CORE_HANDLED: &[Row] = &[
         "picodroid/app/Activity",
         "startActivityForResult",
         "(Lpicodroid/content/Intent;I)V",
+    ),
+    // picodroid/app/AlarmManager — the wildcard `startActivity` arm serves
+    // the framework's own delivery upcall, so a fired alarm takes exactly
+    // the path an app's own startActivity does.
+    (
+        "picodroid/app/AlarmManager",
+        "startActivity",
+        "(Lpicodroid/content/Intent;)V",
     ),
     // picodroid/app/Application
     (

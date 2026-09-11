@@ -119,6 +119,109 @@ nm.notify(1, n);   // post under id 1
 nm.cancel(1);      // dismiss it
 ```
 
+## `picodroid.app.AlarmManager`
+
+Multi-app boards only.
+
+A `Service` keeps working while its app is up. An **alarm keeps working when it is not**:
+the framework holds it outside every app's memory, and when it comes due it starts the app
+that set it and delivers the alarm to one of its Activities. That is the difference worth
+knowing — a thread that sleeps dies with the app, and pressing HOME tears the app down.
+
+```java
+import picodroid.app.AlarmManager;
+import picodroid.app.PendingIntent;
+import picodroid.content.Context;
+import picodroid.content.Intent;
+
+AlarmManager alarms = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+
+PendingIntent operation = PendingIntent.getActivity(
+    this, 0,
+    new Intent(RingActivity.class).putExtra("alarm", 3),
+    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+alarms.setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 60_000, operation);
+```
+
+When it fires, `RingActivity` is started on top of whatever is showing, with that Intent and
+its extras available from `getIntent()`. If the app was not running it is started first, and
+the Activity lands on top of the app's own entry Activity.
+
+### Setting and cancelling
+
+| Method | What it does |
+|---|---|
+| `set(int type, long triggerAtMillis, PendingIntent operation)` | Schedule the operation. Identical to `setExact`: Android may batch a `set` to save power and there is no such trade to make here. |
+| `setExact(int type, long triggerAtMillis, PendingIntent operation)` | Schedule the operation, replacing any alarm already set with an equal one. |
+| `cancel(PendingIntent operation)` | Remove the alarm set with an equal operation. Cancelling one that is not set does nothing. |
+
+`type` is one of `RTC_WAKEUP`, `RTC`, `ELAPSED_REALTIME_WAKEUP` or `ELAPSED_REALTIME`, with
+Android's values. The `RTC` pair measures against `System.currentTimeMillis()`, the
+`ELAPSED_REALTIME` pair against `SystemClock.elapsedRealtime()`. The `_WAKEUP` variants
+differ from their partners only in whether they wake a sleeping device, and nothing here
+suspends the JVM, so each pair behaves identically.
+
+Setting the wall clock moves `RTC` alarms with it: one whose time has passed fires at the
+next opportunity, as on Android. `ELAPSED_REALTIME` alarms are unaffected.
+
+### Alarms live in RAM
+
+A reset loses every alarm. So does a power cut, which on a board with no battery-backed
+clock also loses the time itself — an alarm that survived would name an instant nothing
+could compare against. **Re-register your alarms when your app starts**, the way an Android
+app re-registers after `BOOT_COMPLETED`.
+
+An uninstall forgets that app's alarms.
+
+### Limits
+
+| | |
+|---|---|
+| Alarms per app | 8 armed |
+| Alarms in total | 12 |
+| Extras per alarm | 2, `int` only, keys at most 15 characters |
+| Target | an Activity class in your own app |
+
+`setExact` throws `IllegalStateException` when the framework has no room. Everything else
+is checked when the `PendingIntent` is built, which is where the mistake is.
+
+### `picodroid.app.PendingIntent`
+
+`getActivity(Context context, int requestCode, Intent intent, int flags)` is the only
+factory: there are no broadcasts to point one at, and a Service cannot be started from
+outside its own app.
+
+Two operations are **equal** when their request code and target Activity match; the extras
+are not part of the identity, exactly as on Android. Equal operations replace one another on
+`setExact` and match on `cancel`, so a request code per alarm is how an app keeps several
+apart:
+
+```java
+// One operation per alarm, so re-planning one leaves the others alone.
+PendingIntent operation(int alarmId, long dueAtMillis) {
+  return PendingIntent.getActivity(this, alarmId,
+      new Intent(RingActivity.class).putExtra("alarm", alarmId),
+      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+}
+```
+
+`FLAG_NO_CREATE` returns `null` without creating anything. `FLAG_UPDATE_CURRENT`,
+`FLAG_CANCEL_CURRENT`, `FLAG_ONE_SHOT`, `FLAG_IMMUTABLE` and `FLAG_MUTABLE` are accepted and
+ignored: a set always replaces by identity, and every alarm is consumed when it fires.
+
+`getActivity` throws `IllegalArgumentException` if the Intent names no Activity class,
+targets another package, carries more than two extras, carries an extra that is not an
+`int`, or carries a key longer than 15 characters. Rejecting a `String` extra rather than
+dropping it is deliberate — a silent drop would surface a tick later, in another Activity,
+as an extra that was never there.
+
+### A worked example
+
+`examples/alarmdemo` is the whole cycle in three small classes: it arms an alarm, leaves for
+the launcher, and is started again to receive it. `examples/picoclock` is the real use —
+one operation per alarm slot, re-planned whenever the alarms change.
+
 ## `picodroid.content.Context` — start / bind / stop
 
 The `Context` (your `Application`, an `Activity`, or another `Service`) drives the service lifecycle:

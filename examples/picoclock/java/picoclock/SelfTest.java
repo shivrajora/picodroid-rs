@@ -190,6 +190,28 @@ public final class SelfTest {
         "does not ring for a clock that jumped over it",
         !AlarmSchedule.shouldRing(due, due + Clock.MS_PER_HOUR));
     check("never never rings", !AlarmSchedule.shouldRing(AlarmSchedule.NEVER, due));
+
+    // A due time crosses the framework as whole minutes, so the seconds are
+    // lost and the reconstructed instant can be up to a minute early.
+    int dueMinute = AlarmSchedule.epochMinute(due);
+    check("a whole instant survives the round trip", dueMinute * Clock.MS_PER_MINUTE == due);
+    check(
+        "seconds are dropped downwards",
+        AlarmSchedule.epochMinute(due + 59_999L) == dueMinute
+            && AlarmSchedule.epochMinute(due - 1) == dueMinute - 1);
+    check(
+        "a pre-epoch instant floors rather than truncates",
+        AlarmSchedule.epochMinute(-1) == -1 && AlarmSchedule.epochMinute(-60_000L) == -1);
+    check("rings on the minute", AlarmSchedule.shouldRingMinute(dueMinute, due));
+    check(
+        "rings at the widened tolerance",
+        AlarmSchedule.shouldRingMinute(
+            dueMinute, due + AlarmSchedule.LATE_TOLERANCE_MS + Clock.MS_PER_MINUTE));
+    check(
+        "does not ring past the widened tolerance",
+        !AlarmSchedule.shouldRingMinute(
+            dueMinute, due + AlarmSchedule.LATE_TOLERANCE_MS + Clock.MS_PER_MINUTE + 1));
+    check("does not ring before the minute", !AlarmSchedule.shouldRingMinute(dueMinute, due - 1));
   }
 
   private static void across() {

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import picoclock.Alarm;
 import picoclock.AlarmService;
 import picodroid.content.Intent;
 
 /**
- * The binding every screen shares: a connection to {@link AlarmService}, and the rule that an alarm
- * coming due interrupts whatever screen is up. Only the resumed screen listens — the listener is
- * claimed in {@code onResume} and released in {@code onPause} — so exactly one screen reacts to a
- * ring, however deep the stack is. A Service here cannot start an Activity of its own ({@code
- * startActivity} is on Activity, not Context), so routing a ring to a screen is a screen's job, and
- * this is where it lives rather than in five copies.
+ * The binding every screen shares: a connection to {@link AlarmService}, claimed in {@code
+ * onResume} and released in {@code onPause}, so exactly one screen hears the service however deep
+ * the stack is.
+ *
+ * <p>Nothing here routes a ring. The framework's {@code AlarmManager} starts {@link RingActivity}
+ * on top of whatever is showing — and starts this app first if the user has gone elsewhere — which
+ * is why an alarm still rings with the app shut down.
  *
  * <h2>Why every subclass re-declares its lifecycle methods</h2>
  *
@@ -26,9 +26,6 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
 
   /** The bound service, or null before the connection lands and after a disconnect. */
   protected AlarmService alarms;
-
-  /** Set by {@link RingActivity}: the screen that *is* the ring does not launch another. */
-  protected boolean handlesRingItself;
 
   private final ServiceLink link = new ServiceLink(this);
   private boolean resumed;
@@ -81,13 +78,6 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
     unbindService(link);
     alarms = null;
     super.onDestroy();
-  }
-
-  @Override
-  public void onAlarmRing(Alarm alarm) {
-    if (!handlesRingItself) {
-      startActivity(new Intent(RingActivity.class).putExtra(RingActivity.EXTRA_ALARM_ID, alarm.id));
-    }
   }
 
   @Override

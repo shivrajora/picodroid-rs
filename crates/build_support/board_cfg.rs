@@ -106,8 +106,9 @@ pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
 }
 
 /// The SDK classes only a multi-app board ships: what `PackageManager`'s
-/// queries and the launcher need (multi-app M2), and the per-package
-/// storage statistics (M3b). A single-app board drops them the way
+/// queries and the launcher need (multi-app M2), the per-package storage
+/// statistics (M3b), and `AlarmManager`, whose whole purpose — an alarm that
+/// outlives the app that set it — needs an app switch to outlive. A single-app board drops them the way
 /// `has_json = false` drops [`JSON_CLASSES`]; the Gradle contract check
 /// mirrors the list (`buildSrc/.../classfile/ApiContract.kt`).
 pub const MULTI_APP_CLASSES: &[&str] = &[
@@ -118,6 +119,8 @@ pub const MULTI_APP_CLASSES: &[&str] = &[
     "picodroid/app/usage/StorageStatsManager",
     "picodroid/app/usage/StorageStats",
     "picodroid/content/pm/PackageInstaller",
+    "picodroid/app/AlarmManager",
+    "picodroid/app/PendingIntent",
 ];
 
 /// The SDK classes the `has_json` board.toml key owns, in JVM internal

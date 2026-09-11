@@ -5,6 +5,13 @@ description: "What a multi-app board boots, how the launcher starts an app, and 
 
 A multi-app board (`max_installed_apps` above 1 in its `board.toml`; every RP2350 board today) holds several installed apps and a **launcher** built into the firmware. One app runs at a time. This page explains what boots, how the launcher starts an app, and how control comes back.
 
+:::note[An app can also be brought back by an alarm]
+Switching away from an app tears it down, but an alarm it set with
+[`AlarmManager`](/api/services/#picodroidappalarmmanager) outlives it: when the alarm comes
+due the framework starts that app again and delivers the Activity, the same switch in
+reverse.
+:::
+
 ## The launcher
 
 The launcher lives in `system-apps/launcher/`. It is an ordinary Picodroid app (package `picodroid.launcher`), built like an example and linked into every multi-app firmware by the build. `pdb list` shows it as a `SYSTEM` row. It cannot be uninstalled and takes no space in the app region.

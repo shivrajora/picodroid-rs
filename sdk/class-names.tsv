@@ -98,6 +98,7 @@ java/util/concurrent/RejectedExecutionException
 java/util/concurrent/TimeoutException
 javax/inject/Provider
 picodroid/app/Activity
+picodroid/app/AlarmManager
 picodroid/app/AlertDialog
 picodroid/app/AlertDialog$1
 picodroid/app/AlertDialog$Builder
@@ -105,6 +106,7 @@ picodroid/app/Application
 picodroid/app/Notification
 picodroid/app/Notification$Builder
 picodroid/app/NotificationManager
+picodroid/app/PendingIntent
 picodroid/app/Service
 picodroid/app/usage/StorageStats
 picodroid/app/usage/StorageStatsManager

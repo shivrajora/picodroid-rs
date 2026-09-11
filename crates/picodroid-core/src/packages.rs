@@ -150,20 +150,24 @@ impl Entry {
 
 /// A package name copied out of a manifest, bounded so the static stays
 /// small; a longer name is cut at 64 bytes.
+///
+/// Visible to the crate because [`crate::alarms`] keeps one per alarm: an
+/// owner recorded there is compared against [`running`], so it must be the
+/// same bounded copy and not a shorter one that could truncate differently.
 #[derive(Clone, Copy)]
-struct Name([u8; 64], usize);
+pub(crate) struct Name([u8; 64], usize);
 
 impl Name {
-    const EMPTY: Name = Name([0; 64], 0);
+    pub(crate) const EMPTY: Name = Name([0; 64], 0);
 
-    fn set(&mut self, name: Option<&str>) {
+    pub(crate) fn set(&mut self, name: Option<&str>) {
         let bytes = name.unwrap_or("").as_bytes();
         let n = bytes.len().min(self.0.len());
         self.0[..n].copy_from_slice(&bytes[..n]);
         self.1 = n;
     }
 
-    fn get(&self) -> Option<&str> {
+    pub(crate) fn get(&self) -> Option<&str> {
         if self.1 == 0 {
             return None;
         }

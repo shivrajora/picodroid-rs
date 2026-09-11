@@ -7,6 +7,27 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**An alarm that outlives the app that set it**
+
+- New `picodroid.app.AlarmManager` and `picodroid.app.PendingIntent`, on multi-app boards:
+  an app schedules one of its own Activities for a wall-clock or elapsed-time instant and is
+  free to exit. The framework holds the alarm outside every app's memory, starts the app
+  again when it comes due, and delivers the Activity on top of it. `set` / `setExact` (both
+  exact) and `cancel`, with Android's four clock constants; `PendingIntent.getActivity`
+  carries up to two `int` extras. Alarms live in RAM and are lost at a reset, so an app
+  re-registers at startup as an Android app does after `BOOT_COMPLETED`. See
+  [services](/api/services/#picodroidappalarmmanager) and
+  `docs/designs/alarm-manager-2026-09.md`.
+- `picoclock` no longer watches the clock itself, which is what it was for: its alarms used
+  to stop the moment you pressed HOME, and now they ring whatever you are doing. Its
+  `AlarmService` keeps the heartbeat, the buzzer and the snooze, and hands the framework one
+  operation per alarm slot. The carrier's buzzer also drops from a 50% to a 10% duty cycle —
+  the loudest a square-wave sounder gets is louder than a bedside alarm needs.
+- `Intent.setClassName(String, String)`, four framework-internal extras accessors on
+  `Intent`, `Context.ALARM_SERVICE`, and `SystemClock.elapsedRealtime()`.
+- `examples/alarmdemo` is the cycle in three classes and a harness row; `sim-run.sh` gains an
+  `alarm` lane that drives the leave-and-come-back path through the launcher.
+
 **The settings screens and the launcher stop holding the UI tick**
 
 - Opening Settings > Storage or Apps froze a device for 190–330 ms, and the launcher's list for 240 ms: every row is ~20 ms of LVGL work and the screens built them all inside `onCreate`. Every screen now shows its header at once and adds rows one per UI tick, each under the watchdog's 50 ms; the Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive. No `slow handler` line on any screen.

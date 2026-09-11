@@ -78,6 +78,7 @@ Background components with lifecycle independent of any Activity. Reference: [Se
 
 | Example | Class | Description |
 |---------|-------|-------------|
+| `alarmdemo` | `alarmdemo.AlarmDemoApp` | Sets an `AlarmManager` alarm three seconds out, leaves for the launcher, and is started again by the framework to receive it in `WokeActivity` — the whole point of an alarm over a thread that sleeps. Falls back to waiting in place on a board with no launcher |
 | `servicedemo` | `servicedemo.ServiceDemoApp` | Drives a `CounterService` through the full Service v1 lifecycle in one non-UI run: two `startService` calls (one `onCreate`, two `onStartCommand`), `bindService` with a `LocalBinder` peek, `unbindService`, then `stopService` (triggers `onDestroy` and the foreground-notification cancel). Uses `startForeground(id, Notification)` |
 
 ## Language Features
