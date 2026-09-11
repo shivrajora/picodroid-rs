@@ -43,6 +43,20 @@ pub const PRIORITY_RT_1: u8 = 21; // pdb task lives here
 pub const PRIORITY_RT_2: u8 = 22; // cyw43 WiFi task lives here
 pub const PRIORITY_FS_WORKER: u8 = 22; // fs worker task (alias of RT_2)
 
+pub const PRIORITY_RT_3: u8 = 23;
+/// Touch panel sampler (alias of RT_3). Above the JVM tier because that is
+/// the entire point: on the touch board one rendered frame occupies the
+/// interpreter for 120-200 ms, and a sampler it could delay would be the
+/// once-per-frame polling this task exists to replace. Above the fs worker
+/// and pdb too, because its body is one panel read and one ring push — it
+/// costs whatever it preempts well under a millisecond, and a debug transfer
+/// is not worth a lost finger position. It never touches the JVM heap or
+/// LVGL, so the "one tier for all Java" rule above is not in play.
+///
+/// Runtime flash writes are not exposed by this: `with_xip_disabled!` runs
+/// with interrupts off on its core and core 1 parked, so no task preempts it.
+pub const PRIORITY_TOUCH: u8 = PRIORITY_RT_3;
+
 pub const PRIORITY_RT_10: u8 = 30;
 /// Core-1 flash parker (alias of RT_10): top of the RT band so a park
 /// request preempts anything schedulable on core 1; only the FreeRTOS timer

@@ -621,6 +621,7 @@ pub fn emit_display_config(out: &Path, display: &Option<HashMap<String, String>>
 /// consumers — the same rule as `board_cfg.rs`.
 pub fn emit_touch_config(out: &Path, touch: &Option<HashMap<String, String>>) {
     println!("cargo:rustc-check-cfg=cfg(has_touch)");
+    println!("cargo:rustc-check-cfg=cfg(touch_private_bus)");
     for (driver, _) in KNOWN_TOUCH_DRIVERS {
         println!("cargo:rustc-check-cfg=cfg(touch_{driver})");
     }
@@ -648,6 +649,40 @@ pub fn emit_touch_config(out: &Path, touch: &Option<HashMap<String, String>>) {
                 panic!("[touch] unknown driver '{driver}' (known: {known:?})")
             });
         println!("cargo:rustc-cfg=touch_{driver}");
+
+        // Two properties shared code needs about the panel, and that today
+        // follow from the transport rather than from the part number.
+        //
+        //  * A private bus means nothing else drives the controller's wires,
+        //    so the panel may be read from a task other than the one running
+        //    the display. The XPT2046 is the counter-example: it hangs off the
+        //    *display's* SPI bus, borrowing its pads and dropping the clock to
+        //    `spi_freq` for the duration of a read, with nothing serialising it
+        //    against a band flush. Only the fact that both happen on the UI
+        //    task keeps that safe.
+        //  * A resistive panel's first reading after touch-down is taken before
+        //    its RC network has settled and lands 20-60 px away; a capacitive
+        //    controller reports finished pixels and has nothing to settle.
+        //
+        // A future SPI part on a bus of its own would want these as explicit
+        // `[touch]` keys. With two drivers and one wiring each, that would be
+        // a key no board could answer differently.
+        let (private_bus, discard_first) = match bus {
+            TouchBus::Spi => (false, true),
+            TouchBus::I2c => (true, false),
+        };
+        code.push_str(&format!(
+            "pub const TOUCH_PRIVATE_BUS: bool = {private_bus};\n"
+        ));
+        // Also a cfg, so the sampler task and its ring are not merely dead on
+        // a shared-bus board but absent from its image. The RP2040 is 60 B
+        // under an 896 KB ceiling on a good day and gains nothing from either.
+        if private_bus {
+            println!("cargo:rustc-cfg=touch_private_bus");
+        }
+        code.push_str(&format!(
+            "pub const TOUCH_DISCARD_FIRST_SAMPLE: bool = {discard_first};\n"
+        ));
 
         let get = |key: &str| -> &str {
             t.get(key)
@@ -725,6 +760,12 @@ pub fn emit_touch_config(out: &Path, touch: &Option<HashMap<String, String>>) {
         // to the display regardless of how it is wired.
         let swap = t.get("swap_xy").map_or("false", |v| v.as_str());
         code.push_str(&format!("pub const TOUCH_SWAP_XY: bool = {swap};\n"));
+    } else {
+        // No [touch] in board.toml. The panel properties are still emitted:
+        // `hal::touch_sampler` reads them on every board, and there is nothing
+        // to sample here.
+        code.push_str("pub const TOUCH_PRIVATE_BUS: bool = false;\n");
+        code.push_str("pub const TOUCH_DISCARD_FIRST_SAMPLE: bool = false;\n");
     }
 
     let path = out.join("touch_config.rs");

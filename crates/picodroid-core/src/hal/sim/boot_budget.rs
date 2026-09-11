@@ -257,6 +257,7 @@ mod tests {
             TaskKind::JvmChild => 4_096,
             TaskKind::BgWorker => 2_048,
             TaskKind::Sensor => 1_024,
+            TaskKind::Touch => 2_048,
             TaskKind::FsWorker => 512,
         }
     }

@@ -28,6 +28,9 @@ pub mod event_ring;
 // repeats "down" on every retry, the log wants it once per change.
 pub mod net_edge;
 pub mod touch_override;
+// Who reads the touch panel and how often — the sampler task, its ring, and
+// the first-sample discard both sampling paths share.
+pub mod touch_sampler;
 
 // The host implementation of the hardware surface, shared by every family
 // rather than copied into each one — see the module docs for why.

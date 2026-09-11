@@ -3,8 +3,8 @@
 > Measured 2026-09-11 against `982c4cf` on `pico_touch_kit` hardware, driving
 > `picoclock`'s Set-time screen with `pdb input swipe` and a temporary defmt
 > probe in `graphics/lvgl/lifecycle.rs`. The probe timed each band's render and
-> flush separately; it was reverted and is not in the tree. Nothing in §3–§7 is
-> started.
+> flush separately; it was reverted and is not in the tree. **S1 has since
+> landed** (§3); nothing else in §3–§7 is started.
 
 The complaint that started this: scrolling the Set-time screen is slow, choppy,
 and tears badly. All three are real, and they are three symptoms of one
@@ -44,7 +44,8 @@ Input is the symptom nobody should have to reason about. The touch read timer
 shares `LV_DEF_REFR_PERIOD` with the display refresh, so the panel is polled
 once per rendered frame. **A 300 ms swipe produced two position samples, 240 ms
 apart, 234 px apart.** The page does not scroll, it teleports. That is the
-choppiness, and it is why the fling feels wrong too.
+choppiness, and it is why the fling feels wrong too. S1 below is the fix, and
+it has landed.
 
 ## 2. What was ruled out
 
@@ -72,26 +73,49 @@ without re-measuring.**
 
 ## 3. Input
 
-### S1. Sample touch independently of the frame rate
+### S1. Sample touch independently of the frame rate — **done**
 
 The single cheapest win, and the one that attacks the reported symptom head-on.
-The read costs 0.6 ms and currently happens once per frame, so at 5 fps the
-finger is sampled five times a second.
+The read costs 0.6 ms and used to happen once per frame, so at 5 fps the finger
+was sampled five times a second.
 
-Sampling on its own timer at 60–100 Hz and handing LVGL the accumulated motion
-would track a finger properly even if the panel never got faster than 8 fps: the
-content would move in 8 px steps rather than 47 px ones, the fling would inherit
-a real velocity, and the 30 px scroll dead zone (`scroll_limit = 30`, against
-LVGL's default of 10) would stop swallowing whole samples.
+`hal/touch_sampler.rs` now owns the panel on any board whose controller has a
+bus of its own. A dedicated task at priority 23 — above the JVM tier, which is
+the whole point, since that tier is what spends 120–200 ms rendering — reads it
+every 10 ms and pushes each *changed* reading into a 64-entry ring. LVGL's input
+callback drains the whole ring in one pass, one queued sample per read, using
+`continue_reading`; LVGL processes every position the finger passed through and
+renders once at the end. A held finger occupies one slot, not a hundred.
 
-The GT911's INT line is already wired to GP11 and already brought up as an input
-in `hal/rp/touch.rs`; nothing reads it. Interrupt-driven sampling is the better
-end state, a free-running timer the smaller first step.
+Verified in the simulator with the control channel: a 300 ms scripted swipe
+delivers all 13 of its interpolated positions plus the release edge, against the
+two the old path saw on hardware.
 
-Worth pairing with a review of the `TOUCH_WAS_PRESSED` first-sample discard in
-`lifecycle.rs`. It exists for the XPT2046's RC settling and costs a sample on
-every touch-down; a capacitive controller reporting finished pixels does not
-need it.
+Two things this does *not* do, deliberately:
+
+- **Per-sample timestamps.** LVGL's fling velocity is a decayed sum over
+  `vect_hist`, weighted by `lv_tick_diff` against each sample's timestamp
+  (`lv_indev.c:1362`). Handing it honest capture times is only meaningful once
+  the tick itself is honest — S2 — because backdating into a clock that advances
+  16 ms per 140 ms frame makes timestamps run backwards. Until then every sample
+  in a batch carries the same `lv_tick_get()`, which costs the decay and keeps
+  the ordering sound.
+- **The XPT2046 boards.** That part hangs off the *display's* SPI bus and drops
+  its clock for the duration of a read, with nothing serialising it against a
+  band flush; only "both happen on the UI task" makes it safe today. They keep
+  the inline read, and `touch_private_bus` keeps the ring and the task out of
+  their images entirely — the RP2040 has no flash to spend on a feature it
+  cannot use.
+
+The `TOUCH_WAS_PRESSED` first-sample discard moved to `sample_panel`, shared by
+both paths, and is now gated on `TOUCH_DISCARD_FIRST_SAMPLE`: the XPT2046's RC
+network needs it, a capacitive controller reporting finished pixels does not, so
+a tap on the touch board registers on the sample that saw it.
+
+The GT911's INT line is still wired to GP11 and still unread. Interrupt-driven
+sampling remains the better end state; the 10 ms timer is what stands in for it,
+and it also polls an untouched panel 100 times a second, which the INT line
+would stop.
 
 ## 4. Scheduling
 
@@ -281,13 +305,13 @@ scheduled as one piece or not at all.
 
 ## 8. Suggested order
 
-S1 first, alone, and re-judge the complaint afterwards. It is the cheapest item
-here, it needs nothing else, and it attacks the reported symptom directly —
+S1 is done. Re-judge the complaint against it before starting anything below:
 "choppy" may substantially survive or substantially vanish, and that answer
 changes how much the rest is worth.
 
-S2 and S3 next, together, for the ~15 % and for animation timing that is simply
-correct rather than approximately correct.
+S2 and S3 next, together, for the ~15 %, for animation timing that is simply
+correct rather than approximately correct, and because S1's per-sample
+timestamps are waiting on them.
 
 S6 before S4, S5 or §7. It is one flash cycle, it is the largest term in the
 frame, and two confident guesses about it have already been wrong. Spending
