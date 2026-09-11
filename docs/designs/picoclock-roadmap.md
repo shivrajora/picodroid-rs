@@ -7,6 +7,13 @@ not yet. Nothing here is started.
 Items are grouped by what they change rather than by size, and ordered within
 each group by how much they are worth.
 
+One complaint about this app turned out not to be about this app at all: the
+Set-time screen scrolls at 3-8 fps and tears, for reasons that live in the
+framework's render and input path rather than in `picoclock`. That is profiled
+and scoped separately in
+[scroll-performance-2026-09.md](scroll-performance-2026-09.md); nothing about it
+is an app change, so nothing about it is listed below.
+
 ## 1. The thing that stops it being a real alarm clock
 
 ### R1. Alarms that survive leaving the app
