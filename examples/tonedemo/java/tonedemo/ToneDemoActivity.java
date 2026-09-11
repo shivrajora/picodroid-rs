@@ -38,7 +38,11 @@ public class ToneDemoActivity extends Activity {
     // Bring LVGL up before constructing widgets, as the other UI examples do.
     Display display = getDisplay();
 
-    tones = new ToneGenerator(AudioManager.STREAM_SYSTEM, 80);
+    // 20, not something nearer the top of the range. The EP-0172's piezo is
+    // rated 85 dB and sits a few inches from whoever is holding the board; at
+    // high volume it is genuinely unpleasant in a room, which is worth knowing
+    // before picking a default for anything that beeps unprompted.
+    tones = new ToneGenerator(AudioManager.STREAM_SYSTEM, 20);
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
@@ -72,7 +76,8 @@ public class ToneDemoActivity extends Activity {
 
     setContentView(root);
 
-    // Play on entry so a run with no input still proves the buzzer works.
+    // Play on entry so a run with no input still proves the buzzer works. Quiet
+    // and four notes long, because this fires every time the app is launched.
     Log.i(TAG, "ready; playing the entry chime");
     Log.i(TAG, "startToneSequence -> " + tones.startToneSequence(CHIME_HZ, CHIME_MS));
   }

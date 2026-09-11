@@ -46,6 +46,10 @@ tones.release();
 
 Volume maps onto duty cycle. A square wave is loudest at 50%, so `100` is a 50% duty cycle and `0` is silence.
 
+:::caution[Start quiet]
+A piezo buzzer is much louder than its size suggests — the one on the 52Pi EP-0172 is rated 85 dB, and it sits inches from whoever is holding the board. Volumes near the top of the range are genuinely unpleasant in a room, and painful over a long repeating tone. Pick a low value first and raise it only if you need to; [`tonedemo`](/examples/) uses `20`. This matters most for anything that beeps without being asked, such as a startup sound or an alert.
+:::
+
 ### Tone constants
 
 Names and values match `android.media.ToneGenerator`. Cadences follow Android's CEPT variant.

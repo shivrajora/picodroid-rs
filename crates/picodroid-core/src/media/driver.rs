@@ -182,14 +182,12 @@ pub fn release() {
 
 /// Advance the tone from the UI tick.
 ///
-/// The first line is load-bearing, not an optimisation. This runs on every UI
-/// frame, about sixty times a second, for the whole life of the device, and
-/// silence is the overwhelmingly common case. [`AtomicSection`] is
-/// `vTaskSuspendAll`/`xTaskResumeAll` — taking one unconditionally suspends the
-/// scheduler on every frame forever, which starves the USB device task: on
-/// hardware the board kept running and kept logging over RTT while its USB CDC
-/// interface silently vanished from the host. Reading a flag costs one load and
-/// touches the scheduler not at all.
+/// The early return matters. This runs on every UI frame, about sixty times a
+/// second, for the whole life of the device, and silence is the overwhelmingly
+/// common case. [`AtomicSection`] is `vTaskSuspendAll`/`xTaskResumeAll`, so
+/// taking one unconditionally would suspend the scheduler on every frame
+/// forever just to learn there is nothing to do. Reading a flag costs one load
+/// and touches the scheduler not at all.
 pub fn on_tick() {
     if !TONE_ACTIVE.load(Ordering::Relaxed) {
         return;
