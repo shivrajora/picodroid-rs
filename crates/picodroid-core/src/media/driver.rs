@@ -14,6 +14,7 @@
 //! segment boundary, so a tick that changes nothing costs one comparison and
 //! the hardware is touched once per note.
 
+use core::sync::atomic::{AtomicBool, Ordering};
 use pico_jvm::atomic_section::AtomicSection;
 
 use super::sequencer::{Action, Sequencer, MAX_SEGMENTS};
@@ -36,22 +37,35 @@ const MAX_DUTY_PERCENT: f64 = 50.0;
 /// duty and disabled, nothing about it is audible.
 const IDLE_FREQ_HZ: f64 = 1000.0;
 
-/// The sequencer, the volume, and whether the pad has been configured.
+/// The sequencer and the volume.
 ///
 /// `static mut` rather than atomics because the state is a compound the
 /// sequencer mutates in several steps, and because the RP2040's Cortex-M0+ has
-/// no `compare_exchange` to build it from. Every access below runs inside an
-/// [`AtomicSection`]: `on_tick` runs on the JVM main task while `start_tone`
-/// may be called from any Java thread, so the two really do race.
+/// no `compare_exchange` to build one from. Every access goes through
+/// [`with_state`]: `on_tick` runs on the JVM main task while `start_tone` may
+/// be called from any Java thread, so the two really do race.
 static mut SEQ: Sequencer = Sequencer::new();
 static mut VOLUME: u8 = 0;
-static mut PIN_READY: bool = false;
+
+/// Whether a tone is playing, published for [`on_tick`]'s fast path.
+///
+/// This exists so the tick can answer "nothing to do" without touching the
+/// scheduler — see [`on_tick`]. It is written only inside [`with_state`], from
+/// the sequencer's own state, so it cannot drift from it. A plain load and
+/// store, never a read-modify-write, because the Cortex-M0+ has no CAS.
+static TONE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the PWM pad has been configured yet.
+static PIN_READY: AtomicBool = AtomicBool::new(false);
 
 #[allow(static_mut_refs)]
 fn with_state<R>(f: impl FnOnce(&mut Sequencer, &mut u8) -> R) -> R {
     let _atomic = AtomicSection::enter();
     // SAFETY: the atomic section is the mutual exclusion; see the statics' docs.
-    unsafe { f(&mut SEQ, &mut VOLUME) }
+    let r = unsafe { f(&mut SEQ, &mut VOLUME) };
+    // SAFETY: as above — still inside the section.
+    unsafe { TONE_ACTIVE.store(SEQ.is_active(), Ordering::Relaxed) };
+    r
 }
 
 fn now_ms() -> u64 {
@@ -61,16 +75,16 @@ fn now_ms() -> u64 {
 /// Configure the pad, once, the first time a generator is constructed. Doing
 /// it lazily rather than at boot keeps a board that never makes a sound from
 /// claiming a PWM slice it does not use.
-#[allow(static_mut_refs)]
+///
+/// No atomic section: two threads racing here would both call `pwm::init`,
+/// which is idempotent by construction (it re-runs the same resets and pad
+/// writes), so the benign race is cheaper than suspending the scheduler.
 fn ensure_pin() {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: as `with_state`.
-    unsafe {
-        if !PIN_READY {
-            PIN_READY = true;
-            pwm::init(AUDIO_PIN);
-        }
+    if PIN_READY.load(Ordering::Relaxed) {
+        return;
     }
+    PIN_READY.store(true, Ordering::Relaxed);
+    pwm::init(AUDIO_PIN);
 }
 
 /// Apply an [`Action`] to the hardware. Called outside the atomic section: the
@@ -166,8 +180,20 @@ pub fn release() {
     stop();
 }
 
-/// Advance the tone from the UI tick. Cheap and silent unless a segment ended.
+/// Advance the tone from the UI tick.
+///
+/// The first line is load-bearing, not an optimisation. This runs on every UI
+/// frame, about sixty times a second, for the whole life of the device, and
+/// silence is the overwhelmingly common case. [`AtomicSection`] is
+/// `vTaskSuspendAll`/`xTaskResumeAll` — taking one unconditionally suspends the
+/// scheduler on every frame forever, which starves the USB device task: on
+/// hardware the board kept running and kept logging over RTT while its USB CDC
+/// interface silently vanished from the host. Reading a flag costs one load and
+/// touches the scheduler not at all.
 pub fn on_tick() {
+    if !TONE_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
     let now = now_ms();
     let stepped = with_state(|seq, vol| seq.advance(now).map(|a| (a, *vol)));
     if let Some((action, volume)) = stepped {
