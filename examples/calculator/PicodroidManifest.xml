@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="calculator" version="1.0">
+    <application activity="calculator/CalculatorActivity" label="Calculator" />
+</manifest>

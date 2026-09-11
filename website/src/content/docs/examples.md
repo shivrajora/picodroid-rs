@@ -147,6 +147,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | `pickerdemo` | `pickerdemo.PickerDemoApp` | `DatePicker` (lv_calendar binding) and `TimePicker` (lv_roller binding) with 12-hour / AM-PM mode and value-changed listeners |
 | `snackbardemo` | `snackbardemo.SnackbarDemoApp` | `Snackbar.make().setAction().show()` — toast with a clickable action lozenge, auto-dismiss, click-through-to-listener |
 | `swipedemo` | `swipedemo.SwipeDemoApp` | `OnSwipeListener` (UP / DOWN / LEFT / RIGHT direction constants) on a single view; `SwipeRefreshLayout` pull-to-refresh container |
+| `calculator` | `calculator.CalculatorActivity` | Four-function touch calculator built for the 320x480 `pico_touch_kit` panel: a 4x5 key grid of nested `LinearLayout` rows, `Gravity.BOTTOM`/`Gravity.RIGHT` to right-align the two display lines, `GradientDrawable` key faces and flat layout backgrounds, and an arithmetic model (`CalculatorEngine`) kept free of any framework call. Every box is derived from the `Display` size, so it fills any panel |
 
 ## Performance and Testing
 
