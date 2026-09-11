@@ -82,6 +82,34 @@ unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     unsafe { map_mut(&raw mut HANDLE_MAP).remove(obj) }
 }
 
+/// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
+/// container is deleted. Registered on every picker at create time, not only on
+/// ones that took a listener: without it the four slots are consumed for good
+/// and the *fifth* `TimePicker` a process ever builds gets none, at which point
+/// `set_time` silently does nothing and `get_hour`/`get_minute` answer zero —
+/// a screen offering midnight instead of the time, and setting midnight if the
+/// user accepts it. Screens are built and destroyed freely, so four is a handful
+/// of navigations, not a lifetime's worth.
+unsafe extern "C" fn slot_delete_cb(e: *mut lv_event_t) {
+    let container = unsafe { lv_event_get_target_obj(e) } as usize;
+    if container == 0 {
+        return;
+    }
+    unsafe {
+        for slot in &mut SLOTS[..] {
+            if slot.container == container {
+                *slot = EMPTY_SLOT;
+            }
+        }
+        for entry in &mut ROLLER_MAP[..] {
+            if entry.1 == container {
+                *entry = (0, 0);
+            }
+        }
+        map_mut(&raw mut HANDLE_MAP).remove(container);
+    }
+}
+
 // ── Roller → container map (so the trampoline can resolve the parent) ──────
 //
 // Three rollers per picker (hour, minute, am_pm).
@@ -184,6 +212,12 @@ pub(in crate::graphics) fn create() -> i32 {
             hour as usize,
             minute as usize,
             am_pm as usize,
+        );
+        lv_obj_add_event_cb(
+            container,
+            Some(slot_delete_cb),
+            LV_EVENT_DELETE,
+            core::ptr::null_mut(),
         );
         handle_table::register(container)
     }
@@ -372,9 +406,9 @@ pub fn reset_time_picker_state() {
 
 fn register_picker(container: usize, hour: usize, minute: usize, am_pm: usize) {
     unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == 0 {
-                *slot = PickerSlot {
+        match SLOTS[..].iter().position(|s| s.container == 0) {
+            Some(i) => {
+                SLOTS[i] = PickerSlot {
                     container,
                     hour,
                     minute,
@@ -382,8 +416,11 @@ fn register_picker(container: usize, hour: usize, minute: usize, am_pm: usize) {
                     is_24hour: true,
                     suppress: false,
                 };
-                break;
             }
+            // A picker with no slot is inert: set_time does nothing and the
+            // getters answer zero. Say so rather than hand back a widget that
+            // quietly ignores every call made on it.
+            None => warn_full("time-picker slots"),
         }
         for &r in &[hour, minute, am_pm] {
             for entry in &mut ROLLER_MAP[..] {
