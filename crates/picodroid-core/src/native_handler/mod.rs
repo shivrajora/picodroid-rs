@@ -13,6 +13,13 @@ mod io;
 // Board-gated by the `has_json` board.toml key, like `net` by `has_network`.
 #[cfg(has_json)]
 mod json;
+// Tones on the board's buzzer, behind board.toml's `[audio]` section. The SDK
+// classes ship on every board, so a board with no output answers through the
+// stub rather than leaving the natives unresolved — as `net`/`net_stub` do.
+#[cfg(has_audio)]
+mod media;
+#[cfg(not(has_audio))]
+mod media_stub;
 #[cfg(has_network)]
 mod net;
 #[cfg(not(has_network))]
@@ -423,6 +430,14 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         }
         #[cfg(has_json)]
         if let result @ Some(_) = json::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        #[cfg(has_audio)]
+        if let result @ Some(_) = media::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        #[cfg(not(has_audio))]
+        if let result @ Some(_) = media_stub::dispatch(class_name, method_name, ctx) {
             return result;
         }
         #[cfg(has_network)]

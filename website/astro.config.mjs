@@ -87,6 +87,7 @@ export default defineConfig({
             { label: 'Networking', slug: 'api/networking' },
             { label: 'JSON', slug: 'api/json' },
             { label: 'Sensors', slug: 'api/sensors' },
+            { label: 'Audio', slug: 'api/media' },
             { label: 'Graphics & UI', slug: 'api/ui' },
           ],
         },

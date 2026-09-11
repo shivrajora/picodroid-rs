@@ -626,6 +626,26 @@ GT911 only:
 
 Each entry here becomes a `Sensor` visible to [`SensorManager`](/api/sensors/).
 
+### `[audio]` — optional sound output
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `driver` | string | Output selector. `"pwm_buzzer"` is the only one: a piezo driven directly from one PWM pad. |
+| `pin` | int | The PWM pad the buzzer is wired to. |
+
+Declaring this section enables [`picodroid.media.ToneGenerator`](/api/media/)
+on the board. Omit it and the SDK classes still ship — they are not board-excluded
+the way `picodroid.json` is — but every method becomes a safe no-op, with
+`startTone` returning `false`. An app therefore runs unmodified on a board with
+no buzzer and simply stays quiet.
+
+A PWM slice's divisor, wrap and enable bit are shared between its two channels,
+so a pad whose slice partner is also driven as PWM will fight the buzzer for
+timing. Slice and channel are `(pin / 2) % 8` and `pin % 2`.
+
+Square waves only: there is no DAC or I2S seam, and none is planned. See the
+[Audio API page](/api/media/) for what that rules out.
+
 ### `[[button]]` — array of hardware buttons
 
 | Key | Type | Description |

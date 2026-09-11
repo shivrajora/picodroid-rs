@@ -36,6 +36,7 @@ Hardware interaction through the `picodroid.pio.PeripheralManager` API. Referenc
 | `spidemo` | `spidemo.SpiDemo` | Full-duplex loopback over SPI0 (SCK=GP2, MOSI=GP3, MISO=GP0): sends 0x00-0x0F and logs received bytes |
 | `adcdemo` | `adcdemo.AdcDemo` | Opens the ADC on GP26 and takes 5 voltage readings, logging each value |
 | `pwmdemo` | `pwmdemo.PwmDemo` | Fades the onboard LED on GP25 using PWM at 1 kHz -- duty cycle sweeps 0%->100%->0% three times |
+| `tonedemo` | `tonedemo.ToneDemoActivity` | Plays Android tones and a melody on the buzzer via `ToneGenerator`; requires an `[audio]` section in `board.toml`, and reports `false` on a board without one |
 
 ## Filesystem and Preferences
 

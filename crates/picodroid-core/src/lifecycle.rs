@@ -401,6 +401,11 @@ pub(crate) fn run_activity(
                     &mut last_slow_warn_ms,
                 );
 
+                // Tone segment boundaries. Cheap: the sequencer answers
+                // nothing unless a note actually ended.
+                #[cfg(has_audio)]
+                crate::media::on_tick();
+
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.
                 #[cfg(feature = "mem-diag")]
@@ -433,6 +438,11 @@ pub(crate) fn run_activity(
                     }
                     if let Some(timeout) = IDLE_TIMEOUT_MS {
                         if now_ms() - last_input_ms >= timeout {
+                            // The tick source is about to stop, and it is what
+                            // advances a tone — anything still sounding would
+                            // sound forever. Silence it on the way down.
+                            #[cfg(has_audio)]
+                            crate::media::stop();
                             crate::executors::tick_source::pause();
                             crate::hardware::sensors::sampler::pause();
                             with_gfx(|g| g.sleep());

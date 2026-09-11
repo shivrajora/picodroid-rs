@@ -24,7 +24,15 @@ lv_mem_kb = 48
 # classes plus the native node pool are more flash than this region can
 # spare, and the build derives their exclusion from the missing key — do
 # not list them below. JSON apps need a 2350-class board (examples/jsondemo).
-framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch;picodroid/net/ConnectivityManager"
+# picodroid.media goes below rather than being derived from a missing
+# `[audio]` section, unlike picodroid.json above. Its class names have to
+# exist in the committed name tables (sdk/class-names.tsv, member-names.tsv)
+# for the boards that DO have a buzzer to compile against, and those tables
+# are generated from one build — so the classes cannot be dropped wherever
+# `[audio]` is absent without emptying the vocabulary. Here they are ~2.2 KB
+# that could never make a sound, which this region cannot spare; on the
+# roomier 2350 boards they stay and cost nothing that matters.
+framework_class_excludes = "picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch;picodroid/net/ConnectivityManager;picodroid/media/ToneGenerator;picodroid/media/AudioManager"
 
 [display]
 driver = "st7789"

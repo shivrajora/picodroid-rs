@@ -104,6 +104,23 @@ addr = 0x5D
 pin_int = 11
 pin_rst = 10
 
+# The carrier's piezo buzzer, on a pad of PWM slice 6 channel B. A bare piezo
+# driven straight from the GPIO: square waves, one voice, and loudness set only
+# by duty cycle. That is the whole of picodroid.media on this board — there is
+# no DAC, no I2S and no amplifier anywhere on the carrier, so sampled audio has
+# no path and MediaPlayer/AudioTrack are not offered.
+#
+# The part peaks around 2.4 kHz, which is where its 85 dB rating is measured;
+# the supervisory tones down at 425 Hz are well off resonance and noticeably
+# quieter, though still clearly audible.
+#
+# Slice 6 channel A is GP12, the WS2812 RGB LED. Nothing collides today — the
+# LED is driven over PIO, not PWM — but a future PWM user of GP12 would share
+# this slice's divisor, wrap and enable bit and fight the buzzer for timing.
+[audio]
+driver = "pwm_buzzer"
+pin = 13
+
 # The carrier's two buttons. This is the first picodroid board with a
 # touchscreen and hardware buttons at once, so neither button drives focus
 # navigation — the finger does that. Both are system keys.

@@ -33,6 +33,7 @@ pub struct BoardConfig {
     pub touch: Option<HashMap<String, String>>,
     pub background_pool: Option<HashMap<String, String>>,
     pub jvm: Option<HashMap<String, String>>,
+    pub audio: Option<HashMap<String, String>>,
 }
 
 /// The repository root, found from a crate's manifest directory by walking up
@@ -94,6 +95,13 @@ pub const KNOWN_DISPLAY_DRIVERS: &[&str] = &["st7789", "st7796"];
 pub const KNOWN_TOUCH_DRIVERS: &[(&str, TouchBus)] =
     &[("xpt2046", TouchBus::Spi), ("gt911", TouchBus::I2c)];
 
+/// Sound outputs an `[audio] driver` may name. `pwm_buzzer` is a bare piezo
+/// on one PWM channel: square waves, one voice, no amplitude control beyond
+/// duty cycle. Each entry emits an `audio_<driver>` cfg alongside `has_audio`,
+/// so a second output kind (an I2S DAC, say) gates its own code without
+/// disturbing this one.
+pub const KNOWN_AUDIO_DRIVERS: &[&str] = &["pwm_buzzer"];
+
 /// How a touch controller is wired. Selects the required `[touch]` key set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TouchBus {
@@ -149,6 +157,7 @@ enum Section {
     Top,
     Display,
     Touch,
+    Audio,
     BackgroundPool,
     Jvm,
     Sensor,
@@ -167,6 +176,7 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
     let mut touch: Option<HashMap<String, String>> = None;
     let mut background_pool: Option<HashMap<String, String>> = None;
     let mut jvm: Option<HashMap<String, String>> = None;
+    let mut audio: Option<HashMap<String, String>> = None;
     let mut section = Section::Top;
     let mut cur_sensor: HashMap<String, String> = HashMap::new();
     let mut cur_button: HashMap<String, String> = HashMap::new();
@@ -217,6 +227,12 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
             section = Section::Touch;
             continue;
         }
+        if trimmed == "[audio]" {
+            flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
+            audio = Some(HashMap::new());
+            section = Section::Audio;
+            continue;
+        }
         if trimmed == "[background_pool]" {
             flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
             background_pool = Some(HashMap::new());
@@ -255,6 +271,9 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
                 Section::Touch => {
                     touch.as_mut().unwrap().insert(key, val);
                 }
+                Section::Audio => {
+                    audio.as_mut().unwrap().insert(key, val);
+                }
                 Section::BackgroundPool => {
                     background_pool.as_mut().unwrap().insert(key, val);
                 }
@@ -274,6 +293,7 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
         touch,
         background_pool,
         jvm,
+        audio,
     }
 }
 

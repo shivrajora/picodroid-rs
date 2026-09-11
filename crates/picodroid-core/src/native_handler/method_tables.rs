@@ -827,10 +827,26 @@ pub const JSON_HANDLED: &[Row] = &[
     ),
 ];
 
+/// `native_handler/media.rs` — the `ToneGenerator` natives. `AudioManager`
+/// declares none: it is stream-type constants and nothing else.
+pub const MEDIA_HANDLED: &[Row] = &[
+    // picodroid/media/ToneGenerator
+    ("picodroid/media/ToneGenerator", "nativeInit", "(II)V"),
+    ("picodroid/media/ToneGenerator", "release", "()V"),
+    ("picodroid/media/ToneGenerator", "startTone", "(II)Z"),
+    (
+        "picodroid/media/ToneGenerator",
+        "startToneSequence",
+        "([I[I)Z",
+    ),
+    ("picodroid/media/ToneGenerator", "stopTone", "()V"),
+];
+
 pub const ALL_HANDLED: &[&[Row]] = &[
     PIO_HANDLED,
     IO_HANDLED,
     JSON_HANDLED,
+    MEDIA_HANDLED,
     NET_HANDLED,
     OS_HANDLED,
     CONCURRENT_HANDLED,

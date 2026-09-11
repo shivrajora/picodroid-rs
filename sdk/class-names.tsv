@@ -162,6 +162,8 @@ picodroid/json/JSONArray
 picodroid/json/JSONException
 picodroid/json/JSONObject
 picodroid/json/JSONObject$1
+picodroid/media/AudioManager
+picodroid/media/ToneGenerator
 picodroid/net/ConnectivityManager
 picodroid/net/DatagramPacket
 picodroid/net/DatagramSocket

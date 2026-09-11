@@ -54,6 +54,12 @@ pub mod mem_diag;
 // which boardless builds always have.
 #[cfg(has_json)]
 pub mod json;
+// Tones on a board's buzzer, behind `picodroid.media.ToneGenerator`.
+// Board-gated by the `[audio]` section in board.toml. The tone table and the
+// sequencer under it are pure `alloc` with host tests, like `json`; only the
+// driver beneath them reaches the HAL, and it carries its own `cfg(not(test))`.
+#[cfg(any(has_audio, test))]
+pub mod media;
 pub mod monitor_store;
 pub mod threads;
 pub mod ui_thread;

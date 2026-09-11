@@ -110,6 +110,14 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 |---|---|---|
 | `JSONObject` / `JSONArray` / `JSONException` (`picodroid.json`) | Partial | Android's `org.json` method surface for the two classes: constructors from text, `Map`, `Collection` and arrays; `get`/`opt` with Android's coercions; `put`/`putOpt`/`accumulate`/`append`/`remove`; `keys`/`names`/`keySet`; `toString`/`toString(indent)`; `quote`/`numberToString`/`wrap`; `NULL`. Documents live in a native node pool (2048 nodes, 16 KiB of strings, 32 levels) reclaimed with the GC; child wrappers share nodes but are not `==`. Strict RFC 8259 parser (no lenient `JSONTokener` extras), no `JSONTokener`/`JSONStringer`, `keySet()` unordered. Only on boards with `has_json = true` in `board.toml` — every RP2350 board; not `testbench_rp2040`, where the API contract rejects the classes at build time. See [JSON](/api/json/). |
 
+### android.media
+
+| API | Status | Notes / alternative |
+|---|---|---|
+| `ToneGenerator` (`picodroid.media`) | Partial | Android's constant names, values and CEPT cadences for the DTMF, `TONE_SUP_*` and `TONE_PROP_*` families (0-28, plus `TONE_SUP_CONFIRM` and `TONE_SUP_PIP`); `startTone(int)`, `startTone(int, int)`, `stopTone`, `release`. The output is one piezo on a PWM pad, so tones are monophonic square waves: each plays the lowest component of Android's multi-frequency tone, and DTMF therefore will not decode. No CDMA tone range, no intercept tones, no `getAudioSessionId`. Adds `startToneSequence(int[], int[])`, which has **no Android counterpart**. Segments advance on the UI frame tick. Needs an `[audio]` section in `board.toml`; without one the class is still present and every method is a safe no-op. See [Audio](/api/media/). |
+| `AudioManager` (`picodroid.media`) | Partial | The `STREAM_*` constants only, with Android's values, so a `ToneGenerator` reads as it does on Android. No mixer, no volume control, no `playSoundEffect`, no focus API. |
+| `MediaPlayer` / `AudioTrack` / `SoundPool` / `MediaRecorder` | None | No hardware path: a piezo buzzer has no DAC, no I2S and no amplifier behind it. There is no alternative for sampled audio; use `ToneGenerator` for tones. |
+
 ### java.* standard library
 
 Enforced at build time: every app's `verifyApiContract` Gradle task (part of
