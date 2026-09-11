@@ -28,12 +28,15 @@ public class LinearLayout extends ViewGroup {
   public native void setSpacing(int px);
 
   /**
-   * Set the alignment of children along the main axis. Mirrors {@code
-   * android.widget.LinearLayout#setGravity(int)}: pass {@link picodroid.view.Gravity} constants
-   * (e.g. {@code Gravity.CENTER}). The framework translates the main-axis bits
-   * (LEFT/CENTER_HORIZONTAL/RIGHT for horizontal flow, TOP/CENTER_VERTICAL/BOTTOM for vertical)
-   * into LVGL flex alignment; the cross axis stays centered in v1. Per-child {@code
-   * LayoutParams.gravity} is not yet applied — that is part of the LayoutParams milestone.
+   * Set the alignment of the children. Mirrors {@code android.widget.LinearLayout#setGravity(int)}:
+   * pass {@link picodroid.view.Gravity} constants, which may name both axes ({@code Gravity.BOTTOM
+   * | Gravity.RIGHT}). The horizontal bits place the children of a {@link #HORIZONTAL} layout along
+   * its length and a {@link #VERTICAL} one across it, and the vertical bits the other way round, as
+   * on Android; call it after {@link #setOrientation}, which is what decides which is which.
+   *
+   * <p>Two divergences: an axis the gravity does not name keeps centring rather than falling back
+   * to the start, and {@code FILL} places at the start instead of stretching the child. Per-child
+   * {@code LayoutParams.gravity} is not yet applied — that is part of the LayoutParams milestone.
    */
   public native void setGravity(int gravity);
 

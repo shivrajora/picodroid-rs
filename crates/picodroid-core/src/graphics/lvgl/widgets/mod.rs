@@ -12,6 +12,7 @@ pub mod check_box;
 pub mod date_picker;
 pub mod edit_text;
 pub mod frame_layout;
+pub mod gravity;
 pub mod image_view;
 pub mod keyboard;
 pub mod line_mode;

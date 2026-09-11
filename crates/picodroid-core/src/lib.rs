@@ -148,6 +148,12 @@ mod native_member_names_tests;
 #[cfg(test)]
 #[path = "graphics/lvgl/widgets/line_mode.rs"]
 mod graphics_line_mode_tests;
+// LinearLayout.setGravity's bitmask → flex alignment: pure, and under the same
+// cfg(not(test)) graphics tree. Android's two ends of an axis share a bit, so
+// the decoding is the kind that looks right and silently is not.
+#[cfg(test)]
+#[path = "graphics/lvgl/widgets/gravity.rs"]
+mod graphics_gravity_tests;
 // HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
 // status-line/header rules would otherwise be the untested kind this shim
 // list exists to prevent.

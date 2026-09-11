@@ -286,6 +286,9 @@ pub const LV_STYLE_PAD_BOTTOM: lv_style_prop_t = 25;
 pub const LV_STYLE_BORDER_WIDTH: lv_style_prop_t = 56;
 pub const LV_STYLE_TEXT_FONT: lv_style_prop_t = 77;
 pub const LV_STYLE_TEXT_LINE_SPACE: lv_style_prop_t = 103;
+/// Read back by `LinearLayout.setGravity` to learn which axis the layout's flow
+/// makes the main one; `lv_obj_set_flex_flow` writes it.
+pub const LV_STYLE_FLEX_FLOW: lv_style_prop_t = 160;
 /// `transform_scale_*` value meaning "unscaled" (`lv_style.h` `LV_SCALE_NONE`).
 pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
@@ -1156,6 +1159,7 @@ mod tests {
             (LV_STYLE_BORDER_WIDTH, "LV_STYLE_BORDER_WIDTH"),
             (LV_STYLE_TEXT_FONT, "LV_STYLE_TEXT_FONT"),
             (LV_STYLE_TEXT_LINE_SPACE, "LV_STYLE_TEXT_LINE_SPACE"),
+            (LV_STYLE_FLEX_FLOW, "LV_STYLE_FLEX_FLOW"),
         ] {
             let header_val = lookup_ordinal(body, "LV_STYLE_", name)
                 .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));
