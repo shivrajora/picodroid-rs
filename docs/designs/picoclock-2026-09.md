@@ -124,12 +124,7 @@ alarms surviving a restart.
 
 ## Not done
 
-- **No network time.** The board has WiFi and `SntpClient` exists in
-  `examples/picoenvmon`; a "sync now" button on the Set-time screen is the
-  obvious next thing and would make the manual set a fallback rather than the
-  only path.
-- **No alarm labels in the UI.** `Alarm.label` is stored, displayed and
-  respected everywhere; nothing sets it, because doing so means the soft
-  keyboard on a screen that is already full.
-- **No timer or stopwatch.** The Android clock app has both.
-- **The buzzer pattern is fixed.** No volume, no tone choice, no gradual wake.
+The backlog moved to [picoclock-roadmap.md](picoclock-roadmap.md), which lists
+everything this app is not yet and what each item would cost. The largest by far
+is R1: the alarms are only watched while picoclock is the foreground app,
+because an app switch tears the JVM down and the Service with it.
