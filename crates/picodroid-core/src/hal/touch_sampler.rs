@@ -97,8 +97,10 @@ mod ring {
 
     /// Sampling period. 100 Hz is the rate a finger needs to be tracked rather
     /// than guessed at, and at ~0.6 ms per read it costs well under 10 % of the
-    /// core it preempts. The GT911's INT line is wired and unread; an
-    /// interrupt-driven sampler is the end state this period stands in for.
+    /// core it preempts. It is also a hundred reads a second of an untouched
+    /// panel, which the controller's own interrupt line would stop — that line
+    /// is wired and unread, and replacing this timer with it is S8 in
+    /// `docs/designs/scroll-performance-2026-09.md`.
     const PERIOD_MS: u32 = 10;
 
     /// Queued samples. One frame's worth at the slowest frame measured on the

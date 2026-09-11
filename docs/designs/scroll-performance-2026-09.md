@@ -112,10 +112,53 @@ both paths, and is now gated on `TOUCH_DISCARD_FIRST_SAMPLE`: the XPT2046's RC
 network needs it, a capacitive controller reporting finished pixels does not, so
 a tap on the touch board registers on the sample that saw it.
 
-The GT911's INT line is still wired to GP11 and still unread. Interrupt-driven
-sampling remains the better end state; the 10 ms timer is what stands in for it,
-and it also polls an untouched panel 100 times a second, which the INT line
-would stop.
+What it left behind is S8: the 10 ms timer is a stand-in for the panel's own
+interrupt line, which is wired and still unread.
+
+### S8. Let the panel say when to read it
+
+S1's timer is free-running, so it reads an untouched panel a hundred times a
+second forever. At 0.6 ms a read that is about 6 % of a core, and a hundred
+wake-ups a second that stop the chip reaching a deeper idle — all of it spent on
+the answer "still nobody". This is a power and idle-CPU item, not a smoothness
+one: S1 already fixed what the complaint was about.
+
+The line is there. `board.toml` declares `pin_int = 11`, and `hal/rp/touch.rs`
+already brings it up as an input at the end of the GT911's reset dance. Nothing
+reads it. `hal::gpio::enable_edge_irq` is already in the family-neutral facade,
+and the touch board already runs the GPIO interrupt because its two buttons need
+it, so the pieces exist.
+
+The sampler's loop would become "block until the edge or a timeout, then read"
+in place of "delay 10 ms, then read". Most of the work is in the word *edge*:
+
+- **Not through the button ring.** `hal/event_ring.rs` is drained by the keypad
+  indev through `drain_gpio_event`, and `wait_for_button_event` is one global
+  semaphore. A touch edge arriving there would have to be filtered back out by
+  pin at every drain, in a path that has already had trouble with edges it did
+  not expect (the phantom GP15 release). The sampler wants its own semaphore,
+  given from the interrupt. Providing that without giving every family a second
+  edge-delivery mechanism is the design question, and it is what makes this more
+  than an afternoon.
+- **The timeout does not go away, and it is the part to get right.** The GT911
+  asserts INT when it has a new report; whether it asserts one for the *release*
+  depends on the configuration the part boots with, and this driver programs
+  none — it uses whatever the module shipped. A pure-interrupt sampler that
+  never sees the lift leaves a finger pressed forever. Blocking with a ~50 ms
+  timeout and treating the timeout as "read anyway" covers both that and a
+  dropped edge, and still cuts the idle rate from a hundred reads a second to
+  twenty.
+- **The pin is load-bearing at reset.** INT held high across the RST release
+  moves the part to bus address 0x14 instead of 0x5D, which `board.toml` says in
+  as many words. Whatever arms the interrupt has to stay out of `build_touch`'s
+  reset sequence.
+
+Ten minutes on the bench decides the shape before any of it is designed: watch
+GP11 across a touch-down, a held finger and a lift, and find out what this module
+actually does — pulse per report or level-assert, which polarity, and whether a
+release produces an edge at all. The datasheet offers both modes because a
+configuration register chooses between them; what matters is the configuration
+this panel was shipped with.
 
 ## 4. Scheduling
 
@@ -323,6 +366,10 @@ answer and the cheap 10-row variant is not.
 
 S7 whenever somebody has the schematic open.
 
+S8 last, and only if idle power or idle CPU becomes a goal. It buys neither
+smoothness nor frame rate — S1 already took those — and it is the one item here
+whose first step is a bench measurement rather than a code change.
+
 ## 9. Open questions
 
 - Does the carrier route the panel's TE pin anywhere reachable? Decides §6
@@ -337,3 +384,6 @@ S7 whenever somebody has the schematic open.
 - Does hardware vertical scrolling generalise beyond this one screen, or is it
   a `ScrollView` special case? Worth knowing before S4 is designed, because the
   answer changes where the seam belongs.
+- What does GP11 actually do across a gesture on this module — pulse or level,
+  which polarity, and is there an edge on release? Decides whether S8 is an
+  interrupt-driven sampler or an interrupt-accelerated polled one.
