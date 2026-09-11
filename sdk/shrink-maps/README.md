@@ -90,7 +90,7 @@ cargo run -p class-shrink -- cut-release --members \
   --keep sdk/keep.toml \
   --extra-names sdk/api-contract.tsv \
   --contract sdk/api-contract.tsv \
-  --reserve kotlin-shim/build/classes/java/main \
+  --reserve sdk/kotlin-shim/build/classes/java/main \
   --base sdk/shrink-maps/v<previous>.toml \
   --version <new> \
   --out  sdk/shrink-maps/v<new>.toml
@@ -149,5 +149,6 @@ app class in package `a`, `b` or `c`.
 | `v0.21.0.toml` | + 5 classes (244 → 249): `picodroid/content/ActivityNotFoundException`, `picodroid/content/pm/PackageInfo`, `ApplicationInfo`, `PackageManager$NameNotFoundException` and `picodroid/graphics/drawable/BitmapDrawable`; + 31 members (1094 → 1125): the multi-app surface — `getInstalledPackages`, `getPackageInfo`, `getLaunchIntentForPackage`, `getApplicationLabel` / `getApplicationIcon`, `loadLabel` / `loadIcon`, `packageName` / `versionName` / `versionCode` / `applicationInfo` / `flags` / `FLAG_SYSTEM`, `getLongVersionCode`, `setPackage` / `getPackage`, `getPackageName`, `setImageDrawable`, `imageHandle` and the `native*` bindings. Member floor unchanged (0.17.0). |
 | `v0.22.0.toml` | + 6 classes (249 → 255): `picodroid/os/Build`, `Build$VERSION`, `StatFs`, `picodroid/app/usage/StorageStatsManager`, `StorageStats` and `picodroid/content/pm/PackageInstaller`; + 40 members (1125 → 1165): the storage surface — `getDataDir` / `getFilesDir` / `openFileOutput` / `openFileInput` / `fileList` / `deleteFile` / `filePath` / `FILES_DIR` / `MODE_APPEND` / `STORAGE_STATS_SERVICE`, `list` / `listFiles`, the `StatFs` getters and `restat`, `queryStatsForPackage` / `getAppBytes` / `getDataBytes` / `getCacheBytes` / `appBytes` / `dataBytes`, `BOARD` / `HARDWARE` / `RELEASE`, `getPackageInstaller` / `uninstall` and the `native*` bindings. Member floor unchanged (0.17.0). |
 | `v0.23.0.toml` | + 2 classes (255 → 257): `picodroid/text/TextUtils` and `TextUtils$TruncateAt`; + 15 members (1165 → 1180): the `TextView` line-mode surface — `setSingleLine` / `setEllipsize` / `getEllipsize` / `setMaxLines` / `getMaxLines`, `applyLineMode` and `mLineMode` with its `ELLIPSIZE_MASK` / `SINGLE_LINE` / `MAX_LINES_SHIFT` / `MAX_LINES_LIMIT`, the `MIDDLE` and `MARQUEE` constants, and the `nativeSetLineMode` / `nativeSetIncludeFontPadding` bindings. Member floor unchanged (0.17.0). |
+| `v0.24.0.toml` | + 2 classes (257 → 259): `picodroid/app/AlarmManager` and `picodroid/app/PendingIntent`; + 29 members (1180 → 1209): the alarm surface — `set` is already mapped, so `setExact` / `cancel`'s siblings `nativeSet`, `fireAlarm`, `getActivity`, `requestCode`, `isIntExtra`, `extraCount` / `extraKey` / `extraInt`, `key0` / `key1` / `value0` / `value1`, `MAX_EXTRAS` / `MAX_KEY_LENGTH`, the four clock constants (`RTC` / `RTC_WAKEUP` / `ELAPSED_REALTIME` / `ELAPSED_REALTIME_WAKEUP`), the six `PendingIntent` flags, `ALARM_SERVICE`, `elapsedRealtime`, `setClassName` and `KEYCODE_HOME`. Member floor unchanged (0.17.0). |
 
 See [`reference/shrinker`](https://shivrajora.github.io/picodroid-rs/reference/shrinker/) for the full design and per-release detail.

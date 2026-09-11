@@ -7,7 +7,26 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**An alarm that outlives the app that set it**
+**The touchscreen is read on its own clock, not the frame's**
+
+- Scrolling the touch board did not scroll, it teleported. The panel was read from inside
+  LVGL's input callback, which runs once per rendered frame, and a frame there costs
+  120-200 ms: a 300 ms swipe produced two positions 234 px apart. A dedicated sampler now
+  reads the panel every 10 ms and queues each changed position; the input callback hands
+  LVGL all of them in one pass, so LVGL walks the path the finger actually took and renders
+  once at the end. The same swipe now delivers all thirteen of its positions on hardware.
+- A tap on the capacitive board registers on the sample that saw it. The first reading after
+  touch-down used to be discarded as unsettled, which a resistive panel needs and a
+  capacitive controller reporting finished pixels does not.
+- Boards whose touch controller shares the display's SPI bus keep the old inline read, and
+  carry none of the new machinery in their image: the sampler would have to drive that bus
+  from a second task, which nothing serialises against a display flush. Flash, release
+  images: `testbench_rp2040` +24 B, `testbench_rp2350` +32 B.
+- Profiled and scoped in `docs/designs/scroll-performance-2026-09.md`, which also carries
+  what is left — the panel's own interrupt line, an honest LVGL tick, and the render and
+  tearing work that the 3-8 fps figure actually belongs to.
+
+**An alarm that outlives the app that set it (map v0.24.0, package 0.24.0)**
 
 - New `picodroid.app.AlarmManager` and `picodroid.app.PendingIntent`, on multi-app boards:
   an app schedules one of its own Activities for a wall-clock or elapsed-time instant and is
@@ -27,6 +46,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   `Intent`, `Context.ALARM_SERVICE`, and `SystemClock.elapsedRealtime()`.
 - `examples/alarmdemo` is the cycle in three classes and a harness row; `sim-run.sh` gains an
   `alarm` lane that drives the leave-and-come-back path through the launcher.
+- Map v0.24.0, cut on `main` after the merge, folds the two classes and their 29 member
+  names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0, so
+  PAPKs shrunk with v0.17.0 through v0.23.0 still install. `Build.VERSION.RELEASE` reads
+  `0.24.0`. Everything else under Unreleased ships in the same package.
 
 **The settings screens and the launcher stop holding the UI tick**
 
