@@ -172,6 +172,7 @@ End-to-end apps that combine multiple subsystems. These are the closest referenc
 | Example | Class | Description |
 |---------|-------|-------------|
 | `picoenvmon` | `picoenvmon.EnvApp` | Environmental monitor for the Pimoroni Enviro+ Pack. Multi-Activity (`HomeActivity`, settings, history, network) with a sub-package layout (`ui/`, `service/`, `net/`, `hardware/`, `data/`, `util/`); customizes the global `Theme` palette in `Application.onCreate()`; runs a `SensorLoggerService` ring-buffering BME688 + LTR559 readings; drives an RGB LED. Wired with `@Inject` / `@Singleton` throughout — app-scoped `ThresholdConfig`, `Formatter`, `LatestReadings`, `RgbLed`, `NetworkManager`, plus `SharedPreferences` from an `@Provides` method in `EnvModule`, injected into every Activity and the Service |
+| `picoclock` | `picoclock.ClockApp` | Clock and alarms for the 320x480 `pico_touch_kit` panel. Five screens over a shared `BaseActivity` (clock face, alarm list, editor, set-time, full-screen ring); an `AlarmService` whose 4 Hz thread is the whole app's heartbeat, so no screen owns a timer; a seven-segment face built from plain views, a few per UI tick, because there is no text-size API; alarms in `SharedPreferences` and the wall clock set by hand, the board having no RTC; the carrier's buzzer on GP13 through `Pwm`. The date and schedule arithmetic is pure and self-checked at startup |
 
 ## Running an Example
 
