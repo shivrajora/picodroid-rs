@@ -81,15 +81,7 @@ struct Entry {
     /// Set by `wake_all_parked` (app stop).
     stopping: bool,
     park: Park,
-    /// Tasks parked in `join` on this thread, notified on termination.
-    /// Joiners past the array poll instead (their park has a timeout).
-    joiners: [RawTask; MAX_JOINERS],
 }
-
-const MAX_JOINERS: usize = 4;
-
-/// A joiner that found the array full re-checks on this cadence.
-const JOIN_POLL_MS: u32 = 20;
 
 struct Table {
     entries: [Option<Entry>; MAX_JAVA_THREADS],
@@ -123,7 +115,6 @@ fn blank(task: RawTask, obj: Option<u16>) -> Entry {
         notified: false,
         stopping: false,
         park: Park::None,
-        joiners: [0; MAX_JOINERS],
     }
 }
 
@@ -233,18 +224,32 @@ pub fn terminate(slot: usize) {
     // give from another task), so this is meaningful only on the normal
     // path; on the spawn-failure path the thread never ran and holds none.
     crate::monitor_store::release_all_held_by_current();
-    let joiners = {
+    let mut to_wake: [RawTask; MAX_JAVA_THREADS] = [0; MAX_JAVA_THREADS];
+    {
         let _atomic = AtomicSection::enter();
         // SAFETY: inside the section.
         let t = unsafe { table() };
-        let Some(e) = t.entries[slot] else {
+        if t.entries[slot].is_none() {
             return;
-        };
+        }
         t.entries[slot] = None;
-        e.joiners
-    };
-    for j in joiners {
-        rtos::task_notify(j);
+        // Every task blocked in `join` holds an entry parked as `Join` (a
+        // task the table could not hold does not block at all — see
+        // `park_loop`), so waking all of them is complete without any
+        // per-target joiner list. A notification is "look again", not a
+        // credit: a joiner of some other thread re-checks its target and
+        // parks again. This replaced a four-slot joiner array whose
+        // overflow fell back to a 20 ms poll.
+        for (i, e) in t.entries.iter().enumerate() {
+            if e.is_some_and(|e| e.park == Park::Join) {
+                to_wake[i] = e.map_or(0, |e| e.task);
+            }
+        }
+    }
+    for task in to_wake {
+        if task != 0 {
+            rtos::task_notify(task);
+        }
     }
 }
 
@@ -354,15 +359,10 @@ fn end_park(slot: usize) {
     }
 }
 
-/// The parking loop shared by sleep, join and wait. `poll_ms` bounds each
-/// individual wait so a joiner the array could not hold still notices its
-/// target going away.
-fn park_loop(
-    park: Park,
-    timeout_ms: Option<u32>,
-    poll_ms: Option<u32>,
-    satisfied: &dyn Fn(&Table) -> bool,
-) -> Outcome {
+/// The parking loop shared by sleep, join and wait. Every wait is a
+/// notification wait, woken by whoever satisfies it (`terminate`,
+/// `notify`, `interrupt`, `wake_all_parked`); nothing here polls.
+fn park_loop(park: Park, timeout_ms: Option<u32>, satisfied: &dyn Fn(&Table) -> bool) -> Outcome {
     let Some(slot) = begin_park(park) else {
         // No entry (table full): the only honest answer is to not block.
         return Outcome::Satisfied;
@@ -383,12 +383,6 @@ fn park_loop(
             }
             wait = Timeout::Ms(((left + 999_999) / 1_000_000).min(u32::MAX as i64) as u32);
         }
-        if let Some(p) = poll_ms {
-            wait = match wait {
-                Timeout::Ms(ms) => Timeout::Ms(ms.min(p)),
-                _ => Timeout::Ms(p),
-            };
-        }
         rtos::task_wait_notification(wait);
     };
     end_park(slot);
@@ -397,7 +391,7 @@ fn park_loop(
 
 /// `Thread.sleep`.
 pub fn sleep_current(ms: u32) -> Outcome {
-    match park_loop(Park::Sleep, Some(ms), None, &|_| false) {
+    match park_loop(Park::Sleep, Some(ms), &|_| false) {
         Outcome::TimedOut => Outcome::Satisfied,
         o => o,
     }
@@ -407,52 +401,19 @@ pub fn sleep_current(ms: u32) -> Outcome {
 /// terminated, or `timeout_ms` (`None` = forever) elapses. Returns at once
 /// for a thread that was never started or has already finished.
 pub fn join(target: u16, timeout_ms: Option<u32>) -> Outcome {
-    let me = rtos::task_current();
-    let registered = {
+    {
         let _atomic = AtomicSection::enter();
         // SAFETY: inside the section.
         let t = unsafe { table() };
-        match slot_by_obj(t, target) {
-            None => return Outcome::Satisfied,
-            Some(s) => {
-                let Some(e) = t.entries[s].as_mut() else {
-                    return Outcome::Satisfied;
-                };
-                if !e.alive {
-                    return Outcome::Satisfied;
-                }
-                match e.joiners.iter().position(|&j| j == 0) {
-                    Some(i) => {
-                        e.joiners[i] = me;
-                        true
-                    }
-                    None => false,
-                }
-            }
-        }
-    };
-    let gone = |t: &Table| slot_by_obj(t, target).is_none();
-    let outcome = park_loop(
-        Park::Join,
-        timeout_ms,
-        if registered { None } else { Some(JOIN_POLL_MS) },
-        &gone,
-    );
-    if registered {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
-        if let Some(s) = slot_by_obj(t, target) {
-            if let Some(e) = t.entries[s].as_mut() {
-                for j in e.joiners.iter_mut() {
-                    if *j == me {
-                        *j = 0;
-                    }
-                }
-            }
+        let alive = slot_by_obj(t, target).is_some_and(|s| t.entries[s].is_some_and(|e| e.alive));
+        if !alive {
+            return Outcome::Satisfied;
         }
     }
-    outcome
+    // `terminate` wakes every `Join` parker, so no registration is needed:
+    // park, and re-check the target on every wake.
+    let gone = |t: &Table| slot_by_obj(t, target).is_none();
+    park_loop(Park::Join, timeout_ms, &gone)
 }
 
 /// `Object.wait` (the monitor already released by the caller): block until
@@ -469,7 +430,7 @@ pub fn wait_current(key: MonitorKey, timeout_ms: Option<u32>) -> Outcome {
     let notified = move |t: &Table| {
         slot_by_task(t, me).is_some_and(|s| t.entries[s].is_some_and(|e| e.notified))
     };
-    park_loop(Park::Wait { key, seq }, timeout_ms, None, &notified)
+    park_loop(Park::Wait { key, seq }, timeout_ms, &notified)
 }
 
 /// `Object.notify` (`all == false`: the longest-waiting task on `key`) and
