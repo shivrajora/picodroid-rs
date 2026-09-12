@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="alarmdemo" version="1.0">
+    <application application="alarmdemo/AlarmDemoApp" label="Alarm Demo" />
+</manifest>

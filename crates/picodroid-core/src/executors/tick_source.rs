@@ -54,3 +54,50 @@ pub fn resume() {
 pub fn stop() {
     rtos::tick_timer_stop();
 }
+
+// ── Guard: LVGL's refresh period must match the tick ────────────────────────
+
+/// Text-scan helpers, shared with the other guards in the workspace.
+#[cfg(test)]
+#[path = "../../../test_support/source_scan.rs"]
+mod source_scan;
+
+#[cfg(test)]
+mod refresh_period_guard {
+    use std::path::Path;
+
+    use super::source_scan::read_stripped;
+
+    /// `LV_DEF_REFR_PERIOD` as `lvgl/lv_conf.h` declares it. Read as text
+    /// because the value is a C preprocessor define: there is nothing to call
+    /// from a host test, and the C side is not compiled for one.
+    fn configured_refresh_period() -> u32 {
+        let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("lvgl/lv_conf.h");
+        let text = read_stripped(&conf);
+        let after = text
+            .split("#define LV_DEF_REFR_PERIOD")
+            .nth(1)
+            .expect("lvgl/lv_conf.h defines no LV_DEF_REFR_PERIOD");
+        after
+            .split_whitespace()
+            .next()
+            .expect("LV_DEF_REFR_PERIOD has no value")
+            .parse()
+            .expect("LV_DEF_REFR_PERIOD is not an integer")
+    }
+
+    /// The two have to agree. `lv_timer` stamps `last_run = lv_tick_get()` and
+    /// carries no credit, so a refresh period that is not the tick quantises up
+    /// to the next whole tick and the difference is spent waiting — three ticks
+    /// per paint instead of one when this was 33 against a 16 ms tick
+    /// (docs/designs/scroll-performance-2026-09.md S3).
+    #[test]
+    fn refresh_period_equals_the_tick_period() {
+        assert_eq!(
+            configured_refresh_period(),
+            super::TICK_PERIOD_MS,
+            "LV_DEF_REFR_PERIOD in lvgl/lv_conf.h must equal TICK_PERIOD_MS, \
+             or every frame waits for the next whole tick"
+        );
+    }
+}

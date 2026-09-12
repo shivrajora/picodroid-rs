@@ -183,6 +183,8 @@ object ApiContract {
         "picodroid/app/usage/StorageStatsManager",
         "picodroid/app/usage/StorageStats",
         "picodroid/content/pm/PackageInstaller",
+        "picodroid/app/AlarmManager",
+        "picodroid/app/PendingIntent",
     )
 
     /**

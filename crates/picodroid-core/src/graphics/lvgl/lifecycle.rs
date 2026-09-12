@@ -41,6 +41,10 @@ static mut SCREEN_HANDLE: Handle = Handle::NULL;
 pub(in crate::graphics) fn init(width: u16, height: u16) {
     hal::display::init();
     hal::touch::init();
+    // Off the UI task from here on, where the panel's bus allows it: a frame
+    // on the touch board costs 120-200 ms, and sampling a finger at that rate
+    // is what made scrolling teleport. No-op on every other board.
+    hal::touch_sampler::start();
     hal::display::set_backlight(true);
 
     unsafe {
@@ -184,39 +188,44 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
 
 // ── Touch read callback ─────────────────────────────────────────────────────
 
-/// Track previous touch state so we can detect the released→pressed
-/// transition and discard the first (unsettled) ADC reading from the
-/// XPT2046.
-static mut TOUCH_WAS_PRESSED: bool = false;
+/// The last sample handed to LVGL. When the sampler's ring is empty — an
+/// unmoving finger, or no finger — LVGL still asks on every read and has to be
+/// told the state it is already in, or a held press would look like a lift.
+static mut LAST_DELIVERED: Option<(u16, u16)> = None;
 
 /// LVGL input device read callback — called by LVGL to poll touch state.
+///
+/// Where [`hal::touch_sampler`] owns the panel this drains its ring, one
+/// queued sample per call, asking LVGL to read again while more remain
+/// (`continue_reading`). LVGL then processes every position the finger
+/// actually passed through, in one pass, and renders once at the end: the
+/// motion it sees is a drag rather than the teleport a once-per-frame sample
+/// produced. Elsewhere — a panel sharing the display's bus — it reads the
+/// panel inline, as it always did.
 ///
 /// # Safety
 /// Called from LVGL's internal input processing pipeline.
 unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
     let data = unsafe { &mut *data };
-    match hal::touch::read_point() {
+
+    let (sample, more) = if hal::touch_sampler::running() {
+        match hal::touch_sampler::next() {
+            Some(s) => (s, hal::touch_sampler::pending()),
+            // SAFETY: single-threaded LVGL callback; only this fn touches it.
+            None => (unsafe { LAST_DELIVERED }, false),
+        }
+    } else {
+        (hal::touch_sampler::sample_panel(), false)
+    };
+    unsafe { LAST_DELIVERED = sample };
+
+    match sample {
         Some((x, y)) => {
-            // SAFETY: single-threaded LVGL callback; only this fn touches the
-            // flag.
-            let was_pressed = unsafe { TOUCH_WAS_PRESSED };
-            if !was_pressed {
-                // First reading after touch-down: the XPT2046 resistive
-                // panel's RC network hasn't settled yet, so this sample
-                // can be 20-60 px off. Discard it — report as still
-                // released so LVGL ignores the coordinates.
-                unsafe { TOUCH_WAS_PRESSED = true };
-                data.state = LV_INDEV_STATE_RELEASED;
-            } else {
-                data.point.x = x as i32;
-                data.point.y = y as i32;
-                data.state = LV_INDEV_STATE_PRESSED;
-            }
+            data.point.x = x as i32;
+            data.point.y = y as i32;
+            data.state = LV_INDEV_STATE_PRESSED;
         }
-        None => {
-            unsafe { TOUCH_WAS_PRESSED = false };
-            data.state = LV_INDEV_STATE_RELEASED;
-        }
+        None => data.state = LV_INDEV_STATE_RELEASED,
     }
-    data.continue_reading = false;
+    data.continue_reading = more;
 }

@@ -7,6 +7,10 @@ extern crate alloc;
 // and a second JVM-driving crate duplicates the whole interpreter (see the
 // module docs). Device and simulator both run it — the simulator spawns the
 // same four worker tasks the device does (`sim_boot.rs`).
+// Alarms that outlive the app that set them: a static table the app switch
+// does not reset. Pure — no LVGL, no JVM — so `cargo test` reaches it.
+#[cfg(has_multi_app)]
+pub mod alarms;
 #[cfg(not(test))]
 pub mod bg_worker;
 pub mod board_cfg;

@@ -191,6 +191,14 @@ impl PicodroidNativeHandler {
         self.pending_ops.has_pending_activity()
     }
 
+    /// True if this app is leaving for another package in this frame. An
+    /// alarm due at the same moment stays armed rather than pushing onto a
+    /// stack that is about to be torn down.
+    #[cfg(has_multi_app)]
+    pub fn has_pending_launch(&self) -> bool {
+        self.pending_ops.has_pending_launch()
+    }
+
     /// Top of the activity stack as `(obj_ref, class_name)`, or `None` when
     /// the stack is empty.
     pub fn current_activity(&self) -> Option<(u16, &'static str)> {
@@ -272,13 +280,19 @@ impl PicodroidNativeHandler {
                 // runtime dynamic String the GC can free — so canonicalize to
                 // the loaded class file's Flash-backed name before storing it
                 // in the enqueued op, rather than transmuting to `&'static`.
-                if let Some(static_name) = ctx.canonical_class_name(class_name) {
-                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
-                        class_name: static_name,
-                        intent_ref: Some(intent_ref),
-                        request_code,
-                        caller_ref,
-                    }));
+                match ctx.canonical_class_name(class_name) {
+                    Some(static_name) => {
+                        self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                            class_name: static_name,
+                            intent_ref: Some(intent_ref),
+                            request_code,
+                            caller_ref,
+                        }));
+                    }
+                    // Nothing is loaded under that name. Worth a word: an
+                    // alarm set before an upgrade that renamed the Activity
+                    // arrives here, and silence would make it look dropped.
+                    None => crate::pd_warn!("startActivity: no class named {}", class_name),
                 }
             }
         }

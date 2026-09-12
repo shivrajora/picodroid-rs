@@ -30,9 +30,11 @@
 /// can lose the release entirely.
 pub const KEY_EDGE_GAP_MS: u32 = 40;
 
-/// Hold before a tap's release. `touch_read_cb` discards the first unsettled
-/// sample, so a press must survive ≥2 poll cycles (~16 ms/frame) to register
-/// as `ACTION_DOWN` at all.
+/// Hold before a tap's release. On a resistive panel the first reading after
+/// touch-down is discarded as unsettled (`hal::touch_sampler::sample_panel`),
+/// so a press must survive ≥2 poll cycles to register as `ACTION_DOWN` at all
+/// — and where the panel is sampled per rendered frame rather than on the
+/// sampler's own 10 ms timer, a poll cycle is a whole frame.
 pub const TAP_HOLD_MS: u32 = 120;
 
 /// Settle after releasing, before clearing the override — long enough for the

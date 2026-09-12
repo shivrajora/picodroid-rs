@@ -28,8 +28,12 @@ public final class Buzzer {
 
   private static final double HIGH_HZ = 2349.0;
 
-  /** Half duty is the loudest a square-wave sounder gets. */
-  private static final double DUTY_PERCENT = 50.0;
+  /**
+   * How loud the sounder is. Half duty is the loudest a square-wave sounder gets, and on this
+   * carrier's piezo that is far louder than a bedside alarm needs to be; a tenth is audible across
+   * a room without being startling. Raise it towards 50 for a noisier one.
+   */
+  private static final double DUTY_PERCENT = 10.0;
 
   private Pwm pwm;
   private Gpio led;

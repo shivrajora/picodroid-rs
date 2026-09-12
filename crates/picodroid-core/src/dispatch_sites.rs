@@ -86,6 +86,12 @@ pub const SERVICE_ON_REBIND: usize = 39;
 // bridge: `run()` by invokevirtual (subclass overrides work), the uncaught
 // path, and the registry hand-back in `finally`.
 pub const THREAD_RUN: usize = 40;
+// A fired alarm is handed back to Java here: `AlarmManager.fireAlarm` builds
+// the Intent and starts the Activity, so a framework delivery takes the same
+// path an app's own `startActivity` does. Last, and multi-app only, which is
+// where `AlarmManager` ships; the indices above it stay put either way.
+#[cfg(has_multi_app)]
+pub const ALARM_FIRE: usize = 41;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -134,6 +140,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_app_Activity, m::onActivityResult),
     (c::picodroid_app_Service, m::onRebind),
     (c::picodroid_concurrent_Thread, m::runWrapper),
+    #[cfg(has_multi_app)]
+    (c::picodroid_app_AlarmManager, m::fireAlarm),
 ];
 
 #[cfg(test)]

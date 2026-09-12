@@ -56,6 +56,10 @@ pub enum TaskKind {
     BgWorker,
     /// The sensor sampling task.
     Sensor,
+    /// The touch panel sampling task
+    /// ([`crate::hal::touch_sampler`]). Exists only on boards whose
+    /// controller has a bus of its own.
+    Touch,
     /// The filesystem's serial worker
     /// ([`crate::executors::serial_worker`]).
     ///

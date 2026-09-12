@@ -333,6 +333,15 @@ impl PendingOpQueue {
 
     /// True if a Pop for `finishing` is already queued — `finish()` is
     /// idempotent per Activity.
+    /// Whether a cross-package launch is queued: this app is leaving, so
+    /// anything that would push onto its Activity stack should hold off.
+    pub fn has_pending_launch(&self) -> bool {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .any(|op| matches!(op, PendingOp::Activity(PendingActivityOp::Launch)))
+    }
+
     pub fn has_pending_pop_for(&self, finishing: u16) -> bool {
         self.entries[..self.len].iter().flatten().any(|op| {
             matches!(op, PendingOp::Activity(PendingActivityOp::Pop { finishing: f }) if *f == finishing)

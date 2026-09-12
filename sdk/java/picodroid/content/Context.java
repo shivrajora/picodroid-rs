@@ -2,6 +2,7 @@
 package picodroid.content;
 
 import java.io.IOException;
+import picodroid.app.AlarmManager;
 import picodroid.app.NotificationManager;
 import picodroid.app.usage.StorageStatsManager;
 import picodroid.content.pm.PackageManager;
@@ -31,6 +32,12 @@ public class Context {
   public static final String STORAGE_STATS_SERVICE = "storagestats";
 
   /**
+   * Name for {@link #getSystemService}: retrieves the {@link AlarmManager} (multi-app boards only;
+   * a single-app board's framework has no such class).
+   */
+  public static final String ALARM_SERVICE = "alarm";
+
+  /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
    * only to this app, which on Picodroid every file is — the storage sandbox keeps each app inside
    * its own directory.
@@ -57,6 +64,9 @@ public class Context {
     }
     if (STORAGE_STATS_SERVICE.equals(name)) {
       return StorageStatsManager.getInstance();
+    }
+    if (ALARM_SERVICE.equals(name)) {
+      return AlarmManager.getInstance();
     }
     return null;
   }

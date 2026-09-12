@@ -48,7 +48,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Twenty-three release maps are committed today, `v0.1.0` through `v0.23.0`:
+Twenty-four release maps are committed today, `v0.1.0` through `v0.24.0`:
 
 | Map | Covers |
 |-----|--------|
@@ -75,6 +75,7 @@ Twenty-three release maps are committed today, `v0.1.0` through `v0.23.0`:
 | `sdk/shrink-maps/v0.21.0.toml` | Adds the **multi-app package** surface (+5 classes, 244 → 249: `ActivityNotFoundException`, `PackageInfo`, `ApplicationInfo`, `PackageManager$NameNotFoundException`, `BitmapDrawable`) and 31 members (1094 → 1125). Every v0.20.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.22.0.toml` | Adds the **storage** surface (+6 classes, 249 → 255: `Build`, `Build$VERSION`, `StatFs`, `StorageStatsManager`, `StorageStats`, `PackageInstaller`) and 40 members (1125 → 1165). Every v0.21.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.23.0.toml` | Adds the **TextView line-mode** surface (+2 classes, 255 → 257: `picodroid.text.TextUtils`, `TextUtils$TruncateAt`) and 15 members (1165 → 1180: `setSingleLine`, `setEllipsize` / `getEllipsize`, `setMaxLines` / `getMaxLines`, the packed `mLineMode` state and the `native*` bindings). `member-floor` stays `0.17.0`; every v0.22.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.24.0.toml` | Adds the **alarm** surface (+2 classes, 257 → 259: `picodroid.app.AlarmManager`, `picodroid.app.PendingIntent`) and 29 members (1180 → 1209: the four clock constants, the six `PendingIntent` flags, `getActivity` / `requestCode` and the flattened extras, `fireAlarm` and the `native*` bindings, plus `ALARM_SERVICE`, `elapsedRealtime`, `Intent.setClassName` and `KEYCODE_HOME`). `member-floor` stays `0.17.0`; every v0.23.0 mapping copied verbatim. |
 
 ## Scope
 

@@ -44,7 +44,18 @@
 /*====================
    HAL SETTINGS
  *====================*/
-#define LV_DEF_REFR_PERIOD  33   /* ~30 fps */
+/* LVGL's refresh period, in the same milliseconds `lv_tick_inc` is fed.
+ * Must equal `executors::tick_source::TICK_PERIOD_MS`; a guard test in that
+ * file enforces it.
+ *
+ * `lv_timer` stamps `last_run = lv_tick_get()` and carries no credit, so a
+ * period that is not a whole multiple of the tick quantises up to the next one.
+ * This was 33 against a 16 ms tick, so every paint waited three ticks instead
+ * of one — measured, exactly three, never two or four. On the touch board that
+ * showed up as 19-30 ms of idle per frame, and it becomes the dominant term the
+ * moment the render gets cheaper
+ * (docs/designs/scroll-performance-2026-09.md S3). */
+#define LV_DEF_REFR_PERIOD  16
 #ifndef LV_DPI_DEF
 #define LV_DPI_DEF          130
 #endif

@@ -141,7 +141,10 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
 
 /// `Display.pollTouch()` — returns a `MotionEvent` or `null`.
 pub fn poll_touch(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError> {
-    match hal::touch::read_point() {
+    // The sampler's latest reading, not a fresh panel read: on a board where
+    // it runs it owns the controller, and a second reader would race the
+    // driver's own state.
+    match hal::touch_sampler::latest() {
         Some((x, y)) => {
             let idx = objects
                 .alloc(c::picodroid_view_MotionEvent)

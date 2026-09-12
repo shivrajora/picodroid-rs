@@ -2,40 +2,37 @@
 
 Companion to [picoclock-2026-09.md](picoclock-2026-09.md), which describes what
 the app is and why it is shaped that way. This file is the list of what it is
-not yet. Nothing here is started.
+not yet. Everything here is unstarted except R1, which is done and kept below
+for what it left behind.
 
 Items are grouped by what they change rather than by size, and ordered within
 each group by how much they are worth.
 
-## 1. The thing that stops it being a real alarm clock
+One complaint about this app turned out not to be about this app at all: the
+Set-time screen scrolls at 3-8 fps and tears, for reasons that live in the
+framework's render and input path rather than in `picoclock`. That is profiled
+and scoped separately in
+[scroll-performance-2026-09.md](scroll-performance-2026-09.md); nothing about it
+is an app change, so nothing about it is listed below.
 
-### R1. Alarms that survive leaving the app
+## 1. The thing that stopped it being a real alarm clock
 
-Today the alarms are only watched while picoclock is the foreground app.
-Pressing HOME tears every Activity down and rebuilds the JVM from the next
-package image, and `AlarmService` dies with it. An alarm clock that forgets its
-alarms when you glance at something else is not one.
+### R1. Alarms that survive leaving the app — DONE 2026-09-11
 
-Two ways out, and they are not alternatives so much as a short path and a long
-one.
+The long path was taken: a framework-level `picodroid.app.AlarmManager`, written
+up in [alarm-manager-2026-09.md](alarm-manager-2026-09.md). The alarms live in a
+table outside every app's memory, and when one comes due the framework starts
+picoclock again and puts `RingActivity` on top. `AlarmService` keeps the
+heartbeat, the buzzer and the snooze, and stops deciding when anything rings.
 
-**Short: make the board boot into the clock.** Multi-app already supports a boot
-default, which is how the sim log reads `[packages] boot: picoclock (boot
-default)`. On a board dedicated to being a clock this is the honest answer, and
-it costs a line of configuration. It does not help a board that also runs other
-things.
+Two things it leaves behind, both small enough to belong with their neighbours
+below rather than here:
 
-**Long: a framework-level alarm.** Android has `AlarmManager` for exactly this
-reason: an app should be able to ask to be woken at a time without staying
-resident. On this platform that means a scheduled wake-up owned outside any
-package image, surviving an app switch, and re-entering the owning app when it
-fires. That is a design conversation about the multi-app supervisor, not a
-picoclock feature, and it would serve every app that wants to do something
-later. Worth writing up separately.
-
-Until one of those lands, the app should at least be honest about it. A line on
-the clock face saying alarms only run while the app is open would cost nothing
-and mislead nobody.
+- **HOME during a ring still silences it.** The app is torn down and the buzzer
+  goes with it. Re-arming a minute out on the way down is R5's territory.
+- **A snooze does not survive a relaunch.** The framework keeps the alarm, not
+  the fact that it is a snooze, so the face shows the regular next alarm until
+  it fires. R7 is where a snooze that counts would fix this.
 
 ## 2. Making the clock right
 
@@ -69,6 +66,11 @@ otherwise.
 
 ### R5. Give up eventually
 
+Also where R1's leftover belongs: HOME during a ring silences it for good,
+because the app goes down with it. An alarm re-armed a minute out as the app is
+torn down would survive that, and is the same machinery as giving up after
+fifteen minutes.
+
 The ring currently sounds until somebody taps it. Android silences after about
 fifteen minutes and records a missed alarm. On a board with a buzzer and no
 volume control, an alarm nobody is present for is a fire alarm.
@@ -80,6 +82,10 @@ thirty seconds is a small change to `Buzzer` and a large change to being woken
 by it. Choosing a tone, or a pattern per alarm, follows from the same work.
 
 ### R7. Snooze that knows how many times
+
+A snooze also does not survive the app being torn down and started again by its
+own alarm (R1): the framework keeps the alarm, not the fact that it is a
+snooze, so the count would have to be stored with the alarm to mean anything.
 
 The snooze is a fixed nine minutes with no count. Showing "snoozed 3 times", and
 optionally shortening or refusing after a few, is what stops the snooze being a
@@ -116,6 +122,11 @@ clock face has room for one more button.
 ## 5. Inside
 
 ### R12. Test the widget slot tables
+
+Done for the alarm table, not for the widgets: `crates/picodroid-core/src/alarms.rs`
+was deliberately written with no LVGL dependency so `cargo test` reaches it, and
+carries fifteen tests. The widgets below still have none.
+
 
 The TimePicker slot leak fixed alongside this list would have been caught by a
 unit test over `register_picker` and the release path, and was not, because the

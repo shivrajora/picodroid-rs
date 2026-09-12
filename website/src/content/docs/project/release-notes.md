@@ -7,6 +7,50 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The touchscreen is read on its own clock, not the frame's**
+
+- Scrolling the touch board did not scroll, it teleported. The panel was read from inside
+  LVGL's input callback, which runs once per rendered frame, and a frame there costs
+  120-200 ms: a 300 ms swipe produced two positions 234 px apart. A dedicated sampler now
+  reads the panel every 10 ms and queues each changed position; the input callback hands
+  LVGL all of them in one pass, so LVGL walks the path the finger actually took and renders
+  once at the end. The same swipe now delivers all thirteen of its positions on hardware.
+- A tap on the capacitive board registers on the sample that saw it. The first reading after
+  touch-down used to be discarded as unsettled, which a resistive panel needs and a
+  capacitive controller reporting finished pixels does not.
+- Boards whose touch controller shares the display's SPI bus keep the old inline read, and
+  carry none of the new machinery in their image: the sampler would have to drive that bus
+  from a second task, which nothing serialises against a display flush. Flash, release
+  images: `testbench_rp2040` +24 B, `testbench_rp2350` +32 B.
+- Profiled and scoped in `docs/designs/scroll-performance-2026-09.md`, which also carries
+  what is left — the panel's own interrupt line, an honest LVGL tick, and the render and
+  tearing work that the 3-8 fps figure actually belongs to.
+
+**An alarm that outlives the app that set it (map v0.24.0, package 0.24.0)**
+
+- New `picodroid.app.AlarmManager` and `picodroid.app.PendingIntent`, on multi-app boards:
+  an app schedules one of its own Activities for a wall-clock or elapsed-time instant and is
+  free to exit. The framework holds the alarm outside every app's memory, starts the app
+  again when it comes due, and delivers the Activity on top of it. `set` / `setExact` (both
+  exact) and `cancel`, with Android's four clock constants; `PendingIntent.getActivity`
+  carries up to two `int` extras. Alarms live in RAM and are lost at a reset, so an app
+  re-registers at startup as an Android app does after `BOOT_COMPLETED`. See
+  [services](/api/services/#picodroidappalarmmanager) and
+  `docs/designs/alarm-manager-2026-09.md`.
+- `picoclock` no longer watches the clock itself, which is what it was for: its alarms used
+  to stop the moment you pressed HOME, and now they ring whatever you are doing. Its
+  `AlarmService` keeps the heartbeat, the buzzer and the snooze, and hands the framework one
+  operation per alarm slot. The carrier's buzzer also drops from a 50% to a 10% duty cycle —
+  the loudest a square-wave sounder gets is louder than a bedside alarm needs.
+- `Intent.setClassName(String, String)`, four framework-internal extras accessors on
+  `Intent`, `Context.ALARM_SERVICE`, and `SystemClock.elapsedRealtime()`.
+- `examples/alarmdemo` is the cycle in three classes and a harness row; `sim-run.sh` gains an
+  `alarm` lane that drives the leave-and-come-back path through the launcher.
+- Map v0.24.0, cut on `main` after the merge, folds the two classes and their 29 member
+  names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0, so
+  PAPKs shrunk with v0.17.0 through v0.23.0 still install. `Build.VERSION.RELEASE` reads
+  `0.24.0`. Everything else under Unreleased ships in the same package.
+
 **The settings screens and the launcher stop holding the UI tick**
 
 - Opening Settings > Storage or Apps froze a device for 190–330 ms, and the launcher's list for 240 ms: every row is ~20 ms of LVGL work and the screens built them all inside `onCreate`. Every screen now shows its header at once and adds rows one per UI tick, each under the watchdog's 50 ms; the Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive. No `slow handler` line on any screen.

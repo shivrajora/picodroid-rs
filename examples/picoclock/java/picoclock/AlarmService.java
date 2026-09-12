@@ -2,10 +2,13 @@
 package picoclock;
 
 import javax.inject.Inject;
+import picodroid.app.AlarmManager;
 import picodroid.app.Notification;
+import picodroid.app.PendingIntent;
 import picodroid.app.Service;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
@@ -20,9 +23,11 @@ import picodroid.util.Log;
  * that sleeps and posts — every callback below reaches its listener through {@code
  * Executors.mainExecutor()}, so a screen never touches a widget from the ticker.
  *
- * <p>Activities bind to it rather than start it: {@link picoclock.ui.BaseActivity} does the binding
- * and routes a ring to the screen. The Service is also started, so it outlives the last unbind and
- * an alarm still rings while the user is on another screen of the app.
+ * <p>It does not decide when an alarm rings. {@link #plan} hands every armed alarm to the
+ * framework's {@link AlarmManager}, which holds them outside this app's memory and starts {@link
+ * picoclock.ui.RingActivity} when one comes due — after starting the app again, if the user has
+ * gone elsewhere. That is the whole point: a thread of this app's own could only ever watch the
+ * clock while the app was up, and pressing HOME tears the app down.
  *
  * <h2>Which thread owns what</h2>
  *
@@ -35,10 +40,9 @@ import picodroid.util.Log;
  *       ticker acts on it within a tick. The obvious shortcut — let the tap call {@code
  *       buzzer.off()} directly — loses to the interleaving where the ticker has already decided an
  *       alarm is ringing and sounds the next beat after the silence, with the ring screen gone.
- *   <li><b>The ticker owns the snooze and every due time.</b> The screens only read them.
- *   <li><b>The main thread owns the alarms themselves</b> and hands the ticker a whole new {@link
- *       Schedule} at once. The ticker never mutates an {@link Alarm}; a one-shot disarming itself
- *       does so through a Runnable posted back to the main thread.
+ *   <li><b>The main thread starts a ring</b> — {@link #ring}, called by the screen the framework
+ *       brought up — and owns the alarms, the snooze and the {@link Schedule}. The ticker reads
+ *       {@link #ringing} to know whether to sound a beat, and never mutates an {@link Alarm}.
  * </ul>
  */
 public class AlarmService extends Service {
@@ -72,9 +76,6 @@ public class AlarmService extends Service {
 
   /** What a bound screen hears. Every method arrives on the main thread. */
   public interface Listener {
-    /** An alarm has come due, or a snooze has run out. */
-    void onAlarmRing(Alarm alarm);
-
     /** The ring ended, by snooze or dismissal. */
     void onAlarmStopped();
 
@@ -98,7 +99,7 @@ public class AlarmService extends Service {
   private static final class Schedule {
     final Alarm[] armed;
 
-    /** Parallel to {@link #armed}. Mutated only by the ticker, as alarms fire and re-arm. */
+    /** Parallel to {@link #armed}: when each next fires. Written once, at {@link #reload}. */
     final long[] dueUtcMs;
 
     Schedule(Alarm[] armed, long[] dueUtcMs) {
@@ -112,6 +113,7 @@ public class AlarmService extends Service {
   private final LocalBinder binder = new LocalBinder();
 
   @Inject AlarmStore store;
+  private AlarmManager alarms;
   private Buzzer buzzer;
   private Thread ticker;
   private volatile boolean running;
@@ -125,17 +127,21 @@ public class AlarmService extends Service {
    */
   private volatile Listener listener;
 
-  /** The alarm currently ringing, or null. Written by the ticker. */
+  /** The alarm currently ringing, or null. Written by the main thread, read by the ticker. */
   private volatile Alarm ringing;
 
   /** A screen's decision about the ring, waiting for the ticker to act on it. */
   private volatile int verdict = VERDICT_NONE;
 
-  /** When a snooze runs out, or 0. Written by the ticker, read by the screens. */
-  private volatile long snoozeUntilUtcMs;
+  /**
+   * When a snooze runs out, or 0. Main thread only, and deliberately not persisted: a snooze that
+   * outlived a restart would be a promise this app cannot keep, since the framework's copy of the
+   * alarm is all that survives and it carries no snooze count.
+   */
+  private long snoozeUntilUtcMs;
 
-  /** The snoozed alarm. Written by the ticker, read by the screens. */
-  private volatile Alarm snoozed;
+  /** The snoozed alarm, or null. Main thread only. */
+  private Alarm snoozed;
 
   /** Beat counter for the buzzer pattern; reset at the start of each ring. Ticker only. */
   private int beat;
@@ -157,6 +163,7 @@ public class AlarmService extends Service {
   @Override
   public void onCreate() {
     binder.service = this;
+    alarms = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
     buzzer = new Buzzer();
     reload();
     running = true;
@@ -224,15 +231,12 @@ public class AlarmService extends Service {
   /** The resumed screen, or null when none is. Main thread only. */
   public void setListener(Listener l) {
     listener = l;
-    Alarm up = ringing;
-    if (l != null && up != null) {
-      // A screen that binds mid-ring learns about it rather than showing a clock
-      // over a sounding buzzer.
-      l.onAlarmRing(up);
-    }
   }
 
-  /** Re-read the alarms after an edit and recompute every due time. Main thread only. */
+  /**
+   * Re-read the alarms after an edit, recompute every due time, and hand the lot to the framework.
+   * Main thread only. Every screen that changes an alarm ends by calling this.
+   */
   public void reload() {
     Alarm[] armed = store.live();
     long[] due = new long[armed.length];
@@ -241,6 +245,102 @@ public class AlarmService extends Service {
       due[i] = AlarmSchedule.nextFireUtcMs(armed[i], now, store.offsetMinutes());
     }
     schedule = new Schedule(armed, due);
+    plan();
+  }
+
+  /**
+   * Tell the framework about every alarm this app wants, and cancel the rest.
+   *
+   * <p>One operation per alarm slot rather than one for the soonest: two alarms set to the same
+   * minute both have to ring, and a single operation could only carry one of them. The request code
+   * is the alarm's id, so re-planning replaces an alarm's own entry and leaves the others alone.
+   *
+   * <p>An unset clock arms nothing. There is nothing to arm against — {@code currentTimeMillis}
+   * counts from boot until somebody sets it — and the face says so.
+   */
+  private void plan() {
+    boolean[] armed = new boolean[AlarmStore.MAX_ALARMS];
+    if (Clock.isSet(System.currentTimeMillis())) {
+      Schedule s = schedule;
+      for (int i = 0; i < s.armed.length; i++) {
+        if (s.dueUtcMs[i] != AlarmSchedule.NEVER) {
+          armed[s.armed[i].id] = arm(s.armed[i].id, s.dueUtcMs[i]);
+        }
+      }
+      // A snoozed alarm is handled outside that loop because a one-shot
+      // disarms itself when it first rings: by now it is absent from
+      // `armed`, and its snooze would be the one thing nobody re-armed.
+      if (snoozed != null && snoozeUntilUtcMs != 0) {
+        armed[snoozed.id] = arm(snoozed.id, snoozeUntilUtcMs);
+      }
+    }
+    for (int id = 0; id < AlarmStore.MAX_ALARMS; id++) {
+      if (!armed[id]) {
+        alarms.cancel(operation(id, 0));
+      }
+    }
+  }
+
+  /** Hand one alarm to the framework; false if it refused, which is worth a line in the log. */
+  private boolean arm(int id, long atUtcMs) {
+    try {
+      alarms.setExact(AlarmManager.RTC_WAKEUP, atUtcMs, operation(id, atUtcMs));
+      return true;
+    } catch (IllegalStateException | IllegalArgumentException e) {
+      Log.w(TAG, "alarm " + id + " not armed: " + e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * The operation for alarm {@code id}. Two of these are equal when their ids are, which is what
+   * lets {@link #plan} replace and cancel by id; the due time rides along as an extra so {@link
+   * #ring} can tell a fire it should honour from one the clock jumped over.
+   */
+  private PendingIntent operation(int id, long atUtcMs) {
+    Intent intent =
+        new Intent(picoclock.ui.RingActivity.class)
+            .putExtra(picoclock.ui.RingActivity.EXTRA_ALARM_ID, id)
+            .putExtra(
+                picoclock.ui.RingActivity.EXTRA_DUE_MINUTE, AlarmSchedule.epochMinute(atUtcMs));
+    return PendingIntent.getActivity(
+        this, id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+  }
+
+  /**
+   * Start ringing alarm {@code id}, which the framework has just brought a screen up for. Main
+   * thread. Returns false when the fire is stale — the clock moved, or the alarm was turned off
+   * between the arming and now — in which case the alarms have been re-planned and the caller
+   * should take its screen away again.
+   */
+  public boolean ring(int id, int dueMinute) {
+    long now = System.currentTimeMillis();
+    Alarm a = store.exists(id) ? store.get(id) : null;
+    boolean fromSnooze = a != null && a == snoozed;
+    snoozed = null;
+    snoozeUntilUtcMs = 0;
+
+    if (a == null
+        || !(a.enabled || fromSnooze)
+        || !AlarmSchedule.shouldRingMinute(dueMinute, now)) {
+      Log.i(TAG, "stale fire for alarm " + id + ", re-armed");
+      reload();
+      return false;
+    }
+
+    // A one-shot disarms itself once it has rung, as on Android. A snooze is
+    // the same alarm ringing again, so it does not disarm anything twice.
+    if (!a.repeats() && !fromSnooze) {
+      a.enabled = false;
+      store.save(id);
+    }
+
+    verdict = VERDICT_NONE; // a verdict left over from the ring this supersedes
+    beat = 0;
+    ringing = a; // published to the ticker, which starts sounding within a tick
+    Log.i(TAG, "ring " + a.time() + (a.label.isEmpty() ? "" : " " + a.label));
+    reload();
+    return true;
   }
 
   /** The alarm currently ringing, or null. */
@@ -249,11 +349,20 @@ public class AlarmService extends Service {
   }
 
   /**
-   * Silence the ring and re-arm it {@link AlarmStore#SNOOZE_MINUTES} out. Takes effect on the next
-   * tick; the screen calling this finishes itself and does not wait.
+   * Silence the ring and re-arm it {@link AlarmStore#SNOOZE_MINUTES} out. Main thread. The buzzer
+   * goes quiet on the next tick — it belongs to the ticker — and the screen calling this finishes
+   * itself without waiting.
    */
   public void snooze() {
+    Alarm up = ringing;
+    if (up == null) {
+      return;
+    }
+    snoozed = up;
+    snoozeUntilUtcMs = System.currentTimeMillis() + AlarmStore.SNOOZE_MINUTES * Clock.MS_PER_MINUTE;
+    Log.i(TAG, "snoozed " + up.time() + " for " + AlarmStore.SNOOZE_MINUTES + " min");
     verdict = VERDICT_SNOOZE;
+    plan();
   }
 
   /** Silence the ring for good; a repeating alarm still rings at its next occurrence. */
@@ -298,7 +407,7 @@ public class AlarmService extends Service {
       }
       polls = 0;
       try {
-        tick(System.currentTimeMillis());
+        tick();
       } catch (RuntimeException e) {
         // A fault here would leave the board with no alarms at all, silently.
         Log.w(TAG, "tick failed: " + e);
@@ -309,54 +418,21 @@ public class AlarmService extends Service {
     buzzer.close();
   }
 
-  private void tick(long now) {
+  /**
+   * The heartbeat. It notifies the screens, sounds the buzzer while a ring stands, and applies
+   * whatever a screen decided about that ring — but it does not decide when an alarm rings. The
+   * framework does, and it goes on doing so with this app shut down.
+   */
+  private void tick() {
     Executors.mainExecutor().execute(tickNotify);
-    applyVerdict(now);
+    applyVerdict();
     if (ringing != null) {
       buzzer.beat(beat++);
-      return;
-    }
-    if (!Clock.isSet(now)) {
-      return; // nothing to compare against until the clock is set
-    }
-    if (snoozeUntilUtcMs != 0 && AlarmSchedule.shouldRing(snoozeUntilUtcMs, now)) {
-      Alarm again = snoozed;
-      snoozeUntilUtcMs = 0;
-      snoozed = null;
-      startRing(again);
-      return;
-    }
-    Schedule s = schedule;
-    for (int i = 0; i < s.armed.length; i++) {
-      if (!AlarmSchedule.shouldRing(s.dueUtcMs[i], now)) {
-        if (s.dueUtcMs[i] != AlarmSchedule.NEVER && now > s.dueUtcMs[i]) {
-          // Missed: the wall clock jumped over it. Re-arm, do not ring.
-          s.dueUtcMs[i] = AlarmSchedule.nextFireUtcMs(s.armed[i], now, store.offsetMinutes());
-        }
-        continue;
-      }
-      Alarm due = s.armed[i];
-      if (due.repeats()) {
-        s.dueUtcMs[i] = AlarmSchedule.nextFireUtcMs(due, dueAt(s, i, now), store.offsetMinutes());
-      } else {
-        // A one-shot disarms itself once it has rung, as on Android. Clearing
-        // the due time here is what stops it ringing again; the alarm object
-        // itself is the main thread's, so that edit is posted there.
-        s.dueUtcMs[i] = AlarmSchedule.NEVER;
-        Executors.mainExecutor()
-            .execute(
-                () -> {
-                  due.enabled = false;
-                  store.save(due.id);
-                });
-      }
-      startRing(due);
-      return;
     }
   }
 
   /** Apply a screen's Snooze or Stop. Ticker only — this is where the buzzer goes quiet. */
-  private void applyVerdict(long now) {
+  private void applyVerdict() {
     int v = verdict;
     if (v == VERDICT_NONE) {
       return;
@@ -366,35 +442,10 @@ public class AlarmService extends Service {
     if (up == null) {
       return; // the ring ended on its own between the tap and this tick
     }
-    if (v == VERDICT_SNOOZE) {
-      snoozed = up;
-      snoozeUntilUtcMs = now + AlarmStore.SNOOZE_MINUTES * Clock.MS_PER_MINUTE;
-      Log.i(TAG, "snoozed " + up.time() + " for " + AlarmStore.SNOOZE_MINUTES + " min");
-    } else {
-      snoozed = null;
-      snoozeUntilUtcMs = 0;
+    if (v == VERDICT_DISMISS) {
       Log.i(TAG, "dismissed " + up.time());
     }
     stopRing();
-  }
-
-  /** The instant fire {@code i} was due, so the next one is computed from the schedule, not now. */
-  private static long dueAt(Schedule s, int i, long now) {
-    return s.dueUtcMs[i] == AlarmSchedule.NEVER ? now : s.dueUtcMs[i];
-  }
-
-  private void startRing(Alarm a) {
-    ringing = a;
-    beat = 0;
-    Log.i(TAG, "ring " + a.time() + (a.label.isEmpty() ? "" : " " + a.label));
-    Executors.mainExecutor()
-        .execute(
-            () -> {
-              Listener l = listener;
-              if (l != null) {
-                l.onAlarmRing(a);
-              }
-            });
   }
 
   /** Ticker only: {@link #applyVerdict} and the tick loop's exit are the only callers. */

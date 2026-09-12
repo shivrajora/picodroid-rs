@@ -31,6 +31,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_os_Runtime,
     c::picodroid_os_Build,
     c::picodroid_os_StatFs,
+    c::picodroid_app_AlarmManager,
     c::picodroid_app_usage_StorageStatsManager,
     c::picodroid_debug_DisplayDebug,
     c::picodroid_util_Log,

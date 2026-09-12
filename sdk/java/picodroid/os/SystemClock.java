@@ -7,6 +7,15 @@ public class SystemClock {
   public static native long elapsedRealtimeNanos();
 
   /**
+   * Milliseconds since boot, the coarse form of {@link #elapsedRealtimeNanos}. Unlike {@code
+   * System.currentTimeMillis()} it never jumps: {@link #setCurrentTimeMillis} moves the wall clock
+   * and leaves this alone, which is what makes it the right base for a delay.
+   */
+  public static long elapsedRealtime() {
+    return elapsedRealtimeNanos() / 1000000L;
+  }
+
+  /**
    * Anchors the wall clock: after this call {@code System.currentTimeMillis()} returns real epoch
    * time (before any call it counts from boot). Typically fed from an SNTP sync. Always returns
    * {@code true} — Android's permission-denied case does not apply here.

@@ -3,6 +3,7 @@
 //! window.  Replaces the previous no-op stubs so that graphical apps (e.g.
 //! `displaydemo`) can be tested without hardware.
 
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
 // Display geometry from [display] in board.toml. This reads the *neutral*
@@ -60,10 +61,12 @@ static mut WIN_Y0: u16 = 0;
 static mut WIN_X1: u16 = 0;
 static mut WIN_Y1: u16 = 0;
 
-/// Mouse state sampled during `update_window()`.
-static mut MOUSE_PRESSED: bool = false;
-static mut MOUSE_X: u16 = 0;
-static mut MOUSE_Y: u16 = 0;
+/// Mouse state sampled during `update_window()`. Atomic because the touch
+/// sampler reads it from its own task on boards where that runs, while
+/// `update_window` writes it from the UI task; the position is one word so a
+/// reader never sees an X from one frame with a Y from another.
+static MOUSE_PRESSED: AtomicBool = AtomicBool::new(false);
+static MOUSE_POS: AtomicU32 = AtomicU32::new(0);
 
 /// Scripted-touch override (control channel `touch down|move|up`). While
 /// engaged it replaces the mouse sample in [`mouse_state`], so scripted
@@ -227,10 +230,11 @@ pub fn update_window() {
             }
 
             // Sample mouse state for touch emulation
-            MOUSE_PRESSED = win.get_mouse_down(MouseButton::Left);
+            MOUSE_PRESSED.store(win.get_mouse_down(MouseButton::Left), Ordering::Relaxed);
             if let Some((mx, my)) = win.get_mouse_pos(MouseMode::Clamp) {
-                MOUSE_X = (mx as u16).min(WIDTH - 1);
-                MOUSE_Y = (my as u16).min(HEIGHT - 1);
+                let x = (mx as u16).min(WIDTH - 1) as u32;
+                let y = (my as u16).min(HEIGHT - 1) as u32;
+                MOUSE_POS.store((x << 16) | y, Ordering::Relaxed);
             }
 
             // Synthesize button GPIO edges from the host keyboard. Sampled here,
@@ -264,15 +268,17 @@ fn tap_debug_enabled() -> bool {
 }
 
 unsafe fn paint_tap_debug(buf: &mut [u32]) {
-    let (pressed, mx, my) = (MOUSE_PRESSED, MOUSE_X, MOUSE_Y);
-    if !pressed {
+    let pos = MOUSE_POS.load(Ordering::Relaxed);
+    let (mx, my) = ((pos >> 16) as u16, (pos & 0xFFFF) as u16);
+    if !MOUSE_PRESSED.load(Ordering::Relaxed) {
         return;
     }
     // Red crosshair at the raw mouse position.
     paint_crosshair(buf, mx, my, 0xFFFF_0000);
     // Green crosshair at what the touch driver actually emits — same call
-    // path the JVM dispatcher uses.
-    if let Some((tx, ty)) = super::touch::read_point() {
+    // path the JVM dispatcher uses. Through the sampler, because where that
+    // runs it is the panel's only reader.
+    if let Some((tx, ty)) = crate::hal::touch_sampler::latest() {
         paint_crosshair(buf, tx, ty, 0xFF00_FF00);
     }
 }
@@ -328,7 +334,14 @@ pub fn clear_touch_override() {
 /// `update_window()`.
 pub fn mouse_state() -> (bool, u16, u16) {
     match TOUCH_OVERRIDE.sample() {
-        OverrideSample::Inactive => unsafe { (MOUSE_PRESSED, MOUSE_X, MOUSE_Y) },
+        OverrideSample::Inactive => {
+            let pos = MOUSE_POS.load(Ordering::Relaxed);
+            (
+                MOUSE_PRESSED.load(Ordering::Relaxed),
+                (pos >> 16) as u16,
+                (pos & 0xFFFF) as u16,
+            )
+        }
         OverrideSample::Pressed(x, y) => (true, x, y),
         OverrideSample::Lifted(x, y) => (false, x, y),
     }

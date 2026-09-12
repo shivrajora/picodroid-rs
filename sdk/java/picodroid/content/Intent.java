@@ -17,8 +17,12 @@ package picodroid.content;
  * }</pre>
  */
 public final class Intent {
-  /** JVM-internal class name of the target component (e.g. "app/MyService"). */
-  private final String targetClassName;
+  /**
+   * JVM-internal class name of the target component (e.g. "app/MyService"). Not {@code final}:
+   * {@link #setClassName} writes it. The framework reads it by field slot, so it stays declared
+   * first.
+   */
+  private String targetClassName;
 
   // Extras: linear key/value table, allocated lazily. tags[i] == 0 → int,
   // 1 → String, 2 → boolean. intVals[i] holds int / packed boolean; strVals[i]
@@ -49,6 +53,18 @@ public final class Intent {
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */
   public String getTargetClassName() {
     return targetClassName;
+  }
+
+  /**
+   * Target the named Activity class in this app, the explicit form of {@code
+   * android.content.Intent#setClassName}. {@code className} may be given in either the Java
+   * dot-form or the JVM internal slash-form. {@code packageName} is accepted for source
+   * compatibility and must be {@code null} or this app's own package: an Intent cannot name a class
+   * inside another app, whose classes are not loaded.
+   */
+  public Intent setClassName(String packageName, String className) {
+    this.targetClassName = className == null ? null : className.replace('.', '/');
+    return this;
   }
 
   /**
@@ -116,6 +132,35 @@ public final class Intent {
 
   public boolean hasExtra(String key) {
     return locate(key) >= 0;
+  }
+
+  /**
+   * How many extras this Intent carries. Framework-internal, as {@link #getTargetClassName} is:
+   * {@code picodroid.app.PendingIntent} flattens the table through these accessors, there being no
+   * package-private route between {@code picodroid.content} and {@code picodroid.app}.
+   */
+  public int extraCount() {
+    return n;
+  }
+
+  /** The key of extra {@code i}, where {@code i} is below {@link #extraCount}. */
+  public String extraKey(int i) {
+    return keys[i];
+  }
+
+  /**
+   * Whether extra {@code i} holds an {@code int}, as opposed to a String or a boolean. A predicate
+   * rather than a tag constant on purpose: this class may declare no more fields, static ones
+   * included, because the framework addresses {@code packageName} by its slot and every field
+   * declared here shifts it.
+   */
+  public boolean isIntExtra(int i) {
+    return tags[i] == 0;
+  }
+
+  /** The value of extra {@code i}, as stored: an int, or a boolean packed as 0 or 1. */
+  public int extraInt(int i) {
+    return intVals[i];
   }
 
   private int locate(String key) {

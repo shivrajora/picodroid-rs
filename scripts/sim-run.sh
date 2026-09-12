@@ -367,6 +367,101 @@ run_launcher_smoke() {
   fi
 }
 
+# The alarm lane: the point of AlarmManager, which no single-app run can show.
+# alarmdemo arms an alarm, walks out to the launcher, and the framework starts
+# it again to deliver it. Everything here happens on its own — the only reason
+# the control FIFO exists is to tap the launcher's first row.
+run_alarm_smoke() {
+  local mode="$1"
+  local app=alarmdemo lane=alarm
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="AlarmDemo[]:] armed id=7;AlarmDemo[]:] leaving for the launcher;[[]alarm[]] wake alarmdemo;[[]alarm[]] fire alarmdemo;AlarmDemo[]:] woke id=7"
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (alarm wake path, 90s) ---"
+
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/launcher.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board testbench_rp2350)
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board testbench_rp2350)
+  if [[ "$mode" == "shrink" ]]; then
+    apk_args+=(--shrink)
+    launcher_args+=(--shrink)
+  fi
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
+  rm -f "$fifo"
+  mkfifo "$fifo"
+  # Boot the launcher, not the app: the demo has to be started from outside
+  # for leaving it to mean anything.
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_CTRL_FIFO="$fifo" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 90 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  alarm_wait() {
+    local want="$1" n="$2" i
+    for i in $(seq 1 40); do
+      [[ "$(grep -c -- "$want" "$log_file")" -ge "$n" ]] && return 0
+      kill -0 "$pid" 2>/dev/null || return 1
+      sleep 1
+    done
+    return 1
+  }
+
+  if alarm_wait "\[Launcher\] ready" 1; then
+    printf '%s\n' "input tap 120 20" > "$fifo"
+    # Arm, leave, wake, deliver: about five seconds of it, and then the
+    # demo finishes and the launcher comes back.
+    alarm_wait "woke id=7" 1 || true
+    sleep 1
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$fifo"
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # The settings lane (multi-app M3): the launcher with helloworld and the
 # settings app installed, driven over the control FIFO through About,
 # Storage and Apps, where helloworld is uninstalled through the dialog and
@@ -689,6 +784,12 @@ for MODE in "${MODES[@]}"; do
   # The settings lane (multi-app M3); `--app settings` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then
     run_settings_smoke "$MODE"
+  fi
+  # The alarm lane: an alarm outliving the app that set it, which the
+  # conf's `alarmdemo` row cannot show on its own (it runs one app, with
+  # no launcher to leave for). `--app alarmdemo` reaches both.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "alarmdemo" ]]; then
+    run_alarm_smoke "$MODE"
   fi
   # The Kotlin twin (examples/picoenvmon_kt): same boards, same proofs, its own
   # log tag and lane names (docs/designs/kotlin-roadmap-2026-08.md Session 7).

@@ -46,6 +46,13 @@ pub const FLASHPARK_STACK_WORDS: u16 = 256;
 /// headroom (verify via the one-shot stack-HWM debug log; bump to 1536 if
 /// headroom drops below ~25%).
 pub const SENSOR_STACK_WORDS: u16 = 1024;
+/// Touch sampler task stack (boards whose panel has a bus of its own).
+/// Consumed through [`default_stack_bytes`]; charged when the graphics
+/// backend starts it, not at boot. The whole body is a driver read — an I²C
+/// transfer into a handful of bytes — and a ring push, so it is nearer the
+/// flash parker than the sensor sampler; 512 words is several times what that
+/// chain measures and still a quarter of what a sensor cluster needs.
+pub const TOUCH_STACK_WORDS: u16 = 512;
 /// Per-`Thread.start` FreeRTOS task stack ("jvm-t"). Consumed through
 /// [`default_stack_bytes`]; charged per spawn, not at boot. Half the chip's
 /// interpreter stack, like the RP2350's: a 16 KB child on the RP2040's
@@ -87,6 +94,7 @@ pub fn default_stack_bytes(kind: picodroid_core::rtos::TaskKind) -> u32 {
         TaskKind::JvmChild => bytes(JVM_THREAD_STACK_WORDS),
         TaskKind::BgWorker => picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
         TaskKind::Sensor => bytes(SENSOR_STACK_WORDS),
+        TaskKind::Touch => bytes(TOUCH_STACK_WORDS),
         TaskKind::FsWorker => bytes(FS_STACK_WORDS),
     }
 }

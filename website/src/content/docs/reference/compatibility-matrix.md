@@ -33,7 +33,9 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | `Service` | Partial | Started + bound services, `onRebind`, `stopSelfResult`. No `IntentService`, no foreground-service notification contract. |
 | `AlertDialog` / `AlertDialog.Builder` | Partial | Positive/negative/neutral buttons, `setItems`, single- and multi-choice. **List variants cap at ~12 rows** (LVGL renderer limit) and **a message set alongside items wins** (items are dropped, with a `Log.w`) — matching Android's message-vs-items precedence. |
 | `Notification` / `NotificationManager` | Partial | Basic post/cancel. No channels, styles, or actions. |
-| `Fragment`, `Loader`, `PendingIntent` | Unsupported | No Fragment system — compose with Activities + Views. |
+| `AlarmManager` | Partial | Multi-app boards only. `set` / `setExact` (both exact) and `cancel`, on all four `RTC*` / `ELAPSED_REALTIME*` clocks. An alarm outlives the app that set it and starts it again to deliver it; alarms live in RAM and are lost at a reset, so re-register them at startup as an Android app does after `BOOT_COMPLETED`. No `setRepeating`, `setWindow`, `setAlarmClock` or `OnAlarmListener`. |
+| `PendingIntent` | Partial | Multi-app boards only. `getActivity` alone, carrying at most two `int` extras under keys of at most 15 characters; `FLAG_NO_CREATE` is honoured, the other flags are accepted and ignored (a set always replaces by identity). No `getBroadcast` / `getService`. |
+| `Fragment`, `Loader` | Unsupported | No Fragment system — compose with Activities + Views. |
 
 ### android.view
 

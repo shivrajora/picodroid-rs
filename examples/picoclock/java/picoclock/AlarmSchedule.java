@@ -92,4 +92,23 @@ public final class AlarmSchedule {
   public static boolean shouldRing(long dueUtcMs, long nowUtcMs) {
     return dueUtcMs != NEVER && nowUtcMs >= dueUtcMs && nowUtcMs - dueUtcMs <= LATE_TOLERANCE_MS;
   }
+
+  /**
+   * An instant as whole minutes since the epoch. This is how a due time rides along with an alarm
+   * through the framework, whose extras are ints: a millisecond count would not fit, and minutes
+   * are the resolution an alarm clock works at anyway. Good until the year 6053.
+   */
+  public static int epochMinute(long utcMs) {
+    return (int) Clock.floorDiv(utcMs, Clock.MS_PER_MINUTE);
+  }
+
+  /**
+   * {@link #shouldRing} for a due time that travelled as a whole minute. The seconds lost in {@link
+   * #epochMinute} put the reconstructed instant up to a minute early, so the window is a minute
+   * wider; it is still far short of the hours that mean the clock jumped.
+   */
+  public static boolean shouldRingMinute(int dueMinute, long nowUtcMs) {
+    long due = dueMinute * Clock.MS_PER_MINUTE;
+    return nowUtcMs >= due && nowUtcMs - due <= LATE_TOLERANCE_MS + Clock.MS_PER_MINUTE;
+  }
 }

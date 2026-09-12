@@ -15,6 +15,7 @@ F	ACTION_DOWN
 F	ACTION_LONG_PRESS
 F	ACTION_MOVE
 F	ACTION_UP
+F	ALARM_SERVICE
 F	BLACK
 F	BLUE
 F	BOARD
@@ -34,6 +35,8 @@ F	DIRECTION_OUT_INITIALLY_HIGH
 F	DIRECTION_OUT_INITIALLY_LOW
 F	DONE
 F	E
+F	ELAPSED_REALTIME
+F	ELAPSED_REALTIME_WAKEUP
 F	ELLIPSIZE_MASK
 F	END
 F	FEATURE_ETHERNET
@@ -42,7 +45,13 @@ F	FILES_DIR
 F	FILL
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
+F	FLAG_CANCEL_CURRENT
+F	FLAG_IMMUTABLE
+F	FLAG_MUTABLE
+F	FLAG_NO_CREATE
+F	FLAG_ONE_SHOT
 F	FLAG_SYSTEM
+F	FLAG_UPDATE_CURRENT
 F	FLING_MIN_PX
 F	GONE
 F	GREEN
@@ -107,7 +116,9 @@ F	MARQUEE
 F	MATCH_PARENT
 F	MAX_BLOB
 F	MAX_ENTRIES
+F	MAX_EXTRAS
 F	MAX_KEY_LEN
+F	MAX_KEY_LENGTH
 F	MAX_LINES_LIMIT
 F	MAX_LINES_SHIFT
 F	MAX_LIST_ITEMS
@@ -155,6 +166,8 @@ F	RESULT_CANCELED
 F	RESULT_FIRST_USER
 F	RESULT_OK
 F	RIGHT
+F	RTC
+F	RTC_WAKEUP
 F	RUNNING
 F	SCALE_1X
 F	SCALE_CENTER
@@ -341,6 +354,8 @@ F	interpolatorCode
 F	items
 F	itemsJoined
 F	itemsListener
+F	key0
+F	key1
 F	keyCode
 F	keys
 F	lastSampleEvent
@@ -400,6 +415,7 @@ F	rawX
 F	rawY
 F	readTimeout
 F	refreshListener
+F	requestCode
 F	resolution
 F	result
 F	rotationTo
@@ -430,6 +446,8 @@ F	types
 F	uartId
 F	url
 F	value
+F	value0
+F	value1
 F	values
 F	vendor
 F	versionCode
@@ -536,6 +554,7 @@ M	dispatchRunnable
 M	doubleToString
 M	e
 M	edit
+M	elapsedRealtime
 M	elapsedRealtimeNanos
 M	encode
 M	equals
@@ -543,12 +562,16 @@ M	execute
 M	exists
 M	exit0
 M	exp
+M	extraCount
+M	extraInt
+M	extraKey
 M	fileList
 M	filePath
 M	fill
 M	findButton
 M	finish
 M	fireActionClick
+M	fireAlarm
 M	fireButtonClick
 M	fireCheckedChanged
 M	fireClick
@@ -576,6 +599,7 @@ M	gcTimeNanos
 M	get
 M	getAbsolutePath
 M	getAction
+M	getActivity
 M	getAdapter
 M	getAddress
 M	getAll
@@ -739,6 +763,7 @@ M	isFile
 M	isFocusable
 M	isFocused
 M	isIndeterminate
+M	isIntExtra
 M	isInterrupted
 M	isNull
 M	isNullSentinel
@@ -854,6 +879,7 @@ M	nativeRemoveAt
 M	nativeRequestFocus
 M	nativeResolve
 M	nativeResponseMessage
+M	nativeSet
 M	nativeSetAction
 M	nativeSetAlpha
 M	nativeSetBackground
@@ -1020,6 +1046,7 @@ M	setBackgroundColor
 M	setBaudrate
 M	setChecked
 M	setCheckedId
+M	setClassName
 M	setColor
 M	setConnectTimeout
 M	setContentText
@@ -1037,6 +1064,7 @@ M	setDuration
 M	setEditText
 M	setEllipsize
 M	setEnabled
+M	setExact
 M	setFixedLengthStreamingMode
 M	setFocusable
 M	setFrequency

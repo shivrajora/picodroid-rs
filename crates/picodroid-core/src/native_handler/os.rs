@@ -76,6 +76,27 @@ pub fn dispatch(
             let bytes = string_arg(ctx, 0).map_or(0, |p| crate::storage::quota::usage_of(p) as i64);
             Some(Ok(Some(Value::Long(bytes))))
         }
+        // ── AlarmManager (multi-app) ──────────────────────────────────
+        // Static natives, so args start at 0. The extras arrive flattened:
+        // `PendingIntent.getActivity` validated and copied them out of the
+        // Intent, which keeps the Intent's field slots out of this path.
+        #[cfg(has_multi_app)]
+        (c::picodroid_app_AlarmManager, m::nativeSet) => Some(Ok(Some(Value::Int(alarm_set(ctx))))),
+        #[cfg(has_multi_app)]
+        (c::picodroid_app_AlarmManager, m::nativeCancel) => {
+            let removed = match (crate::packages::running(), string_arg(ctx, 1)) {
+                (Some(owner), Some(class)) => {
+                    let request_code = int_arg(ctx.args, 0);
+                    let removed = crate::alarms::cancel(owner, class, request_code);
+                    if removed {
+                        crate::pd_info!("[alarm] cancel {} {}#{}", owner, class, request_code);
+                    }
+                    removed
+                }
+                _ => false,
+            };
+            Some(Ok(Some(Value::Int(removed as i32))))
+        }
         // ── PackageInstaller.uninstall (multi-app M3c) ────────────────
         #[cfg(has_multi_app)]
         (c::picodroid_content_pm_PackageInstaller, m::nativeUninstall) => {
@@ -186,5 +207,82 @@ fn package_string(
     match ctx.strings.intern_dyn(s.as_bytes()) {
         Some(idx) => Ok(Some(Value::Reference(idx))),
         None => Err(JvmError::StackOverflow),
+    }
+}
+
+/// An `int` argument, or 0 when the slot holds something else.
+#[cfg(has_multi_app)]
+fn int_arg(args: &[Value], i: usize) -> i32 {
+    match args.get(i) {
+        Some(Value::Int(v)) => *v,
+        _ => 0,
+    }
+}
+
+/// `AlarmManager.nativeSet`: 0 when armed, 1 when there is no room, 2 when
+/// the target class or an extra key is longer than the table's fixed rows.
+///
+/// The owner is whoever is running — an app can only ever set an alarm for
+/// itself, so it is never passed in and never spoofed.
+#[cfg(has_multi_app)]
+fn alarm_set(ctx: &mut NativeContext<'_>) -> i32 {
+    use crate::alarms::{Clock, SetError};
+
+    let Some(owner) = crate::packages::running() else {
+        return 1;
+    };
+    let Some(clock) = Clock::from_type(int_arg(ctx.args, 0)) else {
+        return 2;
+    };
+    let trigger_ms = match ctx.args.get(1) {
+        Some(Value::Long(v)) => *v,
+        _ => return 2,
+    };
+    let request_code = int_arg(ctx.args, 2);
+    let Some(class) = string_arg(ctx, 3) else {
+        return 2;
+    };
+
+    // Keys 4 and 6, values 5 and 7; a null key means no extra there.
+    let mut extras: [(&str, i32); crate::alarms::MAX_EXTRAS] = [("", 0); crate::alarms::MAX_EXTRAS];
+    let mut n = 0;
+    for (key_at, value_at) in [(4, 5), (6, 7)] {
+        if let Some(key) = string_arg(ctx, key_at) {
+            extras[n] = (key, int_arg(ctx.args, value_at));
+            n += 1;
+        }
+    }
+
+    match crate::alarms::set(owner, class, request_code, clock, trigger_ms, &extras[..n]) {
+        Ok(replaced) => {
+            crate::pd_info!(
+                "[alarm] {} {} {}#{} at {}",
+                if replaced { "replace" } else { "set" },
+                owner,
+                class,
+                request_code,
+                trigger_ms
+            );
+            0
+        }
+        Err(SetError::TooLong) => {
+            crate::pd_warn!(
+                "[alarm] refused {} {}#{}: name too long",
+                owner,
+                class,
+                request_code
+            );
+            2
+        }
+        Err(e) => {
+            crate::pd_warn!(
+                "[alarm] refused {} {}#{}: no room ({})",
+                owner,
+                class,
+                request_code,
+                if e == SetError::Full { "table" } else { "app" }
+            );
+            1
+        }
     }
 }
