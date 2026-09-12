@@ -59,6 +59,14 @@ pub struct FlashLayout {
     pub app_data_cap: u64,
     pub ram_origin: u64,
     pub ram_len: u64,
+    /// The module's QSPI PSRAM behind the second chip select, when the MCU
+    /// toml declares one (`psram_kb`, `psram_origin`); both 0 otherwise.
+    /// Geometry only: which tenant lives there is board policy
+    /// (`lv_mem_in_psram`), and nothing is linked into the region — its first
+    /// tenant takes the address as a constant
+    /// (docs/designs/psram-lvgl-fluid-scroll-2026-09.md §3).
+    pub psram_origin: u64,
+    pub psram_len: u64,
 }
 
 fn int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
@@ -155,6 +163,21 @@ pub fn compute(
         fs_system_reserve / 1024,
         fs_len / 1024
     );
+    let psram_len = int(mcu, "psram_kb").unwrap_or(0) * 1024;
+    let psram_origin = if psram_len > 0 {
+        required(mcu, "psram_origin", mcu_path)
+    } else {
+        0
+    };
+    assert!(
+        psram_len.is_multiple_of(SECTOR),
+        "flash layout: psram_kb must be a multiple of 4 KB, got {psram_len} bytes"
+    );
+    assert!(
+        psram_len == 0 || psram_origin >= flash_origin + flash_len,
+        "flash layout: psram_origin {psram_origin:#x} overlaps the flash window ending at {:#x}",
+        flash_origin + flash_len
+    );
     let region_origin = flash_origin + flash_len - region_len;
     let fs_origin = region_origin
         .checked_sub(fs_len)
@@ -183,6 +206,8 @@ pub fn compute(
         app_data_cap,
         ram_origin,
         ram_len,
+        psram_origin,
+        psram_len,
     }
 }
 
@@ -239,6 +264,12 @@ impl FlashLayout {
             "    RAM        : ORIGIN = {:#010x}, LENGTH = {:#x}\n",
             self.ram_origin, self.ram_len
         );
+        if self.psram_len > 0 {
+            s += &format!(
+                "    PSRAM      : ORIGIN = {:#010x}, LENGTH = {:#x}    /* QSPI PSRAM, XIP window 1; nothing is placed here */\n",
+                self.psram_origin, self.psram_len
+            );
+        }
         s += "}\n\n__fs_start = ORIGIN(FS_FLASH);\n__fs_end   = ORIGIN(FS_FLASH) + LENGTH(FS_FLASH);\n\n";
         s
     }
@@ -278,7 +309,12 @@ impl FlashLayout {
              pub const FS_SYSTEM_RESERVE_BYTES: usize = {};\n\
              /// Bytes one app's data directory may hold; 0 = unlimited (`app_data_cap_kb`, D10).\n\
              #[allow(dead_code)]\n\
-             pub const APP_DATA_CAP_BYTES: usize = {};\n",
+             pub const APP_DATA_CAP_BYTES: usize = {};\n\
+             /// The QSPI PSRAM window (`psram_kb`, `psram_origin`); both 0 on a module without one.\n\
+             #[allow(dead_code)]\n\
+             pub const PSRAM_ORIGIN: usize = {:#x};\n\
+             #[allow(dead_code)]\n\
+             pub const PSRAM_LEN: usize = {:#x};\n",
             self.flash_origin,
             self.program_len,
             self.fs_origin - self.flash_origin,
@@ -292,17 +328,24 @@ impl FlashLayout {
             },
             self.fs_system_reserve,
             self.app_data_cap,
+            self.psram_origin,
+            self.psram_len,
         )
     }
 }
 
-/// Write `OUT_DIR/flash_layout.rs` and emit the `has_multi_app` cfg.
+/// Write `OUT_DIR/flash_layout.rs` and emit the `has_multi_app` and
+/// `has_psram` cfgs.
 pub fn emit(out: &Path, layout: &FlashLayout) {
     fs::write(out.join("flash_layout.rs"), layout.rust_consts())
         .unwrap_or_else(|e| panic!("write flash_layout.rs: {e}"));
     println!("cargo:rustc-check-cfg=cfg(has_multi_app)");
     if layout.max_installed_apps > 1 {
         println!("cargo:rustc-cfg=has_multi_app");
+    }
+    println!("cargo:rustc-check-cfg=cfg(has_psram)");
+    if layout.psram_len > 0 {
+        println!("cargo:rustc-cfg=has_psram");
     }
 }
 
@@ -413,6 +456,59 @@ mod tests {
         assert_eq!(l.max_installed_apps, 8);
         assert_eq!(l.region_origin + l.region_len, 0x1040_0000);
         assert_eq!(boardless(), l, "host builds compile against this layout");
+    }
+
+    /// The RP2350B module: 16 MB of flash and 8 MB of PSRAM on chip select 1.
+    fn rp2350b() -> HashMap<String, String> {
+        let mut m = rp2350();
+        m.insert("flash_kb".into(), "16384".into());
+        m.insert("psram_kb".into(), "8192".into());
+        m.insert("psram_origin".into(), "0x11000000".into());
+        m
+    }
+
+    #[test]
+    fn a_module_with_psram_gets_a_region_and_the_constants() {
+        let l = compute(&rp2350b(), None, "rp2350b.toml");
+        assert_eq!(l.psram_origin, 0x1100_0000);
+        assert_eq!(l.psram_len, 8 * 1024 * 1024);
+        let x = l.render_memory_x();
+        assert!(
+            x.contains("PSRAM      : ORIGIN = 0x11000000, LENGTH = 0x800000"),
+            "{x}"
+        );
+        let c = l.rust_consts();
+        assert!(
+            c.contains("pub const PSRAM_ORIGIN: usize = 0x11000000;"),
+            "{c}"
+        );
+        assert!(c.contains("pub const PSRAM_LEN: usize = 0x800000;"), "{c}");
+    }
+
+    #[test]
+    fn a_module_without_psram_renders_no_region() {
+        let l = compute(&rp2350(), None, "rp2350.toml");
+        assert_eq!((l.psram_origin, l.psram_len), (0, 0));
+        assert!(!l.render_memory_x().contains("PSRAM"));
+        assert!(l
+            .rust_consts()
+            .contains("pub const PSRAM_LEN: usize = 0x0;"));
+    }
+
+    #[test]
+    #[should_panic(expected = "psram_origin")]
+    fn psram_without_an_origin_is_refused() {
+        let mut m = rp2350();
+        m.insert("psram_kb".into(), "8192".into());
+        compute(&m, None, "rp2350.toml");
+    }
+
+    #[test]
+    #[should_panic(expected = "overlaps the flash window")]
+    fn psram_inside_the_flash_window_is_refused() {
+        let mut m = rp2350b();
+        m.insert("psram_origin".into(), "0x10800000".into());
+        compute(&m, None, "rp2350b.toml");
     }
 
     #[test]

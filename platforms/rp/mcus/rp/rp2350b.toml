@@ -1,18 +1,22 @@
 # MCU: RP2350B (Cortex-M33, dual-core) — the 80-pin variant of the RP2350.
 #
 # Same die and same core as rp2350.toml: same clock, same 520 KB of SRAM, same
-# FreeRTOS port, same bootrom contract. Two things differ, and only one of them
-# is expressed here.
+# FreeRTOS port, same bootrom contract. Three things differ, and two of them
+# are expressed here.
 #
 #  * Flash. The RP2350B carriers picodroid targets ship 16 MB rather than 4, and
 #    `flash_kb` is read only from this file — `build_support/flash_layout.rs`
 #    takes it from the MCU and never from board.toml — so a 16 MB board cannot
 #    be described without a descriptor of its own.
+#  * PSRAM. The module carries 8 MB on the QMI's second chip select (the
+#    `psram_*` keys below); the A-variant boards have none.
 #  * Pins. 48 GPIO instead of 30, with the ADC inputs on GP40-GP47 rather than
 #    GP26-GP29. Nothing here encodes that: the HAL addresses pads by number and
-#    every pin picodroid drives on this variant today is below GP30. A board
-#    that reaches GP32 or above needs the bank-1 registers in hal/rp/gpio.rs,
-#    input_pin.rs and spi/mod.rs, which are not written yet.
+#    every pin picodroid drives on this variant today is below GP30, except the
+#    PSRAM chip select — which is only ever a pad-function select, never a SIO
+#    output, so it needs none of the bank-1 SIO registers hal/rp/gpio.rs,
+#    input_pin.rs and spi/mod.rs lack. A board that drives GP32 or above as a
+#    plain GPIO still needs those written.
 #
 # The Cargo feature stays `chip-rp2350`: rp235x-hal covers both variants, and
 # the MCU descriptor name and the chip feature are resolved independently
@@ -22,6 +26,23 @@ target = "thumbv8m.main-none-eabihf"
 clock_hz = 150000000
 ram_kb = 520
 flash_kb = 16384
+# The module's 8 MB APS6404L PSRAM on the QMI's second chip select, reached
+# through XIP window 1 (RP2350 datasheet §4.4, §12.14). Module properties
+# rather than die properties, like flash_kb, and kept here for the same
+# reason: flash_layout.rs renders the PSRAM region from the MCU descriptor,
+# and the Pico Plus 2 W is the only RP2350B carrier picodroid targets. The
+# chip select is GP47 on this module. hal/rp/psram.rs brings the part up at
+# boot and derives the window's timing from clock_hz: 150 MHz gives a QMI
+# divisor of 2, a 75 MHz bus inside the part's 133 MHz rating, and an 8 µs
+# tCEM burst limit of 18 x 64 clocks. What lives there is board policy —
+# the LVGL pool is the one tenant offered so far (board.toml `lv_mem_in_psram`,
+# measured and left off on pico_touch_kit); the JVM arena, the operand stacks
+# and the draw band stay in SRAM regardless, because PSRAM is reached over the
+# same QSPI bus and XIP cache as the flash
+# (docs/designs/psram-lvgl-fluid-scroll-2026-09.md).
+psram_kb = 8192
+psram_origin = 0x11000000
+psram_cs_pin = 47
 core_count = 2
 # FreeRTOS heap arena (configTOTAL_HEAP_SIZE) — single source of truth.
 # Injected into the FreeRTOS C build AND the sim's default heap cap
@@ -38,9 +59,10 @@ core_count = 2
 # sweep no deeper, so 352 KB leaves ~76 KB (22 %), and joining WiFi costs
 # under 1 KB of it (docs/designs/band-height-120-2026-09.md §5). The two
 # RP2350 descriptors no longer build identically; that was a convenience,
-# not a contract. Moving the 64 KB LVGL pool to this module's PSRAM
-# (docs/designs/psram-lvgl-fluid-scroll-2026-09.md) is what could give this
-# back.
+# not a contract. The other way to fund the band is the module's PSRAM —
+# board.toml `lv_mem_in_psram` moves the 64 KB LVGL pool there and this can
+# go back to 408 — at a measured 10 % of the frame, which is why that board
+# leaves it off.
 heap_kb = 344
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the

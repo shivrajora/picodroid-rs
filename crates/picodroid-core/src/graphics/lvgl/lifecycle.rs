@@ -49,6 +49,11 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
 
     unsafe {
         lv_init();
+        // A pool in PSRAM holds what LVGL keeps between frames; the layers
+        // it renders into are written per pixel and come from SRAM instead
+        // (lvgl/lv_draw_buf_sram.c).
+        #[cfg(lv_mem_in_psram)]
+        picodroid_lv_draw_buf_use_sram();
 
         let disp = lv_display_create(width as i32, height as i32);
         lv_display_set_flush_cb(disp, Some(flush_cb));
@@ -79,6 +84,21 @@ pub(in crate::graphics) fn tick(ms: u32) {
     unsafe {
         lv_tick_inc(ms);
         lv_timer_handler();
+    }
+    // A draw buffer the arena could not serve went to the PSRAM pool and
+    // was rendered through the QSPI bus: say so once, so an unexplained
+    // slow frame has a line in the log rather than a mystery.
+    #[cfg(lv_mem_in_psram)]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        let n = unsafe { picodroid_lv_draw_buf_pool_fallbacks() };
+        if n > 0 && !WARNED.swap(true, Ordering::Relaxed) {
+            defmt::warn!(
+                "lvgl: {=u32} draw buffer(s) fell back to the PSRAM pool (arena full)",
+                n
+            );
+        }
     }
 }
 

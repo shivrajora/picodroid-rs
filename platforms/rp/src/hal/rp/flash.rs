@@ -77,11 +77,13 @@ pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
 //    `ptr()` wrappers live in .text but are called BEFORE `cpsid i`.
 //
 // 3. XIP sequence for flash operations (per the RP2040 pico-sdk):
+//      <clean the XIP cache>     — PSRAM boards only; see the macro
 //      connect_internal_flash()  — restores QSPI pad controls, connects SSI
 //      flash_exit_xip()          — configures SSI for serial SPI mode, exits XIP
 //      <erase or program>        — performs the flash operation
 //      flash_flush_cache()       — flushes XIP cache, clears CS IO-forcing
 //      <restore fast XIP mode>   — see the macro's restore step below
+//      <restore the PSRAM window> — PSRAM boards only; see the macro
 //    The raw ROM functions (flash_range_erase, flash_range_program) do NOT
 //    handle XIP internally — the pico-sdk C wrappers perform this sequence.
 
@@ -116,6 +118,20 @@ pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
 ///   it reconfigures the SSI, re-enters continuous-read mode, and returns to
 ///   the caller instead of chaining to the vector table.
 ///
+/// # The PSRAM window (`has_psram`, RP2350 only)
+/// A module with PSRAM on chip select 1 (`hal/rp/psram.rs`) reaches it
+/// through the same XIP window, and `flash_exit_xip` resets window 1's
+/// registers to the ROM's serial-read defaults along with window 0's. The
+/// ROM knows nothing of the part itself — with no CS1 entry in FLASH_DEVINFO
+/// it sends it no exit sequence — so the registers saved beforehand are
+/// still the right ones and simply go back afterwards (pico-sdk's
+/// `flash_rp2350_restore_qmi_cs1`, case 1). Before any of that, every dirty
+/// XIP cache line is written back: the RP2350's cache is write-back for
+/// window 1, and `flash_flush_cache` invalidates without cleaning, so an
+/// LVGL pool in PSRAM would otherwise lose whatever it wrote last. Between
+/// the two, no code on either core may touch PSRAM — the parked core 1 and
+/// the masked interrupts already guarantee that for flash fetches.
+///
 /// # Why a macro?
 /// Any helper called from a `#[link_section = ".data"]` function must be
 /// guaranteed to expand inline.  A macro provides this guarantee — unlike
@@ -148,6 +164,21 @@ macro_rules! with_xip_disabled {
             core::ptr::copy_nonoverlapping(XIP_BASE as *const u32, copy.as_mut_ptr(), 64);
             copy
         };
+        // The PSRAM window's registers, M1_TIMING through M1_WCMD
+        // (raw pointers again: restored from inside the window).
+        #[cfg(all(feature = "chip-rp2350", has_psram))]
+        let (qmi_m1, m1_timing, m1_rfmt, m1_rcmd, m1_wfmt, m1_wcmd) = {
+            const QMI_M1_TIMING: usize = 0x20;
+            let m1 = (rp235x_hal::pac::QMI::ptr() as usize + QMI_M1_TIMING) as *mut u32;
+            (
+                m1,
+                m1.read_volatile(),
+                m1.add(1).read_volatile(),
+                m1.add(2).read_volatile(),
+                m1.add(3).read_volatile(),
+                m1.add(4).read_volatile(),
+            )
+        };
 
         let primask: u32;
         core::arch::asm!(
@@ -156,6 +187,11 @@ macro_rules! with_xip_disabled {
             options(nomem, nostack, preserves_flags)
         );
         core::arch::asm!("cpsid i", options(nomem, nostack));
+
+        // Dirty PSRAM lines go back to the part while XIP still serves it;
+        // the ROM's flush below only invalidates.
+        #[cfg(all(feature = "chip-rp2350", has_psram))]
+        super::psram::xip_cache_clean_all!();
 
         connect();
         exit_xip();
@@ -175,6 +211,15 @@ macro_rules! with_xip_disabled {
             let boot2: extern "C" fn() =
                 core::mem::transmute(boot2_copy.as_ptr() as usize + 1);
             boot2();
+        }
+        // And the PSRAM window, which exit_xip reset alongside window 0.
+        #[cfg(all(feature = "chip-rp2350", has_psram))]
+        {
+            qmi_m1.write_volatile(m1_timing); // M1_TIMING
+            qmi_m1.add(1).write_volatile(m1_rfmt); // M1_RFMT
+            qmi_m1.add(2).write_volatile(m1_rcmd); // M1_RCMD
+            qmi_m1.add(3).write_volatile(m1_wfmt); // M1_WFMT
+            qmi_m1.add(4).write_volatile(m1_wcmd); // M1_WCMD
         }
 
         if primask == 0 {

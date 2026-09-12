@@ -18,6 +18,10 @@ pub mod i2c;
 pub mod input_pin;
 pub mod output_pin;
 pub mod pdb_usb;
+// The QSPI PSRAM on a module whose MCU toml declares one (`psram_kb`): only
+// the RP2350B carriers today.
+#[cfg(all(feature = "chip-rp2350", has_psram))]
+pub mod psram;
 pub mod pwm;
 pub mod spi;
 pub mod spi_bus;

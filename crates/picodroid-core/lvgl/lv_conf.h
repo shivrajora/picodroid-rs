@@ -36,7 +36,14 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 /* Built-in memory pool — default 64 KB for RP2350's 520 KB SRAM.
- * Override via build.rs -D for boards with different RAM budgets. */
+ * Override via build.rs -D for boards with different RAM budgets.
+ *
+ * Where the pool lives is the build's call too: a board with
+ * `lv_mem_in_psram` gets -DLV_MEM_ADR=<psram_origin>, and
+ * lv_mem_core_builtin.c then creates the TLSF pool at that address instead
+ * of in a .bss array, with lv_draw_buf_sram.c (beside this file) keeping the
+ * render targets in SRAM. Deliberately not defined here: lv_conf_internal.h
+ * defaults it to 0, the .bss array. */
 #ifndef LV_MEM_SIZE
 #define LV_MEM_SIZE (64 * 1024U)
 #endif

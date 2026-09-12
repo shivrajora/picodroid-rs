@@ -6,6 +6,16 @@ use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 
+/// A decimal or `0x` integer from a toml map, if the key is present.
+fn parse_int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
+    let raw = props.get(key)?.trim();
+    let parsed = match raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16),
+        None => raw.parse::<u64>(),
+    };
+    Some(parsed.unwrap_or_else(|e| panic!("`{key} = {raw}` is not an integer: {e}")))
+}
+
 /// Compile LVGL C sources into a static library.
 ///
 /// `repo_root` must be the absolute path to the repository root so that
@@ -71,6 +81,39 @@ pub fn build(
         if let Some(mem_kb) = cfg.get("lv_mem_kb") {
             let mem_val = format!("({mem_kb} * 1024U)");
             build.define("LV_MEM_SIZE", mem_val.as_str());
+        }
+        // Where the pool lives. A board that puts it in the module's PSRAM
+        // (`lv_mem_in_psram`) hands LVGL the window's origin instead of the
+        // .bss array: lv_mem_core_builtin.c creates the TLSF pool at
+        // LV_MEM_ADR when that is nonzero. Device builds only — the
+        // simulator has no such window and keeps its .bss pool whatever the
+        // board says — and the draw-buffer hook beside lv_conf.h goes with
+        // it, so render targets stay in SRAM
+        // (docs/designs/psram-lvgl-fluid-scroll-2026-09.md §4).
+        if cfg.get("lv_mem_in_psram").map(String::as_str) == Some("true")
+            && crate::config::is_embedded()
+        {
+            let mcu = mcu.unwrap_or_else(|| {
+                panic!("board.toml: lv_mem_in_psram = true needs the MCU descriptor")
+            });
+            let psram_kb = parse_int(mcu, "psram_kb").unwrap_or_else(|| {
+                panic!("board.toml: lv_mem_in_psram = true but the MCU toml declares no psram_kb")
+            });
+            let origin = parse_int(mcu, "psram_origin")
+                .unwrap_or_else(|| panic!("MCU toml declares psram_kb but no psram_origin"));
+            let mem_kb = cfg
+                .get("lv_mem_kb")
+                .map(|v| v.trim().parse::<u64>().expect("lv_mem_kb"))
+                .unwrap_or(64);
+            assert!(
+                mem_kb <= psram_kb,
+                "board.toml: lv_mem_kb ({mem_kb} KB) does not fit the {psram_kb} KB of PSRAM"
+            );
+            build.define("LV_MEM_ADR", format!("{origin:#x}U").as_str());
+            build.define("PICODROID_LV_MEM_IN_PSRAM", "1");
+            let hook = conf_dir.join("lv_draw_buf_sram.c");
+            build.file(&hook);
+            println!("cargo:rerun-if-changed={}", hook.display());
         }
     }
 

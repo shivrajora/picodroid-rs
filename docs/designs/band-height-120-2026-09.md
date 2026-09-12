@@ -5,7 +5,8 @@ recipe re-run on the landed build gave 4 bands, a steady render of 61.6 ms, a
 98.3 ms frame (10.2 fps) and a 245 ms entry paint — the §2 table within noise.
 The §7 sweep (launcher, settings with Storage, Apps and About, an install) did
 not take the arena below the gesture's own low-water mark, so the 344 KB arena
-stands.
+stands. §9's follow-on was built the same day and measured; it is the reason
+the heap debt is *not* repaid — read §9 before flipping anything.
 
 **Written as a hand-off** — it assumes
 no context beyond this file. Every number in it was measured on
@@ -257,6 +258,27 @@ speculative one. Note also that plan's §4.1 — moving the pool is a single
 
 Whoever lands the arena cut should leave a pointer to it in that plan, so the
 PSRAM work knows it has a heap debt to repay.
+
+**Built and measured, 2026-09-12.** Stages 1–4 of that plan landed with this
+change: the part is brought up and spot-checked at every boot
+(`hal/rp/psram.rs`), the flash-write window cleans the cache and restores the
+PSRAM window (`with_xip_disabled!`), and board.toml `lv_mem_in_psram` moves
+the pool with one key. Same firmware, same §6 gesture, radio up:
+
+| Pool | Arena | Steady render | Frame | fps | Entry paint |
+|---|---:|---:|---:|---:|---:|
+| `.bss` (shipped) | 344 KB | 61.6 ms | 98.3 ms | 10.2 | 205 ms |
+| PSRAM | 408 KB | 71.7 ms | 109.5 ms | 9.1 | 250 ms |
+
+The pool is not as cold as it looked, and not because of layers — those are
+served from SRAM by `lv_draw_buf_sram.c` and never fell back. It is LVGL's
+draw-task churn: every draw call allocates, fills and frees a task and a
+descriptor in the pool, once per band, and with the pool in PSRAM that traffic
+goes through the QSPI bus and the 16 KB XIP cache the code also runs from.
+Ten milliseconds a frame, 45 on entry. So the trade is 64 KB of arena against
+10 % of the frame, and this board wants the frame: the key ships `false`, the
+arena stays at 344 KB, and the numbers sit next to the key so the flip is an
+informed one. The heap debt is real but priced.
 
 ## 10. What this does not fix
 

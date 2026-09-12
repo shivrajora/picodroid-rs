@@ -1,6 +1,16 @@
 # Fluid scrolling on the touch board: the PSRAM plan, and what LVGL buys with the room
 
-**Status: planned 2026-09-11, not started.** The implementation plan for the
+**Status: Stages 1–4 built 2026-09-12, §4.1 measured and left off.** The
+part is up and spot-checked at every boot (`hal/rp/psram.rs`, 8 MB detected,
+a full sweep behind the `psram-sweep` feature came back clean twice), the
+region and keys exist, the XIP rule is in the porting guide and in
+`with_xip_disabled!`, and `lv_mem_in_psram` moves the pool with one key. The
+measurement §3's Stage 4 demanded: the pool in PSRAM costs 10 ms of a 98 ms
+frame and 45 ms of a 205 ms entry paint on the Set-time screen, with layers
+already served from SRAM — see the 2026-09-12 note in §1 and §4.1 below. Every
+step of §7 up to 7 is therefore done, and 7 is priced.
+
+The implementation plan for the
 PSRAM feasibility study in [psram-rp2350b-2026-09.md](psram-rp2350b-2026-09.md)
 and the profiling in
 [scroll-performance-2026-09.md](scroll-performance-2026-09.md). Those two say
@@ -39,6 +49,21 @@ this work, and everything in §4 spends it.
 > the strongest reason to build §3, ahead of the double-buffering case below —
 > which §5 of [scroll-performance-2026-09.md](scroll-performance-2026-09.md)
 > also refutes in its RAM-neutral form.
+
+> **2026-09-12, built and measured: it costs the JVM nothing and the frame
+> 10 %.** Same firmware, same gesture, radio up — pool in `.bss` with a 344 KB
+> arena: 61.6 ms render, 98.3 ms frame, 205 ms entry paint; pool in PSRAM with
+> a 408 KB arena: 71.7 ms, 109.5 ms, 250 ms. The §4.2 fix was in place and no
+> layer ever fell back to the pool, so this is not the layers. It is the
+> draw-task churn: `lv_draw_add_task` and every `lv_draw_*` allocate, fill and
+> free a task and a descriptor in the pool for each draw call in each band,
+> and that traffic now crosses the QSPI bus through the 16 KB XIP cache the
+> code also runs from. `pico_touch_kit` ships the key off and keeps the arena
+> cut; the numbers sit beside the key in its board.toml. Two untested ways to
+> take the 10 ms back, if the heap is ever wanted more than the frame: pin the
+> TLSF control block (about 3 KB) in the cache with the RP2350's
+> pin-at-address maintenance op, or give draw tasks an SRAM slab of their own,
+> which means patching `lv_draw.c` in the vendored LVGL.
 
 ## 2. Fluid scrolling does not need PSRAM
 
@@ -102,6 +127,18 @@ cache-bypassing spot check that stays in the default build. Report through
 `pdb sysmon`, and while the harness is there, **measure PSRAM read and write
 bandwidth** — §5 cannot be judged without that number.
 
+*Built 2026-09-12:* the report goes through the boot log rather than sysmon
+(`psram: 8192 KB at 0x11000000, bus 75 MHz (QMI clkdiv 2, rxdelay 2)`, which
+the RTT-matching HIL rows can grep for; the sysmon wire format stays frozen),
+the sweep is the `psram-sweep` Cargo feature of the RP crate, and the bench
+said: 0 bad words in 2 x 8 MB, **8.7 MB/s writing through the cache, 19.4 MB/s
+reading uncached, 19.7 MB/s reading cached and sequential**. The QMI direct
+mode runs from RAM — while it is enabled the QMI is not serving XIP — and a
+warm reset (the watchdog after every install) leaves the part in QPI mode, so
+the bring-up sends exit-QPI before the serial ID read; `pdb install` exercises
+that path on every cycle. The bank-1 worry is retired for real: the pad
+function select is all GP47 ever needs.
+
 ### Stage 2 — make it addressable
 
 A `PSRAM` region at `0x11000000` in `platforms/rp/mcus/rp/rp2350b.x`, and a
@@ -127,6 +164,11 @@ extension of its geometry. Concretely:
 Note that the `PSRAM` region gets no `.psram` output section at first. Nothing
 is linked there in Stage 2; §4's first tenant takes its address as a constant,
 not as a section. A second tenant is what forces a real sub-allocator.
+
+*Built 2026-09-12* as written, with `psram_cs_pin` beside the two geometry
+keys (the RP build.rs hands it and `clock_hz` to `psram.rs`), the
+`PSRAM_ORIGIN`/`PSRAM_LEN` constants, and a `has_psram` cfg next to
+`has_multi_app`.
 
 ### Stage 3 — state the XIP rule, and audit for it
 
@@ -159,6 +201,20 @@ handle dangles. The on-device test that catches it: install a package (which
 forces real flash erases and programs) while the UI is scrolling, with the
 LVGL pool already in PSRAM. That belongs in `hil-tests.conf` as part of Stage 4,
 not as an afterthought.
+
+*Built 2026-09-12.* One more obligation turned up that neither doc had: the
+RP2350's XIP cache is **write-back** for window 1, and the ROM's
+`flash_flush_cache` invalidates without cleaning, so `with_xip_disabled!` now
+cleans the whole cache (by set/way through the top of the maintenance alias,
+the RP2350-E11 workaround pico-sdk uses) before `connect_internal_flash`, and
+restores M1_TIMING..M1_WCMD after the ROM's restore of window 0. The rule is
+in the porting guide beside the flash-write rule. Tested with the pool in
+PSRAM: a SharedPreferences commit (LittleFS erase and program on the fs
+worker) with the UI live, rendering on afterwards and the alarm back after
+the next reset; then an install and its watchdog reset. An install cannot
+overlap a scroll by design — it parks the JVM first — so the live-UI case is
+the filesystem write, and the existing `pdb install` rows cover the reset
+path on every nightly.
 
 ## 4. What LVGL does with the 64 KB
 
@@ -195,6 +251,13 @@ falls back to the pool and logs once through defmt, so an unexpectedly large
 layer shows up as a line in the log rather than as an unexplained slow frame.
 
 This turns Stage 4's gate into roughly forty lines of code.
+
+*Built 2026-09-12* as `lvgl/lv_draw_buf_sram.c`, with one change: the SRAM
+comes from the FreeRTOS arena (`pvPortMalloc`) rather than a 16 KB static
+arena, because layers are transient — allocated and freed inside one refresh —
+so at rest they cost nothing, and the fallback to the pool is counted and
+warned about once from `lifecycle.rs`. Across every gesture measured, the
+count stayed at zero.
 
 ### 4.3 The three things the freed SRAM pays for
 
@@ -250,7 +313,10 @@ What it costs, stated plainly:
 
 - One full-page render into PSRAM on screen entry, at whatever PSRAM write
   bandwidth Stage 1 measures. Paid once per screen, not per frame — but if that
-  number is bad, the screen transition becomes the new complaint.
+  number is bad, the screen transition becomes the new complaint. *Measured:*
+  8.7 MB/s through the cache, so the 460,800-byte page is about 53 ms of bus
+  time on top of the render; reading it back at 19.4 MB/s is 24 ms for the
+  whole page and under 2 ms for a 47 px step.
 - Reading it back is a DMA out of the XIP window. That works, but the `tCEM`
   burst limit applies and the page will not fit the cache, so every scroll
   frame is a cache sweep.
@@ -265,19 +331,9 @@ Gate: only after S4 is built and Stage 1 has produced a real bandwidth number.
 
 ## 6. Open questions this plan does not close
 
-- **What the per-pixel cost actually is.** 78-138 cycles/px, and two confident
-  explanations have already been wrong. The style cache, XIP instruction misses
-  and the blend inner loop are all still live. The RP2350's cache hit and access
-  counters read across a scroll would settle the middle one directly, and that
-  is the single most informative measurement left anywhere in this area.
-- **Whether QMI M1 timing can be programmed without disturbing flash XIP on
-  M0.** The timing registers are per-chip-select, but the clock source is
-  shared. Verify on the bench, not from the datasheet.
-- **How much of the 1.6 ms per-band floor is fixed overhead.** Decides whether
-  the RAM-neutral 10-row double-buffer variant is a win or a wash, and therefore
-  whether §4.3's first item needs PSRAM at all.
-- **Whether hardware vertical scroll generalises past this one screen.** Decides
-  where the seam belongs, and §5 inherits the answer.
+- ~~**Whether QMI M1 timing can be programmed without disturbing flash XIP on
+  M0.**~~ *Answered 2026-09-12 on the bench:* it can; the firmware runs from
+  window 0 throughout, and flash writes restore both windows.
 
 ## 7. Order
 

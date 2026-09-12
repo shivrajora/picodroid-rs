@@ -168,6 +168,28 @@ pub fn multi_app(board: &Option<ResolvedBoard>) -> bool {
     }
 }
 
+/// The `lv_mem_in_psram` board.toml key as a rustc cfg, so the LVGL
+/// lifecycle installs the SRAM draw-buffer handlers that go with a pool in
+/// PSRAM (`build_support::lvgl` emits the matching C defines from the same
+/// key). Device builds only: the simulator's LVGL keeps its .bss pool
+/// whatever the board says, so the cfg must not be set there either.
+pub fn emit_lvgl_cfgs(board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(lv_mem_in_psram)");
+    let Some(b) = board else { return };
+    if b.cfg.props.get("lv_mem_in_psram").map(String::as_str) != Some("true") {
+        return;
+    }
+    let (path, mcu) = b.mcu();
+    assert!(
+        mcu.contains_key("psram_kb"),
+        "board '{}' sets lv_mem_in_psram = true but its MCU toml declares no psram_kb: {path}",
+        b.name
+    );
+    if config::is_embedded() {
+        println!("cargo:rustc-cfg=lv_mem_in_psram");
+    }
+}
+
 /// Emit the `has_json` rustc cfg from board.toml (see [`has_json`]).
 pub fn emit_json_cfg(board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(has_json)");
@@ -296,6 +318,7 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_heap_config(out, board);
     emit_network_cfgs(board);
     emit_json_cfg(board);
+    emit_lvgl_cfgs(board);
     emit_audio_config(out, board);
     emit_sensor_config(out, board);
     emit_button_config(out, board);

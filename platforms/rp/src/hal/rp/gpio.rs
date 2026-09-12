@@ -404,7 +404,7 @@ pub fn wait_for_button_event() {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "chip-rp2350")]
-fn ensure_io_unreset(p: &rp235x_hal::pac::Peripherals) {
+pub(super) fn ensure_io_unreset(p: &rp235x_hal::pac::Peripherals) {
     p.RESETS
         .reset()
         .modify(|_, w| w.io_bank0().clear_bit().pads_bank0().clear_bit());
@@ -413,7 +413,7 @@ fn ensure_io_unreset(p: &rp235x_hal::pac::Peripherals) {
 }
 
 #[cfg(feature = "chip-rp2040")]
-fn ensure_io_unreset(p: &rp_pico::hal::pac::Peripherals) {
+pub(super) fn ensure_io_unreset(p: &rp_pico::hal::pac::Peripherals) {
     p.RESETS
         .reset()
         .modify(|_, w| w.io_bank0().clear_bit().pads_bank0().clear_bit());

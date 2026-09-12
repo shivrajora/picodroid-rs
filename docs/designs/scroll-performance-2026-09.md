@@ -493,6 +493,14 @@ Not verified by eye. The app runs and flushes four bands per paint, but nobody h
 confirmed the picture is correct at this band height, and tearing should if
 anything improve with fewer seams.
 
+**Landed 2026-09-12** as `band_height = 120`, `heap_kb = 344`, re-measured on
+the landed build at 61.6 ms render / 98.3 ms frame / 10.2 fps with the radio
+up. The §7 re-pricing above was then tested rather than trusted: with the pool
+in PSRAM the same gesture renders in 71.7 ms and the frame is 109.5 ms
+(9.1 fps), so the pool stays in `.bss` and the arena cut stands — the
+draw-task churn is the part of the pool that is hot. Details in
+[band-height-120-2026-09.md](band-height-120-2026-09.md) §9.
+
 ## 6. Tearing
 
 ### S7. Sync to the panel, or stop needing to
@@ -513,6 +521,14 @@ reduced by making frames cheap enough that fewer seams appear — which makes S4
 the tearing fix as well as the speed fix.
 
 ## 7. Enabling the PSRAM
+
+> **Built 2026-09-12**, Stages 1–4, as an opt-in: `hal/rp/psram.rs`, the
+> `PSRAM` linker region and `psram_*` MCU keys, the XIP rule in the porting
+> guide and in `with_xip_disabled!`, and board.toml `lv_mem_in_psram`. Stage
+> 4's measurement says the pool costs 10 % of the frame there (§5 S9), so the
+> key is off on `pico_touch_kit`. The bandwidth numbers Stage 1 was to
+> produce: 8.7 MB/s writing through the cache, 19.4 MB/s reading uncached,
+> 19.7 MB/s reading cached and sequential, at a 75 MHz bus.
 
 [psram-rp2350b-2026-09.md](psram-rp2350b-2026-09.md) designed this on
 2026-09-10 and concluded, correctly at the time, that this board did not need

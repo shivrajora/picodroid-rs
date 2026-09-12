@@ -77,6 +77,11 @@ pub use chip::pdb_usb;
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::{boot, flash};
 
+// The module's QSPI PSRAM (rp/psram.rs): device-only for the same reason as
+// boot and flash, and only where the MCU toml declares `psram_kb`.
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-rp", has_psram))]
+pub use chip::psram;
+
 // Core-1 flash parking (see rp/core1_park.rs). Device-only for the same
 // reason as `flash`; both chips need it, since on either one an exception
 // taken by core 1 inside the XIP-off window fetches from disconnected flash.

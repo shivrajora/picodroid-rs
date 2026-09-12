@@ -18,8 +18,9 @@
 #    and ADC1 positions, which are GP26 and GP27 — pins that carry the ADC on a
 #    Pico but are digital-only on the RP2350B, whose converter sits on GP40-GP47
 #    and is not routed to the 40-pin header. Reading it needs jumpers.
-#  * The 8 MB of PSRAM on GP47 is unused. Enabling XIP PSRAM is designed but not
-#    built: docs/designs/psram-rp2350b-2026-09.md.
+# The 8 MB of PSRAM on GP47 is brought up and proven at every boot
+# (hal/rp/psram.rs, from the `psram_*` keys in mcus/rp/rp2350b.toml); what
+# lives in it is `lv_mem_in_psram` below.
 mcu = "rp2350b"
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2). 16 MB of flash makes this
@@ -57,6 +58,25 @@ lv_dpi = 165
 # wake from the stale-signal re-block. Restore the default here when it lands.
 idle_timeout_ms = 0
 
+# The LVGL pool can live in the module's PSRAM (hal/rp/psram.rs brings it up
+# at every boot; XIP window 1 at 0x11000000), and it is the one tenant cold
+# enough to consider: LVGL reads objects and styles from it while walking the
+# tree, never per pixel, and render targets stay in SRAM either way through
+# lv_draw_buf_sram.c. Off, because it was measured (2026-09-12, the §6 gesture
+# of docs/designs/band-height-120-2026-09.md, same firmware otherwise):
+#
+#                          steady render   frame     fps    entry paint
+#   pool in .bss (this)        61.6 ms    98.3 ms   10.2      205 ms
+#   pool in PSRAM              71.7 ms   109.5 ms    9.1      250 ms
+#
+# The 10 ms is LVGL's per-frame draw-task churn — allocated, filled and freed
+# inside every band — going through the QSPI bus and the 16 KB XIP cache the
+# code also runs from. What `true` buys instead is 64 KB of .bss, i.e. the JVM
+# arena back at 408 KB rather than the 344 KB in mcus/rp/rp2350b.toml. This
+# board wants the frame; flip it when an app wants the heap
+# (docs/designs/psram-lvgl-fluid-scroll-2026-09.md §4, band-height-120-2026-09.md §9).
+lv_mem_in_psram = false
+
 # Deliberately no lv_mem_kb: the 64 KB default, the same as testbench_rp2350w.
 # LV_USE_STDLIB_MALLOC is LV_STDLIB_BUILTIN, so the pool is a static array in
 # .bss and every kilobyte comes straight off the core-0 main stack — the budget
@@ -64,7 +84,7 @@ idle_timeout_ms = 0
 # already faulted on once. Raise it only against a measured need, and re-check
 # the headroom the build prints. The 120-row draw band below was exactly such
 # a need, and its 64,000 B came out of the JVM arena (mcus/rp/rp2350b.toml
-# `heap_kb`), which is the only tenant of .bss big enough to fund it.
+# `heap_kb`), the only other tenant of .bss big enough to fund it.
 
 # Deliberately no [jvm] block. pico_enviro_mon_w is the only board that sets
 # one, and scripts/pre-commit keeps its clippy leg last because those keys are

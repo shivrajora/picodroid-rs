@@ -52,6 +52,11 @@ family-rp = ["picodroid-core/family-rp"]
 # Default-off until the nightly HIL soak (picoenvmon nav + PDB reload)
 # passes; 64-bit builds always use the table regardless of this feature.
 handle-table-32 = ["picodroid-core/handle-table-32"]
+# Prove the PSRAM at boot: a full write-and-verify sweep of the part through
+# both XIP aliases, with write and read bandwidth, logged by hal/rp/psram.rs.
+# Seconds of boot time, so never a default: flash with
+# PICODROID_EXTRA_FEATURES=psram-sweep. Nothing on a board without psram_kb.
+psram-sweep = []
 # Simulator mode (no hardware). Runs the real FreeRTOS kernel on the host —
 # see picodroid-core's `sim` feature and docs/designs/freertos-host-sim.md.
 sim = ["picodroid-core/sim", "dep:freertos-rust"]

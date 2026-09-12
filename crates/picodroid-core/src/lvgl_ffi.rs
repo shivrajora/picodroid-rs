@@ -429,6 +429,12 @@ pub type lv_event_cb_t = Option<unsafe extern "C" fn(e: *mut lv_event_t)>;
 extern "C" {
     // Core
     pub fn lv_init();
+    // lvgl/lv_draw_buf_sram.c: a pool in PSRAM keeps its render targets in
+    // SRAM (board.toml `lv_mem_in_psram`).
+    #[cfg(lv_mem_in_psram)]
+    pub fn picodroid_lv_draw_buf_use_sram();
+    #[cfg(lv_mem_in_psram)]
+    pub fn picodroid_lv_draw_buf_pool_fallbacks() -> u32;
     pub fn lv_tick_inc(tick_period: u32);
     pub fn lv_timer_handler() -> u32;
 

@@ -109,6 +109,12 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 #[entry]
 fn main() -> ! {
     hal::boot::clock_init();
+    // The module's PSRAM, before anything can want it: on a board with
+    // `lv_mem_in_psram` the LVGL pool is created there, and the package
+    // scan below makes the first runtime flash writes, whose XIP-off window
+    // saves and restores the PSRAM window (hal/rp/flash.rs).
+    #[cfg(has_psram)]
+    hal::psram::init();
 
     // The package directory: walk the app region's runs, erase what a power
     // loss left unfinished, then pick the image to boot

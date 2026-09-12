@@ -528,6 +528,24 @@ each erase/program window, core 0 notifies the parker via a cross-core task
 notification (`hal/rp/core1_park.rs`), spins until core 1 reports parked,
 and releases it when the window closes.
 
+A module with QSPI PSRAM (the RP2350B's second chip select, brought up by
+`hal/rp/psram.rs` from the MCU toml's `psram_kb` / `psram_origin` /
+`psram_cs_pin`) sits behind the same XIP window, and the erase/program
+window owes it three more things, all inside `with_xip_disabled!`: write
+every dirty XIP cache line back before the ROM's flush invalidates the cache
+(the RP2350's cache is write-back for that window), save the window's QMI
+registers before `flash_exit_xip` resets them, and write them back after.
+The rule that goes with it: **between XIP-off and XIP-restore, no code on
+either core may read or write PSRAM** — the parked core and the masked
+interrupts already guarantee that for instruction fetches, and the same
+guarantee has to hold for data. Two corollaries: an installer must not
+stage an app image in PSRAM, and nothing reached from inside the window may
+touch it. Contents survive a flash write (the part self-refreshes while
+deselected); only access during the window is unsafe. The simulator models
+none of this, so a violation is a hardware-only bug: the on-device check is
+an install — real erases and programs — while the UI is live, which the
+`pdb install` rows of `hil-tests.conf` perform on every bench board.
+
 On single-core MCUs:
 
 - **Task scheduling**: both tasks run on the same core; the bridge preempts
@@ -554,6 +572,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
+| `lv_mem_in_psram` | bool | no | Put the LVGL pool in the module's PSRAM instead of `.bss` (the MCU toml must declare `psram_kb`). Frees the pool's size from the main-stack budget; render targets stay in SRAM. Device builds only — the simulator keeps its `.bss` pool. |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
 | `has_json` | bool | no | If `true`, ships `picodroid.json` (`JSONObject`/`JSONArray`/`JSONException` and the native node pool behind them). Off by default: a board that leaves it off drops those classes from its embedded SDK and compiles the parser out, and apps built for it fail the API contract if they reference them. |
@@ -566,7 +585,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `app_data_cap_kb` | int | no | Most one app's `/data/<package>` may hold, in the framework's 4 KB-block accounting (default a quarter of `fs_kb`; `0` lifts the cap). Enforced on multi-app boards. |
 | `linker_script` | string | no | Path to a linker script used verbatim, `MEMORY` block and all (by default the `MEMORY` block is generated from the flash layout above and the MCU's `mcus/<family>/<mcu>.x` supplies only its `SECTIONS`). |
 
-The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `crates/build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys.
+The flash layout is laid out top-down from the end of flash — the app region, then LittleFS, then the program image in front of them (behind `boot2_bytes` on rp2040) — by `crates/build_support/flash_layout.rs`, from the MCU toml's `flash_origin`, `flash_kb`, `ram_origin`, `ram_kb`, `boot2_bytes` and the three tunable keys above. It renders the linker script's `MEMORY` block and the `FLASH_ORIGIN`, `PROGRAM_LEN`, `FS_OFFSET`/`FS_LEN`, `PAPK_REGION_OFFSET`/`PAPK_REGION_LEN` and `MAX_INSTALLED_APPS` constants the firmware reads, and `scripts/lib.sh` computes the program-image ceiling from the same keys. A module with QSPI PSRAM declares `psram_kb` and `psram_origin` (and, on the RP family, `psram_cs_pin`) in the MCU toml as well; the layout then renders a `PSRAM` region nothing is placed in, the `PSRAM_ORIGIN`/`PSRAM_LEN` constants, and the `has_psram` cfg.
 
 ### `[display]` — display controller over SPI
 
@@ -735,5 +754,6 @@ files for patterns and conventions:
 | `src/fs/storage.rs` | `FsBackingStore` over a linker-carved flash region |
 | `src/boot_budget.rs` | The boot-budget model the simulator charges |
 | `src/hal/rp/gpio.rs` | Direct register access, the interrupt, `GpioEventRing` in use |
-| `src/hal/rp/flash.rs` | XIP-disabled flash operations from RAM, with core 1 parked (`core1_park.rs`) |
+| `src/hal/rp/flash.rs` | XIP-disabled flash operations from RAM, with core 1 parked (`core1_park.rs`) and the PSRAM window saved and restored |
+| `src/hal/rp/psram.rs` | Bringing up QSPI PSRAM on the QMI's second chip select from RAM-resident code, and proving it at boot |
 | `src/hal/rp/pdb_usb/mod.rs` | USB CDC ISR → queue pattern behind `PdbTransport` |
