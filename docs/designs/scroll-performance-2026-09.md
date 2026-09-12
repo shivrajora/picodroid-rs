@@ -11,7 +11,9 @@ and tears badly. All three are real, and they are three symptoms of one
 arrangement rather than three bugs.
 
 Companion to [psram-rp2350b-2026-09.md](psram-rp2350b-2026-09.md), which §7
-here finally gives a reason to build.
+here finally gives a reason to build. The ordered implementation plan that
+combines both — which of S1-S8 to build, in what order, and where PSRAM fits —
+is [psram-lvgl-fluid-scroll-2026-09.md](psram-lvgl-fluid-scroll-2026-09.md).
 
 ## 1. What was measured
 
