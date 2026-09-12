@@ -23,6 +23,15 @@ mem-diag = ["pico-jvm/mem-diag", "picodroid-core/mem-diag"]
 # for debug-profile firmware and drops it for --release (~15 KB of flash for
 # the SDK LineNumberTable/SourceFile on every board). Never a default.
 line-numbers = ["pico-jvm/line-numbers", "picodroid-core/line-numbers"]
+# defmt-rtt blocks the logging task whenever a probe host has set the RTT
+# channel to block-if-full (probe-rs does) and the 1 KB ring is full, so a
+# slow host stalls whichever task logs -- the cyw43 task and the IP task
+# included -- and every HIL timing figure taken with a probe attached has
+# that stall folded in. Without a probe the writer is already non-blocking.
+# This feature makes it non-blocking (lossy under sustained overload) with a
+# probe too; keep it off for HIL rows, whose expected patterns need every
+# line (docs/scheduling-audit-2026-09.md, F6).
+rtt-lossy = ["defmt-rtt/disable-blocking-mode"]
 # Board selection (user-facing — pick exactly one for embedded builds).
 # Each forwards a marker feature of the same name to picodroid-core so its
 # build.rs resolves the same board.toml and generates the neutral config from
