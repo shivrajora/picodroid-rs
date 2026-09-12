@@ -60,6 +60,24 @@ pub fn set_jvm_task(task: freertos_rust::Task) {
     unsafe { *JVM_TASK.0.get() = Some(task) };
 }
 
+// SAFETY: written once by pdb_task at startup, before it can request a
+// park; read-only after that.
+static PDB_TASK: TaskCell = TaskCell(UnsafeCell::new(None));
+
+/// Store the pdb_task handle so jvm_task can wake it once core 0 is parked.
+/// Must be called once at the start of the pdb task.
+pub fn set_pdb_task(task: freertos_rust::Task) {
+    unsafe { *PDB_TASK.0.get() = Some(task) };
+}
+
+/// Wake pdb_task: `CORE0_PARKED` has just been set. The waiter re-checks the
+/// flag — a notification is "look again", not a credit.
+pub fn notify_pdb() {
+    if let Some(t) = unsafe { (*PDB_TASK.0.get()).as_ref() } {
+        t.notify(freertos_rust::TaskNotification::Increment);
+    }
+}
+
 /// Increment jvm_task's notification value, waking it if it is blocked on
 /// `CurrentTask::take_notification`.
 pub(super) fn notify_jvm() {

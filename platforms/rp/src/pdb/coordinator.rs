@@ -33,16 +33,27 @@ impl CoreCoordinator for PdbCoreCoordinator {
         pending::notify_jvm();
     }
 
+    // `inline(never)`: the generic install/uninstall code calls this at
+    // several sites, and an inlined copy of the wait loop at each cost
+    // ~600 B of RP2040 flash where the old body was one 48 B function.
+    #[inline(never)]
     fn wait_for_park(&mut self) -> bool {
-        // PDB and JVM share core 0.  PDB (higher priority) must yield
-        // so the JVM task can run and exit.
-        for _ in 0..1500u32 {
+        // PDB and JVM share core 0: this task, the higher-priority one, has
+        // to block for the JVM task to run and park. jvm_task notifies us the
+        // moment it sets CORE0_PARKED; the flag is re-checked on every wake
+        // because a notification is "look again", not a credit. Fifteen
+        // seconds in all, as before, but woken at once instead of on a 10 ms
+        // poll (docs/scheduling-audit-2026-09.md, F12).
+        // `black_box` on the bound: LLVM otherwise unrolls the loop and
+        // lays the notification call, the tick-period lookup and its
+        // division out fifteen times (660 B of RP2040 flash for this body).
+        for _ in 0..core::hint::black_box(15u32) {
             if pending::CORE0_PARKED.load(Ordering::Acquire) {
                 return true;
             }
-            CurrentTask::delay(Duration::ms(10));
+            let _ = CurrentTask::take_notification(true, Duration::ms(1000));
         }
-        false
+        pending::CORE0_PARKED.load(Ordering::Acquire)
     }
 
     fn release(&mut self) {

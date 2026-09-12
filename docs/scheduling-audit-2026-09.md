@@ -27,7 +27,21 @@ design that makes the property enforced rather than remembered.
 | WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
 | WP3 USB bridge (F3, F11) | **landed** 2026-09-12 (`pdb_usb/mod.rs`: EP1-IN semaphore given from the ISR, 500 ms dead-host latch; install reads block a tick per attempt on a hardware-timer deadline) |
 | WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); **HIL on the touch kit pending** (board leased) |
-| WP0, WP5–WP11, G3, G4, G6 | open — see the plan below |
+| WP6 per-sector PAPK erase (F8) | **landed** 2026-09-12 (`install/region.rs::erase_run`) |
+| WP8 stop-path correctness (F10, F12) | **landed** 2026-09-12 (`monitor_store.rs` returns `Interrupted` on an aborted `Forever` lock; `wait_for_park` blocks on a notification the JVM task sends) |
+| WP0, WP5, WP7, WP9–WP11, G3, G4, G6 | open — see the plan below |
+
+**Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
+PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP
+in 5.5 s, TCP echo); `blinky` `loop` and `pdb install-stress` rows PASS on `testbench_rp2350`
+firmware (10/10 install cycles through the WP3 USB path and install reader). The `blinky`
+`pdb launch` row FAILed at its pre-clean uninstall with `device refused: park timeout`; a
+bench bisect (as-is, idle hooks off, cycle-count delay restored) and a control run with the
+pre-audit tree (`4cad7261` content) all fail identically, so it is not caused by this work —
+that row needs the testbench's touch panel and had only ever SKIPped on this slot. `pdb sysmon`
+during the stall shows the JVM task Blocked (not spinning) and never parking; the launcher's
+`ready` line never prints after `onCreate` on this slot. Left as an open bench item. The
+touch kit was leased throughout, so WP4 is unrun on hardware.
 
 ## Executive summary
 

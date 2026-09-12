@@ -98,7 +98,10 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         crate::boot_budget::PDB_STACK_WORDS,
         task_priority::PRIORITY_RT_1,
         task_affinity::CORE0,
-        move |_| crate::pdb::run_pdb_task(),
+        move |_| {
+            crate::pdb::pending::set_pdb_task(Task::current().unwrap());
+            crate::pdb::run_pdb_task()
+        },
     )
     .unwrap();
 
@@ -228,6 +231,7 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
                 // then we restart the JVM loop.
                 crate::pdb::pending::CORE0_PARKED
                     .store(true, core::sync::atomic::Ordering::Release);
+                crate::pdb::pending::notify_pdb();
                 while crate::pdb::pending::CORE0_PARKED.load(core::sync::atomic::Ordering::Acquire)
                 {
                     let _ = CurrentTask::take_notification(true, Duration::infinite());

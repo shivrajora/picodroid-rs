@@ -105,6 +105,14 @@ pub fn enter_with(key: MonitorKey, timeout: Timeout) -> Result<bool, JvmError> {
     // Block outside the section, on the copied handle (module docs).
     if !rtos::mutex_recursive_lock(mutex, timeout) {
         return match timeout {
+            // A `Forever` lock fails only when the wait was ended from
+            // outside: the debug bridge's app stop unblocks every child task
+            // (`xTaskAbortDelay`), a mutex wait included. That is the stop,
+            // not a monitor error — report it the way the interpreter's own
+            // stop check does, so the thread unwinds quietly instead of
+            // throwing IllegalMonitorStateException on its way out
+            // (docs/scheduling-audit-2026-09.md, F10).
+            Timeout::Forever if crate::host::stop_requested() => Err(JvmError::Interrupted),
             Timeout::Forever => Err(JvmError::IllegalMonitorState),
             _ => Ok(false),
         };
