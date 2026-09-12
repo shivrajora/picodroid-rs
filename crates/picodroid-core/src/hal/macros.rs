@@ -56,6 +56,14 @@ macro_rules! set_hal_display {
             extern "Rust" fn __pd_hal_display_is_window_open() -> bool {
                 <$t as $crate::hal::HalDisplay>::is_window_open()
             }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_display_set_vertical_scroll_area(top_fixed: u16, rows: u16) {
+                <$t as $crate::hal::HalDisplay>::set_vertical_scroll_area(top_fixed, rows)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_display_set_vertical_scroll_start(line: u16) {
+                <$t as $crate::hal::HalDisplay>::set_vertical_scroll_start(line)
+            }
         };
     };
 }

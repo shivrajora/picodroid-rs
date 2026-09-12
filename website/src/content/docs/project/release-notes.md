@@ -7,6 +7,28 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The touch board scrolls with its panel, not with a repaint**
+
+- A full-width `ScrollView` on a portrait ST7796 (the touch board) now scrolls by rotating
+  a band of the panel's own frame memory (`VSCRDEF`/`VSCRSADD`) and rendering only the rows
+  that scrolled in, instead of repainting the whole viewport. Nothing in LVGL is patched:
+  the scroll event and the display's invalidation hook are the seam, every flush is
+  translated through the panel's rotation, and anything the panel cannot take (a scroller
+  with a border line or rounded corner inside the band, something drawn over it, sideways
+  motion) repaints as before. On hardware, scrolling picoclock's Set-time screen: 36 rows
+  rendered per frame instead of 399, render 71.5 ms to 10.8 ms, SPI 36.1 ms to 2.0 ms,
+  109 ms to 24 ms per frame, 9.1 to 41.9 fps. The simulator emulates the registers, and a
+  scripted gesture is pixel-identical with the feature on and off.
+- `ScrollView` draws no border and has square corners, as Android's does, and its scrollbar
+  no longer changes style while scrolling: the theme's 80 ms thumb-opacity transition
+  invalidated the whole scroller on every animation tick, which was five full repaints per
+  drag on the touch board and a wasted repaint at every scroll start and end elsewhere. The
+  thumb is opaque rather than 40%, so after a hardware step only its two ends are repainted.
+- Two `HalDisplay` methods with no-op defaults, `set_vertical_scroll_area` and
+  `set_vertical_scroll_start`; a board may force the path off with `hw_vscroll = false` in
+  `[display]`. `docs/designs/scroll-performance-2026-09.md` §5 S4 has the design and the
+  measurements, and what is left in a scroll frame now.
+
 **The touch board paints half again as many frames**
 
 - LVGL was asked to refresh every 33 ms while the tick arrives every 16 ms, and its timer

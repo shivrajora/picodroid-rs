@@ -27,8 +27,14 @@ const CMD_DISPON: u8 = 0x29;
 const CMD_CASET: u8 = 0x2A;
 const CMD_RASET: u8 = 0x2B;
 const CMD_RAMWR: u8 = 0x2C;
+const CMD_VSCRDEF: u8 = 0x33;
 const CMD_MADCTL: u8 = 0x36;
+const CMD_VSCRSADD: u8 = 0x37;
 const CMD_COLMOD: u8 = 0x3A;
+
+/// Lines of frame memory. VSCRDEF's three areas must add up to this, whatever
+/// window a board maps onto the glass.
+const MEMORY_LINES: u16 = 480;
 
 /// 16-bit RGB565. The ST7796's COLMOD takes 0x05 here, not the ST7789's 0x55:
 /// the field is 3 bits wide on this controller and the upper nibble is
@@ -213,6 +219,33 @@ where
         let _ = self.dc.set_high(); // data mode
         let _ = self.spi.write(data);
         let _ = self.cs.set_high();
+    }
+
+    /// Vertical scrolling definition: frame-memory lines `[top_fixed,
+    /// top_fixed + rows)` scroll, the lines above and below stay put. The
+    /// bottom fixed area is whatever remains of the 480 lines, so the three
+    /// add up as the datasheet requires. With `set_vertical_scroll_start`
+    /// pointing at `top_fixed` the mapping is the identity, so defining an
+    /// area changes nothing on the glass until the start line moves.
+    pub fn set_vertical_scroll_area(&mut self, top_fixed: u16, rows: u16) {
+        let bottom_fixed = MEMORY_LINES.saturating_sub(top_fixed.saturating_add(rows));
+        self.write_command_data(
+            CMD_VSCRDEF,
+            &[
+                (top_fixed >> 8) as u8,
+                (top_fixed & 0xFF) as u8,
+                (rows >> 8) as u8,
+                (rows & 0xFF) as u8,
+                (bottom_fixed >> 8) as u8,
+                (bottom_fixed & 0xFF) as u8,
+            ],
+        );
+    }
+
+    /// Vertical scroll start address: the memory line displayed at the first
+    /// row of the scroll area. Lines past the area's end wrap to its start.
+    pub fn set_vertical_scroll_start(&mut self, line: u16) {
+        self.write_command_data(CMD_VSCRSADD, &[(line >> 8) as u8, (line & 0xFF) as u8]);
     }
 
     /// Turn the backlight on or off. A no-op on a module with no backlight pin,
@@ -491,6 +524,31 @@ mod tests {
         let raset = log.pos_of(CMD_RASET).unwrap();
         let ramwr = log.pos_of(CMD_RAMWR).expect("RAMWR was sent");
         assert!(caset < raset && raset < ramwr, "CASET, RASET, then RAMWR");
+    }
+
+    #[test]
+    fn vertical_scroll_area_fills_the_bottom_so_the_three_areas_sum_to_480() {
+        let (mut p, log) = panel(0x48);
+        p.set_vertical_scroll_area(44, 436);
+        assert_eq!(
+            log.data_for(CMD_VSCRDEF),
+            Some(vec![0x00, 44, 0x01, 0xB4, 0x00, 0x00])
+        );
+
+        let (mut q, log2) = panel(0x48);
+        q.set_vertical_scroll_area(0x0100, 0x0080);
+        // 256 + 128 = 384 leaves 96 lines fixed at the bottom.
+        assert_eq!(
+            log2.data_for(CMD_VSCRDEF),
+            Some(vec![0x01, 0x00, 0x00, 0x80, 0x00, 96])
+        );
+    }
+
+    #[test]
+    fn vertical_scroll_start_is_one_big_endian_line() {
+        let (mut p, log) = panel(0x48);
+        p.set_vertical_scroll_start(0x0123);
+        assert_eq!(log.data_for(CMD_VSCRSADD), Some(vec![0x01, 0x23]));
     }
 
     #[test]

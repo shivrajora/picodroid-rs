@@ -4,8 +4,10 @@
 > `picoclock`'s Set-time screen with `pdb input swipe` and a temporary defmt
 > probe in `graphics/lvgl/lifecycle.rs`. The probe timed each band's render and
 > flush separately; it was reverted and is not in the tree. **S1 and S3 have
-> since landed** (§3, §4), and **S6 was measured on 2026-09-11** (§5) — it found
-> no hot spot, which makes S4 the remaining lever. Nothing else is started.
+> since landed** (§3, §4), **S6 was measured on 2026-09-11** (§5) — it found
+> no hot spot — and **S4 landed on 2026-09-12** (§5): a scroll frame on the
+> Set-time screen went from 109 ms to 24 ms. What is left is in §5 S4's last
+> subsection and in §8.
 
 The complaint that started this: scrolling the Set-time screen is slow, choppy,
 and tears badly. All three are real, and they are three symptoms of one
@@ -220,7 +222,15 @@ why it went first.
 
 ## 5. Pixels
 
-### S4. Stop repainting the whole viewport
+### S4. Stop repainting the whole viewport — **done 2026-09-12**
+
+> Built as `graphics/lvgl/hw_scroll.rs` (state and events), `hw_scroll_math.rs`
+> (the row arithmetic, host-tested), `lvgl/hw_vscroll.c` (the two questions
+> that need LVGL's private headers), `VSCRDEF`/`VSCRSADD` in both panel
+> drivers behind two defaulted `HalDisplay` methods, and an emulation of the
+> panel's scroll registers in the simulator's display. `board_cfg::hw_vscroll`
+> turns it on for a portrait ST7796 (`driver` + `madctl`); `hw_vscroll = false`
+> in `[display]` is the A/B switch. Measured below, §"What it bought".
 
 The structural fix, the biggest win, and the most work.
 
@@ -243,6 +253,112 @@ scroll — any other invalidation still costs full price.
 
 Prerequisite worth noting: the screen would have to stop being one 720 px page
 inside a scroller if partial invalidation is ever to help elsewhere.
+
+#### How it was built
+
+LVGL is not patched. `lv_obj_scroll_by_raw` moves the children, sends
+`LV_EVENT_SCROLL`, and only then invalidates the whole scroller; the display
+sends `LV_EVENT_INVALIDATE_AREA` with a mutable area before it records one.
+Those two hooks are the whole seam:
+
+- **Per step**, the `SCROLL` handler asks `hw_vscroll.c` whether this scroller
+  may be moved by the panel: full width after clipping by its ancestors, on the
+  active screen, not transformed, and nothing inside its rows that would move
+  wrongly. The rule the panel imposes is that every pixel in the band that does
+  not move with the children must look the same on every row — a flat fill, a
+  horizontal gradient, a side border pass; a top or bottom border line, a
+  rounded corner, an image, a vertical gradient refuse. Static things drawn
+  *over* the band (a floating child, a later sibling, anything on the top or
+  system layer) come back as overlays to repaint after the step, up to four and
+  half the band's rows, past which a repaint is cheaper.
+- When it may: the origin advances by the step, every area already queued for
+  redraw inside the band is stretched by the same distance (its pixels moved
+  too — `lv_display_t::inv_areas`, hence the C), the overlays and the scrollbar
+  thumb are queued, and one narrowing is armed: the scroller's own invalidation
+  that follows the event is rewritten to just the rows that scrolled in.
+- **At `LV_EVENT_RENDER_START`** the panel is told (`VSCRDEF` once per band,
+  `VSCRSADD` per change), right before the first band of the refresh that draws
+  the strip, so the shift and the fill of the stale rows land within the same
+  few milliseconds.
+- **Every flush** translates display rows to memory lines through the current
+  rotation, splitting a band at the wrap. So a repaint of anything — the header,
+  a pressed button, a dialog, an entire new screen — lands where the panel shows
+  it, and the rotation never has to be undone. It returns to the identity for
+  free whenever the whole screen is invalidated, because that repaint overwrites
+  every line anyway.
+- **A step the panel cannot take** — sideways motion, a second scroller with a
+  different band while the panel still holds a rotation, a scroller that
+  refuses — falls back to what LVGL was going to do. The picture is the same
+  either way; only the cost differs.
+
+Two things the first bench run found that were not in the plan, both fixed on
+the `ScrollView` itself and both good for every board:
+
+- **The theme's scrollbar transition made the drag repaint in full.** The
+  default theme binds a second scrollbar style to `LV_STATE_SCROLLED` (thumb
+  opacity 40% to 100%) with an 80 ms transition, and each animation tick — and
+  the state change itself, twice per gesture — invalidates the whole scroller.
+  With the tick still lying (S2), 80 ms of transition was five full 80 ms
+  frames: the entire finger-down phase. `ScrollView` now removes that binding
+  and the transition, so a scroll changes no style at all.
+- **A translucent, round-ended thumb has to be repainted end to end** after a
+  shift, and a thin 264-row clip through the calendar cost 15-18 ms — more than
+  the strip. `ScrollView`'s thumb is now opaque, and for a flat opaque thumb only
+  its two ends are repainted (about 35 rows each): wherever the old thumb's
+  moved pixels and the new thumb overlap, the pixels are already that colour.
+
+The one visible change: `ScrollView` draws no border and has square corners,
+as Android's does — the theme's card outline would have refused every one.
+Verified in the simulator, which emulates the panel's scroll registers: nine
+screenshots along a scripted tap-swipe-fling-drag-tap sequence are
+pixel-identical with the feature on and off, across 255 hardware steps.
+
+#### What it bought
+
+Same firmware, same scripted gesture (the §6 recipe of
+[band-height-120-2026-09.md](band-height-120-2026-09.md): tap Set time, three
+400 ms swipes up, three back down), same probe, one build flashed twice with
+`hw_vscroll = false` and without. Frames while the finger or the fling is
+moving the page, clock-face repaints and the entry paint excluded:
+
+| | Frames | Rows rendered | Render | Flush | Frame | fps |
+|---|---:|---:|---:|---:|---:|---:|
+| Panel scroll off | 193 | 399 | 64.9 ms | 33.0 ms | 100.9 ms | 9.9 |
+| of which full 436-row repaints | 174 | 436 | 71.5 ms | 36.1 ms | 109.3 ms | 9.1 |
+| **Panel scroll on** | 203 | **36** | **10.8 ms** | **2.0 ms** | **23.8 ms** | **41.9** |
+| of which full 436-row repaints | **0** | | | | | |
+
+Eleven times fewer rows per frame, render down 6x, transfer down 16x, and
+the frame rate up 4.2x. The 23.8 ms is not pixels any more — see below.
+
+**The first bench run looked different**, and the difference is the two
+`ScrollView` fixes above. Before them the finger-down phase was still full
+repaints (7 x 80 ms per swipe: the scrollbar's opacity transition) and each
+fling step was 21-24 ms, of which 15-18 ms was the thumb: 2 bands, ~250 rows.
+After them a step is 3 bands — the strip and the thumb's two ends — and
+36 rows on average.
+
+#### What is left in a scroll frame now
+
+Per-band probe lines on the same gesture, on this build:
+
+- **The thumb ends cost 1.9 ms each**, 369 of them averaged: the per-band
+  setup and nothing else. The strip is the whole variable cost.
+- **A strip crossing the DatePicker costs 16-18 ms whatever its height.** The
+  bottom rows of the band are cheap (1-6 ms for the full-width rows the finger
+  exposes scrolling up); a *one-row* strip at the top of the band, exposed
+  when content moves down or the fling bounces back, measured 16.3-18.4 ms
+  whenever page rows 134-334 sat under it. That is S6b's third bullet — the
+  button matrix's `draw_main` walks all 56 cells for any band that touches it,
+  clip or no clip — and it is now the largest single term in a scroll frame on
+  this screen. It needs the vendored LVGL patched, or the screen to stop using
+  the widget, and either is out of scope here.
+- **Frames land on tick boundaries.** Render plus flush averages 10 ms for the
+  frames that took one 16 ms tick and 15 ms for those that took two; the rest
+  of a tick is the main loop's Java dispatch after `lv_timer_handler`. Half the
+  frames took two ticks. S2 (an honest `lv_tick_inc`) and the loop's ordering
+  are where the next 10 ms is, not in pixels.
+- **The entry paint is untouched**, as §5 S6b predicted: 529 ms on this run.
 
 ### S5. Overlap the transfer with the render
 
@@ -612,11 +728,14 @@ cache or `-O3` (§5). The guess that spending weeks on §7 might unlock a style
 cache that turns out not to matter was the right worry — the style cache does not
 matter, and it never needed §7 anyway.
 
-**S4 is therefore the next thing to build.** It is the only item that cuts the
-quantity the cost actually scales with. S5 is worth taking alongside it for the
-transfer half, starting with the RAM-neutral 10-row variant, and §7 is needed
-only if that variant measures badly or the entry paint in S6b becomes the
-priority.
+**S4 is done** (§5), and it changed what the next thing is. A scroll frame is
+24 ms of which about 12 ms is pixels; the rest is the tick boundary the frame
+lands on, so **S2 is next**: an honest `lv_tick_inc` and a look at what the
+main loop does between the render and the next tick. After that, on this
+screen, the DatePicker's button matrix (S6b's clip-rejection item) is the
+largest per-band cost left. S5 is worth less than it was — the transfer half
+of a scroll frame is now 2 ms — and matters again only for full repaints,
+which is the entry paint's problem (S6b), not scrolling's.
 
 S7 whenever somebody has the schematic open.
 

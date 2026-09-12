@@ -64,6 +64,11 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
             BAND_BUF_SIZE as u32,
             LV_DISPLAY_RENDER_MODE_PARTIAL,
         );
+        // A panel that can scroll its own frame memory: hook the display's
+        // invalidation and refresh events so a scroll step renders only the
+        // rows it exposed (hw_scroll.rs).
+        #[cfg(hw_vscroll)]
+        super::hw_scroll::install(disp);
 
         let indev = lv_indev_create();
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
@@ -108,6 +113,11 @@ pub(in crate::graphics) fn sleep() {
 
 pub(in crate::graphics) fn wake() {
     hal::display::display_wake();
+    // The full repaint below goes out through the identity rotation; make
+    // sure the panel is told so before the first band, whatever sleep did
+    // to its registers.
+    #[cfg(hw_vscroll)]
+    super::hw_scroll::panel_reset();
     unsafe {
         let scr = lv_screen_active();
         if !scr.is_null() {
@@ -169,6 +179,7 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
     let x2 = area.x2 as u16;
     let y2 = area.y2 as u16;
 
+    #[cfg(not(hw_vscroll))]
     hal::display::set_window(x1, y1, x2, y2);
 
     let w = (x2 - x1 + 1) as usize;
@@ -201,6 +212,12 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
         println!("fbhash: {},{},{},{} {:08x}", x1, y1, x2, y2, crc);
     }
 
+    // Through the panel's current rotation where it has one: a display row
+    // and the memory line that shows it are the same thing only until the
+    // first hardware scroll step.
+    #[cfg(hw_vscroll)]
+    super::hw_scroll::flush(x1, y1, x2, y2, data);
+    #[cfg(not(hw_vscroll))]
     hal::display::write_pixels(data);
 
     unsafe { lv_display_flush_ready(disp) };

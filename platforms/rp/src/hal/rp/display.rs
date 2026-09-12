@@ -91,6 +91,17 @@ mod inner {
         display().set_backlight(on);
     }
 
+    /// The panel's own vertical scroll (VSCRDEF / VSCRSADD). Reached only on
+    /// a board where `board_cfg::hw_vscroll` holds — a portrait ST7796 —
+    /// though both drivers carry the two commands.
+    pub fn set_vertical_scroll_area(top_fixed: u16, rows: u16) {
+        display().set_vertical_scroll_area(top_fixed, rows);
+    }
+
+    pub fn set_vertical_scroll_start(line: u16) {
+        display().set_vertical_scroll_start(line);
+    }
+
     /// Composite low-power sequence: backlight off first (avoids a black flash
     /// while the panel is still powered), then DISPOFF, then SLPIN.
     pub fn display_sleep() {
@@ -117,6 +128,8 @@ mod inner {
     pub fn set_window(_x0: u16, _y0: u16, _x1: u16, _y1: u16) {}
     pub fn write_pixels(_data: &[u8]) {}
     pub fn set_backlight(_on: bool) {}
+    pub fn set_vertical_scroll_area(_top_fixed: u16, _rows: u16) {}
+    pub fn set_vertical_scroll_start(_line: u16) {}
     pub fn display_sleep() {}
     pub fn display_wake() {}
 }

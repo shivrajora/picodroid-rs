@@ -32,6 +32,8 @@ pub mod display {
         fn __pd_hal_display_wake();
         fn __pd_hal_display_update_window();
         fn __pd_hal_display_is_window_open() -> bool;
+        fn __pd_hal_display_set_vertical_scroll_area(top_fixed: u16, rows: u16);
+        fn __pd_hal_display_set_vertical_scroll_start(line: u16);
     }
 
     pub fn init() {
@@ -57,6 +59,12 @@ pub mod display {
     }
     pub fn is_window_open() -> bool {
         unsafe { __pd_hal_display_is_window_open() }
+    }
+    pub fn set_vertical_scroll_area(top_fixed: u16, rows: u16) {
+        unsafe { __pd_hal_display_set_vertical_scroll_area(top_fixed, rows) }
+    }
+    pub fn set_vertical_scroll_start(line: u16) {
+        unsafe { __pd_hal_display_set_vertical_scroll_start(line) }
     }
 
     // Geometry is board data, not platform behaviour — re-exported here so

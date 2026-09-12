@@ -29,6 +29,7 @@ pub fn build(
     mcu: Option<&HashMap<String, String>>,
     repo_root: &Path,
     conf_dir: &Path,
+    hw_vscroll: bool,
 ) {
     let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
@@ -115,6 +116,18 @@ pub fn build(
             build.file(&hook);
             println!("cargo:rerun-if-changed={}", hook.display());
         }
+    }
+
+    // The panel scrolls its own frame memory (`board_cfg::hw_vscroll`): the
+    // helper that reads LVGL's private invalidation list and walks the widget
+    // tree for `graphics/lvgl/hw_scroll.rs` compiles in beside lv_conf.h.
+    // Both the device and its simulator get it — the simulator emulates the
+    // panel's scroll registers, so the same code runs in both.
+    if hw_vscroll {
+        build.define("PICODROID_HW_VSCROLL", "1");
+        let helper = conf_dir.join("hw_vscroll.c");
+        build.file(&helper);
+        println!("cargo:rerun-if-changed={}", helper.display());
     }
 
     // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values

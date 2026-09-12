@@ -44,6 +44,19 @@ pub trait HalDisplay {
     fn update_window();
     /// False once the simulator window is closed; always true on hardware.
     fn is_window_open() -> bool;
+
+    /// Declare the band of frame memory the panel may scroll by itself:
+    /// display rows `[top_fixed, top_fixed + rows)`, with everything above
+    /// and below held fixed (ST7796 `VSCRDEF`). Only ever called on a board
+    /// whose `board_cfg::hw_vscroll` is true, so a panel without the
+    /// feature keeps this default and is never asked. Geometry is in the
+    /// board's screen rows; the driver knows its own memory height.
+    fn set_vertical_scroll_area(_top_fixed: u16, _rows: u16) {}
+    /// The frame-memory line shown at the first row of the scroll area
+    /// (`VSCRSADD`). Lines wrap within the area, so `line` is always in
+    /// `[top_fixed, top_fixed + rows)`. Same gate as
+    /// [`Self::set_vertical_scroll_area`].
+    fn set_vertical_scroll_start(_line: u16) {}
 }
 
 /// Digital I/O and the button-edge interrupt queue.

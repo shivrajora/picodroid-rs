@@ -171,6 +171,18 @@ pub const LV_EVENT_READY: lv_event_code_t = 38;
 /// the v9.5.0 enum: READY(38), CANCEL, STATE_CHANGED, CREATE, DELETE. Used by
 /// the sim handle table to invalidate a deleted object's slot.
 pub const LV_EVENT_DELETE: lv_event_code_t = 42;
+/// Sent by `lv_obj_scroll_by_raw` once the children have moved and just
+/// before the scroller invalidates its whole area. Position 15:
+/// SCROLL_BEGIN(12), SCROLL_THROW_BEGIN, SCROLL_END, SCROLL. What the
+/// hardware-scroll path (`graphics/lvgl/hw_scroll.rs`) hooks.
+pub const LV_EVENT_SCROLL: lv_event_code_t = 15;
+/// Display events. `LV_EVENT_INVALIDATE_AREA` (54) carries the `lv_area_t`
+/// about to join the display's redraw list as its parameter, and a handler
+/// may rewrite it; `REFR_START` (58) opens every refresh cycle, even an
+/// empty one; `RENDER_START` (60) precedes the first band of one that draws.
+pub const LV_EVENT_INVALIDATE_AREA: lv_event_code_t = 54;
+pub const LV_EVENT_REFR_START: lv_event_code_t = 58;
+pub const LV_EVENT_RENDER_START: lv_event_code_t = 60;
 
 pub type lv_flex_flow_t = u32;
 pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0x00;
@@ -262,6 +274,7 @@ pub type lv_style_selector_t = u32;
 /// the part (high bits) and the state (low bits); passing `0` selects
 /// `LV_PART_MAIN` in any state — matches LVGL's `lv_style_selector_default`.
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
+pub const LV_PART_SCROLLBAR: lv_style_selector_t = 0x010000;
 pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
 
 /// A bare part id (no state bits), as `lv_obj_get_style_prop` takes it.
@@ -405,6 +418,10 @@ pub const LV_STATE_FOCUS_KEY: u32 = 1 << 4;
 // secondary outline; EDITED (1 << 5) outranks FOCUS_KEY in style specificity,
 // so the edit outline wins while both states are set.
 pub const LV_STATE_EDITED: u32 = 1 << 5;
+// Set on a scroller while an indev or a fling is moving it. The default
+// theme binds a scrollbar style to it; ScrollView removes that binding so
+// a scroll changes no style (see widgets/scroll_view.rs).
+pub const LV_STATE_SCROLLED: u32 = 1 << 8;
 pub const LV_STATE_DISABLED: u32 = 1 << 9;
 
 // ---------------------------------------------------------------------------
@@ -449,6 +466,76 @@ extern "C" {
         render_mode: lv_display_render_mode_t,
     );
     pub fn lv_display_flush_ready(disp: *mut lv_display_t);
+    pub fn lv_display_get_default() -> *mut lv_display_t;
+    /// Display-level events (`LV_EVENT_INVALIDATE_AREA`, the refresh and
+    /// render milestones). Same descriptor model as `lv_obj_add_event_cb`,
+    /// but there is nothing to return: the display keeps the list.
+    pub fn lv_display_add_event_cb(
+        disp: *mut lv_display_t,
+        event_cb: lv_event_cb_t,
+        filter: lv_event_code_t,
+        user_data: *mut c_void,
+    );
+    /// The event's parameter: for `LV_EVENT_INVALIDATE_AREA` the mutable
+    /// `lv_area_t` LVGL is about to record.
+    pub fn lv_event_get_param(e: *mut lv_event_t) -> *mut c_void;
+
+    // Scroll position and the scrollbar geometry LVGL would draw for it.
+    // Positions are the distance scrolled (positive once content has moved
+    // up or left), i.e. the negated internal offset.
+    pub fn lv_obj_get_scroll_x(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_get_scroll_y(obj: *const lv_obj_t) -> i32;
+    /// The thumb rectangles LVGL will draw, or `x2 < x1` when a bar is not
+    /// shown.
+    pub fn lv_obj_get_scrollbar_area(
+        obj: *mut lv_obj_t,
+        hor_area: *mut lv_area_t,
+        ver_area: *mut lv_area_t,
+    );
+    /// Mark part of `obj` for redraw. Returns `lv_result_t`, which nothing
+    /// here reads.
+    pub fn lv_obj_invalidate_area(obj: *const lv_obj_t, area: *const lv_area_t);
+    /// Detach the styles bound to exactly `selector` (a null `style` means
+    /// all of them) — how a widget sheds a theme binding it does not want.
+    pub fn lv_obj_remove_style(
+        obj: *mut lv_obj_t,
+        style: *const c_void,
+        selector: lv_style_selector_t,
+    );
+    /// A null transition descriptor turns the theme's animated style changes
+    /// off for that part.
+    pub fn lv_obj_set_style_transition(
+        obj: *mut lv_obj_t,
+        value: *const c_void,
+        selector: lv_style_selector_t,
+    );
+
+    // lvgl/hw_vscroll.c: the two questions the panel-scroll path has to ask
+    // through LVGL's private headers (board.toml-derived `hw_vscroll`).
+    /// May `scroller`'s visible rows be moved by the panel? On yes, `region`
+    /// is those rows (always full width) and the return value is how many of
+    /// `overlays` were filled with static things drawn on top of them; a
+    /// negative value names why not.
+    #[cfg(hw_vscroll)]
+    pub fn picodroid_hw_vscroll_region(
+        scroller: *mut lv_obj_t,
+        region: *mut lv_area_t,
+        overlays: *mut lv_area_t,
+        max_overlays: i32,
+    ) -> i32;
+    /// The panel moved `region`'s content by `dy` rows: grow every area
+    /// already queued for redraw to cover where its pixels went.
+    #[cfg(hw_vscroll)]
+    pub fn picodroid_hw_vscroll_shift_pending(
+        disp: *mut lv_display_t,
+        region: *const lv_area_t,
+        dy: i32,
+    );
+    /// The scrollbar thumb's corner radius when the thumb is one flat opaque
+    /// colour — so that only its two ends need repainting after a shift —
+    /// or -1 when it is translucent, bordered or otherwise not.
+    #[cfg(hw_vscroll)]
+    pub fn picodroid_hw_vscroll_thumb_flat_radius(obj: *mut lv_obj_t) -> i32;
 
     // Input device
     pub fn lv_indev_create() -> *mut lv_indev_t;
@@ -956,6 +1043,10 @@ mod tests {
             (LV_EVENT_FOCUSED, "LV_EVENT_FOCUSED"),
             (LV_EVENT_DEFOCUSED, "LV_EVENT_DEFOCUSED"),
             (LV_EVENT_DELETE, "LV_EVENT_DELETE"),
+            (LV_EVENT_SCROLL, "LV_EVENT_SCROLL"),
+            (LV_EVENT_INVALIDATE_AREA, "LV_EVENT_INVALIDATE_AREA"),
+            (LV_EVENT_REFR_START, "LV_EVENT_REFR_START"),
+            (LV_EVENT_RENDER_START, "LV_EVENT_RENDER_START"),
         ] {
             let header_ord = lookup_event_ordinal(name)
                 .unwrap_or_else(|| panic!("{} not found in vendored lv_event.h", name));
@@ -1272,6 +1363,7 @@ mod tests {
             (LV_STATE_FOCUSED, "LV_STATE_FOCUSED"),
             (LV_STATE_FOCUS_KEY, "LV_STATE_FOCUS_KEY"),
             (LV_STATE_EDITED, "LV_STATE_EDITED"),
+            (LV_STATE_SCROLLED, "LV_STATE_SCROLLED"),
             (LV_STATE_DISABLED, "LV_STATE_DISABLED"),
         ] {
             let header_val = lookup_assigned_value(body, name)
@@ -1489,7 +1581,7 @@ mod tests {
         let parts = enum_body(LV_OBJ_STYLE_HEADER, "} lv_part_t").unwrap();
         assert_eq!(
             lookup_assigned_value(parts, "LV_PART_SCROLLBAR"),
-            Some(0x010000)
+            Some(LV_PART_SCROLLBAR)
         );
         assert_eq!(lookup_assigned_value(parts, "LV_PART_KNOB"), Some(0x030000));
 

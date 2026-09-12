@@ -97,7 +97,7 @@ traits are the whole contract.
 
 | Trait | Methods | Notes |
 |---|---|---|
-| `HalDisplay` | 8 | `init`, window and pixel push, backlight, sleep/wake, `update_window`, `is_window_open`. Geometry comes from `board_cfg::display`, not from you. |
+| `HalDisplay` | 8 + 2 defaulted | `init`, window and pixel push, backlight, sleep/wake, `update_window`, `is_window_open`. Geometry comes from `board_cfg::display`, not from you. `set_vertical_scroll_area` / `set_vertical_scroll_start` (ST7796 `VSCRDEF` / `VSCRSADD`) default to no-ops and are only ever called on a board whose `[display]` is a portrait ST7796, where the framework scrolls a full-width `ScrollView` by rotating the panel's frame memory instead of repainting it. |
 | `HalGpio` | 11 | Direction, value, `set_input(pin, Pull)`, `read`, edge IRQ enable/disable, `init_gpio_irq`, `inject`, `drain_gpio_event`, `has_pending_event`, `wait_for_button_event`. |
 | `HalClock` | 2 | `sleep(ms)` and `elapsed_realtime_nanos()`. Do **not** put a debug-stop check in `sleep`; shared code owns it. |
 | `HalTouch` | 7 | `init`, `read_point`, `read_raw_unfiltered`, `set_calibration`, and the three scripted-touch overrides. |

@@ -61,6 +61,11 @@ unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
 
 pub(in crate::graphics) fn create() -> i32 {
     let ptr = unsafe { lv_list_create(lifecycle::screen_ptr()) };
+    // A list scrolls vertically too; whether a step may use the panel is
+    // decided per step (hw_scroll.rs), and a themed list with its border
+    // will be refused until an app strips it.
+    #[cfg(hw_vscroll)]
+    super::super::hw_scroll::watch(ptr);
     handle_table::register(ptr)
 }
 

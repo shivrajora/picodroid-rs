@@ -21,6 +21,8 @@ const CMD_DISPON: u8 = 0x29;
 const CMD_CASET: u8 = 0x2A;
 const CMD_RASET: u8 = 0x2B;
 const CMD_RAMWR: u8 = 0x2C;
+const CMD_VSCRDEF: u8 = 0x33;
+const CMD_VSCRSADD: u8 = 0x37;
 
 pub struct St7789<SPI, DC, CS, RST, BL, D> {
     spi: SPI,
@@ -155,6 +157,34 @@ where
     }
 
     /// Turn the backlight on or off.
+    /// Vertical scrolling definition, the same registers the ST7796 has
+    /// (`VSCRDEF` 0x33 over this controller's 320 lines of frame memory). No
+    /// picodroid board asks for it — every ST7789 board is landscape, where
+    /// memory lines run across the screen (`board_cfg::hw_vscroll`) — but the
+    /// display facade is written once against both drivers, so the method
+    /// exists here too.
+    pub fn set_vertical_scroll_area(&mut self, top_fixed: u16, rows: u16) {
+        const MEMORY_LINES: u16 = 320;
+        let bottom_fixed = MEMORY_LINES.saturating_sub(top_fixed.saturating_add(rows));
+        self.write_command_data(
+            CMD_VSCRDEF,
+            &[
+                (top_fixed >> 8) as u8,
+                (top_fixed & 0xFF) as u8,
+                (rows >> 8) as u8,
+                (rows & 0xFF) as u8,
+                (bottom_fixed >> 8) as u8,
+                (bottom_fixed & 0xFF) as u8,
+            ],
+        );
+    }
+
+    /// Vertical scroll start address (`VSCRSADD` 0x37); see
+    /// [`Self::set_vertical_scroll_area`].
+    pub fn set_vertical_scroll_start(&mut self, line: u16) {
+        self.write_command_data(CMD_VSCRSADD, &[(line >> 8) as u8, (line & 0xFF) as u8]);
+    }
+
     pub fn set_backlight(&mut self, on: bool) {
         if on {
             let _ = self.bl.set_high();

@@ -26,6 +26,11 @@ pub mod drawable;
 pub mod events;
 #[cfg(not(test))]
 pub mod fps_overlay;
+// Scrolling with the panel's own frame memory, on the boards whose panel can
+// (`board_cfg::hw_vscroll`); its arithmetic is host-testable on its own.
+#[cfg(all(not(test), hw_vscroll))]
+pub mod hw_scroll;
+pub mod hw_scroll_math;
 #[cfg(not(test))]
 pub mod lifecycle;
 #[cfg(not(test))]

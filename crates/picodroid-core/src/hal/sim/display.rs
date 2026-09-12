@@ -61,6 +61,18 @@ static mut WIN_Y0: u16 = 0;
 static mut WIN_X1: u16 = 0;
 static mut WIN_Y1: u16 = 0;
 
+/// The panel's vertical-scroll registers, emulated (ST7796 VSCRDEF and
+/// VSCRSADD; `hal::display::set_vertical_scroll_*`). `FRAMEBUF` above is the
+/// panel's frame memory, written through the window exactly as the device
+/// writes RAMWR; what the glass shows is composed from it in
+/// [`update_window`] through this mapping, so a wrong wrap or a stale strip
+/// in `graphics/lvgl/hw_scroll.rs` is a wrong picture in the sim window, not
+/// a hardware-only bug. `VSCROLL_ROWS == 0` means no area is defined —
+/// identity, the panel's power-on state.
+static mut VSCROLL_TOP: u16 = 0;
+static mut VSCROLL_ROWS: u16 = 0;
+static mut VSCROLL_START: u16 = 0;
+
 /// Mouse state sampled during `update_window()`. Atomic because the touch
 /// sampler reads it from its own task on boards where that runs, while
 /// `update_window` writes it from the UI task; the position is one word so a
@@ -187,6 +199,57 @@ pub fn set_backlight(on: bool) {
     println!("[sim] Display: backlight {}", if on { "ON" } else { "OFF" });
 }
 
+/// Emulated VSCRDEF: memory lines `[top_fixed, top_fixed + rows)` scroll.
+pub fn set_vertical_scroll_area(top_fixed: u16, rows: u16) {
+    unsafe {
+        VSCROLL_TOP = top_fixed;
+        VSCROLL_ROWS = rows.min(HEIGHT.saturating_sub(top_fixed));
+    }
+}
+
+/// Emulated VSCRSADD: the memory line shown at the first row of the area.
+pub fn set_vertical_scroll_start(line: u16) {
+    unsafe {
+        VSCROLL_START = line;
+    }
+}
+
+/// The memory row the panel shows at display row `y`, under the emulated
+/// scroll registers. Rows outside the scroll area, and every row while no
+/// area is defined, map to themselves.
+fn memory_row_for(y: usize, top: usize, rows: usize, start: usize) -> usize {
+    if rows == 0 || y < top || y >= top + rows {
+        return y;
+    }
+    // The start line is taken modulo the area, which is also what keeps an
+    // out-of-range register value from indexing past the buffer.
+    top + (start.wrapping_sub(top) + (y - top)) % rows
+}
+
+/// Whether the emulated scroll registers map any row somewhere other than
+/// itself — the test for needing a composed frame in [`update_window`].
+fn vscroll_is_identity() -> bool {
+    unsafe { VSCROLL_ROWS == 0 || VSCROLL_START == VSCROLL_TOP }
+}
+
+/// Compose what the glass shows into `dst` from the frame memory `src`,
+/// through the emulated scroll registers.
+fn compose_scrolled(dst: &mut [u32], src: &[u32]) {
+    let stride = WIDTH as usize;
+    let (top, rows, start) = unsafe {
+        (
+            VSCROLL_TOP as usize,
+            VSCROLL_ROWS as usize,
+            VSCROLL_START as usize,
+        )
+    };
+    for y in 0..HEIGHT as usize {
+        let src_row = memory_row_for(y, top, rows, start);
+        dst[y * stride..(y + 1) * stride]
+            .copy_from_slice(&src[src_row * stride..(src_row + 1) * stride]);
+    }
+}
+
 pub fn display_sleep() {
     println!("[sim] Display: sleep");
 }
@@ -203,18 +266,27 @@ pub fn display_wake() {
 pub fn update_window() {
     unsafe {
         if let Some(ref mut win) = WINDOW {
-            // PICODROID_SIM_TAP_DEBUG=1 → paint a red crosshair at raw mouse
-            // and a green crosshair at the post-XPT2046-pipeline coordinate
-            // into a *copy* of the framebuffer. Lets you see exactly what
-            // the dispatcher will receive vs where you clicked, useful for
-            // chasing widget hit-test bugs that only repro on device.
-            let buf: &[u32] = if tap_debug_enabled() {
-                let dst_ptr = core::ptr::addr_of_mut!(TAP_DEBUG_BUF) as *mut u32;
+            // The frame memory is shown through a copy when the picture is
+            // not the memory: the emulated scroll registers move rows
+            // (`compose_scrolled`), and PICODROID_SIM_TAP_DEBUG=1 paints a
+            // red crosshair at the raw mouse and a green one at the
+            // post-XPT2046-pipeline coordinate, to see exactly what the
+            // dispatcher will receive vs where you clicked when chasing
+            // widget hit-test bugs that only repro on device.
+            let scrolled = !vscroll_is_identity();
+            let buf: &[u32] = if scrolled || tap_debug_enabled() {
+                let dst_ptr = core::ptr::addr_of_mut!(COMPOSE_BUF) as *mut u32;
                 let dst = core::slice::from_raw_parts_mut(dst_ptr, NUM_PIXELS);
                 let src_ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
                 let src = core::slice::from_raw_parts(src_ptr, NUM_PIXELS);
-                dst.copy_from_slice(src);
-                paint_tap_debug(dst);
+                if scrolled {
+                    compose_scrolled(dst, src);
+                } else {
+                    dst.copy_from_slice(src);
+                }
+                if tap_debug_enabled() {
+                    paint_tap_debug(dst);
+                }
                 dst
             } else {
                 let ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
@@ -247,9 +319,12 @@ pub fn update_window() {
     }
 }
 
+/// Scratch for a composed frame: the scrolled picture, the tap-debug
+/// crosshairs, or both.
+static mut COMPOSE_BUF: [u32; NUM_PIXELS] = [0u32; NUM_PIXELS];
+
 // ── Tap-debug overlay (PICODROID_SIM_TAP_DEBUG=1) ───────────────────────────
 
-static mut TAP_DEBUG_BUF: [u32; NUM_PIXELS] = [0u32; NUM_PIXELS];
 static TAP_DEBUG_INIT: std::sync::Once = std::sync::Once::new();
 static mut TAP_DEBUG_ON: bool = false;
 
@@ -706,4 +781,26 @@ fn spawn_control_channel() {
             ""
         }
     );
+}
+
+#[cfg(test)]
+mod vscroll_tests {
+    use super::memory_row_for;
+
+    #[test]
+    fn rows_outside_the_area_and_an_undefined_area_map_to_themselves() {
+        for y in [0usize, 43, 480] {
+            assert_eq!(memory_row_for(y, 44, 436, 60), y);
+        }
+        assert_eq!(memory_row_for(200, 0, 0, 60), 200);
+    }
+
+    #[test]
+    fn the_start_line_shows_at_the_top_of_the_area_and_wraps_at_its_end() {
+        // VSCRSADD 44 + 47: display row 44 shows line 91, the last row wraps.
+        assert_eq!(memory_row_for(44, 44, 436, 91), 91);
+        assert_eq!(memory_row_for(479, 44, 436, 91), 44 + (47 + 435) % 436);
+        // The identity when the start line is the top of the area.
+        assert_eq!(memory_row_for(300, 44, 436, 44), 300);
+    }
 }

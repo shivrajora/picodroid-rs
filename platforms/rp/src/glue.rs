@@ -52,6 +52,12 @@ impl picodroid_core::hal::HalDisplay for Platform {
     fn is_window_open() -> bool {
         crate::hal::display::is_window_open()
     }
+    fn set_vertical_scroll_area(top_fixed: u16, rows: u16) {
+        crate::hal::display::set_vertical_scroll_area(top_fixed, rows)
+    }
+    fn set_vertical_scroll_start(line: u16) {
+        crate::hal::display::set_vertical_scroll_start(line)
+    }
 }
 
 impl picodroid_core::hal::HalGpio for Platform {

@@ -774,7 +774,16 @@ See [`picodroid.widget.Keyboard`](#picodroidwidgetkeyboard) for the soft keyboar
 
 ### `picodroid.widget.ScrollView`
 
-A vertically scrollable container with a single child (typically a `LinearLayout`).
+A vertically scrollable container with a single child (typically a `LinearLayout`). As on
+Android it draws no border and has square corners; give it a `GradientDrawable` background if
+you want an outline.
+
+On a board whose panel can scroll its own frame memory (the ST7796 touch board), a
+full-width `ScrollView` scrolls in hardware: a step renders only the rows that scrolled in
+rather than the whole viewport. That needs the view's own paint to be the same on every
+row — a flat fill, no top or bottom border line, no rounded corners — and anything drawn on
+top of it (a toast, a floating child) is repainted after each step. A view that does not
+qualify simply repaints in full, as every other board does.
 
 ```java
 import picodroid.widget.ScrollView;

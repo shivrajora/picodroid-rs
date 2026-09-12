@@ -109,6 +109,14 @@ width = 320
 height = 480
 # Portrait, BGR panel order. 0x48 is MX | BGR, which is what the vendor
 # firmware selects; landscape 480x320 is 0x28 with width and height swapped.
+#
+# Portrait is also what lets the panel scroll for us: an ST7796 with MY and
+# MV clear maps its memory lines onto screen rows, so a full-width ScrollView
+# scrolls by two panel commands (VSCRDEF/VSCRSADD) and a render of only the
+# rows that scrolled in (graphics/lvgl/hw_scroll.rs; S4 of
+# docs/designs/scroll-performance-2026-09.md). build_support derives that
+# from `driver` and `madctl`; `hw_vscroll = false` here is the switch to
+# measure against, and the only value the key accepts.
 madctl = 0x48
 # 120 rows, not the 20 px default. LVGL renders in full-width horizontal bands
 # and walks the widget tree once per band an object crosses, and on this panel

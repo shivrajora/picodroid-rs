@@ -347,7 +347,7 @@ lands and the pre-rendered page becomes the next thing worth having.
 | 2 | S2: honest `lv_tick_inc` | no | hours | animation and fling timing that is correct rather than approximate |
 | 3 | **S6 measurement**: style-cache A/B, XIP cache counters | no | one flash cycle | decides most of what follows |
 | 4 | S5 RAM-neutral variant: 10-row bands, two buffers | no | a day | answers the per-band-overhead question; hides some SPI |
-| 5 | **S4: hardware vertical scroll** | no | framework feature | ~9x fewer pixels per scroll step |
+| 5 | **S4: hardware vertical scroll — done 2026-09-12** | no | framework feature | ~9x fewer pixels per scroll step; measured in §5 S4 of the scroll doc |
 | 6 | PSRAM Stages 1-3 | — | the enabling chain | nothing directly |
 | 7 | Stage 4: pool to PSRAM + SRAM draw-buffer handler | yes | small, given 6 | 64 KB of SRAM back |
 | 8 | S5 at full band height, and style cache on | 7 | a day | most of the 39 ms SPI half |

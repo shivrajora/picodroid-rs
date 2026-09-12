@@ -120,6 +120,7 @@ fn main() {
         lvgl_mcu.as_ref(),
         root,
         &manifest_dir.join("lvgl"),
+        board_cfg::hw_vscroll(&board),
     );
 
     // The simulator's kernel: the real FreeRTOS + POSIX port, compiled for the
