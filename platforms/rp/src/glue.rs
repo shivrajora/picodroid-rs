@@ -133,6 +133,12 @@ impl picodroid_core::hal::HalTouch for Platform {
     fn clear_override() {
         crate::hal::touch::clear_override()
     }
+    // The simulator's touch module has no interrupt line to wait on; it
+    // keeps the trait default (a plain sleep).
+    #[cfg(not(any(test, feature = "sim")))]
+    fn wait_irq(timeout_ms: u32) -> bool {
+        crate::hal::touch::wait_irq(timeout_ms)
+    }
 }
 
 impl picodroid_core::hal::HalI2c for Platform {

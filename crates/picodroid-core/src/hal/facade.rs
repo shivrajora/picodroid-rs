@@ -161,6 +161,7 @@ pub mod touch {
         fn __pd_hal_touch_inject_override(x: u16, y: u16);
         fn __pd_hal_touch_release_override();
         fn __pd_hal_touch_clear_override();
+        fn __pd_hal_touch_wait_irq(timeout_ms: u32) -> bool;
     }
 
     pub fn init() {
@@ -183,6 +184,10 @@ pub mod touch {
     }
     pub fn clear_override() {
         unsafe { __pd_hal_touch_clear_override() }
+    }
+    /// See [`crate::hal::HalTouch::wait_irq`].
+    pub fn wait_irq(timeout_ms: u32) -> bool {
+        unsafe { __pd_hal_touch_wait_irq(timeout_ms) }
     }
 }
 

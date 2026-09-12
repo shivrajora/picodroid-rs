@@ -186,6 +186,10 @@ macro_rules! set_hal_touch {
             extern "Rust" fn __pd_hal_touch_clear_override() {
                 <$t as $crate::hal::HalTouch>::clear_override()
             }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_touch_wait_irq(timeout_ms: u32) -> bool {
+                <$t as $crate::hal::HalTouch>::wait_irq(timeout_ms)
+            }
         };
     };
 }

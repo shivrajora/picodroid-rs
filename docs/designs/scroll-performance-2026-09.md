@@ -123,6 +123,16 @@ interrupt line, which is wired and still unread.
 
 ### S8. Let the panel say when to read it
 
+**2026-09-12: landed in the interrupt-accelerated form** (audit F5, WP4).
+GP11 is armed for *both* edges and routed to a touch semaphore in the GPIO
+ISR; the sampler waits on it with a 10 ms ceiling while a finger is down
+and a 50 ms safety net when idle, and scripted touches kick it directly.
+That is correct whether the line pulses or holds a level. The bench
+measurement below is still owed: with an edge confirmed at touch-down the
+idle net can grow to a second, which is the idle-power win. Not yet run on
+the touch kit (leased when it landed) — first HIL there checks tap and
+scroll parity.
+
 S1's timer is free-running, so it reads an untouched panel a hundred times a
 second forever. At 0.6 ms a read that is about 6 % of a core, and a hundred
 wake-ups a second that stop the chip reaching a deeper idle — all of it spent on

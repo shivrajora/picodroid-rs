@@ -289,6 +289,20 @@ extern "C" fn IO_IRQ_BANK0() {
             let shift = bit_group * 4;
             let edge_low = (ints >> (shift + 2)) & 1 != 0;
             let edge_high = (ints >> (shift + 3)) & 1 != 0;
+            #[cfg(has_touch)]
+            if (edge_low || edge_high)
+                && pin == TOUCH_IRQ_PIN.load(core::sync::atomic::Ordering::Acquire)
+            {
+                // The panel, not a button: wake the sampler and leave the
+                // button ring alone.
+                unsafe {
+                    if let Some(sem) = (*TOUCH_WAKE_SEM.0.get()).as_ref() {
+                        let mut ctx = InterruptContext::new();
+                        sem.give_from_isr(&mut ctx);
+                    }
+                }
+                continue;
+            }
             if edge_low {
                 enqueue_gpio_event(pin, false);
             }
@@ -397,6 +411,65 @@ pub fn wait_for_button_event() {
     unsafe {
         if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
             let _ = sem.take(Duration::infinite());
+        }
+    }
+}
+
+// ── Touch-panel interrupt (the sampler's wake) ───────────────────────────────
+//
+// The panel's INT line is armed for both edges: whether the controller
+// pulses once per report or holds a level across a touch (the open question
+// under S8 in docs/designs/scroll-performance-2026-09.md), touch-down and
+// release each produce an edge, and the sampler's own timeout covers the
+// rest. The ISR routes this one pin to the touch semaphore instead of the
+// button ring. Only built where there is a panel: on the RP2040 boards none
+// of this — nor the semaphore take it would link — exists.
+
+#[cfg(has_touch)]
+static TOUCH_WAKE_SEM: SemCell = SemCell(UnsafeCell::new(None));
+/// `0xFF` until armed; no GPIO has that number.
+#[cfg(has_touch)]
+static TOUCH_IRQ_PIN: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0xFF);
+
+/// Arm `pin` (the panel's INT line, already an input) as the sampler's wake.
+/// Call from core 0, where the sampler runs: the NVIC is banked per core.
+/// Only the GT911 path arms it: the resistive panel shares the display's
+/// bus, so its sampler task never runs and its PENIRQ would wake nobody.
+#[cfg(touch_gt911)]
+pub fn arm_touch_irq(pin: u8) {
+    unsafe {
+        if (*TOUCH_WAKE_SEM.0.get()).is_none() {
+            let sem = Semaphore::new_binary().expect("TOUCH_WAKE_SEM alloc");
+            *TOUCH_WAKE_SEM.0.get() = Some(sem);
+        }
+    }
+    TOUCH_IRQ_PIN.store(pin, core::sync::atomic::Ordering::Release);
+    init_gpio_irq();
+    enable_edge_irq(pin, EdgeTrigger::Both);
+}
+
+/// Block until the panel's interrupt fires or `timeout_ms` passes; true on
+/// the interrupt. A plain sleep while nothing is armed.
+#[cfg(has_touch)]
+pub fn wait_touch_irq(timeout_ms: u32) -> bool {
+    unsafe {
+        match (*TOUCH_WAKE_SEM.0.get()).as_ref() {
+            Some(sem) => sem.take(Duration::ms(timeout_ms)).is_ok(),
+            None => {
+                freertos_rust::CurrentTask::delay(Duration::ms(timeout_ms));
+                false
+            }
+        }
+    }
+}
+
+/// Task context: wake the sampler now — a scripted touch was injected or
+/// lifted, which moves no real pin.
+#[cfg(has_touch)]
+pub fn kick_touch_irq() {
+    unsafe {
+        if let Some(sem) = (*TOUCH_WAKE_SEM.0.get()).as_ref() {
+            sem.give();
         }
     }
 }

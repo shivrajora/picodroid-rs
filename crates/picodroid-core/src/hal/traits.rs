@@ -107,6 +107,16 @@ pub trait HalTouch {
     fn release_override();
     /// Resume sampling the real panel.
     fn clear_override();
+    /// Block the sampler until the panel's interrupt line reports activity or
+    /// `timeout_ms` elapses; true on the interrupt. The default is the timeout
+    /// alone — a plain sleep — which is what a family that has not armed the
+    /// panel's INT line, and the simulator, provide. A family that has wakes
+    /// the sampler from the interrupt and from a scripted-touch injection
+    /// (docs/scheduling-audit-2026-09.md, F5).
+    fn wait_irq(timeout_ms: u32) -> bool {
+        crate::rtos::delay_ms(timeout_ms);
+        false
+    }
 }
 
 pub trait HalI2c {

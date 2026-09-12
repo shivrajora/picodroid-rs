@@ -26,7 +26,8 @@ design that makes the property enforced rather than remembered.
 | G2 config assertions | **landed** 2026-09-12 (`task_affinity::idle_cores_sleep_and_driver_waits_yield`) |
 | WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
 | WP3 USB bridge (F3, F11) | **landed** 2026-09-12 (`pdb_usb/mod.rs`: EP1-IN semaphore given from the ISR, 500 ms dead-host latch; install reads block a tick per attempt on a hardware-timer deadline) |
-| WP0, WP4–WP11, G3, G4, G6 | open — see the plan below |
+| WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); **HIL on the touch kit pending** (board leased) |
+| WP0, WP5–WP11, G3, G4, G6 | open — see the plan below |
 
 ## Executive summary
 

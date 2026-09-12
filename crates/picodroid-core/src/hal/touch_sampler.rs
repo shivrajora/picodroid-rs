@@ -8,8 +8,9 @@
 //! fling inherited a velocity computed from two samples
 //! (`docs/designs/scroll-performance-2026-09.md` §1, S1).
 //!
-//! This module breaks that coupling. A dedicated task reads the panel every
-//! [`PERIOD_MS`] and pushes each *changed* reading into a small ring; the
+//! This module breaks that coupling. A dedicated task reads the panel when
+//! its interrupt line says to (and at least every [`PERIOD_MS`] while a
+//! finger is down) and pushes each *changed* reading into a small ring; the
 //! input callback drains the whole ring in one pass, handing LVGL one read per
 //! queued sample. Rendering stays as slow as it is, but the gesture LVGL sees
 //! is the one the finger actually made.
@@ -95,13 +96,24 @@ mod ring {
     use crate::rtos::{self, TaskKind, TaskSpec};
     use core::sync::atomic::{AtomicU32, AtomicUsize};
 
-    /// Sampling period. 100 Hz is the rate a finger needs to be tracked rather
-    /// than guessed at, and at ~0.6 ms per read it costs well under 10 % of the
-    /// core it preempts. It is also a hundred reads a second of an untouched
-    /// panel, which the controller's own interrupt line would stop — that line
-    /// is wired and unread, and replacing this timer with it is S8 in
-    /// `docs/designs/scroll-performance-2026-09.md`.
+    /// Sampling ceiling while a finger is down. 100 Hz is the rate a finger
+    /// needs to be tracked rather than guessed at, and at ~0.6 ms per read it
+    /// costs well under 10 % of the core it preempts. The panel's interrupt
+    /// is the wake ([`hal::touch::wait_irq`]); a controller that pulses once
+    /// per report never lets this timeout expire, one that holds a level
+    /// across a touch is read at exactly this rate.
     const PERIOD_MS: u32 = 10;
+
+    /// Safety net while nobody is touching: the interrupt is the wake, this
+    /// is how long a missed edge could delay the first sample. 50 ms until
+    /// GP11's behaviour across a gesture is measured on the bench (S8's open
+    /// question in `docs/designs/scroll-performance-2026-09.md`); with an edge
+    /// confirmed at touch-down it can grow to a second, which is the idle
+    /// power S8 is after. Either way this replaced a hundred reads a second
+    /// of an untouched panel (docs/scheduling-audit-2026-09.md, F5). A family
+    /// without an armed line, and the simulator, sleep for this instead —
+    /// the scripted taps they run hold for `TAP_HOLD_MS` = 120 ms, well past it.
+    const IDLE_POLL_MS: u32 = 50;
 
     /// Queued samples. One frame's worth at the slowest frame measured on the
     /// touch board (348 ms) is ~35, so 64 leaves the ring headroom it should
@@ -175,8 +187,10 @@ mod ring {
 
     fn run() {
         loop {
-            push(sample_panel());
-            rtos::delay_ms(PERIOD_MS);
+            let sample = sample_panel();
+            let touched = sample.is_some();
+            push(sample);
+            hal::touch::wait_irq(if touched { PERIOD_MS } else { IDLE_POLL_MS });
         }
     }
 

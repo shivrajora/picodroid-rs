@@ -28,10 +28,18 @@ mod inner {
     static OVERRIDE: TouchOverride = TouchOverride::new();
 
     pub fn inject_override(x: u16, y: u16) {
-        OVERRIDE.inject(x, y)
+        OVERRIDE.inject(x, y);
+        // A scripted touch moves no pin: wake the sampler ourselves.
+        crate::hal::gpio::kick_touch_irq();
     }
     pub fn release_override() {
-        OVERRIDE.release()
+        OVERRIDE.release();
+        crate::hal::gpio::kick_touch_irq();
+    }
+    /// The sampler's wait: the panel's INT line where it is armed (the
+    /// GT911's, after its reset), a plain sleep otherwise.
+    pub fn wait_irq(timeout_ms: u32) -> bool {
+        crate::hal::gpio::wait_touch_irq(timeout_ms)
     }
     pub fn clear_override() {
         OVERRIDE.clear()
@@ -146,6 +154,10 @@ mod inner {
         // the bus type has to come from the alias.
         Touch::reset(&mut int, &mut rst, &mut delay, generated::TOUCH_ADDR);
         let _int_in = RpInputPin::new(generated::TOUCH_PIN_INT, true);
+        // From here the controller drives INT; both edges wake the sampler,
+        // so it reads the panel when the panel has something to say instead
+        // of a hundred times a second regardless.
+        crate::hal::gpio::arm_touch_irq(generated::TOUCH_PIN_INT);
 
         crate::hal::i2c::init_with_pins(
             generated::TOUCH_I2C_ID,
@@ -247,6 +259,10 @@ mod inner {
     pub fn inject_override(_: u16, _: u16) {}
     pub fn release_override() {}
     pub fn clear_override() {}
+    pub fn wait_irq(timeout_ms: u32) -> bool {
+        picodroid_core::rtos::delay_ms(timeout_ms);
+        false
+    }
 }
 
 pub use inner::*;
