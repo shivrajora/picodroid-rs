@@ -27,6 +27,9 @@ pub mod event_ring;
 // Up/down edge detection for an IP stack's network-event hook: the stack
 // repeats "down" on every retry, the log wants it once per change.
 pub mod net_edge;
+// Bounded register spins: the only sanctioned way to wait on hardware state
+// without the RTOS, and each one named and capped.
+pub mod spin;
 pub mod touch_override;
 // Who reads the touch panel and how often — the sampler task, its ring, and
 // the first-sample discard both sampling paths share.

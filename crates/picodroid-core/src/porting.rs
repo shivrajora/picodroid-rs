@@ -75,7 +75,12 @@
 //!    `board.toml` through `build_support::board_cfg`, and reads
 //!    [`board_cfg`]. LVGL is compiled by *this* crate's build script — never
 //!    by a family. Logging is [`pd_info!`] and friends: defmt on device,
-//!    `eprintln` on the host, so link a defmt sink.
+//!    `eprintln` on the host, so link a defmt sink. A wait of a millisecond
+//!    or more goes to the kernel (a semaphore an interrupt gives, a task
+//!    notification, `delay_ms`); the few register waits that must stay
+//!    spins — a DMA abort retiring, a block leaving reset — are written
+//!    with [`spin_until!`], which names and caps each one and returns
+//!    [`SpinTimeout`] instead of hanging (`docs/scheduling-audit-2026-09.md`).
 //!
 //! 8. **The network (optional, FreeRTOS+TCP families).** Enable this crate's
 //!    `freertos-tcp` feature. Write a `NetworkInterface_<X>.c` against
@@ -147,6 +152,8 @@ pub use crate::board_cfg;
 #[cfg(not(test))]
 pub use crate::boot::run_app;
 pub use crate::executors::main_queue::enqueue_wake;
+pub use crate::hal::spin::SpinTimeout;
+pub use crate::spin_until;
 pub use crate::threads::wake_all_parked;
 pub use crate::{pd_debug, pd_error, pd_info, pd_trace, pd_warn};
 
@@ -179,7 +186,7 @@ mod tests {
     /// Pinned like `EXPECTED_PROVIDERS`: a seam trait or exported macro that
     /// is added or removed changes this number, so the scan cannot pass on an
     /// empty match — and whoever changes it has to read this list.
-    const EXPECTED_SEAM_ITEMS: usize = 42;
+    const EXPECTED_SEAM_ITEMS: usize = 43;
 
     fn src() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src")

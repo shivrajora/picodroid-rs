@@ -126,9 +126,14 @@ pub fn park_core1_for_flash() -> FlashParkGuard {
     parker.notify(freertos_rust::TaskNotification::Increment);
     // Busy-wait, not block: the parker runs on core 1, so nothing on this
     // core needs to be scheduled for it to make progress.  Wake latency is
-    // one cross-core yield IPI — microseconds.
-    while PARKED.load(Ordering::SeqCst) == 0 {
-        core::hint::spin_loop();
+    // one cross-core yield IPI — microseconds.  The cap is a precondition
+    // check, not a cadence: if the parker never answers, the task was not
+    // spawned or `configRUN_MULTIPLE_PRIORITIES` regressed (see the module
+    // docs), and hanging here silently was the old failure mode.
+    if picodroid_core::spin_until!(PARKED.load(Ordering::SeqCst) != 0, 50_000_000, "core1 park")
+        .is_err()
+    {
+        defmt::panic!("core1_park: flashpark never parked — is it running on core 1?");
     }
     FlashParkGuard { active: true }
 }
@@ -139,8 +144,14 @@ impl Drop for FlashParkGuard {
             return;
         }
         PARK_REQUESTED.store(0, Ordering::SeqCst);
-        while PARKED.load(Ordering::SeqCst) != 0 {
-            core::hint::spin_loop();
+        if picodroid_core::spin_until!(
+            PARKED.load(Ordering::SeqCst) == 0,
+            50_000_000,
+            "core1 release"
+        )
+        .is_err()
+        {
+            defmt::panic!("core1_park: flashpark never released core 1");
         }
     }
 }

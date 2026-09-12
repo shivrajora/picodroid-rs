@@ -210,9 +210,21 @@ pub fn abort(spi_id: u8) {
     // Request abort for both channels
     p.DMA.chan_abort().write(|w| unsafe { w.bits(mask) });
 
-    // Wait for abort to complete (channels become not busy)
-    while p.DMA.ch(tx_ch).ch_ctrl_trig().read().busy().bit_is_set() {}
-    while p.DMA.ch(rx_ch).ch_ctrl_trig().read().busy().bit_is_set() {}
+    // Wait for the abort to retire (the channels go not-busy). Normally a
+    // few cycles; a channel wedged on a DREQ that never asserts (the RP2040
+    // abort erratum) never clears, and this is the recovery path, so give
+    // up loudly rather than hang the UI task in it.
+    for ch in [tx_ch, rx_ch] {
+        if picodroid_core::spin_until!(
+            !p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set(),
+            1_000_000,
+            "spi dma abort"
+        )
+        .is_err()
+        {
+            defmt::error!("dma: SPI{} channel {} did not abort", spi_id, ch);
+        }
+    }
 
     // Clear any pending DMA interrupts for these channels
     p.DMA.ints0().write(|w| unsafe { w.bits(mask) });

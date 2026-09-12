@@ -344,6 +344,21 @@ them by hand. The capability `cfg`s — `has_display`, `has_touch`,
 Cargo features. **Do not compile LVGL**: `picodroid-core`'s build script
 owns it, and two builders mean duplicate symbols.
 
+### Waiting on hardware
+
+A wait of a millisecond or more belongs on the kernel: a semaphore an
+interrupt gives, a task notification, or `Rtos::delay_ms`. Never a cycle
+count — a panel's 120 ms settle run through `cortex_m::asm::delay` on the
+UI task is 120 ms in which nothing at that priority runs. The few register
+waits that genuinely have to be spins (a DMA channel retiring an abort, a
+block leaving reset, a cross-core handshake whose other side runs on the
+other core) are written with `picodroid_core::spin_until!`, which names and
+caps each one and evaluates to `Result<(), SpinTimeout>` so a wedged
+peripheral is a logged fault rather than a silent hang. The RP family's
+`spin_guard` test rejects a bare `while … {}` register poll; a spin that
+must stay bare carries a `spin-ok:` comment saying why. The rules and the
+audit behind them: `docs/scheduling-audit-2026-09.md`.
+
 ### Logging
 
 `pd_trace!`, `pd_debug!`, `pd_info!`, `pd_warn!` and `pd_error!` from

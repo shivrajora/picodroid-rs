@@ -170,36 +170,32 @@ fn load_scratch(p: &pac::Peripherals, out_instr: u16, value: u32) {
 /// only fires on a genuine misconfiguration and surfaces as a -1 transfer
 /// error instead of a wedged cyw43 task.
 fn wait_dma_done(p: &pac::Peripherals, ch: usize) -> Result<(), ()> {
-    let mut spins: u32 = 0;
-    while p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set() {
-        spins += 1;
-        if spins > 20_000_000 {
-            return Err(());
-        }
-        core::hint::spin_loop();
-    }
-    Ok(())
+    picodroid_core::spin_until!(
+        !p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set(),
+        20_000_000,
+        "pio_spi dma done"
+    )
+    .map_err(|_| ())
 }
 
+/// Abort both channels. Bounded like [`wait_dma_done`]: an abort normally
+/// retires within a few cycles, but a channel wedged on a DREQ that never
+/// asserts never clears busy, and this is the recovery path — better a
+/// logged failure than a wedged cyw43 task.
 fn abort_dma(p: &pac::Peripherals) {
     let mask = (1u32 << DMA_CH_TX) | (1u32 << DMA_CH_RX);
     p.DMA.chan_abort().write(|w| unsafe { w.bits(mask) });
-    while p
-        .DMA
-        .ch(DMA_CH_TX)
-        .ch_ctrl_trig()
-        .read()
-        .busy()
-        .bit_is_set()
-    {}
-    while p
-        .DMA
-        .ch(DMA_CH_RX)
-        .ch_ctrl_trig()
-        .read()
-        .busy()
-        .bit_is_set()
-    {}
+    for ch in [DMA_CH_TX, DMA_CH_RX] {
+        if picodroid_core::spin_until!(
+            !p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set(),
+            1_000_000,
+            "pio_spi dma abort"
+        )
+        .is_err()
+        {
+            defmt::error!("pio_spi: DMA channel {} did not abort", ch);
+        }
+    }
 }
 
 /// Arm one DMA channel and trigger it. 32-bit transfers with byte-swap:

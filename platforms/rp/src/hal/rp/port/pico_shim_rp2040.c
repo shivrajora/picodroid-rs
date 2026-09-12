@@ -89,15 +89,21 @@ static void fifo_launch_raw(uint32_t vtor, uint32_t sp, uint32_t entry) {
             multicore_fifo_drain();
             __asm volatile("sev");  /* wake core 1 if waiting in WFE */
         }
-        /* Wait for TX FIFO space */
-        while (!(sio_hw->fifo_st & SIO_FIFO_ST_RDY)) {
+        /* Wait for TX FIFO space. Bounded, as on the RP2350: a core 1 that
+         * never answers used to hang the boot here with no diagnostic. */
+        volatile uint32_t tries = 0;
+        while (!(sio_hw->fifo_st & SIO_FIFO_ST_RDY)) { /* spin-ok: pre-scheduler core-1 launch, capped */
+            if (++tries > 5000000u) return; /* timeout — core 1 not responding */
             __asm volatile("" ::: "memory");
         }
         sio_hw->fifo_wr = cmd;
         __asm volatile("sev");  /* wake core 1 so it reads the FIFO */
-        /* Wait for core 1 echo */
-        while (!(sio_hw->fifo_st & SIO_FIFO_ST_VLD)) {
-            __asm volatile("wfe");
+        /* Wait for core 1 echo. `sev; wfe` inside the loop so an event that
+         * arrived before the wfe is consumed rather than lost. */
+        tries = 0;
+        while (!(sio_hw->fifo_st & SIO_FIFO_ST_VLD)) { /* spin-ok: pre-scheduler core-1 launch, capped */
+            if (++tries > 5000000u) return; /* timeout — core 1 not responding */
+            __asm volatile("sev; wfe" ::: "memory");
         }
         uint32_t response = sio_hw->fifo_rd;
         seq = (cmd == response) ? seq + 1 : 0;
