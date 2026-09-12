@@ -22,9 +22,10 @@ design that makes the property enforced rather than remembered.
 |---|---|
 | WP1 quick wins (F1, F4, F6 opt-in, F9, F13, F15, F19 bounds + joiners) | **landed** 2026-09-12 |
 | G5 `spin_until!` | **landed** 2026-09-12 (`crates/picodroid-core/src/hal/spin.rs`, a porting seam item) |
-| G1 spin ledger | **landed** 2026-09-12 (`platforms/rp/src/spin_guard.rs`; 13 `spin-ok`, 7 `spin-todo`: F2 ×1, F3 ×1, F14 ×2, F18 ×3) |
+| G1 spin ledger | **landed** 2026-09-12 (`platforms/rp/src/spin_guard.rs`; 14 `spin-ok`, 6 `spin-todo`: F3 ×1, F14 ×2, F18 ×3) |
 | G2 config assertions | **landed** 2026-09-12 (`task_affinity::idle_cores_sleep_and_driver_waits_yield`) |
-| WP0, WP2–WP11, G3, G4, G6 | open — see the plan below |
+| WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
+| WP0, WP3–WP11, G3, G4, G6 | open — see the plan below |
 
 ## Executive summary
 

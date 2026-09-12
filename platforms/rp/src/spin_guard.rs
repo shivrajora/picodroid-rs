@@ -61,10 +61,10 @@ mod tests {
     /// `spin-ok:` markers across the scanned tree. Each one is a wait that
     /// is documented as genuinely needing to spin; the ledger the test
     /// prints on failure lists them all.
-    const EXPECTED_SPIN_OK: usize = 13;
+    const EXPECTED_SPIN_OK: usize = 14;
     /// `spin-todo:` markers: audit findings not yet replaced. Only ever
     /// lowered by the work package that replaces one.
-    const EXPECTED_SPIN_TODO: usize = 7;
+    const EXPECTED_SPIN_TODO: usize = 6;
 
     /// A wait built from one of these is a busy-wait by construction.
     const BANNED_TOKENS: &[&str] = &[
