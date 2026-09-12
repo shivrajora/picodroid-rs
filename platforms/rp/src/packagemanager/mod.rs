@@ -38,10 +38,16 @@ mod rp_flash {
             super::flash::region_base()
         }
 
+        // `inline(never)` on both: the generic install code calls these from
+        // a loop at two sites (the installer and the boot-time cleanup), and
+        // LLVM inlined the ~660 B XIP-off erase body into each — 1.4 KB of
+        // RP2040 flash for a loop. One out-of-line body each is a call.
+        #[inline(never)]
         unsafe fn erase_range(flash_offset: u32, len: usize) {
             super::flash::flash_erase_range(flash_offset, len)
         }
 
+        #[inline(never)]
         unsafe fn program_range(flash_offset: u32, data: &[u8]) {
             super::flash::flash_program_range(flash_offset, data.as_ptr(), data.len())
         }

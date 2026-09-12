@@ -124,10 +124,15 @@ unsafe impl<F: PapkRegionFlash> PapkFlash for PapkRegion<F> {
     }
 
     unsafe fn erase_run(&mut self, first_sector: u32, sectors: u32) {
-        F::erase_range(
-            Self::sector_offset(first_sector),
-            sectors as usize * META_SIZE,
-        )
+        // One sector per call, not the run in one. On the RP family every
+        // call is its own XIP-off window with both cores' interrupts masked,
+        // 45 ms a sector, so a whole run in one call froze the chip for
+        // seconds — long enough for the CYW43's host-wake interrupt to be
+        // lost and its RX FIFO to overflow (docs/scheduling-audit-2026-09.md,
+        // F8). Sector by sector, the scheduler runs between windows.
+        for i in 0..sectors {
+            F::erase_range(Self::sector_offset(first_sector + i), META_SIZE);
+        }
     }
 
     unsafe fn write_page(&mut self, page_index: u32, page: &[u8; 256]) -> bool {
@@ -238,9 +243,15 @@ mod tests {
     }
 
     #[test]
-    fn a_run_is_erased_as_whole_sectors_at_its_sector() {
+    fn a_run_is_erased_sector_by_sector_from_its_sector() {
         let ops = run(|r| unsafe { r.erase_run(1, 2) });
-        assert_eq!(ops, [Op::Erase(REGION + SECTOR as u32, 2 * SECTOR)]);
+        assert_eq!(
+            ops,
+            [
+                Op::Erase(REGION + SECTOR as u32, SECTOR),
+                Op::Erase(REGION + 2 * SECTOR as u32, SECTOR),
+            ]
+        );
     }
 
     #[test]
