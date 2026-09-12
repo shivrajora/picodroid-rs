@@ -109,6 +109,7 @@ macro_rules! apply_speed {
         // Disable controller before reconfiguring (poll IC_ENABLE_STATUS to
         // confirm the FSM has actually parked — IC_ENABLE.disable is async).
         $i2c.ic_enable().write(|w| unsafe { w.bits(0) });
+        // spin-todo: F18 — one SCL bit-time settle; docs/scheduling-audit-2026-09.md
         while $i2c.ic_enable_status().read().ic_en().bit_is_set() {}
 
         // IC_CON: master mode, fast speed, restart enabled, slave disabled,
@@ -499,6 +500,7 @@ fn raw_has(i2c: &impl I2cPeriph, bit: u32) -> bool {
 fn write_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -> i32 {
     // Set IC_TAR (must be done with the controller disabled).
     i2c.ic_enable_write(false);
+    // spin-todo: F18 — one SCL bit-time settle on every transfer; skip when IC_TAR is unchanged
     while i2c.ic_enable_status_busy() {}
     i2c.ic_tar_write(address as u16);
     i2c.ic_enable_write(true);
@@ -560,6 +562,7 @@ fn write_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -
 
 fn read_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, buf: &mut [u8]) -> i32 {
     i2c.ic_enable_write(false);
+    // spin-todo: F18 — one SCL bit-time settle on every transfer; skip when IC_TAR is unchanged
     while i2c.ic_enable_status_busy() {}
     i2c.ic_tar_write(address as u16);
     i2c.ic_enable_write(true);

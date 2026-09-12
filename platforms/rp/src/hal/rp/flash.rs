@@ -296,6 +296,7 @@ pub fn flash_trigger_reset() -> ! {
     // Force-fire the watchdog (CTRL bit 31 = TRIGGER).
     p.WATCHDOG.ctrl().write(|w| unsafe { w.bits(1 << 31) });
 
+    // spin-ok: the watchdog is resetting the chip out from under this loop
     loop {
         cortex_m::asm::nop();
     }

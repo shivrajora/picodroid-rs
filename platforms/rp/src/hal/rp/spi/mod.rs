@@ -181,6 +181,9 @@ fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
 
 // ── Polling helpers (small transfers) ────────────────────────────────────────
 
+// spin-ok: FIFO-depth polls, used only for transfers of at most
+// SMALL_XFER_THRESHOLD bytes — an interrupt round trip costs more than the
+// whole transfer (spi/xfer.rs).
 macro_rules! poll_write_raw {
     ($spi:expr, $data:expr) => {{
         for &byte in $data {
@@ -194,6 +197,7 @@ macro_rules! poll_write_raw {
     }};
 }
 
+// spin-ok: as poll_write_raw — at most SMALL_XFER_THRESHOLD bytes.
 macro_rules! poll_transfer_raw {
     ($spi:expr, $tx:expr, $rx:expr) => {{
         for i in 0..$tx.len() {
@@ -238,7 +242,7 @@ macro_rules! finish_isr_xfer {
             let state = spi_state($spi_id);
             state.op = SpiOp::Idle;
         }
-        // Wait for last byte to finish shifting out
+        // spin-ok: one byte-time drain after the interrupt-signalled completion
         while $spi.sspsr().read().bsy().bit_is_set() {}
     }};
 }

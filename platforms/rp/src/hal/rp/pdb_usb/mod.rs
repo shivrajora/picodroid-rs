@@ -526,6 +526,8 @@ pub fn queue_read_u32_le() -> u32 {
 
 /// Wait for the previous EP1 IN transfer to complete.
 fn wait_tx_ready() {
+    // spin-todo: F3 — unbounded spin on an ISR flag at priority 21; WP3 makes
+    // the USB interrupt give a semaphore instead (docs/scheduling-audit-2026-09.md)
     while !EP1_IN_DONE.load(Ordering::Acquire) {
         cortex_m::asm::nop();
     }

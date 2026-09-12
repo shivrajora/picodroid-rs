@@ -566,14 +566,14 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
             p.PIO0
                 .fdebug()
                 .write(|w| unsafe { w.txstall().bits(1 << SM) });
-            let mut spins: u32 = 0;
-            while p.PIO0.fdebug().read().txstall().bits() & (1 << SM) == 0 {
-                spins += 1;
-                if spins > 20_000_000 {
-                    ok = Err(());
-                    break;
-                }
-                core::hint::spin_loop();
+            if picodroid_core::spin_until!(
+                p.PIO0.fdebug().read().txstall().bits() & (1 << SM) != 0,
+                20_000_000,
+                "pio_spi txstall"
+            )
+            .is_err()
+            {
+                ok = Err(());
             }
         }
         match ok {
@@ -594,6 +594,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     p.SIO
         .gpio_out_set()
         .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) });
+    // spin-ok: ~100 ns, pico-sdk's IRQ_SAMPLE_DELAY_NS before host-wake is read
     for _ in 0..16 {
         core::hint::spin_loop();
     }

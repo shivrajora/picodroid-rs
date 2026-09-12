@@ -56,7 +56,7 @@ pub fn read(pin: u8) -> f64 {
         .cs()
         .modify(|_, w| unsafe { w.ainsel().bits(channel).start_once().set_bit() });
 
-    // Poll READY bit (busy-wait for conversion to complete, typically ~2 µs)
+    // spin-ok: one conversion, ~2 µs — an interrupt round trip would cost more
     while p.ADC.cs().read().ready().bit_is_clear() {}
 
     math::raw_to_volts(p.ADC.result().read().result().bits())

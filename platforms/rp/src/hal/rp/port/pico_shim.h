@@ -58,6 +58,7 @@ static inline bool spin_try_lock_unsafe(spin_lock_t *lock) {
 }
 
 static inline void spin_lock_unsafe_blocking(spin_lock_t *lock) {
+    /* spin-ok: the SMP kernel's own critical-section lock, held for a handful of instructions */
     while (*lock == 0u) {
         __asm volatile("" ::: "memory");
     }

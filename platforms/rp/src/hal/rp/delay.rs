@@ -21,6 +21,7 @@ const NS_PER_CYCLE: u32 = 8; // 125 MHz: 8 ns/cycle
 
 impl DelayNs for RpDelay {
     fn delay_ns(&mut self, ns: u32) {
+        // spin-todo: F2 — the panel and touch drivers run this from the JVM task; WP2 sleeps >= 1 ms on the kernel
         cortex_m::asm::delay(ns / NS_PER_CYCLE);
     }
 }

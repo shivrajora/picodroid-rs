@@ -79,6 +79,10 @@ mod hal_rp_spi_xfer_tests;
 #[cfg(test)]
 #[path = "hal/rp/cyw43/config_guard.rs"]
 mod hal_rp_cyw43_config_guard_tests;
+// The spin ledger: every busy-wait in the family and the shared HAL is
+// written with spin_until! or carries a spin-ok / spin-todo excuse.
+#[cfg(test)]
+mod spin_guard;
 // The flash-layout generator (build_support): pure arithmetic over the MCU
 // and board tomls plus the rendered MEMORY block, pinned against the linker
 // scripts it replaced.

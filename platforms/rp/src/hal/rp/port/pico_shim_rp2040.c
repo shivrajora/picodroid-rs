@@ -67,7 +67,7 @@ void multicore_reset_core1(void) {
     volatile uint32_t *frce_off = (volatile uint32_t *)(PSM_BASE + PSM_FRCE_OFF_OFFSET);
 
     *hw_set_alias(frce_off) = PSM_FRCE_OFF_PROC1;
-    /* Fence: wait until the reset is visible */
+    /* spin-ok: PSM reset fence, a few bus cycles, before the scheduler runs */
     while (!(*frce_off & PSM_FRCE_OFF_PROC1)) {
         __asm volatile("" ::: "memory");
     }

@@ -131,10 +131,12 @@ pub fn write_byte(uart_id: u8, byte: u8) {
     let p = unsafe { pac::Peripherals::steal() };
     match uart_id {
         0 => {
+            // spin-todo: F14 — TX FIFO-full spin from a JVM task; WP9 adds a TX ring + interrupt
             while p.UART0.uartfr().read().txff().bit_is_set() {}
             p.UART0.uartdr().write(|w| unsafe { w.data().bits(byte) });
         }
         _ => {
+            // spin-todo: F14 — as UART0
             while p.UART1.uartfr().read().txff().bit_is_set() {}
             p.UART1.uartdr().write(|w| unsafe { w.data().bits(byte) });
         }

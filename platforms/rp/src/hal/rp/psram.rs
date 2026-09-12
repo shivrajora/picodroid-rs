@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The QSPI PSRAM on the module's second chip select.
 //!
+//! spin-ok-file: the QMI direct-mode exchanges below poll CSR bits for a
+//! few bus cycles each, once, before the scheduler exists (`main.rs` runs
+//! [`init`] ahead of `boot_tasks::start_tasks`); nothing can be starved.
+//!
 //! An APS6404L-class part — 8 MB on the Pimoroni Pico Plus 2 W — hangs off
 //! the same QSPI pads as the flash, selected by XIP_CS1n on the pad the MCU
 //! toml names (`psram_cs_pin`), and is reached through the QMI's memory
