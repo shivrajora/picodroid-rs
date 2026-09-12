@@ -332,6 +332,22 @@ execution-identical (parity P1) — only sensor/HW-driven allocation patterns di
 
 ## Long-term stability
 
+### No busy-waits, no polling — scheduling audit 2026-09-12
+
+`docs/scheduling-audit-2026-09.md` is the full-tree scan for tasks that spin on a flag, count
+CPU cycles, or sleep-poll a condition where an interrupt, DMA completion, queue, semaphore or
+task notification exists, ranked F1–F20 with a work-package plan and an offensive-guard design
+(source-level spin ledger, config assertions, a zero-cost `sched-diag` runtime monitor and the
+`spin_until!` helper). The spine — UI loop on a queue, Java waits on notifications, monitors as
+kernel mutexes, blocking sockets, IRQ-driven CYW43/buttons/I²C/display DMA — was found sound;
+the defects were in port glue and a few HAL waits. Landed the same day: the CYW43 port's 1 ms
+polls now yield instead of nop-spinning (F1/F9), the wall-clock seqlock writer runs scheduler-
+atomic (F4), every remaining DMA-abort and core-1 handshake spin is bounded and named (F13/F19),
+both idle tasks execute `wfi` (F15), `Thread.join` no longer has a 20 ms poll fallback (F19), and
+`rtt-lossy` exists for probe-attached timing work (F6). **Tradeoff:** the guards are text scans
+and a runtime monitor, not a type-level ban — a spin written in inline asm or C still needs a
+`spin-ok` marker and a reviewer who asks why.
+
 ### GC root registration that can't be forgotten — DONE 2026-07-26
 
 Replace "remember to edit `gc_visit_roots` when adding a native listener map" with a central
