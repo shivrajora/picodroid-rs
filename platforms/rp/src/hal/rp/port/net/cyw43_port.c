@@ -36,15 +36,31 @@ static uint64_t get_time_us(void) {
 
 void cyw43_delay_us(uint32_t us) {
     if (us == 0) return;
+    /* A millisecond or more is a settling wait (the 150 ms post-power-on
+     * wait in cyw43_ll_bus_init), never bus timing: sleep it on the kernel,
+     * rounded up a tick so the wait is at least what was asked. Only a
+     * sub-millisecond wait, or one issued before the scheduler runs, burns
+     * cycles (docs/scheduling-audit-2026-09.md, F9). */
+    if (us >= 1000 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        vTaskDelay(pdMS_TO_TICKS(us / 1000) + 1);
+        return;
+    }
     uint64_t target = get_time_us() + us;
-    while (get_time_us() < target) {
+    while (get_time_us() < target) { /* spin-ok: sub-ms bus timing, or pre-scheduler */
         __asm volatile("nop");
     }
 }
 
 void cyw43_delay_ms(uint32_t ms) {
-    /* For longer delays, yield to FreeRTOS scheduler */
-    if (ms >= 2 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+    /* Every millisecond-scale wait yields -- including the driver's 1 ms
+     * poll cadence (CYW43_DO_IOCTL_WAIT, CYW43_SDPCM_SEND_COMMON_WAIT and
+     * the F2-ready loop). This used to be gated on `ms >= 2`, which turned
+     * every one of those polls into a hard nop spin: up to 500 ms per ioctl
+     * on the cyw43 task, 1 s per TX-credit stall on the IP task and 3 s at
+     * F2 bring-up (docs/scheduling-audit-2026-09.md, F1). At the 1 kHz tick
+     * vTaskDelay(1) sleeps to the next tick edge, which is exactly the
+     * cadence the driver's microsecond-timer timeouts assume. */
+    if (ms >= 1 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
         vTaskDelay(pdMS_TO_TICKS(ms));
     } else {
         cyw43_delay_us(ms * 1000);
