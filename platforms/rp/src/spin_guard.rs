@@ -64,7 +64,7 @@ mod tests {
     const EXPECTED_SPIN_OK: usize = 14;
     /// `spin-todo:` markers: audit findings not yet replaced. Only ever
     /// lowered by the work package that replaces one.
-    const EXPECTED_SPIN_TODO: usize = 6;
+    const EXPECTED_SPIN_TODO: usize = 5;
 
     /// A wait built from one of these is a busy-wait by construction.
     const BANNED_TOKENS: &[&str] = &[

@@ -111,7 +111,38 @@ static mut USB: UsbState = UsbState {
 };
 
 /// Signalled by ISR when an EP1 IN transfer completes.
-static EP1_IN_DONE: AtomicBool = AtomicBool::new(true);
+/// Completions of bulk-IN transfers: posted by the USB interrupt, received
+/// by the writer before it arms the next transfer. A depth-1 queue holding a
+/// token, which is what a binary semaphore is — but over the queue calls the
+/// RX path already links, so the pdb task blocks for the completion instead
+/// of spinning at priority 21 on the JVM's core at no cost to the RP2040's
+/// flash (a semaphore's or a notification's own ISR entry points were ~1 KB
+/// there; docs/scheduling-audit-2026-09.md, F3).
+static EP1_IN_READY: QueueCell = QueueCell(UnsafeCell::new(None));
+
+/// Set when a completion never came within [`TX_TIMEOUT_MS`] — the host
+/// stopped collecting (a client killed mid-response, a suspended bus).
+/// Every later write is dropped until the host re-enumerates; the old flag
+/// spin waited forever and took the JVM down with it.
+static TX_DEAD: AtomicBool = AtomicBool::new(false);
+
+/// Full-speed bulk moves a 64-byte packet per 1 ms frame; a completion
+/// later than this is a host that has gone away.
+const TX_TIMEOUT_MS: u32 = 500;
+
+fn ep1_in_ready() -> Option<&'static Queue<u8>> {
+    unsafe { (*EP1_IN_READY.0.get()).as_ref() }
+}
+
+/// ISR context: a bulk-IN transfer completed (or the endpoint was just
+/// configured). Post the token; a full queue means it is already there.
+#[inline(never)]
+fn ep1_in_ready_from_isr() {
+    if let Some(q) = ep1_in_ready() {
+        let mut ctx = InterruptContext::new();
+        let _ = q.send_from_isr(&mut ctx, 0u8);
+    }
+}
 
 // ── Flow-control counters ───────────────────────────────────────────────────
 //
@@ -242,7 +273,8 @@ unsafe fn handle_setup() {
                 wr(DP_EP2_IN_CTRL, EC_ENABLE | EC_INTERRUPT | 0x1C0);
                 USB.ep1_in_pid = false;
                 USB.ep1_out_pid = false;
-                EP1_IN_DONE.store(true, Ordering::Release);
+                TX_DEAD.store(false, Ordering::Release);
+                ep1_in_ready_from_isr();
                 arm_ep1_out();
             }
             ep0_zlp();
@@ -385,7 +417,7 @@ extern "C" fn USBCTRL_IRQ() {
                 handle_ep1_out_data();
             }
             if bs & BS_EP1_IN != 0 {
-                EP1_IN_DONE.store(true, Ordering::Release);
+                ep1_in_ready_from_isr();
             }
         }
     }
@@ -397,6 +429,10 @@ extern "C" fn USBCTRL_IRQ() {
 pub fn init() {
     let q = Queue::new(512).expect("pdb usb rx queue");
     unsafe { *USB_RX_QUEUE.0.get() = Some(q) };
+    // The endpoint starts out ready: one token in the completion queue.
+    let ready = Queue::new(1).expect("pdb usb ep1-in queue");
+    let _ = ready.send(0u8, Duration::zero());
+    unsafe { *EP1_IN_READY.0.get() = Some(ready) };
 
     // Release USBCTRL from reset.
     {
@@ -497,15 +533,22 @@ pub fn queue_read_byte_timeout() -> Option<u8> {
     b
 }
 
-/// Read one byte using busy-wait with hardware timer timeout.
-/// Works when the FreeRTOS tick is frozen (RP2350, core 0 parked).
+/// Read one byte with a timeout kept on the hardware timer rather than the
+/// tick, for the install stream on a chip whose tick freezes during every
+/// flash window (RP2350: `configTICK_CORE 0`, and the window masks core 0's
+/// interrupts). Each attempt blocks on the queue for one tick — a byte
+/// arriving wakes it at once, and the wait costs no cycles — and the
+/// deadline is checked against the free-running microsecond timer, which a
+/// frozen tick cannot stall. The task itself is what opens a flash window,
+/// so it is never blocked here while the tick is frozen; a window opened by
+/// the fs worker delays one attempt by at most its length.
 #[cfg(feature = "chip-rp2350")]
 pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
     const TIMERAWL: usize = 0x400B_0000 + 0x28;
     let timer = || unsafe { read_volatile(TIMERAWL as *const u32) };
     let start = timer();
     loop {
-        if let Ok(byte) = rx_queue().receive(Duration::zero()) {
+        if let Ok(byte) = rx_queue().receive(Duration::ms(1)) {
             on_byte_consumed();
             return Some(byte);
         }
@@ -524,12 +567,24 @@ pub fn queue_read_u32_le() -> u32 {
     u32::from_le_bytes([b0, b1, b2, b3])
 }
 
-/// Wait for the previous EP1 IN transfer to complete.
-fn wait_tx_ready() {
-    // spin-todo: F3 — unbounded spin on an ISR flag at priority 21; WP3 makes
-    // the USB interrupt give a semaphore instead (docs/scheduling-audit-2026-09.md)
-    while !EP1_IN_DONE.load(Ordering::Acquire) {
-        cortex_m::asm::nop();
+/// Block until the previous EP1 IN transfer has completed and claim the
+/// endpoint for the next one. False when the host has stopped collecting
+/// (no completion within [`TX_TIMEOUT_MS`]): the transport is dead until it
+/// re-enumerates, and callers drop their bytes rather than wait again.
+///
+#[inline(never)]
+fn wait_tx_ready() -> bool {
+    if TX_DEAD.load(Ordering::Acquire) {
+        return false;
+    }
+    let Some(q) = ep1_in_ready() else {
+        return false;
+    };
+    if q.receive(Duration::ms(TX_TIMEOUT_MS)).is_ok() {
+        true
+    } else {
+        TX_DEAD.store(true, Ordering::Release);
+        false
     }
 }
 
@@ -537,8 +592,9 @@ fn wait_tx_ready() {
 /// Automatically splits into 64-byte USB packets.
 pub fn write_bytes(data: &[u8]) {
     for chunk in data.chunks(64) {
-        wait_tx_ready();
-        EP1_IN_DONE.store(false, Ordering::Release);
+        if !wait_tx_ready() {
+            return;
+        }
         unsafe {
             dpram_write(BUF_EP1_IN, chunk);
             let pid = if USB.ep1_in_pid { BC_DATA1 } else { 0 };
@@ -551,7 +607,12 @@ pub fn write_bytes(data: &[u8]) {
     }
 }
 
-/// Wait until the last USB IN transfer has completed.
+/// Wait until the last USB IN transfer has completed. Nothing is armed
+/// afterwards, so the readiness claimed here is handed straight back.
 pub fn drain_tx() {
-    wait_tx_ready();
+    if wait_tx_ready() {
+        if let Some(q) = ep1_in_ready() {
+            let _ = q.send(0u8, Duration::zero());
+        }
+    }
 }

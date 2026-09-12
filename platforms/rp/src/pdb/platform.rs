@@ -26,8 +26,9 @@ impl PdbTransport for CdcTransport {
     fn read_byte_timeout(&mut self) -> Option<u8> {
         // Only reached while streaming an install. On RP2350
         // (`configTICK_CORE = 0`) every flash erase/program window disables
-        // core 0 interrupts and freezes the FreeRTOS tick, so a tick-based
-        // timeout would never fire — busy-wait on the hardware timer instead.
+        // core 0 interrupts and freezes the FreeRTOS tick, so the timeout is
+        // kept on the hardware timer instead (the wait itself still blocks
+        // on the queue, a tick at a time).
         //
         // The fork lives here rather than at the call site because it is an
         // answer to "how does a read time out on this chip", which is exactly
