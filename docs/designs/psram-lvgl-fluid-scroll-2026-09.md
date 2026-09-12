@@ -39,7 +39,8 @@ two largest wins in the profiling need no memory at all:
   scroll step from 139,520 px to about 15,000. Zero RAM. Neither command
   appears in `drivers/st7796.rs` today.
 - **S2 and S3**, an honest `lv_tick_inc` and a 16 ms refresh period, recover
-  roughly 15 % of the frame. Zero RAM.
+  roughly 15 % of the frame. Zero RAM. **S3 has landed**, measured: every paint
+  waited three ticks and now waits one (§4 of the scroll doc).
 - **S5's cheap variant**, two 6.4 KB buffers at a 10-row band height instead of
   one 12.8 KB buffer at 20 rows, is RAM-neutral.
 
@@ -276,7 +277,7 @@ lands and the pre-rendered page becomes the next thing worth having.
 
 | # | Step | Needs PSRAM | Effort | Buys |
 |---|---|---|---|---|
-| 1 | S3: `LV_DEF_REFR_PERIOD` 33 -> 16 | no | one line | the 15-30 ms of idle per frame |
+| 1 | **S3: `LV_DEF_REFR_PERIOD` 33 -> 16 — done** | no | one line | 3 ticks per paint became 1; ceiling 20 -> 62 fps |
 | 2 | S2: honest `lv_tick_inc` | no | hours | animation and fling timing that is correct rather than approximate |
 | 3 | **S6 measurement**: style-cache A/B, XIP cache counters | no | one flash cycle | decides most of what follows |
 | 4 | S5 RAM-neutral variant: 10-row bands, two buffers | no | a day | answers the per-band-overhead question; hides some SPI |

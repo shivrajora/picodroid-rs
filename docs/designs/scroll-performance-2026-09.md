@@ -3,8 +3,8 @@
 > Measured 2026-09-11 against `982c4cf` on `pico_touch_kit` hardware, driving
 > `picoclock`'s Set-time screen with `pdb input swipe` and a temporary defmt
 > probe in `graphics/lvgl/lifecycle.rs`. The probe timed each band's render and
-> flush separately; it was reverted and is not in the tree. **S1 has since
-> landed** (§3); nothing else in §3–§7 is started.
+> flush separately; it was reverted and is not in the tree. **S1 and S3 have
+> since landed** (§3, §4); nothing else in §3–§7 is started.
 
 The complaint that started this: scrolling the Set-time screen is slow, choppy,
 and tears badly. All three are real, and they are three symptoms of one
@@ -177,15 +177,45 @@ consequence to watch for: an honest clock means LVGL will see a 120 ms step and
 advance animations in one large jump rather than several small ones, so this
 wants measuring alongside S1 rather than on its own.
 
-### S3. Align the refresh period with the tick
+### S3. Align the refresh period with the tick — **done**
 
-`LV_DEF_REFR_PERIOD` is 33 and the tick arrives every 16 ms. `lv_timer` sets
+`LV_DEF_REFR_PERIOD` was 33 and the tick arrives every 16 ms. `lv_timer` sets
 `last_run = lv_tick_get()` with no credit carried (`lv_timer.c:348`), so a 33 ms
-period needs three ticks — 48 ms — and loses 15 ms every frame. Setting the
-period to 16 costs nothing and recovers the ~19–30 ms of idle measured above.
+period needed three ticks and spent two of them waiting. The period is now 16,
+which costs nothing and recovers the ~19–30 ms of idle measured above.
 
-Mostly subsumed by S2, but worth stating separately because it is a one-line
-change that stands on its own if S2 turns out to be awkward.
+Measured in the simulator before and after with a temporary probe that forced a
+full-screen invalidation on every tick — so the refresh period was the only
+thing limiting the paint rate — and reported how many ticks each paint had
+waited for. The probe was reverted and is not in the tree.
+
+| `LV_DEF_REFR_PERIOD` | Ticks waited per paint | Paint interval |
+|---|---:|---:|
+| 33 | 3, on every one of 1,105 paints | 50 ms |
+| 16 | 1, on every one of 4,800 paints | 16 ms |
+
+There is no distribution to report: the quantisation is exact, which is what
+makes this a mismatch rather than a tuning choice.
+
+What it does and does not buy. Nothing about the *work* per frame changed, so on
+the touch board the 120 ms of render and transfer is untouched and the gain
+today is the 19-30 ms of idle measured in §1. What it really buys is that S4
+will not be immediately capped: with a 48 ms quantum in place, a frame whose
+work fell to 13 ms would still have landed at 20 fps. The ceiling is now the
+tick itself, 62 fps.
+
+Not yet re-measured on hardware — the before/after above is the simulator,
+where the quantum is the same because the tick and the period are both
+family-neutral. The 19-30 ms it should recover on the board is the figure from
+§1, not a new measurement.
+
+Because the tick and the period have to agree, a guard test in
+`executors/tick_source.rs` reads the define out of `lvgl/lv_conf.h` and asserts
+it equals `TICK_PERIOD_MS`. There were already three hard-coded 16s across two
+files; this was the fourth, and the only one that disagreed.
+
+Mostly subsumed by S2, but it stood on its own as a one-line change, which is
+why it went first.
 
 ## 5. Pixels
 
