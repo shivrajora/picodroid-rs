@@ -4,7 +4,8 @@
 > `picoclock`'s Set-time screen with `pdb input swipe` and a temporary defmt
 > probe in `graphics/lvgl/lifecycle.rs`. The probe timed each band's render and
 > flush separately; it was reverted and is not in the tree. **S1 and S3 have
-> since landed** (§3, §4); nothing else in §3–§7 is started.
+> since landed** (§3, §4), and **S6 was measured on 2026-09-11** (§5) — it found
+> no hot spot, which makes S4 the remaining lever. Nothing else is started.
 
 The complaint that started this: scrolling the Set-time screen is slow, choppy,
 and tears badly. All three are real, and they are three symptoms of one
@@ -271,25 +272,226 @@ options:
   test, so test it rather than argue about it.
 - **Free the memory elsewhere** — which is §7.
 
-### S6. Find out why a pixel costs 78–138 cycles
+### S6. Why a pixel costs 114 cycles — **measured 2026-09-11, three more hypotheses dead**
 
-The largest single term in the frame is also the least understood. Two
-hypotheses were eliminated by measurement (§2) and no replacement was
-established, so this should be measured before anything here is optimised.
+The largest single term in the frame was also the least understood. It has now
+been measured on hardware, and the answer is that there is no hot spot to fix.
 
-Three candidates, in the order they are cheap to test:
+Method: a temporary probe in `lifecycle.rs` split each frame into CPU render and
+SPI flush, accumulated across the frame's bands and reported once per painted
+frame, with the RP2350's `XIP_CTRL` hit and access counters cleared at frame
+start and read at frame end. Input was scripted through `pdb input` — a tap on
+Set time, then three 400 ms upward swipes — so every variant below saw an
+identical gesture. The probe was reverted and is not in the tree.
 
-- **`LV_OBJ_STYLE_CACHE` is 0.** Every style property read walks the object's
-  style list and its parent chain for inherited properties, on every draw of
-  every object in every band. LVGL v9 added this cache for exactly this. Costs
-  a little RAM per object, which §7 would pay for. One flash cycle to A/B.
-- **Execution from XIP flash.** The draw code, the style machinery and the font
-  glyphs all live in flash behind a small cache. The RP2350 exposes cache hit
-  and access counters; reading them across a scroll would settle it directly,
-  and is the single most informative measurement left.
-- **No assembly blend path.** `LV_USE_DRAW_SW_ASM` is `NONE`. The M33 here has
-  DSP instructions but **not** Helium, so `LV_USE_NATIVE_HELIUM_ASM` stays off;
-  ARM2D is the only candidate and its benefit on this core is unproven.
+**Steady-state scrolling, 49 frames:**
+
+| Quantity | Value |
+|---|---:|
+| CPU render | 107.2 ms |
+| SPI flush | 38.7 ms |
+| Frame | 147.7 ms (6.8 fps) |
+| Per pixel, over 140,800 px | 114 cycles |
+| XIP cache accesses | 19.5 M per frame |
+| XIP cache misses | 103 k per frame |
+| **XIP miss rate** | **0.53 %** |
+| XIP accesses per cycle | 1.22 |
+
+**The renderer is not starved for instructions.** The cache serves more than one
+access per cycle at a 0.53 % miss rate, so execution from flash is not the
+constraint. That retires the measurement this section used to call the most
+informative one left.
+
+**Two A/B tests, same gesture, both negative:**
+
+| Variant | Steady render | Cost | Verdict |
+|---|---:|---:|---|
+| Baseline, C at `-Os` | 108.9 ms | — | — |
+| `LV_OBJ_STYLE_CACHE 1` | 113.7 ms | +480 B flash | no effect, reverted |
+| MCU `c_opt_level = "3"` | 115.1 ms | +92 KB flash | no effect, reverted |
+
+Both came out marginally *worse* than baseline, within run-to-run noise. The
+style cache is worth a note of its own: it costs 8 bytes per widget out of the
+LVGL pool rather than `.bss`, so it was affordable all along and never needed
+§7's freed RAM — it simply does not help. Keep it off.
+
+`-O3` failing is the more interesting one. Better codegen not helping, and
+inflating the image slightly hurting, would fit a fetch-stalled loop — except
+the counters say the fetches are hitting. What both results together say is that
+the work is real, executed, and diffuse: not style-list walks, not instruction
+supply, not the quality of the generated code.
+
+**So five hypotheses are now dead**: the DatePicker and the RGB565 byte swap
+(§2), style lookups, C optimisation level, and XIP instruction fetch. 114 cycles
+per pixel is simply what this renderer costs for this widget tree.
+
+**The conclusion that matters: stop trying to make a pixel cheaper and render
+far fewer pixels.** Because the cost is diffuse and scales with area, S4's 9x
+reduction in pixels per scroll step should convert almost directly into a 9x
+reduction in render time. S4 no longer needs S6's permission — S6 has given it.
+
+One candidate is left untested, and is not recommended first:
+`LV_USE_DRAW_SW_ASM` is `NONE`. This M33 has DSP instructions but **not**
+Helium, so `LV_USE_NATIVE_HELIUM_ASM` stays off; ARM2D is the only option and
+its benefit on this core is unproven. Given that `-O3` on the same loops bought
+nothing, expect little.
+
+### S6b. The entry paint is the worst frame on the board, and nobody had measured it
+
+Entering the Set-time screen costs **417 ms**, and the second paint 366 ms,
+against 148 ms for a steady scroll frame. That is the visible top-to-bottom wipe
+a user reports on entry, and it is three to four times a scroll frame rather than
+the same cost.
+
+It is not cache warming. The miss rate on those frames is ordinary (0.58 % and
+0.95 %), but the access count is **55.9 M and 31.9 M against 19.5 M** for a
+steady frame. The first paints execute roughly three times as many instructions,
+then the cost settles. That is layout and first-draw work, not memory.
+
+**S4 does nothing for this.** Hardware vertical scroll makes scroll steps
+cheaper and leaves a full repaint exactly where it is.
+
+#### Where the first paint's time goes
+
+A per-band probe — same method, printing each band's draw and flush instead of
+only the frame total — localises it. `lv_refr.c:402` runs
+`lv_obj_update_layout` inside the refresh timer and before the first band
+flushes, so band 1 carries layout as well as its own drawing.
+
+| Band, screen y | Entry paint | 2nd paint | Steady |
+|---|---:|---:|---:|
+| 1, carries layout | 104 ms | 41 ms | 10-13 ms |
+| 2-5, y 64-124 | | 6 ms each | 7-11 ms |
+| **6-16, y 144-344** | | **20-24 ms each** | **3-8 ms** |
+| 17-18, y 364-384 | | 4 ms each | 2-4 ms |
+| 19-22, y 404-464 | | 8-10 ms each | 2 ms each |
+
+Same content and the same scroll offset in all three columns, so the middle rows
+are warm-up rather than geometry. Eleven bands at 20-24 ms is about 180 ms, which
+made it a bigger item than layout.
+
+#### It is the DatePicker, confirmed by removing it
+
+Those bands are where the calendar sits: a 200 px `DatePicker` at page offset
+134, which is a 56-cell button matrix. Hiding it with `setVisibility(INVISIBLE)`
+and re-measuring the *entry* paint:
+
+| | Entry paint | 2nd paint | Steady scroll |
+|---|---:|---:|---:|
+| Calendar visible | 447 ms | 366 ms | 148 ms |
+| Calendar hidden | 244 ms | 172 ms | 148 ms |
+| **Saving** | **203 ms (45 %)** | **194 ms (53 %)** | **none** |
+
+Band 1 falls from 104 ms to about 10 ms, so the calendar dominated what looked
+like layout cost too.
+
+**This reconciles the §2 result that retired the DatePicker.** That test measured
+scroll frames, where the widget has already warmed to 3-8 ms per band and really
+does cost nothing. Both results are right; they measure different frames. Record
+the distinction rather than re-litigating either.
+
+#### What to do about it
+
+In increasing order of scope, and none of them measured yet:
+
+- **Avoid the widget on this screen.** `SetTimeActivity` already has its own year
+  and month steppers and uses the calendar only to pick a day of the month. A day
+  stepper would remove 200 ms from the first paint outright. Cheapest by far, and
+  it is an app change rather than a framework one.
+- **Find out what warms up.** The first two paints execute roughly three times
+  the instructions of the third with identical content. If that is a computation
+  that could happen at construction time, the wipe does not get shorter but it
+  stops being the *first* thing a user sees. This wants a per-function profile.
+- **Clip rejection in the button matrix.** `lv_buttonmatrix.c`'s `draw_main`
+  iterates all 56 cells for every band with no clip test. Note this is probably
+  *not* the warm-up mechanism, since steady frames are cheap with the same cell
+  count — so treat it as a separate, general improvement, and it means patching
+  vendored LVGL.
+- **Render out of sight.** The general fix for any expensive first paint, and the
+  pre-rendered-page idea in
+  [psram-lvgl-fluid-scroll-2026-09.md](psram-lvgl-fluid-scroll-2026-09.md) §5.
+
+### S9. Taller bands — **measured 2026-09-11, the cheapest real win found**
+
+> Implementation plan, written as a hand-off:
+> [band-height-120-2026-09.md](band-height-120-2026-09.md). It explains what
+> a "band" is, carries the bench recipe, and states the heap trade.
+
+Every band holds exactly the same number of pixels, 320 x 20 = 6,400. Yet within
+one steady frame bands cost between 1.9 ms and 11 ms, and on a first paint up to
+24 ms. A six-fold spread at constant area means the cost is not per-pixel at all:
+it tracks how many widgets intersect the band, and a widget spanning eleven bands
+has its setup done eleven times.
+
+So the lever is **fewer bands**, which means a bigger draw buffer. The only place
+on this board with that much SRAM is the FreeRTOS arena, so the test traded some
+of it: MCU `heap_kb` 408 -> 344 (frees 65,536 B) and board `band_height`
+20 -> 120 (costs 64,000 B), taking a full repaint from 22 bands to 4. Total RAM
+went *down* slightly and main-stack headroom went *up*, to 13,696 B.
+
+Identical scripted gesture, same probe as S6:
+
+| | Render | Flush | Frame | fps |
+|---|---:|---:|---:|---:|
+| `band_height = 20`, 22 bands | 108.9 ms | 39.0 ms | 149.6 ms | 6.69 |
+| `band_height = 120`, 4 bands | **59.2 ms** | 35.9 ms | **96.3 ms** | **10.39** |
+| Change | **-46 %** | -8 % | **-36 %** | **+55 %** |
+
+The entry paint improves by as much: 447 ms -> 248 ms, and the second paint
+366 ms -> 174 ms. The flush gain is a small bonus from four window-setup command
+sequences instead of twenty-two.
+
+**A cost model, from two points.** 18 fewer bands saved 49.7 ms, so a band costs
+about 2.76 ms of pure setup on this screen. That extrapolates to ~54 ms of render
+at one band, which is the floor this widget tree can reach — around 54 cycles per
+pixel of genuinely per-pixel work.
+
+**A third point, measured with WiFi associated**, confirms the model and is the
+configuration to ship: `band_height = 60` (8 bands), `heap_kb = 384`.
+
+| Config | Bands | Render | Flush | Frame | fps | Arena cut | Entry paint |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `band_height 20` | 22 | 108.9 ms | 39.0 ms | 149.6 ms | 6.69 | — | 447 ms |
+| `band_height 60` | 8 | 72.8 ms | 36.5 ms | 110.6 ms | 9.04 | 24 KB | 293 ms |
+| `band_height 120` | 4 | 59.2 ms | 35.9 ms | 96.3 ms | 10.39 | 64 KB | 248 ms |
+
+The model predicted 70.2 ms render and 9.3 fps for the 8-band case against 72.8
+and 9.04 measured, so per-band setup really is close to linear here.
+
+**The arena cost is smaller than feared, and WiFi barely moves it.** `pdb sysmon`
+low-water marks, after driving the same gesture:
+
+| Arena | Network | Lowest free | Peak use |
+|---|---|---:|---:|
+| 352,256 B (`heap_kb 344`) | down | 76,712 B | 275,544 B |
+| 393,216 B (`heap_kb 384`) | **up, IP assigned** | 116,896 B | 276,320 B |
+
+Peak arena use differs by under 800 bytes between the two, so **associating with
+an access point costs essentially no arena** — the network stack's buffers are not
+coming from it. The worry that a W board could not afford this trade was
+unfounded, and the 8-band config keeps 114 KB of margin with the radio up.
+
+Consequences:
+
+- **Most of the win is already captured at 4 bands.** Going to 2 bands would buy
+  perhaps 6 ms more for another 77 KB of arena. Not worth it.
+- **S5's RAM-neutral variant is refuted.** Halving band height to 10 rows for two
+  buffers would take a full repaint to 44 bands and add roughly 60 ms of setup —
+  far more than the ~36 ms of transfer it could hide. Do not build it. If
+  double-buffering is wanted, it has to be on top of *taller* bands, not instead
+  of them.
+
+**This also re-prices §7 entirely.** The LVGL pool is 65,536 B and a 120-row band
+buffer needs 64,000 B more than a 20-row one. Moving the pool to PSRAM funds the
+taller buffer almost exactly, with 1,536 B left over, and the JVM arena never has
+to shrink. That turns §7 from an enabling change with a speculative payoff into
+one with a measured one: **+55 % frame rate**. It is now the strongest argument
+for building PSRAM support, stronger than the double-buffering case that
+originally motivated it.
+
+Not verified by eye. The app runs and flushes four bands per paint, but nobody has
+confirmed the picture is correct at this band height, and tearing should if
+anything improve with fewer seams.
 
 ## 6. Tearing
 
@@ -388,13 +590,17 @@ S2 and S3 next, together, for the ~15 %, for animation timing that is simply
 correct rather than approximately correct, and because S1's per-sample
 timestamps are waiting on them.
 
-S6 before S4, S5 or §7. It is one flash cycle, it is the largest term in the
-frame, and two confident guesses about it have already been wrong. Spending
-weeks on §7 to unlock a style cache that turns out not to matter would be the
-expensive version of this mistake.
+S6 is **done**, and it says there is nothing to micro-optimise: 114 cycles per
+pixel of diffuse work, a 0.53 % cache miss rate, and no gain from either a style
+cache or `-O3` (§5). The guess that spending weeks on §7 might unlock a style
+cache that turns out not to matter was the right worry — the style cache does not
+matter, and it never needed §7 anyway.
 
-Then S4 or S5 depending on what S6 says, with §7 scheduled only if S5 is the
-answer and the cheap 10-row variant is not.
+**S4 is therefore the next thing to build.** It is the only item that cuts the
+quantity the cost actually scales with. S5 is worth taking alongside it for the
+transfer half, starting with the RAM-neutral 10-row variant, and §7 is needed
+only if that variant measures badly or the entry paint in S6b becomes the
+priority.
 
 S7 whenever somebody has the schematic open.
 
@@ -406,8 +612,11 @@ whose first step is a bench measurement rather than a code change.
 
 - Does the carrier route the panel's TE pin anywhere reachable? Decides §6
   entirely.
-- Is the per-pixel cost dominated by XIP misses, style lookups, or the blend
-  inner loop? S6 answers this and gates most of the rest.
+- ~~Is the per-pixel cost dominated by XIP misses, style lookups, or the blend
+  inner loop?~~ **Answered 2026-09-11: none of them** (§5). It is diffuse
+  executed work at 114 cycles/px, with the cache hitting 99.5 % of the time.
+- What are the extra 36 M instruction fetches in the first paint of a screen
+  doing? That is S6b, and it is the largest single frame cost on the board.
 - How much of the 1.6 ms per-band floor is fixed overhead? Decides whether the
   free double-buffering variant in S5 is a win or a wash.
 - Should the SPI request in `board.toml` be honoured rather than rounded up to

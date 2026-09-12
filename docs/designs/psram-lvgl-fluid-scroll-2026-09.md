@@ -30,6 +30,16 @@ several LVGL optimisations are currently unaffordable. Today:
 Moving the LVGL pool out of `.bss` returns 64 KB. That is the whole point of
 this work, and everything in §4 spends it.
 
+> **2026-09-11, measured: that 64 KB now has a price tag.** Raising the draw
+> band from 20 rows to 120 cuts frame time 36 % and lifts the frame rate 55 %,
+> and it needs 64,000 B — almost exactly the pool. Today the only way to fund
+> it is cutting the JVM arena, which is what
+> [band-height-120-2026-09.md](band-height-120-2026-09.md) does as an interim.
+> Moving the pool here repays that debt and costs the JVM nothing. This is now
+> the strongest reason to build §3, ahead of the double-buffering case below —
+> which §5 of [scroll-performance-2026-09.md](scroll-performance-2026-09.md)
+> also refutes in its RAM-neutral form.
+
 ## 2. Fluid scrolling does not need PSRAM
 
 Worth stating before planning three stages that buy nothing on their own. The
