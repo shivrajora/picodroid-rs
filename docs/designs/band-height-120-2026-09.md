@@ -1,6 +1,13 @@
 # Taller draw bands on the touch board: raise `band_height` to 120
 
-**Status: planned 2026-09-12, not started. Written as a hand-off** — it assumes
+**Status: landed 2026-09-12.** The two numbers in §3 are in, and the §6
+recipe re-run on the landed build gave 4 bands, a steady render of 61.6 ms, a
+98.3 ms frame (10.2 fps) and a 245 ms entry paint — the §2 table within noise.
+The §7 sweep (launcher, settings with Storage, Apps and About, an install) did
+not take the arena below the gesture's own low-water mark, so the 344 KB arena
+stands.
+
+**Written as a hand-off** — it assumes
 no context beyond this file. Every number in it was measured on
 `pico_touch_kit` hardware on 2026-09-11 and is reproducible with the recipe in
 §6. Companion to
@@ -156,7 +163,9 @@ gesture:
 | 393,216 B (`heap_kb 384`) | **up, IP assigned** | 116,896 B | 276,320 B |
 
 `picoclock` peaks around 276 KB, so a 344 KB arena leaves roughly **76 KB of
-margin, about 22 %**.
+margin, about 22 %**. On the landed build, with one alarm armed and a second
+package installed, the same gesture left 66,224 B — still well above the
+40 KB at which §7 says to back off.
 
 **Associating with WiFi costs essentially no arena.** Peak use differs by under
 800 bytes between radio-down and radio-up-with-an-IP, so the network stack's

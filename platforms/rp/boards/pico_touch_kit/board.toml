@@ -62,7 +62,9 @@ idle_timeout_ms = 0
 # .bss and every kilobyte comes straight off the core-0 main stack — the budget
 # that MAIN_STACK_FLOOR_BYTES guards and that the W boards' debug images
 # already faulted on once. Raise it only against a measured need, and re-check
-# the headroom the build prints.
+# the headroom the build prints. The 120-row draw band below was exactly such
+# a need, and its 64,000 B came out of the JVM arena (mcus/rp/rp2350b.toml
+# `heap_kb`), which is the only tenant of .bss big enough to fund it.
 
 # Deliberately no [jvm] block. pico_enviro_mon_w is the only board that sets
 # one, and scripts/pre-commit keeps its clippy leg last because those keys are
@@ -88,7 +90,14 @@ height = 480
 # Portrait, BGR panel order. 0x48 is MX | BGR, which is what the vendor
 # firmware selects; landscape 480x320 is 0x28 with width and height swapped.
 madctl = 0x48
-band_height = 20
+# 120 rows, not the 20 px default. LVGL renders in full-width horizontal bands
+# and walks the widget tree once per band an object crosses, and on this panel
+# that per-band setup dominated: 22 bands per repaint cost 109 ms of render,
+# 4 bands cost 59 ms (-46 %), frame time -36 %, the entry wipe 447 -> 248 ms,
+# all measured on the board (docs/designs/band-height-120-2026-09.md). The
+# buffer is 320 x 120 x 2 = 76,800 B of .bss against the default's 12,800;
+# 2 bands would buy ~6 ms more for another 77 KB, so this is where it stops.
+band_height = 120
 scroll_limit = 30
 
 [touch]

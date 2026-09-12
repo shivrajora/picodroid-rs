@@ -27,11 +27,21 @@ core_count = 2
 # Injected into the FreeRTOS C build AND the sim's default heap cap
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
 #
-# 408 KB, the same as the A variant and for the same reason: the core-0 main
-# stack is whatever .data + .bss leave of the 520 KB, and the arena is most of
-# .bss. The extra flash buys nothing here — SRAM is unchanged — so the
-# MAIN_STACK_FLOOR_BYTES headroom check in scripts/lib.sh applies unaltered.
-heap_kb = 408
+# 344 KB, not the A variant's 408: this descriptor funds the touch board's
+# 120-row draw band (board.toml `band_height`, 76,800 B of .bss against the
+# default's 12,800). The core-0 main stack is whatever .data + .bss leave of
+# the 520 KB and the arena is most of .bss, so the 64,000 B the buffer grew
+# came out of here — 65,536 B, which leaves the build's main-stack headroom
+# at 13,536 B over the 8,192 floor scripts/lib.sh enforces, a little more
+# than before. The margin was measured rather than reasoned about: picoclock
+# peaks at ~276 KB of arena with the radio up, the launcher and settings
+# sweep no deeper, so 352 KB leaves ~76 KB (22 %), and joining WiFi costs
+# under 1 KB of it (docs/designs/band-height-120-2026-09.md §5). The two
+# RP2350 descriptors no longer build identically; that was a convenience,
+# not a contract. Moving the 64 KB LVGL pool to this module's PSRAM
+# (docs/designs/psram-lvgl-fluid-scroll-2026-09.md) is what could give this
+# back.
+heap_kb = 344
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the
 # network stack and the WiFi driver) compiles at -Os instead of following
