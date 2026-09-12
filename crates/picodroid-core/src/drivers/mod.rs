@@ -27,3 +27,16 @@ pub mod ltr559;
 pub trait SpiFreqSwitch {
     fn set_frequency(&mut self, freq_hz: u32);
 }
+
+/// Extension trait for SPI buses that can run a write in the background.
+///
+/// `embedded_hal::spi::SpiBus::write` returns when the bytes are out. A panel
+/// driver flushing LVGL bands wants the other shape: start the DMA, go and
+/// render the next band, collect the completion later. The contract mirrors a
+/// borrow the type system cannot express: `data` must stay alive and
+/// unchanged from `start_write` until `wait_write` returns, and a bus with
+/// nothing in flight returns from `wait_write` at once.
+pub trait SpiAsyncWrite {
+    fn start_write(&mut self, data: &[u8]);
+    fn wait_write(&mut self);
+}

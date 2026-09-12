@@ -119,5 +119,6 @@ const _: () = {
     assert!(display::WIDTH == shared::SCREEN_WIDTH);
     assert!(display::HEIGHT == shared::SCREEN_HEIGHT);
     assert!(display::BAND_HEIGHT == shared::BAND_HEIGHT);
+    assert!(display::DRAW_BUFFERS == shared::DRAW_BUFFERS);
     assert!(display::SCROLL_LIMIT == shared::SCROLL_LIMIT);
 };

@@ -49,8 +49,9 @@ core_count = 2
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
 #
 # 344 KB, not the A variant's 408: this descriptor funds the touch board's
-# 120-row draw band (board.toml `band_height`, 76,800 B of .bss against the
-# default's 12,800). The core-0 main stack is whatever .data + .bss leave of
+# draw bands (board.toml `band_height` and `draw_buffers`: two 60-row
+# buffers, 76,800 B of .bss against the default's 12,800). The core-0 main
+# stack is whatever .data + .bss leave of
 # the 520 KB and the arena is most of .bss, so the 64,000 B the buffer grew
 # came out of here — 65,536 B, which leaves the build's main-stack headroom
 # at 13,536 B over the 8,192 floor scripts/lib.sh enforces, a little more

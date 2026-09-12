@@ -8,6 +8,14 @@ not take the arena below the gesture's own low-water mark, so the 344 KB arena
 stands. §9's follow-on was built the same day and measured; it is the reason
 the heap debt is *not* repaid — read §9 before flipping anything.
 
+**Reshaped 2026-09-12, same day:** S5 of the scroll doc made the flush
+asynchronous, and the board now spends the same 76,800 B as *two* 60-row
+buffers (`draw_buffers = 2`) rather than one of 120 — a fifth off a light
+full repaint, a wash on the entry paint, measured in
+[scroll-performance-2026-09.md](scroll-performance-2026-09.md) §5 S5. The
+arena number and every mechanism below stand; only "one buffer of 120"
+reads as "two of 60".
+
 **Written as a hand-off** — it assumes
 no context beyond this file. Every number in it was measured on
 `pico_touch_kit` hardware on 2026-09-11 and is reproducible with the recipe in

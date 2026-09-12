@@ -17,6 +17,7 @@ pub const WIDTH: u16 = generated::SCREEN_WIDTH;
 pub const HEIGHT: u16 = generated::SCREEN_HEIGHT;
 pub const BAND_HEIGHT: usize = generated::BAND_HEIGHT;
 pub const SCROLL_LIMIT: u8 = generated::SCROLL_LIMIT;
+pub const DRAW_BUFFERS: usize = generated::DRAW_BUFFERS;
 
 #[cfg(has_display)]
 mod inner {
@@ -87,6 +88,17 @@ mod inner {
         display().write_pixels(data);
     }
 
+    /// The asynchronous half of the flush: the band goes out by DMA and the
+    /// driver returns at once, holding chip select and the bus lock until
+    /// `write_pixels_wait` — or its next command — collects the completion.
+    pub fn write_pixels_start(data: &[u8]) {
+        display().write_pixels_start(data);
+    }
+
+    pub fn write_pixels_wait() {
+        display().write_pixels_wait();
+    }
+
     pub fn set_backlight(on: bool) {
         display().set_backlight(on);
     }
@@ -127,6 +139,8 @@ mod inner {
     pub fn init() {}
     pub fn set_window(_x0: u16, _y0: u16, _x1: u16, _y1: u16) {}
     pub fn write_pixels(_data: &[u8]) {}
+    pub fn write_pixels_start(_data: &[u8]) {}
+    pub fn write_pixels_wait() {}
     pub fn set_backlight(_on: bool) {}
     pub fn set_vertical_scroll_area(_top_fixed: u16, _rows: u16) {}
     pub fn set_vertical_scroll_start(_line: u16) {}

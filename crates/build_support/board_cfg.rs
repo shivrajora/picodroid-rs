@@ -838,15 +838,43 @@ pub fn emit_display_dims(out: &Path, board: &Option<ResolvedBoard>) {
             "pub const SCROLL_LIMIT: u8 = {};\n",
             get("scroll_limit")
         ));
+        let buffers = config::draw_buffers(d);
+        if buffers == 2 {
+            assert_draw_buffers_bus_rule(board);
+        }
+        code.push_str(&format!("pub const DRAW_BUFFERS: usize = {buffers};\n"));
     } else {
         // Must match config::emit_display_config's boardless defaults.
         code.push_str("pub const SCREEN_WIDTH: u16 = 320;\n");
         code.push_str("pub const SCREEN_HEIGHT: u16 = 240;\n");
         code.push_str("pub const BAND_HEIGHT: usize = 20;\n");
         code.push_str("pub const SCROLL_LIMIT: u8 = 30;\n");
+        code.push_str("pub const DRAW_BUFFERS: usize = 1;\n");
     }
 
     write_generated(out, "display_dims.rs", &code);
+}
+
+/// `draw_buffers = 2` means a band's transfer is still on the display's SPI
+/// bus while LVGL renders the next one — and, between frames, while the UI
+/// task runs Java. A touch controller on that same bus (the XPT2046, read
+/// inline from the UI task with its own chip select) would then clock the
+/// panel's data out from under the transfer. The GT911 is on I2C and the
+/// rule never bites there; a board with no `[touch]` at all is fine too.
+fn assert_draw_buffers_bus_rule(board: &Option<ResolvedBoard>) {
+    let Some(t) = board.as_ref().and_then(|b| b.cfg.touch.as_ref()) else {
+        return;
+    };
+    let driver = t.get("driver").map(String::as_str).unwrap_or("");
+    let shares_display_bus = config::KNOWN_TOUCH_DRIVERS
+        .iter()
+        .any(|(name, bus)| *name == driver && matches!(bus, config::TouchBus::Spi));
+    assert!(
+        !shares_display_bus,
+        "board.toml: [display] draw_buffers = 2 needs the panel's SPI bus to itself, but \
+         [touch] driver = \"{driver}\" reads the touch controller over the same bus; \
+         keep one buffer, or move the touch panel to a bus of its own"
+    );
 }
 
 /// Whether the board's panel can scroll a band of its own frame memory in

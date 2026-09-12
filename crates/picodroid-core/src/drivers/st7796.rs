@@ -18,6 +18,8 @@ use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiBus;
 
+use super::SpiAsyncWrite;
+
 // Commands shared with the ST7789.
 const CMD_SLPIN: u8 = 0x10;
 const CMD_SLPOUT: u8 = 0x11;
@@ -90,11 +92,14 @@ pub struct St7796<SPI, DC, CS, RST, BL, D> {
     width: u16,
     height: u16,
     madctl: u8,
+    /// A [`Self::write_pixels_start`] whose bytes may still be on the bus:
+    /// chip select is low, and every other method collects it first.
+    pending: bool,
 }
 
 impl<SPI, DC, CS, RST, BL, D> St7796<SPI, DC, CS, RST, BL, D>
 where
-    SPI: SpiBus,
+    SPI: SpiBus + SpiAsyncWrite,
     DC: OutputPin,
     CS: OutputPin,
     RST: OutputPin,
@@ -133,10 +138,12 @@ where
             width,
             height,
             madctl,
+            pending: false,
         }
     }
 
     fn write_command(&mut self, cmd: u8) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_low(); // command mode
         let _ = self.spi.write(&[cmd]);
@@ -144,6 +151,7 @@ where
     }
 
     fn write_command_data(&mut self, cmd: u8, data: &[u8]) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_low();
         let _ = self.spi.write(&[cmd]);
@@ -215,10 +223,33 @@ where
 
     /// Stream RGB565 pixel data to the display within the current window.
     pub fn write_pixels(&mut self, data: &[u8]) {
+        self.write_pixels_start(data);
+        self.write_pixels_wait();
+    }
+
+    /// Begin streaming RGB565 pixel data into the current window and return
+    /// while it is still going out. Chip select stays low and the bus stays
+    /// the transfer's until [`Self::write_pixels_wait`] — which every
+    /// command sent through this driver performs first, so a scroll
+    /// register write or a sleep can never cut a band short. The caller
+    /// keeps `data` alive and unchanged until then.
+    pub fn write_pixels_start(&mut self, data: &[u8]) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_high(); // data mode
-        let _ = self.spi.write(data);
+        self.spi.start_write(data);
+        self.pending = true;
+    }
+
+    /// Wait for the transfer [`Self::write_pixels_start`] began, then
+    /// release chip select. A no-op when nothing is in flight.
+    pub fn write_pixels_wait(&mut self) {
+        if !self.pending {
+            return;
+        }
+        self.spi.wait_write();
         let _ = self.cs.set_high();
+        self.pending = false;
     }
 
     /// Vertical scrolling definition: frame-memory lines `[top_fixed,
@@ -341,6 +372,24 @@ mod tests {
     struct FakeSpi {
         log: Log,
         dc_high: std::rc::Rc<std::cell::Cell<bool>>,
+        /// A `start_write` not yet collected by `wait_write`; the bytes are
+        /// logged at start, as the real bus reads them from the caller's
+        /// buffer, and `waits` counts the collections.
+        in_flight: bool,
+        waits: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl SpiAsyncWrite for FakeSpi {
+        fn start_write(&mut self, data: &[u8]) {
+            assert!(!self.in_flight, "started a write over one in flight");
+            let _ = self.write(data);
+            self.in_flight = true;
+        }
+        fn wait_write(&mut self) {
+            assert!(self.in_flight, "waited with nothing in flight");
+            self.in_flight = false;
+            self.waits.set(self.waits.get() + 1);
+        }
     }
 
     impl ErrorType for FakeSpi {
@@ -421,13 +470,32 @@ mod tests {
 
     type TestPanel = St7796<FakeSpi, LevelPin, LevelPin, RecordedPin, RecordedPin, NoDelay>;
 
+    /// The chip-select level and the number of asynchronous writes the bus
+    /// has been asked to collect, for the tests about the flush's two halves.
+    struct Wires {
+        cs_high: std::rc::Rc<std::cell::Cell<bool>>,
+        waits: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
     fn panel(madctl: u8) -> (TestPanel, Log) {
+        let (p, log, _) = panel_with_wires(madctl);
+        (p, log)
+    }
+
+    fn panel_with_wires(madctl: u8) -> (TestPanel, Log, Wires) {
         let log = Log::default();
         let dc = std::rc::Rc::new(std::cell::Cell::new(false));
         let cs = std::rc::Rc::new(std::cell::Cell::new(true));
+        let waits = std::rc::Rc::new(std::cell::Cell::new(0));
         let spi = FakeSpi {
             log: log.clone(),
             dc_high: dc.clone(),
+            in_flight: false,
+            waits: waits.clone(),
+        };
+        let wires = Wires {
+            cs_high: cs.clone(),
+            waits,
         };
         let p = St7796::new(
             spi,
@@ -446,7 +514,7 @@ mod tests {
             480,
             madctl,
         );
-        (p, log)
+        (p, log, wires)
     }
 
     #[test]
@@ -524,6 +592,54 @@ mod tests {
         let raset = log.pos_of(CMD_RASET).unwrap();
         let ramwr = log.pos_of(CMD_RAMWR).expect("RAMWR was sent");
         assert!(caset < raset && raset < ramwr, "CASET, RASET, then RAMWR");
+    }
+
+    #[test]
+    fn a_started_band_holds_chip_select_until_it_is_collected() {
+        let (mut p, log, w) = panel_with_wires(0x48);
+        p.set_window(0, 0, 1, 0);
+        p.write_pixels_start(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        // The bytes went to the bus as RAMWR's data and the panel is still
+        // selected: the transfer is the bus's until someone waits.
+        assert_eq!(log.data_for(CMD_RAMWR), Some(vec![0xAA, 0xBB, 0xCC, 0xDD]));
+        assert!(
+            !w.cs_high.get(),
+            "CS must stay low while the band is in flight"
+        );
+        assert_eq!(w.waits.get(), 0);
+
+        p.write_pixels_wait();
+        assert!(w.cs_high.get(), "CS rises once the transfer is collected");
+        assert_eq!(w.waits.get(), 1);
+
+        // Nothing in flight: waiting again asks the bus for nothing.
+        p.write_pixels_wait();
+        assert_eq!(w.waits.get(), 1);
+    }
+
+    #[test]
+    fn a_command_collects_the_band_in_flight_before_it_is_sent() {
+        let (mut p, log, w) = panel_with_wires(0x48);
+        p.set_window(0, 0, 1, 0);
+        p.write_pixels_start(&[0x11, 0x22, 0x33, 0x44]);
+        // A scroll step lands mid-flush on the real board; it must not
+        // deselect the panel with pixels still shifting out.
+        p.set_vertical_scroll_start(7);
+        assert_eq!(w.waits.get(), 1, "the command waited for the band first");
+        assert!(w.cs_high.get());
+        let ramwr = log.pos_of(CMD_RAMWR).unwrap();
+        let vscrsadd = log.pos_of(CMD_VSCRSADD).unwrap();
+        assert!(ramwr < vscrsadd, "the band's bytes precede the command's");
+        assert_eq!(log.data_for(CMD_RAMWR), Some(vec![0x11, 0x22, 0x33, 0x44]));
+    }
+
+    #[test]
+    fn the_synchronous_write_is_the_two_halves_back_to_back() {
+        let (mut p, _log, w) = panel_with_wires(0x48);
+        p.set_window(0, 0, 1, 0);
+        p.write_pixels(&[1, 2, 3, 4]);
+        assert!(w.cs_high.get());
+        assert_eq!(w.waits.get(), 1);
     }
 
     #[test]

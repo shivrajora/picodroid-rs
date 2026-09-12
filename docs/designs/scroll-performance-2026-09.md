@@ -5,9 +5,10 @@
 > probe in `graphics/lvgl/lifecycle.rs`. The probe timed each band's render and
 > flush separately; it was reverted and is not in the tree. **S1 and S3 have
 > since landed** (§3, §4), **S6 was measured on 2026-09-11** (§5) — it found
-> no hot spot — and **S4 landed on 2026-09-12** (§5): a scroll frame on the
-> Set-time screen went from 109 ms to 24 ms. What is left is in §5 S4's last
-> subsection and in §8.
+> no hot spot — **S4 landed on 2026-09-12** (§5): a scroll frame on the
+> Set-time screen went from 109 ms to 24 ms — and **S5 landed the same day**
+> (§5): the flush is asynchronous and the touch board renders into two
+> 60-row buffers. What is left is in §5 S4's last subsection and in §8.
 
 The complaint that started this: scrolling the Set-time screen is slow, choppy,
 and tears badly. All three are real, and they are three symptoms of one
@@ -360,12 +361,25 @@ Per-band probe lines on the same gesture, on this build:
   are where the next 10 ms is, not in pixels.
 - **The entry paint is untouched**, as §5 S6b predicted: 529 ms on this run.
 
-### S5. Overlap the transfer with the render
+### S5. Overlap the transfer with the render — **done 2026-09-12**
 
-Today render and DMA strictly serialise. The display is created with one 12.8 KB
-band buffer and a NULL second buffer (`lifecycle.rs`), and `draw_buf_flush`
-only overlaps when `lv_display_is_double_buffered` — so LVGL renders a band,
-blocks for its 1.8 ms of DMA, then renders the next.
+> Built as two defaulted `HalDisplay` methods, `write_pixels_start` and
+> `write_pixels_wait`, a `SpiAsyncWrite` extension trait the RP SPI layer
+> implements by splitting its DMA write into a start that keeps the bus lock
+> and a finish that collects the completion semaphore, and a `pending` flag
+> in both panel drivers so that every command — `set_window`, `VSCRSADD`, a
+> sleep — collects the band in flight before it deselects the panel.
+> `lifecycle.rs` sets LVGL's `flush_wait_cb` and never calls
+> `lv_display_flush_ready`; `flush_cb` starts the transfer and returns. The
+> second buffer is board.toml `draw_buffers = 2` (`build_support` refuses it
+> on a board whose touch controller shares the display's SPI bus), and
+> `pico_touch_kit` ships `band_height = 60, draw_buffers = 2`: the same
+> 76,800 B as the single 120-row buffer S9 landed. Measured below.
+
+Before this, render and DMA strictly serialised. The display was created with
+one band buffer and a NULL second buffer (`lifecycle.rs`), and `draw_buf_flush`
+only overlaps when `lv_display_is_double_buffered` — so LVGL rendered a band,
+blocked for its DMA, then rendered the next.
 
 Two changes are needed together, and neither works alone:
 
@@ -387,6 +401,50 @@ options:
   1.6 ms floor is fixed versus per-pixel is exactly what S6 answers. Cheap to
   test, so test it rather than argue about it.
 - **Free the memory elsewhere** — which is §7.
+
+#### What it bought
+
+S9 had since made the single buffer 120 rows and ruled out halving a 20-row
+band (§5 S9); the variant built is the one it allowed, two 60-row buffers on
+top of the taller band. Measured with a temporary per-frame probe in
+`lifecycle.rs` (render = the gaps between flush calls, wait = the time LVGL
+spent in `flush_wait_cb`, both reverted), the same firmware flashed twice,
+radio configured either way, three workloads: the §6 scroll gesture of
+[band-height-120-2026-09.md](band-height-120-2026-09.md), then five rounds of
+BACK to the clock face and a tap back into Set time — ten full 480-row
+repaints, alternating a light screen and the heaviest one on the board.
+
+| Frame | 1 x 120 rows (4 bands) | 2 x 60 rows (8 bands) | Change |
+|---|---:|---:|---:|
+| Clock-face repaint, 480 rows | 63.9 ms = 34.1 render + 29.1 wait | **51.3 ms** = 40.7 render + 9.5 wait | **-20 %** |
+| Set-time entry paint, 480 rows | 230.4 ms = 200.7 render + 29.1 wait | 229.4 ms = 227.8 render + 0.5 wait | 0 % |
+| Set-time scroll frame (S4), ~40 rows | 12.4 ms, 0.3 wait | 12.1 ms, 0.2 wait | 0 % |
+
+Three different answers from one mechanism, and the S9 cost model predicts
+all three. The transfer of a 60-row band is 4 ms; hiding it pays off only
+where the extra band's setup costs less than that. On the clock face a band
+costs 1.7 ms of setup, so the four extra bands cost 7 ms and hide 20 ms of
+transfer. On the Set-time entry paint a band costs 7 ms — the DatePicker's
+button matrix walks all 56 cells for every band that touches it, §5 S6b —
+so the four extra bands cost 27 ms and hide 29: a wash to the millisecond.
+A hardware-scrolled frame moves ~25 KB and had 0.3 ms of transfer to hide.
+
+So the double buffer is never a loss and sometimes a fifth, for no memory.
+What it is *not* is a way past the entry paint: that frame is render, and the
+transfer it serialised was 13 % of it. The residual 9.5 ms of wait on the
+clock face is the bands that render faster than they drain; a third buffer
+would take some of it, and a 120-row pair would take all of it and the
+per-band setup too, but the first costs 38 KB and the second 77, and the
+arena has neither (§5 S9). The measured wait is the number to re-read if a
+board ever does.
+
+The asynchronous flush is on for every board, single-buffered or not — with
+one buffer LVGL waits before it renders again, which is where it used to
+block, so nothing changes there except that a frame's last band drains while
+the UI task runs Java. `draw_buffers = 2` is what a board opts into, and
+only a board whose panel has the SPI bus to itself may: the XPT2046 reads the
+touch panel over the display's bus from the UI task, and a band still
+streaming under it would be corrupted. `build_support` refuses the pair.
 
 ### S6. Why a pixel costs 114 cycles — **measured 2026-09-11, three more hypotheses dead**
 
@@ -595,7 +653,7 @@ Consequences:
   buffers would take a full repaint to 44 bands and add roughly 60 ms of setup —
   far more than the ~36 ms of transfer it could hide. Do not build it. If
   double-buffering is wanted, it has to be on top of *taller* bands, not instead
-  of them.
+  of them. (It was, as 2 x 60 rows — §5 S5.)
 
 **This also re-prices §7 entirely.** The LVGL pool is 65,536 B and a 120-row band
 buffer needs 64,000 B more than a 20-row one. Moving the pool to PSRAM funds the
@@ -733,9 +791,10 @@ matter, and it never needed §7 anyway.
 lands on, so **S2 is next**: an honest `lv_tick_inc` and a look at what the
 main loop does between the render and the next tick. After that, on this
 screen, the DatePicker's button matrix (S6b's clip-rejection item) is the
-largest per-band cost left. S5 is worth less than it was — the transfer half
-of a scroll frame is now 2 ms — and matters again only for full repaints,
-which is the entry paint's problem (S6b), not scrolling's.
+largest per-band cost left. **S5 is done** and its measurement (§5) says what
+it was expected to: nothing for a scroll frame, a fifth off a light full
+repaint, and nothing for the entry paint, whose cost is render and whose
+answer is still S6b.
 
 S7 whenever somebody has the schematic open.
 
@@ -752,8 +811,11 @@ whose first step is a bench measurement rather than a code change.
   executed work at 114 cycles/px, with the cache hitting 99.5 % of the time.
 - What are the extra 36 M instruction fetches in the first paint of a screen
   doing? That is S6b, and it is the largest single frame cost on the board.
-- How much of the 1.6 ms per-band floor is fixed overhead? Decides whether the
-  free double-buffering variant in S5 is a win or a wash.
+- ~~How much of the 1.6 ms per-band floor is fixed overhead? Decides whether the
+  free double-buffering variant in S5 is a win or a wash.~~ **Answered
+  2026-09-12: both, by screen** (§5 S5). 1.7 ms of setup per band on the
+  clock face against 4 ms of transfer hidden, a win; 7 ms per band on the
+  Set-time entry paint, a wash.
 - Should the SPI request in `board.toml` be honoured rather than rounded up to
   75 MHz? The panel is running above its rated write clock and nobody chose
   that.

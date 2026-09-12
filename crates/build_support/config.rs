@@ -573,6 +573,10 @@ pub fn emit_display_config(out: &Path, display: &Option<HashMap<String, String>>
             "pub const SCROLL_LIMIT: u8 = {};\n",
             get("scroll_limit")
         ));
+        code.push_str(&format!(
+            "pub const DRAW_BUFFERS: usize = {};\n",
+            draw_buffers(d)
+        ));
 
         // Hardware-only pin constants — only present when display is active.
         if let Some(spi_id) = d.get("spi_id") {
@@ -626,10 +630,31 @@ pub fn emit_display_config(out: &Path, display: &Option<HashMap<String, String>>
         code.push_str("pub const SCREEN_HEIGHT: u16 = 240;\n");
         code.push_str("pub const BAND_HEIGHT: usize = 20;\n");
         code.push_str("pub const SCROLL_LIMIT: u8 = 30;\n");
+        code.push_str("pub const DRAW_BUFFERS: usize = 1;\n");
     }
 
     let path = out.join("display_config.rs");
     fs::write(&path, code.as_bytes()).unwrap_or_else(|e| panic!("write display_config.rs: {e}"));
+}
+
+/// How many `band_height`-row draw buffers LVGL gets: the `[display]`
+/// `draw_buffers` key, `1` when absent. With `2`, LVGL renders the next band
+/// while the panel is still taking the previous one, which is only worth
+/// anything on a family whose display flush is asynchronous
+/// (`HalDisplay::write_pixels_start`), and only ever costs a second buffer of
+/// the same size. Parsed here, once, for both the family's `display_config.rs`
+/// and the neutral `display_dims.rs`; the bus rule that goes with it is
+/// checked where both `[display]` and `[touch]` are in view
+/// (`board_cfg::emit_display_dims`).
+pub fn draw_buffers(display: &HashMap<String, String>) -> usize {
+    match display.get("draw_buffers").map(|v| v.trim()) {
+        None | Some("1") => 1,
+        Some("2") => 2,
+        Some(other) => panic!(
+            "board.toml: [display] draw_buffers must be 1 or 2 (got `{other}`); \
+             LVGL's partial render mode uses at most two"
+        ),
+    }
 }
 
 /// Emit `OUT_DIR/touch_config.rs` — the XPT2046 pin/calibration wiring for

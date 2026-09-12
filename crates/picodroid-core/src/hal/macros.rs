@@ -37,6 +37,14 @@ macro_rules! set_hal_display {
                 <$t as $crate::hal::HalDisplay>::write_pixels(data)
             }
             #[no_mangle]
+            extern "Rust" fn __pd_hal_display_write_pixels_start(data: &[u8]) {
+                <$t as $crate::hal::HalDisplay>::write_pixels_start(data)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_hal_display_write_pixels_wait() {
+                <$t as $crate::hal::HalDisplay>::write_pixels_wait()
+            }
+            #[no_mangle]
             extern "Rust" fn __pd_hal_display_set_backlight(on: bool) {
                 <$t as $crate::hal::HalDisplay>::set_backlight(on)
             }

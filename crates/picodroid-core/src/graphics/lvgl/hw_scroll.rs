@@ -202,7 +202,10 @@ pub(super) fn flush(x1: u16, y1: u16, x2: u16, y2: u16, data: &[u8]) {
             (seg.mem_y1 + h as i32 - 1) as u16,
         );
         let start = (seg.y1 - y1 as i32) as usize * row_bytes;
-        hal::display::write_pixels(&data[start..start + h * row_bytes]);
+        // Asynchronous where the family allows: a second segment's
+        // `set_window` collects the first before it sends, and LVGL's wait
+        // callback collects the last (lifecycle.rs).
+        hal::display::write_pixels_start(&data[start..start + h * row_bytes]);
     }
 }
 

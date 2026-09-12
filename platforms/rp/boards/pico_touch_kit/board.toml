@@ -118,14 +118,27 @@ height = 480
 # from `driver` and `madctl`; `hw_vscroll = false` here is the switch to
 # measure against, and the only value the key accepts.
 madctl = 0x48
-# 120 rows, not the 20 px default. LVGL renders in full-width horizontal bands
-# and walks the widget tree once per band an object crosses, and on this panel
-# that per-band setup dominated: 22 bands per repaint cost 109 ms of render,
-# 4 bands cost 59 ms (-46 %), frame time -36 %, the entry wipe 447 -> 248 ms,
-# all measured on the board (docs/designs/band-height-120-2026-09.md). The
-# buffer is 320 x 120 x 2 = 76,800 B of .bss against the default's 12,800;
-# 2 bands would buy ~6 ms more for another 77 KB, so this is where it stops.
-band_height = 120
+# Two 60-row buffers, not one 120-row one and not the 20 px default. LVGL
+# renders in full-width horizontal bands and walks the widget tree once per
+# band an object crosses, and on this panel that per-band setup dominated:
+# 22 bands per repaint cost 109 ms of render, 4 bands cost 59 ms, the entry
+# wipe 447 -> 248 ms (docs/designs/band-height-120-2026-09.md). With two
+# buffers the flush is asynchronous — LVGL renders band n+1 while the DMA
+# is still shifting band n out (S5 of docs/designs/scroll-performance-2026-09.md)
+# — so the same 76,800 B of .bss is spent as 2 x 38,400 rather than 1 x
+# 76,800. Measured against the single 120-row buffer, same firmware:
+#
+#                                   1 x 120 rows      2 x 60 rows
+#   clock-face repaint, 480 rows    64 ms (29 wait)   51 ms (9 wait)
+#   Set-time entry paint            230 ms (29 wait)  229 ms (0.4 wait)
+#   scroll frame (hw_vscroll)       12.4 ms           12.1 ms
+#
+# "wait" is the transfer the CPU sat through. A light screen hides most of
+# it; a heavy one spends the saving on the four extra bands' setup; a
+# hardware-scrolled frame moves too few pixels to have any. Never a loss,
+# and free. A single buffer of 120 is the switch to A/B against.
+band_height = 60
+draw_buffers = 2
 scroll_limit = 30
 
 [touch]

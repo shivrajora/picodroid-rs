@@ -431,6 +431,8 @@ pub const LV_STATE_DISABLED: u32 = 1 << 9;
 pub type lv_display_flush_cb_t =
     Option<unsafe extern "C" fn(disp: *mut lv_display_t, area: *const lv_area_t, px_map: *mut u8)>;
 
+pub type lv_display_flush_wait_cb_t = Option<unsafe extern "C" fn(disp: *mut lv_display_t)>;
+
 pub type lv_indev_read_cb_t =
     Option<unsafe extern "C" fn(indev: *mut lv_indev_t, data: *mut lv_indev_data_t)>;
 
@@ -458,6 +460,13 @@ extern "C" {
     // Display
     pub fn lv_display_create(hor_res: i32, ver_res: i32) -> *mut lv_display_t;
     pub fn lv_display_set_flush_cb(disp: *mut lv_display_t, flush_cb: lv_display_flush_cb_t);
+    /// With a wait callback set, LVGL never spins on `flushing`: it calls
+    /// this wherever it needs the last flush finished and clears the flag
+    /// itself afterwards, so `lv_display_flush_ready` is not called at all.
+    pub fn lv_display_set_flush_wait_cb(
+        disp: *mut lv_display_t,
+        wait_cb: lv_display_flush_wait_cb_t,
+    );
     pub fn lv_display_set_buffers(
         disp: *mut lv_display_t,
         buf1: *mut c_void,

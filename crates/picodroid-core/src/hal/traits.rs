@@ -37,6 +37,19 @@ pub trait HalDisplay {
     fn init();
     fn set_window(x0: u16, y0: u16, x1: u16, y1: u16);
     fn write_pixels(data: &[u8]);
+    /// Begin streaming `data` into the current window and return before it
+    /// has landed; [`Self::write_pixels_wait`] blocks until it has. The
+    /// caller keeps `data` alive and untouched in between — LVGL's draw
+    /// buffers are statics, which is what makes the borrow sound — and the
+    /// family finishes any transfer still in flight before it touches the
+    /// panel for anything else. A family whose transfer has no completion
+    /// signal keeps these defaults and the flush is simply synchronous.
+    fn write_pixels_start(data: &[u8]) {
+        Self::write_pixels(data)
+    }
+    /// Block until the transfer [`Self::write_pixels_start`] began has left
+    /// its buffer. A no-op when nothing is in flight.
+    fn write_pixels_wait() {}
     fn set_backlight(on: bool);
     fn display_sleep();
     fn display_wake();

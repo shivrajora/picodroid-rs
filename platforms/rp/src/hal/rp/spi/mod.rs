@@ -2,6 +2,7 @@
 pub mod xfer;
 
 use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 
@@ -25,6 +26,21 @@ pub(crate) static SPI1_DONE: SemCell = SemCell(UnsafeCell::new(None));
 
 static SPI0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
 static SPI1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
+
+/// A DMA write `write_raw_start` began and nobody has collected yet. While
+/// set, the bus lock is held on the starter's behalf. Only the task that
+/// started the write ever reads or clears this — the lock keeps everyone
+/// else off the bus — so plain loads and stores are enough, which is also
+/// all the M0+ has.
+static SPI0_WRITE_PENDING: AtomicBool = AtomicBool::new(false);
+static SPI1_WRITE_PENDING: AtomicBool = AtomicBool::new(false);
+
+fn write_pending(id: u8) -> &'static AtomicBool {
+    match id {
+        0 => &SPI0_WRITE_PENDING,
+        _ => &SPI1_WRITE_PENDING,
+    }
+}
 
 fn spi_state(id: u8) -> &'static mut SpiXferState {
     unsafe {
@@ -359,6 +375,17 @@ pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
 
 /// Write raw bytes from a Rust slice. Used by the display driver to stream pixel data.
 pub fn write_raw(spi_id: u8, data: &[u8]) {
+    write_raw_start(spi_id, data);
+    write_raw_finish(spi_id);
+}
+
+/// The first half of [`write_raw`]: a small write completes here by polling,
+/// a large one is handed to DMA and left running. In the second case the bus
+/// lock stays taken and [`write_raw_finish`] must follow before anything
+/// else uses the peripheral — the caller keeps `data` alive and unchanged
+/// until then. Calling this with a write already pending collects it first.
+pub fn write_raw_start(spi_id: u8, data: &[u8]) {
+    write_raw_finish(spi_id);
     if data.is_empty() {
         return;
     }
@@ -388,13 +415,31 @@ pub fn write_raw(spi_id: u8, data: &[u8]) {
     }
 
     super::dma::start_write(spi_id, data);
+    write_pending(spi_id).store(true, Ordering::Release);
+}
+
+/// The second half of [`write_raw`]: block until the DMA write
+/// [`write_raw_start`] left running has been clocked out to the last bit,
+/// then release the bus. Returns at once when nothing is pending.
+pub fn write_raw_finish(spi_id: u8) {
+    let pending = write_pending(spi_id);
+    if !pending.load(Ordering::Acquire) {
+        return;
+    }
+    pending.store(false, Ordering::Release);
+
+    #[cfg(feature = "chip-rp2350")]
+    use rp235x_hal::pac;
+    #[cfg(feature = "chip-rp2040")]
+    use rp_pico::hal::pac;
+    let p = unsafe { pac::Peripherals::steal() };
 
     match spi_id {
         0 => finish_isr_xfer!(&p.SPI0, spi_id),
         _ => finish_isr_xfer!(&p.SPI1, spi_id),
     }
 
-    lock.give();
+    spi_lock(spi_id).give();
 }
 
 /// Full-duplex transfer with raw Rust slices.

@@ -8,6 +8,8 @@ use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiBus;
 
+use super::SpiAsyncWrite;
+
 // ST7789 commands
 const CMD_SWRESET: u8 = 0x01;
 const CMD_SLPIN: u8 = 0x10;
@@ -34,11 +36,14 @@ pub struct St7789<SPI, DC, CS, RST, BL, D> {
     width: u16,
     height: u16,
     madctl: u8,
+    /// A [`Self::write_pixels_start`] whose bytes may still be on the bus:
+    /// chip select is low, and every other method collects it first.
+    pending: bool,
 }
 
 impl<SPI, DC, CS, RST, BL, D> St7789<SPI, DC, CS, RST, BL, D>
 where
-    SPI: SpiBus,
+    SPI: SpiBus + SpiAsyncWrite,
     DC: OutputPin,
     CS: OutputPin,
     RST: OutputPin,
@@ -72,10 +77,12 @@ where
             width,
             height,
             madctl,
+            pending: false,
         }
     }
 
     fn write_command(&mut self, cmd: u8) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_low(); // command mode
         let _ = self.spi.write(&[cmd]);
@@ -83,6 +90,7 @@ where
     }
 
     fn write_command_data(&mut self, cmd: u8, data: &[u8]) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_low();
         let _ = self.spi.write(&[cmd]);
@@ -150,10 +158,31 @@ where
 
     /// Stream RGB565 pixel data to the display within the current window.
     pub fn write_pixels(&mut self, data: &[u8]) {
+        self.write_pixels_start(data);
+        self.write_pixels_wait();
+    }
+
+    /// Begin streaming RGB565 pixel data into the current window and return
+    /// while it is still going out; see the ST7796's method of the same name
+    /// for the contract. Every command sent through this driver collects a
+    /// transfer in flight before it goes out.
+    pub fn write_pixels_start(&mut self, data: &[u8]) {
+        self.write_pixels_wait();
         let _ = self.cs.set_low();
         let _ = self.dc.set_high(); // data mode
-        let _ = self.spi.write(data);
+        self.spi.start_write(data);
+        self.pending = true;
+    }
+
+    /// Wait for the transfer [`Self::write_pixels_start`] began, then
+    /// release chip select. A no-op when nothing is in flight.
+    pub fn write_pixels_wait(&mut self) {
+        if !self.pending {
+            return;
+        }
+        self.spi.wait_write();
         let _ = self.cs.set_high();
+        self.pending = false;
     }
 
     /// Turn the backlight on or off.

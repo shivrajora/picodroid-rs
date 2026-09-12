@@ -601,6 +601,7 @@ The flash layout is laid out top-down from the end of flash — the app region, 
 | `width`, `height` | int | Panel dimensions in pixels (**required** when `[display]` is present). |
 | `madctl` | int (hex) | Memory-access-control register (controls rotation / mirroring). |
 | `band_height` | int | LVGL partial-render band in pixels (**required**). |
+| `draw_buffers` | int | `1` (default) or `2`. With two band buffers LVGL renders the next band while the panel is still taking the previous one — worth it only on a family whose display flush is asynchronous (`HalDisplay::write_pixels_start`), and it costs a second buffer of `width × band_height × 2` bytes. Refused when `[touch]` names a controller on the display's SPI bus (the XPT2046): a transfer left running would share the bus with the touch read. |
 | `scroll_limit` | int | LVGL scroll hysteresis threshold (**required**). |
 
 Omit the whole `[display]` section for a headless board; the build then falls back to safe 320×240 defaults and leaves `has_display` unset.

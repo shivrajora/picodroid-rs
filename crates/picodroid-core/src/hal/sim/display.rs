@@ -12,6 +12,7 @@ use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOption
 // or MADCTL, so the simulator never needed that half — and depending on it
 // would have tied this module back to one family's build script.
 pub use crate::board_cfg::display::BAND_HEIGHT;
+pub use crate::board_cfg::display::DRAW_BUFFERS;
 pub use crate::board_cfg::display::SCREEN_HEIGHT as HEIGHT;
 pub use crate::board_cfg::display::SCREEN_WIDTH as WIDTH;
 pub use crate::board_cfg::display::SCROLL_LIMIT;
@@ -194,6 +195,17 @@ pub fn write_pixels(data: &[u8]) {
         }
     }
 }
+
+/// There is no transfer to overlap here: a band is in the frame memory by
+/// the time [`write_pixels`] returns, so the asynchronous pair collapses to
+/// the synchronous call. LVGL still alternates its two buffers on a
+/// `draw_buffers = 2` board, so the swap logic is exercised; only the overlap
+/// is hardware's.
+pub fn write_pixels_start(data: &[u8]) {
+    write_pixels(data)
+}
+
+pub fn write_pixels_wait() {}
 
 pub fn set_backlight(on: bool) {
     println!("[sim] Display: backlight {}", if on { "ON" } else { "OFF" });

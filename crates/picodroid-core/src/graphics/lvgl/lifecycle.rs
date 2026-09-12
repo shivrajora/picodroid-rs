@@ -6,6 +6,18 @@
 //! constants — board.toml-driven). Keypad-specific lifecycle (the keypad
 //! indev, focus group, button GPIO pins) lives in `lvgl::events` (step 5
 //! of the plan).
+//!
+//! # The flush is asynchronous
+//!
+//! `flush_cb` starts a band's transfer and returns; LVGL collects it through
+//! `flush_wait_cb` — before it renders into that buffer again, or, with two
+//! buffers (board.toml `draw_buffers = 2`), before it hands the next one
+//! over. So on a family whose transfer is DMA the render of band *n+1*
+//! overlaps the transfer of band *n*, and the last band of a frame drains
+//! while the UI task goes back to Java. The panel driver finishes any
+//! transfer in flight before it sends a command, which is what keeps a
+//! `VSCRSADD`, a `set_window` or a sleep from cutting a band short
+//! (docs/designs/scroll-performance-2026-09.md S5).
 
 use crate::graphics::gfx::Handle;
 use crate::hal;
@@ -18,14 +30,18 @@ use super::handle_table;
 
 const BAND_HEIGHT: usize = hal::display::BAND_HEIGHT;
 const BAND_BUF_SIZE: usize = hal::display::WIDTH as usize * BAND_HEIGHT * 2;
+/// One or two: with two, LVGL renders into one band while the other is
+/// still on its way to the panel. Both are the same size, back to back in
+/// the one static, so the second is `BAND_BUF_SIZE` past the first.
+const DRAW_BUFFERS: usize = hal::display::DRAW_BUFFERS;
 
 /// Wrapper to get a raw pointer without creating a mutable reference.
 /// Must be 4-byte aligned to satisfy LVGL's `LV_DRAW_BUF_ALIGN` requirement
 /// on all platforms (x86_64 defaults byte arrays to 1-byte alignment).
 #[repr(align(4))]
 #[allow(dead_code)] // field accessed only via raw pointer (LVGL flush callback)
-struct BandBuf([u8; BAND_BUF_SIZE]);
-static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE]);
+struct BandBuf([u8; BAND_BUF_SIZE * DRAW_BUFFERS]);
+static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE * DRAW_BUFFERS]);
 
 // ── Screen handle cache ─────────────────────────────────────────────────────
 
@@ -57,10 +73,17 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
 
         let disp = lv_display_create(width as i32, height as i32);
         lv_display_set_flush_cb(disp, Some(flush_cb));
+        lv_display_set_flush_wait_cb(disp, Some(flush_wait_cb));
+        let buf1 = core::ptr::addr_of_mut!(BAND_BUF).cast::<u8>();
+        let buf2 = if DRAW_BUFFERS == 2 {
+            buf1.add(BAND_BUF_SIZE)
+        } else {
+            core::ptr::null_mut()
+        };
         lv_display_set_buffers(
             disp,
-            core::ptr::addr_of_mut!(BAND_BUF).cast::<u8>() as *mut c_void,
-            core::ptr::null_mut(), // single buffer (no double-buffering)
+            buf1 as *mut c_void,
+            buf2 as *mut c_void,
             BAND_BUF_SIZE as u32,
             LV_DISPLAY_RENDER_MODE_PARTIAL,
         );
@@ -168,11 +191,12 @@ fn crc32(data: &[u8]) -> u32 {
 }
 
 /// LVGL display flush callback — called by LVGL when a region is ready to
-/// send.
+/// send. Starts the transfer and returns; [`flush_wait_cb`] is where LVGL
+/// waits for it, so `lv_display_flush_ready` is never called here.
 ///
 /// # Safety
 /// Called from LVGL's internal rendering pipeline.
-unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, px_map: *mut u8) {
+unsafe extern "C" fn flush_cb(_disp: *mut lv_display_t, area: *const lv_area_t, px_map: *mut u8) {
     let area = unsafe { &*area };
     let x1 = area.x1 as u16;
     let y1 = area.y1 as u16;
@@ -218,9 +242,17 @@ unsafe extern "C" fn flush_cb(disp: *mut lv_display_t, area: *const lv_area_t, p
     #[cfg(hw_vscroll)]
     super::hw_scroll::flush(x1, y1, x2, y2, data);
     #[cfg(not(hw_vscroll))]
-    hal::display::write_pixels(data);
+    hal::display::write_pixels_start(data);
+}
 
-    unsafe { lv_display_flush_ready(disp) };
+/// LVGL's wait for the last flush: before it renders into a buffer that is
+/// still being sent, and — with two buffers — before it starts the next
+/// transfer. LVGL clears its own `flushing` flag when this returns.
+///
+/// # Safety
+/// Called from LVGL's internal rendering pipeline.
+unsafe extern "C" fn flush_wait_cb(_disp: *mut lv_display_t) {
+    hal::display::write_pixels_wait();
 }
 
 // ── Touch read callback ─────────────────────────────────────────────────────

@@ -27,6 +27,8 @@ pub mod display {
         fn __pd_hal_display_init();
         fn __pd_hal_display_set_window(x0: u16, y0: u16, x1: u16, y1: u16);
         fn __pd_hal_display_write_pixels(data: &[u8]);
+        fn __pd_hal_display_write_pixels_start(data: &[u8]);
+        fn __pd_hal_display_write_pixels_wait();
         fn __pd_hal_display_set_backlight(on: bool);
         fn __pd_hal_display_sleep();
         fn __pd_hal_display_wake();
@@ -44,6 +46,12 @@ pub mod display {
     }
     pub fn write_pixels(data: &[u8]) {
         unsafe { __pd_hal_display_write_pixels(data) }
+    }
+    pub fn write_pixels_start(data: &[u8]) {
+        unsafe { __pd_hal_display_write_pixels_start(data) }
+    }
+    pub fn write_pixels_wait() {
+        unsafe { __pd_hal_display_write_pixels_wait() }
     }
     pub fn set_backlight(on: bool) {
         unsafe { __pd_hal_display_set_backlight(on) }
@@ -71,7 +79,7 @@ pub mod display {
     // `hal::display::WIDTH` keeps resolving for code that moved in from the
     // binary crate.
     pub use crate::board_cfg::display::{
-        BAND_HEIGHT, SCREEN_HEIGHT as HEIGHT, SCREEN_WIDTH as WIDTH, SCROLL_LIMIT,
+        BAND_HEIGHT, DRAW_BUFFERS, SCREEN_HEIGHT as HEIGHT, SCREEN_WIDTH as WIDTH, SCROLL_LIMIT,
     };
 }
 

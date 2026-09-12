@@ -8,7 +8,7 @@
 use core::convert::Infallible;
 use embedded_hal::spi::{ErrorType, SpiBus};
 
-use crate::drivers::SpiFreqSwitch;
+use crate::drivers::{SpiAsyncWrite, SpiFreqSwitch};
 
 pub struct RpSpiBus {
     spi_id: u8,
@@ -44,6 +44,16 @@ impl RpSpiBus {
 impl SpiFreqSwitch for RpSpiBus {
     fn set_frequency(&mut self, freq_hz: u32) {
         super::spi::reconfigure(self.spi_id, freq_hz, 0);
+    }
+}
+
+impl SpiAsyncWrite for RpSpiBus {
+    fn start_write(&mut self, data: &[u8]) {
+        super::spi::write_raw_start(self.spi_id, data);
+    }
+
+    fn wait_write(&mut self) {
+        super::spi::write_raw_finish(self.spi_id);
     }
 }
 

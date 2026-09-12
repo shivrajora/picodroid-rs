@@ -37,6 +37,12 @@ impl picodroid_core::hal::HalDisplay for Platform {
     fn write_pixels(data: &[u8]) {
         crate::hal::display::write_pixels(data)
     }
+    fn write_pixels_start(data: &[u8]) {
+        crate::hal::display::write_pixels_start(data)
+    }
+    fn write_pixels_wait() {
+        crate::hal::display::write_pixels_wait()
+    }
     fn set_backlight(on: bool) {
         crate::hal::display::set_backlight(on)
     }
