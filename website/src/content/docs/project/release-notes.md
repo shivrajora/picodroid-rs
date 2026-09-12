@@ -7,6 +7,75 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The touch board paints half again as many frames**
+
+- LVGL was asked to refresh every 33 ms while the tick arrives every 16 ms, and its timer
+  carries no credit for the overshoot, so every paint waited three ticks and spent two of
+  them idle. The period is now the tick period, and a guard test reads the value out of
+  `lv_conf.h` and asserts the two agree. Measured in the simulator with a forced
+  full-screen invalidation: 3 ticks and 50 ms on every one of 1,105 paints before, 1 tick
+  and 16 ms on every one of 4,800 after. No size change on either board.
+- The touch board renders in full-width bands and walks the widget tree once per band a
+  widget crosses, so a full repaint of 22 twenty-row bands paid that setup 22 times. Bands
+  are now 120 rows — four of them — bought with a 76,800 B buffer funded out of the
+  RP2350B's FreeRTOS arena (`heap_kb` 408 to 344). On hardware, scrolling picoclock's
+  Set-time screen: steady render 108.9 ms to 61.6 ms, frame 149.6 ms to 98.3 ms, 6.7 to
+  10.2 fps, and the entry paint 447 ms to 245 ms. The arena's low-water mark stays near
+  66-76 KB through the launcher, the settings screens and an install.
+- Five other explanations for the render cost are dead, measured rather than argued:
+  LVGL's style cache and `-O3` on the C each bought nothing, and the XIP cache misses on
+  0.53% of accesses, so the renderer is not starved for instructions. The work is real,
+  executed and diffuse. `docs/designs/scroll-performance-2026-09.md` and
+  `docs/designs/band-height-120-2026-09.md` carry the profiling and what is left.
+
+**The RP2350B's PSRAM comes up at boot, and a board may put the LVGL pool in it**
+
+- 8 MB of APS6404 on the Pico Plus 2 W is brought up from RAM-resident code at boot: the
+  part is taken out of QPI first (a watchdog reset leaves it there), identified, put back
+  into QPI, and given QMI window-1 timing derived from the system clock — a 75 MHz bus at
+  150 MHz — then spot-checked past the cache. An MCU descriptor declares `psram_kb`,
+  `psram_origin` and `psram_cs_pin`; a full 8 MB write-and-verify sweep sits behind the
+  `psram-sweep` feature and reports 8.7 MB/s writing and 19.4 MB/s reading.
+- A board that sets `lv_mem_in_psram` hands LVGL the window as its pool while render
+  targets stay in SRAM. It ships off on the touch kit: measured there, the pool in PSRAM
+  costs 10 ms of a 98 ms frame and 45 ms of the entry paint, because LVGL's per-band
+  draw-task churn lives in the pool and would cross the QSPI bus. The taller bands above
+  are the better use of the same 64 KB, and the key is one flip away if that changes.
+- Any code that disables XIP now cleans the RP2350's write-back cache by set/way and saves
+  the second window's timing registers around the boot ROM's reset of them, since the ROM's
+  flush only invalidates. The rule is in the porting guide and in the macro itself, tested
+  with the pool in PSRAM across a preferences commit and an install.
+
+**Android's tones, on a board with a buzzer (map v0.25.0, package 0.25.0)**
+
+- New `picodroid.media.ToneGenerator` and `picodroid.media.AudioManager`: a board with a
+  piezo buzzer plays Android's CEPT cadences by their own constant names. In Android a tone
+  type is a segment list with a repeat count, not a frequency — `TONE_SUP_RINGTONE` is
+  425 Hz for a second and silence for four, forever — so the tone table and its sequencer
+  are the faithful implementation, not a simplification. Segments advance on the existing
+  16 ms UI tick, so there is no task, no stack and no boot budget for it, and the hardware
+  is touched once per note. `startToneSequence` plays an app's own melody and has no
+  `android.media` counterpart, because on a phone a melody is a file.
+- One piezo is one square wave, so a tone plays the lowest component of Android's
+  multi-frequency original and DTMF will not decode. Sampled audio has no path at all,
+  which is why `MediaPlayer`, `AudioTrack` and `SoundPool` are absent rather than stubbed.
+  A board with no buzzer runs the same app and gets `false` from `startTone`, exactly as
+  Android answers for a tone its platform will not play. See [media](/api/media/) and the
+  [compatibility matrix](/reference/compatibility-matrix/).
+- **Start quiet.** The 52Pi EP-0172's piezo is rated 85 dB and sits inches from whoever is
+  holding the board. `examples/tonedemo` opens at volume 20, a 10% duty cycle, which is
+  plenty to hear across a desk; a repeating tone at a high volume is the case that really
+  punishes you.
+- The UI tick reads a plain flag before deciding whether a tone is playing, instead of
+  suspending the scheduler sixty times a second to ask in silence.
+- Flash: `testbench_rp2350` +1,556 B for the two classfiles, `testbench_rp2040` +152 B —
+  that board lists them in `framework_class_excludes` by hand, since 2.2 KB that can never
+  make a sound is more than its flash can spare.
+- Map v0.25.0, cut on `main` after the merge, folds the two classes and their 45 member
+  names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0, so
+  PAPKs shrunk with v0.17.0 through v0.24.0 still install. `Build.VERSION.RELEASE` reads
+  `0.25.0`. Everything else under Unreleased ships in the same package.
+
 **The touchscreen is read on its own clock, not the frame's**
 
 - Scrolling the touch board did not scroll, it teleported. The panel was read from inside

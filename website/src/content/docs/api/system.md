@@ -61,7 +61,7 @@ What the firmware was built for, as `android.os.Build` reports it:
 ```java
 Build.BOARD            // the board.toml name, e.g. "testbench_rp2350"
 Build.HARDWARE         // the MCU, e.g. "rp2350"
-Build.VERSION.RELEASE  // the firmware release, e.g. "0.24.0"
+Build.VERSION.RELEASE  // the firmware release, e.g. "0.25.0"
 ```
 
 `VERSION.RELEASE` is the firmware's version — the one a shrink map is cut for, so on a `--shrink` image it is also the framework map version `pdb ping` reports, the one a PAPK's own map version must be compatible with to install. A plain (unshrunk) build reports its release here too, while `pdb ping` shows the `0.0.0` sentinel that means "no map".
