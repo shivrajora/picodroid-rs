@@ -406,6 +406,47 @@ mod tests {
         );
     }
 
+    /// The idle cores sleep and the WiFi driver's waits yield
+    /// (docs/scheduling-audit-2026-09.md, F1/F9/F15): both idle hooks are
+    /// on so `prvIdleTask` executes `wfi` on each core, and the port's
+    /// millisecond delays route every millisecond-scale wait through
+    /// `vTaskDelay`. The `ms >= 2` gate that once made the driver's 1 ms
+    /// poll cadence a hard nop spin (500 ms per ioctl, 3 s at bring-up) is
+    /// exactly the kind of one-character regression a text guard catches.
+    #[test]
+    fn idle_cores_sleep_and_driver_waits_yield() {
+        let cfg = crate_root().join("mcus/rp/FreeRTOSConfig.h");
+        for want in [
+            "#define configUSE_IDLE_HOOK 1",
+            "#define configUSE_PASSIVE_IDLE_HOOK 1",
+        ] {
+            assert_defined(&cfg, want);
+        }
+        let main = read_stripped(&crate_root().join("src/main.rs"));
+        for hook in [
+            "fn vApplicationIdleHook()",
+            "fn vApplicationPassiveIdleHook()",
+        ] {
+            assert!(
+                main.contains(hook),
+                "src/main.rs: expected `{hook}` — the idle hook that puts an idle core \
+                 into wfi; without it configUSE_*_IDLE_HOOK 1 fails to link"
+            );
+        }
+        let port = read_stripped(&crate_root().join("src/hal/rp/port/net/cyw43_port.c"));
+        for gate in [
+            "if (ms >= 1 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)",
+            "if (us >= 1000 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)",
+        ] {
+            assert!(
+                port.contains(gate),
+                "cyw43_port.c: expected `{gate}` — every millisecond-scale wait in the \
+                 CYW43 port must yield (a higher threshold turns the driver's 1 ms polls \
+                 into nop spins; docs/scheduling-audit-2026-09.md F1)"
+            );
+        }
+    }
+
     #[test]
     fn masks_are_one_core_each() {
         assert_eq!(super::CORE0.count_ones(), 1);

@@ -80,8 +80,15 @@
 #define configUSE_TICKLESS_IDLE                 0
 #define configUSE_16_BIT_TICKS                  0
 
-/* Hook functions */
-#define configUSE_IDLE_HOOK                     0
+/* Hook functions.  Both idle hooks are on: the main idle task and the
+ * passive idle task (one per extra core) each call a hook that executes
+ * `wfi` (platforms/rp/src/main.rs), so an idle core sleeps until the next
+ * interrupt instead of spinning in prvIdleTask.  The tick, the cross-core
+ * yield IPI and every peripheral interrupt wake it, so scheduling latency
+ * is unchanged (docs/scheduling-audit-2026-09.md, F15).  Tickless idle
+ * stays off: the port's vPortSuppressTicksAndSleep is single-core SysTick
+ * code, and the 16 ms LVGL tick would defeat it anyway. */
+#define configUSE_IDLE_HOOK                     1
 #define configUSE_TICK_HOOK                     0
 #define configUSE_MALLOC_FAILED_HOOK            1
 #define configCHECK_FOR_STACK_OVERFLOW          2
@@ -115,7 +122,7 @@ extern uint32_t picodroid_get_runtime_counter(void);
 
 /* SMP – dual-core scheduler */
 #define configNUMBER_OF_CORES                   2
-#define configUSE_PASSIVE_IDLE_HOOK             0   /* required by FreeRTOS SMP kernel */
+#define configUSE_PASSIVE_IDLE_HOOK             1   /* wfi in the core-1 idle task; see configUSE_IDLE_HOOK */
 /* Enable pico-sync interop so prvFIFOInterruptHandler (RP2040 port) compiles.
  * In SMP mode the handler just calls portYIELD_FROM_ISR; the full interop
  * code paths are excluded by configNUMBER_OF_CORES != 1 guards. */

@@ -191,6 +191,27 @@ fn vApplicationMallocFailedHook() {
     // Non-try allocations still abort via Rust's handle_alloc_error.
 }
 
+/// Idle hooks, one per idle task: the SMP kernel runs a "main" idle task
+/// (`vApplicationIdleHook`) and one passive idle task per extra core
+/// (`vApplicationPassiveIdleHook`). Each sleeps until the next interrupt
+/// instead of letting `prvIdleTask` spin. The tick, the cross-core yield
+/// IPI (SIO FIFO on RP2040, doorbell on RP2350) and every peripheral
+/// interrupt all wake `wfi`, so nothing about scheduling latency changes —
+/// only what an idle core draws (docs/scheduling-audit-2026-09.md, F15).
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+#[allow(non_snake_case)]
+#[no_mangle]
+extern "C" fn vApplicationIdleHook() {
+    asm::wfi();
+}
+
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+#[allow(non_snake_case)]
+#[no_mangle]
+extern "C" fn vApplicationPassiveIdleHook() {
+    asm::wfi();
+}
+
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[no_mangle]
