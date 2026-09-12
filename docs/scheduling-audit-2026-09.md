@@ -43,6 +43,12 @@ during the stall shows the JVM task Blocked (not spinning) and never parking; th
 `ready` line never prints after `onCreate` on this slot. Left as an open bench item. The
 touch kit was leased throughout, so WP4 is unrun on hardware.
 
+Reruns on the final tree (WP1–WP4, WP6, WP8, G1, G2, G5 all landed): `http_get` `net` row
+PASS (DNS, TCP, HTTP over the yielding CYW43 port); `blinky` `loop` and `pdb install-stress`
+PASS (10/10 install cycles through the per-sector erase, the USB completion queue and the
+notification-based park wait); `pdb launch` FAIL as above. `./scripts/pre-commit --full` passes
+(8 m 17 s); the size ratchet reads RP2040 −80 B and RP2350 −2,028 B against their baselines.
+
 ## Executive summary
 
 - **The spine is right.** The UI loop blocks on a queue; `Thread.sleep`/`join`/`Object.wait` block on
