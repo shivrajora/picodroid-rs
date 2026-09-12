@@ -69,8 +69,18 @@ pub fn elapsed_realtime_nanos() -> Result<Option<Value>, JvmError> {
 // race on the halves, which readers survive (they retry while the seq is
 // odd or moving) but which could mix two writers' halves. Don't add a
 // second caller without adding a mutex.
+//
+// The writer runs its three stores inside an `AtomicSection`. Without it a
+// task preempted between the odd and the even store (a higher-priority
+// core-0 task: touch, fs, pdb, the timer service) could hand the core to
+// the UI task, whose reader below then spins on the odd seq forever: time
+// slicing is off, so an equal-priority spinner never yields back to the
+// writer (docs/scheduling-audit-2026-09.md, F4). With the scheduler
+// suspended across the stores no context switch can land between them.
 
 use core::sync::atomic::{AtomicU32, Ordering};
+
+use pico_jvm::atomic_section::AtomicSection;
 
 static WALL_SEQ: AtomicU32 = AtomicU32::new(0);
 static WALL_HI: AtomicU32 = AtomicU32::new(0);
@@ -101,6 +111,8 @@ pub fn set_current_time_millis(args: &[Value]) -> Result<Option<Value>, JvmError
     };
     let elapsed_ms = platform::elapsed_realtime_nanos() / 1_000_000;
     let offset = (millis - elapsed_ms) as u64;
+    // Nothing below blocks, which is the section's one rule.
+    let _atomic = AtomicSection::enter();
     let seq = WALL_SEQ.load(Ordering::Relaxed);
     WALL_SEQ.store(seq.wrapping_add(1), Ordering::Release); // odd: write begins
     WALL_HI.store((offset >> 32) as u32, Ordering::Release);
