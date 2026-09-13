@@ -326,12 +326,6 @@ void picodroid_cyw43_hostwake_notify_from_isr(void) {
     }
 }
 
-void cyw43_yield(void) {
-    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-        taskYIELD();
-    }
-}
-
 /* ---- MAC address (LAA fallback when OTP is empty) ---- */
 
 /*

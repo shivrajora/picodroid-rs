@@ -146,8 +146,15 @@ void cyw43_thread_lock_check(void);
 void cyw43_schedule_internal_poll_dispatch(void (*func)(void));
 
 /* ---- Event / wait hooks ---- */
-#define CYW43_EVENT_POLL_HOOK cyw43_yield()
-void cyw43_yield(void);
+/* The driver runs this between the chunks of its boot-time loops (firmware
+ * download, CLM load, SPI bring-up). It used to be a taskYIELD(), which
+ * reads as a yield point but cannot be one: those loops run on the cyw43
+ * task, pinned to core 1 at priority 22, and the only other task that may
+ * run on core 1 is the flash parker at 30, which preempts rather than
+ * waits for a yield (task_affinity::CORE1_TASKS). Anything that has to
+ * wait for real time goes through cyw43_delay_ms, which blocks (audit F1,
+ * F19). */
+#define CYW43_EVENT_POLL_HOOK ((void)0)
 
 /* Wait hooks — called during long-running operations (IOCTL, SDPCM send) */
 #define CYW43_DO_IOCTL_WAIT         cyw43_delay_ms(1)
