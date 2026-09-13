@@ -173,13 +173,15 @@ fn run(model: &'static BootBudgetModel) {
                     // that starts threads and returns would end the scheduler
                     // out from under children that never ran an instruction.
                     //
-                    // A poll rather than the device's task notifications: the
-                    // device must be woken *promptly* because a flash erase is
-                    // queued behind it, and it has the bookkeeping to do that.
+                    // The device's wait, not a poll: the last child to leave
+                    // notifies this task (`rtos_freertos::child_gone`), and
+                    // the loop re-checks the count because a notification is
+                    // "look again" — this task collects ones it never asked
+                    // for (`boot_tasks.rs`, porting-seam A9).
                     crate::hal::sim::platform::set_stop_jvm(true);
                     crate::threads::wake_all_parked();
                     while sim_rtos::live_jvm_children() > 0 {
-                        rtos::delay_ms(10);
+                        rtos::task_wait_notification(rtos::Timeout::Forever);
                     }
 
                     // A package verb that had to wait for the app to stop

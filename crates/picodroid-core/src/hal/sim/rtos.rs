@@ -526,7 +526,13 @@ pub fn tick_timer_stop() {
 }
 
 pub fn delay_ms(ms: u32) {
-    std::thread::sleep(Duration::from_millis(ms as u64));
+    if ms == 0 {
+        // The device's `vTaskDelay(0)` reschedules without sleeping — it is
+        // what `Thread.yield` becomes — and a `sleep(0)` here is neither.
+        std::thread::yield_now();
+    } else {
+        std::thread::sleep(Duration::from_millis(ms as u64));
+    }
 }
 
 /// Whether the calling thread is a kernel task. This backing has no kernel —

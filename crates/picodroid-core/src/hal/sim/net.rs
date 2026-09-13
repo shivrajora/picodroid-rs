@@ -13,6 +13,7 @@
 
 use core::ffi::c_void;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::os::fd::AsRawFd;
 use std::time::Duration;
 
 pub use crate::hal::types::{NetError, NetErrorKind};
@@ -210,23 +211,52 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
         // yet", never the deadline itself, so it must not go through
         // `map_io_err` (which reads WouldBlock as TimedOut).
         SimSocket::TcpListener(ref listener, Some(dur)) => {
+            // Block in `poll(2)` until a connection is pending or the
+            // deadline passes, then accept without blocking. The device
+            // blocks in `FreeRTOS_accept` with the timeout in the socket;
+            // `SO_RCVTIMEO` would be the host equivalent, but `accept`
+            // honours it only on Linux, so the wait is a poll — deadline
+            // tracked across the `EINTR` the simulator's 1 ms `SIGALRM`
+            // tick delivers, and never a sleep-poll (audit F17).
             let deadline = std::time::Instant::now() + *dur;
             listener.set_nonblocking(true).map_err(map_io_err)?;
             let result = loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    break Err(NetError::new(NetErrorKind::TimedOut, -1));
+                }
+                let mut pfd = libc::pollfd {
+                    fd: listener.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                // Round up: a sub-millisecond remainder must still wait.
+                let wait_ms = remaining
+                    .as_millis()
+                    .saturating_add(1)
+                    .min(i32::MAX as u128) as i32;
+                // SAFETY: one valid `pollfd` for the one-element array.
+                let ready = unsafe { libc::poll(&mut pfd, 1, wait_ms) };
+                if ready < 0 {
+                    let e = std::io::Error::last_os_error();
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    break Err(map_io_err(e));
+                }
+                if ready == 0 {
+                    continue; // deadline is re-checked at the top
+                }
                 match listener.accept() {
                     Ok((stream, _addr)) => {
                         let _ = stream.set_nonblocking(false);
                         break Ok(box_socket(SimSocket::TcpClient(Some(stream), None)));
                     }
+                    // Readable but gone by the time we looked (the peer
+                    // reset): wait for the next one.
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::Interrupted =>
-                    {
-                        if std::time::Instant::now() >= deadline {
-                            break Err(NetError::new(NetErrorKind::TimedOut, -1));
-                        }
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
+                            || e.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(e) => break Err(map_io_err(e)),
                 }
             };

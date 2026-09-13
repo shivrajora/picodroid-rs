@@ -108,9 +108,24 @@ static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
 /// no-op the test backing deliberately performs.
 static LIVE_JVM_CHILDREN: AtomicUsize = AtomicUsize::new(0);
 
+/// The JVM task, once it runs: whom the last child to leave notifies. Zero
+/// before then, which `task_notify` ignores.
+static JVM_TASK: AtomicUsize = AtomicUsize::new(0);
+
 /// Java threads still running. See [`LIVE_JVM_CHILDREN`].
 pub fn live_jvm_children() -> usize {
     LIVE_JVM_CHILDREN.load(Ordering::Acquire)
+}
+
+/// A Java thread has ended, or never started: uncount it and, for the last
+/// one, wake the JVM task that is waiting for the count in `sim_boot` — the
+/// device's `boot_tasks` drain, rather than the 10 ms poll the simulator
+/// used to run (audit F17). The waiter re-checks the count, so a
+/// notification that lands before it waits is not lost.
+fn child_gone() {
+    if LIVE_JVM_CHILDREN.fetch_sub(1, Ordering::AcqRel) == 1 {
+        task_notify(JVM_TASK.load(Ordering::Acquire));
+    }
 }
 
 std::thread_local! {
@@ -191,6 +206,7 @@ pub fn spawn(
             IS_KERNEL_TASK.with(|f| f.set(true));
             if is_jvm {
                 IS_JVM_TASK.with(|f| f.set(true));
+                JVM_TASK.store(task_current(), Ordering::Release);
             }
             // Unwinding out of the port's `extern "C"` task trampoline is UB,
             // and abort-on-panic is what the device does under panic-probe.
@@ -200,7 +216,7 @@ pub fn spawn(
             }
             release_task(&spec);
             if is_child {
-                LIVE_JVM_CHILDREN.fetch_sub(1, Ordering::AcqRel);
+                child_gone();
             }
             park_finished_task();
         });
@@ -209,7 +225,7 @@ pub fn spawn(
         // The charge was for a task that does not exist.
         release_task(&spec);
         if is_child {
-            LIVE_JVM_CHILDREN.fetch_sub(1, Ordering::AcqRel);
+            child_gone();
         }
         return false;
     }
