@@ -64,6 +64,11 @@ pub struct Gt911<I: I2cBus> {
     width: u16,
     height: u16,
     swap_xy: bool,
+    /// What the controller last said: the finger's position, or `None` after a
+    /// report with no fingers. Returned again whenever a read finds no fresh
+    /// report, because "nothing new" is not "nothing there" — see
+    /// [`Gt911::read_point`].
+    last: Option<(u16, u16)>,
 }
 
 impl<I: I2cBus> Gt911<I> {
@@ -120,6 +125,7 @@ impl<I: I2cBus> Gt911<I> {
             width,
             height,
             swap_xy,
+            last: None,
         }
     }
 
@@ -150,7 +156,17 @@ impl<I: I2cBus> Gt911<I> {
     }
 
     /// The first touch point, in screen pixels, or `None` when no finger is
-    /// down or the controller has nothing fresh.
+    /// down.
+    ///
+    /// The controller publishes one report per scan cycle and flags it with
+    /// the buffer-ready bit; a read that lands between two reports finds the
+    /// bit clear. That is "nothing new", not "nothing there", so it answers
+    /// with the previous report. Only a fresh report with no fingers clears
+    /// the point. Treating a stale buffer as a release is what turned every
+    /// drag into a stream of press/release pairs once the sampler woke on
+    /// both edges of the INT pulse (2026-09-12): the second edge always read
+    /// a buffer the first had just cleared, so a scroll stalled inside
+    /// LVGL's scroll limit and a roller took each pair for a tap.
     ///
     /// Every call that sees a ready buffer clears the status register, which is
     /// what tells the part it may overwrite the coordinates. Skipping that
@@ -158,10 +174,11 @@ impl<I: I2cBus> Gt911<I> {
     pub fn read_point(&mut self) -> Option<(u16, u16)> {
         let mut status = [0u8; 1];
         if self.read_regs(REG_STATUS, &mut status).is_err() {
-            return None;
+            // The report, if any, is still pending; the next read gets it.
+            return self.last;
         }
         if status[0] & STATUS_BUFFER_READY == 0 {
-            return None;
+            return self.last;
         }
 
         let points = status[0] & STATUS_POINT_COUNT;
@@ -176,13 +193,17 @@ impl<I: I2cBus> Gt911<I> {
         // that skips this wedges the controller on the next sample too.
         let _ = self.write_regs(REG_STATUS, &[0]);
 
-        if points == 0 || read.is_err() {
-            return None;
+        if points == 0 {
+            self.last = None;
+        } else if read.is_ok() {
+            self.last = Some(self.transform(
+                u16::from_le_bytes([coords[0], coords[1]]),
+                u16::from_le_bytes([coords[2], coords[3]]),
+            ));
         }
-        Some(self.transform(
-            u16::from_le_bytes([coords[0], coords[1]]),
-            u16::from_le_bytes([coords[2], coords[3]]),
-        ))
+        // A coordinate read that failed loses one sample of a finger the
+        // controller says is down; the previous point is the better guess.
+        self.last
     }
 
     /// The controller's own coordinates for the first point, before the axis
@@ -351,6 +372,48 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_buffer_between_two_reports_is_not_a_release() {
+        // Report (100, 200); two reads between reports (buffer-ready clear);
+        // a status read that fails (empty script); then the next report at
+        // (110, 210). The finger never left, and neither must the point.
+        let bus = FakeBus::new(&[
+            &[STATUS_BUFFER_READY | 1],
+            &[0x64, 0x00, 0xC8, 0x00],
+            &[0x00],
+            &[0x00],
+        ]);
+        let mut gt = Gt911::new(bus, ADDR_PRIMARY, 320, 480, false);
+        assert_eq!(gt.read_point(), Some((100, 200)));
+        assert_eq!(
+            gt.read_point(),
+            Some((100, 200)),
+            "stale buffer holds the point"
+        );
+        assert_eq!(gt.read_point(), Some((100, 200)), "second stale read too");
+        assert_eq!(
+            gt.read_point(),
+            Some((100, 200)),
+            "a failed status read holds the point"
+        );
+        gt.bus.reads = vec![vec![STATUS_BUFFER_READY | 1], vec![0x6E, 0x00, 0xD2, 0x00]];
+        assert_eq!(gt.read_point(), Some((110, 210)));
+    }
+
+    #[test]
+    fn only_a_report_with_no_fingers_releases_the_point() {
+        let bus = FakeBus::new(&[
+            &[STATUS_BUFFER_READY | 1],
+            &[0x64, 0x00, 0xC8, 0x00],
+            &[STATUS_BUFFER_READY], // ready, zero points: the finger lifted
+            &[0x00],                // stale afterwards: still nothing there
+        ]);
+        let mut gt = Gt911::new(bus, ADDR_PRIMARY, 320, 480, false);
+        assert_eq!(gt.read_point(), Some((100, 200)));
+        assert_eq!(gt.read_point(), None);
+        assert_eq!(gt.read_point(), None);
+    }
+
+    #[test]
     fn swap_xy_transposes_and_the_clamp_keeps_a_point_on_the_panel() {
         let bus = FakeBus::new(&[&[STATUS_BUFFER_READY | 1], &[0x64, 0x00, 0xC8, 0x00]]);
         let mut gt = Gt911::new(bus, ADDR_PRIMARY, 320, 480, true);
@@ -363,11 +426,24 @@ mod tests {
     }
 
     #[test]
-    fn a_read_error_mid_sample_reports_nothing() {
+    fn a_read_error_mid_sample_keeps_the_previous_point() {
         // Status reads ready with a point, but the coordinate read finds an
-        // empty script and fails.
+        // empty script and fails: nothing known yet, so nothing reported …
         let bus = FakeBus::new(&[&[STATUS_BUFFER_READY | 1]]);
         let mut gt = Gt911::new(bus, ADDR_PRIMARY, 320, 480, false);
         assert_eq!(gt.read_point(), None);
+        // … but the status was still cleared, or the part would wedge.
+        assert_eq!(
+            gt.bus.writes.last().expect("a write happened").as_slice(),
+            &[0x81, 0x4E, 0x00]
+        );
+        // With a point already known, the same failure keeps it.
+        gt.bus.reads = vec![
+            vec![STATUS_BUFFER_READY | 1],
+            vec![0x64, 0x00, 0xC8, 0x00],
+            vec![STATUS_BUFFER_READY | 1],
+        ];
+        assert_eq!(gt.read_point(), Some((100, 200)));
+        assert_eq!(gt.read_point(), Some((100, 200)));
     }
 }

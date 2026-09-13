@@ -26,7 +26,7 @@ design that makes the property enforced rather than remembered.
 | G2 config assertions | **landed** 2026-09-12 (`task_affinity::idle_cores_sleep_and_driver_waits_yield`) |
 | WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
 | WP3 USB bridge (F3, F11) | **landed** 2026-09-12 (`pdb_usb/mod.rs`: EP1-IN semaphore given from the ISR, 500 ms dead-host latch; install reads block a tick per attempt on a hardware-timer deadline) |
-| WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); **HIL on the touch kit pending** (board leased) |
+| WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); touch kit 2026-09-13: the first run exposed `Gt911::read_point` treating a stale buffer as a release (phantom release per INT edge — drags stalled, rollers stepped backwards); fixed in the driver, see S8 in `docs/designs/scroll-performance-2026-09.md` |
 | WP6 per-sector PAPK erase (F8) | **landed** 2026-09-12 (`install/region.rs::erase_run`) |
 | WP8 stop-path correctness (F10, F12) | **landed** 2026-09-12 (`monitor_store.rs` returns `Interrupted` on an aborted `Forever` lock; `wait_for_park` blocks on a notification the JVM task sends) |
 | WP0, WP5, WP7, WP9–WP11, G3, G4, G6 | open — see the plan below |

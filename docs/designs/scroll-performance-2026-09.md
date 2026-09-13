@@ -129,9 +129,21 @@ ISR; the sampler waits on it with a 10 ms ceiling while a finger is down
 and a 50 ms safety net when idle, and scripted touches kick it directly.
 That is correct whether the line pulses or holds a level. The bench
 measurement below is still owed: with an edge confirmed at touch-down the
-idle net can grow to a second, which is the idle-power win. Not yet run on
-the touch kit (leased when it landed) — first HIL there checks tap and
-scroll parity.
+idle net can grow to a second, which is the idle-power win.
+
+**2026-09-13: the first run on the touch kit found the driver, not the
+wake, wrong.** `Gt911::read_point` answered `None` for a buffer whose
+ready bit was clear — "nothing new" read as "nothing there". Two edges per
+INT pulse meant the sampler read every report twice, the second time into a
+buffer the first had just cleared, so every drag reached LVGL as a stream
+of press/release pairs: a ScrollView never left the scroll limit and a
+roller took each pair for a tap above or below centre and stepped the other
+way. (S1's free-running 10 ms timer could do the same whenever a poll fell
+between two reports; the interrupt made it happen on every report.) The
+driver now holds the previous report across stale reads and clears the
+point only on a report with no fingers (`drivers/gt911.rs`,
+`a_stale_buffer_between_two_reports_is_not_a_release`). Both edges stay
+armed; the second wake costs one status byte.
 
 S1's timer is free-running, so it reads an untouched panel a hundred times a
 second forever. At 0.6 ms a read that is about 6 % of a core, and a hundred
