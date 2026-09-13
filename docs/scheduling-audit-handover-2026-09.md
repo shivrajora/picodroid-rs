@@ -28,6 +28,14 @@ the `rtt-lossy` feature. Hardware: `netdemo` and `http_get` `net` rows and the
 `blinky` `loop` + `pdb install-stress` rows pass on the W-board slot with the
 final tree.
 
+**Session 2, 2026-09-13 (three commits on local `main`, not pushed):** WP7
+(`719d43e7`), WP10 (`61394bae`) and the F19 leftover (`4b65a715`) landed —
+each through the fast tier, sim smoke per commit, `--full` at the end. See
+§2 for what each did and what WP7 deliberately left out. The size ratchet
+was advanced once, in the WP7 commit: RP2040 +92 B flash / +8 B RAM over
+the old baseline (+172 B / +8 B over the pre-change tree, attributed by
+symbol in the commit message); RP2350 −1,388 B against its baseline.
+
 Two things the next session inherits that are **not** code debt:
 
 - **The `blinky pdb launch` row fails on the `pico_enviro_mon_w` slot with
@@ -55,23 +63,35 @@ Each `spin-todo:` names its finding; the work package that replaces one lowers
 
 ## 2. Open work packages, in the order I would take them
 
-### WP7 — tick timebase (F16) — shared code, sim-testable, medium
+### WP7 — tick timebase (F16) — LANDED 2026-09-13 (`719d43e7`), one half deferred
 
-`crates/picodroid-core/src/graphics/lvgl/lifecycle.rs::tick` is fed a literal
-`16` (`lifecycle.rs` `g.tick(16)`), so a 200 ms frame on the touch board
-advances LVGL's clock by 16 ms and animations run slow; `lv_timer_handler()`'s
-"ms until next" is discarded, so the 16 ms software timer fires 62.5×/s with
-nothing to draw. Plan: measured `now_ms()` delta into `lv_tick_inc`; use the
-return value to reprogram the timer (add `tick_timer_set_period` to the `Rtos`
-seam — device arm in `platforms/rp/src/glue.rs` next to `tick_timer_start`,
-sim arms in `hal/sim/rtos*.rs`) or let the main loop wait with
-`queue_recv(Timeout::Ms(next))`; keep an earliest-deadline for
-`alarms::dispatch_alarms` so the per-tick table scan (`alarms.rs:366-405`)
-only runs when due; `IDLE_GC_TICKS = 125` (`lifecycle.rs:353`) becomes a
-`now_ms()` comparison. Guard: extend the `LV_DEF_REFR_PERIOD == TICK_PERIOD_MS`
-scan in `executors/tick_source.rs:65-103` to reject a literal in `g.tick(`.
-Verify with `animdemo` in the sim (animation wall-clock) and `pdb sysmon` on
-the touch kit (timer-task switch count with an idle screen).
+Done: `tick_source::step_ms()` feeds the UI clocks (LVGL, toasts,
+snackbars, property animations) one period while the loop keeps up and
+the tick's lateness against the fed clock when it is more — *not* a raw
+wall-clock delta, because `lv_timer_exec` re-stamps `last_run` with no
+credit and a 15 ms step against the 16 ms refresh period skips a frame on
+every millisecond of jitter (S3). Unit-tested, including the u32 wrap.
+`Display.update()` keeps a fixed period by contract (`graphicsbench` C
+counts frames as `2000 / 16`). Alarms keep a horizon (earliest armed
+trigger per clock + "a row is in flight"); `alarms::due` is two
+comparisons and no seqlock read on an idle tick, and a package-directory
+change forces a poll. Idle GC is 2 s on the clock, not 125 ticks. Guard:
+`tick_source`'s scan rejects an integer literal at any `.tick(`,
+`lifecycle::tick(` or `lv_tick_inc(` call.
+
+**Deliberately not done — reprogramming the timer from `lv_timer_handler`'s
+return.** It would buy nothing today. LVGL 9.5 does pause its refresh timer
+when nothing is invalidated (`lv_display_refr_timer` → `lv_timer_pause`;
+`lv_inv_area` resumes it), and the anim timer when no animation runs, but
+the pointer indev's `read_timer` runs every `LV_DEF_REFR_PERIOD` in
+`LV_INDEV_MODE_TIMER`, so `lv_timer_handler` never answers more than 16 ms
+while the panel is polled through LVGL. The idle-wake reduction is gated on
+event-mode input: the touch sampler (already interrupt-woken after WP4)
+would post `main_queue::enqueue_wake` on a state change and the loop would
+call `lv_indev_read` with the indev in `LV_INDEV_MODE_EVENT`. Only then is
+a `tick_timer_set_period` seam item worth its porting-guard and flash
+cost. Note the sim's minifb window pump (`hal::display::update_window`)
+also wants a periodic tick, so the sim arm would keep a floor.
 
 ### WP5 — gSPI DMA completion by interrupt (F7) — W board, medium
 
@@ -111,12 +131,15 @@ threshold), a one-line `schedmon:` window report, STRICT abort for soaks,
 `pdb sysmon` already marshals `run_time_counter`, so per-task CPU % in sysmon
 is the cheap first step and useful on its own. Budget a full session.
 
-### WP10 — sim parity (F17) — small
+### WP10 — sim parity (F17) — LANDED 2026-09-13 (`61394bae`)
 
-`sim_boot.rs:179-183` drains child threads with a 10 ms sleep-poll (device
-uses notifications, `boot_tasks.rs:185-190`); `hal/sim/rtos.rs:528` makes
-`delay_ms(0)` a `sleep(0)` while the device's `vTaskDelay(0)` reschedules
-(`Thread.yield` divergence); `hal/sim/net.rs:226-228` polls `accept` at 5 ms.
+The FreeRTOS sim backing records the JVM task's handle and `child_gone`
+notifies it when the child count reaches zero (both exit paths);
+`sim_boot` waits on `task_wait_notification` and re-checks, as
+`boot_tasks.rs` does. The test backing's `delay_ms(0)` is `yield_now`.
+`accept` with a timeout blocks in `poll(2)` with the deadline tracked
+across the 1 ms `SIGALRM` `EINTR`s (`SO_RCVTIMEO` on `accept` is
+Linux-only; the dev host is sometimes macOS).
 
 ### WP11 — hot-path polish (F18) — small
 
@@ -126,11 +149,35 @@ SPI small path takes `spi_lock` before its FIFO polls (`spi/mod.rs:400-406`
 returns before `:408` today — a 1–6 byte command can interleave with a locked
 `reconfigure()`).
 
-### F19 leftovers — trivial
+**Looked at on 2026-09-13, left alone — it needs the testbench.** The
+"small" SPI item is not small on the boards that matter: on
+`testbench_rp2040/2350` the XPT2046 is a second device on the display's bus
+(`board.toml` `[touch]` has no `spi_id`; `RpSpiBus::handle` says so). The
+async flush (S5) holds `spi_lock` from `write_pixels_start` to the
+`write_pixels_wait` LVGL issues at the end of each refresh, and the XPT2046
+sample already serialises on that lock *twice* — its `set_frequency(2 MHz)`
+and the restore both go through `reconfigure` — but its ten polled 3-byte
+transfers in between do not, so the JVM task can start the next band's DMA
+at 2 MHz between them and the sampler's bytes can land in the band's TX
+FIFO. Taking `spi_lock` in the small path alone would make the touch task
+(priority 23) block behind a band on a binary semaphore with no priority
+inheritance, which is correct but new, and does not close the gap. The fix
+that does: a bus-hold API (`spi::hold(id)`/`release`, or a `with_bus`
+closure) that the XPT2046 driver wraps its whole sample in, with
+`reconfigure` and the polled paths asserting or taking it. Validate with
+touch during a repaint on `testbench_rp2040` (`parity-bench.sh --hil`,
+`pdb input swipe` while a scroll paints) — a corrupt band or a stalled
+drag is the symptom either way.
 
-`cyw43_port.c` `cyw43_yield()` is a bare `taskYIELD()` on a core with no
-equal-priority peer (a no-op that reads as a yield point): delete the hook or
-say so in a comment.
+### F19 leftovers — LANDED 2026-09-13 (`4b65a715`)
+
+`cyw43_yield()` is gone; `CYW43_EVENT_POLL_HOOK` is `((void)0)` with the
+reasoning in `cyw43_configport.h`: the driver's boot loops run on the
+cyw43 task, pinned to core 1 at priority 22, and the only other task
+allowed on core 1 is the flash parker at 30, which preempts rather than
+waits for a yield. Compile-checked on `testbench_rp2350w` — the ratchet
+boards do not link the port, so a W-board build is the only gate for that
+file.
 
 ## 3. WP4 on the touch kit — what to check first
 
@@ -176,5 +223,10 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
 - `defmt-rtt` stays in blocking mode by default (HIL rows need every line);
   `rtt-lossy` exists for probe-attached timing work. F6 is Medium, not fixed.
 - `configUSE_TICKLESS_IDLE` stays 0 (the port's `vPortSuppressTicksAndSleep`
-  is single-core SysTick code; revisit after WP7).
+  is single-core SysTick code; revisit once the tick is event-paced — see
+  WP7's deferred half).
+- WP7's timer reprogramming (WP7 above): no gain until the indev is
+  event-driven.
+- WP11's SPI lock (WP11 above): needs the testbench, and a bus-hold API
+  rather than the one-line change the plan described.
 - The `blinky pdb launch` row on the W slot (§0).

@@ -29,7 +29,10 @@ design that makes the property enforced rather than remembered.
 | WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); touch kit 2026-09-13: the first run exposed `Gt911::read_point` treating a stale buffer as a release (phantom release per INT edge — drags stalled, rollers stepped backwards); fixed in the driver, see S8 in `docs/designs/scroll-performance-2026-09.md` |
 | WP6 per-sector PAPK erase (F8) | **landed** 2026-09-12 (`install/region.rs::erase_run`) |
 | WP8 stop-path correctness (F10, F12) | **landed** 2026-09-12 (`monitor_store.rs` returns `Interrupted` on an aborted `Forever` lock; `wait_for_park` blocks on a notification the JVM task sends) |
-| WP0, WP5, WP7, WP9–WP11, G3, G4, G6 | open — see the plan below |
+| WP7 tick timebase (F16) | **landed** 2026-09-13 (`tick_source::step_ms`: a period, or the tick's lateness when more; alarm horizon gates the per-tick poll; idle GC on the clock; literal-step guard). Timer reprogramming from `lv_timer_handler`'s return deferred: the pointer indev's read timer keeps it at 16 ms until input is event-driven — `docs/scheduling-audit-handover-2026-09.md` §2 |
+| WP10 sim parity (F17) | **landed** 2026-09-13 (child drain by notification, `delay_ms(0)` yields, `accept` waits in `poll(2)`) |
+| F19 leftover (`cyw43_yield`) | **landed** 2026-09-13 (hook is `((void)0)`; nothing else may run on core 1 at priority 22) |
+| WP0, WP5, WP9, WP11, G3, G4, G6 | open — see the plan below and the handover doc |
 
 **Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
 PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP
