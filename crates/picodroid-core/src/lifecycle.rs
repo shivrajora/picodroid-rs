@@ -351,13 +351,20 @@ pub(crate) fn run_activity(
     // crosses GC_THRESHOLD at a safepoint, so garbage from a churn burst
     // that ends short of the threshold sits unreclaimed for as long as the
     // app stays idle — which matters exactly for heap-capped apps parking
-    // right after the burst. Mirror Android's idle-time GC: after ~2 s of
-    // ticks with a non-zero but unchanging allocation count, run one
-    // collection (which zeroes the counter, naturally latching this off
-    // until allocations resume).
-    const IDLE_GC_TICKS: u32 = 125; // ~2 s at the 16 ms tick cadence
-    let mut idle_ticks: u32 = 0;
+    // right after the burst. Mirror Android's idle-time GC: after 2 s with a
+    // non-zero but unchanging allocation count, run one collection (which
+    // zeroes the counter, naturally latching this off until allocations
+    // resume). Measured on the clock, not in ticks: a slow app's ticks are
+    // few and coalesced, and 125 of them can be a lot more than 2 s.
+    const IDLE_GC_MS: u64 = 2_000;
+    let mut idle_since_ms: Option<u64> = None;
     let mut idle_alloc_count: u16 = 0;
+
+    // The package directory generation the alarm poll last saw; a change
+    // forces a poll (see `dispatch_alarms`). Starts unseen so the first
+    // tick polls once.
+    #[cfg(has_multi_app)]
+    let mut alarm_directory_seen: u32 = u32::MAX;
 
     loop {
         if handler.interrupted() {
@@ -389,7 +396,7 @@ pub(crate) fn run_activity(
         // submits a Runnable. Sub-ms wake on Runnable post.
         match main_queue::recv_blocking() {
             MainTask::LvglTick => {
-                with_gfx(|g| g.tick(16));
+                with_gfx(|g| g.tick(crate::executors::tick_source::step_ms()));
                 crate::graphics::lvgl::fps_overlay::update();
                 // Control-channel package verbs run here, on the JVM task,
                 // so the directory keeps one writer.
@@ -417,25 +424,26 @@ pub(crate) fn run_activity(
                 // never lands mid-frame between a widget's callbacks; the
                 // op it queues is drained by this same loop below.
                 #[cfg(has_multi_app)]
-                dispatch_alarms(jvm, heap, handler);
+                dispatch_alarms(jvm, heap, handler, &mut alarm_directory_seen);
 
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.
                 #[cfg(feature = "mem-diag")]
                 crate::mem_diag::on_tick(jvm, heap, handler);
 
-                // Idle GC (see IDLE_GC_TICKS above): sub-threshold garbage is
-                // collected once allocations have stopped for ~2 s.
+                // Idle GC (see IDLE_GC_MS above): sub-threshold garbage is
+                // collected once allocations have stopped for 2 s.
                 let ac = heap.gc_state.alloc_count;
                 if ac != 0 && ac == idle_alloc_count {
-                    idle_ticks += 1;
-                    if idle_ticks >= IDLE_GC_TICKS {
+                    let now = now_ms();
+                    let since = *idle_since_ms.get_or_insert(now);
+                    if now.saturating_sub(since) >= IDLE_GC_MS {
                         heap.collect_now(handler);
-                        idle_ticks = 0;
+                        idle_since_ms = None;
                         idle_alloc_count = 0;
                     }
                 } else {
-                    idle_ticks = 0;
+                    idle_since_ms = None;
                     idle_alloc_count = ac;
                 }
 
@@ -1944,11 +1952,23 @@ fn dispatch_alarms(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
+    directory_seen: &mut u32,
 ) {
     use crate::alarms::{Action, Now};
     use crate::native_handler::{PendingActivityOp, PendingOp};
 
+    // Most ticks stop here: the table is scanned, and the wall clock's
+    // seqlock read, only once something can be due — or the package
+    // directory changed, since a poll is also what forgets an uninstalled
+    // owner's alarms.
     let elapsed_ms = crate::hal::system_clock::elapsed_realtime_nanos() / 1_000_000;
+    let directory = crate::packages::directory_generation();
+    if *directory_seen == directory
+        && !crate::alarms::due(elapsed_ms, crate::os::system_clock::wall_offset_ms)
+    {
+        return;
+    }
+    *directory_seen = directory;
     let now = Now {
         elapsed_ms,
         wall_ms: elapsed_ms + crate::os::system_clock::wall_offset_ms(),
