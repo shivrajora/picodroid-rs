@@ -436,7 +436,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 let v = args[arg_pos];
                 arg_pos += 1;
                 let ch = match unbox(ctx, v) {
-                    Value::Int(n) => n as u8,
+                    Value::Int(n) if spec.precision.is_none() => n as u8,
                     _ => return Some(Err(fmt_err(ctx))),
                 };
                 scratch.clear();
@@ -449,9 +449,11 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
+                // A precision is an IllegalFormatException on an integral
+                // conversion, as in Java (QA 2026-09-13: `%.2d` was accepted).
                 let (signed, _u) = match as_int(ctx, v) {
-                    Some(t) => t,
-                    None => return Some(Err(fmt_err(ctx))),
+                    Some(t) if spec.precision.is_none() => t,
+                    _ => return Some(Err(fmt_err(ctx))),
                 };
                 let neg = signed < 0;
                 let mag = if neg {
@@ -470,7 +472,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 let v = args[arg_pos];
                 arg_pos += 1;
                 let u = match as_unsigned(ctx, v) {
-                    Some(u) => u,
+                    Some(u) if spec.precision.is_none() => u,
                     _ => return Some(Err(fmt_err(ctx))),
                 };
                 hex_digits(u, spec.conv == b'X', &mut scratch);
@@ -494,7 +496,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 let v = args[arg_pos];
                 arg_pos += 1;
                 let u = match as_unsigned(ctx, v) {
-                    Some(u) => u,
+                    Some(u) if spec.precision.is_none() => u,
                     _ => return Some(Err(fmt_err(ctx))),
                 };
                 oct_digits(u, &mut scratch);
