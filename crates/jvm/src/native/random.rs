@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::m;
+use crate::names::{c, m};
 
 /// Java's `Random` LCG: `seed = (seed * 0x5DEECE66D + 0xB) & ((1 << 48) - 1)`.
 const MULTIPLIER: i64 = 0x5DEECE66D;
@@ -131,7 +131,12 @@ pub(crate) fn dispatch(
                     _ => return Some(Err(JvmError::InvalidReference)),
                 };
                 if bound <= 0 {
-                    return Some(Err(JvmError::InvalidReference));
+                    // "bound must be positive", as in Java (QA 2026-09-13:
+                    // it was the uncatchable InvalidReference).
+                    return Some(Err(super::throw_named(
+                        ctx,
+                        c::java_lang_IllegalArgumentException,
+                    )));
                 }
                 // Power-of-2 fast path matches the JDK.
                 if (bound & -bound) == bound {
