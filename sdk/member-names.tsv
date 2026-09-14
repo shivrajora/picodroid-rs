@@ -368,6 +368,7 @@ F	longValsHi
 F	longValsLo
 F	mChildCount
 F	mChildren
+F	mGroup
 F	mLineMode
 F	maxRange
 F	maxValue
@@ -889,6 +890,7 @@ M	nativeSetAction
 M	nativeSetAlpha
 M	nativeSetBackground
 M	nativeSetBool
+M	nativeSetChecked
 M	nativeSetDouble
 M	nativeSetDuration
 M	nativeSetEnabled
@@ -928,6 +930,7 @@ M	onAccuracyChanged
 M	onActivityResult
 M	onBackPressed
 M	onBind
+M	onButtonChecked
 M	onCheckedChanged
 M	onClick
 M	onCreate
@@ -1051,6 +1054,7 @@ M	setBackgroundColor
 M	setBaudrate
 M	setChecked
 M	setCheckedId
+M	setCheckedSilently
 M	setClassName
 M	setColor
 M	setConnectTimeout

@@ -666,7 +666,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/widget/RadioButton
     ("picodroid/widget/RadioButton", "isChecked", "()Z"),
     ("picodroid/widget/RadioButton", "nativeCreate", "()I"),
-    ("picodroid/widget/RadioButton", "setChecked", "(Z)V"),
+    ("picodroid/widget/RadioButton", "nativeSetChecked", "(Z)V"),
     ("picodroid/widget/RadioButton", "setText", "(Ljava/lang/String;)V"),
     // picodroid/widget/ScrollView
     ("picodroid/widget/ScrollView", "nativeCreate", "()I"),

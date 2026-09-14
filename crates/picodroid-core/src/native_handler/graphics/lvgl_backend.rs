@@ -311,7 +311,7 @@ impl GraphicsBackend for LvglBackend {
                 ctx.objects,
             )),
             m::isChecked => Some(widgets::radio_button_is_checked(ctx.args, ctx.objects)),
-            m::setChecked => Some(widgets::radio_button_set_checked(ctx.args, ctx.objects)),
+            m::nativeSetChecked => Some(widgets::radio_button_set_checked(ctx.args, ctx.objects)),
             m::nativeRegisterCheckedChangeListener => Some(
                 widgets::radio_button_register_checked_change_listener(ctx.args, ctx.objects),
             ),
