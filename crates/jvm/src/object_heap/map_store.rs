@@ -160,18 +160,7 @@ impl ObjectHeap {
     }
 }
 
-/// Value equality for map key/value comparison.
-/// For ObjectRef values, compares field 0 (wrapper equality for Integer, etc.).
-/// For string References with different indices, compares by resolved content.
+/// Value equality for map key/value comparison: see [`super::key_eq`].
 fn map_values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) -> bool {
-    match (a, b) {
-        (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
-            let fa = objects.get_field(ai, 0);
-            fa.is_some() && fa == objects.get_field(bi, 0)
-        }
-        // String References may have different indices but same content
-        // due to StringTable interning behavior after dynamic strings exist.
-        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
-        _ => a == b,
-    }
+    super::key_eq(a, b, objects, strings)
 }

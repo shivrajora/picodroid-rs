@@ -1607,6 +1607,60 @@ pub(crate) fn reserve_fallible<T>(v: &mut Vec<T>, extra: usize) -> Result<(), Ex
     v.try_reserve_exact(extra).map_err(|_| Exhausted)
 }
 
+/// Key equality for the builtin collections, as `Object.equals` has it for
+/// the classes without a body of their own: strings by content, boxes by
+/// class and value — `Integer(1)` is not `Short(1)`, and `Double`/`Float`
+/// follow `Double.equals` (NaN equals NaN, `0.0` is not `-0.0`) — and every
+/// other object by identity. A class with its own `equals(Object)` is
+/// served by the interpreter's equals-aware path instead. Until QA
+/// 2026-09-13 any two objects with an equal field 0 were one key: the
+/// boxes of different classes above, and two unrelated objects alike.
+pub(crate) fn key_eq(
+    a: Value,
+    b: Value,
+    objects: &ObjectHeap,
+    strings: &crate::heap::StringTable,
+) -> bool {
+    match (a, b) {
+        (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
+            let (Some(ca), Some(cb)) = (objects.class_name(ai), objects.class_name(bi)) else {
+                return false;
+            };
+            if ca != cb || !is_box_class(ca) {
+                return false;
+            }
+            match (objects.get_field(ai, 0), objects.get_field(bi, 0)) {
+                (Some(Value::Double(x)), Some(Value::Double(y))) => {
+                    x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan())
+                }
+                (Some(Value::Float(x)), Some(Value::Float(y))) => {
+                    x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan())
+                }
+                (Some(x), Some(y)) => x == y,
+                _ => false,
+            }
+        }
+        // Distinct String References can carry the same text (a literal
+        // vs. a runtime-built string).
+        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
+        _ => a == b,
+    }
+}
+
+fn is_box_class(class: &str) -> bool {
+    matches!(
+        class,
+        c::java_lang_Integer
+            | c::java_lang_Long
+            | c::java_lang_Short
+            | c::java_lang_Byte
+            | c::java_lang_Character
+            | c::java_lang_Boolean
+            | c::java_lang_Float
+            | c::java_lang_Double
+    )
+}
+
 // ── JLS §5.1.7 boxed-value cache ─────────────────────────────────────────
 
 /// Slot value meaning "no cached box yet".
