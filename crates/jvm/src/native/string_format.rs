@@ -84,6 +84,24 @@ fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
 /// loops).
 fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) {
     dst.clear();
+    // A `Boolean` prints `true`/`false` and a `Character` its character, as
+    // their `toString` does (QA 2026-09-13: `%s` printed the raw int).
+    if let Value::ObjectRef(idx) = v {
+        match ctx.objects.class_name(idx) {
+            Some(c::java_lang_Boolean) => {
+                let set = matches!(ctx.objects.get_field(idx, 0), Some(Value::Int(n)) if n != 0);
+                dst.extend_from_slice(if set { b"true" } else { b"false" });
+                return;
+            }
+            Some(c::java_lang_Character) => {
+                if let Some(Value::Int(n)) = ctx.objects.get_field(idx, 0) {
+                    dst.push(n as u8);
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
     let unboxed = unbox(ctx, v);
     match unboxed {
         Value::Null => dst.extend_from_slice(b"null"),
