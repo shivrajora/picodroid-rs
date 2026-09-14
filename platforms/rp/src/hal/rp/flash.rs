@@ -290,7 +290,19 @@ pub fn flash_trigger_reset() -> ! {
     let p = unsafe { pac::Peripherals::steal() };
 
     // Tell the PSM to reset every subsystem except the ring and crystal
-    // oscillators when the watchdog fires.
+    // oscillators when the watchdog fires — the Pico SDK's `watchdog_reboot`
+    // selection, `PSM_WDSEL_BITS & ~(ROSC | XOSC)`. The two chips lay the
+    // register out differently, so the mask is per chip:
+    //   RP2040: rosc 0, xosc 1, clocks 2 … proc1 16      → 0x0001_fffc
+    //   RP2350: proc_cold 0, otp 1, rosc 2, xosc 3, resets 4 … xip 20,
+    //           sio 21, accessctrl 22, proc0 23, proc1 24 → 0x01ff_fff3
+    // The RP2040 mask on an RP2350 reset the oscillators out from under
+    // both processors and left the processors, SIO and XIP running: the
+    // pico_touch_kit (RP2350B) came out of every software reboot with SWD
+    // and USB dead until a physical reset (2026-09-13).
+    #[cfg(feature = "chip-rp2350")]
+    p.PSM.wdsel().write(|w| unsafe { w.bits(0x01ff_fff3) });
+    #[cfg(feature = "chip-rp2040")]
     p.PSM.wdsel().write(|w| unsafe { w.bits(0x0001_fffc) });
 
     // Force-fire the watchdog (CTRL bit 31 = TRIGGER).

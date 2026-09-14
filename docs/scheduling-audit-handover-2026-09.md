@@ -60,6 +60,22 @@ Two things the next session inherits that are **not** code debt:
   minutes to understand *why* the launcher stalls on a board with no touch
   chip (the inline XPT2046 read on a floating bus is the suspect — a
   permanent phantom press?), but it is a bench item, not an audit item.
+- **The touch kit has a soft-power button** (EP-0172 carrier): a USB port
+  power-cycle switches it off, and it stays off until someone presses the
+  button — no SWD, no USB, looks like a dead chip. `hil-run.sh` cycles the
+  slot at startup and in `recover_probe`, so every harness run killed it
+  (the 2026-09-11 nightly, twice on 2026-09-13). Fixed the same evening:
+  `fleet-lib.sh` `cycle=probe` (cycle the probe port only) on the kit's
+  fleet row. With that, the kit passes helloworld 25/28 (every install,
+  uninstall and launch-soak reboot), animdemo 2/2 and alarmdemo 2/2 on
+  main at `57f99632`. The two `settings-uninstall` rows fail on the kit:
+  the flow reaches `Settings: apps 1` and the uninstall tap never lands —
+  the row's tap coordinates are the 320×240 testbench's, the kit's panel
+  is 320×480. A harness item. Also found on the way: `flash_trigger_reset`
+  wrote the RP2040 `PSM.WDSEL` mask on RP2350, whose layout differs (the
+  RP2040 value there resets the oscillators and not the cores); it now
+  writes the SDK's "all but ROSC/XOSC" for chip-rp2350. Not the kit's
+  killer (the RP2350A survived the old mask), but wrong.
 - **WP4 (touch by interrupt) is unrun on hardware.** The touch kit was leased
   all day. First thing on the kit: tap and scroll parity (`parity-bench.sh
   --hil`), then `pdb sysmon` switch counts idle vs. touching. See §3.
@@ -109,9 +125,8 @@ permanent one. Bisect on the board (worktree at `f578c157`): removing the
 `alarms::due` gate still FAILs, so the gate is not the cause; the
 fixed-step variant got no data — the stalled board's half-enumerated USB
 storms the hub (`project_hil_usb_storm_probe_rs_hang`) and the probe port
-went down (`No connected probes were found`). The touch kit was dead on SWD
-before any of this (see the bench note in §0 / memory
-`reference_touch_kit_dead_swd_2026_09_13`).
+went down (`No connected probes were found`). The touch kit was unusable
+that evening for a bench reason, not a chip one — see the kit note in §0.
 
 Not a sim-visible bug: the tick consumers are safe for any step
 (saturating arithmetic; `animations::tick` carries a delay remainder), and
