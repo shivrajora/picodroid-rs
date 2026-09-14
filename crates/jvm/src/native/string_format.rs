@@ -6,7 +6,6 @@
 //! or bad specifiers throw `IllegalFormatException`.
 
 use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::array_heap::decode_ref;
@@ -536,34 +535,32 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     pad_numeric(sign, body, &spec_no_zero, &mut out);
                     continue;
                 }
-                let body_string: String = match spec.conv {
-                    b'f' => format!("{:.*}", prec, mag),
-                    b'e' | b'E' => {
-                        // Rust's `{:e}` uses `e0` style without padded exponent.
-                        // Java uses e.g. `1.234560e+02` — build it manually.
-                        let s = format!("{:.*e}", prec, mag);
-                        normalize_exp(&s, spec.conv == b'E')
-                    }
-                    b'g' | b'G' => {
-                        // %g picks between %e and %f based on magnitude. Rough rule:
-                        // use %e if exponent < -4 or >= precision.
-                        let exp = if mag == 0.0 {
-                            0
+                // Java formats the shortest round-trip digits of the value
+                // (`Double.toString`'s), rounded HALF_UP — not the exact
+                // binary expansion rounded half-even, which is what Rust's
+                // `{:.N}` prints. `%.2f` of 1.005 is `1.01`, `%.0f` of 2.5
+                // is `3`, and 1.2345678901234567e22 under `%f` ends in
+                // zeros (QA 2026-09-13).
+                let (digits, point) = shortest_digits(mag);
+                let mut body: Vec<u8> = Vec::new();
+                match spec.conv {
+                    b'f' => fixed_body(&digits, point, prec, spec.comma, &mut body),
+                    b'e' | b'E' => sci_body(&digits, point, prec, spec.conv == b'E', &mut body),
+                    _ => {
+                        // %g: HALF_UP to `prec` significant digits, then
+                        // fixed notation for a result in [1e-4, 10^prec),
+                        // scientific otherwise.
+                        let p = if prec == 0 { 1 } else { prec };
+                        let (rd, rp) = round_sig(&digits, point, p);
+                        let exp = rp - 1;
+                        if mag != 0.0 && (exp < -4 || exp >= p as i32) {
+                            sci_body(&rd, rp, p - 1, spec.conv == b'G', &mut body);
                         } else {
-                            libm::floor(libm::log10(mag)) as i32
-                        };
-                        let eff_prec = if prec == 0 { 1 } else { prec };
-                        if exp < -4 || exp >= eff_prec as i32 {
-                            let s = format!("{:.*e}", eff_prec - 1, mag);
-                            normalize_exp(&s, spec.conv == b'G')
-                        } else {
-                            let p = (eff_prec as i32 - 1 - exp).max(0) as usize;
-                            format!("{:.*}", p, mag)
+                            let frac = (p as i32 - rp).max(0) as usize;
+                            fixed_body(&rd, rp, frac, spec.comma, &mut body);
                         }
                     }
-                    _ => unreachable!(),
-                };
-                let body = body_string.into_bytes();
+                }
                 let sign = numeric_sign(neg, &spec);
                 pad_numeric(sign, &body, &spec, &mut out);
             }
@@ -578,29 +575,133 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
     Some(r.map(|idx| Some(Value::Reference(idx))))
 }
 
-/// Convert Rust's `{:e}` output (e.g. `"1.23e2"`, `"1.23e-3"`) into Java/C
-/// style with a signed, at-least-two-digit exponent (`"1.23e+02"`, `"1.23e-03"`).
-fn normalize_exp(s: &str, upper: bool) -> String {
-    let bytes = s.as_bytes();
-    let e_pos = match bytes.iter().position(|&b| b == b'e' || b == b'E') {
-        Some(p) => p,
-        None => return s.to_string(),
-    };
-    let mantissa = &s[..e_pos];
-    let exp_str = &s[e_pos + 1..];
-    let (sign, digits) = if let Some(rest) = exp_str.strip_prefix('-') {
-        ("-", rest)
-    } else if let Some(rest) = exp_str.strip_prefix('+') {
-        ("+", rest)
-    } else {
-        ("+", exp_str)
-    };
-    let mut padded = String::from(mantissa);
-    padded.push(if upper { 'E' } else { 'e' });
-    padded.push_str(sign);
-    if digits.len() < 2 {
-        padded.push('0');
+/// The shortest round-trip decimal digits of a finite `mag >= 0` — what
+/// `Double.toString` prints — as `(digits, point)`: `mag = 0.d₀d₁… × 10^point`,
+/// so `point` is the number of integer digits (zero or negative below 0.1).
+/// Zero is `([0], 1)`.
+fn shortest_digits(mag: f64) -> (Vec<u8>, i32) {
+    let s = format!("{:e}", mag);
+    let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let mut digits: Vec<u8> = mant
+        .bytes()
+        .filter(|b| b.is_ascii_digit())
+        .map(|b| b - b'0')
+        .collect();
+    if digits.is_empty() {
+        digits.push(0);
     }
-    padded.push_str(digits);
-    padded
+    (digits, exp + 1)
+}
+
+/// `digits` rounded HALF_UP to `sig` significant digits (`sig >= 1`); a
+/// carry out of the top digit lengthens the integer part (`9.99` → `10.0`).
+fn round_sig(digits: &[u8], point: i32, sig: usize) -> (Vec<u8>, i32) {
+    let mut d: Vec<u8> = digits.iter().copied().take(sig).collect();
+    let mut point = point;
+    if digits.len() > sig && digits[sig] >= 5 {
+        let mut i = d.len();
+        loop {
+            if i == 0 {
+                d.insert(0, 1);
+                d.pop();
+                point += 1;
+                break;
+            }
+            i -= 1;
+            if d[i] == 9 {
+                d[i] = 0;
+            } else {
+                d[i] += 1;
+                break;
+            }
+        }
+    }
+    while d.len() < sig {
+        d.push(0);
+    }
+    (d, point)
+}
+
+/// `%.Nf`: the integer digits (grouped under the `,` flag), then `prec`
+/// fractional digits, HALF_UP.
+fn fixed_body(digits: &[u8], point: i32, prec: usize, comma: bool, out: &mut Vec<u8>) {
+    let mut int_part: Vec<u8> = Vec::new();
+    let mut frac: Vec<u8> = Vec::new();
+    if point <= 0 {
+        int_part.push(0);
+        frac.extend(core::iter::repeat(0u8).take((-point) as usize));
+        frac.extend_from_slice(digits);
+    } else {
+        let p = point as usize;
+        if p >= digits.len() {
+            int_part.extend_from_slice(digits);
+            int_part.extend(core::iter::repeat(0u8).take(p - digits.len()));
+        } else {
+            int_part.extend_from_slice(&digits[..p]);
+            frac.extend_from_slice(&digits[p..]);
+        }
+    }
+    if frac.len() > prec && frac[prec] >= 5 {
+        frac.truncate(prec);
+        let mut carry = true;
+        for d in frac.iter_mut().rev() {
+            if *d == 9 {
+                *d = 0;
+            } else {
+                *d += 1;
+                carry = false;
+                break;
+            }
+        }
+        if carry {
+            for d in int_part.iter_mut().rev() {
+                if *d == 9 {
+                    *d = 0;
+                } else {
+                    *d += 1;
+                    carry = false;
+                    break;
+                }
+            }
+            if carry {
+                int_part.insert(0, 1);
+            }
+        }
+    }
+    frac.truncate(prec);
+    while frac.len() < prec {
+        frac.push(0);
+    }
+    let n = int_part.len();
+    for (i, d) in int_part.iter().enumerate() {
+        if comma && i > 0 && (n - i) % 3 == 0 {
+            out.push(b',');
+        }
+        out.push(b'0' + d);
+    }
+    if prec > 0 {
+        out.push(b'.');
+        out.extend(frac.iter().map(|d| b'0' + d));
+    }
+}
+
+/// `%.Ne`: one integer digit, `prec` fractional digits, HALF_UP, and a
+/// signed at-least-two-digit exponent (`1.234568e+04`).
+fn sci_body(digits: &[u8], point: i32, prec: usize, upper: bool, out: &mut Vec<u8>) {
+    let (d, p) = round_sig(digits, point, prec + 1);
+    out.push(b'0' + d[0]);
+    if prec > 0 {
+        out.push(b'.');
+        out.extend(d[1..].iter().map(|x| b'0' + x));
+    }
+    out.push(if upper { b'E' } else { b'e' });
+    let exp = if digits == [0] { 0 } else { p - 1 };
+    out.push(if exp < 0 { b'-' } else { b'+' });
+    let e = exp.unsigned_abs();
+    if e < 10 {
+        out.push(b'0');
+    }
+    let mut tmp = [0u8; 12];
+    out.extend_from_slice(crate::object_heap::int_to_decimal_buf(e as i32, &mut tmp));
 }
