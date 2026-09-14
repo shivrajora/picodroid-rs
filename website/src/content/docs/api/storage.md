@@ -156,7 +156,7 @@ if (prefs.contains("device_name")) {
 
 `getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long`, `Float` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
 
-`commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `SharedPreferences` instances are not thread-safe — synchronize externally if shared.
+`commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. At the per-app storage cap the `.tmp` copy has no room; a commit whose blob is no larger than the stored one — a shrink, a `remove`, a `clear()` — is then rewritten in place instead (not power-loss atomic), so an app can always free its own preferences. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `SharedPreferences` instances are not thread-safe — synchronize externally if shared.
 
 ---
 
