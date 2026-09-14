@@ -756,6 +756,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .map(Some);
             }
         }
+        // The builtin collections compare keys by value for strings and
+        // boxes and by identity for everything else; a class that overrides
+        // `equals(Object)` — every hand-written key class — gets its override
+        // called here, where a Java method can be run (a handler arm cannot),
+        // one upcall per stored candidate. The buffers are linear anyway.
+        if let Some(r) =
+            self.equals_aware_collection_op(class_name, method_name, descriptor, args, frames)?
+        {
+            return Ok(r);
+        }
         // `Enum.valueOf(Class, String)` — the callee of every enum's own
         // `valueOf(String)` — resolves here: the constants are the static
         // fields of the enum class's own type in the static store, which the
@@ -1346,6 +1356,187 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         Ok(())
     }
 
+    /// Does `v` name an object whose class defines its own `equals(Object)`?
+    fn has_java_equals(&mut self, v: Value) -> bool {
+        let Value::ObjectRef(idx) = v else {
+            return false;
+        };
+        let Some(class) = self.objects.class_name(idx) else {
+            return false;
+        };
+        match helpers::find_method_walking_cached(
+            &mut self.method_cache,
+            self.classes,
+            class,
+            m::equals,
+            d::Object__Z,
+        ) {
+            Some((ci, mi)) => self.classes[ci].methods()[mi].code_offset != 0,
+            None => false,
+        }
+    }
+
+    /// `probe.equals(candidate)`: identity first, then the override.
+    fn user_equals(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        probe: Value,
+        candidate: Value,
+    ) -> Result<bool, JvmError> {
+        if probe == candidate {
+            return Ok(true);
+        }
+        if matches!(candidate, Value::Null) {
+            return Ok(false);
+        }
+        match self.invoke_java(frames, probe, m::equals, d::Object__Z, &[candidate])? {
+            Some(Value::Int(b)) => Ok(b != 0),
+            _ => Ok(false),
+        }
+    }
+
+    /// The `HashMap` / `HashSet` / `ArrayList` operations whose answer
+    /// depends on key equality, run with the probe's own `equals(Object)`.
+    /// `Ok(None)` when the call is not one of them or the probe has no
+    /// override, so the ordinary native arm serves it.
+    fn equals_aware_collection_op(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+        frames: &mut Vec<Frame>,
+    ) -> Result<Option<Option<Value>>, JvmError> {
+        let is_map = class_name == c::java_util_HashMap || class_name == c::java_util_LinkedHashMap;
+        let is_set = class_name == c::java_util_HashSet || class_name == c::java_util_LinkedHashSet;
+        let op = match method_name {
+            m::get if is_map => CollOp::MapGet,
+            m::getOrDefault if is_map => CollOp::MapGetOrDefault,
+            m::containsKey if is_map => CollOp::MapContainsKey,
+            m::remove if is_map => CollOp::MapRemove,
+            m::put if is_map => CollOp::MapPut,
+            m::add if is_set => CollOp::SetAdd,
+            m::contains if is_set => CollOp::SetContains,
+            m::remove if is_set => CollOp::SetRemove,
+            m::contains if class_name == c::java_util_ArrayList => CollOp::ListContains,
+            m::remove if class_name == c::java_util_ArrayList && descriptor == d::Object__Z => {
+                CollOp::ListRemove
+            }
+            _ => return Ok(None),
+        };
+        let probe = args.get(1).copied().unwrap_or(Value::Null);
+        if !self.has_java_equals(probe) {
+            return Ok(None);
+        }
+        let Some(Value::ObjectRef(recv)) = args.first().copied() else {
+            return Ok(None);
+        };
+        let Some(Value::Int(buf)) = self.objects.get_field(recv, 0) else {
+            return Ok(None);
+        };
+        let buf = buf as u16;
+        // The receiver, probe and value live only in `args` for the whole
+        // search — root them across the upcalls, as `sort` does.
+        let mark = self.gc_state.push_shadow_roots(args);
+        let r = self.equals_aware_collection_op_inner(frames, op, buf, probe, args);
+        self.gc_state.truncate_shadow_roots(mark);
+        r.map(Some)
+    }
+
+    fn equals_aware_collection_op_inner(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        op: CollOp,
+        buf: u16,
+        probe: Value,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
+        let is_list = matches!(op, CollOp::ListContains | CollOp::ListRemove);
+        // One upcall per candidate; the length is re-read each round because
+        // the override ran arbitrary Java.
+        let mut found: Option<usize> = None;
+        let mut pos = 0usize;
+        loop {
+            let candidate = if is_list {
+                if pos >= self.objects.list_len(buf) {
+                    break;
+                }
+                self.objects.list_get(buf, pos)
+            } else {
+                if pos >= self.objects.map_len(buf) {
+                    break;
+                }
+                self.objects.map_entry_at(buf, pos).map(|(k, _)| k)
+            };
+            let Some(candidate) = candidate else {
+                break;
+            };
+            if self.user_equals(frames, probe, candidate)? {
+                found = Some(pos);
+                break;
+            }
+            pos += 1;
+        }
+        let value_arg = args.get(2).copied().unwrap_or(Value::Null);
+        let value_at = |ex: &Self, p: usize| {
+            ex.objects
+                .map_entry_at(buf, p)
+                .map(|(_, v)| v)
+                .unwrap_or(Value::Null)
+        };
+        let result = match op {
+            CollOp::MapGet => found.map(|p| value_at(self, p)).unwrap_or(Value::Null),
+            CollOp::MapGetOrDefault => found.map(|p| value_at(self, p)).unwrap_or(value_arg),
+            CollOp::MapContainsKey | CollOp::SetContains | CollOp::ListContains => {
+                Value::Int(found.is_some() as i32)
+            }
+            CollOp::MapRemove => match found {
+                Some(p) => {
+                    let old = value_at(self, p);
+                    self.objects.map_remove_at(buf, p);
+                    old
+                }
+                None => Value::Null,
+            },
+            CollOp::MapPut => match found {
+                Some(p) => self
+                    .objects
+                    .map_set_value_at(buf, p, value_arg)
+                    .unwrap_or(Value::Null),
+                None => {
+                    if self.objects.map_push(buf, probe, value_arg).is_err() {
+                        return Err(self.runtime_fault(c::java_lang_OutOfMemoryError));
+                    }
+                    Value::Null
+                }
+            },
+            CollOp::SetAdd => match found {
+                Some(_) => Value::Int(0),
+                None => {
+                    if self.objects.map_push(buf, probe, Value::Int(1)).is_err() {
+                        return Err(self.runtime_fault(c::java_lang_OutOfMemoryError));
+                    }
+                    Value::Int(1)
+                }
+            },
+            CollOp::SetRemove => match found {
+                Some(p) => {
+                    self.objects.map_remove_at(buf, p);
+                    Value::Int(1)
+                }
+                None => Value::Int(0),
+            },
+            CollOp::ListRemove => match found {
+                Some(p) => {
+                    self.objects.list_remove(buf, p);
+                    Value::Int(1)
+                }
+                None => Value::Int(0),
+            },
+        };
+        Ok(Some(result))
+    }
+
     /// `Enum.valueOf(Class<E> enumType, String name)`: the constant of the
     /// named enum class with that name — the static field of the class's
     /// own type whose object's `name` (field 0) matches — or
@@ -1460,6 +1651,22 @@ fn adapt_lambda_args(
         }
     }
     Ok(())
+}
+
+/// A builtin-collection operation whose answer depends on key equality
+/// (see `Executor::equals_aware_collection_op`).
+#[derive(Clone, Copy)]
+enum CollOp {
+    MapGet,
+    MapGetOrDefault,
+    MapContainsKey,
+    MapRemove,
+    MapPut,
+    SetAdd,
+    SetContains,
+    SetRemove,
+    ListContains,
+    ListRemove,
 }
 
 /// Widen an unboxed value to the body's parameter kind (an `Integer` passed

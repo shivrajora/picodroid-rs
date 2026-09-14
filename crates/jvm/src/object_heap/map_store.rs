@@ -75,6 +75,29 @@ impl ObjectHeap {
         }
     }
 
+    /// The `i`-th entry in iteration order.
+    pub fn map_entry_at(&self, idx: u16, i: usize) -> Option<(Value, Value)> {
+        self.map_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
+    }
+
+    /// Replace the value of the `i`-th entry, returning the old one.
+    pub fn map_set_value_at(&mut self, idx: u16, i: usize, value: Value) -> Option<Value> {
+        let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
+        let entry = buf.get_mut(i)?;
+        let old = entry.1;
+        entry.1 = value;
+        Some(old)
+    }
+
+    /// Append an entry the caller has already proved absent.
+    pub fn map_push(&mut self, idx: u16, key: Value, value: Value) -> Result<(), Exhausted> {
+        if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
+            reserve_fallible(buf, 1)?;
+            buf.push((key, value));
+        }
+        Ok(())
+    }
+
     /// Get the value associated with `key`, or `None` if not found.
     pub fn map_get(&self, idx: u16, key: Value, strings: &StringTable) -> Option<Value> {
         let pos = self.map_find_key(idx, key, strings)?;
