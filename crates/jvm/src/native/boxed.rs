@@ -553,17 +553,34 @@ fn box_value(
     Ok(Some(Value::ObjectRef(idx)))
 }
 
+/// `Integer.parseInt(null)` / `Long.parseLong(null)` throw
+/// NumberFormatException, `Float/Double.parseX(null)` NullPointerException,
+/// as in Java (QA 2026-09-13: all four were the uncatchable
+/// InvalidReference).
+fn null_string_arg(ctx: &NativeContext<'_>) -> bool {
+    matches!(ctx.args.first(), Some(Value::Null) | None)
+}
+
 fn parse_int(ctx: &mut NativeContext<'_>) -> Result<i32, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(number_format_exception(ctx));
+    }
     let s = resolve_str(ctx, 0)?;
     s.parse::<i32>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_long(ctx: &mut NativeContext<'_>) -> Result<i64, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(number_format_exception(ctx));
+    }
     let s = resolve_str(ctx, 0)?;
     s.parse::<i64>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_f64(ctx: &mut NativeContext<'_>) -> Result<f64, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(super::throw_named(ctx, c::java_lang_NullPointerException));
+    }
     let s = resolve_str(ctx, 0)?.trim();
     // Java's FP grammar allows a trailing type suffix ("1.5f", "2d").
     let s = match s.as_bytes().last() {
