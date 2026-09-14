@@ -11,18 +11,18 @@ The MCU sets the ceiling. RAM and flash are the two scarce resources; everything
 
 | Board | MCU | SRAM | Flash | Clock | Cores | FreeRTOS heap | LVGL buffer |
 |---|---|---|---|---|---|---|---|
-| `testbench_rp2040` | RP2040 (Cortex-M0+) | 256 KB | 2 MB | 125 MHz | 2 | 128 KB | 64 KiB |
-| `testbench_rp2350` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
-| `testbench_rp2350w` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 64 KiB |
-| `pico_enviro_mon` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 416 KB | 48 KiB |
-| `pico_touch_kit` | RP2350B (Cortex-M33) | 520 KB | 16 MB | 150 MHz | 2 | 408 KB | 64 KiB |
+| `testbench_rp2040` | RP2040 (Cortex-M0+) | 256 KB | 2 MB | 125 MHz | 2 | 160 KB | 48 KiB |
+| `testbench_rp2350` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 408 KB | 64 KiB |
+| `testbench_rp2350w` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 408 KB | 64 KiB |
+| `pico_enviro_mon` / `_w` | RP2350 (Cortex-M33) | 520 KB | 4 MB | 150 MHz | 2 | 408 KB | 48 KiB |
+| `pico_touch_kit` | RP2350B (Cortex-M33) | 520 KB | 16 MB | 150 MHz | 2 | 344 KB | 64 KiB |
 
 Notes on the numbers:
 
 - The SRAM figure is what the linker assumes, not the chip's physical total. RP2040 declares 256 KB (its four 64 KB main banks); the two 4 KB scratch banks are excluded, so the chip's 264 KB physical SRAM is reported as 256 KB. RP2350's 520 KB matches physical.
-- The **FreeRTOS heap** (`configTOTAL_HEAP_SIZE`) is the single pool the JVM allocates from — see [How the Java heap works](#how-the-java-heap-works). It is single-sourced from the MCU TOML's `heap_kb` key (`mcus/rp/rp2350.toml`: 416 KB, `mcus/rp/rp2040.toml`: 128 KB) and injected at build time; `FreeRTOSConfig.h` refuses to compile without the injection.
-- On WiFi boards (`testbench_rp2350w`, `pico_enviro_mon_w`), the networking stack shares that same 416 KB arena: the FreeRTOS+TCP network buffers and the `cyw43` task stack are all allocated from it, so a WiFi build has correspondingly less Java-heap headroom. Heap-constrained boards shrink the stack's share with the `net_*` keys in `board.toml` — `pico_enviro_mon_w` halves the descriptor count and per-socket TCP buffers relative to the testbench defaults.
-- **LVGL buffer** is the UI render pool (`lv_mem_kb`, default 64 KiB). Only `pico_enviro_mon` overrides it, down to 48 KiB to fit its tighter budget — which is why that board has a practical list-row cap (see [Runtime limits](#runtime-limits)). `pico_touch_kit` keeps the default size but places the pool in its module's 8 MiB PSRAM (`lv_mem_in_psram`), so on that board the pool costs no SRAM at all.
+- The **FreeRTOS heap** (`configTOTAL_HEAP_SIZE`) is the single pool the JVM allocates from — see [How the Java heap works](#how-the-java-heap-works). It is single-sourced from the MCU TOML's `heap_kb` key (`mcus/rp/rp2350.toml`: 408 KB, `mcus/rp/rp2350b.toml`: 344 KB — the touch kit's 120-row draw band came out of it, `mcus/rp/rp2040.toml`: 160 KB) and injected at build time; `FreeRTOSConfig.h` refuses to compile without the injection.
+- On WiFi boards (`testbench_rp2350w`, `pico_enviro_mon_w`), the networking stack shares that same 408 KB arena: the FreeRTOS+TCP network buffers and the `cyw43` task stack are all allocated from it, so a WiFi build has correspondingly less Java-heap headroom. Heap-constrained boards shrink the stack's share with the `net_*` keys in `board.toml` — `pico_enviro_mon_w` halves the descriptor count and per-socket TCP buffers relative to the testbench defaults.
+- **LVGL buffer** is the UI render pool (`lv_mem_kb`, default 64 KiB). `pico_enviro_mon` and `testbench_rp2040` override it, down to 48 KiB to fit their tighter budgets — which is why those boards have a practical list-row cap (see [Runtime limits](#runtime-limits)). `pico_touch_kit` keeps the default size in SRAM; its `board.toml` can move the pool into the module's 8 MiB PSRAM (`lv_mem_in_psram`) and hand the 64 KB back to the JVM arena, at a measured frame-time cost, so the board ships with it off.
 
 ## How the Java heap works
 
@@ -33,7 +33,7 @@ There is no fixed "JVM heap size" constant on RP boards. The JVM allocates on de
 static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 ```
 
-Every Java object, array, and string routes through `pvPortMalloc`, drawing from the single `configTOTAL_HEAP_SIZE` pool. So your effective Java heap is whatever of that pool is left after task stacks, queues, framework BSS, and LVGL take their share — practically a **128 KB pool on RP2040** and a **416 KB pool on RP2350**, shared with everything else.
+Every Java object, array, and string routes through `pvPortMalloc`, drawing from the single `configTOTAL_HEAP_SIZE` pool. So your effective Java heap is whatever of that pool is left after task stacks, queues, framework BSS, and LVGL take their share — practically a **160 KB pool on RP2040** and a **408 KB pool on RP2350** (344 KB on the touch kit), shared with everything else.
 
 A few mechanics worth knowing:
 
@@ -49,6 +49,7 @@ A few mechanics worth knowing:
 | Activity stack depth | 8 | new Activity silently dropped; logged on host, no Java exception |
 | Pending-op queue | 8 | op dropped silently — no log, no Java exception |
 | Background `Thread` stack | 16 KiB, core 0 | FreeRTOS task creation fails if heap is exhausted |
+| Boxed collection entries | a few hundred (app guideline) | `OutOfMemoryError` from the collection's growth; the RP2040 reaches it first |
 | PAPK install size | app region minus 4 KB: 1532 KB (RP2350 boards), 1020 KB (RP2040) | rejected at install with `InstallError::TooLarge`; a smaller free run than the PAPK needs, even after compaction, is `NoRoom` |
 | Installed apps | 8 (RP2350 boards, `max_installed_apps`), 1 (RP2040) | a ninth package is refused with `NoRoom`; a reinstall of an installed package replaces it; system apps (the launcher) do not count |
 | App storage path | 185 bytes (`sandbox::APP_PATH_MAX`); LittleFS allows 255 per segment | the operation fails: a predicate answers `false`, a write throws `IOException` |
@@ -64,6 +65,7 @@ Details:
 - **GC cadence.** A collection runs after `gc_alloc_threshold` allocations (default 256) or on an OOM signal. Lower it to shrink the heap high-water mark, raise it to cut pause frequency — see [JVM tunables](/reference/jvm-tunables/).
 - **Activity stack depth** (`activity_stack_depth`, default 8). Pushing past the cap returns soft (no `Result` threaded through JVM dispatch). The new Activity is dropped, the parked view is restored, and the app keeps running on the previous top. The framework **does** log this (host `eprintln!` / device `defmt::error!`), but it is never surfaced to Java as an exception. Raise the depth for deep modal/wizard flows.
 - **Pending-op queue** (`pending_op_queue`, default 8). This FIFO holds lifecycle ops queued by `startActivity` and `finish()`. On a full queue the op is **dropped silently** — there is no log at the real call sites and no Java-visible error. Do not rely on a warning here. (This is distinct from the executor runnable queues backing `MainExecutor`/`BackgroundExecutor`, which *do* log `queue full, dropped` — different queues.)
+- **Boxed collection entries.** Every `Integer`, `Long` or other box in a `List`/`Map`/`Set` is a Java object on the shared heap, with a header and a slot table entry of its own and no escape analysis to elide it. On the RP2350's 408 KB arena, framework included, a 5000-element boxed list or a 1200-entry boxed map does not fit; on the RP2040's 160 KB arena far less does, so an app that grows a collection past a few hundred boxes hits `OutOfMemoryError` there first. Size collections for the smallest board the app targets, prefer primitive arrays for bulk numeric data, and run any deliberate OOM probe last: the fragmentation it leaves disturbs later allocations (QA round 2026-09-13).
 - **Background threads.** Each `picodroid.concurrent.Thread.start()` spins up one FreeRTOS task, pinned to **core 0** (required by the single-core safety assumption of the shared JVM state), with a **16 KiB stack** (the stack size is counted in words, not bytes — 4096 words × 4 = 16 KiB; do not read it as 4 KB). Priority maps from the Java thread's priority field, defaulting to `Thread.NORM_PRIORITY`. The simulator runs the same FreeRTOS kernel, so threads are real there too — single-core rather than dual-core, and without the core pinning. See [background services](/tutorials/background-service/).
 - **PAPK install ceiling.** Installed apps share one *app region* of flash (`app_region_kb` in `board.toml`: 1536 KB on the RP2350 boards, the 1 MB slot of old on RP2040), as contiguous runs of 4 KB sectors — a 4 KB boot-meta sector followed by the image. A PAPK larger than the whole region minus that sector is rejected outright with `InstallError::TooLarge`; one that would fit an empty region but not the free space left by the other installed apps is refused with `NoRoom` after the device has tried compacting the region (sliding the installed runs together). The device advertises the region's ceiling and its free space in the `pdb ping` greeting. See the [manifest reference](/reference/manifest/) and the [shrinker](/reference/shrinker/) for keeping small: `--shrink` renames every framework reference in the PAPK, and `--shrink-app` the app's own classes and members as well (about −19 % on `picoenvmon`'s stripped PAPK).
 - **Installed apps.** The package directory holds `max_installed_apps` packages (8 on the RP2350 boards); a package is identified by its manifest `package=`, and installing one that is already there upgrades it in place of the old copy rather than taking a second entry. Up to two system apps built into the firmware (today the launcher) sit beside them without taking a slot or a sector. RP2040 boards keep one app, which every install replaces, and no launcher.
