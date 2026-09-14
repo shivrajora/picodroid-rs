@@ -93,7 +93,7 @@ char ch  = (char) sb.charAt(2);  // byte at position 2
 String s = sb.toString();  // intern result as a String
 ```
 
-> **Single shared buffer:** all `StringBuilder` instances in the JVM share one underlying buffer. Creating a new `StringBuilder` (including the compiler-generated one for `+` concatenation) clears that buffer. Build one `StringBuilder` at a time and call `toString()` before starting another.
+> Every `StringBuilder` owns its buffer, so builders interleave freely and `sb.append(sb)` appends a copy of the current content; a buffer the heap cannot grow throws `OutOfMemoryError` from `append`.
 
 ## `java.lang.Math`
 

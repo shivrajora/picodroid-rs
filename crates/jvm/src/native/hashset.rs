@@ -34,8 +34,13 @@ pub(crate) fn dispatch(
                 Some(i) => i,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
-            ctx.objects
-                .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
+            if ctx
+                .objects
+                .set_field(obj_idx, 0, Value::Int(buf_idx as i32))
+                .is_none()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(None))
         }
         m::add => {
@@ -44,10 +49,10 @@ pub(crate) fn dispatch(
                 Err(e) => return Some(Err(e)),
             };
             let elem = ctx.args.get(1).copied().unwrap_or(Value::Null);
-            let was_absent = ctx
-                .objects
-                .map_put(buf_idx, elem, SET_PRESENT, ctx.strings)
-                .is_none();
+            let was_absent = match ctx.objects.map_put(buf_idx, elem, SET_PRESENT, ctx.strings) {
+                Ok(old) => old.is_none(),
+                Err(_) => return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError))),
+            };
             Some(Ok(Some(Value::Int(was_absent as i32))))
         }
         m::remove => {

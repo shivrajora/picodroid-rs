@@ -29,17 +29,7 @@ fn index_out_of_bounds(ctx: &mut NativeContext<'_>) -> JvmError {
 /// autoboxed wrapper objects so that `contains(42)` finds `Integer(42)` even
 /// when the two `ObjectRef` indices differ (i.e., different heap slots).
 fn values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) -> bool {
-    match (a, b) {
-        (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
-            // Compare field 0 for wrapper equality (Integer, Long, Boolean, etc.)
-            let fa = objects.get_field(ai, 0);
-            fa.is_some() && fa == objects.get_field(bi, 0)
-        }
-        // Distinct String References can carry the same text (a literal vs.
-        // a runtime-built string) — same rule as map_values_eq.
-        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
-        _ => a == b,
-    }
+    crate::object_heap::key_eq(a, b, objects, strings)
 }
 
 pub(crate) fn dispatch(
@@ -56,8 +46,13 @@ pub(crate) fn dispatch(
                 Some(i) => i,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
-            ctx.objects
-                .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
+            if ctx
+                .objects
+                .set_field(obj_idx, 0, Value::Int(buf_idx as i32))
+                .is_none()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(None))
         }
         m::add => {
@@ -74,12 +69,16 @@ pub(crate) fn dispatch(
                 if i < 0 || i as usize > ctx.objects.list_len(buf_idx) {
                     return Some(Err(index_out_of_bounds(ctx)));
                 }
-                ctx.objects.list_insert(buf_idx, i as usize, v);
+                if ctx.objects.list_insert(buf_idx, i as usize, v).is_err() {
+                    return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+                }
                 Some(Ok(None))
             } else {
                 // add(Object element) → boolean (always true)
                 let v = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.list_add(buf_idx, v);
+                if ctx.objects.list_add(buf_idx, v).is_err() {
+                    return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+                }
                 Some(Ok(Some(Value::Int(1))))
             }
         }

@@ -250,9 +250,9 @@ pub fn enqueue_runnable(obj_ref: u16) -> bool {
 /// queue is full or uninitialised; both cases are silently absorbed by
 /// callers (the loop will still wake on the next tick).
 ///
-/// `#[allow(dead_code)]` because the sole caller (`pdb::pending::notify_jvm`)
-/// is gated out of sim builds; the sim still exercises this through the
-/// unit tests below.
+/// Called by the debug bridge's park request on both targets —
+/// `pdb::pending::notify_jvm` on a device, `hal::sim::pdb::notify_jvm` in
+/// the simulator.
 pub fn enqueue_wake() -> bool {
     backing::try_send(encode(MainTask::Wake))
 }

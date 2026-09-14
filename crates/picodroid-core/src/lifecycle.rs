@@ -117,6 +117,11 @@ pub(crate) fn run_application(
         }
     };
 
+    // This task owns the UI from here on, Activity or not: until it is
+    // recorded, every task passes for the UI task — a background-pool job
+    // in an Activity-less app saw `Thread.currentThread()` named "main"
+    // (QA 2026-09-13). The activity loop records it again on entry.
+    crate::ui_thread::note_ui_task();
     match jvm.invoke_instance(application_class, m::onCreate, obj_ref, heap, handler) {
         Ok(()) => {}
         Err(JvmError::Interrupted) => return,
@@ -474,11 +479,17 @@ pub(crate) fn run_activity(
                     heap,
                     handler,
                 );
-                if dispatched.is_err() {
+                if let Err(e) = dispatched {
                     // A non-Java error skipped javac's `monitorexit`
                     // handlers; the UI task lives on, so anything it still
                     // holds would block every worker forever.
                     crate::monitor_store::release_all_held_by_current();
+                    // An exception out of a main-queue Runnable used to vanish
+                    // here — a chain of posted steps just stopped, with
+                    // nothing in the log (QA 2026-09-13, qa_life on the
+                    // RP2350). Android crashes the app for it; picodroid says
+                    // what was thrown and carries on.
+                    log_error!("mainExecutor Runnable error: {}", e);
                 }
                 warn_if_slow(
                     "Runnable",

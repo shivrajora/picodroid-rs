@@ -33,9 +33,8 @@ pub fn text_view_get_text(
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let mut buf = [0u8; 256];
-    let len = lvgl_text_view::get_text(id, &mut buf).unwrap_or(0);
-    intern_text(&buf[..len], strings)
+    lvgl_text_view::with_text(id, |text| intern_text(text, strings))
+        .unwrap_or_else(|| intern_text(&[], strings))
 }
 
 pub(super) fn intern_text(

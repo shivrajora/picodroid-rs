@@ -32,13 +32,10 @@ pub fn edit_text_get_text(
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let mut buf = [0u8; 256];
-    let Some(len) = lvgl_edit_text::get_text(id, &mut buf) else {
+    let Some(interned) = lvgl_edit_text::with_text(id, |text| strings.intern_dyn(text)) else {
         return Ok(Some(Value::Null));
     };
-    let ref_idx = strings
-        .intern_dyn(&buf[..len])
-        .ok_or(JvmError::StackOverflow)?;
+    let ref_idx = interned.ok_or(JvmError::StackOverflow)?;
     Ok(Some(Value::Reference(ref_idx)))
 }
 

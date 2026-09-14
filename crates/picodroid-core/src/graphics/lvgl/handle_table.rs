@@ -67,6 +67,13 @@ mod imp {
         id as u32 as *mut lv_obj_t
     }
 
+    /// Without a table there is nothing to consult: every non-null cast
+    /// is taken to be live (a deleted handle dangles, see the module note).
+    #[inline(always)]
+    pub fn is_live(id: i32) -> bool {
+        id != 0
+    }
+
     /// No-op — there is no table to clear.
     #[inline(always)]
     pub fn reset() {}
@@ -185,6 +192,18 @@ mod imp {
     // inline(never): inlining the decode at the ~99 lookup call sites costs
     // ~7.4 KB of RP2040 flash for a few saved cycles that are noise next to
     // the string-tuple native dispatch each widget call already paid.
+    /// Whether `id` still names a live widget. Unlike [`lookup`], a stale
+    /// id is an ordinary `false` here, not a use-after-delete for the
+    /// sanitizer: this is how `addView` asks before touching a child that
+    /// `removeView` may have released.
+    pub fn is_live(id: i32) -> bool {
+        if id <= 0 {
+            return false;
+        }
+        let idx = (id as usize) & (SLOTS - 1);
+        unsafe { encode(GENS[idx], idx) == id && !PTRS[idx].is_null() }
+    }
+
     #[inline(never)]
     pub fn lookup(id: i32) -> *mut lv_obj_t {
         if id <= 0 {
@@ -508,4 +527,4 @@ mod imp {
     }
 }
 
-pub use imp::{lookup, register, register_pinned, reset};
+pub use imp::{is_live, lookup, register, register_pinned, reset};

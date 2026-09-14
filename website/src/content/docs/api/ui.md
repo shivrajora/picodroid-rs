@@ -282,10 +282,16 @@ position/size/background/visibility. Mirrors `android.view.ViewGroup`.
 group.addView(child);                 // append a child
 group.addView(child, params);         // append with explicit LayoutParams
 int n = group.getChildCount();
-View first = group.getChildAt(0);
+View first = group.getChildAt(0);    // null past the last child
 group.removeView(child);
 group.removeAllViews();
 ```
+
+`getChildCount()`/`getChildAt()` track the children added through this API. One divergence from
+Android: `removeView` and `removeAllViews` also **free the removed view's widget** (an embedded
+panel cannot keep detached trees waiting for a re-add), so a removed view cannot be added again —
+`addView` throws `IllegalStateException` for it. Build a fresh view, or hide one with
+`setVisibility(View.GONE)` when it will come back.
 
 `ViewGroup.LayoutParams` carries a child's requested `width`/`height`, using `MATCH_PARENT` (-1) or
 `WRAP_CONTENT` (-2):
@@ -858,7 +864,7 @@ new AlertDialog.Builder()
 | `create()` | Returns an `AlertDialog` without showing it. |
 | `show()` | Convenience: `create()` + `show()`. |
 
-Either button click runs its listener (if any) and then dismisses the dialog. Call `dialog.dismiss()` to close programmatically. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
+Either button click runs its listener (if any) and then dismisses the dialog. Call `dialog.dismiss()` (or `cancel()`) to close programmatically; a second `dismiss()` is a no-op, as on Android. Unlike Android, dismissing **frees the dialog's widgets**, so a dismissed dialog cannot be shown again — `show()` throws `IllegalStateException`; build a new one. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
 
 ### `picodroid.widget.Keyboard`
 

@@ -105,14 +105,17 @@ fn obj_class_name(ctx: &NativeContext<'_>, obj_ref: u16) -> Option<&'static str>
 
 fn handle_start_service(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
         if let Some(class_name) = intent_target_class(ctx, *intent_ref) {
-            handler.enqueue_op(PendingOp::Service(PendingServiceOp::Start {
+            let queued = handler.enqueue_op(PendingOp::Service(PendingServiceOp::Start {
                 class_name,
                 intent_ref: *intent_ref,
             }));
+            if !queued {
+                return Err(super::queue_full(ctx));
+            }
         }
     }
     Ok(None)
@@ -120,11 +123,13 @@ fn handle_start_service(
 
 fn handle_stop_service(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     if let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) {
         if let Some(class_name) = intent_target_class(ctx, *intent_ref) {
-            handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name }));
+            if !handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name })) {
+                return Err(super::queue_full(ctx));
+            }
         }
     }
     Ok(None)
@@ -132,7 +137,7 @@ fn handle_stop_service(
 
 fn handle_bind_service(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) else {
         return Ok(None);
@@ -144,34 +149,42 @@ fn handle_bind_service(
         return Ok(None);
     };
     let owner = handler.current_activity().map(|(r, _)| r).unwrap_or(0);
-    handler.enqueue_op(PendingOp::Service(PendingServiceOp::Bind {
+    let queued = handler.enqueue_op(PendingOp::Service(PendingServiceOp::Bind {
         class_name,
         intent_ref: *intent_ref,
         conn_ref: *conn_ref,
         owner_activity_ref: owner,
     }));
+    if !queued {
+        return Err(super::queue_full(ctx));
+    }
     Ok(None)
 }
 
 fn handle_unbind_service(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     if let Some(Value::ObjectRef(conn_ref)) = ctx.args.get(1) {
-        handler.enqueue_op(PendingOp::Service(PendingServiceOp::Unbind {
+        let queued = handler.enqueue_op(PendingOp::Service(PendingServiceOp::Unbind {
             conn_ref: *conn_ref,
         }));
+        if !queued {
+            return Err(super::queue_full(ctx));
+        }
     }
     Ok(None)
 }
 
 fn handle_stop_self(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     if let Some(Value::ObjectRef(this_ref)) = ctx.args.first() {
         if let Some(class_name) = obj_class_name(ctx, *this_ref) {
-            handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name }));
+            if !handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name })) {
+                return Err(super::queue_full(ctx));
+            }
         }
     }
     Ok(None)
@@ -181,7 +194,7 @@ fn handle_stop_self(
 /// recent onStartCommand id. Returns the boolean Android promises.
 fn handle_stop_self_result(
     handler: &mut PicodroidNativeHandler,
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
     let this_ref = match ctx.args.first() {
         Some(Value::ObjectRef(r)) => *r,
@@ -195,8 +208,8 @@ fn handle_stop_self_result(
         return Ok(Some(Value::Int(0)));
     };
     let stop = crate::service_lifecycle::is_latest_start_id(class_name, start_id);
-    if stop {
-        handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name }));
+    if stop && !handler.enqueue_op(PendingOp::Service(PendingServiceOp::Stop { class_name })) {
+        return Err(super::queue_full(ctx));
     }
     Ok(Some(Value::Int(stop as i32)))
 }

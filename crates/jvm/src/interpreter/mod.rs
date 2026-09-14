@@ -117,6 +117,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
         method_cache: Vec::new(),
         static_field_cache: Vec::new(),
         pending_frame: None,
+        native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: *upcall_depth,
@@ -142,6 +143,12 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// Set by `op_invoke` when a Java method should be called; the main loop
     /// pushes this frame onto the frame stack on the next iteration.
     pub pending_frame: Option<Frame>,
+    /// Set by `dispatch_native` when one of pico-jvm's own builtin arms
+    /// failed to allocate: those arms reserve before they write, so the
+    /// invoke can be re-executed after a collection (see
+    /// `retry_after_gc`). A handler arm's failure never sets it — a
+    /// peripheral or file arm may have acted before it ran out.
+    pub(super) native_retry: bool,
     /// `<clinit>` frames queued by `ensure_class_initialized`.  Popped onto
     /// the frame stack so the interpreter runs them before resuming the
     /// triggering instruction.
@@ -253,7 +260,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
                 if self.classes[ci].methods()[mi].code_offset != 0 {
                     let cm = &self.classes[ci].methods()[mi];
-                    clinit_frames.push(Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?);
+                    let f = Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?;
+                    clinit_frames
+                        .try_reserve(1)
+                        .map_err(|_| JvmError::StackOverflow)?;
+                    clinit_frames.push(f);
                 }
             }
         }
@@ -558,7 +569,11 @@ pub fn execute<H: NativeMethodHandler>(
     let m = &classes[class_idx].methods()[method_idx];
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
+    frames.try_reserve(1).map_err(|_| JvmError::StackOverflow)?;
     frames.push(initial_frame);
+    // Set the `OutOfMemoryError` reserve aside while the heap can spare one
+    // object; idempotent, so every entry re-arms it after a throw.
+    objects.ensure_oom_reserve();
 
     // Root this stack for GCs triggered by other executors on the same heap
     // while this task is parked at a blocking native (see GcState's
@@ -606,6 +621,7 @@ fn execute_frames<H: NativeMethodHandler>(
         method_cache: Vec::new(),
         static_field_cache: Vec::new(),
         pending_frame: None,
+        native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: 0,
@@ -758,6 +774,9 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     // invoke's error and is handled below like any other.
                     match enter_synchronized(ex, &mut new_frame) {
                         Ok(()) => {
+                            if frames.try_reserve(1).is_err() {
+                                return Err(JvmError::StackOverflow);
+                            }
                             frames.push(new_frame);
                             continue;
                         }
@@ -779,6 +798,9 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     continue;
                 }
                 while let Some(cf) = ex.pending_clinit_frames.pop() {
+                    if frames.try_reserve(1).is_err() {
+                        return Err(JvmError::StackOverflow);
+                    }
                     frames.push(cf);
                 }
                 continue;
@@ -817,7 +839,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
                 ex.gc_state.alloc_count = 0;
                 if for_failed_alloc && freed == 0 {
-                    let e = ex.runtime_fault_obj(c::java_lang_OutOfMemoryError)?;
+                    let e = ex.oom_object()?;
                     handle_exception(ex, frames, e, base_depth)?;
                     continue;
                 }
@@ -853,6 +875,18 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     let e = ex.runtime_fault_obj(c::java_lang_NegativeArraySizeException)?;
                     handle_exception(ex, frames, e, base_depth)?;
                 }
+                // `JvmError::StackOverflow` is this crate's allocation-failure
+                // signal. The bytecode allocators (`new`, `newarray`) rewind
+                // and retry after an emergency GC; an allocation inside a
+                // native arm — boxing, interning, a collection growing — has
+                // no retry, and used to end the app with an uncatchable hard
+                // error (QA 2026-09-13: 4000 boxed keys into a HashMap). It
+                // is what Java throws for it: `OutOfMemoryError`, from the
+                // reserve object when even the exception cannot be allocated.
+                Err(JvmError::StackOverflow) => {
+                    let e = ex.oom_object()?;
+                    handle_exception(ex, frames, e, base_depth)?;
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -866,6 +900,17 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
     /// hard `StackOverflow` signal only when even that allocation fails.
     fn runtime_fault_obj(&mut self, class: &'static str) -> Result<u16, JvmError> {
         self.objects.alloc(class).ok_or(JvmError::StackOverflow)
+    }
+
+    /// The `OutOfMemoryError` to throw for an exhausted heap: a fresh one
+    /// when the heap can still spare an object, else the reserve the heap
+    /// set aside for exactly this moment (HotSpot keeps one too). Only when
+    /// there is no reserve either does the hard error remain.
+    fn oom_object(&mut self) -> Result<u16, JvmError> {
+        self.objects
+            .alloc(c::java_lang_OutOfMemoryError)
+            .or_else(|| self.objects.oom_reserve())
+            .ok_or(JvmError::StackOverflow)
     }
 
     fn stack_overflow_error(&mut self) -> Result<u16, JvmError> {

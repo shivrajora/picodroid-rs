@@ -4498,9 +4498,9 @@ fn builtin_method_rows_name_real_arms() {
             };
             let served = match (class, *method) {
                 // Resolved by the interpreter before dispatch.
-                (c::java_lang_Object, m::getClass) | (c::java_util_ArrayList, m::sort) => {
-                    interpreter.contains(&literal)
-                }
+                (c::java_lang_Object, m::getClass)
+                | (c::java_util_ArrayList, m::sort)
+                | (c::java_lang_Enum, m::valueOf) => interpreter.contains(&literal),
                 _ => source.contains(&literal),
             };
             if !served {

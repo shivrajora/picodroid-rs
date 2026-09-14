@@ -13,13 +13,10 @@
 //! its own `CONFIG_DESC` — but must still take the identity from the protocol
 //! crate, which is the part a host depends on.
 //!
-//! There is no simulator counterpart. The simulator ships no PDB *endpoint*
-//! (no transport, no command loop serving a host); the whole bridge —
-//! command loop, framing, install orchestration, sysmon, input — compiles on
-//! the host in [`crate::pdb`] and [`crate::install`] and is tested against
-//! mock transports. A real simulator endpoint (a `PdbTransport` over TCP or
-//! a pty) was analysed and deferred in `docs/designs/pdb-schema-as-code.md`
-//! §3, so it need not be re-derived.
+//! The simulator has no USB and needs none of this: its endpoint is a Unix
+//! socket (`crate::hal::sim::pdb`), serving the same [`crate::pdb`] command
+//! loop, install orchestration, sysmon and input a device serves over these
+//! descriptors (`docs/designs/sim-pdb-endpoint-2026-09.md`).
 
 use pdb_protocol::usb;
 

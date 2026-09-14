@@ -56,8 +56,11 @@ pub(crate) fn dispatch(
                     else {
                         return Some(Err(JvmError::StackOverflow));
                     };
-                    ctx.objects.set_field(entry, 0, k);
-                    ctx.objects.set_field(entry, 1, v);
+                    if ctx.objects.set_field(entry, 0, k).is_none()
+                        || ctx.objects.set_field(entry, 1, v).is_none()
+                    {
+                        return Some(Err(JvmError::StackOverflow));
+                    }
                     Value::ObjectRef(entry)
                 }
             };

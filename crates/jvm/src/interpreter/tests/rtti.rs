@@ -293,6 +293,7 @@ fn class_cast_exception_is_alloc_by_name() {
         method_cache: Vec::new(),
         static_field_cache: Vec::new(),
         pending_frame: None,
+        native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: 0,

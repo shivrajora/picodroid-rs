@@ -1046,3 +1046,91 @@ mod runtime_faults {
         }
     }
 }
+
+/// QA 2026-09-13: `invokevirtual` / `invokeinterface` on a null receiver
+/// throw `NullPointerException` (JVMS §6.5), for builtin methods too. The
+/// null used to reach `Integer.intValue`'s native arm — every unboxing of a
+/// null `Integer` — as an uncatchable `InvalidReference`.
+mod null_receiver {
+    use super::super::asm::Asm;
+    use super::*;
+    use crate::names::m;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    /// `T.m()I`: `aconst_null; invoke<opcode> <owner>.<name><desc>; pop;
+    /// iconst_1; ireturn`, with a handler for `catch` returning 7.
+    fn null_call(
+        opcode: u8,
+        tag: u8,
+        owner: &str,
+        name: &str,
+        desc: &str,
+        catch: Option<&str>,
+    ) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("T");
+        let obj = a.class(c::java_lang_Object);
+        let owner = a.class(owner);
+        let mref = a.methodref(tag, owner, name, desc);
+        let c = catch.map(|c| a.class(c));
+        let mut code = vec![0x01, opcode, hi(mref), lo(mref)];
+        if opcode == 0xB9 {
+            code.extend_from_slice(&[1, 0]);
+        }
+        code.extend_from_slice(&[0x57, 0x04, 0xAC]); // pop; iconst_1; ireturn
+        let handler = code.len() as u16;
+        code.extend_from_slice(&[0x57, 0x10, 0x07, 0xAC]); // pop; bipush 7; ireturn
+        let exc: Vec<[u16; 4]> = c
+            .map(|c| vec![[0, handler, handler, c]])
+            .unwrap_or_default();
+        a.finish(0x0001, this, obj, &[], Some((2, &code, &exc)))
+    }
+
+    fn hi(i: u16) -> u8 {
+        (i >> 8) as u8
+    }
+
+    fn lo(i: u16) -> u8 {
+        i as u8
+    }
+
+    #[test]
+    fn null_receiver_of_a_builtin_method_throws_catchable_npe() {
+        let r = run(null_call(
+            0xB6,
+            0x0A,
+            c::java_lang_Integer,
+            m::intValue,
+            "()I",
+            Some(c::java_lang_NullPointerException),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        let r = run(null_call(
+            0xB9,
+            0x0B,
+            c::java_lang_CharSequence,
+            m::length,
+            "()I",
+            Some(c::java_lang_RuntimeException),
+        ));
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
+    #[test]
+    fn null_receiver_uncaught_is_a_null_pointer_exception() {
+        match run(null_call(
+            0xB6,
+            0x0A,
+            c::java_lang_Integer,
+            m::intValue,
+            "()I",
+            None,
+        )) {
+            Err(JvmError::UncaughtException {
+                exception_class, ..
+            }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
+            other => panic!("expected uncaught NullPointerException, got {other:?}"),
+        }
+    }
+}

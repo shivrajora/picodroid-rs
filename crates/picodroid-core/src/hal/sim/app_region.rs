@@ -21,7 +21,28 @@
 //! it on a device) and the verb runs from the app-switching loop once the
 //! app is gone (`service_deferred`), after which a reinstalled package is
 //! launched again and an uninstalled one gives way to the launcher.
+//!
+//! The debug bridge (`super::pdb`) writes the same region the way a device's
+//! bridge writes flash: on its own task, with the JVM parked, and a reboot
+//! after. The reboot replaces the process, so the region is dumped to a
+//! file first ([`snapshot_to`]) and the new process starts from it — a
+//! *warm boot* (`PICODROID_SIM_WARM_BOOT`), which restores the dump and
+//! skips the seeding below, because a device does not re-flash on reset. A
+//! cold boot always starts from an erased region: it models what `flash.sh`
+//! just baked, and a region that outlived `sim.sh` launches would make
+//! `sim.sh --app X` run whatever yesterday's session left installed.
+//!
+//! # Who writes the region
+//!
+//! The JVM task, while an app runs or between apps (the verbs above, a Java
+//! `PackageInstaller.uninstall`); the bridge task, only between a park it
+//! was granted and the release or reboot that ends it — the installer
+//! enforces that order, as on a device; and this process's main thread,
+//! before the scheduler starts (seeding) and after it ends (the snapshot).
+//! Every access goes through [`with_region`], and no closure spans a
+//! kernel block.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -57,15 +78,31 @@ enum Deferred {
 
 static DEFERRED: Mutex<Option<Deferred>> = Mutex::new(None);
 
-// SAFETY: written at init before the scheduler starts, then only by the JVM
-// task (`service_requests`); the directory's single-writer rule.
+// SAFETY: created at init before the scheduler starts, then written under
+// the rule in the module doc (JVM task; bridge task only while the JVM is
+// parked; main thread only while no task runs) — one writer at a time, the
+// directory's single-writer rule.
 static mut REGION: Option<MemRegion> = None;
 
-fn region() -> Option<&'static mut MemRegion> {
-    unsafe { (*core::ptr::addr_of_mut!(REGION)).as_mut() }
+/// Run `f` on the region. `None` before [`init`] has created it.
+///
+/// The one access path: the region is a process-wide static that models a
+/// flash region, and the callers are the module doc's writers, each on its
+/// own turn. The closure must not block through the kernel.
+pub(crate) fn with_region<R>(f: impl FnOnce(&mut MemRegion) -> R) -> Option<R> {
+    // SAFETY: see `REGION`. The `&mut` never outlives the closure, and the
+    // writers take turns as the module doc describes.
+    let region = unsafe { (*core::ptr::addr_of_mut!(REGION)).as_mut() }?;
+    Some(f(region))
 }
 
 /// Create the region and seed it. Pre-scheduler, from the simulator's boot.
+///
+/// A warm boot — the process the bridge replaced after an install, with
+/// `PICODROID_SIM_WARM_BOOT` naming the region it dumped — restores that
+/// region and seeds nothing else, exactly as a reset leaves a device's
+/// flash alone. The dump is deleted once read: the next reboot writes a
+/// fresh one, and a killed simulator leaves nothing behind.
 pub fn init() {
     // The region models flash: it is not charged to the simulated heap.
     let _flash = crate::host::heap_bypass();
@@ -82,6 +119,26 @@ pub fn init() {
             }
         }
         packages::register_system(&images);
+    }
+
+    if let Some(snapshot) = warm_boot_snapshot() {
+        match std::fs::read(&snapshot) {
+            Ok(bytes) if bytes.len() == region.region_len() => {
+                region.restore(&bytes);
+                let _ = std::fs::remove_file(&snapshot);
+                packages::rescan_region(&region);
+                println!("[sim] apps: warm boot from {snapshot}");
+                unsafe { REGION = Some(region) };
+                print_list();
+                return;
+            }
+            Ok(bytes) => eprintln!(
+                "[sim] apps: warm-boot snapshot {snapshot} is {} bytes, the region {}; booting cold",
+                bytes.len(),
+                region.region_len()
+            ),
+            Err(e) => eprintln!("[sim] apps: cannot read warm-boot snapshot {snapshot}: {e}; booting cold"),
+        }
     }
     packages::rescan_region(&region);
 
@@ -107,19 +164,36 @@ pub fn init() {
     print_list();
 }
 
+/// The region dump a warm boot starts from, when this process is one.
+fn warm_boot_snapshot() -> Option<String> {
+    std::env::var(super::pdb::WARM_BOOT_ENV)
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+/// Dump the region to `path`, byte for byte — what a flash dump of a
+/// device's app region holds. The bridge's reboot writes this once every
+/// task has stopped, and the warm boot reads it back.
+pub fn snapshot_to(path: &Path) -> std::io::Result<()> {
+    let _host = crate::host::heap_bypass();
+    match with_region(|r| std::fs::write(path, r.bytes())) {
+        Some(result) => result,
+        None => Err(std::io::Error::other("the app region was never created")),
+    }
+}
+
 /// Erase the run at `first_sector` and rescan: the simulator's half of a
 /// Java `PackageInstaller.uninstall` (`PlatformHooks::uninstall_run`), on
 /// the JVM task, the directory's single writer.
 pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
-    let Some(region) = region() else {
-        return false;
-    };
-    // SAFETY: the region is a buffer; `erase_run` asserts the sectors lie
-    // inside it, and nothing else writes the region while the JVM task
-    // runs a native.
-    unsafe { region.erase_run(first_sector, sectors) };
-    packages::rescan_region(region);
-    true
+    with_region(|region| {
+        // SAFETY: the region is a buffer; `erase_run` asserts the sectors
+        // lie inside it, and nothing else writes the region while the JVM
+        // task runs a native.
+        unsafe { region.erase_run(first_sector, sectors) };
+        packages::rescan_region(region);
+    })
+    .is_some()
 }
 
 /// What `build.rs` links into the region on a device: the image at sector
@@ -208,42 +282,42 @@ pub fn service_requests() {
     if pending.is_empty() {
         return;
     }
-    let Some(region) = region() else {
+    let running = packages::running();
+    if with_region(|region| serve(region, pending, running)).is_none() {
         println!("[sim] apps: no region (init did not run)");
-        return;
-    };
-    serve(region, pending, packages::running());
+    }
 }
 
 /// Run the verb that waited for the running app to stop, then whatever
 /// queued up while nothing ran. Called from the app-switching loop between
 /// apps, on the JVM task.
 pub fn service_deferred() {
-    let Some(region) = region() else { return };
     let deferred = DEFERRED.lock().unwrap_or_else(|p| p.into_inner()).take();
-    match deferred {
-        None => {}
-        Some(Deferred::Install {
-            package,
-            bytes,
-            resume,
-        }) => {
-            match install_bytes(region, &bytes) {
-                Ok(()) => println!("[sim] apps: installed {package} ({} bytes)", bytes.len()),
-                Err(e) => println!("[sim] apps: install refused: {e}"),
+    with_region(|region| {
+        match deferred {
+            None => {}
+            Some(Deferred::Install {
+                package,
+                bytes,
+                resume,
+            }) => {
+                match install_bytes(region, &bytes) {
+                    Ok(()) => println!("[sim] apps: installed {package} ({} bytes)", bytes.len()),
+                    Err(e) => println!("[sim] apps: install refused: {e}"),
+                }
+                // A device reboots after an install and boots by its policy;
+                // here what was running comes back — the new copy, when it
+                // was the reinstalled package — and a launcher that comes
+                // back lists the new app.
+                launch_again(&resume);
+                print_list();
             }
-            // A device reboots after an install and boots by its policy;
-            // here what was running comes back — the new copy, when it was
-            // the reinstalled package — and a launcher that comes back
-            // lists the new app.
-            launch_again(&resume);
-            print_list();
+            Some(Deferred::Uninstall(package)) => {
+                do_uninstall(region, &package);
+            }
         }
-        Some(Deferred::Uninstall(package)) => {
-            do_uninstall(region, &package);
-        }
-    }
-    serve(region, take_requests(), None);
+        serve(region, take_requests(), None);
+    });
 }
 
 /// Read a PAPK from the host without charging the simulated heap: the file

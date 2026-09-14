@@ -366,6 +366,9 @@ F	listener
 F	longPressFired
 F	longValsHi
 F	longValsLo
+F	mChildCount
+F	mChildren
+F	mGroup
 F	mLineMode
 F	maxRange
 F	maxValue
@@ -518,6 +521,7 @@ M	checkHeader
 M	checkIndex
 M	checkKey
 M	checkName
+M	checkNotReleased
 M	checkedPut
 M	clamp
 M	clampMs
@@ -768,6 +772,7 @@ M	isInterrupted
 M	isNull
 M	isNullSentinel
 M	isQueued
+M	isReleased
 M	isShutdown
 M	isTerminated
 M	join
@@ -799,6 +804,7 @@ M	min
 M	mkdir
 M	mkdirs
 M	names
+M	nativeAddView
 M	nativeAppBytes
 M	nativeApply
 M	nativeAvailableBytes
@@ -875,7 +881,9 @@ M	nativeRegisterTimeChangedListener
 M	nativeRegisterTouchListener
 M	nativeRelease
 M	nativeRemove
+M	nativeRemoveAllViews
 M	nativeRemoveAt
+M	nativeRemoveView
 M	nativeRequestFocus
 M	nativeResolve
 M	nativeResponseMessage
@@ -884,6 +892,7 @@ M	nativeSetAction
 M	nativeSetAlpha
 M	nativeSetBackground
 M	nativeSetBool
+M	nativeSetChecked
 M	nativeSetDouble
 M	nativeSetDuration
 M	nativeSetEnabled
@@ -923,6 +932,7 @@ M	onAccuracyChanged
 M	onActivityResult
 M	onBackPressed
 M	onBind
+M	onButtonChecked
 M	onCheckedChanged
 M	onClick
 M	onCreate
@@ -1046,6 +1056,7 @@ M	setBackgroundColor
 M	setBaudrate
 M	setChecked
 M	setCheckedId
+M	setCheckedSilently
 M	setClassName
 M	setColor
 M	setConnectTimeout
@@ -1217,6 +1228,7 @@ M	worker
 M	wrap
 M	write
 M	writeByte
+M	writeInPlace
 M	writeInt32
 M	writeInt32LE
 M	wtf

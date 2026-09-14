@@ -6,14 +6,16 @@ mod logcat;
 mod packages;
 mod protocol;
 mod sysmon;
+mod transport;
 
 use std::{env, path::Path, process};
 
 const USAGE: &str = "\
-Usage: pdb [-s <port>] <command> [args]
+Usage: pdb [-s <port|socket|sim>] <command> [args]
 
 Commands:
-  devices                    List available serial ports
+  devices                    List picodroid devices: serial ports and running
+                             simulators (a simulator's row ends in [sim])
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
   list                       List the installed apps (multi-app firmware)
@@ -37,6 +39,9 @@ install options:
 
 Options:
   -s <port>   Serial port to use (e.g. /dev/cu.usbserial-0001)
+  -s <socket> A simulator's socket, as ./scripts/sim.sh prints it at boot
+              ([sim] pdb: listening on …)
+  -s sim      The one running simulator; with several, name the socket
 ";
 
 fn main() {
@@ -157,16 +162,19 @@ fn main() {
 }
 
 fn require_port(port: Option<&str>) -> String {
-    if let Some(p) = port {
-        return p.to_owned();
+    match port {
+        Some(transport::SIM) => return require_sim(),
+        Some(p) => return p.to_owned(),
+        None => {}
     }
 
-    // Auto-detect: scan for picodroid devices.
+    // Auto-detect: scan for picodroid devices and simulators.
     let found = devices::scan();
     match found.len() {
         0 => {
             eprintln!("error: no picodroid devices found");
             eprintln!("       Is the device connected and running picodroid firmware?");
+            eprintln!("       (A simulator counts too: ./scripts/sim.sh, then pdb -s sim.)");
             process::exit(1);
         }
         1 => {
@@ -175,6 +183,32 @@ fn require_port(port: Option<&str>) -> String {
         }
         _ => {
             eprintln!("error: multiple picodroid devices found — use -s to pick one:");
+            for (name, version) in &found {
+                eprintln!("  {name}  {version}");
+            }
+            process::exit(1);
+        }
+    }
+}
+
+/// `-s sim`: the one simulator that is running. Several may be (each on
+/// its own `pdb-<pid>.sock`), and then the caller has to name one.
+fn require_sim() -> String {
+    let found = devices::scan_sims();
+    match found.len() {
+        0 => {
+            eprintln!(
+                "error: no simulator is running (none answers under {})",
+                transport::sim_socket_dir().display()
+            );
+            eprintln!(
+                "       Start one with ./scripts/sim.sh; it prints the socket it listens on."
+            );
+            process::exit(1);
+        }
+        1 => found.into_iter().next().unwrap().0,
+        _ => {
+            eprintln!("error: several simulators are running — use -s <socket> to pick one:");
             for (name, version) in &found {
                 eprintln!("  {name}  {version}");
             }

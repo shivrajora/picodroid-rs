@@ -590,10 +590,12 @@ fn invokedynamic_rejects_non_lambda_bootstrap() {
     assert_eq!(result, Err(JvmError::UnsupportedInvokeDynamic("Target")));
 }
 
-/// `REF_newInvokeSpecial` (a `Foo::new` reference) would invoke `<init>`
-/// with no receiver; rejected up front.
+/// `REF_newInvokeSpecial` is a constructor reference (`Foo::new`, served
+/// since QA 2026-09-13 — see `tests::lambdas`); one that names anything
+/// but `<init>` (here the static `lambda$test$0`) is a malformed class file
+/// and is rejected up front rather than run as a constructor.
 #[test]
-fn invokedynamic_rejects_constructor_reference() {
+fn invokedynamic_rejects_constructor_reference_to_a_non_constructor() {
     let result = run_multi(&[CLASS_TARGET_LAMBDA, indy_caller(31, 8)], 1, &[]);
     assert!(
         matches!(result, Err(JvmError::UnsupportedInvokeDynamic(_))),
@@ -906,4 +908,36 @@ fn multiple_anonymous_classes_dispatch_independently() {
         &[obj2],
     );
     assert_eq!(result2.unwrap(), Some(Value::Int(7)));
+}
+
+/// QA 2026-09-13: `arr.getClass()` — `Object.getClass()` on an array
+/// receiver resolves to the array class (`[I`), one Class object for every
+/// `int[]` and a different one for a `byte[]`. It used to fall through to a
+/// handler arm that does not exist and end the app with `NoSuchMethod`.
+#[test]
+fn get_class_on_an_array_receiver() {
+    use super::asm::Asm;
+    fn class_compare(first: u8, second: u8) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("T");
+        let obj = a.class(c::java_lang_Object);
+        let get_class = a.methodref(
+            0x0A,
+            obj,
+            crate::names::m::getClass,
+            crate::names::d::__Class,
+        );
+        let (hi, lo) = ((get_class >> 8) as u8, get_class as u8);
+        let code = [
+            0x05, 0xBC, first, 0xB6, hi, lo, // iconst_2; newarray <first>; getClass
+            0x06, 0xBC, second, 0xB6, hi, lo, // iconst_3; newarray <second>; getClass
+            0xA6, 0x00, 0x05, // if_acmpne → iconst_0
+            0x04, 0xAC, // iconst_1; ireturn
+            0x03, 0xAC, // iconst_0; ireturn
+        ];
+        a.finish(0x0001, this, obj, &[], Some((2, &code, &[])))
+    }
+    // T_INT = 10, T_BYTE = 8.
+    assert_eq!(run(class_compare(10, 10)).unwrap(), Some(Value::Int(1)));
+    assert_eq!(run(class_compare(10, 8)).unwrap(), Some(Value::Int(0)));
 }

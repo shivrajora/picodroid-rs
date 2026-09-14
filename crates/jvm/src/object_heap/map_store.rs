@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::{heap::StringTable, types::Value};
 
-use super::ObjectHeap;
+use super::{reserve_fallible, Exhausted, ObjectHeap};
 
 impl ObjectHeap {
     // ── HashMap / map_bufs ──────────────────────────────────────────────────
@@ -16,6 +16,7 @@ impl ObjectHeap {
             return Some(idx as u16);
         }
         let idx = self.map_bufs.len() as u16;
+        reserve_fallible(&mut self.map_bufs, 1).ok()?;
         self.map_bufs.push(Some(Vec::new()));
         Some(idx)
     }
@@ -49,25 +50,52 @@ impl ObjectHeap {
         None
     }
 
-    /// Put a key-value pair. Returns the previous value if the key existed.
+    /// Put a key-value pair. Returns the previous value if the key existed;
+    /// [`Exhausted`] when a new entry cannot be stored (the map is unchanged).
     pub fn map_put(
         &mut self,
         idx: u16,
         key: Value,
         value: Value,
         strings: &StringTable,
-    ) -> Option<Value> {
+    ) -> Result<Option<Value>, Exhausted> {
         // Must do the lookup before borrowing mutably.
         let pos = self.map_find_key(idx, key, strings);
-        let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
+        let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) else {
+            return Ok(None);
+        };
         if let Some(pos) = pos {
             let old = buf[pos].1;
             buf[pos].1 = value;
-            Some(old)
+            Ok(Some(old))
         } else {
+            reserve_fallible(buf, 1)?;
             buf.push((key, value));
-            None
+            Ok(None)
         }
+    }
+
+    /// The `i`-th entry in iteration order.
+    pub fn map_entry_at(&self, idx: u16, i: usize) -> Option<(Value, Value)> {
+        self.map_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
+    }
+
+    /// Replace the value of the `i`-th entry, returning the old one.
+    pub fn map_set_value_at(&mut self, idx: u16, i: usize, value: Value) -> Option<Value> {
+        let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
+        let entry = buf.get_mut(i)?;
+        let old = entry.1;
+        entry.1 = value;
+        Some(old)
+    }
+
+    /// Append an entry the caller has already proved absent.
+    pub fn map_push(&mut self, idx: u16, key: Value, value: Value) -> Result<(), Exhausted> {
+        if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
+            reserve_fallible(buf, 1)?;
+            buf.push((key, value));
+        }
+        Ok(())
     }
 
     /// Get the value associated with `key`, or `None` if not found.
@@ -117,7 +145,11 @@ impl ObjectHeap {
 
     pub fn map_clear(&mut self, idx: u16) {
         if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
-            buf.clear();
+            // Release the buffer, not only the entries: on an arena this
+            // small, `clear()` is how an app recovers from an
+            // `OutOfMemoryError` (QA 2026-09-13), and a buffer kept for
+            // reuse would keep the arena as full as before.
+            *buf = Vec::new();
         }
     }
 
@@ -132,18 +164,7 @@ impl ObjectHeap {
     }
 }
 
-/// Value equality for map key/value comparison.
-/// For ObjectRef values, compares field 0 (wrapper equality for Integer, etc.).
-/// For string References with different indices, compares by resolved content.
+/// Value equality for map key/value comparison: see [`super::key_eq`].
 fn map_values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) -> bool {
-    match (a, b) {
-        (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
-            let fa = objects.get_field(ai, 0);
-            fa.is_some() && fa == objects.get_field(bi, 0)
-        }
-        // String References may have different indices but same content
-        // due to StringTable interning behavior after dynamic strings exist.
-        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
-        _ => a == b,
-    }
+    super::key_eq(a, b, objects, strings)
 }

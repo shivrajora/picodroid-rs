@@ -31,8 +31,13 @@ pub(crate) fn dispatch(
                 Some(i) => i,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
-            ctx.objects
-                .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
+            if ctx
+                .objects
+                .set_field(obj_idx, 0, Value::Int(buf_idx as i32))
+                .is_none()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(None))
         }
         m::put => {
@@ -42,7 +47,10 @@ pub(crate) fn dispatch(
             };
             let key = ctx.args.get(1).copied().unwrap_or(Value::Null);
             let value = ctx.args.get(2).copied().unwrap_or(Value::Null);
-            let old = ctx.objects.map_put(buf_idx, key, value, ctx.strings);
+            let old = match ctx.objects.map_put(buf_idx, key, value, ctx.strings) {
+                Ok(old) => old,
+                Err(_) => return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError))),
+            };
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
         m::get => {
@@ -138,11 +146,20 @@ fn view(
         Some(idx) => idx,
         None => return Some(Err(JvmError::StackOverflow)),
     };
-    ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
     // Field 1 keeps the map alive for as long as the view is: the GC
     // traces object fields generically, so a view over a temporary map
     // (`for (e in makeMap().entries)`) pins the map, and with it the buffer.
-    ctx.objects.set_field(view, 1, Value::ObjectRef(map));
+    if ctx
+        .objects
+        .set_field(view, 0, Value::Int(buf_idx as i32))
+        .is_none()
+        || ctx
+            .objects
+            .set_field(view, 1, Value::ObjectRef(map))
+            .is_none()
+    {
+        return Some(Err(JvmError::StackOverflow));
+    }
     Some(Ok(Some(Value::ObjectRef(view))))
 }
 

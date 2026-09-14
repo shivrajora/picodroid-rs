@@ -79,11 +79,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
 
-            // f2i — float to int (truncate toward zero, JVM spec)
+            // f2i — float to int (truncate toward zero, JVM spec; see `fconv`
+            // for why the truncation is explicit)
             0x8b => {
                 let v = frame.pop()?;
                 if let Value::Float(f) = v {
-                    frame.push(Value::Int(f as i32))?;
+                    frame.push(Value::Int(crate::fconv::f2i(f)))?;
                 } else {
                     return Err(JvmError::InvalidBytecode);
                 }
@@ -93,7 +94,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x8c => {
                 let v = frame.pop()?;
                 if let Value::Float(f) = v {
-                    frame.push(Value::Long(f as i64))?;
+                    frame.push(Value::Long(crate::fconv::f2l(f)))?;
                 } else {
                     return Err(JvmError::InvalidBytecode);
                 }
@@ -189,7 +190,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x8e => {
                 let v = frame.pop()?;
                 if let Value::Double(d) = v {
-                    frame.push(Value::Int(d as i32))?;
+                    frame.push(Value::Int(crate::fconv::d2i(d)))?;
                 } else {
                     return Err(JvmError::InvalidBytecode);
                 }
@@ -199,7 +200,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0x8f => {
                 let v = frame.pop()?;
                 if let Value::Double(d) = v {
-                    frame.push(Value::Long(d as i64))?;
+                    frame.push(Value::Long(crate::fconv::d2l(d)))?;
                 } else {
                     return Err(JvmError::InvalidBytecode);
                 }

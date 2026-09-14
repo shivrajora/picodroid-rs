@@ -16,7 +16,43 @@ public abstract class ViewGroup extends View {
   }
 
   /** Add {@code child} to this layout, reusing whatever {@link View.LayoutParams} the child has. */
-  public native void addView(View child);
+  /**
+   * The children in {@link #addView} order, as {@code android.view.ViewGroup} keeps them; what
+   * {@link #getChildAt} indexes. Allocated on the first add, doubled as needed.
+   */
+  private View[] mChildren;
+
+  private int mChildCount;
+
+  public void addView(View child) {
+    checkNotReleased(child);
+    nativeAddView(child);
+    if (child == null) {
+      return;
+    }
+    if (mChildren == null) {
+      mChildren = new View[4];
+    } else if (mChildCount == mChildren.length) {
+      View[] bigger = new View[mChildren.length * 2];
+      System.arraycopy(mChildren, 0, bigger, 0, mChildCount);
+      mChildren = bigger;
+    }
+    mChildren[mChildCount++] = child;
+  }
+
+  private native void nativeAddView(View child);
+
+  /**
+   * A view {@link #removeView} released has no widget left to add: refuse it here, on the Java
+   * side, before any native code sees the dead handle.
+   */
+  private static void checkNotReleased(View child) {
+    if (child.isReleased()) {
+      throw new IllegalStateException(
+          "addView: this view was released by removeView; picodroid frees a removed view, create a"
+              + " new one");
+    }
+  }
 
   /**
    * Add {@code child} with explicit layout parameters. Records the params on the child via {@link
@@ -41,21 +77,60 @@ public abstract class ViewGroup extends View {
     }
   }
 
-  public native void removeView(View child);
+  /**
+   * Detaches {@code child}. Unlike Android, picodroid also frees the child's widget here — an
+   * embedded panel cannot afford detached trees waiting for a re-add — so a removed view cannot be
+   * added again: {@link #addView} throws {@code IllegalStateException} for it. Build a fresh view,
+   * or hide one with {@link View#setVisibility} when it will come back.
+   */
+  public void removeView(View child) {
+    for (int i = 0; i < mChildCount; i++) {
+      if (mChildren[i] == child) {
+        System.arraycopy(mChildren, i + 1, mChildren, i, mChildCount - i - 1);
+        mChildren[--mChildCount] = null;
+        nativeRemoveView(child);
+        child.release();
+        return;
+      }
+    }
+    // Not a child (or already released): a no-op, as on Android.
+  }
 
-  public native void removeAllViews();
+  private native void nativeRemoveView(View child);
+
+  public void removeAllViews() {
+    nativeRemoveAllViews();
+    for (int i = 0; i < mChildCount; i++) {
+      mChildren[i].release();
+      mChildren[i] = null;
+    }
+    mChildCount = 0;
+  }
+
+  /** Releases this group's children with it: their widgets went with the group's. */
+  @Override
+  void release() {
+    for (int i = 0; i < mChildCount; i++) {
+      mChildren[i].release();
+      mChildren[i] = null;
+    }
+    mChildCount = 0;
+    super.release();
+  }
+
+  private native void nativeRemoveAllViews();
 
   public native int getChildCount();
 
   /**
-   * Reserved for the resource-system milestone — picodroid currently has no LVGL→Java reverse map,
-   * so child-by-index lookup can't return the original {@link View} reference. {@link
-   * #getChildCount} is fine to use; iterate children via the view tree you constructed instead of
-   * by index for now.
+   * The child at {@code index} in {@link #addView} order, or {@code null} when there is none, as on
+   * Android.
    */
   public View getChildAt(int index) {
-    throw new UnsupportedOperationException(
-        "ViewGroup.getChildAt(int) deferred to the resource-system milestone");
+    if (index < 0 || index >= mChildCount) {
+      return null;
+    }
+    return mChildren[index];
   }
 
   /**

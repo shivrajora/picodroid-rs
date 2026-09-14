@@ -360,6 +360,12 @@ pub fn collect(
         work.push(GcRef::Object(obj_ref));
     }
 
+    // The JLS boxed-value cache: `Integer.valueOf(7)` must keep returning
+    // the same object, so a cached box is a permanent root.
+    for obj_ref in objects.boxed_cache_roots() {
+        work.push(GcRef::Object(obj_ref));
+    }
+
     // Native handler roots — Activity stacks, sensor registrations, service
     // bindings, etc. These references live entirely in handler state and
     // would otherwise be invisible to the mark phase.

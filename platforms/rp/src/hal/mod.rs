@@ -64,8 +64,9 @@ pub use chip::touch;
 pub use chip::uart;
 
 // The debug-bridge byte pipe: the USB CDC driver, device-only like its one
-// consumer (`pdb/platform.rs`). The simulator ships no endpoint, so there is
-// no stub to route to.
+// consumer (`pdb/platform.rs`). The simulator's endpoint is a Unix socket
+// with its own transport (`picodroid_core::hal::sim::pdb`), so there is no
+// stub to route to.
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::pdb_usb;
 

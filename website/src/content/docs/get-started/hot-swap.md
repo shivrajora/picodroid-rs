@@ -21,6 +21,26 @@ The subcommands are `devices`, `ping`, `install`, `list`, `uninstall`,
 filtering) — see the [pdb command reference](/reference/pdb-commands/) for
 every flag.
 
+## Try it on the simulator first
+
+No board needed: the [simulator](/get-started/simulator/) is a `pdb` device
+too. It listens on a socket, and `-s sim` finds it:
+
+```bash
+./scripts/sim.sh --app blinky --system-apps      # one terminal: blinky + the launcher
+./scripts/pdb.sh devices                         # another: the sim's row ends in [sim]
+./scripts/pdb.sh -s sim install build/apks/helloworld.papk
+./scripts/pdb.sh -s sim list
+./scripts/pdb.sh -s sim uninstall helloworld
+```
+
+The install runs the same code it runs on a device — the JVM parks, the app
+region is written, and the simulator reboots itself (a warm boot of its own
+process) before `pdb` reports `Install complete.` Use `--system-apps` or a
+looping app: a simulator with nothing left to run exits, unless
+`PICODROID_SIM_WAIT_FOR_INSTALL=1` tells it to wait for an install as a
+device does.
+
 ## Install the host tool globally (optional)
 
 ```bash

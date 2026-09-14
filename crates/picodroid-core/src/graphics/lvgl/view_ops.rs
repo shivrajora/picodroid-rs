@@ -12,7 +12,7 @@
 
 use crate::lvgl_ffi::*;
 
-use super::super::gfx::{Handle, Visibility};
+use super::super::gfx::{Handle, Reparent, Visibility};
 use super::handle_table;
 
 #[inline]
@@ -122,16 +122,39 @@ pub(in crate::graphics) fn set_alpha(h: Handle, alpha: u8) {
     unsafe { lv_obj_set_style_opa(o, alpha, 0) };
 }
 
-pub(in crate::graphics) fn set_parent(h: Handle, parent: Handle) {
+pub(in crate::graphics) fn set_parent(h: Handle, parent: Handle) -> Reparent {
     // A stale handle (its lv_obj was deleted) now resolves to null via the
     // handle table's delete hook. Skip rather than hand null to LVGL — e.g. a
     // deferred onServiceConnected re-parenting rows into an Activity's freed
-    // layout. See project_picoenvmon_history_segfault.
+    // layout. See project_picoenvmon_history_segfault. A stale *child* is
+    // reported: `removeView` released it, and the add must not vanish.
+    // Probe liveness first: `obj()` of a released handle is a use-after-
+    // delete to the sanitizer, and this is the one place a stale handle is
+    // a legitimate question rather than a bug.
+    if !handle_table::is_live(h.to_java()) {
+        return Reparent::StaleChild;
+    }
+    if !handle_table::is_live(parent.to_java()) {
+        return Reparent::StaleParent;
+    }
+    // Probe liveness first: `obj()` of a released handle is a use-after-
+    // delete to the sanitizer, and this is the one place a stale handle is
+    // a legitimate question rather than a bug.
+    if !handle_table::is_live(h.to_java()) {
+        return Reparent::StaleChild;
+    }
+    if !handle_table::is_live(parent.to_java()) {
+        return Reparent::StaleParent;
+    }
     let (child, parent) = (obj(h), obj(parent));
-    if child.is_null() || parent.is_null() {
-        return;
+    if child.is_null() {
+        return Reparent::StaleChild;
+    }
+    if parent.is_null() {
+        return Reparent::StaleParent;
     }
     unsafe { lv_obj_set_parent(child, parent) };
+    Reparent::Done
 }
 
 pub(in crate::graphics) fn delete(h: Handle) {

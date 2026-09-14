@@ -630,6 +630,15 @@ public final class SharedPreferences {
         out.close();
       } catch (IOException e) {
         tmpFile.delete();
+        // At the per-app storage cap the tmp file's own block is what is refused, so an
+        // atomic commit could never shrink or clear a store that filled the last block.
+        // A blob no larger than the file it replaces is rewritten in place instead: the
+        // cap never refuses a truncating rewrite, and a power cut mid-write only leaves a
+        // blob the CRC rejects on the next open, the same as a lost tmp would.
+        if (written <= new File(finalPath).length() && writeInPlace(finalPath, blob, written)) {
+          Log.i(TAG, "tmp write refused (" + e.getMessage() + "); rewrote in place");
+          return true;
+        }
         base.keys = sk;
         base.types = st;
         base.strVals = ss;
@@ -688,6 +697,18 @@ public final class SharedPreferences {
      */
     public void apply() {
       commit();
+    }
+
+    /** Truncate-and-rewrite `path`; {@code false} when the write or its size check fails. */
+    private static boolean writeInPlace(String path, byte[] blob, int written) {
+      try {
+        FileOutputStream out = new FileOutputStream(path);
+        out.write(blob, 0, written);
+        out.close();
+      } catch (IOException e) {
+        return false;
+      }
+      return new File(path).length() == (long) written;
     }
 
     private int indexOf(String key) {

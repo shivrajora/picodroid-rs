@@ -9,7 +9,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg_attr(test, allow(unused_imports))]
-use super::gfx::{Gfx, Handle, ViewProperty, Visibility};
+use super::gfx::{Gfx, Handle, Reparent, ViewProperty, Visibility};
 
 // `lvgl_ffi`'s `extern "C"` block is `cfg(not(test))`, so its drift-check
 // tests can run without linking LVGL. Every module that calls an LVGL
@@ -141,8 +141,8 @@ impl Gfx for LvglGfx {
         view_ops::set_alpha(h, alpha);
     }
 
-    fn set_parent(&mut self, h: Handle, parent: Handle) {
-        view_ops::set_parent(h, parent);
+    fn set_parent(&mut self, h: Handle, parent: Handle) -> Reparent {
+        view_ops::set_parent(h, parent)
     }
 
     fn delete(&mut self, h: Handle) {

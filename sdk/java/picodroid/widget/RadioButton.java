@@ -21,9 +21,28 @@ public class RadioButton extends CompoundButton {
 
   public native void setText(String text);
 
+  /** The group this button was added to, or {@code null}; set by {@link RadioGroup#addView}. */
+  RadioGroup mGroup;
+
   @Override
   public native boolean isChecked();
 
+  /**
+   * Checks or unchecks the button. As on Android, checking a button that belongs to a {@link
+   * RadioGroup} unchecks the group's previous selection and moves its checked id.
+   */
   @Override
-  public native void setChecked(boolean checked);
+  public void setChecked(boolean checked) {
+    nativeSetChecked(checked);
+    if (mGroup != null) {
+      mGroup.onButtonChecked(this, checked);
+    }
+  }
+
+  /** The widget state alone; the group drives this when it is the one changing the selection. */
+  void setCheckedSilently(boolean checked) {
+    nativeSetChecked(checked);
+  }
+
+  private native void nativeSetChecked(boolean checked);
 }

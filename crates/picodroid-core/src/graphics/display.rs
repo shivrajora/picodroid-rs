@@ -126,7 +126,7 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
         // re-parent on subsequent setContentView calls).
         let scr = g.screen();
         let h = Handle::from_java(root_id);
-        g.set_parent(h, scr);
+        let _ = g.set_parent(h, scr);
         // Defensive: if the same root is re-installed after a pause cycle
         // (an app rebuilds in onResume), it must end up visible. Idempotent
         // for the first-time path.

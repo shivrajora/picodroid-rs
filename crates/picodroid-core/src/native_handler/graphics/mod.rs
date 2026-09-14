@@ -79,12 +79,38 @@ pub fn dispatch(
     dispatch_with(&mut LvglBackend, class_name, method_name, ctx)
 }
 
+/// Whether the receiver (`args[0]`) is a view whose handle is 0.
+fn released_receiver(ctx: &NativeContext<'_>) -> bool {
+    match ctx.args.first() {
+        Some(Value::ObjectRef(idx)) => matches!(
+            ctx.objects
+                .get_field(*idx, crate::graphics::fields::view::NATIVE_HANDLE),
+            Some(Value::Int(0))
+        ),
+        _ => false,
+    }
+}
+
 fn dispatch_with<B: GraphicsBackend>(
     be: &mut B,
     class_name: &str,
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    // A released view — handle 0, `ViewGroup.removeView` freed its widget —
+    // has no widget for any View arm: an IllegalStateException the app can
+    // read, never a null or dangling widget pointer for LVGL (on the boards
+    // without a generational handle table the freed pointer was reused and
+    // the touch kit hung re-parenting it; QA 2026-09-13). The View family's
+    // only static native, `nativeCreate`, has no receiver to check.
+    if is_view(class_name) && released_receiver(ctx) {
+        return Some(Err(super::throw_exception(
+            ctx,
+            c::java_lang_IllegalStateException,
+            "this view was released by removeView; picodroid frees a removed view, create a new one",
+        )));
+    }
+
     // Class-specific first — these take precedence over inherited View methods
     // so subclass-defined names don't collide with a future View-level setter.
     let class_hit = match class_name {

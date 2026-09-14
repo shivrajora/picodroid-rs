@@ -64,9 +64,11 @@ impl GraphicsBackend for LvglBackend {
             m::close => Some(view::close(ctx.args, ctx.objects)),
             m::performClick => Some(view::perform_click(ctx.args, ctx.objects)),
             m::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
-            m::nativeRegisterClickListener => {
-                Some(view::register_click_listener(ctx.args, ctx.objects))
-            }
+            m::nativeRegisterClickListener => Some(view::register_click_listener(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
             m::nativeRegisterLongClickListener => {
                 Some(view::register_long_click_listener(ctx.args, ctx.objects))
             }
@@ -92,9 +94,9 @@ impl GraphicsBackend for LvglBackend {
 
     fn dispatch_view_group(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
-            m::addView => Some(view_group::add_view(ctx.args, ctx.objects)),
-            m::removeView => Some(view_group::remove_view(ctx.args, ctx.objects)),
-            m::removeAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
+            m::nativeAddView => Some(view_group::add_view(ctx.args, ctx.strings, ctx.objects)),
+            m::nativeRemoveView => Some(view_group::remove_view(ctx.args, ctx.objects)),
+            m::nativeRemoveAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
             m::getChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
             _ => None,
         }
@@ -311,7 +313,7 @@ impl GraphicsBackend for LvglBackend {
                 ctx.objects,
             )),
             m::isChecked => Some(widgets::radio_button_is_checked(ctx.args, ctx.objects)),
-            m::setChecked => Some(widgets::radio_button_set_checked(ctx.args, ctx.objects)),
+            m::nativeSetChecked => Some(widgets::radio_button_set_checked(ctx.args, ctx.objects)),
             m::nativeRegisterCheckedChangeListener => Some(
                 widgets::radio_button_register_checked_change_listener(ctx.args, ctx.objects),
             ),

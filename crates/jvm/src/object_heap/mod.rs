@@ -76,11 +76,45 @@ pub struct JvmObject {
 // M6 exists to provide. Loosen only with a parity-audit update.
 const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() == 12);
 
+/// What a lambda proxy's SAM invocation runs.
+#[derive(Clone, Copy)]
+pub enum LambdaTarget {
+    /// A bytecode body fixed at link time: javac's synthetic `lambda$…`, a
+    /// static method reference, a private or `super::` one.
+    Java { class_idx: usize, method_idx: usize },
+    /// A static method reference to a builtin class (`Integer::parseInt`,
+    /// `String::valueOf`): native dispatch on the named class.
+    NativeStatic {
+        class: &'static str,
+        name: &'static str,
+        desc: &'static str,
+    },
+    /// An instance method reference (`String::length`, `Shape::area`,
+    /// `s::trim`): resolved on the receiver's runtime class at every call,
+    /// exactly as the `invokevirtual` it stands for would be.
+    Virtual {
+        name: &'static str,
+        desc: &'static str,
+    },
+    /// `Foo::new`: allocate `class`, run its `<init>` on the SAM arguments,
+    /// and hand the object back. `init` is `None` for a builtin (`ArrayList::new`),
+    /// whose constructor is a native arm.
+    Ctor {
+        class: &'static str,
+        class_bytes: &'static [u8],
+        init: Option<(usize, usize)>,
+        desc: &'static str,
+    },
+}
+
 /// Metadata for a lambda proxy object created by `invokedynamic`.
 pub struct LambdaProxy {
-    pub target_class_idx: usize,
-    pub target_method_idx: usize,
+    pub target: LambdaTarget,
     pub captures: Vec<Value>,
+    /// The SAM's name. Only a call to this method is the lambda body: a
+    /// default method or an `Object` method on the same proxy resolves
+    /// through the interface and `Object`, as on any other object.
+    pub sam_name: &'static [u8],
 }
 
 pub struct ObjectHeap {
@@ -106,6 +140,16 @@ pub struct ObjectHeap {
     pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
+    /// `Integer.valueOf` & co. must hand back the same object for the range
+    /// the JLS (§5.1.7) has every JVM cache — `Integer a = 127, b = 127;
+    /// a == b` is `true` on Android. One lazily allocated 256-slot table per
+    /// integral wrapper (Integer, Long, Short, Byte, Character); `Boolean`
+    /// needs two slots. Entries are GC roots: a shared box never dies.
+    pub(super) boxed_cache: [Option<Vec<u16>>; BOX_TABLES],
+    pub(super) bool_cache: [u16; 2],
+    /// An `OutOfMemoryError` allocated while the heap still had room, thrown
+    /// when it no longer has room for one. A root until it is handed out.
+    pub(super) oom_reserve: u16,
     /// Sparse list of iterator states, keyed by object index.
     pub(super) iter_states: Vec<(u16, iter_store::IteratorState)>,
     /// Sparse list of `(throwable_obj_idx, string_table_idx)` pairs holding
@@ -157,6 +201,9 @@ impl ObjectHeap {
             list_bufs: Vec::new(),
             map_bufs: Vec::new(),
             lambda_proxies: Vec::new(),
+            boxed_cache: [None, None, None, None, None],
+            bool_cache: [BOX_NONE; 2],
+            oom_reserve: BOX_NONE,
             iter_states: Vec::new(),
             exception_messages: Vec::new(),
             suppressed: Vec::new(),
@@ -1523,5 +1570,262 @@ mod tests {
         heap.list_add(idx, Value::Int(8));
         let collected: alloc::vec::Vec<Value> = heap.list_iter(idx).collect();
         assert_eq!(collected, [Value::Int(7), Value::Int(8)]);
+    }
+}
+
+// ── Fallible growth of the side buffers ─────────────────────────────────
+
+/// A side buffer (list, map, builder) could not grow: the Rust heap has no
+/// block of the needed size. Native arms turn this into a Java
+/// `OutOfMemoryError`; the alternative — `Vec::push` aborting through the
+/// allocation-error handler — resets the board (QA 2026-09-13: a 2000-entry
+/// `HashMap` did exactly that in the sim).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exhausted;
+
+/// Make room for `extra` more elements in `v` without aborting. `Vec`'s own
+/// growth doubles, which on a fragmented FreeRTOS arena asks for a block
+/// twice the current one; when that fails, a quarter step (or the exact
+/// need) is tried before giving up, since the arena may still hold a
+/// smaller block.
+pub(crate) fn reserve_fallible<T>(v: &mut Vec<T>, extra: usize) -> Result<(), Exhausted> {
+    if v.capacity() - v.len() >= extra {
+        return Ok(());
+    }
+    if v.try_reserve(extra).is_ok() {
+        return Ok(());
+    }
+    // Doubling asks a fragmented arena for a block it may not have: step
+    // down by halves to the exact need before giving up.
+    let mut step = v.len() / 2;
+    while step > extra {
+        if v.try_reserve_exact(step).is_ok() {
+            return Ok(());
+        }
+        step /= 2;
+    }
+    v.try_reserve_exact(extra).map_err(|_| Exhausted)
+}
+
+/// Key equality for the builtin collections, as `Object.equals` has it for
+/// the classes without a body of their own: strings by content, boxes by
+/// class and value — `Integer(1)` is not `Short(1)`, and `Double`/`Float`
+/// follow `Double.equals` (NaN equals NaN, `0.0` is not `-0.0`) — and every
+/// other object by identity. A class with its own `equals(Object)` is
+/// served by the interpreter's equals-aware path instead. Until QA
+/// 2026-09-13 any two objects with an equal field 0 were one key: the
+/// boxes of different classes above, and two unrelated objects alike.
+pub(crate) fn key_eq(
+    a: Value,
+    b: Value,
+    objects: &ObjectHeap,
+    strings: &crate::heap::StringTable,
+) -> bool {
+    match (a, b) {
+        (Value::ObjectRef(ai), Value::ObjectRef(bi)) if ai != bi => {
+            let (Some(ca), Some(cb)) = (objects.class_name(ai), objects.class_name(bi)) else {
+                return false;
+            };
+            if ca != cb || !is_box_class(ca) {
+                return false;
+            }
+            match (objects.get_field(ai, 0), objects.get_field(bi, 0)) {
+                (Some(Value::Double(x)), Some(Value::Double(y))) => {
+                    x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan())
+                }
+                (Some(Value::Float(x)), Some(Value::Float(y))) => {
+                    x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan())
+                }
+                (Some(x), Some(y)) => x == y,
+                _ => false,
+            }
+        }
+        // Distinct String References can carry the same text (a literal
+        // vs. a runtime-built string).
+        (Value::Reference(ai), Value::Reference(bi)) => strings.content_eq(ai, bi),
+        _ => a == b,
+    }
+}
+
+fn is_box_class(class: &str) -> bool {
+    matches!(
+        class,
+        c::java_lang_Integer
+            | c::java_lang_Long
+            | c::java_lang_Short
+            | c::java_lang_Byte
+            | c::java_lang_Character
+            | c::java_lang_Boolean
+            | c::java_lang_Float
+            | c::java_lang_Double
+    )
+}
+
+// ── JLS §5.1.7 boxed-value cache ─────────────────────────────────────────
+
+/// Slot value meaning "no cached box yet".
+const BOX_NONE: u16 = u16::MAX;
+/// One table per integral wrapper: Integer, Long, Short, Byte, Character.
+const BOX_TABLES: usize = 5;
+
+impl ObjectHeap {
+    fn box_table(class: &str) -> Option<usize> {
+        match class {
+            c::java_lang_Integer => Some(0),
+            c::java_lang_Long => Some(1),
+            c::java_lang_Short => Some(2),
+            c::java_lang_Byte => Some(3),
+            c::java_lang_Character => Some(4),
+            _ => None,
+        }
+    }
+
+    /// Table slot for a value `valueOf` must share: -128..=127 for the
+    /// integral wrappers, 0..=127 for `char`.
+    fn box_slot(table: usize, v: Value) -> Option<usize> {
+        match (table, v) {
+            (1, Value::Long(l)) if (-128..=127).contains(&l) => Some((l + 128) as usize),
+            (4, Value::Int(i)) if (0..=127).contains(&i) => Some(i as usize),
+            (0 | 2 | 3, Value::Int(i)) if (-128..=127).contains(&i) => Some((i + 128) as usize),
+            _ => None,
+        }
+    }
+
+    /// The cached box for `v` of wrapper `class`, if one was recorded.
+    pub fn cached_box(&self, class: &str, v: Value) -> Option<u16> {
+        if class == c::java_lang_Boolean {
+            let Value::Int(b) = v else {
+                return None;
+            };
+            let s = self.bool_cache[(b != 0) as usize];
+            return (s != BOX_NONE).then_some(s);
+        }
+        let t = Self::box_table(class)?;
+        let slot = Self::box_slot(t, v)?;
+        let s = *self.boxed_cache[t].as_ref()?.get(slot)?;
+        (s != BOX_NONE).then_some(s)
+    }
+
+    /// Record `idx` as the shared box for `v` of `class` when the JLS wants
+    /// one. Best effort: a table that cannot be allocated leaves the value
+    /// uncached, which is merely the pre-cache behaviour.
+    pub fn cache_box(&mut self, class: &str, v: Value, idx: u16) {
+        if class == c::java_lang_Boolean {
+            if let Value::Int(b) = v {
+                self.bool_cache[(b != 0) as usize] = idx;
+            }
+            return;
+        }
+        let Some(t) = Self::box_table(class) else {
+            return;
+        };
+        let Some(slot) = Self::box_slot(t, v) else {
+            return;
+        };
+        if self.boxed_cache[t].is_none() {
+            let mut table: Vec<u16> = Vec::new();
+            if table.try_reserve_exact(256).is_err() {
+                return;
+            }
+            table.resize(256, BOX_NONE);
+            self.boxed_cache[t] = Some(table);
+        }
+        if let Some(s) = self.boxed_cache[t].as_mut().and_then(|t| t.get_mut(slot)) {
+            *s = idx;
+        }
+    }
+
+    /// Every cached box, plus the `OutOfMemoryError` reserve — GC roots, so
+    /// a shared box never dies and the reserve is there when needed.
+    pub fn boxed_cache_roots(&self) -> impl Iterator<Item = u16> + '_ {
+        self.boxed_cache
+            .iter()
+            .flatten()
+            .flat_map(|t| t.iter().copied())
+            .chain(self.bool_cache.iter().copied())
+            .chain(core::iter::once(self.oom_reserve))
+            .filter(|&s| s != BOX_NONE)
+    }
+
+    /// Set aside an `OutOfMemoryError` while the heap can spare one. Idempotent.
+    pub fn ensure_oom_reserve(&mut self) {
+        if self.oom_reserve == BOX_NONE {
+            if let Some(idx) = self.alloc(c::java_lang_OutOfMemoryError) {
+                self.oom_reserve = idx;
+            }
+        }
+    }
+
+    /// The reserved `OutOfMemoryError`. It stays reserved — and rooted — so
+    /// a heap that cannot allocate anything throws the same object every
+    /// time, as HotSpot's preallocated error does; an app that catches it
+    /// and keeps allocating still sees `OutOfMemoryError`, never a hard stop.
+    pub fn oom_reserve(&self) -> Option<u16> {
+        (self.oom_reserve != BOX_NONE).then_some(self.oom_reserve)
+    }
+}
+
+#[cfg(test)]
+mod growth_tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn reserve_fallible_reports_exhaustion_instead_of_aborting() {
+        let mut v: Vec<u64> = Vec::new();
+        assert_eq!(reserve_fallible(&mut v, 4), Ok(()));
+        assert!(v.capacity() >= 4);
+        // An impossible request fails softly on both growth paths.
+        assert_eq!(reserve_fallible(&mut v, usize::MAX / 16), Err(Exhausted));
+        assert!(v.capacity() < usize::MAX / 16);
+    }
+
+    #[test]
+    fn boxed_cache_shares_the_jls_range_only() {
+        let mut heap = ObjectHeap::new();
+        assert_eq!(heap.cached_box(c::java_lang_Integer, Value::Int(127)), None);
+        let a = heap.alloc(c::java_lang_Integer).unwrap();
+        heap.cache_box(c::java_lang_Integer, Value::Int(127), a);
+        assert_eq!(
+            heap.cached_box(c::java_lang_Integer, Value::Int(127)),
+            Some(a)
+        );
+        // Out of range: never cached.
+        let b = heap.alloc(c::java_lang_Integer).unwrap();
+        heap.cache_box(c::java_lang_Integer, Value::Int(128), b);
+        assert_eq!(heap.cached_box(c::java_lang_Integer, Value::Int(128)), None);
+        // Long has its own table; char only caches 0..=127; Boolean two slots.
+        let l = heap.alloc(c::java_lang_Long).unwrap();
+        heap.cache_box(c::java_lang_Long, Value::Long(-128), l);
+        assert_eq!(
+            heap.cached_box(c::java_lang_Long, Value::Long(-128)),
+            Some(l)
+        );
+        assert_eq!(
+            heap.cached_box(c::java_lang_Integer, Value::Int(-128)),
+            None
+        );
+        let ch = heap.alloc(c::java_lang_Character).unwrap();
+        heap.cache_box(c::java_lang_Character, Value::Int(200), ch);
+        assert_eq!(
+            heap.cached_box(c::java_lang_Character, Value::Int(200)),
+            None
+        );
+        let t = heap.alloc(c::java_lang_Boolean).unwrap();
+        heap.cache_box(c::java_lang_Boolean, Value::Int(1), t);
+        assert_eq!(
+            heap.cached_box(c::java_lang_Boolean, Value::Int(1)),
+            Some(t)
+        );
+        assert_eq!(heap.cached_box(c::java_lang_Boolean, Value::Int(0)), None);
+        // Doubles are never shared (no identity contract).
+        let d = heap.alloc(c::java_lang_Double).unwrap();
+        heap.cache_box(c::java_lang_Double, Value::Double(1.0), d);
+        assert_eq!(
+            heap.cached_box(c::java_lang_Double, Value::Double(1.0)),
+            None
+        );
+        let roots: Vec<u16> = heap.boxed_cache_roots().collect();
+        assert_eq!(roots, vec![a, l, t]);
     }
 }

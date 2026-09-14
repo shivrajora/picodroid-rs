@@ -274,8 +274,14 @@ pub(super) fn box_primitive(objects: &mut ObjectHeap, kind: u8, v: Value) -> Opt
         b'S' => c::java_lang_Short,
         _ => return Some(v),
     };
+    // Same identity contract as `Integer.valueOf`: the JLS-cached range is
+    // one shared box per value.
+    if let Some(idx) = objects.cached_box(class, v) {
+        return Some(Value::ObjectRef(idx));
+    }
     let idx = objects.alloc(class)?;
     objects.set_field(idx, 0, v);
+    objects.cache_box(class, v, idx);
     Some(Value::ObjectRef(idx))
 }
 

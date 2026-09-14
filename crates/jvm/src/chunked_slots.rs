@@ -74,6 +74,24 @@ impl<T> ChunkedSlots<T> {
         idx
     }
 
+    /// [`push`](Self::push) that reports a chunk the heap cannot hold as
+    /// `None` instead of aborting — the string table's growth under a full
+    /// heap (QA 2026-09-13).
+    pub fn try_push(&mut self, val: Option<T>) -> Option<usize> {
+        let idx = self.len;
+        let (c, i) = (idx >> CHUNK_SHIFT, idx & CHUNK_MASK);
+        if c >= self.chunks.len() {
+            self.chunks.try_reserve(1).ok()?;
+            let mut v: Vec<Option<T>> = Vec::new();
+            v.try_reserve_exact(CHUNK_SIZE).ok()?;
+            v.resize_with(CHUNK_SIZE, || None);
+            self.chunks.push(v.into_boxed_slice());
+        }
+        self.chunks[c][i] = val;
+        self.len += 1;
+        Some(idx)
+    }
+
     /// Number of allocated chunks (grown or pre-reserved).
     pub fn chunk_count(&self) -> usize {
         self.chunks.len()

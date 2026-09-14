@@ -624,8 +624,9 @@ picodroid_core::set_rtos!(PlatformRtos);
 // ── Platform hooks ───────────────────────────────────────────────────────────
 //
 // Device only, like the RTOS above. The simulator's hooks come from
-// `register_sim_platform!` below: its stop request is always false (no debug
-// bridge), and its heap controls are the simulator allocator's own.
+// `register_sim_platform!` below: its stop request is the simulator's own
+// `STOP_JVM` (raised by its bridge's park request and by the package
+// verbs), and its heap controls are the simulator allocator's own.
 
 #[cfg(not(any(test, feature = "sim")))]
 pub struct PlatformHost;

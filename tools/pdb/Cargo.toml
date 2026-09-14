@@ -3,7 +3,7 @@ name = "pdb"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Picodroid Debug Bridge — push apps to a picodroid device over UART"
+description = "Picodroid Debug Bridge — talk to a picodroid device over USB CDC, or to a simulator over its socket"
 
 [[bin]]
 name = "pdb"

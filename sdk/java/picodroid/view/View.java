@@ -54,6 +54,20 @@ public class View {
     this.nativeHandle = nativeHandle;
   }
 
+  /** Whether this view's widget has been freed ({@link ViewGroup#removeView}). */
+  final boolean isReleased() {
+    return nativeHandle == 0;
+  }
+
+  /**
+   * Forgets the freed widget. A released view holds handle 0, which every native arm refuses with
+   * {@code IllegalStateException} — where a stale handle was a dangling widget pointer on the
+   * boards without a generational handle table (the touch kit hung in the QA app's tree section).
+   */
+  void release() {
+    nativeHandle = 0;
+  }
+
   /**
    * Click callback. Mirrors {@code android.view.View.OnClickListener} — fires after a finger
    * DOWN→UP gesture stays within the click slop and the widget is enabled. Any view that has a

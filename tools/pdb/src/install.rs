@@ -13,7 +13,6 @@ use crate::protocol::{
 };
 use pdb_protocol::greeting::{AppsInfo, Greeting, GreetingError, LEGACY_VERSION, VERSION_PREFIX};
 
-const BAUD_RATE: u32 = 115_200;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Timeout for the STATUS_READY response: the device places the run, may
@@ -105,12 +104,10 @@ pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
 
 /// PING the device at `port_name` and interpret the greeting.
 pub fn query_device(port_name: &str, timeout: Duration) -> Result<DeviceInfo, String> {
-    let mut port = serialport::new(port_name, BAUD_RATE)
-        .timeout(timeout)
-        .open()
+    let mut port = crate::transport::open(port_name, timeout)
         .map_err(|e| format!("cannot open {port_name}: {e}"))?;
-    send_frame(port.as_mut(), CMD_PING, b"").map_err(|e| format!("PING send failed: {e}"))?;
-    let (status, payload) = recv_response(port.as_mut()).map_err(|e| {
+    send_frame(&mut *port, CMD_PING, b"").map_err(|e| format!("PING send failed: {e}"))?;
+    let (status, payload) = recv_response(&mut *port).map_err(|e| {
         format!("PING response failed: {e}\n       Is the device connected and running picodroid firmware?")
     })?;
     if status != STATUS_OK {
@@ -126,12 +123,21 @@ pub fn query_device(port_name: &str, timeout: Duration) -> Result<DeviceInfo, St
 /// the board (pdb `-s`, the fleet scripts), so a re-scan of the host must
 /// not wander off to another board's CDC port. Otherwise the first
 /// picodroid VID/PID on the host is tried first, then the original name.
+///
+/// A simulator's reboot is an exec of its process: no USB to re-enumerate,
+/// the same socket path listening again within the second — so no settle
+/// delay, and the poll always sticks to the path. A poll that lands before
+/// the exec reaches the old listener's backlog and times out; one that
+/// lands between exec and rebind is refused; the next one answers.
 pub fn wait_for_reboot(port_name: &str, explicit_port: bool) -> bool {
-    std::thread::sleep(REBOOT_DELAY);
+    let sim = crate::transport::is_sim(port_name);
+    if !sim {
+        std::thread::sleep(REBOOT_DELAY);
+    }
     for attempt in 0..POLL_ATTEMPTS {
         std::thread::sleep(POLL_TIMEOUT);
 
-        let port_name = if explicit_port {
+        let port_name = if explicit_port || sim {
             port_name.to_string()
         } else {
             // Try to find the device by VID/PID first (fast).
@@ -148,18 +154,15 @@ pub fn wait_for_reboot(port_name: &str, explicit_port: bool) -> bool {
             }
         };
 
-        let mut port = match serialport::new(&port_name, BAUD_RATE)
-            .timeout(POLL_TIMEOUT)
-            .open()
-        {
+        let mut port = match crate::transport::open(&port_name, POLL_TIMEOUT) {
             Ok(p) => p,
             Err(_) => continue,
         };
 
-        if send_frame(port.as_mut(), CMD_PING, b"").is_err() {
+        if send_frame(&mut *port, CMD_PING, b"").is_err() {
             continue;
         }
-        if let Ok((STATUS_OK, _)) = recv_response(port.as_mut()) {
+        if let Ok((STATUS_OK, _)) = recv_response(&mut *port) {
             return true;
         }
     }
@@ -186,11 +189,8 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         }
     };
 
-    // ── Open serial port ──────────────────────────────────────────────────────
-    let mut port = match serialport::new(port_name, BAUD_RATE)
-        .timeout(CONNECT_TIMEOUT)
-        .open()
-    {
+    // ── Open the port (a device's serial port, or a simulator's socket) ──────
+    let mut port = match crate::transport::open(port_name, CONNECT_TIMEOUT) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: cannot open {port_name}: {e}");
@@ -199,11 +199,11 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     };
 
     // ── PING — identify device, get max PAPK size + framework_map_version ───
-    if let Err(e) = send_frame(port.as_mut(), CMD_PING, b"") {
+    if let Err(e) = send_frame(&mut *port, CMD_PING, b"") {
         eprintln!("error: PING send failed: {e}");
         process::exit(1);
     }
-    let (status, ping_payload) = match recv_response(port.as_mut()) {
+    let (status, ping_payload) = match recv_response(&mut *port) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: PING response failed: {e}");
@@ -306,7 +306,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // indefinitely (it's parked, not draining USB).
     port.set_timeout(ERASE_TIMEOUT).ok();
 
-    if let Err(e) = send_install_header(port.as_mut(), papk.len() as u32) {
+    if let Err(e) = send_install_header(&mut *port, papk.len() as u32) {
         eprintln!("error: INSTALL header send failed: {e}");
         process::exit(1);
     }
@@ -323,7 +323,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         None => println!("Erasing flash (~10-15 s)..."),
     }
 
-    let (status, payload) = match recv_response(port.as_mut()) {
+    let (status, payload) = match recv_response(&mut *port) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: waiting for READY: {e}");
@@ -375,12 +375,12 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
 
     println!("Streaming {} KB...", papk.len().div_ceil(1024));
 
-    if let Err(e) = send_install_data(port.as_mut(), papk.len() as u32, &papk, &papk[peek_len..]) {
+    if let Err(e) = send_install_data(&mut *port, papk.len() as u32, &papk, &papk[peek_len..]) {
         eprintln!("error: INSTALL data send failed: {e}");
         process::exit(1);
     }
 
-    let (status, payload) = match recv_response(port.as_mut()) {
+    let (status, payload) = match recv_response(&mut *port) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: INSTALL response failed: {e}");
@@ -417,10 +417,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
 }
 
 pub fn ping(port_name: &str) {
-    let mut port = match serialport::new(port_name, BAUD_RATE)
-        .timeout(CONNECT_TIMEOUT)
-        .open()
-    {
+    let mut port = match crate::transport::open(port_name, CONNECT_TIMEOUT) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: cannot open {port_name}: {e}");
@@ -428,12 +425,12 @@ pub fn ping(port_name: &str) {
         }
     };
 
-    if let Err(e) = send_frame(port.as_mut(), CMD_PING, b"") {
+    if let Err(e) = send_frame(&mut *port, CMD_PING, b"") {
         eprintln!("error: PING send failed: {e}");
         process::exit(1);
     }
 
-    match recv_response(port.as_mut()) {
+    match recv_response(&mut *port) {
         Ok((STATUS_OK, payload)) => match parse_ping_payload(&payload) {
             Ok(d) => println!(
                 "{}  (max PAPK: {} KB, framework-map-version: {}, {})",

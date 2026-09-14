@@ -124,7 +124,11 @@ impl Drop for HandlerRootGuard {
 
 /// Throw `class` with `msg` from a native: what `net::helpers` does for the
 /// network natives, spelled here because that module is board-gated.
-fn throw_exception(ctx: &mut NativeContext<'_>, class: &'static str, msg: &str) -> JvmError {
+pub(super) fn throw_exception(
+    ctx: &mut NativeContext<'_>,
+    class: &'static str,
+    msg: &str,
+) -> JvmError {
     match ctx.objects.alloc(class) {
         Some(idx) => {
             if let Some(midx) = ctx.strings.intern_dyn(msg.as_bytes()) {
@@ -134,6 +138,17 @@ fn throw_exception(ctx: &mut NativeContext<'_>, class: &'static str, msg: &str) 
         }
         None => JvmError::StackOverflow,
     }
+}
+
+/// The pending-op queue is full: the transition the app just asked for
+/// would be dropped. Android has no such limit, so the closest honest
+/// answer is an exception the app can see, with the board.toml knob that
+/// lifts it in the message.
+pub(super) const QUEUE_FULL: &str =
+    "too many pending Activity/Service transitions in one frame (raise [jvm] pending_op_queue)";
+
+pub(super) fn queue_full(ctx: &mut NativeContext<'_>) -> JvmError {
+    throw_exception(ctx, c::java_lang_IllegalStateException, QUEUE_FULL)
 }
 
 /// Record a cross-package launch for the supervisor; `false` when the
@@ -165,7 +180,9 @@ impl PicodroidNativeHandler {
 
     /// Append `op` to the pending queue. Returns `true` on success; `false`
     /// (with a log) if the queue is full — apps shouldn't be queueing more
-    /// than [`MAX_PENDING_OPS`] transitions per frame.
+    /// than [`MAX_PENDING_OPS`] transitions per frame. Native arms turn a
+    /// `false` into [`QUEUE_FULL`]: a dropped `finish()` or `stopService()`
+    /// is otherwise an app that silently never ends (QA 2026-09-13).
     pub fn enqueue_op(&mut self, op: PendingOp) -> bool {
         let ok = self.pending_ops.enqueue(op);
         if !ok {
@@ -261,7 +278,9 @@ impl PicodroidNativeHandler {
         };
         if let Some(requested) = package_launch {
             return if requested {
-                self.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch));
+                if !self.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch)) {
+                    return Err(queue_full(ctx));
+                }
                 Ok(None)
             } else {
                 Err(throw_exception(
@@ -282,12 +301,16 @@ impl PicodroidNativeHandler {
                 // in the enqueued op, rather than transmuting to `&'static`.
                 match ctx.canonical_class_name(class_name) {
                     Some(static_name) => {
-                        self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
-                            class_name: static_name,
-                            intent_ref: Some(intent_ref),
-                            request_code,
-                            caller_ref,
-                        }));
+                        let queued =
+                            self.enqueue_op(PendingOp::Activity(PendingActivityOp::Push {
+                                class_name: static_name,
+                                intent_ref: Some(intent_ref),
+                                request_code,
+                                caller_ref,
+                            }));
+                        if !queued {
+                            return Err(queue_full(ctx));
+                        }
                     }
                     // Nothing is loaded under that name. Worth a word: an
                     // alarm set before an upgrade that renamed the Activity
@@ -596,10 +619,12 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                     crate::pd_warn!("finish() on an Activity that is not on the stack; ignored");
                     return Some(Ok(None));
                 }
-                if !self.pending_ops.has_pending_pop_for(this) {
-                    self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop {
+                if !self.pending_ops.has_pending_pop_for(this)
+                    && !self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop {
                         finishing: this,
-                    }));
+                    }))
+                {
+                    return Some(Err(queue_full(ctx)));
                 }
                 Some(Ok(None))
             }

@@ -25,8 +25,11 @@ pub(crate) fn dispatch(
             };
             let name = ctx.args.get(1).copied().unwrap_or(Value::Null);
             let ordinal = ctx.args.get(2).copied().unwrap_or(Value::Int(0));
-            ctx.objects.set_field(obj_idx, 0, name);
-            ctx.objects.set_field(obj_idx, 1, ordinal);
+            if ctx.objects.set_field(obj_idx, 0, name).is_none()
+                || ctx.objects.set_field(obj_idx, 1, ordinal).is_none()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(None))
         }
         m::name | m::toString => {

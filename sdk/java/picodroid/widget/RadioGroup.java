@@ -48,6 +48,7 @@ public class RadioGroup extends LinearLayout {
       buttons = bigger;
     }
     buttons[buttonCount++] = button;
+    button.mGroup = this;
     button.setOnCheckedChangeListener(
         (buttonView, isChecked) -> {
           if (isChecked) {
@@ -94,11 +95,11 @@ public class RadioGroup extends LinearLayout {
     }
     RadioButton prev = findButton(checkedId);
     if (prev != null) {
-      prev.setChecked(false);
+      prev.setCheckedSilently(false);
     }
     RadioButton next = findButton(id);
     if (next != null) {
-      next.setChecked(true);
+      next.setCheckedSilently(true);
       setCheckedId(id);
     }
   }
@@ -107,9 +108,25 @@ public class RadioGroup extends LinearLayout {
   public void clearCheck() {
     RadioButton prev = findButton(checkedId);
     if (prev != null) {
-      prev.setChecked(false);
+      prev.setCheckedSilently(false);
     }
     setCheckedId(View.NO_ID);
+  }
+
+  /**
+   * A member button was checked or unchecked through {@link RadioButton#setChecked}. Mirrors
+   * Android's {@code CheckedStateTracker}: a newly checked button unchecks the previous selection
+   * and becomes the checked id; unchecking leaves the id where it was.
+   */
+  void onButtonChecked(RadioButton button, boolean checked) {
+    if (!checked || button.getId() == checkedId) {
+      return;
+    }
+    RadioButton prev = findButton(checkedId);
+    if (prev != null) {
+      prev.setCheckedSilently(false);
+    }
+    setCheckedId(button.getId());
   }
 
   /** Mirrors {@code RadioGroup#getCheckedRadioButtonId()}; {@link View#NO_ID} when none. */

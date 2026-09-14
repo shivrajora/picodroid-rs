@@ -19,6 +19,10 @@
 #                     probe_path=1-8.3.2  the probe's sysfs position, so it can
 #                                         be power-cycled back on even when it
 #                                         is off (recommended)
+#                     cycle=probe         power-cycle the probe port only: a
+#                                         board with a soft-power button (the
+#                                         EP-0172 touch kit) stays off after a
+#                                         port cycle until it is pressed again
 #                     cycle=hub           power-cycle the whole hub instead of
 #                                         the two ports (use when each board
 #                                         has its own hub, or the hub switches

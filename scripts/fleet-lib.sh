@@ -18,7 +18,10 @@
 #   boards          comma list of firmware boards this hardware accepts;
 #                   the first one is what the nightly flashes
 #   extras          comma list of key=value: cycle=hub (power-cycle the whole
-#                   hub instead of the two ports), probe_path=1-8.3.2 (the
+#                   hub instead of the two ports), cycle=probe (cycle the
+#                   probe port only — a board with a soft-power button, such
+#                   as the EP-0172 touch kit, stays OFF after a port cycle
+#                   until someone presses it), probe_path=1-8.3.2 (the
 #                   probe's sysfs position, used when the probe is powered
 #                   off and cannot be found by serial)
 #
@@ -131,10 +134,10 @@ fleet_check_conf() {
     done
     for kv in ${extras//,/ }; do
       case "$kv" in
-        cycle=hub|cycle=ports) ;;
+        cycle=hub|cycle=ports|cycle=probe) ;;
         probe_path=*) [[ "${kv#probe_path=}" =~ ^[0-9]+-[0-9]+(\.[0-9]+)*$ ]] \
           || err "slot '$slot': probe_path '${kv#probe_path=}' is not a sysfs position" ;;
-        *) err "slot '$slot': unknown extra '$kv' (cycle=hub|ports, probe_path=...)" ;;
+        *) err "slot '$slot': unknown extra '$kv' (cycle=hub|ports|probe, probe_path=...)" ;;
       esac
     done
   done < <(fleet_rows)
@@ -374,7 +377,9 @@ wait_usb_quiet() {
 # ── power ───────────────────────────────────────────────────────────────────
 
 # power_cycle_slot SLOT: cycles the slot's probe port and board port (or the
-# whole hub with cycle=hub). Prints the uhubctl commands it runs; rc from
+# whole hub with cycle=hub; only the probe port with cycle=probe, for a
+# board that does not come back from a port cycle on its own). Prints the
+# uhubctl commands it runs; rc from
 # uhubctl. Calls are serialized machine-wide -- two runners must not drive
 # uhubctl on one hub at the same time. The caller holds the slot's lease.
 power_cycle_slot() {
@@ -392,7 +397,14 @@ power_cycle_slot() {
     echo "fleet: probe $serial is not enumerated and $slot has no probe_path=; cycling the board port only" >&2
   fi
   local -a cmds=()
-  if [[ "$mode" == "hub" ]]; then
+  if [[ "$mode" == "probe" ]]; then
+    if [[ -n "$phub" ]]; then
+      cmds+=("-l $phub -p $pport -a cycle")
+    else
+      echo "fleet: $slot is cycle=probe and its probe is not enumerated; nothing to cycle" >&2
+      return 0
+    fi
+  elif [[ "$mode" == "hub" ]]; then
     cmds+=("-l $bhub -a cycle")
     [[ -n "$phub" && "$phub" != "$bhub" ]] && cmds+=("-l $phub -a cycle")
   elif [[ -n "$phub" && "$phub" == "$bhub" ]]; then

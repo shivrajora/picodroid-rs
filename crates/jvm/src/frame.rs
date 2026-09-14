@@ -39,8 +39,16 @@ impl Frame {
         // javac's slot numbering; verified bytecode never addresses the
         // filler slot directly. (First hit: TimeFormat.floorDiv(long, long)
         // — the second arg read back as Null.)
+        // Both buffers reserve fallibly: a frame the heap cannot hold is the
+        // crate's allocation-failure signal (a catchable OutOfMemoryError
+        // upstairs), not an abort — a thread-heavy app on a full heap reset
+        // the board through `Vec::with_capacity` here (QA 2026-09-13,
+        // qa_thr on pico_touch_kit).
         let cap = (max_locals as usize).max(args.len() * 2);
-        let mut locals = Vec::with_capacity(cap);
+        let mut locals = Vec::new();
+        locals
+            .try_reserve(cap)
+            .map_err(|_| JvmError::StackOverflow)?;
         for v in args {
             locals.push(*v);
             if matches!(v, Value::Long(_) | Value::Double(_)) {
@@ -49,13 +57,17 @@ impl Frame {
         }
         let cap = (max_locals as usize).max(locals.len());
         locals.resize(cap, Value::Null);
+        let mut stack = Vec::new();
+        stack
+            .try_reserve(max_stack as usize)
+            .map_err(|_| JvmError::StackOverflow)?;
         Ok(Self {
             class_idx,
             method_idx,
             pc: 0,
             inst_pc: 0,
             locals,
-            stack: Vec::with_capacity(max_stack as usize),
+            stack,
             box_return: 0,
             monitor: None,
         })

@@ -7,7 +7,6 @@
 //! [`super::keyboard::show_system_for`] when the user taps it.
 
 use crate::lvgl_ffi::*;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -339,42 +338,26 @@ pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
 }
 
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe { lv_textarea_set_text(handle_table::lookup(id), buf.as_ptr() as *const c_char) };
+    super::text_view::with_cstr(text, |p| unsafe {
+        lv_textarea_set_text(handle_table::lookup(id), p)
+    });
 }
 
 pub(in crate::graphics) fn set_hint(id: i32, hint: &str) {
-    let mut buf = [0u8; 128];
-    let len = hint.len().min(127);
-    buf[..len].copy_from_slice(&hint.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe {
-        lv_textarea_set_placeholder_text(handle_table::lookup(id), buf.as_ptr() as *const c_char)
-    };
+    super::text_view::with_cstr(hint, |p| unsafe {
+        lv_textarea_set_placeholder_text(handle_table::lookup(id), p)
+    });
 }
 
 /// Read the current textarea content into `dst` (capped at 256 bytes).
 /// Returns the byte length written, or `None` if the textarea is empty
 /// or LVGL returned a null pointer.
-pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
+/// Run `f` over the field's current text, whatever its length. `None`
+/// when LVGL holds no text for it.
+pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
     let cstr = unsafe { lv_textarea_get_text(handle_table::lookup(id)) };
     if cstr.is_null() {
         return None;
     }
-    // c_char is i8 on x86_64 and u8 on ARM; cast unconditionally for portability.
-    #[allow(clippy::unnecessary_cast)]
-    let cstr = cstr as *const u8;
-    let mut len = 0usize;
-    unsafe {
-        while *cstr.add(len) != 0 && len < dst.len() {
-            len += 1;
-        }
-    }
-    for (i, slot) in dst[..len].iter_mut().enumerate() {
-        *slot = unsafe { *cstr.add(i) };
-    }
-    Some(len)
+    Some(f(unsafe { super::text_view::cstr_bytes(cstr) }))
 }

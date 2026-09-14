@@ -620,6 +620,12 @@ pub(in crate::graphics) fn dismiss(id: i32) {
     if !has_shown_dialog() {
         crate::graphics::lvgl::events::leave_modal_group();
     }
+    // A dialog the keypad's BACK already tore down (`dismiss_topmost_dialog`)
+    // is a released handle: nothing is left to delete, and asking `lookup`
+    // would be a use-after-delete to the sanitizer (QA 2026-09-13).
+    if !handle_table::is_live(id) {
+        return;
+    }
     let scrim = handle_table::lookup(id);
     if scrim.is_null() {
         return;

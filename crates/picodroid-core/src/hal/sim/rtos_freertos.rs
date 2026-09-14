@@ -100,12 +100,13 @@ static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
 ///
 /// The device tracks the same thing in its debug bridge (`pdb::pending::
 /// ACTIVE_JVM_THREADS`) so the JVM task can wait for its children before
-/// letting an install reboot the app. The simulator has no debug bridge but
-/// needs the same number for the same reason: without it, an app whose
-/// `onCreate` starts threads and returns would end the scheduler out from
-/// under children that had not run a single instruction — which is how
-/// `threaddemo` looked before this existed, and indistinguishable from the
-/// no-op the test backing deliberately performs.
+/// letting an install reboot the app. The simulator keeps the count here,
+/// beside the spawn that changes it, and needs it for the same reason —
+/// its bridge (`hal::sim::pdb`) parks the JVM task for an install too, and
+/// without it an app whose `onCreate` starts threads and returns would end
+/// the scheduler out from under children that had not run a single
+/// instruction — which is how `threaddemo` looked before this existed, and
+/// indistinguishable from the no-op the test backing deliberately performs.
 static LIVE_JVM_CHILDREN: AtomicUsize = AtomicUsize::new(0);
 
 /// The JVM task, once it runs: whom the last child to leave notifies. Zero

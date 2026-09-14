@@ -39,31 +39,84 @@ macro_rules! boxed_dispatch {
                     return Some(Err(JvmError::InvalidReference));
                 };
                 let val = $ctx.args.get(1).copied().unwrap_or(Value::Null);
-                $ctx.objects.set_field(obj, 0, val);
+                // A builtin object gets its slots on first write; a write the
+                // heap cannot honour is an allocation failure, surfaced as
+                // OutOfMemoryError rather than a box with no value.
+                if $ctx.objects.set_field(obj, 0, val).is_none() {
+                    return Some(Err(JvmError::StackOverflow));
+                }
                 Some(Ok(None))
             }
             m::valueOf => {
                 let val = $ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = $ctx.objects.alloc($class).ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        $ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
+                Some(box_value($class, val, $ctx))
             }
-            // Unboxing accessor: intValue, booleanValue, longValue, etc.
+            // Unboxing accessor: intValue, booleanValue, longValue, etc.,
+            // converting as Java does (`Float.valueOf(2.5f).intValue()` is 2).
             _ if is_unboxing_accessor($method) => {
                 let Value::ObjectRef(obj) = $ctx.args.first().copied().unwrap_or(Value::Null)
                 else {
                     return Some(Err(JvmError::InvalidReference));
                 };
-                Some(Ok(Some($ctx.objects.get_field(obj, 0).unwrap_or($default))))
+                let raw = $ctx.objects.get_field(obj, 0).unwrap_or($default);
+                Some(Ok(Some(convert_accessor($method, raw))))
             }
             _ => dispatch_common($class, $method, $ctx),
         }
     };
+}
+
+/// Java's `d2i` (see `crate::fconv`).
+fn f2i(d: f64) -> i32 {
+    crate::fconv::d2i(d)
+}
+
+/// Java's `d2l` (see `crate::fconv`).
+fn f2l(d: f64) -> i64 {
+    crate::fconv::d2l(d)
+}
+
+/// The value a `xxxValue()` accessor returns for the box's stored value,
+/// with Java's widening and narrowing conversions (JLS §5.1.2/§5.1.3):
+/// `Float.valueOf(2.5f).intValue()` is 2, `Integer.valueOf(300).byteValue()`
+/// is 44, `Long.valueOf(1L << 33).intValue()` is 0. A box's own accessor
+/// hands its value back unchanged.
+fn convert_accessor(method: &str, v: Value) -> Value {
+    let as_i64 = |v: Value| match v {
+        Value::Int(i) => i as i64,
+        Value::Long(l) => l,
+        Value::Float(f) => f2l(f as f64),
+        Value::Double(d) => f2l(d),
+        _ => 0,
+    };
+    let as_i32 = |v: Value| match v {
+        Value::Int(i) => i,
+        Value::Long(l) => l as i32,
+        Value::Float(f) => f2i(f as f64),
+        Value::Double(d) => f2i(d),
+        _ => 0,
+    };
+    let as_f64 = |v: Value| match v {
+        Value::Int(i) => i as f64,
+        Value::Long(l) => l as f64,
+        Value::Float(f) => f as f64,
+        Value::Double(d) => d,
+        _ => 0.0,
+    };
+    match method {
+        m::intValue => Value::Int(as_i32(v)),
+        m::longValue => Value::Long(as_i64(v)),
+        m::floatValue => Value::Float(match v {
+            Value::Float(f) => f,
+            Value::Long(l) => l as f32,
+            other => as_f64(other) as f32,
+        }),
+        m::doubleValue => Value::Double(as_f64(v)),
+        m::shortValue => Value::Int(as_i32(v) as i16 as i32),
+        m::byteValue => Value::Int(as_i32(v) as i8 as i32),
+        m::charValue => Value::Int(as_i32(v) as u16 as i32),
+        _ => v, // booleanValue and any box's own accessor
+    }
 }
 
 /// `args[i]` as a primitive: unboxed from a wrapper object, or as passed.
@@ -472,27 +525,54 @@ fn number_format_exception(ctx: &mut NativeContext<'_>) -> JvmError {
     }
 }
 
+/// `valueOf`: the JLS-cached range (§5.1.7) hands back one shared box per
+/// value, so `Integer a = 127, b = 127; a == b` holds as on Android;
+/// everything else is a fresh box. `<init>` never comes here — `new
+/// Integer(5)` is always a distinct object.
 fn box_value(
     class: &'static str,
     val: Value,
     ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
+    if let Some(idx) = ctx.objects.cached_box(class, val) {
+        return Ok(Some(Value::ObjectRef(idx)));
+    }
     let idx = ctx.objects.alloc(class).ok_or(JvmError::StackOverflow)?;
-    ctx.objects.set_field(idx, 0, val);
+    ctx.objects
+        .set_field(idx, 0, val)
+        .ok_or(JvmError::StackOverflow)?;
+    ctx.objects.cache_box(class, val, idx);
     Ok(Some(Value::ObjectRef(idx)))
 }
 
+/// `Integer.parseInt(null)` / `Long.parseLong(null)` throw
+/// NumberFormatException, `Float/Double.parseX(null)` NullPointerException,
+/// as in Java (QA 2026-09-13: all four were the uncatchable
+/// InvalidReference).
+fn null_string_arg(ctx: &NativeContext<'_>) -> bool {
+    matches!(ctx.args.first(), Some(Value::Null) | None)
+}
+
 fn parse_int(ctx: &mut NativeContext<'_>) -> Result<i32, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(number_format_exception(ctx));
+    }
     let s = resolve_str(ctx, 0)?;
     s.parse::<i32>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_long(ctx: &mut NativeContext<'_>) -> Result<i64, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(number_format_exception(ctx));
+    }
     let s = resolve_str(ctx, 0)?;
     s.parse::<i64>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_f64(ctx: &mut NativeContext<'_>) -> Result<f64, JvmError> {
+    if null_string_arg(ctx) {
+        return Err(super::throw_named(ctx, c::java_lang_NullPointerException));
+    }
     let s = resolve_str(ctx, 0)?.trim();
     // Java's FP grammar allows a trailing type suffix ("1.5f", "2d").
     let s = match s.as_bytes().last() {

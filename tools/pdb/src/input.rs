@@ -14,7 +14,6 @@ use pdb_protocol::input::{InputEvent, MAX_INPUT_PAYLOAD};
 use pdb_protocol::keycodes::{self, dpad_keycode};
 use pdb_protocol::KEY_META_DOWN_UP;
 
-const BAUD_RATE: u32 = 115_200;
 /// Generous — a swipe blocks the device handler until the gesture completes.
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// Clamp host-requested swipe duration so we never wait past `TIMEOUT`.
@@ -130,10 +129,7 @@ fn build_payload(args: &[String]) -> Vec<u8> {
 pub fn run(port_name: &str, args: &[String]) {
     let payload = build_payload(args);
 
-    let mut port = match serialport::new(port_name, BAUD_RATE)
-        .timeout(TIMEOUT)
-        .open()
-    {
+    let mut port = match crate::transport::open(port_name, TIMEOUT) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: cannot open {port_name}: {e}");
@@ -141,12 +137,12 @@ pub fn run(port_name: &str, args: &[String]) {
         }
     };
 
-    if let Err(e) = send_frame(port.as_mut(), CMD_INPUT, &payload) {
+    if let Err(e) = send_frame(&mut *port, CMD_INPUT, &payload) {
         eprintln!("error: INPUT send failed: {e}");
         process::exit(1);
     }
 
-    match recv_response(port.as_mut()) {
+    match recv_response(&mut *port) {
         Ok((STATUS_OK, _)) => {}
         Ok((status, msg)) => {
             let detail = String::from_utf8_lossy(&msg);

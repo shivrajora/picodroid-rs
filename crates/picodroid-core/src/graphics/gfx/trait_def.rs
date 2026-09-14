@@ -43,6 +43,16 @@ pub enum Visibility {
 /// Engine-level graphics trait. Handle type is the concrete [`Handle`]
 /// newtype (no associated type / no generics) — call sites see a single
 /// public type and `&mut dyn Gfx` works without pinning.
+/// Outcome of [`Gfx::set_parent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reparent {
+    Done,
+    /// The child handle names a deleted widget.
+    StaleChild,
+    /// The parent handle names a deleted widget (the child is untouched).
+    StaleParent,
+}
+
 pub trait Gfx {
     // ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -78,7 +88,12 @@ pub trait Gfx {
     fn set_enabled(&mut self, h: Handle, on: bool);
     /// `alpha` is 0..=255.
     fn set_alpha(&mut self, h: Handle, alpha: u8);
-    fn set_parent(&mut self, h: Handle, parent: Handle);
+    /// Reparent `h` under `parent`. [`Reparent::StaleChild`] when `h` no
+    /// longer names a live widget — a child `removeView` released — so the
+    /// Java side can refuse the add instead of losing the view silently;
+    /// [`Reparent::StaleParent`] (an Activity's freed layout reached by a
+    /// deferred callback) is a quiet no-op.
+    fn set_parent(&mut self, h: Handle, parent: Handle) -> Reparent;
     fn delete(&mut self, h: Handle);
 
     // ── ViewGroup ops ───────────────────────────────────────────────────────

@@ -38,8 +38,8 @@ pub struct BootTask {
     /// device does; the rest stay synthetic pre-charges so the total keeps
     /// matching the measured device figure.
     ///
-    /// False for tasks with no simulator endpoint (a debug bridge, a WiFi
-    /// driver) and for the ones the kernel creates itself (`Tmr Svc`,
+    /// False for tasks with no simulator endpoint (a WiFi driver, a flash
+    /// parker) and for the ones the kernel creates itself (`Tmr Svc`,
     /// `IDLE*`) — the latter's host allocations ride the `pvPortMalloc`
     /// bypass shim, so the arena would otherwise never hear about them.
     pub sim_real: bool,
@@ -259,6 +259,7 @@ mod tests {
             TaskKind::Sensor => 1_024,
             TaskKind::Touch => 2_048,
             TaskKind::FsWorker => 512,
+            TaskKind::DebugBridge => 256,
         }
     }
 

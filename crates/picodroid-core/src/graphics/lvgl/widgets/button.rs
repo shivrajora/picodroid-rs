@@ -100,23 +100,19 @@ pub(in crate::graphics) fn create(text: &str) -> i32 {
 
 /// Set the text on the button's child label.
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe {
+    super::text_view::with_cstr(text, |p| unsafe {
         let label = lv_obj_get_child(handle_table::lookup(id), 0);
         if !label.is_null() {
-            lv_label_set_text(label, buf.as_ptr() as *const c_char);
+            lv_label_set_text(label, p);
         }
-    }
+    });
 }
 
 /// Read the text of the button's child label into `dst`; `None` when the
 /// button has no label child.
-pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
+pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
     let label = unsafe { lv_obj_get_child(handle_table::lookup(id), 0) };
-    super::text_view::label_text(label, dst)
+    super::text_view::with_label_text(label, f)
 }
 
 /// Synthetically fire `LV_EVENT_CLICKED` on the underlying widget.
@@ -138,12 +134,15 @@ pub(in crate::graphics) fn perform_click(id: i32) {
 /// unregistration hook. An update means the widget is still alive with its
 /// callbacks intact — a recycled address always takes the insert path
 /// because the old widget's delete callback removed its entry.
-pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
+pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> bool {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
         match map_mut(&raw mut VIEW_CLICK_MAP).upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
-            Upsert::Full => warn_full("view-click"),
+            Upsert::Full => {
+                warn_full("view-click");
+                return false;
+            }
             Upsert::Inserted => {
                 let obj = raw_ptr as *mut lv_obj_t;
                 lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
@@ -162,6 +161,7 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
             }
         }
     }
+    true
 }
 
 /// Register a Java `View` as the long-click target for `id`. Attaches the

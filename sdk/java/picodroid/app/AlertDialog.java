@@ -21,7 +21,10 @@ public class AlertDialog implements DialogInterface {
   // the cap stays as documented defence — the Builder throws past it.
   static final int MAX_LIST_ITEMS = 12;
 
-  private final int nativeHandle;
+  // 0 once dismissed. Unlike Android, picodroid frees a dialog's widgets on dismiss (an embedded
+  // panel cannot keep dismissed dialogs around for a re-show), so a dismissed dialog cannot be
+  // shown again and a second dismiss has nothing to do.
+  private int nativeHandle;
   private DialogInterface.OnClickListener positiveListener;
   private DialogInterface.OnClickListener negativeListener;
   private DialogInterface.OnClickListener neutralListener;
@@ -39,12 +42,26 @@ public class AlertDialog implements DialogInterface {
   }
 
   public void show() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException(
+          "AlertDialog.show: this dialog was dismissed; picodroid frees a dismissed dialog, create"
+              + " a new one");
+    }
     nativeShow(nativeHandle);
   }
 
+  /**
+   * Dismisses the dialog and frees its widgets. As on Android, dismissing a dialog that is no
+   * longer showing (or a second time) has no effect.
+   */
   @Override
   public void dismiss() {
-    nativeDismiss(nativeHandle);
+    int handle = nativeHandle;
+    if (handle == 0) {
+      return;
+    }
+    nativeHandle = 0;
+    nativeDismiss(handle);
   }
 
   @Override
@@ -126,6 +143,9 @@ public class AlertDialog implements DialogInterface {
    * #fireItemClick} through the real dispatch queue (and the choice-mode checkable toggle).
    */
   public void performItemClick(int position) {
+    if (nativeHandle == 0) {
+      return;
+    }
     nativePerformItemClick(nativeHandle, position);
   }
 

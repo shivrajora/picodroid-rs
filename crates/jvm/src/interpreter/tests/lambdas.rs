@@ -360,3 +360,338 @@ fn instance_body_receiver_capture_consumes_no_parameter() {
     let classes = [func_iface(SAM_OBJ), t];
     assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(42)));
 }
+
+// ── QA 2026-09-13: SAM gating, method references to builtins, `Foo::new` ──
+
+/// Interface `Func2`: abstract `call()I` plus a default `twice()I` that
+/// calls `call()` twice and adds the results.
+fn func2_iface() -> &'static [u8] {
+    let mut a = Asm::new();
+    let this = a.class("Func2");
+    let obj = a.class(OBJ);
+    let call_ref = a.methodref(0x0B, this, m::call, "()I");
+    let twice_code: &'static [u8] = alloc::boxed::Box::leak(
+        vec![
+            0x2A,
+            0xB9,
+            hi(call_ref),
+            lo(call_ref),
+            1,
+            0, // aload_0; invokeinterface call
+            0x2A,
+            0xB9,
+            hi(call_ref),
+            lo(call_ref),
+            1,
+            0, // aload_0; invokeinterface call
+            0x60,
+            0xAC, // iadd; ireturn
+        ]
+        .into_boxed_slice(),
+    );
+    a.finish_methods(
+        ACC_INTERFACE,
+        this,
+        obj,
+        &[],
+        &[
+            Method {
+                access: 0x0401,
+                name: m::call,
+                desc: "()I",
+                max_stack: 0,
+                max_locals: 0,
+                code: &[],
+                exc: &[],
+            },
+            Method {
+                access: 0x0001,
+                name: "twice",
+                desc: "()I",
+                max_stack: 2,
+                max_locals: 1,
+                code: twice_code,
+                exc: &[],
+            },
+        ],
+    )
+}
+
+/// A default method invoked on a lambda proxy runs the interface's body
+/// (which reaches the lambda through the SAM) — it is not the lambda body
+/// under another name. `Greeter g = () -> "x"; g.twice()` gave `"x"`
+/// before QA 2026-09-13; here `call()` returns 1, so `twice()` is 2.
+#[test]
+fn default_method_on_a_lambda_runs_the_interface_body() {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
+    let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
+    let bsm = a.method_handle(6, lmf_ref);
+    let body_ref = a.methodref(0x0A, this, "lam", "()I");
+    let body_handle = a.method_handle(6, body_ref);
+    let sam_type = a.method_type("()I");
+    let indy = a.invoke_dynamic(0, m::call, "()LFunc2;");
+    let func2 = a.class("Func2");
+    let twice = a.methodref(0x0B, func2, "twice", "()I");
+    let code = vec![
+        0xBA,
+        hi(indy),
+        lo(indy),
+        0,
+        0, // invokedynamic → Func2 proxy
+        0xB9,
+        hi(twice),
+        lo(twice),
+        1,
+        0,    // invokeinterface Func2.twice()I
+        0xAC, // ireturn
+    ];
+    let t = a.finish_full(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[
+            Method {
+                access: 0x0008,
+                name: "m",
+                desc: "()I",
+                max_stack: 4,
+                max_locals: 1,
+                code: &code,
+                exc: &[],
+            },
+            Method {
+                access: 0x000A,
+                name: "lam",
+                desc: "()I",
+                max_stack: 1,
+                max_locals: 0,
+                code: &[0x04, 0xAC], // iconst_1; ireturn
+                exc: &[],
+            },
+        ],
+        &[(bsm, &[sam_type, body_handle, sam_type])],
+    );
+    let classes = [func2_iface(), t];
+    assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(2)));
+}
+
+/// `String::length` as a `Func.call(Object)Object`: an instance method
+/// reference to a builtin dispatches natively on the receiver's runtime
+/// class, and its `int` is boxed for the erased SAM. Was `NoSuchMethod` at
+/// the `invokedynamic` (the target class has no class file).
+#[test]
+fn instance_method_reference_to_a_builtin_dispatches_natively() {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
+    let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
+    let bsm = a.method_handle(6, lmf_ref);
+    let string = a.class(c::java_lang_String);
+    let len_ref = a.methodref(0x0A, string, m::length, "()I");
+    let handle = a.method_handle(5, len_ref); // REF_invokeVirtual
+    let sam_type = a.method_type(SAM_OBJ);
+    let inst_type = a.method_type("(Ljava/lang/String;)Ljava/lang/Integer;");
+    let indy = a.invoke_dynamic(0, m::call, "()LFunc;");
+    let func = a.class("Func");
+    let call = a.methodref(0x0B, func, m::call, SAM_OBJ);
+    let s = a.string("abcd");
+    assert!(s < 256, "ldc index");
+    let integer = a.class(c::java_lang_Integer);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
+    let code = vec![
+        0xBA,
+        hi(indy),
+        lo(indy),
+        0,
+        0, // invokedynamic → Func proxy
+        0x12,
+        s as u8, // ldc "abcd"
+        0xB9,
+        hi(call),
+        lo(call),
+        2,
+        0, // invokeinterface Func.call(Object)Object
+        0xC0,
+        hi(integer),
+        lo(integer), // checkcast Integer
+        0xB6,
+        hi(int_value),
+        lo(int_value), // intValue
+        0xAC,          // ireturn
+    ];
+    let t = a.finish_full(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[Method {
+            access: 0x0008,
+            name: "m",
+            desc: "()I",
+            max_stack: 4,
+            max_locals: 1,
+            code: &code,
+            exc: &[],
+        }],
+        &[(bsm, &[sam_type, handle, inst_type])],
+    );
+    let classes = [func_iface(SAM_OBJ), t];
+    assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(4)));
+}
+
+/// `Integer::valueOf` as a `Func.call(Object)Object`: a static method
+/// reference to a builtin unboxes the argument for the native arm's `(I)`
+/// and passes its reference result straight through.
+#[test]
+fn static_method_reference_to_a_builtin_dispatches_natively() {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
+    let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
+    let bsm = a.method_handle(6, lmf_ref);
+    let integer = a.class(c::java_lang_Integer);
+    let value_of = a.methodref(0x0A, integer, m::valueOf, "(I)Ljava/lang/Integer;");
+    let handle = a.method_handle(6, value_of); // REF_invokeStatic
+    let sam_type = a.method_type(SAM_OBJ);
+    let inst_type = a.method_type("(Ljava/lang/Integer;)Ljava/lang/Integer;");
+    let indy = a.invoke_dynamic(0, m::call, "()LFunc;");
+    let func = a.class("Func");
+    let call = a.methodref(0x0B, func, m::call, SAM_OBJ);
+    let int_value = a.methodref(0x0A, integer, m::intValue, "()I");
+    let code = vec![
+        0xBA,
+        hi(indy),
+        lo(indy),
+        0,
+        0, // invokedynamic → Func proxy
+        0x10,
+        7,
+        0xB8,
+        hi(value_of),
+        lo(value_of), // bipush 7; Integer.valueOf
+        0xB9,
+        hi(call),
+        lo(call),
+        2,
+        0, // invokeinterface Func.call(Object)Object
+        0xC0,
+        hi(integer),
+        lo(integer), // checkcast Integer
+        0xB6,
+        hi(int_value),
+        lo(int_value), // intValue
+        0xAC,          // ireturn
+    ];
+    let t = a.finish_full(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[Method {
+            access: 0x0008,
+            name: "m",
+            desc: "()I",
+            max_stack: 4,
+            max_locals: 1,
+            code: &code,
+            exc: &[],
+        }],
+        &[(bsm, &[sam_type, handle, inst_type])],
+    );
+    let classes = [func_iface(SAM_OBJ), t];
+    assert_eq!(run_multi(&classes, 1, &[]).unwrap(), Some(Value::Int(7)));
+}
+
+/// Class `Foo` with an `int x` that its constructor sets to 9.
+fn foo_class() -> &'static [u8] {
+    let mut a = Asm::new();
+    let this = a.class("Foo");
+    let obj = a.class(OBJ);
+    a.field("x", "I");
+    let x_ref = a.fieldref(this, "x", "I");
+    let init_code: &'static [u8] = alloc::boxed::Box::leak(
+        vec![0x2A, 0x10, 9, 0xB5, hi(x_ref), lo(x_ref), 0xB1] // aload_0; bipush 9; putfield x; return
+            .into_boxed_slice(),
+    );
+    a.finish_methods(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[Method {
+            access: 0x0001,
+            name: "<init>",
+            desc: "()V",
+            max_stack: 2,
+            max_locals: 1,
+            code: init_code,
+            exc: &[],
+        }],
+    )
+}
+
+/// `Foo::new` as a `Func.call()Object`: the constructor reference allocates
+/// a `Foo`, runs `<init>` on it, and the call yields the new object. Was
+/// rejected outright as `UnsupportedInvokeDynamic`.
+#[test]
+fn constructor_reference_constructs_and_returns_the_object() {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let lmf = a.class(c::java_lang_invoke_LambdaMetafactory);
+    let lmf_ref = a.methodref(0x0A, lmf, "metafactory", LMF_DESC);
+    let bsm = a.method_handle(6, lmf_ref);
+    let foo = a.class("Foo");
+    let init_ref = a.methodref(0x0A, foo, "<init>", "()V");
+    let handle = a.method_handle(8, init_ref); // REF_newInvokeSpecial
+    let sam = "()Ljava/lang/Object;";
+    let sam_type = a.method_type(sam);
+    let inst_type = a.method_type("()LFoo;");
+    let indy = a.invoke_dynamic(0, m::call, "()LFunc;");
+    let func = a.class("Func");
+    let call = a.methodref(0x0B, func, m::call, sam);
+    let x_ref = a.fieldref(foo, "x", "I");
+    let code = vec![
+        0xBA,
+        hi(indy),
+        lo(indy),
+        0,
+        0, // invokedynamic → Func proxy
+        0xB9,
+        hi(call),
+        lo(call),
+        1,
+        0, // invokeinterface Func.call()Object
+        0xC0,
+        hi(foo),
+        lo(foo), // checkcast Foo
+        0xB4,
+        hi(x_ref),
+        lo(x_ref), // getfield Foo.x
+        0xAC,      // ireturn
+    ];
+    let t = a.finish_full(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[Method {
+            access: 0x0008,
+            name: "m",
+            desc: "()I",
+            max_stack: 4,
+            max_locals: 1,
+            code: &code,
+            exc: &[],
+        }],
+        &[(bsm, &[sam_type, handle, inst_type])],
+    );
+    let classes = [func_iface(sam), foo_class(), t];
+    assert_eq!(run_multi(&classes, 2, &[]).unwrap(), Some(Value::Int(9)));
+}

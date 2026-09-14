@@ -69,7 +69,7 @@ impl Harness {
         for &i in items {
             let boxed =
                 helpers::box_primitive(&mut self.objects, b'I', Value::Int(i)).expect("box");
-            self.objects.list_add(buf, boxed);
+            let _ = self.objects.list_add(buf, boxed);
         }
         (Value::ObjectRef(obj), buf)
     }
@@ -470,8 +470,8 @@ fn upcall_depth_capped() {
     // A list containing itself twice: sorting it compares the list with the
     // list, and the comparator sorts that — forever.
     let (list, buf) = h.new_list(&[]);
-    h.objects.list_add(buf, list);
-    h.objects.list_add(buf, list);
+    let _ = h.objects.list_add(buf, list);
+    let _ = h.objects.list_add(buf, list);
     let cmp_obj = h.objects.alloc("Cmp").expect("alloc");
 
     match h.execute(0, &[list, Value::ObjectRef(cmp_obj)]) {
@@ -747,16 +747,14 @@ fn upcall_survives_gc() {
 // ── 7. Argument validation ───────────────────────────────────────────────
 
 #[test]
-fn upcall_null_comparator_throws_npe() {
+fn upcall_null_comparator_sorts_by_natural_order() {
+    // `list.sort(null)` is natural ordering, as the JDK reads it (QA
+    // 2026-09-13: it used to throw NullPointerException).
     let mut h = Harness::new(&[sort_caller(&[], None), ascending_comparator_class()]);
-    let (list, _buf) = h.new_list(&[2, 1]);
+    let (list, buf) = h.new_list(&[2, 1, 3]);
 
-    match h.execute(0, &[list, Value::Null]) {
-        Err(JvmError::UncaughtException {
-            exception_class, ..
-        }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
-        other => panic!("expected NullPointerException, got {other:?}"),
-    }
+    h.execute(0, &[list, Value::Null]).expect("sort(null)");
+    assert_eq!(h.list_ints(buf), [1, 2, 3]);
 }
 
 // ── 8. The embedder-facing path: a handler arm that upcalls ──────────────
