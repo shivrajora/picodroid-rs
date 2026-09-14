@@ -159,6 +159,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
         };
 
+        // JVMS §6.5: invokevirtual / invokespecial / invokeinterface on a
+        // null objectref throw NullPointerException. Without this the null
+        // reached the native arm of a builtin (`Integer.intValue` — every
+        // unboxing of a null `Integer`) as an uncatchable InvalidReference.
+        if opcode != 0xb8 {
+            let recv = match &heap_args {
+                Some(buf) => buf.first().copied(),
+                None => inline_buf.first().copied(),
+            };
+            if matches!(recv, Some(Value::Null)) {
+                return Err(self.runtime_fault(c::java_lang_NullPointerException));
+            }
+        }
+
         let native_class = if is_virtual {
             dispatch_class
         } else {
