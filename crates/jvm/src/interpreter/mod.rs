@@ -559,6 +559,9 @@ pub fn execute<H: NativeMethodHandler>(
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
     frames.push(initial_frame);
+    // Set the `OutOfMemoryError` reserve aside while the heap can spare one
+    // object; idempotent, so every entry re-arms it after a throw.
+    objects.ensure_oom_reserve();
 
     // Root this stack for GCs triggered by other executors on the same heap
     // while this task is parked at a blocking native (see GcState's
@@ -817,7 +820,7 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
                 ex.gc_state.alloc_count = 0;
                 if for_failed_alloc && freed == 0 {
-                    let e = ex.runtime_fault_obj(c::java_lang_OutOfMemoryError)?;
+                    let e = ex.oom_object()?;
                     handle_exception(ex, frames, e, base_depth)?;
                     continue;
                 }
@@ -853,6 +856,18 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     let e = ex.runtime_fault_obj(c::java_lang_NegativeArraySizeException)?;
                     handle_exception(ex, frames, e, base_depth)?;
                 }
+                // `JvmError::StackOverflow` is this crate's allocation-failure
+                // signal. The bytecode allocators (`new`, `newarray`) rewind
+                // and retry after an emergency GC; an allocation inside a
+                // native arm — boxing, interning, a collection growing — has
+                // no retry, and used to end the app with an uncatchable hard
+                // error (QA 2026-09-13: 4000 boxed keys into a HashMap). It
+                // is what Java throws for it: `OutOfMemoryError`, from the
+                // reserve object when even the exception cannot be allocated.
+                Err(JvmError::StackOverflow) => {
+                    let e = ex.oom_object()?;
+                    handle_exception(ex, frames, e, base_depth)?;
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -866,6 +881,17 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
     /// hard `StackOverflow` signal only when even that allocation fails.
     fn runtime_fault_obj(&mut self, class: &'static str) -> Result<u16, JvmError> {
         self.objects.alloc(class).ok_or(JvmError::StackOverflow)
+    }
+
+    /// The `OutOfMemoryError` to throw for an exhausted heap: a fresh one
+    /// when the heap can still spare an object, else the reserve the heap
+    /// set aside for exactly this moment (HotSpot keeps one too). Only when
+    /// there is no reserve either does the hard error remain.
+    fn oom_object(&mut self) -> Result<u16, JvmError> {
+        self.objects
+            .alloc(c::java_lang_OutOfMemoryError)
+            .or_else(|| self.objects.oom_reserve())
+            .ok_or(JvmError::StackOverflow)
     }
 
     fn stack_overflow_error(&mut self) -> Result<u16, JvmError> {

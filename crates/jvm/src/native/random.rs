@@ -40,8 +40,10 @@ fn read_seed(ctx: &NativeContext<'_>, this: u16) -> Result<i64, JvmError> {
     }
 }
 
-fn write_seed(ctx: &mut NativeContext<'_>, this: u16, seed: i64) {
-    ctx.objects.set_field(this, 0, Value::Long(seed));
+fn write_seed(ctx: &mut NativeContext<'_>, this: u16, seed: i64) -> Result<(), JvmError> {
+    ctx.objects
+        .set_field(this, 0, Value::Long(seed))
+        .ok_or(JvmError::StackOverflow)
 }
 
 /// Single LCG step. Returns `(new_seed, top `bits` bits as i32)`.
@@ -55,7 +57,7 @@ fn step(seed: i64, bits: u32) -> (i64, i32) {
 fn next_bits(ctx: &mut NativeContext<'_>, this: u16, bits: u32) -> Result<i32, JvmError> {
     let s = read_seed(ctx, this)?;
     let (s2, n) = step(s, bits);
-    write_seed(ctx, this, s2);
+    write_seed(ctx, this, s2)?;
     Ok(n)
 }
 
@@ -85,9 +87,13 @@ pub(crate) fn dispatch(
             } else {
                 scramble(next_uniquifier())
             };
-            write_seed(ctx, this, seed);
+            if let Err(e) = write_seed(ctx, this, seed) {
+                return Some(Err(e));
+            }
             // Field 1 holds a cached gaussian (Value::Double) or Value::Null.
-            ctx.objects.set_field(this, 1, Value::Null);
+            if ctx.objects.set_field(this, 1, Value::Null).is_none() {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(None))
         }
         m::setSeed => {
@@ -97,8 +103,12 @@ pub(crate) fn dispatch(
             };
             match ctx.args.get(1).copied().unwrap_or(Value::Null) {
                 Value::Long(s) => {
-                    write_seed(ctx, this, scramble(s));
-                    ctx.objects.set_field(this, 1, Value::Null);
+                    if let Err(e) = write_seed(ctx, this, scramble(s)) {
+                        return Some(Err(e));
+                    }
+                    if ctx.objects.set_field(this, 1, Value::Null).is_none() {
+                        return Some(Err(JvmError::StackOverflow));
+                    }
                     Some(Ok(None))
                 }
                 _ => Some(Err(JvmError::InvalidReference)),
@@ -228,8 +238,13 @@ pub(crate) fn dispatch(
                 }
                 let multiplier = libm::sqrt(-2.0 * libm::log(s) / s);
                 // Cache v2 * multiplier; return v1 * multiplier.
-                ctx.objects
-                    .set_field(this, 1, Value::Double(v2 * multiplier));
+                if ctx
+                    .objects
+                    .set_field(this, 1, Value::Double(v2 * multiplier))
+                    .is_none()
+                {
+                    return Some(Err(JvmError::StackOverflow));
+                }
                 return Some(Ok(Some(Value::Double(v1 * multiplier))));
             }
         }

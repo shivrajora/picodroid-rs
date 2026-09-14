@@ -147,6 +147,9 @@ pub struct ObjectHeap {
     /// needs two slots. Entries are GC roots: a shared box never dies.
     pub(super) boxed_cache: [Option<Vec<u16>>; BOX_TABLES],
     pub(super) bool_cache: [u16; 2],
+    /// An `OutOfMemoryError` allocated while the heap still had room, thrown
+    /// when it no longer has room for one. A root until it is handed out.
+    pub(super) oom_reserve: u16,
     /// Sparse list of iterator states, keyed by object index.
     pub(super) iter_states: Vec<(u16, iter_store::IteratorState)>,
     /// Sparse list of `(throwable_obj_idx, string_table_idx)` pairs holding
@@ -200,6 +203,7 @@ impl ObjectHeap {
             lambda_proxies: Vec::new(),
             boxed_cache: [None, None, None, None, None],
             bool_cache: [BOX_NONE; 2],
+            oom_reserve: BOX_NONE,
             iter_states: Vec::new(),
             exception_messages: Vec::new(),
             suppressed: Vec::new(),
@@ -1677,14 +1681,33 @@ impl ObjectHeap {
         }
     }
 
-    /// Every cached box — GC roots, so a shared box never dies.
+    /// Every cached box, plus the `OutOfMemoryError` reserve — GC roots, so
+    /// a shared box never dies and the reserve is there when needed.
     pub fn boxed_cache_roots(&self) -> impl Iterator<Item = u16> + '_ {
         self.boxed_cache
             .iter()
             .flatten()
             .flat_map(|t| t.iter().copied())
             .chain(self.bool_cache.iter().copied())
+            .chain(core::iter::once(self.oom_reserve))
             .filter(|&s| s != BOX_NONE)
+    }
+
+    /// Set aside an `OutOfMemoryError` while the heap can spare one. Idempotent.
+    pub fn ensure_oom_reserve(&mut self) {
+        if self.oom_reserve == BOX_NONE {
+            if let Some(idx) = self.alloc(c::java_lang_OutOfMemoryError) {
+                self.oom_reserve = idx;
+            }
+        }
+    }
+
+    /// The reserved `OutOfMemoryError`. It stays reserved — and rooted — so
+    /// a heap that cannot allocate anything throws the same object every
+    /// time, as HotSpot's preallocated error does; an app that catches it
+    /// and keeps allocating still sees `OutOfMemoryError`, never a hard stop.
+    pub fn oom_reserve(&self) -> Option<u16> {
+        (self.oom_reserve != BOX_NONE).then_some(self.oom_reserve)
     }
 }
 

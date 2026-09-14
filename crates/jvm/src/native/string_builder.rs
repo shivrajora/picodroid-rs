@@ -33,8 +33,13 @@ pub(crate) fn dispatch(
             Some(i) => i,
             None => return Some(Err(JvmError::StackOverflow)),
         };
-        ctx.objects
-            .set_field(obj_idx, 0, Value::Int(buf_idx as i32));
+        if ctx
+            .objects
+            .set_field(obj_idx, 0, Value::Int(buf_idx as i32))
+            .is_none()
+        {
+            return Some(Err(JvmError::StackOverflow));
+        }
         // <init>(String): if a String argument was supplied, seed the buffer.
         if let Some(Value::Reference(idx)) = ctx.args.get(1) {
             let s = ctx.strings.resolve(*idx).unwrap_or("");

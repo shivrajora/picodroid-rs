@@ -1033,11 +1033,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             self.handler.native_class_names(),
             class_name,
         );
-        let obj_idx = self
-            .objects
-            .alloc_with_defaults(static_name, self.classes)
-            .ok_or(JvmError::StackOverflow)?;
-        frame.push(Value::ObjectRef(obj_idx))?;
+        match self.objects.alloc_with_defaults(static_name, self.classes) {
+            Some(obj_idx) => frame.push(Value::ObjectRef(obj_idx))?,
+            None => {
+                // Heap exhausted: rewind so the main loop collects and
+                // re-executes this `new` — the `newarray` protocol. A
+                // collection that frees nothing makes it a catchable
+                // `OutOfMemoryError` there. Used to be a hard stop.
+                frame.pc = frame.inst_pc;
+                self.set_need_gc(true);
+            }
+        }
         Ok(())
     }
 }

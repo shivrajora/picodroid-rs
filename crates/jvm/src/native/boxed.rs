@@ -39,7 +39,12 @@ macro_rules! boxed_dispatch {
                     return Some(Err(JvmError::InvalidReference));
                 };
                 let val = $ctx.args.get(1).copied().unwrap_or(Value::Null);
-                $ctx.objects.set_field(obj, 0, val);
+                // A builtin object gets its slots on first write; a write the
+                // heap cannot honour is an allocation failure, surfaced as
+                // OutOfMemoryError rather than a box with no value.
+                if $ctx.objects.set_field(obj, 0, val).is_none() {
+                    return Some(Err(JvmError::StackOverflow));
+                }
                 Some(Ok(None))
             }
             m::valueOf => {
@@ -478,7 +483,9 @@ fn box_value(
         return Ok(Some(Value::ObjectRef(idx)));
     }
     let idx = ctx.objects.alloc(class).ok_or(JvmError::StackOverflow)?;
-    ctx.objects.set_field(idx, 0, val);
+    ctx.objects
+        .set_field(idx, 0, val)
+        .ok_or(JvmError::StackOverflow)?;
     ctx.objects.cache_box(class, val, idx);
     Ok(Some(Value::ObjectRef(idx)))
 }
