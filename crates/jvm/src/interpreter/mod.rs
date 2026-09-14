@@ -260,7 +260,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
                 if self.classes[ci].methods()[mi].code_offset != 0 {
                     let cm = &self.classes[ci].methods()[mi];
-                    clinit_frames.push(Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?);
+                    let f = Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?;
+                    clinit_frames
+                        .try_reserve(1)
+                        .map_err(|_| JvmError::StackOverflow)?;
+                    clinit_frames.push(f);
                 }
             }
         }
@@ -565,6 +569,7 @@ pub fn execute<H: NativeMethodHandler>(
     let m = &classes[class_idx].methods()[method_idx];
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
+    frames.try_reserve(1).map_err(|_| JvmError::StackOverflow)?;
     frames.push(initial_frame);
     // Set the `OutOfMemoryError` reserve aside while the heap can spare one
     // object; idempotent, so every entry re-arms it after a throw.
@@ -769,6 +774,9 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     // invoke's error and is handled below like any other.
                     match enter_synchronized(ex, &mut new_frame) {
                         Ok(()) => {
+                            if frames.try_reserve(1).is_err() {
+                                return Err(JvmError::StackOverflow);
+                            }
                             frames.push(new_frame);
                             continue;
                         }
@@ -790,6 +798,9 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     continue;
                 }
                 while let Some(cf) = ex.pending_clinit_frames.pop() {
+                    if frames.try_reserve(1).is_err() {
+                        return Err(JvmError::StackOverflow);
+                    }
                     frames.push(cf);
                 }
                 continue;

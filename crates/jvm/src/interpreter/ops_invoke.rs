@@ -956,6 +956,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let e = self.stack_overflow_error()?;
             return Err(JvmError::Exception(e));
         }
+        if frames.try_reserve(1).is_err() {
+            return Err(JvmError::StackOverflow);
+        }
         frames.push(new_frame);
         self.upcall_depth += 1;
         let r = self.run(frames, base);
