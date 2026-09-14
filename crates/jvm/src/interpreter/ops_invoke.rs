@@ -1009,17 +1009,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Value::ObjectRef(obj_idx) = recv else {
             return Err(JvmError::InvalidReference);
         };
+        // A null comparator is natural ordering (`Comparable.compareTo`),
+        // as the JDK reads it; `insertion_sort` upcalls accordingly.
         let cmp = args.get(1).copied().unwrap_or(Value::Null);
-        if matches!(cmp, Value::Null) {
-            // The JDK reads a null comparator as "natural ordering". That
-            // needs a Comparable.compareTo upcall of its own; until then
-            // reject it rather than silently leaving the list unsorted.
-            let npe = self
-                .objects
-                .alloc(c::java_lang_NullPointerException)
-                .ok_or(JvmError::StackOverflow)?;
-            return Err(JvmError::Exception(npe));
-        }
         let Some(Value::Int(buf)) = self.objects.get_field(obj_idx, 0) else {
             return Err(JvmError::InvalidReference);
         };
@@ -1059,7 +1051,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 ) else {
                     return Err(JvmError::InvalidReference);
                 };
-                let ord = self.invoke_java(frames, cmp, COMPARE, COMPARE_DESC, &[prev, cur])?;
+                let ord = if matches!(cmp, Value::Null) {
+                    // Natural ordering: `prev.compareTo(cur)` — a Java
+                    // override, or a builtin's native arm (String, the
+                    // boxes); an unboxed element (a test's, or a Kotlin
+                    // primitive list's) is ordered directly. A null element
+                    // has no order, as in Java.
+                    match (prev, cur) {
+                        (Value::Int(a), Value::Int(b)) => Some(Value::Int(a.cmp(&b) as i32)),
+                        (Value::Long(a), Value::Long(b)) => Some(Value::Int(a.cmp(&b) as i32)),
+                        (Value::Null, _) => {
+                            return Err(self.runtime_fault(c::java_lang_NullPointerException));
+                        }
+                        _ => self.invoke_java(frames, prev, m::compareTo, d::Object__I, &[cur])?,
+                    }
+                } else {
+                    self.invoke_java(frames, cmp, COMPARE, COMPARE_DESC, &[prev, cur])?
+                };
                 let Some(Value::Int(ord)) = ord else {
                     return Err(JvmError::InvalidReference);
                 };
