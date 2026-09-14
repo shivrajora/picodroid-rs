@@ -152,6 +152,12 @@ mod hal_freertos_tcp_config_guard_tests;
 #[cfg(test)]
 #[path = "native_handler/api_contract.rs"]
 mod native_api_contract_tests;
+// LittleFS mount-or-format rule (a foreign geometry formats instead of
+// failing every open); `fs` is cfg(not(test)) because the worker and the
+// singleton need the kernel, the rule itself is pure.
+#[cfg(all(test, feature = "littlefs"))]
+#[path = "fs/volume.rs"]
+mod fs_volume_tests;
 // SDK member-name manifest: generates sdk/member-names.tsv (the source of
 // the `shrink_names::m` consts) and fails when the committed copy is stale.
 #[cfg(test)]

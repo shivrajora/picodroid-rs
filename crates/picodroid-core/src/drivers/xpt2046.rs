@@ -21,6 +21,9 @@ const NUM_SAMPLES: usize = 5;
 /// result MSB-first across the next two (bits 15..4 of the 16 clocks).
 const FRAME: usize = 3;
 
+/// One X frame followed by one Y frame: the unit `sample()` writes and reads.
+const PAIR: usize = 2 * FRAME;
+
 /// One `sample()` on the wire: X then Y, `NUM_SAMPLES` times, as a single
 /// transfer. The chip latches a new control byte on the first clock after
 /// a conversion's 24, so back-to-back frames under one CS assertion are
@@ -29,7 +32,7 @@ const FRAME: usize = 3;
 /// path from the UI task (docs/scheduling-audit-2026-09.md, F18). At this
 /// length the transfer goes through the driver's interrupt-driven path and
 /// the task sleeps while the bytes clock out.
-const BATCH: usize = NUM_SAMPLES * 2 * FRAME;
+const BATCH: usize = NUM_SAMPLES * PAIR;
 
 /// The 12-bit result carried by one received frame.
 fn decode(frame: &[u8]) -> u16 {
@@ -153,7 +156,7 @@ where
         let _ = self.cs.set_low();
 
         let mut tx = [0u8; BATCH];
-        for pair in tx.chunks_exact_mut(2 * FRAME) {
+        for pair in tx.as_chunks_mut::<PAIR>().0 {
             pair[0] = CMD_READ_X;
             pair[FRAME] = CMD_READ_Y;
         }
@@ -165,7 +168,7 @@ where
 
         let mut xs = [0u16; NUM_SAMPLES];
         let mut ys = [0u16; NUM_SAMPLES];
-        for (i, pair) in rx.chunks_exact(2 * FRAME).enumerate() {
+        for (i, pair) in rx.as_chunks::<PAIR>().0.iter().enumerate() {
             xs[i] = decode(&pair[..FRAME]);
             ys[i] = decode(&pair[FRAME..]);
         }
@@ -285,7 +288,7 @@ mod tests {
         fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Infallible> {
             self.transfers.push(tx.len());
             let (mut xi, mut yi) = (0, 0);
-            for (i, frame) in tx.chunks_exact(FRAME).enumerate() {
+            for (i, frame) in tx.as_chunks::<FRAME>().0.iter().enumerate() {
                 let raw = match frame[0] {
                     CMD_READ_X => {
                         xi += 1;

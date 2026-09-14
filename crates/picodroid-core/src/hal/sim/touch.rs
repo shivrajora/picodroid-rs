@@ -163,7 +163,7 @@ mod inner {
             // The driver sends 3-byte frames, [cmd, 0, 0], one per
             // conversion — ten of them back to back in a `sample()` — and
             // reads each result as ((rx[1] << 4) | (rx[2] >> 4)).
-            for (i, frame) in tx.chunks_exact(3).enumerate() {
+            for (i, frame) in tx.as_chunks::<3>().0.iter().enumerate() {
                 if rx.len() < (i + 1) * 3 || (frame[0] != CMD_READ_X && frame[0] != CMD_READ_Y) {
                     continue;
                 }
