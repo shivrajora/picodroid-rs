@@ -66,22 +66,14 @@ macro_rules! boxed_dispatch {
     };
 }
 
-/// Java's `f2i`: NaN to 0, out-of-range saturates.
+/// Java's `d2i` (see `crate::fconv`).
 fn f2i(d: f64) -> i32 {
-    if d.is_nan() {
-        0
-    } else {
-        d.clamp(i32::MIN as f64, i32::MAX as f64) as i32
-    }
+    crate::fconv::d2i(d)
 }
 
-/// Java's `f2l`: NaN to 0, out-of-range saturates.
+/// Java's `d2l` (see `crate::fconv`).
 fn f2l(d: f64) -> i64 {
-    if d.is_nan() {
-        0
-    } else {
-        d.clamp(i64::MIN as f64, i64::MAX as f64) as i64
-    }
+    crate::fconv::d2l(d)
 }
 
 /// The value a `xxxValue()` accessor returns for the box's stored value,

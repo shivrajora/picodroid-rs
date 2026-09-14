@@ -70,6 +70,7 @@ pub mod atomic_section;
 pub(crate) mod chunked_slots;
 pub mod class_file;
 pub mod class_objects;
+pub mod fconv;
 pub mod frame;
 pub mod gc;
 pub mod heap;
