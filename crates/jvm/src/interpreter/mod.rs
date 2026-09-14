@@ -117,6 +117,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
         method_cache: Vec::new(),
         static_field_cache: Vec::new(),
         pending_frame: None,
+        native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: *upcall_depth,
@@ -142,6 +143,12 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// Set by `op_invoke` when a Java method should be called; the main loop
     /// pushes this frame onto the frame stack on the next iteration.
     pub pending_frame: Option<Frame>,
+    /// Set by `dispatch_native` when one of pico-jvm's own builtin arms
+    /// failed to allocate: those arms reserve before they write, so the
+    /// invoke can be re-executed after a collection (see
+    /// `retry_after_gc`). A handler arm's failure never sets it — a
+    /// peripheral or file arm may have acted before it ran out.
+    pub(super) native_retry: bool,
     /// `<clinit>` frames queued by `ensure_class_initialized`.  Popped onto
     /// the frame stack so the interpreter runs them before resuming the
     /// triggering instruction.
@@ -609,6 +616,7 @@ fn execute_frames<H: NativeMethodHandler>(
         method_cache: Vec::new(),
         static_field_cache: Vec::new(),
         pending_frame: None,
+        native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: 0,

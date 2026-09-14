@@ -453,7 +453,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         match resolved {
             Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
                 let result =
-                    self.dispatch_native(native_class, name_str, desc_str, args, frames)?;
+                    match self.dispatch_native(native_class, name_str, desc_str, args, frames) {
+                        Err(JvmError::StackOverflow) if self.native_retry => {
+                            return self.retry_after_gc(args, frames);
+                        }
+                        r => r?,
+                    };
                 let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
@@ -470,7 +475,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             None => {
                 // Not found in loaded classes — try native dispatch.
                 let result =
-                    self.dispatch_native(native_class, name_str, desc_str, args, frames)?;
+                    match self.dispatch_native(native_class, name_str, desc_str, args, frames) {
+                        Err(JvmError::StackOverflow) if self.native_retry => {
+                            return self.retry_after_gc(args, frames);
+                        }
+                        r => r?,
+                    };
                 let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
@@ -478,6 +488,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 push_native_result(frame, result)
             }
         }
+    }
+
+    /// A builtin arm ran out of heap. By the builtins' contract it changed
+    /// nothing first (a side buffer reserves before it writes, a box is
+    /// allocated before it is filled), so put the arguments back, let the
+    /// main loop collect, and re-execute this invoke — the `new` protocol.
+    /// A collection that frees nothing makes it a catchable
+    /// `OutOfMemoryError` there; until QA 2026-09-13 the first allocation
+    /// to fail inside a native arm ended the app, garbage or no garbage.
+    fn retry_after_gc(&mut self, args: &[Value], frames: &mut [Frame]) -> Result<(), JvmError> {
+        let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+        for &a in args {
+            frame.push(a)?;
+        }
+        frame.pc = frame.inst_pc;
+        self.set_need_gc(true);
+        Ok(())
     }
 
     /// Fallback path for methods with >8 arguments (extremely rare).
@@ -678,6 +705,29 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Carried so the pre-dispatch seam below can re-enter the interpreter.
         frames: &mut Vec<Frame>,
     ) -> Result<Option<Value>, JvmError> {
+        let mut retry = false;
+        let r = self.dispatch_native_inner(
+            class_name,
+            method_name,
+            descriptor,
+            args,
+            frames,
+            &mut retry,
+        );
+        self.native_retry = retry;
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_native_inner(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+        frames: &mut Vec<Frame>,
+        retry: &mut bool,
+    ) -> Result<Option<Value>, JvmError> {
         // `Object.getClass()` resolves here rather than in a handler: it needs
         // the class-object cache (not part of NativeContext) so that
         // `obj.getClass() == MyClass.class` identity holds against `ldc`.
@@ -736,7 +786,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if let Some(result) = self
             .handler
             .dispatch(class_name, method_name, &mut ctx)
-            .or_else(|| BuiltinHandler.dispatch(class_name, method_name, &mut ctx))
+            .or_else(|| {
+                let r = BuiltinHandler.dispatch(class_name, method_name, &mut ctx);
+                *retry = matches!(r, Some(Err(JvmError::StackOverflow)));
+                r
+            })
         {
             return result;
         }
@@ -763,7 +817,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if let Some(result) = self
                 .handler
                 .dispatch(super_str, method_name, &mut ctx)
-                .or_else(|| BuiltinHandler.dispatch(super_str, method_name, &mut ctx))
+                .or_else(|| {
+                    let r = BuiltinHandler.dispatch(super_str, method_name, &mut ctx);
+                    *retry = matches!(r, Some(Err(JvmError::StackOverflow)));
+                    r
+                })
             {
                 return result;
             }
