@@ -97,14 +97,14 @@ unsafe fn calibrate_inner() {
         lv_obj_set_pos(step_lbl, 130, 110);
 
         lv_obj_set_pos(cross, tx - GLYPH_HALF_W, ty - GLYPH_HALF_H);
-        lifecycle::tick(crate::executors::tick_source::step_ms());
+        lifecycle::tick(16);
 
         wait_for_release();
         raw_pts[i] = wait_for_debounced_touch();
 
         // Brief visual feedback
         lv_obj_set_pos(cross, -50, -50);
-        lifecycle::tick(crate::executors::tick_source::step_ms());
+        lifecycle::tick(16);
         hal::system_clock::sleep(200);
     }
 
@@ -115,7 +115,7 @@ unsafe fn calibrate_inner() {
     apply_calibration(&raw_pts);
 
     lv_obj_clean(scr);
-    lifecycle::tick(crate::executors::tick_source::step_ms());
+    lifecycle::tick(16);
 }
 
 #[cfg(not(feature = "sim"))]
@@ -125,7 +125,7 @@ fn wait_for_release() {
         if stopped() {
             return;
         }
-        lifecycle::tick(crate::executors::tick_source::step_ms());
+        lifecycle::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
         if !(50..=4050).contains(&rx) || !(50..=4050).contains(&ry) {
             quiet += 1;
@@ -151,7 +151,7 @@ fn wait_for_debounced_touch() -> (u16, u16) {
         if stopped() {
             return (0, 0);
         }
-        lifecycle::tick(crate::executors::tick_source::step_ms());
+        lifecycle::tick(16);
         let (rx, ry) = hal::touch::read_raw_unfiltered();
 
         if !(50..=4050).contains(&rx) || !(50..=4050).contains(&ry) {

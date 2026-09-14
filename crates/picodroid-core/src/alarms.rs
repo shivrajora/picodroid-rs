@@ -248,81 +248,6 @@ fn table() -> &'static mut [Option<Entry>; CAPACITY] {
     unsafe { &mut *TABLE.0.get() }
 }
 
-/// When [`poll`] next has anything to decide, so the tick can skip it.
-///
-/// Recomputed by every writer from the table it just changed. What it
-/// cannot predict is a package leaving the directory, which [`poll`] also
-/// reacts to; the tick forces a poll on a directory change for that.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Horizon {
-    /// Earliest armed trigger on each clock, if any.
-    elapsed_ms: Option<i64>,
-    wall_ms: Option<i64>,
-    /// A row is `Firing`: what it waits for is its owner's next run, which
-    /// no clock predicts, so every tick has to look.
-    firing: bool,
-}
-
-impl Horizon {
-    const NOTHING: Horizon = Horizon {
-        elapsed_ms: None,
-        wall_ms: None,
-        firing: false,
-    };
-
-    fn of(table: &[Option<Entry>; CAPACITY]) -> Horizon {
-        fn earliest(so_far: Option<i64>, t: i64) -> Option<i64> {
-            Some(so_far.map_or(t, |s| s.min(t)))
-        }
-        let mut h = Horizon::NOTHING;
-        for e in table.iter().flatten() {
-            match (e.state, e.clock) {
-                (State::Firing { .. }, _) => h.firing = true,
-                (State::Armed, Clock::Rtc) => h.wall_ms = earliest(h.wall_ms, e.trigger_ms),
-                (State::Armed, Clock::Elapsed) => {
-                    h.elapsed_ms = earliest(h.elapsed_ms, e.trigger_ms)
-                }
-            }
-        }
-        h
-    }
-}
-
-struct HorizonCell(core::cell::UnsafeCell<Horizon>);
-// SAFETY: as `TableCell` — written under the same `AtomicSection` as the
-// table it summarises, read under one too.
-unsafe impl Sync for HorizonCell {}
-
-static HORIZON: HorizonCell = HorizonCell(core::cell::UnsafeCell::new(Horizon::NOTHING));
-
-#[allow(clippy::mut_from_ref)]
-fn horizon() -> &'static mut Horizon {
-    unsafe { &mut *HORIZON.0.get() }
-}
-
-/// Recompute the horizon from `table`. Every writer's last act. One copy for
-/// the five writers, on boards that count flash in bytes.
-#[inline(never)]
-fn refresh_horizon(table: &[Option<Entry>; CAPACITY]) {
-    *horizon() = Horizon::of(table);
-}
-
-/// Whether [`poll`] can have anything to decide at this instant.
-///
-/// `wall_ms` is asked for only when an RTC alarm is armed, so an idle tick
-/// costs two comparisons and never the wall-clock seqlock read; a wall
-/// clock moved forward by `setCurrentTimeMillis` still brings an RTC alarm
-/// due at the next tick, because the closure reads the live clock.
-pub fn due(elapsed_ms: i64, wall_ms: impl FnOnce() -> i64) -> bool {
-    let h = {
-        let _atomic = AtomicSection::enter();
-        *horizon()
-    };
-    h.firing
-        || h.elapsed_ms.is_some_and(|t| elapsed_ms >= t)
-        || h.wall_ms.is_some_and(|t| wall_ms() >= t)
-}
-
 /// Arm `class` in `owner` for `trigger_ms`, replacing any armed alarm with
 /// the same owner, class and request code. `Ok(true)` means one was replaced.
 pub fn set(
@@ -365,7 +290,6 @@ pub fn set(
             .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code))
     }) {
         table[i] = Some(entry);
-        refresh_horizon(table);
         return Ok(true);
     }
 
@@ -383,7 +307,6 @@ pub fn set(
         .position(|slot| slot.is_none())
         .ok_or(SetError::Full)?;
     table[free] = Some(entry);
-    refresh_horizon(table);
     Ok(false)
 }
 
@@ -399,7 +322,6 @@ pub fn cancel(owner: &str, class: &str, request_code: i32) -> bool {
     }) {
         Some(i) => {
             table[i] = None;
-            refresh_horizon(table);
             true
         }
         None => false,
@@ -421,7 +343,6 @@ pub fn drop_package(package: &str) -> usize {
             dropped += 1;
         }
     }
-    refresh_horizon(table);
     dropped
 }
 
@@ -446,20 +367,7 @@ pub fn poll(
 ) -> Option<Action> {
     let _atomic = AtomicSection::enter();
     let table = table();
-    let action = decide(table, now, running, run_gen, installed, launch_pending);
-    refresh_horizon(table);
-    action
-}
 
-/// [`poll`] proper, on a table the caller holds the section for.
-fn decide(
-    table: &mut [Option<Entry>; CAPACITY],
-    now: Now,
-    running: Option<&str>,
-    run_gen: u32,
-    installed: &dyn Fn(&str) -> bool,
-    launch_pending: bool,
-) -> Option<Action> {
     for slot in table.iter_mut() {
         let gone = slot
             .as_ref()
@@ -566,7 +474,6 @@ fn fire_from(e: Entry, now: Now) -> Fire {
 #[cfg(test)]
 pub(crate) fn reset_for_test() {
     *table() = [None; CAPACITY];
-    refresh_horizon(table());
 }
 
 #[cfg(test)]
@@ -697,74 +604,6 @@ mod tests {
         let _g = guard();
         set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
         assert_eq!(fired(poll_as(61_000, Some(APP), 1)).late_ms, 60_000);
-    }
-
-    /// A wall clock the test must not need: with no RTC alarm armed, `due`
-    /// answers from the elapsed clock alone.
-    fn no_wall() -> i64 {
-        panic!("wall clock read with no RTC alarm armed")
-    }
-
-    #[test]
-    fn nothing_is_due_on_an_empty_table() {
-        let _g = guard();
-        assert!(!due(i64::MAX, no_wall));
-    }
-
-    #[test]
-    fn due_tracks_the_earliest_armed_trigger_per_clock() {
-        let _g = guard();
-        set(APP, RING, 0, Clock::Elapsed, 5_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Elapsed, 1_000, &[]).unwrap();
-        assert!(!due(999, no_wall), "not before the earliest");
-        assert!(due(1_000, no_wall), "at the earliest");
-        assert!(due(4_000, no_wall), "and any time after it");
-
-        set(OTHER, RING, 0, Clock::Rtc, 60_000, &[]).unwrap();
-        assert!(
-            !due(0, || 59_999),
-            "the RTC trigger is judged on the wall clock"
-        );
-        assert!(due(0, || 60_000));
-        assert!(
-            due(0, || 1_000_000),
-            "a wall clock moved forward brings it due"
-        );
-    }
-
-    #[test]
-    fn due_follows_every_writer() {
-        let _g = guard();
-        set(APP, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
-        assert!(due(1_000, no_wall));
-        assert!(cancel(APP, RING, 0));
-        assert!(!due(1_000, no_wall), "cancel empties the horizon");
-
-        set(APP, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
-        set(APP, RING, 0, Clock::Elapsed, 3_000, &[]).unwrap();
-        assert!(!due(2_000, no_wall), "a replacing set moves it");
-
-        set(OTHER, RING, 0, Clock::Rtc, 500, &[]).unwrap();
-        assert_eq!(drop_package(OTHER), 1);
-        assert!(!due(2_000, no_wall), "drop_package forgets the RTC row too");
-
-        fired(poll_as(3_000, Some(APP), 1));
-        assert!(
-            !due(i64::MAX, no_wall),
-            "a delivered alarm leaves nothing due"
-        );
-    }
-
-    #[test]
-    fn a_firing_row_keeps_every_tick_looking() {
-        let _g = guard();
-        set(OTHER, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
-        assert_eq!(woke(poll_as(1_000, Some(APP), 1)), OTHER);
-        // The wake is in flight; its delivery waits on a run, not a clock.
-        assert!(due(0, no_wall));
-        assert!(due(i64::MIN, no_wall));
-        fired(poll_as(1_000, Some(OTHER), 2));
-        assert!(!due(i64::MAX, no_wall));
     }
 
     #[test]

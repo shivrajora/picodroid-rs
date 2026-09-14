@@ -28,13 +28,14 @@ the `rtt-lossy` feature. Hardware: `netdemo` and `http_get` `net` rows and the
 `blinky` `loop` + `pdb install-stress` rows pass on the W-board slot with the
 final tree.
 
-**Session 2, 2026-09-13 (three commits on local `main`, not pushed):** WP7
-(`719d43e7`), WP10 (`61394bae`) and the F19 leftover (`4b65a715`) landed —
-each through the fast tier, sim smoke per commit, `--full` at the end. See
-§2 for what each did and what WP7 deliberately left out. The size ratchet
-was advanced once, in the WP7 commit: RP2040 +92 B flash / +8 B RAM over
-the old baseline (+172 B / +8 B over the pre-change tree, attributed by
-symbol in the commit message); RP2350 −1,388 B against its baseline.
+**Session 2, 2026-09-13:** WP10 (`61394bae`) and the F19 leftover
+(`4b65a715`) landed and are verified — F19 on hardware (`netdemo` and
+`http_get` `net` rows PASS on the W slot in both modes). **WP7 (`719d43e7`)
+landed, failed hardware verification the same evening, and is reverted**
+(see §2 WP7 for the evidence and where to pick it up). The WP7 commit had
+advanced the RP2040 size baseline (+92 B flash / +8 B RAM); the revert
+keeps whatever baseline `main` carries at the time, so the ratchet reads
+the reverted image as an improvement.
 
 **Session 3, 2026-09-13 (six commits on local `main`, not pushed):** WP11
 in three parts (`43274aa1` I²C target skip, `ab35c53f` XPT2046 batch,
@@ -75,35 +76,77 @@ lowered `EXPECTED_SPIN_TODO` in `spin_guard.rs`. Session 3 retired all five:
 
 ## 2. Open work packages, in the order I would take them
 
-### WP7 — tick timebase (F16) — LANDED 2026-09-13 (`719d43e7`), one half deferred
+### WP7 — tick timebase (F16) — landed as `719d43e7`, REVERTED the same day: breaks the tick loop on the RP2350 W board
 
-Done: `tick_source::step_ms()` feeds the UI clocks (LVGL, toasts,
-snackbars, property animations) one period while the loop keeps up and
-the tick's lateness against the fed clock when it is more — *not* a raw
-wall-clock delta, because `lv_timer_exec` re-stamps `last_run` with no
-credit and a 15 ms step against the 16 ms refresh period skips a frame on
-every millisecond of jitter (S3). Unit-tested, including the u32 wrap.
-`Display.update()` keeps a fixed period by contract (`graphicsbench` C
-counts frames as `2000 / 16`). Alarms keep a horizon (earliest armed
-trigger per clock + "a row is in flight"); `alarms::due` is two
-comparisons and no seqlock read on an idle tick, and a package-directory
-change forces a poll. Idle GC is 2 s on the clock, not 125 ticks. Guard:
-`tick_source`'s scan rejects an integer literal at any `.tick(`,
-`lifecycle::tick(` or `lv_tick_inc(` call.
+What it did (kept in git for the retry): `tick_source::step_ms()` fed the
+UI clocks (LVGL, toasts, snackbars, property animations) one period while
+the loop kept up and the tick's lateness against the fed clock when it was
+more — not a raw wall-clock delta, because `lv_timer_exec` re-stamps
+`last_run` with no credit and a 15 ms step against the 16 ms refresh period
+skips a frame on every millisecond of jitter (S3). `Display.update()` kept
+a fixed period by contract (`graphicsbench` C counts frames). Alarms kept a
+horizon (earliest armed trigger per clock + "a row is in flight") so
+`alarms::due` gated the per-tick poll; idle GC was 2 s on the clock; a scan
+guard rejected a literal step. Sim: everything passed (smoke, graphicsbench,
+animdemo at wall-clock time, sim-run alarmdemo 4/4, 481 host tests, `--full`).
 
-**Deliberately not done — reprogramming the timer from `lv_timer_handler`'s
-return.** It would buy nothing today. LVGL 9.5 does pause its refresh timer
-when nothing is invalidated (`lv_display_refr_timer` → `lv_timer_pause`;
-`lv_inv_area` resumes it), and the anim timer when no animation runs, but
-the pointer indev's `read_timer` runs every `LV_DEF_REFR_PERIOD` in
-`LV_INDEV_MODE_TIMER`, so `lv_timer_handler` never answers more than 16 ms
-while the panel is polled through LVGL. The idle-wake reduction is gated on
-event-mode input: the touch sampler (already interrupt-woken after WP4)
-would post `main_queue::enqueue_wake` on a state change and the loop would
-call `lv_indev_read` with the indev in `LV_INDEV_MODE_EVENT`. Only then is
-a `tick_timer_set_period` seam item worth its porting-guard and flash
-cost. Note the sim's minifb window pump (`hal::display::update_window`)
-also wants a periodic tick, so the sim arm would keep a floor.
+**Hardware, `pico_enviro_mon_w` slot with `testbench_rp2350w` firmware:**
+every app that runs the tick loop fails; every app that does not, passes.
+
+| row | 04:00 nightly, `6e68d8c6` | my tree `f578c157` (pinned worktree) | main with the other session's commits on top |
+|---|---|---|---|
+| `animdemo` loop (Activity) | PASS ×2 | FAIL ×2 | FAIL ×2 |
+| `alarmdemo` term (Activity) | PASS ×2, fire late 115/128 ms | FAIL ×2 | FAIL, then PASS with the fire **late 2459 ms** |
+| `netdemo`, `http_get` net (Application, no tick loop) | — | — | PASS ×4 |
+
+The failing RTT logs stop after `[packages] boot: <app>`; the sensor task's
+`sensor: task up` line, which the passing logs print within a few hundred
+ms of boot, never appears, and the board's USB (pdb, priority 21) never
+enumerates — while the core-1 cyw43 task keeps logging. So core 0 stops
+scheduling everything below ~21 shortly after the app starts; the one
+passing alarmdemo run shows the same thing as a 2.4 s stall rather than a
+permanent one. Bisect on the board (worktree at `f578c157`): removing the
+`alarms::due` gate still FAILs, so the gate is not the cause; the
+fixed-step variant got no data — the stalled board's half-enumerated USB
+storms the hub (`project_hil_usb_storm_probe_rs_hang`) and the probe port
+went down (`No connected probes were found`). The touch kit was dead on SWD
+before any of this (see the bench note in §0 / memory
+`reference_touch_kit_dead_swd_2026_09_13`).
+
+Not a sim-visible bug: the tick consumers are safe for any step
+(saturating arithmetic; `animations::tick` carries a delay remainder), and
+the step, horizon and idle-GC code has no loops that could spin. Suspects,
+in order: (1) something the device does differently for a step > 16 — the
+first ticks after `onCreate` on the W board are late by hundreds of ms (a
+full-screen first paint), so `lv_tick_inc(300)` + `lv_timer_handler` run
+paths the sim never takes; (2) the JVM task's stack margin on the W board
+(`project_w_board_debug_boot_fault`: it is tight in debug builds, and
+`run_activity` grew by 318 B of code plus a few words of locals) — a stack
+overflow hook that halts with interrupts off would explain the silent
+death, the missing USB and the missing sensor line at once; (3) the
+`Cell`-backed `CLOCK` static. Recipe for the retry: flash `animdemo`
+(`--board testbench_rp2350w`) from the WP7 tree, wait for the stall, attach
+`gdb-multiarch` over the probe (`reference_gdb_sim_debugging`'s hardware
+cousin in `project_handle_dangle_sim_blind`) and read the PC and
+`pxCurrentTCB` of core 0; or bisect the three pieces separately (fixed
+step; no idle-GC change; no `CLOCK` static) once the W slot stops storming
+— flash any pre-WP7 app first to end the storm. Keep the sim tests and the
+guard from `719d43e7` when re-landing.
+
+**Deliberately not done even in the landed version — reprogramming the
+timer from `lv_timer_handler`'s return.** It would buy nothing today. LVGL
+9.5 does pause its refresh timer when nothing is invalidated
+(`lv_display_refr_timer` → `lv_timer_pause`; `lv_inv_area` resumes it),
+and the anim timer when no animation runs, but the pointer indev's
+`read_timer` runs every `LV_DEF_REFR_PERIOD` in `LV_INDEV_MODE_TIMER`, so
+`lv_timer_handler` never answers more than 16 ms while the panel is polled
+through LVGL. The idle-wake reduction is gated on event-mode input: the
+touch sampler (already interrupt-woken after WP4) would post
+`main_queue::enqueue_wake` on a state change and the loop would call
+`lv_indev_read` with the indev in `LV_INDEV_MODE_EVENT`. Only then is a
+`tick_timer_set_period` seam item worth its porting-guard and flash cost.
+The sim's minifb window pump (`hal::display::update_window`) also wants a
+periodic tick, so the sim arm would keep a floor.
 
 ### WP5 — gSPI DMA completion by interrupt (F7) — LANDED 2026-09-13 (session 3)
 
@@ -263,8 +306,8 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
 - `configUSE_TICKLESS_IDLE` stays 0 (the port's `vPortSuppressTicksAndSleep`
   is single-core SysTick code; revisit once the tick is event-paced — see
   WP7's deferred half).
-- WP7's timer reprogramming (WP7 above): no gain until the indev is
-  event-driven.
+- WP7 itself is reverted (WP7 above); its timer-reprogramming half was
+  never worth doing until the indev is event-driven.
 - WP9's TX ring + `UARTx_IRQ`: `write_byte` no longer spins (§1), but it
   still blocks the writer a tick at a time; the ring waits for a serial app.
 - WP0 (ISR-safe seam primitives): WP5 stayed family code and used

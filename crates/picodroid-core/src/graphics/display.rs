@@ -181,12 +181,7 @@ pub fn show_fps() -> Result<Option<Value>, JvmError> {
 }
 
 /// `Display.update()` — advances the LVGL timer and renders dirty regions.
-///
-/// One fixed period per call, not the measured step the lifecycle tick
-/// takes: this is the app pumping frames itself, and its contract is that
-/// every call is exactly one frame — `graphicsbench` counts a 2 s animation
-/// as `2000 / 16` calls, whatever the work between them costs.
 pub fn update() -> Result<Option<Value>, JvmError> {
-    with_gfx(|g| g.tick(crate::executors::tick_source::TICK_PERIOD_MS));
+    with_gfx(|g| g.tick(16));
     Ok(None)
 }

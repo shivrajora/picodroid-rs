@@ -52,10 +52,8 @@ pub trait Gfx {
     /// different pixel format owns a separately-sized static.
     fn init(&mut self, width: u16, height: u16);
 
-    /// Advance the backend's clocks by `ms` and process pending timers /
-    /// rendering. The lifecycle tick feeds `tick_source::step_ms()` (a
-    /// period, or the tick's lateness when it is more); `Display.update()`
-    /// feeds one fixed period by contract. Never a literal — guarded.
+    /// Advance the backend's tick counter and process pending timers /
+    /// rendering. Call periodically (~16 ms for 60 fps).
     fn tick(&mut self, ms: u32);
 
     /// Put the display panel into low-power sleep. Caller is responsible
