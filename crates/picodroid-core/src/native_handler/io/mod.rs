@@ -263,6 +263,11 @@ fn fis_read(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
 
     let mut buf: Vec<u8> = Vec::new();
     let n = backend::read_at(volume, pos as u64, &mut buf, len);
+    if n == -2 {
+        // The read buffer could not be allocated: the heap is full, which
+        // is an OutOfMemoryError for the app rather than an I/O failure.
+        return Err(JvmError::StackOverflow);
+    }
     if n <= 0 {
         // 0 = EOF returns -1 per InputStream contract; -1 from backend = error.
         return Ok(Some(Value::Int(-1)));
@@ -330,25 +335,36 @@ fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
         return Err(throw_io(ctx, &msg));
     };
 
-    let bytes = load_bytes_from_array(ctx.arrays, arr_idx, off, len)?;
     sandbox::ensure_package_dir();
     // The quota sees the growth before the bytes land, so a refused write
     // leaves the file as it was.
     let before = backend::length(volume).max(0) as u64;
-    let after = before.max(pos as u64 + bytes.len() as u64);
+    let after = before.max(pos as u64 + len as u64);
     let growth = (quota::file_bytes(after) - quota::file_bytes(before)) as i64;
     if let Err(refused) = quota::charge(growth) {
         let msg = alloc::format!("{}: {path}", refusal(refused));
         return Err(throw_io(ctx, &msg));
     }
-    let n = backend::write_at(volume, pos as u64, &bytes);
-    if n < 0 {
-        let _ = quota::charge(-growth);
-        let msg = alloc::format!("cannot write {path}");
-        return Err(throw_io(ctx, &msg));
+    // The window goes out in 256-byte chunks through a stack buffer: a
+    // heap copy of the whole array window (20 KB for a 20 KB write) was an
+    // infallible allocation the RP2040 could not honour (QA 2026-09-13).
+    let mut chunk = [0u8; 256];
+    let mut done = 0usize;
+    while done < len {
+        let n = (len - done).min(chunk.len());
+        load_bytes_into(ctx.arrays, arr_idx, off + done, &mut chunk[..n])?;
+        if backend::write_at(volume, pos as u64 + done as u64, &chunk[..n]) < 0 {
+            // Charge only what actually landed.
+            let landed = before.max(pos as u64 + done as u64);
+            let landed_growth = (quota::file_bytes(landed) - quota::file_bytes(before)) as i64;
+            let _ = quota::charge(landed_growth - growth);
+            let msg = alloc::format!("cannot write {path}");
+            return Err(throw_io(ctx, &msg));
+        }
+        done += n;
     }
     ctx.objects
-        .set_field(this, fields::fos::POS, Value::Long(pos + n as i64))
+        .set_field(this, fields::fos::POS, Value::Long(pos + done as i64))
         .ok_or(JvmError::InvalidReference)?;
     Ok(None)
 }
@@ -430,24 +446,24 @@ fn resolve_path_field<'a>(
     strings.resolve(idx).ok_or(JvmError::InvalidReference)
 }
 
-fn load_bytes_from_array(
+/// Copy `dst.len()` bytes of the `byte[]` at `idx` from `off` into `dst`.
+fn load_bytes_into(
     arrays: &ArrayHeap,
     idx: u16,
     off: usize,
-    len: usize,
-) -> Result<Vec<u8>, JvmError> {
+    dst: &mut [u8],
+) -> Result<(), JvmError> {
     let n = arrays.length(idx).ok_or(JvmError::InvalidReference)? as usize;
-    if off.saturating_add(len) > n {
+    if off.saturating_add(dst.len()) > n {
         return Err(JvmError::InvalidReference);
     }
-    let mut out = Vec::with_capacity(len);
-    for i in 0..len {
+    for (i, b) in dst.iter_mut().enumerate() {
         let raw = arrays
             .load(idx, off + i)
             .ok_or(JvmError::InvalidReference)?;
-        out.push(raw as i8 as u8);
+        *b = raw as i8 as u8;
     }
-    Ok(out)
+    Ok(())
 }
 
 fn store_bytes_into_array(

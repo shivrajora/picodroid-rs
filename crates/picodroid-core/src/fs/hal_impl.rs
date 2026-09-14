@@ -102,14 +102,27 @@ impl HalFs for LittleFsHal {
             if file.seek(SeekFrom::Start(pos as u32)).is_err() {
                 return -1;
             }
-            let mut tmp = alloc::vec![0u8; len];
-            match file.read(&mut tmp) {
-                Ok(n) => {
-                    out.extend_from_slice(&tmp[..n as usize]);
-                    n as i32
-                }
-                Err(_) => -1,
+            // Chunked through a stack buffer: the `vec![0u8; len]` copy of a
+            // 20 KB read was an infallible allocation the RP2040's heap could
+            // not honour (QA 2026-09-13, qa_store). The caller's buffer grows
+            // fallibly; -2 says it could not.
+            if out.try_reserve(len).is_err() {
+                return -2;
             }
+            let mut tmp = [0u8; 256];
+            let mut done = 0usize;
+            while done < len {
+                let want = (len - done).min(tmp.len());
+                match file.read(&mut tmp[..want]) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        out.extend_from_slice(&tmp[..n as usize]);
+                        done += n as usize;
+                    }
+                    Err(_) => return -1,
+                }
+            }
+            done as i32
         })
         .unwrap_or(-1)
     }
