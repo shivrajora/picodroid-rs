@@ -89,11 +89,23 @@ pub(in crate::graphics) fn create_with_max(max: i32) -> i32 {
 }
 
 pub(in crate::graphics) fn set_max(id: i32, max: i32) {
-    unsafe { lv_slider_set_range(handle_table::lookup(id), 0, max) };
+    let obj = handle_table::lookup(id);
+    unsafe {
+        lv_slider_set_range(obj, 0, max);
+        // Android's `setMax` pulls a progress past the new maximum down to
+        // it; LVGL leaves the value where it was (QA 2026-09-13).
+        if lv_slider_get_value(obj) > max {
+            lv_slider_set_value(obj, max, LV_ANIM_OFF);
+        }
+    }
 }
 
 pub(in crate::graphics) fn set_progress(id: i32, progress: i32) {
-    unsafe { lv_slider_set_value(handle_table::lookup(id), progress, LV_ANIM_ON) };
+    // Instant, as Android's `setProgress` is. Animated, LVGL reports the
+    // animation's target from `get_value` until the animation ends and its
+    // `set_range` clamp misses the in-flight value, so `getProgress()`
+    // right after `setProgress()`/`setMax()` disagreed with the caller.
+    unsafe { lv_slider_set_value(handle_table::lookup(id), progress, LV_ANIM_OFF) };
 }
 
 pub(in crate::graphics) fn get_progress(id: i32) -> i32 {
