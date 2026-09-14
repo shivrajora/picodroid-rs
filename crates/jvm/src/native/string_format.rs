@@ -67,6 +67,21 @@ fn as_int(ctx: &NativeContext<'_>, v: Value) -> Option<(i64, u64)> {
     }
 }
 
+/// The unsigned view of an integer argument at its own width, for `%x` and
+/// `%o`: a `Byte` box is 8 bits and a `Short` 16 (`%x` of `(byte) -1` is
+/// `ff`, as in Java), an int 32, a long 64.
+fn as_unsigned(ctx: &NativeContext<'_>, v: Value) -> Option<u64> {
+    let (_, u) = as_int(ctx, v)?;
+    Some(match v {
+        Value::ObjectRef(idx) => match ctx.objects.class_name(idx) {
+            Some(c::java_lang_Byte) => u & 0xff,
+            Some(c::java_lang_Short) => u & 0xffff,
+            _ => u,
+        },
+        _ => u,
+    })
+}
+
 /// Extract a float-like value as f64.
 fn as_float(ctx: &NativeContext<'_>, v: Value) -> Option<f64> {
     match unbox(ctx, v) {
@@ -454,9 +469,9 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
-                let (_, u) = match as_int(ctx, v) {
-                    Some(t) => t,
-                    None => return Some(Err(fmt_err(ctx))),
+                let u = match as_unsigned(ctx, v) {
+                    Some(u) => u,
+                    _ => return Some(Err(fmt_err(ctx))),
                 };
                 hex_digits(u, spec.conv == b'X', &mut scratch);
                 // `#` prefix is counted toward width, so zero-pad sits between
@@ -478,9 +493,9 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
-                let (_, u) = match as_int(ctx, v) {
-                    Some(t) => t,
-                    None => return Some(Err(fmt_err(ctx))),
+                let u = match as_unsigned(ctx, v) {
+                    Some(u) => u,
+                    _ => return Some(Err(fmt_err(ctx))),
                 };
                 oct_digits(u, &mut scratch);
                 let prefix: &[u8] = if spec.hash && !scratch.starts_with(b"0") {
