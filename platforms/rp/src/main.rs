@@ -113,6 +113,16 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 #[entry]
 fn main() -> ! {
     hal::boot::clock_init();
+    // The RP2040 bootrom's float_to_int rounds toward -inf and rp2040-hal
+    // maps `__aeabi_f2iz` to it; the vendored HAL (third_party/rp2040-hal)
+    // truncates instead. Loud if a HAL upgrade ever drops that patch: the
+    // JVM's own f2i is fixed independently (J22), so nothing else would say.
+    #[cfg(feature = "chip-rp2040")]
+    if core::hint::black_box(-1.5f32) as i32 != -1 || core::hint::black_box(-2.5f32) as i64 != -2 {
+        defmt::error!(
+            "[float] f2i floors instead of truncating: the rp2040-hal conversion patch is missing"
+        );
+    }
     // The module's PSRAM, before anything can want it: on a board with
     // `lv_mem_in_psram` the LVGL pool is created there, and the package
     // scan below makes the first runtime flash writes, whose XIP-off window

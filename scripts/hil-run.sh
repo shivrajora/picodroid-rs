@@ -25,10 +25,10 @@ HIL_CONF="$SCRIPT_DIR/hil-tests.conf"
 HIL_DIR="$REPO_ROOT/build/hil"
 # How long the nightly queues for the board before recording a SKIP.
 HIL_LOCK_WAIT="${HIL_LOCK_WAIT:-3600}"
-# Where PAPKs are built. hil-fleet.sh gives every slot its own directory so
-# parallel runners never share a package file (and its own CARGO_TARGET_DIR,
-# which resolve_board turns into TARGET_DIR, for the firmware).
-HIL_APK_DIR="${HIL_APK_DIR:-$REPO_ROOT/build/apks}"
+# Where PAPKs are built. Resolved once the slot is known (below): with a
+# fleet every slot has its own directory, and its own CARGO_TARGET_DIR, so
+# parallel runners never share a package file or a firmware ELF.
+HIL_APK_DIR="${HIL_APK_DIR:-}"
 
 BOARD=""
 SLOT=""
@@ -125,6 +125,20 @@ else
 fi
 HIL_LOG_DIR="$HIL_DIR/logs${SLOT:+/$SLOT}"
 HIL_RESULTS_DIR="$HIL_DIR/results${SLOT:+/$SLOT}"
+# Build directories are per slot, for a bare run as much as for the nightly:
+# two runners for boards of one MCU family that share a target directory
+# share target/<triple>/release/picodroid, and one board boots the other's
+# image (the Pico 2 W once ran a touch-kit build, probing PSRAM and a GT911
+# it does not have — qa-2026-09-13-followups.md §6). hil-fleet.sh passes
+# these explicitly; a bare run defaults to the same directories, so it also
+# reuses the nightly's warm build instead of the repo-root target/.
+if [[ -n "$SLOT" ]]; then
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HIL_DIR/$SLOT/target}"
+  [[ -n "$HIL_APK_DIR" ]] || HIL_APK_DIR="$HIL_DIR/$SLOT/apks"
+else
+  [[ -n "$HIL_APK_DIR" ]] || HIL_APK_DIR="$REPO_ROOT/build/apks"
+fi
+mkdir -p "$HIL_APK_DIR"
 LOCK_SLOT_ARGS=()
 [[ -n "$SLOT" ]] && LOCK_SLOT_ARGS=(--slot "$SLOT")
 

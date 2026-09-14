@@ -178,9 +178,16 @@ fn file_create_new(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErro
         return Ok(Some(Value::Int(0)));
     }
     sandbox::ensure_package_dir();
-    if backend::write_at(volume, 0, &[]) < 0 {
-        let msg = alloc::format!("cannot create {path}");
-        return Err(throw_io(ctx, &msg));
+    match backend::write_at(volume, 0, &[]) {
+        // The open's per-file cache could not be allocated: OutOfMemoryError,
+        // not IOException (the RP2040 reset here before the cache was
+        // reserved fallibly, QA 2026-09-13).
+        -2 => return Err(JvmError::StackOverflow),
+        n if n < 0 => {
+            let msg = alloc::format!("cannot create {path}");
+            return Err(throw_io(ctx, &msg));
+        }
+        _ => {}
     }
     Ok(Some(Value::Int(1)))
 }
@@ -353,11 +360,18 @@ fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     while done < len {
         let n = (len - done).min(chunk.len());
         load_bytes_into(ctx.arrays, arr_idx, off + done, &mut chunk[..n])?;
-        if backend::write_at(volume, pos as u64 + done as u64, &chunk[..n]) < 0 {
+        let wrote = backend::write_at(volume, pos as u64 + done as u64, &chunk[..n]);
+        if wrote < 0 {
             // Charge only what actually landed.
             let landed = before.max(pos as u64 + done as u64);
             let landed_growth = (quota::file_bytes(landed) - quota::file_bytes(before)) as i64;
             let _ = quota::charge(landed_growth - growth);
+            if wrote == -2 {
+                // The open's per-file cache could not be allocated: the
+                // heap is full, an OutOfMemoryError rather than an I/O
+                // failure (see fis_read).
+                return Err(JvmError::StackOverflow);
+            }
             let msg = alloc::format!("cannot write {path}");
             return Err(throw_io(ctx, &msg));
         }

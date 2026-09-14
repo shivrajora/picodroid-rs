@@ -39,7 +39,7 @@
 //! it costs one vtable hop per block operation against millisecond-scale
 //! flash (`docs/designs/family-neutral-residue.md` D2).
 
-use littlefs_rust::{Config, Error as LfsError, Filesystem, Storage as LfsStorage};
+use littlefs_rust::{Error as LfsError, Filesystem, Storage as LfsStorage};
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -49,6 +49,7 @@ use crate::rtos::TaskKind;
 pub mod hal_impl;
 #[cfg(feature = "sim")]
 pub mod storage_host;
+mod volume;
 
 pub use hal_impl::LittleFsHal;
 pub use littlefs_rust::Error as FsError;
@@ -195,14 +196,6 @@ pub fn block_size() -> u32 {
     VOLUME_BLOCK_SIZE.load(Ordering::Relaxed)
 }
 
-fn config_for(geometry: FsGeometry, block_count: u32) -> Config {
-    let mut cfg = Config::new(geometry.block, block_count);
-    cfg.read_size = geometry.read;
-    cfg.prog_size = geometry.prog;
-    cfg.block_cycles = 500;
-    cfg
-}
-
 /// Mount `storage`, formatting on first boot or after corruption.
 ///
 /// Must be called exactly once, before the scheduler starts.
@@ -217,28 +210,19 @@ pub fn init_host_image() -> Result<(), FsError> {
     init_device(storage)
 }
 
-fn mount(mut storage: DynStorage) -> Result<(), FsError> {
+fn mount(storage: DynStorage) -> Result<(), FsError> {
     let geometry = storage.0.geometry();
     let block_count = storage.0.block_count();
     VOLUME_BLOCKS.store(block_count, Ordering::Relaxed);
     VOLUME_BLOCK_SIZE.store(geometry.block, Ordering::Relaxed);
-    let config = config_for(geometry, block_count);
-
-    // Mount first; format only if the mount reports corruption. The order
-    // matters: formatting unconditionally would erase a working filesystem on
-    // every boot, and the failure would look like "persistence is broken"
-    // rather than like a bug here.
-    let fs = match Filesystem::mount(storage, config) {
-        Ok(fs) => fs,
-        Err((FsError::Corrupt, recovered)) => {
-            storage = recovered;
-            let cfg = config_for(geometry, block_count);
-            Filesystem::format(&mut storage, &cfg)?;
-            Filesystem::mount(storage, cfg).map_err(|(e, _)| e)?
-        }
-        Err((e, _)) => return Err(e),
-    };
-
+    // Mount, or format what cannot be mounted — the rule lives in `volume`.
+    let fs = volume::open_volume(
+        storage,
+        geometry.block,
+        geometry.prog,
+        geometry.read,
+        block_count,
+    )?;
     cell::install(fs);
     Ok(())
 }

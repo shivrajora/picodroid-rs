@@ -487,6 +487,24 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
         c::java_util_IllegalFormatException,
         c::java_lang_IllegalArgumentException,
     ),
+    // The formatter's family, as in java.util: each names its case (QA
+    // 2026-09-13 §7 — `%.2d` threw the base class).
+    (
+        c::java_util_IllegalFormatConversionException,
+        c::java_util_IllegalFormatException,
+    ),
+    (
+        c::java_util_IllegalFormatPrecisionException,
+        c::java_util_IllegalFormatException,
+    ),
+    (
+        c::java_util_MissingFormatArgumentException,
+        c::java_util_IllegalFormatException,
+    ),
+    (
+        c::java_util_UnknownFormatConversionException,
+        c::java_util_IllegalFormatException,
+    ),
     // Checked exceptions thrown alloc-by-name from natives (net stack).
     // Mirrors the real java.net hierarchy so superclass catches behave
     // exactly as on Android — note SocketTimeoutException descends from

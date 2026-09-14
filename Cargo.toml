@@ -15,8 +15,20 @@ resolver = "2"
 
 # Local fork of littlefs-rust-core v0.1.0 with `lfs_alignup` patched to use
 # wrapping arithmetic — upstream panics on u32 overflow in debug builds.
+# Local fork of littlefs-rust v0.1.0 (the safe API over the core) with the
+# per-open 4 KB file cache reserved fallibly: on the RP2040, `vec![0u8; 4096]`
+# in File::open aborted the firmware once qa_store had filled the heap, where
+# an IOException / OutOfMemoryError was due (qa-2026-09-13-followups.md §3).
 [patch.crates-io]
 littlefs-rust-core = { path = "third_party/littlefs-rust-core" }
+littlefs-rust = { path = "third_party/littlefs-rust" }
+# Local fork of rp2040-hal v0.10.2 whose float-to-int intrinsics truncate:
+# upstream maps `__aeabi_f2iz` & co. to the bootrom's float_to_int family,
+# which rounds toward -inf, so every `as i32` of a negative fraction in
+# this tree — Rust and LVGL's C alike — floored on the RP2040 and truncated
+# everywhere else (qa-2026-09-13-followups.md §4). platforms/rp/src/main.rs
+# checks the fix at boot.
+rp2040-hal = { path = "third_party/rp2040-hal" }
 
 # Both device profiles are opt-level 3, on purpose. Rust at "s" was priced on
 # the RP2350 bench on 2026-09-08: -167 KB of .text for +29 % on the JVM
