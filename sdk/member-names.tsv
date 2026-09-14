@@ -521,6 +521,7 @@ M	checkHeader
 M	checkIndex
 M	checkKey
 M	checkName
+M	checkNotReleased
 M	checkedPut
 M	clamp
 M	clampMs
@@ -771,6 +772,7 @@ M	isInterrupted
 M	isNull
 M	isNullSentinel
 M	isQueued
+M	isReleased
 M	isShutdown
 M	isTerminated
 M	join
