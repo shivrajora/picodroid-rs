@@ -74,12 +74,16 @@ pub(crate) fn dispatch(
                 if i < 0 || i as usize > ctx.objects.list_len(buf_idx) {
                     return Some(Err(index_out_of_bounds(ctx)));
                 }
-                ctx.objects.list_insert(buf_idx, i as usize, v);
+                if ctx.objects.list_insert(buf_idx, i as usize, v).is_err() {
+                    return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+                }
                 Some(Ok(None))
             } else {
                 // add(Object element) → boolean (always true)
                 let v = ctx.args.get(1).copied().unwrap_or(Value::Null);
-                ctx.objects.list_add(buf_idx, v);
+                if ctx.objects.list_add(buf_idx, v).is_err() {
+                    return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+                }
                 Some(Ok(Some(Value::Int(1))))
             }
         }

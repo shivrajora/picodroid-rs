@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::{heap::StringTable, types::Value};
 
-use super::ObjectHeap;
+use super::{reserve_fallible, Exhausted, ObjectHeap};
 
 impl ObjectHeap {
     // ── HashMap / map_bufs ──────────────────────────────────────────────────
@@ -16,6 +16,7 @@ impl ObjectHeap {
             return Some(idx as u16);
         }
         let idx = self.map_bufs.len() as u16;
+        reserve_fallible(&mut self.map_bufs, 1).ok()?;
         self.map_bufs.push(Some(Vec::new()));
         Some(idx)
     }
@@ -49,24 +50,28 @@ impl ObjectHeap {
         None
     }
 
-    /// Put a key-value pair. Returns the previous value if the key existed.
+    /// Put a key-value pair. Returns the previous value if the key existed;
+    /// [`Exhausted`] when a new entry cannot be stored (the map is unchanged).
     pub fn map_put(
         &mut self,
         idx: u16,
         key: Value,
         value: Value,
         strings: &StringTable,
-    ) -> Option<Value> {
+    ) -> Result<Option<Value>, Exhausted> {
         // Must do the lookup before borrowing mutably.
         let pos = self.map_find_key(idx, key, strings);
-        let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
+        let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) else {
+            return Ok(None);
+        };
         if let Some(pos) = pos {
             let old = buf[pos].1;
             buf[pos].1 = value;
-            Some(old)
+            Ok(Some(old))
         } else {
+            reserve_fallible(buf, 1)?;
             buf.push((key, value));
-            None
+            Ok(None)
         }
     }
 

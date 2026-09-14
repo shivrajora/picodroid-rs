@@ -1101,7 +1101,7 @@ fn gc_retains_hashmap_entries() {
 
     let key_obj = objects.alloc("Key").unwrap();
     let val_obj = objects.alloc("Val").unwrap();
-    objects.map_put(
+    let _ = objects.map_put(
         buf_idx,
         Value::ObjectRef(key_obj),
         Value::ObjectRef(val_obj),
@@ -1136,7 +1136,7 @@ fn gc_collects_unreachable_hashmap() {
     let map_obj = objects.alloc(c::java_util_HashMap).unwrap();
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
-    objects.map_put(buf_idx, Value::Int(1), Value::Int(10), &strings);
+    let _ = objects.map_put(buf_idx, Value::Int(1), Value::Int(10), &strings);
 
     // No roots — map should be collected
     let frames = [];
@@ -1166,7 +1166,7 @@ fn gc_hashmap_key_keeps_object_alive() {
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
     let key_obj = objects.alloc("OnlyInKey").unwrap();
-    objects.map_put(buf_idx, Value::ObjectRef(key_obj), Value::Int(1), &strings);
+    let _ = objects.map_put(buf_idx, Value::ObjectRef(key_obj), Value::Int(1), &strings);
 
     let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
     let freed = collect(
@@ -1195,7 +1195,7 @@ fn gc_hashmap_value_keeps_object_alive() {
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
 
     let val_obj = objects.alloc("OnlyInValue").unwrap();
-    objects.map_put(buf_idx, Value::Int(1), Value::ObjectRef(val_obj), &strings);
+    let _ = objects.map_put(buf_idx, Value::Int(1), Value::ObjectRef(val_obj), &strings);
 
     let frame = Frame::new(0, 0, &[Value::ObjectRef(map_obj)], 4, 4).unwrap();
     let freed = collect(
@@ -1224,7 +1224,7 @@ fn gc_hashset_retains_members() {
     objects.set_field(set_obj, 0, Value::Int(buf_idx as i32));
 
     let member = objects.alloc("Member").unwrap();
-    objects.map_put(buf_idx, Value::ObjectRef(member), Value::Int(1), &strings);
+    let _ = objects.map_put(buf_idx, Value::ObjectRef(member), Value::Int(1), &strings);
 
     let frame = Frame::new(0, 0, &[Value::ObjectRef(set_obj)], 4, 4).unwrap();
     let freed = collect(
@@ -1259,7 +1259,7 @@ fn gc_stress_hashmap_churn() {
         let buf_idx = objects.map_alloc().unwrap();
         objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
         for j in 0..5 {
-            objects.map_put(
+            let _ = objects.map_put(
                 buf_idx,
                 Value::Int(j),
                 Value::Int(i as i32 * 10 + j),
@@ -1317,7 +1317,7 @@ fn gc_stress_hashmap_large_map() {
     for i in 0..500 {
         let val = objects.alloc("Val").unwrap();
         objects.set_field(val, 0, Value::Int(i));
-        objects.map_put(buf_idx, Value::Int(i), Value::ObjectRef(val), &strings);
+        let _ = objects.map_put(buf_idx, Value::Int(i), Value::ObjectRef(val), &strings);
         value_objs.push(val);
     }
 
@@ -1372,7 +1372,7 @@ fn gc_collects_iterator() {
     let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
-    objects.list_add(buf_idx, Value::Int(10));
+    let _ = objects.list_add(buf_idx, Value::Int(10));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
@@ -1421,7 +1421,7 @@ fn gc_iterator_pins_temporary_list() {
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
     let elem = objects.alloc(c::java_lang_Object).unwrap();
-    objects.list_add(buf_idx, Value::ObjectRef(elem));
+    let _ = objects.list_add(buf_idx, Value::ObjectRef(elem));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
@@ -1482,7 +1482,7 @@ fn gc_map_view_pins_temporary_map() {
     let buf_idx = objects.map_alloc().unwrap();
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
     let key = objects.alloc(c::java_lang_Object).unwrap();
-    objects.map_put(buf_idx, Value::ObjectRef(key), Value::Int(1), &mut strings);
+    let _ = objects.map_put(buf_idx, Value::ObjectRef(key), Value::Int(1), &mut strings);
 
     let view = objects.alloc(c::java_util_HashMap_KeySet).unwrap();
     objects.set_field(view, 0, Value::Int(buf_idx as i32));
@@ -1527,7 +1527,7 @@ fn gc_retains_iterator_and_source() {
     let list_obj = objects.alloc(c::java_util_ArrayList).unwrap();
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
-    objects.list_add(buf_idx, Value::Int(10));
+    let _ = objects.list_add(buf_idx, Value::Int(10));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
     objects.iter_register(
@@ -1580,7 +1580,7 @@ fn gc_stress_iterator_churn() {
     let buf_idx = objects.list_alloc().unwrap();
     objects.set_field(list_obj, 0, Value::Int(buf_idx as i32));
     for i in 0..10 {
-        objects.list_add(buf_idx, Value::Int(i));
+        let _ = objects.list_add(buf_idx, Value::Int(i));
     }
 
     // Create 500 iterators on the same list, each abandoned after partial iteration
@@ -1900,7 +1900,7 @@ fn gc_traces_and_frees_linked_hash_map_like_hash_map() {
     objects.set_field(map_obj, 0, Value::Int(buf_idx as i32));
     let key_obj = objects.alloc("Key").unwrap();
     let val_obj = objects.alloc("Val").unwrap();
-    objects.map_put(
+    let _ = objects.map_put(
         buf_idx,
         Value::ObjectRef(key_obj),
         Value::ObjectRef(val_obj),

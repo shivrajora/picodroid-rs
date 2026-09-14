@@ -69,7 +69,7 @@ impl Harness {
         for &i in items {
             let boxed =
                 helpers::box_primitive(&mut self.objects, b'I', Value::Int(i)).expect("box");
-            self.objects.list_add(buf, boxed);
+            let _ = self.objects.list_add(buf, boxed);
         }
         (Value::ObjectRef(obj), buf)
     }
@@ -470,8 +470,8 @@ fn upcall_depth_capped() {
     // A list containing itself twice: sorting it compares the list with the
     // list, and the comparator sorts that — forever.
     let (list, buf) = h.new_list(&[]);
-    h.objects.list_add(buf, list);
-    h.objects.list_add(buf, list);
+    let _ = h.objects.list_add(buf, list);
+    let _ = h.objects.list_add(buf, list);
     let cmp_obj = h.objects.alloc("Cmp").expect("alloc");
 
     match h.execute(0, &[list, Value::ObjectRef(cmp_obj)]) {

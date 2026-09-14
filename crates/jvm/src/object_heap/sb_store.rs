@@ -2,7 +2,8 @@
 use alloc::vec::Vec;
 
 use super::{
-    double_to_str_buf, float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf, ObjectHeap,
+    double_to_str_buf, float_to_str_buf, int_to_decimal_buf, long_to_decimal_buf, reserve_fallible,
+    Exhausted, ObjectHeap,
 };
 
 impl ObjectHeap {
@@ -23,6 +24,7 @@ impl ObjectHeap {
             return Some(idx as u16);
         }
         let idx = self.sb_bufs.len() as u16;
+        reserve_fallible(&mut self.sb_bufs, 1).ok()?;
         self.sb_bufs.push(Some(Vec::new()));
         Some(idx)
     }
@@ -34,39 +36,42 @@ impl ObjectHeap {
         }
     }
 
-    /// Append raw bytes to the buffer at `idx`.
-    pub fn sb_append_bytes(&mut self, idx: u16, bytes: &[u8]) {
+    /// Append raw bytes to the buffer at `idx`. [`Exhausted`] when the
+    /// buffer cannot grow; nothing is appended then.
+    pub fn sb_append_bytes(&mut self, idx: u16, bytes: &[u8]) -> Result<(), Exhausted> {
         if let Some(Some(buf)) = self.sb_bufs.get_mut(idx as usize) {
+            reserve_fallible(buf, bytes.len())?;
             buf.extend_from_slice(bytes);
         }
+        Ok(())
     }
 
     /// Append an integer in decimal to the buffer at `idx`.
-    pub fn sb_append_int(&mut self, idx: u16, n: i32) {
+    pub fn sb_append_int(&mut self, idx: u16, n: i32) -> Result<(), Exhausted> {
         let mut tmp = [0u8; 12];
         let s = int_to_decimal_buf(n, &mut tmp);
-        self.sb_append_bytes(idx, s);
+        self.sb_append_bytes(idx, s)
     }
 
     /// Append a long in decimal to the buffer at `idx`.
-    pub fn sb_append_long(&mut self, idx: u16, n: i64) {
+    pub fn sb_append_long(&mut self, idx: u16, n: i64) -> Result<(), Exhausted> {
         let mut tmp = [0u8; 21];
         let s = long_to_decimal_buf(n, &mut tmp);
-        self.sb_append_bytes(idx, s);
+        self.sb_append_bytes(idx, s)
     }
 
     /// Append a float to the buffer at `idx` (`Float.toString` layout).
-    pub fn sb_append_float(&mut self, idx: u16, f: f32) {
+    pub fn sb_append_float(&mut self, idx: u16, f: f32) -> Result<(), Exhausted> {
         let mut tmp = [0u8; 32];
         let s = float_to_str_buf(f, &mut tmp);
-        self.sb_append_bytes(idx, s);
+        self.sb_append_bytes(idx, s)
     }
 
     /// Append a double to the buffer at `idx` (`Double.toString` layout).
-    pub fn sb_append_double(&mut self, idx: u16, d: f64) {
+    pub fn sb_append_double(&mut self, idx: u16, d: f64) -> Result<(), Exhausted> {
         let mut tmp = [0u8; 32];
         let s = double_to_str_buf(d, &mut tmp);
-        self.sb_append_bytes(idx, s);
+        self.sb_append_bytes(idx, s)
     }
 
     /// Current length in bytes of the buffer at `idx`.

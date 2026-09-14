@@ -1559,3 +1559,53 @@ mod tests {
         assert_eq!(collected, [Value::Int(7), Value::Int(8)]);
     }
 }
+
+// ── Fallible growth of the side buffers ─────────────────────────────────
+
+/// A side buffer (list, map, builder) could not grow: the Rust heap has no
+/// block of the needed size. Native arms turn this into a Java
+/// `OutOfMemoryError`; the alternative — `Vec::push` aborting through the
+/// allocation-error handler — resets the board (QA 2026-09-13: a 2000-entry
+/// `HashMap` did exactly that in the sim).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exhausted;
+
+/// Make room for `extra` more elements in `v` without aborting. `Vec`'s own
+/// growth doubles, which on a fragmented FreeRTOS arena asks for a block
+/// twice the current one; when that fails, a quarter step (or the exact
+/// need) is tried before giving up, since the arena may still hold a
+/// smaller block.
+pub(crate) fn reserve_fallible<T>(v: &mut Vec<T>, extra: usize) -> Result<(), Exhausted> {
+    if v.capacity() - v.len() >= extra {
+        return Ok(());
+    }
+    if v.try_reserve(extra).is_ok() {
+        return Ok(());
+    }
+    // Doubling asks a fragmented arena for a block it may not have: step
+    // down by halves to the exact need before giving up.
+    let mut step = v.len() / 2;
+    while step > extra {
+        if v.try_reserve_exact(step).is_ok() {
+            return Ok(());
+        }
+        step /= 2;
+    }
+    v.try_reserve_exact(extra).map_err(|_| Exhausted)
+}
+
+#[cfg(test)]
+mod growth_tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn reserve_fallible_reports_exhaustion_instead_of_aborting() {
+        let mut v: Vec<u64> = Vec::new();
+        assert_eq!(reserve_fallible(&mut v, 4), Ok(()));
+        assert!(v.capacity() >= 4);
+        // An impossible request fails softly on both growth paths.
+        assert_eq!(reserve_fallible(&mut v, usize::MAX / 16), Err(Exhausted));
+        assert!(v.capacity() < usize::MAX / 16);
+    }
+}

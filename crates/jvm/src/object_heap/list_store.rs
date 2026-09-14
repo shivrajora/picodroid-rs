@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::types::Value;
 
-use super::ObjectHeap;
+use super::{reserve_fallible, Exhausted, ObjectHeap};
 
 impl ObjectHeap {
     // ── ArrayList / list_bufs ────────────────────────────────────────────────
@@ -16,6 +16,7 @@ impl ObjectHeap {
             return Some(idx as u16);
         }
         let idx = self.list_bufs.len() as u16;
+        reserve_fallible(&mut self.list_bufs, 1).ok()?;
         self.list_bufs.push(Some(Vec::new()));
         Some(idx)
     }
@@ -41,20 +42,26 @@ impl ObjectHeap {
         self.list_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
     }
 
-    /// Append `v` to the end of the list.
-    pub fn list_add(&mut self, idx: u16, v: Value) {
+    /// Append `v` to the end of the list. [`Exhausted`] when the buffer
+    /// cannot grow; the list is unchanged then.
+    pub fn list_add(&mut self, idx: u16, v: Value) -> Result<(), Exhausted> {
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
+            reserve_fallible(buf, 1)?;
             buf.push(v);
         }
+        Ok(())
     }
 
     /// Insert `v` at position `i`, shifting subsequent elements right.
-    /// If `i >= len`, appends to the end.
-    pub fn list_insert(&mut self, idx: u16, i: usize, v: Value) {
+    /// If `i >= len`, appends to the end. [`Exhausted`] when the buffer
+    /// cannot grow; the list is unchanged then.
+    pub fn list_insert(&mut self, idx: u16, i: usize, v: Value) -> Result<(), Exhausted> {
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
+            reserve_fallible(buf, 1)?;
             let pos = i.min(buf.len());
             buf.insert(pos, v);
         }
+        Ok(())
     }
 
     /// Replace the element at position `i` with `v`, returning the old value.

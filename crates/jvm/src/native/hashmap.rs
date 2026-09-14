@@ -42,7 +42,10 @@ pub(crate) fn dispatch(
             };
             let key = ctx.args.get(1).copied().unwrap_or(Value::Null);
             let value = ctx.args.get(2).copied().unwrap_or(Value::Null);
-            let old = ctx.objects.map_put(buf_idx, key, value, ctx.strings);
+            let old = match ctx.objects.map_put(buf_idx, key, value, ctx.strings) {
+                Ok(old) => old,
+                Err(_) => return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError))),
+            };
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
         m::get => {
@@ -138,6 +141,9 @@ fn view(
         Some(idx) => idx,
         None => return Some(Err(JvmError::StackOverflow)),
     };
+    // Field 1 keeps the map alive for as long as the view is: the GC
+    // traces object fields generically, so a view over a temporary map
+    // (`for (e in makeMap().entries)`) pins the map, and with it the buffer.
     ctx.objects.set_field(view, 0, Value::Int(buf_idx as i32));
     // Field 1 keeps the map alive for as long as the view is: the GC
     // traces object fields generically, so a view over a temporary map

@@ -38,7 +38,9 @@ pub(crate) fn dispatch(
         // <init>(String): if a String argument was supplied, seed the buffer.
         if let Some(Value::Reference(idx)) = ctx.args.get(1) {
             let s = ctx.strings.resolve(*idx).unwrap_or("");
-            ctx.objects.sb_append_bytes(buf_idx, s.as_bytes());
+            if ctx.objects.sb_append_bytes(buf_idx, s.as_bytes()).is_err() {
+                return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+            }
         }
         return Some(Ok(None));
     }
@@ -50,10 +52,10 @@ pub(crate) fn dispatch(
 
     match method_name {
         m::append => {
-            match ctx.args.get(1) {
+            let grown = match ctx.args.get(1) {
                 Some(Value::Reference(idx)) => {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
-                    ctx.objects.sb_append_bytes(buf, s.as_bytes());
+                    ctx.objects.sb_append_bytes(buf, s.as_bytes())
                 }
                 Some(Value::Int(n)) => {
                     let desc = ctx.descriptor;
@@ -70,29 +72,26 @@ pub(crate) fn dispatch(
                         } else {
                             b' '
                         };
-                        ctx.objects.sb_append_bytes(buf, &[ch]);
+                        ctx.objects.sb_append_bytes(buf, &[ch])
                     } else if desc.starts_with("(Z)") {
                         // append(boolean)
                         ctx.objects
-                            .sb_append_bytes(buf, if *n != 0 { b"true" } else { b"false" });
+                            .sb_append_bytes(buf, if *n != 0 { b"true" } else { b"false" })
                     } else {
-                        ctx.objects.sb_append_int(buf, *n);
+                        ctx.objects.sb_append_int(buf, *n)
                     }
                 }
-                Some(Value::Long(n)) => {
-                    ctx.objects.sb_append_long(buf, *n);
-                }
-                Some(Value::Float(f)) => {
-                    ctx.objects.sb_append_float(buf, *f);
-                }
-                Some(Value::Double(d)) => {
-                    ctx.objects.sb_append_double(buf, *d);
-                }
+                Some(Value::Long(n)) => ctx.objects.sb_append_long(buf, *n),
+                Some(Value::Float(f)) => ctx.objects.sb_append_float(buf, *f),
+                Some(Value::Double(d)) => ctx.objects.sb_append_double(buf, *d),
                 // append(Object) with null. A non-null object never reaches
                 // here: the interpreter stringifies it first (see
                 // `Executor::stringify_object_arg`).
                 Some(Value::Null) => ctx.objects.sb_append_bytes(buf, b"null"),
-                _ => {}
+                _ => Ok(()),
+            };
+            if grown.is_err() {
+                return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
             }
             // append() returns `this` for chaining.
             Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
