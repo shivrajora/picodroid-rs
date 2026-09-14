@@ -117,6 +117,11 @@ pub(crate) fn run_application(
         }
     };
 
+    // This task owns the UI from here on, Activity or not: until it is
+    // recorded, every task passes for the UI task — a background-pool job
+    // in an Activity-less app saw `Thread.currentThread()` named "main"
+    // (QA 2026-09-13). The activity loop records it again on entry.
+    crate::ui_thread::note_ui_task();
     match jvm.invoke_instance(application_class, m::onCreate, obj_ref, heap, handler) {
         Ok(()) => {}
         Err(JvmError::Interrupted) => return,
