@@ -14,11 +14,28 @@ pub(in crate::graphics) fn create() -> i32 {
 }
 
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
+    with_cstr(text, |p| unsafe {
+        lv_label_set_text(handle_table::lookup(id), p)
+    });
+}
+
+/// Run `f` on `text` as a NUL-terminated C string of any length. LVGL copies
+/// the text into the widget, so the buffer is only needed for the call. A
+/// 128-byte stack buffer used to cap every `setText` at 127 bytes (QA
+/// 2026-09-13); it remains the fallback for a heap that cannot spare the
+/// bytes, where the text is cut rather than the app stopped.
+pub(in crate::graphics) fn with_cstr<R>(text: &str, f: impl FnOnce(*const c_char) -> R) -> R {
+    let mut owned: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+    if owned.try_reserve_exact(text.len() + 1).is_ok() {
+        owned.extend_from_slice(text.as_bytes());
+        owned.push(0);
+        return f(owned.as_ptr() as *const c_char);
+    }
     let mut buf = [0u8; 128];
     let len = text.len().min(127);
     buf[..len].copy_from_slice(&text.as_bytes()[..len]);
     buf[len] = 0;
-    unsafe { lv_label_set_text(handle_table::lookup(id), buf.as_ptr() as *const c_char) };
+    f(buf.as_ptr() as *const c_char)
 }
 
 /// The label behind a `TextView` handle: the object itself for a bare label, its first child
@@ -42,7 +59,14 @@ fn label_of(id: i32) -> *mut lv_obj_t {
 /// a null label or text. In dots mode LVGL has overwritten the tail of its own buffer with the
 /// dots; setting the text to NULL ("refresh the current text") restores it until the next layout
 /// pass, so the copy is the whole text — what Android's `getText()` returns.
-pub(in crate::graphics) fn label_text(label: *mut lv_obj_t, dst: &mut [u8; 256]) -> Option<usize> {
+/// Run `f` over the label's current text, whatever its length. `None` when
+/// there is no label or LVGL holds no text for it. Replaces a 256-byte
+/// copy that silently truncated `getText()` of anything longer (QA
+/// 2026-09-13).
+pub(in crate::graphics) fn with_label_text<R>(
+    label: *mut lv_obj_t,
+    f: impl FnOnce(&[u8]) -> R,
+) -> Option<R> {
     if label.is_null() {
         return None;
     }
@@ -50,14 +74,33 @@ pub(in crate::graphics) fn label_text(label: *mut lv_obj_t, dst: &mut [u8; 256])
         if lv_label_get_long_mode(label) == LV_LABEL_LONG_MODE_DOTS {
             lv_label_set_text(label, core::ptr::null());
         }
-        copy_cstr(lv_label_get_text(label), dst)
+        let text = lv_label_get_text(label);
+        if text.is_null() {
+            return None;
+        }
+        Some(f(cstr_bytes(text)))
     }
 }
 
-/// Copy the label's current text into `dst` (capped at 256 bytes). Returns
-/// the byte length written, or `None` when LVGL returned a null pointer.
-pub(in crate::graphics) fn get_text(id: i32, dst: &mut [u8; 256]) -> Option<usize> {
-    label_text(label_of(id), dst)
+/// Run `f` over the view's current text (see [`with_label_text`]).
+pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
+    with_label_text(label_of(id), f)
+}
+
+/// The bytes of a NUL-terminated C string, without the terminator.
+///
+/// # Safety
+/// `p` must point at a NUL-terminated string that outlives the returned
+/// slice — LVGL's own text buffer, read while the widget is untouched.
+pub(in crate::graphics) unsafe fn cstr_bytes<'a>(p: *const core::ffi::c_char) -> &'a [u8] {
+    // c_char is i8 on x86_64 and u8 on ARM; cast unconditionally for portability.
+    #[allow(clippy::unnecessary_cast)]
+    let p = p as *const u8;
+    let mut len = 0usize;
+    while *p.add(len) != 0 {
+        len += 1;
+    }
+    core::slice::from_raw_parts(p, len)
 }
 
 /// `TextView.nativeSetLineMode`: the long mode for the ellipsize kind, and a `max_height` cap of
@@ -103,26 +146,6 @@ fn box_height_for(label: *mut lv_obj_t, lines: i32) -> i32 {
         + (lines - 1) * num(LV_STYLE_TEXT_LINE_SPACE)
         + pads
         + 2 * num(LV_STYLE_BORDER_WIDTH)
-}
-
-/// Bounded copy of a NUL-terminated LVGL string. `c_char` is `i8` on x86_64
-/// and `u8` on ARM; the cast is unconditional for portability.
-pub(in crate::graphics) fn copy_cstr(cstr: *const c_char, dst: &mut [u8; 256]) -> Option<usize> {
-    if cstr.is_null() {
-        return None;
-    }
-    #[allow(clippy::unnecessary_cast)]
-    let cstr = cstr as *const u8;
-    let mut len = 0usize;
-    unsafe {
-        while len < dst.len() && *cstr.add(len) != 0 {
-            len += 1;
-        }
-    }
-    for (i, slot) in dst[..len].iter_mut().enumerate() {
-        *slot = unsafe { *cstr.add(i) };
-    }
-    Some(len)
 }
 
 pub(in crate::graphics) fn set_text_color(id: i32, argb: u32) {

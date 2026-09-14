@@ -44,7 +44,6 @@ pub fn button_get_text(
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let mut buf = [0u8; 256];
-    let len = lvgl_button::get_text(id, &mut buf).unwrap_or(0);
-    super::text_view::intern_text(&buf[..len], strings)
+    lvgl_button::with_text(id, |text| super::text_view::intern_text(text, strings))
+        .unwrap_or_else(|| super::text_view::intern_text(&[], strings))
 }
