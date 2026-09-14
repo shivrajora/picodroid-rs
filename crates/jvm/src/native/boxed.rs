@@ -44,14 +44,7 @@ macro_rules! boxed_dispatch {
             }
             m::valueOf => {
                 let val = $ctx.args.first().copied().unwrap_or(Value::Null);
-                let obj_idx = $ctx.objects.alloc($class).ok_or(JvmError::StackOverflow);
-                match obj_idx {
-                    Err(e) => Some(Err(e)),
-                    Ok(idx) => {
-                        $ctx.objects.set_field(idx, 0, val);
-                        Some(Ok(Some(Value::ObjectRef(idx))))
-                    }
-                }
+                Some(box_value($class, val, $ctx))
             }
             // Unboxing accessor: intValue, booleanValue, longValue, etc.
             _ if is_unboxing_accessor($method) => {
@@ -472,13 +465,21 @@ fn number_format_exception(ctx: &mut NativeContext<'_>) -> JvmError {
     }
 }
 
+/// `valueOf`: the JLS-cached range (§5.1.7) hands back one shared box per
+/// value, so `Integer a = 127, b = 127; a == b` holds as on Android;
+/// everything else is a fresh box. `<init>` never comes here — `new
+/// Integer(5)` is always a distinct object.
 fn box_value(
     class: &'static str,
     val: Value,
     ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
+    if let Some(idx) = ctx.objects.cached_box(class, val) {
+        return Ok(Some(Value::ObjectRef(idx)));
+    }
     let idx = ctx.objects.alloc(class).ok_or(JvmError::StackOverflow)?;
     ctx.objects.set_field(idx, 0, val);
+    ctx.objects.cache_box(class, val, idx);
     Ok(Some(Value::ObjectRef(idx)))
 }
 
