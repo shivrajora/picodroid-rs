@@ -241,10 +241,13 @@ pub(crate) fn dispatch(
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
-                let result = match sa.cmp(sb) {
-                    core::cmp::Ordering::Less => -1,
-                    core::cmp::Ordering::Equal => 0,
-                    core::cmp::Ordering::Greater => 1,
+                // Java's contract: the difference of the first differing
+                // chars, else the length difference — `"a".compareTo("c")`
+                // is -2, not -1 (QA 2026-09-13).
+                let (ba, bb) = (sa.as_bytes(), sb.as_bytes());
+                let result = match ba.iter().zip(bb).find(|(x, y)| x != y) {
+                    Some((&x, &y)) => x as i32 - y as i32,
+                    None => ba.len() as i32 - bb.len() as i32,
                 };
                 Some(Ok(Some(Value::Int(result))))
             }
