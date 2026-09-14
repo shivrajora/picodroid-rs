@@ -166,12 +166,6 @@ pub const CONTRACT_HINTS: &[(&str, &str, &str)] = &[
 /// that are never executed by a working program. `(owner, name, desc, why)`.
 pub const TOLERATED: &[(&str, &str, &str, &str)] = &[
     (
-        "java/lang/Enum",
-        "valueOf",
-        "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;",
-        "the synthetic callee of every enum's valueOf(String); unsupported (compatibility matrix), never reached by the demos",
-    ),
-    (
         "java/util/Locale",
         "ROOT",
         "Ljava/util/Locale;",

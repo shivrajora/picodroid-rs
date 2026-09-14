@@ -756,6 +756,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .map(Some);
             }
         }
+        // `Enum.valueOf(Class, String)` — the callee of every enum's own
+        // `valueOf(String)` — resolves here: the constants are the static
+        // fields of the enum class's own type in the static store, which the
+        // `invokestatic` into that class initialised on the way in.
+        if class_name == c::java_lang_Enum
+            && method_name == m::valueOf
+            && descriptor == d::Class_String__Enum
+        {
+            return self.enum_value_of(args);
+        }
         // `ArrayList.sort(Comparator)` resolves here rather than in a handler
         // arm, for two reasons. `java/util/ArrayList` is classfile-less, so
         // unlike `Collections.sort` there is no Java body this could live in;
@@ -1334,6 +1344,71 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             *slot = s;
         }
         Ok(())
+    }
+
+    /// `Enum.valueOf(Class<E> enumType, String name)`: the constant of the
+    /// named enum class with that name — the static field of the class's
+    /// own type whose object's `name` (field 0) matches — or
+    /// `IllegalArgumentException`, as on Android (`NullPointerException`
+    /// for a null name).
+    fn enum_value_of(&mut self, args: &[Value]) -> Result<Option<Value>, JvmError> {
+        let Some(Value::ObjectRef(class_obj)) = args.first().copied() else {
+            return Err(self.runtime_fault(c::java_lang_NullPointerException));
+        };
+        let Some(Value::Reference(wanted)) = args.get(1).copied() else {
+            return Err(self.runtime_fault(c::java_lang_NullPointerException));
+        };
+        let Some(Value::Reference(name_idx)) = self.objects.get_field(class_obj, 0) else {
+            return Err(JvmError::InvalidReference);
+        };
+        let ci = {
+            let class_name = self
+                .strings
+                .resolve(name_idx)
+                .ok_or(JvmError::InvalidReference)?;
+            find_class(self.classes, class_name.as_bytes()).ok_or(JvmError::ClassNotFound)?
+        };
+        let cf = &self.classes[ci];
+        let cn: &'static [u8] = cf.class_name().ok_or(JvmError::InvalidBytecode)?;
+        for field in cf.static_fields() {
+            let Some(desc) = cf.cp_utf8(field.descriptor_index) else {
+                continue;
+            };
+            // The constants are exactly the static fields typed as the enum itself.
+            let own_type = desc.len() == cn.len() + 2
+                && desc[0] == b'L'
+                && desc[desc.len() - 1] == b';'
+                && &desc[1..desc.len() - 1] == cn;
+            if !own_type {
+                continue;
+            }
+            let Some(field_name) = cf.cp_utf8(field.name_index) else {
+                continue;
+            };
+            let constant = self.statics.get(cn, field_name);
+            if let Value::ObjectRef(obj) = constant {
+                if let Some(Value::Reference(n)) = self.objects.get_field(obj, 0) {
+                    if self.strings.content_eq(n, wanted) {
+                        return Ok(Some(constant));
+                    }
+                }
+            }
+        }
+        let mut msg: Vec<u8> = Vec::with_capacity(cn.len() + 32);
+        msg.extend_from_slice(b"No enum constant ");
+        msg.extend(cn.iter().map(|&b| if b == b'/' { b'.' } else { b }));
+        msg.push(b'.');
+        if let Some(w) = self.strings.resolve(wanted) {
+            msg.extend_from_slice(w.as_bytes());
+        }
+        let e = self
+            .objects
+            .alloc(c::java_lang_IllegalArgumentException)
+            .ok_or(JvmError::StackOverflow)?;
+        if let Some(m) = self.strings.intern_dyn_owned(msg) {
+            self.objects.register_exception_message(e, m);
+        }
+        Err(JvmError::Exception(e))
     }
 
     /// Box a native arm's primitive result when the SAM returns a reference.

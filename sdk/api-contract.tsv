@@ -35,7 +35,6 @@
 # by inheritance in the usual way.
 #
 # ── Tolerated: accepted although not served (static shapes never executed) ──
-#   java/lang/Enum.valueOf(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum; — the synthetic callee of every enum's valueOf(String); unsupported (compatibility matrix), never reached by the demos
 #   java/util/Locale.ROOTLjava/util/Locale; — kotlinc's uppercase()/lowercase() pass it to String.toUpperCase(Locale); getstatic on a classfile-less class reads null and the arm ignores it
 #   java/util/Locale.USLjava/util/Locale; — as ROOT
 #   java/lang/invoke/LambdaMetafactory (name only) — bootstrap-method owner of every invokedynamic; the interpreter matches the name and builds the lambda itself

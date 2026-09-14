@@ -306,6 +306,9 @@ const THROWABLE_METHODS: &[BuiltinMethodRow] = &[
 
 const ENUM_METHODS: &[BuiltinMethodRow] = &[
     ("<init>", &[]),
+    // Served by the interpreter (`Executor::enum_value_of`): the callee of
+    // every enum's own `valueOf(String)`.
+    (m::valueOf, &[d::Class_String__Enum]),
     (m::name, &[]),
     (m::toString, &[]),
     (m::ordinal, &[]),
