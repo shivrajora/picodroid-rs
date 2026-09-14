@@ -128,7 +128,7 @@ run_test() {
   #
   # The build-time PICODROID_APK_PATH is a constant marker, not the real
   # path: sim binaries load the .papk at startup from the *runtime* env var
-  # (see build_support/papk.rs::embed_apk), and the framework-class embed
+  # (picodroid-core's hal/sim/app_region.rs), and the framework-class embed
   # only keys on the var being set. A stable value means the first build per
   # mode is the only real build — switching apps is a cargo no-op.
   sim_log "  Building sim binary..."
@@ -363,6 +363,160 @@ run_launcher_smoke() {
     tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
     check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
     echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# The bridge lane: the simulator as a `pdb` device
+# (docs/designs/sim-pdb-endpoint-2026-09.md). Boot the launcher with
+# helloworld installed and drive it with the real `pdb` binary over the
+# simulator's socket — the conf's `pdb` rows, on the host: ping, list, sysmon,
+# an input tap that launches helloworld, an install that reboots the
+# simulator (exec, warm boot, the launcher back with one more app), a refused
+# install the launcher survives (the device-side compat check, after the
+# park), an uninstall that reboots again, and a ping of the rebooted process.
+run_pdb_smoke() {
+  local mode="$1"
+  local app=helloworld second=blinky lane=pdb
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="\[sim\] pdb: listening on;Launcher[]:] ready: 1 apps;HelloWorld[]:] hi;\[sim\] reboot: requested by the debug bridge;\[sim\] apps: warm boot from;Launcher[]:] ready: 2 apps"
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (pdb bridge smoke, 150s) ---"
+
+  # Four PAPKs: the boot app, the launcher, a second app to install and
+  # remove, and the boot app built in the *other* shrink mode — a
+  # framework-map-version the simulator must refuse after parking.
+  local apk_dir="$REPO_ROOT/build/apks/sim-run/${mode}"
+  local apk_path="$apk_dir/${app}.papk"
+  local launcher_path="$apk_dir/launcher.papk"
+  local second_path="$apk_dir/${second}.papk"
+  local reject_path="$apk_dir/${app}-other-mode.papk"
+  local -a this_mode=() other_mode=(--shrink)
+  if [[ "$mode" == "shrink" ]]; then
+    this_mode=(--shrink)
+    other_mode=()
+  fi
+  local -a build=(bash "$SCRIPT_DIR/build-apk.sh" --board testbench_rp2350)
+  if ! "${build[@]}" --app "$app" -o "$apk_path" ${this_mode[@]+"${this_mode[@]}"} > "$build_log" 2>&1 \
+     || ! "${build[@]}" --app launcher -o "$launcher_path" ${this_mode[@]+"${this_mode[@]}"} >> "$build_log" 2>&1 \
+     || ! "${build[@]}" --app "$second" -o "$second_path" ${this_mode[@]+"${this_mode[@]}"} >> "$build_log" 2>&1 \
+     || ! "${build[@]}" --app "$app" -o "$reject_path" ${other_mode[@]+"${other_mode[@]}"} >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  # The same binary run_test built for this mode (a cargo no-op), and the
+  # host tool.
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+  if ! cargo build --release --target "$HOST_TARGET" \
+    --manifest-path "$REPO_ROOT/tools/pdb/Cargo.toml" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (pdb)"
+    echo "ERROR $tag (pdb build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local pdb="$REPO_ROOT/target/$HOST_TARGET/release/pdb"
+  # A short socket path (Unix sockets cap the path at ~100 bytes) of this
+  # lane's own, so a developer's simulator on the same host is never picked.
+  local sockdir
+  sockdir="$(mktemp -d /tmp/picodroid-pdb-lane.XXXXXX)"
+  local sock="$sockdir/pdb.sock"
+  local fs_img="$RUN_LOG_DIR/${lane}.${mode}.fs.img"
+  rm -f "$fs_img"
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_PDB_SOCKET="$sock" \
+    PICODROID_SIM_FS="$fs_img" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 150 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  # Wait for `want` to appear `n` times in the sim log, up to 40 s. The
+  # process id is the same across the simulator's exec reboots.
+  pdb_wait() {
+    local want="$1" n="$2" i
+    for i in $(seq 1 40); do
+      [[ "$(grep -c -- "$want" "$log_file")" -ge "$n" ]] && return 0
+      kill -0 "$pid" 2>/dev/null || return 1
+      sleep 1
+    done
+    return 1
+  }
+  # Run one pdb command against the socket; its output goes to a per-step
+  # log next to the sim's. `-k 5`: an install waits up to two minutes for
+  # READY, and a pdb wedged on a vanished socket ignores TERM.
+  pdb_run() {
+    local step="$1"
+    shift
+    timeout -k 5 130 "$pdb" -s "$sock" "$@" > "$RUN_LOG_DIR/${lane}.${mode}.pdb-${step}.log" 2>&1
+  }
+  pdb_said() { grep -qE -- "$2" "$RUN_LOG_DIR/${lane}.${mode}.pdb-${1}.log"; }
+
+  local failed=""
+  if ! pdb_wait "\[sim\] pdb: listening on" 1 || ! pdb_wait "\[Launcher\] ready: 1 apps" 1; then
+    failed="the launcher did not come up"
+  elif ! pdb_run ping ping || ! pdb_said ping "picodroid/2\." || ! pdb_said ping "apps 1/"; then
+    failed="ping"
+  elif ! pdb_run list list || ! pdb_said list "^[0-9]+ +$app " || ! pdb_said list "^SYSTEM +picodroid.launcher " || ! pdb_said list "^running: picodroid.launcher"; then
+    failed="list"
+  elif ! pdb_run sysmon sysmon || ! pdb_said sysmon "^Uptime:" || ! pdb_said sysmon " jvm " || ! pdb_said sysmon " pdb "; then
+    failed="sysmon"
+  elif ! pdb_run tap input tap 120 20 || ! pdb_wait "\[HelloWorld\] hi" 1 || ! pdb_wait "\[Launcher\] ready" 2; then
+    failed="input tap (helloworld from the launcher's first row)"
+  elif ! pdb_run install install "$second_path" || ! pdb_said install "^Install complete\."; then
+    failed="install"
+  elif ! pdb_wait "\[sim\] reboot: requested" 1 || ! pdb_wait "\[sim\] apps: warm boot from" 1 || ! pdb_wait "\[Launcher\] ready: 2 apps" 1; then
+    failed="reboot after the install"
+  elif ! pdb_run list2 list || ! pdb_said list2 "^[0-9]+ +$second "; then
+    failed="list after the install"
+  elif ! pdb_run reject install --skip-host-check --expect-rejected "$reject_path" || ! pdb_said reject "STATUS_INCOMPAT"; then
+    failed="device-side reject of the other-mode PAPK"
+  elif ! pdb_wait "\[Launcher\] ready: 2 apps" 2; then
+    failed="the launcher did not come back after the refused install"
+  elif ! pdb_run uninstall uninstall "$second" || ! pdb_said uninstall "^Device is back\."; then
+    failed="uninstall"
+  elif ! pdb_wait "\[sim\] reboot: requested" 2 || ! pdb_wait "\[Launcher\] ready: 1 apps" 2; then
+    failed="reboot after the uninstall"
+  elif ! pdb_run ping2 ping || ! pdb_said ping2 "apps 1/"; then
+    failed="ping after two reboots"
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -rf "$sockdir"
+
+  if [[ -z "$failed" ]] \
+     && check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL${failed:+ ($failed)}"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    check_no_crash "$log_file" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag${failed:+ ($failed)}" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -697,7 +851,9 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
-    # Skip pdb tests (require a real device on USB CDC).
+    # Skip the conf's pdb rows: their steps are hil-run.sh's, written for a
+    # flashed board. The simulator's bridge is exercised by `run_pdb_smoke`
+    # below, with the same host tool over the simulator's socket.
     if [[ "$category" == "pdb" ]]; then
       sim_log "SKIP $app[$MODE] (pdb — requires device)"
       echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
@@ -784,6 +940,11 @@ for MODE in "${MODES[@]}"; do
   # The settings lane (multi-app M3); `--app settings` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then
     run_settings_smoke "$MODE"
+  fi
+  # The bridge lane: the real pdb tool against the simulator's socket;
+  # `--app pdb` reaches only this.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "pdb" ]]; then
+    run_pdb_smoke "$MODE"
   fi
   # The alarm lane: an alarm outliving the app that set it, which the
   # conf's `alarmdemo` row cannot show on its own (it runs one app, with

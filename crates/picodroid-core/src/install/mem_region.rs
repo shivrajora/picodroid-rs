@@ -55,6 +55,30 @@ impl MemRegion {
         &self.buf[start..start + META_SIZE]
     }
 
+    /// The whole region, as a dump of a device's app region would read.
+    pub fn bytes(&self) -> &[u8] {
+        self.buf
+    }
+
+    /// Overwrite the region with `image`, a dump taken by [`Self::bytes`]:
+    /// the simulator's warm boot, where the process that installed into the
+    /// region has been replaced and the new one reads the flash it left
+    /// behind. A raw copy, not a program — the NOR rule guards writes to a
+    /// live region, and this is the region coming into existence.
+    ///
+    /// # Panics
+    /// If `image` is not exactly the region's length.
+    pub fn restore(&mut self, image: &[u8]) {
+        assert_eq!(
+            image.len(),
+            self.buf.len(),
+            "region snapshot is {} bytes, the region {}",
+            image.len(),
+            self.buf.len()
+        );
+        self.buf.copy_from_slice(image);
+    }
+
     fn program(&mut self, sector: u32, offset: usize, data: &[u8]) {
         let start = sector as usize * META_SIZE + offset;
         assert!(
@@ -190,8 +214,10 @@ impl InstallTransport for MemTransport {
     }
 }
 
-/// No JVM core to park: the simulator services installs on the JVM task
-/// itself, and the tests have none.
+/// No JVM core to park: the tests have none, and the simulator's seed
+/// installs (`PICODROID_SIM_APPS`) and `apps` control verbs run on the JVM
+/// task itself. An install over the simulator's debug bridge parks the JVM
+/// for real — that is `hal::sim::pdb::SimCoordinator`, not this.
 pub struct NoCoordinator;
 
 impl CoreCoordinator for NoCoordinator {

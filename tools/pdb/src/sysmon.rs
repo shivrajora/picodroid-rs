@@ -5,14 +5,10 @@ use std::time::Duration;
 use crate::protocol::{recv_response, send_frame, status_str, CMD_SYSMON, STATUS_OK};
 use pdb_protocol::sysmon::{state_name, SysmonError, SysmonView};
 
-const BAUD_RATE: u32 = 115_200;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn run(port_name: &str) {
-    let mut port = match serialport::new(port_name, BAUD_RATE)
-        .timeout(TIMEOUT)
-        .open()
-    {
+    let mut port = match crate::transport::open(port_name, TIMEOUT) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: cannot open {port_name}: {e}");
@@ -20,12 +16,12 @@ pub fn run(port_name: &str) {
         }
     };
 
-    if let Err(e) = send_frame(port.as_mut(), CMD_SYSMON, b"") {
+    if let Err(e) = send_frame(&mut *port, CMD_SYSMON, b"") {
         eprintln!("error: SYSMON send failed: {e}");
         process::exit(1);
     }
 
-    match recv_response(port.as_mut()) {
+    match recv_response(&mut *port) {
         Ok((STATUS_OK, payload)) => match SysmonView::parse(&payload) {
             Ok(v) => print_sysmon(&v),
             Err(SysmonError::TooShort(n)) => {

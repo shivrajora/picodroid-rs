@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! `pdb devices` — every device on a serial port and every simulator on a
+//! socket that answers a PING.
+
+use std::io::ErrorKind;
 use std::thread;
 use std::time::Duration;
 
 use serialport::SerialPortType;
 
 use crate::protocol::{recv_response, send_frame, CMD_PING, STATUS_OK};
+use crate::transport::{self, Link};
 
 // The device's descriptors are built from these same two constants, so the
 // scan and the firmware cannot disagree about what a picodroid looks like.
 use pdb_protocol::usb::{PID as PICODROID_PID, VID as PICODROID_VID};
 
-const PROBE_BAUD: u32 = 115_200;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How a simulator's row is marked, so a bench with boards attached reads
+/// at a glance.
+pub const SIM_TAG: &str = "[sim]";
 
 pub fn run() {
     let devices = scan();
@@ -25,9 +33,17 @@ pub fn run() {
     }
 }
 
+/// Everything that answers a PING: devices on serial ports, then running
+/// simulators.
+pub fn scan() -> Vec<(String, String)> {
+    let mut found = scan_serial();
+    found.extend(scan_sims());
+    found
+}
+
 /// Scan all serial ports and return those that respond to a picodroid PING.
 /// Prefers VID/PID-based detection for USB CDC; falls back to PING probe.
-pub fn scan() -> Vec<(String, String)> {
+fn scan_serial() -> Vec<(String, String)> {
     let ports = match serialport::available_ports() {
         Ok(p) => p,
         Err(_) => return Vec::new(),
@@ -78,19 +94,39 @@ pub fn scan() -> Vec<(String, String)> {
     results
 }
 
-/// Try a quick PING on `port_name`. Returns the version string on success.
-fn probe(port_name: &str) -> Option<String> {
-    let mut port = match serialport::new(port_name, PROBE_BAUD)
-        .timeout(PROBE_TIMEOUT)
-        .open()
-    {
-        Ok(p) => p,
-        Err(_) => return None,
-    };
+/// Every running simulator: each socket under `transport::sim_socket_dir`
+/// that answers a PING, its row tagged [`SIM_TAG`]. A socket nobody listens
+/// on any more — a simulator that was killed — is removed on the way past;
+/// one that is busy (an install in progress) times out and is left alone.
+pub fn scan_sims() -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for path in transport::sim_sockets() {
+        let name = path.to_string_lossy().into_owned();
+        match transport::open(&name, PROBE_TIMEOUT) {
+            Ok(mut link) => {
+                if let Some(version) = probe_over(link.as_mut()) {
+                    found.push((name, format!("{version}  {SIM_TAG}")));
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => {}
+        }
+    }
+    found
+}
 
-    send_frame(port.as_mut(), CMD_PING, b"").ok()?;
+/// Try a quick PING on `target`. Returns the version string on success.
+fn probe(target: &str) -> Option<String> {
+    let mut link = transport::open(target, PROBE_TIMEOUT).ok()?;
+    probe_over(link.as_mut())
+}
 
-    let (status, payload) = recv_response(port.as_mut()).ok()?;
+fn probe_over(link: &mut dyn Link) -> Option<String> {
+    send_frame(link, CMD_PING, b"").ok()?;
+
+    let (status, payload) = recv_response(link).ok()?;
     if status != STATUS_OK || payload.len() < 18 {
         return None;
     }

@@ -11,7 +11,6 @@ use crate::protocol::{
     STATUS_OK,
 };
 
-const BAUD_RATE: u32 = 115_200;
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// An uninstall erases a whole run before answering — a 1.5 MB region at
 /// ~50 ms a sector is under 20 s.
@@ -143,11 +142,8 @@ pub fn render(listing: &Listing) -> String {
     out
 }
 
-fn open(port_name: &str, timeout: Duration) -> Box<dyn serialport::SerialPort> {
-    match serialport::new(port_name, BAUD_RATE)
-        .timeout(timeout)
-        .open()
-    {
+fn open(port_name: &str, timeout: Duration) -> Box<dyn crate::transport::Link> {
+    match crate::transport::open(port_name, timeout) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: cannot open {port_name}: {e}");
@@ -170,11 +166,11 @@ pub fn list(port_name: &str) {
         process::exit(1);
     }
     let mut port = open(port_name, TIMEOUT);
-    if let Err(e) = send_frame(port.as_mut(), CMD_LIST, b"") {
+    if let Err(e) = send_frame(&mut *port, CMD_LIST, b"") {
         eprintln!("error: LIST send failed: {e}");
         process::exit(1);
     }
-    match recv_response(port.as_mut()) {
+    match recv_response(&mut *port) {
         Ok((STATUS_OK, payload)) => {
             let text = String::from_utf8_lossy(&payload);
             print!("{}", render(&parse_list(&text)));
@@ -216,12 +212,12 @@ pub fn uninstall(port_name: &str, package: &str, explicit_port: bool) {
         process::exit(1);
     }
     let mut port = open(port_name, UNINSTALL_TIMEOUT);
-    if let Err(e) = send_frame(port.as_mut(), CMD_UNINSTALL, package.as_bytes()) {
+    if let Err(e) = send_frame(&mut *port, CMD_UNINSTALL, package.as_bytes()) {
         eprintln!("error: UNINSTALL send failed: {e}");
         process::exit(1);
     }
     println!("Uninstalling {package}...");
-    match recv_response(port.as_mut()) {
+    match recv_response(&mut *port) {
         Ok((STATUS_OK, _)) => {}
         Ok((STATUS_NOT_FOUND, _)) => {
             eprintln!("error: {package} is not installed (pdb list shows what is)");

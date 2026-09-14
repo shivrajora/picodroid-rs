@@ -76,6 +76,15 @@ Environment:
   PICODROID_BOOT            What boots: app (the default), launcher, or a
                             package name — flash.sh --boot, read at run time
                             here so it needs no rebuild
+  PICODROID_SIM_PDB_SOCKET  Where the sim's debug bridge listens (default
+                            \$TMPDIR/picodroid-sim/pdb-<pid>.sock, printed at
+                            boot as '[sim] pdb: listening on …'). The real
+                            pdb tool talks to it: './scripts/pdb.sh -s sim
+                            ping|list|install|uninstall|input|sysmon', or
+                            '-s <socket>' when several sims are running
+  PICODROID_SIM_WAIT_FOR_INSTALL=1
+                            When nothing is left to run, wait for a pdb
+                            install as a device does instead of exiting
   -h, --help                Show this help message
 
 Boards:
@@ -155,7 +164,7 @@ resolve_board "$BOARD"
 
 # Step 1: Build the APK for the selected app — or take a pre-built one as-is.
 # The sim binary loads the .papk from PICODROID_APK_PATH at run time
-# (build_support/papk.rs), so --apk needs no rebuild; it just bypasses
+# (hal/sim/app_region.rs), so --apk needs no rebuild; it just bypasses
 # build-apk.sh, whose verify_compat step would reject an unshrunk file under
 # --shrink anyway.
 if [[ -n "$APK_PATH" ]]; then
@@ -195,8 +204,8 @@ fi
 # Build and run are deliberately separate steps (same pattern as sim-run.sh).
 # The build-time PICODROID_APK_PATH is a constant marker, not the real path:
 # the sim binary loads the .papk at startup from the *runtime* env var
-# (build_support/papk.rs::embed_apk), and the framework-class embed only keys
-# on the var being set. Both build scripts declare
+# (picodroid-core's hal/sim/app_region.rs), and the framework-class embed
+# only keys on the var being set. Both build scripts declare
 # `rerun-if-env-changed=PICODROID_APK_PATH`, so passing the real path through
 # `cargo run` recompiled picodroid-core and picodroid (~50 s) on every app
 # switch — which is what pushed test-memdiag.sh's 60 s self-test leg over

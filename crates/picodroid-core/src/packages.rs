@@ -1278,6 +1278,30 @@ mod tests {
         assert!(r.ops.is_empty());
     }
 
+    /// The simulator's warm boot: the process that installed is gone, and
+    /// the new one reads the region it dumped (`hal/sim/pdb.rs::reboot`,
+    /// `hal/sim/app_region.rs::init`). A dump restored into a fresh region
+    /// must rescan to the same directory, byte for byte.
+    #[test]
+    fn a_region_restored_from_its_dump_rescans_to_the_same_directory() {
+        let _g = test_support::lock();
+        let mut r = fresh(32, MAX);
+        do_install(&mut r, &papk_of_sectors("com.a", 3)).unwrap();
+        let b = papk_of_sectors("com.b", 4);
+        do_install(&mut r, &b).unwrap();
+        let before = placed();
+        let dump = r.bytes().to_vec();
+        assert_eq!(dump.len(), 32 * SECTOR);
+
+        let mut restored = MemRegion::new(32, MAX);
+        restored.restore(&dump);
+        reset_for_test();
+        rescan_region(&restored);
+        assert_eq!(placed(), before);
+        assert_eq!(image_of("com.b"), b);
+        assert_eq!(next_seq(), 3);
+    }
+
     #[test]
     fn a_reinstall_goes_beside_the_old_copy_and_evicts_it_after_commit() {
         let _g = test_support::lock();

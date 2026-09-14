@@ -28,7 +28,8 @@ pub const JVM_STACK_WORDS: u16 = 8192;
 #[cfg(not(feature = "chip-rp2350"))]
 pub const JVM_STACK_WORDS: u16 = 4096;
 
-/// PDB (debug bridge) task stack. Consumed by `boot_tasks.rs`.
+/// PDB (debug bridge) task stack. Consumed by `boot_tasks.rs` on a device
+/// and through [`default_stack_bytes`] by the simulator's own bridge task.
 pub const PDB_STACK_WORDS: u16 = 2048;
 /// cyw43 WiFi task stack (network boards only). Consumed by `boot_tasks.rs`.
 #[allow(dead_code)] // only read on network_cyw43 boards
@@ -96,6 +97,7 @@ pub fn default_stack_bytes(kind: picodroid_core::rtos::TaskKind) -> u32 {
         TaskKind::Sensor => bytes(SENSOR_STACK_WORDS),
         TaskKind::Touch => bytes(TOUCH_STACK_WORDS),
         TaskKind::FsWorker => bytes(FS_STACK_WORDS),
+        TaskKind::DebugBridge => bytes(PDB_STACK_WORDS),
     }
 }
 
@@ -124,7 +126,9 @@ pub static MODEL: BootBudgetModel = BootBudgetModel {
         BootTask {
             name: "pdb",
             stack_bytes: bytes(PDB_STACK_WORDS),
-            sim_real: false, // no simulator debug bridge
+            // sim_boot spawns the simulator's bridge (hal/sim/pdb.rs) through
+            // the seam, sized by `default_stack_bytes` from the same constant.
+            sim_real: true,
         },
         #[cfg(network_cyw43)]
         BootTask {

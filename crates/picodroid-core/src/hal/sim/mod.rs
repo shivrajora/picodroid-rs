@@ -12,8 +12,10 @@
 //! simulator build could reach were shape parity and nothing more, so a
 //! family's re-exports of those three are gated to device builds instead. A
 //! family whose simulator models a real flash region defines its own module.
-//! (The debug bridge's *protocol* does compile on the host — see
-//! `crate::pdb::usb_cdc` for where the endpoint question is recorded.)
+//! The debug bridge is the exception that earned its keep: [`pdb`] is a
+//! real endpoint — a Unix socket where a device has USB CDC — serving the
+//! same `crate::pdb` command loop a device runs, with the app region in
+//! [`app_region`] as its flash.
 //!
 //! Sibling modules here call each other directly (`super::gpio::inject`)
 //! rather than through [`crate::hal`]'s facade: the facade would route back
@@ -26,6 +28,10 @@ pub mod allocator;
 // in-memory region, which only the simulator build links.
 #[cfg(feature = "sim")]
 pub mod app_region;
+// The debug-bridge endpoint (transport, park coordinator, sysmon source,
+// flash handle, exec reboot): the simulator's `platforms/rp/src/pdb/`.
+#[cfg(feature = "sim")]
+pub mod pdb;
 // The boot-budget engine: charges the arena from a family's model of the
 // device's boot-time tasks (`register_sim_platform!`'s `boot_budget`).
 pub mod boot_budget;

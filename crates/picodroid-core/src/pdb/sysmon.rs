@@ -60,7 +60,8 @@ pub fn handle(transport: &mut impl PdbTransport, source: &mut impl SysmonSource,
     // the plain build has no write to `n` at all.
     //
     // Device-only: the snapshot it reads is published by the on-device
-    // monitor, and a simulator has no debug bridge to serve this over anyway.
+    // monitor (`mem_diag::published_snapshot` is gated the same way); the
+    // simulator's bridge serves the plain sample.
     #[cfg(all(feature = "mem-diag", not(feature = "sim")))]
     let n = {
         let (live, floor, alloc_total, largest_free) = crate::mem_diag::published_snapshot();
