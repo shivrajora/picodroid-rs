@@ -735,6 +735,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let name: Option<&'static str> = match args.first().copied() {
                 Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
                 Some(Value::Reference(_)) => Some(c::java_lang_String),
+                // `arr.getClass()` — the array class, keyed by element kind
+                // (`[I`, `[Ljava/lang/Object;`), so two int[] share a Class.
+                // Used to fall through to a handler arm that does not exist.
+                Some(Value::ArrayRef(idx)) => Some(helpers::array_class_name(
+                    self.arrays
+                        .atype(idx)
+                        .unwrap_or(crate::array_heap::ATYPE_REF),
+                )),
                 _ => None,
             };
             if let Some(name) = name {
