@@ -21,10 +21,14 @@
 //! (`SPI_RESP_DELAY_F1` = 16, programmed by the driver); no dummy clocks are
 //! ever added here.
 
+use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use core::sync::atomic::{compiler_fence, Ordering};
 
+use freertos_rust::{Duration, InterruptContext, Semaphore};
 use rp235x_hal::pac;
+
+use super::spi::SemCell;
 
 extern "C" {
     fn cyw43_delay_ms(ms: u32);
@@ -52,10 +56,34 @@ const SM: usize = 0;
 /// to 3 (25 MHz) / 4 (18.75 MHz) before suspecting anything else.
 const CLKDIV_INT: u16 = 2;
 
-/// DMA channels 0-3 are statically owned by the display path (`dma.rs`);
-/// these two run IRQ-quiet and never touch INTE0.
+/// DMA channels 0-3 are statically owned by the display path (`dma.rs`),
+/// which also owns `DMA_IRQ_0` and `INTE0`; these two signal completion
+/// through `INTE1` / `DMA_IRQ_1` instead.
 const DMA_CH_TX: usize = 4;
 const DMA_CH_RX: usize = 5;
+
+/// Frames of at most this many bytes are waited for by spinning: at
+/// 37.5 MHz they are on the wire in under two microseconds, less than an
+/// interrupt round trip. Anything longer — every data frame, up to ~450 µs
+/// — blocks the calling task on the completion interrupt so the cyw43
+/// task's core idles and the IP task's core runs the JVM
+/// (docs/scheduling-audit-2026-09.md, F7 / WP5).
+const SPIN_FRAME_MAX: usize = 8;
+
+/// Ticks to block for a completion. Ten times the longest legal frame;
+/// hitting it is not by itself a failure — the channel's busy bit decides
+/// (see [`wait_dma`]).
+const DMA_WAIT_MS: u32 = 5;
+
+/// Given by [`DMA_IRQ_1`] when the channel that was left loud finishes.
+/// One binary semaphore serves both directions: the driver serialises
+/// transfers under its own lock (`CYW43_THREAD_ENTER`), so there is never
+/// more than one in flight.
+static DMA_DONE: SemCell = SemCell(UnsafeCell::new(None));
+
+fn dma_done() -> Option<&'static Semaphore> {
+    unsafe { (*DMA_DONE.0.get()).as_ref() }
+}
 
 /// PIO0 SM0 DREQs on RP2350 (datasheet §12.6.4.1).
 const TREQ_PIO0_TX0: u8 = 0;
@@ -178,6 +206,50 @@ fn wait_dma_done(p: &pac::Peripherals, ch: usize) -> Result<(), ()> {
     .map_err(|_| ())
 }
 
+/// Wait for the channel that raises the interrupt for this transfer.
+///
+/// `by_irq` blocks on [`DMA_DONE`] first, then confirms with the busy bit.
+/// The confirmation is what makes the wait correct and the token merely
+/// what makes it cheap: the take can return early on a token the previous
+/// transfer's interrupt left after its own spin had already seen the
+/// channel idle, and it can time out with the channel legitimately still
+/// running when core 1 sat parked for a flash write longer than
+/// [`DMA_WAIT_MS`] with the interrupt pending behind `cpsid`. Either way
+/// the busy bit has the last word, as it did before there was an
+/// interrupt at all.
+fn wait_dma(p: &pac::Peripherals, ch: usize, by_irq: bool) -> Result<(), ()> {
+    if by_irq {
+        if let Some(sem) = dma_done() {
+            let _ = sem.take(Duration::ms(DMA_WAIT_MS));
+        }
+    }
+    wait_dma_done(p, ch)
+}
+
+/// Whether a frame of `len` bytes should block on the interrupt. Never
+/// before the scheduler runs: nothing could wake the wait.
+fn waits_by_irq(len: usize) -> bool {
+    len > SPIN_FRAME_MAX && super::delay::scheduler_running()
+}
+
+/// Completion interrupt for channels 4/5. Only the channel a transfer
+/// left loud (`irq_quiet` clear) reaches here; acknowledge whatever is
+/// pending and wake the waiter.
+#[allow(non_snake_case)]
+#[no_mangle]
+extern "C" fn DMA_IRQ_1() {
+    let p = steal();
+    let ints = p.DMA.ints1().read().bits();
+    p.DMA.ints1().write(|w| unsafe { w.bits(ints) }); // W1C
+    if ints & ((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) != 0 {
+        if let Some(sem) = dma_done() {
+            let mut ctx = InterruptContext::new();
+            sem.give_from_isr(&mut ctx);
+        }
+    }
+    // ctx drops here → yield if the waiter outranks what this core was running
+}
+
 /// Abort both channels. Bounded like [`wait_dma_done`]: an abort normally
 /// retires within a few cycles, but a channel wedged on a DREQ that never
 /// asserts never clears busy, and this is the recovery path — better a
@@ -200,7 +272,9 @@ fn abort_dma(p: &pac::Peripherals) {
 
 /// Arm one DMA channel and trigger it. 32-bit transfers with byte-swap:
 /// buffers are byte arrays in wire order (MSB-first per byte), and a
-/// little-endian word load would otherwise reverse them.
+/// little-endian word load would otherwise reverse them. `loud` lets the
+/// channel raise `DMA_IRQ_1` on completion; exactly one channel per
+/// transfer is loud, and only when the transfer waits by interrupt.
 #[allow(clippy::too_many_arguments)]
 fn dma_start(
     p: &pac::Peripherals,
@@ -211,6 +285,7 @@ fn dma_start(
     treq: u8,
     incr_read: bool,
     incr_write: bool,
+    loud: bool,
 ) {
     let c = p.DMA.ch(ch);
     c.ch_read_addr().write(|w| unsafe { w.bits(read_addr) });
@@ -224,7 +299,7 @@ fn dma_start(
         w.treq_sel().bits(treq);
         w.chain_to().bits(ch as u8); // self = no chaining
         w.bswap().set_bit();
-        w.irq_quiet().set_bit(); // never raises DMA_IRQ_0 (display owns it)
+        w.irq_quiet().bit(!loud);
         w.en().set_bit()
     });
 }
@@ -249,6 +324,24 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
     while p.RESETS.reset_done().read().pio0().bit_is_clear() {}
     p.RESETS.reset().modify(|_, w| w.dma().clear_bit());
     while p.RESETS.reset_done().read().dma().bit_is_clear() {}
+
+    // Completion interrupt: both channels on `DMA_IRQ_1` (the display path
+    // owns IRQ_0 and INTE0); which of the two actually raises it is chosen
+    // per transfer through IRQ_QUIET. Unmasked on the core running this —
+    // the cyw43 task's, core 1 — at the kernel-safe priority, like every
+    // other peripheral IRQ in this HAL.
+    p.DMA
+        .inte1()
+        .write(|w| unsafe { w.bits((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) });
+    unsafe {
+        if (*DMA_DONE.0.get()).is_none() {
+            *DMA_DONE.0.get() = Some(Semaphore::new_binary().expect("pio_spi dma sem alloc"));
+        }
+        let nvic_ipr = 0xE000_E400 as *mut u8;
+        let irqn = pac::Interrupt::DMA_IRQ_1 as u8;
+        nvic_ipr.add(irqn as usize).write_volatile(0x10);
+        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_IRQ_1);
+    }
 
     // Assemble and load the program at offset 0. `pio_asm!` runs the
     // assembler at compile time; this loop is just a copy.
@@ -463,6 +556,12 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     }
 
     let p = steal();
+    let by_irq = waits_by_irq(tx_length);
+    // A token the previous transfer did not consume (its spin saw the
+    // channel idle first) would end this one's wait early; drop it.
+    if let Some(sem) = dma_done() {
+        let _ = sem.take(Duration::zero());
+    }
 
     // Reset may have flipped DATA to SIO; re-assert cheap and always.
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_PIO0);
@@ -494,6 +593,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
             TREQ_PIO0_TX0,
             true,
             false,
+            false,
         );
         let rx_target = if bounced {
             (&raw mut BOUNCE) as u32 + 4
@@ -509,11 +609,15 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
             TREQ_PIO0_RX0,
             false,
             true,
+            by_irq,
         );
         cortex_m::asm::dsb();
         sm_set_enabled(&p, true);
 
-        let ok = wait_dma_done(&p, DMA_CH_TX).and(wait_dma_done(&p, DMA_CH_RX));
+        // The RX channel finishes last (the one TX word must be clocked
+        // out before anything comes back), so it is the one that wakes
+        // us; TX is confirmed idle afterwards.
+        let ok = wait_dma(&p, DMA_CH_RX, by_irq).and(wait_dma_done(&p, DMA_CH_TX));
         compiler_fence(Ordering::SeqCst);
         match ok {
             Ok(()) => {
@@ -554,14 +658,16 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
             TREQ_PIO0_TX0,
             true,
             false,
+            by_irq,
         );
         cortex_m::asm::dsb();
         sm_set_enabled(&p, true);
 
         // DMA done only means the FIFO was filled; the frame has left the
         // shifter when the SM stalls on `out` again. W1C TXSTALL, then wait
-        // for it to re-assert (bounded like the DMA wait).
-        let mut ok = wait_dma_done(&p, DMA_CH_TX);
+        // for it to re-assert — a short spin: at most the FIFO's four words,
+        // ~3.4 µs on the wire (bounded like the DMA wait).
+        let mut ok = wait_dma(&p, DMA_CH_TX, by_irq);
         if ok.is_ok() {
             p.PIO0
                 .fdebug()
