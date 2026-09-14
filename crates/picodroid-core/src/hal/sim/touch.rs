@@ -160,11 +160,16 @@ mod inner {
         }
         fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Infallible> {
             rx.fill(0);
-            // Driver always sends [cmd, 0, 0]; result is ((rx[1] << 4) | (rx[2] >> 4)).
-            if !tx.is_empty() && rx.len() >= 3 && (tx[0] == CMD_READ_X || tx[0] == CMD_READ_Y) {
-                let raw = Self::synth(tx[0]) & 0x0FFF;
-                rx[1] = (raw >> 4) as u8;
-                rx[2] = ((raw & 0x0F) << 4) as u8;
+            // The driver sends 3-byte frames, [cmd, 0, 0], one per
+            // conversion — ten of them back to back in a `sample()` — and
+            // reads each result as ((rx[1] << 4) | (rx[2] >> 4)).
+            for (i, frame) in tx.chunks_exact(3).enumerate() {
+                if rx.len() < (i + 1) * 3 || (frame[0] != CMD_READ_X && frame[0] != CMD_READ_Y) {
+                    continue;
+                }
+                let raw = Self::synth(frame[0]) & 0x0FFF;
+                rx[i * 3 + 1] = (raw >> 4) as u8;
+                rx[i * 3 + 2] = ((raw & 0x0F) << 4) as u8;
             }
             Ok(())
         }
