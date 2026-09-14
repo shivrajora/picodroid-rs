@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use super::clock::PCLK_HZ;
+
+#[cfg(feature = "chip-rp2350")]
+use rp235x_hal::pac;
+#[cfg(feature = "chip-rp2040")]
+use rp_pico::hal::pac;
 
 // Compute UARTIBRD / UARTFBRD from baud rate.
 //   BRD = PCLK / (16 * baud)
@@ -122,24 +129,76 @@ pub fn reconfigure(
     }
 }
 
-/// Blocking write of a single byte.
+/// How long [`write_byte`] waits for a slot in the TX FIFO before it drops
+/// the byte. One byte-time is all a slot needs — 33 ms at 300 baud, the
+/// slowest rate `reconfigure` accepts — so this bound is only reached by a
+/// line that is not draining at all: hardware flow control with nobody
+/// asserting CTS.
+const TX_FULL_TIMEOUT_MS: u32 = 100;
+
+/// Iterations for the pre-scheduler spin below: ~one byte-time at 300 baud
+/// in APB reads, with margin.
+const TX_FULL_SPIN_CAP: u32 = 4_000_000;
+
+/// Said once per boot: a stalled line would otherwise say it per byte.
+static TX_DROP_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// Wait for room in the TX FIFO. `false` means none came within
+/// [`TX_FULL_TIMEOUT_MS`] and the byte should be dropped.
+///
+/// The 32-deep FIFO drains at one byte per byte-time — a millisecond at the
+/// default 9600 baud — and a Java `write` of more than 32 bytes used to
+/// spin the JVM task on `TXFF` for every byte past that, holding its core
+/// against every other task at the JVM tier (docs/scheduling-audit-2026-09.md,
+/// F14). It sleeps a tick per retry instead: the same latency for the
+/// writer, the core free for everyone else. A TX ring fed from `UARTx_IRQ`
+/// (WP9) would let the writer return at once as well; that waits for a
+/// board that ships a serial app.
+///
+/// One copy over the register block both UARTs share, out of line.
+#[inline(never)]
+fn wait_tx_room(uart: &pac::uart0::RegisterBlock) -> bool {
+    let has_room = || uart.uartfr().read().txff().bit_is_clear();
+    if has_room() {
+        return true;
+    }
+    if !super::delay::scheduler_running() {
+        // Only Java reaches this path, so only with the scheduler up; this
+        // arm exists so a boot-time caller cannot hit a kernel assert.
+        return picodroid_core::spin_until!(has_room(), TX_FULL_SPIN_CAP, "uart tx room").is_ok();
+    }
+    for _ in 0..TX_FULL_TIMEOUT_MS {
+        picodroid_core::rtos::delay_ms(1);
+        if has_room() {
+            return true;
+        }
+    }
+    // Load then store, not `swap`: the M0+ has no atomic read-modify-write,
+    // and the worst a race here does is print the warning twice.
+    if !TX_DROP_REPORTED.load(Ordering::Relaxed) {
+        TX_DROP_REPORTED.store(true, Ordering::Relaxed);
+        picodroid_core::pd_warn!(
+            "[uart] TX FIFO full for {=u32} ms; dropping bytes",
+            TX_FULL_TIMEOUT_MS
+        );
+    }
+    false
+}
+
+/// Blocking write of a single byte: sleeps while the TX FIFO is full, drops
+/// the byte after [`TX_FULL_TIMEOUT_MS`] (see [`wait_tx_room`]).
 pub fn write_byte(uart_id: u8, byte: u8) {
     #[cfg(feature = "chip-rp2350")]
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
-    match uart_id {
-        0 => {
-            // spin-todo: F14 — TX FIFO-full spin from a JVM task; WP9 adds a TX ring + interrupt
-            while p.UART0.uartfr().read().txff().bit_is_set() {}
-            p.UART0.uartdr().write(|w| unsafe { w.data().bits(byte) });
-        }
-        _ => {
-            // spin-todo: F14 — as UART0
-            while p.UART1.uartfr().read().txff().bit_is_set() {}
-            p.UART1.uartdr().write(|w| unsafe { w.data().bits(byte) });
-        }
+    let uart: &pac::uart0::RegisterBlock = match uart_id {
+        0 => &p.UART0,
+        _ => &p.UART1,
+    };
+    if wait_tx_room(uart) {
+        uart.uartdr().write(|w| unsafe { w.data().bits(byte) });
     }
 }
 

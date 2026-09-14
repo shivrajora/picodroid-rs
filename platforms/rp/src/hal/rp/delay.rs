@@ -34,7 +34,7 @@ const NS_PER_CYCLE: u32 = 7; // 150 MHz: ~6.67 ns/cycle, rounded to 7
 #[cfg(feature = "chip-rp2040")]
 const NS_PER_CYCLE: u32 = 8; // 125 MHz: 8 ns/cycle
 
-fn scheduler_running() -> bool {
+pub(crate) fn scheduler_running() -> bool {
     freertos_rust::FreeRtosUtils::scheduler_state()
         == freertos_rust::FreeRtosSchedulerState::Running
 }
