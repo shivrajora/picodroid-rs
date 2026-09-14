@@ -48,7 +48,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Twenty-five release maps are committed today, `v0.1.0` through `v0.25.0`:
+Twenty-six release maps are committed today, `v0.1.0` through `v0.26.0`:
 
 | Map | Covers |
 |-----|--------|
@@ -77,6 +77,7 @@ Twenty-five release maps are committed today, `v0.1.0` through `v0.25.0`:
 | `sdk/shrink-maps/v0.23.0.toml` | Adds the **TextView line-mode** surface (+2 classes, 255 → 257: `picodroid.text.TextUtils`, `TextUtils$TruncateAt`) and 15 members (1165 → 1180: `setSingleLine`, `setEllipsize` / `getEllipsize`, `setMaxLines` / `getMaxLines`, the packed `mLineMode` state and the `native*` bindings). `member-floor` stays `0.17.0`; every v0.22.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.24.0.toml` | Adds the **alarm** surface (+2 classes, 257 → 259: `picodroid.app.AlarmManager`, `picodroid.app.PendingIntent`) and 29 members (1180 → 1209: the four clock constants, the six `PendingIntent` flags, `getActivity` / `requestCode` and the flattened extras, `fireAlarm` and the `native*` bindings, plus `ALARM_SERVICE`, `elapsedRealtime`, `Intent.setClassName` and `KEYCODE_HOME`). `member-floor` stays `0.17.0`; every v0.23.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.25.0.toml` | Adds the **tone** surface (+2 classes, 259 → 261: `picodroid.media.ToneGenerator`, `picodroid.media.AudioManager`) and 45 members (1209 → 1254: the sixteen `TONE_DTMF_*`, ten `TONE_SUP_*` and five `TONE_PROP_*` constants, the eight `STREAM_*` types, `MAX_SEQUENCE_LENGTH`, and `startTone` / `startToneSequence` / `stopTone` / `release` / `nativeInit`). `member-floor` stays `0.17.0`; every v0.24.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.26.0.toml` | Adds the **format-exception** family (+4 classes, 261 → 265: `java.util.IllegalFormatConversionException`, `IllegalFormatPrecisionException`, `MissingFormatArgumentException`, `UnknownFormatConversionException`) and 12 members (1254 → 1266: the released-view API — `isReleased` / `checkNotReleased` / `mChildren` / `mChildCount` / `nativeAddView` / `nativeRemoveView` / `nativeRemoveAllViews` — the radio-group sync `mGroup` / `setCheckedSilently` / `onButtonChecked` / `nativeSetChecked`, and the preferences `writeInPlace`). `member-floor` stays `0.17.0`; every v0.25.0 mapping copied verbatim. |
 
 ## Scope
 

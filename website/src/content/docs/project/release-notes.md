@@ -7,6 +7,76 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Forty correctness fixes from a QA round, and the exceptions that name their case (map v0.26.0, package 0.26.0)**
+
+- Seven self-checking apps (`examples/qa_*`) were written against the served API surface and
+  run on the simulator with the handle sanitizer and the device heap model on, then on all
+  three bench boards in both shrink modes. Every failure was traced to a defect, a documented
+  divergence, or a mistake in the app itself, and each defect was fixed in its own commit.
+  `docs/qa-2026-09-13.md` carries the table and the divergences kept on purpose.
+- Language and collection semantics. A method call on a `null` receiver throws
+  `NullPointerException` instead of an uncatchable internal error — that covers every unboxing
+  of a null `Integer`. Method references to builtins, virtual targets and constructors resolve;
+  a lambda proxy intercepts only its own single abstract method, so a default method called on
+  a lambda no longer runs the lambda body. `Enum.valueOf`, `getClass()` on an array, and the
+  boxed `xxxValue()` accessors work; `Integer.valueOf` shares one box per value in the JLS
+  range; `HashMap` / `HashSet` / `ArrayList` honour a user-defined `equals` and compare boxes by
+  class and value rather than by their first field, which used to collapse `Integer(1)`,
+  `Short(1)` and `Boolean(true)` onto one key. Also fixed: `list.sort(null)`, `clear()`
+  releasing the buffer, `parseInt(null)` and its siblings, `sb.append(otherBuilder)`,
+  `Random.nextInt(0)`, `String.compareTo`'s return value, and `"ab".replace("", "-")`.
+- `String.format` matches Java. `%s` of a `Boolean` or `Character`, `%x` of a negative byte at
+  the box's own width, `%,f` grouping, and floats rounded HALF_UP on their shortest digits
+  (`%.2f` of 1.005 is `1.01`), checked against a host JDK. A bad specifier throws the subclass
+  Java throws — `IllegalFormatPrecisionException` for a precision on `%d`,
+  `MissingFormatArgumentException`, `IllegalFormatConversionException`,
+  `UnknownFormatConversionException` — which are the four classes this map folds in.
+- Running out of memory is a catchable `OutOfMemoryError`, not a board reset. A collection or
+  builder the arena cannot grow, an allocation inside a native arm, a JVM frame, interning a
+  dynamic string, `String.format`'s buffers, the file streams' windows and LittleFS's 4 KB
+  per-open cache all report an allocation failure the app can catch; a builtin collects and
+  retries before giving up, and the streams moved to 256-byte stack chunks instead of copying a
+  whole 20 KB window through the heap. A host-side ratchet counts the infallible allocations
+  left in the native arms so the list cannot grow unnoticed.
+- UI and lifecycle. Text is no longer cut at 127 bytes; `SeekBar.setMax` clamps and
+  `setProgress` reads back at once; `ViewGroup.getChildAt` answers, and a view that `removeView`
+  freed gives up its handle, so the boards without a generational handle table can no longer
+  re-parent a freed widget. `RadioButton.setChecked` keeps its group in sync, a second
+  `AlertDialog.dismiss()` is safe, a full click-listener table or pending-op queue throws
+  `IllegalStateException` instead of silently dropping the click or the transition, and an
+  exception escaping a `Runnable` posted to the main executor is logged rather than swallowed.
+- On the RP2040 every `(int)` cast of a negative fraction floored: the HAL maps the conversion
+  intrinsics to the bootrom's `float_to_int`, which rounds toward −∞. The vendored HAL truncates,
+  which corrects the framework's Rust and LVGL's C alike, and the firmware checks it at boot.
+  Disabling the ROM intrinsics instead was measured and rejected — it also drops the divider
+  intrinsics, for +11 % on the JVM benchmark.
+- A LittleFS volume whose superblock carries another board's geometry is formatted like a blank
+  chip, with a log line, instead of failing every open until a chip erase.
+- Map v0.26.0, cut on `main` after the merge, folds the four format-exception classes and 12
+  member names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0,
+  so PAPKs shrunk with v0.17.0 through v0.25.0 still install. `Build.VERSION.RELEASE` reads
+  `0.26.0`. Everything else under Unreleased ships in the same package.
+
+**The simulator is a `pdb` device**
+
+- The simulator now runs the device's own debug bridge on a real `pdb` task, over a Unix socket,
+  so `ping`, `list`, `sysmon`, input injection, `install` and `uninstall` work against it exactly
+  as against a board. An install or uninstall ends the scheduler and re-execs the process into a
+  warm boot, so the real boot path — rescan, orphan sweep, boot policy — runs and the host sees
+  the reboot within the second.
+- `pdb -s` takes a tty, a socket path, or `sim` for the one running simulator; `pdb devices`
+  lists simulators tagged `[sim]` and prunes the sockets of killed ones. Several simulators can
+  run side by side, one socket each. `scripts/pdb.sh` takes no board lease for a simulator
+  target, so this costs nothing on a shared bench.
+
+**A scheduling monitor for the task that will not yield**
+
+- The opt-in `sched-diag` feature reports, once a second, a real-time-band task seen running by
+  three consecutive tick hooks, a task starved while ready, and a sleep-poll loop — fed by the
+  kernel's own trace and tick hooks, which are compiled in only when the feature is on. Nothing
+  of it exists in a normal build. `docs/scheduling-diagnostics.md` has the output format and
+  what each report means.
+
 **The touch board scrolls with its panel, not with a repaint**
 
 - A full-width `ScrollView` on a portrait ST7796 (the touch board) now scrolls by rotating
