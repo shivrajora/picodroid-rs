@@ -87,7 +87,11 @@ impl ObjectHeap {
     /// Remove all elements from the list.
     pub fn list_clear(&mut self, idx: u16) {
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
-            buf.clear();
+            // Release the buffer, not only the entries: on an arena this
+            // small, `clear()` is how an app recovers from an
+            // `OutOfMemoryError` (QA 2026-09-13), and a buffer kept for
+            // reuse would keep the arena as full as before.
+            *buf = Vec::new();
         }
     }
 
