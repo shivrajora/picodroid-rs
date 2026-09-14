@@ -92,9 +92,9 @@ impl GraphicsBackend for LvglBackend {
 
     fn dispatch_view_group(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
-            m::addView => Some(view_group::add_view(ctx.args, ctx.objects)),
-            m::removeView => Some(view_group::remove_view(ctx.args, ctx.objects)),
-            m::removeAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
+            m::nativeAddView => Some(view_group::add_view(ctx.args, ctx.strings, ctx.objects)),
+            m::nativeRemoveView => Some(view_group::remove_view(ctx.args, ctx.objects)),
+            m::nativeRemoveAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
             m::getChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
             _ => None,
         }

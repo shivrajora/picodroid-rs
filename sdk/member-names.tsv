@@ -366,6 +366,8 @@ F	listener
 F	longPressFired
 F	longValsHi
 F	longValsLo
+F	mChildCount
+F	mChildren
 F	mLineMode
 F	maxRange
 F	maxValue
@@ -799,6 +801,7 @@ M	min
 M	mkdir
 M	mkdirs
 M	names
+M	nativeAddView
 M	nativeAppBytes
 M	nativeApply
 M	nativeAvailableBytes
@@ -875,7 +878,9 @@ M	nativeRegisterTimeChangedListener
 M	nativeRegisterTouchListener
 M	nativeRelease
 M	nativeRemove
+M	nativeRemoveAllViews
 M	nativeRemoveAt
+M	nativeRemoveView
 M	nativeRequestFocus
 M	nativeResolve
 M	nativeResponseMessage

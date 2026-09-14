@@ -591,10 +591,10 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "setPosition", "(II)V"),
     ("picodroid/view/View", "setSize", "(II)V"),
     // picodroid/view/ViewGroup
-    ("picodroid/view/ViewGroup", "addView", "(Lpicodroid/view/View;)V"),
     ("picodroid/view/ViewGroup", "getChildCount", "()I"),
-    ("picodroid/view/ViewGroup", "removeAllViews", "()V"),
-    ("picodroid/view/ViewGroup", "removeView", "(Lpicodroid/view/View;)V"),
+    ("picodroid/view/ViewGroup", "nativeAddView", "(Lpicodroid/view/View;)V"),
+    ("picodroid/view/ViewGroup", "nativeRemoveAllViews", "()V"),
+    ("picodroid/view/ViewGroup", "nativeRemoveView", "(Lpicodroid/view/View;)V"),
     // picodroid/view/ViewPropertyAnimator
     ("picodroid/view/ViewPropertyAnimator", "nativeCancel", "(I)V"),
     ("picodroid/view/ViewPropertyAnimator", "nativeSetEndAction", "(ILjava/lang/Runnable;)V"),
