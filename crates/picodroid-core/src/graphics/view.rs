@@ -9,6 +9,7 @@
 //! could hide cleanly.
 
 use pico_jvm::heap::StringTable;
+use pico_jvm::names::c;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
@@ -300,14 +301,27 @@ pub fn register_swipe_listener(
 /// view (not just Button) becomes clickable.
 pub fn register_click_listener(
     args: &[Value],
-    objects: &ObjectHeap,
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let obj_ref = match args.first() {
         Some(Value::ObjectRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
     let id = extract_native_handle(args, objects)?;
-    lvgl_button::register_click_listener(id, obj_ref);
+    if !lvgl_button::register_click_listener(id, obj_ref) {
+        // The table is fixed-size (RAM); a registration it cannot hold used
+        // to be a warning and a view that never clicked (QA 2026-09-13).
+        let idx = objects
+            .alloc(c::java_lang_IllegalStateException)
+            .ok_or(JvmError::StackOverflow)?;
+        if let Some(m) = strings.intern_dyn(
+            b"setOnClickListener: the click-listener table is full; close or drop views that no longer need a listener",
+        ) {
+            objects.register_exception_message(idx, m);
+        }
+        return Err(JvmError::Exception(idx));
+    }
     Ok(None)
 }
 

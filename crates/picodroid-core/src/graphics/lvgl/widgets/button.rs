@@ -134,12 +134,15 @@ pub(in crate::graphics) fn perform_click(id: i32) {
 /// unregistration hook. An update means the widget is still alive with its
 /// callbacks intact — a recycled address always takes the insert path
 /// because the old widget's delete callback removed its entry.
-pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
+pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> bool {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
         match map_mut(&raw mut VIEW_CLICK_MAP).upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
-            Upsert::Full => warn_full("view-click"),
+            Upsert::Full => {
+                warn_full("view-click");
+                return false;
+            }
             Upsert::Inserted => {
                 let obj = raw_ptr as *mut lv_obj_t;
                 lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
@@ -158,6 +161,7 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) {
             }
         }
     }
+    true
 }
 
 /// Register a Java `View` as the long-click target for `id`. Attaches the

@@ -64,9 +64,11 @@ impl GraphicsBackend for LvglBackend {
             m::close => Some(view::close(ctx.args, ctx.objects)),
             m::performClick => Some(view::perform_click(ctx.args, ctx.objects)),
             m::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
-            m::nativeRegisterClickListener => {
-                Some(view::register_click_listener(ctx.args, ctx.objects))
-            }
+            m::nativeRegisterClickListener => Some(view::register_click_listener(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
             m::nativeRegisterLongClickListener => {
                 Some(view::register_long_click_listener(ctx.args, ctx.objects))
             }
