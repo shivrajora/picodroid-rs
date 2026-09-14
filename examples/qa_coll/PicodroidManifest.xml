@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="qa_coll" version="1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
+    <application application="qa_coll/QaColl" />
+</manifest>
