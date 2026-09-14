@@ -103,7 +103,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
         // arbitrary object; run its `toString()` before the native arm sees it.
-        if desc_str.starts_with(crate::names::d::p_Object__)
+        if (desc_str.starts_with(crate::names::d::p_Object__)
+            || desc_str == d::CharSequence__StringBuilder)
             && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
         {
             return Ok(());
@@ -218,12 +219,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         desc_str: &str,
         frames: &mut Vec<Frame>,
     ) -> Result<bool, JvmError> {
-        let target = match (class_str, name_str) {
-            (c::java_lang_StringBuilder, m::append) => d::Object__StringBuilder,
-            (c::java_lang_String, m::valueOf) => d::Object__String,
-            _ => return Ok(false),
+        // `append(CharSequence)` is what javac picks for a StringBuilder
+        // argument (`sb.append(other)`, `sb.append(sb)`): the same
+        // stringification, through the builder's own `toString`.
+        let object_arg = match (class_str, name_str) {
+            (c::java_lang_StringBuilder, m::append) => {
+                desc_str == d::Object__StringBuilder || desc_str == d::CharSequence__StringBuilder
+            }
+            (c::java_lang_String, m::valueOf) => desc_str == d::Object__String,
+            _ => false,
         };
-        if desc_str != target {
+        if !object_arg {
             return Ok(false);
         }
         let Some(&arg) = frames.last().ok_or(JvmError::InvalidBytecode)?.stack.last() else {
@@ -1335,7 +1341,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     ) -> Result<(), JvmError> {
         let object_arg = match (class, name) {
             (c::java_lang_String, m::valueOf) => desc == d::Object__String,
-            (c::java_lang_StringBuilder, m::append) => desc == d::Object__StringBuilder,
+            (c::java_lang_StringBuilder, m::append) => {
+                desc == d::Object__StringBuilder || desc == d::CharSequence__StringBuilder
+            }
             _ => false,
         };
         if !object_arg {
