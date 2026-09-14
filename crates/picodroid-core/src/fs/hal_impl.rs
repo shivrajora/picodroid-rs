@@ -22,7 +22,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use littlefs_rust::{FileType, OpenFlags, SeekFrom};
 
-use super::with_fs;
+use super::{with_fs, FsError};
 use crate::hal::{DirEntry, HalFs};
 
 /// Mutations of the volume since boot, counted on the fs worker.
@@ -97,6 +97,10 @@ impl HalFs for LittleFsHal {
         with_fs(|fs| {
             let file = match fs.open(path, OpenFlags::READ) {
                 Ok(f) => f,
+                // The open's 4 KB file cache could not be reserved: -2, the
+                // same answer as the read buffer below, so the caller throws
+                // OutOfMemoryError rather than IOException.
+                Err(FsError::NoMemory) => return -2i32,
                 Err(_) => return -1i32,
             };
             if file.seek(SeekFrom::Start(pos as u32)).is_err() {
@@ -132,6 +136,8 @@ impl HalFs for LittleFsHal {
             mutated();
             let file = match fs.open(path, OpenFlags::WRITE | OpenFlags::CREATE) {
                 Ok(f) => f,
+                // As in read_at: a heap too full for the file cache is -2.
+                Err(FsError::NoMemory) => return -2i32,
                 Err(_) => return -1i32,
             };
             if file.seek(SeekFrom::Start(pos as u32)).is_err() {

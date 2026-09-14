@@ -297,9 +297,13 @@ pub trait HalFs {
     fn rename(from: &str, to: &str) -> bool;
     fn truncate(path: &str);
     /// Append up to `len` bytes from `pos` onto `out`. Returns bytes read,
-    /// 0 at EOF, or -1 on error.
+    /// 0 at EOF, -1 on error, or -2 when the heap could not hold what the
+    /// read needs (the caller's buffer, or the backend's own per-open state)
+    /// — an `OutOfMemoryError` for the app rather than an `IOException`.
     fn read_at(path: &str, pos: u64, out: &mut alloc::vec::Vec<u8>, len: usize) -> i32;
-    /// Returns bytes written, or -1 on error. Creates the file if absent.
+    /// Returns bytes written, -1 on error, or -2 when the heap could not
+    /// hold the backend's per-open state (see `read_at`). Creates the file
+    /// if absent.
     fn write_at(path: &str, pos: u64, data: &[u8]) -> i32;
     /// Append the entries of the directory at `path` onto `out`, without
     /// `.` and `..`. Returns `false` when `path` is not a directory or the
