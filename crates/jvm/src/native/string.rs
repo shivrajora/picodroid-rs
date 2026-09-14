@@ -501,7 +501,17 @@ pub(crate) fn dispatch(
                     let t = ctx.strings.resolve(*target).unwrap_or("");
                     let r = ctx.strings.resolve(*repl).unwrap_or("");
                     if t.is_empty() {
-                        s.as_bytes().to_vec()
+                        // An empty target matches before every char and at
+                        // the end: `"ab".replace("", "-")` is `-a-b-`, as in
+                        // Java (QA 2026-09-13: it was a no-op).
+                        let mut v =
+                            alloc::vec::Vec::with_capacity(s.len() + r.len() * (s.len() + 1));
+                        for b in s.bytes() {
+                            v.extend_from_slice(r.as_bytes());
+                            v.push(b);
+                        }
+                        v.extend_from_slice(r.as_bytes());
+                        v
                     } else {
                         s.replace(t, r).into_bytes()
                     }
