@@ -454,12 +454,24 @@ java/util/HashSet	isEmpty
 java/util/HashSet	iterator	
 java/util/HashSet	remove	
 java/util/HashSet	size	
+java/util/IllegalFormatConversionException
+java/util/IllegalFormatConversionException	<init>	
+java/util/IllegalFormatConversionException	addSuppressed	
+java/util/IllegalFormatConversionException	getCause	
+java/util/IllegalFormatConversionException	getMessage	
+java/util/IllegalFormatConversionException	getSuppressed	
 java/util/IllegalFormatException
 java/util/IllegalFormatException	<init>	
 java/util/IllegalFormatException	addSuppressed	
 java/util/IllegalFormatException	getCause	
 java/util/IllegalFormatException	getMessage	
 java/util/IllegalFormatException	getSuppressed	
+java/util/IllegalFormatPrecisionException
+java/util/IllegalFormatPrecisionException	<init>	
+java/util/IllegalFormatPrecisionException	addSuppressed	
+java/util/IllegalFormatPrecisionException	getCause	
+java/util/IllegalFormatPrecisionException	getMessage	
+java/util/IllegalFormatPrecisionException	getSuppressed	
 java/util/Iterator
 java/util/Iterator	hasNext	
 java/util/Iterator	next	
@@ -498,6 +510,12 @@ java/util/Map
 java/util/Map$Entry
 java/util/Map$Entry	getKey	
 java/util/Map$Entry	getValue	
+java/util/MissingFormatArgumentException
+java/util/MissingFormatArgumentException	<init>	
+java/util/MissingFormatArgumentException	addSuppressed	
+java/util/MissingFormatArgumentException	getCause	
+java/util/MissingFormatArgumentException	getMessage	
+java/util/MissingFormatArgumentException	getSuppressed	
 java/util/NoSuchElementException
 java/util/Objects
 java/util/Objects	equals	(Ljava/lang/Object;Ljava/lang/Object;)Z
@@ -520,6 +538,12 @@ java/util/Random	nextInt
 java/util/Random	nextLong	
 java/util/Random	setSeed	
 java/util/Set
+java/util/UnknownFormatConversionException
+java/util/UnknownFormatConversionException	<init>	
+java/util/UnknownFormatConversionException	addSuppressed	
+java/util/UnknownFormatConversionException	getCause	
+java/util/UnknownFormatConversionException	getMessage	
+java/util/UnknownFormatConversionException	getSuppressed	
 java/util/concurrent/CancellationException
 java/util/concurrent/ExecutionException
 java/util/concurrent/RejectedExecutionException
@@ -566,10 +590,14 @@ javax/inject/Provider	get	()Ljava/lang/Object;
 @extends	java/net/SocketTimeoutException	java/io/InterruptedIOException
 @extends	java/net/UnknownHostException	java/io/IOException
 @extends	java/util/ConcurrentModificationException	java/lang/RuntimeException
+@extends	java/util/IllegalFormatConversionException	java/util/IllegalFormatException
 @extends	java/util/IllegalFormatException	java/lang/IllegalArgumentException
+@extends	java/util/IllegalFormatPrecisionException	java/util/IllegalFormatException
 @extends	java/util/LinkedHashMap	java/util/HashMap
 @extends	java/util/LinkedHashSet	java/util/HashSet
+@extends	java/util/MissingFormatArgumentException	java/util/IllegalFormatException
 @extends	java/util/NoSuchElementException	java/lang/RuntimeException
+@extends	java/util/UnknownFormatConversionException	java/util/IllegalFormatException
 @extends	java/util/concurrent/CancellationException	java/lang/IllegalStateException
 @extends	java/util/concurrent/ExecutionException	java/lang/Exception
 @extends	java/util/concurrent/RejectedExecutionException	java/lang/RuntimeException

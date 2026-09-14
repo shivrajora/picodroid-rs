@@ -835,42 +835,46 @@ public class QaColl extends Application {
     try {
       String bad = String.format(dyn("%d"), "notanumber");
       sink += bad.length();
-    } catch (java.util.IllegalFormatException e) {
+    } catch (java.util.IllegalFormatConversionException e) {
       ife = true;
     } catch (IllegalArgumentException e) {
-      ife = true;
+      // The family's base class or a sibling: the check below fails.
+      sink += 1;
     }
-    check("%d with String throws", ife);
+    check("%d with String throws (IllegalFormatConversionException)", ife);
     ife = false;
     try {
       String bad = String.format(dyn("%q"), 1);
       sink += bad.length();
-    } catch (java.util.IllegalFormatException e) {
+    } catch (java.util.UnknownFormatConversionException e) {
       ife = true;
     } catch (IllegalArgumentException e) {
-      ife = true;
+      // The family's base class or a sibling: the check below fails.
+      sink += 1;
     }
-    check("unknown conversion throws", ife);
+    check("unknown conversion throws (UnknownFormatConversionException)", ife);
     ife = false;
     try {
       String bad = String.format(dyn("%.2d"), 1);
       sink += bad.length();
-    } catch (java.util.IllegalFormatException e) {
+    } catch (java.util.IllegalFormatPrecisionException e) {
       ife = true;
     } catch (IllegalArgumentException e) {
-      ife = true;
+      // The family's base class or a sibling: the check below fails.
+      sink += 1;
     }
-    check("precision on %d throws", ife);
+    check("precision on %d throws (IllegalFormatPrecisionException)", ife);
     ife = false;
     try {
       String bad = String.format(dyn("%s %s"), "one");
       sink += bad.length();
-    } catch (java.util.IllegalFormatException e) {
+    } catch (java.util.MissingFormatArgumentException e) {
       ife = true;
     } catch (IllegalArgumentException e) {
-      ife = true;
+      // The family's base class or a sibling: the check below fails.
+      sink += 1;
     }
-    check("missing argument throws", ife);
+    check("missing argument throws (MissingFormatArgumentException)", ife);
     String fmt = dyn("%d");
     checkEq("extra args ignored", "1", String.format(fmt, 1, 2, 3));
   }

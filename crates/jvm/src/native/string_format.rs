@@ -3,7 +3,7 @@
 //!
 //! Supports conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with flags
 //! (`-`, `0`, `+`, ` `, `,`, `#`), width, and precision. Mismatched arguments
-//! or bad specifiers throw `IllegalFormatException`.
+//! or bad specifiers throw the matching `IllegalFormatException` subclass.
 
 use alloc::vec::Vec;
 
@@ -56,9 +56,13 @@ impl core::fmt::Write for StackBuf {
     }
 }
 
-/// Build and return an IllegalFormatException for the exception unwinding path.
-fn fmt_err(ctx: &mut NativeContext<'_>) -> JvmError {
-    match ctx.objects.alloc(c::java_util_IllegalFormatException) {
+/// Build and return one of the `IllegalFormatException` family for the
+/// exception unwinding path — the subclass Java throws for the case
+/// (`MissingFormatArgumentException` for `%s` with no argument,
+/// `IllegalFormatPrecisionException` for `%.2d`, …), so a catch of the
+/// specific class matches as on Android.
+fn fmt_err(ctx: &mut NativeContext<'_>, class: &'static str) -> JvmError {
+    match ctx.objects.alloc(class) {
         Some(idx) => JvmError::Exception(idx),
         None => JvmError::StackOverflow,
     }
@@ -437,7 +441,12 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
         }
         let (spec, next) = match parse_spec(&fmt_bytes, i + 1) {
             Some(t) => t,
-            None => return Some(Err(fmt_err(ctx))),
+            None => {
+                return Some(Err(fmt_err(
+                    ctx,
+                    c::java_util_UnknownFormatConversionException,
+                )))
+            }
         };
         i = next;
 
@@ -450,7 +459,10 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b's' | b'S' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
@@ -468,7 +480,10 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'b' | b'B' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
@@ -497,13 +512,27 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'c' | b'C' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
+                if spec.precision.is_some() {
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_IllegalFormatPrecisionException,
+                    )));
+                }
                 let ch = match unbox(ctx, v) {
-                    Value::Int(n) if spec.precision.is_none() => n as u8,
-                    _ => return Some(Err(fmt_err(ctx))),
+                    Value::Int(n) => n as u8,
+                    _ => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_IllegalFormatConversionException,
+                        )))
+                    }
                 };
                 scratch.clear();
                 if let Err(e) = room(&mut scratch, 1) {
@@ -516,15 +545,30 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'd' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
-                // A precision is an IllegalFormatException on an integral
-                // conversion, as in Java (QA 2026-09-13: `%.2d` was accepted).
+                // A precision is an IllegalFormatPrecisionException on an
+                // integral conversion, as in Java (QA 2026-09-13: `%.2d` was
+                // accepted); a non-integral argument is a conversion error.
+                if spec.precision.is_some() {
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_IllegalFormatPrecisionException,
+                    )));
+                }
                 let (signed, _u) = match as_int(ctx, v) {
-                    Some(t) if spec.precision.is_none() => t,
-                    _ => return Some(Err(fmt_err(ctx))),
+                    Some(t) => t,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_IllegalFormatConversionException,
+                        )))
+                    }
                 };
                 let neg = signed < 0;
                 let mag = if neg {
@@ -542,13 +586,27 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'x' | b'X' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
+                if spec.precision.is_some() {
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_IllegalFormatPrecisionException,
+                    )));
+                }
                 let u = match as_unsigned(ctx, v) {
-                    Some(u) if spec.precision.is_none() => u,
-                    _ => return Some(Err(fmt_err(ctx))),
+                    Some(u) => u,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_IllegalFormatConversionException,
+                        )))
+                    }
                 };
                 if let Err(e) = hex_digits(u, spec.conv == b'X', &mut scratch) {
                     return Some(Err(e));
@@ -570,13 +628,27 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'o' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
+                if spec.precision.is_some() {
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_IllegalFormatPrecisionException,
+                    )));
+                }
                 let u = match as_unsigned(ctx, v) {
-                    Some(u) if spec.precision.is_none() => u,
-                    _ => return Some(Err(fmt_err(ctx))),
+                    Some(u) => u,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_IllegalFormatConversionException,
+                        )))
+                    }
                 };
                 if let Err(e) = oct_digits(u, &mut scratch) {
                     return Some(Err(e));
@@ -592,13 +664,21 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
             }
             b'f' | b'e' | b'E' | b'g' | b'G' => {
                 if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(ctx)));
+                    return Some(Err(fmt_err(
+                        ctx,
+                        c::java_util_MissingFormatArgumentException,
+                    )));
                 }
                 let v = args[arg_pos];
                 arg_pos += 1;
                 let f = match as_float(ctx, v) {
                     Some(f) => f,
-                    None => return Some(Err(fmt_err(ctx))),
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_IllegalFormatConversionException,
+                        )))
+                    }
                 };
                 let prec = spec.precision.unwrap_or(6);
                 let neg = f.is_sign_negative() && !f.is_nan();
@@ -657,7 +737,12 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     return Some(Err(e));
                 }
             }
-            _ => return Some(Err(fmt_err(ctx))),
+            _ => {
+                return Some(Err(fmt_err(
+                    ctx,
+                    c::java_util_UnknownFormatConversionException,
+                )))
+            }
         }
     }
 

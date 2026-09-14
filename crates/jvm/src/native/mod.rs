@@ -52,6 +52,10 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_lang_Exception,
     c::java_lang_RuntimeException,
     c::java_util_IllegalFormatException,
+    c::java_util_IllegalFormatConversionException,
+    c::java_util_IllegalFormatPrecisionException,
+    c::java_util_MissingFormatArgumentException,
+    c::java_util_UnknownFormatConversionException,
     c::java_lang_Enum,
     c::java_lang_StringBuilder,
     c::java_lang_String,
@@ -256,6 +260,22 @@ pub const BUILTIN_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
     (c::java_lang_Exception, THROWABLE_METHODS),
     (c::java_lang_RuntimeException, THROWABLE_METHODS),
     (c::java_util_IllegalFormatException, THROWABLE_METHODS),
+    (
+        c::java_util_IllegalFormatConversionException,
+        THROWABLE_METHODS,
+    ),
+    (
+        c::java_util_IllegalFormatPrecisionException,
+        THROWABLE_METHODS,
+    ),
+    (
+        c::java_util_MissingFormatArgumentException,
+        THROWABLE_METHODS,
+    ),
+    (
+        c::java_util_UnknownFormatConversionException,
+        THROWABLE_METHODS,
+    ),
     (c::java_lang_Enum, ENUM_METHODS),
     (c::java_lang_StringBuilder, STRING_BUILDER_METHODS),
     (c::java_lang_String, STRING_METHODS),
@@ -650,6 +670,26 @@ const BUILTIN_DISPATCH: &[(&str, u32, BuiltinDispatchFn)] = &[
     (
         c::java_util_IllegalFormatException,
         name_hash(c::java_util_IllegalFormatException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_util_IllegalFormatConversionException,
+        name_hash(c::java_util_IllegalFormatConversionException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_util_IllegalFormatPrecisionException,
+        name_hash(c::java_util_IllegalFormatPrecisionException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_util_MissingFormatArgumentException,
+        name_hash(c::java_util_MissingFormatArgumentException.as_bytes()),
+        dispatch_init_only,
+    ),
+    (
+        c::java_util_UnknownFormatConversionException,
+        name_hash(c::java_util_UnknownFormatConversionException.as_bytes()),
         dispatch_init_only,
     ),
     (
