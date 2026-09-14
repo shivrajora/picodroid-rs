@@ -81,6 +81,10 @@ pub struct LambdaProxy {
     pub target_class_idx: usize,
     pub target_method_idx: usize,
     pub captures: Vec<Value>,
+    /// The SAM's name. Only a call to this method is the lambda body: a
+    /// default method or an `Object` method on the same proxy resolves
+    /// through the interface and `Object`, as on any other object.
+    pub sam_name: &'static [u8],
 }
 
 pub struct ObjectHeap {

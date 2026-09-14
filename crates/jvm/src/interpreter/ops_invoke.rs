@@ -91,11 +91,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class_str
         };
 
-        // Lambda proxy intercept: if receiver is a lambda, dispatch to the
-        // target method directly.
+        // Lambda proxy intercept: a call to the proxy's SAM runs the lambda
+        // body; any other method on it (a default method, `Object`'s) falls
+        // through to ordinary resolution below.
         if is_virtual && self.objects.has_lambdas() {
             let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-            if self.try_lambda_dispatch(frame, arg_count, desc_str)? {
+            if self.try_lambda_dispatch(frame, arg_count, name_str, desc_str)? {
                 return Ok(());
             }
         }
@@ -325,11 +326,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         Ok(())
     }
 
-    /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy,
-    /// pop its captures + invocation args, push a frame targeting the
-    /// proxy's `target_class_idx::target_method_idx`, and return `Ok(true)`.
-    /// Returns `Ok(false)` when the receiver isn't a lambda (caller falls
-    /// through to ordinary method resolution).
+    /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy
+    /// and `name` is its SAM, pop its captures + invocation args, push a
+    /// frame targeting the proxy's `target_class_idx::target_method_idx`,
+    /// and return `Ok(true)`. Returns `Ok(false)` when the receiver isn't a
+    /// lambda, or the call is to a default or `Object` method on one — the
+    /// caller then resolves it like any other method, through the interface
+    /// and `java/lang/Object`.
     ///
     /// Performs `LambdaMetafactory`'s boxing adaptation: kotlinc keeps a
     /// lambda body primitive (`(I)I`) behind the erased SAM
@@ -341,6 +344,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         &mut self,
         frame: &mut Frame,
         arg_count: usize,
+        name: &str,
         sam_desc: &str,
     ) -> Result<bool, JvmError> {
         let stack_len = frame.stack.len();
@@ -350,7 +354,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] else {
             return Ok(false);
         };
-        if self.objects.get_lambda(obj_idx).is_none() {
+        // Only the SAM is the lambda body. `Greeter g = () -> "x"; g.twice()`
+        // used to run the body for the default method too (QA 2026-09-13).
+        let Some(lambda) = self.objects.get_lambda(obj_idx) else {
+            return Ok(false);
+        };
+        if lambda.sam_name != name.as_bytes() {
             return Ok(false);
         }
 
@@ -470,8 +479,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .cp_invoke_dynamic(cp_idx)
             .ok_or(JvmError::InvalidBytecode)?;
 
-        // 2. Get the NameAndType to know the factory descriptor (return type = functional interface)
-        let (_name_bytes, desc_bytes) = cf
+        // 2. Get the NameAndType: the SAM's name, and the factory descriptor
+        //    (captures in, functional interface out)
+        let (sam_name, desc_bytes) = cf
             .cp_name_and_type(nat_idx)
             .ok_or(JvmError::InvalidBytecode)?;
         let factory_desc =
@@ -564,6 +574,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 target_class_idx: target_ci,
                 target_method_idx: target_mi,
                 captures,
+                sam_name,
             },
         );
 
@@ -731,8 +742,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // `Runnable.run` through an `Executors.dispatchRunnable` bytecode
         // bridge. Running inside the Executor, this can consult the proxy
         // directly and needs no bridge.
+        let is_sam_call = match recv {
+            Value::ObjectRef(obj_idx) => self
+                .objects
+                .get_lambda(obj_idx)
+                .is_some_and(|l| l.sam_name == method_name.as_bytes()),
+            _ => false,
+        };
         let new_frame = match recv {
-            Value::ObjectRef(obj_idx) => {
+            Value::ObjectRef(obj_idx) if is_sam_call => {
                 match lambda_frame(self.objects, self.classes, obj_idx, args, descriptor)? {
                     Some(f) => Some(f),
                     None => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
