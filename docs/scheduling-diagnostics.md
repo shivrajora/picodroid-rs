@@ -185,13 +185,34 @@ so `cyw43_port.c`'s counter compiles too) and clippies its host arm
 - **Do not print from the hooks.** They run inside the kernel; the idle
   hook is the only printer.
 
+## On hardware
+
+`hil-run.sh` honours `PICODROID_EXTRA_FEATURES` like `flash.sh` does, so
+any row can be run on a diag image:
+
+```bash
+PICODROID_EXTRA_FEATURES=sched-diag ./scripts/hil-run.sh --board testbench_rp2350 --app blinky --no-email
+```
+
+First run, 2026-09-14, `testbench_rp2350` firmware on the RP2350 slot,
+blinky's `loop` row: the row PASSes and the RTT log reads
+
+```text
+scheddiag: ACTIVE (window=1000ms strict=false selftest=false)
+schedmon: w=1 ms=1000 idle0=96% idle1=99% sw=14 hog=0 poll=0 starve=0 busy=0 spin=0 lost=0
+schedmon: w=2 ms=1000 idle0=99% idle1=100% sw=4 hog=0 poll=0 starve=0 busy=0 spin=0 lost=0
+```
+
+— both cores reported, four switches a second while the app sleeps
+between toggles, no findings, no lost windows.
+
 ## Not covered (yet)
 
-- **HIL rows.** `hil-tests.conf` has no sched-diag `loop`/`net` rows: the
-  device image has been compile-checked, not soaked on the bench. Adding
-  them is a bench session (`PICODROID_EXTRA_FEATURES=sched-diag` firmware,
-  expected pattern `schedmon: w=`, then read the findings against the
-  device notes above before making any of them a failure).
+- **HIL rows in the nightly.** `hil-tests.conf` has no sched-diag rows of
+  its own yet: one blinky `loop` row has run on a diag image (above); the
+  flash-write `HOG`s the device notes predict have not been observed yet
+  because that row writes no flash. Read a storage-heavy row's findings
+  before making any of them a failure pattern.
 - **Idle wake-ups.** The window line shows idle *share*, not how many times
   the core woke. That question belongs to the tick-timebase work (WP7 in
   the audit) and tickless idle, which this monitor is a prerequisite for

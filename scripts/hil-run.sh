@@ -582,13 +582,16 @@ hil_build_firmware() {
   fi
   export PICODROID_BOOT="$boot"
   build_system_apks >> "$log" 2>&1 || return 1
+  # PICODROID_EXTRA_FEATURES rides along as it does for flash.sh (lib.sh),
+  # so a diagnostics image (mem-diag, sched-diag) can be soaked on the bench
+  # with the same rows: PICODROID_EXTRA_FEATURES=sched-diag ./scripts/hil-run.sh …
   env "${cargo_env[@]}" cargo build \
     -p picodroid \
     --release \
     --jobs "${HIL_JOBS:-$(cpu_count)}" \
     --target "$TARGET" \
     --no-default-features \
-    --features "$BOARD_FEATURE" >> "$log" 2>&1
+    --features "$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}" >> "$log" 2>&1
 }
 
 # Flash `elf` with probe-rs run (which also streams RTT), wait for the

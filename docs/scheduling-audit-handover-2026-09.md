@@ -234,10 +234,13 @@ partial window at app exit. `flashpark` is the one exempt task. `scripts/test-sc
 soaks in strict mode; helloworld and benchmark to completion; the
 self-test plain and strict) runs as a `sim-run.sh` lane; `--full`
 pre-commit gained `clippy_sim_scheddiag` and `build_rp2350w_scheddiag`.
-Not done: the `hil-tests.conf` rows (bench session; expect `HOG`s from
-flash writes on the fs/pdb tasks, see the doc's device notes) and any
-change to `pdb sysmon`, whose `CPU%` already is the per-task run-time
-delta.
+Hardware, 2026-09-14: `hil-run.sh` now honours `PICODROID_EXTRA_FEATURES`
+(it built the board feature alone before), and blinky's `loop` row on the
+RP2350 slot PASSes on a diag image — both cores reported, idle 99 %/100 %,
+4 switches/s, no findings, no lost windows. Not done: sched-diag rows of
+their own in `hil-tests.conf` (a storage-heavy row first, to see the
+flash-write `HOG`s the doc predicts) and any change to `pdb sysmon`, whose
+`CPU%` already is the per-task run-time delta.
 
 The original brief, kept for the record:
 
