@@ -36,6 +36,18 @@ was advanced once, in the WP7 commit: RP2040 +92 B flash / +8 B RAM over
 the old baseline (+172 B / +8 B over the pre-change tree, attributed by
 symbol in the commit message); RP2350 −1,388 B against its baseline.
 
+**Session 3, 2026-09-13 (six commits on local `main`, not pushed):** WP11
+in three parts (`43274aa1` I²C target skip, `ab35c53f` XPT2046 batch,
+`spi/mod.rs` polled paths under the lock), the blocking half of WP9
+(`1254ce59`) and WP5 (`49590df9`, gSPI DMA completion by interrupt) landed, each through the fast tier and
+sim smoke, `--full` at the end. The spin ledger is 14 `spin-ok` / 0
+`spin-todo`. The ratchet moved four times, each attributed by symbol in the
+commit: RP2040 +160 / −240 / +158 / −808 B, RP2350 −137 / −151 / +160 /
+−208 B. Bench: netdemo/http_get/blinky rows on the W slot for WP5 (§2), the
+blinky and helloworld rows on `testbench_rp2040` for the SPI lock (§2 WP11).
+Still open after this session: WP0, G3/G4/G6 (`sched-diag`), the WP7 timer
+half, WP9's ring, and the two bench items below.
+
 Two things the next session inherits that are **not** code debt:
 
 - **The `blinky pdb launch` row fails on the `pico_enviro_mon_w` slot with
@@ -51,15 +63,15 @@ Two things the next session inherits that are **not** code debt:
   all day. First thing on the kit: tap and scroll parity (`parity-bench.sh
   --hil`), then `pdb sysmon` switch counts idle vs. touching. See §3.
 
-## 1. The spin ledger's debts (5 `spin-todo`, all `platforms/rp/src/hal/rp/`)
+## 1. The spin ledger's debts — PAID 2026-09-13 (0 `spin-todo`, 14 `spin-ok`)
 
-Each `spin-todo:` names its finding; the work package that replaces one lowers
-`EXPECTED_SPIN_TODO` in `spin_guard.rs` (and may raise `EXPECTED_SPIN_OK`).
+Each `spin-todo:` named its finding; the work package that replaced one
+lowered `EXPECTED_SPIN_TODO` in `spin_guard.rs`. Session 3 retired all five:
 
-| Where | Finding | What replaces it |
+| Where | Finding | What replaced it |
 |---|---|---|
-| `uart.rs` `write_byte`, ×2 | F14 | WP9: TX ring + `UARTx_IRQ` TXIM, block on a semaphore only when the ring is full; RXIM → queue (the `i2c/mod.rs:435-487` pattern). Defer until a board ships a serial app; at minimum `spin_until!` the FIFO wait. |
-| `i2c/mod.rs` `apply_speed!`, `write_internal`, `read_internal` | F18 | WP11: cache the last `IC_TAR` per bus and skip the disable/settle/enable when it is unchanged (every sensor and GT911 transfer pays ~one SCL bit-time today). |
+| `uart.rs` `write_byte`, ×2 | F14 | `wait_tx_room` (`1254ce59`): sleeps a tick per retry while `TXFF` is set, drops the byte after 100 ms (one byte-time is all a slot needs; only a line not draining at all gets there) and warns once per boot; a pre-scheduler caller gets a capped `spin_until!`. WP9's TX ring + `UARTx_IRQ` still waits for a board that ships a serial app — this is the "at minimum" half. |
+| `i2c/mod.rs` `apply_speed!`, `write_internal`, `read_internal` | F18 | `select_target` (`43274aa1`): the register is the cache — when `IC_ENABLE` is set and `IC_TAR` already holds the address there is nothing to do. The genuine waits (a reconfigure, a real target change) share one out-of-line `disable()` with a `spin_until!` cap. A failed transfer leaves the controller disabled so the next select flushes the FIFOs the way the old unconditional disable did. |
 
 ## 2. Open work packages, in the order I would take them
 
@@ -93,19 +105,35 @@ a `tick_timer_set_period` seam item worth its porting-guard and flash
 cost. Note the sim's minifb window pump (`hal::display::update_window`)
 also wants a periodic tick, so the sim arm would keep a floor.
 
-### WP5 — gSPI DMA completion by interrupt (F7) — W board, medium
+### WP5 — gSPI DMA completion by interrupt (F7) — LANDED 2026-09-13 (session 3)
 
-`platforms/rp/src/hal/rp/pio_spi.rs` `wait_dma_done` (now `spin_until!`, 20 M
-cap) spins for every WiFi frame in both directions, on the cyw43 task and on
-the IP task (≤ 450 µs each). `DMA_IRQ_1` is unclaimed in the tree (`dma.rs`
-only claims IRQ_0). Plan: route channels 4/5 to `INTE1`, a `DMA_IRQ_1` handler
-at priority 0x10 that posts a completion (prefer a depth-1 **queue** token or
-the existing `cyw43_set_poll_task` notification — see §4 on why not a fresh
-semaphore), `take(Duration::ms(5))` in `cyw43_spi_transfer`, keep the spin for
-≤ 8-byte frames. Keep the design-doc property that frames complete
-autonomously under preemption. Validate on `testbench_rp2350w`: `netdemo`,
-`http_get`, 10× `pdb install` soak, and the `instr_rx_*` counters in
-`NetworkInterface_CYW43.c` (gdb-read).
+`pio_spi.rs`: channels 4/5 are on `INTE1`; `DMA_IRQ_1` (priority 0x10,
+unmasked on the cyw43 task's core) gives a binary semaphore; per transfer
+exactly one channel is left loud through `IRQ_QUIET` — RX in the read shape
+(it finishes last), TX in the write shape — and only when the frame is
+longer than 8 bytes and the scheduler is running. `wait_dma` takes the
+semaphore (5 ms) and then confirms with the busy bit, which keeps the old
+spin's correctness: the token only makes the wait cheap. A take can return
+early on a token the previous transfer's interrupt left after its own spin
+had already seen the channel idle (so every transfer drains the semaphore
+first), and it can time out with the channel legitimately still running
+when core 1 sat parked for a flash write longer than 5 ms with the
+interrupt pending behind `cpsid` — either way the busy bit decides. The
+TXSTALL wait after a write stays a spin: at most the FIFO's four words.
+A fresh semaphore rather than a queue token: `pio_spi.rs` is W-board-only
+(`network_cyw43`), so §4's RP2040 ISR-entry-point cost does not apply, and
+the I²C/SPI drivers already link `give_from_isr` on every board. Frames
+still complete autonomously under preemption (nothing about the SM/DMA
+programming changed).
+
+Validated on the W slot (`testbench_rp2350w` firmware): `netdemo` ×2 and
+`http_get` ×2 `net` rows PASS (firmware load, join, DHCP, TCP echo, HTTP
+GET), `blinky` `loop` + `pdb install-stress` (10/10) PASS. The bench misbehaved
+mid-run — the probe dropped off USB during one `http_get` row and answered
+"interface busy" on two `blinky` rows, and a no-shrink `install-stress`
+failed only because its flash never happened (the board still ran the
+previous shrink image and rejected the no-shrink PAPK) — those rows passed
+on the re-run. The `instr_rx_*` gdb readback was not done.
 
 ### WP0 — ISR-safe seam primitives — small, unblocks shared IRQ-driven waits
 
@@ -141,33 +169,43 @@ notifies it when the child count reaches zero (both exit paths);
 across the 1 ms `SIGALRM` `EINTR`s (`SO_RCVTIMEO` on `accept` is
 Linux-only; the dev host is sometimes macOS).
 
-### WP11 — hot-path polish (F18) — small
+### WP11 — hot-path polish (F18) — LANDED 2026-09-13 (session 3)
 
-The I²C `IC_TAR` cache (§1); XPT2046 `sample()` batches its ten 3-byte polled
-transfers into one ≥ 9-byte ISR transfer (`drivers/xpt2046.rs:140-152`); the
-SPI small path takes `spi_lock` before its FIFO polls (`spi/mod.rs:400-406`
-returns before `:408` today — a 1–6 byte command can interleave with a locked
-`reconfigure()`).
+Parts 1 and 2: the I²C `IC_TAR` skip (§1, `43274aa1`) and the XPT2046
+batch (`ab35c53f`): `sample()` sends its ten conversions as one 30-byte
+transfer — the chip latches a control byte on the first clock after a
+conversion's 24, so back-to-back frames under one CS are what the wire
+already carried, minus the gaps — which takes the RP driver's
+interrupt-driven path instead of ten trips through the polled small path.
+The sim's `FakeXptSpi` answers every frame of a batch now (it answered only
+the first), and driver tests over a recording bus pin the shape.
 
-**Looked at on 2026-09-13, left alone — it needs the testbench.** The
-"small" SPI item is not small on the boards that matter: on
-`testbench_rp2040/2350` the XPT2046 is a second device on the display's bus
-(`board.toml` `[touch]` has no `spi_id`; `RpSpiBus::handle` says so). The
-async flush (S5) holds `spi_lock` from `write_pixels_start` to the
-`write_pixels_wait` LVGL issues at the end of each refresh, and the XPT2046
-sample already serialises on that lock *twice* — its `set_frequency(2 MHz)`
-and the restore both go through `reconfigure` — but its ten polled 3-byte
-transfers in between do not, so the JVM task can start the next band's DMA
-at 2 MHz between them and the sampler's bytes can land in the band's TX
-FIFO. Taking `spi_lock` in the small path alone would make the touch task
-(priority 23) block behind a band on a binary semaphore with no priority
-inheritance, which is correct but new, and does not close the gap. The fix
-that does: a bus-hold API (`spi::hold(id)`/`release`, or a `with_bus`
-closure) that the XPT2046 driver wraps its whole sample in, with
-`reconfigure` and the polled paths asserting or taking it. Validate with
-touch during a repaint on `testbench_rp2040` (`parity-bench.sh --hil`,
-`pdb input swipe` while a scroll paints) — a corrupt band or a stalled
-drag is the symptom either way.
+Part 3, the SPI small path: see the correction below.
+
+**The 2026-09-13 session-2 analysis of the small-path lock was wrong about
+the task topology, and the bus-hold API it asked for is not needed.** The
+touch sampler task only starts where `TOUCH_PRIVATE_BUS` is set
+(`touch_sampler.rs::start`), and no XPT2046 board sets it — all three
+(`testbench_rp2040`, `testbench_rp2350`, `testbench_rp2350w`) put the panel
+on the display's bus, so on every one of them the panel is read inline on
+the UI task, after the refresh has collected its last band. There is no
+"touch task at priority 23" to race the JVM task's band, and the XPT2046
+sample cannot interleave with a flush because the same task does both. What
+the lock-free small path did leave open is a *different* task on the
+display's bus — a Java `SpiDevice` on SPI0 — whose 1–8 byte poll could put
+bytes into a running DMA band or run while `reconfigure` had the controller
+disabled, and whose `write_raw_start` would collect the UI task's pending
+band as if it were its own. Part 3 (`spi/mod.rs`): both polled paths take
+`spi_lock`; a pending DMA write records its starter's task handle and only
+that task collects it (`collect_own_write`, on every entry to the bus
+including `reconfigure`) — another task takes the lock and blocks until the
+owner has. Deadlock-free on the UI task by the panel driver's existing
+contract: every command collects the in-flight band before it goes out.
+Validated on `testbench_rp2040` (XPT2046 on the display's SPI0): the
+`blinky` `loop` and `pdb install-stress` rows in both modes and every
+`helloworld` row PASS, the display refreshing and the inline touch read
+running throughout; the `pdb launch` rows SKIP on that slot's single-app
+firmware, so scripted taps during a repaint remain unexercised there.
 
 ### F19 leftovers — LANDED 2026-09-13 (`4b65a715`)
 
@@ -227,6 +265,8 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
   WP7's deferred half).
 - WP7's timer reprogramming (WP7 above): no gain until the indev is
   event-driven.
-- WP11's SPI lock (WP11 above): needs the testbench, and a bus-hold API
-  rather than the one-line change the plan described.
+- WP9's TX ring + `UARTx_IRQ`: `write_byte` no longer spins (§1), but it
+  still blocks the writer a tick at a time; the ring waits for a serial app.
+- WP0 (ISR-safe seam primitives): WP5 stayed family code and used
+  `freertos_rust` directly, like `gpio.rs`; still no shared consumer.
 - The `blinky pdb launch` row on the W slot (§0).

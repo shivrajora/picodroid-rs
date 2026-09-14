@@ -35,6 +35,12 @@ the durable value of this investigation.
 - **The PRIMASK guard is gone.** Frames complete autonomously under
   preemption; a park/preempt mid-transfer only delays CS deassert past an
   already-completed frame.
+- **Completion by interrupt (2026-09-13, scheduling audit WP5):** channels
+  4/5 sit on `INTE1`/`DMA_IRQ_1`; a frame longer than 8 bytes leaves the
+  last-finishing channel loud and the calling task blocks on a semaphore
+  (5 ms) instead of spinning up to ~450 µs, then confirms with the busy
+  bit. Short frames still spin — under 2 µs on the wire, less than the
+  interrupt round trip.
 - **Bug A** needed no RAM placement at all — nothing timing-critical executes
   from flash anymore. (The unexplained core-0 boot crash of the reverted
   `.data.cyw43_spi` experiment remains unexplained, but no longer matters;

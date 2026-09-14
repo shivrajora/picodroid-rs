@@ -22,7 +22,7 @@ design that makes the property enforced rather than remembered.
 |---|---|
 | WP1 quick wins (F1, F4, F6 opt-in, F9, F13, F15, F19 bounds + joiners) | **landed** 2026-09-12 |
 | G5 `spin_until!` | **landed** 2026-09-12 (`crates/picodroid-core/src/hal/spin.rs`, a porting seam item) |
-| G1 spin ledger | **landed** 2026-09-12 (`platforms/rp/src/spin_guard.rs`; 14 `spin-ok`, 5 `spin-todo`: F14 ×2, F18 ×3) |
+| G1 spin ledger | **landed** 2026-09-12 (`platforms/rp/src/spin_guard.rs`; 14 `spin-ok`, 5 `spin-todo`: F14 ×2, F18 ×3). **Paid down to 0 `spin-todo`** 2026-09-13 session 3 (F18 by WP11, F14 by WP9's blocking half) |
 | G2 config assertions | **landed** 2026-09-12 (`task_affinity::idle_cores_sleep_and_driver_waits_yield`) |
 | WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
 | WP3 USB bridge (F3, F11) | **landed** 2026-09-12 (`pdb_usb/mod.rs`: EP1-IN semaphore given from the ISR, 500 ms dead-host latch; install reads block a tick per attempt on a hardware-timer deadline) |
@@ -32,7 +32,10 @@ design that makes the property enforced rather than remembered.
 | WP7 tick timebase (F16) | **landed** 2026-09-13 (`tick_source::step_ms`: a period, or the tick's lateness when more; alarm horizon gates the per-tick poll; idle GC on the clock; literal-step guard). Timer reprogramming from `lv_timer_handler`'s return deferred: the pointer indev's read timer keeps it at 16 ms until input is event-driven — `docs/scheduling-audit-handover-2026-09.md` §2 |
 | WP10 sim parity (F17) | **landed** 2026-09-13 (child drain by notification, `delay_ms(0)` yields, `accept` waits in `poll(2)`) |
 | F19 leftover (`cyw43_yield`) | **landed** 2026-09-13 (hook is `((void)0)`; nothing else may run on core 1 at priority 22) |
-| WP0, WP5, WP9, WP11, G3, G4, G6 | open — see the plan below and the handover doc |
+| WP5 gSPI DMA completion by IRQ (F7) | **landed** 2026-09-13 (`pio_spi.rs`: ch4/5 on `INTE1`/`DMA_IRQ_1`, one loud channel per frame > 8 bytes, semaphore take then busy-bit confirm; short frames spin). W slot: netdemo, http_get, blinky loop + install-stress PASS |
+| WP11 hot-path polish (F18) | **landed** 2026-09-13 (`select_target`: the I²C target register is its own cache; XPT2046 sample = one 30-byte interrupt-driven transfer; SPI polled paths under `spi_lock`, pending DMA writes collected only by their starter). The handover's bus-hold API was not needed — no XPT2046 board has a touch task; see the handover doc |
+| WP9 UART TX (F14) | **half landed** 2026-09-13 (`wait_tx_room`: a tick's sleep per retry, 100 ms drop bound, one warning per boot). The TX ring + `UARTx_IRQ` still waits for a board that ships a serial app |
+| WP0, G3, G4, G6 | open — see the plan below and the handover doc |
 
 **Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
 PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP
