@@ -149,7 +149,13 @@ impl StringTable {
     /// Reuses a freed (GC'd) slot when available; otherwise grows the table.
     /// Safe — this table owns the backing `Vec<u8>` for each dynamic entry.
     pub fn intern_dyn(&mut self, bytes: &[u8]) -> Option<u16> {
-        self.intern_dyn_owned(bytes.to_vec())
+        // A copy the heap cannot hold is `None` — the callers' allocation-
+        // failure signal — not an abort: a 59-byte intern reset the RP2040
+        // through `to_vec` (QA 2026-09-13, qa_coll).
+        let mut buf: Vec<u8> = Vec::new();
+        buf.try_reserve_exact(bytes.len()).ok()?;
+        buf.extend_from_slice(bytes);
+        self.intern_dyn_owned(buf)
     }
 
     /// Zero-copy variant of [`intern_dyn`] for callers that already own the
@@ -178,12 +184,19 @@ impl StringTable {
                 return Some(idx);
             }
         }
-        // No free slot — append a new entry.
+        // No free slot — append a new entry, if the table can grow (a table
+        // that cannot is the same allocation failure as the bytes).
+        if crate::object_heap::reserve_fallible(&mut self.ptrs, 1).is_err()
+            || crate::object_heap::reserve_fallible(&mut self.lens, 1).is_err()
+        {
+            return None;
+        }
         let idx = self.ptrs.len() as u16;
         // SAFETY: same as above — heap allocation stays fixed when Vec moves.
-        self.ptrs.push(buf.as_ptr());
-        self.lens.push(buf.len() as u16);
-        self.dyn_bufs.push(Some(buf));
+        let (ptr, len) = (buf.as_ptr(), buf.len() as u16);
+        self.dyn_bufs.try_push(Some(buf))?;
+        self.ptrs.push(ptr);
+        self.lens.push(len);
         Some(idx)
     }
 
