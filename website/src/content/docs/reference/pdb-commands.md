@@ -1,14 +1,17 @@
 ---
 title: "pdb command reference"
-description: "Every pdb subcommand — devices, ping, install, list, uninstall, sysmon, input, logcat — with flags, semantics, and the sim control-channel equivalents."
+description: "Every pdb subcommand — devices, ping, install, list, uninstall, sysmon, input, logcat — with flags, semantics, and how the same commands drive the simulator."
 ---
 
-`pdb` is the Picodroid Debug Bridge CLI: it talks to a flashed device over USB CDC. Build and run it with `cargo run -p pdb --`, or use the `./scripts/pdb.sh` wrapper. Every device command takes the serial port via `-s`:
+`pdb` is the Picodroid Debug Bridge CLI: it talks to a flashed device over USB CDC, or to a running [simulator](/get-started/simulator/) over its socket. Build and run it with `cargo run -p pdb --`, or use the `./scripts/pdb.sh` wrapper. Every device command takes the target via `-s`:
 
 ```bash
 cargo run -p pdb -- -s /dev/ttyACM1 <command>   # Linux
 cargo run -p pdb -- -s /dev/cu.usbmodem102 <command>   # macOS
+cargo run -p pdb -- -s sim <command>            # the running simulator
 ```
+
+`-s sim` is the one simulator that is running; when several are, `-s <socket>` names one (each simulator prints its socket at boot: `[sim] pdb: listening on /tmp/picodroid-sim/pdb-<pid>.sock`). Without `-s`, `pdb` auto-detects when exactly one device or simulator answers.
 
 Running `pdb` with no arguments prints the up-to-date usage text.
 
@@ -18,7 +21,12 @@ Running `pdb` with no arguments prints the up-to-date usage text.
 pdb devices
 ```
 
-Lists available serial ports so you can find the device's CDC port.
+Lists every device on a serial port and every running simulator that answers a ping; a simulator's row ends in `[sim]`:
+
+```text
+/dev/ttyACM2  picodroid/2.2  (max PAPK: 1532 KB)
+/tmp/picodroid-sim/pdb-2696762.sock  picodroid/2.2  (max PAPK: 1532 KB)  [sim]
+```
 
 ## ping
 
@@ -46,6 +54,8 @@ Refusing to install: device rejected install: STATUS_NO_ROOM — no room: need 3
 ```
 
 A PAPK without a `package-name` is refused on the host before the device is asked (`papk-pack --repack <file> --package-name <name>` adds one). On a single-app board the install replaces whatever is installed, as before.
+
+Against the simulator the install runs the same code — the JVM is parked, the app region is placed and written, and the simulator "reboots": it restarts its own process from a dump of the region (a *warm boot*), so the boot policy, the rescan and the launcher all run again. `pdb` sees it come back within the second.
 
 | Flag | Effect |
 |------|--------|
@@ -85,7 +95,7 @@ Erases an installed app's whole run — its boot-meta sector and image — remov
 pdb -s <port> sysmon
 ```
 
-Shows live system stats — heap usage, the FreeRTOS task table, CPU% — followed by the JVM heap block. With the memory-diagnostics build it also carries the `[memmon]` counters; see [Debugging](/guides/debugging/).
+Shows live system stats — heap usage, the FreeRTOS task table, CPU% — followed by the JVM heap block. With the memory-diagnostics build it also carries the `[memmon]` counters; see [Debugging](/guides/debugging/). The simulator answers from its hosted FreeRTOS kernel and its modeled device heap; it generates no run-time statistics, so its CPU% column reads `N/A`.
 
 ## input
 
@@ -101,7 +111,7 @@ Injects synthetic input, Android-`adb`-style. Keycode names are case-insensitive
 
 Errors: `ERR (no such key)` for a keycode the board doesn't map; `ERR (no touch panel)` for `tap`/`swipe` on a board without touch.
 
-The simulator's control channel accepts the **same verbs** (`input tap 40 60`, `input dpad down`, … via `./scripts/sim-ctrl.sh`), so an input sequence rehearsed headlessly in the sim replays verbatim on hardware. Details in [Debugging](/guides/debugging/).
+`pdb -s sim input …` drives the simulator through the very same handler. The simulator's control channel accepts the **same verbs** too (`input tap 40 60`, `input dpad down`, … via `./scripts/sim-ctrl.sh`), so an input sequence rehearsed headlessly in the sim replays verbatim on hardware. Details in [Debugging](/guides/debugging/).
 
 ## logcat
 

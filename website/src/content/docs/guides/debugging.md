@@ -292,6 +292,8 @@ Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared
 
 The control channel also accepts the same Android verbs as hardware [`pdb input`](#injecting-input-pdb-input) — `input keyevent <KEYCODE|n>`, `input dpad <dir>`, `input back`, `input tap <x> <y>`, and `input swipe <x1> <y1> <x2> <y2> [ms]`. Prefer these when you want one vocabulary that works identically in the sim and on a real device: rehearse a sequence headlessly in the sim, then run the exact same verbs via `pdb input` over USB CDC.
 
+**The wire-true path.** The simulator is also a `pdb` device in its own right: `./scripts/pdb.sh -s sim input tap 120 80` (or `ping`, `list`, `sysmon`, `install`, `uninstall`) goes over the simulator's socket through the same bridge task, framing and handlers a board runs, and an install reboots the simulator the way it reboots a device. Use the control FIFO for the sim-only verbs (button names, `touch`, `apps`, `memstats`) and `pdb -s sim` when the point is to exercise the device path — see [Driving the simulator with pdb](/get-started/simulator/#driving-the-simulator-with-pdb).
+
 **Capturing frames.** The sim window is named `picodroid`. Grab it with `scrot`:
 
 ```bash

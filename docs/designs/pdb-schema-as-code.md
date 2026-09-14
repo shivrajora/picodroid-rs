@@ -80,7 +80,7 @@ Each stage passes the full pre-commit suite + sim smoke and records its
 rp2040 release section deltas below. Wire bytes are identical throughout —
 no version bump; the golden tests are the proof.
 
-## 3. Deferred: a sim PDBP endpoint
+## 3. Deferred, then built: a sim PDBP endpoint
 
 Considered and deliberately deferred (2026-07-27): a `PdbTransport` over
 TCP/pty in the sim would give the port surface a second real transport impl
@@ -92,6 +92,13 @@ drift-detection at ~1% of the cost, and a *full* endpoint drags in sim
 install/park/reboot semantics that do not exist and deserve their own
 design. Revisit if a second MCU family lands or sim-side HIL rows become
 worth their keep.
+
+**Built 2026-09-13** — `docs/designs/sim-pdb-endpoint-2026-09.md`. The
+transport is a Unix socket rather than TCP or a pty, the opener is `-s
+<socket>` / `-s sim` behind a `Link` seam that replaced eight
+`serialport::new` sites by then, and the install/park/reboot semantics were
+given the design this note asked for: the device's park handshake on the
+sim's JVM task, and a reset that execs the process into a warm boot.
 
 ## 4. Measurement (amend per stage)
 

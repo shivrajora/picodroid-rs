@@ -605,3 +605,15 @@ restructure first.
 > **2026-09-03:** `BootLeaves` itself is gone. `register_sim_platform!` now takes
 > the family's leaves (`gc_roots`, `boot_budget`, `run_app`) and generates the
 > simulator's `main`; see `docs/designs/porting-seam-2026-09.md` E6 / A2.
+
+**A9 (2026-09-13). The debug bridge is a real simulator task now.** §2.5 and
+A4 listed `pdb` among the tasks with no simulator endpoint, kept as a
+synthetic pre-charge. `sim_boot::run` now spawns it through the seam
+(`TaskKind::DebugBridge`, `PRIORITY_RT_1`, before the JVM task as on a
+device), so its `BootTask` is `sim_real: true` and the arena figure is
+unchanged — the boot-budget assert reconciles at 79,656 B on
+`testbench_rp2350`. Its transport is a Unix socket, its park handshake the
+device's on the sim's JVM task, and its reset an exec of the process; see
+`docs/designs/sim-pdb-endpoint-2026-09.md`. The bridge blocks only through
+`vTaskDelay` (§2.2's invariant), which is why its socket is non-blocking.
+`cyw43` remains the one synthetic user task.

@@ -67,6 +67,13 @@ pub enum TaskKind {
     /// they disable execute-in-place on the one they run from, as the RP
     /// family's do — pins this task, and every caller inherits that for free.
     FsWorker,
+    /// The debug-bridge listener ([`crate::pdb::run_pdb_task`]).
+    ///
+    /// Like [`TaskKind::Jvm`], only the simulator creates this through the
+    /// seam ([`crate::sim_boot`]); a device's boot code creates its bridge
+    /// task directly because it also pins it to a core. The kind exists so
+    /// both size the stack from the same constant.
+    DebugBridge,
 }
 
 /// How long a blocking operation may wait.

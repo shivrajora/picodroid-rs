@@ -29,14 +29,23 @@
 //!
 //! # What this is *not*
 //!
-//! A device's `start_tasks` also creates a debug-bridge listener and a WiFi
-//! task, pins tasks to cores, and parks its JVM task forever in a supervisor
-//! loop waiting for the next install. None of that appears here: two of them
-//! have no simulator endpoint, core affinity is meaningless on a single-core
-//! port, and there is no install park. What the simulator does share is the
-//! app-switching loop: run what the package directory says, stop what the
-//! app left behind, ask what runs next (`packages::next_image`), and exit
-//! when the answer is nothing — a device waits for an install instead.
+//! A device's `start_tasks` also creates a WiFi task and pins tasks to
+//! cores; neither appears here — there is no simulator WiFi endpoint, and
+//! core affinity is meaningless on a single-core port. The debug bridge
+//! *is* here (`hal::sim::pdb`, a task of the device's priority on a Unix
+//! socket), and so is its install park: the supervisor loop below is the
+//! device's — run what the package directory says, stop what the app left
+//! behind, park for the bridge when it asks, ask what runs next
+//! (`packages::next_image`). The one divergence is what happens when the
+//! answer is nothing: a device waits for an install, the simulator exits,
+//! because one app per process is what `sim-run.sh`'s rows and every
+//! `sim.sh --app X` invocation rely on. `PICODROID_SIM_WAIT_FOR_INSTALL=1`
+//! chooses the device's behaviour instead.
+//!
+//! An install over the bridge ends with the device's reset, which here is a
+//! process exec: the bridge ends the scheduler, [`main`] regains the thread,
+//! and `hal::sim::pdb::reboot` dumps the region and starts the binary again
+//! as a warm boot — the whole sequence above runs again from the top.
 
 use alloc::boxed::Box;
 use std::panic::AssertUnwindSafe;
@@ -103,6 +112,14 @@ pub fn main(model: &'static BootBudgetModel) {
             current / 1024,
         );
     }
+
+    // The scheduler ended because the bridge installed or uninstalled an
+    // app and asked for the device's reset. Every task has stopped, so the
+    // region can be dumped and the process replaced.
+    if crate::hal::sim::pdb::take_reboot_request() {
+        crate::hal::sim::pdb::reboot();
+    }
+    crate::hal::sim::pdb::shutdown();
 }
 
 /// Create the boot tasks, then hand this thread to the scheduler.
@@ -133,6 +150,31 @@ fn run(model: &'static BootBudgetModel) {
     crate::bg_worker::install();
     crate::executors::background_pool::spawn();
 
+    // The debug bridge, where a device creates it: after the pool, before
+    // the JVM task, so the arena's first-fit placement sees the same order.
+    // Its priority outranks the JVM's, as on a device (`task_priority`).
+    let bridge = TaskSpec {
+        name: "pdb",
+        kind: TaskKind::DebugBridge,
+        priority: crate::task_priority::PRIORITY_RT_1,
+        stack_bytes: None, // platform's DebugBridge default (boot budget)
+    };
+    assert!(
+        rtos::spawn(
+            &bridge,
+            Box::new(|| {
+                use crate::hal::sim::pdb::{SimCoordinator, SimPapkFlash, SimSysmon, SimTransport};
+                crate::pdb::run_pdb_task(
+                    SimTransport::new(),
+                    SimCoordinator,
+                    SimSysmon,
+                    SimPapkFlash,
+                )
+            }),
+        ),
+        "pdb task"
+    );
+
     // The JVM task, through the same seam every other task uses — so its
     // stack size and its boot-budget charge come from the platform's
     // registered hooks rather than from two more arguments here.
@@ -147,47 +189,96 @@ fn run(model: &'static BootBudgetModel) {
             &spec,
             Box::new(move || {
                 // The app-switching loop a device's supervisor runs
-                // (platforms/rp/src/boot_tasks.rs), minus the install park.
+                // (platforms/rp/src/boot_tasks.rs), install park included.
+                crate::hal::sim::pdb::register_jvm_task();
+                // A device with nothing to run waits for an install. The
+                // simulator exits instead (module doc), unless asked not to.
+                let wait_for_install =
+                    std::env::var("PICODROID_SIM_WAIT_FOR_INSTALL").is_ok_and(|v| v == "1");
                 let mut image = crate::packages::boot_image();
                 if image.is_none() {
                     println!("[sim] no app to run");
                 }
-                while let Some(img) = image {
-                    crate::hal::sim::platform::set_stop_jvm(false);
-                    // Unwinding across the port's `extern "C"` task trampoline
-                    // is UB, and abort-on-panic is what a device does under
-                    // panic-probe. Catch here rather than letting the default
-                    // hook run, so the scheduler is not left owning a dead
-                    // process's main thread.
-                    if std::panic::catch_unwind(AssertUnwindSafe(|| crate::boot::run_app(img)))
-                        .is_err()
-                    {
-                        eprintln!("[sim] jvm task panicked — aborting");
-                        std::process::abort();
-                    }
+                loop {
+                    match image {
+                        Some(img) => {
+                            crate::hal::sim::platform::set_stop_jvm(false);
+                            // Unwinding across the port's `extern "C"` task
+                            // trampoline is UB, and abort-on-panic is what a
+                            // device does under panic-probe. Catch here
+                            // rather than letting the default hook run, so
+                            // the scheduler is not left owning a dead
+                            // process's main thread.
+                            if std::panic::catch_unwind(AssertUnwindSafe(|| {
+                                crate::boot::run_app(img)
+                            }))
+                            .is_err()
+                            {
+                                eprintln!("[sim] jvm task panicked — aborting");
+                                std::process::abort();
+                            }
 
-                    // One app runs at a time: Java threads the app left behind
-                    // end here, exactly as a device's supervisor loop stops
-                    // them before the next app (or an install) — STOP_JVM,
-                    // wake the parked ones, wait. Without it an `onCreate`
-                    // that starts threads and returns would end the scheduler
-                    // out from under children that never ran an instruction.
-                    //
-                    // The device's wait, not a poll: the last child to leave
-                    // notifies this task (`rtos_freertos::child_gone`), and
-                    // the loop re-checks the count because a notification is
-                    // "look again" — this task collects ones it never asked
-                    // for (`boot_tasks.rs`, porting-seam A9).
-                    crate::hal::sim::platform::set_stop_jvm(true);
-                    crate::threads::wake_all_parked();
-                    while sim_rtos::live_jvm_children() > 0 {
-                        rtos::task_wait_notification(rtos::Timeout::Forever);
+                            // One app runs at a time: Java threads the app
+                            // left behind end here, exactly as a device's
+                            // supervisor loop stops them before the next app
+                            // (or an install) — STOP_JVM, wake the parked
+                            // ones, wait. Without it an `onCreate` that
+                            // starts threads and returns would end the
+                            // scheduler out from under children that never
+                            // ran an instruction.
+                            //
+                            // The device's wait, not a poll: the last child
+                            // to leave notifies this task
+                            // (`rtos_freertos::child_gone`), and the loop
+                            // re-checks the count because a notification is
+                            // "look again" — this task collects ones it never
+                            // asked for (`boot_tasks.rs`, porting-seam A9).
+                            crate::hal::sim::platform::set_stop_jvm(true);
+                            crate::threads::wake_all_parked();
+                            while sim_rtos::live_jvm_children() > 0 {
+                                rtos::task_wait_notification(rtos::Timeout::Forever);
+                            }
+                        }
+                        None => {
+                            if !wait_for_install {
+                                break;
+                            }
+                            // The device's idle state: nothing runs, `pdb
+                            // list` names no running app, and the next
+                            // thing to happen is an install's park request.
+                            crate::packages::set_running(None);
+                            println!("[sim] nothing to run; waiting for an install");
+                            while !crate::hal::sim::pdb::park_requested() {
+                                rtos::task_wait_notification(rtos::Timeout::Forever);
+                            }
+                        }
                     }
 
                     // A package verb that had to wait for the app to stop
                     // (reinstall or uninstall of the running package).
+                    let directory = crate::packages::directory_generation();
                     crate::hal::sim::app_region::service_deferred();
-                    image = crate::packages::next_image();
+
+                    // The device's park point (boot_tasks.rs): an app stopped
+                    // for an install falls through to the park and keeps
+                    // `image`, so a refused install resumes the same app; any
+                    // other exit asks the directory what runs next.
+                    if !crate::hal::sim::pdb::park_requested() {
+                        image = crate::packages::next_image();
+                        continue;
+                    }
+                    crate::hal::sim::pdb::park_until_released();
+                    // Only a refused install returns here (a completed one
+                    // reboots the process). The app's run is where it was
+                    // unless the directory moved under the park — a
+                    // compaction, or the erase of an in-place copy — in which
+                    // case find the package again by name.
+                    if crate::packages::directory_generation() != directory {
+                        image = crate::packages::running()
+                            .and_then(crate::packages::find)
+                            .map(|e| e.image)
+                            .or_else(crate::packages::next_image);
+                    }
                 }
 
                 // Releases the main thread from `start_scheduler` below, and

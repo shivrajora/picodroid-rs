@@ -60,6 +60,18 @@ It ships on device too, where the threshold is the compile-time default.
 ./scripts/sim.sh --app myapp | pdb logcat --stdin --tag MyApp --level W
 ```
 
+## Driving the simulator with pdb
+
+The simulator is a [`pdb`](/reference/pdb-commands/) device. It runs the same debug-bridge task a board runs, on a Unix socket instead of USB CDC, and prints the socket at boot:
+
+```text
+[sim] pdb: listening on /tmp/picodroid-sim/pdb-2696762.sock
+```
+
+`./scripts/pdb.sh -s sim <command>` talks to the one simulator that is running; `pdb devices` lists every one (rows ending in `[sim]`), and `-s <socket>` names one when several run side by side — each simulator has its own socket (`pdb-<pid>.sock` under the temp dir, or `PICODROID_SIM_PDB_SOCKET`). `ping`, `list`, `sysmon`, `input` and `install`/`uninstall` all work; an install parks the JVM, writes the app region and *reboots* the simulator — it restarts its own process from a dump of the region, a warm boot that runs the real boot path — and `pdb` sees it come back.
+
+A simulator with nothing left to run exits (one app per process is what `sim.sh --app X` means); with `--system-apps` the launcher keeps it up, and `PICODROID_SIM_WAIT_FOR_INSTALL=1` makes it wait for an install instead, as a device does. A cold `sim.sh` start always begins from an erased app region — only the reboot after an install carries the region over.
+
 ## Filesystem persistence
 
-The sim's LittleFS image lives at `platforms/rp/target/sim-fs.img` (override with the `PICODROID_SIM_FS` env var) — same wire format as on-device flash, so you can copy it onto a device for inspection (or vice versa). Boot count + persistence checks via `bootcount` work identically.
+The sim's LittleFS image lives at `platforms/rp/target/sim-fs.img` (override with the `PICODROID_SIM_FS` env var) — same wire format as on-device flash, so you can copy it onto a device for inspection (or vice versa). Boot count + persistence checks via `bootcount` work identically. The default image is shared by every simulator on the machine; give each its own `PICODROID_SIM_FS` when running several.
