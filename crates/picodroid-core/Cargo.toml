@@ -59,6 +59,9 @@ handle-table-32 = []
 parity-metrics  = []
 parity-fbhash   = []
 mem-diag        = []
+# The scheduling monitor (docs/scheduling-diagnostics.md). build.rs turns
+# it into the PICODROID_SCHED_DIAG define for the hosted kernel.
+sched-diag      = []
 # Stack-trace source positions; forwarded to pico-jvm, and read by build.rs
 # (CARGO_FEATURE_LINE_NUMBERS) to embed the SDK tree that keeps
 # LineNumberTable/SourceFile. See platforms/rp/Cargo.toml.

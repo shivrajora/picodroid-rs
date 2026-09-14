@@ -45,6 +45,16 @@ pub(crate) fn scheduler_running() -> bool {
 impl DelayNs for RpDelay {
     #[inline(never)]
     fn delay_ns(&mut self, ns: u32) {
+        // A millisecond or more of cycles with the scheduler running is what
+        // the two methods below exist to avoid; under the scheduling monitor
+        // one that gets here anyway is a BUSYDELAY finding
+        // (docs/scheduling-audit-2026-09.md, G3).
+        #[cfg(feature = "sched-diag")]
+        {
+            if ns >= 1_000_000 && scheduler_running() {
+                picodroid_core::sched_diag::note_busy_delay(ns / 1000);
+            }
+        }
         // spin-ok: a sub-tick remainder, or a wait issued before the scheduler runs
         cortex_m::asm::delay(ns / NS_PER_CYCLE);
     }

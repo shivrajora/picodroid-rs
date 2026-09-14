@@ -54,6 +54,11 @@ use crate::rtos::{self, TaskKind, TaskSpec};
 /// apps that is one app per process, as `sim-run.sh` assumes; with a
 /// launcher loaded the process runs until it is killed, as a device does.
 pub fn main(model: &'static BootBudgetModel) {
+    // The scheduling monitor's clock and printer thread, before any task
+    // exists: the kernel hooks read the clock from the first task creation
+    // on, and the thread must not be charged to the arena.
+    #[cfg(feature = "sched-diag")]
+    crate::hal::sim::rtos::sched_diag_start();
     // Start device-heap accounting at the sim's "reset vector". Everything
     // before this is host-runtime noise; everything after is charged to the
     // heap_4 arena exactly as the device charges its FreeRTOS heap.

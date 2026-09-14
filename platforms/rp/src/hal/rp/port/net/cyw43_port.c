@@ -14,6 +14,11 @@
 #include "task.h"
 #include "semphr.h"
 
+#ifdef PICODROID_SCHED_DIAG
+/* picodroid-core/src/sched_diag.rs: the BUSYDELAY counter. */
+extern void picodroid_schedmon_busydelay(unsigned long us);
+#endif
+
 /* ---- Hardware timer (RP2350 TIMER0 at 1 MHz) ---- */
 
 #define TIMER_BASE  0x400B0000u
@@ -45,6 +50,15 @@ void cyw43_delay_us(uint32_t us) {
         vTaskDelay(pdMS_TO_TICKS(us / 1000) + 1);
         return;
     }
+#ifdef PICODROID_SCHED_DIAG
+    /* Unreachable while the gate above holds; the monitor counts a
+     * millisecond-scale spin that gets past it as a BUSYDELAY, so a change
+     * to that gate shows up in the soak rather than in a bench mystery
+     * (docs/scheduling-audit-2026-09.md, G3). */
+    if (us >= 1000 && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        picodroid_schedmon_busydelay(us);
+    }
+#endif
     uint64_t target = get_time_us() + us;
     while (get_time_us() < target) { /* spin-ok: sub-ms bus timing, or pre-scheduler */
         __asm volatile("nop");

@@ -123,7 +123,12 @@ fn main() {
                 // unknown network_type.
                 let network_type = b.cfg.props.get("network_type").cloned().unwrap_or_default();
                 let heap_kb = board_cfg::mcu_heap_kb(&mcu, &mcu_toml_path);
-                let net_overrides = network::net_config_overrides(&b.cfg.props);
+                let mut net_overrides = network::net_config_overrides(&b.cfg.props);
+                // The same define the kernel compile gets (freertos.rs):
+                // cyw43_port.c counts its own busy delays for the monitor.
+                if std::env::var("CARGO_FEATURE_SCHED_DIAG").is_ok() {
+                    net_overrides.push(("PICODROID_SCHED_DIAG".to_string(), "1".to_string()));
+                }
                 let freertos_port = mcu
                     .get("freertos_port")
                     .unwrap_or_else(|| panic!("MCU toml missing 'freertos_port': {mcu_toml_path}"));

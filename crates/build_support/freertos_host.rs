@@ -49,6 +49,13 @@ pub fn build(repo_root: &Path, config_dir: &Path) {
     b.include(&port);
     b.include(config_dir);
 
+    // `sched-diag`: same define as the device leg (`freertos.rs`), so the
+    // hosted config's PICODROID_SCHED_DIAG block turns on the trace, tick
+    // and idle hooks the monitor is fed by.
+    if std::env::var("CARGO_FEATURE_SCHED_DIAG").is_ok() {
+        b.define("PICODROID_SCHED_DIAG", "1");
+    }
+
     // The kernel's own translation units are exactly the top-level .c files;
     // `portable/` is walked separately so we pick the POSIX port and nothing
     // else. (No MemMang: see the module docs.)

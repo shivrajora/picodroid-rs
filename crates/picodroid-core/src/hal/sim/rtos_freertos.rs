@@ -455,3 +455,68 @@ pub fn tick_timer_stop() {
 pub fn delay_ms(ms: u32) {
     freertos_rust::CurrentTask::delay(Duration::ms(ms));
 }
+
+/// What the hosted kernel gives the scheduling monitor
+/// (`crate::sched_diag`): the run-time-stats counter the RP family reads
+/// from its hardware timer, and a printer.
+///
+/// The device prints from its idle hook. This port must not: the kernel
+/// deletes the idle task at scheduler end, the port deletes a task with
+/// `pthread_cancel`, and a cancel whose forced unwind meets a Rust frame
+/// — the idle thread suspended by the tick signal while inside a Rust hook
+/// — aborts the process (glibc's `__pthread_unwind`; seen one run in ten).
+/// So no Rust runs on the idle thread here, `configUSE_IDLE_HOOK` stays
+/// 0, and the report is printed by a host thread outside the kernel, the
+/// shape of the sensor backing and the control-channel reader: it reads
+/// the sequence-guarded report and touches nothing of the JVM's.
+#[cfg(feature = "sched-diag")]
+mod sched_diag_glue {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+
+    /// One printer at a time: the thread below and the exit flush on the
+    /// JVM task, which prints the last window itself so the process cannot
+    /// end before the thread's next look.
+    static PRINT_LOCK: Mutex<()> = Mutex::new(());
+
+    /// How often the printer thread looks for a closed window. Windows
+    /// are a second; the report is a few lines late at most.
+    const POLL: Duration = Duration::from_millis(5);
+
+    /// Fix the counter's epoch and start the printer. `sim_boot` calls
+    /// this before the first task exists, so no later reader — the hooks
+    /// run inside the port's tick signal handler — is ever the one to
+    /// initialise the epoch, and the printer is a plain std thread created
+    /// before the arena is armed.
+    pub fn start() {
+        let _ = EPOCH.get_or_init(Instant::now);
+        std::thread::Builder::new()
+            .name("schedmon".into())
+            .spawn(|| loop {
+                if crate::sched_diag::has_pending() {
+                    print_pending();
+                }
+                std::thread::sleep(POLL);
+            })
+            .expect("schedmon printer thread");
+    }
+
+    /// Print the pending report, if there is one, under the printer lock.
+    pub fn print_pending() {
+        let _g = PRINT_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        crate::sched_diag::print_pending();
+    }
+
+    /// Microseconds since [`start`], wrapping at 32 bits like the device's
+    /// `TIMERAWL`. `Instant` is `clock_gettime` here, which is
+    /// async-signal-safe.
+    #[no_mangle]
+    pub extern "C" fn picodroid_get_runtime_counter() -> u32 {
+        EPOCH.get_or_init(Instant::now).elapsed().as_micros() as u32
+    }
+}
+
+#[cfg(feature = "sched-diag")]
+pub use sched_diag_glue::{print_pending as sched_diag_print, start as sched_diag_start};

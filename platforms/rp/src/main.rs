@@ -206,6 +206,13 @@ fn vApplicationMallocFailedHook() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn vApplicationIdleHook() {
+    // The scheduling monitor prints its window report from here: the idle
+    // task runs whenever the system is healthy, on every kind of app, and
+    // a report it cannot get to in time is itself a finding
+    // (docs/scheduling-diagnostics.md). A few loads when there is nothing
+    // pending.
+    #[cfg(feature = "sched-diag")]
+    picodroid_core::sched_diag::idle_hook();
     asm::wfi();
 }
 

@@ -36,7 +36,7 @@ pub struct SpinTimeout {
 macro_rules! spin_until {
     ($cond:expr, $max:expr, $name:literal) => {{
         let mut __spins: u32 = 0;
-        loop {
+        let __result = loop {
             if $cond {
                 break Ok(());
             }
@@ -48,7 +48,13 @@ macro_rules! spin_until {
                 });
             }
             core::hint::spin_loop();
-        }
+        };
+        // Under the scheduling monitor every spin reports how long it ran;
+        // the monitor names the ones past its soft threshold
+        // (docs/scheduling-diagnostics.md, `SPIN`). Nothing without it.
+        #[cfg(all(feature = "sched-diag", not(test)))]
+        $crate::sched_diag::note_spin($name, __spins);
+        __result
     }};
 }
 

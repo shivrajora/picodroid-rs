@@ -89,7 +89,13 @@
  * stays off: the port's vPortSuppressTicksAndSleep is single-core SysTick
  * code, and the 16 ms LVGL tick would defeat it anyway. */
 #define configUSE_IDLE_HOOK                     1
+/* The tick hook exists only for the scheduling monitor (the block at the
+ * end of this file): vApplicationTickHook is picodroid-core's sched_diag.rs. */
+#ifdef PICODROID_SCHED_DIAG
+#define configUSE_TICK_HOOK                     1
+#else
 #define configUSE_TICK_HOOK                     0
+#endif
 #define configUSE_MALLOC_FAILED_HOOK            1
 #define configCHECK_FOR_STACK_OVERFLOW          2
 
@@ -190,5 +196,44 @@ extern uint32_t picodroid_get_runtime_counter(void);
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 #define INCLUDE_xTaskGetSchedulerState          1
 #define INCLUDE_xTimerPendFunctionCall          1   /* needed by xEventGroupSetBitsFromISR */
+
+/* Scheduling diagnostics (docs/scheduling-diagnostics.md). Only a build
+ * with the `sched-diag` cargo feature defines PICODROID_SCHED_DIAG (the
+ * build script adds it to every C compile that includes this file); the
+ * hooks below then feed picodroid-core/src/sched_diag.rs from inside the
+ * kernel. They expand in tasks.c, where the TCB is a complete type, and
+ * read its fields directly: uxTCBNumber (the per-creation id that
+ * uxTaskGetSystemState reports), uxPriority and pcTaskName. The
+ * switched-out hook also says whether the task is still on its ready list
+ * (preempted) or has left it (blocked), which is what the STARVE rule
+ * needs. This block is the same text in the device and host configs;
+ * platforms/rp/src/task_affinity.rs checks that. */
+#ifdef PICODROID_SCHED_DIAG
+extern void picodroid_schedmon_switched_in(unsigned long tcb_number, unsigned long priority,
+                                           const char *name, unsigned long core);
+extern void picodroid_schedmon_switched_out(unsigned long core, unsigned long still_ready);
+extern void picodroid_schedmon_ready(unsigned long tcb_number, unsigned long priority,
+                                     const char *name);
+#define traceTASK_SWITCHED_IN()                                                        \
+    do {                                                                               \
+        TCB_t * const pd_tcb = pxCurrentTCB;                                           \
+        if (pd_tcb != NULL) {                                                          \
+            picodroid_schedmon_switched_in(pd_tcb->uxTCBNumber, pd_tcb->uxPriority,    \
+                                           pd_tcb->pcTaskName, portGET_CORE_ID());     \
+        }                                                                              \
+    } while (0)
+#define traceTASK_SWITCHED_OUT()                                                       \
+    do {                                                                               \
+        TCB_t * const pd_tcb = pxCurrentTCB;                                           \
+        if (pd_tcb != NULL) {                                                          \
+            picodroid_schedmon_switched_out(                                           \
+                portGET_CORE_ID(),                                                     \
+                listLIST_ITEM_CONTAINER(&(pd_tcb->xStateListItem))                     \
+                    == &(pxReadyTasksLists[pd_tcb->uxPriority]));                      \
+        }                                                                              \
+    } while (0)
+#define traceMOVED_TASK_TO_READY_STATE(pxTCB)                                          \
+    picodroid_schedmon_ready((pxTCB)->uxTCBNumber, (pxTCB)->uxPriority, (pxTCB)->pcTaskName)
+#endif /* PICODROID_SCHED_DIAG */
 
 #endif /* FREERTOS_CONFIG_H */

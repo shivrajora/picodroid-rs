@@ -55,6 +55,12 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
     // registered before the scheduler starts so every runtime flash path
     // finds it; see hal/rp/core1_park.rs for the handshake.
     {
+        // The parker holds core 1, interrupts masked, for the length of
+        // every flash operation by design; the scheduling monitor must not
+        // report that as a HOG. Named before the spawn so the slot the
+        // kernel's ready hook creates for it is exempt from the start.
+        #[cfg(feature = "sched-diag")]
+        picodroid_core::sched_diag::exempt_task("flashpark");
         let parker = task_affinity::spawn(
             "flashpark",
             crate::boot_budget::FLASHPARK_STACK_WORDS,

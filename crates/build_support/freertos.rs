@@ -94,6 +94,14 @@ pub fn build(
     );
     crate::config::apply_c_opt_level(b.get_cc(), mcu);
 
+    // `sched-diag`: the config's PICODROID_SCHED_DIAG block points the
+    // kernel's trace and tick hooks at the monitor in
+    // picodroid-core/src/sched_diag.rs. Without the feature the block is
+    // not compiled and the kernel is the same as without the monitor.
+    if std::env::var("CARGO_FEATURE_SCHED_DIAG").is_ok() {
+        b.get_cc().define("PICODROID_SCHED_DIAG", "1");
+    }
+
     b.compile().unwrap_or_else(|e| panic!("{}", e.to_string()));
 
     println!("cargo:rerun-if-changed={freertos_config_dir}/FreeRTOSConfig.h");

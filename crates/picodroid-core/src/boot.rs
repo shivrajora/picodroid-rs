@@ -300,6 +300,11 @@ pub fn run_app(apk_data: &[u8]) {
     // Device: offensive checks are baked at build time (no runtime env).
     #[cfg(all(not(feature = "sim"), feature = "mem-diag"))]
     crate::mem_diag::apply_device_flags();
+    // The scheduling monitor's window, strict and self-test settings, and
+    // its ACTIVE banner (docs/scheduling-diagnostics.md). The kernel hooks
+    // have been feeding it since the first task was created.
+    #[cfg(feature = "sched-diag")]
+    crate::sched_diag::init();
     host::heap_checkpoint("post-jvm-new");
 
     // Register the combined loader so Thread.start() spawned tasks load both
@@ -423,6 +428,12 @@ pub fn run_app(apk_data: &[u8]) {
             insns, allocs, gcs, bands, fbytes
         );
     }
+
+    // The scheduling monitor's window in progress: an app that ran flat out
+    // for under a second never switched, so its window never closed
+    // (docs/scheduling-diagnostics.md).
+    #[cfg(feature = "sched-diag")]
+    crate::sched_diag::flush();
 
     #[cfg(feature = "sim")]
     {

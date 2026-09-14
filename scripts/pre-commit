@@ -171,6 +171,7 @@ STAGES=(
   "fmt_rust|host|fast|rust|cargo fmt"
   "clippy_sim|host|fast|rust|clippy (sim)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
+  "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
   "clippy_host_tools|host|full|rust|clippy (host tools)"
   "tests|host|full|rust,jvm|tests (both shrink modes)"
   "langsuite|host|full|rust,jvm|Java conformance suite (langsuite, sim)"
@@ -195,6 +196,7 @@ STAGES=(
   "clippy_enviro|arm8|full|rust|clippy (pico_enviro_mon)"
   "clippy_rp2350_ht32|arm8|full|rust|clippy (testbench_rp2350 + handle-table-32)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
+  "build_rp2350w_scheddiag|arm8|full|rust,jvm|build (rp2350w + sched-diag)"
   "size_rp2350|arm8|full|rust,jvm|size lane (rp2350)"
   "shrink_image|arm8|full|rust,jvm|--shrink image carries no original Java name (rp2350 --release)"
   "clippy_enviro_w|arm8|full|rust|clippy (pico_enviro_mon_w)"
@@ -531,6 +533,10 @@ stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-number
 # checked by build_rp2350_memdiag.
 stage_clippy_sim_memdiag() { clippy_sim_features "sim,board-testbench-rp2350,mem-diag"; }
 
+# The scheduling monitor's host arm (docs/scheduling-diagnostics.md); the
+# firmware side is build_rp2350w_scheddiag.
+stage_clippy_sim_scheddiag() { clippy_sim_features "sim,board-testbench-rp2350,sched-diag"; }
+
 stage_clippy_host_tools() {
   if ! cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
        --all-targets --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
@@ -586,6 +592,19 @@ stage_build_rp2350_memdiag() {
        build_board --board testbench_rp2350 --app helloworld; then
     echo ""
     echo "ERROR: rp2350 + mem-diag build failed. Fix the errors above."
+    return 1
+  fi
+}
+
+stage_build_rp2350w_scheddiag() {
+  # Proves the diagnostics firmware compiles + links on the board that
+  # compiles the most C behind the PICODROID_SCHED_DIAG define: the kernel's
+  # trace/tick hooks, and cyw43_port.c's BUSYDELAY counter, which only a
+  # network board builds. Prints the flash cost like the mem-diag leg.
+  if ! PICODROID_EXTRA_FEATURES=sched-diag \
+       build_board --board testbench_rp2350w --app helloworld; then
+    echo ""
+    echo "ERROR: rp2350w + sched-diag build failed. Fix the errors above."
     return 1
   fi
 }

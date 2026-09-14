@@ -29,6 +29,11 @@ const TICK_PERIOD_MS: u32 = 16;
 /// state to carry across it.
 fn on_tick() {
     super::main_queue::enqueue_tick();
+    // The scheduling monitor's self-test wants a real-time-band task to
+    // hold its core once; this callback runs on the timer service task on
+    // both targets (docs/scheduling-diagnostics.md).
+    #[cfg(feature = "sched-diag")]
+    crate::sched_diag::selftest_on_timer_task();
 }
 
 /// Start the periodic 16 ms LVGL tick source. Idempotent; if already

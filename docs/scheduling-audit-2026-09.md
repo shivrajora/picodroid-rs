@@ -35,7 +35,8 @@ design that makes the property enforced rather than remembered.
 | WP5 gSPI DMA completion by IRQ (F7) | **landed** 2026-09-13 (`pio_spi.rs`: ch4/5 on `INTE1`/`DMA_IRQ_1`, one loud channel per frame > 8 bytes, semaphore take then busy-bit confirm; short frames spin). W slot: netdemo, http_get, blinky loop + install-stress PASS |
 | WP11 hot-path polish (F18) | **landed** 2026-09-13 (`select_target`: the I²C target register is its own cache; XPT2046 sample = one 30-byte interrupt-driven transfer; SPI polled paths under `spi_lock`, pending DMA writes collected only by their starter). The handover's bus-hold API was not needed — no XPT2046 board has a touch task; see the handover doc |
 | WP9 UART TX (F14) | **half landed** 2026-09-13 (`wait_tx_room`: a tick's sleep per retry, 100 ms drop bound, one warning per boot). The TX ring + `UARTx_IRQ` still waits for a board that ships a serial app |
-| WP0, WP7 (retry), G3, G4, G6 | open — see the plan below and the handover doc |
+| G3 delay-type guard, G4 `sched-diag` monitor, G6 soak lanes | **landed** 2026-09-14 (`crates/picodroid-core/src/sched_diag.rs`, fed by the kernel's trace and tick hooks under `PICODROID_SCHED_DIAG` in both `FreeRTOSConfig.h`s, printed from the idle task; `RpDelay` and `cyw43_port.c` count BUSYDELAY, `spin_until!` reports SPIN; `scripts/test-scheddiag.sh` + a `sim-run.sh` lane; `docs/scheduling-diagnostics.md`). The HIL `loop`/`net` rows of G6 wait for a bench session — the device image is compile-checked (`build_rp2350w_scheddiag` in `--full`), not soaked |
+| WP0, WP7 (retry) | open — see the plan below and the handover doc |
 
 **Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
 PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP

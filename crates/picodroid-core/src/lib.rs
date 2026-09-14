@@ -52,6 +52,10 @@ pub mod lifecycle;
 pub mod lvgl_ffi;
 #[cfg(all(feature = "mem-diag", not(test)))]
 pub mod mem_diag;
+// The scheduling monitor: fed by the kernel's trace and tick hooks, prints
+// from the idle task (docs/scheduling-diagnostics.md).
+#[cfg(all(feature = "sched-diag", not(test)))]
+pub mod sched_diag;
 // JSON node pool, parser and serializer behind `JSONObject`/`JSONArray`.
 // Board-gated by the `has_json` board.toml key (default off) — pure
 // `alloc`, so it compiles and tests on the host whenever the cfg is on,

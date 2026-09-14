@@ -447,6 +447,76 @@ mod tests {
         }
     }
 
+    /// The block of `FreeRTOSConfig.h` between `#ifdef PICODROID_SCHED_DIAG`
+    /// and its `#endif`, whitespace-normalised.
+    fn sched_diag_block(path: &Path) -> String {
+        let text = read_stripped(path);
+        let start = text
+            .find("#ifdef PICODROID_SCHED_DIAG\nextern")
+            .unwrap_or_else(|| panic!("{}: no PICODROID_SCHED_DIAG hook block", rel(path)));
+        // No nested #if inside the block, so the next #endif closes it (the
+        // scan reads comment-stripped text, so the `/* … */` tag is gone).
+        let end = text[start..]
+            .find("#endif")
+            .unwrap_or_else(|| panic!("{}: PICODROID_SCHED_DIAG block is not closed", rel(path)));
+        text[start..start + end]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The scheduling monitor (docs/scheduling-diagnostics.md) is fed by the
+    /// kernel's trace hooks, and the simulator is only a stand-in for the
+    /// device if both kernels feed it the same way: the hook block is one
+    /// text in both configs, every hook it names has its Rust definition,
+    /// and the tick and idle hooks the monitor rides on are conditional on
+    /// the same define. A block edited on one side only fails here.
+    #[test]
+    fn sched_diag_hooks_are_identical_on_device_and_host() {
+        let device = crate_root().join("mcus/rp/FreeRTOSConfig.h");
+        let host = crate_root().join("../../crates/picodroid-core/freertos-host/FreeRTOSConfig.h");
+        let block = sched_diag_block(&device);
+        assert_eq!(
+            block,
+            sched_diag_block(&host),
+            "the PICODROID_SCHED_DIAG block differs between mcus/rp/FreeRTOSConfig.h and \
+             the hosted config; keep them the same text"
+        );
+        let monitor =
+            read_stripped(&crate_root().join("../../crates/picodroid-core/src/sched_diag.rs"));
+        for hook in [
+            "picodroid_schedmon_switched_in",
+            "picodroid_schedmon_switched_out",
+            "picodroid_schedmon_ready",
+        ] {
+            assert!(block.contains(hook), "hook block does not call {hook}");
+            assert!(
+                monitor.contains(&format!("extern \"C\" fn {hook}(")),
+                "sched_diag.rs does not define `{hook}`"
+            );
+        }
+        assert!(
+            monitor.contains("extern \"C\" fn vApplicationTickHook()"),
+            "sched_diag.rs must define vApplicationTickHook: both configs set \
+             configUSE_TICK_HOOK 1 under PICODROID_SCHED_DIAG"
+        );
+        for cfg in [&device, &host] {
+            let text = read_stripped(cfg);
+            let key: String = text.split_whitespace().collect();
+            assert!(
+                key.contains("#ifdefPICODROID_SCHED_DIAG#defineconfigUSE_TICK_HOOK1"),
+                "{}: configUSE_TICK_HOOK must be 1 exactly under #ifdef PICODROID_SCHED_DIAG",
+                rel(cfg)
+            );
+        }
+        let main = read_stripped(&crate_root().join("src/main.rs"));
+        assert!(
+            main.contains("picodroid_core::sched_diag::idle_hook()"),
+            "src/main.rs: vApplicationIdleHook must call sched_diag::idle_hook — the \
+             monitor prints from the idle task"
+        );
+    }
+
     #[test]
     fn masks_are_one_core_each() {
         assert_eq!(super::CORE0.count_ones(), 1);

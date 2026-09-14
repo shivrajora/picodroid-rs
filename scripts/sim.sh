@@ -24,6 +24,7 @@ HEAP_LIMIT_KB="${PICODROID_HEAP_LIMIT_KB:-}"
 # Opt out with --no-sanitize-handles or PICODROID_HANDLE_SANITIZER=0.
 SANITIZE_HANDLES="${PICODROID_HANDLE_SANITIZER:-1}"
 MEM_DIAG=""
+SCHED_DIAG=""
 SYSTEM_APPS=""
 EXTRA_ARGS=()
 HOST_TARGET="$(host_target)"
@@ -61,7 +62,14 @@ Options:
                             / _OFFENSIVE / _HISTO; on-demand snapshot via
                             'sim-ctrl.sh memstats'. See
                             docs/memory-diagnostics.md
-      --system-apps         Also build the system apps (the launcher) and
+      --sched-diag          Compile in the scheduling diagnostics (sched-diag
+                            feature): one [schedmon] line per second (idle
+                            share, switches) plus HOG / STARVE / POLL /
+                            BUSYDELAY / SPIN findings, printed from the idle
+                            task. Tunables via PICODROID_SCHEDDIAG_WINDOW_MS
+                            / _STRICT / _SELFTEST. See
+                            docs/scheduling-diagnostics.md
+      --system-apps        Also build the system apps (the launcher) and
                             load them into the simulated directory, as a
                             multi-app firmware carries them. Off by default:
                             the app under test then runs alone and the sim
@@ -137,6 +145,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -m|--mem-diag)
       MEM_DIAG=1
+      shift
+      ;;
+    --sched-diag)
+      SCHED_DIAG=1
       shift
       ;;
     --system-apps)
@@ -229,6 +241,11 @@ if [[ -n "$MEM_DIAG" ]]; then
   # of these by exporting the variable yourself; strict/offensive/histo stay
   # opt-in). See docs/memory-diagnostics.md.
   ENV_VARS+=(PICODROID_MEMDIAG_SENTINEL="${PICODROID_MEMDIAG_SENTINEL:-1}")
+fi
+if [[ -n "$SCHED_DIAG" ]]; then
+  # Monitor always active once compiled in; strict and the self-test stay
+  # opt-in through the environment. See docs/scheduling-diagnostics.md.
+  FEATURES="$FEATURES,sched-diag"
 fi
 
 PROFILE_DIR="debug"

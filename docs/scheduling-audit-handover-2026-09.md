@@ -49,6 +49,13 @@ blinky and helloworld rows on `testbench_rp2040` for the SPI lock (§2 WP11).
 Still open after this session: WP0, G3/G4/G6 (`sched-diag`), the WP7 timer
 half, WP9's ring, and the two bench items below.
 
+**Session 4, 2026-09-14 (branch `sched-diag-2026-09`, worktree):** G3, G4
+and the sim half of G6 landed as the `sched-diag` feature — see §2 G4 for
+what it is and `docs/scheduling-diagnostics.md` for how to use it. Sim
+only: the device image is compile-checked by the new `--full` stage, and
+the bench rows are still to be written. Still open: WP0, the WP7 timer
+half, WP9's ring, the G6 HIL rows, and the two bench items.
+
 Two things the next session inherits that are **not** code debt:
 
 - **The `blinky pdb launch` row fails on the `pico_enviro_mon_w` slot with
@@ -189,7 +196,35 @@ device arms in `glue.rs`, sim arms in `hal/sim/rtos.rs` and `rtos_freertos.rs`;
 update the `seam_guard` must-list in `rtos/mod.rs`. Only worth doing when a
 shared consumer exists (WP5 or a second family).
 
-### G4 — `sched-diag` runtime monitor + G6 soak lanes — large
+### G4 — `sched-diag` runtime monitor + G6 soak lanes — LANDED 2026-09-14 (session 4, with G3)
+
+What landed (`docs/scheduling-diagnostics.md` is the user-facing doc):
+`crates/picodroid-core/src/sched_diag.rs` behind the `sched-diag` feature;
+a `PICODROID_SCHED_DIAG` block, one text in both `FreeRTOSConfig.h`s
+(`task_affinity::sched_diag_hooks_are_identical_on_device_and_host` pins
+that), defines `traceTASK_SWITCHED_IN/OUT` and
+`traceMOVED_TASK_TO_READY_STATE` as calls into it and turns the tick hook
+on; the build scripts add the define to every C compile. Rules as designed
+— HOG counted in tick hooks (three = > 2 ms) so a host-descheduled sim
+thread cannot fake one, STARVE from the ready/preempted distinction the
+switched-out hook carries, POLL, BUSYDELAY from `RpDelay::delay_ns` and
+`cyw43_delay_us`, SPIN from `spin_until!`'s new exit call. Windows close
+from the switch hook or the tick hook, whichever comes first; the report is
+printed by the idle task on a device (`main.rs`), so Application apps get
+it too, and by a host thread in the simulator — its idle thread may not
+run Rust: the POSIX port deletes the idle task with `pthread_cancel` at
+scheduler end and a cancel unwinding into a Rust frame aborts (one run in
+ten, caught under gdb; `hal/sim/rtos_freertos.rs`). `boot.rs` flushes the
+partial window at app exit. `flashpark` is the one exempt task. `scripts/test-scheddiag.sh` (animdemo, threaddemo, picoclock
+soaks in strict mode; helloworld and benchmark to completion; the
+self-test plain and strict) runs as a `sim-run.sh` lane; `--full`
+pre-commit gained `clippy_sim_scheddiag` and `build_rp2350w_scheddiag`.
+Not done: the `hil-tests.conf` rows (bench session; expect `HOG`s from
+flash writes on the fs/pdb tasks, see the doc's device notes) and any
+change to `pdb sysmon`, whose `CPU%` already is the per-task run-time
+delta.
+
+The original brief, kept for the record:
 
 The design is in the audit ("Offensive guards" §G4/§G6): a cargo feature
 mirroring `mem-diag` (zero-cost off), `traceTASK_SWITCHED_IN/OUT` +
@@ -311,5 +346,12 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
 - WP9's TX ring + `UARTx_IRQ`: `write_byte` no longer spins (§1), but it
   still blocks the writer a tick at a time; the ring waits for a serial app.
 - WP0 (ISR-safe seam primitives): WP5 stayed family code and used
-  `freertos_rust` directly, like `gpio.rs`; still no shared consumer.
+  `freertos_rust` directly, like `gpio.rs`; still no shared consumer. The
+  scheduling monitor did not create one either: its hooks are called *by*
+  the kernel and it prints from the idle task, so nothing in it needs an
+  ISR → task wake.
 - The `blinky pdb launch` row on the W slot (§0).
+- `hil-tests.conf` sched-diag rows (G6's device half): needs a bench
+  session to read the device's own findings first — flash writes will show
+  as `HOG`s on the fs and pdb tasks, which is the hardware's cost and not a
+  failure pattern.

@@ -48,7 +48,7 @@ to `--full` automatically.
 
 `--full` is the unscoped gate: formatting (Java + Kotlin + `cargo fmt`), clippy
 across every board and the host tools, the staged `handle-table-32` and opt-in
-`mem-diag` legs, the embedded and flash-gate builds, Java compilation for all
+`mem-diag` / `sched-diag` legs, the embedded and flash-gate builds, Java compilation for all
 apps, the Java and Kotlin conformance suites, all tests, and the size ratchet on
 both boards.
 
@@ -79,3 +79,5 @@ Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >
 > **When debugging memory (heap growth, churn, OOM, corruption):** opt-in monitors and offensive checks exist — see `docs/memory-diagnostics.md` (`./scripts/sim.sh --app <app> --mem-diag`).
+>
+> **When debugging scheduling (a task hogging a core, sleep-polling, starving a peer, a spin that runs long):** the opt-in scheduling monitor — see `docs/scheduling-diagnostics.md` (`./scripts/sim.sh --app <app> --sched-diag`).

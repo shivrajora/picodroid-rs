@@ -771,6 +771,25 @@ for MODE in "${MODES[@]}"; do
     fi
   fi
 
+  # Scheduling-diagnostics soak (docs/scheduling-diagnostics.md): strict
+  # monitor over the tick loop, Java threads and the clock app, plus the
+  # detector self-test. Shrink-invariant like mem-diag: once per cycle.
+  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" ]]; then
+    TOTAL=$((TOTAL + 1))
+    sim_log "--- [$TOTAL] sched-diag soak ---"
+    scheddiag_log="$RUN_LOG_DIR/sched-diag.log"
+    if bash "$SCRIPT_DIR/test-scheddiag.sh" > "$scheddiag_log" 2>&1; then
+      sim_log "  PASS"
+      echo "PASS sched-diag" >> "$RESULTS_FILE"
+      PASS=$((PASS + 1))
+    else
+      sim_log "  FAIL"
+      tail -10 "$scheddiag_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+      echo "FAIL sched-diag" >> "$RESULTS_FILE"
+      FAIL=$((FAIL + 1))
+    fi
+  fi
+
   # Enviro-board smoke: full runs and `--app picoenvmon` (the CI hook; the
   # conf matrix has no picoenvmon row, so that invocation reaches only this).
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
