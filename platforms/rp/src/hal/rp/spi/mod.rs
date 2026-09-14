@@ -2,7 +2,7 @@
 pub mod xfer;
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 
@@ -39,6 +39,33 @@ fn write_pending(id: u8) -> &'static AtomicBool {
     match id {
         0 => &SPI0_WRITE_PENDING,
         _ => &SPI1_WRITE_PENDING,
+    }
+}
+
+/// The task that started the pending DMA write (its raw handle), so that a
+/// different task arriving at the bus does not collect a completion that
+/// is not its own — it takes the lock instead, and blocks until the owner
+/// has collected. Written under the lock by the starter, read by anyone.
+static SPI0_WRITE_OWNER: AtomicUsize = AtomicUsize::new(0);
+static SPI1_WRITE_OWNER: AtomicUsize = AtomicUsize::new(0);
+
+fn write_owner(id: u8) -> &'static AtomicUsize {
+    match id {
+        0 => &SPI0_WRITE_OWNER,
+        _ => &SPI1_WRITE_OWNER,
+    }
+}
+
+/// Collect the pending DMA write if this task is the one that started it.
+/// Every entry to the bus goes through here before taking the lock: the
+/// starter holds the lock until it collects, so if it did not collect first
+/// it would wait on itself; another task's write is that task's to
+/// collect, and the lock is what keeps this one off the bus meanwhile.
+fn collect_own_write(spi_id: u8) {
+    if write_pending(spi_id).load(Ordering::Acquire)
+        && write_owner(spi_id).load(Ordering::Relaxed) == picodroid_core::rtos::task_current()
+    {
+        write_raw_finish(spi_id);
     }
 }
 
@@ -371,6 +398,7 @@ pub fn init_with_pins(
 }
 
 pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
+    collect_own_write(spi_id);
     let lock = spi_lock(spi_id);
     let _ = lock.take(Duration::infinite());
     do_reconfigure(spi_id, freq_hz, mode);
@@ -389,7 +417,7 @@ pub fn write_raw(spi_id: u8, data: &[u8]) {
 /// else uses the peripheral — the caller keeps `data` alive and unchanged
 /// until then. Calling this with a write already pending collects it first.
 pub fn write_raw_start(spi_id: u8, data: &[u8]) {
-    write_raw_finish(spi_id);
+    collect_own_write(spi_id);
     if data.is_empty() {
         return;
     }
@@ -400,17 +428,23 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
 
-    // Small transfer fast path: polling
+    let lock = spi_lock(spi_id);
+    let _ = lock.take(Duration::infinite());
+
+    // Small transfer fast path: polling. Under the lock like every other
+    // path — a lock-free poll could put its bytes into a DMA band another
+    // task has running, or run while `reconfigure` has the controller
+    // disabled (docs/scheduling-audit-2026-09.md, F18). On the UI task the
+    // lock is always free here: the panel driver collects its in-flight
+    // band before every command, and `write_raw_finish` above released it.
     if data.len() <= SMALL_XFER_THRESHOLD {
         match spi_id {
             0 => poll_write_raw!(&p.SPI0, data),
             _ => poll_write_raw!(&p.SPI1, data),
         }
+        lock.give();
         return;
     }
-
-    let lock = spi_lock(spi_id);
-    let _ = lock.take(Duration::infinite());
 
     // Mask SPI interrupts — DMA handles completion via DMA_IRQ_0
     match spi_id {
@@ -419,6 +453,7 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
     }
 
     super::dma::start_write(spi_id, data);
+    write_owner(spi_id).store(picodroid_core::rtos::task_current(), Ordering::Relaxed);
     write_pending(spi_id).store(true, Ordering::Release);
 }
 
@@ -448,6 +483,7 @@ pub fn write_raw_finish(spi_id: u8) {
 
 /// Full-duplex transfer with raw Rust slices.
 pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
+    collect_own_write(spi_id);
     if tx.is_empty() {
         return;
     }
@@ -458,17 +494,18 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
     use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
 
-    // Small transfer fast path: polling
+    let lock = spi_lock(spi_id);
+    let _ = lock.take(Duration::infinite());
+
+    // Small transfer fast path: polling, under the lock (see `write_raw_start`).
     if tx.len() <= SMALL_XFER_THRESHOLD {
         match spi_id {
             0 => poll_transfer_raw!(&p.SPI0, tx, rx),
             _ => poll_transfer_raw!(&p.SPI1, tx, rx),
         }
+        lock.give();
         return;
     }
-
-    let lock = spi_lock(spi_id);
-    let _ = lock.take(Duration::infinite());
 
     let state = spi_state(spi_id);
     state.op = SpiOp::FullDuplex;
