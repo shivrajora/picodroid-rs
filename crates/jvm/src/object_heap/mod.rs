@@ -76,10 +76,40 @@ pub struct JvmObject {
 // M6 exists to provide. Loosen only with a parity-audit update.
 const _: () = assert!(core::mem::size_of::<Option<JvmObject>>() == 12);
 
+/// What a lambda proxy's SAM invocation runs.
+#[derive(Clone, Copy)]
+pub enum LambdaTarget {
+    /// A bytecode body fixed at link time: javac's synthetic `lambda$…`, a
+    /// static method reference, a private or `super::` one.
+    Java { class_idx: usize, method_idx: usize },
+    /// A static method reference to a builtin class (`Integer::parseInt`,
+    /// `String::valueOf`): native dispatch on the named class.
+    NativeStatic {
+        class: &'static str,
+        name: &'static str,
+        desc: &'static str,
+    },
+    /// An instance method reference (`String::length`, `Shape::area`,
+    /// `s::trim`): resolved on the receiver's runtime class at every call,
+    /// exactly as the `invokevirtual` it stands for would be.
+    Virtual {
+        name: &'static str,
+        desc: &'static str,
+    },
+    /// `Foo::new`: allocate `class`, run its `<init>` on the SAM arguments,
+    /// and hand the object back. `init` is `None` for a builtin (`ArrayList::new`),
+    /// whose constructor is a native arm.
+    Ctor {
+        class: &'static str,
+        class_bytes: &'static [u8],
+        init: Option<(usize, usize)>,
+        desc: &'static str,
+    },
+}
+
 /// Metadata for a lambda proxy object created by `invokedynamic`.
 pub struct LambdaProxy {
-    pub target_class_idx: usize,
-    pub target_method_idx: usize,
+    pub target: LambdaTarget,
     pub captures: Vec<Value>,
     /// The SAM's name. Only a call to this method is the lambda body: a
     /// default method or an `Object` method on the same proxy resolves

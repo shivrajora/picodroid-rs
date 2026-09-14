@@ -590,10 +590,12 @@ fn invokedynamic_rejects_non_lambda_bootstrap() {
     assert_eq!(result, Err(JvmError::UnsupportedInvokeDynamic("Target")));
 }
 
-/// `REF_newInvokeSpecial` (a `Foo::new` reference) would invoke `<init>`
-/// with no receiver; rejected up front.
+/// `REF_newInvokeSpecial` is a constructor reference (`Foo::new`, served
+/// since QA 2026-09-13 — see `tests::lambdas`); one that names anything
+/// but `<init>` (here the static `lambda$test$0`) is a malformed class file
+/// and is rejected up front rather than run as a constructor.
 #[test]
-fn invokedynamic_rejects_constructor_reference() {
+fn invokedynamic_rejects_constructor_reference_to_a_non_constructor() {
     let result = run_multi(&[CLASS_TARGET_LAMBDA, indy_caller(31, 8)], 1, &[]);
     assert!(
         matches!(result, Err(JvmError::UnsupportedInvokeDynamic(_))),

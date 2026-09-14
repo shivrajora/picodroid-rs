@@ -5,7 +5,7 @@ use crate::names::{c, d, m};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
-    object_heap::LambdaProxy,
+    object_heap::{LambdaProxy, LambdaTarget},
     types::{JvmError, Value},
 };
 use alloc::vec::Vec;
@@ -94,11 +94,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Lambda proxy intercept: a call to the proxy's SAM runs the lambda
         // body; any other method on it (a default method, `Object`'s) falls
         // through to ordinary resolution below.
-        if is_virtual && self.objects.has_lambdas() {
-            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-            if self.try_lambda_dispatch(frame, arg_count, name_str, desc_str)? {
-                return Ok(());
-            }
+        if is_virtual
+            && self.objects.has_lambdas()
+            && self.try_lambda_dispatch(frames, arg_count, name_str, desc_str)?
+        {
+            return Ok(());
         }
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
@@ -327,54 +327,82 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     }
 
     /// If the receiver at `stack[stack_len - arg_count]` is a lambda proxy
-    /// and `name` is its SAM, pop its captures + invocation args, push a
-    /// frame targeting the proxy's `target_class_idx::target_method_idx`,
-    /// and return `Ok(true)`. Returns `Ok(false)` when the receiver isn't a
-    /// lambda, or the call is to a default or `Object` method on one — the
-    /// caller then resolves it like any other method, through the interface
-    /// and `java/lang/Object`.
-    ///
-    /// Performs `LambdaMetafactory`'s boxing adaptation: kotlinc keeps a
-    /// lambda body primitive (`(I)I`) behind the erased SAM
-    /// (`Function1.invoke(Object)Object`) and leaves unboxing the arguments
-    /// and boxing the return to the metafactory — javac boxes inside the
-    /// body, so Java apps never hit this. Captured values are passed as-is
-    /// (their types already match the body's leading parameters).
+    /// and `name` is its SAM, pop the receiver and the arguments, run the
+    /// lambda (see [`Self::lambda_call`]) and return `Ok(true)`. `Ok(false)`
+    /// when the receiver isn't a lambda, or the call is to a default or
+    /// `Object` method on one — the caller then resolves it like any other
+    /// method, through the interface and `java/lang/Object`.
     fn try_lambda_dispatch(
         &mut self,
-        frame: &mut Frame,
+        frames: &mut Vec<Frame>,
         arg_count: usize,
         name: &str,
         sam_desc: &str,
     ) -> Result<bool, JvmError> {
-        let stack_len = frame.stack.len();
-        if stack_len < arg_count {
-            return Ok(false);
-        }
-        let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] else {
-            return Ok(false);
+        let (obj_idx, start) = {
+            let frame = frames.last().ok_or(JvmError::InvalidBytecode)?;
+            let stack_len = frame.stack.len();
+            if stack_len < arg_count {
+                return Ok(false);
+            }
+            let Value::ObjectRef(obj_idx) = frame.stack[stack_len - arg_count] else {
+                return Ok(false);
+            };
+            (obj_idx, stack_len - arg_count)
         };
-        // Only the SAM is the lambda body. `Greeter g = () -> "x"; g.twice()`
-        // used to run the body for the default method too (QA 2026-09-13).
         let Some(lambda) = self.objects.get_lambda(obj_idx) else {
             return Ok(false);
         };
         if lambda.sam_name != name.as_bytes() {
             return Ok(false);
         }
-
-        // Pop all args (including "this") and grab the interface-method args
-        // after the lambda receiver itself.
-        let start = stack_len - arg_count;
-        let method_args: Vec<Value> = frame.stack[start + 1..].to_vec();
-        frame.stack.truncate(start);
-
-        let Some(new_frame) =
-            lambda_frame(self.objects, self.classes, obj_idx, &method_args, sam_desc)?
-        else {
-            return Ok(false);
+        // A body on a class that is not initialised yet (`Foo::new`,
+        // `Util::helper`): run `<clinit>` first and re-execute this invoke,
+        // the `new` / `invokestatic` pattern. The arguments are still on the
+        // operand stack, so nothing is lost.
+        let init_class: Option<&'static [u8]> = match lambda.target {
+            LambdaTarget::Ctor {
+                class_bytes,
+                init: Some(_),
+                ..
+            } => Some(class_bytes),
+            LambdaTarget::Java {
+                class_idx,
+                method_idx,
+            } if self.classes[class_idx].methods()[method_idx].access_flags & 0x0008 != 0 => {
+                self.classes[class_idx].class_name()
+            }
+            _ => None,
         };
-        self.pending_frame = Some(new_frame);
+        if let Some(cb) = init_class {
+            if self.ensure_class_initialized(cb)? {
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                frame.pc = frame.inst_pc;
+                return Ok(true);
+            }
+        }
+        let method_args: Vec<Value> = {
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+            let args = frame.stack[start + 1..].to_vec();
+            frame.stack.truncate(start);
+            args
+        };
+        match self.lambda_call(frames, obj_idx, &method_args, sam_desc)? {
+            LambdaCall::Frame(f) => self.pending_frame = Some(f),
+            LambdaCall::Ctor { frame: f, obj } => {
+                // `<init>` returns void; the object pushed underneath it is
+                // what the call site sees once the constructor has run.
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                frame.push(Value::ObjectRef(obj))?;
+                self.pending_frame = Some(f);
+            }
+            LambdaCall::Done(result) => {
+                if let Some(v) = result {
+                    let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                    frame.push(v)?;
+                }
+            }
+        }
         Ok(true)
     }
 
@@ -516,17 +544,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let (ref_kind, ref_idx) = cf
             .cp_method_handle(impl_method_cp)
             .ok_or(JvmError::InvalidBytecode)?;
-        // REF_invokeVirtual/Static/Special/Interface (5/6/7/9) all take the
-        // captures as leading arguments, which is how the proxy is invoked
-        // below. REF_newInvokeSpecial (8, a `Foo::new` constructor reference)
-        // would call `<init>` on nothing — reject it up front.
-        if !matches!(ref_kind, 5 | 6 | 7 | 9) {
-            return Err(JvmError::UnsupportedInvokeDynamic(
-                "LambdaMetafactory(newInvokeSpecial)",
-            ));
-        }
 
-        // 5. Resolve the MethodHandle's Methodref to find the target method
+        // 5. Resolve the MethodHandle's Methodref: what the proxy's SAM runs.
         let (target_class_bytes, target_name_bytes, target_desc_bytes) =
             cf.cp_methodref(ref_idx).ok_or(JvmError::InvalidBytecode)?;
         let target_class =
@@ -535,10 +554,77 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             core::str::from_utf8(target_name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
         let target_desc =
             core::str::from_utf8(target_desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-
-        let (target_ci, target_mi) =
-            helpers::find_method(self.classes, target_class, target_name, target_desc)
-                .ok_or(JvmError::NoSuchMethod)?;
+        let target = match ref_kind {
+            // REF_invokeVirtual / REF_invokeInterface. javac names its own
+            // synthetic body this way too: a private body is fixed here (a
+            // subclass may carry a same-named `lambda$…`), everything else —
+            // `String::length`, `Shape::area`, `s::trim` — dispatches on the
+            // receiver's runtime class at each call, native when the class is
+            // a builtin.
+            5 | 9 => match helpers::find_method_walking(
+                self.classes,
+                target_class,
+                target_name,
+                target_desc,
+            ) {
+                Some((ci, mi)) if self.classes[ci].methods()[mi].access_flags & 0x0002 != 0 => {
+                    LambdaTarget::Java {
+                        class_idx: ci,
+                        method_idx: mi,
+                    }
+                }
+                _ => LambdaTarget::Virtual {
+                    name: target_name,
+                    desc: target_desc,
+                },
+            },
+            // REF_invokeStatic / REF_invokeSpecial: a fixed body. A static
+            // reference to a builtin (`Integer::parseInt`) is a native arm.
+            6 | 7 => match helpers::find_method_walking(
+                self.classes,
+                target_class,
+                target_name,
+                target_desc,
+            ) {
+                Some((ci, mi)) => LambdaTarget::Java {
+                    class_idx: ci,
+                    method_idx: mi,
+                },
+                None if ref_kind == 6 => LambdaTarget::NativeStatic {
+                    class: target_class,
+                    name: target_name,
+                    desc: target_desc,
+                },
+                None => LambdaTarget::Virtual {
+                    name: target_name,
+                    desc: target_desc,
+                },
+            },
+            // REF_newInvokeSpecial: `Foo::new`. A loaded class runs its
+            // `<init>` bytecode; a builtin (`ArrayList::new`) its native
+            // constructor. A handle of this kind naming anything but a
+            // constructor is a malformed class file.
+            8 if target_name != "<init>" => {
+                return Err(JvmError::UnsupportedInvokeDynamic(
+                    "LambdaMetafactory(newInvokeSpecial on a non-constructor)",
+                ))
+            }
+            8 => LambdaTarget::Ctor {
+                class: helpers::class_name_to_static_in(
+                    self.classes,
+                    self.handler.native_class_names(),
+                    target_class,
+                ),
+                class_bytes: target_class_bytes,
+                init: helpers::find_method(self.classes, target_class, target_name, target_desc),
+                desc: target_desc,
+            },
+            _ => {
+                return Err(JvmError::UnsupportedInvokeDynamic(
+                    "LambdaMetafactory(unsupported method handle kind)",
+                ))
+            }
+        };
 
         // 6. Pop captured values from the operand stack
         let capture_count = helpers::count_args(factory_desc);
@@ -571,8 +657,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         self.objects.register_lambda(
             obj_idx,
             LambdaProxy {
-                target_class_idx: target_ci,
-                target_method_idx: target_mi,
+                target,
                 captures,
                 sam_name,
             },
@@ -749,11 +834,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 .is_some_and(|l| l.sam_name == method_name.as_bytes()),
             _ => false,
         };
+        let mut ctor_obj: Option<u16> = None;
         let new_frame = match recv {
             Value::ObjectRef(obj_idx) if is_sam_call => {
-                match lambda_frame(self.objects, self.classes, obj_idx, args, descriptor)? {
-                    Some(f) => Some(f),
-                    None => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
+                match self.lambda_call(frames, obj_idx, args, descriptor)? {
+                    LambdaCall::Frame(f) => Some(f),
+                    LambdaCall::Ctor { frame, obj } => {
+                        ctor_obj = Some(obj);
+                        Some(frame)
+                    }
+                    LambdaCall::Done(result) => return Ok(result),
                 }
             }
             _ => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
@@ -785,7 +875,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             // exactly either way.
             frames.truncate(base);
         }
-        r
+        match (r, ctor_obj) {
+            // `Foo::new`: the constructor returned void; the object is the result.
+            (Ok(_), Some(obj)) => Ok(Some(Value::ObjectRef(obj))),
+            (r, _) => r,
+        }
     }
 
     /// Resolve `method_name`/`descriptor` against the receiver's *runtime*
@@ -948,67 +1042,257 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     }
 }
 
-/// Build the frame a lambda proxy's SAM invocation targets, applying
-/// `LambdaMetafactory`'s boxing adaptation. `args` are the interface-method
-/// arguments, *excluding* the proxy receiver itself. Returns `Ok(None)` when
-/// `obj_idx` is not a lambda proxy.
-///
-/// Stack-independent by construction — it reads no operand stack and pushes
-/// no frame — so both `op_invoke`'s stack-marshalling path and the
-/// native→Java upcall primitive can share it.
-///
-/// The adaptation: kotlinc keeps a lambda body primitive (`(I)I`) behind the
-/// erased SAM (`Function1.invoke(Object)Object`) and leaves unboxing the
-/// arguments and boxing the return to the metafactory — javac boxes inside
-/// the body, so Java apps never hit this. Captured values are passed as-is
-/// (their types already match the body's leading parameters).
-fn lambda_frame(
+/// What a SAM invocation on a lambda proxy amounts to.
+pub(super) enum LambdaCall {
+    /// Push this frame; its return value is the call's result.
+    Frame(Frame),
+    /// Push this `<init>` frame; `obj`, already allocated, is the call's
+    /// result once it returns.
+    Ctor { frame: Frame, obj: u16 },
+    /// Ran natively; this is the call's result.
+    Done(Option<Value>),
+}
+
+impl<'a, H: NativeMethodHandler> Executor<'a, H> {
+    /// Run the SAM of lambda proxy `obj_idx` on `args` (the interface-method
+    /// arguments, excluding the proxy itself), applying `LambdaMetafactory`'s
+    /// boxing adaptation: an argument is unboxed where the body takes a
+    /// primitive, and a primitive result is boxed where the SAM returns a
+    /// reference — kotlinc keeps a body primitive (`(I)I`) behind the erased
+    /// `Function1.invoke(Object)Object`; a method reference such as
+    /// `String::length` behind `Fn<String, Integer>` needs the same. Captured
+    /// values lead the body's parameters; for an instance body the receiver
+    /// (captured `this`, or the first SAM argument of `String::length`) is
+    /// not a descriptor parameter and steps past none.
+    ///
+    /// Stack-independent: reads no operand stack and pushes no frame, so
+    /// both `op_invoke`'s marshalling path and the native→Java upcall share
+    /// it.
+    pub(super) fn lambda_call(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        obj_idx: u16,
+        args: &[Value],
+        sam_desc: &str,
+    ) -> Result<LambdaCall, JvmError> {
+        let (target, captures) = {
+            let lambda = self
+                .objects
+                .get_lambda(obj_idx)
+                .ok_or(JvmError::InvalidReference)?;
+            (lambda.target, lambda.captures.clone())
+        };
+        let mut actual: Vec<Value> = captures;
+        actual.extend_from_slice(args);
+
+        // The body's descriptor, and whether `actual[0]` is a receiver the
+        // descriptor does not list.
+        let (impl_desc, has_receiver): (&[u8], bool) = match target {
+            LambdaTarget::Java {
+                class_idx,
+                method_idx,
+            } => {
+                let tm = &self.classes[class_idx].methods()[method_idx];
+                if tm.code_offset == 0 {
+                    return Err(JvmError::NoSuchMethod);
+                }
+                let desc = self.classes[class_idx]
+                    .cp_utf8(tm.descriptor_index)
+                    .ok_or(JvmError::InvalidBytecode)?;
+                // ACC_STATIC = 0x0008.
+                (desc, tm.access_flags & 0x0008 == 0)
+            }
+            LambdaTarget::NativeStatic { desc, .. } => (desc.as_bytes(), false),
+            LambdaTarget::Virtual { desc, .. } => (desc.as_bytes(), true),
+            LambdaTarget::Ctor { desc, .. } => (desc.as_bytes(), false),
+        };
+        adapt_lambda_args(self.objects, &mut actual, impl_desc, has_receiver)?;
+        let body_ret = helpers::return_kind(impl_desc);
+        let box_return = if body_ret != b'L'
+            && body_ret != b'V'
+            && helpers::return_kind(sam_desc.as_bytes()) == b'L'
+        {
+            body_ret
+        } else {
+            0
+        };
+
+        match target {
+            LambdaTarget::Java {
+                class_idx,
+                method_idx,
+            } => {
+                let tm = &self.classes[class_idx].methods()[method_idx];
+                let mut f =
+                    Frame::new(class_idx, method_idx, &actual, tm.max_locals, tm.max_stack)?;
+                f.box_return = box_return;
+                Ok(LambdaCall::Frame(f))
+            }
+            LambdaTarget::NativeStatic { class, name, desc } => {
+                self.stringify_native_args(frames, class, name, desc, &mut actual)?;
+                let mark = self.gc_state.push_shadow_roots(&actual);
+                let r = self.dispatch_native(class, name, desc, &actual, frames);
+                self.gc_state.truncate_shadow_roots(mark);
+                Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
+            }
+            LambdaTarget::Virtual { name, desc } => {
+                let recv = actual.first().copied().unwrap_or(Value::Null);
+                if matches!(recv, Value::Null) {
+                    return Err(self.runtime_fault(c::java_lang_NullPointerException));
+                }
+                // A reference to another proxy's SAM (`Runnable::run` over a
+                // lambda): the inner body, not the interface's empty method.
+                if let Value::ObjectRef(ri) = recv {
+                    let inner_sam = self
+                        .objects
+                        .get_lambda(ri)
+                        .is_some_and(|l| l.sam_name == name.as_bytes());
+                    if inner_sam {
+                        let rest: Vec<Value> = actual[1..].to_vec();
+                        return self.lambda_call(frames, ri, &rest, desc);
+                    }
+                }
+                let class = self.runtime_class_of(recv)?;
+                let resolved = helpers::find_method_walking_cached(
+                    &mut self.method_cache,
+                    self.classes,
+                    class,
+                    name,
+                    desc,
+                );
+                match resolved {
+                    Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset != 0 => {
+                        let tm = &self.classes[ci].methods()[mi];
+                        let mut f = Frame::new(ci, mi, &actual, tm.max_locals, tm.max_stack)?;
+                        f.box_return = box_return;
+                        Ok(LambdaCall::Frame(f))
+                    }
+                    _ => {
+                        self.stringify_native_args(frames, class, name, desc, &mut actual)?;
+                        let mark = self.gc_state.push_shadow_roots(&actual);
+                        let r = self.dispatch_native(class, name, desc, &actual, frames);
+                        self.gc_state.truncate_shadow_roots(mark);
+                        Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
+                    }
+                }
+            }
+            LambdaTarget::Ctor {
+                class,
+                class_bytes,
+                init,
+                desc,
+            } => match init {
+                Some((ci, mi)) => {
+                    // `op_invoke` initialises the class before coming here;
+                    // an upcall cannot re-execute, so it refuses instead of
+                    // constructing an uninitialised class.
+                    if !self.statics.is_initialized(class_bytes) {
+                        return Err(JvmError::UnsupportedInvokeDynamic(
+                            "constructor reference to an uninitialised class from a native upcall",
+                        ));
+                    }
+                    let obj = self
+                        .objects
+                        .alloc_with_defaults(class, self.classes)
+                        .ok_or(JvmError::StackOverflow)?;
+                    let mut all: Vec<Value> = Vec::with_capacity(actual.len() + 1);
+                    all.push(Value::ObjectRef(obj));
+                    all.extend_from_slice(&actual);
+                    let tm = &self.classes[ci].methods()[mi];
+                    let f = Frame::new(ci, mi, &all, tm.max_locals, tm.max_stack)?;
+                    Ok(LambdaCall::Ctor { frame: f, obj })
+                }
+                None => {
+                    let obj = self.objects.alloc(class).ok_or(JvmError::StackOverflow)?;
+                    let mut all: Vec<Value> = Vec::with_capacity(actual.len() + 1);
+                    all.push(Value::ObjectRef(obj));
+                    all.extend_from_slice(&actual);
+                    let mark = self.gc_state.push_shadow_roots(&all);
+                    let r = self.dispatch_native(class, "<init>", desc, &all, frames);
+                    self.gc_state.truncate_shadow_roots(mark);
+                    // A native `<init>` is void, except `String`'s, which
+                    // hands back the interned string in place of the
+                    // placeholder (see `finalize_invoke`).
+                    Ok(LambdaCall::Done(Some(r?.unwrap_or(Value::ObjectRef(obj)))))
+                }
+            },
+        }
+    }
+
+    /// The `Object`-typed argument the builtins cannot format themselves —
+    /// `String.valueOf(Object)` and `StringBuilder.append(Object)` — reached
+    /// through a method reference: `op_invoke`'s `stringify_object_arg` never
+    /// saw the call, so run the object's `toString()` here (a Java override
+    /// through the upcall, the native identity form otherwise) before the
+    /// arm sees it. Strings and `null` need nothing.
+    fn stringify_native_args(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        class: &str,
+        name: &str,
+        desc: &str,
+        actual: &mut [Value],
+    ) -> Result<(), JvmError> {
+        let object_arg = match (class, name) {
+            (c::java_lang_String, m::valueOf) => desc == d::Object__String,
+            (c::java_lang_StringBuilder, m::append) => desc == d::Object__StringBuilder,
+            _ => false,
+        };
+        if !object_arg {
+            return Ok(());
+        }
+        // The object is the last argument (the receiver, if any, precedes it).
+        let Some(slot) = actual.last_mut() else {
+            return Ok(());
+        };
+        let s = match *slot {
+            Value::ObjectRef(_) => {
+                self.invoke_java(frames, *slot, m::toString, d::__String, &[])?
+            }
+            Value::ArrayRef(_) => self.dispatch_native(
+                c::java_lang_Object,
+                m::toString,
+                d::__String,
+                &[*slot],
+                frames,
+            )?,
+            _ => return Ok(()),
+        };
+        if let Some(s) = s {
+            *slot = s;
+        }
+        Ok(())
+    }
+
+    /// Box a native arm's primitive result when the SAM returns a reference.
+    fn box_native_result(
+        &mut self,
+        result: Option<Value>,
+        box_return: u8,
+    ) -> Result<Option<Value>, JvmError> {
+        match result {
+            Some(v) if box_return != 0 => {
+                let boxed = helpers::box_primitive(self.objects, box_return, widen(v, box_return))
+                    .ok_or(JvmError::StackOverflow)?;
+                Ok(Some(boxed))
+            }
+            other => Ok(other),
+        }
+    }
+}
+
+/// Unbox every argument whose body parameter is primitive. `actual` holds
+/// the captures followed by the SAM arguments; when `has_receiver`, its
+/// first element is the receiver and lines up with no descriptor parameter.
+fn adapt_lambda_args(
     objects: &mut crate::object_heap::ObjectHeap,
-    classes: &[crate::class_file::ClassFile],
-    obj_idx: u16,
-    args: &[Value],
-    sam_desc: &str,
-) -> Result<Option<Frame>, JvmError> {
-    let Some(lambda) = objects.get_lambda(obj_idx) else {
-        return Ok(None);
-    };
-    let target_ci = lambda.target_class_idx;
-    let target_mi = lambda.target_method_idx;
-    let captures: Vec<Value> = lambda.captures.clone();
-
-    let tm = &classes[target_ci].methods()[target_mi];
-    if tm.code_offset == 0 {
-        return Err(JvmError::NoSuchMethod);
-    }
-    // ACC_STATIC = 0x0008.
-    let body_is_static = tm.access_flags & 0x0008 != 0;
-    let impl_desc = classes[target_ci]
-        .cp_utf8(tm.descriptor_index)
-        .ok_or(JvmError::InvalidBytecode)?;
-    let (max_locals, max_stack) = (tm.max_locals, tm.max_stack);
-
-    let mut method_args: Vec<Value> = args.to_vec();
-
-    // Unbox every boxed argument whose body parameter is primitive. The
-    // captures occupy the body's leading parameters; step past them by
-    // hand (`Iterator::skip` monomorphises a 500 B `nth` on thumbv6m).
-    // A lambda capturing `this` compiles to an *instance* synthetic body
-    // (javac's `private void lambda$track$0(...)`): the captured receiver
-    // lands in local 0 and is *not* a descriptor parameter, so it steps
-    // past no kind. Skipping one per capture regardless shifted every
-    // remaining argument onto the wrong kind and unboxed a reference --
-    // picodroid.widget.RadioGroup's own `(CompoundButton, boolean)`
-    // listener read field 0 off the button and passed it as `buttonView`.
-    let mut body_kinds = helpers::ParamKinds::new(impl_desc);
-    let desc_captures = if body_is_static {
-        captures.len()
-    } else {
-        captures.len().saturating_sub(1)
-    };
-    for _ in 0..desc_captures {
-        body_kinds.next();
-    }
-    for (arg, kind) in method_args.iter_mut().zip(body_kinds) {
+    actual: &mut [Value],
+    impl_desc: &[u8],
+    has_receiver: bool,
+) -> Result<(), JvmError> {
+    let skip = usize::from(has_receiver);
+    let kinds = helpers::ParamKinds::new(impl_desc);
+    for (arg, kind) in actual.iter_mut().skip(skip).zip(kinds) {
         if kind == b'L' {
             continue;
         }
@@ -1028,23 +1312,7 @@ fn lambda_frame(
             _ => {}
         }
     }
-    let body_ret = helpers::return_kind(impl_desc);
-    let box_return = if body_ret != b'L'
-        && body_ret != b'V'
-        && helpers::return_kind(sam_desc.as_bytes()) == b'L'
-    {
-        body_ret
-    } else {
-        0
-    };
-
-    // Build actual args: captures first, then interface method args.
-    let mut actual_args = captures;
-    actual_args.extend_from_slice(&method_args);
-
-    let mut new_frame = Frame::new(target_ci, target_mi, &actual_args, max_locals, max_stack)?;
-    new_frame.box_return = box_return;
-    Ok(Some(new_frame))
+    Ok(())
 }
 
 /// Widen an unboxed value to the body's parameter kind (an `Integer` passed
