@@ -1226,6 +1226,7 @@ M	worker
 M	wrap
 M	write
 M	writeByte
+M	writeInPlace
 M	writeInt32
 M	writeInt32LE
 M	wtf
