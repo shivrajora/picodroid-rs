@@ -25,6 +25,7 @@ public abstract class ViewGroup extends View {
   private int mChildCount;
 
   public void addView(View child) {
+    checkNotReleased(child);
     nativeAddView(child);
     if (child == null) {
       return;
@@ -40,6 +41,18 @@ public abstract class ViewGroup extends View {
   }
 
   private native void nativeAddView(View child);
+
+  /**
+   * A view {@link #removeView} released has no widget left to add: refuse it here, on the Java
+   * side, before any native code sees the dead handle.
+   */
+  private static void checkNotReleased(View child) {
+    if (child.isReleased()) {
+      throw new IllegalStateException(
+          "addView: this view was released by removeView; picodroid frees a removed view, create a"
+              + " new one");
+    }
+  }
 
   /**
    * Add {@code child} with explicit layout parameters. Records the params on the child via {@link
@@ -71,14 +84,16 @@ public abstract class ViewGroup extends View {
    * or hide one with {@link View#setVisibility} when it will come back.
    */
   public void removeView(View child) {
-    nativeRemoveView(child);
     for (int i = 0; i < mChildCount; i++) {
       if (mChildren[i] == child) {
         System.arraycopy(mChildren, i + 1, mChildren, i, mChildCount - i - 1);
         mChildren[--mChildCount] = null;
+        nativeRemoveView(child);
+        child.release();
         return;
       }
     }
+    // Not a child (or already released): a no-op, as on Android.
   }
 
   private native void nativeRemoveView(View child);
@@ -86,9 +101,21 @@ public abstract class ViewGroup extends View {
   public void removeAllViews() {
     nativeRemoveAllViews();
     for (int i = 0; i < mChildCount; i++) {
+      mChildren[i].release();
       mChildren[i] = null;
     }
     mChildCount = 0;
+  }
+
+  /** Releases this group's children with it: their widgets went with the group's. */
+  @Override
+  void release() {
+    for (int i = 0; i < mChildCount; i++) {
+      mChildren[i].release();
+      mChildren[i] = null;
+    }
+    mChildCount = 0;
+    super.release();
   }
 
   private native void nativeRemoveAllViews();
