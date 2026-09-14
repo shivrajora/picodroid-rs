@@ -34,6 +34,11 @@ use timing::{
 
 use super::clock::PCLK_HZ;
 
+#[cfg(feature = "chip-rp2350")]
+use rp235x_hal::pac;
+#[cfg(feature = "chip-rp2040")]
+use rp_pico::hal::pac;
+
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
 struct SemCell(UnsafeCell<Option<Semaphore>>);
@@ -83,10 +88,6 @@ macro_rules! i2c_isr_body {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C0_IRQ() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     i2c_isr_body!(&p.I2C0, I2C0_WAKE);
 }
@@ -94,10 +95,6 @@ extern "C" fn I2C0_IRQ() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C1_IRQ() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     i2c_isr_body!(&p.I2C1, I2C1_WAKE);
 }
@@ -108,9 +105,10 @@ macro_rules! apply_speed {
     ($i2c:expr, $speed_hz:expr) => {{
         // Disable controller before reconfiguring (poll IC_ENABLE_STATUS to
         // confirm the FSM has actually parked — IC_ENABLE.disable is async).
-        $i2c.ic_enable().write(|w| unsafe { w.bits(0) });
-        // spin-todo: F18 — one SCL bit-time settle; docs/scheduling-audit-2026-09.md
-        while $i2c.ic_enable_status().read().ic_en().bit_is_set() {}
+        // A controller that will not park ignores the IC_CON write below
+        // and keeps its old timing; `disable` has said so, and a hang here
+        // would be worse than a bus at the wrong speed.
+        let _ = disable($i2c);
 
         // IC_CON: master mode, fast speed, restart enabled, slave disabled,
         // tx_empty_ctrl on, rx-FIFO clock stretching on.
@@ -154,10 +152,6 @@ macro_rules! apply_speed {
 }
 
 fn reconfigure(i2c_id: u8, speed_hz: u32) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
     match i2c_id {
         0 => apply_speed!(&p.I2C0, speed_hz),
@@ -198,10 +192,6 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
         return;
     }
 
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let p = unsafe { pac::Peripherals::steal() };
 
     // Ensure IO_BANK0 and PADS_BANK0 are out of reset (idempotent).
@@ -341,8 +331,8 @@ trait I2cPeriph {
     fn ic_data_cmd_write(&self, cmd: u32);
     fn ic_data_cmd_read_byte(&self) -> u8;
     fn ic_enable_write(&self, on: bool);
-    fn ic_enable_status_busy(&self) -> bool;
-    fn ic_tar_write(&self, addr: u16);
+    /// The register block, for the non-generic helpers (`select_target`).
+    fn regs(&self) -> &pac::i2c0::RegisterBlock;
     fn raw_intr_stat(&self) -> u32;
     fn read_abrt_source(&self) -> u32;
     fn clear_tx_abrt(&self);
@@ -381,12 +371,8 @@ macro_rules! impl_i2c_periph {
                 self.ic_enable().write(|w| unsafe { w.bits(on as u32) });
             }
             #[inline]
-            fn ic_enable_status_busy(&self) -> bool {
-                self.ic_enable_status().read().ic_en().bit_is_set()
-            }
-            #[inline]
-            fn ic_tar_write(&self, addr: u16) {
-                self.ic_tar().write(|w| unsafe { w.ic_tar().bits(addr) });
+            fn regs(&self) -> &pac::i2c0::RegisterBlock {
+                self
             }
             #[inline]
             fn raw_intr_stat(&self) -> u32 {
@@ -497,13 +483,96 @@ fn raw_has(i2c: &impl I2cPeriph, bit: u32) -> bool {
     i2c.raw_intr_stat() & bit != 0
 }
 
-fn write_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -> i32 {
-    // Set IC_TAR (must be done with the controller disabled).
+/// Iterations to allow the controller to report itself disabled. The FSM
+/// parks within one SCL bit-time of `IC_ENABLE = 0` on an idle bus — 10 µs
+/// at 100 kHz, a few hundred APB reads — so this bound is only reached by a
+/// controller that is wedged (a slave holding SCL low, say).
+const DISABLE_SPIN_CAP: u32 = 100_000;
+
+/// Disable the controller and wait for its FSM to park. `false` when it
+/// never did — the bus is then in no state to accept a new target or
+/// timing, and the caller must not pretend otherwise.
+///
+/// One copy over the register block both buses share, out of line: this
+/// wait used to sit inline in every transfer and in `apply_speed!`, and on
+/// the RP2040 those copies were ~800 B of flash.
+#[inline(never)]
+fn disable(i2c: &pac::i2c0::RegisterBlock) -> bool {
+    i2c.ic_enable().write(|w| unsafe { w.bits(0) });
+    if picodroid_core::spin_until!(
+        i2c.ic_enable_status().read().ic_en().bit_is_clear(),
+        DISABLE_SPIN_CAP,
+        "i2c disable"
+    )
+    .is_err()
+    {
+        picodroid_core::pd_warn!("[i2c] controller would not disable");
+        return false;
+    }
+    true
+}
+
+/// Point the controller at `address`.
+///
+/// `IC_TAR` may only be written with the controller disabled, and the
+/// disable is asynchronous: the FSM parks up to one SCL bit-time later and
+/// `IC_ENABLE_STATUS` says when. Every transfer used to pay that wait,
+/// which on a bus with one device — the GT911 on its own I2C, a sensor
+/// sampler reading the same chip forty times a second — was a spin for
+/// nothing (docs/scheduling-audit-2026-09.md, F18). The register itself is
+/// the cache: when the controller is enabled and already targets
+/// `address`, there is nothing to do. `reconfigure` leaves the controller
+/// enabled and never touches `IC_TAR`, so the comparison stays valid across
+/// a speed change.
+///
+/// `false` means the controller never reported itself disabled; the caller
+/// fails the transfer rather than writing `IC_TAR` into a running FSM.
+#[inline(never)]
+fn select_target(i2c: &pac::i2c0::RegisterBlock, address: u8) -> bool {
+    let target = address as u16;
+    if i2c.ic_enable().read().bits() & 1 != 0 && i2c.ic_tar().read().ic_tar().bits() == target {
+        return true;
+    }
+    if !disable(i2c) {
+        return false;
+    }
+    i2c.ic_tar().write(|w| unsafe { w.ic_tar().bits(target) });
+    i2c.ic_enable().write(|w| unsafe { w.bits(1) });
+    true
+}
+
+/// A transfer that failed leaves the controller disabled. Disabling flushes
+/// both FIFOs — the old per-transfer disable did this for free, and a
+/// command left behind by a timed-out transfer would otherwise be the
+/// first thing the next one clocks out — and it makes [`select_target`]
+/// take its full path next time, which is the only path that flushes.
+fn fail_and_flush<I: I2cPeriph>(i2c: &I) -> i32 {
     i2c.ic_enable_write(false);
-    // spin-todo: F18 — one SCL bit-time settle on every transfer; skip when IC_TAR is unchanged
-    while i2c.ic_enable_status_busy() {}
-    i2c.ic_tar_write(address as u16);
-    i2c.ic_enable_write(true);
+    -1
+}
+
+fn write_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -> i32 {
+    let r = write_transfer(i2c_id, i2c, address, data);
+    if r < 0 {
+        fail_and_flush(i2c)
+    } else {
+        r
+    }
+}
+
+fn read_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, buf: &mut [u8]) -> i32 {
+    let r = read_transfer(i2c_id, i2c, address, buf);
+    if r < 0 {
+        fail_and_flush(i2c)
+    } else {
+        r
+    }
+}
+
+fn write_transfer<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -> i32 {
+    if !select_target(i2c.regs(), address) {
+        return -1;
+    }
 
     // Drop any sticky abort/stop bits left from a prior failed transfer so
     // they don't immediately short-circuit the very first wait below.
@@ -560,12 +629,10 @@ fn write_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, data: &[u8]) -
     }
 }
 
-fn read_internal<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, buf: &mut [u8]) -> i32 {
-    i2c.ic_enable_write(false);
-    // spin-todo: F18 — one SCL bit-time settle on every transfer; skip when IC_TAR is unchanged
-    while i2c.ic_enable_status_busy() {}
-    i2c.ic_tar_write(address as u16);
-    i2c.ic_enable_write(true);
+fn read_transfer<I: I2cPeriph>(i2c_id: u8, i2c: &I, address: u8, buf: &mut [u8]) -> i32 {
+    if !select_target(i2c.regs(), address) {
+        return -1;
+    }
     i2c.clear_intr();
 
     let len = buf.len();
@@ -622,10 +689,6 @@ pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32 {
     if data.len() > MAX_XFER_LEN {
         return -1;
     }
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let lock = i2c_lock(i2c_id);
     let _ = lock.take(Duration::infinite());
     let p = unsafe { pac::Peripherals::steal() };
@@ -646,10 +709,6 @@ pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
     if buf.len() > MAX_XFER_LEN {
         return -1;
     }
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     let lock = i2c_lock(i2c_id);
     let _ = lock.take(Duration::infinite());
     let p = unsafe { pac::Peripherals::steal() };
