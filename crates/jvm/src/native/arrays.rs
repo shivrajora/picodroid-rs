@@ -17,9 +17,13 @@ use crate::{
 use super::NativeContext;
 use crate::names::{c, m};
 
-fn extract_array(args: &[Value]) -> Result<u16, JvmError> {
-    match args.first().copied().unwrap_or(Value::Null) {
+/// The array argument of `Arrays.sort` / `fill` / `copyOf`. A null array is
+/// the NullPointerException Java throws (QA 2026-09-13: it was the
+/// uncatchable InvalidReference).
+fn extract_array(ctx: &mut NativeContext<'_>) -> Result<u16, JvmError> {
+    match ctx.args.first().copied().unwrap_or(Value::Null) {
         Value::ArrayRef(i) => Ok(i),
+        Value::Null => Err(throw_named(ctx, c::java_lang_NullPointerException)),
         _ => Err(JvmError::InvalidReference),
     }
 }
@@ -67,7 +71,7 @@ fn range_args(
 }
 
 fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
-    let arr = extract_array(ctx.args)?;
+    let arr = extract_array(ctx)?;
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
     let len = ctx.arrays.length(arr).ok_or(JvmError::InvalidReference)? as usize;
     // sort(a) or sort(a, fromIndex, toIndex).
@@ -144,7 +148,7 @@ fn sort_f64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
 // ── fill ─────────────────────────────────────────────────────────────────
 
 fn dispatch_fill(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
-    let arr = extract_array(ctx.args)?;
+    let arr = extract_array(ctx)?;
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
     let len = ctx.arrays.length(arr).ok_or(JvmError::InvalidReference)? as usize;
     // fill(a, val) or fill(a, fromIndex, toIndex, val).
@@ -194,7 +198,7 @@ fn dispatch_fill(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
 // ── copyOf ───────────────────────────────────────────────────────────────
 
 fn dispatch_copy_of(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
-    let arr = extract_array(ctx.args)?;
+    let arr = extract_array(ctx)?;
     let new_len = match ctx.args.get(1).copied().unwrap_or(Value::Null) {
         Value::Int(n) if n >= 0 => n as usize,
         _ => return Err(JvmError::InvalidReference),
@@ -242,6 +246,12 @@ pub(crate) fn dispatch_system(
 /// types throw ArrayStoreException, and overlapping self-copies behave like
 /// memmove (the overlap region is read before it is overwritten).
 fn dispatch_arraycopy(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    // A null array is a NullPointerException the caller can catch (QA
+    // 2026-09-13: it was the uncatchable InvalidReference).
+    if matches!(ctx.args.first(), Some(Value::Null)) || matches!(ctx.args.get(2), Some(Value::Null))
+    {
+        return Err(throw_named(ctx, c::java_lang_NullPointerException));
+    }
     let src = match ctx.args.first().copied() {
         Some(Value::ArrayRef(i)) => i,
         _ => return Err(JvmError::InvalidReference),
