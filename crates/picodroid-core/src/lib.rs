@@ -158,6 +158,12 @@ mod native_api_contract_tests;
 #[cfg(all(test, feature = "littlefs"))]
 #[path = "fs/volume.rs"]
 mod fs_volume_tests;
+// Ratchet on infallible allocations in the native arms (a `vec![0u8; len]`
+// on a path Java can reach is a board reset on the RP2040 once the heap is
+// full); counts allocation shapes per file against a committed baseline.
+#[cfg(test)]
+#[path = "native_handler/alloc_scan.rs"]
+mod native_alloc_scan_tests;
 // SDK member-name manifest: generates sdk/member-names.tsv (the source of
 // the `shrink_names::m` consts) and fails when the committed copy is stale.
 #[cfg(test)]
