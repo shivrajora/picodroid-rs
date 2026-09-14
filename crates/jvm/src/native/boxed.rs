@@ -51,17 +51,80 @@ macro_rules! boxed_dispatch {
                 let val = $ctx.args.first().copied().unwrap_or(Value::Null);
                 Some(box_value($class, val, $ctx))
             }
-            // Unboxing accessor: intValue, booleanValue, longValue, etc.
+            // Unboxing accessor: intValue, booleanValue, longValue, etc.,
+            // converting as Java does (`Float.valueOf(2.5f).intValue()` is 2).
             _ if is_unboxing_accessor($method) => {
                 let Value::ObjectRef(obj) = $ctx.args.first().copied().unwrap_or(Value::Null)
                 else {
                     return Some(Err(JvmError::InvalidReference));
                 };
-                Some(Ok(Some($ctx.objects.get_field(obj, 0).unwrap_or($default))))
+                let raw = $ctx.objects.get_field(obj, 0).unwrap_or($default);
+                Some(Ok(Some(convert_accessor($method, raw))))
             }
             _ => dispatch_common($class, $method, $ctx),
         }
     };
+}
+
+/// Java's `f2i`: NaN to 0, out-of-range saturates.
+fn f2i(d: f64) -> i32 {
+    if d.is_nan() {
+        0
+    } else {
+        d.clamp(i32::MIN as f64, i32::MAX as f64) as i32
+    }
+}
+
+/// Java's `f2l`: NaN to 0, out-of-range saturates.
+fn f2l(d: f64) -> i64 {
+    if d.is_nan() {
+        0
+    } else {
+        d.clamp(i64::MIN as f64, i64::MAX as f64) as i64
+    }
+}
+
+/// The value a `xxxValue()` accessor returns for the box's stored value,
+/// with Java's widening and narrowing conversions (JLS §5.1.2/§5.1.3):
+/// `Float.valueOf(2.5f).intValue()` is 2, `Integer.valueOf(300).byteValue()`
+/// is 44, `Long.valueOf(1L << 33).intValue()` is 0. A box's own accessor
+/// hands its value back unchanged.
+fn convert_accessor(method: &str, v: Value) -> Value {
+    let as_i64 = |v: Value| match v {
+        Value::Int(i) => i as i64,
+        Value::Long(l) => l,
+        Value::Float(f) => f2l(f as f64),
+        Value::Double(d) => f2l(d),
+        _ => 0,
+    };
+    let as_i32 = |v: Value| match v {
+        Value::Int(i) => i,
+        Value::Long(l) => l as i32,
+        Value::Float(f) => f2i(f as f64),
+        Value::Double(d) => f2i(d),
+        _ => 0,
+    };
+    let as_f64 = |v: Value| match v {
+        Value::Int(i) => i as f64,
+        Value::Long(l) => l as f64,
+        Value::Float(f) => f as f64,
+        Value::Double(d) => d,
+        _ => 0.0,
+    };
+    match method {
+        m::intValue => Value::Int(as_i32(v)),
+        m::longValue => Value::Long(as_i64(v)),
+        m::floatValue => Value::Float(match v {
+            Value::Float(f) => f,
+            Value::Long(l) => l as f32,
+            other => as_f64(other) as f32,
+        }),
+        m::doubleValue => Value::Double(as_f64(v)),
+        m::shortValue => Value::Int(as_i32(v) as i16 as i32),
+        m::byteValue => Value::Int(as_i32(v) as i8 as i32),
+        m::charValue => Value::Int(as_i32(v) as u16 as i32),
+        _ => v, // booleanValue and any box's own accessor
+    }
 }
 
 /// `args[i]` as a primitive: unboxed from a wrapper object, or as passed.
