@@ -37,7 +37,7 @@ cargo install elf2uf2-rs                # optional: needed for --uf2 flag
 
 ### Local CI (pre-commit hook)
 
-The pre-commit hook runs `scripts/pre-commit` in its **fast** tier: the guards that exist only locally (shadow-twin, cfg hygiene, `hil-tests.conf` drift, markdown lint, the binary-size ratchet) plus whichever formatting, clippy and firmware-build lanes the changed files call for — a docs-only commit takes seconds. `./scripts/pre-commit --full` is the unscoped gate (every board's clippy, every firmware build, the tests in both shrink modes, the conformance suites) and is what to run before pushing. `--list` prints the stages a run would execute; `--serial` streams one lane at a time. See [Contributing](/project/contributing/#pre-commit-hook).
+The pre-commit hook runs `scripts/pre-commit` in its **fast** tier: the source guards that exist only locally (shadow-twin, cfg hygiene, `apply_jvm_env`) plus whichever of the formatters and markdown lint the changed files call for — seconds, with no cargo build. `./scripts/pre-commit --full` is the release-cut gate (the staged and opt-in firmware legs, the shrunk-image check, the binary-size ratchet); everything else runs in GitHub CI on every push and in the nightly sim and HIL runs. `--list` prints the stages a run would execute; `--serial` streams one lane at a time. See [Contributing](/project/contributing/#pre-commit-hook).
 
 Install the hook after cloning by symlinking so it stays in sync with `scripts/pre-commit`:
 

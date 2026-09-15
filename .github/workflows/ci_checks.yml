@@ -58,6 +58,12 @@ jobs:
       # TestBench RP2350
       - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld
       - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release
+      # Unconditional shrinking's contract (docs/designs/unconditional-shrink-2026-09.md):
+      # a --shrink --shrink-app image spells no original Java class, descriptor
+      # or served member name, nor the app's own package. Same check as the
+      # local `./scripts/pre-commit --full` shrink_image stage.
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release --shrink --shrink-app
+      - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/
   testing:
     name: Testing
     runs-on: ubuntu-latest
@@ -114,6 +120,10 @@ jobs:
       # Pico Touch Kit — the only automated compile of the ST7796, the GT911 and
       # the I2C-touch path, and the only board on the rp2350b MCU descriptor
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit -- --deny=warnings
+      # Pico Enviro Mon W — the only board whose board.toml [jvm] block exports
+      # anything (gc_alloc_threshold), so the only lint of that config path.
+      # WiFi credentials are option_env!, so none are needed here.
+      - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon-w -- --deny=warnings
       # Simulator (host target)
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350,line-numbers -- --deny=warnings
       # Host tools (previously unlinted anywhere; a real bug hid in papk-info)
@@ -126,8 +136,10 @@ jobs:
   #
   # To re-enable: commit Cargo.lock, re-baseline (the recipe is in
   # bench/parity/ratchet.toml's header), uncomment below, and confirm CI's
-  # numbers match. The local pre-commit hook still runs the ratchet, where
-  # the comparison is like-for-like -- that gate is unaffected.
+  # numbers match. Until then the ratchet runs where the comparison is
+  # like-for-like: the 3 AM sim-run.sh nightly (its `size-ratchet` lane, on
+  # the bench machine's own lockfile) and `./scripts/pre-commit --full`
+  # before a release cut.
   # size-ratchet:
   #   name: Binary-size ratchet
   #   runs-on: ubuntu-latest
@@ -269,3 +281,27 @@ jobs:
       - name: Build site and validate internal links
         run: npm run build
         working-directory: website
+  guards:
+    name: Source guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: scripts/lint-md/package-lock.json
+      # The text-only invariants the local pre-commit hook enforces, run here
+      # too so a bypassed hook (--no-verify, a merge) still meets them: no
+      # shadow twin under both src trees and no not(feature = "family-rp")
+      # cfg gate (scripts/check-source-guards.sh), the [jvm] board.toml
+      # parser, markdown lint, and the device-lock state machine every bench
+      # script depends on.
+      - run: bash scripts/check-source-guards.sh
+      - run: bash scripts/test-jvm-env.sh
+      - run: npm ci
+        working-directory: scripts/lint-md
+      - run: bash scripts/lint-md.sh
+      - run: bash scripts/test-device-lock.sh

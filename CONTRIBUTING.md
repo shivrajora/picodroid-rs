@@ -32,27 +32,32 @@ It runs in two tiers, both of which fan their stages out across parallel lanes:
 
 ```bash
 ./scripts/pre-commit          # fast (default, and what the hook runs)
-./scripts/pre-commit --full   # everything — run before you push
+./scripts/pre-commit --full   # the release-cut gate
 ```
 
-**`--fast`** is scoped to what actually changed and trimmed to the checks CI
-does not already run. A docs-only commit gets markdown lint and the guards; a
-one-file Rust change adds `cargo fmt`, sim + RP2040 clippy, the RP2040 debug
-flash gate and the size ratchet. Editing anything under `scripts/` promotes the
-run to `--full`, since a script change can invalidate any lane's assumptions.
+**`--fast`** takes seconds and builds nothing: the source-tree guards that
+exist nowhere else (shadow twins across `platforms/rp/src` and
+`crates/picodroid-core/src`, `family-rp` cfg-gate hygiene, `apply_jvm_env`)
+plus whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint
+the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
+drift check and the device-lock test.
 
-**`--full`** runs every check unscoped: all six board clippy legs, the staged
-`handle-table-32` and opt-in `mem-diag` legs, every firmware build, the test
-suite in both shrink modes, the Java and Kotlin conformance suites in the
-simulator, and the size ratchet on both boards.
+**`--full`** runs the legs neither CI nor the nightlies cover: the staged
+`handle-table-32` clippy and build, the opt-in `mem-diag` / `sched-diag`
+firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
+the binary-size ratchet on both boards. A few minutes; run it before cutting a
+release.
 
-What the fast tier is allowed to skip is not a guess. `.github/workflows/ci_checks.yml`
-already runs the board clippy legs, both boards in debug and release, `test.sh`,
-every example APK, both formatters, and a 14-app sim smoke covering all three
-langsuites. The checks that exist *only* locally — the shadow-twin and
-cfg-hygiene guards, `hil-tests.conf` drift, `apply_jvm_env`, markdown lint, and
-the binary-size ratchet — run at every tier.
+Everything else is CI's job, so pushing does not wait for `--full`.
+`.github/workflows/ci_checks.yml` runs every board's clippy, both boards in
+debug and release, `test.sh` in both shrink modes, every example APK and its
+API contract, both formatters, the same source guards, and a 17-app sim smoke
+covering all three langsuites. The 3 AM `sim-run.sh` nightly runs the whole
+`hil-tests.conf` matrix in both shrink modes — the `qa_*` apps, the diagnostics
+soaks and the binary-size ratchet — and the 4 AM `hil-fleet.sh` runs it on
+every bench board.
 
+Useful flags:
 Useful flags:
 
 | Flag | Effect |
@@ -65,8 +70,7 @@ Useful flags:
 Each cargo lane gets its own `CARGO_TARGET_DIR` (`target/` for host,
 `target/lane-thumbv6m/` and `target/lane-thumbv8m/` for the two ARM triples)
 because cargo serializes concurrent invocations that share one build directory.
-The first `--full` run after checkout therefore pays a cold build for the two
-ARM directories; `--clean` removes them, and so does `cargo clean`, which now
+The first `--full` run pays a cold build for the two ARM directories; `--clean` removes them, and so does `cargo clean`, which now
 covers the lanes as well. Per-run logs land in `build/pre-commit/`.
 
 ## Sharing the Bench
@@ -218,7 +222,7 @@ constants — know about it. See [website/src/content/docs/reference/shrinker.md
 ## Submitting Changes
 
 1. Make sure `./scripts/pre-commit` passes with `==> All checks passed.`
-2. Test your changes with the simulator (`./scripts/sim.sh`) and on hardware if possible
+2. Test your changes with the simulator (`./scripts/sim.sh --app helloworld`) and on hardware if possible; CI runs the full matrix on your push
 3. Keep commits focused — one logical change per commit
 4. Open a pull request with a clear description of what changed and why
 

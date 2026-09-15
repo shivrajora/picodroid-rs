@@ -3,22 +3,26 @@
 #
 # Two tiers, both parallel:
 #
-#   ./scripts/pre-commit          fast (default). Scoped to what actually
-#                                 changed, and trimmed to the checks CI does
-#                                 not already run. Seconds for a docs-only
-#                                 commit.
-#   ./scripts/pre-commit --full   every check, unscoped. Run this before
-#                                 pushing or cutting a release.
+#   ./scripts/pre-commit          fast (default, and what the git hook runs).
+#                                 The source-tree guards that exist nowhere
+#                                 else plus the formatters the changed files
+#                                 implicate. Seconds; no cargo build.
+#   ./scripts/pre-commit --full   the legs neither CI nor the nightlies run:
+#                                 the staged handle-table-32 and opt-in
+#                                 mem-diag / sched-diag firmware, the
+#                                 pico_enviro_mon_w lint, the shrunk-image
+#                                 name check and the binary-size ratchet.
+#                                 Minutes; run it before cutting a release.
 #
-# What the fast tier is allowed to skip is not a guess: .github/workflows/
-# ci_checks.yml already runs the six board clippy legs, rp2040+rp2350 in debug
-# and release, test.sh in both shrink modes, every example APK, both
-# formatters, and a 14-app sim smoke that includes all three langsuites. The
-# checks that exist ONLY here -- the shadow-twin and cfg-hygiene guards,
-# hil-tests.conf drift, apply_jvm_env, markdown lint, and the binary-size
-# ratchet (its CI job is disabled while Cargo.lock is gitignored) -- run at
-# every tier. The expensive local-only legs (handle-table-32, mem-diag,
-# pico_enviro_mon_w) are staged or opt-in features and wait for --full.
+# Everything else is deliberately NOT here. .github/workflows/ci_checks.yml
+# runs the board clippy legs, rp2040+rp2350 in debug and release, test.sh in
+# both shrink modes, every example APK and its API contract, both formatters,
+# the same source guards (scripts/check-source-guards.sh) and a 17-app sim
+# smoke that includes the three langsuites; the 3 AM sim-run.sh runs the whole
+# hil-tests.conf matrix (the qa_* apps, benchmark, blinky, the mem-diag /
+# sched-diag soaks, the size ratchet) and the 4 AM hil-fleet.sh runs it on
+# hardware. Pushing does not wait for --full: CI and the nightlies are the
+# regression gates.
 #
 # Stages are grouped into lanes that run concurrently. Each cargo lane gets its
 # own CARGO_TARGET_DIR because cargo serializes concurrent invocations that
@@ -44,9 +48,12 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-  --fast          Change-scoped tier (default). Runs the local-only guards
-                  plus the checks the changed files actually implicate.
-  --full          Every check, regardless of what changed. Use before a push.
+  --fast          Change-scoped tier (default, and what the git hook runs):
+                  the local-only source guards plus the formatters the
+                  changed files implicate. Seconds.
+  --full          The legs neither CI nor the nightlies cover: the staged
+                  and opt-in firmware builds, the shrunk-image check, the
+                  size ratchet. Minutes. Run before cutting a release.
   --since <ref>   Compute the changed set against <ref> instead of the index
                   or working tree.
   --serial        Run lanes one at a time, streaming to stdout. Same stage
@@ -136,17 +143,12 @@ classify_changes() {
 
 classify_changes
 
-# A script edit can invalidate any lane's assumptions -- including this file's
-# own idea of which stages cover what -- so it is not something the scoped tier
-# can reason about.
-if [[ "$TIER" == fast && $BUCKET_SCRIPTS -eq 1 ]]; then
-  echo "==> scripts/ changed; promoting to --full."
-  TIER=full
-fi
-
-# --full is deliberately unscoped: it is the before-you-push gate.
+# --full is deliberately unscoped: it is the release-cut gate. A scripts/
+# change no longer promotes to it -- the scripts bucket selects the checks
+# that live under scripts/ (hil-tests.conf drift, the device-lock test), and
+# CI runs everything else on push.
 if [[ "$TIER" == full ]]; then
-  BUCKET_RUST=1; BUCKET_JVM=1; BUCKET_MD=1
+  BUCKET_RUST=1; BUCKET_JVM=1; BUCKET_MD=1; BUCKET_SCRIPTS=1
 fi
 
 # ------------------------------------------------------------------- stages
@@ -158,63 +160,30 @@ fi
 STAGES=(
   "twins|guards|fast|always|shadow twins across platforms/ and picodroid-core"
   "cfg_gates|guards|fast|always|sim/family-rp cfg-gate hygiene"
-  "hil_conf|guards|fast|always|hil-tests.conf against the source tree"
   "jvm_env|guards|fast|always|apply_jvm_env propagation"
+  # CI runs the drift check on every push (ci_checks.yml `linting`); locally
+  # it matters when the conf itself, under scripts/, changed.
+  "hil_conf|guards|fast|scripts|hil-tests.conf against the source tree"
   "device_lock|guards|fast|scripts|device-lock state machine (test-device-lock.sh)"
-  "apk|guards|fast|rust,jvm|helloworld APK (shared by every cargo lane)"
+  "apk|guards|full|rust,jvm|helloworld APK (shared by every cargo lane)"
 
   "fmt_java|jvm|fast|jvm|Java formatting"
   "fmt_kotlin|jvm|fast|jvm|Kotlin formatting"
   "lint_md|jvm|fast|md|markdown lint"
-  "gradle_typecheck|jvm|fast|jvm|gradle verifyApiContract (compile + API contract) + kotlin-shim contract + @Inject processor tests"
 
   "fmt_rust|host|fast|rust|cargo fmt"
-  "clippy_sim|host|fast|rust|clippy (sim)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
-  "clippy_host_tools|host|full|rust|clippy (host tools)"
-  "tests|host|full|rust,jvm|tests (both shrink modes)"
-  "langsuite|host|full|rust,jvm|Java conformance suite (langsuite, sim)"
-  "langsuite_kt|host|full|rust,jvm|Kotlin conformance suite (langsuite_kt, sim)"
-  "langsuite_kt_stdlib|host|full|rust,jvm|Kotlin conformance suite (langsuite_kt_stdlib, sim)"
 
-  # The 2026-09-13 QA round's seven self-checking apps, in the sim. They are
-  # the only regression guard for the fixes whose code cannot be reached from
-  # a host `cargo test`: the LVGL-gated widget modules (`graphics/` and
-  # `graphics/lvgl/widgets/` are `cfg(not(test))`) and the SDK's own Java
-  # (ViewGroup's child list, SharedPreferences at the storage cap,
-  # RadioButton/RadioGroup). Nightly HIL runs them on hardware; these rows
-  # run the same assertions locally, where a regression is cheap to find.
-  #
-  # On the host lane, behind the langsuites, and not on a lane of their own:
-  # two sim lanes at once race on the shared Gradle build and the APK the
-  # firmware embeds, and the loser boots to `FrameworkVersionMismatch`
-  # (memory: concurrent-build-apk-race; seen the first time these ran in
-  # parallel with langsuite). Cargo's lock does not cover the APK step.
-  "qa_lang|host|full|rust,jvm|QA: language + stdlib (qa_lang, sim)"
-  "qa_oop|host|full|rust,jvm|QA: objects + dispatch (qa_oop, sim)"
-  "qa_coll|host|full|rust,jvm|QA: collections + formatter (qa_coll, sim)"
-  "qa_store|host|full|rust,jvm|QA: files + preferences (qa_store, sim)"
-  "qa_life|host|full|rust,jvm|QA: Activity/Service lifecycle (qa_life, sim)"
-  "qa_ui|host|full|rust,jvm|QA: widgets + view tree (qa_ui, sim)"
-  "qa_thr|host|full|rust,jvm|QA: threads + executors (qa_thr, sim)"
-
-  "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"
   "clippy_rp2040_ht32|arm6|full|rust|clippy (testbench_rp2040 + handle-table-32)"
   "build_rp2040_ht32|arm6|full|rust,jvm|build (rp2040 + handle-table-32, staged-arm flash gate)"
-  "build_rp2040|arm6|fast|rust,jvm|build (rp2040 debug, flash gate)"
-  "build_rp2040_release|arm6|full|rust,jvm|build (rp2040 --release, flash gate)"
-  "size_rp2040|arm6|fast|rust,jvm|size lane (rp2040)"
+  "size_rp2040|arm6|full|rust,jvm|size lane (rp2040)"
 
   # Order is load-bearing. pico_enviro_mon_w is the only board whose
   # board.toml [jvm] block exports anything (gc_alloc_threshold = 128), and
   # that is a `rerun-if-env-changed` input to jvm/build.rs -- so every switch
   # into or out of it rebuilds pico-jvm and everything above it. Keeping it
   # last makes that one transition instead of two.
-  "clippy_rp2350|arm8|full|rust|clippy (testbench_rp2350)"
-  "clippy_rp2350w|arm8|full|rust|clippy (testbench_rp2350w)"
-  "clippy_touch_kit|arm8|full|rust|clippy (pico_touch_kit)"
-  "clippy_enviro|arm8|full|rust|clippy (pico_enviro_mon)"
   "clippy_rp2350_ht32|arm8|full|rust|clippy (testbench_rp2350 + handle-table-32)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
   "build_rp2350w_scheddiag|arm8|full|rust,jvm|build (rp2350w + sched-diag)"
@@ -222,7 +191,9 @@ STAGES=(
   "shrink_image|arm8|full|rust,jvm|--shrink image carries no original Java name (rp2350 --release)"
   "clippy_enviro_w|arm8|full|rust|clippy (pico_enviro_mon_w)"
 
-  "ratchet|epilogue|fast|rust,jvm|binary-size ratchet"
+  # The nightly sim-run.sh ratchets every night on this machine's lockfile;
+  # --full does it here so a release cut sees the number before it ships.
+  "ratchet|epilogue|full|rust,jvm|binary-size ratchet"
 )
 
 LANE_ORDER=(guards jvm host arm6 arm8 epilogue)
@@ -320,83 +291,10 @@ fi
 # Each is a plain function so --serial and the parallel driver run byte-for-byte
 # the same commands.
 
-stage_twins() {
-  # The extraction moved ~26k LOC out of platforms/rp/src. A move that leaves a
-  # same-named file behind compiles fine and then silently diverges: commit
-  # fc896b3 is the precedent, and ESP's removed scaffold accumulated 17 such
-  # twins before anyone noticed. So: no relative path may exist under both
-  # trees, except the ones below.
-  #
-  # The exceptions are two ends of one seam, not copies:
-  #   gc_root_registration.rs — one provider list per crate is the design
-  #                             (docs/designs/shared-core-extraction.md §3.G)
-  #   hal/mod.rs              — core's is the trait/facade surface, the
-  #                             family's is the rp-vs-sim routing
-  #   pdb/mod.rs              — core's is the wire protocol, the family's wires
-  #                             its four impls into it. Same shape as hal/mod.rs:
-  #                             one name, two ends of a seam.
-  #   fs/mod.rs               — core's is LittleFS itself (behind the `littlefs`
-  #                             feature); the family's picks the backing store
-  #                             and re-exports. Same shape again.
-  #
-  # hal/sim/mod.rs was a third exception until the simulator's last three stubs
-  # moved to core; the family's copy is gone, so the pair is gone with it.
-  local twin_allow='^(gc_root_registration\.rs|hal/mod\.rs|pdb/mod\.rs|fs/mod\.rs)$'
-  local twins
-  twins=$({ comm -12 \
-      <(cd "$REPO_ROOT/platforms/rp/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
-      <(cd "$REPO_ROOT/crates/picodroid-core/src" && find . -name '*.rs' | sed 's|^\./||' | sort) \
-    | grep -Ev "$twin_allow" || true; })
-  [[ -z "$twins" ]] && return 0
-  echo ""
-  echo "ERROR: these paths exist under BOTH platforms/rp/src and"
-  echo "       crates/picodroid-core/src:"
-  echo "$twins" | sed 's/^/         /'
-  echo ""
-  echo "       A file left behind by a move is a shadow twin: both copies"
-  echo "       compile, one is dead, and they drift apart silently. Delete"
-  echo "       the stale one. If the pair is genuinely two ends of a seam,"
-  echo "       add it to TWIN_ALLOW above with a comment saying why."
-  return 1
-}
-
-stage_cfg_gates() {
-  # docs/parity-audit.md BLD-02/X2: sim builds keep `family-rp` ACTIVE (the
-  # board feature chain), so a gate written as not(feature = "family-rp") does
-  # NOT mean "not the simulator" — it selects the no-family path. The
-  # existing occurrences are deliberate cross-family gates; a new one usually
-  # wants `feature = "sim"` spelled out instead.
-  #
-  # Was 4 before the shared-core extraction, now 0. Each of the four picked
-  # between a real platform capability and a stub — FreeRTOS mutexes vs no-ops
-  # (monitor_store x2), a debug-bridge stop poll vs `false` (lvgl/calibration,
-  # then native_handler's `interrupted`). Every one of those is a question the
-  # RTOS and platform-hook seams now answer, so the gates were deleted rather
-  # than moved.
-  #
-  # The expected count is 0 because that is the end state, not a coincidence:
-  # a new occurrence is shared code guessing at the platform instead of asking
-  # it. If one is genuinely right, raise the count here and record it under
-  # BLD-02 in docs/parity-audit.md.
-  # `|| true` because the expected count is now 0: grep exits 1 when it matches
-  # nothing, and under `set -euo pipefail` that would abort on the very state
-  # this check is supposed to accept.
-  local gates
-  gates=$({ grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true; } | wc -l | tr -d ' ')
-  [[ "$gates" == "0" ]] && return 0
-  grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true
-  echo ""
-  echo "ERROR: expected 0 'not(feature = \"family-rp\")' cfg gates,"
-  echo "       found $gates. Sim builds activate family-rp, so this"
-  echo "       pattern does not exclude the simulator. Prefer a HAL/RTOS/host"
-  echo "       seam method, or spell the gate feature = \"sim\". If the new"
-  echo "       gate is genuinely correct, bump the expected count in"
-  echo "       scripts/pre-commit and note it under BLD-02 in"
-  echo "       docs/parity-audit.md."
-  return 1
-}
+# Both text-only guards live in scripts/check-source-guards.sh so the CI
+# `guards` job runs byte-for-byte the same checks.
+stage_twins()     { bash "$SCRIPT_DIR/check-source-guards.sh" --twins; }
+stage_cfg_gates() { bash "$SCRIPT_DIR/check-source-guards.sh" --cfg-gates; }
 
 stage_hil_conf() {
   if ! bash "$SCRIPT_DIR/check-hil-conf.sh"; then
@@ -476,20 +374,6 @@ stage_lint_md() {
   fi
 }
 
-stage_gradle_typecheck() {
-  # verifyApiContract compiles every app (it depends on compileJava /
-  # compileKotlin) and rejects any java/** reference pico-jvm does not serve
-  # (sdk/api-contract.tsv, generated from the runtime's tables — see
-  # scripts/gen-api-contract.sh). :kotlin-shim:contractCheck proves every
-  # kotlin/** reference the Kotlin fixture apps make resolves in the shim and
-  # nothing in the shim is dead.
-  if ! (cd "$REPO_ROOT" && gradle_lock_run ./gradlew verifyApiContract :kotlin-shim:contractCheck :inject:compiler:test --console=plain); then
-    echo ""
-    echo "ERROR: Java compilation, the API contract, the kotlin-shim contract, or the @Inject processor tests failed."
-    return 1
-  fi
-}
-
 stage_fmt_rust() {
   if ! cargo fmt -- --check; then
     echo ""
@@ -515,12 +399,9 @@ clippy_board() {
   fi
 }
 
-stage_clippy_rp2040()      { clippy_board testbench_rp2040; }
-stage_clippy_rp2350()      { clippy_board testbench_rp2350; }
-stage_clippy_rp2350w()     { clippy_board testbench_rp2350w; }
-stage_clippy_touch_kit()   { clippy_board pico_touch_kit; }
-stage_clippy_enviro()      { clippy_board pico_enviro_mon; }
-stage_clippy_enviro_w()    { clippy_board pico_enviro_mon_w; }
+# The one board leg CI does not compile: pico_enviro_mon_w's board.toml is the
+# only [jvm] block that exports anything (see the registry's ordering note).
+stage_clippy_enviro_w() { clippy_board pico_enviro_mon_w; }
 
 # Staged handle-table-32 arm (audit P1-9): the generational handle table is
 # default-off on 32-bit targets until the HIL soak flips it, so without these
@@ -547,8 +428,6 @@ clippy_sim_features() {
   fi
 }
 
-stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-numbers"; }
-
 # Keeps the opt-in memory diagnostics compiling and warning-clean
 # (docs/memory-diagnostics.md); the firmware flash budget for mem-diag is
 # checked by build_rp2350_memdiag.
@@ -558,27 +437,10 @@ stage_clippy_sim_memdiag() { clippy_sim_features "sim,board-testbench-rp2350,mem
 # firmware side is build_rp2350w_scheddiag.
 stage_clippy_sim_scheddiag() { clippy_sim_features "sim,board-testbench-rp2350,sched-diag"; }
 
-stage_clippy_host_tools() {
-  if ! cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
-       --all-targets --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
-    echo ""
-    echo "ERROR: Clippy check failed (host tools). Fix the warnings above."
-    return 1
-  fi
-}
-
 # build_board <board> [--release] with PICODROID_EXTRA_FEATURES already set.
 build_board() {
   PICODROID_PREBUILT_APK="$APK_PATH" PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATHS" \
     bash "$SCRIPT_DIR/build.sh" "$@"
-}
-
-stage_build_rp2040() {
-  if ! build_board --board testbench_rp2040 --app helloworld; then
-    echo ""
-    echo "ERROR: Build failed. Fix the errors above before committing."
-    return 1
-  fi
 }
 
 stage_build_rp2040_ht32() {
@@ -588,19 +450,6 @@ stage_build_rp2040_ht32() {
     echo "ERROR: rp2040 + handle-table-32 build failed. The staged generational"
     echo "       handle table's 32-bit arm no longer compiles/links; fix before"
     echo "       committing (it becomes the default after the HIL soak)."
-    return 1
-  fi
-}
-
-stage_build_rp2040_release() {
-  # The --release firmware image is what HIL/CI flashes, and its section sizes
-  # differ from debug (no LTO now, but a genuine opt profile). RP2040 is the
-  # flash-constrained target, so link it in release too — this is the lane that
-  # catches code growth spilling past the 896K program region before CI does.
-  if ! build_board --board testbench_rp2040 --app helloworld --release; then
-    echo ""
-    echo "ERROR: rp2040 --release build failed (likely the 896K FLASH ceiling)."
-    echo "       Shrink code/rodata or the embedded APK before committing."
     return 1
   fi
 }
@@ -629,49 +478,6 @@ stage_build_rp2350w_scheddiag() {
     return 1
   fi
 }
-
-stage_tests() {
-  if ! bash "$SCRIPT_DIR/test.sh"; then
-    echo ""
-    echo "ERROR: Tests failed. Fix the failures above before committing."
-    return 1
-  fi
-}
-
-# One behavioral Java lane so a pico-jvm semantics regression is caught
-# locally, not first by CI/nightly. langsuite is the widest self-checking
-# suite (16 sub-demos, log-token asserted, both shrink modes). The Kotlin twin
-# is kotlinc output + the kotlin-shim on the same JVM
-# (docs/designs/kotlin-roadmap-2026-08.md Session 5); it is two apps because
-# together their parsed-class metadata would not fit the 416 KB heap arena.
-#
-# PICODROID_BENCH_RECORD=0: a verification run measures but records nothing.
-# It must not append to the metric history, and must not create a commit as a
-# side effect of being run.
-sim_suite() {
-  local app="$1"
-  if ! PICODROID_BENCH_RECORD=0 bash "$SCRIPT_DIR/sim-run.sh" --app "$app" --no-email --no-pull; then
-    echo ""
-    echo "ERROR: $app failed in sim. A pico-jvm, stdlib or kotlin-shim behavior"
-    echo "       regressed; fix before committing."
-    return 1
-  fi
-}
-
-stage_langsuite()           { sim_suite langsuite; }
-stage_langsuite_kt()        { sim_suite langsuite_kt; }
-stage_langsuite_kt_stdlib() { sim_suite langsuite_kt_stdlib; }
-
-# The QA round's apps assert in Java and end with "=== ALL PASSED ===", which
-# is the pattern hil-tests.conf already matches, so the same runner serves
-# them.
-stage_qa_lang()  { sim_suite qa_lang; }
-stage_qa_oop()   { sim_suite qa_oop; }
-stage_qa_coll()  { sim_suite qa_coll; }
-stage_qa_store() { sim_suite qa_store; }
-stage_qa_life()  { sim_suite qa_life; }
-stage_qa_ui()    { sim_suite qa_ui; }
-stage_qa_thr()   { sim_suite qa_thr; }
 
 # Binary-size ratchet. Flash and RAM are the only metrics here with a zero
 # noise floor -- the link is deterministic -- and the RP2040 program region is
@@ -844,7 +650,8 @@ if [[ "$TIER" == fast ]]; then
   [[ $BUCKET_RUST -eq 1 ]] && scope+=" rust"
   [[ $BUCKET_JVM  -eq 1 ]] && scope+=" java/kotlin"
   [[ $BUCKET_MD   -eq 1 ]] && scope+=" markdown"
-  echo "    changed:${scope:- (nothing relevant)}    --full runs everything"
+  [[ $BUCKET_SCRIPTS -eq 1 ]] && scope+=" scripts"
+  echo "    changed:${scope:- (nothing relevant)}    --full adds the release-cut legs"
 fi
 echo "    $SELECTED_COUNT stage(s)"
 echo ""

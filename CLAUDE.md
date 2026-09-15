@@ -16,48 +16,37 @@ This does not contradict the Project Goal: the goal means the picodroid API is *
 
 ## After Every Code Change
 
-Run these two checks without exception:
+Two checks, both cheap. CI and the nightlies are the regression gates, not your machine.
 
 ### 1. Sim smoke test
 
+After a change under `crates/`, `platforms/`, `sdk/` or `system-apps/`:
+
 ```bash
 ./scripts/sim.sh --app helloworld
-./scripts/sim.sh --app benchmark
-perl -e 'alarm 5; exec @ARGV' ./scripts/sim.sh --app blinky
 ```
 
-The blinky app loops forever; `perl -e 'alarm 5; exec @ARGV'` kills it after 5 seconds (macOS has no `timeout` command).
-Confirm expected output appears (e.g. `[HelloWorld] Hello, World!`, `[Benchmark] TOTAL: ... ms`, GPIO state changes).
+Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need no smoke. Every other app (`benchmark`, `blinky`, the `qa_*` suites, …) runs in the 3 AM sim nightly, and GitHub CI runs a 17-app sim smoke on every push.
 
-### 2. Pre-commit suite
+### 2. Pre-commit
 
 ```bash
-./scripts/pre-commit          # after every change
-./scripts/pre-commit --full   # before pushing, and before a release
+./scripts/pre-commit          # after every change; what the git hook runs
 ```
 
-Both tiers must end with `==> All checks passed.`
+Must end with `==> All checks passed.` It takes seconds and builds nothing: the shadow-twin and cfg-hygiene guards, `apply_jvm_env`, and whichever of `cargo fmt`, Java/Kotlin formatting and markdown lint the changed files implicate. A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test.
 
-`./scripts/pre-commit` (the default, and what the git hook runs) is scoped to
-what actually changed and trimmed to the checks CI does not already cover: the
-shadow-twin and cfg-hygiene guards, `hil-tests.conf` drift, `apply_jvm_env`,
-markdown lint, and the binary-size ratchet always run, and the formatting,
-clippy and firmware-build lanes are selected by which of Rust / Java+Kotlin /
-markdown the change touched. Editing anything under `scripts/` promotes the run
-to `--full` automatically.
+Then push. Do not wait for anything longer locally. GitHub CI (~55 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 3 AM `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, the binary-size ratchet) and the 4 AM `hil-fleet.sh` runs it on hardware. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/` and `build/hil/results/`.
 
-`--full` is the unscoped gate: formatting (Java + Kotlin + `cargo fmt`), clippy
-across every board and the host tools, the staged `handle-table-32` and opt-in
-`mem-diag` / `sched-diag` legs, the embedded and flash-gate builds, Java compilation for all
-apps, the Java and Kotlin conformance suites, all tests, and the size ratchet on
-both boards.
+```bash
+./scripts/pre-commit --full   # before cutting a release
+```
+
+`--full` is the release-cut gate and covers only the legs nothing else runs: the staged `handle-table-32` clippy and build, the opt-in `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and the size ratchet on both boards. A few minutes.
 
 `--list` prints the stages a run would execute; `--serial` runs the lanes one at
 a time and streams to stdout, which is what to use when a parallel run fails and
 you want readable output. Per-run logs are kept under `build/pre-commit/`.
-
-Do not consider a code change complete until the sim smoke test and
-`./scripts/pre-commit` pass; run `--full` before you push.
 
 WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`, `pico_touch_kit`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root. `hil-run.sh` reads that file itself for the `net` rows of `hil-tests.conf` and SKIPs them when it is missing.
 

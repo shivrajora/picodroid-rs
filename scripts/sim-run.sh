@@ -53,7 +53,9 @@ while [[ $# -gt 0 ]]; do
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --app <name>            Run only the specified test
+  --app <name>            Run only the specified test: a hil-tests.conf app,
+                          or one of the extra lanes (picoenvmon, picoenvmon_kt,
+                          launcher, settings, pdb, alarmdemo, size-ratchet)
   --mode <no-shrink|shrink|both>
                           Shrink modes to exercise (default: both). Every
                           selected test is run once per mode so regressions
@@ -951,6 +953,42 @@ for MODE in "${MODES[@]}"; do
       sim_log "  FAIL"
       tail -10 "$scheddiag_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
       echo "FAIL sched-diag" >> "$RESULTS_FILE"
+      FAIL=$((FAIL + 1))
+    fi
+  fi
+
+  # Binary-size ratchet (bench/parity/ratchet.toml): the release firmware of
+  # both bench boards against the committed baseline. It lives here because
+  # the pre-commit hook no longer builds firmware and CI cannot ratchet -- it
+  # re-resolves the gitignored Cargo.lock every run, so its numbers move with
+  # no tree change. This machine's lockfile is the one the baseline was cut
+  # with. The ratchet measures the no-shrink image: once per cycle.
+  # `--app size-ratchet` reaches only this.
+  if [[ ( -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "size-ratchet" ) && "$MODE" != "shrink" ]]; then
+    TOTAL=$((TOTAL + 1))
+    sim_log "--- [$TOTAL] size-ratchet ---"
+    size_dir="$RUN_LOG_DIR/size"
+    size_log="$RUN_LOG_DIR/size-ratchet.log"
+    mkdir -p "$size_dir"
+    # PICODROID_BENCH_RECORD=0: measure into this run's directory and read it
+    # straight back; never append to the tracked bench/parity/history.csv,
+    # which the next nightly's `git pull --ff-only` needs left alone.
+    if PICODROID_BENCH_RECORD=0 PICODROID_SIZE_RUN_DIR="$size_dir" \
+         bash "$SCRIPT_DIR/parity-bench.sh" --size-only \
+           --boards testbench_rp2040,testbench_rp2350 > "$size_log" 2>&1 \
+       && python3 "$SCRIPT_DIR/bench-report.py" --ratchet --sizes-from "$size_dir" >> "$size_log" 2>&1; then
+      sim_log "  PASS"
+      echo "PASS size-ratchet" >> "$RESULTS_FILE"
+      PASS=$((PASS + 1))
+    else
+      sim_log "  FAIL"
+      tail -15 "$size_log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+      sim_log "    If the growth is intended, accept it and commit the new baseline"
+      sim_log "    with a 'size: <board> +N B' trailer:"
+      sim_log "      D=\$(mktemp -d)"
+      sim_log "      PICODROID_SIZE_RUN_DIR=\$D ./scripts/parity-bench.sh --size-only --boards testbench_rp2040,testbench_rp2350"
+      sim_log "      ./scripts/bench-report.py --ratchet --sizes-from \"\$D\" --accept"
+      echo "FAIL size-ratchet" >> "$RESULTS_FILE"
       FAIL=$((FAIL + 1))
     fi
   fi
