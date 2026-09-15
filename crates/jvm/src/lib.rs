@@ -62,6 +62,8 @@
 //! ```
 
 #![no_std]
+#[cfg(test)]
+extern crate std;
 
 extern crate alloc;
 
@@ -84,6 +86,8 @@ pub mod object_heap;
 pub mod parity;
 pub mod sort;
 pub mod static_fields;
+#[cfg(test)]
+mod test_alloc;
 pub mod tunables;
 pub mod types;
 
