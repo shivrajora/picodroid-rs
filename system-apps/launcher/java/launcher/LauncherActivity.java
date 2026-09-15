@@ -58,7 +58,9 @@ public class LauncherActivity extends Activity {
 
   @Override
   public void onCreate() {
-    Log.i(TAG, "onCreate");
+    // Not "onCreate": a --shrink image must not spell a served member name, and
+    // check-shrunk-image.sh cannot tell a log literal from a leaked one.
+    Log.i(TAG, "creating");
     int width = getDisplay().getWidth();
     int height = getDisplay().getHeight();
 

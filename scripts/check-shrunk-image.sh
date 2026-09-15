@@ -34,9 +34,13 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Class-name and descriptor spellings. `strings -n 6` keeps the scan cheap;
 # every original name is longer than that.
+# Dumped to files once and grepped from there: `strings | grep -q` under
+# pipefail reports SIGPIPE (141) when grep matches early and closes the pipe,
+# which reads as "no match" and passed a leaking image for weeks.
+strings -n 4 "$tmp/image.bin" > "$tmp/strings4.txt"
+strings -n 6 "$tmp/image.bin" > "$tmp/strings6.txt"
 leaks="$tmp/leaks.txt"
-strings -n 6 "$tmp/image.bin" \
-  | grep -oE '(L?(java|javax|picodroid)/[A-Za-z0-9_$/]+;?)' \
+grep -oE '(L?(java|javax|picodroid)/[A-Za-z0-9_$/]+;?)' "$tmp/strings6.txt" \
   | sort -u > "$leaks" || true
 
 # Allow-list: text that legitimately mentions a package path without naming
@@ -57,16 +61,17 @@ fi
 # runtime dispatches most and that no log message spells: a shrunk image
 # has no business containing these as standalone strings.
 members='^(toString|hashCode|equals|compareTo|charAt|substring|hasNext|iterator|getMessage|onCreate|setText|nativeCreate|fireClick|dispatchRunnable)$'
-if strings -n 4 "$tmp/image.bin" | grep -qE "$members"; then
+if grep -qE "$members" "$tmp/strings4.txt"; then
   echo "ERROR: --shrink image $ELF still spells served member names:" >&2
-  strings -n 4 "$tmp/image.bin" | grep -E "$members" | sort -u | sed 's/^/    /' >&2
+  grep -E "$members" "$tmp/strings4.txt" | sort -u | sed 's/^/    /' >&2
+  echo "A log message or other string literal spelling one of these counts too: reword it." >&2
   exit 1
 fi
 
 if [[ -n "$APP_PREFIX" ]]; then
-  if strings -n 6 "$tmp/image.bin" | grep -qF "$APP_PREFIX"; then
+  if grep -qF "$APP_PREFIX" "$tmp/strings6.txt"; then
     echo "ERROR: --shrink-app image $ELF still spells the app package '$APP_PREFIX':" >&2
-    strings -n 6 "$tmp/image.bin" | grep -F "$APP_PREFIX" | sort -u | sed 's/^/    /' >&2
+    grep -F "$APP_PREFIX" "$tmp/strings6.txt" | sort -u | sed 's/^/    /' >&2
     exit 1
   fi
 fi
