@@ -647,6 +647,148 @@ mod tests {
         assert_eq!(r, Ok(Some(Value::Int(0))));
     }
 
+    // J-fix 46ec6d76: both stream arms move the window through a 256-byte
+    // stack buffer instead of a heap copy of the whole window (a 20 KB
+    // `vec!` reset testbench_rp2040). The chunk loop is what needs the
+    // behavioural check: the window must round-trip byte for byte across
+    // the boundaries, at every offset, including a partial last chunk.
+    #[test]
+    fn a_window_larger_than_one_chunk_round_trips_byte_for_byte() {
+        let _g = crate::packages::test_support::lock();
+        crate::packages::set_running(None);
+        let mut objects = ObjectHeap::new();
+        let mut strings = StringTable::new();
+        let mut arrays = ArrayHeap::new();
+
+        // Sizes either side of the 256-byte chunk, and one that is not a
+        // multiple of it (the partial tail).
+        for len in [255usize, 256, 257, 512, 1000] {
+            let fos = stream_over(
+                &mut objects,
+                &mut strings,
+                c::picodroid_io_FileOutputStream,
+                "/qa-chunk-out",
+                b"",
+            );
+            let src = arrays.alloc(ATYPE_BYTE, len as u16).unwrap();
+            for i in 0..len {
+                // A pattern that differs per index, so a chunk written at
+                // the wrong offset shows up.
+                arrays.store(src, i, (i % 251) as i8 as i32).unwrap();
+            }
+            let r = call(
+                c::picodroid_io_FileOutputStream,
+                m::write,
+                &[
+                    Value::ObjectRef(fos),
+                    Value::ArrayRef(src),
+                    Value::Int(0),
+                    Value::Int(len as i32),
+                ],
+                &mut objects,
+                &mut strings,
+                &mut arrays,
+            );
+            assert_eq!(r, Ok(None), "write of {len} bytes");
+
+            let fis = object_over(
+                &mut objects,
+                &mut strings,
+                c::picodroid_io_FileInputStream,
+                "/qa-chunk-out",
+            );
+            let dst = arrays.alloc(ATYPE_BYTE, len as u16).unwrap();
+            let r = call(
+                c::picodroid_io_FileInputStream,
+                m::read,
+                &[
+                    Value::ObjectRef(fis),
+                    Value::ArrayRef(dst),
+                    Value::Int(0),
+                    Value::Int(len as i32),
+                ],
+                &mut objects,
+                &mut strings,
+                &mut arrays,
+            );
+            assert_eq!(r, Ok(Some(Value::Int(len as i32))), "read of {len} bytes");
+            for i in 0..len {
+                assert_eq!(
+                    arrays.load(dst, i),
+                    arrays.load(src, i),
+                    "byte {i} of a {len}-byte window"
+                );
+            }
+        }
+    }
+
+    // The same, written from an offset inside the array: the chunk loop
+    // reads `off + done`, so an offset dropped on the second chunk lands
+    // the wrong bytes on the device and nowhere else.
+    #[test]
+    fn a_window_written_from_an_offset_keeps_its_alignment() {
+        let _g = crate::packages::test_support::lock();
+        crate::packages::set_running(None);
+        let mut objects = ObjectHeap::new();
+        let mut strings = StringTable::new();
+        let mut arrays = ArrayHeap::new();
+        let fos = stream_over(
+            &mut objects,
+            &mut strings,
+            c::picodroid_io_FileOutputStream,
+            "/qa-chunk-off",
+            b"",
+        );
+        let (off, len) = (300usize, 600usize);
+        let src = arrays.alloc(ATYPE_BYTE, (off + len) as u16).unwrap();
+        for i in 0..off + len {
+            arrays.store(src, i, (i % 251) as i8 as i32).unwrap();
+        }
+        let r = call(
+            c::picodroid_io_FileOutputStream,
+            m::write,
+            &[
+                Value::ObjectRef(fos),
+                Value::ArrayRef(src),
+                Value::Int(off as i32),
+                Value::Int(len as i32),
+            ],
+            &mut objects,
+            &mut strings,
+            &mut arrays,
+        );
+        assert_eq!(r, Ok(None));
+
+        let fis = object_over(
+            &mut objects,
+            &mut strings,
+            c::picodroid_io_FileInputStream,
+            "/qa-chunk-off",
+        );
+        let dst = arrays.alloc(ATYPE_BYTE, len as u16).unwrap();
+        let r = call(
+            c::picodroid_io_FileInputStream,
+            m::read,
+            &[
+                Value::ObjectRef(fis),
+                Value::ArrayRef(dst),
+                Value::Int(0),
+                Value::Int(len as i32),
+            ],
+            &mut objects,
+            &mut strings,
+            &mut arrays,
+        );
+        assert_eq!(r, Ok(Some(Value::Int(len as i32))));
+        for i in 0..len {
+            assert_eq!(
+                arrays.load(dst, i),
+                arrays.load(src, off + i),
+                "byte {i} of the window starting at {off}"
+            );
+        }
+    }
+
     /// With a package running, every app path lands under `/data/<package>`,
     /// a climb is refused (`false` on the read side, `IOException` on the
     /// write side), and `File.list()` reads the mapped directory back.

@@ -414,6 +414,29 @@ mod imp {
             assert!(lookup(h ^ 0x40_0000).is_null()); // garbage generation bits
         }
 
+        // J-fix a97321ee: `is_live` is how `addView` asks whether a child
+        // `removeView` may have released is still there. Unlike `lookup`, a
+        // stale id is an ordinary `false` -- not a use-after-delete the
+        // sanitizer aborts on -- so the question can be asked safely.
+        #[test]
+        fn is_live_answers_for_stale_and_forged_handles_without_faulting() {
+            let _g = setup();
+            sanitizer::force(true);
+            assert!(!is_live(0), "the null handle is never live");
+            assert!(!is_live(-1), "a negative handle is never live");
+            let h = register(fake(7));
+            assert!(is_live(h));
+            // Asking about a released widget is a plain `false`.
+            invalidate_if_current(h, fake(7));
+            assert!(!is_live(h), "a released handle must not read as live");
+            // And the slot's next occupant does not revive the old handle.
+            let next = register(fake(8));
+            assert!(is_live(next));
+            assert!(!is_live(h), "ABA: the old handle stays stale");
+            // Forged generation bits are not live either.
+            assert!(!is_live(next | 0x4000_0000));
+        }
+
         #[test]
         fn forged_high_bits_rejected() {
             let _g = setup();

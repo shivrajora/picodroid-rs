@@ -86,6 +86,10 @@ pub mod notification;
 #[cfg(not(test))]
 pub mod os;
 pub mod pd_log;
+// Shape guards for the 2026-09-13 QA fixes that live in `cfg(not(test))`
+// modules — the sim's `qa_*` apps cover the behaviour, these keep the shape.
+#[cfg(test)]
+mod qa_shape_guards;
 // Debug bridge protocol. Always compiled: it is a wire format with a host
 // counterpart, so its framing and encoders are exactly what wants tests.
 pub mod pdb;
