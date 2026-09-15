@@ -178,6 +178,27 @@ STAGES=(
   "langsuite_kt|host|full|rust,jvm|Kotlin conformance suite (langsuite_kt, sim)"
   "langsuite_kt_stdlib|host|full|rust,jvm|Kotlin conformance suite (langsuite_kt_stdlib, sim)"
 
+  # The 2026-09-13 QA round's seven self-checking apps, in the sim. They are
+  # the only regression guard for the fixes whose code cannot be reached from
+  # a host `cargo test`: the LVGL-gated widget modules (`graphics/` and
+  # `graphics/lvgl/widgets/` are `cfg(not(test))`) and the SDK's own Java
+  # (ViewGroup's child list, SharedPreferences at the storage cap,
+  # RadioButton/RadioGroup). Nightly HIL runs them on hardware; these rows
+  # run the same assertions locally, where a regression is cheap to find.
+  #
+  # On the host lane, behind the langsuites, and not on a lane of their own:
+  # two sim lanes at once race on the shared Gradle build and the APK the
+  # firmware embeds, and the loser boots to `FrameworkVersionMismatch`
+  # (memory: concurrent-build-apk-race; seen the first time these ran in
+  # parallel with langsuite). Cargo's lock does not cover the APK step.
+  "qa_lang|host|full|rust,jvm|QA: language + stdlib (qa_lang, sim)"
+  "qa_oop|host|full|rust,jvm|QA: objects + dispatch (qa_oop, sim)"
+  "qa_coll|host|full|rust,jvm|QA: collections + formatter (qa_coll, sim)"
+  "qa_store|host|full|rust,jvm|QA: files + preferences (qa_store, sim)"
+  "qa_life|host|full|rust,jvm|QA: Activity/Service lifecycle (qa_life, sim)"
+  "qa_ui|host|full|rust,jvm|QA: widgets + view tree (qa_ui, sim)"
+  "qa_thr|host|full|rust,jvm|QA: threads + executors (qa_thr, sim)"
+
   "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"
   "clippy_rp2040_ht32|arm6|full|rust|clippy (testbench_rp2040 + handle-table-32)"
   "build_rp2040_ht32|arm6|full|rust,jvm|build (rp2040 + handle-table-32, staged-arm flash gate)"
@@ -629,7 +650,7 @@ stage_tests() {
 # side effect of being run.
 sim_suite() {
   local app="$1"
-  if ! PICODROID_BENCH_RECORD=0 bash "$SCRIPT_DIR/sim-run.sh" --app "$app" --no-email; then
+  if ! PICODROID_BENCH_RECORD=0 bash "$SCRIPT_DIR/sim-run.sh" --app "$app" --no-email --no-pull; then
     echo ""
     echo "ERROR: $app failed in sim. A pico-jvm, stdlib or kotlin-shim behavior"
     echo "       regressed; fix before committing."
@@ -640,6 +661,17 @@ sim_suite() {
 stage_langsuite()           { sim_suite langsuite; }
 stage_langsuite_kt()        { sim_suite langsuite_kt; }
 stage_langsuite_kt_stdlib() { sim_suite langsuite_kt_stdlib; }
+
+# The QA round's apps assert in Java and end with "=== ALL PASSED ===", which
+# is the pattern hil-tests.conf already matches, so the same runner serves
+# them.
+stage_qa_lang()  { sim_suite qa_lang; }
+stage_qa_oop()   { sim_suite qa_oop; }
+stage_qa_coll()  { sim_suite qa_coll; }
+stage_qa_store() { sim_suite qa_store; }
+stage_qa_life()  { sim_suite qa_life; }
+stage_qa_ui()    { sim_suite qa_ui; }
+stage_qa_thr()   { sim_suite qa_thr; }
 
 # Binary-size ratchet. Flash and RAM are the only metrics here with a zero
 # noise floor -- the link is deterministic -- and the RP2040 program region is
@@ -849,8 +881,16 @@ for lane in guards; do
   fi
 done
 
+# Everything between the serial prologue and the serial epilogue, in
+# LANE_ORDER. Derived rather than listed: a hand-written list silently drops a
+# lane added to LANE_ORDER but forgotten here -- its stages are counted,
+# reported as selected, and never run (which is what the `qa` lane did on the
+# run that added it).
 PARALLEL_LANES=()
-for lane in jvm host arm6 arm8; do
+for lane in "${LANE_ORDER[@]}"; do
+  case "$lane" in
+    guards|epilogue) continue ;;
+  esac
   [[ -n "${LANE_STAGES[$lane]:-}" ]] && PARALLEL_LANES+=("$lane")
 done
 

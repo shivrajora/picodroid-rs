@@ -23,6 +23,10 @@ SIM_RESULTS_DIR="$SIM_DIR/results"
 
 SPECIFIC_APP=""
 SEND_EMAIL=true
+# The nightly cron runs whatever is on the branch, so it pulls first. A
+# verification run (pre-commit's sim lanes) must run the tree it was handed
+# and must not touch the index -- several lanes call this at once.
+PULL=true
 # Covers the --shrink matrix: every test runs once without shrinking (the
 # default runtime behavior) and once with it. Override with --mode if you
 # want to inspect a single side.
@@ -34,6 +38,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
     --no-email)   SEND_EMAIL=false; shift ;;
+    --no-pull)    PULL=false; shift ;;
     --mode)
       case "$2" in
         no-shrink) MODES=("no-shrink") ;;
@@ -54,6 +59,8 @@ Options:
                           selected test is run once per mode so regressions
                           on either side are caught.
   --no-email              Skip sending the email report
+  --no-pull               Run the working tree as it is (no git pull). What a
+                          verification run wants; the nightly pulls.
   -h, --help              Show this help message
 EOF
       exit 0
@@ -74,9 +81,11 @@ mkdir -p "$SIM_LOG_DIR" "$SIM_RESULTS_DIR"
 # on every exit path.
 trap 'stop_net_listeners' EXIT
 
-# Pull latest code.
-sim_log "Pulling latest code..."
-git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do sim_log "  git: $line"; done || true
+# Pull latest code (the nightly; never a verification run -- see PULL).
+if [[ "$PULL" == true ]]; then
+  sim_log "Pulling latest code..."
+  git -C "$REPO_ROOT" pull --ff-only 2>&1 | while IFS= read -r line; do sim_log "  git: $line"; done || true
+fi
 
 COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 RUN_ID="$(date '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT_SHA}"
