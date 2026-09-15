@@ -5,6 +5,7 @@ fixes, three boards). Ordered by risk. Each entry says what was seen, what is al
 out, and the next concrete step, so it can be picked up cold. Status as of 2026-09-14
 (branch `qa-followups-2026-09-14`): items 3 (in part), 4, 5, 6, 7 and 8 are landed, each as
 one commit; item 2 is soaked on the bench and awaits the picoenvmon soak; item 1 stays open.
+Section 9 records the regression coverage every fix of the round now has.
 
 ## 1. `qa_life` stalls on the Pico 2 W slot (P1 — a lost main-executor post)
 
@@ -221,3 +222,63 @@ first time that was safe — 4/4 passes; size cost in item 2.
 default flip (item 2); the two device heap censuses (item 3); item 1 if it reproduces in the
 nightly.
 
+
+## 9. Regression coverage for the round's fixes (2026-09-14)
+
+The round landed forty-odd fixes; nine shipped with a host test, and the rest were guarded only
+by the `qa_*` apps on the nightly HIL run — hardware, once a day, three boards. This pass gave
+every fix a check that runs before a push. Three kinds, by what the fix's code is reachable
+from:
+
+**Host unit tests** (`./scripts/test.sh`, both shrink modes) for everything a `cargo test` can
+call: the formatter's rounding, widths, precision rejection and exception classes; `String`'s
+`compareTo` and empty-target `replace`; the boxed accessors' JLS conversions and the four
+`parse*(null)` throws; `Random.nextInt`'s bound; the collections' key equality, buffer release
+and user-`equals` path; `Enum.valueOf`; `StringBuilder.append(CharSequence)`; `Arrays` and
+`System.arraycopy` on a null array; the file streams' 256-byte chunk loop. Each was checked
+against its own regression — reverted or mutated the fix, confirmed the test fails, restored.
+
+**A capped allocator** (`jvm/src/test_alloc.rs`) for the out-of-memory fixes, which are
+untestable without an allocation that fails: a `#[cfg(test)]` global allocator with a
+per-thread byte budget, charged on allocation and refunded on free, so a test can hand the
+interpreter a fixed heap. It covers J23–J26's fallible frames and interning, the builtin arm's
+collect-and-retry, `new`'s rewind, and the catchable `OutOfMemoryError`.
+
+**Sim lanes and shape guards** for the fixes whose code a host test cannot reach — the
+`graphics` tree and `native_handler` are `cfg(not(test))`, and some of the round's fixes are in
+the SDK's own Java. The seven `qa_*` apps now run in the sim as the `qa` lane of
+`./scripts/pre-commit --full`, which is the behavioural check: reverting the SeekBar fix fails
+`qa_ui` there in 100 seconds. They sit on the `host` lane behind the langsuites, not on a lane
+of their own — two sim lanes at once race on the shared Gradle stage and the framework map the
+firmware embeds, and the loser boots to `FrameworkVersionMismatch` (which is what the first
+parallel run did, and why the three langsuites were already serial there). Alongside them,
+`picodroid-core/src/qa_shape_guards.rs` text-scans for the shape each unreachable fix put in
+place — the UI-task ledger before `Application.onCreate`, the logged Runnable failure, the
+checked `enqueue_op` results, the released-receiver refusal, the click-listener throw — so a
+refactor that drops one fails in seconds instead of in the next QA round.
+
+Three notes from the pass:
+
+**A new infallible allocation, fixed.** `ObjectHeap::alloc` grew its slot table with an
+infallible `ChunkedSlots::push`, so the most Java-reachable allocation there is — every `new`,
+every box — aborted the firmware once the heap was full, which on a device is a board reset.
+Found by the first out-of-memory test written against a fixed heap. `place_in_slot` and
+`intern_class` are now fallible and roll the field span back on refusal; the callers already
+handled `None`. It is a *different* site from the two item 3 still lists (a slot chunk is ~768
+bytes, not the touch kit's 7,680 or the RP2040's 10 KB), so item 3 stays open.
+Cost: +288 B flash on `testbench_rp2040`, +320 B on `testbench_rp2350`, no RAM.
+
+**A lane added to `pre-commit` could be silently skipped.** `PARALLEL_LANES` was a hand-written
+list (`jvm host arm6 arm8`); a lane added to `LANE_ORDER` but not to it was counted as selected,
+printed by `--list`, and never run — which is what the QA rows did on the run that added them.
+It is derived from `LANE_ORDER` now. `sim-run.sh` also gained `--no-pull`, which the sim lanes
+pass: it was doing an unconditional `git pull --ff-only` on every invocation, which a
+verification run must not do, and ten of them would also race on `.git/index.lock`.
+
+**One fix still has no automated check.** `SharedPreferences.commit()` rewriting in place at
+the storage cap (`f3712676`) needs an app sitting at its per-app quota, and the quota is only
+enforced when a package is running, so the scenario is neither a host test nor a reliable sim
+one — a test that tries to fill the volume to a block boundary would be flaky across boards
+rather than useful. `qa_store` clears the round's stores on entry, which exercises the path but
+asserts nothing about it. The honest next step is a `qa_store` section on a multi-app board
+that fills the quota deliberately and then clears, run under the HIL row that already has one.
