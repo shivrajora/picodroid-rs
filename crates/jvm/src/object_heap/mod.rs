@@ -356,19 +356,24 @@ impl ObjectHeap {
         n_fields: usize,
     ) -> Option<u16> {
         self.alloc_events = self.alloc_events.saturating_add(1);
-        let class_idx = self.intern_class(class_name);
+        let class_idx = self.intern_class(class_name)?;
         // Span reservation + descriptor write must be scheduler-atomic: an
         // equal-priority wake yield inside the arena resize let two tasks
         // read the same arena length, and the loser's resize truncated the
         // winner's fresh span (see `atomic_section` module docs).
         let _atomic = crate::atomic_section::AtomicSection::enter();
         let fields_off = self.alloc_span(n_fields)?;
-        let idx = self.place_in_slot(JvmObject {
+        let Some(idx) = self.place_in_slot(JvmObject {
             fields_off,
             class_idx,
             field_count: 0,
             fields_cap: n_fields as u8,
-        });
+        }) else {
+            // The span is at the arena tail and nothing has read it, so give
+            // it back rather than leak it into every later GC's working set.
+            self.fields_arena.truncate(fields_off as usize);
+            return None;
+        };
         #[cfg(feature = "mem-diag")]
         self.debug_check_spans("post-alloc");
         Some(idx)
@@ -417,22 +422,32 @@ impl ObjectHeap {
     /// missing. Returns the resulting index. Class-name pointers are
     /// canonical (see [`crate::interpreter::helpers::class_name_to_static_in`])
     /// so byte-equality on `&'static str` is fast.
-    fn intern_class(&mut self, name: &'static str) -> u16 {
+    /// `None` when the table cannot grow — the same allocation failure as
+    /// the object's own slot, reported rather than aborted.
+    fn intern_class(&mut self, name: &'static str) -> Option<u16> {
         for (i, &existing) in self.class_table.iter().enumerate() {
             if core::ptr::eq(existing.as_ptr(), name.as_ptr()) && existing.len() == name.len()
                 || crate::class_file::name_eq(existing.as_bytes(), name.as_bytes())
             {
-                return i as u16;
+                return Some(i as u16);
             }
         }
         let idx = self.class_table.len() as u16;
+        reserve_fallible(&mut self.class_table, 1).ok()?;
         self.class_table.push(name);
-        idx
+        Some(idx)
     }
 
     /// Find a free slot (reusing GC-freed None entries before growing) and
-    /// place `obj` in it. Returns the slot index.
-    fn place_in_slot(&mut self, obj: JvmObject) -> u16 {
+    /// place `obj` in it. Returns the slot index, or `None` when the slot
+    /// table cannot grow — the allocation failure every caller of
+    /// [`alloc`](Self::alloc) already handles by collecting and retrying.
+    /// Growing it used to be an infallible `push`, so an exhausted heap
+    /// aborted the firmware here — a board reset from the most
+    /// Java-reachable allocation there is (found while testing the QA
+    /// 2026-09-13 out-of-memory fixes; `intern_dyn` got the same treatment
+    /// in `e3c5f008`).
+    fn place_in_slot(&mut self, obj: JvmObject) -> Option<u16> {
         #[cfg(feature = "mem-diag")]
         if self.histo_enabled {
             let ci = obj.class_idx as usize;
@@ -446,14 +461,14 @@ impl ObjectHeap {
                 let idx = self.first_free;
                 self.objects[idx] = Some(obj);
                 self.first_free = idx + 1;
-                return idx as u16;
+                return Some(idx as u16);
             }
             self.first_free += 1;
         }
         let idx = self.objects.len() as u16;
-        self.objects.push(Some(obj));
+        self.objects.try_push(Some(obj))?;
         self.first_free = self.objects.len();
-        idx
+        Some(idx)
     }
 
     /// Allocate and initialize every declared instance field to its JVMS §2.3
@@ -582,10 +597,14 @@ impl ObjectHeap {
             self.fields_arena
                 .copy_within(from..from + src.fields_cap as usize, new_off as usize);
         }
-        Some(self.place_in_slot(JvmObject {
+        let placed = self.place_in_slot(JvmObject {
             fields_off: new_off,
             ..src
-        }))
+        });
+        if placed.is_none() {
+            self.fields_arena.truncate(new_off as usize);
+        }
+        placed
     }
 
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
@@ -1827,5 +1846,26 @@ mod growth_tests {
         );
         let roots: Vec<u16> = heap.boxed_cache_roots().collect();
         assert_eq!(roots, vec![a, l, t]);
+    }
+
+    // Found writing the QA round's out-of-memory tests: this table grew with
+    // an infallible push, so the most Java-reachable allocation there is --
+    // every `new`, every box -- aborted the firmware on a full heap, which on
+    // a device is a board reset. A heap too small for one more object must
+    // refuse, the way every caller of `alloc` already expects.
+    #[test]
+    fn an_object_slot_the_heap_cannot_hold_is_refused_not_aborted() {
+        let mut heap = ObjectHeap::new();
+        // Warm the table so the next chunk is the allocation under test.
+        for _ in 0..8 {
+            heap.alloc(c::java_lang_Object).expect("warm-up");
+        }
+        // One of these must be refused: 16 bytes cannot hold a new chunk.
+        let refused = crate::test_alloc::with_budget(16, || {
+            (0..1024).any(|_| heap.alloc(c::java_lang_Object).is_none())
+        });
+        assert!(refused, "an exhausted heap must refuse, not abort");
+        // The refusal leaves the heap usable.
+        assert!(heap.alloc(c::java_lang_Object).is_some());
     }
 }
