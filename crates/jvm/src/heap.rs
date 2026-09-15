@@ -519,3 +519,34 @@ mod tests {
         assert_eq!(table.resolve(si), Some("hello"));
     }
 }
+
+#[cfg(test)]
+mod qa_oom_tests {
+    use super::*;
+    use crate::test_alloc::with_budget;
+    use alloc::vec;
+
+    // J-fix e3c5f008: interning a dynamic string reports a full heap as
+    // `None` -- the allocation-failure signal every caller maps to
+    // OutOfMemoryError -- instead of aborting through `to_vec` (QA
+    // 2026-09-13: a 59-byte intern reset testbench_rp2040).
+    #[test]
+    fn intern_dyn_reports_a_full_heap_instead_of_aborting() {
+        let mut table = StringTable::new();
+        // Warm the table so its own growth is not the first allocation.
+        assert!(table.intern_dyn(b"warm").is_some());
+        let big = vec![b'x'; 8192];
+        assert_eq!(with_budget(64, || table.intern_dyn(&big)), None);
+        // The refusal leaves the table usable.
+        let idx = table.intern_dyn(b"after").expect("table still usable");
+        assert_eq!(table.resolve(idx), Some("after"));
+    }
+
+    #[test]
+    fn intern_dyn_still_succeeds_when_the_budget_allows_it() {
+        let mut table = StringTable::new();
+        assert!(table.intern_dyn(b"warm").is_some());
+        let idx = with_budget(64 * 1024, || table.intern_dyn(b"fits")).expect("should intern");
+        assert_eq!(table.resolve(idx), Some("fits"));
+    }
+}

@@ -162,6 +162,8 @@ mod locals;
 mod long_arrays;
 mod math;
 mod multianewarray;
+mod qa_collections;
+mod qa_oom;
 mod rtti;
 mod stack;
 mod stack_manip;

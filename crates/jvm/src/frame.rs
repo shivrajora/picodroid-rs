@@ -180,3 +180,41 @@ mod tests {
         assert_eq!(frame.load_local(63), Ok(Value::Int(63)));
     }
 }
+
+#[cfg(test)]
+mod qa_oom_tests {
+    use super::*;
+    use crate::test_alloc::with_budget;
+
+    // J-fix 935bab3e: a frame the heap cannot hold is the crate's
+    // allocation-failure signal, which the main loop turns into a catchable
+    // OutOfMemoryError -- it used to abort the firmware (a board reset) from
+    // `Vec::with_capacity` (QA 2026-09-13, qa_thr on pico_touch_kit).
+    #[test]
+    fn a_frame_the_heap_cannot_hold_is_an_allocation_failure() {
+        let r = with_budget(256, || Frame::new(0, 0, &[], u16::MAX, u16::MAX));
+        assert!(
+            matches!(r, Err(JvmError::StackOverflow)),
+            "expected the allocation-failure signal, got {:?}",
+            r.err()
+        );
+    }
+
+    #[test]
+    fn the_operand_stack_reservation_is_fallible_too() {
+        // Locals fit; only `max_stack` is out of reach.
+        let r = with_budget(4096, || Frame::new(0, 0, &[], 1, u16::MAX));
+        assert!(
+            matches!(r, Err(JvmError::StackOverflow)),
+            "expected the allocation-failure signal, got {:?}",
+            r.err()
+        );
+    }
+
+    #[test]
+    fn a_frame_that_fits_is_still_built_under_a_budget() {
+        let frame = with_budget(64 * 1024, || Frame::new(0, 0, &[Value::Int(1)], 4, 4))
+            .expect("a small frame must still be built");
+        assert_eq!(frame.locals.len(), 4);
+    }
+}

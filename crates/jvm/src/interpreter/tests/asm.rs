@@ -13,8 +13,8 @@ pub(super) type StaticMain<'a> = (u16, &'a [u8], &'a [[u16; 4]]);
 
 pub(super) struct Asm {
     cp: Vec<Vec<u8>>,
-    /// Declared instance fields as `(name_utf8, desc_utf8)` CP indices.
-    fields: Vec<(u16, u16)>,
+    /// Declared fields as `(access, name_utf8, desc_utf8)` CP indices.
+    fields: Vec<(u16, u16, u16)>,
 }
 
 /// One method to emit. An empty `code` emits no `Code` attribute — an
@@ -42,7 +42,14 @@ impl Asm {
     pub(super) fn field(&mut self, name: &str, desc: &str) {
         let n = self.utf8(name);
         let d = self.utf8(desc);
-        self.fields.push((n, d));
+        self.fields.push((0x0000, n, d));
+    }
+
+    /// Declare a `public static` field — what an enum's constants are.
+    pub(super) fn static_field(&mut self, name: &str, desc: &str) {
+        let n = self.utf8(name);
+        let d = self.utf8(desc);
+        self.fields.push((0x0009, n, d));
     }
 
     fn push(&mut self, e: Vec<u8>) -> u16 {
@@ -203,8 +210,8 @@ impl Asm {
             out.extend_from_slice(&i.to_be_bytes());
         }
         out.extend_from_slice(&(self.fields.len() as u16).to_be_bytes());
-        for &(n, d) in &self.fields {
-            out.extend_from_slice(&[0x00, 0x00]); // access
+        for &(access, n, d) in &self.fields {
+            out.extend_from_slice(&access.to_be_bytes());
             out.extend_from_slice(&n.to_be_bytes());
             out.extend_from_slice(&d.to_be_bytes());
             out.extend_from_slice(&[0x00, 0x00]); // attrs
