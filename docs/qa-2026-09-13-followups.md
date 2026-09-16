@@ -282,3 +282,55 @@ one — a test that tries to fill the volume to a block boundary would be flaky 
 rather than useful. `qa_store` clears the round's stores on entry, which exercises the path but
 asserts nothing about it. The honest next step is a `qa_store` section on a multi-app board
 that fills the quota deliberately and then clears, run under the HIL row that already has one.
+
+## 11. Nightly triage, 2026-09-15 (the first night after the round landed)
+
+The 3 AM sim run failed one row and the 4 AM fleet run twelve, across three boards. What each
+one was, and what it became:
+
+- **Sim `threadstress`, both shrink modes — a latent JVM race, fixed.** The bisect landed on
+  `09d0b1bd` (the simulator's pdb task, 2026-09-14): a real `PRIORITY_RT_1` task polling its
+  socket at 100 Hz makes FreeRTOS rotate the equal-priority Java tasks every time it blocks
+  (`vTaskSwitchContext` picks the *next* ready entry, not the interrupted one), and the heap's
+  "switch only at blocking points" contract had only ever been a scheduling assumption. Slowing
+  the poll to 1 Hz merely delayed the failure. Now enforced by a kernel mutex —
+  `docs/designs/jvm-run-lock-2026-09.md`. The same rotation exists on a device behind the tick
+  timer, the sensor sampler and the USB bridge; `threadstress` passed there by luck.
+- **`testbench_rp2040`: `prefs_demo`, `filesdemo` — a full volume, fixed.** Both passed on
+  2026-09-13. Root-level writes still worked; every `mkdir` failed. The RP2040's 128 KB LittleFS
+  had filled with the `/data/<pkg>` directories of every app flashed before (a metadata pair,
+  8 KB, each): `sweep_orphans` was `has_multi_app`-only. It runs on every board now; the first
+  boot swept five directories and `filesdemo` passed 29/29 on the bench.
+- **`pico_touch_kit`: `helloworld:pdb-settings-uninstall`, both modes — a harness miss,
+  fixed.** First run of the pdb rows on that slot. Driven by hand over `pdb input tap`, the
+  formula's Uninstall tap (`card_y + 78`) missed and `card_y + 90` uninstalled;
+  `lib.sh::settings_dialog_ok` aims at the button's middle now.
+- **`pico_touch_kit`: `blinky:pdb-launch[shrink]` — a harness race, fixed.** The launch itself
+  worked; the boot-time `pdb list` right after two uninstall reboots timed out (`LIST recv
+  failed`), and it is the listing that has to name the launcher. `hil-run.sh` retries that
+  listing for up to ~10 s before it counts.
+- **`pico_touch_kit`: `quotademo`, both modes — a test assumption, fixed.** The app hard-wired
+  the 128 KB cap of the rp2350 boards; the touch kit's is 1 MB. It learns the cap from the first
+  `StatFs` (available plus what it already holds) and writes as many blobs as fit.
+- **`pico_enviro_mon_w`: `qa_thr`, both modes — the board has no room; row restricted.** Every
+  `Thread.start` reported `task spawn failed`; `pdb sysmon` after the run shows min free heap
+  16.5 KB, less than one 16 KB Java thread stack, with the Wi-Fi stack and cyw43 buffers
+  resident. The row already excluded the touch kit for the same reason; it excludes the W board
+  now and the sim covers it. (A lighter `qa_thr`, or Java thread stacks sized per board, would
+  put it back — item 3's territory.)
+- **`pico_touch_kit`: `qa_ui[no-shrink]` — an empty RTT capture, not reproduced.** Zero log
+  lines in 95 s while the shrink run passed minutes later; the probe-recovery power cycle that
+  followed is the known cure. Watch for a repeat.
+- **`testbench_rp2040`: `helloworld:pdb-install[shrink]` — a reboot that missed the 20 s PING
+  window, not reproduced.** `install-stress[shrink]` (ten installs) passed right after it, and
+  the no-shrink row passed. Intermittent since 2026-09-12; unchanged.
+- **`testbench_rp2040`: `imagedemo`, both modes — a HardFault after `ImageDemo ready`, open and
+  older than the round.** ERROR every night since at least 2026-09-09. probe-rs's "Frame 0" is
+  the `HardFault` handler itself (the thunk name it prints is the preceding symbol), so the
+  faulting PC is not in the log; reproducing under a probe with the ELF is the next step.
+- **`testbench_rp2350` — no run since 2026-09-10.** Not a failure: that slot became the touch
+  kit (`fleet.conf`), and the Enviro row accepts `testbench_rp2350` firmware.
+
+Also fixed on the way: `View touched off the UI thread` fired for any native a worker called
+(`Thread.currentThread()`, `SystemClock`), because the graphics dispatcher warned before it
+knew whether the class was its own. It warns only for a View/Display native now.
