@@ -309,18 +309,24 @@ fn refresh_horizon(table: &[Option<Entry>; CAPACITY]) {
 
 /// Whether [`poll`] can have anything to decide at this instant.
 ///
-/// `wall_ms` is asked for only when an RTC alarm is armed, so an idle tick
-/// costs two comparisons and never the wall-clock seqlock read; a wall
-/// clock moved forward by `setCurrentTimeMillis` still brings an RTC alarm
-/// due at the next tick, because the closure reads the live clock.
-pub fn due(elapsed_ms: i64, wall_ms: impl FnOnce() -> i64) -> bool {
+/// `wall_offset_ms` is the anchor `SystemClock.setCurrentTimeMillis` keeps
+/// (`system_clock::wall_offset_ms`): the wall clock is `elapsed_ms` plus it,
+/// exactly as [`Now`] is built, and an RTC trigger is judged on that sum —
+/// never on the offset alone, which is 0 until something sets the clock and
+/// would then hold every RTC alarm back for good. The offset is asked for
+/// only when an RTC alarm is armed, so an idle tick costs two comparisons and
+/// never the wall-clock seqlock read; a wall clock moved forward still brings
+/// an RTC alarm due at the next tick, because the closure reads the live
+/// anchor.
+pub fn due(elapsed_ms: i64, wall_offset_ms: impl FnOnce() -> i64) -> bool {
     let h = {
         let _atomic = AtomicSection::enter();
         *horizon()
     };
     h.firing
         || h.elapsed_ms.is_some_and(|t| elapsed_ms >= t)
-        || h.wall_ms.is_some_and(|t| wall_ms() >= t)
+        || h.wall_ms
+            .is_some_and(|t| elapsed_ms + wall_offset_ms() >= t)
 }
 
 /// Arm `class` in `owner` for `trigger_ms`, replacing any armed alarm with
@@ -720,16 +726,36 @@ mod tests {
         assert!(due(1_000, no_wall), "at the earliest");
         assert!(due(4_000, no_wall), "and any time after it");
 
+        // An RTC trigger is judged on elapsed + offset, the wall clock as
+        // `Now` builds it. Here the elapsed clock reads 500 — short of every
+        // elapsed trigger above — and the offset stands in for a clock set
+        // to some epoch.
         set(OTHER, RING, 0, Clock::Rtc, 60_000, &[]).unwrap();
         assert!(
-            !due(0, || 59_999),
+            !due(500, || 59_499),
             "the RTC trigger is judged on the wall clock"
         );
-        assert!(due(0, || 60_000));
+        assert!(due(500, || 59_500));
         assert!(
-            due(0, || 1_000_000),
+            due(500, || 1_000_000),
             "a wall clock moved forward brings it due"
         );
+    }
+
+    /// The bench shape: nothing has set the wall clock, so its offset is 0
+    /// and wall time *is* elapsed time. An RTC alarm armed for two seconds
+    /// out must come due on the elapsed clock alone — judging it on the
+    /// offset would hold it back for good (alarmdemo on the W slot,
+    /// 2026-09-15: armed, never fired).
+    #[test]
+    fn an_rtc_alarm_comes_due_with_the_wall_clock_unset() {
+        let _g = guard();
+        let armed_at = 1_032;
+        set(APP, RING, 0, Clock::Rtc, armed_at + 2_000, &[]).unwrap();
+        assert!(!due(armed_at, || 0));
+        assert!(!due(armed_at + 1_999, || 0));
+        assert!(due(armed_at + 2_000, || 0), "due at the trigger");
+        assert!(due(armed_at + 30_000, || 0), "and still due later");
     }
 
     #[test]
