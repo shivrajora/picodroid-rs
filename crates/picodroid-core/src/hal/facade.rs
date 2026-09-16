@@ -393,18 +393,22 @@ pub mod net {
         unsafe { __pd_hal_net_tcp_socket() }
     }
     pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_tcp_connect(sock, addr, port) }
     }
     pub fn tcp_send(sock: *mut c_void, data: &[u8]) -> Result<usize, NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_tcp_send(sock, data) }
     }
     pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_tcp_recv(sock, buf) }
     }
     pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
         unsafe { __pd_hal_net_tcp_listen(sock, port) }
     }
     pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_tcp_accept(sock) }
     }
     pub fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError> {
@@ -416,9 +420,11 @@ pub mod net {
         addr: u32,
         port: u16,
     ) -> Result<usize, NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_udp_sendto(sock, buf, addr, port) }
     }
     pub fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_udp_recvfrom(sock, buf) }
     }
     pub fn close(sock: *mut c_void) {
@@ -434,6 +440,7 @@ pub mod net {
         unsafe { __pd_hal_net_get_ip_address() }
     }
     pub fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
+        let _run = crate::jvm_run_lock::unlocked();
         unsafe { __pd_hal_net_dns_resolve(hostname) }
     }
 }

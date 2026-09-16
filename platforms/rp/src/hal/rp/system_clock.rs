@@ -7,6 +7,9 @@
 /// check now lives in shared code, at the `SystemClock.sleep` native — see
 /// `picodroid_core::os::system_clock::sleep`.
 pub fn sleep(ms: u32) {
+    // A blocking wait outside the `rtos` seam: the JVM run lock is released
+    // here by hand (`picodroid_core::jvm_run_lock`).
+    let _run = picodroid_core::jvm_run_lock::unlocked();
     freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms));
 }
 

@@ -49,6 +49,10 @@ fn worker_body(worker_id: u32) {
         };
         let heap = crate::boot::shared_heap();
 
+        // Java runs only under the run lock (`crate::jvm_run_lock`); taken
+        // per work item so the wait for the next one is lock-free.
+        let _run = crate::jvm_run_lock::Held::acquire();
+
         // Route through the `Executors.dispatchRunnable` bytecode bridge
         // (see the matching lifecycle.rs call) so lambda proxies resolve via
         // invokeinterface rather than being dropped on the abstract

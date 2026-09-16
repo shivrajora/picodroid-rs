@@ -40,4 +40,7 @@ pub fn install_heap_atomic_hooks() {
         }
     }
     pico_jvm::atomic_section::set_hooks(enter, exit);
+    // The other half of the heap's concurrency contract, created here for the
+    // same reason: before the first task, by both boots (`crate::jvm_run_lock`).
+    crate::jvm_run_lock::init();
 }

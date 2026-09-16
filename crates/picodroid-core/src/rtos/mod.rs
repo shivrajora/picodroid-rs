@@ -255,9 +255,11 @@ pub fn queue_create(depth: usize) -> RawQueue {
     unsafe { __pd_rtos_queue_create(depth) }
 }
 pub fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_queue_send(q, word, t) }
 }
 pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_queue_recv(q, t) }
 }
 /// Handle of the calling task; 0 if there is no task context. See
@@ -276,21 +278,30 @@ pub fn task_notify(t: RawTask) {
 /// Block until notified. See [`Rtos::task_wait_notification`]; false means
 /// the timeout elapsed.
 pub fn task_wait_notification(t: Timeout) -> bool {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_task_wait_notification(t) }
 }
 pub fn queue_create_ptr(depth: usize) -> RawQueue {
     unsafe { __pd_rtos_queue_create_ptr(depth) }
 }
 pub fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_queue_send_ptr(q, val, t) }
 }
 pub fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_queue_recv_ptr(q, t) }
 }
 pub fn mutex_recursive_create() -> Option<RawMutex> {
     unsafe { __pd_rtos_mutex_recursive_create() }
 }
 pub fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
+    unsafe { __pd_rtos_mutex_recursive_lock(m, t) }
+}
+/// [`mutex_recursive_lock`] without the run-lock release around it: the
+/// run lock's own take (`crate::jvm_run_lock`).
+pub(crate) fn mutex_recursive_lock_unhooked(m: RawMutex, t: Timeout) -> bool {
     unsafe { __pd_rtos_mutex_recursive_lock(m, t) }
 }
 pub fn mutex_recursive_unlock(m: RawMutex) {
@@ -306,6 +317,7 @@ pub fn sem_give(s: RawSem) {
     unsafe { __pd_rtos_sem_give(s) }
 }
 pub fn sem_take(s: RawSem, t: Timeout) -> bool {
+    let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_sem_take(s, t) }
 }
 pub fn tick_timer_start(period_ms: u32, cb: fn()) {
@@ -321,6 +333,9 @@ pub fn tick_timer_stop() {
     unsafe { __pd_rtos_tick_timer_stop() }
 }
 pub fn delay_ms(ms: u32) {
+    // A zero delay is `Thread.yield`: the lock is given up so the task the
+    // yield hands the core to can take it.
+    let _run = crate::jvm_run_lock::unlocked();
     unsafe { __pd_rtos_delay_ms(ms) }
 }
 

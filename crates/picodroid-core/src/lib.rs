@@ -66,6 +66,7 @@ pub mod json;
 // Board-gated by the `[audio]` section in board.toml. The tone table and the
 // sequencer under it are pure `alloc` with host tests, like `json`; only the
 // driver beneath them reaches the HAL, and it carries its own `cfg(not(test))`.
+pub mod jvm_run_lock;
 #[cfg(any(has_audio, test))]
 pub mod media;
 pub mod monitor_store;

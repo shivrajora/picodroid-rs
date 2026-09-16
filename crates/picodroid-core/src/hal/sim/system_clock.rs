@@ -12,6 +12,7 @@
 /// current task instead.
 pub fn sleep(ms: u32) {
     if super::rtos::current_thread_is_task() {
+        let _run = crate::jvm_run_lock::unlocked();
         super::rtos::delay_ms(ms);
     } else {
         std::thread::sleep(std::time::Duration::from_millis(ms as u64));

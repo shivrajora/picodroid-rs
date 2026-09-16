@@ -74,6 +74,7 @@ impl DelayNs for RpDelay {
         if ms > 0 && scheduler_running() {
             // One tick more than asked: vTaskDelay(n) may return after n - 1
             // whole ticks plus a fraction, and these are datasheet minimums.
+            let _run = picodroid_core::jvm_run_lock::unlocked();
             freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms + 1));
         } else {
             for _ in 0..ms {

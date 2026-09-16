@@ -191,6 +191,10 @@ fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
 /// or `pdb install` interrupts it; `JvmError::Interrupted` is a clean exit
 /// signal, not an error.
 pub fn run_app(apk_data: &[u8]) {
+    // This task interprets Java from here until the app is gone: it holds the
+    // run lock throughout, giving it up only inside blocking waits
+    // (`crate::jvm_run_lock`).
+    let _run = crate::jvm_run_lock::Held::acquire();
     // Publish the APK pointer so load_classes_from_apk (a bare fn) picks it
     // up even when called from Thread.start()-spawned child tasks.
     unsafe { *ACTIVE_APK.0.get() = (apk_data.as_ptr(), apk_data.len()) };

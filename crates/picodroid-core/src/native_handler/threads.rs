@@ -169,6 +169,9 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
                 let heap = crate::boot::shared_heap();
                 let mut handler = super::PicodroidNativeHandler::new();
                 let _handler_roots = super::HandlerRootGuard::new(&handler);
+                // Java runs only under the run lock (`crate::jvm_run_lock`);
+                // released at the end of this block, before the task ends.
+                let _run = crate::jvm_run_lock::Held::acquire();
                 let (class, method) =
                     crate::dispatch_sites::DISPATCH_SITES[crate::dispatch_sites::THREAD_RUN];
                 if let Err(e) = jvm.invoke_static_with_args(
