@@ -306,8 +306,9 @@ per-crate-under-test, and exactly one registration is ever in a given link.
 
 - **Features.** `picodroid-core` gains empty `board-testbench-rp2040`,
   `board-testbench-rp2350`, `board-testbench-rp2350w`,
-  `board-pico-enviro-mon`, plus forwarded `handle-table-32`,
-  `parity-metrics`, `parity-fbhash`, `mem-diag`. `platforms/rp`'s board
+  `board-pico-enviro-mon`, plus forwarded `handle-table-32` (renamed to the
+  opt-out `legacy-handle-cast` when the table became the default on
+  2026-09-15), `parity-metrics`, `parity-fbhash`, `mem-diag`. `platforms/rp`'s board
   features enable the matching core feature — the same forwarding already
   used for `sensor-*`, `network-cyw43`, `sim`, `family-rp`.
 - **Board discovery.** `build_support/config.rs` gains

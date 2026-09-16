@@ -55,7 +55,11 @@ network-ethernet = ["has-network"]
 has-network     = []
 # Diagnostics / staged-rollout features, forwarded from the binary crate so
 # shared code compiles the same way the platform crate does.
-handle-table-32 = []
+# Escape hatch for the generational widget handle table, which every target
+# now uses: brings back the 32-bit raw-pointer `nativeHandle` cast (which
+# dangles after a widget delete — parity-audit HAL-05). Kept one release
+# after the 2026-09-15 flip, then deleted with the cast itself.
+legacy-handle-cast = []
 parity-metrics  = []
 parity-fbhash   = []
 mem-diag        = []

@@ -91,35 +91,80 @@ roughly one hop in four. On `pico_touch_kit`, every hop `slept=79/80`. After the
 with no stage over 3 ms. It is not in any run matrix — it is a bench instrument.
 
 **Left open.** Which of the two candidate causes drops the byte (an ISR-side fix would stop the
-sample being lost at all, not just stop the freeze); why `testbench_rp2040` does not show it;
-and why `testbench_rp2040` does not show it. Settled 2026-09-15: the WP7 tick-timebase failures on
+sample being lost at all, not just stop the freeze); why `testbench_rp2040` does not show it.
+Settled 2026-09-15: the WP7 tick-timebase failures on
 this slot were this bug for `animdemo` (plain `main` hit the same timeout here, `spi1 ...
 rx_idx=28`) and a bug of WP7's own for `alarmdemo` (its RTC-alarm gate; `9d090232`) — see
 `scheduling-audit-handover-2026-09.md` §2 WP7. WP7 is re-landed.
 
-## 2. Devices run the legacy handle cast — soak `handle-table-32` (P1)
+## 2. Devices ran the legacy handle cast — **flipped 2026-09-15** (P1)
 
-Every bench board casts `lv_obj_t*` to a 32-bit handle, so the sim's stale-handle answers
-(`Reparent::StaleChild`, `is_live`, the sanitizer) do not exist there: a stale widget handle
-is a use-after-free. F10 moved the released state into Java (`View.release()`, refused by
-`addView`, `IllegalStateException` on a released receiver) so the app-driven cases are
-covered, but a second `AlertDialog.dismiss()` after a keypad BACK is still a dangling pointer
-on a device. The generation-tagged table is staged behind the default-off `handle-table-32`
+Every bench board cast `lv_obj_t*` to a 32-bit handle, so the sim's stale-handle answers
+(`Reparent::StaleChild`, `is_live`, the sanitizer) did not exist there: a stale widget handle
+was a use-after-free. F10 moved the released state into Java (`View.release()`, refused by
+`addView`, `IllegalStateException` on a released receiver) so the app-driven cases were
+covered, but a second `AlertDialog.dismiss()` after a keypad BACK was still a dangling pointer
+on a device. The generation-tagged table was staged behind the default-off `handle-table-32`
 feature (`designs/handle-table-invalidation.md`).
-
-**Next step.** Build each board with `PICODROID_EXTRA_FEATURES=handle-table-32` (honoured by
-`lib.sh`'s firmware build and, since `e74655b4`, by `hil-run.sh`), run the `qa_ui` row (its
-`tree` and `dialogs` sections are the ready-made check) and the picoenvmon soak, measure the
-RAM cost, then default it on. The QA round's hardware runs are the baseline.
 
 **2026-09-14.** `qa_ui` passes with the table on both RP2350 boards in both shrink modes
 (`pico_touch_kit` 146/146 ×2, `testbench_rp2350` on the Pico 2 W slot 141/141 ×2). Cost
 against the size baseline: +2,400 B flash / +1,032 B RAM on `testbench_rp2040`, +3,352 B
 flash / +1,024 B RAM on `testbench_rp2350` (the table itself is the kilobyte of `.bss`).
-Left: the picoenvmon soak (`PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire
---board pico_enviro_mon_w --pin`, then `hil-run.sh --app picoenvmon` under the feature, or the
-overnight recipe in `project_pdb_hw_soak_harness`); then flip the default in
-`platforms/rp/Cargo.toml` and accept the size baseline in the same commit.
+
+**2026-09-15 — closed.** The table is the default for every target; the cast is gone from every
+build and survives one release behind the opt-out `legacy-handle-cast` feature, which is what
+`pre-commit --full` now lints (one thumbv6m leg — the table arm needs no staged leg any more,
+since every board build compiles it).
+
+*Why the feature had to be inverted rather than added to `default`:* firmware builds run
+`--no-default-features --features board-X` (`lib.sh::build_firmware`), so a `default = [...]`
+entry would never have reached a board. Cargo features are additive, so "on unless you say
+otherwise" is spelled as an opt-out feature.
+
+**The soak.** `picoenvmon --release --shrink` on the `pico_enviro_mon_w` slot (the Pico 2 W
+with the Enviro+ pack; sensors, WiFi, NTP and the weather fetch all live), driven over PDB by
+`pdb input keyevent` through the 4-button hub: 60 cycles, each opening one of Live / History /
+Network / Settings, working it and coming back, with the History visit opening a sample
+`AlertDialog` twice — once dismissed by keypad BACK, once by its OK button, which is exactly
+the double-dismiss case that used to dangle. Seven `pdb install` reloads — one to boot the app,
+then one per ten cycles — so `handle_table::reset()` ran seven times with the screen's pinned
+slot carried across. Result: **no fault, no panic, no stale-handle symptom**; free heap flat
+between 109.2 and 112.8 KB across every reload (low-water 98.6 KB), which is where a leaking
+delete hook or a leaking slot would have shown. The only `[ERROR]` line in the whole run is one
+`Thread.start: ... left the interpreter: Interrupted` per reboot — a teardown message that
+predates this work (it is in the 2026-09-09 and 2026-09-12 HIL logs). A second 120-cycle
+pass with the same driver was cut at cycle 11 (clean, heap 108.4-111.0 KB) to hand the slot
+to a session queued behind it. Driver and logs: `/tmp` scratch of the flip session; the
+recipe is four lines of `pdb input keyevent` and worth rewriting rather than restoring.
+
+One driver trap worth keeping: Settings' Save button **finishes its own activity**, so a
+cycle that presses it must not also press BACK — the BACK reaches the hub, finishes
+`HomeActivity` and drops the board into the launcher, which ends the picoenvmon soak while
+the log still looks busy. Have the driver watch the RTT log for `Launcher: creating` and
+re-install rather than trusting the key counts.
+
+**The RP2040's first run of the table.** Every earlier hardware check was an RP2350 — the
+RP2040 only ever *built* with the feature (the old pre-commit link gate), so the flip changed
+what that board executes with no run behind it. Four widget-heavy rows on
+`testbench_rp2040`, no-shrink, after the flip: `bugbash_ui`, `callbacktest`, `dialogdemo`
+and `animdemo`, all PASS (`build/hil/logs/testbench_rp2040/2026-09-15_23h*`). `dialogdemo` is
+the pointed one — it builds and dismisses three dialogs — and `animdemo` exercises the
+animation engine whose hardware-only hang is the incident HAL-05 was written from.
+
+**Cost, measured on this tree** (helloworld, release, no-shrink; the same tree built with
+`PICODROID_EXTRA_FEATURES=legacy-handle-cast` is the control, so nothing else on `main` is
+folded into the figure):
+
+| board | cast | table | table costs |
+|---|---|---|---|
+| `testbench_rp2040` | 822,444 B flash / 244,400 B RAM | 824,892 / 245,432 | **+2,448 B flash, +1,032 B RAM** |
+| `testbench_rp2350` | 998,152 B flash / 514,660 B RAM | 1,001,208 / 515,684 | **+3,056 B flash, +1,024 B RAM** |
+
+The accepted ratchet moves further than that — +3,177 B on the RP2040 and +4,465 B on the
+RP2350 — because the control run also shows 729 B (rp2040) and 1,409 B (rp2350) of growth that
+landed after the last accept (`d1a09765`) and was waiting for tonight's nightly to find. RAM
+matched the baseline exactly in cast mode, so all of the RAM growth is the table.
 
 ## 3. Unchecked allocations left in native paths (P2 — a board reset each)
 

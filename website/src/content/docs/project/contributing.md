@@ -45,8 +45,8 @@ plus whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint
 the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
 drift check and the device-lock test.
 
-**`--full`** runs the legs neither CI nor the nightlies cover: the staged
-`handle-table-32` clippy and build, the opt-in `mem-diag` / `sched-diag`
+**`--full`** runs the legs neither CI nor the nightlies cover: the
+`legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag`
 firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
 the binary-size ratchet on both boards. A few minutes; run it before cutting a
 release.

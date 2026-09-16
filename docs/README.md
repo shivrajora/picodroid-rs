@@ -66,7 +66,7 @@ Plans and backlogs with items still open. Check the doc for the current row befo
 
 | Doc | Status | Left to do |
 |---|---|---|
-| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Item 2 (the `handle-table-32` soak) is the only item still open; item 1 was found and fixed 2026-09-15, items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
+| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Items 1 and 2 both closed 2026-09-15 — the `qa_life` stall was an SPI completion wait, and the generational handle table is now every board's default; items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
 | [bugs-rp2040-imagedemo-2026-09-15.md](bugs-rp2040-imagedemo-2026-09-15.md) | fixed | Unaligned papk asset pixels HardFaulted the RP2040 on any scaled image. Read it for the probe-rs `catch_hardfault` trap that hid the faulting PC for six nights. |
 | [networking-followups-2026-08.md](networking-followups-2026-08.md) | open | NET-10 (dashboard loads hang, RST-on-close) open since 2026-09-07; NET-1 and NET-9 leftovers remain. NET-2/4/5/6/7/8 done. |
 | [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; refreshing against upstream, pushing and opening the PR are deliberately left to a human. |
@@ -102,7 +102,7 @@ Already built. Read these to understand the code, not to re-execute them.
 | Doc | Landed |
 |---|---|
 | [designs/jvm-run-lock-2026-09.md](designs/jvm-run-lock-2026-09.md) | 2026-09-15. One interpreting task at a time, held by a kernel mutex instead of by scheduler configuration. New blocking paths must go through `unlocked()`. |
-| [designs/handle-table-invalidation.md](designs/handle-table-invalidation.md) | Generation-tagged widget handles, so a deleted widget's handle cannot alias a live one. The 32-bit device arm sits behind the `handle-table-32` feature. |
+| [designs/handle-table-invalidation.md](designs/handle-table-invalidation.md) | Generation-tagged widget handles, so a deleted widget's handle cannot alias a live one. Every target runs the table since 2026-09-15; `legacy-handle-cast` restores the old pointer cast for one release. |
 | [designs/method-level-native-registry.md](designs/method-level-native-registry.md) | Phase 1. `native_handler/method_tables.rs` plus the bidirectional test whose failure message prints ready-to-paste rows — that message *is* the workflow for adding a native. |
 | [designs/freertos-host-sim.md](designs/freertos-host-sim.md) | The simulator runs the real FreeRTOS kernel; `sim` *means* FreeRTOS, with no feature flag. **The body describes a two-backing world that no longer exists — read the amendments first.** |
 

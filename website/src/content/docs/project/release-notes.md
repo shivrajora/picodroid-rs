@@ -57,6 +57,17 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   so PAPKs shrunk with v0.17.0 through v0.25.0 still install. `Build.VERSION.RELEASE` reads
   `0.26.0`. Everything else under Unreleased ships in the same package.
 
+**Devices detect a stale widget handle, instead of following it**
+
+- The generation-tagged widget handle table now runs on the boards, not only in the simulator.
+  A 32-bit `nativeHandle` used to be the widget's raw address, so a handle kept past the
+  widget's deletion pointed into freed LVGL memory and the device followed it — the one bug
+  class the simulator could not reproduce by construction. Every handle now carries the
+  generation of its table slot, so a stale or forged one resolves to null and the call no-ops.
+- It costs 2.4 KB of flash on the RP2040 and 3.0 KB on the RP2350, plus ~1 KB of RAM for the
+  table, and it is on for every board with no switch to throw. The old cast survives one
+  release behind the `legacy-handle-cast` feature, in case a board needs it back.
+
 **The simulator is a `pdb` device**
 
 - The simulator now runs the device's own debug bridge on a real `pdb` task, over a Unix socket,
