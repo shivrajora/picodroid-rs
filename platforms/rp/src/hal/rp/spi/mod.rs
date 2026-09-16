@@ -2,11 +2,14 @@
 pub mod xfer;
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 
-use xfer::{clock_divisors, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH};
+use xfer::{
+    clock_divisors, controller_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH,
+    SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
+};
 
 use super::clock::PCLK_HZ;
 
@@ -41,6 +44,16 @@ fn write_pending(id: u8) -> &'static AtomicBool {
         _ => &SPI1_WRITE_PENDING,
     }
 }
+
+/// Transfers the ISR left one or more bytes short of `len` while the
+/// controller reported itself finished (see `finish_isr_xfer!`). Reported once
+/// per boot; the count is readable from a debugger for the rest of the run.
+///
+/// Load-then-store rather than an atomic read-modify-write, for the same
+/// reason as `SPI0_WRITE_PENDING` above: the M0+ has no RMW, and the bus lock
+/// is held across the transfer that writes these, so there is one writer.
+static SHORT_READS: AtomicU32 = AtomicU32::new(0);
+static SHORT_READ_REPORTED: AtomicBool = AtomicBool::new(false);
 
 /// The task that started the pending DMA write (its raw handle), so that a
 /// different task arriving at the bus does not collect a completion that
@@ -260,12 +273,81 @@ macro_rules! start_isr_xfer {
 macro_rules! finish_isr_xfer {
     ($spi:expr, $spi_id:expr) => {{
         let done = spi_done($spi_id);
-        if done.take(Duration::ms(5000)).is_err() {
+        // The ISR ends a transfer by counting the bytes it has *received*, and
+        // that count can stop short of `len` while the controller is finished:
+        // measured on the testbench W slot, an XPT2046 poll (30 bytes at
+        // 2 MHz) regularly ends with `rx_idx == len - 1`, the shifter idle,
+        // the RX FIFO empty and neither the overrun nor the receive-timeout
+        // status asserted. Whether the byte was dropped by the eight-deep FIFO
+        // or its receive-timeout was cleared by step 5 of the ISR body as it
+        // asserted is not settled — either way no further interrupt can come,
+        // because the receive timeout only asserts on a FIFO that is not
+        // empty.
+        //
+        // Waiting the cap out for that signal is what froze the UI task for a
+        // full five seconds a time — and, since the JVM run lock, every Java
+        // thread with it: the qa_life stall on this slot
+        // (docs/qa-2026-09-13-followups.md item 1). So the wait also accepts
+        // the controller's own account of being finished: everything queued
+        // has been shifted out, the shifter is idle, the RX FIFO is empty.
+        // What is lost then is one sample, not five seconds.
+        let mut waited_ms: u32 = 0;
+        let signalled = loop {
+            if done.take(Duration::ms(SPI_XFER_POLL_MS)).is_ok() {
+                break true;
+            }
+            waited_ms = waited_ms.saturating_add(SPI_XFER_POLL_MS);
+            let st = spi_state($spi_id);
+            let sr = $spi.sspsr().read();
+            if controller_finished(
+                st.tx_idx,
+                st.len,
+                sr.bsy().bit_is_set(),
+                sr.rne().bit_is_set(),
+            ) {
+                // Once per boot: on a board where this is the steady state it
+                // is one line per touch poll, and the count is what matters.
+                let first = !SHORT_READ_REPORTED.load(Ordering::Relaxed);
+                SHORT_READ_REPORTED.store(true, Ordering::Relaxed);
+                if first {
+                    defmt::warn!(
+                        "spi{}: transfer finished with {} of {} bytes read back; \
+                         completing it from the controller's state (further \
+                         occurrences are silent)",
+                        $spi_id,
+                        st.rx_idx,
+                        st.len
+                    );
+                }
+                SHORT_READS.store(
+                    SHORT_READS.load(Ordering::Relaxed).saturating_add(1),
+                    Ordering::Relaxed,
+                );
+                break false;
+            }
+            if waited_ms >= SPI_XFER_TIMEOUT_MS {
+                defmt::error!(
+                    "spi{}: transfer stalled {} ms (len={} tx={} rx={})",
+                    $spi_id,
+                    waited_ms,
+                    st.len,
+                    st.tx_idx,
+                    st.rx_idx
+                );
+                break false;
+            }
+        };
+        if !signalled {
             super::dma::abort($spi_id);
             $spi.sspimsc().write(|w| unsafe { w.bits(0) });
             while $spi.sspsr().read().rne().bit_is_set() {
                 let _ = $spi.sspdr().read();
             }
+            // A give that lands between the decision above and the mask would
+            // otherwise be a stale credit the next transfer takes for its own.
+            // One take clears it: the semaphore is binary, so it holds at most
+            // one.
+            let _ = done.take(Duration::zero());
             let state = spi_state($spi_id);
             state.op = SpiOp::Idle;
         }

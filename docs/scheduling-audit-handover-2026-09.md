@@ -101,6 +101,28 @@ lowered `EXPECTED_SPIN_TODO` in `spin_guard.rs`. Session 3 retired all five:
 
 ### WP7 — tick timebase (F16) — landed as `719d43e7`, REVERTED the same day: breaks the tick loop on the RP2350 W board
 
+**2026-09-15 — read this before retrying WP7.** The slot WP7 was judged on
+freezes painting apps on its own, WP7 or no WP7: an XPT2046 poll there
+regularly ends without its completion interrupt, and until `finish_isr_xfer!`
+was fixed the UI task waited out a silent 5,000 ms cap for each one
+(`docs/qa-2026-09-13-followups.md` item 1 — the same defect behind the qa_life
+stall). `animdemo` on plain `main` hits it on that slot, so the WP7 table below
+compares two trees over a board that was stalling either way, and the split it
+records — every tick-loop app fails, every Application-only app passes — is
+also exactly the split between apps that poll the touch panel through LVGL and
+apps that never open the display. **Re-measured, and it passes.** `719d43e7`
+cherry-picked onto `0a785461` with the SPI fix, `testbench_rp2350w` firmware,
+that same slot: `animdemo` logs both of the lines its `loop` row waits for —
+`endaction fired` and `spin done rot=360.0 scale=1.25` — with one short-read
+line before them. Against FAIL ×2 on 2026-09-13. So WP7 is a candidate to
+re-land: give it a full `hil-run.sh --app animdemo --board testbench_rp2350w`
+and the `alarmdemo` row (whose 2,459 ms late fire was the other symptom, and
+which this defect would also explain), then re-land with the sim tests and the
+scan guard from `719d43e7`. The branch `wp7-retest` holds the cherry-pick.
+The harder symptoms this section records — the sensor task never starting, USB
+never enumerating — were not seen in the re-measure; if they come back they
+still need their own explanation.
+
 What it did (kept in git for the retry): `tick_source::step_ms()` fed the
 UI clocks (LVGL, toasts, snackbars, property animations) one period while
 the loop kept up and the tick's lateness against the fed clock when it was
