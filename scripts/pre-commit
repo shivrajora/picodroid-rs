@@ -8,7 +8,7 @@
 #                                 else plus the formatters the changed files
 #                                 implicate. Seconds; no cargo build.
 #   ./scripts/pre-commit --full   the legs neither CI nor the nightlies run:
-#                                 the staged handle-table-32 and opt-in
+#                                 the legacy-handle-cast hatch and opt-in
 #                                 mem-diag / sched-diag firmware, the
 #                                 pico_enviro_mon_w lint, the shrunk-image
 #                                 name check and the binary-size ratchet.
@@ -175,8 +175,7 @@ STAGES=(
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
 
-  "clippy_rp2040_ht32|arm6|full|rust|clippy (testbench_rp2040 + handle-table-32)"
-  "build_rp2040_ht32|arm6|full|rust,jvm|build (rp2040 + handle-table-32, staged-arm flash gate)"
+  "clippy_rp2040_legacy_cast|arm6|full|rust|clippy (testbench_rp2040 + legacy-handle-cast)"
   "size_rp2040|arm6|full|rust,jvm|size lane (rp2040)"
 
   # Order is load-bearing. pico_enviro_mon_w is the only board whose
@@ -184,7 +183,6 @@ STAGES=(
   # that is a `rerun-if-env-changed` input to jvm/build.rs -- so every switch
   # into or out of it rebuilds pico-jvm and everything above it. Keeping it
   # last makes that one transition instead of two.
-  "clippy_rp2350_ht32|arm8|full|rust|clippy (testbench_rp2350 + handle-table-32)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
   "build_rp2350w_scheddiag|arm8|full|rust,jvm|build (rp2350w + sched-diag)"
   "size_rp2350|arm8|full|rust,jvm|size lane (rp2350)"
@@ -403,13 +401,13 @@ clippy_board() {
 # only [jvm] block that exports anything (see the registry's ordering note).
 stage_clippy_enviro_w() { clippy_board pico_enviro_mon_w; }
 
-# Staged handle-table-32 arm (audit P1-9): the generational handle table is
-# default-off on 32-bit targets until the HIL soak flips it, so without these
-# legs its no_std/32-bit arm would be compiled by nothing until flip time.
-# Lint both widths; build_rp2040_ht32 also LINKS it (the flash gate).
-# Remove these stages when handle-table-32 becomes a default feature.
-stage_clippy_rp2040_ht32() { clippy_board testbench_rp2040 handle-table-32; }
-stage_clippy_rp2350_ht32() { clippy_board testbench_rp2350 handle-table-32; }
+# The generational handle table (audit P1-9) became the default for every
+# board on 2026-09-15, so every clippy/build leg here already compiles and
+# links it. What nothing else compiles now is the arm it replaced: the raw
+# pointer cast, kept one release behind `legacy-handle-cast` as the escape
+# hatch. One leg on the tighter of the two widths keeps the hatch from
+# rotting; drop this stage when the cast and its feature go.
+stage_clippy_rp2040_legacy_cast() { clippy_board testbench_rp2040 legacy-handle-cast; }
 
 # clippy on the host target. MANIFEST_DIR/PACKAGE/CARGO_PLUS come from a
 # resolve_board call, which also fixes the JVM tunables the sim is linted with.
@@ -441,17 +439,6 @@ stage_clippy_sim_scheddiag() { clippy_sim_features "sim,board-testbench-rp2350,s
 build_board() {
   PICODROID_PREBUILT_APK="$APK_PATH" PICODROID_PREBUILT_SYSTEM_APKS="$SYSTEM_APK_PATHS" \
     bash "$SCRIPT_DIR/build.sh" "$@"
-}
-
-stage_build_rp2040_ht32() {
-  if ! PICODROID_EXTRA_FEATURES=handle-table-32 \
-       build_board --board testbench_rp2040 --app helloworld; then
-    echo ""
-    echo "ERROR: rp2040 + handle-table-32 build failed. The staged generational"
-    echo "       handle table's 32-bit arm no longer compiles/links; fix before"
-    echo "       committing (it becomes the default after the HIL soak)."
-    return 1
-  fi
 }
 
 stage_build_rp2350_memdiag() {

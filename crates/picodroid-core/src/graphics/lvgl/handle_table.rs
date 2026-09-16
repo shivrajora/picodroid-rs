@@ -23,12 +23,15 @@
 //! junk can never equal `encode(current_gen, idx)`, so forged/corrupt ids
 //! are rejected, not truncated into a live slot.
 //!
-//! **Staging:** on 32-bit targets the legacy zero-cost cast
+//! **Every target runs this table.** 32-bit devices joined the 64-bit sim on
+//! 2026-09-15, once `qa_ui` passed on both RP2350 boards in both shrink modes
+//! and the picoenvmon nav + PDB-reload soak ran clean with it on (cost:
+//! +2.4-3.0 KB flash, ~1 KB of `.bss`). The legacy zero-cost cast
 //! (`ptr as u32 as i32`, no invalidation — the dangle documented as
-//! HAL-05/S1) remains the default until the `handle-table-32` feature is
-//! made default after a HIL soak; 64-bit always uses the table. The
-//! sim's `PICODROID_HANDLE_SANITIZER` (default-on in `scripts/sim.sh`)
-//! turns any stale lookup into a loud abort with a backtrace.
+//! HAL-05/S1) survives one release behind the opt-out `legacy-handle-cast`
+//! feature as an escape hatch, and goes away with it. The sim's
+//! `PICODROID_HANDLE_SANITIZER` (default-on in `scripts/sim.sh`) turns any
+//! stale lookup into a loud abort with a backtrace.
 
 #[cfg(not(test))]
 use crate::lvgl_ffi::lv_obj_t;
@@ -41,15 +44,15 @@ use crate::lvgl_ffi::lv_obj_t;
 #[allow(non_camel_case_types)]
 pub enum lv_obj_t {}
 
-// ── Legacy 32-bit cast (no invalidation) — until `handle-table-32` flips ────
+// ── Legacy 32-bit cast (no invalidation) — the `legacy-handle-cast` hatch ───
 
-#[cfg(all(target_pointer_width = "32", not(feature = "handle-table-32")))]
+#[cfg(all(target_pointer_width = "32", feature = "legacy-handle-cast"))]
 mod imp {
     use super::lv_obj_t;
 
     /// Store a pointer as a Java `nativeHandle`: bit-preserving cast.
-    /// A deleted handle *dangles* (see module note) — the generational
-    /// table behind `handle-table-32` is the fix being staged in.
+    /// A deleted handle *dangles* (see module note) — this arm exists only
+    /// as the one-release escape hatch from the generational table.
     #[inline(always)]
     pub fn register(ptr: *mut lv_obj_t) -> i32 {
         ptr as u32 as i32
@@ -79,9 +82,9 @@ mod imp {
     pub fn reset() {}
 }
 
-// ── Generation-tagged table (64-bit always; 32-bit with `handle-table-32`) ──
+// ── Generation-tagged table: every target, unless `legacy-handle-cast` ──────
 
-#[cfg(any(not(target_pointer_width = "32"), feature = "handle-table-32"))]
+#[cfg(any(not(target_pointer_width = "32"), not(feature = "legacy-handle-cast")))]
 mod imp {
     use super::lv_obj_t;
     use core::ptr::null_mut;
@@ -379,8 +382,8 @@ mod imp {
     // ── Tests (host-run via the `#[path]` shim in main.rs) ─────────────────
     //
     // Host `cargo test` exercises only the 64-bit pointer width; the 32-bit
-    // arm of this same code is compiled + linted by the `handle-table-32`
-    // pre-commit legs and behaviorally covered by the HIL soak.
+    // arm of this same code is what every board build compiles, and is
+    // behaviorally covered by the qa_ui HIL rows and the picoenvmon soak.
     #[cfg(test)]
     mod tests {
         use super::*;

@@ -311,7 +311,7 @@ the benchmark deltas in the design doc.
 3. Re-run the `--mem-diag` census on the Stage 0 set and put a before and
    after table in the design doc. The growth sentinel must stay quiet.
 4. `./scripts/pre-commit --full`. The size ratchet reports the RP2040 flash
-   delta. The `handle-table-32` and `mem-diag` legs run.
+   delta. The `legacy-handle-cast` and `mem-diag` legs run.
 5. Hardware: `benchmark` sections on `testbench_rp2350`, and a picoenvmon
    navigate-and-serve soak on an enviro board. A torn long read across tasks
    is the one hazard the sim cannot show.

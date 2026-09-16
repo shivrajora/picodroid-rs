@@ -42,7 +42,7 @@ Then push. Do not wait for anything longer locally. GitHub CI (~55 min) runs cli
 ./scripts/pre-commit --full   # before cutting a release
 ```
 
-`--full` is the release-cut gate and covers only the legs nothing else runs: the staged `handle-table-32` clippy and build, the opt-in `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and the size ratchet on both boards. A few minutes.
+`--full` is the release-cut gate and covers only the legs nothing else runs: the `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and the size ratchet on both boards. A few minutes.
 
 `--list` prints the stages a run would execute; `--serial` runs the lanes one at
 a time and streams to stdout, which is what to use when a parallel run fails and

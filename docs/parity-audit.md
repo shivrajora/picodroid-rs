@@ -133,7 +133,7 @@ G-graphics, X-cross-cutting).
 | HAL-02 | ADC constant 1.65 V; PWM/backlight/boot/delay println-or-no-op stubs | IS | Expected HAL stubbing, contract-enforced | S3 | V | — |
 | HAL-03 | UART `read_byte` always −1 in sim (no input path); device reads real UART | ACC | Any UART-consuming app silently gets no data in sim | S2 | V | wire FIFO control channel to UART (backlog) |
 | HAL-04 | `packagemanager`, `pdb`, PIO, boot handlers compiled out of sim *and* tests | IPB | PDB install/stop-JVM paths (a known 6-bug area) have zero sim coverage — HIL-only | S2 | V | register-only (HIL owns it) |
-| HAL-05 | LVGL widget handles: 32-bit device = raw pointer cast, **no invalidation** — deleted-handle use dangles into freed LVGL memory; sim (and 32-bit behind the staged default-off `handle-table-32` feature) = width-independent generation-tagged table, stale/forged ids resolve to null + `PICODROID_HANDLE_SANITIZER` abort (`handle_table.rs`) | IPB | Use-after-delete hangs the device but is silently absorbed (or cleanly aborted, with sanitizer) in sim — a recorded HW-only bug class (animation-engine incident). **Fix staged 2026-07-26** (audit P1-9, `docs/designs/handle-table-invalidation.md`): device flips to the shared table after the nightly HIL soak (picoenvmon nav + PDB reload) | **S1** | V | X3: sanitizer on by default in sim + CI; generational table staged behind `handle-table-32` |
+| HAL-05 | ~~LVGL widget handles: 32-bit device = raw pointer cast, **no invalidation** — deleted-handle use dangles into freed LVGL memory~~ **RESOLVED 2026-09-15**: every target runs the width-independent generation-tagged table, so stale/forged ids resolve to null (plus the `PICODROID_HANDLE_SANITIZER` abort in sim) — `handle_table.rs`. The device flip cost 2,448 B flash / 1,032 B RAM on `testbench_rp2040` and 3,056 B / 1,024 B on `testbench_rp2350` (measured against the same tree built with the `legacy-handle-cast` hatch), and was gated on `qa_ui` across both RP2350 boards in both shrink modes plus a picoenvmon nav + PDB-reload soak. The cast survives one release behind the opt-out `legacy-handle-cast` feature | IPB | Use-after-delete used to hang the device while the sim absorbed it (or aborted cleanly, with the sanitizer) — a recorded HW-only bug class (animation-engine incident); now detected identically on both | resolved (was **S1**) | V | X3: sanitizer on by default in sim + CI; generational table default everywhere (`docs/designs/handle-table-invalidation.md`) |
 
 ### Filesystem (FS)
 
@@ -200,11 +200,13 @@ runs on a 48 KB-LVGL/buttons-only enviro board. The known ">12 focusable rows ha
 renderer" class lives exactly in that per-board delta. V3 confirmed the enviro board
 boots headless under sim *today* — the entire fix is CI wiring, not code.
 
-**4. HAL-05 — the sim structurally hides use-after-delete widget bugs.**
-On 64-bit hosts a deleted LVGL handle resolves to a nulled table slot; on 32-bit hardware
-it dangles into freed memory. This asymmetry has already produced a hardware-only hang
-(animation-engine incident). The sanitizer that closes the gap exists but is opt-in;
-nothing in CI runs it.
+**4. HAL-05 — the sim used to structurally hide use-after-delete widget bugs.**
+On 64-bit hosts a deleted LVGL handle resolved to a nulled table slot; on 32-bit hardware
+it dangled into freed memory. That asymmetry had already produced a hardware-only hang
+(animation-engine incident). **Closed 2026-09-15**: the sanitizer runs by default in
+sim.sh and the CI sim lanes (X3), and the generation-tagged table the sanitizer watches
+is now what the boards run too — so the handle a device follows is validated the same way
+the sim's is.
 
 **5. PERF-03 / OBJ-01 — the numbers developers do see are misleading.**
 Uncapped sim runs report peaks ~3.3× above the app's true floor (267 KB vs 80 KB for
