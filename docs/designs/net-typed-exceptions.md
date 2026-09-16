@@ -1,5 +1,9 @@
 # Design: typed network exceptions — Android-faithful error surfacing — 2026-08-15
 
+**Status: landed.** Shipped across the `picodroid.net` natives (`e8a05ef9`) and released in
+v0.13.0, with a `netexception` row in the nightly. Natives raise these through
+`throw_net_exception`.
+
 **Goal:** network failures surface to apps as the exception types Android
 developers expect — `ConnectException`, `SocketTimeoutException`,
 `UnknownHostException`, `BindException`, `SocketException`,

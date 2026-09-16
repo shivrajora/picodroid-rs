@@ -1,5 +1,7 @@
 # Roadmap: Edge-LLM showcase — Pico Plus 2 W and STM32H7
 
+**Status: not started.** Written 2026-08; no session has been run against it.
+
 **Goal:** a picodroid app that runs a small language model *on the MCU*, written
 against an Android-shaped Java API, streaming tokens into a `TextView` — plus a
 second board family whose memory lets the same app run a real (100M-class) model.

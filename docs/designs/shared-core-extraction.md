@@ -1,5 +1,10 @@
 # Design: Extract the platform-agnostic core into `picodroid-core`
 
+**Status: landed.** `crates/picodroid-core` holds the runtime; executed in stages from
+`ad46157b` (skeleton) onward. Successors, each picking up what this one left behind:
+[family-neutral-residue.md](family-neutral-residue.md), then
+[porting-seam-2026-09.md](porting-seam-2026-09.md).
+
 > Produced 2026-07-26 by the code-structure audit session (three parallel
 > exploration agents mapping structure / history / coupling, then a design
 > pass). Amendments are appended at the bottom and OVERRIDE the design body

@@ -4,6 +4,8 @@
     "CLAUDE.md",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
+    "docs/README.md",
+    "docs/designs/README.md",
     "LICENSING.md",
     "CLA.md",
     "crates/jvm/README.md",

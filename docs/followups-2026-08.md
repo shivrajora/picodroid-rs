@@ -1,5 +1,7 @@
 # Open Follow-ups — post GC-race fix (2026-08-17)
 
+**Status: items 1-6 closed; item 7 (GC-pacing measurements) is partly open.**
+
 Everything left open after the picoenvmon soak/corruption investigation
 (`picoenvmon-qa.md` 2026-08-17 sections; fix `0c1326d`), other than the
 nightly soak + PEM-3 retune, which have their own runbook:

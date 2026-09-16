@@ -1,5 +1,7 @@
 # The simulator as a `pdb` device (2026-09-13)
 
+**Status: landed 2026-09-14** (`09d0b1bd`).
+
 ## 0. Problem
 
 `pdb` (tools/pdb) only spoke to hardware: every command opened a USB CDC

@@ -1,5 +1,7 @@
 # Contributing to Picodroid
 
+The user-facing manual lives under [`website/src/content/docs/`](website/src/content/docs/) and is published to <https://shivrajora.github.io/picodroid-rs/>. The engineering record — why the runtime is shaped the way it is, what was measured, and what is still open — is indexed at [`docs/README.md`](docs/README.md). Read the relevant design before changing a subsystem; that index routes by subsystem.
+
 ## Getting Set Up
 
 See [website/src/content/docs/get-started/build.md](website/src/content/docs/get-started/build.md) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).

@@ -1,8 +1,8 @@
 # Networking seams for FreeRTOS + FreeRTOS+TCP families
 
-Status: done on branch `refactor/network-seam` (2026-09-04), not yet merged to
-`main`. Worktree `.claude/worktrees/network-seam`, base `main` at `fedf6cb`,
-`main` merged back in after S4 (A8).
+**Status: landed.** Built on branch `refactor/network-seam` (2026-09-04), since merged to
+`main` and released as shrink map v0.19.0 (`9b68fb7d`). Amendments record where execution
+diverged from the body.
 
 Successor to `family-neutral-residue.md` §6 ("Phase N — networking") and to
 `porting-seam-2026-09.md` E8, which deferred networking to "its own doc".

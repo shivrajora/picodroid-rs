@@ -1,5 +1,9 @@
 # Design: compile-time dependency injection — `@Inject` / `@Singleton` — 2026-08-28
 
+**Status: landed.** Released in v0.14.0; the processor and the generated wiring live
+under `sdk/` (moved there by `9be6b754`), and Kotlin apps go through kapt. Follow-ups 1, 2
+and 6 have landed since; 3, 4, 5 and 7 are open.
+
 **Goal:** Dagger/Hilt-shaped DI for picodroid apps. Developers write JSR-330
 `@javax.inject.Inject` constructors / fields / methods and
 `@javax.inject.Singleton` classes; the build generates the wiring; the
@@ -153,7 +157,9 @@ constructors on an `Application` subclass never ran. They do now
 | `picoenvmon` PAPK | 63,222 → 69,170 B (+5.9 KB, 0 firmware flash): 12 generated classes (6 factories, 6 injectors) + `EnvPrefs` replace the 2 hand-written components |
 | RAM per generated class | ~20 B registered at boot; ~88 B + CP + 32 B/method when first touched (each factory: 2 methods; each injector: 2 methods) |
 
-## Follow-ups (not started)
+## Follow-ups
+
+Items 1, 2 and 6 have since landed and are struck through below; 3, 4, 5 and 7 are open.
 
 1. ~~**`Provider<T>` / `Lazy<T>`**~~ — **DONE (branch `di-provider-lazy`)**:
    `sdk/java/javax/inject/Provider.java` + `sdk/java/picodroid/di/Lazy.java`

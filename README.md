@@ -116,6 +116,8 @@ The full docs are published at **<https://shivrajora.github.io/picodroid-rs/>** 
 - [Release notes](https://shivrajora.github.io/picodroid-rs/project/release-notes/) — v0.4.0 → v0.14.0
 - [Contributing](CONTRIBUTING.md) — how to contribute, run tests, and add new features
 
+Working *on* Picodroid rather than with it? The engineering record — designs, audits, roadmaps and dated bug investigations — is indexed at [`docs/README.md`](docs/README.md), which routes by subsystem and marks what is landed, open or not started.
+
 ## Project Structure
 
 Three rules place every directory: `crates/` holds the Rust libraries,
@@ -168,7 +170,7 @@ picodroid-rs/
 ├── scripts/            # Build, flash, sim, pdb, test, HIL and pre-commit scripts
 │                       # (lint-md/ is the markdownlint npm project)
 ├── bench/parity/       # Benchmark history and the committed flash/RAM size ratchet
-├── docs/               # Engineering docs: designs, audits, dated bug records
+├── docs/               # Engineering docs: designs, audits, dated bug records (index: docs/README.md)
 ├── website/            # Astro Starlight documentation site — the user-facing manual
 └── third_party/        # All third-party code: submodules (FreeRTOS-Kernel, LVGL, FreeRTOS+TCP,
                         # cyw43-driver fork), littlefs fork, formatter JARs

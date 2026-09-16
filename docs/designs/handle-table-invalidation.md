@@ -1,5 +1,9 @@
 # Design: Generation-tagged widget handle invalidation (audit P1-9)
 
+**Status: landed.** Step 1 `a1063ed6` (the `view_ops` null-guard sweep), step 2 `3d441fb2`
+(the generation-tagged table, unit tests, and the `handle-table-32` pre-commit legs). The
+32-bit device arm stays behind that default-off feature.
+
 > Produced 2026-07-25 by the audit fix session's design panel (4 parallel
 > design agents, each adversarially critiqued against source; the critique's
 > verdict and amendments are at the bottom and OVERRIDE the design body where

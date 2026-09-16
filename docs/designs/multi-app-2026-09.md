@@ -1,5 +1,8 @@
 # Design: multi-app — a dynamic app region, a package directory, and what a launcher needs
 
+**Status: M0-M3 landed** (2026-09-07 to 2026-09-09), released as shrink map v0.22.0.
+Per-stage detail is in Section 5; the amendments at the bottom override the body.
+
 > Produced 2026-09-07 by a planning session (three parallel audits over the
 > PAPK/manifest/pdb path, the flash layout, boot and installer, and the
 > storage/PackageManager/lifecycle surface; then a design pass whose product

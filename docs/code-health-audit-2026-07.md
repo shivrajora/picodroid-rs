@@ -1,5 +1,8 @@
 # Code-Health Audit — 2026-07-24
 
+**Status: P0 and P1 closed, P2 open** — the progress notes at the head of Section 9 say what
+landed and when.
+
 Full-repo audit on four axes: **test coverage**, **modularization**, **reusability**, and
 **API contracts**. Read-only — no fixes applied; the prioritized backlog at the end is the
 input for follow-up sessions.

@@ -1,5 +1,8 @@
 # Bug backlog: on-device memory stress run — 2026-07-23
 
+**Status: all four findings fixed 2026-07-24** — each section opens with its fix commit and
+the on-device verification. Kept for the repro and measurement recipes.
+
 Findings from a PDB-driven input-injection stress run of `keydemo` and `picoenvmon`
 on a real **pico_enviro_mon** board (RP2350, Enviro+ Pack, buttons A/B/X/Y only).
 Each section is self-contained: symptom, evidence, repro, suspected root cause,

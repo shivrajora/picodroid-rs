@@ -1,5 +1,9 @@
 # Design: the porting seam — one checklist, and the last neutral code out of `platforms/rp`
 
+**Status: landed.** S0-S10 merged to `main`; the flash improvement was accepted into the
+size ratchet in `e33384bd`. `picodroid_core::porting` is now the porting checklist, and the
+published porting guide is written around it.
+
 > Produced 2026-09-02/03 by a planning session (three parallel audits over
 > the non-HAL family files, the `hal/rp/**` tree plus the build layer, and the
 > core seam plus every porting document; then a design pass). Every claim was
