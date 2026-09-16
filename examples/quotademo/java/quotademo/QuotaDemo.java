@@ -14,10 +14,12 @@ import picodroid.util.Log;
 
 /**
  * Conformance checks for the storage quota (multi-app M3b): {@code StatFs} reports the volume and
- * what this app may still write, seven 16 KB files fit under the 128 KB cap beside the 8 KB package
- * directory and the eighth is refused with {@code IOException}, a delete and a {@code mkdir} move
- * the number by exactly what they cost, and {@code StorageStatsManager} agrees with the accounting.
- * {@code Build} names the board. Multi-app boards only (the cap is theirs).
+ * what this app may still write, as many 16 KB files as fit under the board's cap beside the 8 KB
+ * package directory (seven under the rp2350 boards' 128 KB, sixty-three under the touch kit's 1 MB)
+ * and the next is refused with {@code IOException}, a delete and a {@code mkdir} move the number by
+ * exactly what they cost, and {@code StorageStatsManager} agrees with the accounting. The cap is
+ * learned from the first {@code StatFs}: what is available plus what this app already holds. {@code
+ * Build} names the board. Multi-app boards only (the cap is theirs).
  */
 public class QuotaDemo extends Application {
   private static final String TAG = "QuotaDemo";
@@ -25,7 +27,9 @@ public class QuotaDemo extends Application {
   static final long BLOCK = 4096L;
   static final long DIR = 8192L;
   static final long BLOB = 16384L;
-  static final long CAP = 131072L;
+
+  /** The board's per-app cap, learned in {@link #testStatFs}. */
+  static long cap;
 
   static int passed;
   static int failed;
@@ -78,18 +82,32 @@ public class QuotaDemo extends Application {
     check("available within free", avail > 0 && avail <= free);
     // A fresh app has the whole cap; one that ran before holds its package
     // directory (an app cannot delete its own root), 8 KB of it.
-    check(
-        "available is the cap, or the cap less the directory", avail == CAP || avail == CAP - DIR);
+    long held = heldBytes();
+    check("available is the cap, or the cap less the directory", held == 0 || held == DIR);
+    cap = avail + held;
+    Log.i(TAG, "cap " + cap);
+    check("the cap is whole blocks above the directory", cap > DIR && cap % BLOCK == 0);
     check("block size", s.getBlockSizeLong() == BLOCK);
     check("block count", s.getBlockCountLong() == total / BLOCK);
   }
 
+  /** This app's data bytes per {@code StorageStatsManager}; 0 when the package is unknown. */
+  long heldBytes() {
+    StorageStatsManager ssm = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
+    try {
+      return ssm.queryStatsForPackage(getPackageName()).getDataBytes();
+    } catch (PackageManager.NameNotFoundException e) {
+      return 0L;
+    }
+  }
+
   void testCapAndStats() {
     StatFs s = new StatFs("/");
+    int fit = (int) ((cap - DIR) / BLOB);
     int written = 0;
     boolean refused = false;
     byte[] blob = new byte[(int) BLOB];
-    for (int i = 0; i < 16 && !refused; i++) {
+    for (int i = 0; i <= fit && !refused; i++) {
       try {
         FileOutputStream out = new FileOutputStream("/blob" + i);
         out.write(blob);
@@ -101,16 +119,16 @@ public class QuotaDemo extends Application {
       }
     }
     check("the cap refuses a write", refused);
-    check("seven 16 KB blobs fit beside the 8 KB directory", written == 7);
+    check("the 16 KB blobs that fit beside the 8 KB directory fit", written == fit);
     long avail = s.getAvailableBytes();
-    check("available is the remainder under the cap", avail == CAP - DIR - 7 * BLOB);
-    File eighth = new File("/blob7");
-    check("a refused write stores nothing", !eighth.exists() || eighth.length() == 0L);
+    check("available is the remainder under the cap", avail == cap - DIR - fit * BLOB);
+    File next = new File("/blob" + fit);
+    check("a refused write stores nothing", !next.exists() || next.length() == 0L);
 
     StorageStatsManager ssm = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
     try {
       StorageStats st = ssm.queryStatsForPackage(getPackageName());
-      check("data bytes match the accounting", st.getDataBytes() == DIR + 7 * BLOB);
+      check("data bytes match the accounting", st.getDataBytes() == DIR + fit * BLOB);
       check("app bytes are the run", st.getAppBytes() > 0 && st.getAppBytes() % BLOCK == 0);
       check("cache is empty", st.getCacheBytes() == 0L);
     } catch (PackageManager.NameNotFoundException e) {
@@ -133,7 +151,7 @@ public class QuotaDemo extends Application {
   }
 
   void cleanup() {
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i <= (cap - DIR) / BLOB; i++) {
       new File("/blob" + i).delete();
     }
     new File("/dir").delete();
