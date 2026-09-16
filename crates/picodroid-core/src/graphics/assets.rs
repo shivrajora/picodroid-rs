@@ -82,6 +82,27 @@ pub fn init_from_papk(papk: &Papk<'_>) {
         let Ok(name) = core::str::from_utf8(entry.name) else {
             continue;
         };
+        // LVGL reads these pixels in place through a `const uint16_t *`
+        // (`lv_draw_sw_transform.c`). A Cortex-M0+ answers an unaligned
+        // halfword load with a HardFault rather than a slow path, so an
+        // odd descriptor would take the board down at the first draw of a
+        // scaled image — with a backtrace pointing into LVGL, not at the
+        // packer that misplaced it. papk-format aligns every section to keep
+        // this true (`write::section_after`); skipping the asset makes a
+        // regression a missing image and one line of log instead.
+        if !(entry.data.as_ptr() as usize).is_multiple_of(2) {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!(
+                "[assets] {=str} skipped: pixel data is not 2-byte aligned",
+                name
+            );
+            #[cfg(feature = "sim")]
+            println!(
+                "[assets] {} skipped: pixel data is not 2-byte aligned",
+                name
+            );
+            continue;
+        }
         let header = lv_image_header_t::new(entry.cf, entry.width, entry.height, entry.stride);
         let dsc = Box::new(lv_image_dsc_t {
             header,
