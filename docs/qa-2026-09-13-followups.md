@@ -69,14 +69,53 @@ overnight recipe in `project_pdb_hw_soak_harness`); then flip the default in
 ## 3. Unchecked allocations left in native paths (P2 — a board reset each)
 
 J23–J26 made the formatter, file streams, frames and interning fallible; three infallible
-sites remain, each a reset instead of an `OutOfMemoryError`:
+sites remained, each a reset instead of an `OutOfMemoryError`. Two are closed now (the
+RP2040's 10 KB and the LittleFS cache), plus one found on the way
+(`ChunkedSlots::push`); the touch kit's 7680 bytes is the one still open:
 
 - **Touch kit, 7680 bytes** on the path a background-pool worker takes into Java under a full
   heap (`qa_thr` on `pico_touch_kit` without the conf restriction). It is not the frame or the
   task stack. A device heap census (`docs/memory-diagnostics.md`, `--mem-diag` on the sim
   first) is the way to name it.
 - **RP2040, 10 KB** in `qa_ui`'s focus section once the containers section has exhausted the
-  heap (`qa_ui` is restricted to the RP2350 boards in `hil-tests.conf` for this reason).
+  heap (`qa_ui` is restricted to the RP2350 boards in `hil-tests.conf` for this reason) —
+  **done 2026-09-15**, see below.
+  **2026-09-15, measured on the board** (`PICODROID_EXTRA_FEATURES=mem-diag flash.sh -b
+  testbench_rp2040 -a qa_ui`): the size is exact — `memory allocation of 10240 bytes failed`
+  — and the reset is that panic reaching `panic_probe`'s `udf`, not memory corruption: the
+  stacked frame reads `pc=__udf`. `containers` raises a clean `OutOfMemoryError` first, so
+  the heap is genuinely full by then and any large infallible request would do it.
+  Markers between the Java statements put the failing allocation between
+  `setFocusable(true)` and the `new int[1]` that follows — on a board with no keypad group
+  `setFocusable` is nearly a no-op, so it is the string work in `check()` that tips it over,
+  not the focus natives.
+  **Named and fixed 2026-09-15: the interpreter's method/field resolution caches**
+  (`interpreter/helpers.rs`, `interpreter/ops_fields.rs`). `MethodCacheEntry` is
+  `(*const u8, *const u8, *const u8, usize, usize)` = 20 bytes on a 32-bit target, and the
+  cache `Vec` doubling from 256 to **512 entries is exactly 10,240 bytes** — one contiguous
+  request, made by a plain `Vec::push`, on a heap `containers` had already emptied.
+  All five cache pushes go through `helpers::cache_push`, which `try_reserve(1)`s and
+  simply declines to memoise if the heap says no: these are caches, not state, so the cost
+  of a refusal is one re-resolve. On the board `qa_ui` now runs through the focus section
+  (`requestFocus declined (touch board)`) instead of resetting.
+
+  How it was found, since neither obvious tool worked: the sim cannot stand in (it exhausts
+  the 160 KB model back in `radio`, and its 64-bit entry is 40 bytes, so the size does not
+  even match), `probe-rs gdb` does not work on this board, and Cortex-M0+ cannot be unwound
+  through the exception. What worked was a temporary `#[global_allocator]` wrapper that, for
+  any request ≥ 8 KB, scanned 200 words above `sp` for values that look like thumb return
+  addresses into the XIP text region and stashed them in a `static` — **with no logging**,
+  because a `defmt` call inside the allocator takes a critical section under the FreeRTOS
+  heap lock and wedges the board before RTT attaches. The `HardFault` handler printed the
+  stash afterwards, and `arm-none-eabi-addr2line -i` turned it into
+  `finish_grow` ← `Vec::push` ← `find_method_cached` ← `op_invoke`.
+- **`ChunkedSlots::push`, one `CHUNK_SIZE` chunk** — **done 2026-09-15.** `ArrayHeap::alloc`
+  takes care to answer `None` from both of its arena reservations, then placed the slot with
+  `push`, which allocates a fresh chunk through an infallible `Vec::with_capacity` — so the
+  last step of a carefully fallible allocation was the one that could abort the board, once
+  every 64 arrays. It now uses the `try_push` the object and string stores already used, and
+  rolls the arena back when the slot cannot be placed. That was `push`'s last caller, so it
+  is `#[cfg(test)]` now and firmware cannot reach the infallible path at all.
 - **LittleFS file cache, 4 KB per open** — **done** (`2cfb0120`): the allocation was
   `vec![0u8; cache_size]` in `littlefs-rust`'s `File::open`, not in `hal_impl.rs`; the crate
   is vendored under `third_party/littlefs-rust` with the cache reserved through
@@ -324,10 +363,15 @@ one was, and what it became:
 - **`testbench_rp2040`: `helloworld:pdb-install[shrink]` — a reboot that missed the 20 s PING
   window, not reproduced.** `install-stress[shrink]` (ten installs) passed right after it, and
   the no-shrink row passed. Intermittent since 2026-09-12; unchanged.
-- **`testbench_rp2040`: `imagedemo`, both modes — a HardFault after `ImageDemo ready`, open and
-  older than the round.** ERROR every night since at least 2026-09-09. probe-rs's "Frame 0" is
-  the `HardFault` handler itself (the thunk name it prints is the preceding symbol), so the
-  faulting PC is not in the log; reproducing under a probe with the ELF is the next step.
+- **`testbench_rp2040`: `imagedemo`, both modes — an unaligned pixel read, FIXED 2026-09-15.**
+  The faulting PC was missing because probe-rs 0.31 catches the hardfault at the *vector*, so
+  the handler body never ran; with `--no-catch-hardfault` and a handler that logs the stacked
+  frame, it is `transform_rgb565a8` reading `0x101018ab` — an odd address. Papk sections were
+  packed back to back, so an ASSETS section could start at 3 mod 4 and carry its (section-
+  relative 4-byte-aligned) pixels to an odd flash address; a Cortex-M0+ HardFaults on the
+  `uint16_t` read, an RP2350 and the sim do not. The writer aligns every section now and the
+  asset registry refuses an unaligned descriptor. Row PASSes 2/2.
+  Full write-up: `bugs-rp2040-imagedemo-2026-09-15.md`.
 - **`testbench_rp2350` — no run since 2026-09-10.** Not a failure: that slot became the touch
   kit (`fleet.conf`), and the Enviro row accepts `testbench_rp2350` firmware.
 
