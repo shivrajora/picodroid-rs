@@ -35,7 +35,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     }
                     let value = self.statics.get(class_name, field_name);
                     if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                        self.static_field_cache.push((cn_ptr, fn_ptr, idx));
+                        super::helpers::cache_push(
+                            &mut self.static_field_cache,
+                            (cn_ptr, fn_ptr, idx),
+                        );
                     }
                     value
                 };
@@ -69,7 +72,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         .set(class_name, field_name, value)
                         .ok_or(JvmError::StackOverflow)?;
                     if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                        self.static_field_cache.push((cn_ptr, fn_ptr, idx));
+                        super::helpers::cache_push(
+                            &mut self.static_field_cache,
+                            (cn_ptr, fn_ptr, idx),
+                        );
                     }
                 }
             }
