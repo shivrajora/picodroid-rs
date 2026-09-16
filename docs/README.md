@@ -66,7 +66,7 @@ Plans and backlogs with items still open. Check the doc for the current row befo
 
 | Doc | Status | Left to do |
 |---|---|---|
-| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | open | Item 1 (`qa_life` stalls on the Pico 2 W slot) is open; item 2 is soaking. Items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
+| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Item 2 (the `handle-table-32` soak) is the only item still open; item 1 was found and fixed 2026-09-15, items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
 | [bugs-rp2040-imagedemo-2026-09-15.md](bugs-rp2040-imagedemo-2026-09-15.md) | fixed | Unaligned papk asset pixels HardFaulted the RP2040 on any scaled image. Read it for the probe-rs `catch_hardfault` trap that hid the faulting PC for six nights. |
 | [networking-followups-2026-08.md](networking-followups-2026-08.md) | open | NET-10 (dashboard loads hang, RST-on-close) open since 2026-09-07; NET-1 and NET-9 leftovers remain. NET-2/4/5/6/7/8 done. |
 | [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; refreshing against upstream, pushing and opening the PR are deliberately left to a human. |
