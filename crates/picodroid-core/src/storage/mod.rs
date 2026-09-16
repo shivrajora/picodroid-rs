@@ -52,9 +52,12 @@ fn remove_tree(dir: &str, depth: usize) -> bool {
 
 /// Remove every `/data/*` directory that names no installed or system
 /// package — what a power loss between an uninstall's erase and its wipe,
-/// or an app removed by reflashing, leaves behind. Multi-app boards, at
-/// boot, once the package directory is scanned. Returns how many went.
-#[cfg(has_multi_app)]
+/// or an app removed by reflashing, leaves behind. At boot, once the
+/// package directory is scanned, on every board: a single-app board's only
+/// package is the one flashed, and each reflash used to leave the previous
+/// app's directory (a LittleFS metadata pair, 8 KB) behind for good — the
+/// RP2040's 128 KB volume filled with them and every `mkdir` failed
+/// (nightly 2026-09-15). Returns how many went.
 pub fn sweep_orphans() -> usize {
     let mut entries = Vec::new();
     if !fs::list_dir(sandbox::DATA_ROOT, &mut entries) {
@@ -96,7 +99,6 @@ mod tests {
         assert!(wipe_package("com.never"));
     }
 
-    #[cfg(has_multi_app)]
     #[test]
     fn the_sweep_removes_what_no_package_owns() {
         let _g = packages::test_support::lock();

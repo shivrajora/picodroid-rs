@@ -154,11 +154,9 @@ fn main() -> ! {
     }
     // Data of packages that are gone — an uninstall's wipe cut short by a
     // power loss, an app removed by reflashing — leaves now that the
-    // directory is scanned and the volume is mounted (D10, P8).
-    #[cfg(has_multi_app)]
-    {
-        let _ = picodroid_core::storage::sweep_orphans();
-    }
+    // directory is scanned and the volume is mounted (D10, P8). On a
+    // single-app board that is every app flashed before this one.
+    let _ = picodroid_core::storage::sweep_orphans();
 
     boot_tasks::start_tasks(boot_apk)
 }
