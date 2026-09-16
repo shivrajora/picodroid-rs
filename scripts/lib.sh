@@ -378,7 +378,11 @@ settings_dialog_ok() {
   height=$(display_dim "$board_toml" height)
   card_y=$(( (${height:-240} - 160) / 2 ))
   (( card_y < 8 )) && card_y=8
-  echo "$(( ${width:-240} / 2 + 40 )) $(( card_y + 78 ))"
+  # The button row is the card's third flex child (12 px pad, two labels, the
+  # theme's row gaps, 6 px row pad): its 36 px buttons span roughly card_y+72
+  # to card_y+108, so aim at the middle. The old +78 sat on the top edge and
+  # missed on the touch kit (nightly 2026-09-15: +78 missed, +90 uninstalled).
+  echo "$(( ${width:-240} / 2 + 40 )) $(( card_y + 90 ))"
 }
 
 # One `[display]` integer key from a board.toml, empty when absent.

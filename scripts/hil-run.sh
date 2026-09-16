@@ -710,7 +710,15 @@ run_pdb_launch_test() {
     [[ "$other" == "$app" ]] && continue
     hil_pdb "$log_file" uninstall "$other" || true
   done
-  sleep 2
+  # The last uninstall's reboot may still be settling: a LIST that times out
+  # is retried for up to ~10 s before the row's own boot listing counts
+  # (blinky:pdb-launch[shrink], nightly 2026-09-15, the listing that names the
+  # launcher lost to "LIST recv failed: Operation timed out").
+  local settle
+  for settle in 1 2 3 4 5; do
+    if hil_pdb_run 30 list > /dev/null 2>&1 < /dev/null; then break; fi
+    sleep 2
+  done
   echo "=== boot ===" >> "$log_file"
   hil_pdb "$log_file" list || true
   local tap_log="${log_file%.log}.tap.log"
@@ -805,7 +813,15 @@ run_pdb_settings_test() {
     [[ "$other" == "$app" ]] && continue
     hil_pdb "$log_file" uninstall "$other" || true
   done
-  sleep 2
+  # The last uninstall's reboot may still be settling: a LIST that times out
+  # is retried for up to ~10 s before the row's own boot listing counts
+  # (blinky:pdb-launch[shrink], nightly 2026-09-15, the listing that names the
+  # launcher lost to "LIST recv failed: Operation timed out").
+  local settle
+  for settle in 1 2 3 4 5; do
+    if hil_pdb_run 30 list > /dev/null 2>&1 < /dev/null; then break; fi
+    sleep 2
+  done
   echo "=== boot ===" >> "$log_file"
   hil_pdb "$log_file" list || true
   local tap_log="${log_file%.log}.tap.log"
