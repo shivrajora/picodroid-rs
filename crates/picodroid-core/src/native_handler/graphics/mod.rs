@@ -73,10 +73,16 @@ pub fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
+    let result = dispatch_with(&mut LvglBackend, class_name, method_name, ctx);
     // Every View/Display native passes through here — the one place to
-    // notice a touch from off the UI thread (see `crate::ui_thread`).
-    crate::ui_thread::warn_if_off_ui_thread();
-    dispatch_with(&mut LvglBackend, class_name, method_name, ctx)
+    // notice a touch from off the UI thread (see `crate::ui_thread`). Only
+    // once the class is known to be ours: every native the sub-handlers
+    // before this one decline is offered here too, and a warning ahead of
+    // the match called a worker's `Thread.currentThread()` a View touch.
+    if result.is_some() {
+        crate::ui_thread::warn_if_off_ui_thread();
+    }
+    result
 }
 
 /// Whether the receiver (`args[0]`) is a view whose handle is 0.
