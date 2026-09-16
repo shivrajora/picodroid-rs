@@ -17,11 +17,18 @@ PEM-3 prereserve retune has its own runbook: `picoenvmon-soak-handover-2026-08.m
 
 **2026-09-14 — QA round follow-up backlog:** the 2026-09-13 QA round (seven `qa_*` apps, forty
 fixes, three boards; `qa-2026-09-13.md`) left nine items, recorded with evidence and next steps
-in **`qa-2026-09-13-followups.md`**: a lost main-executor post that stalls `qa_life` on the
-Pico 2 W slot (P1), the `handle-table-32` soak the legacy handle cast now owes (P1), three
+in **`qa-2026-09-13-followups.md`**: a `qa_life` stall on the Pico 2 W slot (P1), the
+`handle-table-32` soak the legacy handle cast now owes (P1), three
 remaining infallible native allocations that still reset the RP2040 or the touch kit, the
 RP2040's ROM float-to-int flooring beyond the JVM, LittleFS formatting on a geometry mismatch,
 per-slot target directories for one-off `hil-run.sh`, and the `IllegalFormat*` class names.
+
+**2026-09-15 update.** All of the above are closed except the `handle-table-32` soak and
+**one** infallible allocation — the touch kit's 7,680 bytes. The `qa_life` stall was an SPI
+transfer that never signalled completion (`f74c108e`), not a lost post; the RP2040's 10 KB was
+the JVM's resolution caches growing with an infallible `Vec::push`, and `ChunkedSlots::push`
+was a second one found beside it. The same round's `imagedemo` ERROR, which predated it, was
+an unaligned papk ASSETS section: `bugs-rp2040-imagedemo-2026-09-15.md`.
 
 ## Regression automation
 

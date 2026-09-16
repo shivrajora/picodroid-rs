@@ -117,12 +117,17 @@ RP2350's 408 KB arena — see the peak figures in `hil-tests.conf` next to their
 rp2040 slot. On the board afterwards: threadstress, threadparity, benchmark
 and gcstress_kt PASS.
 
-**Still open: `imagedemo` on the rp2040.** With either RAM budget the board
-HardFaults (pc 0, no panic message) right after `ImageDemo ready`, the
-moment the image is first rendered to the ST7789 — the rp2040 sim, which has
-no display driver, runs it clean. A device-only bug in the image render path
-on this board; the row stays in the matrix and reports as a probe-rs ERROR
-(`Firmware exited unexpectedly: Exception`) until it is fixed.
+**`imagedemo` on the rp2040 — fixed 2026-09-15, six nights later.** With
+either RAM budget the board HardFaulted right after `ImageDemo ready`, the
+moment the image was first rendered to the ST7789, while the rp2040 sim ran
+it clean. This section's guess — the LVGL pool, a RAM budget — was wrong: it
+was nothing to do with memory. The papk's ASSETS section was landing on an
+odd file offset, so LVGL's `uint16_t` read of the pixels in XIP flash was
+unaligned, which a Cortex-M0+ answers with a HardFault. The "pc 0, no panic
+message" above is also an artifact rather than evidence: probe-rs halts at
+the exception vector before the handler runs, so the frame was never
+recovered. Full write-up, and the recipe for getting a real faulting PC out
+of this board: `bugs-rp2040-imagedemo-2026-09-15.md`.
 
 ## 4. Sim run: `picoenvmon-enviro-w[no-shrink]` build error
 
