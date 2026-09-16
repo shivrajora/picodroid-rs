@@ -12,6 +12,19 @@
 //! by a MANIFEST section, a CLASSES section, and (optionally, in v1.1+) an
 //! ASSETS section.  All integers are little-endian.
 //!
+//! **Every section starts on a 4-byte boundary**, zero-padded from the end of
+//! the previous one. The reader takes each section's offset from the file
+//! header and so never depends on this, but a *writer* must honour it: asset
+//! pixel data is padded to 4 bytes relative to its section, which only makes
+//! it 4-byte aligned in the file — and hence at its mapped flash address —
+//! if the section itself is. Alignment is not cosmetic here. LVGL reads
+//! bundled pixels in place out of XIP flash through a `const uint16_t *`, and
+//! a Cortex-M0+ answers an unaligned halfword load with a HardFault rather
+//! than a slow path, so a misplaced ASSETS section takes an RP2040 down the
+//! first time it draws a scaled image (`docs/bugs-rp2040-imagedemo-2026-09-15.md`).
+//! Sections packed back to back, as they were before 2026-09-15, put ASSETS
+//! wherever the sum of the class files happened to land.
+//!
 //! ```text
 //! File header (24 bytes):
 //!   [0..4]   magic:           b"PAPK"
@@ -52,6 +65,9 @@
 //!     [pad 0..3 bytes so data starts at 4-byte offset within the section]
 //!     [pixel bytes (data_size bytes; LVGL-native, not encoded)]
 //!     [pad 0..3 bytes so next record starts at 4-byte offset within the section]
+//!
+//! Between sections:
+//!   [pad 0..3 zero bytes so the next section header starts 4-byte aligned]
 //! ```
 //!
 //! # Lifetime

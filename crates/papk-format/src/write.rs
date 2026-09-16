@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! PAPK writer (`write` feature, alloc-only).
 //!
-//! [`PapkBuilder`] owns "the manifest shape" and emits files **byte-identical**
-//! to the historical `papk-pack` `build_papk()`:
+//! [`PapkBuilder`] owns "the manifest shape". Its output matches the
+//! historical `papk-pack` `build_papk()` except for the section alignment
+//! padding described below, which that writer did not emit:
 //!
 //! - file header (24 bytes) with `version_major = 1`, `version_minor = 1`
 //!   always;
 //! - section order MANI, CLSS, then ASST only when at least one asset is
 //!   present (otherwise `assets_offset = 0` and `section_count = 2`);
+//! - every section starts on a 4-byte boundary, zero-padded from the end of
+//!   the previous one ([`section_after`]) — the reader takes each section's
+//!   offset from the file header, so the padding is invisible to it;
 //! - manifest key order: the entry-point key (`main-class` / `activity` /
 //!   `application`), `package-name`, `version`, `framework-map-version`,
 //!   then `version-code`, `label` and `icon` — each only when the spec sets
@@ -168,19 +172,13 @@ impl<'a> PapkBuilder<'a> {
 
         // File header is 24 bytes. MANIFEST section starts immediately after.
         let manifest_offset = FILE_HEADER_LEN as u32;
-        let classes_offset = manifest_offset
-            .checked_add(SECTION_HEADER_LEN as u32)
-            .and_then(|v| v.checked_add(manifest_len))
-            .ok_or(BuildError::TooLarge)?;
+        let classes_offset = section_after(manifest_offset, manifest_len)?;
         // 0 means "no ASSETS section". Legacy parsers see zero in the slot
         // they formerly read as `reserved` and behave unchanged.
         let assets_offset = if self.assets.is_empty() {
             0u32
         } else {
-            classes_offset
-                .checked_add(SECTION_HEADER_LEN as u32)
-                .and_then(|v| v.checked_add(classes_len))
-                .ok_or(BuildError::TooLarge)?
+            section_after(classes_offset, classes_len)?
         };
         let section_count: u32 = if self.assets.is_empty() { 2 } else { 3 };
 
@@ -200,11 +198,13 @@ impl<'a> PapkBuilder<'a> {
         file.extend_from_slice(&manifest_data);
 
         // CLASSES section
+        pad_to(&mut file, classes_offset);
         push_section_header(&mut file, TAG_CLASSES, classes_len);
         file.extend_from_slice(&classes_data);
 
         // ASSETS section (optional)
         if !self.assets.is_empty() {
+            pad_to(&mut file, assets_offset);
             push_section_header(&mut file, TAG_ASSETS, assets_len);
             file.extend_from_slice(&assets_data);
         }
@@ -312,6 +312,31 @@ fn push_bytes_u16(out: &mut Vec<u8>, bytes: &[u8], err: BuildError) -> Result<()
     Ok(())
 }
 
+/// Offset of the section that follows the one starting at `offset` with
+/// `data_len` bytes of payload — rounded up to the next 4-byte boundary.
+///
+/// Every section starts 4-byte aligned so that the asset payloads inside
+/// ASSETS, which are padded to 4 bytes *relative to their section*, are
+/// 4-byte aligned in the file as well — and so at their mapped address,
+/// since a papk is placed on a flash sector boundary. LVGL reads pixels
+/// straight out of XIP flash through a `const uint16_t *`; on Cortex-M0+ an
+/// unaligned halfword load is a HardFault, not a slow path, so an ASSETS
+/// section landing on an odd offset crashed the RP2040 board the moment a
+/// scaled image was drawn (`docs/bugs-rp2040-imagedemo-2026-09-15.md`).
+fn section_after(offset: u32, data_len: u32) -> Result<u32, BuildError> {
+    offset
+        .checked_add(SECTION_HEADER_LEN as u32)
+        .and_then(|v| v.checked_add(data_len))
+        .and_then(|v| v.checked_add(3))
+        .map(|v| v & !3)
+        .ok_or(BuildError::TooLarge)
+}
+
+/// Zero-fill `out` up to `offset` (the alignment padding between sections).
+fn pad_to(out: &mut Vec<u8>, offset: u32) {
+    out.resize(offset as usize, 0);
+}
+
 /// Append a 16-byte section header (`crc32`/`reserved` = 0).
 fn push_section_header(out: &mut Vec<u8>, tag: u32, data_len: u32) {
     out.extend_from_slice(&tag.to_le_bytes());
@@ -335,6 +360,56 @@ mod tests {
             version_code: None,
             label: None,
             icon: None,
+        }
+    }
+
+    /// The bug this guards: asset payloads are padded to 4 bytes *within*
+    /// their section, and `lib.rs` asserted exactly that — on a fixture whose
+    /// sections happened to start aligned anyway. A real class file is any
+    /// length, so ASSETS landed wherever CLASSES ended: `imagedemo`'s pixels
+    /// sat at an odd flash address and the RP2040 HardFaulted on LVGL's first
+    /// `uint16_t` read of them. Odd-length class payloads here, absolute file
+    /// offsets asserted.
+    #[test]
+    fn sections_and_asset_data_are_4_byte_aligned_in_the_file() {
+        for class_len in 1..=8usize {
+            let class_bytes = alloc::vec![0xCAu8; class_len];
+            let pixels: &[u8] = &[0xDE, 0xAD, 0xBE, 0xEF];
+            let mut b = PapkBuilder::new(spec());
+            b.class("t/Main", &class_bytes);
+            // An odd-length name moves the payload within the section too.
+            b.asset(AssetSpec {
+                name: "logo.png",
+                width: 1,
+                height: 1,
+                cf: 0x12,
+                stride: 0,
+                data: pixels,
+            });
+            let file = b.build().unwrap();
+
+            let hdr = Papk::parse(&file).unwrap().file_header();
+            assert_eq!(
+                hdr.classes_offset % 4,
+                0,
+                "classes_offset misaligned for class_len {class_len}"
+            );
+            assert_eq!(
+                hdr.assets_offset % 4,
+                0,
+                "assets_offset misaligned for class_len {class_len}"
+            );
+
+            let p = Papk::parse(&file).unwrap();
+            let entry = p.assets().unwrap().unwrap().next().unwrap();
+            let file_offset = (entry.data.as_ptr() as usize).wrapping_sub(file.as_ptr() as usize);
+            assert_eq!(
+                file_offset % 4,
+                0,
+                "asset data at file offset {file_offset} (class_len {class_len}) is not 4-byte \
+                 aligned — an unaligned uint16_t read on Cortex-M0+ is a HardFault"
+            );
+            assert_eq!(entry.data, pixels);
         }
     }
 

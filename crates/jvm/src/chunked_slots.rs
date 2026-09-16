@@ -55,23 +55,18 @@ impl<T> ChunkedSlots<T> {
         self.chunks.get_mut(c).map(|chunk| &mut chunk[i])
     }
 
-    /// Append a new slot. Allocates a fresh chunk if the tail chunk is full.
-    /// Returns the index of the new slot.
+    /// Append a new slot, panicking if the heap cannot hold a fresh chunk.
+    ///
+    /// **Test-only.** Firmware must use [`try_push`](Self::try_push): a slot
+    /// past the tail chunk allocates a whole `CHUNK_SIZE` chunk, and on a
+    /// 160 KB board an infallible one is a board reset rather than the
+    /// `OutOfMemoryError` the JVM is able to raise. This used to be the
+    /// production entry point and `ArrayHeap::alloc` was its last caller
+    /// (2026-09-15) — being `cfg(test)` is what keeps it from coming back.
+    #[cfg(test)]
     pub fn push(&mut self, val: Option<T>) -> usize {
-        let idx = self.len;
-        let (c, i) = (idx >> CHUNK_SHIFT, idx & CHUNK_MASK);
-        if c >= self.chunks.len() {
-            // Build via Vec → Box<[_]> so the chunk is heap-resident from
-            // the start; `Box::new([None; CHUNK_SIZE])` would stack-build
-            // the array first, risking a small-task overflow for large T.
-            // `resize_with` doesn't require `Option<T>: Clone`.
-            let mut v: Vec<Option<T>> = Vec::with_capacity(CHUNK_SIZE);
-            v.resize_with(CHUNK_SIZE, || None);
-            self.chunks.push(v.into_boxed_slice());
-        }
-        self.chunks[c][i] = val;
-        self.len += 1;
-        idx
+        self.try_push(val)
+            .expect("test heap could not hold a new chunk")
     }
 
     /// [`push`](Self::push) that reports a chunk the heap cannot hold as

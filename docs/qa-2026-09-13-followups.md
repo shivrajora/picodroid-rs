@@ -4,43 +4,97 @@ Everything the 2026-09-13 QA round left open (`qa-2026-09-13.md`: seven `qa_*` a
 fixes, three boards). Ordered by risk. Each entry says what was seen, what is already ruled
 out, and the next concrete step, so it can be picked up cold. Status as of 2026-09-14
 (branch `qa-followups-2026-09-14`): items 3 (in part), 4, 5, 6, 7 and 8 are landed, each as
-one commit; item 2 is soaked on the bench and awaits the picoenvmon soak; item 1 stays open.
+one commit; item 2 is soaked on the bench and awaits the picoenvmon soak. **Item 1 — the last
+open P1 — was found and fixed on 2026-09-15**; it was an SPI transfer that never signalled
+completion and was waited out silently for five seconds at a time, not a lost executor post.
 Section 9 records the regression coverage every fix of the round now has.
 
-## 1. `qa_life` stalls on the Pico 2 W slot (P1 — a lost main-executor post)
+## 1. `qa_life` stalls on the Pico 2 W slot — **found and fixed 2026-09-15** (P1)
 
-**Seen.** `hil-run.sh --app qa_life --board testbench_rp2350` (the Pico 2 W in the
-`pico_enviro_mon_w` slot, testbench firmware) stalls about one run in two, in both shrink
-modes, after a Service re-creation: the app's next step is a `Runnable` posted to
-`Executors.mainExecutor()` from a child thread. With the timer instrumented the post is armed
-and queued (no "queue full" drop, no Runnable error now that F11 logs them) and the UI loop
-never runs it. The runs that stall are the ones whose pending-op drains took 100–260 ms just
-before.
+**It was never the main-executor post.** The UI task was sitting inside an SPI native, in
+`finish_isr_xfer!` (`platforms/rp/src/hal/rp/spi/mod.rs`), waiting out a 5,000 ms cap for a
+transfer-complete interrupt that could no longer come — silently, because the timeout was
+swallowed with no log line. Every 5 s the app lost was one of those. A run that hit enough of
+them overran the row's 60 s window and was recorded as a stall; a run that hit few passed.
+That is the whole of "one run in two".
 
-**Ruled out.** RTT back-pressure (a `rtt-lossy` build, non-blocking `defmt-rtt`, stalls the
-same way); the flash volume (a freshly erased and formatted volume stalls the same way); the
-app (the sim, `testbench_rp2040` and `pico_touch_kit` never stall, 74/74 every run).
+**The mechanism.** The ISR ends an interrupt-driven transfer by counting the bytes it has
+*received* (`rx_idx >= len`). On this slot an XPT2046 poll — 30 bytes at 2 MHz, full duplex —
+regularly ends with `rx_idx == len - 1`, the shifter idle, the RX FIFO empty, and neither the
+overrun nor the receive-timeout status asserted:
 
-**Suspect.** The main task does not wake from `recv_blocking` for a child task's post on that
-board only. What sets the board apart is its second core carrying the cyw43 task and the flash
-parker — the same neighbourhood as the reverted WP7 tick-clock change and its W-board tick
-stall (`scheduling-audit-2026-09.md`).
+```text
+spiprobe: spi1 timeout op=1 len=30 tx_idx=30 rx_idx=29 sr=0x3 ris=0x8
+```
 
-**Next step.** Reproduce with `pdb` attached (`scripts/pdb.sh --board testbench_rp2350`) and
-take a stack dump of the main task mid-stall: is it blocked in `recv_blocking` with a
-non-empty queue (a lost wake), or somewhere else (a held lock, the parker)? Then instrument
-the queue's send side with the sender's core. A sim reproduction is unlikely (single core).
+The completion test can then never be satisfied, and no further interrupt can arrive either:
+the receive timeout only asserts on a FIFO that is *not* empty. So the waiter blocks for the
+full cap. Whether the byte was dropped by the eight-deep FIFO or its receive-timeout was
+cleared by step 5 of the ISR body as it asserted is **not settled** — the fix does not depend
+on which.
 
-**2026-09-14.** One point the code settles before any dump: a lost wake alone cannot stall
-the loop. `lifecycle.rs` blocks in `recv_blocking` with no timeout, but the tick source posts
-an `LvglTick` every 16 ms and that wake drains the same queue, so a queued Runnable would run
-on the next tick. A stall therefore means the main task is not being scheduled at all (no
-ticks either), or the queue send from the child never landed. `pdb sysmon` shows every task's
-state and stack head-room and is served off the main task, so it answers the first question
-without a stack dump: a main task in `Ready` while nothing runs it points at a lost
-cross-core yield after the flash parker's XIP-off window (prefs writes precede the step that
-stalls); `Blocked` points at the queue. The reproduction loop used (flash `qa_life -r`,
-watch RTT, `sysmon` when the log goes quiet for 20 s) is in the session notes below.
+**Why only this slot.** Write-only transfers go through DMA; the ISR path only ever sees
+full-duplex work. The single full-duplex user on these boards is the XPT2046, which shares the
+display's SPI bus. `pico_touch_kit` reads a GT911 over I²C (`touch_private_bus`) and the Enviro
+pack has no touch at all, so neither board can reach this path — which is why the sim, the
+touch kit and the enviro firmware never stalled, and why the two failing firmwares are exactly
+`testbench_rp2350` and `testbench_rp2350w`. `testbench_rp2040` carries the same wiring and
+**does** hit it — its `qa_life` run logs the same short read — but passes anyway, so there the
+defect has been costing whole seconds silently without ever failing that row. Anything on that
+board that has been intermittently missing a deadline is worth re-reading in this light: the
+`helloworld:pdb-install[shrink]` reboot that "missed the 20 s PING window", intermittent since
+2026-09-12, is the obvious candidate.
+
+**What the JVM run lock changed.** Nothing, either way — it neither caused this nor fixed it
+(reproduced first try on `0a785461`, run lock included). It does widen the blast radius: the UI
+task holds the run lock across the native, so since `d1a09765` every Java thread blocks with it.
+That is why a child's `SystemClock.sleep(80)` measures 5046 ms. Before the run lock only the UI
+loop froze — which is exactly the "post is queued and the loop never runs it" the first report
+described.
+
+**Corrections to the earlier notes.** The suspected cause — "the second core carrying the cyw43
+task" — cannot apply: `testbench_rp2350` has `has_network = false`, so that image has no cyw43
+task at all and core 1 carries nothing but the flash parker. And a lost wake was never needed:
+`pdb sysmon` during a stall shows the kernel tick advancing normally (146,638 → 151,795 ticks
+over 5 s), every Java task `Blocked`, both idle tasks at ~100 %, and `Tmr Svc` alive — the tick
+source was firing and being coalesced away (`calls=256 posted=3 coalesced=253`) because the UI
+loop was not draining the queue, not because the tick had stopped.
+
+**The fix** (`platforms/rp/src/hal/rp/spi/mod.rs`): the wait also accepts the controller's own
+account of being finished — everything queued shifted out, shifter idle, RX FIFO empty — and
+ends the transfer there. What is lost is one sample rather than five seconds. It is reported
+once per boot and counted in `SHORT_READS` thereafter, so a board where this is the steady state
+says so instead of freezing. The 5 s cap stays for the case it was meant for: a device holding
+the bus, which is a fault to report rather than to wait out.
+
+**Verified on the bench.** `qa_life` on the slot that stalled it: 6 runs, 6 passes, each run
+~80 s against the ~120 s the stalling runs took (before the fix the same loop stalled on its
+second run, and `hil-run.sh --app qa_life --board testbench_rp2350` failed first try on
+`0a785461`). `qa_life` on `pico_touch_kit`: 74/74, no short-read line at all — that
+board never takes this path. `qa_life` on `testbench_rp2040`: 74/74 *with* a short-read line,
+which is how we know that board has been paying for this too. The boot line now says once what is happening:
+
+```text
+spi1: transfer finished with 29 of 30 bytes read back; completing it from the controller's
+state (further occurrences are silent)
+```
+
+`platforms/rp/src/hal/rp/spi/xfer.rs::controller_finished` carries the decision as a pure
+function with five host tests, so the rule is checked by `./scripts/test.sh` rather than only by
+a board. The `spin_guard` ledger rejected the first draft of the semaphore drain, which is the
+guard doing its job.
+
+**Repro kept.** `examples/postloop` — 60 lines, one fresh child `Thread` per hop that sleeps
+80 ms and posts the next hop to `Executors.mainExecutor()`, with a prefs commit every tenth hop,
+logging each stage's cost. On this slot before the fix: `slept=5046`, `up=5001`, `slept=10046`,
+roughly one hop in four. On `pico_touch_kit`, every hop `slept=79/80`. After the fix, 30+ hops
+with no stage over 3 ms. It is not in any run matrix — it is a bench instrument.
+
+**Left open.** Which of the two candidate causes drops the byte (an ISR-side fix would stop the
+sample being lost at all, not just stop the freeze); why `testbench_rp2040` does not show it;
+and whether the WP7 tick-timebase failures on this slot were only ever this bug — see
+`scheduling-audit-handover-2026-09.md` §2 WP7, and note that `animdemo` on plain `main` hits the
+same timeout on this slot (`spi1 ... rx_idx=28`).
 
 ## 2. Devices run the legacy handle cast — soak `handle-table-32` (P1)
 
@@ -69,14 +123,53 @@ overnight recipe in `project_pdb_hw_soak_harness`); then flip the default in
 ## 3. Unchecked allocations left in native paths (P2 — a board reset each)
 
 J23–J26 made the formatter, file streams, frames and interning fallible; three infallible
-sites remain, each a reset instead of an `OutOfMemoryError`:
+sites remained, each a reset instead of an `OutOfMemoryError`. Two are closed now (the
+RP2040's 10 KB and the LittleFS cache), plus one found on the way
+(`ChunkedSlots::push`); the touch kit's 7680 bytes is the one still open:
 
 - **Touch kit, 7680 bytes** on the path a background-pool worker takes into Java under a full
   heap (`qa_thr` on `pico_touch_kit` without the conf restriction). It is not the frame or the
   task stack. A device heap census (`docs/memory-diagnostics.md`, `--mem-diag` on the sim
   first) is the way to name it.
 - **RP2040, 10 KB** in `qa_ui`'s focus section once the containers section has exhausted the
-  heap (`qa_ui` is restricted to the RP2350 boards in `hil-tests.conf` for this reason).
+  heap (`qa_ui` is restricted to the RP2350 boards in `hil-tests.conf` for this reason) —
+  **done 2026-09-15**, see below.
+  **2026-09-15, measured on the board** (`PICODROID_EXTRA_FEATURES=mem-diag flash.sh -b
+  testbench_rp2040 -a qa_ui`): the size is exact — `memory allocation of 10240 bytes failed`
+  — and the reset is that panic reaching `panic_probe`'s `udf`, not memory corruption: the
+  stacked frame reads `pc=__udf`. `containers` raises a clean `OutOfMemoryError` first, so
+  the heap is genuinely full by then and any large infallible request would do it.
+  Markers between the Java statements put the failing allocation between
+  `setFocusable(true)` and the `new int[1]` that follows — on a board with no keypad group
+  `setFocusable` is nearly a no-op, so it is the string work in `check()` that tips it over,
+  not the focus natives.
+  **Named and fixed 2026-09-15: the interpreter's method/field resolution caches**
+  (`interpreter/helpers.rs`, `interpreter/ops_fields.rs`). `MethodCacheEntry` is
+  `(*const u8, *const u8, *const u8, usize, usize)` = 20 bytes on a 32-bit target, and the
+  cache `Vec` doubling from 256 to **512 entries is exactly 10,240 bytes** — one contiguous
+  request, made by a plain `Vec::push`, on a heap `containers` had already emptied.
+  All five cache pushes go through `helpers::cache_push`, which `try_reserve(1)`s and
+  simply declines to memoise if the heap says no: these are caches, not state, so the cost
+  of a refusal is one re-resolve. On the board `qa_ui` now runs through the focus section
+  (`requestFocus declined (touch board)`) instead of resetting.
+
+  How it was found, since neither obvious tool worked: the sim cannot stand in (it exhausts
+  the 160 KB model back in `radio`, and its 64-bit entry is 40 bytes, so the size does not
+  even match), `probe-rs gdb` does not work on this board, and Cortex-M0+ cannot be unwound
+  through the exception. What worked was a temporary `#[global_allocator]` wrapper that, for
+  any request ≥ 8 KB, scanned 200 words above `sp` for values that look like thumb return
+  addresses into the XIP text region and stashed them in a `static` — **with no logging**,
+  because a `defmt` call inside the allocator takes a critical section under the FreeRTOS
+  heap lock and wedges the board before RTT attaches. The `HardFault` handler printed the
+  stash afterwards, and `arm-none-eabi-addr2line -i` turned it into
+  `finish_grow` ← `Vec::push` ← `find_method_cached` ← `op_invoke`.
+- **`ChunkedSlots::push`, one `CHUNK_SIZE` chunk** — **done 2026-09-15.** `ArrayHeap::alloc`
+  takes care to answer `None` from both of its arena reservations, then placed the slot with
+  `push`, which allocates a fresh chunk through an infallible `Vec::with_capacity` — so the
+  last step of a carefully fallible allocation was the one that could abort the board, once
+  every 64 arrays. It now uses the `try_push` the object and string stores already used, and
+  rolls the arena back when the slot cannot be placed. That was `push`'s last caller, so it
+  is `#[cfg(test)]` now and firmware cannot reach the infallible path at all.
 - **LittleFS file cache, 4 KB per open** — **done** (`2cfb0120`): the allocation was
   `vec![0u8; cache_size]` in `littlefs-rust`'s `File::open`, not in `hal_impl.rs`; the crate
   is vendored under `third_party/littlefs-rust` with the cache reserved through
@@ -220,8 +313,7 @@ first time that was safe — 4/4 passes; size cost in item 2.
 
 **Left for the next session, in order:** the picoenvmon soak under `handle-table-32` and the
 default flip (item 2); the two device heap censuses (item 3); item 1 if it reproduces in the
-nightly.
-
+nightly. (It did, on 2026-09-15, and item 1 is now closed — see that item.)
 
 ## 9. Regression coverage for the round's fixes (2026-09-14)
 
@@ -324,10 +416,15 @@ one was, and what it became:
 - **`testbench_rp2040`: `helloworld:pdb-install[shrink]` — a reboot that missed the 20 s PING
   window, not reproduced.** `install-stress[shrink]` (ten installs) passed right after it, and
   the no-shrink row passed. Intermittent since 2026-09-12; unchanged.
-- **`testbench_rp2040`: `imagedemo`, both modes — a HardFault after `ImageDemo ready`, open and
-  older than the round.** ERROR every night since at least 2026-09-09. probe-rs's "Frame 0" is
-  the `HardFault` handler itself (the thunk name it prints is the preceding symbol), so the
-  faulting PC is not in the log; reproducing under a probe with the ELF is the next step.
+- **`testbench_rp2040`: `imagedemo`, both modes — an unaligned pixel read, FIXED 2026-09-15.**
+  The faulting PC was missing because probe-rs 0.31 catches the hardfault at the *vector*, so
+  the handler body never ran; with `--no-catch-hardfault` and a handler that logs the stacked
+  frame, it is `transform_rgb565a8` reading `0x101018ab` — an odd address. Papk sections were
+  packed back to back, so an ASSETS section could start at 3 mod 4 and carry its (section-
+  relative 4-byte-aligned) pixels to an odd flash address; a Cortex-M0+ HardFaults on the
+  `uint16_t` read, an RP2350 and the sim do not. The writer aligns every section now and the
+  asset registry refuses an unaligned descriptor. Row PASSes 2/2.
+  Full write-up: `bugs-rp2040-imagedemo-2026-09-15.md`.
 - **`testbench_rp2350` — no run since 2026-09-10.** Not a failure: that slot became the touch
   kit (`fleet.conf`), and the Enviro row accepts `testbench_rp2350` firmware.
 

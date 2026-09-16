@@ -83,6 +83,13 @@ fn is_packed(atype: u8) -> bool {
 /// grow `JvmArray` (the 40-byte OBJ-05 slot assert).
 const INLINE8: usize = INLINE_DATA * 4;
 
+/// Which arena [`ArrayHeap::alloc`] extended, and the length to cut it back
+/// to if the slot it was extended for cannot be placed.
+enum Rollback {
+    Arena(usize),
+    Arena8(usize),
+}
+
 /// Array data stored either inline (small arrays) or in a shared arena.
 ///
 /// Small arrays are stored inline to avoid arena overhead. Large arrays
@@ -172,6 +179,8 @@ impl ArrayHeap {
         // `atomic_section` module docs).
         let _atomic = crate::atomic_section::AtomicSection::enter();
         self.alloc_events = self.alloc_events.saturating_add(1);
+        // Where to cut an arena back to if the slot push below fails.
+        let mut rollback: Option<Rollback> = None;
         let data = if is_packed(atype) {
             // Packed byte/boolean payload: 1 byte per element.
             if (len as usize) <= INLINE8 {
@@ -185,6 +194,7 @@ impl ArrayHeap {
                     return None; // OOM — caller should trigger GC and retry
                 }
                 let offset = self.arena8.len() as u32;
+                rollback = Some(Rollback::Arena8(self.arena8.len()));
                 self.arena8.resize(self.arena8.len() + len as usize, 0u8);
                 ArrayData::Arena8 { offset, len }
             }
@@ -209,6 +219,7 @@ impl ArrayHeap {
                     return None; // OOM — caller should trigger GC and retry
                 }
                 let offset = self.arena.len() as u32;
+                rollback = Some(Rollback::Arena(self.arena.len()));
                 self.arena.resize(self.arena.len() + extra, 0i32);
                 ArrayData::Arena { offset, len: phys }
             }
@@ -225,7 +236,22 @@ impl ArrayHeap {
             self.first_free += 1;
         }
         let idx = self.arrays.len() as u16;
-        self.arrays.push(Some(new_arr));
+        // `try_push`, not `push`: a slot past the tail chunk allocates a
+        // whole new chunk, and `push` does that infallibly — which aborts
+        // the board under a full heap, exactly where the two arena
+        // reservations above are careful to answer `None` instead. Every
+        // caller already treats `None` as "GC and retry", so the last step
+        // of an allocation must not be the one that panics.
+        if self.arrays.try_push(Some(new_arr)).is_none() {
+            // The payload was reserved before the slot; hand it back rather
+            // than stranding it in the arena until the next compaction.
+            match rollback {
+                Some(Rollback::Arena(len)) => self.arena.truncate(len),
+                Some(Rollback::Arena8(len)) => self.arena8.truncate(len),
+                None => {}
+            }
+            return None;
+        }
         self.first_free = self.arrays.len();
         Some(idx)
     }

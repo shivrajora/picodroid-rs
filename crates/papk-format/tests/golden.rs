@@ -118,11 +118,68 @@ fn scanners_agree_on_fixtures() {
     }
 }
 
-/// Byte-for-byte writer equality with the pre-refactor papk-pack output.
+/// Writer equality with the pre-refactor papk-pack output, section by section.
+///
+/// These were byte-for-byte comparisons until the writer started aligning
+/// every section to 4 bytes (2026-09-15): the old layout put `imagedemo`'s
+/// pixels on an odd flash address, which is a HardFault the first time LVGL
+/// reads them through a `uint16_t *` on Cortex-M0+. The fixtures stay exactly
+/// as papk-pack produced them — they are also the proof that the *reader*
+/// still handles the unaligned files already installed on devices — so the
+/// comparison is now "every section identical, only its offset moved".
 #[cfg(feature = "write")]
 mod rebuild {
     use super::*;
-    use papk_format::{AssetSpec, EntryPoint, ManifestSpec, PapkBuilder};
+    use papk_format::{AssetSpec, EntryPoint, ManifestSpec, PapkBuilder, SECTION_HEADER_LEN};
+
+    /// Assert `built` carries the same sections as `fixture`, allowing only
+    /// the file-header offset words and the padding between sections to
+    /// differ — and that the new offsets are 4-byte aligned.
+    fn assert_same_sections(built: &[u8], fixture: &[u8]) {
+        let b = FileHeader::parse(built).unwrap();
+        let f = FileHeader::parse(fixture).unwrap();
+        assert_eq!(b.version_major, f.version_major);
+        assert_eq!(b.version_minor, f.version_minor);
+        assert_eq!(b.section_count, f.section_count);
+        assert_eq!(b.manifest_offset, f.manifest_offset);
+
+        let pairs = [
+            ("MANIFEST", b.manifest_offset, f.manifest_offset),
+            ("CLASSES", b.classes_offset, f.classes_offset),
+            ("ASSETS", b.assets_offset, f.assets_offset),
+        ];
+        for (name, boff, foff) in pairs {
+            if foff == 0 {
+                assert_eq!(
+                    boff, 0,
+                    "{name}: absent in the fixture, present in the build"
+                );
+                continue;
+            }
+            assert_eq!(
+                boff % 4,
+                0,
+                "{name} starts at {boff}, which is not 4-aligned"
+            );
+            // Length lives at +4 of the section header; compare header+data.
+            let len = u32::from_le_bytes(
+                fixture[foff as usize + 4..foff as usize + 8]
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let span = SECTION_HEADER_LEN + len;
+            assert_eq!(
+                &built[boff as usize..boff as usize + span],
+                &fixture[foff as usize..foff as usize + span],
+                "{name} section bytes differ"
+            );
+        }
+        // Everything the offsets skipped over is zero padding, nothing else.
+        assert!(
+            built.len() - fixture.len() < 4 * pairs.len(),
+            "build grew by more than section alignment padding"
+        );
+    }
 
     fn builder<'a>() -> PapkBuilder<'a> {
         let mut b = PapkBuilder::new(ManifestSpec {
@@ -139,13 +196,14 @@ mod rebuild {
     }
 
     #[test]
-    fn builder_reproduces_minimal_fixture_byte_for_byte() {
+    fn builder_reproduces_minimal_fixture_section_for_section() {
         let bytes = builder().build().unwrap();
-        assert_eq!(bytes, MINIMAL);
+        assert_same_sections(&bytes, MINIMAL);
+        assert_common_content(&Papk::parse(&bytes).unwrap());
     }
 
     #[test]
-    fn builder_reproduces_with_assets_fixture_byte_for_byte() {
+    fn builder_reproduces_with_assets_fixture_section_for_section() {
         let pixels = expected_gradient_rgb565();
         let mut b = builder();
         b.asset(AssetSpec {
@@ -157,6 +215,17 @@ mod rebuild {
             data: &pixels,
         });
         let bytes = b.build().unwrap();
-        assert_eq!(bytes, WITH_ASSETS);
+        assert_same_sections(&bytes, WITH_ASSETS);
+
+        // This fixture's CLASSES section happens to end on a 4-byte boundary,
+        // so it never showed the misalignment — part of why the bug survived.
+        // `write.rs`'s `sections_and_asset_data_are_4_byte_aligned_in_the_file`
+        // sweeps the class lengths that do expose it; here we only confirm the
+        // result is aligned.
+        let built = Papk::parse(&bytes).unwrap();
+        let entry = built.assets().unwrap().unwrap().next().unwrap();
+        let off = (entry.data.as_ptr() as usize).wrapping_sub(bytes.as_ptr() as usize);
+        assert_eq!(off % 4, 0, "rebuilt asset data must be 4-byte aligned");
+        assert_eq!(entry.data, &pixels[..]);
     }
 }

@@ -184,7 +184,25 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[exception]
-unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
+unsafe fn HardFault(ef: &ExceptionFrame) -> ! {
+    // The stacked frame is the only record of where the fault came from: a
+    // debugger that halts here backtraces the *handler*, and probe-rs prints
+    // its "Frame 0" from this function's own address (the 2026-09-09
+    // imagedemo triage read that as a flash-op fault for six nights —
+    // docs/bugs-hil-nightly-2026-09-09.md §3). Cortex-M0+ has no CFSR/HFSR
+    // to say why, so pc/lr are the whole story; resolve them against the ELF
+    // with `arm-none-eabi-addr2line -e <elf> <pc>`.
+    defmt::error!(
+        "[fault] HardFault pc={=u32:#010x} lr={=u32:#010x} r0={=u32:#010x} r1={=u32:#010x} r2={=u32:#010x} r3={=u32:#010x} r12={=u32:#010x} xpsr={=u32:#010x}",
+        ef.pc(),
+        ef.lr(),
+        ef.r0(),
+        ef.r1(),
+        ef.r2(),
+        ef.r3(),
+        ef.r12(),
+        ef.xpsr()
+    );
     // On RP2040 (Cortex-M0+) bkpt halts cleanly with a debugger attached.
     // On RP2350 (Cortex-M33) bkpt without a debugger causes a re-entrant
     // fault → lockup, so we skip it.

@@ -66,11 +66,12 @@ Plans and backlogs with items still open. Check the doc for the current row befo
 
 | Doc | Status | Left to do |
 |---|---|---|
-| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | open | Item 1 (`qa_life` stalls on the Pico 2 W slot) is open; item 2 is soaking. Items 3–8 landed 2026-09-14. |
+| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Item 2 (the `handle-table-32` soak) is the only item still open; item 1 was found and fixed 2026-09-15, items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
+| [bugs-rp2040-imagedemo-2026-09-15.md](bugs-rp2040-imagedemo-2026-09-15.md) | fixed | Unaligned papk asset pixels HardFaulted the RP2040 on any scaled image. Read it for the probe-rs `catch_hardfault` trap that hid the faulting PC for six nights. |
 | [networking-followups-2026-08.md](networking-followups-2026-08.md) | open | NET-10 (dashboard loads hang, RST-on-close) open since 2026-09-07; NET-1 and NET-9 leftovers remain. NET-2/4/5/6/7/8 done. |
 | [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; refreshing against upstream, pushing and opening the PR are deliberately left to a human. |
 | [scheduling-audit-2026-09.md](scheduling-audit-2026-09.md) | mostly landed | The 2026-09-12 busy-wait audit and its offensive-guard design. Status table at the top: WP0 and WP7 (tick timebase, landed then reverted the same day) are open; everything else landed. |
-| [scheduling-audit-handover-2026-09.md](scheduling-audit-handover-2026-09.md) | open | The pick-up-cold companion to the above: what is left, with the WP7 bisect and retry recipe. |
+| [scheduling-audit-handover-2026-09.md](scheduling-audit-handover-2026-09.md) | open | The pick-up-cold companion to the above: what is left, with the WP7 bisect and retry recipe. WP7 re-measured clean on 2026-09-15 once the SPI stall under it was fixed, so it is ready to re-land. |
 | [code-health-audit-2026-07.md](code-health-audit-2026-07.md) | P2 open | Four-axis repo audit (coverage, modularization, reusability, API contracts), 2026-07-24. §9 backlog: P0 and P1 closed, P2 items 11–17 open. |
 | [designs/flash-budget-2026-09.md](designs/flash-budget-2026-09.md) | open levers | Where the flash bytes go after the string work. `opt-level = "s"` is measured at −23.8 % and unadopted pending a HIL benchmark; C at `-Os` and the `c::` consts landed. |
 | [designs/scroll-performance-2026-09.md](designs/scroll-performance-2026-09.md) | partly landed | S1, S3, S4 and S5 landed (a Set-time scroll frame went 109 ms → 24 ms); S6 measured and found nothing; the rest are ranked and open. |

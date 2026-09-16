@@ -34,8 +34,23 @@ pub(super) fn field_slot_cached(
         core::str::from_utf8(declared_class).ok()?,
         core::str::from_utf8(field_name).ok()?,
     )?;
-    cache.push((cn_ptr, dc_ptr, fn_ptr, slot));
+    cache_push(cache, (cn_ptr, dc_ptr, fn_ptr, slot));
     Some(slot)
+}
+
+/// Memoise `entry` if the heap can take the growth, and simply don't if it
+/// cannot.
+///
+/// These are caches, not state: a `Vec::push` that has to double is a single
+/// contiguous request the size of the whole table — 512 `MethodCacheEntry`
+/// is 10,240 bytes on a 32-bit target — and doing that infallibly resets the
+/// board under a full heap, which is how `qa_ui` took the RP2040 down in its
+/// focus section (`docs/qa-2026-09-13-followups.md` §3). Declining to cache
+/// costs a re-resolve on the next lookup and nothing else.
+pub(super) fn cache_push<T>(cache: &mut Vec<T>, entry: T) {
+    if cache.try_reserve(1).is_ok() {
+        cache.push(entry);
+    }
 }
 
 pub(super) fn find_method_cached(
@@ -56,7 +71,7 @@ pub(super) fn find_method_cached(
     // JVMS §5.4.3.3: method resolution recurses into the superclass when the named
     // class doesn't declare a matching method. Used by invokestatic and invokespecial.
     let (ci, mi) = find_method_walking(classes, class_name, method_name, descriptor)?;
-    cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    cache_push(cache, (cn_ptr, mn_ptr, dn_ptr, ci, mi));
     Some((ci, mi))
 }
 
@@ -76,7 +91,7 @@ pub(super) fn find_method_walking_cached(
         }
     }
     let (ci, mi) = find_method_walking(classes, runtime_class, method_name, descriptor)?;
-    cache.push((cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    cache_push(cache, (cn_ptr, mn_ptr, dn_ptr, ci, mi));
     Some((ci, mi))
 }
 

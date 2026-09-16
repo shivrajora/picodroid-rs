@@ -338,3 +338,37 @@ Medium: one new ~900-line crate (mostly moved code: ~500 ln parser+tests from jv
 
 ### AMENDMENTS
 1) Commit 2 must also edit the two dependent version requirements: platforms/rp/Cargo.toml:39 and picodroid-core/Cargo.toml:25 change `version = "0.1"` to `version = "0.2"` (or drop the version key from these path deps entirely, which is the lower-maintenance option for an unpublished crate). Add both files to the step-2/commit-2 checklist. 2) Correct the ground-truth table: site 6's tests are dead code (packagemanager/mod.rs:4-5 cfg-gates `mod install` out of both `test` and `sim` builds — mark it 'tests exist but never compile'). Reframe step 3 accordingly: the 4 install.rs tests get their first-ever execution inside papk-format, and the prefix-straddles-the-cut-point test (design test 5) is NEW, not moved — write it before deleting extract_framework_map_version so the tolerant semantics are pinned by a passing test first. 3) Extend the parser API with declared-count accessors — e.g. `Papk::class_count() -> Result<u32, PapkError>` and `Papk::asset_count() -> Result<Option<u32>, PapkError>` (or expose `remaining()` on ClassIter/AssetIter) — and have migrated papk-info compare yielded vs declared and exit with an error on shortfall, preserving today's "Truncated class name"-class diagnostics; add a papk-info-level statement that future-major files now stop after the header dump (accepted change). 4) Amend the crate-root spec: `#![no_std]` plus `#[cfg(test)] extern crate alloc;` and `#[cfg(test)] extern crate std;` (or `#![cfg_attr(not(test), no_std)]`), noting the moved tests keep assertion content but gain these harness lines; confirm proptest runs as host-only dev-dep. 5) Fix the API sketch: `class(&mut self, jvm_name: &'a str, bytes: &'a [u8])`, `manifest_entry(&mut self, key: &'a str, value: &'a str)` (or document owned String storage in the alloc-gated writer); correct papk-pack deletion ranges to :276-331 + :413-522 (keep :333-411), and keep papk-info's AssetInfo row struct (constructed from AssetEntry) or respecify print_assets_table. 6) Cosmetic ground-truth fixes: 19 apk.rs tests, 11 papk_meta tests; replace the "lib.rs doc example" edit with "update the module-doc example inside the moved file (apk.rs:60-69) from `pico_jvm::apk::` to `papk_format::`"; add compat/src/lib.rs:6 doc-comment to the touch list. 7) Optional hardening rider for the risks section: during the move, convert the parser's offset arithmetic to `checked_add` (papk_meta::validate_structure already does this at :60-62 — precedent in-repo), since the host-only proptests cannot observe 32-bit release wrap on device; if deferred, record it as a known sim-blind gap. With these folded in, the extraction plan (crate shape, no_std strategy, strict/tolerant scanner separation, non-re-export decision, dual build-dep declaration, golden-fixture byte-equality gate, commit sequencing) is verified sound against the actual code.
+
+### AMENDMENT 2026-09-15: sections are 4-byte aligned, and the golden test changed shape
+
+Two statements in the body are now wrong, both about the same thing.
+
+The design pins asset payload alignment as "4-byte alignment **within the
+section**" (the proptest property, and the invariant the moved
+`assets_data_is_4_byte_aligned_within_section` test asserts). That is the
+weaker half of what LVGL actually needs. Payloads are aligned relative to
+their section, but the section itself was placed immediately after the one
+before, so `assets_offset` inherited whatever residue the sum of the class
+files left — and the pixels LVGL reads in place out of XIP flash through a
+`const uint16_t *` could land on an odd address. On a Cortex-M0+ that is a
+HardFault, not a slow path: it took the RP2040 down on every scaled image
+for six nights (`docs/bugs-rp2040-imagedemo-2026-09-15.md`).
+
+`PapkBuilder` now rounds every section start up to 4 and zero-fills the gap
+(`write::section_after` / `pad_to`), and the crate-root spec states the
+invariant. The reader is unchanged — it takes offsets from the file header —
+so files written either way parse identically, and readers must keep
+accepting the unaligned ones already installed on devices.
+
+That also retires the design's strongest gate, item 2 of the test plan: the
+golden fixtures can no longer be reproduced **byte-for-byte**, since the
+padding is by definition new bytes. The two rebuild tests compare section
+header plus data per section and additionally require the new offsets to be
+aligned; the fixtures stay exactly as the pre-refactor papk-pack emitted
+them, which keeps their real value — they are the independent-bytes proof
+that the parser still reads what was shipped. The new guard against a
+regression is `write::sections_and_asset_data_are_4_byte_aligned_in_the_file`,
+which sweeps class payload lengths 1..=8 (the lengths that produce each
+residue) and asserts **file-absolute** offsets. Worth noting why that
+sweep is the point: every fixture in the tree happened to land aligned, so a
+test asserting only the section-relative offset could never have failed.
