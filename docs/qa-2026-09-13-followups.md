@@ -92,9 +92,10 @@ with no stage over 3 ms. It is not in any run matrix — it is a bench instrumen
 
 **Left open.** Which of the two candidate causes drops the byte (an ISR-side fix would stop the
 sample being lost at all, not just stop the freeze); why `testbench_rp2040` does not show it;
-and whether the WP7 tick-timebase failures on this slot were only ever this bug — see
-`scheduling-audit-handover-2026-09.md` §2 WP7, and note that `animdemo` on plain `main` hits the
-same timeout on this slot (`spi1 ... rx_idx=28`).
+and why `testbench_rp2040` does not show it. Settled 2026-09-15: the WP7 tick-timebase failures on
+this slot were this bug for `animdemo` (plain `main` hit the same timeout here, `spi1 ...
+rx_idx=28`) and a bug of WP7's own for `alarmdemo` (its RTC-alarm gate; `9d090232`) — see
+`scheduling-audit-handover-2026-09.md` §2 WP7. WP7 is re-landed.
 
 ## 2. Devices run the legacy handle cast — soak `handle-table-32` (P1)
 

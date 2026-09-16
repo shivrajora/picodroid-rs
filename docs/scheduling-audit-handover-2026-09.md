@@ -56,6 +56,24 @@ only: the device image is compile-checked by the new `--full` stage, and
 the bench rows are still to be written. Still open: WP0, the WP7 timer
 half, WP9's ring, the G6 HIL rows, and the two bench items.
 
+**Session 5, 2026-09-15 (branch `wp7-retest`, worktree): WP7 re-landed.**
+The `719d43e7` cherry-pick (`d8563ae3`) merged with main's SPI fix, then the
+two rows on the W slot with `testbench_rp2350w` firmware: `animdemo` loop
+PASS ×2, `alarmdemo` term **FAIL ×2** — armed, left for the launcher, never
+fired. That one was WP7's own bug, and it was there on 2026-09-13 too:
+`alarms::due` judged an RTC trigger against `wall_offset_ms()` alone, the
+anchor rather than elapsed + anchor, which is 0 on a board where nothing
+has set the clock, so an `RTC_WAKEUP` alarm never came due and the tick
+never scanned. It ever fired only through the one forced poll per
+`run_activity` (the sim's alarm lane lands that poll after the trigger and
+passed 4/4; the bench's "PASS late 2459 ms" was the same accident). Fixed in
+`9d090232` with a bench-shaped unit test; after it both rows PASS ×2 in
+both shrink modes, the alarm late 124 / 126 ms (pre-WP7: 115 / 128 ms). The
+ratchet moved with it: WP7 is RP2040 +144 B flash / +8 B RAM, RP2350
++604 B; the commit also absorbs main's own un-accepted +733 / +1,405 B
+since `d1a09765`, attributed in its message. Still open: WP0, the WP7 timer
+half, WP9's ring, the G6 HIL rows, and the two bench items.
+
 Two things the next session inherits that are **not** code debt:
 
 - **The `blinky pdb launch` row fails on the `pico_enviro_mon_w` slot with
@@ -99,7 +117,18 @@ lowered `EXPECTED_SPIN_TODO` in `spin_guard.rs`. Session 3 retired all five:
 
 ## 2. Open work packages, in the order I would take them
 
-### WP7 — tick timebase (F16) — landed as `719d43e7`, REVERTED the same day: breaks the tick loop on the RP2350 W board
+### WP7 — tick timebase (F16) — landed as `719d43e7`, reverted the same day, RE-LANDED 2026-09-15 (`d8563ae3` + `9d090232`)
+
+**2026-09-15, evening — re-landed.** Two things were under the 2026-09-13
+failure, and the table below records both without separating them: the
+slot's SPI short-read stall (next paragraph, fixed on main in `f74c108e`),
+which stalled every painting app, and one bug of WP7's own — `alarms::due`
+judged an RTC trigger against the wall-clock *offset* instead of elapsed +
+offset, so with the clock unset (offset 0, every bench board) an
+`RTC_WAKEUP` alarm never came due (`9d090232`; the session-5 entry in §0
+has the mechanism and the numbers). With both fixed, `hil-run.sh` on the W
+slot: `animdemo` loop PASS ×2, `alarmdemo` term PASS ×2, late 124 / 126 ms.
+The rest of this section is kept as the record of the investigation.
 
 **2026-09-15 — read this before retrying WP7.** The slot WP7 was judged on
 freezes painting apps on its own, WP7 or no WP7: an XPT2046 poll there
@@ -381,8 +410,8 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
 - `configUSE_TICKLESS_IDLE` stays 0 (the port's `vPortSuppressTicksAndSleep`
   is single-core SysTick code; revisit once the tick is event-paced — see
   WP7's deferred half).
-- WP7 itself is reverted (WP7 above); its timer-reprogramming half was
-  never worth doing until the indev is event-driven.
+- WP7 is re-landed (WP7 above); its timer-reprogramming half was never
+  worth doing until the indev is event-driven.
 - WP9's TX ring + `UARTx_IRQ`: `write_byte` no longer spins (§1), but it
   still blocks the writer a tick at a time; the ring waits for a serial app.
 - WP0 (ISR-safe seam primitives): WP5 stayed family code and used
