@@ -71,6 +71,17 @@ guards stay; they are the second line, for the wake preemption, and cost a count
   `let _run = jvm_run_lock::unlocked();` around the wait.
 - Tasks that never interpret Java never touch the lock; `unlocked()` is a no-op for them.
 - With no kernel (`cargo test`) every operation is a no-op.
+- **A short wait that a native owns is not always one to release around.** The rule above is
+  about waits a Java thread is *meant* to sit in. A wait inside a native the UI task is already
+  in the middle of — a driver transfer, say — holds Rust-side state no frame roots yet, so
+  giving up the lock there hands a sibling the heap at exactly the wrong moment. The answer is
+  to keep such a wait short, not to release around it. Where it went wrong is on record: an SPI
+  completion wait with a 5,000 ms cap, taken directly on a `freertos_rust::Semaphore` rather
+  than through the seam, froze every Java thread for five seconds at a time
+  (`docs/qa-2026-09-13-followups.md` item 1, fixed in `f74c108e`). The lock did not cause that —
+  before it, the same wait froze the UI loop alone — but it is what turned one task's stall into
+  everyone's, so a long blocking wait inside a native is now a correctness problem as well as a
+  latency one.
 
 ## Verification
 
