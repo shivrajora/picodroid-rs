@@ -103,16 +103,22 @@ pub(crate) fn dispatch(
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
-            ctx.objects.iter_register(
-                iter_obj,
-                IteratorState {
-                    source: IterSource::MapKeys(buf_idx),
-                    position: 0,
-                    owner,
-                    expected_len: ctx.objects.map_len(buf_idx),
-                    last_returned: None,
-                },
-            );
+            if ctx
+                .objects
+                .iter_register(
+                    iter_obj,
+                    IteratorState {
+                        source: IterSource::MapKeys(buf_idx),
+                        position: 0,
+                        owner,
+                        expected_len: ctx.objects.map_len(buf_idx),
+                        last_returned: None,
+                    },
+                )
+                .is_err()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
         m::clear => {

@@ -1375,16 +1375,18 @@ fn gc_collects_iterator() {
     let _ = objects.list_add(buf_idx, Value::Int(10));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
-    objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::List(buf_idx),
-            position: 0,
-            owner: list_obj,
-            expected_len: 0,
-            last_returned: None,
-        },
-    );
+    objects
+        .iter_register(
+            iter_obj,
+            IteratorState {
+                source: IterSource::List(buf_idx),
+                position: 0,
+                owner: list_obj,
+                expected_len: 0,
+                last_returned: None,
+            },
+        )
+        .unwrap();
 
     // Root only the list — iterator should be collected
     let frame = Frame::new(0, 0, &[Value::ObjectRef(list_obj)], 4, 4).unwrap();
@@ -1424,16 +1426,18 @@ fn gc_iterator_pins_temporary_list() {
     let _ = objects.list_add(buf_idx, Value::ObjectRef(elem));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
-    objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::List(buf_idx),
-            position: 0,
-            owner: list_obj,
-            expected_len: 0,
-            last_returned: None,
-        },
-    );
+    objects
+        .iter_register(
+            iter_obj,
+            IteratorState {
+                source: IterSource::List(buf_idx),
+                position: 0,
+                owner: list_obj,
+                expected_len: 0,
+                last_returned: None,
+            },
+        )
+        .unwrap();
 
     // Root only the iterator: the list and its element must survive.
     let frame = Frame::new(0, 0, &[Value::ObjectRef(iter_obj)], 4, 4).unwrap();
@@ -1488,16 +1492,18 @@ fn gc_map_view_pins_temporary_map() {
     objects.set_field(view, 0, Value::Int(buf_idx as i32));
     objects.set_field(view, 1, Value::ObjectRef(map_obj));
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
-    objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::MapKeys(buf_idx),
-            position: 0,
-            owner: view,
-            expected_len: 0,
-            last_returned: None,
-        },
-    );
+    objects
+        .iter_register(
+            iter_obj,
+            IteratorState {
+                source: IterSource::MapKeys(buf_idx),
+                position: 0,
+                owner: view,
+                expected_len: 0,
+                last_returned: None,
+            },
+        )
+        .unwrap();
 
     let frame = Frame::new(0, 0, &[Value::ObjectRef(iter_obj)], 4, 4).unwrap();
     let freed = collect(
@@ -1530,16 +1536,18 @@ fn gc_retains_iterator_and_source() {
     let _ = objects.list_add(buf_idx, Value::Int(10));
 
     let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
-    objects.iter_register(
-        iter_obj,
-        IteratorState {
-            source: IterSource::List(buf_idx),
-            position: 0,
-            owner: list_obj,
-            expected_len: 0,
-            last_returned: None,
-        },
-    );
+    objects
+        .iter_register(
+            iter_obj,
+            IteratorState {
+                source: IterSource::List(buf_idx),
+                position: 0,
+                owner: list_obj,
+                expected_len: 0,
+                last_returned: None,
+            },
+        )
+        .unwrap();
 
     // Root both list and iterator
     let frame = Frame::new(
@@ -1587,16 +1595,18 @@ fn gc_stress_iterator_churn() {
     let mut last_iter = 0u16;
     for i in 0u16..500 {
         let iter_obj = objects.alloc(c::java_util_Iterator).unwrap();
-        objects.iter_register(
-            iter_obj,
-            IteratorState {
-                source: IterSource::List(buf_idx),
-                position: (i as usize) % 5,
-                owner: list_obj,
-                expected_len: 0,
-                last_returned: None,
-            },
-        );
+        objects
+            .iter_register(
+                iter_obj,
+                IteratorState {
+                    source: IterSource::List(buf_idx),
+                    position: (i as usize) % 5,
+                    owner: list_obj,
+                    expected_len: 0,
+                    last_returned: None,
+                },
+            )
+            .unwrap();
         last_iter = iter_obj;
 
         if (i + 1) % 50 == 0 {
