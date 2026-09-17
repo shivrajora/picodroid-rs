@@ -6,7 +6,7 @@ use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
     object_heap::{LambdaProxy, LambdaTarget},
-    types::{JvmError, Value},
+    types::{JvmError, Slot, Value},
 };
 use alloc::vec::Vec;
 
@@ -659,14 +659,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
         };
 
-        // 6. Pop captured values from the operand stack
+        // 6. Pop captured values from the operand stack, stored as 8 B slots
+        // (a captured `long` is two). Reserved fallibly: the copy is one
+        // more allocation on a path the heap may already have refused.
         let capture_count = helpers::count_args(factory_desc);
         let stack_len = frame.stack.len();
-        let captures: Vec<Value> = if capture_count > 0 {
+        let captures: Vec<Slot> = if capture_count > 0 {
             let start = stack_len
                 .checked_sub(capture_count)
                 .ok_or(JvmError::StackUnderflow)?;
-            let caps = frame.stack[start..].to_vec();
+            let caps = Value::to_slot_vec(&frame.stack[start..])?;
             frame.stack.truncate(start);
             caps
         } else {
@@ -1184,14 +1186,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         args: &[Value],
         sam_desc: &str,
     ) -> Result<LambdaCall, JvmError> {
-        let (target, captures) = {
+        let (target, mut actual) = {
             let lambda = self
                 .objects
                 .get_lambda(obj_idx)
                 .ok_or(JvmError::InvalidReference)?;
-            (lambda.target, lambda.captures.clone())
+            let mut actual: Vec<Value> = Vec::new();
+            actual
+                .try_reserve(lambda.captures.len() + args.len())
+                .map_err(|_| JvmError::StackOverflow)?;
+            Slot::to_values(&lambda.captures, &mut actual)?;
+            (lambda.target, actual)
         };
-        let mut actual: Vec<Value> = captures;
         actual.extend_from_slice(args);
 
         // The body's descriptor, and whether `actual[0]` is a receiver the

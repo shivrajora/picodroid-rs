@@ -8,7 +8,7 @@ mod sb_store;
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
 use crate::names::c;
-use crate::types::{default_for_descriptor, Value};
+use crate::types::{default_for_descriptor, Slot, Value};
 use alloc::vec::Vec;
 
 /// Chunked-slot storage for `Option<JvmObject>`. See [`crate::chunked_slots`].
@@ -17,19 +17,20 @@ type ChunkedObjects = ChunkedSlots<JvmObject>;
 /// Number of implicit fields in `java/lang/Enum` (name + ordinal).
 const ENUM_IMPLICIT_FIELDS: usize = 2;
 
-/// Pre-allocation hint for [`ObjectHeap::alloc`].  Native handlers that create
-/// view / wrapper objects know exactly how many fields they will write — feed
-/// that count back to the heap so the backing slice is sized once instead of
-/// reallocating inside [`JvmObject::set_field`].  Unlisted classes default to
-/// 0; the slice still grows lazily, just at the cost of one extra reallocation.
+/// Pre-allocation hint for [`ObjectHeap::alloc`], in field *slots*. Native
+/// handlers that create view / wrapper objects know exactly how many slots
+/// they will write — feed that count back to the heap so the backing span is
+/// sized once instead of reallocating inside [`ObjectHeap::set_field`].
+/// Unlisted classes default to 0; the span still grows lazily, just at the
+/// cost of one extra reallocation.
 fn default_field_count_for_native(class_name: &str) -> usize {
     match class_name {
-        // Boxed wrappers store the unboxed value at slot 0.
+        // Boxed wrappers store the unboxed value at slot 0 — two slots for
+        // the category-2 boxes.
+        c::java_lang_Long | c::java_lang_Double => 2,
         c::java_lang_Integer
         | c::java_lang_Boolean
-        | c::java_lang_Long
         | c::java_lang_Float
-        | c::java_lang_Double
         | c::java_lang_Character
         | c::java_lang_Byte
         | c::java_lang_Short => 1,
@@ -42,6 +43,9 @@ fn default_field_count_for_native(class_name: &str) -> usize {
         c::java_util_Map_Entry => 2,
         // StringBuilder stores its backing sb_buf index at slot 0.
         c::java_lang_StringBuilder => 1,
+        // Random: a two-slot `long` seed, then a two-slot cached gaussian
+        // (`native/random.rs` names the slots).
+        c::java_util_Random => crate::native::random::FIELD_SLOTS,
         _ => 0,
     }
 }
@@ -60,14 +64,15 @@ pub struct JvmObject {
     /// `&'static str` class name via [`ObjectHeap::class_name`]; storing only
     /// the index here saves 14 B per object versus a direct `&'static str`.
     class_idx: u16,
-    /// High-water mark of explicit `set_field` writes — preserves the JVMS
-    /// "uninitialised slot reads as None" contract that the
+    /// High-water mark of explicit `set_field` writes, in slots — preserves
+    /// the JVMS "uninitialised slot reads as None" contract that the
     /// `alloc_without_defaults_still_leaves_slots_unset` regression test
     /// in `interpreter/tests/fields.rs` enforces. May be less than
     /// `fields_cap`.
     field_count: u8,
-    /// Allocated span length in the fields arena. `field_count` is u8, so
-    /// u8 capacity loses nothing.
+    /// Allocated span length in the fields arena, in slots (a `long` or
+    /// `double` field is two). `field_count` is u8, so u8 capacity loses
+    /// nothing; 255 slots is far above any SDK class.
     fields_cap: u8,
 }
 
@@ -110,7 +115,10 @@ pub enum LambdaTarget {
 /// Metadata for a lambda proxy object created by `invokedynamic`.
 pub struct LambdaProxy {
     pub target: LambdaTarget,
-    pub captures: Vec<Value>,
+    /// The captured values as the operand-stack slots `invokedynamic`
+    /// popped (a captured `long` is two); decoded back into `Value`s when
+    /// the body runs.
+    pub captures: Vec<Slot>,
     /// The SAM's name. Only a call to this method is the lambda body: a
     /// default method or an `Object` method on the same proxy resolves
     /// through the interface and `Object`, as on any other object.
@@ -120,13 +128,15 @@ pub struct LambdaProxy {
 pub struct ObjectHeap {
     pub(super) objects: ChunkedObjects,
     /// Backing storage for every object's field slots, addressed by
-    /// `JvmObject::{fields_off, fields_cap}`. Freed objects leave dead spans
-    /// that [`compact_fields_arena`](Self::compact_fields_arena) reclaims
-    /// after each GC sweep (the `ArrayHeap::arena` pattern). Grows in fixed
-    /// [`FIELDS_ARENA_CHUNK`] steps — never Vec doubling, which on a
-    /// fragmented FreeRTOS heap demands ever-larger contiguous blocks (the
+    /// `JvmObject::{fields_off, fields_cap}`. One 8 B [`Slot`] per field
+    /// slot: a `long`/`double` field is its low half then its high half,
+    /// the JVMS layout `field_slot` numbers by. Freed objects leave dead
+    /// spans that [`compact_fields_arena`](Self::compact_fields_arena)
+    /// reclaims after each GC sweep (the `ArrayHeap::arena` pattern). Grows
+    /// in fixed [`FIELDS_ARENA_CHUNK`] steps — never Vec doubling, which on
+    /// a fragmented FreeRTOS heap demands ever-larger contiguous blocks (the
     /// recorded `alloc 90112 bytes failed` incident class).
-    pub(super) fields_arena: Vec<Value>,
+    pub(super) fields_arena: Vec<Slot>,
     /// Lowest index that might contain a `None` slot; avoids O(n) scans.
     pub(super) first_free: usize,
     /// Canonical `&'static str` per loaded class, indexed by
@@ -136,8 +146,12 @@ pub struct ObjectHeap {
     /// One byte buffer per live StringBuilder, addressed by the slot index the
     /// instance stores in field 0. See [`sb_store`].
     pub(super) sb_bufs: Vec<Option<Vec<u8>>>,
-    pub(super) list_bufs: Vec<Option<Vec<Value>>>,
-    pub(super) map_bufs: Vec<Option<Vec<(Value, Value)>>>,
+    /// ArrayList / HashMap backing buffers. Elements are always references
+    /// (a primitive is boxed before it reaches a collection), so one [`Slot`]
+    /// each; the `Value`-typed accessors in `list_store` / `map_store` refuse
+    /// a bare `long`/`double`.
+    pub(super) list_bufs: Vec<Option<Vec<Slot>>>,
+    pub(super) map_bufs: Vec<Option<Vec<(Slot, Slot)>>>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
     /// `Integer.valueOf` & co. must hand back the same object for the range
@@ -346,10 +360,11 @@ impl ObjectHeap {
         self.alloc_with_field_count(class_name, default_field_count_for_native(class_name))
     }
 
-    /// Like [`alloc`], but reserves storage for `n_fields` fields up front so
-    /// callers that know the field count (native handlers, `op_new` via
-    /// [`alloc_with_defaults`]) skip the lazy-grow path inside [`set_field`].
-    /// Behaviour is otherwise identical to [`alloc`].
+    /// Like [`alloc`], but reserves storage for `n_fields` field *slots* up
+    /// front (a `long`/`double` field is two) so callers that know the
+    /// layout (native handlers, `op_new` via [`alloc_with_defaults`]) skip
+    /// the lazy-grow path inside [`set_field`]. Behaviour is otherwise
+    /// identical to [`alloc`].
     pub fn alloc_with_field_count(
         &mut self,
         class_name: &'static str,
@@ -380,7 +395,7 @@ impl ObjectHeap {
     }
 
     /// Fixed growth step for [`fields_arena`](Self::fields_arena), in
-    /// `Value` slots (256 × 16 B = 4 KB per step). Chunked growth keeps the
+    /// [`Slot`]s (256 × 8 B = 2 KB per step). Chunked growth keeps the
     /// arena's contiguous-block demands on the device allocator bounded and
     /// constant, per the chunked_slots.rs precedent.
     const FIELDS_ARENA_CHUNK: usize = 256;
@@ -408,7 +423,7 @@ impl ObjectHeap {
             }
         }
         let off = self.fields_arena.len() as u32;
-        self.fields_arena.resize(need, Value::Null);
+        self.fields_arena.resize(need, Slot::Null);
         #[cfg(feature = "mem-diag")]
         {
             let i = self.alloc_trace_idx as usize % self.alloc_trace.len();
@@ -526,12 +541,22 @@ impl ObjectHeap {
         }
         chain.reverse();
 
-        // Size the backing slice exactly once, before allocating, so the
-        // `set_field` loop below never triggers a reallocation.
+        // Size the backing span exactly once, before allocating, so the
+        // default-writing loop below never triggers a reallocation. Slots,
+        // not fields: a `long`/`double` field takes two.
         let n_fields = (if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 })
             + chain
                 .iter()
-                .map(|&ci| classes[ci].fields().len())
+                .map(|&ci| {
+                    let cf = &classes[ci];
+                    cf.fields()
+                        .iter()
+                        .map(|fi| {
+                            cf.field_descriptor(fi)
+                                .map_or(1, Value::descriptor_slot_width)
+                        })
+                        .sum::<usize>()
+                })
                 .sum::<usize>();
         let idx = self.alloc_with_field_count(canonical_name, n_fields)?;
 
@@ -565,8 +590,13 @@ impl ObjectHeap {
                         Some(desc) => default_for_descriptor(desc),
                         None => Value::Null,
                     };
-                    self.fields_arena[base + slot] = v;
+                    let (lo, hi) = v.to_slots();
+                    self.fields_arena[base + slot] = lo;
                     slot += 1;
+                    if let Some(hi) = hi {
+                        self.fields_arena[base + slot] = hi;
+                        slot += 1;
+                    }
                 }
             }
             // Match `set_field`'s high-water semantics exactly: it raises
@@ -607,27 +637,46 @@ impl ObjectHeap {
         placed
     }
 
+    /// Read the field starting at slot `field`. A `long`/`double` field is
+    /// read from its two slots; `None` for an unset slot, an out-of-range
+    /// index, or the second slot of a category-2 field addressed on its own
+    /// (a native table numbering fields by one slot each — the
+    /// `native_field_tables_match_the_class_files` test in `picodroid-core`
+    /// catches those).
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
         let obj = self.objects.get(idx as usize)?.as_ref()?;
-        if field >= obj.field_count as usize {
+        let count = obj.field_count as usize;
+        if field >= count {
             return None;
         }
-        self.fields_arena
-            .get(obj.fields_off as usize + field)
-            .copied()
+        let base = obj.fields_off as usize;
+        let lo = *self.fields_arena.get(base + field)?;
+        if let Some(v) = lo.to_value() {
+            return Some(v);
+        }
+        if field + 1 >= count {
+            return None;
+        }
+        Slot::assemble(lo, *self.fields_arena.get(base + field + 1)?)
     }
 
+    /// Write `v` at slot `field` — two slots for a `long`/`double`, inside
+    /// the one scheduler-atomic section, so no other task ever sees one
+    /// half of a category-2 field updated (a torn read of a non-volatile
+    /// `long` is allowed by the JLS, but the writer side stays whole).
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
         // Atomic for the lazy-grow path (span move + descriptor update) —
         // same interleave hazard as alloc_with_field_count.
         let _atomic = crate::atomic_section::AtomicSection::enter();
         let obj = *self.objects.get(idx as usize)?.as_ref()?;
-        if field >= obj.fields_cap as usize {
+        let (lo, hi) = v.to_slots();
+        let needed = field + 1 + hi.is_some() as usize;
+        if needed > obj.fields_cap as usize {
             // Lazy grow — a caller wrote past the count it declared at alloc
             // time (rare; native handlers should pass the right `n_fields`).
             // Move the span to a fresh tail allocation; the old span becomes
             // garbage until the next GC arena compaction.
-            let new_cap = field + 1;
+            let new_cap = needed;
             let new_off = self.alloc_span(new_cap)?;
             if obj.fields_cap > 0 {
                 let from = obj.fields_off as usize;
@@ -641,12 +690,14 @@ impl ObjectHeap {
             self.debug_check_spans("post-lazy-grow");
         }
         let slot = self.objects.get_mut(idx as usize)?.as_mut()?;
-        let needed = field + 1;
         if needed > slot.field_count as usize {
             slot.field_count = needed as u8;
         }
         let at = slot.fields_off as usize + field;
-        self.fields_arena[at] = v;
+        self.fields_arena[at] = lo;
+        if let Some(hi) = hi {
+            self.fields_arena[at + 1] = hi;
+        }
         Some(())
     }
 
@@ -663,7 +714,7 @@ impl ObjectHeap {
         self.objects.chunk_count()
     }
 
-    /// Current fields-arena capacity in `Value` slots.
+    /// Current fields-arena capacity in [`Slot`]s (8 B each).
     pub fn fields_arena_capacity(&self) -> usize {
         self.fields_arena.capacity()
     }
@@ -707,7 +758,7 @@ impl ObjectHeap {
                     let end = start + obj.fields_cap as usize;
                     if end <= self.fields_arena.len() {
                         for v in &mut self.fields_arena[start..end] {
-                            *v = Value::Int(crate::mem_diag::POISON_I32);
+                            *v = Slot::Int(crate::mem_diag::POISON_I32);
                         }
                     }
                 }
@@ -759,9 +810,9 @@ impl ObjectHeap {
         Ok(())
     }
 
-    /// Return the slice of populated fields for the object at `idx`, used by
-    /// the GC tracer.  Empty when the slot is freed or out of bounds.
-    pub fn fields_slice(&self, idx: u16) -> &[Value] {
+    /// Return the slice of populated field slots for the object at `idx`,
+    /// used by the GC tracer.  Empty when the slot is freed or out of bounds.
+    pub fn fields_slice(&self, idx: u16) -> &[Slot] {
         match self.objects.get(idx as usize).and_then(|o| o.as_ref()) {
             Some(o) => {
                 let start = o.fields_off as usize;
@@ -774,9 +825,19 @@ impl ObjectHeap {
     /// Compact the fields arena by sliding live spans down over the garbage
     /// left by swept objects and lazy-grow moves. Called by GC after sweep;
     /// mirrors [`crate::array_heap::ArrayHeap::compact_arena`] and shares
-    /// its scratch buffer.
+    /// its scratch buffer. A heap too full to hold the scratch buffer skips
+    /// the compaction (the dead spans wait for a later cycle) rather than
+    /// aborting inside the collector.
     pub fn compact_fields_arena(&mut self, buf: &mut Vec<u64>) {
         buf.clear();
+        let live = self
+            .objects
+            .iter()
+            .filter(|s| s.as_ref().is_some_and(|o| o.fields_cap > 0))
+            .count();
+        if buf.try_reserve(live).is_err() {
+            return;
+        }
         for (i, slot) in self.objects.iter().enumerate() {
             if let Some(obj) = slot.as_ref() {
                 if obj.fields_cap > 0 {
@@ -866,8 +927,8 @@ impl ObjectHeap {
     pub fn live_bytes(&self) -> usize {
         const PER_OBJECT: usize = core::mem::size_of::<Option<JvmObject>>();
         const _: () = assert!(PER_OBJECT == 12); // identical on all targets (M6)
-        const PER_FIELD: usize = core::mem::size_of::<Value>();
-        const _: () = assert!(PER_FIELD == 16); // identical on all targets (V1)
+        const PER_FIELD: usize = core::mem::size_of::<Slot>();
+        const _: () = assert!(PER_FIELD == 8); // identical on all targets (V1)
         let mut total = 0;
         for i in 0..self.objects.len() {
             if let Some(Some(obj)) = self.objects.get(i) {
@@ -893,7 +954,7 @@ impl ObjectHeap {
     #[cfg(feature = "mem-diag")]
     pub fn census_by_class(&self, out: &mut [ClassCensus]) {
         const PER_OBJECT: u32 = core::mem::size_of::<Option<JvmObject>>() as u32;
-        const PER_FIELD: u32 = core::mem::size_of::<Value>() as u32;
+        const PER_FIELD: u32 = core::mem::size_of::<Slot>() as u32;
         for i in 0..self.objects.len() {
             if let Some(Some(obj)) = self.objects.get(i) {
                 if let Some(row) = out.get_mut(obj.class_idx as usize) {
@@ -912,7 +973,7 @@ impl ObjectHeap {
     /// excluded so the figure reads the same on host and device.
     #[cfg(feature = "mem-diag")]
     pub fn side_table_census(&self) -> SideTableCensus {
-        const PER_VALUE: u32 = core::mem::size_of::<Value>() as u32;
+        const PER_VALUE: u32 = core::mem::size_of::<Slot>() as u32;
         let mut c = SideTableCensus::default();
         for buf in self.list_bufs.iter().flatten() {
             c.list_count += 1;

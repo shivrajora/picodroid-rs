@@ -19,7 +19,7 @@ mod hashmap;
 mod hashset;
 mod iterator;
 mod math;
-mod random;
+pub(crate) mod random;
 mod string;
 mod string_builder;
 mod string_format;

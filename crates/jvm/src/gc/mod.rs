@@ -7,7 +7,7 @@ use crate::{
     heap::StringTable,
     object_heap::ObjectHeap,
     static_fields::StaticFieldStore,
-    types::Value,
+    types::{Slot, Value},
 };
 use alloc::vec::Vec;
 
@@ -57,8 +57,63 @@ enum GcRef {
     String(u16),
 }
 
-/// Push a GcRef onto the work stack if `v` is a reference type.
-fn push_ref(work: &mut Vec<GcRef>, v: &Value) {
+/// The mark stack. It grows fallibly: the collector runs on the fullest
+/// heap there is, and a `Vec::push` that had to double here aborted the
+/// firmware from inside the one routine meant to relieve the pressure. A
+/// refused growth drops the item and sets `exhausted`; [`collect`] then
+/// gives up before the sweep — nothing freed, nothing wrongly freed — and
+/// the caller sees an exhausted heap (a catchable `OutOfMemoryError`).
+/// First hit: the `qa_oom` boxing loop, once 8 B field slots let enough
+/// boxes live for the stack to reach 128 entries under an 8 KB budget.
+pub struct WorkStack {
+    items: Vec<GcRef>,
+    exhausted: bool,
+}
+
+impl WorkStack {
+    const fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            exhausted: false,
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, r: GcRef) {
+        if self.items.try_reserve(1).is_ok() {
+            self.items.push(r);
+        } else {
+            self.exhausted = true;
+        }
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<GcRef> {
+        self.items.pop()
+    }
+
+    fn clear(&mut self) {
+        self.items.clear();
+        self.exhausted = false;
+    }
+}
+
+/// Push a GcRef onto the work stack if the stored field slot `s` is a
+/// reference. A half of a `long`/`double` has its own tags, so it can never
+/// be taken for one — the collector stays precise over two-slot fields.
+fn push_ref(work: &mut WorkStack, s: &Slot) {
+    match *s {
+        Slot::ObjectRef(idx) => work.push(GcRef::Object(idx)),
+        Slot::ArrayRef(idx) => work.push(GcRef::Array(idx)),
+        Slot::Reference(idx) => work.push(GcRef::String(idx)),
+        _ => {}
+    }
+}
+
+/// [`push_ref`] for the root sources that hold `Value`s (frames, statics,
+/// shadow roots, native handler roots) and the buffer iterators that yield
+/// them.
+fn push_ref_value(work: &mut WorkStack, v: &Value) {
     match *v {
         Value::ObjectRef(idx) => work.push(GcRef::Object(idx)),
         Value::ArrayRef(idx) => work.push(GcRef::Array(idx)),
@@ -77,7 +132,7 @@ pub struct GcState {
     obj_marks: Vec<u8>,
     arr_marks: Vec<u8>,
     str_marks: Vec<u8>,
-    work: Vec<GcRef>,
+    work: WorkStack,
     /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
     arena_compact_buf: Vec<u64>,
     /// Frame registry: every `interpreter::execute` on this heap registers
@@ -112,8 +167,8 @@ pub struct GcState {
     ///
     /// Stack-disciplined: [`Self::push_shadow_roots`] returns a mark and
     /// [`Self::truncate_shadow_roots`] restores it. Stored by copy rather than
-    /// by pointer (unlike `parked_frames`): `Value` is `Copy` and ≤8 bytes, so
-    /// copying the handful an upcall holds is cheaper than the raw-pointer
+    /// by pointer (unlike `parked_frames`): `Value` is `Copy` and 16 bytes,
+    /// so copying the handful an upcall holds is cheaper than the raw-pointer
     /// discipline and needs no `unsafe`.
     shadow_roots: Vec<Value>,
     /// Allocations since the last GC, persistent across `execute()` calls so
@@ -161,7 +216,7 @@ impl GcState {
             obj_marks: Vec::new(),
             arr_marks: Vec::new(),
             str_marks: Vec::new(),
-            work: Vec::new(),
+            work: WorkStack::new(),
             arena_compact_buf: Vec::new(),
             parked_frames: Vec::new(),
             shadow_roots: Vec::new(),
@@ -279,7 +334,8 @@ impl Default for GcState {
 /// objects), transitively marks reachable objects/arrays/strings, then sweeps
 /// unreachable heap entries.
 ///
-/// Returns the number of heap entries freed.
+/// Returns the number of heap entries freed — 0, with the heap untouched,
+/// when the heap is too full to hold the mark stack (see [`WorkStack`]).
 #[allow(clippy::too_many_arguments)]
 pub fn collect(
     frames: &[Frame],
@@ -315,10 +371,10 @@ pub fn collect(
     // Frame locals and operand stacks — the collecting executor's own stack.
     for frame in frames {
         for v in &frame.locals {
-            push_ref(work, v);
+            push_ref_value(work, v);
         }
         for v in &frame.stack {
-            push_ref(work, v);
+            push_ref_value(work, v);
         }
     }
 
@@ -334,10 +390,10 @@ pub fn collect(
         let parked = unsafe { &*pf };
         for frame in parked {
             for v in &frame.locals {
-                push_ref(work, v);
+                push_ref_value(work, v);
             }
             for v in &frame.stack {
-                push_ref(work, v);
+                push_ref_value(work, v);
             }
         }
     }
@@ -345,12 +401,12 @@ pub fn collect(
     // Values held only by a native arm across a synchronous upcall — see the
     // `shadow_roots` field docs. Empty unless an upcall is on this stack.
     for v in &gc.shadow_roots {
-        push_ref(work, v);
+        push_ref_value(work, v);
     }
 
     // Static fields
     for v in statics.values_iter() {
-        push_ref(work, &v);
+        push_ref_value(work, &v);
     }
 
     // Cached `java.lang.Class` objects — one per loaded class. Each Class
@@ -369,7 +425,7 @@ pub fn collect(
     // Native handler roots — Activity stacks, sensor registrations, service
     // bindings, etc. These references live entirely in handler state and
     // would otherwise be invisible to the mark phase.
-    extra_roots(&mut |v| push_ref(work, &v));
+    extra_roots(&mut |v| push_ref_value(work, &v));
 
     // ── Phase 2: mark (transitive closure) ───────────────────────────────
 
@@ -389,7 +445,7 @@ pub fn collect(
                     // caught here at the moment of damage.
                     #[cfg(feature = "mem-diag")]
                     if offensive {
-                        if let Value::Int(x) = v {
+                        if let Slot::Int(x) = v {
                             if *x == crate::mem_diag::POISON_I32 {
                                 panic!(
                                     "mem-diag: live object {} ({}) field holds poison — \
@@ -407,7 +463,7 @@ pub fn collect(
                 if objects.class_name(idx) == Some(c::java_util_ArrayList) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
                         for v in objects.list_iter(buf_idx as u16) {
-                            push_ref(work, &v);
+                            push_ref_value(work, &v);
                         }
                     }
                 }
@@ -416,8 +472,8 @@ pub fn collect(
                 if owns_map_buf(objects.class_name(idx)) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
                         for (k, v) in objects.map_iter(buf_idx as u16) {
-                            push_ref(work, &k);
-                            push_ref(work, &v);
+                            push_ref_value(work, &k);
+                            push_ref_value(work, &v);
                         }
                     }
                 }
@@ -434,7 +490,7 @@ pub fn collect(
                 // the sweep would free the list/map buffer mid-loop and a later
                 // allocation would reuse it under the iterator's feet.
                 if let Some(state) = objects.iter_get(idx) {
-                    push_ref(work, &Value::ObjectRef(state.owner));
+                    work.push(GcRef::Object(state.owner));
                 }
 
                 // Throwable side tables: the constructor message and any
@@ -478,6 +534,12 @@ pub fn collect(
                 mark_bit(str_marks, idx);
             }
         }
+    }
+
+    // A mark stack the heap could not hold means an unmarked object may be
+    // live. Sweeping now would free it; give up instead (see `WorkStack`).
+    if work.exhausted {
+        return 0;
     }
 
     // ── Phase 3: sweep ───────────────────────────────────────────────────

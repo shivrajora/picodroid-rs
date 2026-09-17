@@ -638,6 +638,20 @@ impl ArrayHeap {
     /// for a tuple.
     pub fn compact_arena(&mut self, buf: &mut Vec<u64>) {
         buf.clear();
+        // Size the scratch buffer fallibly for the larger pass: a heap too
+        // full to hold it skips the compaction (the dead spans wait for a
+        // later cycle) rather than aborting inside the collector.
+        let (mut arena_live, mut arena8_live) = (0usize, 0usize);
+        for arr in self.arrays.iter().flatten() {
+            match arr.data {
+                ArrayData::Arena { .. } => arena_live += 1,
+                ArrayData::Arena8 { .. } => arena8_live += 1,
+                _ => {}
+            }
+        }
+        if buf.try_reserve(arena_live.max(arena8_live)).is_err() {
+            return;
+        }
         for (i, slot) in self.arrays.iter().enumerate() {
             if let Some(arr) = slot.as_ref() {
                 if let ArrayData::Arena { offset, len } = &arr.data {

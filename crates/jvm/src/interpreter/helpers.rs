@@ -193,6 +193,9 @@ pub(super) fn find_method(
     None
 }
 
+/// Number of parameters in `descriptor` — one per value, whatever its
+/// width: the operand stack holds one `Value` per parameter (a `long` is
+/// one 16 B entry, not two slots), so this is what an invoke pops.
 pub(super) fn count_args(descriptor: &str) -> usize {
     let inner = descriptor
         .strip_prefix('(')
@@ -210,8 +213,22 @@ pub(super) fn count_args(descriptor: &str) -> usize {
                 }
                 count += 1;
             }
-            '[' => {}
-            'J' | 'D' => count += 1,
+            '[' => {
+                // An array is one reference whatever its element type: skip
+                // the dimensions and the element descriptor.
+                let mut elem = chars.next();
+                while elem == Some('[') {
+                    elem = chars.next();
+                }
+                if elem == Some('L') {
+                    for c2 in chars.by_ref() {
+                        if c2 == ';' {
+                            break;
+                        }
+                    }
+                }
+                count += 1;
+            }
             _ => count += 1,
         }
     }
@@ -312,18 +329,47 @@ pub(super) fn branch_target(pc_after_offset: usize, offset: i16) -> usize {
 const ENUM_IMPLICIT_FIELDS: usize = 2;
 
 /// Computes the runtime field slot for a named field, walking from the root of the hierarchy down.
-/// Super-class fields come first (slot 0), then subclass fields.
+/// Super-class fields come first (slot 0), then subclass fields; a `long` or
+/// `double` field takes two slots, so the field after it starts one higher.
 /// Handles `java/lang/Enum` as a native superclass with 2 implicit fields (name, ordinal).
-/// Name-only resolution (declared class = runtime class); kept for the
-/// direct unit tests, unused in firmware builds where every call site
-/// carries the Fieldref's class.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) fn field_slot(
-    classes: &[ClassFile],
-    class_name: &str,
-    field_name: &str,
-) -> Option<usize> {
+/// Name-only resolution (declared class = runtime class); the interpreter
+/// itself resolves through [`field_slot_declared`] with the Fieldref's class.
+/// Public so the hand-numbered native field tables in `picodroid-core` can
+/// be checked against the class files they mirror.
+pub fn field_slot(classes: &[ClassFile], class_name: &str, field_name: &str) -> Option<usize> {
     field_slot_declared(classes, class_name, class_name, field_name)
+}
+
+/// Slots an instance of `class_name` occupies: the sum of its own and its
+/// superclasses' instance field widths — what `alloc_with_defaults` sizes
+/// and what a native `alloc_with_field_count` must pass. `None` for a class
+/// that is not loaded.
+pub fn instance_slot_count(classes: &[ClassFile], class_name: &str) -> Option<usize> {
+    let mut total = 0;
+    let mut current = class_name;
+    loop {
+        let Some(ci) = find_class(classes, current.as_bytes()) else {
+            if current == c::java_lang_Enum {
+                total += ENUM_IMPLICIT_FIELDS;
+            } else if core::ptr::eq(current, class_name) {
+                return None;
+            }
+            return Some(total);
+        };
+        let cf = &classes[ci];
+        total += cf
+            .fields()
+            .iter()
+            .map(|fi| {
+                cf.field_descriptor(fi)
+                    .map_or(1, Value::descriptor_slot_width)
+            })
+            .sum::<usize>();
+        match cf.super_class_name() {
+            Some(sup) => current = core::str::from_utf8(sup).ok()?,
+            None => return Some(total),
+        }
+    }
 }
 
 /// [`field_slot`], honouring the `Fieldref`'s declaring class: JVMS §5.4.3.2
@@ -411,7 +457,9 @@ fn field_slot_in(
             if this_declares && cf.field_name(fi)? == field_name.as_bytes() {
                 return Some(slot);
             }
-            slot += 1;
+            slot += cf
+                .field_descriptor(&cf.fields()[fi])
+                .map_or(1, Value::descriptor_slot_width);
         }
     }
     None

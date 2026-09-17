@@ -1033,8 +1033,8 @@ fn gc_stress_steady_state_flat() {
     // a steady-state workload — allocate a burst, retain one object, GC —
     // must keep the post-GC live-bytes floor flat. Warm up for 10 cycles,
     // then assert the remaining 90 never exceed the warmup floor by more
-    // than one fields-arena growth step (FIELDS_ARENA_CHUNK = 256 Values =
-    // 4096 B — the same threshold the runtime sentinel trips on).
+    // than the 4096 B the runtime sentinel trips on (two fields-arena growth
+    // steps: FIELDS_ARENA_CHUNK = 256 Slots = 2048 B).
     let mut objects = ObjectHeap::new();
     let mut arrays = ArrayHeap::new();
     let mut strings = StringTable::new();
@@ -1987,4 +1987,56 @@ fn collect_now_prunes_native_state_with_the_sweep_result() {
     assert_eq!(handler.seen, alloc::vec![(dead, false), (kept, true)]);
     assert!(!heap.objects.is_live(dead));
     assert!(heap.objects.is_live(kept));
+}
+
+// The collector runs on the fullest heap there is: its mark stack used to
+// grow with an infallible push and abort the firmware from inside the one
+// routine meant to relieve the pressure (reached once 8 B field slots let
+// enough boxes live under the qa_oom budget). A heap that cannot hold the
+// stack now makes the collection give up before the sweep.
+#[test]
+fn a_heap_too_full_for_the_mark_stack_makes_the_collection_give_up() {
+    use crate::test_alloc::with_budget;
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut strings = StringTable::new();
+    let statics = StaticFieldStore::new();
+    let mut gc = GcState::new();
+
+    let keeper = objects.alloc("Keeper").unwrap();
+    let garbage = objects.alloc("Garbage").unwrap();
+    let frame = Frame::new(0, 0, &[Value::ObjectRef(keeper)], 4, 4).unwrap();
+    let frames = [frame];
+
+    // No budget at all: the mark stack cannot take its first root.
+    let freed = with_budget(0, || {
+        collect(
+            &frames,
+            &mut objects,
+            &mut arrays,
+            &mut strings,
+            &statics,
+            &ClassObjectCache::new(),
+            &mut gc,
+            |_| {},
+        )
+    });
+    assert_eq!(freed, 0, "a collection that could not mark must not sweep");
+    assert!(objects.is_live(keeper));
+    assert!(objects.is_live(garbage), "unmarked is not unreachable");
+
+    // With room, the same collection frees the garbage and keeps the root.
+    let freed = collect(
+        &frames,
+        &mut objects,
+        &mut arrays,
+        &mut strings,
+        &statics,
+        &ClassObjectCache::new(),
+        &mut gc,
+        |_| {},
+    );
+    assert_eq!(freed, 1);
+    assert!(objects.is_live(keeper));
+    assert!(!objects.is_live(garbage));
 }

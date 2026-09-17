@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use alloc::vec::Vec;
 
-use crate::types::Value;
+use crate::types::{Slot, Value};
 
 use super::{reserve_fallible, Exhausted, ObjectHeap};
+
+/// The one-slot cell for a list element. Elements are always references —
+/// javac boxes a primitive before `add` — so a bare `long`/`double` is a
+/// caller bug, refused as [`Exhausted`] rather than stored torn.
+fn elem(v: Value) -> Result<Slot, Exhausted> {
+    Slot::from_narrow(v).ok_or(Exhausted)
+}
 
 impl ObjectHeap {
     // ── ArrayList / list_bufs ────────────────────────────────────────────────
@@ -39,12 +46,17 @@ impl ObjectHeap {
 
     /// Return the element at position `i`, or `None` if out of bounds.
     pub fn list_get(&self, idx: u16, i: usize) -> Option<Value> {
-        self.list_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
+        self.list_bufs
+            .get(idx as usize)?
+            .as_ref()?
+            .get(i)?
+            .to_value()
     }
 
     /// Append `v` to the end of the list. [`Exhausted`] when the buffer
     /// cannot grow; the list is unchanged then.
     pub fn list_add(&mut self, idx: u16, v: Value) -> Result<(), Exhausted> {
+        let v = elem(v)?;
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
             reserve_fallible(buf, 1)?;
             buf.push(v);
@@ -56,6 +68,7 @@ impl ObjectHeap {
     /// If `i >= len`, appends to the end. [`Exhausted`] when the buffer
     /// cannot grow; the list is unchanged then.
     pub fn list_insert(&mut self, idx: u16, i: usize, v: Value) -> Result<(), Exhausted> {
+        let v = elem(v)?;
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
             reserve_fallible(buf, 1)?;
             let pos = i.min(buf.len());
@@ -67,8 +80,9 @@ impl ObjectHeap {
     /// Replace the element at position `i` with `v`, returning the old value.
     /// Returns `None` if `i` is out of bounds.
     pub fn list_set(&mut self, idx: u16, i: usize, v: Value) -> Option<Value> {
+        let v = Slot::from_narrow(v)?;
         let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
-        let old = *buf.get(i)?;
+        let old = buf.get(i)?.to_value()?;
         buf[i] = v;
         Some(old)
     }
@@ -78,7 +92,7 @@ impl ObjectHeap {
     pub fn list_remove(&mut self, idx: u16, i: usize) -> Option<Value> {
         let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
         if i < buf.len() {
-            Some(buf.remove(i))
+            buf.remove(i).to_value()
         } else {
             None
         }
@@ -100,7 +114,7 @@ impl ObjectHeap {
         self.list_bufs
             .get(idx as usize)
             .and_then(|s| s.as_ref())
-            .map(|v| v.iter().copied())
+            .map(|v| v.iter().filter_map(|s| s.to_value()))
             .into_iter()
             .flatten()
     }

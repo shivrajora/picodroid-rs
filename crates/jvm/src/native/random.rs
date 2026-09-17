@@ -9,6 +9,14 @@ use crate::{
 use super::NativeContext;
 use crate::names::{c, m};
 
+/// Field slots of a `java/util/Random` instance (a builtin with no class
+/// file, so the layout is this module's convention). The seed is a `long`
+/// — two slots — and the cached gaussian, a `double` or `Null`, follows it.
+const SEED: usize = 0;
+const GAUSSIAN: usize = 2;
+/// Slots an instance needs: the gaussian's two, above the seed's.
+pub(crate) const FIELD_SLOTS: usize = GAUSSIAN + 2;
+
 /// Java's `Random` LCG: `seed = (seed * 0x5DEECE66D + 0xB) & ((1 << 48) - 1)`.
 const MULTIPLIER: i64 = 0x5DEECE66D;
 const ADDEND: i64 = 0xB;
@@ -34,7 +42,7 @@ fn scramble(seed: i64) -> i64 {
 }
 
 fn read_seed(ctx: &NativeContext<'_>, this: u16) -> Result<i64, JvmError> {
-    match ctx.objects.get_field(this, 0) {
+    match ctx.objects.get_field(this, SEED) {
         Some(Value::Long(s)) => Ok(s),
         _ => Err(JvmError::InvalidReference),
     }
@@ -42,7 +50,7 @@ fn read_seed(ctx: &NativeContext<'_>, this: u16) -> Result<i64, JvmError> {
 
 fn write_seed(ctx: &mut NativeContext<'_>, this: u16, seed: i64) -> Result<(), JvmError> {
     ctx.objects
-        .set_field(this, 0, Value::Long(seed))
+        .set_field(this, SEED, Value::Long(seed))
         .ok_or(JvmError::StackOverflow)
 }
 
@@ -53,7 +61,7 @@ fn step(seed: i64, bits: u32) -> (i64, i32) {
     (new_seed, n)
 }
 
-/// Advance the seed in field 0 once and return the top `bits` bits.
+/// Advance the seed once and return the top `bits` bits.
 fn next_bits(ctx: &mut NativeContext<'_>, this: u16, bits: u32) -> Result<i32, JvmError> {
     let s = read_seed(ctx, this)?;
     let (s2, n) = step(s, bits);
@@ -90,8 +98,8 @@ pub(crate) fn dispatch(
             if let Err(e) = write_seed(ctx, this, seed) {
                 return Some(Err(e));
             }
-            // Field 1 holds a cached gaussian (Value::Double) or Value::Null.
-            if ctx.objects.set_field(this, 1, Value::Null).is_none() {
+            // The gaussian slot holds a cached `Value::Double` or `Value::Null`.
+            if ctx.objects.set_field(this, GAUSSIAN, Value::Null).is_none() {
                 return Some(Err(JvmError::StackOverflow));
             }
             Some(Ok(None))
@@ -106,7 +114,7 @@ pub(crate) fn dispatch(
                     if let Err(e) = write_seed(ctx, this, scramble(s)) {
                         return Some(Err(e));
                     }
-                    if ctx.objects.set_field(this, 1, Value::Null).is_none() {
+                    if ctx.objects.set_field(this, GAUSSIAN, Value::Null).is_none() {
                         return Some(Err(JvmError::StackOverflow));
                     }
                     Some(Ok(None))
@@ -221,8 +229,8 @@ pub(crate) fn dispatch(
                 Err(e) => return Some(Err(e)),
             };
             // If a value was cached on the previous call, return it and clear.
-            if let Some(Value::Double(d)) = ctx.objects.get_field(this, 1) {
-                ctx.objects.set_field(this, 1, Value::Null);
+            if let Some(Value::Double(d)) = ctx.objects.get_field(this, GAUSSIAN) {
+                ctx.objects.set_field(this, GAUSSIAN, Value::Null);
                 return Some(Ok(Some(Value::Double(d))));
             }
             // Marsaglia polar method (matches the JDK implementation).
@@ -245,7 +253,7 @@ pub(crate) fn dispatch(
                 // Cache v2 * multiplier; return v1 * multiplier.
                 if ctx
                     .objects
-                    .set_field(this, 1, Value::Double(v2 * multiplier))
+                    .set_field(this, GAUSSIAN, Value::Double(v2 * multiplier))
                     .is_none()
                 {
                     return Some(Err(JvmError::StackOverflow));

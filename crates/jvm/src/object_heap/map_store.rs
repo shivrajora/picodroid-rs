@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use alloc::vec::Vec;
 
-use crate::{heap::StringTable, types::Value};
+use crate::{
+    heap::StringTable,
+    types::{Slot, Value},
+};
 
 use super::{reserve_fallible, Exhausted, ObjectHeap};
+
+/// The one-slot cell for a map key or value. Both are always references
+/// (or the `Int(1)` marker a `HashSet` stores) — a bare `long`/`double` is a
+/// caller bug, refused as [`Exhausted`] rather than stored torn.
+fn elem(v: Value) -> Result<Slot, Exhausted> {
+    Slot::from_narrow(v).ok_or(Exhausted)
+}
+
+/// A stored entry back as values.
+fn entry_values(e: &(Slot, Slot)) -> Option<(Value, Value)> {
+    Some((e.0.to_value()?, e.1.to_value()?))
+}
 
 impl ObjectHeap {
     // ── HashMap / map_bufs ──────────────────────────────────────────────────
@@ -43,7 +58,9 @@ impl ObjectHeap {
     fn map_find_key(&self, idx: u16, key: Value, strings: &StringTable) -> Option<usize> {
         let buf = self.map_bufs.get(idx as usize)?.as_ref()?;
         for (i, (k, _)) in buf.iter().enumerate() {
-            if map_values_eq(*k, key, self, strings) {
+            if k.to_value()
+                .is_some_and(|k| map_values_eq(k, key, self, strings))
+            {
                 return Some(i);
             }
         }
@@ -59,15 +76,18 @@ impl ObjectHeap {
         value: Value,
         strings: &StringTable,
     ) -> Result<Option<Value>, Exhausted> {
+        let (key, value) = (elem(key)?, elem(value)?);
         // Must do the lookup before borrowing mutably.
-        let pos = self.map_find_key(idx, key, strings);
+        let pos = key
+            .to_value()
+            .and_then(|k| self.map_find_key(idx, k, strings));
         let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) else {
             return Ok(None);
         };
         if let Some(pos) = pos {
-            let old = buf[pos].1;
+            let old = buf[pos].1.to_value();
             buf[pos].1 = value;
-            Ok(Some(old))
+            Ok(old)
         } else {
             reserve_fallible(buf, 1)?;
             buf.push((key, value));
@@ -77,20 +97,22 @@ impl ObjectHeap {
 
     /// The `i`-th entry in iteration order.
     pub fn map_entry_at(&self, idx: u16, i: usize) -> Option<(Value, Value)> {
-        self.map_bufs.get(idx as usize)?.as_ref()?.get(i).copied()
+        entry_values(self.map_bufs.get(idx as usize)?.as_ref()?.get(i)?)
     }
 
     /// Replace the value of the `i`-th entry, returning the old one.
     pub fn map_set_value_at(&mut self, idx: u16, i: usize, value: Value) -> Option<Value> {
+        let value = Slot::from_narrow(value)?;
         let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
         let entry = buf.get_mut(i)?;
-        let old = entry.1;
+        let old = entry.1.to_value();
         entry.1 = value;
-        Some(old)
+        old
     }
 
     /// Append an entry the caller has already proved absent.
     pub fn map_push(&mut self, idx: u16, key: Value, value: Value) -> Result<(), Exhausted> {
+        let (key, value) = (elem(key)?, elem(value)?);
         if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
             reserve_fallible(buf, 1)?;
             buf.push((key, value));
@@ -102,14 +124,14 @@ impl ObjectHeap {
     pub fn map_get(&self, idx: u16, key: Value, strings: &StringTable) -> Option<Value> {
         let pos = self.map_find_key(idx, key, strings)?;
         let buf = self.map_bufs.get(idx as usize)?.as_ref()?;
-        Some(buf[pos].1)
+        buf[pos].1.to_value()
     }
 
     /// Remove the entry for `key`. Returns the removed value, or `None`.
     pub fn map_remove(&mut self, idx: u16, key: Value, strings: &StringTable) -> Option<Value> {
         let pos = self.map_find_key(idx, key, strings)?;
         let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
-        Some(buf.remove(pos).1)
+        buf.remove(pos).1.to_value()
     }
 
     /// Returns `true` if the map contains `key`.
@@ -123,7 +145,9 @@ impl ObjectHeap {
             return false;
         };
         for (_, v) in buf {
-            if map_values_eq(*v, value, self, strings) {
+            if v.to_value()
+                .is_some_and(|v| map_values_eq(v, value, self, strings))
+            {
                 return true;
             }
         }
@@ -158,7 +182,7 @@ impl ObjectHeap {
         self.map_bufs
             .get(idx as usize)
             .and_then(|s| s.as_ref())
-            .map(|v| v.iter().copied())
+            .map(|v| v.iter().filter_map(entry_values))
             .into_iter()
             .flatten()
     }
