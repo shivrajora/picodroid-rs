@@ -177,16 +177,14 @@ compatible.
 cyw43-driver
 ================================================================================
 Location:    third_party/cyw43-driver/
-License:     dual: third_party/cyw43-driver/LICENSE OR third_party/cyw43-driver/LICENSE.RP
-Copyright:   2019-2022 George Robotics Pty Ltd
+License:     MIT (third_party/cyw43-driver/LICENSE)
+Copyright:   2019-2026 George Robotics Pty Ltd
 
-Used here under the alternate LICENSE.RP terms (the "Raspberry Pi silicon"
-clause), which permits redistribution in source and binary form when used
-with RP2040, RP2350, or other Raspberry Pi Ltd semiconductor devices. This
-project targets RP2040 and RP2350 exclusively, so LICENSE.RP applies and
-permits commercial redistribution. The alternate LICENSE (with the
-"personal benefit only" restriction) is NOT used and does NOT bind this
-project.
+Used under the MIT License, which upstream adopted in v2.0.0 in place of
+the earlier dual LICENSE / LICENSE.RP ("Raspberry Pi silicon") terms.
+Picodroid's fork (shivrajora/cyw43-driver, branch `picodroid`) carries
+gSPI bring-up fixes on top of upstream under the same license. MIT is
+GPL-3.0 compatible.
 
 ================================================================================
 serialport (v4.9.0) - pdb tool only

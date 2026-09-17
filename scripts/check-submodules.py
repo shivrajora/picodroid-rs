@@ -51,8 +51,18 @@ def load_credentials():
     return user, password
 
 
+_GITHUB_URL_RE = re.compile(r"https://github\.com/([^/]+)/([^/.]+)(?:\.git)?/?$")
+
+
 def parse_gitmodules():
-    """Return list of (name, path, owner, repo) for each submodule."""
+    """Return list of (name, path, owner, repo) for each submodule.
+
+    (owner, repo) names the repo whose releases the pin is judged against:
+    the `upstream` key when the submodule has one, else `url`. A fork (our
+    cyw43-driver and FreeRTOS-Plus-TCP) sets `upstream` to the project it
+    forks, because comparing a fork against its own releases always reads
+    "ok" and hides exactly the lag this check exists to report.
+    """
     parser = configparser.ConfigParser()
     parser.read(GITMODULES)
 
@@ -64,8 +74,8 @@ def parse_gitmodules():
             continue
         name = m.group(1)
         path = parser[section].get("path", name)
-        url = parser[section].get("url", "")
-        gh = re.match(r"https://github\.com/([^/]+)/([^/.]+)(?:\.git)?/?$", url)
+        url = parser[section].get("upstream") or parser[section].get("url", "")
+        gh = _GITHUB_URL_RE.match(url)
         if not gh:
             log(f"  skip {name}: not a github URL ({url})")
             continue
@@ -167,7 +177,7 @@ def build_html(rows, all_count):
     else:
         body.write(f"<h2 style='color:#080'>All {all_count} submodules up to date</h2>")
     body.write('<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">')
-    body.write("<tr><th>Submodule</th><th>Pinned</th><th>Latest upstream</th><th>Status</th></tr>")
+    body.write("<tr><th>Submodule</th><th>Pinned</th><th>Upstream</th><th>Latest upstream</th><th>Status</th></tr>")
     for r in rows:
         if r["behind"]:
             color = "#fee"
@@ -179,6 +189,7 @@ def build_html(rows, all_count):
             f'<tr style="background:{color}">'
             f'<td>{r["name"]}</td>'
             f'<td>{r["pinned"] or "?"}</td>'
+            f'<td>{r["upstream"]}</td>'
             f'<td>{r["latest"] or "?"}</td>'
             f'<td>{r["status"]}</td></tr>'
         )
@@ -239,8 +250,8 @@ def main():
             status = "uncomparable"
         else:
             status = "ok"
-        log(f"  {name}: pinned={pinned} latest={latest} {status}")
-        rows.append({"name": name, "pinned": pinned, "latest": latest, "behind": behind, "status": status})
+        log(f"  {name}: pinned={pinned} latest={latest} ({owner}/{repo}) {status}")
+        rows.append({"name": name, "upstream": f"{owner}/{repo}", "pinned": pinned, "latest": latest, "behind": behind, "status": status})
 
     behind_count = sum(1 for r in rows if r["behind"])
     if behind_count == 0 and not args.always_email:

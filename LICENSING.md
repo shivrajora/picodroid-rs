@@ -59,8 +59,7 @@ Contact `rajora.shiv@gmail.com` to discuss terms.
 picodroid bundles several third-party libraries (FreeRTOS-Kernel, LVGL,
 LZ4, littlefs-rust, cyw43-driver, the rp-hal stack, and various Rust
 crates). All of them are under permissive or compatible licenses (MIT,
-BSD-2-Clause, BSD-3-Clause, MPL-2.0, Apache-2.0, or the Raspberry Pi
-clause of cyw43-driver). See [NOTICE](NOTICE) for the full list and the
+BSD-2-Clause, BSD-3-Clause, MPL-2.0, or Apache-2.0). See [NOTICE](NOTICE) for the full list and the
 specific terms that apply to each. The dual-license arrangement above
 covers only picodroid's own code; you must still comply with the
 upstream terms of any third-party component you distribute.
