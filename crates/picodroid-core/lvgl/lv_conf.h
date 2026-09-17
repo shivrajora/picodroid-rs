@@ -1,6 +1,6 @@
 /**
  * LVGL configuration for picodroid.
- * Based on lv_conf_template.h for LVGL v9.2.2.
+ * Based on lv_conf_template.h for LVGL v9.2.2, tracked forward to v9.6.0.
  *
  * Board-specific values (LV_DPI_DEF, LV_MEM_SIZE) may be overridden
  * by -D flags injected from build.rs; #ifndef guards preserve defaults.
@@ -12,8 +12,27 @@
 /*====================
    COLOR SETTINGS
  *====================*/
-#define LV_COLOR_DEPTH 16  /* RGB565 */
-#define LV_COLOR_16_SWAP 1 /* Byte-swap for big-endian SPI displays (ST7789) */
+/* v9.6.0 replaced LV_COLOR_DEPTH with LV_COLOR_FORMAT_DEFAULT, which names the
+ * format instead of counting its bits (a "16" was ambiguous between RGB565 and
+ * RGB565_SWAPPED). LV_COLOR_DEPTH is now derived from it and still readable. */
+#define LV_COLOR_FORMAT_DEFAULT LV_COLOR_FORMAT_RGB565
+
+/* Byte-swap for big-endian SPI displays (ST7789). Deprecated in v9.6.0 in
+ * favour of rendering natively into LV_COLOR_FORMAT_RGB565_SWAPPED, which
+ * would drop the full-buffer swap lv_refr.c does before every flush_cb — a
+ * real win for the scroll path, but it changes what the panel drivers and the
+ * hw_vscroll / PSRAM buffers are handed, so it wants its own change and its
+ * own HIL run. Kept on the v8 path for now; it still works in v9.6 and is
+ * removed in v10.0. LV_COLOR_16_SWAP_DISABLE_WARNING silences the #warning
+ * lv_refr.c raises on every build until then. */
+#define LV_COLOR_16_SWAP 1
+#define LV_COLOR_16_SWAP_DISABLE_WARNING 1
+
+/* v9.6.0 links the RGB565_SWAPPED blenders whenever LV_USE_DRAW_SW is set and
+ * Kconfig is absent — which is us. Nothing reaches them while the swap happens
+ * in lv_refr.c, so pin them off rather than pay for them, same reasoning as
+ * LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED below. */
+#define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED 0
 
 /*=========================
    STDLIB WRAPPER SETTINGS
@@ -121,7 +140,10 @@
 
 /* Disable GPU backends */
 #define LV_USE_DRAW_VGLITE    0
-#define LV_USE_PXP            0
+/* v9.6.0 turned LV_USE_PXP into a deprecated no-op — LV_USE_DRAW_PXP is what
+ * actually gates the backend. */
+#define LV_USE_DRAW_PXP       0
+#define LV_USE_DRAW_G2D       0
 #define LV_USE_DRAW_DAVE2D    0
 #define LV_USE_DRAW_SDL       0
 #define LV_USE_DRAW_VG_LITE   0
@@ -133,14 +155,34 @@
 /* Logging — disabled to save code size */
 #define LV_USE_LOG 0
 
-/* Asserts — keep null/malloc checks, disable expensive ones */
+/* Asserts — keep null/malloc checks, disable expensive ones.
+ *
+ * v9.6.0 added LV_USE_ASSERT as a master switch, defaulting to 0. It gates
+ * only the generic LV_ASSERT / LV_ASSERT_MSG that LVGL sprinkles through its
+ * own code; LV_ASSERT_NULL and LV_ASSERT_MALLOC expand through
+ * LV_ASSERT_INTERNAL, which is not gated, so the two checks we actually want
+ * survive it. Left at the new default, stated here so it is a decision
+ * rather than an accident. */
+#define LV_USE_ASSERT               0
 #define LV_USE_ASSERT_NULL          1
 #define LV_USE_ASSERT_MALLOC        1
 #define LV_USE_ASSERT_STYLE         0
 #define LV_USE_ASSERT_MEM_INTEGRITY 0
 #define LV_USE_ASSERT_OBJ           0
 
-#define LV_ASSERT_HANDLER_INCLUDE <stdint.h>
+/* v9.6.0 replaced LV_ASSERT_OBJ with the LV_CHECK_ARG family. Without Kconfig
+ * LV_USE_CHECK_ARG defaults to 1, which puts a NULL check at the head of every
+ * public LVGL call; the class and validity layers on top of it walk the widget
+ * tree. LV_USE_ASSERT_OBJ was 0 here, so this is new work nothing asked for —
+ * off, to keep the size ratchet and the paint path where they were. */
+#define LV_USE_CHECK_ARG            0
+#define LV_USE_CHECK_OBJ_CLASSTYPE  0
+#define LV_USE_CHECK_OBJ_VALIDITY   0
+
+/* v9.6.0 renamed LV_ASSERT_HANDLER_INCLUDE; the old name warns and is removed
+ * in v10.0. The handler macro itself still belongs in lv_conf.h. */
+#define LV_ASSERT_USE_CUSTOM_INCLUDE 1
+#define LV_ASSERT_CUSTOM_INCLUDE <stdint.h>
 #define LV_ASSERT_HANDLER while(1);
 
 /* Debug overlays off */
@@ -314,10 +356,9 @@
 #define LV_USE_TINY_TTF  0
 #define LV_USE_RLOTTIE   0
 #define LV_USE_FFMPEG    0
-#define LV_USE_THORVG_INTERNAL 0
-#define LV_USE_THORVG_EXTERNAL 0
-#define LV_USE_LZ4_INTERNAL  0
-#define LV_USE_LZ4_EXTERNAL  0
+/* v9.6.0 dropped the _INTERNAL / _EXTERNAL split on both of these. */
+#define LV_USE_THORVG        0
+#define LV_USE_LZ4           0
 
 /*==================
  * DEVICES
